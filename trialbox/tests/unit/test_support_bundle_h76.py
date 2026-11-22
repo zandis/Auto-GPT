@@ -385,3 +385,21 @@ def test_speed_the_new_rules_are_linear_on_a_long_line(kind: str) -> None:
     s.text("start " + LONG_76[kind] + " end\n")
     took = time.monotonic() - start
     assert took < 20.0, f"{kind}: {took:.1f} s"
+
+
+# ------------------------------------------------------------------------------------------------ second guards
+def test_the_raw_rule_masks_a_pseudonym_under_any_percent_layer_without_the_decoded_view() -> None:
+    """The decoded view is the first guard; the raw rule masks the same pseudonym on its own (a line the view cannot
+    decode, a member written in place). The mutation pass found no test that held this second guard."""
+    pid = _pid(_rng("raw layers"))
+    for prefix in ("%2F", "%252F", "%25252F", "%2525252525252F", "&#47", "&#x2f;", "=C2=B0", "\\x2f", "\\\\u002F"):
+        out = bs.Scrubber().pseudonyms(f"back={prefix}{pid}%22")
+        assert pid not in out, prefix
+
+
+def test_a_mark_already_in_place_is_not_taken_for_a_leak() -> None:
+    """A decoded view keeps the line's own form when the raw rules masked everything: a ``[...]`` mark that both
+    hold is not a leak (else every scrubbed line would be rewritten on the next pass)."""
+    assert not bs._leaks("[redacted]", "next=/login?access_token=[redacted]&x=1")
+    assert not bs._leaks("[pseudonym #bcdfg]", "/p/[pseudonym #bcdfg]/notes")
+    assert bs._leaks("[redacted]q1w2e3r4t5&x=1", "token=q1w2e3r4t5")

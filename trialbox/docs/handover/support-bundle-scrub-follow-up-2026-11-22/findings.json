@@ -1,0 +1,104 @@
+{
+ "card": "H76",
+ "title": "the support bundle's scrub, follow-up: the flake, encodings, base64, the read cut",
+ "date": "2026-11-22",
+ "source": "docs/handover/support-bundle-scrub-follow-up-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H76-01",
+   "severity": "Medium",
+   "claim": "the invariant test of the support bundle failed on master about once in 60 runs: on a raw line %2F joined its hex digit to a pseudonym, the log scrubber's phone pattern took digits from its middle, and the decoded view, run after, saw only fragments; 8 to 13 hex digits of the pseudonym left; fixed: the decoded view first, the old pass counted only, and the tests drawn from a seed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed a25a5c181c205ec10b8ce46efd4c1a767c3ec3c2"
+  },
+  {
+   "id": "H76-02",
+   "severity": "Low",
+   "claim": "a secret encoded twice was cut at a separator the decoding made inside it (&, space, quote, comma, semicolon) and its tail left (second read of #1314, Low 1); fixed: in a decoded view a secret pair's value runs to the end of the line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-03",
+   "severity": "Low",
+   "claim": "five or more percent layers, an HTML entity without ;, and quoted-printable without =3D were not decoded, and a pseudonym after them left (second read, Low 2); fixed: 16 layers, entities with or without ;, quoted-printable with two =XX, and a pseudonym after any encoding's hex digits",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-04",
+   "severity": "Low",
+   "claim": "a pseudonym or a secret split by a quoted-printable soft break, an encoded zero-width space or a soft hyphen stayed in two halves (second read, Low 2); fixed: soft breaks joined, invisible characters out of the view",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-05",
+   "severity": "Low",
+   "claim": "compose's command lists (- --password then - X, [\"--password\", \"X\"]), --password -X, a value at the same indent as its key, prefixed YAML lines and a quote inside userinfo left (second read, Low 3); fixed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-06",
+   "severity": "Low",
+   "claim": "screening numbers Scr.0042, S.0042, a prefix in another script glued to the digits and RA 01 0042 left (second read, Low 3); fixed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-07",
+   "severity": "Low",
+   "claim": "a side writer that runs tar in a subprocess was caught only by the file-count test (second read, Low 4); fixed: no program is started but the reviewed run_cmd",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-08",
+   "severity": "Low",
+   "claim": "a box secret encoded twice with no name next to it reached the archive and the last look did not see it (second read, Low 5; from before H-71); fixed: the box's values in three percent layers, HTML and base64",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-09",
+   "severity": "Medium",
+   "claim": "a pseudonym inside base64 (JSON or text, either alphabet, padded or not, nested once) left: the decoder undid percent, HTML, escapes and =3D, not base64 (plan review of 09:52); fixed: base64 runs that decode to text are scrubbed and written back",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-10",
+   "severity": "Medium",
+   "claim": "a collected log is read up to 64 MiB before the scrub; a token cut by that read kept 9 to 31 hex digits at the end of the kept part (plan review of 09:52); fixed: a cut log's partial last line is dropped and the manifest says so",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-11",
+   "severity": "Low",
+   "claim": "no test read a built bundle for every encoding class; fixed: a fuzz test, 6 classes x 150 cases from a fixed seed, through support_bundle.build",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed b3239845e4519f657e863fda74d2133d9b8d901f"
+  },
+  {
+   "id": "H76-12",
+   "severity": "Low",
+   "claim": "bundles take longer: a 15 MB log of encoded URLs 48.5 s on master, 74 s now (the writer's check 15.0 s and 18.6 s); a worst-case 1 MB line at most 2.6 s",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
