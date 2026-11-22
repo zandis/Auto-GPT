@@ -139,6 +139,17 @@ def test_a_mount_prefix_does_not_widen_the_compilers_routes(tmp_path: Path, monk
     c = TestClient(app.app, root_path="/lake")
     r = c.post("/lake/promote", json={"snapshot": "2026-01-05"}, headers=_h(_tok("criteria-compiler")))
     assert (r.status_code, fake.calls) == (403, [])
+    assert c.post("/lake/query", json={}, headers=_h(_tok("criteria-compiler"))).status_code != 403  # its own route
+
+
+@pytest.mark.parametrize("path", ["/query/x", "/queryx", "/chunks/search/x", "/chunks/searchx", "/chunks"])
+def test_a_path_that_only_starts_like_a_reader_route_is_refused_to_the_compiler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """The reader routes are matched whole: a route added later under ``/query/`` is not the compiler's by its name."""
+    app, fake = _box(tmp_path, monkeypatch)
+    r = TestClient(app.app).post(path, json={}, headers=_h(_tok("criteria-compiler")))
+    assert (r.status_code, fake.calls) == (403, [])
 
 
 def test_the_old_shared_token_does_not_promote_beside_a_registry(
@@ -174,7 +185,7 @@ def test_the_orchestrator_the_adapter_and_the_operator_keep_promote_and_the_hold
 
 def test_the_compiler_keeps_its_reads_and_its_searches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The gate refuses no route the compiler uses: its equivalence gate's ``POST /query``, and the reads."""
-    app, fake = _box(tmp_path, monkeypatch)
+    app, _fake = _box(tmp_path, monkeypatch)
     c = TestClient(app.app)
     h = _h(_tok("criteria-compiler"))
     assert c.get("/holds", headers=h).status_code == 200
