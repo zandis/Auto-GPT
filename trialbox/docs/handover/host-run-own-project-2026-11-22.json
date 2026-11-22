@@ -1,0 +1,52 @@
+{
+ "card": "H75",
+ "title": "the 48 GB host run's own compose project and image tag",
+ "date": "2026-11-22",
+ "source": "docs/handover/host-run-own-project-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H75-01",
+   "severity": "Medium",
+   "claim": "ten tests of tests/unit/test_measure48_host_h67.py assert the box's fixed names (trialbox-net, trialbox_db, trialbox-llm-service-1, trialbox-py:1.0.0 made and kept) and H-72's refusal of any trialbox-* image; with the run's own project and tag they fail",
+   "severity_basis": "the card's change is what the order asks; the assertions cannot hold under it, and changing what a test asserts needs the integrator's ruling, so the branch is red on those ten until the ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a question to the integrator: the rig's stand-in follows TB_COMPOSE_PROJECT and the tags, the asserted names become the run's own, H-72's refusal cases become the run's own names' refusals (as tests/unit/test_measure48_host_own_names_h75.py does)",
+   "from": "the integrator's card H-75, 2026-11-22"
+  },
+  {
+   "id": "H75-02",
+   "severity": "Medium",
+   "claim": "the stub (s05) publishes host ports on 127.0.0.1 (the console 8090, the mail sink 8025 and eleven more TB_HOST_*_PORT); on a host with an installed box one of them may be the box's, and the stub's start would fail after the preflight passed",
+   "severity_basis": "a run beside a box would end at s05; not reached on a real host",
+   "lane": "H",
+   "basis": "read",
+   "state": "fixed ae48017b26ea7b0ada0332ac4faaa29a4c075ff7",
+   "fix": "the preflight probes each TB_HOST_*_PORT of the checkout's compose files (default or as set) and refuses a taken one, named with its variable; the bench sets the variable to a free port",
+   "from": "the integrator's card H-75, 2026-11-22"
+  },
+  {
+   "id": "H75-03",
+   "severity": "Low",
+   "claim": "on master deploy/poc.sh ran make images whenever the host had Maven, curl and fontTools, also when TB_IMAGE or TB_JVM_IMAGE named other images: make images tags trialbox-py:1.0.0, trialbox-jvm:1.0.0, trialbox-embed:1.0.0, trialbox-backup:1.0.0 and the database image, the box's names, and not the names asked",
+   "severity_basis": "only with those variables set; a run under its own tag would have built over an installed box's images",
+   "lane": "H",
+   "basis": "read",
+   "state": "fixed ae48017b26ea7b0ada0332ac4faaa29a4c075ff7",
+   "fix": "other names build by poc.sh's own docker build path on BASE_IMAGE; the box's names keep make images; the Makefile is unchanged",
+   "from": "the integrator's card H-75, 2026-11-22"
+  },
+  {
+   "id": "H75-04",
+   "severity": "Low",
+   "claim": "COMPOSE_PROJECT_NAME in a user's environment overrides deploy/docker-compose.yml's name: but not the networks' names, which follow TB_COMPOSE_PROJECT: the run's containers would carry one project and its networks another",
+   "severity_basis": "only when that variable is set on the host; the preflight's and the end's object lists would miss the containers",
+   "lane": "H",
+   "basis": "read",
+   "state": "fixed ae48017b26ea7b0ada0332ac4faaa29a4c075ff7",
+   "fix": "tools/measure48-host.sh unsets COMPOSE_PROJECT_NAME after it sets TB_COMPOSE_PROJECT",
+   "from": "the integrator's card H-75, 2026-11-22"
+  }
+ ]
+}
