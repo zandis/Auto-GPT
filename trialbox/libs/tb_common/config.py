@@ -949,7 +949,7 @@ DECLARED: dict[str, Declared] = {
     "TB_REHEARSAL_REAL_SERVERS": Declared(
         "str",
         "",
-        "install.sh --rehearsal-real-servers: the real model servers on a rehearsal box; the banner says so (D-1087)",
+        "install.sh --rehearsal-real-servers: real model servers on a rehearsal box (D-1087)",
     ),
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
