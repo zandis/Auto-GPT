@@ -39,6 +39,7 @@ import html
 import itertools
 import re
 import secrets
+import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -148,6 +149,7 @@ def _words(name: str) -> list[str]:
     return [w.lower() for w in re.split(r"[^A-Za-z0-9]+", spaced) if w]
 
 
+@lru_cache(maxsize=4096)
 def secret_words(name: str) -> bool:
     words = _words(name)
     singles = {w[:-1] if w.endswith("s") and w[:-1] in SECRET_WORDS else w for w in words}
@@ -225,20 +227,26 @@ CLI_USER = re.compile(r"(?<![\w\-])(?P<key>-u|--user|--proxy-user|-U)(?P<sep>[ \
 XML = re.compile(r"<(?P<key>[A-Za-z_][\w.\-:]{0,80})(?P<attrs>\s[^<>]{0,512})?>(?P<val>[^<]{1,4096})</(?P=key)\s*>")
 #: what an encoding makes of a character: ``%2F``, ``%252F``, ``\u002F``, ``\x2F``, ``&#x2F;``, ``&quot;``, ``=3D``
 ENCODED = re.compile(
-    "%[0-9A-Fa-f]{2}|\\\\+[uxU][0-9A-Fa-f]{2}|&#?[A-Za-z0-9]{1,8};|&#[xX]?[0-9A-Fa-f]{1,6}|=[0-9A-F]{2}"
+    "%u[0-9A-Fa-f]{4}|\\\\[0-3][0-7]{2}|[\uff10-\uff19\uff20-\uff3a\uff41-\uff5a]|%[0-9A-Fa-f]{2}|\\\\+[uxU][0-9A-Fa-f]{2}|&#?[A-Za-z0-9]{1,8};"
+    "|&#[xX]?[0-9A-Fa-f]{1,6}|=[0-9A-F]{2}=[0-9A-F]{2}|=3D|[A-Za-z0-9]=40[A-Za-z0-9]"
     "|[\u200b-\u200d\u2060\ufeff\u00ad]"
 )
 #: H76-04: characters a reader does not see, which split a token in two for every rule
+_FULL_WIDTH = re.compile("[\uff10-\uff19\uff20-\uff3a\uff41-\uff5a]")
 INVISIBLE = re.compile("[\u200b-\u200d\u2060\ufeff\u00ad]")
 #: H76-03: a pseudonym straight after what an encoding leaves of a character, whatever the layers: ``%2F``,
 #: ``%25252F``, ``=B0`` (quoted-printable), ``&#47``/``&#x2f`` with or without ``;``, ``\\x2f``, ``\\u002f``. The
 #: encoding's hex digits join the pseudonym's, so the plain rule (no hex digit beside it) cannot see it.
 ENC_PID = (
     r"(?:%(?:25){0,16}[0-9A-Fa-f]{2}|=[0-9A-F]{2}|&#[0-9]{2,3};?|&#[xX][0-9A-Fa-f]{2};?"
-    r"|\\+x[0-9A-Fa-f]{2}|\\+u[0-9A-Fa-f]{4}|\\+U[0-9A-Fa-f]{8})"
+    r"|\\+x[0-9A-Fa-f]{2}|\\+u[0-9A-Fa-f]{4}|\\+U[0-9A-Fa-f]{8}|%u[0-9A-Fa-f]{4}|\\+[0-3][0-7]{2})"
 )
 _BACKSLASH = re.compile(r"\\+(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|U([0-9A-Fa-f]{8}))")
 _QP = re.compile(r"=([0-9A-F]{2})")
+#: the review of #1354's list: ``%u002F`` (an old JavaScript escape) and a C octal escape (``\\057``)
+_PCT_U = re.compile(r"%u([0-9A-Fa-f]{4})")
+_OCTAL = re.compile(r"\\([0-3][0-7]{2})")
+_QP_AT = re.compile(r"(?<=[A-Za-z0-9._%+\-])=40(?=[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,7}\.[A-Za-z]{2,24}\b)")
 #: H76-09: a run that may be base64 (either alphabet, with or without padding); bounded so that one pass is linear
 B64_RUN = re.compile(r"(?<![A-Za-z0-9+/_\-])[A-Za-z0-9+/_\-]{24,4194304}={0,2}")
 #: a PEM block's END line whose BEGIN is not in the text (a cut, a rotated log): the base64 lines before it go too
@@ -275,6 +283,83 @@ COMMENT = re.compile(r"^\s*(?:#+|//|;|>|[\w.\-]{1,64}[ \t]*\|)")
 SINGLE = re.compile(r"[ \t]*[^\s:]+[ \t]*")
 MAPPING_KEY = re.compile(r"^\s*-?\s*[A-Za-z_\"'][\w.\-\"' ]{0,80}:(?:\s|$)")
 YAML_BLOCK = re.compile(r"^[|>][+\-]?\d*\s*(?:#.*)?$")
+
+#: H-76 round B: an e-mail address, masked as ``[email]``. Left alone (each tested): a package and its version
+#: (``lodash@4.17.21``: no top-level name), an scp-style git address (``git@github.com:org/repo``: ``:`` and a path
+#: after the host), an image digest (``name@sha256:...``: no dot), a user at a host with no top-level name
+#: (``root@box01``), and a DSN's userinfo (already a secret's form).
+EMAIL = re.compile(
+    r"(?<![\w.+%\-@])[A-Za-z0-9][A-Za-z0-9._%+\-]{0,63}@(?:[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?\.){1,8}"
+    r"[A-Za-z]{2,24}(?![\w\-@]|:[\w/~])"
+)
+#: H-76 round B: the labels of a person's identifiers in the box's three languages; the VALUE after them is masked
+LABELS_CJK = {
+    "患者氏名": "name", "病患姓名": "name", "病人姓名": "name", "患者姓名": "name", "患者名": "name", "氏名": "name",
+    "名前": "name", "姓名": "name", "出生年月日": "birth date", "出生日期": "birth date", "生年月日": "birth date",
+    "誕生日": "birth date", "出生": "birth date", "生日": "birth date", "聯絡地址": "address", "通訊地址": "address",
+    "住所": "address", "地址": "address", "住址": "address",
+}  # fmt: skip
+#: round B: a date-shaped value within a few characters after a word of birth, in prose (``born 1990-01-02``,
+#: ``DOB 02/01/1990``, ``生年月日 1990年1月2日``); a date with no such word before it stays (a log is full of dates)
+_DATE = (
+    r"(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日"
+    r"|\d{1,2}\s+[A-Z][a-z]{2,8}\.?\s+\d{4}|[A-Z][a-z]{2,8}\.?\s+\d{1,2},?\s+\d{4})"
+)
+BORN_DATE = re.compile(
+    rf"(?i)(?P<word>\b(?:born|birth|birthday|dob|d\.o\.b\.?)\b|生年月日|出生日期|出生|生日|誕生日)(?P<gap>[^\n\d]{{0,16}}?)"
+    rf"(?P<val>{_DATE})"
+)
+_LABEL_SEP = r"(?P<sep>[ \t]*(?::|\uff1a|=>|=)[ \t]*)"
+LABEL_LATIN = re.compile(rf"(?<![\w.\-])(?P<q>[\"']?)(?P<key>[A-Za-z_][A-Za-z0-9_.\-]{{0,60}})(?P=q){_LABEL_SEP}")
+LABEL_CJK = re.compile(
+    rf"(?P<q>[\"']?)(?P<key>{'|'.join(sorted(LABELS_CJK, key=len, reverse=True))})(?P=q){_LABEL_SEP}"
+)
+#: the value after a label: quoted; after ``=``, up to the next ``name=`` or a separator; after ``:``, to the line's end
+_LABEL_QUOTED = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")
+_LABEL_EQ = re.compile(r"[^\s\"'<>{}\[\],;&](?:(?!\s+[A-Za-z_][\w.\-]*=)[^\n\"'<>{}\[\];&])*")
+_LABEL_COLON = re.compile(r"[^\s\"'<>{}\[\],;&][^\n\"'<>{}\[\];&]*")
+_NAME_WITH = frozenset({"first", "last", "full", "given", "family", "patient", "pt", "middle", "maiden", "kana",
+                        "kanji", "legal", "display", "person"})  # fmt: skip
+_NOT_A_HOME = frozenset({"ip", "mac", "email", "mail", "bind", "listen", "remote", "server", "host", "proxy", "gateway",
+                         "local", "public", "private", "peer", "node", "pod", "container", "dns", "smtp", "imap", "web",
+                         "url", "socket", "broadcast", "wallet", "ether", "hw", "inet", "net", "network", "memory",
+                         "mem", "return", "base", "start", "end", "physical", "virtual", "link", "from",
+                         "to"})  # fmt: skip
+#: an address value that is a machine's, not a person's: an IP, a host and port (docker inspect's ``address``)
+_MACHINE_ADDRESS = re.compile(r"[A-Za-z0-9.\-\[\]%]*[0-9.:][A-Za-z0-9.\-:\[\]%]*")
+
+
+def _a_person(kind: str, value: str) -> bool:
+    """Whether a labelled value is to be masked: not empty, not a mark already, not a flag, and for an address not a
+    machine's (an IP, a host and port)."""
+    v = value.strip()
+    if not v or v.startswith("[") or _keeps(v):
+        return False
+    return not (kind == "address" and _MACHINE_ADDRESS.fullmatch(v))
+
+
+@lru_cache(maxsize=4096)
+def identifier_kind(key: str) -> str | None:
+    """``name``, ``birth date`` or ``address`` when ``key`` labels a person's identifier, else None."""
+    if key in LABELS_CJK:
+        return LABELS_CJK[key]
+    words = _words(key)
+    w = set(words)
+    joined = "".join(words)
+    if (
+        w & {"dob", "birthdate", "birthday", "born"}
+        or joined in {"dateofbirth", "birthdate"}
+        or ("birth" in w and not w & {"rate", "place", "limit", "weight", "order", "control"})
+    ):
+        return "birth date"
+    if w & {"surname", "forename", "fullname", "firstname", "lastname", "givenname", "familyname", "patientname"} or (
+        "name" in w and w & _NAME_WITH
+    ):
+        return "name"
+    if w & {"address", "street", "addr", "streetaddress", "homeaddress"} and not w & _NOT_A_HOME:
+        return "address"
+    return None
+
 
 _TAG_LETTERS = "bcdfghjkmnpqrstvwxz"  # no digit, no hex letter: a tag is never a token of any rule
 
@@ -338,6 +423,13 @@ class Scrubber:
         return text
 
     # -------------------------------------------------------------------------------- secrets
+    def _xml(self, m: re.Match[str]) -> str:
+        kind = identifier_kind(m["key"].split(":")[-1])
+        if kind is not None and _a_person(kind, m["val"]):
+            self.found[f"identifier ({kind})"] += 1
+            return m.group(0)[: m.start("val") - m.start(0)] + f"[{kind}]" + m.group(0)[m.end("val") - m.start(0) :]
+        return self._value(m, "xml")
+
     def _value(self, m: re.Match[str], rule: str) -> str:
         val = m.group("val")
         if not secret_name(m.group("key"), self.decl) or _keeps(val.strip("\"'")) or val.strip() == REDACTED:
@@ -441,6 +533,41 @@ class Scrubber:
             self.found["secret (flag)"] += 1
         return "".join([*out, text[at:]])
 
+    def identifiers(self, text: str) -> str:
+        """H-76 round B: e-mail addresses, and the values of labelled identifiers (a name, a date of birth, an
+        address) in key and value, JSON and form forms, with English, Japanese and Chinese labels."""
+        if "@" in text:
+            text, n = EMAIL.subn("[email]", text)
+            self.found["email"] += n
+        text = self._labelled(self._labelled(text, LABEL_LATIN), LABEL_CJK)
+        text, n = BORN_DATE.subn(lambda m: m.group(0)[: m.start("val") - m.start(0)] + "[birth date]", text)
+        self.found["identifier (birth date)"] += n
+        return text
+
+    def _labelled(self, text: str, rx: re.Pattern[str]) -> str:
+        out: list[str] = []
+        at = 0
+        for m in rx.finditer(text):
+            if m.start() < at:
+                continue
+            kind = identifier_kind(m["key"])
+            if kind is None:
+                continue
+            q = text[m.end() : m.end() + 1]
+            val_rx = _LABEL_QUOTED if q in "\"'" and q else _LABEL_EQ if "=" in m["sep"] else _LABEL_COLON
+            v = val_rx.match(text, m.end())
+            if v is None:
+                continue
+            val = v.group(0)
+            inner = val[1:-1] if val[:1] in "\"'" else val
+            if not _a_person(kind, inner):
+                continue
+            qq = val[0] if val[:1] in "\"'" else ""
+            out += [text[at : m.end()], f"{qq}[{kind}]{qq}"]
+            at = v.end()
+            self.found[f"identifier ({kind})"] += 1
+        return "".join([*out, text[at:]])
+
     def _pairs(self, text: str) -> str:
         """``name=value`` pairs. Only a secret's value is taken as a whole; after any other name the search goes on
         right after its ``=``, so ``next=%2Flogin%3Ftoken%3D…`` still finds the token inside."""
@@ -475,7 +602,7 @@ class Scrubber:
         self.found["secret (url userinfo)"] += n
         text, n = CLI_USER.subn(rf"\g<key>\g<sep>\g<user>:{REDACTED}", text)
         self.found["secret (cli user)"] += n
-        text = XML.sub(lambda m: self._value(m, "xml"), text)
+        text = XML.sub(self._xml, text)
         text = ESCAPED.sub(lambda m: self._value(m, "escaped"), text)
         text = QUOTED.sub(lambda m: self._value(m, "quoted"), text)
         text = self._lines(text)
@@ -508,7 +635,7 @@ class Scrubber:
     def _rules(self, text: str) -> str:
         # pseudonyms before the log scrubber (its phone pattern must not cut one), screening numbers after it (a
         # Taiwan ID or an insurer number keeps its own, more exact, mark)
-        return self.screening(self.phi(self.pseudonyms(self.secrets(text))))
+        return self.screening(self.phi(self.identifiers(self.pseudonyms(self.secrets(text)))))
 
     def decoded(self, text: str) -> str:
         """Review H1: an encoding puts a hex digit or a letter next to a token (``%2F<pid>``, ``%22<pid>%22``,
@@ -657,6 +784,10 @@ class Scrubber:
         ):
             self.found["secret (json)"] += 1
             return REDACTED
+        kind = identifier_kind(key) if key is not None else None
+        if kind is not None and _a_person(kind, str(v)):
+            self.found[f"identifier ({kind})"] += 1
+            return f"[{kind}]"
         if isinstance(v, str):
             return self.text(v)
         t = self.text(str(v))
@@ -733,12 +864,16 @@ def _decode(line: str) -> str:
     an entity without ``;``, quoted-printable when the line has ``=3D`` or two ``=XX``), and the characters a reader
     does not see taken out (H76-04: zero-width space, soft hyphen, word joiner, byte order mark)."""
     for _ in range(16):
-        new = unquote(line, errors="replace")
+        new = _PCT_U.sub(lambda m: chr(int(m.group(1), 16)), line)
+        new = unquote(new, errors="replace")
         new = html.unescape(new)
         new = _BACKSLASH.sub(lambda m: chr(int(m.group(1) or m.group(2) or m.group(3), 16) % 0x110000), new)
         if "=3D" in new or len(_QP.findall(new)) >= 2:
             new = _QP.sub(lambda m: chr(int(m.group(1), 16)), new)
+        new = _QP_AT.sub("@", new)  # round B: a lone quoted-printable at sign, between an e-mail's two halves only
+        new = _OCTAL.sub(lambda m: chr(int(m.group(1), 8)), new)
         new = INVISIBLE.sub("", new)
+        new = unicodedata.normalize("NFKC", new) if _FULL_WIDTH.search(new) else new  # full-width letters and digits
         if new == line:
             break
         line = new

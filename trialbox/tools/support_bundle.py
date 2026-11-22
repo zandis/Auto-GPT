@@ -89,6 +89,11 @@ ASSIGN = re.compile(r"^(?P<lead>\s*-?\s*)(?P<key>[A-Za-z_][A-Za-z0-9_.\-]*)(?P<s
 USERINFO = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*://)[^/@\s:]+:[^/@\s]+@")
 MAX_MEMBER = 16 * 2**20  # below the scan's 32 MB limit: a longer file keeps its last 16 MB
 HISTORY_LINES = 400
+#: H-76: a member larger than this is announced before its scrub, with the time it may take: the scrub, its second
+#: pass and the writer's check measured about 6 s a MB on a log of encoded URLs (the slowest kind; a plain log is
+#: faster); a 64 MiB log is about 6 to 7 minutes
+SAY_LARGE = 4 * 2**20
+SCRUB_SECONDS_PER_MB = 6.0
 DEFAULT_DAYS = 3
 DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -365,6 +370,10 @@ class Bundle:
         self, name: str, text: str, source: str, *, scrubbed: bool = False, mrn: re.Pattern[str] | None = None
     ) -> None:
         name = self._unique(self.scrubber.name(name), self.members)
+        size = len(text.encode("utf-8"))
+        if size > SAY_LARGE:  # H-76: the operator is told before a long scrub, not left at a silent prompt
+            mb = size / 2**20
+            self.say(f"scrubbing {name} ({mb:.0f} MB): about {max(1, round(mb * SCRUB_SECONDS_PER_MB / 60))} minute(s)")
         if scrubbed:  # H76: counted only; the scrub below applies the same patterns after it decodes each line
             _, n = scrub(text, mrn)
             self.note(name, "redacted", n)

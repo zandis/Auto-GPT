@@ -475,3 +475,30 @@ def test_review_the_raw_line_is_kept_only_when_it_is_the_view_mark_for_mark() ->
     assert not bs._same_masks("ab[x]cd", "abc[x]d")  # the same length
     assert not bs._same_masks("a[x]", "a[x]b") and not bs._same_masks("a[x]b", "a[x]")  # a part of the other
     assert not bs._same_masks("pid=ABCDEF[x]", "pid=abcdef[x]")  # a case of its own: not the same text
+
+
+def test_the_planted_invariants_encodings_are_the_scrub_tests() -> None:
+    from tests.unit.test_support_bundle_planted import ENCODINGS
+
+    assert sorted(ENCODINGS.values()) == sorted(ENCODED) and len(ENCODINGS) == 16
+
+
+# ------------------------------------------------------------------------------------------------ round B: timing
+@pytest.mark.parametrize("kind", sorted(LONG_76))
+def test_speed_doubling_a_long_line_at_most_doubles_the_time(kind: str) -> None:
+    """No rule is super-linear: twice the input takes at most 2.2 times as long (best of three, plus 0.05 s)."""
+    unit = LONG_76[kind][: len(LONG_76[kind]) // 4]
+    s = bs.Scrubber.for_bundle()
+    t1 = _timed(lambda: s.text("start " + unit + " end\n"))
+    t2 = _timed(lambda: s.text("start " + unit + unit + " end\n"))
+    assert t2 <= 2.2 * t1 + 0.05, f"{kind}: {t1:.3f} s, twice the input {t2:.3f} s"
+
+
+def test_a_large_member_is_announced_with_its_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round B: a 64 MiB log takes minutes; the operator is told so before, not left at a silent prompt."""
+    deploy, p, _add = make_box(tmp_path, monkeypatch)
+    monkeypatch.setattr(sb, "SAY_LARGE", 1024)
+    _gz(deploy.parent / "logs" / "services" / DAY / "lake.log.gz", ("lake | ok\n" * 400).encode())
+    said: list[str] = []
+    sb.build(deploy, tmp_path / "usb", runner=_runner(p), now=NOW, say=said.append)
+    assert any(s.startswith(f"scrubbing logs/{DAY}/lake.log (") and "minute" in s for s in said), said
