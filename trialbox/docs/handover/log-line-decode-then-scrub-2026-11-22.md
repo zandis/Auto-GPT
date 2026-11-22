@@ -21,7 +21,10 @@ formatter every service uses, `tb_common.logging.JsonFormatter`.
   scrub's own; the decoding is shared.
 - Decoded classes: `%XX` in up to eight layers; `\x`, `\u`, `\U` behind any number of backslashes (`repr()` doubles
   them); HTML entities, named or numeric, with or without `;` (a numeric one without `;` is also read short, so
-  `&#61` followed by a digit is still `=`); quoted-printable `=3D` and `=40`.
+  `&#61` followed by a digit is still `=`); quoted-printable `=3D`, and `=40` as `@` only before a letter that does
+  not start 8 hex digits. Found at the merge with H-76a's fixed head (7f9534fb): `=40` read anywhere took the first
+  digits of a value after `=` (`x==4018f…`, `pid=40a1…`) and cut a pseudonym; two of H-76a's review tests caught it,
+  and `test_h79_a_quoted_printable_at_does_not_cut_a_value` and three near-misses now hold it.
 - The log line is decoded before any rule reads it. Found by the fuzz: the chart-number rule matched eight digits
   inside `%25252536…` and broke the encoding before the decoded pass could read it.
 - Every value that enters the line is scrubbed: the message and its arguments; the logger, level and service names;
@@ -61,7 +64,8 @@ Partly. Confirmed on master 225100f4 with a failing probe:
 - `redact()` is also used by `tb_common.fhir` and `model_guard`. They get the decoded pass too (more masked, nothing
   less).
 - The support bundle decodes with the same function, under H-76's ordering and keep-encoded rule (merged from
-  `a25a5c18`; the rule is passed to `decode_then_scrub` as its `keep` hook). That adds four more `%` layers,
+  `7f9534fb`: the raw line is kept only when its scrub, decoded, equals the decoded view's scrub; that rule is passed
+  to `decode_then_scrub` as its `keep` hook). That adds four more `%` layers,
   entities without `;`, `=40` and doubled backslashes, so it masks more. Its tests and H-76's pass unchanged.
   Its timing did not move (in seconds, H-76's head, then merged):
 
@@ -152,9 +156,9 @@ times. Lines per second; the formatter cuts a line at `TB_LOG_SCRUB_MAX_CHARS` (
   at all, as before. A handler other than the one `setup_logging` installs (pytest's `caplog`, a `print`).
 - **Lost, not leaked:** text past `TB_LOG_SCRUB_MAX_CHARS` is cut, as before. Values past the 1000th of a line, or
   deeper than 8, are withheld.
-- **The bundle (H79-04), closed by H-76:** on this card's first head, the bundle's rules read the encoded text
+- **The bundle (H79-04), closed by H-76 (fixed head 7f9534fb merged):** on this card's first head, the bundle's rules read the encoded text
   before its decoded pass. A `%`-encoded entity holding an eight-digit run, with a site chart rule, kept the secret
-  in 37 of 150 fuzz cases. H-76 step 0 (`a25a5c18`, merged here) fixes it: the decoded view reads each line before
+  in 37 of 150 fuzz cases. H-76 step 0 (`a25a5c18`, fixed head `7f9534fb`, both merged here) fixes it: the decoded view reads each line before
   the raw rules, and a line keeps its encoded form when the raw rules mask everything in place. On the merged tree
   the same 150 cases a class keep nothing (0 of 150 in all eight classes, with and without the chart rule).
 

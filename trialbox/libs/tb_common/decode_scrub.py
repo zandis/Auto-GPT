@@ -32,6 +32,10 @@ ENCODED = re.compile(
 #: a backslash escape behind any number of backslashes: ``repr()`` and JSON double the backslash (``\\\\x3d``), a layer
 _BACKSLASH = re.compile(r"\\+(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|U([0-9A-Fa-f]{8}))")
 _QP = re.compile(r"=([0-9A-F]{2})")
+#: a quoted-printable ``@`` (``a.b=40example.org``, ``u:pw=40db``): only before a letter that does not start a run of 8
+#: hex digits. Read anywhere, ``=40`` took the first digits of a value written after ``=`` (``x==4018f…``,
+#: ``pid=40a1…``) and cut a pseudonym (found at the merge with H-76a)
+_QP_AT = re.compile(r"=40(?=[A-Za-z])(?![0-9A-Fa-f]{8})")
 
 
 def _char(code: int) -> str:
@@ -66,8 +70,10 @@ def decode(text: str, layers: int = LAYERS, *, short: bool = False) -> str:
             new = html.unescape(new)
         if "\\" in new:
             new = _BACKSLASH.sub(_backslash, new)
-        if "=3D" in new or "=40" in new:
+        if "=3D" in new:
             new = _QP.sub(lambda m: chr(int(m.group(1), 16)), new)
+        if "=40" in new:
+            new = _QP_AT.sub("@", new)
         if new == text:
             break
         text = new

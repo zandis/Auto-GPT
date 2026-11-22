@@ -447,13 +447,10 @@ class Scrubber:
         from tb_common.decode_scrub import decode, decode_then_scrub  # here: standard library only at import
 
         def keep(line: str, plain: str, clean: str) -> bool:
-            # H-76: the line keeps its own (encoded) form when the raw rules mask, where it stands, everything the
-            # decoded view masks; otherwise (a raw rule would leave a fragment) it is written decoded and scrubbed
-            if len(line) > 65536:
-                return False
-            raw_view = decode(self._rules(line))
-            gone = _removed(plain, clean)
-            return gone is not None and not any(_leaks(seg, raw_view) for seg in gone)
+            # H-76: the line keeps its own (encoded) form only when the raw rules, decoded, give the decoded view mask
+            # for mask (the review of #1354: a test of 8 characters in a row let two raw rules leave pieces of 7, and
+            # lining the two up by a regex backtracked without end); otherwise it is written decoded and scrubbed
+            return _same_masks(decode(self._rules(line)), clean)
 
         text, replaced = decode_then_scrub(text, self._rules, keep=keep)
         if replaced:
@@ -567,27 +564,10 @@ def _held(rx: re.Pattern[str], text: str, rules: Callable[[str], str]) -> str:
     return _PRIVATE.sub(lambda m: held[ord(m.group(0)) - 0xF0000], text) if held else text
 
 
-_MARK = re.compile(r"\[[^\[\]\n]{1,80}\]")
-
-
-def _removed(plain: str, clean: str) -> list[str] | None:
-    """The parts of ``plain`` that the scrub replaced in ``clean`` (every mask is a ``[...]`` marker): the text
-    between the literal pieces of ``clean``, found in order in ``plain``. None when they cannot be lined up."""
-    pieces = _MARK.split(clean)
-    if len(pieces) > 200:
-        return None
-    m = re.fullmatch("(.*?)".join(re.escape(x) for x in pieces), plain, re.S)
-    return None if m is None else list(m.groups())
-
-
-def _leaks(seg: str, text: str) -> bool:
-    """Whether ``text`` still holds ``seg`` or 8 of its characters in a row (any case)."""
-    seg, text = seg.strip().lower(), text.lower()
-    if len(seg) < 4:
-        return False
-    if len(seg) <= 8:
-        return seg in text
-    return any(seg[i : i + 8] in text for i in range(len(seg) - 7))
+def _same_masks(raw_view: str, clean: str) -> bool:
+    """Whether the raw line's scrub, decoded, is the decoded view's scrub: the same text and the same marks in the
+    same places (one bundle's tags are the same for one token, so the marks are equal too). Linear in the line."""
+    return raw_view == clean
 
 
 def _seg_start(text: str, lo: int, k: int) -> int:

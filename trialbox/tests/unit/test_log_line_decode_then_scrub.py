@@ -263,12 +263,28 @@ NEAR_MISSES = [
     "name \\u5c71 kept as written",
     "token registry loaded; password refused for the user; bypass=on",
     "version 1.2.3 on port 8443",
+    "pid=4018f357768088526010207fd39062b9.json read",  # a value after = that starts with 40: not a QP @
+    "x==4018f357768088526010207fd39062b9&y=1",
+    "pid=40a1b2c3d4e5f60718293a4b5c6d7e8f.json read",
+    "GET /x?retry=404.html&page=2",  # =40 before a digit is not an @
 ]
 
 
 @pytest.mark.parametrize("line", NEAR_MISSES)
 def test_h79_a_near_miss_is_emitted_as_written(rules: tblog.JsonFormatter, line: str) -> None:
     assert json.loads(rules.format(_record(line)))["msg"] == line
+
+
+def test_h79_a_quoted_printable_at_does_not_cut_a_value(rules: tblog.JsonFormatter) -> None:
+    """Found at the merge with H-76a: ``=40`` read anywhere took the first digits of a value after ``=`` and cut a
+    pseudonym. It is read as ``@`` only before a letter that does not start 8 hex digits; an address on a line that
+    also holds a secret is still found."""
+    for text in (
+        "to " + MAIL.replace("@", "=40"),
+        f"postgresql://u:{SECRET}=40db:5432/x",
+        f"password={SECRET} then to " + MAIL.replace("@", "=40"),
+    ):
+        assert not _leaks(rules.format(_record(text)), NEEDLES), text
 
 
 def test_h79_what_is_masked_or_changed_though_it_may_hide_nothing(rules: tblog.JsonFormatter) -> None:
