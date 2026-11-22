@@ -24,9 +24,11 @@ ROOT = Path(__file__).resolve().parents[2]
 CSRF = re.compile(r'name="fr_csrf" value="([^"]+)"')
 # the answers page's fields on master, before 10K-1 (templates/firstrun.html): with the flag off it has these only
 # 10K-21 (D-1365): health_page_person and tls_root_confirmed_by are asked with the flag on or off
+# 10K-4 (D-1390): the three folders are asked with the flag off too
 MASTER_FIELDS = {"fr_csrf", "lang", "site_name", "tz", "language", "owner_full_name", "owner_username", "owner_email",
                  "password", "password2", "totp", "box_name", "backup_kind", "backup_disk", "backup_share", "source",
-                 "chartno_kind", "chartno_width", "health_page_person", "tls_root_confirmed_by"}  # fmt: skip
+                 "chartno_kind", "chartno_width", "health_page_person", "tls_root_confirmed_by",
+                 "backup_dir", "anchor_dir", "log_dir"}  # fmt: skip
 
 
 def _names(page: str) -> set[str]:

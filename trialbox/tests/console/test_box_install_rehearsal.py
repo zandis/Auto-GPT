@@ -26,6 +26,7 @@ from tb_common.audit import AuditLog
 
 from tests.console.test_console_app import PILOT_ENV, FakeBackend
 from tests.console.test_firstrun import HW, _answers
+from tests.unit.test_install_refuses_unsafe_folders_10k4 import GOOD, fake_host, knobs
 
 ROOT = Path(__file__).resolve().parents[2]
 PRO6000 = "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
@@ -48,7 +49,8 @@ def _tree(tmp_path: Path) -> dict[str, Path]:
     install.write_text(
         "#!/bin/sh\n"
         f'echo "install TB_BOX=$TB_BOX TB_BOX_DEFER_SEAL=$TB_BOX_DEFER_SEAL $*" >> {calls}\n'
-        f"printf 'POSTGRES_PASSWORD=made-by-install\\nTB_DB_PW_LAKE=made-by-install\\n' > {deploy}/.env\n"
+        f"printf 'POSTGRES_PASSWORD=made-by-install\\nTB_DB_PW_LAKE=made-by-install\\n"
+        f"COMPOSE_FILE={deploy}/docker-compose.yml\\n' > {deploy}/.env\n"
         "echo '  TrialBox is running.'\n"
         "echo 'install: FAIL: no backup yet' >&2\nexit 1\n",  # a FAIL list at the end: the stack is up
         encoding="utf-8",
@@ -84,6 +86,10 @@ def _wait(path: Path, proc: subprocess.Popen[str], seconds: float = 60) -> str:
 
 def test_a_box_installs_from_the_installer_with_only_the_wizards_answers(tmp_path: Path) -> None:
     t: dict[str, Any] = _tree(tmp_path)
+    h = fake_host(tmp_path / "host")  # 10K-4: the host the finish check reads, and the console image's read probe
+    (tmp_path / "stubs" / "probe").write_text(f'#!/bin/sh\necho "probe $*" >> {t["calls"]}\n', encoding="utf-8")
+    (tmp_path / "stubs" / "probe").chmod(0o755)
+    t["env"] = {**t["env"], **knobs(h), "TB_BOX_DOCKER": str(tmp_path / "stubs" / "probe")}
     proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
                             env=t["env"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
     try:
@@ -100,7 +106,9 @@ def test_a_box_installs_from_the_installer_with_only_the_wizards_answers(tmp_pat
                          users=UserStore())  # fmt: skip
         c = TestClient(app, base_url="https://testserver")
         assert c.post("/login/first-run", data={"code": code.group(1)}, follow_redirects=False).status_code == 303
-        r, _ = _answers(c)
+        # 10K-4 (D-1390): a PRODUCTION box finishes with a backup off the box and an audit anchor folder of its
+        # own: the second disk's folder and the share's folder on the test's own host (fake_host's mount table)
+        r, _ = _answers(c, backup_dir=GOOD["backup"], anchor_dir=GOOD["anchor"])
         assert r.status_code == 200 and 'data-testid="firstrun-done"' in r.text, r.text[-500:]
         out, _ = proc.communicate(timeout=120)
     finally:
@@ -113,7 +121,7 @@ def test_a_box_installs_from_the_installer_with_only_the_wizards_answers(tmp_pat
     env = dict(ln.split("=", 1) for ln in (t["deploy"] / ".env").read_text(encoding="utf-8").splitlines() if "=" in ln)
     assert env["POSTGRES_PASSWORD"] == "made-by-install" and env["TB_DB_PW_LAKE"] == "made-by-install"
     assert env["TB_TLS_HOSTNAME"] == "trialbox.local" and env["TB_TLS_MODE"] == "internal"
-    assert env["TB_BACKUP_TARGETS"] == "/srv/trialbox-backup" and env["TB_TZ"] == "Asia/Tokyo"
+    assert env["TB_BACKUP_TARGETS"] == GOOD["backup"] and env["TB_TZ"] == "Asia/Tokyo"
     assert "tz: Asia/Tokyo" in (t["deploy"] / "site" / "mapping" / "tw_core" / "box_site.yaml").read_text(
         encoding="utf-8"
     )
