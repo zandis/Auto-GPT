@@ -808,3 +808,74 @@ def test_a_probe_without_a_host_id_is_refused_on_a_host_that_has_one(
     """L4 (the surviving mutant): the host has /etc/machine-id, the probe names no host."""
     host = {k: v for k, v in probe_doc()["host"].items() if k != "host_id"}
     assert any("another host" in p for p in _allow(Bench(tmp_path), monkeypatch, probe_doc(host=host)))
+
+
+# ------------------------------------------------------------------------------- the last look (round 3): R1, R2
+PAGE = ROOT / "docs" / "handover" / "rehearsal-real-servers-h89-2026-11-22.md"
+PROBE_DIR = "/var/lib/trialbox/rehearsal"
+
+
+def _page_steps() -> list[str]:
+    """The bench's commands as the page writes them, in order (continuation lines joined)."""
+    text = PAGE.read_text(encoding="utf-8")
+    block = text[text.index("### The bench's command lines, in order") : text.index("### What changes for a site")]
+    out: list[str] = []
+    for line in block.splitlines():
+        if not line.startswith("       ") or not line.strip():
+            continue
+        cmd = line.strip()
+        if out and out[-1].endswith("\\"):
+            out[-1] = out[-1][:-1].rstrip() + " " + cmd
+        else:
+            out.append(cmd)
+    return out
+
+
+def test_the_pages_own_steps_pass_in_order(tmp_path: Path) -> None:
+    """R1: the probe is written as root into a folder only root may write; the install, as root, takes it. Run here
+    with the folder moved under tmp_path and without sudo (as this test's user, who is then the installer)."""
+    steps = _page_steps()
+    mkdir = next(i for i, c in enumerate(steps) if c.startswith(f"sudo install -d -m 0700 -o root -g root {PROBE_DIR}"))
+    probe = next(i for i, c in enumerate(steps) if c.startswith("sudo python3 tools/engine_probe.py run --gpu-index 1"))
+    inst = next(i for i, c in enumerate(steps) if c.startswith("sudo deploy/install.sh"))
+    assert mkdir < probe < inst
+    out = f"{PROBE_DIR}/engine-probe.json"
+    assert f"--out {out}" in steps[probe] and f"--engine-probe {out} " in steps[inst] + " "
+    assert "~" not in " ".join(steps[mkdir : inst + 1])
+    b = Bench(tmp_path)
+    folder = tmp_path / "var-lib-trialbox-rehearsal"
+    subprocess.run(["install", "-d", "-m", "0700", str(folder)], check=True)  # step 2a, without -o root as a user
+    (folder / "engine-probe.json").write_text(json.dumps(probe_doc()), encoding="utf-8")  # step 2b's file (umask)
+    args = steps[inst].replace(out, str(folder / "engine-probe.json")).split()[3:]  # past sudo, the script, the bundle
+    r = b.install(*args)
+    assert "WARN  NVIDIA driver 575.57.08 is below 580.65.06" in r.stdout and "FAIL" not in r.stdout, r.stdout
+    assert r.stderr.splitlines()[-1].startswith("install: vendor public key missing"), r.stderr
+
+
+def test_the_invoking_users_uid_is_never_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    monkeypatch.setenv("SUDO_UID", str(os.getuid()))
+    monkeypatch.setattr(os, "getuid", lambda: 4242 if os.geteuid() != 0 else 0)
+    if os.geteuid() == 0:
+        os.chown(b.probe, 1000, 1000)
+    assert any("is owned by uid" in p for p in _allow(b, monkeypatch))
+
+
+@pytest.mark.parametrize("line", ["COMPOSE_FILE=/x/base.yml # note\n", "COMPOSE_FILE=/x/base.yml\r\n"])
+def test_a_compose_file_line_the_guard_cannot_read_is_refused_at_boot(tmp_path: Path, line: str) -> None:
+    """R2: fail closed, whatever else the box holds."""
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    (deploy / ".env").write_text("TB_ENV=PRODUCTION\n" + line, encoding="utf-8")
+    r = _guard(deploy, no_python=True)
+    assert r.returncode == 1 and "COMPOSE_FILE in" in r.stderr and "python3 was asked" not in r.stderr
+
+
+def test_an_override_with_carriage_returns_is_a_sign_at_boot(tmp_path: Path) -> None:
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    f = tmp_path / "elsewhere.yml"
+    f.write_bytes((rehearsal_real.OVERRIDE_MARK + "\r\nservices: {}\r\n").encode())
+    (deploy / ".env").write_text(f"TB_ENV=PRODUCTION\nCOMPOSE_FILE=/x/base.yml:{f}\n", encoding="utf-8")
+    r = _guard(deploy)
+    assert r.returncode == 1 and "this box carries a rehearsal sign" in r.stderr

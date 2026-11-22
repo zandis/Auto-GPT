@@ -52,6 +52,22 @@
    "lane": "H",
    "basis": "not_run",
    "state": "open"
+  },
+  {
+   "id": "H89-07",
+   "severity": "Low",
+   "claim": "the boot guard and the start check miss a quoted COMPOSE_FILE and the real servers' mark in an equivalent YAML form (a trailing space, a quoted \"true\"), which the stack reads; each needs the mark and the record removed by hand",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H89-08",
+   "severity": "Low",
+   "claim": "the probe file's single read is tested through os.open only, and its folder is checked by path after the open, so a folder swapped in that window is not seen",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }

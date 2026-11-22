@@ -19,15 +19,17 @@ a rehearsal box, with one explicit command line.
        sudo systemctl stop docker && sudo rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia && sudo modprobe nvidia && sudo systemctl start docker
        nvidia-smi -i 1 --query-gpu=name,mig.mode.current,memory.free,memory.total --format=csv
 
-2. The engine probe on that one card (never all):
+2. The engine probe on that one card (never all), as root, into a folder only root may write (the operator makes
+   it here, root-owned, 0700; the install reads the probe from it and refuses a file or folder anyone else owns or
+   may write):
 
-       python3 tools/engine_probe.py run --gpu-index 1 --out ~/tb-engine-probe.json
-       chmod go-w ~/tb-engine-probe.json
+       sudo install -d -m 0700 -o root -g root /var/lib/trialbox/rehearsal
+       sudo python3 tools/engine_probe.py run --gpu-index 1 --out /var/lib/trialbox/rehearsal/engine-probe.json
 
 3. The install, on an empty box:
 
        sudo deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu rtxpro6000 \
-           --gpu-index 1 --engine-probe ~/tb-engine-probe.json --yes
+           --gpu-index 1 --engine-probe /var/lib/trialbox/rehearsal/engine-probe.json --yes
 
 With `--gpu-index N` the probe runs on that one card (`--gpus device=N`) and records that card's facts and two one-way
 ids (sha256 digests, no UUID or machine id in the file): the card's and this host's (/etc/machine-id). The install
@@ -189,6 +191,18 @@ The invariant was compared again with master 7dcba1be's own installer: identical
 Mutants: 7 planted, 6 caught. The survivor adds an extra read of the probe file whose result is never used; it
 changes nothing that is trusted.
 The engine probe's compiled-op check accepts either name form of the pinned engine image's modules (accepted).
+
+## Last look (round 3)
+
+* **R1, fixed in the steps (the check is unchanged):** the probe is run as root into /var/lib/trialbox/rehearsal,
+  made root-owned 0700 by the operator before the probe; the invoking user's uid is never accepted. A test runs the
+  page's own steps in order and passes (`test_the_pages_own_steps_pass_in_order`).
+* **R2, fixed:** where the boot guard cannot read COMPOSE_FILE as the start check does (a ` #` comment or a carriage
+  return on its line) it refuses to boot; a named file's carriage returns are stripped before the mark is looked for.
+* **R3 (row H89-07):** both checks miss a quoted COMPOSE_FILE and the mark in an equivalent YAML form (a trailing
+  space, a quoted "true"); the stack reads these forms. Each needs the mark and the record removed by hand.
+* **R4 (row H89-08):** "read once" is tested through `os.open` only; the folder is checked by path after the open, so
+  a folder swapped in that window is not seen.
 
 ### Files outside the card (ruled: bodies only)
 
