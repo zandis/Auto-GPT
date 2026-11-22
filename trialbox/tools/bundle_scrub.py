@@ -13,12 +13,13 @@ What it replaces, in this order (the page ``docs/handover/support-bundle-scrub-2
 not catch):
 
 1. PEM blocks, whole (``[pem block removed]``), and credentials of a well-known shape (``CREDENTIALS``).
-2. Secrets by their form: ``Bearer``/``Basic``/``Digest``/``Token`` values; URL userinfo (``scheme://user:pass@``,
-   plain and percent-encoded); every ``name=value``, ``name: value``, ``"name": value`` and ``\\"name\\": value``
-   whose name is a secret's (a query string, a form body, a header, an ``.env`` or YAML line, JSON, a Python repr),
-   with quoted values that run over several lines and YAML block values; ``Authorization``/``Cookie`` headers to
-   the end of the line. A secret's name: any setting that ``libs/tb_common/config.py`` declares as a secret, a
-   declared family marked so, and any name whose words say secret (:func:`secret_name`).
+2. Secrets by their form: ``Bearer``/``Basic``/``Digest``/``Token`` values; URL userinfo (a user and a password
+   between ``://`` and ``@``, plain and percent-encoded); every ``name=value``, ``name: value``, ``"name": value``
+   and ``\\"name\\": value`` whose name is a secret's (a query string, a form body, a header, an
+   ``.env`` or YAML line, JSON, a Python repr), with quoted values that run over several lines and YAML block values;
+   ``Authorization``/``Cookie`` headers to the end of the line. A secret's name: any setting that
+   ``libs/tb_common/config.py`` declares as a secret, a declared family marked so, and any name whose words say
+   secret (:func:`secret_name`).
 3. Patient tokens: the pseudonym (``PID_HEX_LEN`` hex digits, any case, ``tb_common.crypto.pid_for_mrn``) and its
    short form (8 hex digits and ``…``), and the screening number (``services/console/sitestore.py``: a prefix and at
    least four digits), each as ``[pseudonym]`` / ``[screening-no]``; a bundle's scrubber adds a tag (``#bcdfg``)
