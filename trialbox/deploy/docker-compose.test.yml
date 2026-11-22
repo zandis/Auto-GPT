@@ -57,7 +57,9 @@ services:
     # TB_ENV TEST (D-640, as D-560 for embed-service): a synthetic stack says so. Unset is PRODUCTION, where no
     # shipped example ruleset is seeded or run; this stack's studies are the examples
     environment: {TB_TODAY: "2026-10-05", TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}",  # fixtures' reference date (tools/synth)
-                  TB_ENV: "${TB_ENV:-TEST}"}
+                  TB_ENV: "${TB_ENV:-TEST}",
+                  # D-1226: the alliance root's register of member site keys; tests/e2e/test_mail_compose.py writes it
+                  TB_ALLIANCE_SITE_KEYS_FILE: /run/secrets/trialbox/alliance-site-keys.json}
     ports: ["127.0.0.1:${TB_HOST_ORCH_PORT:-8010}:8010"]
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -120,4 +122,4 @@ volumes:
     driver_opts: {type: none, o: bind, device: "${TB_HOST_OBJECTS_DIR:-${PWD}/deploy/.objects}"}
 networks:
   host-net:
-    name: trialbox-hostnet
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-hostnet   # H-75: the project's (compose's -p)

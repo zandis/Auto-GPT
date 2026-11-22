@@ -7,6 +7,11 @@
 #        [--ssh-off-over-ssh]   (H-70: run over SSH, hardening.conf's SSH=off is refused unless this is given)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
+#   Without a TPM, set bundle and answers to their paths. In your own Bash shell (passphrase of at least 12 characters):
+#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+#   sudo --preserve-env=TB_KEK_PASSPHRASE TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers"
+#   unset TB_KEK_PASSPHRASE
+#   sudo VAR=value command shows the value in the process list.
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
 #   deploy/install.sh --ctgov-check                # only: which ClinicalTrials.gov mode would be suggested here?
 #
@@ -28,7 +33,8 @@
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
-#   4. start:     docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
+#   4. start:     down --remove-orphans after a failed run, only in this install's own project, never a healthy stack
+#                 docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
 #                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
 #                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
 #                 the egress refresh and watchdog timers; D-377)
@@ -80,7 +86,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
-    -h|--help) sed -n 2,40p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -273,6 +279,19 @@ fi
 # ---- end of SIDECAR
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
 
+# INSTALL-LOCK (review 2 of #1305, M-2): one installer at a time on this folder, taken here, before the first thing is
+# written. A second run while one holds it refuses and changes or removes nothing: its project cleanup would take down
+# the first run's containers while they start. flock on the deploy folder itself, opened read-only: no lock file is
+# written, and the lock ends with the installer's process, so a killed run leaves none behind. The run from the signed
+# tree (exec below) keeps the lock it inherits on fd 9: it is not taken twice
+INSTALL_LOCK="$(readlink -f "$ROOT/deploy")"
+command -v flock >/dev/null || die "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed"
+if [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$INSTALL_LOCK" ]; then
+  exec 9<"$INSTALL_LOCK" || die "the deploy folder $INSTALL_LOCK cannot be opened for the install lock; nothing was changed"
+fi
+flock -n 9 || die "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed"
+# ---- end of INSTALL-LOCK
+
 # REHEARSAL (D-726): before anything loads
 # the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
 # from here on, read from the mark until deploy/.env says so. TB_ENV is read as Python reads it (no quotes, no spaces,
@@ -378,6 +397,12 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"
   say "continuing from the signed release ($ROOT/deploy/install.sh -> $(readlink "$ROOT/deploy/install.sh"))"
   TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
+fi
+
+# Expose the signed host CLI on PATH. The link follows the release selected by an update or rollback.
+if [ "$(id -u)" = 0 ]; then
+  install -d /usr/local/bin
+  ln -sfnT "$ROOT/tools/trialbox/__main__.py" /usr/local/bin/trialbox
 fi
 
 # ------------------------------------------------------------------------------------------------ 3. settings
@@ -823,6 +848,27 @@ if command -v python3 >/dev/null; then
 else
   echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
 fi
+# PROJECT-CLEANUP (F-19): after the release's checks above passed, before anything uses the project's network. Only a
+# project proven to be this install's (tools/trialbox/project_check.py) with a failed container (created, dead, exited
+# non-zero, unhealthy) is taken down, with the same overlays as up and every profile of an earlier attempt. A paused,
+# starting or exit-0 container is a working box's: kept. Refused while an update or the watchdog's maintenance flag is
+# there (review 2 of #1305, M-1). Anything else is refused or kept.
+if command -v python3 >/dev/null; then
+  CLEANUP="$(python3 -m tools.trialbox.project_check --deploy "$ROOT/deploy" -- "${COMPOSE[@]}" --profile '*')" \
+    || die "the project cleanup was refused (above): nothing was removed"
+else
+  CLEANUP=none
+  [ -z "${COMPOSE_PROJECT_NAME:-}" ] || [ "$COMPOSE_PROJECT_NAME" = trialbox ] \
+    || die "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME in this shell is not this install's project: unset it, then re-run"
+  echo "    note: no python3 on this host: the project is not proven to be this install's, so nothing is cleaned up" >&2
+fi
+if [ "$CLEANUP" = down ]; then
+(
+  COMPOSE+=(--profile '*')
+  "${COMPOSE[@]}" down --remove-orphans
+) || die "project cleanup failed / 專案清理失敗 / プロジェクトのクリーンアップに失敗しました"
+fi
+# ---- end of PROJECT-CLEANUP
 # T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
 # ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
 say "site keys (made once, never replaced)"
@@ -844,7 +890,7 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" --record deploy/site/kek-backend \
-    || die "the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
+    || die "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
   # H-77 (F-22): the back end is the one seal_keys.sh recorded (deploy/site/kek-backend, kept when the wizard rewrites
   # deploy/.env), copied as it is (never worked out here) to deploy/.env, where the host check reads it. Without a
   # record: deploy/.env is left as it is. The same block is in install.sh and in

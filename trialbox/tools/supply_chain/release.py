@@ -268,7 +268,10 @@ def run_gates(
             sbom_path = sbom_dir / sbom.file_name(target.ref, plat)
             doc = sbom.run_syft(source, sbom_path, syft_env, platform=plat if remote else None)
             entry["errors"] += identity_problems(target, pinned, report, doc)
-            result = vulns.gate(list(report.findings), allow, fails=fails, subject=target.ref)
+            # D-622: the content's own repository digests (the image store's and the scanner's), not its name alone
+            digests = (*pinned["repo_digests"], *report.repo_digests)
+            result = vulns.gate(list(report.findings), allow, fails=fails, subject=target.ref, digests=digests)
+            entry["errors"] += result.errors
             blocking, deferred = split_report_mode(result.failing, target.ref, vuln_mode)
             entry.update(
                 platform=report.platform,

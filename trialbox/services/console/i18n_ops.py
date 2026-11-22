@@ -63,7 +63,7 @@ EN: dict[str, str] = {
     "ops.drill.fail": "failed",
     "ops.drill.none": "none yet",
     "ops.drill.cli": "The restore drill proves the newest backup restores, into scratch databases (the live ones are "
-    "never touched). Hospital IT types it on the box's host with the key from the envelope (RUNBOOK §5):",
+    "never touched). Hospital IT runs this in a root shell on the host with the key from the envelope (RUNBOOK §5):",
     "ops.open": "Open",
     "ops.update.applied": "applied",
     "ops.update.rolled_back": "rolled back",
@@ -206,7 +206,7 @@ JA: dict[str, str] = {
     "ops.drill.fail": "失敗",
     "ops.drill.none": "まだありません",
     "ops.drill.cli": "復元訓練は、最新のバックアップが一時データベースに復元できることを確かめます（稼働中の"
-    "データベースには触れません）。病院の情報部門が封筒の鍵を使って本機のホストで入力します（RUNBOOK §5）：",
+    "データベースには触れません）。病院 IT が封筒の鍵を使い、ホストの root シェルで実行します（RUNBOOK §5）：",
     "ops.open": "開く",
     "ops.update.applied": "適用済み",
     "ops.update.rolled_back": "切り戻し済み",
@@ -342,7 +342,7 @@ ZH: dict[str, str] = {
     "ops.drill.fail": "失敗",
     "ops.drill.none": "尚未執行",
     "ops.drill.cli": "還原演練確認最新備份能還原到暫存資料庫（不會碰到正在使用的資料庫）。由醫院資訊人員以信封中的金"
-    "鑰在本機主機上輸入（RUNBOOK §5）：",
+    "鑰在本機主機的 root shell 中輸入（RUNBOOK §5）：",
     "ops.open": "開啟",
     "ops.update.applied": "已套用",
     "ops.update.rolled_back": "已還原",

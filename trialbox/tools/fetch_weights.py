@@ -449,7 +449,8 @@ class Transport:
                 raise HubRefused(
                     f"the hub refused {url.split('/resolve/', maxsplit=1)[0]} (HTTP {exc.code}): if the repository "
                     "is gated, accept its terms on its page while signed in, make a read token in the hub's settings "
-                    "(Access Tokens) and run again with HF_TOKEN set in the environment"
+                    "(Access Tokens) then follow the hidden-input instructions in RUNBOOK §29 "
+                    "(輸入權杖 / トークンを入力)"
                 ) from None
             if exc.code == 404:
                 raise HubRefused(f"not on the hub at the pinned revision (HTTP 404): {url}") from None

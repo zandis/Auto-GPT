@@ -1,0 +1,11 @@
+# before
+tests/unit/test_ci_docs_only.py
+tests/unit/test_decisions_index.py
+tests/unit/test_erasure_registry.py
+tests/unit/test_image_config_scans.py
+tests/unit/test_ingest_stack.py
+tests/unit/test_ruleset_zip_caps.py
+# after
+tests/unit/test_ci_docs_only.py
+tests/unit/test_decisions_index.py
+tests/unit/test_erasure_registry.py

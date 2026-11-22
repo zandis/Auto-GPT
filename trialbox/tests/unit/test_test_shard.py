@@ -245,3 +245,82 @@ def test_the_cross_card_job_runs_first_and_fast() -> None:
     runs = _runs(job)
     assert "make cross-card" in runs and "--cov" not in runs
     assert job["if"] == "needs.changes.outputs.trialbox == 'true'"
+
+
+# ---------------------------------------------------------------------------------------------- H-83: the pins
+COSTS = ROOT / "docs" / "handover" / "unit-shard-costs-h83.json"
+
+
+def _table() -> dict[str, Any]:
+    table: dict[str, Any] = json.loads(COSTS.read_text(encoding="utf-8"))
+    return table
+
+
+def test_every_pin_names_an_existing_file_on_a_shard_in_range() -> None:
+    """The pin list cannot rot: a pinned file that is removed or renamed fails here (re-plan from a new table)."""
+    assert test_shard.pins().problems() == []
+    stale = test_shard.Pins(8, {"tests/unit/test_no_such_file_h83.py": 2, "tests/unit/test_test_shard.py": 9})
+    assert stale.problems() == [
+        "pinned file tests/unit/test_no_such_file_h83.py does not exist",
+        "pinned file tests/unit/test_test_shard.py: shard 9 is not in 1..8",
+    ]
+
+
+def test_the_pins_are_the_plan_of_the_measured_table() -> None:
+    """Reviewable: the checked-in pins are exactly what `plan` gives from the committed cost table."""
+    table = _table()
+    costs = {k: float(v) for k, v in table["costs"].items()}
+    pinned = test_shard.pins()
+    assert pinned.count == table["count"] and len(pinned.files) == table["pin"]
+    assert test_shard.plan(costs, table["count"], table["pin"]) == dict(pinned.files)
+
+
+def test_the_pins_are_for_the_workflows_shard_count() -> None:
+    assert test_shard.pins().count == len(_jobs()["unit-shard"]["strategy"]["matrix"]["shard"])
+
+
+def test_the_table_gives_every_shard_its_share_within_a_tenth() -> None:
+    """H-83: under the pins every shard's measured cost is within 10 % of the mean (the hash alone: 23 and 12.5)."""
+    costs = {k: float(v) for k, v in _table()["costs"].items()}
+    pinned = test_shard.pins()
+    load = test_shard.shard_costs(costs, pinned.count, pinned)
+    mean = sum(load.values()) / len(load)
+    assert all(abs(v - mean) <= 0.1 * mean for v in load.values()), load
+
+
+def test_a_pinned_file_goes_to_its_pin_and_every_other_keeps_the_hash() -> None:
+    pinned = test_shard.Pins(8, {"tests/unit/test_a.py": 7})
+    assert test_shard.owner("tests/unit/test_a.py", 8, pinned) == 7
+    assert test_shard.owner("tests\\unit\\test_a.py", 8, pinned) == 7
+    assert test_shard.owner("tests/unit/test_a.py", 6, pinned) == test_shard.shard_of("tests/unit/test_a.py", 6)
+    assert test_shard.owner("tests/unit/test_b.py", 8, pinned) == test_shard.shard_of("tests/unit/test_b.py", 8)
+    ids = ["tests/unit/test_a.py::test_x", "tests/unit/test_b.py::test_y"]
+    assert test_shard.keep(ids, Shard(7, 8), pinned) == ["tests/unit/test_a.py::test_x"]
+
+
+def test_a_new_file_moves_no_pinned_or_hashed_file() -> None:
+    files = _test_files()
+    before = {f: test_shard.owner(f, 8) for f in files}
+    after = {f: test_shard.owner(f, 8) for f in [*files, "tests/unit/test_brand_new_card.py"]}
+    assert all(after[f] == s for f, s in before.items())
+
+
+def test_the_plan_is_deterministic_and_places_the_costliest_first() -> None:
+    costs = {"a": 10.0, "b": 9.0, "c": 1.0, "d": 1.0, "e": 8.0}
+    first = test_shard.plan(costs, 2, 3)
+    assert first == test_shard.plan(dict(reversed(list(costs.items()))), 2, 3)
+    assert set(first) == {"a", "b", "e"}
+    load = test_shard.shard_costs(costs, 2, test_shard.Pins(2, first))
+    assert max(load.values()) - min(load.values()) <= 10.0
+
+
+def test_the_cli_prints_the_plan(capsys: pytest.CaptureFixture[str]) -> None:
+    assert test_shard.main(["plan", str(COSTS)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert {k: v["shard"] for k, v in out["files"].items()} == dict(test_shard.pins().files)
+
+
+def test_the_measured_table_is_not_older_than_the_suite_by_more_than_a_quarter() -> None:
+    """D-564: measure again when the suite changes. A tree with a quarter more test files than the table was measured
+    on fails here: measure the shards again (their --durations) and re-plan."""
+    assert len(_test_files()) <= 1.25 * _table()["tree_files"]

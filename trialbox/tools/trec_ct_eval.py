@@ -16,7 +16,9 @@ Error bounds: Wilson 95 % intervals on pair rates, plus a patient-cluster bootst
 independent), seeded. Labels are NIST assessor judgements on the trial as a whole, not per criterion.
 
     python -m tools.trec_ct_eval fetch                          # NIST topics + qrels, NCBI corpus, CT.gov fields
-    OPENROUTER_API_KEY=... python -m tools.trec_ct_eval run --models openai/gpt-oss-120b google/gemma-4-26b-a4b-it
+    read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+    python -m tools.trec_ct_eval run --models openai/gpt-oss-120b google/gemma-4-26b-a4b-it
+    unset OPENROUTER_API_KEY
     python -m tools.trec_ct_eval score                          # -> eval/trec_ct/results/scores.json
 
 Data stays in ``.cache/trec_ct`` (never committed); model answers are cached by request hash and the per-criterion

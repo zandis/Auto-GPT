@@ -25,7 +25,17 @@ without the anchor all fail; ``verify(..., anchor=...)`` also checks an anchor k
 ``HEAD.json``), which catches a rewrite that rewrote this file too. A writer that finds the chain and the anchor apart
 refuses to write (:class:`AuditAnchorBroken`) until a person looks and runs ``tools/audit_verify.py --reanchor``,
 which records the gap in the chain. A chain made before the anchor existed is adopted by its next write, with an
-``audit.anchored`` event. The anchor is not keyed; the signed heads below are (T-211a).
+``audit.anchored`` event; a chain that holds a signed head is not (R22-36: its anchor existed, so its loss may hide
+removed events), and ``verify`` fails an adoption that follows a signed head until a person has re-anchored. The
+anchor is not keyed; the signed heads below are (T-211a).
+
+**The anchor is held to the signed heads on the box** (R22-36). The writer and ``verify`` read the anchor folders this
+process is given (``TB_AUDIT_ANCHOR_TARGETS``): the chain must still hold the event of every signed head there, with
+its hash, whatever ``HEAD.json`` says. So a chain cut below a signed head is refused even when the head anchor was
+written again to match the cut, and a chain with no head anchor is never adopted while a folder holds a signed head.
+What this does not cover: the events after the newest signed head (a cut there with a rewritten ``HEAD.json`` passes
+until a head kept off the box says otherwise, so sign often and keep the folder off the box), a process that can also
+write the anchor folders, and a writer that is not given the folders (the nightly ``trialbox audit-sign`` checks there).
 
 **Signed heads and off-box anchors** (T-211a, D-355, register CR-042): :meth:`AuditLog.sign_head` signs where the
 chain stands (event count and last hash) with the site's Ed25519 audit key (``audit_sign.key`` in the secrets folder,
@@ -238,6 +248,81 @@ def _count_lines(files: list[Path]) -> int:
     return n
 
 
+def _hash_at(files: list[Path], lines: int, n: int) -> str | None:
+    """The hash of event ``n`` of a chain of ``lines`` events, read back from its end; None when it is not there."""
+    if n == 0:
+        return GENESIS
+    back = lines - n
+    if back < 0:
+        return None
+    for path in reversed(files):
+        for raw in lines_backward(path):
+            if not raw.strip():
+                continue
+            if back:
+                back -= 1
+                continue
+            try:
+                return str(json.loads(raw)["hash"])
+            except (ValueError, KeyError, TypeError):
+                return None
+    return None
+
+
+_NEWEST: dict[str, tuple[int, tuple[int, str, str] | None]] = {}  # heads folder -> (its mtime, its newest head)
+_HELD: dict[str, tuple[int, str, int, str]] = {}  # audit folder -> (signed event, its hash, chain length, chain end)
+
+
+def _newest_in(folder: Path) -> tuple[int, str, str] | None:
+    """The signed head over the most events in one ``heads`` folder: ``(event, hash, file)``. Read again only when
+    the folder changed. A file that is not a head record is passed over here (``verify`` with heads reports it)."""
+    try:
+        stamp = folder.stat().st_mtime_ns
+    except OSError:
+        return None
+    seen = _NEWEST.get(str(folder))
+    if seen is not None and seen[0] == stamp:
+        return seen[1]
+    found: tuple[int, str, str] | None = None
+    for path in sorted(folder.glob("*.json"), key=lambda p: p.stem.rsplit("-", 1)[-1], reverse=True):
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(rec, dict) and isinstance(rec.get("lines"), int) and isinstance(rec.get("hash"), str):
+            if found is None or rec["lines"] > found[0]:
+                found = (int(rec["lines"]), str(rec["hash"]), str(path))
+            if path.stem.rsplit("-", 1)[-1].isdigit():
+                break  # the names carry the event number: the first well-formed one is the newest
+    if len(_NEWEST) > 64:
+        _NEWEST.clear()
+    _NEWEST[str(folder)] = (stamp, found)
+    return found
+
+
+def newest_box_head(env: Mapping[str, str] | None = None) -> tuple[int, str, str] | None:
+    """R22-36: the signed head over the most events in the anchor folders this process is given, or None."""
+    best: tuple[int, str, str] | None = None
+    for target in anchor_targets(env):
+        got = _newest_in(target / _HEADS_DIR)
+        if got is not None and (best is None or got[0] > best[0]):
+            best = got
+    return best
+
+
+def box_heads(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
+    """R22-36: every well-formed signed head in the anchor folders this process is given."""
+    out: list[dict[str, Any]] = []
+    for target in anchor_targets(env):
+        if (target / _HEADS_DIR).is_dir():
+            out += [h for h in read_signed_heads(target)
+                    if isinstance(h.get("lines"), int) and isinstance(h.get("hash"), str)]  # fmt: skip
+    return out
+
+
+RUNBOOK_WAITS = 'docs/runbook/05-updates-backup-restore-secrets.md, "The audit chain waits for a person"'
+
+
 class AuditLog:
     """Writer for the audit chain in ``directory``."""
 
@@ -362,18 +447,76 @@ class AuditLog:
             head = read_head(self.directory)
         except (ValueError, UnicodeDecodeError) as exc:
             raise AuditAnchorBroken(f"the audit head anchor cannot be read ({exc}): run tools/audit_verify.py") from exc
+        newest = newest_box_head()
         if head is None:
-            return (0 if chain_hash == GENESIS else None), chain_hash
+            if newest is not None and newest[0] > 0:
+                # R22-36: the anchor folder says this chain was signed at an event; a chain with no head anchor (cut
+                # at or below the signed head with the anchor removed, or emptied) is never adopted by a write
+                raise AuditAnchorBroken(
+                    f"the audit chain has no head anchor, but {newest[2]} is a signed head of it (event {newest[0]}): "
+                    "events may have been removed with the anchor. Nothing is written until a person has looked "
+                    f"(tools/audit_verify.py --heads, then --reanchor; {RUNBOOK_WAITS})"
+                )
+            if chain_hash == GENESIS:
+                return 0, chain_hash
+            # R22-36: a chain that holds a signed head always had its anchor; without it, the events after the last
+            # signed head may have been removed with it. Adopted only by a person (--reanchor), never by a write
+            for path in reversed(files):
+                for raw in lines_backward(path):
+                    if f'"event":"{SIGNED_EVENT}"'.encode() not in raw:
+                        continue
+                    try:
+                        signed = json.loads(raw).get("event") == SIGNED_EVENT
+                    except (ValueError, AttributeError):
+                        signed = False
+                    if signed:
+                        raise AuditAnchorBroken(
+                            f"the audit chain has no head anchor, but it holds a signed head ({SIGNED_EVENT}): events "
+                            "after it may have been removed with the anchor. Nothing is written until a person has "
+                            f"looked (tools/audit_verify.py --heads, then --reanchor; {RUNBOOK_WAITS})"
+                        )
+            return None, chain_hash
         if head["hash"] == chain_hash:
-            return int(head["lines"]), chain_hash
-        last = self._last_record(files)
-        if last is not None and last.get("prev_hash") == head["hash"]:
-            return int(head["lines"]) + 1, chain_hash  # the line was written, the anchor not yet (crash)
-        raise AuditAnchorBroken(
-            f"the audit chain ends at {chain_hash[:16]}, its head anchor says {head['hash'][:16]} after "
-            f"{head['lines']} events: events were dropped or rewritten. Nothing is written until a person has looked "
-            "(tools/audit_verify.py, then --reanchor)"
-        )
+            lines = int(head["lines"])
+        else:
+            last = self._last_record(files)
+            if last is None or last.get("prev_hash") != head["hash"]:
+                raise AuditAnchorBroken(
+                    f"the audit chain ends at {chain_hash[:16]}, its head anchor says {head['hash'][:16]} after "
+                    f"{head['lines']} events: events were dropped or rewritten. Nothing is written until a person has "
+                    "looked (tools/audit_verify.py, then --reanchor)"
+                )
+            lines = int(head["lines"]) + 1  # the line was written, the anchor not yet (crash)
+        if newest is not None:
+            self._held_to(files, lines, chain_hash, newest)
+        return lines, chain_hash
+
+    def _held_to(self, files: list[Path], lines: int, chain_hash: str, newest: tuple[int, str, str]) -> None:
+        """R22-36: the newest signed head on the box must be this chain's end or an event before it, whatever the
+        head anchor says (the anchor is not keyed; whoever cut the chain can write it again). What was shown once is
+        kept, so the next write reads back only the events written since."""
+        n, signed_hash, where = newest
+        key = str(self.directory)
+        held = _HELD.get(key)
+        if held is not None and held[:2] == (n, signed_hash) and _hash_at(files, lines, held[2]) == held[3]:
+            _HELD[key] = (n, signed_hash, lines, chain_hash)
+            return
+        _HELD.pop(key, None)
+        if n > lines:
+            raise AuditAnchorBroken(
+                f"the audit chain has {lines} events, but {where} is a signed head over event {n}: events were "
+                "removed after it was signed, and the head anchor was written to match. Nothing is written until a "
+                f"person has looked (tools/audit_verify.py --heads; {RUNBOOK_WAITS})"
+            )
+        if _hash_at(files, lines, n) != signed_hash:
+            raise AuditAnchorBroken(
+                f"event {n} of the audit chain does not have the hash of the signed head {where}: the chain was cut "
+                "below it or rewritten, and the head anchor was written to match. Nothing is written until a person "
+                f"has looked (tools/audit_verify.py --heads; {RUNBOOK_WAITS})"
+            )
+        if len(_HELD) > 64:
+            _HELD.clear()
+        _HELD[key] = (n, signed_hash, lines, chain_hash)
 
     def append(self, event: str, *, ts: datetime | None = None, **fields: Any) -> dict[str, Any]:
         """Append one event; unknown keyword fields go into ``detail``. Returns the written record."""
@@ -508,11 +651,16 @@ def verify(
     res = VerifyResult(ok=True)
     prev = GENESIS
     want = int(anchor["lines"]) if anchor else -1
-    wanted: set[int] = {int(h["lines"]) for h in signed_heads or () if isinstance(h.get("lines"), int)}
+    # R22-36: with no heads given, the signed heads in the anchor folders this process sees are still held to (their
+    # event and hash; the signatures are checked when ``signed_heads`` is given)
+    on_box: list[dict[str, Any]] = box_heads() if signed_heads is None else []
+    wanted: set[int] = {int(h["lines"]) for h in [*(signed_heads or ()), *on_box] if isinstance(h.get("lines"), int)}
     at: dict[int, str] = {0: GENESIS} if 0 in wanted else {}
     rotations: list[tuple[int, dict[str, Any]]] = []
     at_anchor: str | None = GENESIS if want == 0 else None
     last_prev: str | None = None
+    signed_at = 0  # R22-36: the chain's last audit.head_signed event so far
+    adopted: list[tuple[str, int, int]] = []  # audit.anchored events not yet looked at by a person: where, n, signed_at
     for path in _day_files(directory):
         res.files += 1
         with path.open(encoding="utf-8") as fh:
@@ -538,6 +686,12 @@ def verify(
                     res.errors.append(f"{path.name}:{lineno}: hash mismatch")
                 if rec.get("event") in ("audit.anchored", "audit.reanchored"):
                     res.notes.append(f"{path.name}:{lineno}: {rec.get('event')} {canonical(rec.get('detail') or {})}")
+                if rec.get("event") == SIGNED_EVENT:
+                    signed_at = res.lines
+                elif rec.get("event") == "audit.anchored":
+                    adopted.append((f"{path.name}:{lineno}", res.lines, signed_at))
+                elif rec.get("event") == "audit.reanchored":
+                    adopted.clear()  # a person has looked (tools/audit_verify.py --reanchor)
                 if rec.get("event") == ROTATED_EVENT and rec.get("journal") is not None:
                     # NEW-SEC-2 (D-718): the chain's writer records a rotation itself; one that came through the
                     # journal was sent by a service (a chain written before the drain refused the name)
@@ -553,6 +707,27 @@ def verify(
                 if res.lines in wanted:
                     at[res.lines] = prev
     res.last_hash = prev
+    for place, n, signed_before in adopted:
+        # R22-36: adopting a chain without its anchor is for a chain from before D-272; after a signed head (the
+        # chain's own event, or one in an anchor folder) the anchor existed, and its loss is what a removal looks like
+        earlier = max([signed_before, *(k for k in wanted if k < n)])
+        if signed_before or any(k < n for k in wanted):
+            res.errors.append(
+                f"{place}: audit.anchored after a signed head (event {earlier}): the head anchor was missing, so "
+                "events after the signed head may have been removed with it; a person must look "
+                f"(tools/audit_verify.py --heads, then --reanchor; {RUNBOOK_WAITS})"
+            )
+    for h in sorted(on_box, key=lambda h: int(h["lines"]), reverse=True):
+        n = int(h["lines"])
+        if n > res.lines:
+            why = f"the chain has only {res.lines} events: events were removed after it was signed"
+        elif at.get(n) != h["hash"]:
+            why = f"event {n} does not have its hash: the chain was cut below it or rewritten"
+        else:
+            continue
+        res.errors.append(f"signed head on the box (event {n}): {why}, whatever the head anchor says "
+                          f"(tools/audit_verify.py --heads; {RUNBOOK_WAITS})")  # fmt: skip
+        break  # the newest one that fails says it; --heads lists every one
     try:
         res.head = read_head(directory)
     except (ValueError, UnicodeDecodeError) as exc:
@@ -582,6 +757,17 @@ def verify(
         _check_signed_heads(res, signed_heads, dict(trusted_keys or {}), at, rotations)
     res.ok = not res.errors
     return res
+
+
+def waits_for_a_person(directory: Path) -> str | None:
+    """R22-36: why this chain waits for a person, or None. Two states: a writer before R22-36 adopted the chain
+    without its head anchor after a signed head (``audit.anchored``; the way out is ``--reanchor``), or the chain no
+    longer holds a signed head that an anchor folder holds. Until then nothing is signed or archived."""
+    marks = ("audit.anchored after a signed head", "signed head on the box")
+    for err in verify(directory, require_head=False).errors:
+        if any(m in err for m in marks):
+            return err
+    return None
 
 
 # ------------------------------------------------------------------------------------------------ signed heads (T-211a)

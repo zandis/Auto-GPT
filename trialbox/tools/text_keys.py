@@ -19,7 +19,11 @@ written, so the loser of an override is seen too, and fails on:
   checked member by member (``FAMILIES``: every value the code can produce has its key) nor listed in
   ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix);
 * **a refused spelling** of one of the twenty core words (``tools.core_words``, ``services/console/core_words.yaml``;
-  it also reads the job mails, the report titles and the refusal sentences, ``core_words.SERVICE_CATALOGUES``).
+  it also reads the job mails, the report titles and the refusal sentences, ``core_words.SERVICE_CATALOGUES``);
+* **ja or zh-TW apart from en** (R22-54), in the served catalogue and in each service catalogue: a key one language
+  lacks (``lookup`` would show English without a word) or has alone, a ``str.format`` placeholder set that is not the
+  English text's (``translate`` would raise on that language's page only), and a Simplified-only character in zh-TW
+  (``SIMPLIFIED_ONLY``, a tripwire; a quoted Japanese term is listed in ``QUOTED_JAPANESE`` with its reason).
 
 It also checks the live preflight's texts (``tb_common.preflight``, :func:`preflight_problems`): the host's
 ``python3`` prints them, so they are not in the console's catalogue, and each is checked in all three languages.
@@ -38,9 +42,10 @@ from __future__ import annotations
 import ast
 import importlib
 import re
+import string
 import sys
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -767,6 +772,114 @@ UNCHECKED_FAMILIES: dict[str, str] = {
 }
 
 
+# ------------------------------------------------------------------ ja and zh-TW against en (R22-54)
+#: A tripwire, not a dictionary: common Simplified-only characters, each with a distinct Traditional form (个 個,
+#: 们 們, 条 條 ...). A zh-TW text holding one was most likely typed or converted in Simplified. A character that is
+#: also Traditional, even rarely (涉, 才, 里, 后, 干, 台, 价, 适 ...), is left out on purpose. Several (会, 医,
+#: 国, 学 ...) are Japanese too: a zh-TW text that quotes a Japanese term on purpose is in ``QUOTED_JAPANESE``.
+SIMPLIFIED_ONLY = (
+    "们这说时国会对发经机关东车门问间现进还没过样无应实开长见电话认让给从请虽么个为与专业两严举义乐习书买产亲众优传写"
+    "军农决况处则创删别办务动劳区医华单卖历压县参变号吗听启员团园围图场坏块声备复学宝审导层属岁师带帮广库废张归录总惊"
+    "态战扩护报择换据损数断旧显术杀杂权条来极构标检楼欢气济浓温点热状环画疗监码确礼离种称积稳签简类级纪约纸线练组细织"
+    "终结络统继续维编网职联脑药获营补装观规视览觉计订讨训议记讲许论设访证评识诊词译试询该详语误读课谁调谈质负责账货购"
+    "费资转轮轻载较边达运远违连迟选递遗邮释钟钱错键闭阅队阶际险随难须项顺预领频题验龄"
+)
+#: zh-TW texts that quote a Japanese term on purpose: the key, the term (masked before the Simplified check, so its
+#: other words are still checked) and why. A term the text no longer quotes is a problem: the exception is stale.
+QUOTED_JAPANESE: dict[str, tuple[str, str]] = {
+    "cmt.committee.ethics": (
+        "倫理審査委員会",
+        "the Japanese name of the ethics committee, quoted beside the Chinese one",
+    ),
+    "cmt.committee.irb": ("治験審査委員会", "the Japanese name of the IRB under J-GCP, quoted as the site uses it"),
+    "cmt.permission_is.chiken": ("実施医療機関", "the J-GCP term for the trial site, quoted in Japanese"),
+    "cmt.permission_is.tokutei": ("実施医療機関", "the Clinical Trials Act term for the site, quoted in Japanese"),
+    "sae.set.jp_gcp_ii": ("医師主導治験", "the Japanese name of an investigator-initiated trial (J-GCP)"),
+    "sae.set.jp_guideline": ("生命・医学系指針", "the short Japanese name of the life-science and medical guideline"),
+}
+#: keys a catalogue holds in ja and zh-TW only, by design, and why
+ONLY_TRANSLATED: dict[str, str] = {
+    "UNTRANSLATED": "refusals.py: the ja and zh-TW words for a refusal with no translation; in en the refusal stands",
+}
+
+
+def _placeholders(text: str) -> set[str]:
+    """The ``str.format`` field names of ``text`` (``{{`` and ``}}`` are text); ValueError when it is no format text."""
+    return {name for _, name, _, _ in string.Formatter().parse(text) if name is not None}
+
+
+def _shown(names: Iterable[str]) -> str:
+    return " ".join(f"{{{n}}}" for n in sorted(names)) or "none"
+
+
+def parity_problems(
+    cats: Mapping[str, Mapping[str, str]], source: str, where: Mapping[tuple[str, str], str] | None = None
+) -> list[str]:
+    """One catalogue's ja and zh-TW against its en: a key one language lacks or has alone, a placeholder set that is
+    not the English text's, and a Simplified-only character in zh-TW. ``where`` names a definition's place by (lang,
+    key); else ``source``."""
+    where = where or {}
+
+    def at(lang: str, key: str) -> str:
+        return where.get((lang, key)) or where.get(("en", key)) or source
+
+    en = cats.get("en", {})
+    out: list[str] = []
+    for lang in LANGS[1:]:
+        other = cats.get(lang, {})
+        out += [f"{lang} {k}: in en, missing in {lang} ({at('en', k)})" for k in sorted(set(en) - set(other))]
+        out += [
+            f"{lang} {k}: in {lang}, missing in en ({at(lang, k)})"
+            for k in sorted(set(other) - set(en))
+            if k not in ONLY_TRANSLATED
+        ]
+        for k in sorted(set(en) & set(other)):
+            try:
+                want = _placeholders(en[k])
+            except ValueError:
+                continue  # the English text is the reference; it is no format text, so nothing formats this key
+            try:
+                got = _placeholders(other[k])
+            except ValueError as e:
+                out.append(f"{lang} {k}: not a format text ({e}; {at(lang, k)})")
+                continue
+            if got != want:
+                out.append(f"{lang} {k}: placeholders {_shown(got)} differ from en's {_shown(want)} ({at(lang, k)})")
+    for k, text in sorted(cats.get("zh-TW", {}).items()):
+        if k in QUOTED_JAPANESE:
+            term = QUOTED_JAPANESE[k][0]
+            if term not in text:
+                out.append(
+                    f"zh-TW {k}: QUOTED_JAPANESE lists {term}, which the text no longer quotes ({at('zh-TW', k)})"
+                )
+            text = text.replace(term, "")
+        bad = sorted({c for c in text if c in SIMPLIFIED_ONLY})
+        if bad:
+            out.append(f"zh-TW {k}: Simplified-only character(s) {''.join(bad)} ({at('zh-TW', k)})")
+    return out
+
+
+def language_problems(
+    defs: Iterable[Definition] | None = None, served: dict[str, dict[str, str]] | None = None
+) -> list[str]:
+    """:func:`parity_problems` of the served console catalogue (each named with its definition's place) and of each
+    of the service catalogues ``tools.core_words`` reads (``SERVICE_CATALOGUES``)."""
+    from tools import core_words
+
+    served = served if served is not None else served_catalogue()
+    defs = list(defs) if defs is not None else definitions(served)
+    out = parity_problems(served, "the served catalogue", {(d.lang, d.key): d.where for d in defs})
+    by: dict[str, dict[str, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
+    places: dict[tuple[str, str], str] = {}
+    for s in core_words.service_texts():
+        module = s.where.split(":")[0]
+        by[module][s.lang][s.key] = s.text
+        places[(s.lang, s.key)] = s.where
+    for module in core_words.SERVICE_CATALOGUES:
+        out += parity_problems(by[module], module, {lk: w for lk, w in places.items() if w.startswith(module + ":")})
+    return out
+
+
 def problems() -> list[str]:
     served = served_catalogue()
     defs, dynamic = read_definitions(served)
@@ -798,6 +911,7 @@ def problems() -> list[str]:
     from tools import core_words  # 9k-16 (D-1371): a core word has one spelling per language
 
     out += core_words.problems(defs)
+    out += language_problems(defs, served)  # R22-54: ja and zh-TW against en
     return out + preflight_problems()
 
 

@@ -274,6 +274,26 @@ def _keep_service_token() -> Iterator[None]:
             os.environ[n] = v
 
 
+@pytest.fixture(autouse=True)
+def _logging_left_on(request: pytest.FixtureRequest) -> Iterator[None]:
+    """9i-1: ``logging.disable`` is process-wide. A tool's ``main`` run in the test's process (backup_drill,
+    e2e_simple, complete_run, update_drill, demo) that left it at INFO made every later test of a request line in
+    that worker see no line (tests/unit/test_access_log_route.py, the nightly's random order). The level is given
+    back after each test, and the test that changed it fails, by name."""
+    import logging
+
+    before = logging.root.manager.disable
+    yield
+    after = logging.root.manager.disable
+    if after != before:
+        logging.disable(before)
+        pytest.fail(
+            f"{request.node.nodeid} left logging.disable at {after} (it found {before}): the code it ran must give "
+            "the level back (try/finally)",
+            pytrace=False,
+        )
+
+
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for key in list(os.environ):

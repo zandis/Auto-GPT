@@ -15,9 +15,11 @@ domain notice, `eval/criterion_ml/LICENSE.NCBI`).
 15 of the 1,015 annotated criteria are not in `trial_info.json` word for word; both sides are scored on the other 1,000.
 
 ```bash
+read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
 python -m tools.trialgpt_compare fetch
-OPENROUTER_API_KEY=... python -m tools.trialgpt_compare run --models openai/gpt-oss-120b google/gemma-4-26b-a4b-it --langs en ja zh-TW
+python -m tools.trialgpt_compare run --models openai/gpt-oss-120b google/gemma-4-26b-a4b-it --langs en ja zh-TW
 python -m tools.trialgpt_compare score   # writes results/scores.json
+unset OPENROUTER_API_KEY
 ```
 
 `results/raw/*.jsonl.gz` holds every model answer of the 2026-10-25 run (OpenRouter, temperature 0, thinking off where

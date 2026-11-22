@@ -35,6 +35,12 @@ done
 KEK_BACKEND=tpm; KEK_SHARES_OUT=""
 [ -f "$CONF" ] && hb_load_conf "$CONF"
 [ -n "${TB_KEK_BACKEND:-}" ] && KEK_BACKEND="$TB_KEK_BACKEND"
+# review 2 of #1305 (L-2): the image fallback reads the passphrase as one line, the host's python3 as the whole value.
+# A passphrase with a line break or another control character would be sealed under two different values: refused
+# here, before anything is made or sealed (the value is never printed)
+case "${TB_KEK_PASSPHRASE:-}" in
+  *[[:cntrl:]]*) hb_die "TB_KEK_PASSPHRASE holds a line break or another control character: type it again on one line (RUNBOOK §16); nothing was sealed" ;;
+esac
 # what a host that cannot seal with its TPM does instead (a fresh box has no hardening.conf)
 NO_TPM_FIX="on a host without a usable TPM 2.0 run the installer with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (12 characters or more; no hardening.conf needed)"
 RUN_DIR="$HR/run/trialbox"
@@ -47,9 +53,12 @@ tool() {  # tool MODULE ARGS...: the host's python3 when it can, else the image'
   if python3 -c "import cryptography" 2>/dev/null; then
     (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m "$mod" "$@")
   else
-    # the folders keep their host paths inside the container
-    docker run --rm --network none --user 0:0 -e TB_KEK_PASSPHRASE -e TB_KEK_FILE -e TB_ENV -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" \
-      ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} "${TB_IMAGE:-trialbox-py:1.0.0}" python -m "$mod" "$@"
+    # the folders keep their host paths inside the container. The passphrase goes through the container's stdin (a
+    # pipe; printf is the shell's builtin), never -e: Docker keeps a container's environment in its config on disk
+    printf '%s\n' "${TB_KEK_PASSPHRASE:-}" | docker run --rm -i --network none --user 0:0 -e TB_KEK_FILE -e TB_ENV \
+      -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} \
+      "${TB_IMAGE:-trialbox-py:1.0.0}" sh -c 'IFS= read -r p || :; [ -z "$p" ] || { TB_KEK_PASSPHRASE=$p; export TB_KEK_PASSPHRASE; }; unset p; exec "$@" </dev/null' \
+      sh python -m "$mod" "$@"
   fi
 }
 keys() { tool tools.keys "$@"; }

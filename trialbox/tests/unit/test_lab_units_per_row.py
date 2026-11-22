@@ -245,16 +245,19 @@ def test_umol_creatinine_through_csv_has_no_value(tmp_path: Path) -> None:
 def _oml(root: Path, order: str, jlac: str, name: str, value: str, unit: str) -> None:
     d = storage_dir(root, "12345678", "20261001", "OML-11")
     d.mkdir(parents=True, exist_ok=True)
-    msg = "\r".join(
-        [
-            "MSH|^~\\&|HIS||TB||20261001||OUL^R22|1|P|2.5||||||~ISO IR87",
-            "PID|||12345678^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
-            f"OBR|1|{order}",
-            f"OBX|1|NM|{jlac}^{name}^JC10||{hl7.escape(value)}|{hl7.escape(unit)}||||||||20261001090000"
-            + "|" * 7
-            + order,
-        ]
-    )
+    msg = (
+        "\r".join(
+            [
+                "MSH|^~\\&|HIS||TB||20261001||OUL^R22|1|P|2.5||||||~ISO IR87",
+                "PID|||12345678^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+                f"OBR|1|{order}",
+                f"OBX|1|NM|{jlac}^{name}^JC10||{hl7.escape(value)}|{hl7.escape(unit)}||||||||20261001090000"
+                + "|" * 7
+                + order,
+            ]
+        )
+        + "\r"
+    )  # every segment ended by CR, the last one too (R22-44)
     (d / f"12345678_20261001_OML-11_{order}_20261001000000000_-_1").write_bytes(msg.encode("iso2022_jp"))
 
 
