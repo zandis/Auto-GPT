@@ -4,6 +4,7 @@
 #   sudo deploy/install.sh trialbox-<version>.tar --tier small|medium|large [--answers site.yaml] [--yes]
 #   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--gpu rtxpro6000|gb10|rtx5090|rtx4090] [--yes]
 #        [--environment DEV|TEST|VALIDATION|PRODUCTION]   (D-837; default PRODUCTION, D-127)
+#        [--ssh-off-over-ssh]   (H-70: run over SSH, hardening.conf's SSH=off is refused unless this is given)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
@@ -64,7 +65,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ENVIRONMENT=""
+ENVIRONMENT=""; SSH_OFF_OVER_SSH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -78,6 +79,7 @@ while [ $# -gt 0 ]; do
     --check) CHECK=1 ;;
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
+    --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
     -h|--help) sed -n 2,40p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
@@ -191,6 +193,14 @@ elif [ "$TIER_CHECK" = 1 ]; then
 fi
 [ -n "$BUNDLE" ] || die "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]"
 [ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"
+# H-70: the host baseline near the end (deploy/hardening/apply.sh) refuses SSH=off from an SSH session; ask it now,
+# when it will run (root, deploy/site/hardening.conf), so an install over SSH stops before anything is loaded or written.
+# --ssh-off-over-ssh (or TB_SSH_OFF_OVER_SSH=yes, which sudo may drop) goes ahead, and is handed on to apply.sh
+HB_OVER=(); [ "$SSH_OFF_OVER_SSH" = 1 ] && HB_OVER=(--ssh-off-over-ssh)
+if [ "$(id -u)" = 0 ] && [ -f "$ROOT/deploy/site/hardening.conf" ]; then
+  sh "$ROOT/deploy/hardening/apply.sh" --conf "$ROOT/deploy/site/hardening.conf" ${HB_OVER[@]+"${HB_OVER[@]}"} check \
+    || die "the host baseline would cut this SSH session (above): nothing was loaded or written"
+fi
 
 # ------------------------------------------------------------------------------------------------ 1. host
 say "host"
@@ -820,7 +830,7 @@ fi
 # deploy/site/hardening.conf; without it a VALIDATION or PRODUCTION box fails the host check at the end
 if [ "$(id -u)" = 0 ] && [ -f "$HB_CONF" ]; then
   say "host baseline: input firewall and SSH (deploy/hardening/apply.sh)"
-  sh deploy/hardening/apply.sh --conf "$HB_CONF" all || die "the host baseline could not be applied (above)"
+  sh deploy/hardening/apply.sh --conf "$HB_CONF" ${HB_OVER[@]+"${HB_OVER[@]}"} all || die "the host baseline could not be applied (above)"
 elif [ ! -f "$HB_CONF" ]; then
   echo "install: warning: no deploy/site/hardening.conf (the clinic ranges, SSH, the KEK back end): copy deploy/hardening/hardening.example.conf, fill it in with hospital IT, re-run" >&2
 fi

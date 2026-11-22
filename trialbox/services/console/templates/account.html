@@ -1,7 +1,13 @@
 {% extends "base.html" %}
-{% block title %}{{ t('account.title') }}{% endblock %}
+{# 10F-1 (D-1387): the page header macro (D-1380) and the preferences form on the field macro (9k-6a, D-1376) #}
+{% import "_fields.html" as fm with context %}
+{% from "_ds.html" import page_header %}
+{# the tab's <title> says "Error:" after a failed POST (base.html reads this page_title); the heading never does #}
+{% set page_title = fm.title(fe, t('account.title')) %}
+{% from "_roles.html" import role_items with context %}
 {% block content %}
-<h1>{{ t('account.title') }}</h1>
+{{ fm.error_summary(fe, testid='prefs-error') }}
+{% set page_title = t('account.title') %}{{ page_header(page_title) }}
 {% if saved %}<p class="ok" role="status" data-testid="account-saved">{{ t('account.saved') }}</p>{% endif %}
 {% if error %}<p class="error" role="alert" data-testid="account-error">{{ t(error) }}</p>{% endif %}
 {# D-279 (SEC-1): a password someone else set is replaced before anything else #}
@@ -17,13 +23,23 @@
   <dt>{{ t('account.mailbox') }}</dt><dd>{{ me.mailbox or '–' }}</dd>
 </dl>
 </section>
-<section class="card">
-  <h2>{{ t('account.lang') }}</h2>
-  <form method="post" action="/lang" class="row">
-    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="/account">
-    <label class="sr" for="acc-lang">{{ t('lang.label') }}</label>
-    <select id="acc-lang" name="lang">{% for l in langs %}<option value="{{ l }}" lang="{{ l }}" {{ 'selected' if l == lang else '' }}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>
-    <button type="submit" data-testid="account-lang">{{ t('lang.apply') }}</button>
+<section class="card" data-testid="account-roles">
+  <h2>{{ t('team.mine.title') }}</h2>
+  <p class="hint">{{ t('team.mine.help') }}</p>
+  {% if my_roles %}{{ role_items(my_roles) }}
+  {% else %}<p class="empty" data-testid="account-roles-none">{{ t('team.mine.none') }}</p>{% endif %}
+</section>
+<section class="card" id="prefs" data-testid="account-prefs">
+  <h2>{{ t('pref.title') }}</h2>
+  <p class="hint">{{ t('pref.help') }}</p>
+  <p class="hint" data-testid="prefs-lang-rule">{{ t('pref.lang.rule') }}</p>
+  {% if saved_prefs %}<p class="ok" role="status" data-testid="prefs-saved">{{ t('pref.saved') }}</p>{% endif %}
+  <form method="post" action="/account/prefs" data-testid="prefs-form" data-fields="prefs">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% for k in pref_labels %}{% set ns = namespace(opts=[]) %}{% for v, key in pref_options[k] %}{% set ns.opts = ns.opts + [(v, t(key))] %}{% endfor %}
+    {{ fm.field(fe, 'prefs', 'pref', k, t(pref_labels[k]), prefs[k], kind='select', options=ns.opts) }}
+    {% endfor %}
+    <button type="submit" class="secondary" data-testid="prefs-save">{{ t('pref.save') }}</button>
   </form>
   <p class="hint"><a href="/settings/notices">{{ tp('account.notice_settings') }}</a>{% if user.role in ('investigator', 'coordinator', 'admin') %} · <a href="/notices/received">{{ t('received.title') }}</a>{% endif %}</p>
 </section>

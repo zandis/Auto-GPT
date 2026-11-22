@@ -18,7 +18,7 @@ from __future__ import annotations
 import html
 import re
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -515,14 +515,22 @@ def test_with_the_flag_off_the_home_is_byte_for_byte_the_page_without_this_card(
 
     monkeypatch.setattr(jinja2.FileSystemLoader, "get_source", source)  # before any page is rendered
     _participant_with_saes(lb, 1)
+    # D-1264: the sign-in clock pinned, and one second passed between the sign-in and the page in the renders without
+    # the J-6 parts only, as on a loaded box: the idle warning's seconds left (D-1370) differ, nothing else may
+    at = [lb["users"].clock()]
+    monkeypatch.setattr(lb["users"], "clock", lambda: at[0])
     pages: dict[str, list[str]] = {"with": [], "without": []}
     for f in ("with", "without"):
         form[0] = f
         for lang in LANGS:
             crc, _ = login(lb["app"], "crc", PW)
             _lang(crc, lang)
-            pages[f].append(re.sub(r'name="csrf" value="[^"]+"', "", crc.get("/home").text))
-    assert all('data-testid="study-GZQO"' in p for p in pages["with"])  # the cards are rendered
+            at[0] += timedelta(seconds=1 if f == "without" else 0)
+            # the CSRF token, and the session's seconds left (D-1370), which the clock moves between two asks
+            live = r'name="csrf" value="[^"]+"|data-(?:idle|abs)-left="\d+"'
+            pages[f].append(re.sub(live, "", crc.get("/home").text))
+    # the cards are rendered, and the idle warning is on each page compared
+    assert all('data-testid="study-GZQO"' in p and 'id="idle-warn"' in p for p in pages["with"])
     assert pages["with"] == pages["without"]
     assert "{#J6#}" in (Path(__file__).parents[2] / "services/console/templates/home_crc.html").read_text("utf-8")
 

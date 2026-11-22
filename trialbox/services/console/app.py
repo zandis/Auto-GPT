@@ -66,6 +66,8 @@ from console import (
     person_state,
     phone,
     plain_menu,
+    prefs,  # 10F-1 (D-1387)
+    state_tone,  # 9k-4 (D-1380)
 )
 from console import actor as console_actor
 from console import timing as server_time
@@ -98,6 +100,7 @@ from console.identity import (
     secure_cookie_default,
 )
 from console.identity import register as register_identity
+from console.night_funnel import NIGHT_JOBS, night_card
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
 from console.timefmt import local_time, local_today, site_zone
@@ -567,6 +570,7 @@ def create_app(
     # D-776: the box's own public address for a one-time sign-in link (never the request's Host); "" when not set
     templates.env.globals["public_url"] = (_env_map(env).get("TB_CONSOLE_PUBLIC_URL") or "").strip().rstrip("/")
     templates.env.globals["BEST"] = BEST_STANDING
+    templates.env.globals["tone"] = state_tone.tone  # 9k-4 (D-1380): a badge's tone from one table
     templates.env.globals["theme_color"] = phone.THEME  # 9k-1 (D-1368): no colour in a page
     bk: Backend = backend
     au: AuditLog = audit
@@ -768,6 +772,7 @@ def create_app(
                 "/cmd",
                 "/account",
                 "/account/password",
+                "/account/prefs",  # 10F-1 (D-1387): the account's own look and language
                 "/help",
                 "/ask",
                 "/help/guide",
@@ -933,6 +938,8 @@ def create_app(
             # NEW-JRN-8 (D-772): a CRO account's monitor grants, read only by the pages that show them (the menu)
             "monitoring": _once(lambda: helpers.monitor_grants(sess.user) if sess and helpers.monitor_grants else []),
             "account_notices": _account_notices(sess, lang),  # D-719 (a): read once, on the next page
+            # 10F-1 (D-1387): the look the person chose (density, text size, colour mode), as data attributes on <html>
+            "ui_attrs": _once(lambda: prefs.html_attrs(us.prefs(sess.user.username)) if sess else {}),
             # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
             "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
@@ -1805,6 +1812,7 @@ def create_app(
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
             recheck=_recheck_share(job, sess, bg=grant is not None, read=budget_event),
             first_load=_first_load(job, sess, read=budget_event),
+            night=_night_funnel(job, sess),
             compile_answers=_compile_answers(job, recs_all) if reading else None,
             breakglass=grant,
         )
@@ -1882,6 +1890,11 @@ def create_app(
         if n > 0:
             out["nights"] = -(-waiting // n)
         return out
+
+    def _night_funnel(job: Job, sess: Session) -> dict[str, Any] | None:
+        """10E-12 (D-1259): the night's pre-filter funnel card (``console.night_funnel.night_card``: the gate, then
+        the night's jobs; ``NIGHT_JOBS`` of them at most)."""
+        return night_card(job, sess.user, helpers.admits_candidates, bk.list_jobs, NIGHT_JOBS)
 
     _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 

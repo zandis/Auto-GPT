@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/job.schema.json",
   "title": "Job",
-  "description": "A job record (SPEC 3.5). Schema version 1.1.0 (1.1.0: run_date).",
+  "description": "A job record (SPEC 3.5). Schema version 1.2.0 (1.1.0: run_date; 1.2.0: metrics.prefilter, D-1259).",
   "type": "object",
   "required": ["job_id", "type", "requested_by", "received_at", "state"],
   "additionalProperties": false,
@@ -79,7 +79,28 @@
         "step_seconds": {
           "description": "H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.",
           "anyOf": [{"type": "object", "additionalProperties": {"type": "number"}}, {"type": "null"}]
+        },
+        "prefilter": {
+          "description": "10E-12 (D-1259): a MICROBATCH job's pre-filter record, written when the job finishes: how many distinct patients the job had in scope and at which stage each left, each counted once at their last evaluation in the job. Counts only, never a patient id; the stages add up to in_scope. Optional: absent on other jobs.",
+          "anyOf": [{"$ref": "#/$defs/prefilter_record"}, {"type": "null"}]
         }
+      }
+    },
+    "prefilter_record": {
+      "title": "PrefilterRecord",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "in_scope", "opted_out", "not_due", "carried", "coded_excluded", "no_model", "model_not_listed", "listed"],
+      "properties": {
+        "trigger": {"type": "string", "enum": ["weekly", "ingest"]},
+        "in_scope": {"type": "integer", "minimum": 0},
+        "opted_out": {"type": "integer", "minimum": 0, "description": "on the opt-out register, refused research use or contact, or not at the index date (not in the snapshot, deceased or not yet born)"},
+        "not_due": {"type": "integer", "minimum": 0, "description": "in scope, not looked at by this run by its cadence (no visit in the window, nothing to re-check, already screened)"},
+        "carried": {"type": "integer", "minimum": 0, "description": "due and left by the night budget for a later run"},
+        "coded_excluded": {"type": "integer", "minimum": 0, "description": "evaluated; a criterion the coded records decide was not met"},
+        "no_model": {"type": "integer", "minimum": 0, "description": "evaluated, past the coded filter, not listed, and the model read no note for them"},
+        "model_not_listed": {"type": "integer", "minimum": 0, "description": "evaluated, past the coded filter, the model read their notes, not listed"},
+        "listed": {"type": "integer", "minimum": 0, "description": "evaluated and listed (high or review)"}
       }
     }
   }

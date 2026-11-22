@@ -15,7 +15,7 @@
 <button type="submit" class="secondary">{{ t('site.switch') }}</button>
 </form>{% endmacro %}
 
-{% macro state_pill(state) %}<span class="pill rd-{{ {'green': 'go', 'amber': 'conditional', 'red': 'nogo'}[state] }}" data-state="{{ state }}">{{ t('site.state.' + state) }}</span>{% endmacro %}
+{% macro state_pill(state) %}<span class="pill" data-tone="{{ tone('reading', {'green': 'go', 'amber': 'conditional', 'red': 'nogo'}[state]) }}" data-state="{{ state }}">{{ t('site.state.' + state) }}</span>{% endmacro %}
 
 {% macro domain(d) %}{{ t('site.domain.' + d) }}{% endmacro %}
 

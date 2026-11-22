@@ -595,3 +595,97 @@ integrator's list did not have it, so the create call is the check unless `--hdb
 - **H-3 (lane J):** with judge-alone kept, leave the screen out (as now), or screen with the judge alone by some
   other model setting?
 - **I-2 stands:** stage O is in by default (`tb-o=1`); `--no-o` leaves it out.
+
+## 10. On an existing host (H-67)
+
+The same steps, s05 to s14, on a machine that already has its cards, its driver and Docker: no VM is made, nothing
+is installed with apt, no driver is touched, nothing reboots or powers off, nothing goes to a bucket or the cloud.
+`tools/measure48-host.sh` runs the VM script's own step functions (`tools/measure48-vm.sh` is sourced up to the end of
+its shared part; its VM part, with the metadata, the driver, the reboot, the power-off and the cost cap's timer, is
+not even defined there). It costs nothing; nothing runs on a host until the owner says so.
+
+**One card, chosen by index.** `--gpu-index N` is required. Every nvidia-smi question is for card N only (`-i N`);
+other cards are never read or touched. The preflight reads card N's UUID; the ballast, ballast48 and every later read
+check it (a different card at that index is refused, `card-changed`). The holder runs with `--gpus device=<UUID>`.
+The two model servers are pinned to the same UUID by a compose file of the run (`gpu-pin.yml` in the option's folder,
+`device_ids`, replacing the overlay's `count: 1`); the pin is proven before they start (compose's resolved
+configuration) and after (each container's device request). A server that is not proven pinned is stopped and the
+measure refused. The UUID is never written to a record that is packed.
+
+**The target is unchanged:** `memory.free` on card N at 49,140 MiB (the class's `memory_total_mib`) +/- 512 MiB. The
+ballast holds the card's own figures as read: total - used - reserved - 49,140. A card that cannot offer it refuses
+with its numbers (`card-too-small`, `card-is-the-target`).
+
+### 10.1 The commands (on the host, as a user who may use Docker)
+
+    cd <checkout>/trialbox        # a clean checkout of the commit to measure: the run copies its HEAD into the run folder
+    tools/measure48-host.sh preflight --gpu-index N --run-dir <run folder> --weights-dir <weights folder>
+    tools/measure48-host.sh run       --gpu-index N --run-dir <run folder> --weights-dir <weights folder>
+    python3 tools/measure48_vm.py summary <run folder>/out                # what it measured
+
+- `preflight` reads only and changes nothing (no folder made, no pull, no container): each line says `ok`, `NO` or
+  `note`, and it ends `passed` (exit 0) or with the count of problems (exit 2).
+- `run` makes the same preflight, then the steps. `--pull` lets s06 pull the engine image when it is not there
+  (without it, a missing image is refused). `--no-o` leaves stage O out. `--run-id` names the run (default
+  `m48h-<UTC time>`).
+- **The records:** `<run folder>/out` holds what to send back: the VM form's allow-list and redaction
+  (`tools/measure48_vm.py pack`), plus `host.log`, `preflight.txt` and `records/docker-objects.json`.
+  `<run folder>/run` holds everything (the stub's output with the administrator's password in `raw/`, the card's UUID
+  in `kv/`): it stays on the host.
+- Exit: 0 complete; 1 a step ended the run (its reason in `steps.json` `ended`); 3 the cap; 130 Ctrl-C; 143 SIGTERM;
+  2 refused before anything started; 4 an object the run made could not be removed (named in `host.log`).
+
+### 10.2 What the host needs (the preflight checks each)
+
+| Need | How it is checked |
+| --- | --- |
+| card N, with no other process on it | `nvidia-smi -i N`; other processes are counted, with their memory, never named |
+| the driver, at or above what the engine image needs | `python3 tools/images_lock.py host --driver <read>`: refused below `deploy/images.lock`'s `gpu.driver_min` (580.65.06: the engine image is CUDA 13), the found and the needed driver named (H-72); a note when it is not the rented run's branch (580) |
+| a card that can offer the target | `python3 -m tools.ballast plan --gpu-index N` (allocates nothing) |
+| Docker, usable by this user | `docker info` answers |
+| the NVIDIA runtime registered with Docker | `docker info`'s `Runtimes` lists `nvidia` (what `nvidia-ctk runtime configure --runtime=docker` adds; the owner's step: this script never does it) |
+| docker compose 2.24.4 or newer | `docker compose version` (the servers' pin uses `!override`) |
+| no TrialBox objects on the host | no container of compose project `trialbox`, no `trialbox-*` network, no `trialbox_*` volume, no `tb-ballast-<run id>` |
+| no TrialBox images on the host | no image named `trialbox-*`: the stub (s05) builds and tags images of those names and would replace an installed box's (H-72); a host with an installed box is refused, not shared |
+| the engine image, by digest | `docker image inspect` of `tools/engine_probe.py`'s `pinned_ref()`; never pulled without `--pull` (9.2 GB compressed, 23.4 GB unpacked) |
+| the weights, as pinned | `python3 -m tools.fetch_weights --profile rtxpro6000 --models-dir <weights folder> --verify-only` (27.9 GB; hashed, nothing fetched) |
+| Docker's data root: **14 GB** free (**44 GB** with `--pull`) | the stub's images (14 GB, `NEED_GB` "stub"), plus the engine (30 GB) when pulled |
+| the run folder: **10 GB** free | the screen's tools 6 GB, the screen 3 GB, one more option 1 GB (`NEED_GB`; the weights are not copied) |
+| python3 3.10 or newer with PyYAML; git | imported and asked |
+| for the screen (s09, s10) only | PostgreSQL's server binaries, tesseract with `jpn`, `chi_tra` and `eng`, curl, xz: a note when missing (the screen's steps then fail and the rest goes on); Chromium's system libraries are not checked (Playwright is installed without `--with-deps`) |
+
+Also needed, not checked: the network for the stub's base images (s05), uv and the venv, node, Playwright's Chromium,
+the fonts and the hospital's data (s09); ports 8090 and 8025 on 127.0.0.1 free for the stub's start (or
+`TB_HOST_CONSOLE_PORT` and `TB_HOST_MAILHOG_PORT` set).
+
+### 10.3 What it does, and never does
+
+- **Writes:** in the run folder only: the run's copy of the checkout (`src/trialbox`), the steps' records, the venv,
+  node, Playwright's Chromium, uv's and pip's and npm's caches and the temporary files (each tool's cache and temp
+  variables point there).
+- **Docker:** it makes objects of the box's own names (compose project `trialbox`, fixed by
+  `deploy/docker-compose.yml`) and the ballast's container `tb-ballast-<run id>`; the preflight refuses a host where
+  any of them exists. At the end (complete, failed, Ctrl-C, SIGTERM, the cap) it removes every container, network and
+  volume of those names and lists them in `records/docker-objects.json`. The box's images it builds are listed there
+  and kept; Docker's build cache is kept (it cannot be told apart by run).
+- **The stop line and the cap** are the VM form's: 204 minutes with stage O (`measure48_vm.py stop-line-min`), 240
+  minutes. They are counted from the start of the steps and kept by the script: each stage starts only when its high
+  ends before the line; at the line the running tool gets SIGINT; at the cap a watchdog ends the steps, and the end
+  runs (servers down, ballast released, objects removed, records packed). Nothing is powered off.
+- **Never:** a driver install, apt, a reboot, a power-off or shutdown, gcloud, a bucket, the cloud's metadata,
+  `docker system prune`, `docker builder prune`, `docker image prune`, a pull without `--pull`, an object not of the
+  run's names, another card, another user's process (the stop line's SIGINT and the release reach this run's own
+  processes only), a key printed.
+
+### 10.4 Proven on stand-ins only
+
+`tests/unit/test_measure48_host_h67.py` runs the script end to end with stand-ins for nvidia-smi (eight cards of
+183,359 MiB, the run's in the middle), Docker (its objects kept in a file) and every repository tool: the preflight
+passing and each refusal; a full pass; a failure at s07; SIGTERM mid-run; the cap reached. Trap programs on PATH
+prove that systemctl, shutdown, poweroff, reboot, gcloud, apt-get, systemd-run and nvidia-ctk are never run.
+`tests/unit/test_ballast_any_card_h67.py` covers the ballast and ballast48 on cards of 97,887 and 183,359 MiB and a
+small one, with and without reserved memory, one card of eight, another process on that card or on another, a UUID
+that changes, and the servers' pin. No card, no Docker daemon and no compose were used: compose's resolved form of
+`!override` and `device_ids` and Docker's device request are taken from their documented shapes; the first run on the
+host is the first to show them. If compose's form differs, the measure is refused before any server starts; if
+the device request differs, the servers are stopped and the measure refused.

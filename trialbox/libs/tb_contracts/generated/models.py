@@ -666,22 +666,6 @@ class JobFile(BaseModel):
     content_type: str | None = None
 
 
-class JobMetrics(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    patients_scoped: int = 0
-    llm_calls: int = 0
-    tokens_in: int = 0
-    tokens_out: int = 0
-    wall_seconds: float = 0
-    step_seconds: dict[str, float] | None = None
-    """
-    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.
-    """
-
-
 class JobOutput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1154,6 +1138,43 @@ class Precheck(BaseModel):
     passed: bool | None
     issues: list[str]
     validator_errors: int = 0
+
+
+class PrefilterRecord(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    trigger: Literal["weekly", "ingest"]
+    in_scope: int = Field(..., ge=0)
+    opted_out: int = Field(..., ge=0)
+    """
+    on the opt-out register, refused research use or contact, or not at the index date (not in the snapshot, deceased or not yet born)
+    """
+    not_due: int = Field(..., ge=0)
+    """
+    in scope, not looked at by this run by its cadence (no visit in the window, nothing to re-check, already screened)
+    """
+    carried: int = Field(..., ge=0)
+    """
+    due and left by the night budget for a later run
+    """
+    coded_excluded: int = Field(..., ge=0)
+    """
+    evaluated; a criterion the coded records decide was not met
+    """
+    no_model: int = Field(..., ge=0)
+    """
+    evaluated, past the coded filter, not listed, and the model read no note for them
+    """
+    model_not_listed: int = Field(..., ge=0)
+    """
+    evaluated, past the coded filter, the model read their notes, not listed
+    """
+    listed: int = Field(..., ge=0)
+    """
+    evaluated and listed (high or review)
+    """
 
 
 class ProfileDerivedInput(BaseModel):
@@ -2846,68 +2867,6 @@ class IngestReport(BaseModel):
     """
 
 
-class Job(BaseModel):
-    """
-    A job record (SPEC 3.5). Schema version 1.1.0 (1.1.0: run_date).
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    job_id: str = Field(..., pattern="^[0-9A-HJKMNP-TV-Z]{26}$")
-    type: Literal[
-        "FEAS",
-        "SCREEN",
-        "COHORT",
-        "NAV",
-        "APPROVE",
-        "STATUS",
-        "MICROBATCH",
-        "INGEST",
-        "SUBMIT",
-        "FEEDBACK",
-        "CANCEL",
-        "RETENTION",
-        "CALIBRATION",
-        "CONSENT",
-        "RELEASE",
-        "CASE",
-    ] = Field(..., title="JobType")
-    ruleset: str | None = None
-    ruleset_version: str | None = None
-    requested_by: str
-    received_at: AwareDatetime
-    updated_at: AwareDatetime | None = None
-    state: Literal[
-        "received",
-        "parsing",
-        "compiling",
-        "awaiting_approval",
-        "running",
-        "reporting",
-        "done",
-        "failed",
-    ] = Field(..., title="JobState")
-    snapshot_date: date_aliased | None = None
-    run_date: date_aliased | None = None
-    """
-    index/run date fixed when the job starts; reruns reuse it (reproducibility)
-    """
-    options: dict[str, str] | None = None
-    comment: str | None = None
-    message_id: str | None = None
-    """
-    RFC 5322 Message-ID of the request mail
-    """
-    in_reply_to: str | None = None
-    parent_job_id: str | None = None
-    inputs: list[JobFile] | None = None
-    outputs: list[JobOutput] | None = None
-    error: JobError | None = None
-    metrics: JobMetrics | None = None
-
-
 class JobCreate(BaseModel):
     """
     POST /jobs body (mail-gateway and scheduler -> orchestrator). Schema version 1.0.0.
@@ -2946,6 +2905,26 @@ class JobCreate(BaseModel):
     pre-allocated id (idempotency key); generated when absent
     """
     inputs: list[JobFile] | None = None
+
+
+class JobMetrics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    patients_scoped: int = 0
+    llm_calls: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    wall_seconds: float = 0
+    step_seconds: dict[str, float] | None = None
+    """
+    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.
+    """
+    prefilter: PrefilterRecord | None = None
+    """
+    10E-12 (D-1259): a MICROBATCH job's pre-filter record, written when the job finishes: how many distinct patients the job had in scope and at which stage each left, each counted once at their last evaluation in the job. Counts only, never a patient id; the stages add up to in_scope. Optional: absent on other jobs.
+    """
 
 
 class NavRow(BaseModel):
@@ -3242,6 +3221,68 @@ class ExtractedBool2(BaseModel):
     )
     op: Literal["and", "or", "not"]
     args: list[ExtractedAtom | ExtractedBool3] = Field(..., min_length=1)
+
+
+class Job(BaseModel):
+    """
+    A job record (SPEC 3.5). Schema version 1.2.0 (1.1.0: run_date; 1.2.0: metrics.prefilter, D-1259).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    job_id: str = Field(..., pattern="^[0-9A-HJKMNP-TV-Z]{26}$")
+    type: Literal[
+        "FEAS",
+        "SCREEN",
+        "COHORT",
+        "NAV",
+        "APPROVE",
+        "STATUS",
+        "MICROBATCH",
+        "INGEST",
+        "SUBMIT",
+        "FEEDBACK",
+        "CANCEL",
+        "RETENTION",
+        "CALIBRATION",
+        "CONSENT",
+        "RELEASE",
+        "CASE",
+    ] = Field(..., title="JobType")
+    ruleset: str | None = None
+    ruleset_version: str | None = None
+    requested_by: str
+    received_at: AwareDatetime
+    updated_at: AwareDatetime | None = None
+    state: Literal[
+        "received",
+        "parsing",
+        "compiling",
+        "awaiting_approval",
+        "running",
+        "reporting",
+        "done",
+        "failed",
+    ] = Field(..., title="JobState")
+    snapshot_date: date_aliased | None = None
+    run_date: date_aliased | None = None
+    """
+    index/run date fixed when the job starts; reruns reuse it (reproducibility)
+    """
+    options: dict[str, str] | None = None
+    comment: str | None = None
+    message_id: str | None = None
+    """
+    RFC 5322 Message-ID of the request mail
+    """
+    in_reply_to: str | None = None
+    parent_job_id: str | None = None
+    inputs: list[JobFile] | None = None
+    outputs: list[JobOutput] | None = None
+    error: JobError | None = None
+    metrics: JobMetrics | None = None
 
 
 class NavListSet(BaseModel):
