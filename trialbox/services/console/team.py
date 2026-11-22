@@ -373,6 +373,10 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     def refused(exc: Exception) -> Exception:
         return h.problem(400, "request.refused", reason=str(exc))
 
+    # 9k-6b: the class of the console's refusal (the one ``h.problem`` builds): a form catches it alone, so an error of
+    # any other kind is raised as before and is never handed to the page
+    refusal_class = type(h.problem(400, "request.refused"))
+
     def need_csrf(sess: Session, form: Mapping[str, Any]) -> None:
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
             raise h.problem(400, "csrf")
@@ -915,7 +919,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         body = ApiIrb(**{k: str(form.get(k) or "")[: 300 if k == "reason" else 60] for k in ApiIrb.model_fields})
         try:
             rid, _ = save_irb(sess, request.url.path, rs, body)
-        except Exception as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
+        except refusal_class as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
             bad = form_errors.from_refusal(exc, IRB_REFUSALS, form)
             if bad is None:
                 raise
@@ -986,7 +990,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                       withdraw=str(form.get("withdraw") or "") == "1")  # fmt: skip
         try:
             rid, _ = save_icf(sess, request.url.path, rs, body)
-        except Exception as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
+        except refusal_class as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
             bad = form_errors.from_refusal(exc, ICF_REFUSALS, form)
             if bad is None:
                 raise
@@ -1286,7 +1290,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         try:
             match = matched_before(sess, body)
             _pid, changed = change_optout(sess, request.url.path, body, match)
-        except Exception as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
+        except refusal_class as exc:  # 9k-6b: a refused value is shown at its field, the page again, 400 as before
             bad = form_errors.from_refusal(exc, LIFT_REFUSALS if body.lift else OPTOUT_REFUSALS, form)
             if bad is None:
                 raise
