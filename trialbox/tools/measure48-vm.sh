@@ -48,7 +48,8 @@
 # the driver, the reboot, the power-off, the cost cap's timer) is even defined there. The caller defines: RUN, CK, W,
 # SI, POLL, LINE_S, LINE_MIN, ETC, TAKE_O, h, used, tick, say, pack, end_run (and on a host GPU, OWN_ONLY, DISK_PATH,
 # DOCKER_DISK_PATH, NODE_TOOLS, stub_free, engine_room, engine_get and the screen_setup_* functions; on the bench host
-# ENGINE, card H-74: ballast48 measure --engine FORM, the engine probe's forward-compatibility form; unset on the VM).
+# ENGINE, card H-74: ballast48 measure --engine FORM --probe FILE, the engine probe's form and environment; unset on
+# the VM).
 stamp() { date -u +%FT%TZ; }
 
 # A simple command a non-interactive bash starts with & has SIGINT ignored, and Python keeps an ignored SIGINT: the stop

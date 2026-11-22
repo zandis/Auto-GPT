@@ -30,7 +30,7 @@
 # environment variable) and --engine-probe FILE (tools/engine_probe.py's result), a driver below the minimum passes
 # only when that probe passed with a forward-compatibility form of the pinned image (pinned+compat or pinned+libs) on
 # this card's model and this driver (tools/measure48_vm.py bench-exception); s08 then serves with that form
-# (ballast48 measure --engine), and the preflight, records/head.json, records/bench-exception.json, host.log and
+# (ballast48 measure --engine FORM --probe FILE: the probe's own container environment), and the preflight, records/head.json, records/bench-exception.json, host.log and
 # out/BENCH-EXCEPTION.txt say "bench exception: driver <found> with the forward-compatibility path; not valid for an
 # install". deploy/check_host.sh, deploy/install.sh and tools/images_lock.py have no such exception.
 #
@@ -122,10 +122,10 @@ bench_check() {  # bench_check <driver> <images_lock's FAIL text>: the bench hos
   ref=$(tool pinned_ref 2> /dev/null)
   if res=$(h bench-exception --probe "$PROBE" --driver "$drv" --card "$card" --pinned "$ref" --lock "$HERE/deploy/images.lock"); then
     BENCH_REC=${res#OK$'\t'}
-    ENGINE=(--engine "$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["engine_form"])' "$BENCH_REC")")
+    ENGINE=(--engine "$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["engine_form"])' "$BENCH_REC")" --probe "$PROBE")
     pf note "card $GPU_INDEX: $why (deploy/images.lock gpu.driver_min)"
     pf note "card $GPU_INDEX: $(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["words"])' "$BENCH_REC"); s08 serves with the engine probe's form ${ENGINE[1]}"
-    pf note "not known: s08 (ballast48 measure --engine ${ENGINE[1]}, tools/dgpu48.py's form) does not carry the probe's NVIDIA_DISABLE_REQUIRE=1; whether the container toolkit starts the image on driver $drv without it is unproven (H74-02)"
+    pf note "s08 and s13 start the servers with the probe's own container environment ($(python3 -c 'import json, sys; print(" ".join(f"{k}={v}" for k, v in sorted(json.loads(sys.argv[1])["engine_env"].items())))' "$BENCH_REC")): ballast48 measure --engine ${ENGINE[1]} --probe (H74-02)"
     pf note "caution: $(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["caution"])' "$BENCH_REC")"
   else
     pf NO "card $GPU_INDEX: $why (deploy/images.lock gpu.driver_min); the bench exception is not granted:"

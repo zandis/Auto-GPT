@@ -80,7 +80,8 @@ def test_the_run_goes_on_under_the_exception_and_says_so_in_every_record(rig: Ri
     assert WORDS in mark and "not a supported configuration" in mark and "580.65.06" in mark
     assert "UNDER THE BENCH EXCEPTION" in (rig.out / "host.log").read_text()
     measures = [c for c in rig.calls.read_text().splitlines() if c.startswith("ballast48 measure")]
-    assert measures and all("--engine pinned+compat" in c for c in measures), measures
+    assert measures and all(f"--engine pinned+compat --probe {rig.tmp / 'tb-engine-probe.json'}" in c for c in measures)
+    assert "NVIDIA_DISABLE_REQUIRE=1 VLLM_ENABLE_CUDA_COMPATIBILITY=1" in pre  # the probe's own environment, named
     rig.assert_nothing_forbidden_and_others_untouched()
 
 
@@ -179,3 +180,50 @@ def test_the_lock_tool_refuses_the_option_and_a_low_driver_still_fails() -> None
     assert r.returncode == 2 and "unrecognized arguments" in r.stderr
     r = subprocess.run(base, capture_output=True, text=True, timeout=60, check=False)
     assert f"FAIL  NVIDIA driver {LOW} is below 580.65.06" in r.stdout
+
+
+# ------------------------------------------------------------------------------------------------ s08's server environment
+
+
+def _engine_and_override(tmp: Path, probe: Path | None, forced: str) -> tuple[dict[str, Any], str]:
+    from tools import dgpu48
+
+    doc = json.loads(probe.read_text()) if probe else None
+    engine = dgpu48.engine_from_probe(doc, forced)
+    return engine, dgpu48.run_override(engine, tmp).read_text()
+
+
+def test_ballast48_hands_lane_js_measure_the_probe_only_under_the_exception(tmp_path: Path) -> None:
+    from tests.unit.test_ballast48_h47 import Card
+    from tools import ballast48 as b48
+
+    got: list[tuple[Any, Any]] = []
+
+    def spy(run: Any, oid: str, out: Path, probe: Any, engine: str, *a: Any, **k: Any) -> dict[str, Any]:
+        got.append((probe, engine))
+        return {"option": oid, "started": True, "outcome": "STARTED"}
+
+    b48.measure(Card(), "pair-32k", tmp_path, "pinned", False, False, measure_fn=spy, say=lambda _: None)
+    p = tmp_path / "probe.json"
+    p.write_text(json.dumps(probe_doc()))
+    b48.measure(Card(), "pair-32k", tmp_path, "pinned+compat", False, False, measure_fn=spy, say=lambda _: None,
+                probe=p)  # fmt: skip
+    assert got == [(None, "pinned"), (p, "")]  # without: forced by name, as before; with: the probe's verdict
+    with pytest.raises(b48.Refused, match="passed with 'pinned\\+compat', not --engine 'pinned\\+libs'"):
+        b48.measure(Card(), "pair-32k", tmp_path, "pinned+libs", False, False, measure_fn=spy, probe=p)
+
+
+def test_the_servers_take_the_probes_environment_only_under_the_exception(tmp_path: Path) -> None:
+    p = tmp_path / "probe.json"
+    p.write_text(json.dumps(probe_doc()))
+    engine, text = _engine_and_override(tmp_path, p, "")
+    assert engine["use"] == "pinned+compat" and engine["from_probe"] is True
+    assert engine["env"] == {"NVIDIA_DISABLE_REQUIRE": "1", "VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}
+    assert "NVIDIA_DISABLE_REQUIRE: '1'" in text  # in the containers' environment (the toolkit reads it there)
+    # without the exception: the forms forced by name, the run file exactly as before this card
+    engine, text = _engine_and_override(tmp_path, None, "pinned")
+    assert engine["env"] == {} and engine["from_probe"] is False
+    assert text == ("# written by tools/dgpu48.py for one measuring run\nservices:\n  llm-service:\n    restart: 'no'\n"
+                    "  llm-verifier:\n    restart: 'no'\n")  # fmt: skip
+    engine, text = _engine_and_override(tmp_path, None, "pinned+compat")
+    assert engine["env"] == {"VLLM_ENABLE_CUDA_COMPATIBILITY": "1"} and "NVIDIA_DISABLE_REQUIRE" not in text
