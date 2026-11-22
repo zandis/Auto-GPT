@@ -485,7 +485,7 @@ def may_read_rows(rs: str) -> bool:
     from console import actor as console_actor
 
     check = getattr(console_actor, "may_read", None)
-    return bool(check(rs)) if callable(check) else True
+    return bool(check(rs)) if callable(check) else False
 
 
 def subject_rows(h: Any, rs: str) -> list[dict[str, Any]] | None:

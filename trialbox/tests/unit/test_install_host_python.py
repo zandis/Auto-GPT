@@ -22,6 +22,7 @@ pytestmark = pytest.mark.nodb
 # the host modules install.sh runs with the host's python3 (python3 -m tools....)
 HOST_MODULES = [
     "tools/trialbox/anchors.py",
+    "tools/trialbox/finish_check.py",  # 10K-4 (D-1390): install.sh FINISH-GATE
     "tools/trialbox/prestart.py",
     "tools/trialbox/doctor.py",
     "tools/trialbox/svc_secrets.py",

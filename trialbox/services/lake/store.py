@@ -72,6 +72,11 @@ _ARROW = {
 }
 
 
+def _connect(path: Path, *, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    threads = os.environ.get("TB_LAKE_THREADS")
+    return duckdb.connect(str(path), read_only=read_only, config={"threads": threads} if threads else {})
+
+
 _CONNECT_LOCK = threading.Lock()
 # one open of embed_cache.duckdb at a time in this process: DuckDB refuses a read-only and a read-write connection to
 # the same file side by side, and a rebuild writes vectors while a search reads them
@@ -1453,7 +1458,7 @@ class Lake:
             counts[name] = _write_parquet(rows[name], schema, pdir / f"{name}.parquet")
         del rows  # an OMOP export's lists go here; DuckDB reads the Parquet files
         tmp.unlink(missing_ok=True)
-        con = duckdb.connect(str(tmp))
+        con = _connect(tmp)
         n_chunks = new = 0
         try:
             con.execute(f"LOAD '{fts_extension_path()}'")
@@ -1538,7 +1543,7 @@ class Lake:
         deadline = time.monotonic() + 30
         while True:
             try:
-                return duckdb.connect(str(path), read_only=read_only)
+                return _connect(path, read_only=read_only)
             except duckdb.IOException:
                 if time.monotonic() > deadline:
                     raise
@@ -1642,7 +1647,7 @@ class Lake:
                 # D-462: replaced bytes are never a cached copy. A generation's file is never replaced (D-490)
                 path = found if found.parent.name == "gen" else reader_path(found)
                 try:
-                    con = duckdb.connect(str(path), read_only=True)
+                    con = _connect(path, read_only=True)
                     break
                 except duckdb.IOException:
                     if path.exists() or attempt == 2:  # a link removed by a swap meanwhile: look again

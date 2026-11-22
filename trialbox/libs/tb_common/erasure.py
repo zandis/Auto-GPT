@@ -329,6 +329,10 @@ TABLES: dict[str, Entry] = {
         ),
         _STAFF,
     ),
+    "auth.user_pref": _none(
+        "a person's own look and language (10F-1, D-1387): a closed set of values per key, no free text, nothing "
+        "names a patient; it goes with the account when the account is disabled"
+    ),
     "site.contact_outcomes": _erase("owed_tables", "a contact attempt's outcome, by pseudonym"),
     "site.excluded_review": _erase("owed_tables", "the review of an excluded patient, by pseudonym"),
     "site.pi_marks": _erase(

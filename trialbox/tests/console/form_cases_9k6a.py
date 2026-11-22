@@ -24,6 +24,10 @@ class Case:
     testid: str  # the summary's data-testid on this page (the one its earlier tests read)
     saved_event: str  # the audit event a saving POST writes
     kept: tuple[str, ...] = field(default=())  # fields whose typed value must come back as typed
+    title_key: str = "sstate.title"  # the text key the page's title begins with (after "Error: ")
+    saved_at: str = ""  # where a saving POST sends the browser (303)
+    #: posted before a saving POST is counted, so that the save changes something (a form that audits only a change)
+    reset: dict[str, str] = field(default_factory=dict)
 
 
 CASES: dict[str, Case] = {
@@ -51,6 +55,7 @@ CASES: dict[str, Case] = {
         testid="state-error",
         saved_event="console.study_identity",
         kept=("sponsor", "protocol_no", "siv_date", "registry_jrct", "registry_tw"),
+        saved_at="/studies/GZQO/state?saved=identity",
     ),
     "irb-text": Case(
         template="study_state.html",
@@ -70,5 +75,23 @@ CASES: dict[str, Case] = {
         testid="irbt-error",
         saved_event="console.irb_text",
         kept=("text_version", "approved_on", "note"),
+        saved_at="/studies/GZQO/state?saved=irb_text#irb-text",
+    ),
+    # 10F-1 (D-1387): a person's own preferences on the account page; a value outside a key's closed set fails (a
+    # select: what was posted is not an option, so nothing comes back as typed)
+    "prefs": Case(
+        template="account.html",
+        role="coordinator",
+        page="/account",
+        action="/account/prefs",
+        prefix="pref",
+        bad={"density": "dense", "text_size": "300", "mode": "neon", "lang": "fr"},
+        failing=("density", "text_size", "mode", "lang"),
+        good={"density": "compact", "text_size": "100", "mode": "system", "lang": "auto"},  # one change, one line
+        testid="prefs-error",
+        saved_event="console.pref_set",
+        title_key="account.title",
+        saved_at="/account?saved=prefs",
+        reset={"density": "comfortable", "text_size": "100", "mode": "system", "lang": "auto"},
     ),
 }

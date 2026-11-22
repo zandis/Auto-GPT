@@ -94,7 +94,7 @@ you may push to the hospital's git server.
    another room; on Windows/WSL2 a share mapped as a drive letter). A named path counts only on another device than
    the box's own disk, or when hospital IT puts a file `.trialbox-offbox` in it. In PRODUCTION a box whose targets
    are all on its own disks still writes the backup, but the run fails and stays red.
-2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `python3 -m
+2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `PYTHONPATH=libs python3 -m
    tools.trialbox backup-install --deploy deploy`, which writes `/etc/cron.d/trialbox-backup`, turns WAL archiving
    on when it can (below), and runs the first backup once the backup key is there (run the command again after
    `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
@@ -125,10 +125,10 @@ you may push to the hospital's git server.
 3. **Age alert.** `python3 -m tools.trialbox backup-status` shows the newest good off-box backup (the one
    `backup-last.json` records, with the same name, size and sha256 on the share) and its age. It turns red (exit 1)
    when that backup is older than `TB_BACKUP_MAX_AGE_HOURS` (36) or dated in the future, when the last nightly run
-   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26
-   hours. Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to
-   `MAILTO`, and piped to `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the
-   hospital's mail tool). The message holds no patient data. Fix the cause, then run `backup-nightly` by hand.
+   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26 hours.
+   Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to `MAILTO`, and piped to
+   `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the hospital's mail tool). The message holds no patient data.
+   Fix the cause, then run `PYTHONPATH=libs python3 -m tools.trialbox backup-nightly` from the install folder. 修正原因後，請在安裝目錄執行上述指令。原因を解消したら、インストール先のディレクトリでこのコマンドを実行します。
 4. **Check a backup** with hospital IT: `trialbox backup-verify <file> --key <private key>` (reads it all, checks
    every hash and the sidecar). A backup made before D-187 (layout 1, gzip or zstd) still verifies and restores.
 
@@ -301,3 +301,25 @@ working day in `TB_BACKUP_ALERT_WATCHER`; the install note and `doctor` show the
 A name holds letters and digits of any script, single spaces and `. , - ( ) （ ） / ’ ' ・ · 〜 ～` only (`'` not
 first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
 so a name can never add or change a setting.
+
+**A PRODUCTION install needs a backup target off the box and the hospital's audit share as its anchor folder**
+(10K-4, D-1390). `python3 -m tools.trialbox finish-check --deploy deploy` accepts only what it can show and refuses
+what it cannot tell. Each folder `deploy/.env` names must be there, with no link in its path and no bind of another
+folder behind it, not a system folder (`/etc`, `/home`, `/opt`, `/usr`, `/var/lib`, `/var/log`, `/boot`, `/tmp`,
+`/media`, `/proc`, `/sys`, `/dev`, `/run` ...) nor around one, not the install folder, its `deploy/secrets`, the feed
+folder or the audit data, on a disk or a share (ext4, xfs, btrfs, exfat, vfat, ntfs3, nfs, nfs4, cifs, smb3), never a
+memory file system. In PRODUCTION one target of `TB_BACKUP_TARGETS` must be a share the box does not serve, or a
+physical disk (not a loop device, zram or a virtual disk) holding none of the box's own data: not the system disk
+(another partition of it is not enough), not Docker's data root, not the audit folders; for a disk
+`TB_BACKUP_OFFBOX` names the same folder, so the nightly backup counts it too. `TB_AUDIT_ANCHOR_TARGETS` must be the
+mount point of the hospital's audit share (nfs, nfs4, cifs, smb3; mount it `nosuid,nodev`), under folders only root
+may write; the anchor, backup and log folders do not overlap. Of the folders the first-run page asks, the console
+reads the anchor folder only, read-only; it is checked before it is mounted and again at every start of the stack
+(`deploy/settings_guard.sh`), which does not start when the rule no longer holds. `deploy/install.sh` checks a re-run
+before the bundle step (nothing is loaded or changed when it refuses) and every install before the stack starts; when
+an older install.sh loaded this release, the release that run brought is applied (as after `trialbox update`) and the
+refusal says so: correct `deploy/.env` and run the install again. `deploy/box-install.sh` checks after the first-run
+answers are applied, before the restart; the first-run page does not open again: mount the share or disk at the
+folder named, or correct the line, then `sudo deploy/box-install.sh --firstrun`. **An installed PRODUCTION site that
+runs `deploy/install.sh` again** (02, the anchor folders; 05, after a restore and for the EDC tables; 12, the TLS
+check per release) stops there until both are set; `trialbox update` and `trialbox restore` do not run it.
