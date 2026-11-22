@@ -46,8 +46,8 @@ FIELDS = ("path", "rule", "code", "verdict", "reason", "reviewer", "reviewed", "
 _NOSEC = re.compile(r"(?<![\w-])nosec\b(?P<codes>(?:[\s:,]*[BS]\d{3})*)")
 _NOQA = re.compile(r"(?<![\w-])noqa\s*:\s*(?P<codes>[A-Z]+\d+(?:\s*,\s*[A-Z]+\d+)*)", re.IGNORECASE)
 _CODE = re.compile(r"[A-Z]+\d+")
-#: F-4: a ``noqa`` that names no code, as ruff reads one (alone, or the file-level ruff form), in any case
-_BLANKET = re.compile(r"#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa\b(?!\s*:\s*[A-Za-z]+\d)", re.IGNORECASE)
+#: F-4: a ``noqa`` that hides every rule, as ruff reads one: no colon after it (ruff ignores a colon with no valid code)
+_BLANKET = re.compile(r"#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa\b(?!\s*:)", re.IGNORECASE)
 _FINDING_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d{2,}$")
 
 

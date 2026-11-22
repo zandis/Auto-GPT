@@ -41,7 +41,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from httpx import HTTPError
 from pydantic import BaseModel, Field
+from python_multipart.multipart import parse_options_header
 from starlette.datastructures import UploadFile as StarletteUpload
+from starlette.types import Message, Receive
 from tb_common.authz import Standing as Grant
 from tb_common.authz import permit
 from tb_common.service_auth import actor_header
@@ -213,17 +215,44 @@ MAP_ROW_FIELDS = 13
 MAP_FORM_FIELDS = 16
 
 
-def _form_fields(content_type: str, body: bytes) -> int:
-    """F-4: how many fields a form's bytes hold, counted without parsing them: the parts of a multipart body (its
-    boundary lines), else the pairs of a urlencoded one."""
-    kind, _, params = content_type.partition(";")
-    if kind.strip().lower() == "multipart/form-data":
-        for p in params.split(";"):
-            key, _, value = p.strip().partition("=")
-            if key.lower() == "boundary" and value:
-                return max(body.count(b"--" + value.strip('"').encode("latin-1")) - 1, 0)
-        return 0
-    return body.count(b"&") + 1 if body.strip() else 0
+class _TooManyFields(Exception):
+    """F-4: a form passed its field limit, counted in its bytes as they arrived (raised from the request's stream)."""
+
+
+def _counted(receive: Receive, content_type: str | None, limit: int) -> Receive:
+    """F-4: ``receive`` that counts a form's fields as its bytes pass, without keeping them, and raises
+    :class:`_TooManyFields` once the count passes ``limit``. Multipart: the delimiters (``--`` and the boundary at the
+    start, ``CRLF--`` and the boundary after), less the closing one; the boundary is read from the content type as
+    the parser reads it. Urlencoded: the fields the parser starts (a byte other than ``&`` at the start or after an
+    ``&``). Any other body is not counted."""
+    kind, params = parse_options_header(content_type)
+    boundary = params.get(b"boundary", b"") if kind == b"multipart/form-data" else b""
+    urlencoded = kind == b"application/x-www-form-urlencoded"
+    mark = b"\r\n--" + boundary
+    seen, tail, after_amp = 0, b"\r\n", True
+
+    async def counting() -> Message:
+        nonlocal seen, tail, after_amp
+        message = await receive()
+        chunk = message.get("body", b"") if message["type"] == "http.request" else b""
+        if boundary and chunk:
+            window = tail + chunk
+            seen += window.count(mark)
+            tail = window[-(len(mark) - 1) :]
+            if seen - 1 > limit:  # the closing delimiter opens no field
+                raise _TooManyFields
+        elif urlencoded and chunk:
+            seen += len(_FIELD_START.findall((b"&" if after_amp else b"x") + chunk))
+            after_amp = chunk.endswith(b"&")
+            if seen > limit:
+                raise _TooManyFields
+        return message
+
+    return counting
+
+
+#: a urlencoded field starts at a byte other than ``&`` after an ``&`` (the parser skips repeated ones)
+_FIELD_START = re.compile(rb"&[^&]")
 
 
 def parse_rows(form: Mapping[str, Any], items: list[str]) -> list[dict[str, Any]]:
@@ -674,15 +703,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         except (Problem, Unavailable) as exc:
             return map_page(request, sess, rid, err_of(exc), 409)
         limit = (rows_known + 1) * MAP_ROW_FIELDS + MAP_FORM_FIELDS
-        body = await request.body()  # bounded by the proxy's request size; the form below reads the same bytes
+        # F-4: the fields are counted as the bytes stream past and the count stops the form (the size page), by its
+        # type, never by a refusal's words; nothing is kept beyond the parser's own, which stays bounded as a guard
+        counted = Request(request.scope, _counted(request.receive, request.headers.get("content-type"), limit))
         try:
-            form = await request.form(max_fields=limit)
-        except StarletteHTTPException:  # the review of D-768: only the field count is the size page
-            # F-4: which limit refused it is told by counting the form's fields in its bytes, never by the refusal's
-            # words (a reworded or translated refusal took the plain page) and never by parsing it again unbounded
-            too_many = _form_fields(request.headers.get("content-type", ""), body) > limit
-            return map_page(request, sess, rid, {"code": "form_too_large" if too_many else "other", "fields": ""},
-                            413 if too_many else 400)  # fmt: skip
+            form = await counted.form(max_fields=2 * limit + 100)
+        except _TooManyFields:
+            return map_page(request, sess, rid, {"code": "form_too_large", "fields": ""}, 413)
+        except StarletteHTTPException:  # any other refusal of the form: the plain page
+            return map_page(request, sess, rid, {"code": "other", "fields": ""}, 400)
+        await counted.close()  # the form's files, if any were sent; its text fields stay
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
             raise h.problem(400, "csrf")
         items = [str(i) for i in form.getlist("item") if _ITEM.match(str(i))]

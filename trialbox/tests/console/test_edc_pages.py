@@ -354,3 +354,72 @@ def test_a_form_past_the_limit_is_told_by_its_count_not_by_the_refusals_words(
     big = {"csrf": _csrf(page), "note": "x" * (1024 * 1024 + 1)}  # one part past the framework's part size
     r = crc.post("/studies/GZQO/edc/map", data=big, files={"f": ("a.txt", b"x")})
     assert r.status_code == 400 and 'data-testid="edc-error"' in r.text and not eb["svc"].store.map("GZQO")
+
+
+def _mp(n: int, boundary: str = "BND", value: bytes = b"1") -> bytes:
+    """A synthetic multipart body of ``n`` text fields."""
+    b = boundary.encode()
+    parts = b"".join(
+        b"--" + b + b'\r\nContent-Disposition: form-data; name="a"\r\n\r\n' + value + b"\r\n" for _ in range(n)
+    )
+    return parts + b"--" + b + b"--\r\n"
+
+
+def _read(content_type: str, body: bytes, limit: int, chunk: int) -> object:
+    """The map form's reading (F-4): the fields counted as the body streams past in ``chunk``-byte pieces; the number
+    of fields read, "size" (the size page) or "400" (the plain page)."""
+    import asyncio
+
+    from console.edc_pages import _counted, _TooManyFields
+    from starlette.exceptions import HTTPException
+    from starlette.requests import Request
+
+    async def go() -> object:
+        msgs = [{"type": "http.request", "body": body[i : i + chunk], "more_body": i + chunk < len(body)}
+                for i in range(0, len(body), chunk)] or [{"type": "http.request", "body": b"", "more_body": False}]  # fmt: skip
+
+        async def receive() -> dict[str, Any]:
+            return msgs.pop(0) if msgs else {"type": "http.disconnect"}
+
+        scope = {"type": "http", "method": "POST", "path": "/", "query_string": b"", "app": object(),
+                 "headers": [(b"content-type", content_type.encode("latin-1"))]}  # fmt: skip
+        req = Request(scope, _counted(receive, content_type, limit))
+        try:
+            form = await req.form(max_fields=2 * limit + 100)
+        except _TooManyFields:
+            return "size"
+        except HTTPException:
+            return "400"
+        return len(form.multi_items())
+
+    return asyncio.run(go())
+
+
+URLENC = "application/x-www-form-urlencoded"
+
+
+@pytest.mark.parametrize("chunk", [1, 7, 1 << 20])
+@pytest.mark.parametrize(
+    "content_type",
+    ["multipart/form-data; boundary=BND", 'multipart/form-data; boundary="BND"', "multipart/form-data; boundary = BND"],
+)
+def test_a_multipart_form_at_its_limit_is_read_and_one_field_more_is_the_size_page(
+    content_type: str, chunk: int
+) -> None:
+    """F-4: the delimiters are counted as they stream past (across chunk edges), with the boundary read from the
+    content type as the parser reads it (quoted, or with spaces round the ``=``)."""
+    assert _read(content_type, _mp(5), 5, chunk) == 5
+    assert _read(content_type, _mp(6), 5, chunk) == "size"
+    assert _read(content_type, _mp(2, value=b"--BND--BND x"), 5, chunk) == 2  # the boundary's text inside a value
+
+
+@pytest.mark.parametrize("chunk", [1, 7, 1 << 20])
+def test_a_urlencoded_form_at_its_limit_is_read_and_one_field_more_is_the_size_page(chunk: int) -> None:
+    assert _read(URLENC, b"&".join(b"a=%d" % i for i in range(5)), 5, chunk) == 5
+    assert _read(URLENC, b"&".join(b"a=%d" % i for i in range(6)), 5, chunk) == "size"
+    assert _read(URLENC, b"a=1&&&&&&b=2&c=%26%26", 3, chunk) == 3  # repeated and encoded ampersands open no field
+
+
+def test_a_part_past_the_part_size_stays_the_plain_page() -> None:
+    assert _read("multipart/form-data; boundary=BND", _mp(1, value=b"x" * (1024 * 1024 + 1)), 5, 1 << 16) == "400"
+    assert _read(URLENC, b"a=" + b"x" * (1024 * 1024 + 1), 5, 1 << 16) == "400"
