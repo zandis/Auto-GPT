@@ -75,7 +75,7 @@ def test_resident_profiles_serve_the_measured_pair(name: str, ctx: int) -> None:
             f"--max-model-len=${{JUDGE_MAX_LEN:-{ctx}}}" in flags
             or f"--max-model-len=${{VERIFIER_MAX_LEN:-{ctx}}}" in flags
         )
-        assert "--enable-sleep-mode" not in flags and "--enforce-eager" in flags
+        assert "--enable-sleep-mode" not in flags and "--enforce-eager" not in flags  # D-1359: CUDA graphs on
     assert any("gemma-4-26b-a4b-it-4bit" in f for f in judge) and any("qwen3.5-9b-4bit" in f for f in verifier)
     assert any("enable_thinking" in f for f in verifier)
     assert svc["llm-verifier"]["depends_on"]["llm-service"]["condition"] == "service_healthy"

@@ -1459,7 +1459,8 @@ d_models_bind() {
 }
 d_direct_up()   { d_site_env && d_serving_mode && d_models_bind && dc up -d --pull never --wait --wait-timeout 900; }
 # The owner's exception for this validation box (2026-11-16), never a product change: tb-serving "tuned" starts the
-# judge and the verifier with --max-num-seqs 48 and without --enforce-eager (CUDA graphs on), SCREEN's calls in flight
+# judge and the verifier with --max-num-seqs 48 (CUDA graphs on: since D-1359 every profile runs without
+# --enforce-eager, and the filter below only keeps an older bundle's eager line out), SCREEN's calls in flight
 # to match, by a compose override beside the site's files; "shipped" (or unset) takes the override away. Everything
 # else of the two servers' command lines is the profile's own, read from its compose file.
 SERVING=$(md tb-serving || true)
