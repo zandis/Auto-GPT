@@ -31,6 +31,8 @@ not catch):
 from __future__ import annotations
 
 import ast
+import base64
+import binascii
 import hashlib
 import hmac
 import html
@@ -207,29 +209,51 @@ SCHEME_TOKEN = re.compile(r"(?i)(?<![A-Za-z0-9])(bearer|basic|digest|token|negot
 #: on a long run of letters or digits (review: the unanchored scheme took 32 s on a 100 KB line)
 USERINFO = re.compile(
     r"(?i)(?<![A-Za-z0-9+.\-])([A-Za-z][A-Za-z0-9+.\-]{0,31}://)"
-    r"([^\s\"'<>/@]{0,256}:[^\s\"'<>]{0,256}|[^\s\"'<>/@]{1,256})(@)"
+    r"([^\s\"'<>/@]{0,256}:[^\s\"<>]{0,256}|[^\s\"'<>/@]{1,256})(@)"
 )
 USERINFO_ENCODED = re.compile(r"(?i)(%3A%2F%2F)((?:(?!%2F|%40)[^/@\s\"'<>]){1,256})(%40)")
 #: a command line's ``--password VALUE`` / ``-token VALUE`` (the ``=`` form is a pair)
-FLAG = re.compile(r"(?<![\w\-])(?P<dash>--?)(?P<key>[A-Za-z][A-Za-z0-9_\-]{0,40})(?P<sep>[ \t]+)(?P<val>[^\s\-]\S*)")
+FLAG = re.compile(r"(?<![\w\-])(?P<dash>--?)(?P<key>[A-Za-z][A-Za-z0-9_\-]{0,40})(?P<sep>[ \t]+)")
+#: H76-05: a flag and its value as two items of a list: ``["--password", "X"]``, ``- --password`` then ``- X``
+LIST_FLAG = re.compile(
+    r"(?<![\w\-])(?P<q>[\"']?)--?(?P<key>[A-Za-z][A-Za-z0-9_\-]{0,40})(?P=q)"
+    r"(?P<sep>[ \t]*,[ \t]*|[ \t]*\r?\n[ \t]*-[ \t]+)(?P<q2>[\"']?)(?P<val>[^\"'\s,\[\]\-][^\"'\s,\]]*)(?P=q2)"
+)
 #: ``curl -u user:password``, ``--user``, ``--proxy-user``
 CLI_USER = re.compile(r"(?<![\w\-])(?P<key>-u|--user|--proxy-user|-U)(?P<sep>[ \t]+|=)(?P<user>[^\s:]*):(?P<val>\S+)")
 #: ``<password>VALUE</password>`` (any namespace, any attributes)
 XML = re.compile(r"<(?P<key>[A-Za-z_][\w.\-:]{0,80})(?P<attrs>\s[^<>]{0,512})?>(?P<val>[^<]{1,4096})</(?P=key)\s*>")
 #: what an encoding makes of a character: ``%2F``, ``%252F``, ``\u002F``, ``\x2F``, ``&#x2F;``, ``&quot;``, ``=3D``
-ENCODED = re.compile(r"%[0-9A-Fa-f]{2}|\\[uxU][0-9A-Fa-f]{2}|&#?[A-Za-z0-9]{1,8};|=3D")
-_BACKSLASH = re.compile(r"\\(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|U([0-9A-Fa-f]{8}))")
+ENCODED = re.compile(
+    "%[0-9A-Fa-f]{2}|\\\\+[uxU][0-9A-Fa-f]{2}|&#?[A-Za-z0-9]{1,8};|&#[xX]?[0-9A-Fa-f]{1,6}|=[0-9A-F]{2}"
+    "|[\u200b-\u200d\u2060\ufeff\u00ad]"
+)
+#: H76-04: characters a reader does not see, which split a token in two for every rule
+INVISIBLE = re.compile("[\u200b-\u200d\u2060\ufeff\u00ad]")
+#: H76-03: a pseudonym straight after what an encoding leaves of a character, whatever the layers: ``%2F``,
+#: ``%25252F``, ``=B0`` (quoted-printable), ``&#47``/``&#x2f`` with or without ``;``, ``\\x2f``, ``\\u002f``. The
+#: encoding's hex digits join the pseudonym's, so the plain rule (no hex digit beside it) cannot see it.
+ENC_PID = (
+    r"(?:%(?:25){0,16}[0-9A-Fa-f]{2}|=[0-9A-F]{2}|&#[0-9]{2,3};?|&#[xX][0-9A-Fa-f]{2};?"
+    r"|\\+x[0-9A-Fa-f]{2}|\\+u[0-9A-Fa-f]{4}|\\+U[0-9A-Fa-f]{8})"
+)
+_BACKSLASH = re.compile(r"\\+(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|U([0-9A-Fa-f]{8}))")
 _QP = re.compile(r"=([0-9A-F]{2})")
+#: H76-09: a run that may be base64 (either alphabet, with or without padding); bounded so that one pass is linear
+B64_RUN = re.compile(r"(?<![A-Za-z0-9+/_\-])[A-Za-z0-9+/_\-]{24,4194304}={0,2}")
 #: a PEM block's END line whose BEGIN is not in the text (a cut, a rotated log): the base64 lines before it go too
 PEM_END = re.compile(r"-----END [A-Z0-9 ]{1,64}-----")
 _B64 = re.compile(r"[A-Za-z0-9+/=]{16,}")
 _KEY = r"[A-Za-z_][A-Za-z0-9_.\-\[\]]{0,80}"
 #: a whole ``.env``/YAML/ini line: ``  - export NAME = value``, also commented out (``# NAME=value``: an old password)
 LINE = re.compile(
-    rf"^(?P<lead>\s*(?:(?:#+|//|;|>)\s*)?-?\s*(?:export\s+)?)(?P<key>{_KEY})(?P<sep>\s*[:=]\s*)(?P<val>.*)$"
+    rf"^(?P<lead>\s*(?:(?:#+|//|;|>|[\w.\-]{{1,64}}[ \t]*\|)[ \t]*)?-?\s*(?:export\s+)?)"
+    rf"(?P<key>{_KEY})(?P<sep>\s*[:=]\s*)(?P<val>.*)$"
 )
 #: ``name=value`` anywhere: a query string (also percent-encoded inside another URL), a form body, a log's pairs
 PAIR = re.compile(rf"(?:(?<=%3[Ff])|(?<=%26)|(?<![A-Za-z0-9_.%]))(?P<key>{_KEY})(?P<sep>[ \t]*(?:=|%3[Dd])[ \t]*)")
+VIEW_VALUE = re.compile(r"[^\n]+")
+WORD = re.compile(r"\S+")
 PAIR_VALUE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'|(?:(?!%26)[^\s&;,\"'<>(){}\[\]])+")
 #: ``"name": value`` and ``'name': value`` (JSON, a Python repr), the value a string, a number, a word or a list
 QUOTED = re.compile(
@@ -247,7 +271,8 @@ HEADER = re.compile(
 )
 UUID = re.compile(r"(?<![0-9A-Fa-f-])[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}(?![0-9A-Fa-f-])")
 DIGEST = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{40,}(?![0-9A-Za-z])")
-COMMENT = re.compile(r"^\s*(?:#+|//|;|>)")
+COMMENT = re.compile(r"^\s*(?:#+|//|;|>|[\w.\-]{1,64}[ \t]*\|)")
+SINGLE = re.compile(r"[ \t]*[^\s:]+[ \t]*")
 MAPPING_KEY = re.compile(r"^\s*-?\s*[A-Za-z_\"'][\w.\-\"' ]{0,80}:(?:\s|$)")
 YAML_BLOCK = re.compile(r"^[|>][+\-]?\d*\s*(?:#.*)?$")
 
@@ -265,6 +290,9 @@ class Scrubber:
     decl: Declarations = field(default_factory=declarations)
     credentials: Callable[[str], tuple[str, Counter[str]]] = hide_credentials
     found: Counter[str] = field(default_factory=Counter)
+    #: H76-02: True while a decoded view is scrubbed: a secret pair's value then runs to the end of the line, since a
+    #: separator there may be one the decoding made of a character inside the value
+    view: bool = field(default=False, compare=False)
 
     @classmethod
     def for_bundle(
@@ -287,7 +315,20 @@ class Scrubber:
         return f"[{kind} #{''.join(_TAG_LETTERS[b % len(_TAG_LETTERS)] for b in digest[:5])}]"
 
     def tokens(self, text: str) -> str:
+        return self.screening(self.pseudonyms(text))
+
+    def pseudonyms(self, text: str) -> str:
+        enc = _enc_pid(pid_hex_len())  # H76-03: a pseudonym right after an encoding's hex digits
+        text = enc.sub(lambda m: m.group(0)[: m.start("t") - m.start(0)] + self._mask("pseudonym", m.group("t")), text)
+        return self._kinds(text, "pseudonym")
+
+    def screening(self, text: str) -> str:
+        return self._kinds(text, "screening-no")
+
+    def _kinds(self, text: str, which: str) -> str:
         for kind, rx in self.patterns.items():
+            if not kind.startswith(which):
+                continue
             label = "pseudonym" if kind.startswith("pseudonym") else "screening-no"
 
             def one(t: str, rx: re.Pattern[str] = rx, label: str = label) -> str:
@@ -346,6 +387,12 @@ class Scrubber:
                 continue
             if not val or val.startswith("#"):  # key:  -> the value may be on the lines below (review M1)
                 taken, i = self._below(lines, i, line)
+                if not taken and not val and i < len(lines):  # H76-05: ``password:`` then the value, not indented
+                    mark = COMMENT.match(lines[i]) if COMMENT.match(line) else None
+                    rest = lines[i][mark.end() :] if mark else lines[i]
+                    if SINGLE.fullmatch(rest) and not LINE.match(lines[i]):
+                        taken, i = [lines[i][: len(lines[i]) - len(rest)] + REDACTED], i + 1
+                        self.found["secret (value below)"] += 1
                 out += [line, *taken]
                 continue
             if _keeps(val.strip("\"'")) or val == REDACTED or (val.endswith(":") and " " not in val):
@@ -378,6 +425,22 @@ class Scrubber:
             i += 1
         return taken, i
 
+    def _flags(self, text: str) -> str:
+        """``--name VALUE``: after a secret's name the value is the next word, even one that starts with ``-``
+        (H76-05); after any other name the search goes on, so ``--verbose --token X`` still finds the token."""
+        out: list[str] = []
+        at = 0
+        for m in FLAG.finditer(text):
+            if m.start() < at or not secret_name(m["key"], self.decl):
+                continue
+            v = WORD.match(text, m.end())
+            if v is None or _keeps(v.group(0).strip("\"'")) or v.group(0) == REDACTED:
+                continue
+            out += [text[at : m.end()], REDACTED]
+            at = v.end()
+            self.found["secret (flag)"] += 1
+        return "".join([*out, text[at:]])
+
     def _pairs(self, text: str) -> str:
         """``name=value`` pairs. Only a secret's value is taken as a whole; after any other name the search goes on
         right after its ``=``, so ``next=%2Flogin%3Ftoken%3D…`` still finds the token inside."""
@@ -386,11 +449,11 @@ class Scrubber:
         for m in PAIR.finditer(text):
             if m.start() < at or not secret_name(m["key"], self.decl):
                 continue
-            v = PAIR_VALUE.match(text, m.end())
+            v = (VIEW_VALUE if self.view else PAIR_VALUE).match(text, m.end())
             if v is None:
                 continue
             val = v.group(0)
-            if _keeps(val.strip("\"'")) or val == REDACTED:
+            if _keeps(val.strip("\"'")) or val.startswith(REDACTED):
                 continue
             q = val[0] if val[0] in "\"'" else ""
             out += [text[at : m.end()], f"{q}{REDACTED}{q}"]
@@ -418,7 +481,8 @@ class Scrubber:
         text = self._lines(text)
         text = HEADER.sub(lambda m: self._value(m, "header"), text)
         text = self._pairs(text)
-        text = FLAG.sub(lambda m: self._value(m, "flag"), text)
+        text = LIST_FLAG.sub(lambda m: self._value(m, "list flag"), text)
+        text = self._flags(text)
         text = COLON.sub(lambda m: self._value(m, "colon"), text)
         return text
 
@@ -442,7 +506,9 @@ class Scrubber:
 
     # -------------------------------------------------------------------------------- the one function
     def _rules(self, text: str) -> str:
-        return self.phi(self.tokens(self.secrets(text)))
+        # pseudonyms before the log scrubber (its phone pattern must not cut one), screening numbers after it (a
+        # Taiwan ID or an insurer number keeps its own, more exact, mark)
+        return self.screening(self.phi(self.pseudonyms(self.secrets(text))))
 
     def decoded(self, text: str) -> str:
         """Review H1: an encoding puts a hex digit or a letter next to a token (``%2F<pid>``, ``%22<pid>%22``,
@@ -450,25 +516,106 @@ class Scrubber:
         encoded character is decoded (percent, twice-percent, ``\\u``/``\\x``/``\\U``, HTML entities, ``=3D``) and
         scrubbed; if that changes anything, the line is kept decoded and scrubbed."""
         lines = text.split("\n")
+        cand = []
         for k, line in enumerate(lines):
-            if not ENCODED.search(line):
-                continue
-            plain = _decode(line)
-            if plain == line:
-                continue
-            clean = self._rules(plain)
-            if clean == plain:
-                continue
+            if ENCODED.search(line):
+                plain = _decode(line)
+                if plain != line:
+                    cand.append((k, line, plain))
+        if not cand:
+            return text
+        # the views, then the raw lines, each scrubbed as one text (H-76: one call, not one a line, for speed)
+        cleans = self._batch(self._view_rules, [p for _, _, p in cand])
+        changed = [
+            (k, line, plain, clean) for (k, line, plain), clean in zip(cand, cleans, strict=True) if clean != plain
+        ]
+        short = [line for _, line, _, _ in changed if len(line) <= 65536]
+        raws = iter(self._batch(self._rules, short))
+        for k, line, plain, clean in changed:
             # H-76: the line keeps its own (encoded) form when the raw rules mask, where it stands, everything the
             # decoded view masks; otherwise (a raw rule would leave a fragment) it is written decoded and scrubbed
             if len(line) <= 65536:
-                raw_view = _decode(self._rules(line))
+                raw_view = _decode(next(raws))
                 gone = _removed(plain, clean)
                 if gone is not None and not any(_leaks(seg, raw_view) for seg in gone):
                     continue
             lines[k] = clean
             self.found["decoded line"] += 1
         return "\n".join(lines)
+
+    @staticmethod
+    def _batch(rules: Callable[[str], str], items: list[str]) -> list[str]:
+        """``rules`` over each item: as one text when that gives back as many lines, else one item at a time."""
+        if not items:
+            return []
+        if not any("\n" in x for x in items):
+            out = rules("\n".join(items)).split("\n")
+            if len(out) == len(items):
+                return out
+        return [rules(x) for x in items]
+
+    def _view_rules(self, plain: str) -> str:
+        self.view = True
+        try:
+            return self._rules(plain)
+        finally:
+            self.view = False
+
+    def soft(self, text: str) -> str:
+        """H76-04: lines joined by a quoted-printable soft break (a line that ends in ``=``) are read as one line;
+        when the raw rules would leave a fragment of what that line holds, they are written as one, scrubbed."""
+        if "=\n" not in text:
+            return text
+        lines = text.split("\n")
+        out: list[str] = []
+        i = 0
+        while i < len(lines):
+            j = i
+            while j < len(lines) - 1 and j - i < 4096 and lines[j].endswith("=") and not lines[j].endswith("=="):
+                j += 1
+            region = lines[i : j + 1]
+            i = j + 1
+            if len(region) == 1:
+                out += region
+                continue
+            plain = _decode("".join(x[:-1] for x in region[:-1]) + region[-1])
+            clean = self._view_rules(plain)
+            if clean != plain:
+                raw_view = _decode(self._rules("\n".join(region)).replace("=\n", ""))
+                gone = _removed(plain, clean)
+                if gone is None or any(_leaks(seg, raw_view) for seg in gone):
+                    out.append(clean)
+                    self.found["soft-broken lines"] += 1
+                    continue
+            out += region
+        return "\n".join(out)
+
+    def b64(self, text: str, depth: int = 0) -> str:
+        """H76-09: a base64 run (either alphabet, padded or not) that decodes to text is scrubbed as text, and
+        written back in its own alphabet when that changes anything; base64 inside base64 once more. A run that
+        decodes to bytes that are not text (an image, compressed data, a hash) is left as it is."""
+        if depth > 1:
+            return text
+
+        def one(m: re.Match[str]) -> str:
+            run = m.group(0)
+            url = "-" in run or "_" in run
+            body = run.rstrip("=")
+            try:
+                raw = (base64.urlsafe_b64decode if url else base64.b64decode)(body + "=" * (-len(body) % 4))
+                plain = raw.decode("utf-8")
+            except (binascii.Error, ValueError):
+                return run
+            if len(plain) < 8 or _CONTROL.search(plain) or not plain.strip():
+                return run
+            clean = self._rules(self.decoded(self.b64(plain, depth + 1)))
+            if clean == plain:
+                return run
+            self.found["base64 run"] += 1
+            enc = (base64.urlsafe_b64encode if url else base64.b64encode)(clean.encode()).decode()
+            return enc if run.endswith("=") else enc.rstrip("=")
+
+        return B64_RUN.sub(one, text)
 
     def text(self, text: str) -> str:
         """Every rule, until the text no longer changes (at most three passes; a fourth change is refused).
@@ -478,11 +625,11 @@ class Scrubber:
         scrubber's phone pattern took digits from its middle), and the decoded view then saw only fragments: the
         flake of ``test_the_extended_corpus_still_holds_the_invariant``, about 1 corpus in 60."""
         for _ in range(3):
-            new = self._rules(self.decoded(text))
+            new = self._rules(self.b64(self.decoded(self.soft(text))))
             if new == text:
                 return new
             text = new
-        if self._rules(self.decoded(text)) != text:
+        if self._rules(self.b64(self.decoded(self.soft(text)))) != text:
             raise ScrubError("the scrub does not settle on this text: it is not written")
         return text
 
@@ -584,15 +731,25 @@ def _removed(plain: str, clean: str) -> list[str] | None:
     """The parts of ``plain`` that the scrub replaced in ``clean`` (every mask is a ``[...]`` marker): the text
     between the literal pieces of ``clean``, found in order in ``plain``. None when they cannot be lined up."""
     pieces = _MARK.split(clean)
-    if len(pieces) > 200:
+    if len(pieces) > 200 or not plain.startswith(pieces[0]):
         return None
-    m = re.fullmatch("(.*?)".join(re.escape(x) for x in pieces), plain, re.S)
-    return None if m is None else list(m.groups())
+    pos, gaps = len(pieces[0]), []
+    for piece in pieces[1:-1]:
+        j = plain.find(piece, pos)
+        if j < 0:
+            return None
+        gaps.append(plain[pos:j])
+        pos = j + len(piece)
+    end = len(plain) - len(pieces[-1])
+    if len(pieces) == 1 or end < pos or not plain.endswith(pieces[-1]):
+        return None if len(pieces) > 1 else []
+    gaps.append(plain[pos:end])
+    return gaps
 
 
 def _leaks(seg: str, text: str) -> bool:
     """Whether ``text`` still holds ``seg`` or 8 of its characters in a row (any case)."""
-    seg, text = seg.strip().lower(), text.lower()
+    seg, text = _MARK.sub("", seg).strip().lower(), text.lower()  # a mark already in place is no leak
     if len(seg) < 4:
         return False
     if len(seg) <= 8:
@@ -601,17 +758,25 @@ def _leaks(seg: str, text: str) -> bool:
 
 
 def _decode(line: str) -> str:
-    """``line`` with every encoding undone, up to four layers (``%252F`` is ``/``)."""
-    for _ in range(4):
+    """``line`` with every encoding undone, up to sixteen layers (``%252F`` is ``/``; H76-03: five layers and more,
+    an entity without ``;``, quoted-printable when the line has ``=3D`` or two ``=XX``), and the characters a reader
+    does not see taken out (H76-04: zero-width space, soft hyphen, word joiner, byte order mark)."""
+    for _ in range(16):
         new = unquote(line, errors="replace")
         new = html.unescape(new)
         new = _BACKSLASH.sub(lambda m: chr(int(m.group(1) or m.group(2) or m.group(3), 16) % 0x110000), new)
-        if "=3D" in new:
+        if "=3D" in new or len(_QP.findall(new)) >= 2:
             new = _QP.sub(lambda m: chr(int(m.group(1), 16)), new)
+        new = INVISIBLE.sub("", new)
         if new == line:
             break
         line = new
     return line
+
+
+@lru_cache(maxsize=4)
+def _enc_pid(hex_len: int) -> re.Pattern[str]:
+    return re.compile(ENC_PID + rf"(?P<t>[0-9A-Fa-f]{{{hex_len}}})(?![0-9A-Fa-f])")
 
 
 def _seg_start(text: str, lo: int, k: int) -> int:
@@ -693,8 +858,12 @@ def token_patterns(hex_len: int) -> dict[str, re.Pattern[str]]:
             r"(?<![0-9A-Fa-f])[0-9a-f]{8}…|(?<![0-9A-Fa-f])(?=[0-9]{0,7}[a-f])[0-9a-f]{8}(?![0-9A-Fa-f])"
         ),
         "screening-no": re.compile(r"(?<![^\W_])[^\W_][\w\-]{0,15}[\-_]\d{4,}(?![^\W_]|[\-_]\d)"),
-        "screening-no separated": re.compile(r"(?<![^\W_])[A-Z][A-Z0-9]{1,15}[ .#/:]\d{4,}(?![^\W_]|[\-_.:/]\d)"),
+        "screening-no separated": re.compile(r"(?<![^\W_])[A-Z][A-Za-z0-9]{0,15}[.#/:]\d{4,}(?![^\W_]|[\-_.:/]\d)"),
+        "screening-no spaced": re.compile(
+            r"(?<![^\W_])[A-Z][A-Z0-9]{1,15}(?: [A-Z0-9]{1,15}){0,3} \d{4,}(?![^\W_]|[\-_.:/ ]\d)"
+        ),
         "screening-no letters": re.compile(r"(?<![^\W_])[A-Z][A-Za-z]{0,15}\d{4,}(?![^\W_]|[\-_]\d)"),
+        "screening-no other script": re.compile(r"(?<![^\W_])[^\W\dA-Za-z_]{1,16}\d{4,}(?![^\W_]|[\-_]\d)"),
     }
 
 
