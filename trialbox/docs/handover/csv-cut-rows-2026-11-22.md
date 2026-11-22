@@ -45,5 +45,8 @@ In [findings.json](csv-cut-rows-2026-11-22/findings.json):
   register's keeper decides).
 - F2-01, Medium: a complete export that does not end with a line end, or ends with a DOS end-of-file byte, now holds
   the night where master read it. No file the box writes or tests read is such a file; a hospital's export can be.
+  Ruled (#639 comment 7079672093): the hold is the default; the way out for an export tool that never writes a final
+  line end is a declared, audited setting per source, a follow-up card. Until it exists such a site's night is held,
+  and the held night names the file and says why.
 - F2-02, Low: a file cut exactly at a line end (whole rows lost) cannot be told from a whole file, as on master.
 - H34-05 (a renamed header column) is not covered: the source is not told the columns the mapping reads.
