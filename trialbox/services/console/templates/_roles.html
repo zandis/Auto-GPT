@@ -1,0 +1,8 @@
+{# 9f-1 (D-1382, D-1391): the person's own roles, one line per delegation-log entry in force; the account page adds the
+   dates and the warning before an entry ends (ending=True), the home page names the role and the ticked tasks only. #}
+{% macro role_items(my_roles, ending=True) %}<ul class="plain">{% for r in my_roles %}<li data-testid="role-{{ r.rs }}-{{ r.role }}"><strong class="mono">{{ r.rs }}</strong> · {{ t('team.role.' + r.role) }}{% if r.role == 'pi' %} · {{ t('team.mine.all_tasks') }}{% elif r.role == 'sub_pi' or r.tasks %} · {{ t('team.mine.tasks') }}: {% if r.tasks %}{% for k in r.tasks %}{{ t('team.task.' + k) }}{{ ', ' if not loop.last else '' }}{% endfor %}{% else %}{{ t('team.mine.no_tasks') }}{% endif %}{% endif %}{% if ending %} · <span class="nowrap">{{ r.start }} – {{ r.end or '' }}</span>{% endif %}{% if ending and r.left is not none %} <span class="pill warn" data-testid="role-ending-{{ r.rs }}-{{ r.role }}">{{ t('team.ending.today', end=r.end) if r.left == 0 else t('team.ending.days', n=r.left, end=r.end) }}</span>{% endif %}</li>{% endfor %}</ul>{% endmacro %}
+
+{% macro home_roles_card(home_roles) %}{% if home_roles %}<section class="card" data-testid="home-roles">
+  <h2>{{ t('team.mine.title') }}</h2>
+  {{ role_items(home_roles, false) }}
+</section>{% endif %}{% endmacro %}

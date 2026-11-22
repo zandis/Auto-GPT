@@ -22,7 +22,9 @@
 # trialbox-*, volumes trialbox_*) and the ballast's container tb-ballast-<run id>; it refuses to start when any of them
 # exists already, and removes them at the end (on success, on failure, on SIGINT and SIGTERM, at the cap). The box's
 # images it builds are listed in records/docker-objects.json and kept (the build cache too: Docker cannot tell this
-# run's cache from another user's).
+# run's cache from another user's); it refuses to start when any image of the box's names (trialbox-*) exists already,
+# since the stub would build over it (card H-72: a host with an installed box is refused, not shared).
+# The preflight also refuses a driver below what the engine image's CUDA needs (deploy/images.lock gpu.driver_min).
 #
 # The stop line and the cap are the VM form's (measure48_vm.py stop-line-min: 204 min with stage O; the cap 240 min),
 # counted from the start of the steps and kept by this script itself: at the stop line the running tool gets SIGINT
@@ -115,9 +117,16 @@ preflight() {
     GPU_UUID=$(printf '%s' "$out" | head -n 1 | cut -d, -f1 | tr -d ' ')
     drv=$(printf '%s' "$out" | head -n 1 | awk -F', *' '{print $NF}')
     pf ok "card $GPU_INDEX: $(printf '%s' "$out" | head -n 1 | cut -d, -f2,3 | sed 's/^ *//') MiB in all; driver $drv"
+    # the engine image's own need: deploy/images.lock gpu.driver_min (its CUDA), read by tools/images_lock.py host
+    out=$(python3 "$HERE/tools/images_lock.py" host --arch "$(uname -m)" --driver "$drv" 2> /dev/null | grep -m1 'NVIDIA driver')
+    case "$out" in
+      PASS*) pf ok "card $GPU_INDEX: $(sed 's/^PASS *//' <<< "$out") (deploy/images.lock)" ;;
+      FAIL*) pf NO "card $GPU_INDEX: $(sed 's/^FAIL *//' <<< "$out") (deploy/images.lock gpu.driver_min); this script never installs a driver" ;;
+      *) pf NO "card $GPU_INDEX: driver $drv could not be checked against deploy/images.lock (tools/images_lock.py host)" ;;
+    esac
     rented=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import measure48_vm as m; print(m.RENTED_DRIVER_BRANCH)' "$HERE/tools")
     [ "${drv%%.*}" = "$rented" ] \
-      || pf note "driver $drv is not the rented run's branch ($rented): recorded; the run goes on (no minimum is set)"
+      || pf note "driver $drv is not the rented run's branch ($rented): recorded; the run goes on if it meets the engine image's minimum (above)"
   else pf NO "nvidia-smi has no card $GPU_INDEX: $(printf '%s' "$out" | head -n 1)"; fi
   # other processes on THAT card (a shared machine: how many and how much, never whose); other cards are not read
   if out=$(nvidia-smi -i "$GPU_INDEX" --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2> /dev/null); then
@@ -144,6 +153,11 @@ preflight() {
     out=$(objs); n=$(printf '%s' "$out" | grep -c .)
     if [ "$n" = 0 ]; then pf ok "no TrialBox objects on this host (compose project trialbox, trialbox-* networks, trialbox_* volumes, $BALLAST_NAME)"
     else pf NO "this host has $n Docker object(s) of the box's names already ($(cut -f1 <<< "$out" | sort | uniq -c | awk '{printf "%s%s %s", (NR > 1 ? ", " : ""), $1, $2}')): the run makes and removes objects of those names and shares none"; fi
+    # the box's images: the stub (s05, deploy/poc.sh) builds and tags trialbox-* images; an installed box's would be
+    # built over, so any image of those names already here refuses the run
+    out=$(images | grep '^trialbox-'); n=$(printf '%s' "$out" | grep -c .)
+    if [ "$n" = 0 ]; then pf ok "no images of the box's names on this host (trialbox-*: the stub builds and tags them)"
+    else pf NO "this host has $n image(s) of the box's names already ($(tr '\n' ' ' <<< "$out" | sed 's/ $//; s/ /, /g')): the stub (s05) builds and tags images of those names and would replace them; the run shares none"; fi
     ref=$(tool pinned_ref 2> /dev/null)
     if [ -z "$ref" ]; then pf NO "no pinned engine image (tools/engine_probe.py pinned_ref)"
     elif docker image inspect --format '{{.Id}}' "$ref" > /dev/null 2>&1; then pf ok "the engine image is here by digest: $ref"
