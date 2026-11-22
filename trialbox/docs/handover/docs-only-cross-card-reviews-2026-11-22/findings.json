@@ -1,0 +1,33 @@
+{
+ "card": "H81",
+ "title": "a page under docs/reviews/ no longer pulls a property test into the docs-only cross-card run (the integrator's red of 2026-11-22)",
+ "date": "2026-11-22",
+ "source": "docs/handover/docs-only-cross-card-reviews-2026-11-22.md",
+ "note": "basis 'shown' means shown by the CI job logs read (public, no token), the local runs written on the card page and the card's tests.",
+ "findings": [
+  {
+   "id": "H81-01",
+   "severity": "Medium",
+   "claim": "the docs-only selection (tools/ci_docs_only.py, D-969) pulls a test in when a docstring or comment cites the changed document; the folder match is narrowed here (a folder is named by itself, not by another document in it), but a change to a cited page, such as docs/reviews/2026-11-12-architecture/decision.md, still selects both tests/property files; matching only code strings needs ast, which the tool's standard-library test does not list",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H81-02",
+   "severity": "Medium",
+   "claim": "the world fixture of tests/property/test_path_independence.py is module-scoped and shared through a file lock; under --dist worksteal a worker that comes back to the module asked for it again and, after a failed build, built again into its own build-<pid> folder (FileExistsError on sec), hiding the first error; fixed here (a folder per attempt, the first failure raised again); other shared builds of this shape were not looked for",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H81-03",
+   "severity": "Low",
+   "claim": "the cross-card job runs the docs-only list without fonts or JVM (jobs 137168755036, 137169956446, 137186838469: font NotoSansTC-Regular.ttf not found); a selected test that needs them cannot pass there",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

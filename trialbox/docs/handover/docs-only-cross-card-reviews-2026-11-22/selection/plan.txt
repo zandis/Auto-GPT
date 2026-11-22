@@ -1,0 +1,23 @@
+# before
+tests/console/test_asvs_evidence.py
+tests/e2e/test_limits_edge_box.py
+tests/e2e/test_planted_faults.py
+tests/perf/test_backfill_50k.py
+tests/unit/test_backlog.py
+tests/unit/test_ci_docs_only.py
+tests/unit/test_decommission.py
+tests/unit/test_eval_licence_labels.py
+tests/unit/test_findings_register.py
+tests/unit/test_g1_results_report.py
+tests/unit/test_imperfect_feed.py
+tests/unit/test_masking_leaks.py
+tests/unit/test_planted_faults_fast.py
+tests/unit/test_runbook_install_follow.py
+tests/unit/test_ssdf_iec81001.py
+tests/unit/test_v4_survivor_examples.py
+tests/unit/test_validation_reset_2026_11_14.py
+tests/unit/test_wording.py
+tests/unit/test_workdays.py
+# after
+tests/unit/test_findings_register.py
+tests/unit/test_ssdf_iec81001.py
