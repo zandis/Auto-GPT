@@ -39,7 +39,7 @@ server (H-84: `docker run` of the box's db image, `--network none`), its readine
 when this process has no psycopg), its removal, the key-check record and the audit event (`restore_drill.record`
 with the standard library: `audit_layout` is held to `backup.layout` by a test). Only the unpack, the restore and the
 comparison run in a one-off container of the box's Python image, `tb-restore-drill-<id>-restore`, labelled like the
-others (so a sweep takes it): `--network none`, `--pull never`, `--read-only`, `--cap-drop ALL` with
+others (so a sweep takes it): `--network none`, `--pull never`, `--read-only` (its temp folder in the unpack folder, `TMPDIR`), `--cap-drop ALL` with
 `DAC_READ_SEARCH` only (root must traverse the database user's 0700 socket folder), the invoking user's uid and gid,
 exactly four mounts at their own paths (the backup read-only, the key read-only, the drill's 0700 unpack folder and
 the throwaway's socket folder), and `PGPASSWORD`, `TB_DB_URL`, `TB_HAPI_DB_URL` by name only (the URLs give the

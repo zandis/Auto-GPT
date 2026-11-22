@@ -667,7 +667,9 @@ def _assert_split(box: dict[str, Any], live: _Recorder, work: Path, state: Path)
         assert "docker.sock" not in m and "deploy" not in m and "volumes" not in m, m
         assert src in (str(file), str(key)) or src.startswith(str(work)) or Path(src).name.startswith("tbd-"), m
     envs = [a[i + 1] for i, x in enumerate(a) if x == "-e"]
-    assert set(envs) == {*rd.PASSED, "PYTHONDONTWRITEBYTECODE=1"}, envs  # values by name, never on the line
+    assert set(envs) - {f"TMPDIR={m.split(':')[0]}/t" for m in mounts} == {*rd.PASSED, "PYTHONDONTWRITEBYTECODE=1"}, (
+        envs
+    )  # values by name, never on the line
     for c in _calls(s):
         assert SENTINEL not in json.dumps(c["argv"]) and "x@127.0.0.1" not in json.dumps(c["argv"]), c["argv"]
         if c["argv"][0] in {"rm", "exec"}:

@@ -656,9 +656,9 @@ def restore_argv(srv: Throwaway, image: str, file: Path, key: Path, holder: Path
     names = [x for n in PASSED for x in ("-e", n)]
     return [*srv.docker, "run", "--rm", "--name", srv.restore_name, "--label", f"{LABEL}={srv.drill_id}",
             "--network", "none", "--pull", "never", "--user", f"{os.getuid()}:{os.getgid()}", "--read-only",
-            "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--cap-drop", "ALL", "--cap-add", "DAC_READ_SEARCH",
-            "--security-opt", "no-new-privileges:true", "--pids-limit", str(PIDS), *names,
-            "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", f"{f}:{f}:ro", "-v", f"{k}:{k}:ro", "-v", f"{holder}:{holder}",
+            "--cap-drop", "ALL", "--cap-add", "DAC_READ_SEARCH", "--security-opt", "no-new-privileges:true",
+            "--pids-limit", str(PIDS), *names, "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", f"TMPDIR={holder / 't'}",
+            "-v", f"{f}:{f}:ro", "-v", f"{k}:{k}:ro", "-v", f"{holder}:{holder}",
             "-v", f"{srv.sock_parent}:{srv.sock_parent}", image, "python", "-m", "tools.trialbox.restore_drill",
             "--inner", str(holder / "spec.json")]  # fmt: skip
 
@@ -671,6 +671,7 @@ def _drill_in_image(file: Path, key: Path, env: Mapping[str, str], srv: Throwawa
     spec = {"file": str(file.resolve()), "key": str(key.resolve()), "unpacked": str(unpacked), "queue": str(queue),
             "sock": str(srv.sock), "prefix": f"{SCRATCH_PREFIX}{srv.drill_id}_"}  # fmt: skip
     (holder / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
+    (holder / "t").mkdir(mode=0o700)  # the container's temp folder: its root is read-only
     inner: dict[str, Any] = {}
     p: subprocess.Popen[str] | None = None
     with _on_sigterm(), _pgpassword(_password()):
