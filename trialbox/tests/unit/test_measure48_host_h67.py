@@ -112,6 +112,11 @@ elif a[:2] == ["image", "inspect"]:
     sys.exit(0 if a[-1] in s["images"] else 1)
 elif a[:2] == ["image", "ls"]:
     print("\n".join(s["images"]))
+elif a[:2] == ["image", "rm"]:
+    for n in a[2:]:
+        if n in s["images"]:
+            s["images"].remove(n)
+    save()
 elif a[0] == "pull":
     s["images"].append(a[1])
     save()
@@ -124,6 +129,8 @@ elif a[0] == "system":
 STANDIN = r"""#!@PY@
 import json, os, pathlib, signal, sys, time
 a = sys.argv[1:]
+P = os.environ.get("COMPOSE_PROJECT_NAME", "trialbox")  # the run's project and tag (H-75)
+TAG = os.environ.get("TRIALBOX_IMAGE_TAG", "1.0.0")
 with open(os.environ["M48_CALLS"], "a") as f:
     f.write(" ".join(a) + "\n")
 KEY = "@KEY@"
@@ -148,16 +155,16 @@ if t == "poc":
         (ck / "deploy/.env").write_text("TB_ADMIN_PASSWORD=@ADMIN@\n")
         (ck / "deploy/secrets/model/vllm.env").write_text('VLLM_API_KEY="' + KEY + '"\n')
         def up(s):
-            s["volumes"] += ["trialbox_db", "trialbox_objects"]
-            s["networks"] += ["trialbox-net", "trialbox-model-backend"]
-            s["images"] += ["trialbox-py:1.0.0"]
-            for n in ("trialbox-db-1", "trialbox-console-1"):
-                s["containers"][n] = {"com.docker.compose.project": "trialbox"}
+            s["volumes"] += [P + "_db", P + "_objects"]
+            s["networks"] += [P + "-net", P + "-model-backend"]
+            s["images"] += ["trialbox-py:" + TAG, "trialbox-jvm:" + TAG, "trialbox-postgres:" + TAG]
+            for n in (P + "-db-1", P + "-console-1"):
+                s["containers"][n] = {"com.docker.compose.project": P}
         docker(up)
         print("the box is up; sign in as admin with @ADMIN@")
     if a[1:] == ["down"]:
         def down(s):
-            for n in ("trialbox-db-1", "trialbox-console-1"):
+            for n in (P + "-db-1", P + "-console-1"):
                 s["containers"].pop(n, None)
         docker(down)
     sys.exit(0)
@@ -187,8 +194,8 @@ if t == "ballast48":
         out.mkdir(parents=True, exist_ok=True)
         print("measuring " + opt + " with the key " + KEY, flush=True)
         def servers(s):
-            for n in ("trialbox-llm-service-1", "trialbox-llm-verifier-1"):
-                s["containers"][n] = {"com.docker.compose.project": "trialbox"}
+            for n in (P + "-llm-service-1", P + "-llm-verifier-1"):
+                s["containers"][n] = {"com.docker.compose.project": P}
         docker(servers)
         (out / "gpu-pin.yml").write_text("device_ids: [" + arg("--gpu-uuid") + "]\n")
         if os.environ.get("M48_HANG") == opt:
@@ -210,11 +217,11 @@ if t == "ballast48":
             if "--keep" in a:
                 (out / "down.json").write_text(json.dumps({"cmd": ["docker"], "env": {"VLLM_API_KEY": KEY}}))
                 sys.exit(0)
-        docker(lambda s: [s["containers"].pop(n, None) for n in ("trialbox-llm-service-1",
-                                                                  "trialbox-llm-verifier-1")])
+        docker(lambda s: [s["containers"].pop(n, None) for n in (P + "-llm-service-1",
+                                                                  P + "-llm-verifier-1")])
         sys.exit(0 if started else 1)
     if sub == "down":
-        docker(lambda s: [s["containers"].pop(n, None) for n in ("trialbox-llm-service-1", "trialbox-llm-verifier-1")])
+        docker(lambda s: [s["containers"].pop(n, None) for n in (P + "-llm-service-1", P + "-llm-verifier-1")])
         sys.exit(0)
     if sub == "plan" and os.environ.get("M48_PLAN_REFUSED"):
         print("ballast48: refused: " + os.environ["M48_PLAN_REFUSED"], file=sys.stderr)
@@ -317,11 +324,13 @@ class Rig:
     def ended(self) -> str:
         return str(json.loads((self.out / "steps.json").read_text())["ended"])
 
-    def box_objects(self) -> list[str]:
+    def run_objects(self, project: str = "t1") -> list[str]:
+        """The run's own objects and images (H-75: its project, from --run-id t1, and its tag)."""
         d = self.docker
-        return sorted([c for c, lab in d["containers"].items() if lab.get("com.docker.compose.project") == "trialbox"
-                       or c.startswith("tb-ballast")] + [n for n in d["networks"] if n.startswith("trialbox-")]
-                      + [v for v in d["volumes"] if v.startswith("trialbox_")])  # fmt: skip
+        return sorted([c for c, lab in d["containers"].items() if lab.get("com.docker.compose.project") == project
+                       or c.startswith("tb-ballast")] + [n for n in d["networks"] if n.startswith(f"{project}-")]
+                      + [v for v in d["volumes"] if v.startswith(f"{project}_")]
+                      + [i for i in d["images"] if i.endswith(f":{project}")])  # fmt: skip
 
     def assert_nothing_forbidden_and_others_untouched(self) -> None:
         assert not self.forbidden.exists(), self.forbidden.read_text()
@@ -358,7 +367,7 @@ def test_the_preflight_passes_and_changes_nothing(rig: Rig) -> None:
     assert "the NVIDIA runtime is registered with Docker" in r.stdout
     assert "the engine image is here by digest" in r.stdout
     assert f"card {CARD}: NVIDIA driver {DRIVER} runs CUDA" in r.stdout  # deploy/images.lock gpu.driver_min (H-72)
-    assert "no images of the box's names on this host" in r.stdout
+    assert "no images of the run's tag on this host" in r.stdout  # H-75: the run's own tag, t1
     assert "Docker's data root: 200.0 GB free, 14 GB needed" in r.stdout
     assert "the run folder: 200.0 GB free, 10 GB needed" in r.stdout
     assert not rig.run_dir.exists()
@@ -378,18 +387,18 @@ def test_the_preflight_passes_and_changes_nothing(rig: Rig) -> None:
         ({"docker": {"runtimes": ["runc"]}}, {}, (), "the NVIDIA runtime is not registered with Docker"),
         ({"docker": {"images": []}}, {}, (), "the engine image is not here by digest"),
         ({"docker": {"compose": "2.20.2"}}, {}, (), "docker compose 2.20.2: 2.24.4 or newer is needed"),
-        (
-            {"docker": {"containers": {"trialbox-db-1": {"com.docker.compose.project": "trialbox"}}}},
+        (  # H-75: the run's own names (project and tag t1, from --run-id t1); the box's are allowed beside it
+            {"docker": {"containers": {"t1-db-1": {"com.docker.compose.project": "t1"}}}},
             {},
             (),
-            "this host has 1 Docker object(s) of the box's names already (1 container)",
+            "this host has 1 Docker object(s) of the run's names already (1 container)",
         ),
-        ({"docker": {"volumes": ["trialbox_db"]}}, {}, (), "of the box's names already (1 volume)"),
+        ({"docker": {"volumes": ["t1_db"]}}, {}, (), "of the run's names already (1 volume)"),
         (
-            {"docker": {"images": ["vllm/vllm-openai:v0.32.0@sha256:0000", "trialbox-py:1.0.0", "trialbox-jvm:1.0.0"]}},
+            {"docker": {"images": ["vllm/vllm-openai:v0.32.0@sha256:0000", "trialbox-py:t1", "trialbox-jvm:t1"]}},
             {},
             (),
-            "this host has 2 image(s) of the box's names already (trialbox-jvm:1.0.0, trialbox-py:1.0.0)",
+            "this host has 2 image(s) of the run's tag already (trialbox-jvm:t1, trialbox-py:t1)",
         ),
         (
             {"smi": {"driver": "575.57.08"}},
@@ -506,10 +515,10 @@ def test_a_full_pass_runs_s05_to_s14_on_the_chosen_card_and_leaves_nothing(rig: 
     # what the run made is listed and removed; nothing else is touched; nothing pulled (the image was there)
     objs = json.loads((rig.out / "records" / "docker-objects.json").read_text())
     made = {o["name"] for o in objs["objects"]}
-    assert {"trialbox-net", "trialbox-model-backend", "trialbox_db", "trialbox-llm-service-1", "tb-ballast-t1"} <= made
+    assert {"t1-net", "t1-model-backend", "t1_db", "t1-llm-service-1", "tb-ballast-t1", "trialbox-py:t1"} <= made
     assert all(o["removed"] for o in objs["objects"]) and "someone-elses-db" not in made
-    assert objs["left"] == [] and objs["images_made_and_kept"] == ["trialbox-py:1.0.0"]
-    assert rig.box_objects() == []
+    assert objs["left"] == [] and objs["images_made_and_kept"] == []  # H-75: the run's own tag, removed
+    assert rig.run_objects() == []
     assert "pull " not in (rig.tmp / "docker.json.calls").read_text()
     rig.assert_nothing_forbidden_and_others_untouched()
     # the packed records: no key, no password, no card UUID, no pin file
@@ -531,7 +540,7 @@ def test_a_failure_at_s07_ends_cleanly_with_its_reason(rig: Rig) -> None:
     assert rig.ended().startswith("s07-ballast failed: ballast48 plan refused") and "49776 MiB free" in rig.ended()
     assert "released" in (rig.out / "records" / "ballast.log").read_text()
     objs = json.loads((rig.out / "records" / "docker-objects.json").read_text())
-    assert objs["left"] == [] and rig.box_objects() == []
+    assert objs["left"] == [] and rig.run_objects() == []
     rig.assert_nothing_forbidden_and_others_untouched()
 
 
@@ -552,7 +561,7 @@ def test_sigterm_mid_run_ends_the_steps_and_removes_what_the_run_made(rig: Rig) 
     try:
         _until(rig, "measure --option pair-32k", p)
         time.sleep(1)
-        assert "trialbox-llm-service-1" in rig.docker["containers"]  # the servers are up, the ballast holds
+        assert "t1-llm-service-1" in rig.docker["containers"]  # the servers are up, the ballast holds
         p.send_signal(signal.SIGTERM)
         out, _ = p.communicate(timeout=180)
     finally:
@@ -562,7 +571,7 @@ def test_sigterm_mid_run_ends_the_steps_and_removes_what_the_run_made(rig: Rig) 
     assert p.returncode == 143, out[-2000:]
     assert rig.ended() == "stopped: SIGTERM"
     assert rig.steps()["s14-release"]["rc"] == 0
-    assert rig.box_objects() == []
+    assert rig.run_objects() == []
     rig.assert_nothing_forbidden_and_others_untouched()
 
 
@@ -579,7 +588,7 @@ def test_the_cap_ends_the_steps_and_cleans_up_without_powering_anything_off(rig:
         subprocess.run(["pkill", "-f", str(rig.bin / "standin")], check=False)
     assert p.returncode == 3, out[-2000:]
     assert rig.ended() == "stopped: the cap of 240 minutes"
-    assert rig.box_objects() == []
+    assert rig.run_objects() == []
     assert "s07-ballast" not in rig.steps() or "released" in (rig.out / "records" / "ballast.log").read_text()
     rig.assert_nothing_forbidden_and_others_untouched()
 
@@ -599,7 +608,7 @@ def test_the_stop_line_interrupts_the_runs_measure_and_no_other_process_of_that_
     rec = json.loads((rig.out / "records/tb-dgpu48-pair-32k/measure.pair-32k.json").read_text())
     assert rec["interrupted"] is True
     assert alive, "the stop line's SIGINT reached a process that is not the run's"
-    assert rig.box_objects() == []
+    assert rig.run_objects() == []
     rig.assert_nothing_forbidden_and_others_untouched()
 
 
@@ -685,12 +694,7 @@ def test_a_driver_below_the_engines_minimum_refuses_the_run_before_anything_star
     rig.assert_nothing_forbidden_and_others_untouched()
 
 
-def test_an_installed_boxs_images_refuse_the_run_and_are_left_as_they_were(rig: Rig) -> None:
-    """H-72: the stub builds trialbox-* images; a host with an installed box's images is refused, never built over."""
-    imgs = ["vllm/vllm-openai:v0.32.0@sha256:0000", "someone/else:1", "trialbox-py:1.0.0"]
-    rig.dock(images=imgs)
-    r = rig.go("run")
-    assert r.returncode == 2, r.stdout
-    assert "1 image(s) of the box's names already (trialbox-py:1.0.0)" in r.stdout
-    assert rig.docker["images"] == imgs and not rig.run_dir.exists()
-    rig.assert_nothing_forbidden_and_others_untouched()
+# H-72's refusal of any trialbox-* image is replaced (H-75, by the integrator's ruling of 2026-11-22) by a stronger
+# invariant, tests/unit/test_measure48_host_own_names_h75.py::test_the_boxs_objects_and_images_are_never_touched_by_a_run:
+# the box's images, containers, volumes and networks are identical before and after a run beside them, and a run given
+# the box's project or tag is refused.
