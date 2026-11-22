@@ -649,6 +649,9 @@ DECLARED: dict[str, Declared] = {
     "TB_FHIR_PACKAGE_HOME": Declared("str", "/opt/hl7/home", "FHIR validator package folder"),
     "TB_FHIR_URL": Declared("str", "", "testbench: FHIR store URL"),
     "TB_FHIR_WORKERS": Declared("int", "8", "compiler: parallel FHIR evaluations"),
+    "TB_FINISH_MOUNTINFO": Declared("path", "", "finish check: a mount table read for /proc/self/mountinfo (tests)"),
+    "TB_FINISH_SYS": Declared("path", "", "finish check: a folder read for /sys (tests; 10K-4)"),
+    "TB_FINISH_TEST_ROOT": Declared("path", "", "finish check: a folder that stands for / (tests; 10K-4)"),
     "TB_FIRSTRUN_DIR": Declared("path", "", "console: the box's first-run folder (tmpfs; T-729, D-466)"),
     "TB_FIRSTRUN_COUNTRY": Declared(
         "bool", "", "console: the box's first-run page asks the site's country first (10K-1); off by default"
