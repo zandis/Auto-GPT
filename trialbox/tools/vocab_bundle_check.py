@@ -19,6 +19,13 @@ or an NDJSON line that does not parse, and anything it **cannot check**: a datab
 table with no vocabulary or system column. Model weights, fonts and images in a models folder are listed as not
 terminology.
 
+**Measured files** (card H-90). In a models folder, every file a measured record lists is checked by its sha256 and
+by nothing else: it passes, as a note and unread, only when it hashes to a sha256 recorded for that path; with another
+hash it is refused, whatever its kind (weights, text or binary). The records are those that the registry rows of the
+deployed pairs and of the embedder name as ``expected.source`` (``deploy/measured/``), each server's files keyed by the
+folder its build is mounted from by default (``tools.pin_model``: ``PROFILE_PAIRS`` and ``EMBED_PIN``). A file no
+record lists goes through the vocabulary check as before; an unlisted binary of no known kind is refused.
+
 **By label only.** The check reads the vocabulary labels and system URIs the artefacts carry. A row relabelled, or a
 concept id with no label, passes; looking concept ids up in the site's own download is card 22-4b, not done here.
 
@@ -45,8 +52,10 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import hashlib
 import io
 import json
+import os
 import re
 import sys
 import tarfile
@@ -132,11 +141,65 @@ TEXT_KEY = re.compile(r"name|display|description|definition|title|synonym|design
 @dataclass(frozen=True)
 class Rules:
     """The must-not-ship names (folded) -> (vocabulary, register row); the URIs and OIDs searched for in text; the
-    exception rows (id, path patterns)."""
+    exception rows (id, path patterns); the measured files (``<folder>/<path>`` -> recorded sha256s, card H-90)."""
 
     names: dict[str, tuple[str, str]]
     needles: dict[str, tuple[str, str]]
     exceptions: tuple[ExceptionRow, ...] = ()
+    measured: dict[str, frozenset[str]] = field(default_factory=dict)
+
+
+UNHASHED = "unhashed:"  # card H-90: the marker of a record that lists a file with no sha256 (never a hex digest)
+
+
+def measured_files(root: Path = ROOT) -> dict[str, frozenset[str]]:
+    """Card H-90: ``<folder>/<path>`` -> the sha256s recorded for it, for every file a measured record lists. A build
+    of a deployed pair (``PROFILE_PAIRS``, every profile) or the embedder (``EMBED_PIN``) whose registry row names a
+    record as ``expected.source`` gives that record's server of the row's source (as ``tools.fetch_weights`` reads
+    it), keyed by the build's default folder, when the server's files give the row's ``expected.manifest_sha256``. A
+    row without a record, or whose record is not its expected manifest, gives nothing. A server of a row's source
+    with an entry that has no sha256 (missing or empty) gives each of its paths the marker ``UNHASHED`` + the record:
+    every file of that server is refused, never passed. The registry is the one ``tools.release`` reads
+    (``TB_RELEASE_REGISTRY``: the unit tests' synthetic registry only)."""
+    from tools.pin_model import EMBED_PIN, PROFILE_PAIRS, manifest_sha256_of_files
+
+    reg_path = Path(os.environ.get("TB_RELEASE_REGISTRY") or root / "models" / "registry.yaml")
+    if not reg_path.is_file():
+        return {}
+    rows = {
+        str(b.get("build_id")): b
+        for b in (yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}).get("builds") or []
+    }
+    out: dict[str, set[str]] = {}
+    for build, _endpoint, _var, folder, *_ in [*(t for pairs in PROFILE_PAIRS.values() for t in pairs), EMBED_PIN]:
+        row = rows.get(build) or {}
+        source, want = (row.get("expected") or {}).get("source"), (row.get("expected") or {}).get("manifest_sha256")
+        if not (source and want) or not (root / str(source)).is_file():
+            continue
+        model = str((row.get("provenance") or {}).get("source") or row.get("repository") or "")
+        record = json.loads((root / str(source)).read_text(encoding="utf-8"))
+        for server in record.get("servers") or []:
+            files = server.get("model_files") or []
+            if server.get("model") != model:
+                continue
+            if any(not str(f.get("sha256") or "").strip() for f in files):  # fail closed, before the manifest digest
+                for f in files:
+                    out.setdefault(f"{folder.rstrip('/')}/{f.get('path')}", set()).add(f"{UNHASHED}{source}")
+                continue
+            if manifest_sha256_of_files(files) != want:
+                continue
+            for f in server.get("model_files") or []:
+                out.setdefault(f"{folder.rstrip('/')}/{f['path']}", set()).add(str(f["sha256"]).lower())
+    return {k: frozenset(v) for k, v in out.items()}
+
+
+def _sha256(path: Path) -> str:
+    """A file's sha256, read in chunks (a listed weights file is gigabytes)."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def rules(register: Path = REGISTER) -> Rules:
@@ -166,7 +229,7 @@ def rules(register: Path = REGISTER) -> Rules:
         if r.kind == lr.EXCEPTION_KIND:
             excepts = {names[fold(v)][0]: ids for v, ids in lr.excepted(r).items() if fold(v) in names}
             exceptions.append(ExceptionRow(r.id, r.paths, r.status, excepts))
-    return Rules(names, needles, tuple(exceptions))
+    return Rules(names, needles, tuple(exceptions), measured_files())
 
 
 @dataclass
@@ -212,6 +275,10 @@ class Checker:
         if not files:
             self.report.problems.append(f"{p}: no artefact to check")
         for f in files:
+            rel = f.relative_to(p).as_posix() if mode == "models" and p.is_dir() else None
+            if rel is not None and rel in self.r.measured:
+                self._measured(f, rel)
+                continue
             self.data(str(f), f.read_bytes(), mode, 0, self._exception(f))
 
     def _exception(self, f: Path) -> ExceptionRow | None:
@@ -341,6 +408,22 @@ class Checker:
                 elif vocab is not None:
                     ident = next((r[c] for c in ("concept_id", "code", "concept_code") if r.get(c)), None)
                     self._excepted(vocab, ident, r, exc, f"line {n}", allowed, out)
+
+    def _measured(self, f: Path, rel: str) -> None:
+        """Card H-90: a file a measured record lists passes only on a sha256 recorded for it, and is not read."""
+        self.report.artefacts += 1
+        want = self.r.measured[rel]
+        unhashed = sorted(w.removeprefix(UNHASHED) for w in want if w.startswith(UNHASHED))
+        if unhashed:
+            self.cannot(str(f), f"the measured record {', '.join(unhashed)} lists {rel} in a file list with an entry "
+                                "that has no sha256: every file of that list is refused")  # fmt: skip
+            return
+        got = _sha256(f)
+        if got not in want:
+            self.cannot(str(f), f"its sha256 {got[:12]} is not the measured record's for {rel} "
+                                f"({', '.join(sorted(w[:12] for w in want))})")  # fmt: skip
+            return
+        self.report.notes.append(f"{f}: the measured record's file {rel} (sha256 {got[:12]}), not read")
 
     def cannot(self, name: str, why: str) -> None:
         self.report.problems.append(f"{name}: cannot be checked: {why}")
