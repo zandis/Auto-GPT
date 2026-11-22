@@ -1,0 +1,13 @@
+# before
+tests/console/test_step4b.py
+tests/property/test_judge_in_loop.py
+tests/property/test_path_independence.py
+tests/unit/test_demo_image.py
+tests/unit/test_excluded_streamed.py
+tests/unit/test_lake_query_limit_per_job.py
+tests/unit/test_pool_version_basis.py
+tests/unit/test_site_questionnaire.py
+tests/unit/test_t695_service_migrations.py
+tests/unit/test_t697_audit_at_scale.py
+# after
+tests/unit/test_demo_image.py

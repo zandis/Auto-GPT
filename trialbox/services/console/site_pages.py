@@ -11,7 +11,7 @@
   (``/site/sheets``), **Patients** (``/site/people``: joined by pseudonym, disagreements listed; ``/site/patients``:
   the criteria on each patient, the trail), **Help** (``/site/help``: templates, the practice site, remote help).
 * **Ask TrialBox** (``/ask``, linked from every page's header): explains and links, never changes anything. It reads
-  the readiness and the screening trail and asks the local model to phrase the answer.
+  the readiness and the screening trail and writes the answer itself from rules; no model is asked (card 9c-9).
 
 D-179 (review J-06): these pages are site-wide (the steward's work, every patient). A study-scoped account opens only
 its own studies' readiness and the help; every other site page and API answers 404.
@@ -165,9 +165,6 @@ def register(app: FastAPI, h: Helpers) -> None:
     def get(path: str) -> Any:
         return s28.call(bk, "GET", path)
 
-    def post(path: str, body: dict[str, Any]) -> Any:
-        return s28.call(bk, "POST", path, body)
-
     def signed_post(sess: Session, path: str, body: dict[str, Any]) -> Any:
         """T-719 (D-487): a chart or a sheet turns chart numbers into pseudonyms at the orchestrator, which asks
         for the verified person of the call (`site.setup`, the row `need_change` asked)."""
@@ -248,8 +245,8 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # ------------------------------------------------------------------ the assistant (read only)
     def assistant(sess: Session, question: str, ws: str, rs: str, pid: str = "") -> dict[str, Any]:
-        """Explain and link; never change anything. Every read is a GET; the only POST is ``/assist``, which puts the
-        draft to the local model for phrasing and itself reads and writes nothing."""
+        """Explain and link; never change anything. Every read is a GET. The answer is the draft written here from
+        rules, the readiness and the screening trail; no model re-phrases it (card 9c-9, review 05 J5-5)."""
         lang = lang_of(sess)
 
         def t(key: str, **kw: Any) -> str:
@@ -308,13 +305,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             links.append({"href": f"/help?back={quote('/ask')}", "label": t("help.title")})
         if not site_wide(sess.user):  # D-179: no link to a site-wide page a study-scoped account cannot open
             links = [x for x in links if not x["href"].startswith("/site/") or x["href"].split("?")[0] in PER_STUDY]
-        draft = " ".join(points)
-        try:
-            res = post("/assist", {"question": question[:300], "lang": lang, "draft": draft, "points": points})
-            text = str(res.get("answer") or draft)
-        except (Problem, Unavailable):
-            text = draft
-        return {"kind": kind, "answer": text, "links": links}
+        return {"kind": kind, "answer": " ".join(points), "links": links}
 
     def trail(sess: Session, ws: str, rs: str, pid: str) -> list[dict[str, Any]] | None:
         """The screening trail of one patient: this week's list first (the SCREEN run), else the site check.
