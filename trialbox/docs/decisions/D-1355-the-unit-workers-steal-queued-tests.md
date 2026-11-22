@@ -2,7 +2,7 @@
 
 - **Task:** lane H, card H-73 (the integrator's red of 2026-11-22: `unit-shard (1/6)` cancelled at 40 minutes) ·
   **Date:** 2026-11-22
-- **Status:** proposed
+- **Status:** proposed (row reserved; the integrator flips it when merged)
 - **Builds on:** D-201 (pytest-xdist, one worker per core), D-475 (the six shards), D-564 item 7 (the shards' limit
   is measured; measure again when the suite changes)
 
