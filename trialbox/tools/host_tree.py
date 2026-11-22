@@ -287,6 +287,9 @@ def _unpack(tar: Path, dest: Path) -> None:
     tmp.mkdir(parents=True)
     with tarfile.open(tar, "r:") as tf:
         for m in tf:
+            if m.isdir():
+                # Directories are created implicitly via parent mkdir; skip extracting them.
+                continue
             target = tmp / _safe(m.name)
             target.parent.mkdir(parents=True, exist_ok=True)
             f = tf.extractfile(m)

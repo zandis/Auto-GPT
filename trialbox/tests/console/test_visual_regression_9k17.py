@@ -25,6 +25,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -246,3 +248,66 @@ def test_9k17_the_command_line_shoots_this_tree(tmp_path: Path, pg_cluster_url: 
     assert r.returncode == 0, r.stderr[-2000:]
     out = json.loads(r.stdout.strip().splitlines()[-1])
     assert out == {"errors": {}, "shots": 2}  # the help page in Japanese, desktop and phone
+
+
+# ------------------------------------------------------------------------------------------- H-73
+
+
+@pytest.mark.nodb
+def test_h73_a_shot_master_could_not_draw_is_listed_as_not_compared(tmp_path: Path) -> None:
+    """A shot drawn on the pull request that master could not draw (its error recorded) is not compared and not
+    counted; one simply missing on master still differs; one drawn on both sides is compared as before."""
+    plain = _png(tmp_path / "src" / "plain.png")
+    block = _png(tmp_path / "src" / "block.png", box=(10, 10, 50, 50))
+    unable = "page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot"
+    base = _set(tmp_path / "base", {"a": plain, "c": plain, "e": None, "g": None}, errors={"g": unable})
+    head = _set(tmp_path / "head", {"a": plain, "c": block, "e": plain, "g": plain})
+    res = vr.compare(base, head, tmp_path / "out", set())
+    assert {s.name: s.state for s in res.shots} == {"a": "same", "c": "differs", "e": "differs", "g": "not compared"}
+    assert [s.name for s in res.unreviewed] == ["c", "e"]
+    report = (tmp_path / "out" / "report.md").read_text(encoding="utf-8")
+    assert "**2 not reviewed**, 1 not compared." in report
+    assert "Not compared (master could not draw them; not counted against the pull request): g." in report
+    assert f"| g | not compared | could not be drawn on master: {unable} |" in report
+    assert "\ng " not in report.split("```")[1]  # no line to accept: there is nothing to review
+    whole = _set(tmp_path / "base2", {"a": None}, errors={"*": "node: crashed"})
+    res2 = vr.compare(whole, _set(tmp_path / "head2", {"a": block}), tmp_path / "out2", set())
+    assert [(s.name, s.state, s.why) for s in res2.shots] == [
+        ("*", "not compared", "master could not be drawn: node: crashed"),
+        ("a", "not compared", "could not be drawn on master: node: crashed"),
+    ] and res2.unreviewed == []
+    head_fails = _set(tmp_path / "head3", {"a": None}, errors={"a": unable})
+    res3 = vr.compare(_set(tmp_path / "base3", {"a": plain}), head_fails, tmp_path / "out3", set())
+    assert [s.state for s in res3.unreviewed] == ["differs"]  # the pull request's own failure still counts
+
+
+@pytest.mark.nodb
+def test_h73_a_failed_capture_is_taken_again_a_bounded_number_of_times(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``shoot`` takes a failed capture again, only the failed shots, and at most ``CAPTURE_TRIES`` times in all."""
+    calls: list[list[str]] = []
+    unable = "Unable to capture screenshot"
+
+    def fake_run(cmd: list[str], **kw: Any) -> Any:  # the pages script: three pages written
+        out = Path(cmd[cmd.index("--out") + 1])
+        shots = [{"name": n, "file": f"{n}.html", "width": 10, "height": 10} for n in ("one", "two", "three")]
+        (out / "pages.json").write_text(json.dumps({"shots": shots, "errors": {}}), encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def fake_photograph(pages: Path, png: Path, shots: list[dict[str, object]], measure: bool = False) -> Any:
+        names = [str(s["name"]) for s in shots]
+        calls.append(names)
+        failed: dict[str, str] = {}
+        for n in names:
+            if (n == "two" and len(calls) < 2) or n == "three":  # "two" fails once, "three" always
+                failed[n] = unable
+            else:
+                _png(png / f"{n}.png")
+        return {"failed": failed, "small": {}}
+
+    monkeypatch.setattr("tools.visual_regression.subprocess.run", fake_run)
+    monkeypatch.setattr(vr, "photograph", fake_photograph)
+    m = vr.shoot(tmp_path, tmp_path / "out")
+    assert calls == [["one", "two", "three"], ["two", "three"], ["three"]] and vr.CAPTURE_TRIES == 3
+    assert m == {"names": ["one", "two"], "errors": {"three": unable}}
