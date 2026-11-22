@@ -2,7 +2,6 @@
 ``sync_prompts.py``. Do not edit by hand: the prompts must stay NCBI's for the benchmark to mean anything.
 ``tests/unit/test_registry_match_core.py`` checks this file against the upstream sources."""
 
-# ruff: noqa
 # mypy: ignore-errors
 # fmt: off
 

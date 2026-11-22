@@ -144,6 +144,24 @@ def _cell(charset: str, pair: bytes) -> str:
     return (esc + pair + b"\x1b(B").decode(codec)
 
 
+#: F-4: why :func:`_iso2022` refuses a byte, by its code: the phrase the reader's error says (D-682)
+_UNREAD = {
+    "escape": "unknown escape sequence",
+    "eight_bit": "8-bit byte in a 7-bit message",
+    "left_open": "an escape sequence left open at a segment end",
+    "kana": "not a half-width katakana",
+    "two_byte": "broken two-byte character",
+}
+
+
+class _Unread(UnicodeDecodeError):
+    """A byte :func:`_iso2022` refuses; ``code`` is a key of :data:`_UNREAD`."""
+
+    def __init__(self, data: bytes, start: int, end: int, code: str) -> None:
+        super().__init__("iso2022_jp", data, start, end, _UNREAD[code])
+        self.code = code
+
+
 def _iso2022(data: bytes) -> str:
     """ISO-2022-JP and the extensions vendors write (``iso2022_jp_ext``, ``iso2022_jp_2004``, CP50220), strictly."""
     out: list[str] = []
@@ -156,36 +174,36 @@ def _iso2022(data: bytes) -> str:
                     charset, i = cs, i + len(esc)
                     break
             else:
-                raise UnicodeDecodeError("iso2022_jp", data, i, i + 1, "unknown escape sequence")
+                raise _Unread(data, i, i + 1, "escape")
             continue
         if b in (0x0E, 0x0F):  # SO / SI: half-width katakana in JIS7
             shifted, i = b == 0x0E, i + 1
             continue
         if b > 0x7F:
-            raise UnicodeDecodeError("iso2022_jp", data, i, i + 1, "8-bit byte in a 7-bit message")
+            raise _Unread(data, i, i + 1, "eight_bit")
         if b in (0x0D, 0x0A):  # a segment ends in ASCII (the standard resets the set at each line)
             if shifted or charset != "ascii":
                 # a set left open to the segment's end has read its separators as characters: which bytes were
                 # data cannot be known, so the message is set aside (second review of PR #1095 item 1)
-                raise UnicodeDecodeError("iso2022_jp", data, i, i + 1, "an escape sequence left open at a segment end")
+                raise _Unread(data, i, i + 1, "left_open")
             out.append(chr(b))
             charset, shifted, i = "ascii", False, i + 1
             continue
         if shifted or charset == "kana":
             if not 0x21 <= b <= 0x5F:
-                raise UnicodeDecodeError("iso2022_jp", data, i, i + 1, "not a half-width katakana")
+                raise _Unread(data, i, i + 1, "kana")
             out.append(chr(0xFF61 + b - 0x21))
             i += 1
         elif charset in _WIDE:
             if i + 1 >= n or not (0x21 <= b <= 0x7E and 0x21 <= data[i + 1] <= 0x7E):
-                raise UnicodeDecodeError("iso2022_jp", data, i, i + 2, "broken two-byte character")
+                raise _Unread(data, i, i + 2, "two_byte")
             out.append(_cell(charset, data[i : i + 2]))
             i += 2
         else:
             out.append(chr(b))
             i += 1
     if shifted or charset != "ascii":
-        raise UnicodeDecodeError("iso2022_jp", data, n - 1, n, "an escape sequence left open at a segment end")
+        raise _Unread(data, n - 1, n, "left_open")
     return "".join(out)
 
 
@@ -278,8 +296,9 @@ def decode_bytes(data: bytes) -> tuple[str, str]:
         try:
             text = _iso2022(data)
         except (UnicodeDecodeError, KeyError) as exc:
-            # D-682: a codec's reason is one of its fixed phrases; a failed lookup's text is the bytes looked up
-            reason = exc.reason if isinstance(exc, UnicodeDecodeError) else "a character outside the code tables"
+            # D-682: a failed lookup's text is the bytes looked up; F-4: the reader's own refusal says its phrase by
+            # its code, and a codec's refusal (a cell the codec cannot read) is a character outside the tables too
+            reason = _UNREAD[exc.code] if isinstance(exc, _Unread) else "a character outside the code tables"
             raise Undecodable(f"ISO-2022-JP: {reason}") from exc
         try:
             same = data.decode("iso2022_jp") == text

@@ -134,6 +134,9 @@ ignore = [
 "services/console/i18n_step2.py" = ["E501"]
 "services/console/i18n_step3.py" = ["E501"]
 "services/console/i18n_step4.py" = ["E501"]
+# F-4: NCBI's code verbatim (registry_match/sync_prompts.py), tabs and all: the style rules it breaks, by name; the
+# security rules read it as any other file
+"services/matching/registry_match/prompts.py" = ["B007", "E501", "E722", "F541", "UP031", "W191", "W291", "W293"]
 "services/criteria_compiler/compile_cql/generator.py" = ["E501", "S701"]
 "tools/**" = ["PLR", "S"]
 # 10G-42 (a), D-928: SQL built from strings (S608) and hard-coded password names (S105), ignored per file with the
