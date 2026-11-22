@@ -182,17 +182,21 @@ def child(args: argparse.Namespace) -> int:
 
     from tools.trialbox.update import InProcessBox, Plan, Updater
 
+    was = logging.root.manager.disable  # 9i-1: the level found, given back however this ends
     logging.disable(logging.INFO)
-    summary = json.loads(Path(args.summary).read_text(encoding="utf-8"))
-    plan = Plan.load(Path(args.stage), summary)
-    box = InProcessBox(Path(args.work), os.environ["TB_DB_URL"], Path(args.backups))
+    try:
+        summary = json.loads(Path(args.summary).read_text(encoding="utf-8"))
+        plan = Plan.load(Path(args.stage), summary)
+        box = InProcessBox(Path(args.work), os.environ["TB_DB_URL"], Path(args.backups))
 
-    def kill(step: str) -> None:
-        if step == args.kill_at:
-            os.kill(os.getpid(), signal.SIGKILL)
+        def kill(step: str) -> None:
+            if step == args.kill_at:
+                os.kill(os.getpid(), signal.SIGKILL)
 
-    Updater(box, Path(args.updates), say=lambda _m: None, on_step=kill).run(plan)
-    return 0
+        Updater(box, Path(args.updates), say=lambda _m: None, on_step=kill).run(plan)
+        return 0
+    finally:
+        logging.disable(was)
 
 
 def kill_case(
@@ -521,18 +525,22 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     import logging
 
+    was = logging.root.manager.disable  # 9i-1: the level found, given back however this ends
     logging.disable(logging.INFO)
-    if a.dir.exists():
-        shutil.rmtree(a.dir)
-    a.dir.mkdir(parents=True)
-    out = run(a.dir)
-    for name, ok, detail in out["checks"]:
-        print(f"{'ok  ' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""))
-    for name, _ok, detail in out["skipped"]:
-        print(f"SKIP  {name}  ({detail})")
-    print(f"update drill {'PASSED' if out['ok'] else 'FAILED'} in {out['seconds']} s"
-          + (f" ({len(out['skipped'])} case skipped)" if out["skipped"] else ""))  # fmt: skip
-    return 0 if out["ok"] else 1
+    try:
+        if a.dir.exists():
+            shutil.rmtree(a.dir)
+        a.dir.mkdir(parents=True)
+        out = run(a.dir)
+        for name, ok, detail in out["checks"]:
+            print(f"{'ok  ' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""))
+        for name, _ok, detail in out["skipped"]:
+            print(f"SKIP  {name}  ({detail})")
+        print(f"update drill {'PASSED' if out['ok'] else 'FAILED'} in {out['seconds']} s"
+              + (f" ({len(out['skipped'])} case skipped)" if out["skipped"] else ""))  # fmt: skip
+        return 0 if out["ok"] else 1
+    finally:
+        logging.disable(was)
 
 
 if __name__ == "__main__":

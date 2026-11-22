@@ -914,85 +914,89 @@ def _passed(res: dict[str, Any]) -> bool:
 def run_part(a: argparse.Namespace) -> int:
     import logging
 
+    was = logging.root.manager.disable  # 9i-1: the level found, given back however this ends
     logging.disable(logging.INFO)  # the in-process services log every request; the checks are the output
-    a.password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
-    a.shots.mkdir(parents=True, exist_ok=True)
-    tag = _tag(a.part, a.lang, getattr(a, "variant", "") if a.part == "hospital" else a.scenario)
-    if getattr(a, "llm_concurrency", ""):  # this part's calls in flight (G-3); SCREEN reads it (screen_cascade)
-        os.environ["TB_SCREEN_LLM_CONCURRENCY"] = str(int(a.llm_concurrency))
-    final = a.dir / "parts" / f"{tag}.json"
-    ident = run_identity(a.run_id)
-    if a.resume and final.exists():
-        old = json.loads(final.read_text(encoding="utf-8"))
-        same, why = same_run(old, a.run_id, ident["head"])
-        if same and _passed(old):
-            print(f"      {tag}: done earlier in this run at this HEAD, kept (--resume)", flush=True)
-            return 0
-        if not same:
-            print(f"      {tag}: a result from another {why} is on disk: not kept, the part runs again", flush=True)
-        final.unlink()
-    t0 = time.perf_counter()
-    res: dict[str, Any]
-    from tools import run_metrics
+    try:
+        a.password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
+        a.shots.mkdir(parents=True, exist_ok=True)
+        tag = _tag(a.part, a.lang, getattr(a, "variant", "") if a.part == "hospital" else a.scenario)
+        if getattr(a, "llm_concurrency", ""):  # this part's calls in flight (G-3); SCREEN reads it (screen_cascade)
+            os.environ["TB_SCREEN_LLM_CONCURRENCY"] = str(int(a.llm_concurrency))
+        final = a.dir / "parts" / f"{tag}.json"
+        ident = run_identity(a.run_id)
+        if a.resume and final.exists():
+            old = json.loads(final.read_text(encoding="utf-8"))
+            same, why = same_run(old, a.run_id, ident["head"])
+            if same and _passed(old):
+                print(f"      {tag}: done earlier in this run at this HEAD, kept (--resume)", flush=True)
+                return 0
+            if not same:
+                print(f"      {tag}: a result from another {why} is on disk: not kept, the part runs again", flush=True)
+            final.unlink()
+        t0 = time.perf_counter()
+        res: dict[str, Any]
+        from tools import run_metrics
 
-    began = datetime.now().astimezone()
-    pair = a.model == "pair" and a.part in MODEL_PARTS
-    servers = {"judge": getattr(a, "judge_url", ""), "verifier": getattr(a, "verifier_url", "")} if pair else {}
-    monitor = run_metrics.Monitor(a.dir / "parts" / tag, servers, os.environ.get("TB_GPU_KEY", ""))
-    if a.part in MODEL_PARTS:
-        shutil.rmtree(monitor.folder, ignore_errors=True)  # an earlier attempt's samples are not this result's
-        monitor.start()
-    missing = data_missing(base_tag(tag))
-    if missing:  # fail fast, before any box is built: no card time for a part that cannot run (review C-03)
-        res = {"stages": _one(f"{tag}: data missing, not run", [("the part's data is on this machine", False,
-                                                                 "; ".join(missing)[:300])], 0),
-               "not_run": "data missing"}  # fmt: skip
-    else:
-        try:
-            res = PARTS[a.part](a)
-        except Exception as exc:  # one broken part is a failed row in the report, not a lost run
-            import traceback
+        began = datetime.now().astimezone()
+        pair = a.model == "pair" and a.part in MODEL_PARTS
+        servers = {"judge": getattr(a, "judge_url", ""), "verifier": getattr(a, "verifier_url", "")} if pair else {}
+        monitor = run_metrics.Monitor(a.dir / "parts" / tag, servers, os.environ.get("TB_GPU_KEY", ""))
+        if a.part in MODEL_PARTS:
+            shutil.rmtree(monitor.folder, ignore_errors=True)  # an earlier attempt's samples are not this result's
+            monitor.start()
+        missing = data_missing(base_tag(tag))
+        if missing:  # fail fast, before any box is built: no card time for a part that cannot run (review C-03)
+            res = {"stages": _one(f"{tag}: data missing, not run", [("the part's data is on this machine", False,
+                                                                     "; ".join(missing)[:300])], 0),
+                   "not_run": "data missing"}  # fmt: skip
+        else:
+            try:
+                res = PARTS[a.part](a)
+            except Exception as exc:  # one broken part is a failed row in the report, not a lost run
+                import traceback
 
-            tb = traceback.format_exc().splitlines()[-3:]
-            res = {"stages": _one(f"{tag} crashed", [("part ran", False, f"{exc!r} {' | '.join(tb)}"[:300])], 0),
-                   "not_run": "crashed"}  # fmt: skip
-    res["run"] = ident
-    # the calls in flight this part ran with, and what it measured (review G-3: tokens, queue, card, calls per second)
-    from orchestrator.scenarios.screen_cascade import llm_concurrency
+                tb = traceback.format_exc().splitlines()[-3:]
+                res = {"stages": _one(f"{tag} crashed", [("part ran", False, f"{exc!r} {' | '.join(tb)}"[:300])], 0),
+                       "not_run": "crashed"}  # fmt: skip
+        res["run"] = ident
+        # the calls in flight this part ran with, and what it measured (review G-3: tokens, queue, card, calls a second)
+        from orchestrator.scenarios.screen_cascade import llm_concurrency
 
-    res["llm_concurrency"] = llm_concurrency()
-    if a.part in MODEL_PARTS:
-        res["metrics"] = monitor.stop()
-        calls = run_metrics.audit_calls(a.dir / f"gw-audit-{a.part}", began)
-        refused = run_metrics.audit_refusals(a.dir / f"gw-audit-{a.part}", began)
-        if calls:
-            res["throughput"] = run_metrics.call_stats(calls)
-        win = (res.get("screen") or {}).get("window")
-        if win:  # the main SCREEN only (audit a): its calls, the card and the KV cache in its window
-            inside = run_metrics.window_calls(calls, win["from"], win["to"])
-            res["throughput_screen"] = {**run_metrics.call_stats(inside),
-                                        **run_metrics.window_card(monitor.folder, win["from"], win["to"])}  # fmt: skip
-        if calls or refused:  # M2: "N of M calls refused" (the PHI tripwire, the guard, ...), from the same audit
-            res["refusals"] = run_metrics.refusal_stats(calls, refused)
-    if a.model == "pair":
-        from tools import scenarios
+        res["llm_concurrency"] = llm_concurrency()
+        if a.part in MODEL_PARTS:
+            res["metrics"] = monitor.stop()
+            calls = run_metrics.audit_calls(a.dir / f"gw-audit-{a.part}", began)
+            refused = run_metrics.audit_refusals(a.dir / f"gw-audit-{a.part}", began)
+            if calls:
+                res["throughput"] = run_metrics.call_stats(calls)
+            win = (res.get("screen") or {}).get("window")
+            if win:  # the main SCREEN only (audit a): its calls, the card and the KV cache in its window
+                inside = run_metrics.window_calls(calls, win["from"], win["to"])
+                card = run_metrics.window_card(monitor.folder, win["from"], win["to"])
+                res["throughput_screen"] = {**run_metrics.call_stats(inside), **card}
+            if calls or refused:  # M2: "N of M calls refused" (the PHI tripwire, the guard, ...), from the same audit
+                res["refusals"] = run_metrics.refusal_stats(calls, refused)
+        if a.model == "pair":
+            from tools import scenarios
 
-        res["run"]["weight_pins"] = scenarios.weight_pins()
-        if "throughput" in res:
-            res["throughput"]["breaker_opens"] = scenarios.breaker_opens()
-    res["wall_seconds"] = round(time.perf_counter() - t0, 1)
-    res["started_at"], res["finished_at"] = began.astimezone(UTC).isoformat(timespec="seconds"), _iso(time.time())
-    if a.part in NO_CONSOLE:
-        url = table_page(a.shots / f"{tag}.html", f"TrialBox complete run: {tag}", res["stages"])
-        got = shoot([{"name": tag, "url": url}], a.shots, a.password)
-        for st in res["stages"]:
-            st["shot"] = f"{tag}.png"
-        _attach_shots(res["stages"], {tag: got[tag]})
-    final.parent.mkdir(parents=True, exist_ok=True)
-    tmp = final.with_suffix(".json.part")  # write, then rename: a killed part never leaves half a result
-    tmp.write_text(json.dumps(res, default=str, ensure_ascii=False, indent=1), "utf-8")
-    tmp.replace(final)
-    return 0 if _passed(res) else 1
+            res["run"]["weight_pins"] = scenarios.weight_pins()
+            if "throughput" in res:
+                res["throughput"]["breaker_opens"] = scenarios.breaker_opens()
+        res["wall_seconds"] = round(time.perf_counter() - t0, 1)
+        res["started_at"], res["finished_at"] = began.astimezone(UTC).isoformat(timespec="seconds"), _iso(time.time())
+        if a.part in NO_CONSOLE:
+            url = table_page(a.shots / f"{tag}.html", f"TrialBox complete run: {tag}", res["stages"])
+            got = shoot([{"name": tag, "url": url}], a.shots, a.password)
+            for st in res["stages"]:
+                st["shot"] = f"{tag}.png"
+            _attach_shots(res["stages"], {tag: got[tag]})
+        final.parent.mkdir(parents=True, exist_ok=True)
+        tmp = final.with_suffix(".json.part")  # write, then rename: a killed part never leaves half a result
+        tmp.write_text(json.dumps(res, default=str, ensure_ascii=False, indent=1), "utf-8")
+        tmp.replace(final)
+        return 0 if _passed(res) else 1
+    finally:
+        logging.disable(was)
 
 
 # ---------------------------------------------------------------- the run and its report

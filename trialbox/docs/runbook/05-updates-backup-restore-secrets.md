@@ -94,7 +94,7 @@ you may push to the hospital's git server.
    another room; on Windows/WSL2 a share mapped as a drive letter). A named path counts only on another device than
    the box's own disk, or when hospital IT puts a file `.trialbox-offbox` in it. In PRODUCTION a box whose targets
    are all on its own disks still writes the backup, but the run fails and stays red.
-2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `python3 -m
+2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `PYTHONPATH=libs python3 -m
    tools.trialbox backup-install --deploy deploy`, which writes `/etc/cron.d/trialbox-backup`, turns WAL archiving
    on when it can (below), and runs the first backup once the backup key is there (run the command again after
    `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
@@ -125,10 +125,10 @@ you may push to the hospital's git server.
 3. **Age alert.** `python3 -m tools.trialbox backup-status` shows the newest good off-box backup (the one
    `backup-last.json` records, with the same name, size and sha256 on the share) and its age. It turns red (exit 1)
    when that backup is older than `TB_BACKUP_MAX_AGE_HOURS` (36) or dated in the future, when the last nightly run
-   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26
-   hours. Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to
-   `MAILTO`, and piped to `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the
-   hospital's mail tool). The message holds no patient data. Fix the cause, then run `backup-nightly` by hand.
+   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26 hours.
+   Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to `MAILTO`, and piped to
+   `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the hospital's mail tool). The message holds no patient data.
+   Fix the cause, then run `PYTHONPATH=libs python3 -m tools.trialbox backup-nightly` from the install folder. 修正原因後，請在安裝目錄執行上述指令。原因を解消したら、インストール先のディレクトリでこのコマンドを実行します。
 4. **Check a backup** with hospital IT: `trialbox backup-verify <file> --key <private key>` (reads it all, checks
    every hash and the sidecar). A backup made before D-187 (layout 1, gzip or zstd) still verifies and restores.
 
@@ -161,18 +161,17 @@ least the last two weeks:
    "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
    `backup-nightly` so a new full chain starts.
 
-**Restore drill (T-730d, D-892).** Proof that the newest backup restores, without touching the box's data. Hospital
-IT brings the key from the envelope and types, on the box's host (the Operations page's backups tab shows this line
-with the newest file filled in): `sudo python3 -m tools.trialbox restore-drill <backup file> --key <the key>`. It
-checks free space first (the unpacked backup and scratch databases; it says how many GB it needs and starts nothing
-when short), opens the backup with the key and checks every file against its signed manifest, restores each
-database into a scratch database (`tb_drill_<id>_<name>`, never the live one), compares rows and content hashes
-with the manifest, and drops the scratch databases and the unpacked files, after a failure too. Exit 0 is a pass,
-1 a fail, 2 nothing started. The result (never the key or its path) is the box's key-check record and an audit
-event (`backup.restore_drill`): the health check's `backup_verified` turns red after `TB_HEALTH_VERIFIED_DAYS` (100)
-days without one, or at once on a failed drill until one passes, and a failed drill is a backup problem that goes
-through the alert route (mail, or the health page). Run it at least every 90 days, after hardware changes and before
-go-live acceptance (§6).
+**Restore drill (T-730d, D-892).** Hospital IT brings the private key from the envelope. In a root shell on the
+box, run `trialbox restore-drill <backup file> --key <key>`. Operations → Backups fills in the newest backup path.
+The command checks free space for the unpacked backup and scratch databases first. If space is short, it reports
+the GB needed and starts nothing. The release image uses its locked zstandard to unpack and verify every file
+against the signed manifest. The database administrator creates scratch databases (`tb_drill_<id>_<name>`).
+The drill runs pg_restore as their owner and uses the site connection from `deploy/.env` to compare rows and hashes.
+It removes scratch databases and unpacked files even after a failure. Exit 0 means pass, 1 failure, 2 nothing started.
+The key-check record and audit event (`backup.restore_drill`) omit the key and its path. A failed drill alerts by mail
+or on the health page and turns `backup_verified` red until a drill passes. It also turns red after
+`TB_HEALTH_VERIFIED_DAYS` (100) days without a key check. Run the drill at least every 90 days, after hardware
+changes and before go-live acceptance (§6).
 
 **Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
 pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not
@@ -275,6 +274,39 @@ audit-writer` says what it found.
 Since D-541 the FHIR store signs in as its own role (`tb_fhir_store`, the owner of the database `hapi` only), never as
 the server's superuser. A restore loads `hapi` as the superuser, so the same script, run after the restore, gives the
 tables back to that role.
+
+
+## The audit chain waits for a person
+
+The audit log is a chain: each event carries the hash of the one before. `HEAD.json` in the audit folder says where
+the chain ends, and each night `trialbox audit-sign` writes a signed head to the anchor folder (the hospital's share).
+The box stops and asks for a person in three cases. In each, the message names this section.
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| `audit.anchored after a signed head`, from an update, `doctor`, the nightly `audit-sign`, `trialbox logs` or the console's audit page | A release before this one found the chain without `HEAD.json` and went on without asking. Events after the last signed head may have been removed with it. **The box still works and still writes audit events.** The nightly signed head and the audit archive wait | Steps 1 to 3 below |
+| `the audit chain has no head anchor, but ... a signed head`, and the `audit-writer` service is unhealthy | `HEAD.json` is gone now. Nothing is written to the chain; the events wait in the database (the journal) and none is lost. The writer asks again after 1 minute, then 2, 4, up to once an hour | Steps 1 to 3 below |
+| `signed head on the box (event N)`, or `... is a signed head over event N` | The chain no longer holds an event that was signed: it was cut below a signed head or rewritten, and `HEAD.json` was written to match. **`--reanchor` does not clear this.** | Step 1, then stop and call the vendor (page 07). Keep the audit folder and the anchor folder as they are |
+
+1. **Look first.** As root in `/opt/trialbox`: `python3 -m tools.trialbox audit-sign --deploy deploy`. It checks the
+   chain against every signed head in the anchor folder, signs nothing while the chain waits, and prints why. The
+   console's audit page (Verify) shows the same. Note the event number of the last signed head and its date.
+2. **Decide who signs for it.** The events after the last signed head cannot be proved complete. The site's
+   administrator and the person responsible for the study's records agree on the reason (a restore, a disk fault, a
+   known mistake) and write it in the site log. If nobody can explain the missing `HEAD.json`, treat it as an incident
+   (page 07) before step 3.
+3. **Re-anchor**, once, in the one container that may write the chain:
+   `docker compose --project-directory deploy exec audit-writer python -m tools.audit_verify /data/audit --reanchor "<the reason, with the ticket>" --actor "<your name>"`.
+   It rewrites no line. It adds one event, `audit.reanchored`, with the old anchor, the chain as found, the reason and
+   the name, and it stays in the chain and on the console's audit page for ever. Run step 1 again after it: it now
+   signs, and the night's signing and the archive go on.
+
+What the box can and cannot show. A chain cut **below** a signed head is always found: by the nightly check, and at
+once by a writer or a console that is given the anchor folder. Events removed **after** the newest signed head, with
+`HEAD.json` written to match, are not found by the box alone: the head file is not keyed. That needs a head kept off
+the box (the anchor folder on the hospital's share, never on the box's own disk) and frequent signing; the night's
+signing leaves at most one day open. On an installed box the `audit-writer` service is not given the anchor folder, so
+there the nightly check is the one that finds a cut below a signed head, within a day.
 
 
 ## Secrets (D-128, D-138): the one place to rotate them

@@ -87,8 +87,13 @@ Give each tester their own accounts and keep their work across restarts:
 
 A fresh clone is enough: the build fetches the one CQL translator jar the compiler reads `FHIRHelpers-4.0.1.cql`
 from, and checks the jar and the FHIRHelpers text against pinned sha256 sums. `make demo-bundle` runs `make jvm-deps`
-first and uses the jar from `.cache/jvm`. With no `-e` flag the password is printed in the log (`docker logs`); add
-`-e TB_DEMO_PASSWORD=...` to choose one. Open http://localhost:8080 when the log says "console on".
+first and uses the jar from `.cache/jvm`. With no `-e` flag the password is printed in the log (`docker logs`). To choose a password in Bash:
+
+    read -rs TB_DEMO_PASSWORD; export TB_DEMO_PASSWORD
+    docker run -p 8080:8080 -e TB_DEMO_PASSWORD trialbox-demo
+    unset TB_DEMO_PASSWORD
+
+Open http://localhost:8080 when the log says "console on".
 
 Sign-in cookies are Secure (`TB_CONSOLE_SECURE_COOKIE=1`). Browsers accept them on `http://localhost`; on any other
 plain-http address add `-e TB_CONSOLE_SECURE_COOKIE=0`, and never share a plain-http link.
@@ -130,12 +135,17 @@ order).
 The owner's steps, once:
 
     export TB_POC_PROJECT=<project> TB_POC_DOMAIN=<domain on Cloudflare> TB_POC_ACCESS_TEAM=<Zero Trust team>
-    export CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_ZONE_ID=... CLOUDFLARE_API_TOKEN=... TB_POC_DOOR_EMAILS=a@...,b@...
+    export CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_ZONE_ID=... TB_POC_DOOR_EMAILS=a@...,b@...
+    read -rs CLOUDFLARE_API_TOKEN; export CLOUDFLARE_API_TOKEN
     gcloud secrets create tb-poc-accounts-jp --data-file=<the jp accounts file>    # format: section above
     gcloud secrets create tb-poc-accounts-tw --data-file=<the tw accounts file>
-    printf %s "$OWNER_PASSWORD" | gcloud secrets create tb-poc-owner-password --data-file=-   # optional
+    # Optional owner password, typed in Bash
+    read -rs OWNER_PASSWORD
+    printf %s "$OWNER_PASSWORD" | gcloud secrets create tb-poc-owner-password --data-file=-
+    unset OWNER_PASSWORD
     deploy/gcp/poc-host.sh image --yes     # once, from tag poc-1
     deploy/gcp/poc-host.sh door --yes      # tunnel, DNS names, Access; the tunnel token goes to Secret Manager
+    unset CLOUDFLARE_API_TOKEN
     deploy/gcp/poc-host.sh create --yes    # network, disk, snapshot schedule, VM
 
 The first start seeds each site (3 to 6 minutes). The issued passwords and enrolment codes are on the VM in
@@ -162,8 +172,11 @@ is `https://trialbox-demo-<id>.onrender.com`.
 
 ## Public link on Google Cloud Run
 
+Use a Secret Manager secret readable by the runtime service account.
+請讓執行服務帳戶讀取 Secret Manager 密鑰。実行用サービスアカウントに Secret Manager のシークレットの読み取りを許可してください。
+
     gcloud run deploy trialbox-demo --source trialbox --region asia-northeast1 \
-      --set-env-vars TB_DEMO_PASSWORD=choose-one --memory 4Gi --cpu 2 --min-instances 1 --max-instances 1 \
+      --set-secrets TB_DEMO_PASSWORD=tb-demo-password:latest --memory 4Gi --cpu 2 --min-instances 1 --max-instances 1 \
       --allow-unauthenticated
 
 (Cloud Run builds `trialbox/Dockerfile` by default; pass the demo Dockerfile with a `cloudbuild.yaml` or build and

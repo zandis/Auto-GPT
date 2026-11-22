@@ -188,6 +188,12 @@ services:
   model-guard:
     environment:
       TB_GUARD_ADMIN: "1"   # the gateway's sleep swap: /sleep, /wake_up, /is_sleeping, with the key
+    # H-86: the guard is the only way to the judge, and the gateway takes the judge for awake until its first swap
+    # (services/gateway/swap.py: state unknown, nothing held back), so the guard opens once the start-up chain has
+    # woken the judge. It also lets `up --wait` pass the exited helper: a container that exited 0 passes only when a
+    # service waits on it with service_completed_successfully (tests/unit/test_compose_one_shots_h86.py).
+    depends_on:
+      judge-wake-init: {condition: service_completed_successfully}
 
   orchestrator:
     environment:

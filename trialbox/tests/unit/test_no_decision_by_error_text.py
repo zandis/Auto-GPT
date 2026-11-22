@@ -64,8 +64,10 @@ LISTED: dict[str, tuple[int, str]] = {
 _TEXT_CALLS = {"str", "repr", "format", "ascii"}
 #: what reads its type
 _TYPE_CALLS = {"type", "isinstance", "issubclass", "getattr", "hasattr"}
-#: attributes of an error that are its text
-_TEXT_ATTRS = {"args", "message", "msg", "strerror"}
+#: attributes of an error that are its text; R22-14 (G-5, R5): a failed process's output (``CalledProcessError``)
+#: and an HTTP error's body are text too. ``detail`` and ``reason`` are read as typed fields in listed places
+#: (the console's EDC error, the model client's refusal), so they are not here.
+_TEXT_ATTRS = {"args", "message", "msg", "strerror", "stderr", "stdout", "output", "text"}
 
 
 def _is(node: ast.AST, caught: str) -> bool:
@@ -150,6 +152,11 @@ def test_the_scan_sees_every_spelling_and_leaves_the_type_alone(tmp_path: Path) 
         '    return_value = "x" in str(exc)\n',
         '    text = str(exc)\n    low = text.lower()\n    while "x" in low:\n        break\n',
         '    z = [1 for _ in range(2) if "x" in str(exc)]\n',
+        # R22-14 (G-5, R5): a failed process's output and an HTTP error's body
+        '    if "no such table" in exc.stderr:\n        pass\n',
+        '    if "no such table" in exc.stdout:\n        pass\n',
+        '    if exc.output.endswith(b"busy"):\n        pass\n',
+        '    if "quota" in exc.text:\n        pass\n',
     ]
     by_type = [
         "    if isinstance(exc, KeyError):\n        pass\n",

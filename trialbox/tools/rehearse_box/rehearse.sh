@@ -107,7 +107,14 @@ step() {  # step <name> <fatal 0|1> <command...>
   [ "$fatal" = 1 ] && BLOCKED="$name"
   return 1
 }
-in_box() { docker exec -e TB_RH_VARIANT="$VARIANT" -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
+# Keep one synthetic KEK passphrase in this rehearsal process for the install and reinstall.
+rehearsal_passphrase="$(openssl rand -hex 24)" || exit 1
+in_box() {
+  local -a pass_env=()
+  case "$1" in
+    install|reinstall) local -x TB_KEK_PASSPHRASE="$rehearsal_passphrase"; pass_env=(-e TB_KEK_PASSPHRASE) ;;
+  esac
+  docker exec "${pass_env[@]}" -e TB_RH_VARIANT="$VARIANT" -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
   "$HOST_CT" bash "$W/run/box.sh" "$@"; }
 box_containers() { docker ps -q --filter label=com.docker.compose.project=trialbox; }
 
@@ -319,7 +326,6 @@ teardown() {
   docker image rm "$HOST_IMG" >/dev/null 2>&1 || true
   # D-887: the rehearsal's KEK and its throwaway passphrase do not outlive it
   docker run --rm -v /run/trialbox:/k ubuntu:24.04 rm -f /k/kek >/dev/null 2>&1 || true
-  rm -f "$W/vendor/kek-pass"
   restore_images
   # keep the report and logs; drop the media and the box (gigabytes)
   docker run --rm --user 0:0 -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \
