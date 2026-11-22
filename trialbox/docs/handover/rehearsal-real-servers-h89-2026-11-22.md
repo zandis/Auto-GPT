@@ -124,8 +124,20 @@ valid for a site, and can never start as PRODUCTION; a site's install is unchang
 
 ## Mutation pass
 
-See the report and the commit: each mutant was planted in the source, the H-89 and H-74 tests run, the source put
-back. Results are listed in the pull request.
+35 mutants planted, one at a time, in the source; the H-89 and H-74 test files run; the source put back. 34 caught.
+The one that survived (`{ true || ... }` in check_host.sh's whole-arguments check) was equivalent (the shell's
+precedence kept the refusal); planted again as the check removed, it is caught. Planted: the mark check dropped at
+the driver (the box check), the card (the block's guard) and the record (`rehearsal_only`); the new options accepted
+without `--rehearsal`; the profile not required; the card check dropped; the independent record check dropped; an
+operator's TB_COMPOSE_OVERRIDE accepted; `--environment PRODUCTION` accepted early; the summary line missing; the
+first card's name taken instead of the named card's; images_lock: a WARN whatever the probe says, partial arguments
+taken; the box rule: PRODUCTION allowed, VALIDATION without the mark allowed, ignored by the allowance; the probe's
+card, driver and image checks loosened (H-74's function); MIG allowed; memory not checked; the need without vLLM's
+fractions; `count: all` for the device; the probe's environment not passed, or passed with a good driver; the start
+guard: PRODUCTION with the mark allowed, the real-servers record without a whole box allowed, the record not a sign,
+dropped from prestart; the doctor's words missing, the record not a mark; the card fact dropped from the words; the
+record written without the mark. Two tests were added for survivors found while planning (the card named by index is
+the one judged; the summary line).
 
 ## Findings
 
