@@ -73,6 +73,31 @@ def test_on_this_tree_a_runbook_page_has_its_tests() -> None:
     assert "tests/unit/test_operations_docs.py" in got
 
 
+def test_a_folder_is_named_by_itself_not_by_another_document_in_it(tmp_path: Path) -> None:
+    """H-81: a test that names ``docs/reviews/<another page>`` does not read a new page beside it; one that names the
+    folder (alone, as a glob, or with a name to fill in) may."""
+    tests = tmp_path / "tests" / "unit"
+    tests.mkdir(parents=True)
+    (tests / "test_cites.py").write_text('"""Card AD-5 of ``docs/reviews/2026-11-12-architecture.md``."""\n', "utf-8")
+    (tests / "test_folder.py").write_text('PAGES = ROOT / "docs/reviews"\n', encoding="utf-8")
+    (tests / "test_glob.py").write_text('PAGES = ROOT.glob("docs/reviews/*.md")\n', encoding="utf-8")
+    (tests / "test_fstr.py").write_text('PAGE = f"docs/reviews/{name}"\n', encoding="utf-8")
+    (tests / "test_page.py").write_text('PAGE = "docs/reviews/2026-11-22-new.md"\n', encoding="utf-8")
+    got = cdo.tests_for(["trialbox/docs/reviews/2026-11-22-new.md"], tmp_path)
+    assert got == ["tests/unit/test_folder.py", "tests/unit/test_fstr.py", "tests/unit/test_glob.py",
+                   "tests/unit/test_page.py"]  # fmt: skip
+
+
+def test_on_this_tree_a_review_page_selects_no_property_test() -> None:
+    """H-81: #1327 and #1332 added a page under ``docs/reviews/``; the folder needle pulled in
+    ``tests/property/test_path_independence.py`` (its docstring cites a review), which the `cross-card` job, without
+    fonts, cannot run. The pages that read a folder's documents keep their tests."""
+    got = cdo.tests_for(["trialbox/docs/reviews/2026-11-22-a-new-review.md"], ROOT)
+    assert not [t for t in got if t.startswith(("tests/property/", "tests/e2e/", "tests/perf/"))], got
+    handover = cdo.tests_for(["trialbox/docs/handover/findings-register.md"], ROOT)
+    assert "tests/unit/test_findings_register.py" in handover
+
+
 def test_the_command_line() -> None:
     def run(*args: str, stdin: str) -> str:
         r = subprocess.run([sys.executable, str(ROOT / "tools/ci_docs_only.py"), *args], input=stdin, text=True,
