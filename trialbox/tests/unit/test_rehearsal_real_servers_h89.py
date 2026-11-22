@@ -83,8 +83,8 @@ class Bench:
             rows[0] = f"{card0}|{UUIDS[0]}|{driver}|Enabled|Enabled|1000|{total}"
         (tmp / "smi.rows").write_text("\n".join(rows) + "\n", encoding="utf-8")
         (self.bin / "nvidia-smi").write_text(SMI.replace("@ROWS@", str(tmp / "smi.rows")), encoding="utf-8")
-        for f in self.bin.iterdir():
-            f.chmod(0o755)
+        for exe in self.bin.iterdir():
+            exe.chmod(0o755)
         self.probe = tmp / "tb-engine-probe.json"
         self.probe.write_text(json.dumps(probe_doc()), encoding="utf-8")
         (tmp / "b.tar").write_bytes(b"")
@@ -377,9 +377,10 @@ def test_write_records_the_three_facts_and_the_probe_digest(tmp_path: Path, monk
     assert doc["card"]["found"] == B200 and "RTX PRO 6000" in doc["card"]["profile_card"]
     assert doc["engine_probe"]["env"] == ENV_OUT and len(doc["engine_probe"]["sha256"]) == 64
     assert json.loads((b.deploy / "site" / rehearsal_real.RECORD).read_text()) == doc
-    assert UUIDS[1] in (b.deploy / "site" / rehearsal_real.OVERRIDE).read_text() and UUIDS[0] not in (
-        b.deploy / "site" / rehearsal_real.OVERRIDE
-    ).read_text()
+    assert (
+        UUIDS[1] in (b.deploy / "site" / rehearsal_real.OVERRIDE).read_text()
+        and UUIDS[0] not in (b.deploy / "site" / rehearsal_real.OVERRIDE).read_text()
+    )
 
 
 def test_write_without_the_mark_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -396,9 +397,11 @@ def test_with_a_good_driver_no_environment_goes_to_the_servers(tmp_path: Path, m
     _marked(b)
     monkeypatch.setenv("PATH", b.env()["PATH"])
     problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, b.deploy / "measured" / REC.name)
-    assert problems == [] and doc["engine_probe"]["env"] == {} and "    environment:" not in (
-        b.deploy / "site" / rehearsal_real.OVERRIDE
-    ).read_text()
+    assert (
+        problems == []
+        and doc["engine_probe"]["env"] == {}
+        and "    environment:" not in (b.deploy / "site" / rehearsal_real.OVERRIDE).read_text()
+    )
     assert doc["words"] == "rehearsal: not this profile's card, not valid for a site"
 
 
@@ -525,7 +528,11 @@ def test_a_whole_real_servers_rehearsal_box_starts_and_says_so(tmp_path: Path) -
 
 
 def test_a_site_box_and_a_stand_ins_rehearsal_box_start_as_before(tmp_path: Path) -> None:
-    for name, env_lines, mark in (("site", "TB_ENV=PRODUCTION\n", False), ("rh", WHOLE, True), ("t", "TB_ENV=TEST\n", True)):
+    for name, env_lines, mark in (
+        ("site", "TB_ENV=PRODUCTION\n", False),
+        ("rh", WHOLE, True),
+        ("t", "TB_ENV=TEST\n", True),
+    ):
         deploy = _box(tmp_path / name, env_lines, mark=mark, record=False)
         assert rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env")) == ""
 

@@ -1,5 +1,7 @@
 # H-89: the install walk with real model servers on the bench host, a rehearsal box only
 
+**Reader:** the integrator and the people who build TrialBox
+
 Lane H, 2026-11-22. HIGH-RISK: it loosens three install refusals, for a rehearsal box only. The integrator's ruling of
 2026-11-22 13:55 UTC: go, after H-86, independent review before the line.
 
@@ -103,12 +105,12 @@ rtxpro6000 profile's performance or context on its own card, or a qualification.
 
 ### Tests
 
-* THE INVARIANT: `tests/unit/test_rehearsal_real_servers_h89.py::test_without_the_mark_the_three_refusals_are_byte_identical`
+* THE INVARIANT: `test_without_the_mark_the_three_refusals_are_byte_identical` in `tests/unit/test_rehearsal_real_servers_h89.py`
   (nine cases: the driver; a whole B200, a MIG B200, b200-no-mig, shared-quota, dgpu48, arm64-dgpu named, an unknown
   profile; a card not the profile's), plus `test_without_the_mark_the_record_step_is_as_before` (no record, no record
   with TB_ACCEPT_UNMEASURED_GPU=1, a record of another card, the profile's record).
-* The changed assertion (ruled): `tests/unit/test_measure48_host_bench_h74.py::test_the_install_path_has_no_bench_exception`
-  now looks for H-74's words OUTSIDE the blocks marked `REHEARSAL-REAL-SERVERS (H-89)` in deploy/check_host.sh,
+* The changed assertion (ruled): `test_the_install_path_has_no_bench_exception` in
+  `tests/unit/test_measure48_host_bench_h74.py` now looks for H-74's words OUTSIDE the blocks marked `REHEARSAL-REAL-SERVERS (H-89)` in deploy/check_host.sh,
   deploy/install.sh and tools/images_lock.py, requires each file to name that block, and requires the rehearsal path's
   own names (`rehearsal-real-servers`, `rehearsal_real`, `--engine-probe`) nowhere outside it. Its other assertions
   (the bench option refused by check_host.sh and images_lock.py, a low driver still FAILs) are unchanged.

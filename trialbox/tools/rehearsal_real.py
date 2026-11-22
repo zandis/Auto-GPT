@@ -158,7 +158,7 @@ def override_text(uuid: str, env: dict[str, str]) -> str:
     bad = [k for k, v in env.items() if not ENV_NAME.match(str(k)) or "\n" in str(v) or "\r" in str(v)]
     if bad:
         raise ValueError(f"the probe's environment has names or values a compose file cannot carry: {bad}")
-    dev = f'!override [{{driver: nvidia, device_ids: [{json.dumps(uuid)}], capabilities: [gpu]}}]'
+    dev = f"!override [{{driver: nvidia, device_ids: [{json.dumps(uuid)}], capabilities: [gpu]}}]"
     lines = [
         "# Written by deploy/install.sh --rehearsal --rehearsal-real-servers (card H-89): a rehearsal box only, not",
         "# valid for a site. Both model servers on the one card named by --gpu-index (by its UUID, never all), with",
@@ -259,8 +259,10 @@ def start_refusal(deploy: Path, env: dict[str, str]) -> str:
     real = real_servers_sign(deploy, env)
     signs = [s for s, on in ((f"deploy/site/{MARK}", mark), ("TB_REHEARSAL=1", flag), (real, bool(real))) if on]
     if signs and tb_env == "PRODUCTION":
-        return (f"this box carries a rehearsal sign ({', '.join(signs)}) and deploy/.env says TB_ENV=PRODUCTION: a "
-                "rehearsal box never becomes a PRODUCTION box; install the site's box afresh on an empty box")  # fmt: skip
+        return (
+            f"this box carries a rehearsal sign ({', '.join(signs)}) and deploy/.env says TB_ENV=PRODUCTION: a "
+            "rehearsal box never becomes a PRODUCTION box; install the site's box afresh on an empty box"
+        )
     if real and not (tb_env == "VALIDATION" and mark and flag):
         return (f"this box ran the real model servers as a rehearsal ({real}; {NOT_VALID}) and is no longer a "
                 f"whole rehearsal box (TB_ENV={tb_env}, mark {'present' if mark else 'missing'}, TB_REHEARSAL="
@@ -289,13 +291,19 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "card":
         problems, facts = card_facts(a.gpu_index, smi(a.gpu_index), _record(a.record))
         if not problems:
-            print(f"card {facts['index']}: {facts['name']}, {facts['memory_free_mib']} MiB free of "
-                  f"{facts['memory_total_mib']} (the pair needs {facts['need_mib']}), MIG off: one whole card")  # fmt: skip
+            free, total, need = facts["memory_free_mib"], facts["memory_total_mib"], facts["need_mib"]
+            print(
+                f"card {facts['index']}: {facts['name']}, {free} MiB free of {total} (the pair needs {need}), "
+                "MIG off: one whole card"
+            )
     elif a.cmd == "write":
         problems, doc = write(a.deploy, a.gpu_index, a.engine_probe, a.record)
         if not problems:
-            print(f"{doc['words']} (deploy/site/{RECORD}; driver {doc['driver']['found']}, minimum "
-                  f"{doc['driver']['minimum']}; card {doc['card']['found']}, the profile's {doc['card']['profile_card']})")  # fmt: skip
+            drv, card = doc["driver"], doc["card"]
+            print(
+                f"{doc['words']} (deploy/site/{RECORD}; driver {drv['found']}, minimum {drv['minimum']}; "
+                f"card {card['found']}, the profile's {card['profile_card']})"
+            )
     else:
         why = start_refusal(a.deploy, env_file(a.deploy / ".env"))
         problems = [why] if why else []
