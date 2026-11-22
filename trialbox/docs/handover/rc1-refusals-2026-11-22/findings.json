@@ -100,6 +100,46 @@
    "basis": "shown",
    "state": "open",
    "claim": "A missing deploy/.env still gives the caller's TB_ENV alone; reading it as PRODUCTION refuses every host tool run from a checkout and about 90 existing tests for set-up alone; a ruling is asked"
+  },
+  {
+   "id": "R2234-13",
+   "severity": "High",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 13ae21f81",
+   "claim": "POST /ops/notices, an allowed ops page, sent the morning mails with their candidate rows on a refused box; console.notify's _collect now leaves the week's rows out there, as for a paused study"
+  },
+  {
+   "id": "R2234-14",
+   "severity": "Medium",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed c4d3802d9",
+   "claim": "/audit?pid= showed the per-patient log that /audit/patients/{pid} refuses; on a refused box the audit page filtered to a patient is refused"
+  },
+  {
+   "id": "R2234-15",
+   "severity": "Medium",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed c4d3802d9",
+   "claim": "The guard's list jobs lacked SUBMIT, whose card shows a pseudonym; its card is refused"
+  },
+  {
+   "id": "R2234-16",
+   "severity": "Low",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed c4d3802d9",
+   "claim": "A websocket passed the guard, the root path was part of the match, and every /admin address was allowed; the guard is now a plain ASGI layer, matches the path without the root path, and lists the admin pages one by one"
+  },
+  {
+   "id": "R2234-17",
+   "severity": "Low",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 8ccdc9909",
+   "claim": "Mutants M09, M10, M12 to M15, M20 and M21 of the third look survived the card's tests; each is caught now (re-planted and killed)"
   }
  ]
 }

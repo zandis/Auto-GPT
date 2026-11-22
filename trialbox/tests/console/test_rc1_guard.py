@@ -239,7 +239,7 @@ def _filled(path: str) -> str:
 
 def _routes(app: Any) -> list[tuple[str, str, Any]]:
     """Every route of the console, mounted apps and ``add_route`` included: (methods, path, endpoint)."""
-    out = []
+    out: list[tuple[str, str, Any]] = []
     for r in app.routes:
         if isinstance(r, Mount):
             out.append(("*", r.path + "/x", None))
