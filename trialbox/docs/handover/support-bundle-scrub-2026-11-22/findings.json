@@ -1,0 +1,136 @@
+{
+ "card": "H71",
+ "title": "the support bundle's scrub: one function for every byte (D-1354)",
+ "date": "2026-11-22",
+ "source": "docs/handover/support-bundle-scrub-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H71-01",
+   "severity": "High",
+   "claim": "the support bundle let secrets through that its name pass did not know: query and form values (?password=, &token=, pwd=), TB_SMTP_LOGIN, the second line of a quoted value and a YAML block value (the name pass read one line at a time and redacted only the first), commented-out lines; fixed by the scrub (tools/bundle_scrub.py), run on .env and compose config before the name pass",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-02",
+   "severity": "High",
+   "claim": "pseudonyms and screening numbers in log lines, command outputs, file names and the manifest left in a support bundle unmasked; fixed: masked as [pseudonym #tag] and [screening-no #tag] with a per-bundle key never kept",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-03",
+   "severity": "Medium",
+   "claim": "the update history (history.jsonl) and the ops snapshot's update rows carried each step's detail as text into the bundle, an error's text among it; fixed: every field but at, bundle, box, step and ok is its type and length, and so are the builder's own caught errors",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-04",
+   "severity": "Medium",
+   "claim": "a collected log was decoded with errors=replace: a UTF-16 log decoded with NULs between letters, so no pattern of the scrubber or the scan could read it, and it went into the bundle; fixed: a log or command output that is not UTF-8 text is left out and listed in the manifest",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-05",
+   "severity": "Low",
+   "claim": "a screening number whose site prefix is lower-case letters glued to the digits (tbx0042) or all digits is not masked by the bundle's scrub: the site prefixes are in the console's database, which the host's bundle does not read; a prefix ending in - or _, any ruleset id with -, and capital letters before the digits are masked",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-06",
+   "severity": "Medium",
+   "claim": "free text in a log message (a name, an address, a date of birth, a diagnosis) is caught only by the data-handling scan's line removal and the log scrubber's fixed patterns; the bundle's scrub masks tokens and secrets, not prose; gate 5's prepare_output, which may call scrub_text, must not take it for a PHI filter",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H71-07",
+   "severity": "High",
+   "claim": "a pseudonym after a percent-encoded character (%2F, %22, %3D) or another encoding left the box in a built bundle: the hex digit of the encoding joined the pseudonym into a longer hex run (review #1314 H1); fixed: lines with an encoded character are decoded and scrubbed, for every token and secret",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-08",
+   "severity": "High",
+   "claim": "Bundle.add cut a member to its last 16 MB before the scrub, so a PEM block cut there lost its BEGIN line and its body left (review #1314 H2); fixed: the scrub before every cut, and a PEM body without BEGIN goes with its END line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-09",
+   "severity": "Medium",
+   "claim": "secret forms left: --password=X, a YAML value on the next line, URL userinfo with / or @ in the password, a double-encoded query, curl -u, XML elements, a key with a space, a JSON value on the next line or with an escaped key (review #1314 M1); fixed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-10",
+   "severity": "Medium",
+   "claim": "screening numbers with the prefixes the console takes (any 16 characters) left: Scr0042, SCR.0042, SCR 0042, SCR#0042, SCR/0042 (review #1314 M2); fixed for those shapes and any script; lower-case prefixes before a separator stay in H71-05",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-11",
+   "severity": "Medium",
+   "claim": "no test held the ops snapshot's update-row details as type and length: removing free_text_out failed nothing (review #1314 M3); fixed: a test, red with that mutant",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-12",
+   "severity": "Medium",
+   "claim": "the writer guard missed tar.add, shutil.make_archive, GzipFile, a from-import open and module-level code (review #1314 M4); fixed: every write call of both modules is on a reviewed list",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-13",
+   "severity": "Medium",
+   "claim": "the URL userinfo rule was quadratic on a long run of letters or digits (32 s per pass on a 100 KB hex line) (review #1314 speed); fixed: anchored and bounded; every rule tested on a 1 MB worst-case line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-14",
+   "severity": "Low",
+   "claim": "the bare 8-hex short pseudonym (pid[:8], the console's usual short form) left (review #1314 L1); fixed when it holds a hex letter",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-15",
+   "severity": "Low",
+   "claim": "two names the scrub made one overwrote each other in the bundle (review #1314 L2); fixed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  },
+  {
+   "id": "H71-16",
+   "severity": "Low",
+   "claim": "as_text dropped a trailing invalid byte of a file that was not cut (review #1314 L3); fixed: only when the caller cut the bytes",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed db6e109d61fe51f43be30bf45db71fd0aafa1751"
+  }
+ ]
+}

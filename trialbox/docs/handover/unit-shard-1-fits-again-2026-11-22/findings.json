@@ -1,0 +1,33 @@
+{
+ "card": "H73",
+ "title": "unit-shard (1/6) fits its limit again; a visual shot master could not draw is not compared (the integrator's red of 2026-11-22)",
+ "date": "2026-11-22",
+ "source": "docs/handover/unit-shard-1-fits-again-2026-11-22.md",
+ "note": "basis 'shown' means shown by the CI job logs read (public, no token), the local runs written on the card page and the card's tests; the shard records (artifacts) were not read.",
+ "findings": [
+  {
+   "id": "H73-01",
+   "severity": "Medium",
+   "claim": "the seven role cases of tests/console/test_prefs_10f1.py::test_no_preference_opens_a_route_or_shows_a_patient_value_the_defaults_do_not each walk every GET route 99 times (96 preference combinations and three default walks), 150 to 300 s apiece and about 19 to 32 CPU minutes together; every new console GET route adds seven times 99 requests, so the test keeps growing with the console; making it cheaper without changing what it asserts is lane K's (card 10F-1)",
+   "lane": "K",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H73-02",
+   "severity": "Low",
+   "claim": "with every shard at worksteal the medians are measured again only after green CI shard jobs exist; D-564's rule applied to today's load-schedule figures (33.6 x 1.5) would ask for 50 minutes, so the 40-minute limit is kept on the strength of the schedule fix and is to be read again from the next green shard jobs",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H73-03",
+   "severity": "Low",
+   "claim": "the visual job's 'Unable to capture screenshot' on master (jobs 137064002520, 136754404730) was counted as five unreviewed differences; it is now retried twice and, if master still cannot draw a shot, the shot is listed as not compared; the cause in Chromium of the failed capture is not known",
+   "lane": "K",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

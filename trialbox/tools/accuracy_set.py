@@ -697,7 +697,7 @@ def _binom_cdf(k: int, n: int, p: float) -> float:
     if p <= 0.0:
         return 1.0
     if p >= 1.0:
-        return 0.0
+        return 1.0 if k >= n else 0.0
     lp, lq = math.log(p), math.log1p(-p)
     return sum(
         math.exp(math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1) + i * lp + (n - i) * lq)

@@ -134,6 +134,18 @@ EN: dict[str, str] = {
     "firstrun.country.change": "Change the country or region",
     "firstrun.source.mapped_later": "TrialBox has no mapping for this country yet: after sign-in you connect the data source on the box and map its columns and codes there.",
     "firstrun.ssmix2.verify": 'The Japanese code tables that come with TrialBox are sample rows marked "verify": check them, and load your site\'s licensed code releases, before the first patient list.',
+    # 10K-4 (D-1390): the backup, audit record and log folders
+    "firstrun.backup.dir": "Folder where the disk or the share is mounted on the box (optional)",
+    "firstrun.backup.dir.help": "Hospital IT mounts the second disk or the share on the box. Write that folder, for example /srv/trialbox-backup. Empty: /srv/trialbox-backup for a second disk, /mnt/trialbox-share for a share.",
+    "firstrun.folders": "Audit record and log folders",
+    "firstrun.folders.help": "The box checks these folders when it finishes the set-up, after this page.",
+    "firstrun.folders.production": "This box is in use: its set-up does not finish until a backup folder is on a share the box does not serve, or on a physical disk that holds none of the box's own data, and the audit record folder is the mount point of the hospital's audit share. The box checks this after this page and shows on its own screen what to change.",
+    "firstrun.anchor_dir": "Mount point of the hospital's audit record share on the box, for example /mnt/trialbox-audit",
+    "firstrun.anchor_dir.help": "Every night the box writes a signed summary of its audit record there. Ask hospital IT for a write-once (WORM) share off the box and the folder where it is mounted on the box. Of the folders this page asks, TrialBox's web page reads only this one, and only read-only. A box in use does not finish its set-up without it.",
+    "firstrun.log_dir": "Folder for the collected logs (optional)",
+    "firstrun.log_dir.help": "Empty: the logs stay in the box's own deploy/logs folder. The audit archive stays in deploy/logs/audit-archive either way.",
+    "firstrun.err.host_dir": "Write a folder of its own as a full path starting with /, using letters, digits, dot, dash, underscore and /, for example /mnt/trialbox-audit. Not / and not a system folder (/etc, /home, /opt, /usr, /var/lib, /boot, /tmp, /var/tmp, /proc, /sys, /dev, /run and the like), nor a folder around one.",
+    "firstrun.err.host_dir_overlap": "The backup, audit record and log folders must be three separate folders, none inside another.",
 }
 
 JA: dict[str, str] = {
@@ -266,6 +278,18 @@ JA: dict[str, str] = {
     "firstrun.country.change": "国・地域を変更する",
     "firstrun.source.mapped_later": "この国・地域の対応表は TrialBox にまだありません。ログイン後に本体でデータの取得元を接続し、列とコードの対応付けを行ってください。",
     "firstrun.ssmix2.verify": "TrialBox に付属する日本のコード対応表は「verify」と記されたサンプル行です。最初の患者リストを作る前に内容を確認し、施設が利用許諾を受けたコードの版を読み込んでください。",
+    # 10K-4 (D-1390)
+    "firstrun.backup.dir": "本体上でディスクまたは共有フォルダがマウントされているフォルダ（任意）",
+    "firstrun.backup.dir.help": "2台目のディスクや共有フォルダは、病院のIT担当者が本体にマウントします。そのフォルダを書いてください（例：/srv/trialbox-backup）。空欄の場合、2台目のディスクは /srv/trialbox-backup、共有フォルダは /mnt/trialbox-share です。",
+    "firstrun.folders": "監査記録とログの保存フォルダ",
+    "firstrun.folders.help": "これらのフォルダは、このページの後、設定の完了時に本体が確認します。",
+    "firstrun.folders.production": "この本体は運用中です。バックアップのフォルダが本体以外が提供する共有フォルダ、または本体自身のデータを置いていない物理ディスク上にあり、監査記録の保管先が病院の監査記録用共有フォルダのマウント先そのものになるまで、設定は完了しません。このページの後に本体が確認し、変更が必要なものを本体の画面に表示します。",
+    "firstrun.anchor_dir": "本体上の、病院の監査記録用共有フォルダのマウント先（例：/mnt/trialbox-audit）",
+    "firstrun.anchor_dir.help": "本体は毎晩、監査記録の署名付きの要約をここに書きます。病院のIT担当者に、本体の外にある追記専用（WORM）の共有フォルダと、本体上のマウント先を用意してもらってください。このページで尋ねるフォルダのうち、TrialBox のウェブ画面が読むのはこのフォルダだけで、読み取り専用です。運用中の本体は、これがないと設定を完了できません。",
+    "firstrun.log_dir": "収集したログの保存フォルダ（任意）",
+    "firstrun.log_dir.help": "空欄の場合、ログは本体の deploy/logs フォルダに残ります。監査記録のアーカイブはどちらの場合も deploy/logs/audit-archive に残ります。",
+    "firstrun.err.host_dir": "専用のフォルダを / で始まる絶対パスで、英数字、ドット、ハイフン、アンダースコア、/ を使って書いてください（例：/mnt/trialbox-audit）。/ だけのパスや、システムのフォルダ（/etc、/home、/opt、/usr、/var/lib、/boot、/tmp、/var/tmp、/proc、/sys、/dev、/run など）とその内側や外側のフォルダは使えません。",
+    "firstrun.err.host_dir_overlap": "バックアップ、監査記録、ログのフォルダは、互いに内側にならない別々の三つのフォルダにしてください。",
 }
 
 ZH: dict[str, str] = {
@@ -398,4 +422,16 @@ ZH: dict[str, str] = {
     "firstrun.country.change": "變更國家或地區",
     "firstrun.source.mapped_later": "TrialBox 尚無此國家或地區的對應檔：登入後請在本機上連接資料來源，並在那裡對應其欄位與代碼。",
     "firstrun.ssmix2.verify": "TrialBox 附帶的日本代碼對照表是標示為「verify」的範例列：產生第一份病人名單前，請先檢查，並載入貴院已取得授權的代碼版本。",
+    # 10K-4 (D-1390)
+    "firstrun.backup.dir": "硬碟或共用資料夾在本機上掛載的資料夾（選填）",
+    "firstrun.backup.dir.help": "第二顆硬碟或共用資料夾由醫院資訊人員掛載到本機。請寫出該資料夾，例如 /srv/trialbox-backup。留空時，第二顆硬碟為 /srv/trialbox-backup，共用資料夾為 /mnt/trialbox-share。",
+    "firstrun.folders": "稽核紀錄與日誌資料夾",
+    "firstrun.folders.help": "這些資料夾由本機在這一頁之後、完成設定時檢查。",
+    "firstrun.folders.production": "這台機器已在使用中：在備份資料夾位於非本機提供的共用資料夾、或不存放本機自身資料的實體磁碟上，且稽核紀錄資料夾就是醫院稽核紀錄共用資料夾的掛載點之前，設定不會完成。本機在這一頁之後檢查，並在本機畫面上顯示需要變更的項目。",
+    "firstrun.anchor_dir": "本機上醫院稽核紀錄共用資料夾的掛載點，例如 /mnt/trialbox-audit",
+    "firstrun.anchor_dir.help": "本機每晚在這裡寫入稽核紀錄的簽章摘要。請醫院資訊人員準備本機以外的一次寫入（WORM）共用資料夾，以及它在本機上的掛載點。在這一頁詢問的資料夾中，TrialBox 網頁只讀取這一個，且為唯讀。使用中的機器沒有它就無法完成設定。",
+    "firstrun.log_dir": "收集的日誌存放資料夾（選填）",
+    "firstrun.log_dir.help": "留空時，日誌留在本機的 deploy/logs 資料夾。稽核紀錄的封存無論如何都留在 deploy/logs/audit-archive。",
+    "firstrun.err.host_dir": "請把專用資料夾寫成以 / 開頭的完整路徑，只用英數字、句點、連字號、底線與 /，例如 /mnt/trialbox-audit。不能只寫 /，也不能是系統資料夾（/etc、/home、/opt、/usr、/var/lib、/boot、/tmp、/var/tmp、/proc、/sys、/dev、/run 等）或包含它們、位於它們之內的資料夾。",
+    "firstrun.err.host_dir_overlap": "備份、稽核紀錄與日誌資料夾必須是三個不同的資料夾，彼此不能位於另一個之內。",
 }

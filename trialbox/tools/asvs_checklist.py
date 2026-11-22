@@ -146,6 +146,8 @@ def _line_ok(root: Path, ref: str) -> str:
     path, _, num = ref.rpartition(":")
     if not path or not num.isdigit():
         return f"{ref}: not file:line"
+    if Path(path).is_absolute():
+        return f"{ref}: not file:line"
     f = root / path
     if not f.is_file():
         return f"{ref}: no such file"
