@@ -10,6 +10,14 @@ and session-scoped fixtures are built once per shard as before; the shard of a f
 added or removed (only a change of N moves files). The record a shard writes holds pytest's own collection before the
 shard is taken (after ``-m``/``-k``) and the node ids the shard kept; ``check`` refuses a run where the shards'
 collections differ, a shard is missing or doubled, a test is in no shard or in two.
+
+H-83: a pure hash left the shards 11 minutes apart (16.5 to 27.5 on a normal runner, 39 on a slow one). The few
+costliest files are pinned instead (``tools/test_shard_pins.json``, for one N only): ``plan`` places them, costliest
+first, on the shard whose measured cost is lowest so far, from the per-file cost table measured from CI's shards
+(``docs/handover/unit-shard-costs-h83.json``). Every other file, and every new file, keeps the hash; a pin never moves
+when another file is added. ``check`` is unchanged: it proves the union from what the shards ran, whatever the split.
+
+    python -m tools.test_shard plan docs/handover/unit-shard-costs-h83.json   # the pins the table gives
 """
 
 from __future__ import annotations
@@ -18,13 +26,15 @@ import argparse
 import hashlib
 import json
 import sys
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+PINS = ROOT / "tools" / "test_shard_pins.json"
 
 
 @dataclass(frozen=True)
@@ -60,8 +70,67 @@ def shard_of(path: str, count: int) -> int:
     return int(digest[:16], 16) % count + 1
 
 
-def keep(nodeids: Iterable[str], shard: Shard) -> list[str]:
-    return [n for n in nodeids if shard_of(file_of(n), shard.count) == shard.index]
+@dataclass(frozen=True)
+class Pins:
+    """H-83: the shard of each pinned (costly) test file, for N == ``count`` only; every other file keeps the hash."""
+
+    count: int
+    files: Mapping[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def load(cls, path: Path = PINS) -> Pins:
+        d = json.loads(path.read_text(encoding="utf-8"))
+        return cls(int(d["count"]), {str(k): int(v["shard"]) for k, v in d["files"].items()})
+
+    def problems(self, root: Path = ROOT) -> list[str]:
+        """A pin of a file that no longer exists, or of a shard outside 1..N, is an error: the list cannot rot."""
+        out = [f"pinned file {f} does not exist" for f in sorted(self.files) if not (root / f).is_file()]
+        out += [f"pinned file {f}: shard {s} is not in 1..{self.count}" for f, s in sorted(self.files.items())
+                if not 1 <= s <= self.count]  # fmt: skip
+        return out
+
+
+@lru_cache(maxsize=1)
+def pins() -> Pins:
+    return Pins.load(PINS)
+
+
+def owner(path: str, count: int, pinned: Pins | None = None) -> int:
+    """The 1-based shard of a test file: its pin when the pins are for this N, else the hash."""
+    p = path.replace("\\", "/")
+    table = pins() if pinned is None else pinned
+    if table.count == count and p in table.files:
+        return table.files[p]
+    return shard_of(p, count)
+
+
+def keep(nodeids: Iterable[str], shard: Shard, pinned: Pins | None = None) -> list[str]:
+    return [n for n in nodeids if owner(file_of(n), shard.count, pinned) == shard.index]
+
+
+def plan(costs: Mapping[str, float], count: int, pin: int) -> dict[str, int]:
+    """H-83: the ``pin`` costliest files of the table (ties by path), costliest first, each on the shard whose cost is
+    lowest so far (ties: the lower shard); the shards start with the cost of the table's other files at their hash.
+    Deterministic: the same table gives the same pins."""
+    top = sorted(costs, key=lambda f: (-costs[f], f))[:pin]
+    load = dict.fromkeys(range(1, count + 1), 0.0)
+    for f, c in costs.items():
+        if f not in top:
+            load[shard_of(f, count)] += c
+    out: dict[str, int] = {}
+    for f in top:
+        s = min(load, key=lambda i: (load[i], i))
+        out[f] = s
+        load[s] += costs[f]
+    return out
+
+
+def shard_costs(costs: Mapping[str, float], count: int, pinned: Pins) -> dict[int, float]:
+    """The table's cost of each shard under these pins (seconds of test time)."""
+    load = dict.fromkeys(range(1, count + 1), 0.0)
+    for f, c in costs.items():
+        load[owner(f, count, pinned)] += c
+    return load
 
 
 @dataclass(frozen=True)
@@ -142,7 +211,7 @@ class ShardPlugin:
             rec.write(Path(self.record_path))
 
     def pytest_report_header(self) -> str:
-        return f"shard {self.shard} (T-747: test files by a hash of their path)"
+        return f"shard {self.shard} (T-747: test files by a hash of their path; H-83: the costliest pinned)"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -153,13 +222,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     f = sub.add_parser("files", help="the test files of one shard")
     f.add_argument("shard")
     f.add_argument("--tests", type=Path, default=ROOT / "tests")
+    pl = sub.add_parser("plan", help="the pins a per-file cost table gives (H-83)")
+    pl.add_argument("costs", type=Path, help="a cost table: {count, pin, costs: {file: seconds}}")
     a = ap.parse_args(argv)
     if a.cmd == "files":
         shard = parse(a.shard)
         for p in sorted(a.tests.rglob("test_*.py")):
             rel = p.relative_to(ROOT).as_posix()
-            if shard_of(rel, shard.count) == shard.index:
+            if owner(rel, shard.count) == shard.index:
                 print(rel)
+        return 0
+    if a.cmd == "plan":
+        table = json.loads(a.costs.read_text(encoding="utf-8"))
+        costs = {str(k): float(v) for k, v in table["costs"].items()}
+        placed = plan(costs, int(table["count"]), int(table["pin"]))
+        files = {f: {"shard": s, "seconds": round(costs[f])} for f, s in placed.items()}
+        print(json.dumps({"count": int(table["count"]), "files": files}, indent=2))
         return 0
     recs = [Record.load(p) for p in a.records]
     problems = check(recs)
