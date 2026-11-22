@@ -1,0 +1,20 @@
+{
+  "card": "gate5",
+  "title": "gate 5 re-cut: what may leave the box, the cross-path test over every exit",
+  "date": "2026-11-22",
+  "source": "docs/plan/gates/gate-5.md",
+  "findings": [
+    {"id": "gate5-01", "severity": "High", "lane": "H", "basis": "shown", "state": "open",
+     "claim": "The support bundle as built carries planted names without a label, and identifiers in base64, quoted-printable and the other encoding classes; no member passes prepare_output"},
+    {"id": "gate5-02", "severity": "Medium", "lane": "H", "basis": "shown", "state": "open",
+     "claim": "A service log longer than the bundle's read limit keeps half a pseudonym cut at that limit (R22-24 item 2, still on master)"},
+    {"id": "gate5-03", "severity": "High", "lane": "K", "basis": "shown", "state": "open",
+     "claim": "The sponsor pack export carries patient text written into an aggregate file or the population field, in clear and in every encoding class"},
+    {"id": "gate5-04", "severity": "Medium", "lane": "Int", "basis": "shown", "state": "open",
+     "claim": "The enrolment report download carries patient text typed as a withdrawal or screen-fail reason; its owner is to be named"},
+    {"id": "gate5-05", "severity": "Medium", "lane": "Int", "basis": "shown", "state": "open",
+     "claim": "Exit sites in the output-sink inventory (console downloads, job files, deliverables, rule-set packages, the test mail sender) have no road in the cross-path test yet"},
+    {"id": "gate5-06", "severity": "Medium", "lane": "Int", "basis": "shown", "state": "open",
+     "claim": "The sink ratchet's ceiling counts the six bundle sites H-71 moved on master as growth, so test_remaining_output_sinks_match_the_inventory cannot pass without a ruling"}
+  ]
+}

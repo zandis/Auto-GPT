@@ -23,11 +23,13 @@ os.environ["TB_ADAPTER_RUN"] = "thread"
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _audit_directory(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
-    """Give the file audit writer a private test chain when a run supplies none."""
-    with pytest.MonkeyPatch.context() as env:
-        if "TB_AUDIT_DIR" not in os.environ:
-            env.setenv("TB_AUDIT_DIR", str(tmp_path_factory.mktemp("audit")))
+def _gate_refusal_audit(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Gate 5 audits each refusal; a run that names no audit folder gives the gate a private test chain (only the
+    gate's: ``TB_AUDIT_DIR`` stays unset, so a tool that must refuse without an audit folder still does)."""
+    from tb_common import output_gate
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(output_gate, "AUDIT_DIRECTORY", tmp_path_factory.mktemp("gate-audit"))
         yield
 
 

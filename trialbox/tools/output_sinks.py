@@ -76,6 +76,7 @@ class Scan(ast.NodeVisitor):
         self.sites: list[Site] = []
         self.defs: dict[str, ast.expr] = {}
         self.file_responses = 0
+        self.support = file in SUPPORT_WRITERS or _support_writer(tree)
         self.alias: dict[str, str] = {}
         self.loggers = {"log", "_log", "logger", "logging"}
         for n in ast.walk(tree):
@@ -413,7 +414,7 @@ class Scan(ast.NodeVisitor):
         ):
             if not self.gated(args[1] if len(args) > 1 else _kw(node, "data")):
                 self.add("job file", method, node)
-        elif self.file == "tools/support_bundle.py" and (name == "b.add" or name == "part.replace"):
+        elif self.support and (name == "b.add" or name == "part.replace"):
             if not self.gated(args[1] if len(args) > 1 else first):
                 self.add("support", name, node)
         elif method == "put" and any(s == "application/zip" for s in _strings(node)):
@@ -430,7 +431,7 @@ class Scan(ast.NodeVisitor):
             content = args[1] if method in ("addfile", "writestr") and len(args) > 1 else first
             raw_member = method == "writestr" and first is not None and not (_fixed(first) or self.gated(first))
             if raw_member or not self.gated(content):
-                self.add("support" if "support_bundle" in self.file else "package", method, node)
+                self.add("support" if self.support else "package", method, node)
         elif method in {
             "update",
             "extend",
@@ -445,6 +446,21 @@ class Scan(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+def _support_writer(tree: ast.Module) -> bool:
+    """The support writer: the module that defines the bundle (class ``Bundle``) and its one archive writer
+    (``_write_tar``). Found by what it defines, so no other module names it (H-71's test of one writer)."""
+    defined = {n.name for n in tree.body if isinstance(n, (ast.ClassDef, *DEF))}
+    return {"Bundle", "_write_tar"} <= defined
+
+
+#: the support writer(s) of this tree, by what they define (``tools/*.py``)
+SUPPORT_WRITERS = frozenset(
+    p.relative_to(ROOT).as_posix()
+    for p in sorted((ROOT / "tools").glob("*.py"))
+    if _support_writer(ast.parse(p.read_text()))
+)
+
+
 def inspect_source(file: str, source: str) -> list[Site]:
     tree = ast.parse(source, filename=file)
     scan = Scan(file, tree)
@@ -454,7 +470,7 @@ def inspect_source(file: str, source: str) -> list[Site]:
 
 def inventory(root: Path = ROOT) -> Counter[Site]:
     paths = [p for folder in ("libs", "services") for p in (root / folder).rglob("*.py")]
-    paths.append(root / "tools/support_bundle.py")
+    paths += [p for p in sorted((root / "tools").glob("*.py")) if _support_writer(ast.parse(p.read_text()))]
     return Counter(s for p in sorted(paths) for s in inspect_source(p.relative_to(root).as_posix(), p.read_text()))
 
 

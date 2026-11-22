@@ -25,6 +25,7 @@ from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError, trace_of
 from tb_common.objstore import ObjectStore
+from tb_common.output_gate import OutputRefused, Released, leave, prepare_output
 from tb_common.timeutil import now
 from tb_contracts import Job, JobCreate, SendRequest, SendResult
 
@@ -127,6 +128,13 @@ REPLIES_PER_SENDER_PER_DAY = 10  # refusal replies to one address in 24 hours (a
 HELD = ("queued", "uncertain", "failed", "dropped")
 
 
+def _released(data: bytes) -> Released:
+    """Gate 5: a message as it would leave, read by :func:`prepare_output` (its subject, every part and every
+    attachment, in every decoding a mail client could apply). :class:`OutputRefused` when a patient identifier
+    survives in any of them."""
+    return prepare_output("mail_message", "mail", {"bytes": data})
+
+
 def permanent(exc: BaseException) -> bool:
     """A refusal that a later try will meet again (an SMTP 5xx): the key fails at once and waits for a person."""
     if isinstance(exc, smtplib.SMTPRecipientsRefused):
@@ -225,7 +233,9 @@ class Gateway:
             return self._hold(req, key, message_id or "", False, [], state, n, why,
                               wait_s=min(RETRY_BASE_S * 2 ** (n - 1), RETRY_MAX_S))  # fmt: skip
         try:
-            p = self._prepare(req, message_id)  # routing, encryption, attachments: nothing has left yet
+            p = self._prepare(req, message_id)  # routing, encryption, attachments, gate 5: nothing has left yet
+        except OutputRefused as exc:  # gate 5: a patient identifier would leave: nothing is sent, a person decides
+            return self._hold(req, key, message_id or "", False, [], "failed", attempts, exc.reason)
         except Exception as exc:
             if not from_outbox:
                 self.db.release_send(key)  # the request itself is wrong: the caller hears it (422)
@@ -331,7 +341,9 @@ class Gateway:
         return before
 
     def _prepare(self, req: SendRequest, message_id: str | None = None) -> Any:
-        return prepare(
+        """The message as :func:`prepare` builds it, then gate 5: the message and each password mail are what
+        :func:`prepare_output` released (:class:`OutputRefused` when it refuses one: nothing is sent)."""
+        p = prepare(
             req,
             store=self.store,
             sender=self.sender,
@@ -344,6 +356,9 @@ class Gateway:
             allow_phi_zip=self.allow_phi_zip,
             message_id=message_id,
         )
+        p.data = leave(_released(p.data), "mail")
+        p.password_mails = [(rcpt, leave(_released(pw), "mail")) for rcpt, pw in p.password_mails]
+        return p
 
     def _after_main(self, req: SendRequest, p: Any) -> SendResult:
         for rcpt, pw in p.password_mails:  # separately, to the same recipient only
@@ -373,20 +388,34 @@ class Gateway:
         )
 
     def _reply(self, m: intake.Inbound, text: str) -> None:
+        msg = self._reply_message(m, text)
+        try:
+            self.transport(self.sender, [m.sender], bytes(msg))
+        except (OSError, ValueError, NotSent) as exc:
+            log.warning("reply to %s failed: %s", m.sender, exc)
+
+    def _reply_message(self, m: intake.Inbound, text: str, generic: bool = False) -> EmailMessage:
+        """The reply, read by gate 5 before it is sent: one that would quote a patient identifier (in the request's
+        subject or in the reason) is replaced by the generic reply, which quotes nothing."""
         msg = EmailMessage()
         msg["From"] = self.sender
         msg["To"] = m.sender
         subject = " ".join(m.subject.split())  # an encoded-word may decode to CR/LF, which no header may carry
-        msg["Subject"] = f"Re: {subject}"[:200] if subject else "TrialBox"
+        msg["Subject"] = f"Re: {subject}"[:200] if subject and not generic else "TrialBox"
         msg["Date"] = format_datetime(now(self.cfg.env.tz))
         msg["Message-ID"] = make_msgid(domain=self.sender.rsplit("@", 1)[-1])
         msg["In-Reply-To"] = m.message_id
         msg["Auto-Submitted"] = "auto-replied"
         msg.set_content(text.rstrip("\n") + "\n\n-- \n" + mail_statement(text) + "\n")  # TB-IU-01 C1 (T-116)
-        try:
-            self.transport(self.sender, [m.sender], bytes(msg))
-        except (OSError, ValueError, NotSent) as exc:
-            log.warning("reply to %s failed: %s", m.sender, exc)
+        try:  # the message as it would leave, and the request's subject and the reason whole (a cut can halve one)
+            leave(_released(bytes(msg)), "mail")
+            if not generic:
+                leave(_released(f"{m.subject}\n{text}".encode()), "mail")
+        except OutputRefused:
+            if generic:
+                raise
+            return self._reply_message(m, GENERIC, generic=True)
+        return msg
 
     # ------------------------------------------------------------------ inbound
     def handle(self, raw: bytes) -> str | None:

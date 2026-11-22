@@ -1,0 +1,52 @@
+{
+  "note": "Gate 5's planted mistakes (tools/gate5_planted.py): each is applied alone to a scratch copy of trialbox/, never to this tree. edits: [file, old text (occurs once), new text]; new_files: [file, content].",
+  "mutations": [
+    {
+      "id": "a",
+      "what": "a partly masked name (R22-06): the second half of each masked span is put back, on the model payload",
+      "edits": [
+        ["libs/tb_common/output_gate.py", "    masked = phi_guard.mask_note(value, mrn)\n", "    masked = _g5_half(phi_guard.mask_note(value, mrn), value)\n"],
+        ["libs/tb_common/output_gate.py", "    result = \"\".join(chars)\n", "    result = _g5_half(\"\".join(chars), value)\n"],
+        ["libs/tb_common/output_gate.py", "def _still_clear(masked: str, mrn: str | None, value: str) -> str:\n", "def _g5_half(masked: str, value: str) -> str:\n    out = list(masked)\n    for m in re.finditer(\"\u25cb[\u25cb\\\\s]*\u25cb|\u25cb\", masked):\n        for i in range((m.start() + m.end()) // 2, m.end()):\n            out[i] = value[i]\n    return \"\".join(out)\n\n\ndef _still_clear(masked: str, mrn: str | None, value: str) -> str:\n"]
+      ]
+    },
+    {
+      "id": "b",
+      "what": "a dropped refusal (R22-06): an exit's bytes are released whatever the gate found in them",
+      "edits": [
+        ["libs/tb_common/output_gate.py", "        if not found:\n            return _mint(", "        if True:\n            return _mint("]
+      ]
+    },
+    {
+      "id": "c",
+      "what": "the mail body scan skipped: the gate reads a message's headers, not its parts or attachments",
+      "edits": [
+        ["libs/tb_common/output_gate.py", "                yield from _receiver_texts(body, depth + 1)\n", "                pass\n"]
+      ]
+    },
+    {
+      "id": "d",
+      "what": "a new exit writing patient text without prepare_output: an f-string spool file in a new module, mailed as a copy",
+      "edits": [
+        ["services/mail_gateway/gateway.py", "    def _after_main(self, req: SendRequest, p: Any) -> SendResult:\n", "    def _after_main(self, req: SendRequest, p: Any) -> SendResult:\n        from mail_gateway.g5_planted_spool import spool\n\n        self.transport(self.sender, p.recipients, spool(self.secrets_dir, req.subject, req.body_md))\n"]
+      ],
+      "new_files": [
+        ["services/mail_gateway/g5_planted_spool.py", "\"\"\"A spool copy of each message (a planted mistake of tools/gate5_planted.py).\"\"\"\n\nfrom pathlib import Path\n\n\ndef spool(folder: Path, subject: str, body: str) -> bytes:\n    path = folder / \"spool.eml\"\n    path.write_text(f\"Subject: {subject}\\n\\n{body}\\n\", encoding=\"utf-8\")\n    return path.read_bytes()\n"]
+      ]
+    },
+    {
+      "id": "e",
+      "what": "the base64 decoding layer removed from the gate's reading",
+      "edits": [
+        ["libs/tb_common/output_gate.py", "        out.append(_B64_RUN.sub(_b64_text, text))\n", "        pass\n"]
+      ]
+    },
+    {
+      "id": "f",
+      "what": "the bundle's cut taken before the scrub (Bundle.add cuts a member to its last bytes, then scrubs)",
+      "edits": [
+        ["tools/support_bundle.py", "        text = self._scrub(name, text)\n        if len(text.encode(\"utf-8\")) > MAX_MEMBER:\n            text = text.encode(\"utf-8\")[-MAX_MEMBER:].decode(\"utf-8\", errors=\"ignore\").partition(\"\\n\")[2]\n            self.note(name, \"truncated\", 1)\n", "        if len(text.encode(\"utf-8\")) > MAX_MEMBER:\n            text = text.encode(\"utf-8\")[-MAX_MEMBER:].decode(\"utf-8\", errors=\"ignore\").partition(\"\\n\")[2]\n            self.note(name, \"truncated\", 1)\n        text = self._scrub(name, text)\n"]
+      ]
+    }
+  ]
+}

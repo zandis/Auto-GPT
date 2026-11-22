@@ -871,6 +871,9 @@ DECLARED: dict[str, Declared] = {
     "TB_OPTOUT_LOOKUPS_PER_HOUR": Declared("int", "", "opt-out lookups per user per hour"),
     "TB_OPTOUT_WORKER_MINUTES": Declared("int", "5", "orchestrator: minutes between opt-out worker ticks (0 off)"),
     "TB_ORCH_DIR": Declared("path", "", "orchestrator: data folder"),
+    "TB_OUTPUT_SINK_BASE": Declared(
+        "str", "", "tools/output_sinks.py (CI): the revision whose output-sink table is the ceiling (gate 5)"
+    ),
     "TB_PARSER": Declared("str", "auto", "document parser (auto or a named one)"),
     "TB_PERIMETER_RECHECK_S": Declared("float", "60", "gateway: seconds between perimeter address checks (D-388)"),
     "TB_PGBACKREST_FULL_DAY": Declared("int", "", "pgBackRest: weekday of the full backup"),

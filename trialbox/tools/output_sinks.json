@@ -1557,7 +1557,7 @@
     "area": "mail",
     "sink": "transport",
     "expression": "460f3dee82c4",
-    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+    "why": "Gate 5 reads these bytes first: Gateway._prepare and Gateway._reply_message send only what prepare_output released for the mail exit. This scan does not follow that, so the call stays listed as a tripwire."
   },
   {
     "file": "services/mail_gateway/gateway.py",
@@ -1589,7 +1589,7 @@
     "area": "mail",
     "sink": "transport",
     "expression": "9036def5d94f",
-    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+    "why": "Gate 5 reads these bytes first: Gateway._prepare and Gateway._reply_message send only what prepare_output released for the mail exit. This scan does not follow that, so the call stays listed as a tripwire."
   },
   {
     "file": "services/mail_gateway/gateway.py",
@@ -1621,7 +1621,7 @@
     "area": "mail",
     "sink": "transport",
     "expression": "cf3af13f2f7d",
-    "why": "The mail path still accepts the existing message or MIME bytes under its own recipient and attachment checks."
+    "why": "Gate 5 reads these bytes first: Gateway._prepare and Gateway._reply_message send only what prepare_output released for the mail exit. This scan does not follow that, so the call stays listed as a tripwire."
   },
   {
     "file": "services/mail_gateway/gateway.py",
@@ -2788,7 +2788,7 @@
     "function": "_box_part",
     "area": "support",
     "sink": "b.add",
-    "expression": "829d50f32b8f",
+    "expression": "7cbb9c19dc22",
     "why": "The support archive still relies on its member scrubber and final archive scan."
   },
   {
@@ -2804,7 +2804,7 @@
     "function": "_box_part",
     "area": "support",
     "sink": "b.add",
-    "expression": "e158b59a6df5",
+    "expression": "a139c3cebfbb",
     "why": "The support archive still relies on its member scrubber and final archive scan."
   },
   {
@@ -2821,6 +2821,30 @@
     "area": "support",
     "sink": "b.add",
     "expression": "f3a540bd78ac",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_build",
+    "area": "support",
+    "sink": "_write_tar",
+    "expression": "9eede39d697e",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_build",
+    "area": "support",
+    "sink": "b.add",
+    "expression": "7c86c10f185c",
+    "why": "The support archive still relies on its member scrubber and final archive scan."
+  },
+  {
+    "file": "tools/support_bundle.py",
+    "function": "_build",
+    "area": "support",
+    "sink": "part.replace",
+    "expression": "db96fee32b2d",
     "why": "The support archive still relies on its member scrubber and final archive scan."
   },
   {
@@ -2844,7 +2868,7 @@
     "function": "_logs_part",
     "area": "support",
     "sink": "b.add",
-    "expression": "4ac0a1022a29",
+    "expression": "ff713c569ded",
     "why": "The support archive still relies on its member scrubber and final archive scan."
   },
   {
@@ -2853,30 +2877,6 @@
     "area": "support",
     "sink": "addfile",
     "expression": "cb15abb49392",
-    "why": "The support archive still relies on its member scrubber and final archive scan."
-  },
-  {
-    "file": "tools/support_bundle.py",
-    "function": "build",
-    "area": "support",
-    "sink": "_write_tar",
-    "expression": "8906e539815c",
-    "why": "The support archive still relies on its member scrubber and final archive scan."
-  },
-  {
-    "file": "tools/support_bundle.py",
-    "function": "build",
-    "area": "support",
-    "sink": "b.add",
-    "expression": "7c86c10f185c",
-    "why": "The support archive still relies on its member scrubber and final archive scan."
-  },
-  {
-    "file": "tools/support_bundle.py",
-    "function": "build",
-    "area": "support",
-    "sink": "part.replace",
-    "expression": "db96fee32b2d",
     "why": "The support archive still relies on its member scrubber and final archive scan."
   }
 ]
