@@ -263,6 +263,14 @@ def main(argv: list[str] | None = None) -> int:
             code = store.issue_enrol_code(args.name)
             store.note_factor_reset(args.name, "totp", "cli")
             _audit("console.enrol_code", detail={"user": args.name})
+            if store.holder_set(args.name):
+                print("Enter your password at /login and this code at /login/totp.")
+                print("請在 /login 輸入密碼，再到 /login/totp 輸入此代碼。")
+                print("/login でパスワードを入力し、/login/totp でこのコードを入力してください。")
+            else:
+                print("Use this code at /enrol to choose your password.")
+                print("請在 /enrol 輸入此代碼並設定密碼。")
+                print("/enrol でこのコードを入力し、パスワードを設定してください。")
             print(f"console: enrolment code for '{args.name}' (shown once, valid 24 hours): {code}")
     except AuthError as exc:
         print(f"console: {exc}", file=sys.stderr)
