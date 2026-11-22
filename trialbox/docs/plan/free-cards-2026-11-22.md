@@ -42,8 +42,10 @@ ways:
    closed, not started.
 3. **The ruling of 11-22.** Nine free cards are deferred past the pilot. The review counted before the ruling.
 4. **Decisions.** This page counts a decision as ruled where plan 10's section 8 says "Ruled" (and decision 123 as
-   ruled by D-1068). A decision ruled on #639 after 11-18 is not seen here. The 13 cards blocked only by an open
-   decision should be checked against the integrator's list.
+   ruled by D-1068). The 13 cards blocked only by a decision were then checked against #639 since 11-18 (7078704163).
+   Three are ruled there (10C-2, 10C-6, 10G-14) and one more is ruled but costs money (10E-30). Four are moot or
+   deferred (10E-29, 10F-2, 10D-10, 10D-13). Five are open for the owner (10A-13, 10A-14, 10A-20, 10E-39, 10G-24).
+   The counts above are as first made; the three ruled cards are not yet added to the free list.
 
 After all four, 43 cards are free to start. That is close to the review's 44, but they are not the same 44.
 
@@ -60,6 +62,21 @@ After all four, 43 cards are free to start. That is close to the review's 44, bu
   its subject and its "proved by". The verdict and the evidence are in the last column. **Not verified:** the
   verdicts come from targeted searches and reading, not from running each card's proof. "Built" means the proof or
   an equivalent test exists. It does not mean the test was run here.
+
+## Ring 0 comes first
+
+The owner's ruling of 2026-11-22, about 11:35 UTC (#639, 7078327677), withdrew "one complete release" and froze
+ring 0, the MVP. Ring 0 comes before every free card that is not in it, and the free cards outside ring 0 wait
+(7078338161). Of the 43 free cards, four are ring 0:
+
+| Id | Holder |
+| --- | --- |
+| 9c-9 | the reviewer (7078338161, piece 7), not lane J as sorted below |
+| 9e-9 | lane R |
+| 9i-1 | lane R |
+| 9l-22 | lane R |
+
+Ring 0 also holds 9i-2, which is listed below as already built.
 
 ## The free cards, by lane
 
@@ -158,18 +175,21 @@ ruling 2 of 11-22 gives to lane E.
 
 ### Free by the plan's columns but already built on master: 8
 
-These need no build. Each is for its lane to confirm against the card's "proved by" and close with one line on #639.
+Each row names the proof on master that the plan's "proved by" asks for. **Plan rows to mark done** (by the plan's
+keeper, not by a card): 10A-21, 9f-8, 9g-16, 9h-15, 9i-2, 10E-40, 10G-26. **9h-9** is built, but its proof is only
+partly found: two tests hold misfiled concepts, and nobody has shown that all twelve P2b calls are covered. Mark it
+done after that check.
 
-| Id | Title | Track | Evidence on master |
-| --- | --- | --- | --- |
-| 10A-21 | Coded screen-failure reasons in three languages | A | datacore/lifecycle.py SCREEN_FAIL_REASONS; labels in three languages (console/i18n_life.py); sponsor export (orchestrator/lifecycle_api.py) |
-| 10E-40 | Plan text corrected: the 1.43 figure, the side-by-side arithmetic, the 15-study first load, decision | E | plan 10 section 10 lines 1313-1317 carry the corrections |
-| 10G-26 | Plan text: the four gold stages, the release wording by gold kind, the hours (replaces 17-5's 125 h) | G | plan 10 line 416 and 656; D-1326 |
-| 9f-8 | One short mail at once when an SAE is saved (pseudonym and link only) | D | tests/console/test_an_sae_is_told_at_once.py |
-| 9g-16 | The console's return-address check (where a sign-in or a mail link sends a person back), as lane J f | G | services/console/next_page.py safe_next; tests/unit/test_safe_next_refuses_every_control.py |
-| 9h-15 | Licence register rows and NOTICE lines for every code system used | H | tools/licence_register.py; tests/unit/test_licence_register.py, tests/unit/test_notice.py |
-| 9h-9 | Re-file a concept by domain before mapping | H | ir_extract/postprocess.py domain_refiled; tests/unit/test_diagnosis_filed_as_procedure.py |
-| 9i-2 | Defect (e). Fix the e2e nightly's `pure` set and `public-e2e` | I | pure and public-e2e green on the 11-19 to 11-21 nightlies |
+| Id | Title | Track | Proved by (the plan) | The proof on master |
+| --- | --- | --- | --- | --- |
+| 10A-21 | Coded screen-failure reasons in three languages | A | A sponsor log exports with categories | `services/datacore/lifecycle.py` `SCREEN_FAIL_REASONS`; labels in `services/console/i18n_life.py` (en, ja, zh-TW); the sponsor export rows in `services/orchestrator/lifecycle_api.py` |
+| 9f-8 | One short mail at once when an SAE is saved | D | Mail test | `tests/console/test_an_sae_is_told_at_once.py` |
+| 9g-16 | The console's return-address check | G | The check's own refusal tests | `services/console/next_page.py` `safe_next`; `tests/unit/test_safe_next_refuses_every_control.py` |
+| 9h-9 | Re-file a concept by domain before mapping | H | The 12 encounter and claim calls and the misfiled observations of P2b | `services/criteria_compiler/ir_extract/postprocess.py` `domain_refiled`; `tests/unit/test_diagnosis_filed_as_procedure.py`, `tests/unit/test_encounter_atoms_need_a_code.py` (the twelve calls not confirmed) |
+| 9h-15 | Licence register rows and NOTICE lines | H | `tools/licence_register.py` passes | `tools/licence_register.py`; `tests/unit/test_licence_register.py`, `tests/unit/test_notice.py` |
+| 9i-2 | Fix the e2e nightly's `pure` set and `public-e2e` | I | Both jobs green | `pure` and `public-e2e` green in the scheduled runs of 11-19, 11-20 and 11-21 (`trialbox-e2e.yml`; the run as a whole is red for other jobs, card 9i-1) |
+| 10E-40 | Plan text corrected (1.43, side by side, first load, decisions 32 and 79) | E | Done by this amendment | Plan 10, section 10 (the rows on the 1.43 figure, the side-by-side arithmetic, the 15-study first load, decisions 32 and 79) |
+| 10G-26 | Plan text: the four gold stages, the release wording by gold kind | G | Done by this amendment | Plan 10, section 3 (the 125 hours replaced by stages G0 to G4) and its gold rows; D-1326 |
 
 ### Not counted as free: the wait names a run, a person or an outside input: 19
 
