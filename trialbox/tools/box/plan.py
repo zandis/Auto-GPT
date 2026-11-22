@@ -534,10 +534,12 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         if a.source is not SourceKind.LATER:
             warnings.append(f"data source {a.source.value}: its connector and mapping step are on the box (T-731)")
     env: dict[str, str] = dict(caps)
+    # 10K-4 (D-1390): the folder the owner chose for the disk or the share, else the fixed mount point
     if a.backup.kind is BackupKind.SECOND_DISK:
-        env |= {"TB_BACKUP_TARGETS": SECOND_DISK_MOUNT, "TB_BACKUP_OFFBOX": SECOND_DISK_MOUNT}
+        folder = a.backup_dir or SECOND_DISK_MOUNT
+        env |= {"TB_BACKUP_TARGETS": folder, "TB_BACKUP_OFFBOX": folder}
     elif a.backup.kind is BackupKind.SHARE:
-        env |= {"TB_BACKUP_TARGETS": SHARE_MOUNT}
+        env |= {"TB_BACKUP_TARGETS": a.backup_dir or SHARE_MOUNT}
     else:
         warnings.append("backups: none yet; the box's health stays red until a second disk or a share is set (T-730)")
     env["TB_BACKUP_MAILTO"] = email  # OD-16: the owner is told (the message path itself is T-730's)
@@ -548,6 +550,12 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     if a.tls_root_confirmed_by:  # who in hospital IT confirmed the box's root certificate is on the PCs, and when
         env["TB_TLS_ROOT_CONFIRMED_BY"] = a.tls_root_confirmed_by
         env["TB_TLS_ROOT_CONFIRMED_ON"] = a.tls_root_confirmed_on
+    # 10K-4 (D-1390): the audit chain's signed heads (mounted into the console, D-638: by install.sh, or after the
+    # first-run apply by box-install.sh) and the collected logs, written only when chosen (not asked: as before)
+    if a.anchor_dir:
+        env["TB_AUDIT_ANCHOR_TARGETS"] = a.anchor_dir
+    if a.log_dir:
+        env["TB_LOG_DIR"] = a.log_dir
     env["TB_ENV"] = a.environment  # D-822: the owner's answer, PRODUCTION unless VALIDATION
     if a.country and site_country.defaults(a.country).consent_proxy:
         env["TB_CONSENT_PROXY"] = "on"  # 10C-19 (D-1232): the Japan profile: the representative and the assent
