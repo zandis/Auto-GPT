@@ -7,7 +7,10 @@ synthetic box (``tests/console/visual_pages.py``) and photographed in Chromium (
 The same job shoots master in a second checkout with the same scripts, so both sets come from one machine, one
 browser and one set of fonts; nothing is stored between runs.
 
-A shot differs when more than 0.1 % of its pixels differ (or it exists on one side only, or could not be drawn). A
+A shot differs when more than 0.1 % of its pixels differ (or it exists on one side only, or the pull request could
+not draw it). H-73: a capture that fails is taken again, up to ``CAPTURE_TRIES`` times in all; a shot the pull request
+drew but master could not (master's own error is recorded) is "not compared": listed in the report with master's
+error, not counted against the card. A shot drawn on both sides is compared exactly as before. A
 difference is reviewed when ``tests/console/visual_accepted.txt`` holds the line ``<shot> <hash>`` for the new
 picture's hash (sha256 of its size and RGBA pixels): a person looked at the side-by-side page the job keeps
 (``index.html``: master, the pull request, and the changed pixels in red) and committed the line the job printed. A
@@ -44,6 +47,8 @@ SHOTS_JS = ROOT / "tests" / "console" / "visual_shots.js"
 ACCEPTED = ROOT / "tests" / "console" / "visual_accepted.txt"
 THRESHOLD = 0.001  # review 09 §5.3: a difference over 0.1 % of the pixels
 EXPECTED_SHOTS = 72
+CAPTURE_TRIES = 3  # H-73: a capture that fails (Chromium's "Unable to capture screenshot") is taken twice more
+NOT_COMPARED = "not compared"
 
 
 # ------------------------------------------------------------------------------------------- comparing
@@ -87,7 +92,7 @@ def read_accepted(path: Path) -> set[tuple[str, str]]:
 @dataclass
 class Shot:
     name: str
-    state: str  # same, below (under the threshold), differs, accepted
+    state: str  # same, below (under the threshold), differs, accepted, not compared (master could not draw it)
     fraction: float = 0.0
     head_hash: str = ""
     why: str = ""
@@ -117,10 +122,14 @@ def compare(base: Path, head: Path, out: Path, accepted: set[tuple[str, str]], t
     for name in names:
         bp, hp = base / "png" / f"{name}.png", head / "png" / f"{name}.png"
         hh = picture_hash(hp) if hp.is_file() else ""
-        if not hp.is_file():
+        if name == "*" and name not in herr:  # master as a whole could not be drawn: the job cannot compare
+            s = Shot(name, NOT_COMPARED, 0.0, "", f"master could not be drawn: {berr[name]}")
+        elif not hp.is_file():
             s = Shot(name, "differs", 1.0, "", f"not drawn on the pull request: {herr.get(name, 'missing')}")
+        elif not bp.is_file() and (name in berr or "*" in berr):
+            s = Shot(name, NOT_COMPARED, 0.0, hh, f"could not be drawn on master: {berr.get(name) or berr['*']}")
         elif not bp.is_file():
-            s = Shot(name, "differs", 1.0, hh, f"not drawn on master: {berr.get(name, 'missing')}")
+            s = Shot(name, "differs", 1.0, hh, "not drawn on master: missing")
         else:
             frac, diff = changed_fraction(bp, hp)
             if frac == 0:
@@ -145,14 +154,23 @@ def compare(base: Path, head: Path, out: Path, accepted: set[tuple[str, str]], t
 
 
 def _write_report(res: Result, out: Path, threshold: float) -> None:
-    counts = {k: sum(1 for s in res.shots if s.state == k) for k in ("same", "below", "accepted", "differs")}
+    counts = {
+        k: sum(1 for s in res.shots if s.state == k) for k in ("same", "below", "accepted", "differs", NOT_COMPARED)
+    }
     md = [
         "# Visual regression (9k-17)",
         "",
         f"{len(res.shots)} shots: {counts['same']} the same, {counts['below']} under {threshold:.1%}, "
-        f"{counts['accepted']} accepted, **{counts['differs']} not reviewed**.",
+        f"{counts['accepted']} accepted, **{counts['differs']} not reviewed**, {counts[NOT_COMPARED]} not compared.",
         "",
     ]
+    if counts[NOT_COMPARED]:
+        md += [
+            "Not compared (master could not draw them; not counted against the pull request): "
+            + ", ".join(s.name for s in res.shots if s.state == NOT_COMPARED)
+            + ".",
+            "",
+        ]
     if res.unreviewed:
         md += [
             "Look at each in `index.html` of the job's files (master, the pull request, the changed pixels in red).",
@@ -234,8 +252,14 @@ def shoot(tree: Path, out: Path, only: list[str] | None = None) -> dict[str, Any
     else:
         m = json.loads((pages / "pages.json").read_text(encoding="utf-8"))
         shots, errors = m["shots"], dict(m["errors"])
-    if shots:
-        errors.update(photograph(pages, png, shots)["failed"])
+    failed: dict[str, Any] = {}
+    todo = shots
+    for _ in range(CAPTURE_TRIES):  # H-73: a failed capture is taken again; a shot that never succeeds stays failed
+        if not todo:
+            break
+        failed = photograph(pages, png, todo)["failed"]
+        todo = [s for s in todo if "*" in failed or str(s["name"]) in failed]
+    errors.update(failed)
     names = sorted(p.stem for p in png.glob("*.png"))
     manifest: dict[str, Any] = {"names": names, "errors": errors}
     (out / "shots.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
