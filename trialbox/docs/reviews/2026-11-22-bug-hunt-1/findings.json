@@ -1,0 +1,112 @@
+{
+ "card": "BH1",
+ "title": "a bug hunt of the product's own source, batch 1 (lane X, 2026-11-22)",
+ "date": "2026-11-22",
+ "source": "docs/reviews/2026-11-22-bug-hunt-1.md",
+ "findings": [
+  {
+   "id": "BH1-01",
+   "severity": "High",
+   "claim": "the lake has no route gate: the criteria compiler's service token can promote a built night and release a job's hold (POST /promote, DELETE /holds/{holder})",
+   "lane": "G",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-02",
+   "severity": "High",
+   "claim": "FHIR Bulk pseudonymisation keeps every resource's narrative text and a Reference's display and identifier, so patients' names and chart numbers reach the lake",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-03",
+   "severity": "Medium",
+   "claim": "FHIR Bulk pseudonymisation misses absolute and versioned references: the record does not link to its patient's pseudonym (an absolute one keeps the chart number)",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-04",
+   "severity": "Medium",
+   "claim": "a FHIR R4 partial birth date (1960, 1960-05) fails the whole night's lake build in Flattener.ts; worse than H34-10, which is an invalid date",
+   "lane": "G",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-05",
+   "severity": "Medium",
+   "claim": "the key-service client follows redirects and resends its token header to any Location, plain http included (libs/tb_common/kek.py _kms_call)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-06",
+   "severity": "Medium",
+   "claim": "a chart-number pattern with an anchor on each branch masks neither format mid-line in the log scrubber, the PHI scan or the guard (strip of outer anchors only); lane F's area",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-07",
+   "severity": "Medium",
+   "claim": "the feasibility mail's HTML part passes a criterion label's inline HTML through as live markup (mail_gateway render_body)",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-08",
+   "severity": "Medium",
+   "claim": "the document parser inflates an uploaded DOCX with no member, total or ratio cap, so an upload under 50 MB can exhaust its memory; owner not determined",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-09",
+   "severity": "Low",
+   "claim": "audit verify raises TypeError or AttributeError on a line that is JSON but not an object, instead of naming the line; lane F's area",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-10",
+   "severity": "Low",
+   "claim": "the egress check that only the gateway reaches a model host compares the host exactly, so an upper-case or trailing-dot spelling in EGRESS_EXTRA passes",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-11",
+   "severity": "Low",
+   "claim": "the NHI host opens an orchestrator egress rule without the model-host check the REDCap host gets",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-12",
+   "severity": "High",
+   "claim": "a study-scoped console account refused at GET /audit reads every study's audit list through POST /audit/verify; the scope check matches /audit exactly (D-380)",
+   "lane": "K",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "BH1-13",
+   "severity": "Medium",
+   "claim": "POST /lang checks its way back with its own rule, not local_path, though D-1156 says the one rule covers it; no off-site redirect today",
+   "lane": "K",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
