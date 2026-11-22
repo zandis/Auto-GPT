@@ -26,6 +26,7 @@ VALUE = "A1234567"  # a synthetic chart number
 # ------------------------------------------------------------------------------------- the decision scan (F-4)
 #: a decision by the words of ``detail`` / ``reason``: round 1's shapes, then the review's (round 2)
 BY_WORDS = {
+    "a_sentence_with_no_space": '    if exc.detail == "フォームの項目が多すぎます":\n        pass\n',
     "in": '    if "timeout" in exc.detail:\n        pass\n',
     "not_in": '    if "busy" not in exc.reason:\n        pass\n',
     "assigned_search": '    too_many = "too many fields" in str(exc.detail).lower()\n    code = 413 if too_many else 400\n',

@@ -23,11 +23,12 @@ with a sentence, or with a name the module binds to one; a ``match`` on it with 
 keyed by sentences; it handed to a helper (one defined in the module is read one level; another may search it). The
 error under a second name, ``e.__cause__``, ``vars(e)["detail"]`` and ``getattr`` are the same error. A name assigned
 from any of these is a decision too. Not seen: a name not bound in the module (an imported constant or mapping reads
-as a code), a code-like literal (no space) compared whole, the words read outside the ``except`` block."""
+as a code), a code-like literal (ASCII letters, digits and ``_.:/-`` only) compared whole, the words read outside the ``except`` block."""
 
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -172,10 +173,17 @@ class _Module:
                     self.text_maps |= names
 
 
+_CODE_SHAPE = re.compile(r"[A-Za-z0-9_.:/-]*")
+
+
 def _sentence(node: ast.AST) -> bool:
-    """A literal that is a sentence, not a code: a string with a space, or a collection holding one."""
+    """A literal that is a sentence, not a code: a string that is not of a code's shape (ASCII letters, digits and
+    ``_.:/-`` only: a space, or a letter of another script, makes it words, e.g. a Japanese sentence has no space),
+    or a collection holding one."""
     if isinstance(node, ast.Constant):
-        return isinstance(node.value, str | bytes) and any(c.isspace() for c in str(node.value))
+        if isinstance(node.value, bytes):
+            return _CODE_SHAPE.fullmatch(node.value.decode("latin-1")) is None
+        return isinstance(node.value, str) and _CODE_SHAPE.fullmatch(node.value) is None
     return isinstance(node, ast.Tuple | ast.List | ast.Set) and any(_sentence(e) for e in node.elts)
 
 
