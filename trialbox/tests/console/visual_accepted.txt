@@ -1,3 +1,6 @@
 # 9k-17 (D-1377): the reviewed differences of the visual regression (tools/visual_regression.py).
 # One line per picture a person looked at and meant: "<shot> <hash>  # why". The job prints the lines to add.
 # A line accepts that one picture only (the hash is of its pixels); the next change to the page differs again.
+home-crc-en-desktop d86d242c315050f00513469b56ad8d491a3d2dcab4340cde93b5e5f43a7e04d9  # 9k-10 (D-1385): the phase strip replaces .steps on the coordinator home; nothing outside the strip moved
+home-crc-ja-desktop 57b93646483db35509d156d77701a28da621982dec0bad3daf31f49c4eb0902c  # 9k-10 (D-1385): the phase strip replaces .steps on the coordinator home; nothing outside the strip moved
+home-crc-zh-TW-desktop dacb586759acbf15c04c16a90bb1c51b93acde984d604281d6290dd8dcef890e  # 9k-10 (D-1385): the phase strip replaces .steps on the coordinator home; nothing outside the strip moved
