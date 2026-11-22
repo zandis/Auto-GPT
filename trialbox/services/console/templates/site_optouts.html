@@ -1,14 +1,9 @@
 {% extends "base.html" %}
 {# D-147: the research-use opt-out register, kept by the research office or the steward. A chart number typed here
    becomes the box's pseudonym and is never stored. The patient leaves screening, every list and later exports. #}
-{# 9k-6b (D-1376): the register's two forms (an opt-out and the lifting of one) use the field macro. The title and the
-   heading are the same text (D-1380, test_page_header_9k5), so after a failed POST both begin with "Error:" (D-1389) #}
-{% import "_fields.html" as fm with context %}
-{% block title %}{{ fm.title(fe, t('team.optout.title')) }}{% endblock %}
+{% block title %}{{ t('team.optout.title') }}{% endblock %}
 {% block content %}
-{% set page_fe = fe %}
-{{ fm.error_summary(fe, testid='optout-error') }}
-<div class="headrow"><h1>{{ fm.title(fe, t('team.optout.title')) }}</h1><span class="hint" data-testid="optout-n">{{ t('team.optout.count', n=rows|length) }}</span></div>
+<div class="headrow"><h1>{{ t('team.optout.title') }}</h1><span class="hint" data-testid="optout-n">{{ t('team.optout.count', n=rows|length) }}</span></div>
 <p class="hint">{{ t('team.optout.help') }}</p>
 <p class="hint" data-testid="optout-where">{{ t('team.optout.where') }}</p>
 {% set done = request.query_params.get('done', '') %}
@@ -17,14 +12,14 @@
 {% elif done in ('added', 'lifted', 'same') %}<p class="{{ 'hint' if done == 'same' else 'ok' }}" role="status" data-testid="optout-done">{{ t('team.optout.done.' + done) }}</p>
 {% if done == 'added' and on == 'yes' %}<p class="ok" data-testid="optout-matched">{{ t('team.optout.matched') }}</p>{% endif %}{% endif %}
 <section class="card"><h2>{{ t('team.optout.add') }}</h2>
-{% set src_opts = [] %}{% for s in sources %}{% set _ = src_opts.append((s, t('team.optout.src.' + s))) %}{% endfor %}
-<form method="post" action="/site/opt-outs" class="markform" data-testid="optout-form" data-fields="optout" data-guard autocomplete="off">
+<form method="post" action="/site/opt-outs" class="markform" data-testid="optout-form" autocomplete="off">
 <input type="hidden" name="csrf" value="{{ csrf }}">
-{{ fm.field(fe, 'optout', 'oo', 'chart_no', t('team.optout.chart'), '', attrs={'maxlength': '40', 'autocomplete': 'off', 'data-testid': 'optout-chart'}) }}
-{{ fm.field(fe, 'optout', 'oo', 'pid', t('team.optout.pid'), '', attrs={'maxlength': '64', 'autocomplete': 'off', 'data-testid': 'optout-pid'}) }}
-{{ fm.field(fe, 'optout', 'oo', 'source', t('team.optout.source'), '', kind='select', options=src_opts) }}
-{{ fm.field(fe, 'optout', 'oo', 'note', t('team.optout.note'), '', attrs={'maxlength': '300'}) }}
-{{ fm.field(fe, 'optout', 'oo', 'unknown_reason', t('team.optout.unknown_reason'), '', hint=t('team.optout.unknown_reason.help'), attrs={'maxlength': '300', 'data-testid': 'optout-unknown-reason'}) }}
+<label for="oo-chart">{{ t('team.optout.chart') }}</label><input id="oo-chart" name="chart_no" maxlength="40" data-testid="optout-chart">
+<label for="oo-pid">{{ t('team.optout.pid') }}</label><input id="oo-pid" name="pid" maxlength="64" data-testid="optout-pid">
+<label for="oo-src">{{ t('team.optout.source') }}</label><select id="oo-src" name="source">{% for s in sources %}<option value="{{ s }}">{{ t('team.optout.src.' + s) }}</option>{% endfor %}</select>
+<label for="oo-note">{{ t('team.optout.note') }}</label><input id="oo-note" name="note" maxlength="300">
+<label for="oo-unknown">{{ t('team.optout.unknown_reason') }}</label><input id="oo-unknown" name="unknown_reason" maxlength="300" data-testid="optout-unknown-reason" aria-describedby="oo-unknown-help">
+<p class="hint" id="oo-unknown-help">{{ t('team.optout.unknown_reason.help') }}</p>
 <button type="submit" data-testid="optout-save">{{ t('team.optout.save') }}</button>
 </form></section>
 <section class="card"><h2>{{ t('team.optout.now') }}</h2>
@@ -32,9 +27,7 @@
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="optouts">
 <thead><tr><th>{{ t('team.optout.pid') }}</th><th>{{ t('team.optout.since') }}</th><th>{{ t('team.optout.source') }}</th><th>{{ t('team.optout.by') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for e in rows %}<tr data-testid="optout-{{ e.pid[:8] }}"><td class="mono">{{ e.pid[:8] }}…</td><td>{{ e.at|local }}</td><td>{{ t('team.optout.src.' + e.source) if e.source else '–' }}</td><td>{{ e.by }}</td>
-<td>{% set fe = page_fe if page_fe and page_fe.prefix == 'lift-' ~ e.pid else None %}<form method="post" action="/site/opt-outs" class="inline" data-fields="optout-lift" data-guard><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pid" value="{{ e.pid }}"><input type="hidden" name="lift" value="1">
-{{ fm.field(fe, 'optout-lift', 'lift-' ~ e.pid, 'note', t('roles.optout.lift_reason'), '', attrs={'minlength': '10', 'maxlength': '300', 'required': 'required', 'data-testid': 'optout-lift-note-' ~ e.pid[:8]}) }}
-<button type="submit" class="small secondary" data-testid="optout-lift-{{ e.pid[:8] }}">{{ t('team.optout.lift') }}</button></form></td></tr>{% endfor %}</tbody></table></div>{% endif %}
+<td><form method="post" action="/site/opt-outs" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pid" value="{{ e.pid }}"><input type="hidden" name="lift" value="1"><label class="nowrap">{{ t('roles.optout.lift_reason') }} <input name="note" minlength="10" maxlength="300" required data-testid="optout-lift-note-{{ e.pid[:8] }}"></label> <button type="submit" class="small secondary" data-testid="optout-lift-{{ e.pid[:8] }}">{{ t('team.optout.lift') }}</button></form></td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 {% if events %}<section class="card"><h2>{{ t('team.optout.trail') }}</h2><ul class="plain hint">{% for e in events %}<li>{{ e.at|local }} · {{ e.by }} · {{ t('team.optout.ev.' + e.action) }} · <span class="mono">{{ e.pid[:8] }}</span></li>{% endfor %}</ul></section>{% endif %}
 {% endblock %}

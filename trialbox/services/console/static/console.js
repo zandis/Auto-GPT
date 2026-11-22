@@ -24,8 +24,6 @@
     f.addEventListener("input", function () { dirty = true; });
     f.addEventListener("change", function () { dirty = true; });
     f.addEventListener("submit", function () { dirty = false; });
-    // 9k-6b: a page shown again after a refused post holds typed values nobody has saved: it is guarded from the start
-    if (f.querySelector('[aria-invalid="true"]')) dirty = true;
   });
   window.addEventListener("beforeunload", function (e) {
     if (!dirty) return;

@@ -96,11 +96,7 @@ def test_a_converted_form_keeps_to_the_contract(tmp_path: Path) -> None:
     text = page.read_text(encoding="utf-8")
     assert 'data-fields="identity"' in text and 'data-fields="irb-text"' in text
     # a raw field inside a converted form
-    page.write_text(
-        text.replace(
-            'data-fields="identity" data-guard>\n', 'data-fields="identity" data-guard>\n<input name="extra">\n'
-        )
-    )
+    page.write_text(text.replace('data-fields="identity">\n', 'data-fields="identity">\n<input name="extra">\n'))
     assert any("form 'identity' has a field outside the macro" in x for x in form_fields.problems(root, _ratchet()))
     # no summary, no title
     page.write_text(text.replace("fm.error_summary(", "fm.nothing(").replace("fm.title(", "fm.nothing2("))
@@ -111,28 +107,12 @@ def test_a_converted_form_keeps_to_the_contract(tmp_path: Path) -> None:
     assert any("used twice" in x for x in form_fields.problems(root, _ratchet()))
 
 
-def test_a_converted_form_carries_data_guard(tmp_path: Path) -> None:
-    """9k-6b (D-1389): a converted form warns before the page is left with edits not yet saved."""
-    root = _copy(tmp_path)
-    page = root / "study_state.html"
-    text = page.read_text(encoding="utf-8")
-    assert 'data-fields="identity" data-guard>' in text
-    page.write_text(text.replace('data-fields="identity" data-guard>', 'data-fields="identity">'))
-    found = form_fields.problems(root, _ratchet())
-    assert [x for x in found if "no data-guard" in x] == [
-        "study_state.html: form 'identity' has no data-guard (D-1389): it warns before the page is left with edits"
-    ]
-
-
 def test_every_converted_form_has_its_failed_post_case() -> None:
-    from tests.console.form_cases_9k6a import CASES as CASES_6A
-    from tests.console.form_cases_9k6b import CASES as CASES_6B
+    from tests.console.form_cases_9k6a import CASES
 
-    assert not set(CASES_6A) & set(CASES_6B)  # a form name is in one table
-    cases: dict[str, Any] = {**CASES_6A, **CASES_6B}
     tree = form_fields.converted(form_fields.scan())
-    assert tree == {name: case.template for name, case in cases.items()}
-    for name, case in cases.items():
+    assert tree == {name: case.template for name, case in CASES.items()}
+    for name, case in CASES.items():
         assert set(case.failing) <= set(case.bad) and set(case.kept) <= set(case.bad), name
 
 
@@ -232,8 +212,8 @@ def test_the_recount_equals_a_fresh_measurement() -> None:
     assert {t: n for t, (n, _r) in form_fields.read_action_list(_ratchet()).items()} == broken
     tree = form_fields.scan()
     assert sum(1 for forms in tree.values() for f in forms if f.name is None) == n_typed + n_action
-    # measured on the merge with master 8085b053: 9k-6b (D-1389) and 10F-1 (D-1387) together
-    assert (n_typed, n_action, len(typed), sum(broken.values())) == (92, 51, 56, 0)
+    # as measured on 2026-11-20 (102 typed); 10F-1 (D-1387) converted account.html's language form: 101
+    assert (n_typed, n_action, len(typed), sum(broken.values())) == (101, 51, 62, 0)
 
 
 def test_the_typed_list_did_not_go_up_against_master() -> None:

@@ -1,11 +1,8 @@
 {% extends "base.html" %}
 {# 10C-4 (D-1227): the Japan profile's committee record and this site's head-of-institution permission. Who records
    and who reads follow the study's IRB record (console.team). Documents are named by title and date only. #}
-{# 9k-6b (D-1376): the record's form uses the field macro #}
-{% import "_fields.html" as fm with context %}
-{% block title %}{{ fm.title(fe, t('cmt.title') ~ ' · ' ~ rs) }}{% endblock %}
+{% block title %}{{ t('cmt.title') }} · {{ rs }}{% endblock %}
 {% block content %}
-{{ fm.error_summary(fe, testid='cmt-error') }}
 <div class="headrow"><h1>{{ rs }} · {{ t('cmt.title') }}</h1></div>
 {% include "_team_nav.html" %}
 <p class="hint">{{ t('cmt.help') }}</p>
@@ -31,23 +28,22 @@
   <dt>{{ t('cmt.permission', site=site or '–') }}</dt><dd data-testid="cmt-permission">{% if perm and perm.permitted_on %}{{ perm.version }} · {{ perm.permitted_on }}{% else %}–{% endif %}{% if rec.kind %}<br><span class="hint" data-testid="cmt-permission-is">{{ t('cmt.permission_is.' + rec.kind) }}</span>{% endif %}</dd>
   {% if rec.by %}<dt>{{ t('team.irb.by') }}</dt><dd>{{ rec.by }} · {{ rec.at|local }}</dd>{% endif %}
 </dl>
-{% set kind_opts = [('', t('cmt.kind.none'))] %}{% for k in kinds %}{% set _ = kind_opts.append((k, t('cmt.kind.' + k))) %}{% endfor %}
-{% if can_edit %}<form method="post" action="/studies/{{ rs }}/committee" class="markform" data-testid="cmt-form" data-fields="committee" data-guard>
+{% if can_edit %}<form method="post" action="/studies/{{ rs }}/committee" class="markform" data-testid="cmt-form">
 <input type="hidden" name="csrf" value="{{ csrf }}">
-{{ fm.field(fe, 'committee', 'cmt', 'kind', t('cmt.kind'), rec.kind, kind='select', options=kind_opts, attrs={'data-testid': 'cmt-kind'}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'external', t('cmt.external'), '1', kind='checkbox', checked=rec.external, attrs={'data-testid': 'cmt-external'}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'establisher', t('cmt.establisher'), rec.establisher, attrs={'maxlength': '200'}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'contract_on', t('cmt.contract_on'), rec.contract_on, type='date', hint=t('date.fmt'), attrs={'lang': lang}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'current_version', t('cmt.current_version'), rec.current_version, attrs={'maxlength': '40', 'data-testid': 'cmt-current'}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'approved_version', t('cmt.approved_version'), rec.approved_version, attrs={'maxlength': '40'}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'approved_on', t('cmt.approved_on'), rec.approved_on, type='date', hint=t('date.fmt'), attrs={'lang': lang}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'central', t('cmt.central'), '1', kind='checkbox', checked=rec.central) }}
-{{ fm.field(fe, 'committee', 'cmt', 'documents', t('cmt.documents'), rec.documents, hint=t('cmt.documents.hint'), attrs={'maxlength': '300'}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'due_on', t('cmt.due_on'), rec.due_on, type='date', hint=t('date.fmt') ~ ' · ' ~ t('cmt.due_on.hint'), attrs={'lang': lang}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'permission_version', t('cmt.permission_version'), perm.version if perm else '', attrs={'maxlength': '40'}) }}
-{{ fm.field(fe, 'committee', 'cmt', 'permitted_on', t('cmt.permitted_on'), perm.permitted_on if perm else '', type='date', hint=t('date.fmt'), attrs={'lang': lang, 'data-testid': 'cmt-permitted'}) }}
-{% if perm %}{{ fm.field(fe, 'committee', 'cmt', 'clear_permission', t('cmt.clear_permission'), '1', kind='checkbox', attrs={'data-testid': 'cmt-clear'}) }}{% endif %}
-{% if rec.by or perm %}{{ fm.field(fe, 'committee', 'cmt', 'reason', t('roles.irb.reason'), '', attrs={'maxlength': '300'}) }}{% endif %}
+<label for="cmt-kind">{{ t('cmt.kind') }}</label><select id="cmt-kind" name="kind" data-testid="cmt-kind"><option value="">{{ t('cmt.kind.none') }}</option>{% for k in kinds %}<option value="{{ k }}"{% if rec.kind == k %} selected{% endif %}>{{ t('cmt.kind.' + k) }}</option>{% endfor %}</select>
+<label><input type="checkbox" name="external" value="1"{% if rec.external %} checked{% endif %} data-testid="cmt-external"> {{ t('cmt.external') }}</label>
+<label for="cmt-est">{{ t('cmt.establisher') }}</label><input id="cmt-est" name="establisher" maxlength="200" value="{{ rec.establisher }}">
+<label for="cmt-con">{{ t('cmt.contract_on') }}</label><input id="cmt-con" name="contract_on" type="date" lang="{{ lang }}" value="{{ rec.contract_on }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="cmt-cur">{{ t('cmt.current_version') }}</label><input id="cmt-cur" name="current_version" maxlength="40" value="{{ rec.current_version }}" data-testid="cmt-current">
+<label for="cmt-av">{{ t('cmt.approved_version') }}</label><input id="cmt-av" name="approved_version" maxlength="40" value="{{ rec.approved_version }}">
+<label for="cmt-ao">{{ t('cmt.approved_on') }}</label><input id="cmt-ao" name="approved_on" type="date" lang="{{ lang }}" value="{{ rec.approved_on }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label><input type="checkbox" name="central" value="1"{% if rec.central %} checked{% endif %}> {{ t('cmt.central') }}</label>
+<label for="cmt-doc">{{ t('cmt.documents') }}</label><input id="cmt-doc" name="documents" maxlength="300" value="{{ rec.documents }}"><span class="hint">{{ t('cmt.documents.hint') }}</span>
+<label for="cmt-due">{{ t('cmt.due_on') }}</label><input id="cmt-due" name="due_on" type="date" lang="{{ lang }}" value="{{ rec.due_on }}"><span class="hint datefmt">{{ t('date.fmt') }}</span><span class="hint">{{ t('cmt.due_on.hint') }}</span>
+<label for="cmt-pv">{{ t('cmt.permission_version') }}</label><input id="cmt-pv" name="permission_version" maxlength="40" value="{{ perm.version if perm else '' }}">
+<label for="cmt-po">{{ t('cmt.permitted_on') }}</label><input id="cmt-po" name="permitted_on" type="date" lang="{{ lang }}" value="{{ perm.permitted_on if perm else '' }}" data-testid="cmt-permitted"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+{% if perm %}<label><input type="checkbox" name="clear_permission" value="1" data-testid="cmt-clear"> {{ t('cmt.clear_permission') }}</label>{% endif %}
+{% if rec.by or perm %}<label for="cmt-why">{{ t('roles.irb.reason') }}</label><input id="cmt-why" name="reason" maxlength="300">{% endif %}
 <p class="hint">{{ t('cmt.rule') }}</p>
 <button type="submit" data-testid="cmt-save">{{ t('team.irb.save') }}</button>
 </form>{% else %}<p class="hint" data-testid="cmt-who">{{ t('cmt.who') }}</p>{% endif %}

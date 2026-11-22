@@ -712,18 +712,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         need_state_edit(request, sess, rid, csrf)
         why = " ".join(reason.split())[:200]
         cur = store.study_state(rid)
-        typed = {"state": state, "reason": reason, "keep_years": keep_years}
-
-        def failed_at(field: str, key: str) -> Response:  # 9k-6b (D-1376): shown at its field, 400 as before
-            fe = form_errors.failed("state", "state", [(field, key)], typed)
-            return state_page(request, sess, rid, status=form_errors.FAILED, fe=fe)
-
         if state not in STATE_MOVES.get(cur.state, ()):
-            if not STATE_MOVES.get(cur.state):  # no move left: the page has no form to show it at
-                return state_page(request, sess, rid, status=400, err="sstate.bad_move")
-            return failed_at("state", "sstate.bad_move")
+            return state_page(request, sess, rid, status=400, err="sstate.bad_move")
         if state in REASON_STATES and not why:
-            return failed_at("reason", "sstate.need_reason")
+            return state_page(request, sess, rid, status=400, err="sstate.need_reason")
         if state == "open" and (refused := sae_type_missing(rid)):
             return state_page(request, sess, rid, status=409, err=refused)
         if state == "open" and (missing := committee_missing(rid)):  # 10C-4 (D-1227): the Japan profile only
@@ -733,7 +725,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raw = keep_years.strip()
             years = int(raw) if raw.isdigit() and len(raw) <= 2 else (STUDY_YEARS_AFTER_CLOSE if not raw else 0)
             if not 1 <= years <= STUDY_YEARS_MAX:
-                return failed_at("keep_years", "sstate.bad_keep_years")
+                return state_page(request, sess, rid, status=400, err="sstate.bad_keep_years")
             refused, counts = close_refused(rid)
             if refused:
                 return state_page(request, sess, rid, status=409, err=refused, close=counts)
@@ -769,9 +761,6 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
         status, err = apply_take_back(sess, rid, request.url.path, reason)
-        if err == "sstate.need_reason" and take_back_open(store.study_state(rid)):  # 9k-6b (D-1376): at its field
-            fe = form_errors.failed("take-back", "take-back", [("reason", "fe.sstate.take_reason")], {"reason": reason})
-            return state_page(request, sess, rid, status=form_errors.FAILED, fe=fe)
         if err:
             return state_page(request, sess, rid, status=status, err=err)
         return RedirectResponse(f"/studies/{rid}/state?saved=state", status_code=303)
