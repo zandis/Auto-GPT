@@ -1,0 +1,4320 @@
+{
+ "card": "F-3",
+ "rc1_row": 9,
+ "commit": "72a293ad3ded88f52c32cd0570b11866db27b7a3",
+ "masker_blob": "84a72d1b4741b80b6ed2ac78a0b55930f2add977",
+ "date": "2026-11-22",
+ "command": "PYTHONPATH=libs:services:. .venv/bin/python -m tools.masking_sheet --write",
+ "entry_point": "tb_common.phi_guard.mask_note(text, site_mrn_regex()) as at services/lake/store.py:1463",
+ "harness": {
+  "tool": "tools/masking_leaks.py",
+  "seed": 20261117,
+  "per_form": 21,
+  "base_notes": {
+   "zh-TW": {
+    "generated": 205,
+    "kept": 205
+   },
+   "ja": {
+    "generated": 274,
+    "kept": 274
+   },
+   "en": {
+    "generated": 235,
+    "kept": 235
+   }
+  }
+ },
+ "forms": [
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "wade_giles_family_first",
+   "example": "Aaaa Aa-aaa",
+   "free": {
+    "probes": 12,
+    "masked": 11,
+    "partly": 0,
+    "leaked": 1,
+    "tripwire_missed": 1,
+    "leaked_per_1000": 83.3
+   },
+   "in": {
+    "probes": 6,
+    "masked": 5,
+    "partly": 0,
+    "leaked": 1,
+    "tripwire_missed": 1,
+    "leaked_per_1000": 166.7
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "wade_giles_given_first",
+   "example": "Aaa-aaaa Aaa",
+   "free": {
+    "probes": 12,
+    "masked": 10,
+    "partly": 0,
+    "leaked": 2,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 166.7
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "pinyin_family_first",
+   "example": "Aaa Aaaaaa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 500.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "pinyin_given_first",
+   "example": "Aaaaaa Aa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 500.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "first_last",
+   "example": "Aaaaa Aaaaaaa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 500.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "last_comma_first",
+   "example": "AAAAAAAAA, Aaaa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 6,
+    "tripwire_missed": 6,
+    "leaked_per_1000": 1000.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "middle_initial",
+   "example": "Aaaa A. Aaaaaa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 500.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "dr",
+   "example": "Dr. Aaaaaaa",
+   "in": {
+    "probes": 18,
+    "masked": 15,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 166.7
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "mr",
+   "example": "Mr. Aaaaaa Aaaaaaaaaa",
+   "in": {
+    "probes": 18,
+    "masked": 15,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 166.7
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "ms",
+   "example": "Ms. Aaaaaaaaa",
+   "in": {
+    "probes": 18,
+    "masked": 15,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 166.7
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "name",
+   "form": "initials",
+   "example": "A.A.",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 6,
+    "tripwire_missed": 6,
+    "leaked_per_1000": 1000.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "national_id",
+   "form": "tw_id",
+   "example": "Addddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "national_id",
+   "form": "tw_arc_old",
+   "example": "AAdddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "national_id",
+   "form": "tw_arc_new",
+   "example": "Addddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "national_id",
+   "form": "us_ssn",
+   "example": "ddd-dd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 9,
+    "partly": 0,
+    "leaked": 9,
+    "tripwire_missed": 9,
+    "leaked_per_1000": 500.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "chart",
+   "form": "bare_8",
+   "example": "dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "chart",
+   "form": "label_MRN",
+   "example": "MRN dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "chart",
+   "form": "label_MRN_colon",
+   "example": "MRN: dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "chart",
+   "form": "label_Chart_No",
+   "example": "Chart No. dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "chart",
+   "form": "label_Hospital_No_colon",
+   "example": "Hospital No.: dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "chart",
+   "form": "label_ID_colon",
+   "example": "ID: dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "tw_mobile_hyphen",
+   "example": "dddd-ddd-ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "tw_mobile_plain",
+   "example": "dddddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "tw_mobile_space",
+   "example": "dddd ddd ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "tw_mobile_intl",
+   "example": "+ddd-ddd-ddd-ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "tw_mobile_intl_space",
+   "example": "+ddd ddd ddd ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "tw_landline_paren",
+   "example": "(dd)ddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 16,
+    "partly": 0,
+    "leaked": 2,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 111.1
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "tw_landline_hyphen",
+   "example": "dd-ddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "tw_landline_ext",
+   "example": "dd-dddd-dddd 漢漢ddd",
+   "in": {
+    "probes": 18,
+    "masked": 6,
+    "partly": 12,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "na_paren",
+   "example": "(ddd) ddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "na_hyphen",
+   "example": "ddd-ddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "phone",
+   "form": "na_intl",
+   "example": "+d ddd ddd dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "address",
+   "form": "en_full",
+   "example": "dddd Aaaaaaaaaaa Aaaa, Aaaaaaaaaaa, AA ddddd",
+   "in": {
+    "probes": 18,
+    "masked": 9,
+    "partly": 0,
+    "leaked": 9,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 500.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "address",
+   "form": "en_apt",
+   "example": "dddd Aaaaaaa Aaaaaa, Aaa d",
+   "in": {
+    "probes": 18,
+    "masked": 9,
+    "partly": 9,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "email",
+   "form": "ascii",
+   "example": "aaaaaadd@aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "email",
+   "form": "plus",
+   "example": "aaaadd+aaaaaa@aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "email",
+   "form": "fullwidth_at",
+   "example": "aadd＠aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_iso",
+   "example": "DOB: dddd-dd-dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_slash_ymd",
+   "example": "DOB: dddd/dd/dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_dotted",
+   "example": "DOB: dddd.dd.dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_compact8",
+   "example": "DOB: dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_nen_gappi",
+   "example": "DOB: dddd漢d漢dd漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_nen_gappi_fullwidth",
+   "example": "DOB: ｄｄｄｄ漢ｄ漢ｄｄ漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_slash_dmy",
+   "example": "DOB: dd/dd/dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_slash_mdy",
+   "example": "DOB: dd/dd/dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_month_name",
+   "example": "DOB: Aaaa dd, dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_day_month_abbr",
+   "example": "DOB: dd Aaa dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "en",
+   "kind": "dob",
+   "form": "label_two_digit_year",
+   "example": "DOB: dd/dd/dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "han_2",
+   "example": "漢漢",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 1,
+    "leaked": 11,
+    "tripwire_missed": 11,
+    "leaked_per_1000": 916.7
+   },
+   "in": {
+    "probes": 6,
+    "masked": 4,
+    "partly": 0,
+    "leaked": 2,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 333.3
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "han_3",
+   "example": "漢漢漢",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 4,
+    "partly": 0,
+    "leaked": 2,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 333.3
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "han_4",
+   "example": "漢漢漢漢",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 1,
+    "leaked": 11,
+    "tripwire_missed": 11,
+    "leaked_per_1000": 916.7
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "han_3_先生",
+   "example": "漢漢漢先生",
+   "in": {
+    "probes": 18,
+    "masked": 17,
+    "partly": 0,
+    "leaked": 1,
+    "tripwire_missed": 1,
+    "leaked_per_1000": 55.6
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "han_3_女士",
+   "example": "漢漢漢女士",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 1,
+    "partly": 2,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "han_3_醫師",
+   "example": "漢漢漢醫師",
+   "in": {
+    "probes": 18,
+    "masked": 17,
+    "partly": 0,
+    "leaked": 1,
+    "tripwire_missed": 1,
+    "leaked_per_1000": 55.6
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "wade_giles_family_first",
+   "example": "Aaaa Aaaa-aaaa",
+   "free": {
+    "probes": 12,
+    "masked": 12,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "wade_giles_given_first",
+   "example": "Aaa-aaa Aaaa",
+   "free": {
+    "probes": 12,
+    "masked": 10,
+    "partly": 0,
+    "leaked": 2,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 166.7
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "pinyin_family_first",
+   "example": "Aaa Aaaaaa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 6,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "name",
+   "form": "pinyin_given_first",
+   "example": "Aaaaaaa Aaa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 6,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "national_id",
+   "form": "tw_id",
+   "example": "Addddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "national_id",
+   "form": "tw_arc_old",
+   "example": "AAdddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "national_id",
+   "form": "tw_arc_new",
+   "example": "Addddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "national_id",
+   "form": "tw_id_fullwidth",
+   "example": "Ａｄｄｄｄｄｄｄｄｄ",
+   "in": {
+    "probes": 18,
+    "masked": 0,
+    "partly": 18,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "chart",
+   "form": "bare_8",
+   "example": "dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "chart",
+   "form": "label_病歷號_colon",
+   "example": "病歷號：dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "chart",
+   "form": "label_病歷號碼",
+   "example": "病歷號碼 dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "chart",
+   "form": "label_病歷號碼_colon",
+   "example": "病歷號碼：dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "chart",
+   "form": "label_ID_colon",
+   "example": "ID:dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "chart",
+   "form": "label_MRN",
+   "example": "MRN dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_mobile_hyphen",
+   "example": "dddd-ddd-ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_mobile_plain",
+   "example": "dddddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_mobile_space",
+   "example": "dddd ddd ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_mobile_intl",
+   "example": "+ddd-ddd-ddd-ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_mobile_intl_space",
+   "example": "+ddd ddd ddd ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_landline_paren",
+   "example": "(dd)ddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 16,
+    "partly": 0,
+    "leaked": 2,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 111.1
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_landline_hyphen",
+   "example": "ddd-ddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_landline_ext",
+   "example": "ddd-dd-dddd 漢漢ddd",
+   "in": {
+    "probes": 18,
+    "masked": 6,
+    "partly": 12,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "phone",
+   "form": "tw_mobile_fullwidth",
+   "example": "ｄｄｄｄ－ｄｄｄ－ｄｄｄ",
+   "in": {
+    "probes": 18,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 666.7
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "address",
+   "form": "tw_full",
+   "example": "ddd漢漢漢漢漢漢漢漢漢漢漢dd漢d漢ddd漢d漢",
+   "in": {
+    "probes": 18,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 666.7
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "address",
+   "form": "tw_no_postcode",
+   "example": "漢漢漢漢漢漢漢漢漢漢dd漢dd漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 1,
+    "leaked": 2,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 666.7
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "address",
+   "form": "tw_floor_unit",
+   "example": "漢漢漢漢漢漢漢漢漢漢ddd漢dd漢漢d",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "email",
+   "form": "ascii",
+   "example": "aaaadd@aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "email",
+   "form": "plus",
+   "example": "aaaaaadd+aaaaaa@aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "email",
+   "form": "fullwidth_at",
+   "example": "a.aaaaaadd＠aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_iso",
+   "example": "出生日期：dddd-dd-dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_iso",
+   "example": "dddd-dd-dd出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_slash_ymd",
+   "example": "出生日期：dddd/dd/dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_slash_ymd",
+   "example": "dddd/dd/dd出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_dotted",
+   "example": "出生日期：dddd.dd.dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_dotted",
+   "example": "dddd.dd.dd出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_compact8",
+   "example": "出生日期：dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_compact8",
+   "example": "dddddddd出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_nen_gappi",
+   "example": "出生日期：dddd漢dd漢dd漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_nen_gappi",
+   "example": "dddd漢d漢dd漢出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_nen_gappi_fullwidth",
+   "example": "出生日期：ｄｄｄｄ漢ｄ漢ｄ漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_nen_gappi_fullwidth",
+   "example": "ｄｄｄｄ漢ｄ漢ｄｄ漢出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_roc_nen",
+   "example": "出生日期：漢漢dd漢dd漢dd漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_roc_nen",
+   "example": "漢漢dd漢d漢dd漢出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_roc_slash",
+   "example": "出生日期：dd/dd/dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_roc_slash",
+   "example": "dd/dd/dd出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_roc_dot",
+   "example": "出生日期：dd.d.dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_roc_dot",
+   "example": "dd.d.d出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_roc_compact",
+   "example": "出生日期：ddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_roc_compact",
+   "example": "ddddddd出生",
+   "in": {
+    "probes": 18,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 18,
+    "tripwire_missed": 18,
+    "leaked_per_1000": 1000.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "label_roc_numerals",
+   "example": "出生日期：漢漢漢漢漢漢漢漢漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dob",
+   "form": "born_roc_numerals",
+   "example": "漢漢漢漢漢漢漢漢漢漢出生",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "kanji",
+   "example": "漢漢漢漢",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "kanji_space",
+   "example": "漢漢　漢漢",
+   "free": {
+    "probes": 12,
+    "masked": 1,
+    "partly": 0,
+    "leaked": 11,
+    "tripwire_missed": 11,
+    "leaked_per_1000": 916.7
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "katakana_space",
+   "example": "カカ　カカカ",
+   "free": {
+    "probes": 12,
+    "masked": 4,
+    "partly": 0,
+    "leaked": 8,
+    "tripwire_missed": 8,
+    "leaked_per_1000": 666.7
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "hiragana_space",
+   "example": "かかかか　かかか",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "kanji_様",
+   "example": "漢漢漢漢様",
+   "in": {
+    "probes": 18,
+    "masked": 12,
+    "partly": 1,
+    "leaked": 5,
+    "tripwire_missed": 5,
+    "leaked_per_1000": 277.8
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "kanji_さん",
+   "example": "漢漢漢漢さん",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 1,
+    "partly": 2,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "kanji_殿",
+   "example": "漢漢漢漢殿",
+   "in": {
+    "probes": 18,
+    "masked": 17,
+    "partly": 0,
+    "leaked": 1,
+    "tripwire_missed": 1,
+    "leaked_per_1000": 55.6
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "kanji_先生",
+   "example": "漢漢漢漢先生",
+   "in": {
+    "probes": 18,
+    "masked": 16,
+    "partly": 0,
+    "leaked": 2,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 111.1
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 1,
+    "partly": 2,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "hepburn_family_first",
+   "example": "AAAAAAAA Aaaaaa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "name",
+   "form": "hepburn_given_first",
+   "example": "Aaaa Aaaaa",
+   "free": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in": {
+    "probes": 6,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "national_id",
+   "form": "my_number",
+   "example": "dddddddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "national_id",
+   "form": "my_number_spaced",
+   "example": "dddd dddd dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "national_id",
+   "form": "my_number_fullwidth",
+   "example": "ｄｄｄｄｄｄｄｄｄｄｄｄ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "national_id",
+   "form": "insurer_no",
+   "example": "保険者番号：dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "national_id",
+   "form": "insurance_symbol_no",
+   "example": "被保険者証 記号・番号：dddd・ddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "chart",
+   "form": "bare_8",
+   "example": "dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "chart",
+   "form": "label_カルテ番号_colon",
+   "example": "カルテ番号：dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "chart",
+   "form": "label_カルテNo",
+   "example": "カルテNo.dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "chart",
+   "form": "label_患者ID_colon",
+   "example": "患者ID：dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "chart",
+   "form": "label_ID_colon",
+   "example": "ID:dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "phone",
+   "form": "jp_mobile",
+   "example": "ddd-dddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "phone",
+   "form": "jp_landline",
+   "example": "dd-dddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "phone",
+   "form": "jp_landline_3",
+   "example": "ddd-ddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "phone",
+   "form": "jp_intl",
+   "example": "+dd-dd-dddd-dddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "phone",
+   "form": "jp_plain",
+   "example": "ddddddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "phone",
+   "form": "jp_fullwidth",
+   "example": "ｄｄｄ－ｄｄｄｄ－ｄｄｄｄ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "address",
+   "form": "jp_full",
+   "example": "〒ddd-dddd 漢漢漢漢漢漢漢漢漢漢漢d漢漢dd漢dd漢",
+   "in": {
+    "probes": 18,
+    "masked": 6,
+    "partly": 12,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "address",
+   "form": "jp_hyphen_building",
+   "example": "漢漢漢漢漢漢漢漢漢漢d-dd-d カカカカカカカddd漢漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "address",
+   "form": "jp_no_postcode",
+   "example": "漢漢漢漢漢漢漢漢漢漢漢d漢漢dd漢d漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "email",
+   "form": "ascii",
+   "example": "aaaadd@aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "email",
+   "form": "plus",
+   "example": "aaaadd+aaaaaa@aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "email",
+   "form": "fullwidth_at",
+   "example": "aaaadd＠aaaaaaa.aaa",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "label_iso",
+   "example": "生年月日：dddd-dd-dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "born_iso",
+   "example": "dddd-dd-dd生まれ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "label_slash_ymd",
+   "example": "生年月日：dddd/dd/dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "born_slash_ymd",
+   "example": "dddd/dd/dd生まれ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "label_dotted",
+   "example": "生年月日：dddd.dd.dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "born_dotted",
+   "example": "dddd.dd.dd生まれ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "label_compact8",
+   "example": "生年月日：dddddddd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "born_compact8",
+   "example": "dddddddd生まれ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "label_nen_gappi",
+   "example": "生年月日：dddd漢d漢dd漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "born_nen_gappi",
+   "example": "dddd漢d漢d漢生まれ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "label_nen_gappi_fullwidth",
+   "example": "生年月日：ｄｄｄｄ漢ｄ漢ｄｄ漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "born_nen_gappi_fullwidth",
+   "example": "ｄｄｄｄ漢ｄｄ漢ｄｄ漢生まれ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "label_era_kanji",
+   "example": "生年月日：漢漢dd漢d漢dd漢",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "born_era_kanji",
+   "example": "漢漢dd漢d漢d漢生まれ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "label_era_letter",
+   "example": "生年月日：Add.dd.dd",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  },
+  {
+   "lang": "ja",
+   "kind": "dob",
+   "form": "born_era_letter",
+   "example": "Ad.d.dd生まれ",
+   "in": {
+    "probes": 18,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break": {
+    "probes": 3,
+    "masked": 3,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   }
+  }
+ ],
+ "totals": {
+  "en": {
+   "in": {
+    "probes": 768,
+    "masked": 693,
+    "partly": 21,
+    "leaked": 54,
+    "tripwire_missed": 36,
+    "leaked_per_1000": 70.3
+   },
+   "in|name": {
+    "probes": 102,
+    "masked": 68,
+    "partly": 0,
+    "leaked": 34,
+    "tripwire_missed": 25,
+    "leaked_per_1000": 333.3
+   },
+   "free": {
+    "probes": 96,
+    "masked": 21,
+    "partly": 0,
+    "leaked": 75,
+    "tripwire_missed": 75,
+    "leaked_per_1000": 781.2
+   },
+   "free|name": {
+    "probes": 96,
+    "masked": 21,
+    "partly": 0,
+    "leaked": 75,
+    "tripwire_missed": 75,
+    "leaked_per_1000": 781.2
+   },
+   "line_break": {
+    "probes": 144,
+    "masked": 12,
+    "partly": 12,
+    "leaked": 120,
+    "tripwire_missed": 93,
+    "leaked_per_1000": 833.3
+   },
+   "line_break|name": {
+    "probes": 33,
+    "masked": 0,
+    "partly": 9,
+    "leaked": 24,
+    "tripwire_missed": 24,
+    "leaked_per_1000": 727.3
+   },
+   "in|national_id": {
+    "probes": 72,
+    "masked": 63,
+    "partly": 0,
+    "leaked": 9,
+    "tripwire_missed": 9,
+    "leaked_per_1000": 125.0
+   },
+   "line_break|national_id": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in|chart": {
+    "probes": 108,
+    "masked": 108,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|chart": {
+    "probes": 18,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 18,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   },
+   "in|phone": {
+    "probes": 198,
+    "masked": 184,
+    "partly": 12,
+    "leaked": 2,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 10.1
+   },
+   "line_break|phone": {
+    "probes": 33,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 27,
+    "tripwire_missed": 27,
+    "leaked_per_1000": 818.2
+   },
+   "in|address": {
+    "probes": 36,
+    "masked": 18,
+    "partly": 9,
+    "leaked": 9,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 250.0
+   },
+   "line_break|address": {
+    "probes": 6,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 3,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 500.0
+   },
+   "in|email": {
+    "probes": 54,
+    "masked": 54,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|email": {
+    "probes": 9,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 9,
+    "tripwire_missed": 9,
+    "leaked_per_1000": 1000.0
+   },
+   "in|dob": {
+    "probes": 198,
+    "masked": 198,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|dob": {
+    "probes": 33,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 27,
+    "tripwire_missed": 18,
+    "leaked_per_1000": 818.2
+   }
+  },
+  "zh-TW": {
+   "in": {
+    "probes": 942,
+    "masked": 850,
+    "partly": 30,
+    "leaked": 62,
+    "tripwire_missed": 34,
+    "leaked_per_1000": 65.8
+   },
+   "in|name": {
+    "probes": 96,
+    "masked": 78,
+    "partly": 0,
+    "leaked": 18,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 187.5
+   },
+   "free": {
+    "probes": 84,
+    "masked": 22,
+    "partly": 2,
+    "leaked": 60,
+    "tripwire_missed": 60,
+    "leaked_per_1000": 714.3
+   },
+   "free|name": {
+    "probes": 84,
+    "masked": 22,
+    "partly": 2,
+    "leaked": 60,
+    "tripwire_missed": 60,
+    "leaked_per_1000": 714.3
+   },
+   "line_break": {
+    "probes": 171,
+    "masked": 25,
+    "partly": 9,
+    "leaked": 137,
+    "tripwire_missed": 89,
+    "leaked_per_1000": 801.2
+   },
+   "line_break|name": {
+    "probes": 30,
+    "masked": 1,
+    "partly": 8,
+    "leaked": 21,
+    "tripwire_missed": 21,
+    "leaked_per_1000": 700.0
+   },
+   "in|national_id": {
+    "probes": 72,
+    "masked": 54,
+    "partly": 18,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|national_id": {
+    "probes": 12,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 1000.0
+   },
+   "in|chart": {
+    "probes": 108,
+    "masked": 108,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|chart": {
+    "probes": 18,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 18,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   },
+   "in|phone": {
+    "probes": 162,
+    "masked": 136,
+    "partly": 12,
+    "leaked": 14,
+    "tripwire_missed": 14,
+    "leaked_per_1000": 86.4
+   },
+   "line_break|phone": {
+    "probes": 27,
+    "masked": 6,
+    "partly": 0,
+    "leaked": 21,
+    "tripwire_missed": 21,
+    "leaked_per_1000": 777.8
+   },
+   "in|address": {
+    "probes": 54,
+    "masked": 42,
+    "partly": 0,
+    "leaked": 12,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 222.2
+   },
+   "line_break|address": {
+    "probes": 9,
+    "masked": 0,
+    "partly": 1,
+    "leaked": 8,
+    "tripwire_missed": 8,
+    "leaked_per_1000": 888.9
+   },
+   "in|email": {
+    "probes": 54,
+    "masked": 54,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|email": {
+    "probes": 9,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 9,
+    "tripwire_missed": 9,
+    "leaked_per_1000": 1000.0
+   },
+   "in|dob": {
+    "probes": 396,
+    "masked": 378,
+    "partly": 0,
+    "leaked": 18,
+    "tripwire_missed": 18,
+    "leaked_per_1000": 45.5
+   },
+   "line_break|dob": {
+    "probes": 66,
+    "masked": 18,
+    "partly": 0,
+    "leaked": 48,
+    "tripwire_missed": 15,
+    "leaked_per_1000": 727.3
+   }
+  },
+  "ja": {
+   "in": {
+    "probes": 792,
+    "masked": 771,
+    "partly": 13,
+    "leaked": 8,
+    "tripwire_missed": 8,
+    "leaked_per_1000": 10.1
+   },
+   "in|name": {
+    "probes": 108,
+    "masked": 99,
+    "partly": 1,
+    "leaked": 8,
+    "tripwire_missed": 8,
+    "leaked_per_1000": 74.1
+   },
+   "free": {
+    "probes": 72,
+    "masked": 5,
+    "partly": 0,
+    "leaked": 67,
+    "tripwire_missed": 67,
+    "leaked_per_1000": 930.6
+   },
+   "free|name": {
+    "probes": 72,
+    "masked": 5,
+    "partly": 0,
+    "leaked": 67,
+    "tripwire_missed": 67,
+    "leaked_per_1000": 930.6
+   },
+   "line_break": {
+    "probes": 144,
+    "masked": 26,
+    "partly": 16,
+    "leaked": 102,
+    "tripwire_missed": 75,
+    "leaked_per_1000": 708.3
+   },
+   "line_break|name": {
+    "probes": 30,
+    "masked": 2,
+    "partly": 7,
+    "leaked": 21,
+    "tripwire_missed": 21,
+    "leaked_per_1000": 700.0
+   },
+   "in|national_id": {
+    "probes": 90,
+    "masked": 90,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|national_id": {
+    "probes": 15,
+    "masked": 0,
+    "partly": 3,
+    "leaked": 12,
+    "tripwire_missed": 9,
+    "leaked_per_1000": 800.0
+   },
+   "in|chart": {
+    "probes": 90,
+    "masked": 90,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|chart": {
+    "probes": 15,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 15,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 1000.0
+   },
+   "in|phone": {
+    "probes": 108,
+    "masked": 108,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|phone": {
+    "probes": 18,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 18,
+    "tripwire_missed": 18,
+    "leaked_per_1000": 1000.0
+   },
+   "in|address": {
+    "probes": 54,
+    "masked": 42,
+    "partly": 12,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|address": {
+    "probes": 9,
+    "masked": 0,
+    "partly": 6,
+    "leaked": 3,
+    "tripwire_missed": 3,
+    "leaked_per_1000": 333.3
+   },
+   "in|email": {
+    "probes": 54,
+    "masked": 54,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|email": {
+    "probes": 9,
+    "masked": 0,
+    "partly": 0,
+    "leaked": 9,
+    "tripwire_missed": 9,
+    "leaked_per_1000": 1000.0
+   },
+   "in|dob": {
+    "probes": 288,
+    "masked": 288,
+    "partly": 0,
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
+   },
+   "line_break|dob": {
+    "probes": 48,
+    "masked": 24,
+    "partly": 0,
+    "leaked": 24,
+    "tripwire_missed": 12,
+    "leaked_per_1000": 500.0
+   }
+  }
+ },
+ "not_held": [
+  {
+   "lang": "en",
+   "form": "bare_7",
+   "scope": "in",
+   "probes": 18,
+   "leaked": 12
+  },
+  {
+   "lang": "en",
+   "form": "bare_7",
+   "scope": "line_break",
+   "probes": 3,
+   "leaked": 3
+  },
+  {
+   "lang": "en",
+   "form": "letter_7",
+   "scope": "in",
+   "probes": 18,
+   "leaked": 12
+  },
+  {
+   "lang": "en",
+   "form": "letter_7",
+   "scope": "line_break",
+   "probes": 3,
+   "leaked": 3
+  },
+  {
+   "lang": "ja",
+   "form": "bare_7",
+   "scope": "in",
+   "probes": 18,
+   "leaked": 12
+  },
+  {
+   "lang": "ja",
+   "form": "bare_7",
+   "scope": "line_break",
+   "probes": 3,
+   "leaked": 3
+  },
+  {
+   "lang": "ja",
+   "form": "letter_7",
+   "scope": "in",
+   "probes": 18,
+   "leaked": 12
+  },
+  {
+   "lang": "ja",
+   "form": "letter_7",
+   "scope": "line_break",
+   "probes": 3,
+   "leaked": 3
+  },
+  {
+   "lang": "zh-TW",
+   "form": "bare_7",
+   "scope": "in",
+   "probes": 18,
+   "leaked": 12
+  },
+  {
+   "lang": "zh-TW",
+   "form": "bare_7",
+   "scope": "line_break",
+   "probes": 3,
+   "leaked": 3
+  },
+  {
+   "lang": "zh-TW",
+   "form": "letter_7",
+   "scope": "in",
+   "probes": 18,
+   "leaked": 12
+  },
+  {
+   "lang": "zh-TW",
+   "form": "letter_7",
+   "scope": "line_break",
+   "probes": 3,
+   "leaked": 3
+  }
+ ],
+ "v5_01": {
+  "probes": 24,
+  "readable": 12,
+  "readable_shapes": [
+   "漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢漢漢漢。",
+   "漢漢漢漢漢漢漢漢漢漢。"
+  ]
+ },
+ "j10c1": {
+  "J10C1-01": {
+   "kinds": [
+    "free_name"
+   ],
+   "probes": 3,
+   "missed": 3
+  },
+  "J10C1-02": {
+   "kinds": [
+    "romaji_name"
+   ],
+   "probes": 1,
+   "missed": 1
+  },
+  "J10C1-03": {
+   "kinds": [
+    "line_break"
+   ],
+   "probes": 1,
+   "missed": 1
+  },
+  "J10C1-04": {
+   "kinds": [
+    "address"
+   ],
+   "probes": 2,
+   "missed": 2
+  },
+  "J10C1-05": {
+   "kinds": [
+    "pension",
+    "passport"
+   ],
+   "probes": 2,
+   "missed": 2
+  }
+ },
+ "r22_23": {
+  "en": {
+   "probes": 21,
+   "missed": 18,
+   "categories": {
+    "label": {
+     "probes": 3,
+     "missed": 0,
+     "tripwire_missed": 0,
+     "example": "Name: Aaaaa Aaaaaaaa. History of diabetes."
+    },
+    "no_label": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "Patient Aaaa Aaaaaaaaaa, male, presents with chest pain."
+    },
+    "percent": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "Patient Aaaaa%ddAaaaaaa admitted."
+    },
+    "entities": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "Name: &#dd;&#ddd;&#ddd;&#ddd;&#ddd;&#dd;&#dd;&#dd;&#ddd;&#dd;&#ddd;&#ddd;&#ddd;&#dd;. History of diabetes."
+    },
+    "zero_width_joiner": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "Name: A⟨zwj⟩aaaa Aaaaaaaa. History of diabetes."
+    },
+    "fullwidth_number": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "SSN ｄｄｄ－ｄｄ－ｄｄｄｄ. History of diabetes."
+    },
+    "phone_zero_width_joiner": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "Phone: d⟨zwj⟩dd-ddd-dddd. History of diabetes."
+    }
+   }
+  },
+  "zh-TW": {
+   "probes": 21,
+   "missed": 19,
+   "categories": {
+    "label": {
+     "probes": 3,
+     "missed": 1,
+     "tripwire_missed": 0,
+     "example": "姓名：漢漢漢。既往有糖尿病。"
+    },
+    "no_label": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 2,
+     "example": "病人漢漢漢今日回診，既往有糖尿病。"
+    },
+    "percent": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 0,
+     "example": "姓名：%Ad%Ad%dA%Ad%dd%dd%Ad%dd%dA。既往有糖尿病。"
+    },
+    "entities": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 0,
+     "example": "姓名：&#ddddd;&#ddddd;&#ddddd;。既往有糖尿病。"
+    },
+    "zero_width_joiner": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 0,
+     "example": "姓名：漢⟨zwj⟩漢漢。既往有糖尿病。"
+    },
+    "fullwidth_number": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 0,
+     "example": "身分證號：Ａｄｄｄｄｄｄｄｄｄ。既往有糖尿病。"
+    },
+    "phone_zero_width_joiner": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "電話：d⟨zwj⟩ddd-ddd-ddd。既往有糖尿病。"
+    }
+   }
+  },
+  "ja": {
+   "probes": 24,
+   "missed": 18,
+   "categories": {
+    "label": {
+     "probes": 3,
+     "missed": 0,
+     "tripwire_missed": 0,
+     "example": "氏名：漢漢漢漢。既往歴に糖尿病。"
+    },
+    "no_label": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "患者は漢漢漢漢。既往歴に糖尿病。"
+    },
+    "percent": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 0,
+     "example": "氏名：%Ad%Ad%Ad%Ad%Ad%Ad%Ad%dd%AA%Ad%AA%dd。既往歴に糖尿病。"
+    },
+    "entities": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 0,
+     "example": "氏名：&#ddddd;&#ddddd;&#ddddd;&#ddddd;。既往歴に糖尿病。"
+    },
+    "zero_width_joiner": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 0,
+     "example": "氏名：漢⟨zwj⟩漢漢漢。既往歴に糖尿病。"
+    },
+    "decomposed_macron": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 0,
+     "example": "氏名：A◌AAAAA Aaaaaaa。既往歴に糖尿病。"
+    },
+    "fullwidth_number": {
+     "probes": 3,
+     "missed": 0,
+     "tripwire_missed": 0,
+     "example": "番号：ｄｄｄｄｄｄｄｄｄｄｄｄ。既往歴に糖尿病。"
+    },
+    "phone_zero_width_joiner": {
+     "probes": 3,
+     "missed": 3,
+     "tripwire_missed": 3,
+     "example": "電話：d⟨zwj⟩dd-dddd-dddd。既往歴に糖尿病。"
+    }
+   }
+  }
+ },
+ "r22_21": {
+  "text": {
+   "probes": 6,
+   "leaked": 0
+  },
+  "object": {
+   "probes": 6,
+   "leaked": 6
+  },
+  "path": {
+   "probes": 6,
+   "leaked": 6
+  },
+  "exception": {
+   "probes": 6,
+   "leaked": 6
+  },
+  "bytes": {
+   "probes": 6,
+   "leaked": 6
+  }
+ }
+}
