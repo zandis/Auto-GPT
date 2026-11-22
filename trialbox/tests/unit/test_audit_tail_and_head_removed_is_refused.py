@@ -215,7 +215,12 @@ def _rewrite(box: dict[str, Path], keep: int, pad: int = 0) -> None:
     lines = f.read_text(encoding="utf-8").splitlines()[:keep]
     for i in range(pad):
         prev = json.loads(lines[-1])["hash"]
-        body = {"ts": f"2026-11-06T14:{i:02d}:00.000+00:00", "event": "job.created", "actor": "tester", "prev_hash": prev}
+        body = {
+            "ts": f"2026-11-06T14:{i:02d}:00.000+00:00",
+            "event": "job.created",
+            "actor": "tester",
+            "prev_hash": prev,
+        }
         body["hash"] = line_hash(prev, body)
         lines.append(canonical(body))
     f.write_text("".join(x + "\n" for x in lines), encoding="utf-8")
@@ -408,7 +413,7 @@ def test_a_chain_that_refuses_is_asked_again_less_and_less_often(monkeypatch: py
 
     drain = audit_writer.Drain.__new__(audit_writer.Drain)
     monkeypatch.setattr(drain, "step", step, raising=False)
-    monkeypatch.setattr(audit_writer.time, "sleep", sleep)
+    monkeypatch.setattr("time.sleep", sleep)
     with pytest.raises(Stop):
         drain.run(alive=None)
     assert waits == [60, 120, 240, 480, 960, 1920, 3600, 3600, 3600]

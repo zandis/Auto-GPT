@@ -320,7 +320,7 @@ def box_heads(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
     return out
 
 
-RUNBOOK_WAITS = "docs/runbook/05-updates-backup-restore-secrets.md, \"The audit chain waits for a person\""
+RUNBOOK_WAITS = 'docs/runbook/05-updates-backup-restore-secrets.md, "The audit chain waits for a person"'
 
 
 class AuditLog:
