@@ -57,5 +57,12 @@
   box's `tabindex`. A page a role was refused is the same refusal word for word. A test of the test makes the
   comparison fail on a patient link without its address, a patient id in `data-label` or in another attribute, and a
   visible patient id.
+- **After train 123:** the card was taken off train 123 and rides again. Two changes to its test file, nothing else:
+  the flag-text test imports `console.admin_flags`, whose import joins the flags texts into the catalogues (alone, the
+  test read a key no import had loaded, and failed); and the comparison no longer reads the content of `script` and
+  `style` elements, which are markup and not values a person sees, so a page's inline script (9k-6b adds one) does not
+  read as new text. Their attributes, and every other text, link, form, button, input and attribute, are compared as
+  before. The two baselines were captured again, from origin/master at 72a293ad, in the new form; against the old
+  ones, all 210 pages differ only by the words of `console.js`, inlined by `base.html` (2,075 words a page).
 - **Not done:** no role, route, read or export changed; no new dependency (the test reads pages with lxml, which the
   test group already has); the column names are the old keys, so no new words except the flag texts.

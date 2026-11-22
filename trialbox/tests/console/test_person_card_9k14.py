@@ -8,7 +8,7 @@ live only under tests/fixtures) hold what the two pages carried on
 origin/master before the card, from the seeded synthetic study of the test boxes, for each role of the role matrix,
 three languages, the phone-first flag off and on, a selected row, and a study with an Approach mark (the quick
 outcomes). For each person (the container of ``row-<id>`` or ``member-<id>``) and for the rest of the page it holds
-every visible text, every link, every form (method and action), every button (name, value, text), every hidden input
+every visible text (not the content of ``script`` and ``style``: markup, not values), every link, every form (method and action), every button (name, value, text), every hidden input
 (csrf masked) and every attribute value, ``id`` and ``data-label`` among them. The test renders the pages now and fails
 if a person's card gained a text, an attribute value, a link, a form, a button or a hidden input, or lost a text, a
 link, a form, a button or an input; the only words a card may add are the column names (it now writes them out), and
@@ -23,11 +23,13 @@ Synthetic data only."""
 from __future__ import annotations
 
 import gzip
+import importlib
 import itertools
 import json
 import os
 import re
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +59,8 @@ TODAY = "<today>"
 DATED_MIN = re.compile(r"^min=\d{4}-\d{2}-\d{2}$")
 #: attributes that are markup and not values (the styling hook, the inline style)
 MARKUP = ("class", "style")
+#: elements whose content is markup and not a value a person sees (an inline script, a stylesheet)
+UNSEEN = ("script", "style")
 #: attribute values a card may lose: the label is now a text, the box that scrolled sideways no longer scrolls
 MAY_LOSE = ("data-label", "tabindex")
 LABEL_KEYS = ("wb.c.visit", "wb.c.patient", "wb.c.met", "wb.c.needed", "wb.c.status", "cohort.c.dept", "patient.visit")
@@ -73,9 +77,22 @@ def _fresh_cache() -> Any:
     phone.clear_cache()
 
 
+def _texts(el: Any) -> Iterator[str]:
+    """The text a person sees, as ``itertext`` gives it, without the content of ``script`` and ``style`` (markup, not
+    values: a page's inline script text is no patient field); their attributes and the text after them still count."""
+    if isinstance(el.tag, str) and el.tag in UNSEEN:
+        return
+    if isinstance(el.tag, str) and el.text:
+        yield el.text
+    for child in el:
+        yield from _texts(child)
+        if child.tail:
+            yield child.tail
+
+
 def _facts(el: Any) -> dict[str, list[str]]:
     f: dict[str, Counter[str]] = {k: Counter() for k in ("text", "href", "form", "button", "hidden", "attr")}
-    for t in el.itertext():
+    for t in _texts(el):
         f["text"].update(w for w in re.split(r"\s+", t) if w and w != "·")
     for e in el.iter():
         if not isinstance(e.tag, str):
@@ -301,6 +318,7 @@ def test_the_flag_text_says_what_off_and_on_now_do() -> None:
     """The phone-first flag no longer decides whether the lists are cards (D-1386): its three descriptions and its
     declared help must not say so, and say that the lists are person cards with the flag on or off."""
     said = {"en": "person cards", "ja": "人物カード", "zh-TW": "人員卡片"}
+    importlib.import_module("console.admin_flags")  # its import joins the flags texts into CATALOGUES (alone too)
     for lang, word in said.items():
         text = CATALOGUES[lang]["flags.desc.layout.phone_first"]
         assert not re.search(r"rows are cards|行はカード|每一列成為卡片|as before\.$|これまでどおりの表示。$", text), (
