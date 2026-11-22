@@ -1,0 +1,56 @@
+{
+ "card": "H76A",
+ "title": "the support bundle's scrub: an encoded pseudonym left in part",
+ "date": "2026-11-22",
+ "source": "docs/handover/support-bundle-encoded-pseudonym-gap-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H76A-01",
+   "severity": "High",
+   "claim": "an encoded neighbour (%2F, %22) joined its hex digit to a pseudonym on the raw line; the phone pattern cut it and the decoded view, run after, saw fragments: 8 to 13 hex digits of a pseudonym left a support bundle (the invariant test failed about once in 60 runs); fixed: the decoded view first",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed a25a5c181c205ec10b8ce46efd4c1a767c3ec3c2"
+  },
+  {
+   "id": "H76A-02",
+   "severity": "High",
+   "claim": "the keep-the-encoded-line shortcut lined the two lines up by one regex of lazy groups, which backtracked without end: 24 masks on a 335-character line took 9.7 s, each 4 more 16 times as long (review of #1354, H1); fixed: a linear mask-for-mask comparison",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed edcfec473e67fad58024efc2119cbb072c9610bc"
+  },
+  {
+   "id": "H76A-03",
+   "severity": "Medium",
+   "claim": "the shortcut kept a raw line whose two raw rules (phone and a chart pattern) cut a pseudonym into pieces under 8 characters, so up to 7 digits of it left (review of #1354, M1); fixed: the raw line is kept only when its masks are the decoded view's one for one",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed edcfec473e67fad58024efc2119cbb072c9610bc"
+  },
+  {
+   "id": "H76A-04",
+   "severity": "Low",
+   "claim": "the shortcut exists to keep two tests that pin the encoded form of a scrubbed line (review of #1354, L1); stated on the page for the integrator's ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H76A-05",
+   "severity": "Low",
+   "claim": "seeded tests no longer explore new pseudonyms (review of #1354, L2); 1,800 more fixed draws with chart patterns of 5 to 10 digits",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed edcfec473e67fad58024efc2119cbb072c9610bc"
+  },
+  {
+   "id": "H76A-06",
+   "severity": "Low",
+   "claim": "the card had no page and no findings.json (review of #1354, L3); added",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed edcfec473e67fad58024efc2119cbb072c9610bc"
+  }
+ ]
+}
