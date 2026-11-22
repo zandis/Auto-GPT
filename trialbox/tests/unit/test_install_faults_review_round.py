@@ -124,7 +124,7 @@ def test_a_lost_createdb_answer_still_drops_the_scratch_database(tmp_path: Path)
 
     deploy = tmp_path / "deploy"
     deploy.mkdir()
-    (deploy / ".env").write_text("TB_DB_URL=postgresql://trialbox:synthetic@db:5432/trialbox_wf\n")
+    (deploy / ".env").write_text("TB_DB_URL=postgresql://trialbox@db:5432/trialbox_wf\n")
     calls: list[list[str]] = []
     manifest = {"created_at": "2026-11-20T00:00:00+00:00", "databases": {"trialbox_wf": {"rows": {}}},
                 "_sha256": "0" * 64, "files": [], "site": "SYN"}  # fmt: skip

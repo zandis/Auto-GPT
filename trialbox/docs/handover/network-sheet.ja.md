@@ -89,7 +89,7 @@
 | POSTGRES_WF_PASSWORD, TB_DB_URL (role trialbox) | deploy/.env (0600, root) | db; adapter, console, criteria-compiler, gateway, lake, mail-gateway, orchestrator |
 | TB_DB_PW_<SERVICE> (one role per service) | deploy/.env (0600, root) | db; each service its own only |
 | IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |
-| TB_KEK_PASSPHRASE | terminal / command environment (RUNBOOK §16) | ホストのみ（コンテナには渡さない） |
+| TB_KEK_PASSPHRASE | terminal / command environment (RUNBOOK §16) | ホストのみ（コンテナの設定やファイルには残さない） |
 | TB_KMS_TOKEN | KMS token (RUNBOOK §17) | adapter, orchestrator |
 | CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |
 | site_hmac.key, pid_map.key, REDCap API tokens | volume tb-secrets (/run/secrets/trialbox) | adapter, orchestrator |

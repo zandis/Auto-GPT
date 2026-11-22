@@ -138,6 +138,7 @@ class LocalDrill:
         self.sources = {s.name: s for s in bk.db_sources(env)}
         # Direct callers supply a scratch-capable connection. The installed box uses its own cluster role.
         self.admin = (self.sources.get("trialbox_wf") or next(iter(self.sources.values()))).dsn
+        self.created: set[str] = set()
 
     def unpack(self, file: Path, key: Path, into: Path) -> dict[str, Any]:
         from tools.trialbox import backup as bk
@@ -148,6 +149,7 @@ class LocalDrill:
         if db not in self.sources:
             raise DrillError(f"the backup holds database {db} but its URL is not set on this box")
         scratch = scratch_source(self.sources[db], self.admin, name)
+        self.created.add(name)  # after the live-name guard, before the server answers (review 2 of #1305, L-1)
         _create(self.admin, _dbname(scratch.dsn))
 
     def restore_compare(self, db: str, name: str, into: Path, want: Mapping[str, Any]) -> list[str]:
@@ -158,6 +160,8 @@ class LocalDrill:
         return finish_database(scratch, into, want)
 
     def drop(self, name: str) -> None:
+        if name not in self.created:  # only a name that passed the guard in create: never a live or admin database
+            raise DrillError(f"refused to drop {name!r}: this drill did not create it")
         _drop(self.admin, name)
 
 
@@ -193,7 +197,11 @@ def drill(
         for db, want in manifest["databases"].items():
             scratch_db = scratch_name(db)
             made.append(scratch_db)  # before the server answers: a lost acknowledgement is still dropped
-            ops.create(db, scratch_db)
+            try:
+                ops.create(db, scratch_db)
+            except DrillError:  # refused before the server was asked (a live or invalid name): nothing to drop
+                made.remove(scratch_db)
+                raise
             diff = ops.restore_compare(db, scratch_db, unpacked, want)
             res["databases"][db] = {"tables": len(want["rows"]), "rows": sum(r[0] for r in want["rows"].values()),
                                     "differ": diff[:10], "differ_count": len(diff)}  # fmt: skip

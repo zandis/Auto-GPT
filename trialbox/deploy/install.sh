@@ -279,6 +279,20 @@ fi
 # ---- end of SIDECAR
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
 
+# INSTALL-LOCK (review 2 of #1305, M-2): one installer at a time on this folder, taken here, before the first thing is
+# written. A second run while one holds it refuses and changes or removes nothing: its project cleanup would take down
+# the first run's containers while they start. flock on deploy/logs/install.lock (the site's own state, never in a
+# release); the lock ends with the installer's process, so a killed run leaves none behind. The run from the signed
+# tree (exec below) keeps the lock it inherits on fd 9: it is not taken twice
+INSTALL_LOCK="$ROOT/deploy/logs/install.lock"
+command -v flock >/dev/null || die "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed"
+mkdir -p "$ROOT/deploy/logs" || die "deploy/logs cannot be made for the install lock; nothing was changed"
+if [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$(readlink -f "$INSTALL_LOCK")" ]; then
+  exec 9>>"$INSTALL_LOCK" || die "the install lock $INSTALL_LOCK cannot be opened; nothing was changed"
+fi
+flock -n 9 || die "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed"
+# ---- end of INSTALL-LOCK
+
 # REHEARSAL (D-726): before anything loads
 # the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
 # from here on, read from the mark until deploy/.env says so. TB_ENV is read as Python reads it (no quotes, no spaces,
@@ -836,11 +850,13 @@ else
   echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
 fi
 # PROJECT-CLEANUP (F-19): after the release's checks above passed, before anything uses the project's network. Only a
-# project proven to be this install's (tools/trialbox/project_check.py) and not running healthy is taken down, with
-# the same overlays as up and every profile of an earlier attempt. Anything else is refused or kept.
+# project proven to be this install's (tools/trialbox/project_check.py) with a failed container (created, dead, exited
+# non-zero, unhealthy) is taken down, with the same overlays as up and every profile of an earlier attempt. A paused,
+# starting or exit-0 container is a working box's: kept. Refused while an update or the watchdog's maintenance flag is
+# there (review 2 of #1305, M-1). Anything else is refused or kept.
 if command -v python3 >/dev/null; then
   CLEANUP="$(python3 -m tools.trialbox.project_check --deploy "$ROOT/deploy" -- "${COMPOSE[@]}" --profile '*')" \
-    || die "the compose project is not proven to be this install's (above): nothing was removed"
+    || die "the project cleanup was refused (above): nothing was removed"
 else
   CLEANUP=none
   [ -z "${COMPOSE_PROJECT_NAME:-}" ] || [ "$COMPOSE_PROJECT_NAME" = trialbox ] \

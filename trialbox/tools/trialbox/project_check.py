@@ -10,8 +10,12 @@ cleans them up, but only what it can prove is this install's own, and never a st
   a compose command that resolves another name;
 * every container that carries the project's label was started from this ``deploy`` folder. One from any other
   folder is refused: the name is shared, so nothing is removed;
-* a stack whose containers all run (healthy where they have a health check) or ended a one-shot job with exit 0 is
-  kept. Its containers and their uncollected logs stay.
+* only a failed container turns the verdict to ``down``: ``created``, ``dead``, ``exited`` with a non-zero code, or
+  health ``unhealthy``. A container ``paused`` (the nightly backup's quiesce), with health ``starting`` (a stack still
+  in ``up --wait``) or ``exited`` with code 0 (stopped on purpose, whatever its restart policy: runbook 07, an
+  update's stop) is part of a working box: kept, with its containers and their uncollected logs;
+* nothing is removed while an update (``deploy/updates/IN_PROGRESS.json``) or the watchdog's maintenance flag
+  (``deploy/watchdog/maintenance``, the backup's pause) is there: refused (review 2 of #1305, M-1).
 
 It prints ``down`` (clean up), ``keep`` (healthy, nothing removed) or ``none`` (no container of the project).
 A refusal exits 2 with the reason and removes nothing. The command itself never removes anything.
@@ -72,15 +76,25 @@ def install_project(deploy: Path) -> str:
     return name
 
 
-def healthy(state: Mapping[str, Any], restart: str) -> bool:
-    """Running (healthy when it has a health check), or a one-shot job that ended with exit 0."""
-    if state.get("Status") == "running":
-        return (state.get("Health") or {}).get("Status") in (None, "healthy")
-    return state.get("Status") == "exited" and state.get("ExitCode") == 0 and restart in ("", "no")
+# the marks of work in progress on the box: while one is there the stack's state is someone's on purpose
+MARKS = ("updates/IN_PROGRESS.json", "watchdog/maintenance")
 
 
-def _restart(container: Mapping[str, Any]) -> str:
-    return str(((container.get("HostConfig") or {}).get("RestartPolicy") or {}).get("Name") or "")
+def healthy(state: Mapping[str, Any]) -> bool:
+    """False only for a failed container: ``created``, ``dead``, ``exited`` with a non-zero code, or ``unhealthy``.
+    ``paused``, health ``starting`` and exit 0 (any restart policy) are a working box's states: True."""
+    status = state.get("Status")
+    if status == "paused":
+        return True
+    if (state.get("Health") or {}).get("Status") == "unhealthy" or status in ("created", "dead"):
+        return False
+    code = state.get("ExitCode")
+    return not (status == "exited" and isinstance(code, int) and code != 0)
+
+
+def work_in_progress(deploy: Path) -> list[str]:
+    """The marks present under ``deploy`` (an unfinished update, the watchdog's maintenance flag)."""
+    return [str(deploy / m) for m in MARKS if os.path.lexists(deploy / m)]
 
 
 def decide(deploy: Path, compose: Sequence[str], environ: Mapping[str, str], run: Runner = _run) -> tuple[str, str]:
@@ -107,10 +121,14 @@ def decide(deploy: Path, compose: Sequence[str], environ: Mapping[str, str], run
     if foreign or len(info) != len(ids):
         raise Refused(f"project {name} has containers started from another folder ({', '.join(foreign) or '?'}), "
                       f"not {mine}: another install uses the name; {NOTHING}")  # fmt: skip
-    sick = [str(c.get("Name", "?")).lstrip("/") for c in info if not healthy(c.get("State") or {}, _restart(c))]
+    sick = [str(c.get("Name", "?")).lstrip("/") for c in info if not healthy(c.get("State") or {})]
     if not sick:
         return "keep", f"project {name} is running healthy: kept (its containers and logs stay)"
-    return "down", f"project {name} (this install's) has stopped or unhealthy containers: {', '.join(sick)}"
+    busy = work_in_progress(deploy)
+    if busy:
+        why = f"work is in progress on this box ({', '.join(busy)}): let it finish, then re-run"
+        raise Refused(f"{why} (an update: tools/apply_update.sh status); {NOTHING}")
+    return "down", f"project {name} (this install's) has failed containers: {', '.join(sick)}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:

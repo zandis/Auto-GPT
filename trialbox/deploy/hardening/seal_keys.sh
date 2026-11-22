@@ -34,6 +34,12 @@ done
 KEK_BACKEND=tpm; KEK_SHARES_OUT=""
 [ -f "$CONF" ] && hb_load_conf "$CONF"
 [ -n "${TB_KEK_BACKEND:-}" ] && KEK_BACKEND="$TB_KEK_BACKEND"
+# review 2 of #1305 (L-2): the image fallback reads the passphrase as one line, the host's python3 as the whole value.
+# A passphrase with a line break or another control character would be sealed under two different values: refused
+# here, before anything is made or sealed (the value is never printed)
+case "${TB_KEK_PASSPHRASE:-}" in
+  *[[:cntrl:]]*) hb_die "TB_KEK_PASSPHRASE holds a line break or another control character: type it again on one line (RUNBOOK §16); nothing was sealed" ;;
+esac
 # what a host that cannot seal with its TPM does instead (a fresh box has no hardening.conf)
 NO_TPM_FIX="on a host without a usable TPM 2.0 run the installer with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (12 characters or more; no hardening.conf needed)"
 RUN_DIR="$HR/run/trialbox"

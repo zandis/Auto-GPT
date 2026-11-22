@@ -30,6 +30,8 @@ state = json.loads((here / "state.json").read_text())
 args = sys.argv[1:]
 with (here / "docker.log").open("a") as log:
     log.write(json.dumps(args) + "\n")
+if args[:1] and args[0] in state.get("fail", []):
+    sys.exit(f"stand-in docker: {args[0]} failed")
 if args[:1] == ["compose"] and "config" in args:
     print(json.dumps({"name": state["resolves"]}))
 elif args[:1] == ["compose"] and "down" in args:
@@ -68,10 +70,13 @@ def _box(tmp: Path) -> Path:
     return box
 
 
-def _cleanup(tmp: Path, box: Path, resolves: str, containers: list[dict[str, Any]],
-             **env: str) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:  # fmt: skip
-    """The installer's block, whole, after the compose command install.sh builds; then the engine's calls."""
-    (tmp / "bin" / "state.json").write_text(json.dumps({"resolves": resolves, "containers": containers}))
+def _cleanup(
+    tmp: Path, box: Path, resolves: str, containers: list[dict[str, Any]], *fail: str, **env: str
+) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    """The installer's block, whole, after the compose command install.sh builds; then the engine's calls. ``fail``
+    names engine commands (``ps``, ``inspect``) that exit non-zero, as a broken engine does."""
+    state = {"resolves": resolves, "containers": containers, "fail": list(fail)}
+    (tmp / "bin" / "state.json").write_text(json.dumps(state))
     block = INSTALL[INSTALL.index(START) : INSTALL.index(END)]
     script = ("set -euo pipefail\ndie() { echo \"install: $*\" >&2; exit 1; }\n"
               f"ROOT={box}\ncd \"$ROOT\"\nCOMPOSE=(docker compose --project-directory deploy "
@@ -124,7 +129,8 @@ def test_install_cleanup_removes_only_this_installs_unhealthy_project(tmp_path: 
 
 def test_a_healthy_stack_is_kept_with_its_logs(tmp_path: Path) -> None:
     """Review of #1305 (5, 10): a same-release re-run on a healthy box removes no container (their logs stay). A
-    one-shot job that ended with exit 0 is part of a healthy stack."""
+    one-shot job that ended with exit 0 is part of a healthy stack. Review 2 (M-1), the integrator's ruling
+    (comment 7079229866): a service stopped on purpose (exit 0, restart ``unless-stopped``) is kept too."""
     box = _box(tmp_path)
     mine = box / "deploy"
     healthy = [_container(1, mine), _container(2, mine, health=None),
@@ -132,11 +138,11 @@ def test_a_healthy_stack_is_kept_with_its_logs(tmp_path: Path) -> None:
     res, calls = _cleanup(tmp_path, box, "trialbox", healthy)
     assert res.returncode == 0 and "cleanup-passed" in res.stdout and "kept" in res.stderr, res.stderr
     assert _downs(calls) == []
-    for planted in (_container(4, mine, health="unhealthy"), _container(4, mine, status="exited", health=None,
-                    exit_code=0, restart="unless-stopped")):  # fmt: skip
+    stopped = _container(4, mine, status="exited", health=None, exit_code=0, restart="unless-stopped")
+    for planted, downs in ((_container(4, mine, health="unhealthy"), 1), (stopped, 0)):
         (tmp_path / "bin" / "docker.log").unlink()
         res, calls = _cleanup(tmp_path, box, "trialbox", [*healthy, planted])
-        assert res.returncode == 0 and len(_downs(calls)) == 1, (planted, res.stderr)
+        assert res.returncode == 0 and len(_downs(calls)) == downs, (planted, res.stderr)
 
 
 def test_no_container_means_nothing_to_remove_and_the_same_name_inherited_is_allowed(tmp_path: Path) -> None:
@@ -157,3 +163,82 @@ def test_the_cleanup_waits_for_the_releases_checks() -> None:
     assert block < INSTALL.index('"${COMPOSE[@]}" run --rm --no-deps -T adapter')
     assert block < INSTALL.index('"${COMPOSE[@]}" up -d --pull "$PULL" --wait db')
     assert INSTALL.count("down --remove-orphans") == 2  # the help's plan and the one guarded call
+
+
+# Review 2 of #1305 (M-1): the states a working box enters on purpose. Each row is one container of the project, the
+# rest running healthy. Kept: nothing removed, said "kept".
+WORKING: dict[str, dict[str, Any]] = {
+    # runbook 07 (suspected PHI exposure): `docker compose stop mail-gateway`, the box kept running for the audit
+    "stopped-by-the-runbook": {"status": "exited", "health": None, "exit_code": 0, "restart": "unless-stopped"},
+    # the nightly backup with TB_BACKUP_QUIESCE=pause (backup_schedule.py)
+    "paused-by-the-backup": {"status": "paused", "health": "healthy"},
+    # its health check cannot answer while it is paused: still the backup's pause, not a failure
+    "paused-with-a-stale-health-check": {"status": "paused", "health": "unhealthy"},
+    # after a reboot, trialbox.service still in `up --wait` while a model server loads
+    "starting-after-a-reboot": {"status": "running", "health": "starting"},
+    # an update's stop of the Python services (update.py) while the installer runs; any restart policy
+    "stopped-by-an-update": {"status": "exited", "health": None, "exit_code": 0, "restart": "always"},
+    "one-shot-job-done": {"status": "exited", "health": None, "exit_code": 0, "restart": "no"},
+}
+# The failed states: the only ones taken down.
+FAILED: dict[str, dict[str, Any]] = {
+    "created-never-started": {"status": "created", "health": None},
+    "dead": {"status": "dead", "health": None},
+    "exited-non-zero": {"status": "exited", "health": None, "exit_code": 1},
+    "killed": {"status": "exited", "health": None, "exit_code": 137, "restart": "no"},
+    "unhealthy": {"status": "running", "health": "unhealthy"},
+}
+
+
+@pytest.mark.parametrize("case", sorted(WORKING))
+def test_a_working_box_paused_starting_or_stopped_on_purpose_is_kept(tmp_path: Path, case: str) -> None:
+    """Review 2 of #1305 (M-1), every row of its table: none of these is a failed stack; nothing is removed."""
+    box = _box(tmp_path)
+    mine = box / "deploy"
+    res, calls = _cleanup(tmp_path, box, "trialbox", [_container(1, mine), _container(2, mine, **WORKING[case])])
+    assert res.returncode == 0 and "cleanup-passed" in res.stdout and "kept" in res.stderr, res.stderr
+    assert _downs(calls) == [], calls
+
+
+@pytest.mark.parametrize("case", sorted(FAILED))
+def test_only_a_failed_container_takes_the_stack_down(tmp_path: Path, case: str) -> None:
+    box = _box(tmp_path)
+    mine = box / "deploy"
+    res, calls = _cleanup(tmp_path, box, "trialbox", [_container(1, mine), _container(2, mine, **FAILED[case])])
+    assert res.returncode == 0 and "cleanup-passed" in res.stdout, res.stderr
+    assert len(_downs(calls)) == 1, calls
+
+
+@pytest.mark.parametrize("mark", ["updates/IN_PROGRESS.json", "watchdog/maintenance"])
+def test_nothing_is_removed_while_an_update_or_maintenance_is_in_progress(tmp_path: Path, mark: str) -> None:
+    """Review 2 of #1305 (M-1): an unfinished update's marker or the watchdog's maintenance flag (the backup's pause)
+    means the stack's state is someone's work: refused, nothing removed, the mark named. Without it the same failed
+    container is taken down (the positive control)."""
+    box = _box(tmp_path)
+    mine = box / "deploy"
+    failed = [_container(1, mine), _container(2, mine, status="exited", health=None, exit_code=1)]
+    (mine / mark).parent.mkdir(parents=True)
+    (mine / mark).write_text("{}", encoding="utf-8")
+    res, calls = _cleanup(tmp_path, box, "trialbox", failed)
+    assert res.returncode != 0 and "cleanup-passed" not in res.stdout, res.stderr
+    assert _downs(calls) == [], calls
+    assert mark in res.stderr and "nothing was removed" in res.stderr, res.stderr
+    (mine / mark).unlink()
+    (tmp_path / "bin" / "docker.log").unlink()
+    ok, ok_calls = _cleanup(tmp_path, box, "trialbox", failed)
+    assert ok.returncode == 0 and len(_downs(ok_calls)) == 1, ok.stderr
+
+
+@pytest.mark.parametrize("broken", ["ps", "inspect"])
+def test_a_failed_container_listing_removes_nothing(tmp_path: Path, broken: str) -> None:
+    """Review 2 of #1305 (L-4): an engine whose listing fails is refused; it is never read as "no containers" or as
+    a failed stack. The positive control: the same failed run, listed, is taken down."""
+    box = _box(tmp_path)
+    mine = box / "deploy"
+    failed = [_container(1, mine), _container(2, mine, status="exited", health=None, exit_code=1)]
+    res, calls = _cleanup(tmp_path, box, "trialbox", failed, broken)
+    assert res.returncode != 0 and "cleanup-passed" not in res.stdout, res.stderr
+    assert _downs(calls) == [] and "nothing was removed" in res.stderr, res.stderr
+    (tmp_path / "bin" / "docker.log").unlink()
+    ok, ok_calls = _cleanup(tmp_path, box, "trialbox", failed)
+    assert ok.returncode == 0 and len(_downs(ok_calls)) == 1, ok.stderr
