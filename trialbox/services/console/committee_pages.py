@@ -26,15 +26,14 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, ValidationError
-from starlette.datastructures import FormData
 from tb_common import committees as cm
 
-from console import form_errors
 from console.api_first import before_body
 from console.auth import Session
 from console.home import Helpers
@@ -44,26 +43,6 @@ from console.studies import known_study
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 log = logging.getLogger("console.committee_pages")
 REASON_MIN = 10  # as the IRB record (D-380, ROLE-015): the written reason for a change to a saved record
-# 9k-6b (D-1376): the failing codes of ``Committee.problems`` and ``Permission.problems`` by the form's field name
-FIELD_OF = {"kind": "kind", "current_version": "current_version", "approved_version": "approved_version",
-            "contract_on": "contract_on", "approved_on": "approved_on", "due_on": "due_on",
-            "permission_version": "permission_version", "permission_permitted_on": "permitted_on"}  # fmt: skip
-FORM_ORDER = (
-    "kind",
-    "external",
-    "establisher",
-    "contract_on",
-    "current_version",
-    "approved_version",
-    "approved_on",
-    "central",
-    "documents",
-    "due_on",
-    "permission_version",
-    "permitted_on",
-    "clear_permission",
-    "reason",
-)
 FIELDS = ("kind", "external", "establisher", "contract_on", "current_version", "approved_version", "approved_on",
           "central", "documents", "due_on")  # fmt: skip
 
@@ -197,10 +176,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         elif perm is not None and not site:
             bad.append("permission_site")
         if bad:
-            problem = refused(sess, "cmt.err.bad", fields=", ".join(translate(sess.lang, f"cmt.bad.{b}") for b in bad))
-            at = sorted(((FIELD_OF[b], f"fe.cmt.{FIELD_OF[b]}") for b in bad if b in FIELD_OF),
-                        key=lambda e: FORM_ORDER.index(e[0]))  # fmt: skip
-            raise form_errors.Refusal(at, problem) if len(at) == len(bad) else problem  # 9k-6b: shown at its fields
+            raise refused(sess, "cmt.err.bad", fields=", ".join(translate(sess.lang, f"cmt.bad.{b}") for b in bad))
         if before.kind and not new.kind and h.store.study_state(rid).state == "open":
             # review of D-1227: clearing the kind would release an open study's hold; it is refused
             raise h.problem(409, "request.refused", reason=translate(sess.lang, "cmt.err.kind_clear"))
@@ -209,7 +185,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         perm_changed = perm is not None and was != (perm.version, perm.permitted_on)
         reason = " ".join(body.reason.split())
         if ((before.at and changed) or (before_perm is not None and perm_changed)) and len(reason) < REASON_MIN:
-            raise form_errors.Refusal([("reason", "fe.cmt.reason")], refused(sess, "cmt.err.reason", n=REASON_MIN))
+            raise refused(sess, "cmt.err.reason", n=REASON_MIN)
         now = h.clock().isoformat()
         if changed or not before.at:
             team().save_committee(rid, new, sess.user.username, now)
@@ -233,25 +209,20 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "findings": [{"code": c, "level": lv} for c, lv in st.get("findings") or []],
                 "refuses_open": st.get("open") or [], "holds_lists": st.get("held") or []}  # fmt: skip
 
-    def committee_view(request: Request, sess: Session, rid: str, code: int = 200,
-                       fe: form_errors.FormErrors | None = None) -> Response:  # fmt: skip
-        rec = team().committee(rid)
-        return h.page(request, "committee.html", sess, status=code, rs=rid, rec=rec, kinds=cm.KINDS,
-                      site=site_id(bk), perm=team().permission(rid, site_id(bk)), st=status(rid),
-                      can_edit=may_record(sess, rid), fe=fe,
-                      history=list(reversed(team().committee_history(rid)))[:20])  # fmt: skip
-
     @app.get("/studies/{rs}/committee")
     def committee_page(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         readable(sess, rid, request.url.path)
-        return committee_view(request, sess, rid)
+        rec = team().committee(rid)
+        return h.page(request, "committee.html", sess, rs=rid, rec=rec, kinds=cm.KINDS, site=site_id(bk),
+                      perm=team().permission(rid, site_id(bk)), st=status(rid), can_edit=may_record(sess, rid),
+                      history=list(reversed(team().committee_history(rid)))[:20])  # fmt: skip
 
     @app.post("/studies/{rs}/committee")
     async def committee_save(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        form: FormData = await request.form()
+        form: Mapping[str, Any] = await request.form()
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
             raise h.problem(400, "csrf")
         rid = recordable(sess, rs, request.url.path)
@@ -261,22 +232,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             if k not in ("external", "central", "clear_permission", "permission_version", "permitted_on")
         }
         given = {k: str(form.get(k) or "").strip() for k in ("permission_version", "permitted_on")}
-        try:
-            try:  # a blank permission on the page leaves it as it is; clearing it is its own tick, with a reason
-                body = ApiCommittee(**text, external=form.get("external") == "1", central=form.get("central") == "1",
-                                    clear_permission=form.get("clear_permission") == "1",
-                                    **{k: v for k, v in given.items() if any(given.values())})  # fmt: skip
-            except ValidationError as exc:
-                fields = sorted({str(e["loc"][0]) for e in exc.errors() if e.get("loc")})
-                problem = refused(sess, "cmt.err.long", fields=", ".join(fields))
-                at = [(f, "fe.cmt.long") for f in FORM_ORDER if f in fields]
-                if at and len(at) == len(fields):
-                    raise form_errors.Refusal(at, problem) from exc
-                raise problem from exc
-            save(sess, rid, body)
-        except form_errors.Refusal as bad:  # 9k-6b: shown at the fields, the page again, 400 as before
-            fe = form_errors.failed("committee", "cmt", bad.errors, form.multi_items())
-            return committee_view(request, sess, rid, code=form_errors.FAILED, fe=fe)
+        try:  # a blank permission on the page leaves it as it is; clearing it is its own tick, with a reason
+            body = ApiCommittee(**text, external=form.get("external") == "1", central=form.get("central") == "1",
+                                clear_permission=form.get("clear_permission") == "1",
+                                **{k: v for k, v in given.items() if any(given.values())})  # fmt: skip
+        except ValidationError as exc:
+            fields = sorted({str(e["loc"][0]) for e in exc.errors() if e.get("loc")})
+            raise refused(sess, "cmt.err.long", fields=", ".join(fields)) from exc
+        save(sess, rid, body)
         return RedirectResponse(f"/studies/{rid}/committee?done=1", status_code=303)
 
     def api(request: Request) -> Session:
@@ -297,7 +260,4 @@ def register(app: FastAPI, h: Helpers) -> None:
     @before_body(first)
     def api_committee_save(request: Request, rs: str, body: ApiCommittee) -> dict[str, Any]:
         sess = api(request)
-        try:
-            return as_json(save(sess, recordable(sess, rs, request.url.path), body))
-        except form_errors.Refusal as bad:  # the API answers with the refusal as before
-            raise bad.problem from None
+        return as_json(save(sess, recordable(sess, rs, request.url.path), body))

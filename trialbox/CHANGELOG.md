@@ -10,11 +10,6 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
-- Nine more forms say what is wrong at the top of the page and at the field (9k-6b, D-1389): the IRB record, the consent-form
-  versions, the committee record, the staff directory and its department contacts, the opt-out register and the lifting
-  of an opt-out, the study's state change and the take-back of a close. What is valid, who may post and what is stored
-  are unchanged; leaving one of these pages with unsaved edits now asks first. Nothing changes on the box: no setting,
-  no new file installed.
 - A PRODUCTION install finishes only with a backup target shown to be off the box and the hospital's audit share as
   its anchor folder (10K-4, D-1390). The box's first-run page asks the folder where the backup disk or share is
   mounted, the audit share's mount point and the log folder; a system folder or two overlapping folders are refused

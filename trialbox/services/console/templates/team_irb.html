@@ -1,12 +1,8 @@
 {% extends "base.html" %}
 {# D-147: the study's IRB approval and current consent-form version. Missing or expired gives a warning before
    Approach, not a gate; every Approach marked under a warning is listed here and in the screening log. #}
-{# 9k-6b (D-1376): the IRB record's and the consent-form versions' forms use the field macro (journey: the study's and
-   the site's records); a failed POST shows the summary, each field its own message, and what was typed #}
-{% import "_fields.html" as fm with context %}
-{% block title %}{{ fm.title(fe, t('team.irb.title') ~ ' · ' ~ rs) }}{% endblock %}
+{% block title %}{{ t('team.irb.title') }} · {{ rs }}{% endblock %}
 {% block content %}
-{{ fm.error_summary(fe, testid='irb-error') }}
 <div class="headrow"><h1>{{ rs }} · {{ t('team.irb.title') }}</h1></div>
 {% include "_team_nav.html" %}
 <p class="hint">{{ t('team.irb.help') }}</p>{#J7#}{% if pm and may_act('consent') %}<p><a class="button secondary" href="/pilot/consent" data-testid="link-consent">{{ tp('nav.consent') }}</a></p>{% endif %}{#/J7#}
@@ -20,51 +16,19 @@
   <dt>{{ t('team.irb.icf') }}</dt><dd>{{ irb.icf_version or '–' }}{% if irb.icf_date %} · {{ irb.icf_date }}{% endif %}</dd>
   {% if irb.by %}<dt>{{ t('team.irb.by') }}</dt><dd>{{ irb.by }} · {{ irb.at|local }}</dd>{% endif %}
 </dl>
-{% if can_edit %}<form method="post" action="/studies/{{ rs }}/irb" class="markform" data-testid="irb-form" data-fields="irb" data-guard>
+{% if can_edit %}<form method="post" action="/studies/{{ rs }}/irb" class="markform" data-testid="irb-form">
 <input type="hidden" name="csrf" value="{{ csrf }}">
-{{ fm.field(fe, 'irb', 'irb', 'approval_no', t('team.irb.no'), irb.approval_no, attrs={'maxlength': '60'}) }}
-{{ fm.field(fe, 'irb', 'irb', 'approved_on', t('team.irb.approved'), irb.approved_on, type='date', hint=t('date.fmt'), attrs={'lang': lang, 'data-testid': 'irb-approved'}) }}
-{{ fm.field(fe, 'irb', 'irb', 'expires_on', t('team.irb.expires'), irb.expires_on, type='date', hint=t('date.fmt'), attrs={'lang': lang, 'data-testid': 'irb-expires'}) }}
-{{ fm.field(fe, 'irb', 'irb', 'icf_version', t('team.irb.icf'), irb.icf_version, attrs={'maxlength': '40', 'data-testid': 'irb-icf'}) }}
-{{ fm.field(fe, 'irb', 'irb', 'icf_date', t('team.irb.icf_date'), irb.icf_date, type='date', hint=t('date.fmt'), attrs={'lang': lang}) }}
-{% if irb.by %}{{ fm.field(fe, 'irb', 'irb', 'reason', t('roles.irb.reason'), '', attrs={'maxlength': '300', 'data-testid': 'irb-reason'}) }}{% endif %}
+<label for="irb-no">{{ t('team.irb.no') }}</label><input id="irb-no" name="approval_no" maxlength="60" value="{{ irb.approval_no }}">
+<label for="irb-on">{{ t('team.irb.approved') }}</label><input id="irb-on" name="approved_on" type="date" lang="{{ lang }}" value="{{ irb.approved_on }}" data-testid="irb-approved"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="irb-ex">{{ t('team.irb.expires') }}</label><input id="irb-ex" name="expires_on" type="date" lang="{{ lang }}" value="{{ irb.expires_on }}" data-testid="irb-expires"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="irb-icf">{{ t('team.irb.icf') }}</label><input id="irb-icf" name="icf_version" maxlength="40" value="{{ irb.icf_version }}" data-testid="irb-icf">
+<label for="irb-icfd">{{ t('team.irb.icf_date') }}</label><input id="irb-icfd" name="icf_date" type="date" lang="{{ lang }}" value="{{ irb.icf_date }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+{% if irb.by %}<label for="irb-why">{{ t('roles.irb.reason') }}</label><input id="irb-why" name="reason" maxlength="300" data-testid="irb-reason">{% endif %}
 <p class="hint">{{ t('roles.irb.rule') }}</p>
 <button type="submit" data-testid="irb-save">{{ t('team.irb.save') }}</button>
 </form>{% endif %}
 </section>
-{# D-399 (T-302a, FIT-009, LIFE-018): the study's approved consent-form versions, each with the IRB's approval and the
-   first day it is used, as history rows (a change or a withdrawal is a new row). The consent form's version is checked
-   against this list on save; a new version that asks for re-consent fills the re-consent list. Needs rs, icf,
-   icf_history, can_edit, reads_subjects. #}
-<section class="card" id="icf" data-testid="icf-list">
-<h2>{{ t('icf.title') }}</h2>
-<p class="hint">{{ t('icf.help') }}</p>
-{% if request.query_params.get('icf') %}<p class="ok" role="status" data-testid="icf-saved">{{ t('icf.saved') }}</p>{% endif %}
-{% if not icf %}<p class="empty" data-testid="icf-empty">{{ t('icf.empty') }}</p>{% else %}
-<div class="scroll" tabindex="0"><table>
-<thead><tr><th>{{ t('icf.col.version') }}</th><th>{{ t('icf.col.date') }}</th><th>{{ t('icf.col.approved') }}</th><th>{{ t('icf.col.from') }}</th><th>{{ t('icf.col.reconsent') }}</th></tr></thead>
-<tbody>{% for v in icf %}<tr data-testid="icf-{{ v.version }}">
-<td class="mono">{{ v.version }}</td><td class="nowrap">{{ v.version_date or '–' }}</td>
-<td class="nowrap">{% if v.irb_approved_on %}{{ v.irb_approved_on }}{% else %}<span class="pill warn">{{ t('icf.unapproved') }}</span>{% endif %}</td>
-<td class="nowrap">{{ v.effective_from or t('icf.from_start') }}</td><td>{{ t('icf.yes') if v.reconsent else t('icf.no') }}</td>
-</tr>{% endfor %}</tbody></table></div>{% endif %}
-{% if reads_subjects %}<p><a href="/studies/{{ rs }}/reconsent" data-testid="to-reconsent">{{ t('reconsent.title') }}</a></p>{% endif %}
-{% if can_edit %}<form method="post" action="/studies/{{ rs }}/irb/icf" class="markform" data-testid="icf-form" data-fields="icf" data-guard>
-<input type="hidden" name="csrf" value="{{ csrf }}">
-{{ fm.field(fe, 'icf', 'icf', 'version', t('icf.col.version'), '', attrs={'maxlength': '40', 'required': 'required', 'data-testid': 'icf-version'}) }}
-{{ fm.field(fe, 'icf', 'icf', 'version_date', t('icf.col.date'), '', type='date', hint=t('date.fmt'), attrs={'lang': lang}) }}
-{{ fm.field(fe, 'icf', 'icf', 'irb_approved_on', t('icf.col.approved'), '', type='date', hint=t('date.fmt'), attrs={'lang': lang, 'data-testid': 'icf-approved-on'}) }}
-{{ fm.field(fe, 'icf', 'icf', 'effective_from', t('icf.col.from'), '', type='date', hint=t('date.fmt') ~ ' · ' ~ t('icf.from.help'), attrs={'lang': lang, 'data-testid': 'icf-from'}) }}
-{{ fm.field(fe, 'icf', 'icf', 'reconsent', t('icf.reconsent.ask'), '1', kind='checkbox', checked=True, attrs={'data-testid': 'icf-reconsent'}) }}
-{{ fm.field(fe, 'icf', 'icf', 'note', t('icf.note'), '', attrs={'maxlength': '200'}) }}
-{{ fm.field(fe, 'icf', 'icf', 'withdraw', t('icf.withdraw'), '1', kind='checkbox', attrs={'data-testid': 'icf-withdraw'}) }}
-<button type="submit" class="secondary" data-testid="icf-save">{{ t('icf.save') }}</button>
-</form>{% endif %}
-{% if icf_history %}<details><summary>{{ t('icf.history', n=icf_history|length) }}</summary>
-<ul class="plain hint" data-testid="icf-history">{% for v in icf_history|reverse %}<li>{{ v.at|local }} · {{ v.by }} · {{ t('icf.act.' + v.action) }} <span class="mono">{{ v.version }}</span>{% if v.irb_approved_on %} · {{ t('icf.col.approved') }} {{ v.irb_approved_on }}{% endif %}{% if v.effective_from %} · {{ t('icf.col.from') }} {{ v.effective_from }}{% endif %}{% if v.note %} · <span data-authored>{{ v.note }}</span>{% endif %}</li>{% endfor %}</ul></details>{% endif %}
-</section>
-
-{% if committee is not none %}{# 10C-4 (D-1227): the Japan profile's committee record #}
+{% include "_icf_list.html" %}{% if committee is not none %}{# 10C-4 (D-1227): the Japan profile's committee record #}
 <section class="card" data-testid="committee-link"><h2>{{ t('cmt.title') }}</h2>{% for code, level in committee.findings %}<p class="{{ 'error' if code in committee.open else 'warn' }}" data-testid="cmt-finding-{{ code }}">{{ t('cmt.f.' + code) }}</p>{% else %}<p class="ok">{{ t('cmt.f.none') }}</p>{% endfor %}{% if committee.held %}<p class="error" data-testid="cmt-held">{{ t('cmt.held') }}</p>{% endif %}{% if committee.waiting %}<p class="warn" data-testid="cmt-waiting">{{ t('cmt.waiting') }}{% if committee.due_on %} {{ t('cmt.due', day=committee.due_on) }}{% endif %}</p>{% endif %}<p><a href="/studies/{{ rs }}/committee" data-testid="to-committee">{{ t('cmt.open') }}</a></p></section>{% endif %}
 <section class="card"><h2>{{ t('team.irb.overrides', n=overrides|length) }}</h2>
 {% if not overrides %}<p class="empty">{{ t('team.irb.no_overrides') }}</p>{% else %}<ul class="plain hint" data-testid="overrides">{% for pid, ws, by, at in overrides|reverse %}<li>{{ at|local }} · {{ by }} · {{ t('week.patient', p=pid[:8]) }} · {% for w in ws %}{{ t('team.irb.w.' + w) }}{% if not loop.last %}, {% endif %}{% endfor %}</li>{% endfor %}</ul>{% endif %}

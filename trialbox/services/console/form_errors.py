@@ -17,9 +17,8 @@ catalogue here (as ``admin_flags.py`` joins its own) when a page module imports 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import date
 from typing import Any
 
 from console import i18n_form_errors
@@ -101,58 +100,3 @@ def failed(form: str, prefix: str, errors: Iterable[tuple[str, str]],
             seen.add(name)
             out.append(FieldError(name, key))
     return FormErrors(form=form, prefix=prefix, errors=tuple(out), values=kept_values(values))
-
-
-# ---------------------------------------------------------------------------------------------- 9k-6b: refusals
-#: what a rule of :func:`from_refusal` is: the (field name, message key) a refusal's reason belongs to, or a function
-#: of the posted form that gives the list (a refusal that names no field, as "dates are YYYY-MM-DD")
-Rule = tuple[str, str] | Callable[[Mapping[str, Any]], list[tuple[str, str]]]
-
-
-def from_refusal(
-    exc: BaseException, table: Mapping[str, Rule], form: Mapping[str, Any]
-) -> list[tuple[str, str]] | None:
-    """9k-6b (D-1376): the failing fields of a form whose route refuses a wrong value with the console's refusal
-    (``problem(400, "request.refused", reason=<English sentence>)``), read from the sentence the route already raises:
-    nothing the route checks, or in what order, changes; the refusal is only shown at the field. ``table`` maps each
-    sentence the form can raise to a (field name, message key) or to a function of the posted ``form`` that gives
-    the list (a refusal that names no field, as "dates are YYYY-MM-DD"). None when ``exc`` is not a refusal, its
-    sentence is not on the table, or the function found no field to blame: the caller raises it as before (a refusal
-    of a valid request, a 403, a missing study)."""
-    if getattr(exc, "key", None) != "request.refused" or getattr(exc, "status", None) != FAILED:
-        return None  # only a refusal answered 400 becomes a field error: a 409 is a refusal of a valid request
-    values = getattr(exc, "values", None)
-    reason = values.get("reason") if isinstance(values, Mapping) else None
-    rule = table.get(reason) if isinstance(reason, str) else None
-    if rule is None:
-        return None
-    out = rule(form) if callable(rule) else [rule]
-    return out or None
-
-
-def bad_dates(
-    form: Mapping[str, Any], names: Iterable[str], key_of: Mapping[str, str], cut: int = 60
-) -> list[tuple[str, str]]:
-    """The fields of ``names`` (in the form's order) whose typed text is not a day year-month-day, as the stores read
-    it (``date.fromisoformat`` of the stripped text; blank is no day and no error), with their message keys."""
-    out: list[tuple[str, str]] = []
-    for name in names:
-        text = str(form.get(name) or "")[:cut].strip()
-        if not text:
-            continue
-        try:
-            date.fromisoformat(text)
-        except ValueError:
-            out.append((name, key_of[name]))
-    return out
-
-
-class Refusal(Exception):
-    """A route's check that a form can show at its fields and the ``/api/v1`` twin still raises as the console's
-    refusal: ``errors`` the failing (field name, message key) in the form's order, ``problem`` the refusal the route
-    raised before 9k-6b (the API route re-raises it; the form route shows the fields)."""
-
-    def __init__(self, errors: list[tuple[str, str]], problem: Exception) -> None:
-        super().__init__(str(problem))
-        self.errors = errors
-        self.problem = problem

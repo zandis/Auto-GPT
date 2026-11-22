@@ -14,9 +14,8 @@ template that still has raw POST forms, with how many and why. The check fails o
   forms: 9k-6b lowers or removes the line in the same pull request);
 * a line without a reason (``--write`` gives a new template the reason ``REASON NEEDED``, which fails);
 * a converted form with a field outside the macro (an ``<input>`` other than hidden or submit, a ``<select>`` or a
-  ``<textarea>``), with no ``fm.field`` call naming it, a form name used twice, a form without ``data-guard`` (9k-6b,
-  D-1389: the page warns before it is left with edits not yet saved), or a template that imports the macro without
-  showing the summary and the title's "Error:".
+  ``<textarea>``), with no ``fm.field`` call naming it, a form name used twice, or a template that imports the macro
+  without showing the summary and the title's "Error:".
 
 **Typed and action forms (9k-6c, D-1384).** Each raw POST form is first classified by what it takes. A **typed** form
 holds at least one control a person edits: an ``<input>`` of a type other than hidden, submit, button, image or reset
@@ -66,7 +65,6 @@ ACTION_REASON = "action form without the csrf field or the action, as measured (
 
 FORM = re.compile(r"<form\b([^>]*)>(.*?)</form>", re.S | re.I)
 POST = re.compile(r"""\bmethod\s*=\s*["']?post\b""", re.I)
-GUARD = re.compile(r"""\bdata-guard\b""")
 FIELDS = re.compile(r"""\bdata-fields\s*=\s*["']([^"']*)["']""", re.I)
 RAW_FIELD = re.compile(r"""<(?:select|textarea)\b|<input\b(?![^>]*\btype\s*=\s*["']?(?:hidden|submit)\b)""", re.I)
 # a control a person edits: any <input> but a literal hidden/submit/button/image/reset one, <select>, <textarea>
@@ -273,10 +271,6 @@ def problems(root: Path = TEMPLATES, ratchet_text: str | None = None) -> list[st
             for m in RAW_FIELD.finditer(f.body):
                 out.append(
                     f"{t}: form {f.name!r} has a field outside the macro: {f.body[m.start() : m.start() + 60]!r}"
-                )
-            if not GUARD.search(f.attrs):
-                out.append(
-                    f"{t}: form {f.name!r} has no data-guard (D-1389): it warns before the page is left with edits"
                 )
             if not re.search(r"""fm\.field\(\s*fe\s*,\s*["']""" + re.escape(f.name) + r"""["']""", f.body):
                 out.append(f"{t}: form {f.name!r} has no fm.field(fe, '{f.name}', ...) call")
