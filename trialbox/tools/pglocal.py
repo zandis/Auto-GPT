@@ -28,7 +28,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 DB = "trialbox_wf"
@@ -86,14 +86,41 @@ def running(root: Path) -> bool:
     ).returncode == 0
 
 
+ENSURE_LOCK = ".ensure.lock"  # beside data/: held across ensure's check-and-start (H-72)
+
+
+@contextlib.contextmanager
+def _ensure_lock(root: Path) -> Iterator[None]:
+    """One ``ensure`` at a time for this cluster, across processes: an exclusive ``flock`` on ``<root>/.ensure.lock``.
+    Two processes that both found no server would otherwise both initdb (one removing the other's half-made data/)
+    and both start one. The kernel lets the lock go when its holder dies, so a ``kill -9`` leaves nothing held."""
+    import fcntl
+
+    with (root / ENSURE_LOCK).open("a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def ensure(root: Path) -> str:
-    """Start (or reuse) the cluster under ``root`` and return its ``TB_DB_URL``."""
+    """Start (or reuse) the cluster under ``root`` and return its ``TB_DB_URL``. Safe to call from several processes
+    at once: the check and the start are done under one cross-process lock, so one of them starts the server and the
+    others reuse it."""
     root = root.resolve()
-    data = root / "data"
-    pre = _as_postgres_user()
     if running(root):
         return url_for(root)
     root.mkdir(parents=True, exist_ok=True)
+    with _ensure_lock(root):
+        return _ensure_locked(root)
+
+
+def _ensure_locked(root: Path) -> str:
+    data = root / "data"
+    pre = _as_postgres_user()
+    if running(root):  # another process started it while this one waited for the lock
+        return url_for(root)
     sock = _socket_dir(root)
     if pre:
         owner = pre[2]
@@ -390,7 +417,7 @@ def _is_cluster_dir(root: Path) -> bool:
         return False
     if not (root.name.startswith(("pg-", "tb-pgtest-", "tb-pglocal-")) or root.name == "pglocal"):
         return False
-    known = {".owner", "data", "run", "server.log"}
+    known = {".owner", ENSURE_LOCK, "data", "run", "server.log"}
     return (root / "data" / "PG_VERSION").exists() or all(p.name in known for p in root.iterdir())
 
 
