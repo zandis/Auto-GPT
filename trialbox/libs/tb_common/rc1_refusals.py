@@ -121,13 +121,15 @@ REFUSALS: tuple[Refusal, ...] = (
     Refusal(
         name="key_ceremonies",
         what="the backup key ceremony, the backup key pair (trialbox backup-keygen), and the KEK's rotation, ceremony "
-        "record and escrow shares (tools.keys; its init stays allowed)",
+        "record, escrow shares, restic key and pid map key (tools.keys; its init stays allowed)",
         sites=(
             "tools.backup_key_ceremony:run",
             "tools.trialbox.__main__:_backup_cmd",
             "tools.keys:cmd_rotate_kek",
             "tools.keys:cmd_ceremony_record",
             "tools.keys:cmd_escrow_shares",
+            "tools.keys:cmd_restic_key",
+            "tools.keys:cmd_rotate",
         ),
         key="rc1.key_ceremonies",
         audit="none (follow-up for lane H's writer)",
@@ -187,18 +189,18 @@ def label(env: Mapping[str, str] | None = None) -> dict[str, str]:
 def host_env(box: Path | Mapping[str, str], env: Mapping[str, str] | None = None) -> dict[str, str]:
     """The environment a host tool (``trialbox ...``) asks with: the stricter of the box's and the caller's (the
     review of R22-34: ``TB_ENV=DEV trialbox support-bundle`` on a PRODUCTION box is refused). The box's is its
-    ``deploy`` folder's ``.env`` when the file is there (no ``TB_ENV`` in it is PRODUCTION, the one rule), or the
-    settings a tool read from it (a mapping); the caller's is its own ``TB_ENV`` when set. The answer is allowed only
-    when both are in :data:`ALLOWED`; with neither, PRODUCTION."""
+    ``deploy`` folder's ``.env`` (no ``TB_ENV`` in it is PRODUCTION, the one rule; a ``.env`` that is a folder or
+    cannot be read is PRODUCTION too), or the settings a tool read from it (a mapping); the caller's is its own
+    ``TB_ENV`` when set. Allowed only when both are in :data:`ALLOWED`; with neither, PRODUCTION. A missing ``.env``
+    gives the caller's alone (the ruling's "missing is PRODUCTION" waits: it refuses every tool run from a checkout)."""
     seen: list[str] = []
     if isinstance(box, Path):
-        f = box / ".env"
-        try:
-            lines = f.read_text(encoding="utf-8").splitlines() if f.is_file() else None
-        except OSError:
-            lines = []  # a file that cannot be read is a box that says nothing: PRODUCTION
-        if lines is not None:
-            written = ""
+        f, written = box / ".env", ""
+        if f.exists() or f.is_symlink():  # a missing file: the caller's alone (a checkout that is not a box)
+            try:
+                lines = f.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):  # a folder, unreadable, a dangling link: says nothing, PRODUCTION
+                lines = []
             for line in lines:
                 k, sep, v = line.partition("=")
                 if sep and k.strip() == "TB_ENV" and not line.lstrip().startswith("#"):

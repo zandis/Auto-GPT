@@ -254,6 +254,13 @@ def cmd_wrap(a: argparse.Namespace, env: Mapping[str, str]) -> int:
 
 
 def cmd_restic_key(a: argparse.Namespace, env: Mapping[str, str]) -> int:
+    from tb_common import rc1_refusals
+
+    try:  # R22-34 (D-1072): rc1 holds no key ceremony on a PRODUCTION box (the stricter of the box and the caller)
+        rc1_refusals.check("key_ceremonies", rc1_refusals.host_env(Path(DEFAULT_DEPLOY), env))
+    except rc1_refusals.Rc1Refused as exc:
+        _err(exc.say())
+        return 1
     from tools.trialbox import restic_repo
 
     sec = secrets_dir(a.secrets, env)
@@ -483,6 +490,15 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
 
 
 def cmd_rotate(a: argparse.Namespace, env: Mapping[str, str]) -> int:
+    if a.key == "pid_map":  # the pid map's key: a key ceremony (the integrator's ruling 7082962352)
+        from tb_common import rc1_refusals
+
+        try:  # R22-34 (D-1072): rc1 holds no key ceremony on a PRODUCTION box (the stricter of the box and the caller)
+            rc1_refusals.check("key_ceremonies", rc1_refusals.host_env(Path(DEFAULT_DEPLOY), env))
+        except rc1_refusals.Rc1Refused as exc:
+            _err(exc.say())
+            return 1
+
     if a.key != "pid_map":
         name = {"site_hmac": "site_hmac.key", "totp": "totp.key", "backup": "backup key pair"}[a.key]
         row = next(r for r in INVENTORY if r["key"] == name)

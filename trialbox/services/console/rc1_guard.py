@@ -1,59 +1,22 @@
 """rc1's refusals in the console (the owner's ruling of 2026-11-20; review R22-34; ``tb_common.rc1_refusals``).
 
-Outside the environments the table allows (DEV, TEST and VALIDATION, D-1072: so on a PRODUCTION box, an unset
-``TB_ENV`` and an unknown one), the console serves no stored live patient list and no patient-level download. One
-route list, :data:`ROUTES`, read by one middleware installed as ``console.demo_guard``'s is (appended, inside the
-console's headers middleware): a matching request is refused before its route runs, so nothing is read from the
-store, nothing is rendered and nothing leaves. The refusal is the console's problem page (403) with the table's
-message in the reader's language, JSON on ``/api/``, and one audited ``console.denied`` event with the refusal's
-name, the environment and the path (never a query or a body).
+**Fail-closed by construction** (the integrator's ruling 7082962352): on a box the table refuses (PRODUCTION, an
+unset ``TB_ENV`` and an unknown one; DEV, TEST and VALIDATION are allowed, D-1072) the console serves only
+:data:`ALLOWED`: signing in and out, health, the ops and admin pages, aggregate counts and static files. Every other
+route answers rc1's refusal whatever its method: ``patient_mail_and_downloads`` for a route that gives a file
+(:data:`DOWNLOADS`), ``live_patient_lists`` for any other. A route the list does not know is refused. The deny-list
+of the first version was dropped because two reviews found routes it missed.
 
-What the list holds, and why. Every method of a held path is refused (a page, its HEAD, its API twin, and the
-writes that act on a listed person: a mark, a reveal, a referral), so no door of the same rows stays open; a path
-ending ``(/...)`` holds its sub-paths too.
+The guard is the console's outermost middleware (``console.app`` registers it last, with ``add_middleware``), so it
+reads the address as the browser sent it, before any rewrite (the people lists of J-5 included), and nothing inside
+runs for a refused request: nothing is read from the store, rendered or sent. The refusal is the console's problem
+page (403) with the table's message in the reader's language, JSON on ``/api/``, and one audited ``console.denied``
+event with the refusal's name, the environment and the path (never a query or a body).
 
-* ``live_patient_lists`` (the orchestrator refuses to make one: ``orchestrator.scheduler.require_released``):
-
-  - ``/studies/{rs}/week``: the week's list of candidates of a study (``console.home``);
-  - ``/api/v1/studies/{rs}/patients``: the same week's list as JSON (``console.home``);
-  - ``/studies/{rs}/patients/{pid}(/...)`` and ``/api/v1/studies/{rs}/patients/{pid}(/...)``: a listed patient's
-    page, reveal, mark, outcome and twin (``console.home``, ``console.twin_api``);
-  - ``/studies/{rs}/candidates(/...)`` and ``/api/v1/studies/{rs}/candidates(/...)``: the candidates and one
-    candidate, their reveal and referral (``console.team``);
-  - ``/studies/{rs}/referrals(/...)`` and ``/api/v1/studies/{rs}/referrals(/...)``: the candidates referred to a
-    treating doctor, their print and answer (``console.team``);
-  - ``/studies/{rs}/screening-log`` and ``/api/v1/studies/{rs}/screening-log``: the people screened, one row a
-    person (``console.screening_log``, ``console.home``);
-  - ``/studies/{rs}/cohort``: the members of the study's latest screening or micro-batch list
-    (``console.screening_log``);
-  - ``/pilot/registry/{rs}`` and ``/pilot/registry/{rs}/promote``: the study's registry of candidates, their
-    statuses and the promotion of a list into it (``console.app``);
-  - ``/site/patients`` and ``/site/people(/...)``: the site's listed people and their resolution
-    (``console.site_pages``);
-  - ``/pilot/jobs/{id}`` of a job that lists patients (SCREEN, MICROBATCH, COHORT, NAV, CASE): its card shows the
-    stored list or the case sheet. Any other job's card (FEAS, CONSENT ...) is counts and stays open.
-
-* ``patient_mail_and_downloads`` (the mail gateway holds the mail: ``mail_gateway.gateway.Gateway._still_current``):
-
-  - ``/pilot/jobs/{id}/files/{name}`` and ``/pilot/jobs/{id}/view/{name}`` of an output that is not aggregate
-    (``console.app``'s own test of a patient-level file); aggregate files stay open;
-  - ``/pilot/cascade/{id}/files/{name}``: a cascade run's files, whose folder holds its final list of patients
-    (``console.app``);
-  - ``/studies/{rs}/screening-log.xlsx`` (``console.screening_log``): the sponsor's screening log, one row a person;
-  - ``/pilot/registry/{rs}/export.xlsx`` (``console.app``): the study's registry with chart numbers;
-  - ``/studies/{rs}/enrolment.{fmt}`` and ``/api/v1/studies/{rs}/enrolment/{fmt}`` (``console.lifecycle_pages``);
-  - ``/studies/{rs}/export.{fmt}`` and ``/api/v1/studies/{rs}/export/{fmt}`` (``console.entry_pages``): the data
-    core's records;
-  - ``/studies/{rs}/edc/export.odm.xml`` and ``/api/v1/studies/{rs}/edc/export/odm`` (``console.edc_pages``);
-  - ``/studies/{rs}/edc/copy.csv``, ``/studies/{rs}/edc/copy/{record}`` and ``/api/v1/studies/{rs}/edc/copy``
-    (``console.copy_assist_page``): a record's values to copy out;
-  - ``/audit/patients/{pid}/report.csv`` (``console.audit_page``): one patient's audit report as a file.
-
-Not held, and why: ``/reports/research-office.xlsx`` (counts per study with small cells suppressed, no person),
-``/pilot/jobs/{id}/sponsor-pack.zip`` (a FEAS job's aggregate files only), ``/week`` and ``/pilot/registry`` (the
-lists of studies; one study's list is a guarded page), and a participant's own EDC pages after consent (subjects,
-records, SAE, monitoring: people's own data entry, which rc1 does not refuse). The orchestrator's own export and
-reveal routes are not the console's (a go is asked for them).
+Two routes are allowed by what they hold, read from the job: ``/pilot/jobs/{id}``, the card of a job that lists no
+patient (FEAS, CONSENT ...; a SCREEN, MICROBATCH, COHORT, NAV or CASE card shows its list or a case sheet), and a
+job's aggregate file (``/pilot/jobs/{id}/files/{name}`` and ``/view/{name}``). A store that does not answer is a
+refusal.
 """
 
 from __future__ import annotations
@@ -65,7 +28,6 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
-from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from tb_common import rc1_refusals
 
@@ -82,37 +44,46 @@ for _lang, _cat in (("en", i18n_rc1.EN), ("ja", i18n_rc1.JA), ("zh-TW", i18n_rc1
 EVENT = "console.denied"
 #: the jobs whose card shows a list of patients or one patient's sheet (``orchestrator.scheduler.require_released``)
 LIST_JOBS = frozenset({"SCREEN", "MICROBATCH", "COHORT", "NAV", "CASE"})
-LISTS = "lists"
-DOWNLOADS = "downloads"
 JOB_CARD = re.compile(r"^/pilot/jobs/(?P<job>[^/]+)$")
 JOB_FILE = re.compile(r"^/pilot/jobs/(?P<job>[^/]+)/(?:files|view)/(?P<name>[^/]+)$")
-#: (pattern, what it holds) of every route refused as a whole; see the module's text for each one's reason
-ROUTES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
-    (re.compile(p), kind)
-    for p, kind in (
-        (r"^/studies/[^/]+/week$", LISTS),
-        (r"^/api/v1/studies/[^/]+/patients$", LISTS),
-        (r"^(?:/api/v1)?/studies/[^/]+/patients/[^/]+(?:/.*)?$", LISTS),
-        (r"^(?:/api/v1)?/studies/[^/]+/candidates(?:/.*)?$", LISTS),
-        (r"^(?:/api/v1)?/studies/[^/]+/referrals(?:/.*)?$", LISTS),
-        (r"^(?:/api/v1)?/studies/[^/]+/screening-log$", LISTS),
-        (r"^/studies/[^/]+/cohort$", LISTS),
-        (r"^/pilot/registry/[^/]+(?:/promote)?$", LISTS),
-        (r"^/site/patients$", LISTS),
-        (r"^/site/people(?:/.*)?$", LISTS),
-        (r"^/pilot/cascade/[^/]+/files/[^/]+$", DOWNLOADS),
-        (r"^/studies/[^/]+/screening-log\.xlsx$", DOWNLOADS),
-        (r"^/pilot/registry/[^/]+/export\.xlsx$", DOWNLOADS),
-        (r"^/studies/[^/]+/enrolment\.[^/]+$", DOWNLOADS),
-        (r"^/api/v1/studies/[^/]+/enrolment/[^/]+$", DOWNLOADS),
-        (r"^/studies/[^/]+/export\.[^/]+$", DOWNLOADS),
-        (r"^/api/v1/studies/[^/]+/export/[^/]+$", DOWNLOADS),
-        (r"^/studies/[^/]+/edc/export\.odm\.xml$", DOWNLOADS),
-        (r"^/api/v1/studies/[^/]+/edc/export/odm$", DOWNLOADS),
-        (r"^/studies/[^/]+/edc/copy\.csv$", DOWNLOADS),
-        (r"^/studies/[^/]+/edc/copy/[^/]+$", DOWNLOADS),
-        (r"^/api/v1/studies/[^/]+/edc/copy$", DOWNLOADS),
-        (r"^/audit/patients/[^/]+/report\.csv$", DOWNLOADS),
+#: what a refused box still serves: (pattern, what it is). Every method of a matching path.
+ALLOWED: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(p), why)
+    for p, why in (
+        (r"^/login(?:/totp|/first-run(?:/answers)?)?$", "sign-in"),
+        (r"^/logout$", "sign-out"),
+        (r"^/enrol$", "sign-in: the second factor's enrolment"),
+        (r"^/auth/oidc/(?:start|callback)$", "sign-in by the hospital's identity provider"),
+        (r"^/api/v1/session$", "sign-in and sign-out on the API"),
+        (r"^/account(?:/password|/prefs)?$", "sign-in: the account's password and its own preferences"),
+        (r"^/(?:lang|role)$", "sign-in: the session's language and acting role"),
+        (r"^/demo/ack$", "sign-in: the demonstration's acknowledgement"),
+        (r"^/healthz$", "health"),
+        (r"^/metrics$", "health: the box's metrics"),
+        (r"^/$", "the administrator's overview (any other role is sent to its home page, which is refused)"),
+        (r"^/jobs$", "ops: the jobs by their metadata"),
+        (r"^/ops/(?:accounts/requests|flags|identity|ingest|notices|users)$", "ops pages"),
+        (r"^/admin(?:/.*)?$", "admin pages"),
+        (r"^/api/v1/admin/ops$", "ops on the API"),
+        (r"^/audit$", "admin: the audit log"),
+        (r"^(?:/api/v1)?/audit/verify$", "admin: the audit chain's check"),
+        (r"^/reports(?:/research-office(?:\.xlsx)?)?$", "aggregate counts (small cells suppressed, D-270)"),
+        (r"^/pilot/jobs/[^/]+/sponsor-pack\.zip$", "aggregate counts: a FEAS job's aggregate files (D-101)"),
+        (r"^/static/.*$", "static files"),
+        (r"^/(?:favicon\.ico|manifest\.webmanifest)$", "static files"),
+        (r"^/(?:help(?:/guide)?|about(?:/NOTICE\.txt)?)$", "static files: the help and the notices"),
+    )
+)
+#: the refused routes that give a file: refused as ``patient_mail_and_downloads``; any other as a live list
+DOWNLOADS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p)
+    for p in (
+        r"\.(?:xlsx|csv|zip|pdf|xml|json|txt)$",  # a file named by its address
+        r"^/pilot/jobs/[^/]+/(?:files|view)/[^/]+$",
+        r"^/pilot/cascade/[^/]+/files/[^/]+$",
+        r"^/api/v1/studies/[^/]+/(?:enrolment|export)/[^/]+$",
+        r"^/api/v1/studies/[^/]+/edc/(?:export/odm|copy)$",
+        r"^/studies/[^/]+/edc/copy/[^/]+$",
     )
 )
 
@@ -133,40 +104,37 @@ class Rc1Guard:
 
     # ------------------------------------------------------------------ which refusal a request meets
     def _job(self, job_id: str) -> Any:
-        """The job, None when there is none (the route answers 404); a store that does not answer is refused."""
+        """The job, None when there is none (the route answers 404); a store that does not answer raises."""
         try:
             return self.h.bk.get_job(job_id)
         except KeyError:
             return None
 
+    def _name_of(self, path: str) -> str:
+        return "patient_mail_and_downloads" if any(p.search(path) for p in DOWNLOADS) else "live_patient_lists"
+
     def refusal_of(self, method: str, path: str) -> str | None:
-        """The name of the refusal this request meets, or None. Every method: a held path has no open door."""
-        for pattern, kind in ROUTES:
-            if pattern.match(path):
-                return self._named(kind)
+        """The name of the refusal this request meets, or None. Every method; fail-closed: what :data:`ALLOWED` does
+        not name is refused."""
+        name = self._name_of(path)
+        if not (self.downloads_refused() if name == "patient_mail_and_downloads" else self.lists_refused()):
+            return None
+        if any(p.match(path) for p, _ in ALLOWED):
+            return None
         if m := JOB_CARD.match(path):
-            if not self.lists_refused():
-                return None
             try:
                 job = self._job(m["job"])
             except Exception:  # the store does not answer: refused, never shown unchecked
-                return "live_patient_lists"
-            return "live_patient_lists" if job is not None and job.type in LIST_JOBS else None
+                return name
+            return name if job is not None and job.type in LIST_JOBS else None
         if m := JOB_FILE.match(path):
-            if not self.downloads_refused():
-                return None
             try:
                 job = self._job(m["job"])
             except Exception:
-                return "patient_mail_and_downloads"
+                return name
             out = next((o for o in (job.outputs or []) if o.filename == m["name"]), None) if job else None
-            return "patient_mail_and_downloads" if out is not None and out.tag != "aggregate" else None
-        return None
-
-    def _named(self, kind: str) -> str | None:
-        if kind == LISTS:
-            return "live_patient_lists" if self.lists_refused() else None
-        return "patient_mail_and_downloads" if self.downloads_refused() else None
+            return name if out is None or out.tag != "aggregate" else None
+        return name
 
     # ------------------------------------------------------------------ the refusal
     def session(self, request: Request) -> Any:
@@ -202,12 +170,21 @@ class Rc1Guard:
         name = self.refusal_of(request.method, request.url.path)
         if name is None:
             return await call_next(request)
-        return self.refuse(request, name)  # before the route: nothing is read, rendered or sent
+        resp = self.refuse(request, name)  # before the route: nothing is read, rendered or sent
+        from console.app import CSP  # outermost: the console's headers middleware never sees this answer
+
+        resp.headers.setdefault("Content-Security-Policy", CSP)
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
 
 def register(app: FastAPI, h: Helpers, environment: str) -> Rc1Guard:
-    """Install the guard on the console app: the middleware, appended as ``console.demo_guard`` appends its own."""
+    """Install the guard as the console's outermost middleware: ``console.app`` calls this after every other
+    middleware is added, and ``add_middleware`` puts it in front of them all."""
     g = Rc1Guard(h, environment)
     app.state.rc1_guard = g
-    app.user_middleware.append(Middleware(BaseHTTPMiddleware, dispatch=g.dispatch))
+    app.add_middleware(BaseHTTPMiddleware, dispatch=g.dispatch)
     return g
