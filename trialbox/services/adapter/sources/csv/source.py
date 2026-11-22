@@ -82,8 +82,8 @@ def _not_whole(path: Path, codec: str) -> str | None:
     columns nameless), and every row has the header's fields: a row short or long is a row cut or split, never one
     whose missing column is taken as empty. Two shapes of a real export are no fault: header columns with no name at
     its end may be missing from a row, and a row may carry empty fields past the header's end (a trailing separator),
-as long as every row of the file has the width of the first.
-    Read as a stream, no row kept (T-692); the reason holds the line, never a cell's text."""
+    as long as every row of the file has the width of the first. Read as a stream, no row kept (T-692); the reason
+    holds the line, never a cell's text."""
     if not _ends_with_line_end(path):
         return ": the file does not end with a line end, so its last row may be cut"
     width = named = first = 0

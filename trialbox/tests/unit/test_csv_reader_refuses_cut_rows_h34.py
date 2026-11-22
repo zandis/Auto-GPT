@@ -234,7 +234,6 @@ def test_a_header_column_named_only_by_spaces_counts_as_unnamed(tmp_path: Path) 
     assert [r["result_value"] for r in rows] == ["1.18", "6.57", "104.25"]
 
 
-
 def test_rows_that_all_lack_the_headers_last_column_are_set_aside(tmp_path: Path) -> None:
     """One width throughout is not enough: a row must also have the header's named columns."""
     rows = b"".join(r.rsplit(b",", 1)[0] + b"\r\n" for r in ROWS)
