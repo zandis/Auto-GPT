@@ -11,7 +11,7 @@
    "severity_basis": "the card's change is what the order asks; the assertions cannot hold under it, and changing what a test asserts needs the integrator's ruling, so the branch is red on those ten until the ruling",
    "lane": "H",
    "basis": "shown",
-   "state": "fixed (the integrator's ruling of 2026-11-22 08:41 UTC)",
+   "state": "fixed 37e1b3e2d62c4d37636f6dc327a0decd704e2927",
    "fix": "by the ruling: H-67's ten cases moved to the run's own names; H-72's refusal replaced by the invariant tests/unit/test_measure48_host_own_names_h75.py::test_the_boxs_objects_and_images_are_never_touched_by_a_run (pass, failure at s07, SIGTERM, the cap; the box's project and tags refused; the box's lists identical before and after)",
    "from": "the integrator's card H-75, 2026-11-22"
   },
@@ -44,7 +44,7 @@
    "severity_basis": "only when that variable is set on the host; the preflight's and the end's object lists would miss the containers",
    "lane": "H",
    "basis": "read",
-   "state": "fixed ae48017b26ea7b0ada0332ac4faaa29a4c075ff7",
+   "state": "fixed 37e1b3e2d62c4d37636f6dc327a0decd704e2927",
    "fix": "the networks' names follow compose's own project (${COMPOSE_PROJECT_NAME:-trialbox}, which -p sets for interpolation too); with none given they are master's; the host run sets it to its --project",
    "from": "the integrator's card H-75, 2026-11-22"
   },
@@ -55,7 +55,7 @@
    "severity_basis": "five tests fail on the branch and pass on master; none changes what the box runs, but the branch cannot ride until they are settled",
    "lane": "H",
    "basis": "shown",
-   "state": "fixed (the integrator's ruling of 2026-11-22 08:41 UTC)",
+   "state": "fixed 37e1b3e2d62c4d37636f6dc327a0decd704e2927",
    "fix": "by the ruling: no TB_ variable for the project or the tag (compose's COMPOSE_PROJECT_NAME and TRIALBOX_IMAGE_TAG; config.py unchanged); tools/network_sheet.py reads a network name's default (go, body only; sheets unchanged); deploy/build_db_image.sh keeps the literal box line (test_image_config_scans.py untouched)",
    "from": "the integrator's card H-75, 2026-11-22"
   }
