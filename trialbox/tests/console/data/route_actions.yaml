@@ -10,6 +10,7 @@ routes:
   "GET /about/NOTICE.txt": {kind: public, why: "T-617a: the same notices as plain text"}
   "GET /account": {kind: signed_in, why: "one's own account and password (D-279)"}
   "POST /account/password": {kind: signed_in, why: "one's own password (D-279)"}
+  "POST /account/prefs": {kind: signed_in, why: "one's own look and language, a closed set per key, never another person's (10F-1, D-1387)"}
   "GET /admin": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /admin/accounts": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /admin/edc": {actions: ["redcap.connection"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
