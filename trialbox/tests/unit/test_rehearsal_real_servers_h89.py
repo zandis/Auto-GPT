@@ -1,0 +1,543 @@
+"""H-89: the install walk with the real model servers on the bench host, a rehearsal box only (the integrator's ruling
+of 2026-11-22 13:55 UTC). Three install refusals are each right for a hospital site: the driver below
+deploy/images.lock gpu.driver_min, a card that is not the profile's, a serving record of another card. Under the
+rehearsal mark (``--rehearsal --rehearsal-real-servers``, on a box that may be a rehearsal box) each becomes a loud
+WARN; without it each fails exactly as before.
+
+THE INVARIANT: :func:`test_without_the_mark_the_three_refusals_are_byte_identical`: whatever new options,
+environment variables or files are planted, an install without the mark prints the same bytes and exits with the same
+code as one without them, and those bytes are master's refusals (the literals below were taken from master
+97048772e0bb at the card's start).
+
+No GPU, no Docker: the installer runs in a folder laid out as an installer's, with stand-ins for docker and nvidia-smi.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from tools import images_lock, rehearsal_real
+from tools.trialbox import doctor, prestart
+from tools.trialbox.update import UpdateFailed
+
+pytestmark = [pytest.mark.nodb, pytest.mark.skipif(sys.platform != "linux", reason="bash and GNU tools")]
+
+ROOT = Path(__file__).resolve().parents[2]
+INSTALL = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+LOW = "575.57.08"
+GOOD = "580.95.05"
+B200 = "NVIDIA B200"
+UUIDS = ["GPU-00000000-0000-0000-0000-000000000000", "GPU-11111111-1111-1111-1111-111111111111"]
+PIN = images_lock.pinned(images_lock.load(images_lock.LOCK)["third_party"][images_lock.VLLM])
+REC = ROOT / "deploy" / "measured" / "serving_config.rtxpro6000.json"
+ENV_OUT = {"NVIDIA_DISABLE_REQUIRE": "1", "VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}
+
+
+def probe_doc(**change: Any) -> dict[str, Any]:
+    """An engine probe result (tb-engine-probe/1) that passed with the compatibility switch on a B200 and driver 575."""
+    doc: dict[str, Any] = {
+        "schema": "tb-engine-probe/1",
+        "at": "2026-11-22T05:00:00+00:00",
+        "host": {"arch": "x86_64", "card": B200, "driver": LOW, "compute_cap": "10.0"},
+        "images": {"pinned": {"ref": PIN, "verified_in_lock": True, "digest_matches": True}},
+        "tests": [
+            {"name": "pinned", "status": "DRIVER", "probe": None},
+            {"name": "pinned+compat", "status": "PASS", "probe": {"compat_libs": ["libcuda.so.1"], "matmul": 1.0}},
+        ],
+        "verdict": {"answer": "pass", "use": "pinned+compat", "image": "pinned", "pinned_engine": True,
+                    "env": dict(ENV_OUT)},
+    }  # fmt: skip
+    doc.update(change)
+    return doc
+
+
+class Bench:
+    """An installer's folder (install.sh, check_host.sh, gpu_profile.sh, the lock, the record; tools/ is the
+    repository's) with stand-ins for docker and nvidia-smi: two cards, the second named by index."""
+
+    def __init__(self, tmp: Path, *, driver: str = LOW, card: str = B200, mig: str = "Disabled",
+                 free: int = 180000, total: int = 183359, record: bool = True, card0: str = "") -> None:  # fmt: skip
+        self.tmp = tmp
+        d = tmp / "deploy"
+        (d / "site").mkdir(parents=True)
+        for f in ("install.sh", "check_host.sh", "gpu_profile.sh", "images.lock"):
+            shutil.copy(ROOT / "deploy" / f, d / f)
+        if record:
+            (d / "measured").mkdir()
+            shutil.copy(REC, d / "measured" / REC.name)
+        (tmp / "tools").symlink_to(ROOT / "tools")
+        self.bin = tmp / "bin"
+        self.bin.mkdir()
+        (self.bin / "docker").write_text('#!/bin/sh\necho "$*" >> "$TB_TEST_LOG"\necho "Runtimes: nvidia runc"\n',
+                                         encoding="utf-8")  # fmt: skip
+        rows = [f"{card}|{u}|{driver}|{mig}|{mig}|{free}|{total}" for u in UUIDS]
+        if card0:  # card 0 another model: the card named by index is the one judged, never the first by accident
+            rows[0] = f"{card0}|{UUIDS[0]}|{driver}|Enabled|Enabled|1000|{total}"
+        (tmp / "smi.rows").write_text("\n".join(rows) + "\n", encoding="utf-8")
+        (self.bin / "nvidia-smi").write_text(SMI.replace("@ROWS@", str(tmp / "smi.rows")), encoding="utf-8")
+        for f in self.bin.iterdir():
+            f.chmod(0o755)
+        self.probe = tmp / "tb-engine-probe.json"
+        self.probe.write_text(json.dumps(probe_doc()), encoding="utf-8")
+        (tmp / "b.tar").write_bytes(b"")
+
+    @property
+    def deploy(self) -> Path:
+        return self.tmp / "deploy"
+
+    def env(self, **extra: str) -> dict[str, str]:
+        full = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "VLLM", "NVIDIA"))}
+        full.update(PATH=f"{self.bin}:{os.environ['PATH']}", TB_TEST_LOG=str(self.tmp / "docker.log"), **extra)
+        return full
+
+    def install(self, *args: str, **extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", str(self.deploy / "install.sh"), str(self.tmp / "b.tar"), *args],
+                              capture_output=True, text=True, env=self.env(**extra), timeout=120, check=False)  # fmt: skip
+
+    def real(self, *more: str, **extra: str) -> subprocess.CompletedProcess[str]:
+        return self.install("--rehearsal", "--rehearsal-real-servers", "--gpu", "rtxpro6000", "--gpu-index", "1",
+                            "--engine-probe", str(self.probe), *more, **extra)  # fmt: skip
+
+
+# nvidia-smi as the scripts ask it: -L, --query-gpu=<fields> for every card or for -i N, csv; rows are
+# name|uuid|driver|mig now|mig pending|free|total
+SMI = r"""#!/usr/bin/env python3
+import sys
+rows = [r.split("|") for r in open("@ROWS@").read().split("\n") if r]
+a = sys.argv[1:]
+if a == ["-L"]:
+    print("\n".join(f"GPU {i}: {r[0]} (UUID: {r[1]})" for i, r in enumerate(rows))); sys.exit(0)
+if "-i" in a:
+    i = a[a.index("-i") + 1]
+    if not i.isdigit() or int(i) >= len(rows):
+        print(f"No devices were found"); sys.exit(6)
+    rows = [rows[int(i)]]
+q = next((x.split("=", 1)[1] for x in a if x.startswith("--query-gpu=")), "")
+col = {"name": 0, "uuid": 1, "driver_version": 2, "mig.mode.current": 3, "mig.mode.pending": 4, "memory.free": 5,
+       "memory.total": 6, "compute_cap": None, "memory.used": None}
+for r in rows:
+    print(", ".join("10.0" if f == "compute_cap" else "0" if col[f] is None else r[col[f]] for f in q.split(",")))
+"""
+
+
+def _plant(b: Bench, *, env_production: bool = True) -> dict[str, str]:
+    """Everything that must open nothing without the mark: a passing probe where it would be looked for, a hand-made
+    rehearsal.json, the real-servers record and compose file, deploy/.env's TB_REHEARSAL=1, and the variables."""
+    (b.deploy / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    (b.deploy / "site" / rehearsal_real.RECORD).write_text('{"words": "x"}\n', encoding="utf-8")
+    (b.deploy / "site" / rehearsal_real.OVERRIDE).write_text(rehearsal_real.OVERRIDE_MARK + "\n", encoding="utf-8")
+    (b.tmp / "deploy" / "tb-engine-probe.json").write_text(b.probe.read_text(), encoding="utf-8")
+    if env_production:
+        (b.deploy / ".env").write_text("TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n", encoding="utf-8")
+    return {"TB_ACCEPT_UNMEASURED_GPU": "1", "TB_REHEARSAL": "1", "TB_GPU_INDEX": "1", "TB_REHEARSAL_REAL_SERVERS": "1",
+            "TB_ENGINE_PROBE": str(b.probe), "NVIDIA_DISABLE_REQUIRE": "1", "VLLM_ENABLE_CUDA_COMPATIBILITY": "1",
+            "TB_COMPOSE_OVERRIDE": ""}  # fmt: skip
+
+
+# master's bytes (97048772e0bb), each refusal: (args, the bench's card and driver, exit code, its own lines)
+DRIVER_FAIL = (f"    FAIL  NVIDIA driver {LOW} is below 580.65.06, the lowest that runs the vLLM image (CUDA 13.0.2): "
+               "update the driver to the R580 line or newer")  # fmt: skip
+DRIVER_DIE = "install: this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed"
+REFUSALS: list[tuple[str, list[str], dict[str, Any], str]] = [
+    ("driver", ["--mode", "gpu", "--gpu", "rtxpro6000"], {}, DRIVER_DIE),
+    ("b200 whole card", ["--mode", "gpu"], {"driver": GOOD},
+     "install: a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)"),
+    ("b200 MIG", ["--mode", "gpu"], {"driver": GOOD, "mig": "Enabled"},
+     "install: this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)"),
+    ("b200-no-mig named", ["--mode", "gpu", "--gpu", "b200-no-mig"], {"driver": GOOD},
+     "install: a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)"),
+    ("shared-quota named", ["--mode", "gpu", "--gpu", "shared-quota"], {"driver": GOOD},
+     "install: this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)"),
+    ("dgpu48", ["--mode", "gpu", "--gpu", "dgpu48"], {"driver": GOOD},
+     "install: dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)"),
+    ("arm64-dgpu", ["--mode", "gpu", "--gpu", "arm64-dgpu"], {"driver": GOOD},
+     "install: an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile (unmeasured, root review 24): install with --mode stub, or see RUNBOOK §28"),
+    ("unknown profile", ["--mode", "gpu", "--gpu", "b200"], {"driver": GOOD},
+     "install: --gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default"),
+    # master does not refuse a named profile on another card at the profile step (finding H89-01): it goes on to
+    # the vendor key, the same bytes with or without anything planted
+    ("not the profile's card", ["--mode", "gpu", "--gpu", "rtxpro6000"], {"driver": GOOD}, "install: vendor public key missing"),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("what", "args", "bench", "said"), REFUSALS, ids=[r[0] for r in REFUSALS])
+def test_without_the_mark_the_three_refusals_are_byte_identical(
+    tmp_path: Path, what: str, args: list[str], bench: dict[str, Any], said: str
+) -> None:
+    """THE INVARIANT (H-89, item 7)."""
+    clean = Bench(tmp_path / "clean", **bench).install(*args)
+    planted_bench = Bench(tmp_path / "planted", **bench)
+    planted = planted_bench.install(*args, **_plant(planted_bench))
+    assert clean.returncode == 1 and said in clean.stderr.splitlines()[-1], clean.stdout + clean.stderr
+    if what == "driver":
+        assert DRIVER_FAIL in clean.stdout.splitlines()
+    got = [(r.returncode, r.stdout.replace(str(b), "<tmp>"), r.stderr.replace(str(b), "<tmp>"))
+           for r, b in ((clean, tmp_path / "clean"), (planted, tmp_path / "planted"))]  # fmt: skip
+    assert got[0] == got[1]
+    assert "rehearsal" not in clean.stdout + clean.stderr
+
+
+@pytest.mark.parametrize("opt", [["--rehearsal-real-servers"], ["--gpu-index", "1"], ["--engine-probe", "/x"]])
+def test_the_new_options_without_rehearsal_are_refused_with_one_line(tmp_path: Path, opt: list[str]) -> None:
+    r = Bench(tmp_path).install("--mode", "gpu", "--gpu", "rtxpro6000", *opt)
+    assert r.returncode == 2 and r.stdout == "" and len(r.stderr.splitlines()) == 1
+    assert opt[0] in r.stderr and "nothing was checked or written" in r.stderr
+    assert not (tmp_path / "docker.log").exists()
+
+
+@pytest.mark.parametrize("opt", [["--gpu-index", "1"], ["--engine-probe", "/x"]])
+def test_a_plain_rehearsal_refuses_the_card_options(tmp_path: Path, opt: list[str]) -> None:
+    r = Bench(tmp_path).install("--rehearsal", "--mode", "gpu", "--gpu", "rtxpro6000", *opt)
+    assert r.returncode == 2 and "go with --rehearsal-real-servers" in r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ 1. the driver
+def test_under_the_mark_the_driver_is_a_loud_warn_and_the_install_goes_on(tmp_path: Path) -> None:
+    b = Bench(tmp_path)
+    r = b.real()
+    out = r.stdout
+    assert "    WARN  NVIDIA driver 575.57.08 is below 580.65.06" in out
+    assert "rehearsal: driver below the minimum (found 575.57.08, minimum 580.65.06)" in out
+    assert "not valid for a site" in out and "FAIL" not in out
+    assert "card 1: NVIDIA B200, 180000 MiB free of 183359 (the pair needs 110016)" in out
+    assert r.stderr.splitlines()[-1].startswith("install: vendor public key missing"), r.stderr  # past the GPU step
+
+
+def test_the_card_named_by_index_is_the_one_judged(tmp_path: Path) -> None:
+    r = Bench(tmp_path, card0="NVIDIA H100 80GB HBM3").real()
+    assert "WARN  NVIDIA driver 575.57.08" in r.stdout and "FAIL" not in r.stdout, r.stdout
+    assert "card 1: NVIDIA B200" in r.stdout and "H100" not in r.stdout + r.stderr
+
+
+def test_the_summary_says_what_the_box_is(tmp_path: Path) -> None:
+    marker = "# REHEARSAL-REAL-SERVERS (H-89): the summary says what the box is"
+    start = INSTALL.index(marker)
+    body = INSTALL[start : INSTALL.index("\n# ---- end of REHEARSAL-REAL-SERVERS (H-89)", start)]
+    site = tmp_path / "deploy" / "site"
+    site.mkdir(parents=True)
+    (site / rehearsal_real.RECORD).write_text(json.dumps({"words": rehearsal_real.WORDS}), encoding="utf-8")
+    for real, want in ((1, f"  REHEARSAL BOX:      {rehearsal_real.WORDS}\n"), (0, "")):
+        r = subprocess.run(["bash", "-c", f'set -euo pipefail\ncd "{tmp_path}"\nREAL_SERVERS={real}\n{body}\n'],
+                           capture_output=True, text=True, check=False)  # fmt: skip
+        assert r.returncode == 0 and r.stdout == want
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ({"host": {"card": "NVIDIA H100", "driver": LOW}}, "this card is a NVIDIA B200"),
+        ({"host": {"card": B200, "driver": "570.1"}}, "the probe ran on driver 570.1"),
+        ({"images": {"pinned": {"ref": "vllm/vllm-openai:v0.31.0@sha256:00", "digest_matches": True}}}, "probe again"),
+        ({"verdict": {"answer": "fail", "use": None, "pinned_engine": False, "env": {}}}, "did not pass"),
+        ({"schema": "other"}, "not an engine probe result"),
+    ],
+)
+def test_a_probe_of_another_card_driver_or_image_or_a_failed_one_is_refused(
+    tmp_path: Path, change: dict[str, Any], why: str
+) -> None:
+    b = Bench(tmp_path)
+    b.probe.write_text(json.dumps(probe_doc(**change)), encoding="utf-8")
+    r = b.real()
+    assert r.returncode == 1 and DRIVER_FAIL in r.stdout.splitlines() and why in r.stdout
+    assert r.stderr.splitlines()[-1] == DRIVER_DIE
+
+
+def test_a_missing_probe_file_is_refused(tmp_path: Path) -> None:
+    b = Bench(tmp_path)
+    b.probe.unlink()
+    r = b.real()
+    assert r.returncode == 1 and "--engine-probe FILE" in r.stderr and not (tmp_path / "docker.log").exists()
+
+
+def test_the_lock_tool_alone_grants_nothing_on_a_production_box(tmp_path: Path) -> None:
+    """images_lock host with every rehearsal argument, run by hand on a PRODUCTION box: FAIL as before."""
+    b = Bench(tmp_path)
+    (b.deploy / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
+    (b.deploy / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    r = subprocess.run([sys.executable, str(ROOT / "tools" / "images_lock.py"), "host", "--arch", "x86_64", "--driver",
+                        LOW, "--compute-cap", "10.0", "--rehearsal-real-servers", "--engine-probe", str(b.probe),
+                        "--card", B200, "--deploy", str(b.deploy)], capture_output=True, text=True, timeout=60,
+                       check=False)  # fmt: skip
+    assert r.returncode == 1 and DRIVER_FAIL.strip() in r.stdout and "this box is PRODUCTION" in r.stdout
+    r = subprocess.run([sys.executable, str(ROOT / "tools" / "images_lock.py"), "host", "--arch", "x86_64", "--driver",
+                        LOW, "--rehearsal-real-servers"], capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
+    assert r.returncode == 2 and "needs --engine-probe, --card and --deploy" in r.stderr
+
+
+def test_check_host_takes_the_rehearsal_arguments_only_whole() -> None:
+    r = subprocess.run(["sh", str(ROOT / "deploy" / "check_host.sh"), "--gpu-only", "--gpu", "rtxpro6000",
+                        "--rehearsal-real-servers"], capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
+    assert r.returncode == 2 and "needs --engine-probe, --gpu-index" in r.stderr
+
+
+@pytest.mark.parametrize(
+    ("env_lines", "said"),
+    [
+        ("TB_ENV=PRODUCTION\n", "this box is PRODUCTION"),
+        ("TB_ENV=VALIDATION\n", "VALIDATION (deploy/.env TB_ENV) with no rehearsal mark"),
+    ],
+)
+def test_a_site_box_is_refused_before_the_gpu_check(tmp_path: Path, env_lines: str, said: str) -> None:
+    b = Bench(tmp_path)
+    (b.deploy / ".env").write_text(env_lines, encoding="utf-8")
+    (b.deploy / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")  # planted by hand
+    r = b.real()
+    assert r.returncode == 1 and said in r.stderr and "WARN" not in r.stdout and "NVIDIA driver" not in r.stdout
+
+
+def test_rehearsal_with_environment_production_is_refused(tmp_path: Path) -> None:
+    r = Bench(tmp_path).real("--environment", "PRODUCTION")
+    assert r.returncode == 1 and "--rehearsal makes a VALIDATION box, not PRODUCTION" in r.stderr
+
+
+@pytest.mark.parametrize(
+    ("args", "said"),
+    [
+        (["--gpu", "b200-no-mig"], "--gpu rtxpro6000"),
+        (["--tier", "large"], "--gpu rtxpro6000"),
+        (["--gpu", "rtxpro6000", "--mode", "stub"], "drop --mode stub"),
+        (["--gpu", "rtxpro6000", "--gpu-index", "all"], "never all"),
+        (["--gpu", "rtxpro6000"], "never all"),  # no index: never the first card by accident
+    ],
+)
+def test_the_real_servers_line_is_explicit(tmp_path: Path, args: list[str], said: str) -> None:
+    b = Bench(tmp_path)
+    r = b.install("--rehearsal", "--rehearsal-real-servers", "--engine-probe", str(b.probe), *args)
+    assert r.returncode == 1 and said in r.stderr
+
+
+def test_a_compose_override_of_the_operators_is_refused(tmp_path: Path) -> None:
+    r = Bench(tmp_path).real(TB_COMPOSE_OVERRIDE="/tmp/x.yml")
+    assert r.returncode == 1 and "unset TB_COMPOSE_OVERRIDE" in r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ 2. the card
+@pytest.mark.parametrize(
+    ("bench", "said"),
+    [
+        ({"mig": "Enabled"}, "has MIG on"),
+        ({"free": 90000}, "has 90000 MiB free; the pair needs 110016 MiB (the record's 62574 MiB measured, and 0.6"),
+    ],
+)
+def test_a_mig_card_or_one_short_of_memory_is_refused(tmp_path: Path, bench: dict[str, Any], said: str) -> None:
+    r = Bench(tmp_path, **bench).real()
+    assert r.returncode == 1 and said in r.stderr and "cannot carry the pair" in r.stderr
+
+
+def test_a_card_index_that_is_not_there_is_refused(tmp_path: Path) -> None:
+    b = Bench(tmp_path)
+    r = b.install("--rehearsal", "--rehearsal-real-servers", "--gpu", "rtxpro6000", "--gpu-index", "7",
+                  "--engine-probe", str(b.probe))  # fmt: skip
+    assert r.returncode == 1 and "finds no card at index 7" in r.stderr
+
+
+def test_the_need_is_the_larger_of_the_record_and_the_fractions() -> None:
+    rec = json.loads(REC.read_text(encoding="utf-8"))
+    assert rehearsal_real.record_need(rec, 97887) == (62574, 62574, 0.6)  # the record's own card
+    assert rehearsal_real.record_need(rec, 183359)[0] == 110016  # a B200: vLLM's fractions of the whole card
+
+
+def test_the_compose_file_pins_one_card_by_uuid_with_the_probes_environment() -> None:
+    text = rehearsal_real.override_text(UUIDS[1], dict(ENV_OUT))
+    assert text.count(f'device_ids: ["{UUIDS[1]}"]') == 2 and text.count("!override") == 2
+    devices = [ln for ln in text.splitlines() if "devices:" in ln]
+    assert len(devices) == 2 and not any("count" in ln or "all" in ln for ln in devices)
+    assert rehearsal_real.OVERRIDE_MARK in text.splitlines()
+    for k, v in ENV_OUT.items():
+        assert text.count(f'      {k}: "{v}"') == 2
+    with pytest.raises(ValueError):
+        rehearsal_real.override_text("all", {})
+    with pytest.raises(ValueError):
+        rehearsal_real.override_text(UUIDS[1], {"A": "1\nservices:"})
+
+
+# ------------------------------------------------------------------------------------------------ 3 and 5: the record
+def _marked(b: Bench) -> None:
+    (b.deploy / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+
+
+def test_write_records_the_three_facts_and_the_probe_digest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    _marked(b)
+    monkeypatch.setenv("PATH", b.env()["PATH"])
+    problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, b.deploy / "measured" / REC.name)
+    assert problems == []
+    assert doc["words"] == rehearsal_real.WORDS == ("rehearsal: driver below the minimum, not this profile's card, "
+                                                    "not valid for a site")  # fmt: skip
+    assert doc["valid_for_a_site"] is False
+    assert doc["driver"] == {"found": LOW, "minimum": "580.65.06", "below_minimum": True}
+    assert doc["card"]["found"] == B200 and "RTX PRO 6000" in doc["card"]["profile_card"]
+    assert doc["engine_probe"]["env"] == ENV_OUT and len(doc["engine_probe"]["sha256"]) == 64
+    assert json.loads((b.deploy / "site" / rehearsal_real.RECORD).read_text()) == doc
+    assert UUIDS[1] in (b.deploy / "site" / rehearsal_real.OVERRIDE).read_text() and UUIDS[0] not in (
+        b.deploy / "site" / rehearsal_real.OVERRIDE
+    ).read_text()
+
+
+def test_write_without_the_mark_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    monkeypatch.setenv("PATH", b.env()["PATH"])
+    problems, _ = rehearsal_real.write(b.deploy, "1", b.probe, b.deploy / "measured" / REC.name)
+    assert problems and "no rehearsal mark" in problems[-1]
+    assert not (b.deploy / "site" / rehearsal_real.RECORD).exists()
+    assert not (b.deploy / "site" / rehearsal_real.OVERRIDE).exists()
+
+
+def test_with_a_good_driver_no_environment_goes_to_the_servers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path, driver=GOOD)
+    _marked(b)
+    monkeypatch.setenv("PATH", b.env()["PATH"])
+    problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, b.deploy / "measured" / REC.name)
+    assert problems == [] and doc["engine_probe"]["env"] == {} and "    environment:" not in (
+        b.deploy / "site" / rehearsal_real.OVERRIDE
+    ).read_text()
+    assert doc["words"] == "rehearsal: not this profile's card, not valid for a site"
+
+
+RECORD_STEP_START = 'case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)'
+
+
+def _record_step(tmp: Path, *, real: int, record: str | None, env_lines: str, unmeasured: str = "") -> Any:
+    """install.sh's record step as it stands, with a stand-in for the record's docker check (passes when the record
+    names an RTX PRO 6000, as tools/serving_config.py measured does)."""
+    start = INSTALL.index(RECORD_STEP_START, INSTALL.index("# D-112, D-124: a pair profile starts only") - 200)
+    body = INSTALL[start : INSTALL.index("\nesac\n", start) + 6]
+    rh = INSTALL.index("rehearsal_only() {")
+    rh_fn = INSTALL[rh : INSTALL.index("\n}\n", rh) + 3]
+    d = tmp / "deploy"
+    (d / "site").mkdir(parents=True, exist_ok=True)
+    (d / "measured").mkdir(exist_ok=True)
+    if record is not None:
+        (d / "measured" / REC.name).write_text(json.dumps({"card": {"name": record}}), encoding="utf-8")
+    (d / ".env").write_text(env_lines, encoding="utf-8")
+    script = (
+        f'set -euo pipefail\nROOT="{tmp}"\ncd "$ROOT"\nMODE=gpu\nGPU=rtxpro6000\nTIER=""\nREAL_SERVERS={real}\n'
+        'die() { echo "install: $*" >&2; exit 1; }\ntree_args() { TREE_D=(); }\nIMAGE_PY=x\n'
+        'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
+        'TB_ENV_SITE="$(envget TB_ENV)"\n'
+        "docker() { grep -q 'RTX PRO 6000' \"$ROOT/deploy/measured/serving_config.rtxpro6000.json\"; }\n"
+        f"{rh_fn}{body}\necho done\n"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
+    if unmeasured:
+        env["TB_ACCEPT_UNMEASURED_GPU"] = unmeasured
+    env["PYTHONPATH"] = str(ROOT)
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=False)
+
+
+@pytest.mark.parametrize(
+    ("record", "unmeasured", "rc", "said"),
+    [
+        (None, "", 1, "install: the rtxpro6000 profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.rtxpro6000.json). For a first trial boot re-run as a rehearsal box (TB_COMPOSE_OVERRIDE= deploy/install.sh <bundle> --gpu rtxpro6000 --rehearsal), then capture the record (RUNBOOK §1)"),
+        (None, "1", 1, "install: TB_ACCEPT_UNMEASURED_GPU=1 (an unmeasured card's trial boot): only on a rehearsal box (TB_REHEARSAL=1 on TEST, or on VALIDATION with deploy/site/rehearsal.json: deploy/install.sh --rehearsal); this box is PRODUCTION"),
+        ("NVIDIA B200", "1", 1, "install: deploy/measured/serving_config.rtxpro6000.json is not a measurement of the rtxpro6000 profile on its own card (see above)"),
+        ("NVIDIA RTX PRO 6000 Blackwell Server Edition", "1", 0, "done"),
+    ],
+)  # fmt: skip
+def test_without_the_mark_the_record_step_is_as_before(
+    tmp_path: Path, record: str | None, unmeasured: str, rc: int, said: str
+) -> None:
+    (tmp_path / "deploy" / "site").mkdir(parents=True)
+    (tmp_path / "deploy" / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    r = _record_step(tmp_path, real=0, record=record, env_lines="TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n",
+                     unmeasured=unmeasured)  # fmt: skip
+    assert r.returncode == rc and (r.stderr if rc else r.stdout).splitlines()[-1] == said, r.stdout + r.stderr
+    assert "rehearsal: " not in r.stderr
+
+
+def test_under_the_mark_the_record_of_another_card_says_so(tmp_path: Path) -> None:
+    site = tmp_path / "deploy" / "site"
+    site.mkdir(parents=True)
+    (site / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    (site / rehearsal_real.RECORD).write_text(json.dumps({"words": rehearsal_real.WORDS, "card": {
+        "profile_card": "NVIDIA RTX PRO 6000 Blackwell Server Edition", "index": 1, "found": B200}}), encoding="utf-8")  # fmt: skip
+    r = _record_step(tmp_path, real=1, record="NVIDIA RTX PRO 6000 Blackwell Server Edition",
+                     env_lines="TB_ENV=VALIDATION\nTB_REHEARSAL=1\n")  # fmt: skip
+    assert r.returncode == 0, r.stderr
+    assert f"install: warning: {rehearsal_real.WORDS}: the record " in r.stderr and "card 1, NVIDIA B200" in r.stderr
+    r = _record_step(tmp_path, real=1, record="NVIDIA RTX PRO 6000", env_lines="TB_ENV=PRODUCTION\n")
+    assert r.returncode == 1 and "only on a rehearsal box" in r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ 6. never PRODUCTION
+WHOLE = "TB_ENV=VALIDATION\nTB_REHEARSAL=1\n"
+
+
+def _box(tmp: Path, env_lines: str, *, mark: bool, record: bool, override: bool = False) -> Path:
+    d = tmp / "deploy"
+    (d / "site").mkdir(parents=True, exist_ok=True)
+    if mark:
+        (d / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    if record:
+        (d / "site" / rehearsal_real.RECORD).write_text(json.dumps({"words": rehearsal_real.WORDS}), encoding="utf-8")
+    if override:
+        f = tmp / "elsewhere.yml"
+        f.write_text(rehearsal_real.OVERRIDE_MARK + "\n", encoding="utf-8")
+        env_lines += f"COMPOSE_FILE=/x/docker-compose.yml:{f}\n"
+    (d / ".env").write_text(env_lines, encoding="utf-8")
+    return d
+
+
+class _Box:
+    def __init__(self, deploy: Path) -> None:
+        self.deploy = deploy
+        self.env = rehearsal_real.env_file(deploy / ".env")
+
+
+@pytest.mark.parametrize(
+    ("env_lines", "mark", "record", "override", "said"),
+    [
+        ("TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n", True, True, False, "TB_ENV=PRODUCTION"),  # TB_ENV edited by hand
+        ("TB_ENV=PRODUCTION\n", True, False, False, "TB_ENV=PRODUCTION"),  # a stand-ins rehearsal box, edited
+        ("TB_ENV=PRODUCTION\n", False, True, False, "TB_ENV=PRODUCTION"),  # the mark and the flag removed by hand
+        ("", False, True, False, "TB_ENV=PRODUCTION"),  # TB_ENV removed: PRODUCTION (D-127)
+        ("TB_ENV=VALIDATION\n", False, True, False, "no longer a whole rehearsal box"),
+        ("TB_ENV=TEST\nTB_REHEARSAL=1\n", True, True, False, "no longer a whole rehearsal box"),
+        ("TB_ENV=VALIDATION\n", False, False, True, "no longer a whole rehearsal box"),  # the record removed too
+    ],
+)
+def test_the_start_refuses_a_rehearsal_box_turned_production(
+    tmp_path: Path, env_lines: str, mark: bool, record: bool, override: bool, said: str
+) -> None:
+    deploy = _box(tmp_path, env_lines, mark=mark, record=record, override=override)
+    with pytest.raises(UpdateFailed, match="refused to start") as exc:
+        prestart.run(deploy, _Box(deploy))  # type: ignore[arg-type]
+    assert said in str(exc.value)
+    with pytest.raises(UpdateFailed, match="refused to start"):
+        prestart.run_db(deploy, _Box(deploy))  # type: ignore[arg-type]
+    chk = doctor.check_rehearsal(doctor.DoctorInputs(env=rehearsal_real.env_file(deploy / ".env"), deploy=deploy))
+    assert chk.status == "FAIL"
+
+
+def test_a_whole_real_servers_rehearsal_box_starts_and_says_so(tmp_path: Path) -> None:
+    deploy = _box(tmp_path, WHOLE, mark=True, record=True)
+    assert rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env")) == ""
+    chk = doctor.check_rehearsal(doctor.DoctorInputs(env=rehearsal_real.env_file(deploy / ".env"), deploy=deploy))
+    assert chk.status == "WARN" and rehearsal_real.WORDS in chk.detail
+
+
+def test_a_site_box_and_a_stand_ins_rehearsal_box_start_as_before(tmp_path: Path) -> None:
+    for name, env_lines, mark in (("site", "TB_ENV=PRODUCTION\n", False), ("rh", WHOLE, True), ("t", "TB_ENV=TEST\n", True)):
+        deploy = _box(tmp_path / name, env_lines, mark=mark, record=False)
+        assert rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env")) == ""
+
+
+def test_an_install_without_the_options_refuses_a_box_that_ran_the_real_servers(tmp_path: Path) -> None:
+    marker = "# REHEARSAL-REAL-SERVERS (H-89): after the mark"
+    start = INSTALL.index(marker)
+    body = INSTALL[start : INSTALL.index("\n# ---- end of REHEARSAL-REAL-SERVERS (H-89)", start)]
+    for leftover in (rehearsal_real.RECORD, rehearsal_real.OVERRIDE):
+        d = tmp_path / leftover / "deploy" / "site"
+        d.mkdir(parents=True)
+        (d / leftover).write_text("{}\n", encoding="utf-8")
+        script = f'set -euo pipefail\ncd "{d.parent.parent}"\nREAL_SERVERS=0\ndie() {{ echo "install: $*" >&2; exit 1; }}\n{body}\n'
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+        assert r.returncode == 1 and "ran the real model servers as a rehearsal" in r.stderr

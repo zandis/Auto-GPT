@@ -1452,6 +1452,21 @@ def _standins_in_compose(inp: DoctorInputs) -> str:
     return ""
 
 
+def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:
+    """H-89: (where, what the box says) when this box ran the real model servers as a rehearsal, else None."""
+    from tools import rehearsal_real
+
+    deploy = inp.deploy or ROOT / "deploy"
+    where = rehearsal_real.real_servers_sign(deploy, dict(inp.env))
+    if not where:
+        return None
+    try:
+        said = str(json.loads((deploy / "site" / rehearsal_real.RECORD).read_text(encoding="utf-8"))["words"])
+    except (OSError, ValueError, KeyError, TypeError):
+        said = rehearsal_real.WORDS  # the record is gone or unreadable: the compose file alone says the most
+    return where, said
+
+
 def check_rehearsal(inp: DoctorInputs) -> Check:
     """REHEARSAL (D-726, D-887): a rehearsal box says so. ``deploy/install.sh --rehearsal`` writes the mark
     ``deploy/site/rehearsal.json``, then ``TB_REHEARSAL=1`` and ``TB_ENV`` to deploy/.env: VALIDATION since the
@@ -1462,7 +1477,9 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
     flag = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
     mark = _site_dir(inp) / "rehearsal.json"
     has_mark = mark.is_file()
-    marked = flag or has_mark
+    # H-89: the real servers' record or compose file is a mark of its own (removing rehearsal.json is not enough)
+    real = _real_servers(inp)
+    marked = flag or has_mark or bool(real)
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
     rehearsal = (env == "TEST" and marked) or (env == "VALIDATION" and flag and has_mark)
     standins = _standins_in_compose(inp)
@@ -1476,6 +1493,14 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
         )
     if not marked:
         return Check("rehearsal", "PASS", "not a rehearsal box")
+    if real and not (env == "VALIDATION" and flag and has_mark):
+        return Check("rehearsal", "FAIL", f"{real[1]}: {real[0]} on a {env} box that is no whole rehearsal box "
+                                          "(TB_REHEARSAL=1 and the mark file): install the site's box afresh on an "
+                                          "empty box, never this one (H-89)")  # fmt: skip
+    if real:
+        return Check("rehearsal", "WARN", f"REHEARSAL BOX: {real[1]}; the real model servers ({real[0]}); synthetic "
+                                          "data only, never a site's patients; nothing is qualified or promoted on "
+                                          "it (H-89, D-726, D-887)")  # fmt: skip
     if not rehearsal:
         half = " (a VALIDATION rehearsal box has both TB_REHEARSAL=1 and the mark file)" if env == "VALIDATION" else ""
         return Check(

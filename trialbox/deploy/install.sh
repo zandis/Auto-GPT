@@ -65,7 +65,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ENVIRONMENT=""; SSH_OFF_OVER_SSH=0
+ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -80,6 +80,11 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
+    # REHEARSAL-REAL-SERVERS (H-89): a rehearsal's only (refused below without --rehearsal)
+    --rehearsal-real-servers) REAL_SERVERS=1 ;;
+    --gpu-index) GPU_INDEX="$2"; shift ;;
+    --engine-probe) ENGINE_PROBE="$2"; shift ;;
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89)
     -h|--help) sed -n 2,40p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
@@ -121,6 +126,32 @@ case "$EARLY_ENV" in
   *) die "the environment '$EARLY_ENV' ($EARLY_FROM) is not DEV, TEST, VALIDATION or PRODUCTION: nothing was loaded or written" ;;
 esac
 # ---- end of ENV-EARLY
+# REHEARSAL-REAL-SERVERS (H-89): the real model servers on a rehearsal box whose card and driver are not the profile's
+# (the bench host: whole B200-class cards on a driver below gpu.driver_min). One explicit command line, never a
+# default or an environment variable:
+#   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000 --gpu-index N --engine-probe FILE
+# Without --rehearsal each new option is refused here, before anything is checked or written; without the options
+# the three refusals (the driver, the card, the record) stand as before. tools/rehearsal_real.py decides each step;
+# the box says "rehearsal: driver below the minimum, not this profile's card, not valid for a site"
+if [ "$REHEARSAL" != 1 ]; then
+  [ "$REAL_SERVERS" = 0 ] || { echo "install: --rehearsal-real-servers is for a rehearsal box only: give --rehearsal too (nothing was checked or written)" >&2; exit 2; }
+  [ -z "$GPU_INDEX" ] || { echo "install: --gpu-index is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written" >&2; exit 2; }
+  [ -z "$ENGINE_PROBE" ] || { echo "install: --engine-probe is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written" >&2; exit 2; }
+elif [ "$REAL_SERVERS" != 1 ]; then
+  [ -z "$GPU_INDEX$ENGINE_PROBE" ] || { echo "install: --gpu-index and --engine-probe go with --rehearsal-real-servers; nothing was checked or written" >&2; exit 2; }
+else
+  [ "$GPU_SET" = 1 ] && [ "$GPU" = rtxpro6000 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 (the one measured profile whose overlay serves the pair on one whole card)"
+  [ -z "$TIER" ] || die "--rehearsal-real-servers is no tier install: drop --tier"
+  [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--rehearsal-real-servers needs the GPU: drop --mode $MODE"
+  case "$GPU_INDEX" in ""|*[!0-9]*) die "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all" ;; esac
+  [ -n "$ENGINE_PROBE" ] && [ -f "$ENGINE_PROBE" ] || die "--rehearsal-real-servers: --engine-probe FILE, the engine probe's result taken on that card (tools/engine_probe.py run), is missing"
+  ENGINE_PROBE="$(readlink -f "$ENGINE_PROBE")"
+  [ -z "${TB_COMPOSE_OVERRIDE:-}" ] || die "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE"
+  [ -z "$ENVIRONMENT" ] || [ "$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')" = VALIDATION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
+  command -v python3 >/dev/null || die "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
+  MODE=gpu
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
@@ -252,11 +283,28 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
 esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
+# REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
+# check, so a site box is refused before any allowance), and the one card named carries the pair. The GPU check then
+# runs under the mark: the driver below the minimum is a WARN only with a passed probe of this card, this driver and
+# the pinned image (tools/images_lock.py host --rehearsal-real-servers); anything else FAILs as before
+RRS_HOST=(); RRS_REC=""
+if [ "$REAL_SERVERS" = 1 ]; then
+  python3 -m tools.rehearsal_real box --deploy "$ROOT/deploy" || die "--rehearsal-real-servers: refused (above): nothing was loaded or written"
+  for f in "deploy/site/serving_config.$GPU.json" "deploy/measured/serving_config.$GPU.json"; do
+    [ -f "$f" ] && { RRS_REC="$f"; break; }
+  done
+  [ -n "$RRS_REC" ] || die "--rehearsal-real-servers: no serving record of the $GPU profile: the memory the pair needs is not known"
+  python3 -m tools.rehearsal_real card --gpu-index "$GPU_INDEX" --record "$RRS_REC" | sed 's/^/    /' \
+    || die "--rehearsal-real-servers: the card at index $GPU_INDEX cannot carry the pair (above): nothing was loaded or written"
+  RRS_HOST=(--rehearsal-real-servers --engine-probe "$ENGINE_PROBE" --gpu-index "$GPU_INDEX")
+  export TB_COMPOSE_OVERRIDE="$ROOT/deploy/site/rehearsal-real-servers.yml"
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # D-348: the vLLM image of deploy/images.lock must run here (its architecture, the driver its CUDA needs, the GPU's
 # compute capability), before anything is loaded: a CUDA 13 image on an older driver would only fail at start
 if [ "$MODE" = gpu ]; then
   if command -v python3 >/dev/null; then
-    sh "$ROOT/deploy/check_host.sh" --gpu-only --gpu "$GPU" 2>&1 | sed 's/^/    /' \
+    sh "$ROOT/deploy/check_host.sh" --gpu-only --gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"} 2>&1 | sed 's/^/    /' \
       || die "this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed"
   else
     echo "install: warning: no python3: the GPU host is not checked against deploy/images.lock" >&2
@@ -304,6 +352,15 @@ elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_R
   die "this box was a rehearsal box (deploy/site/rehearsal.json or TB_REHEARSAL=1): run with --rehearsal, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
 fi
 # ---- end of REHEARSAL (D-726): before anything loads
+# REHEARSAL-REAL-SERVERS (H-89): after the mark, the box's record and compose file (deploy/site); a box that ran the
+# real servers as a rehearsal is re-run with the same options or emptied, never installed as anything else
+if [ "$REAL_SERVERS" = 1 ]; then
+  python3 -m tools.rehearsal_real write --deploy "$ROOT/deploy" --gpu-index "$GPU_INDEX" --engine-probe "$ENGINE_PROBE" --record "$RRS_REC" \
+    | sed 's/^/install: warning: /' >&2 || die "--rehearsal-real-servers: refused (above)"
+elif [ -f deploy/site/rehearsal-real-servers.json ] || [ -f deploy/site/rehearsal-real-servers.yml ]; then
+  die "this box ran the real model servers as a rehearsal (deploy/site/rehearsal-real-servers.json): run with --rehearsal --rehearsal-real-servers, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 
 # FINISH-EARLY (10K-4, D-1390): tools/trialbox/finish_check.py reads deploy/.env, the mount table and /sys and writes
 # nothing: exit 1 is a refusal (each line names the setting to change), any other code means it did not run. Here a
@@ -688,6 +745,13 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
     docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
       || die "$REC is not a measurement of the $GPU profile on its own card (see above)"
     echo "    $GPU profile measured: $REC"
+    # REHEARSAL-REAL-SERVERS (H-89): a record of another card, as TB_ACCEPT_UNMEASURED_GPU=1 for no record: a
+    # rehearsal box only (rehearsal_only), and it says so
+    if [ "$REAL_SERVERS" = 1 ]; then
+      rehearsal_only "--rehearsal-real-servers (the $GPU record is of another card)"
+      echo "install: warning: $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); c=d["card"]; print(d["words"] + ": the record " + sys.argv[2] + " was measured on " + c["profile_card"] + ", the servers run on card " + str(c["index"]) + ", " + c["found"])' deploy/site/rehearsal-real-servers.json "$REC")" >&2
+    fi
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   elif [ -z "$TIER" ] && [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
     rehearsal_only "TB_ACCEPT_UNMEASURED_GPU=1 (an unmeasured card's trial boot)"
     echo "install: warning: $GPU profile not yet measured on this card (TB_ACCEPT_UNMEASURED_GPU=1): capture deploy/site/serving_config.$GPU.json after the first boot (RUNBOOK §8)" >&2
@@ -1123,7 +1187,7 @@ fi
 
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
-HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU")
+HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"})
 sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
@@ -1173,6 +1237,11 @@ cat <<EOT
   Known limit:        SCREEN of the whole hospital stops at about 45,000 patients (the orchestrator's memory cap,
                       TB_MEM_ORCH; lower on the two-device workstation): CHANGELOG.md, "Known limits"
 EOT
+# REHEARSAL-REAL-SERVERS (H-89): the summary says what the box is
+if [ "$REAL_SERVERS" = 1 ]; then
+  echo "  REHEARSAL BOX:      $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["words"])' deploy/site/rehearsal-real-servers.json)"
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 if [ "${#FAILS[@]}" -gt 0 ]; then
   printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
   exit 1
