@@ -336,8 +336,8 @@ def test_a_form_past_the_limit_is_told_by_its_count_not_by_the_refusals_words(
     eb: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """F-4: the size page was chosen by the words "too many fields" in the framework's refusal, so a reworded or
-    translated refusal fell to the plain 400. The form is read again without the field limit (the same file and part
-    limits): when it reads then, the field count was the refusal. Another refusal stays a 400."""
+    translated refusal fell to the plain 400. The fields are counted in the form's bytes (urlencoded pairs, multipart
+    parts): past the limit is the size page, in either encoding. Another refusal stays a 400."""
     from starlette import formparsers
 
     def reworded(self: formparsers.MultiPartException, message: str) -> None:
@@ -347,6 +347,9 @@ def test_a_form_past_the_limit_is_told_by_its_count_not_by_the_refusals_words(
     crc, _ = login(eb["app"], "crc", PW)
     page = crc.get("/studies/GZQO/edc/map").text
     r = crc.post("/studies/GZQO/edc/map", data={"csrf": _csrf(page), "item": [f"x{i}" for i in range(3000)]})
+    assert r.status_code == 413 and "dictionary allows; nothing was saved" in r.text
+    many = {"csrf": _csrf(page), "item": [f"x{i}" for i in range(3000)]}
+    r = crc.post("/studies/GZQO/edc/map", data=many, files={"f": ("a.txt", b"x")})
     assert r.status_code == 413 and "dictionary allows; nothing was saved" in r.text
     big = {"csrf": _csrf(page), "note": "x" * (1024 * 1024 + 1)}  # one part past the framework's part size
     r = crc.post("/studies/GZQO/edc/map", data=big, files={"f": ("a.txt", b"x")})

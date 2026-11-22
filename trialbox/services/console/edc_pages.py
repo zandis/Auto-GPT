@@ -213,6 +213,19 @@ MAP_ROW_FIELDS = 13
 MAP_FORM_FIELDS = 16
 
 
+def _form_fields(content_type: str, body: bytes) -> int:
+    """F-4: how many fields a form's bytes hold, counted without parsing them: the parts of a multipart body (its
+    boundary lines), else the pairs of a urlencoded one."""
+    kind, _, params = content_type.partition(";")
+    if kind.strip().lower() == "multipart/form-data":
+        for p in params.split(";"):
+            key, _, value = p.strip().partition("=")
+            if key.lower() == "boundary" and value:
+                return max(body.count(b"--" + value.strip('"').encode("latin-1")) - 1, 0)
+        return 0
+    return body.count(b"&") + 1 if body.strip() else 0
+
+
 def parse_rows(form: Mapping[str, Any], items: list[str]) -> list[dict[str, Any]]:
     """The map page's rows (``<field>-<item>`` inputs) as map items."""
     out = []
@@ -660,17 +673,14 @@ def register(app: FastAPI, h: Helpers) -> None:
                                                                                      .get("map") or [])  # fmt: skip
         except (Problem, Unavailable) as exc:
             return map_page(request, sess, rid, err_of(exc), 409)
-        await request.body()  # kept, so that a refused form can be read a second time below
+        limit = (rows_known + 1) * MAP_ROW_FIELDS + MAP_FORM_FIELDS
+        body = await request.body()  # bounded by the proxy's request size; the form below reads the same bytes
         try:
-            form = await request.form(max_fields=(rows_known + 1) * MAP_ROW_FIELDS + MAP_FORM_FIELDS)
+            form = await request.form(max_fields=limit)
         except StarletteHTTPException:  # the review of D-768: only the field count is the size page
-            # F-4: which limit refused it is told by reading it again without the field limit (the same file and
-            # part limits), never by the refusal's words: when it reads then, the field count was the refusal
-            try:
-                await request.form(max_fields=float("inf"))
-                too_many = True
-            except StarletteHTTPException:
-                too_many = False
+            # F-4: which limit refused it is told by counting the form's fields in its bytes, never by the refusal's
+            # words (a reworded or translated refusal took the plain page) and never by parsing it again unbounded
+            too_many = _form_fields(request.headers.get("content-type", ""), body) > limit
             return map_page(request, sess, rid, {"code": "form_too_large" if too_many else "other", "fields": ""},
                             413 if too_many else 400)  # fmt: skip
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
