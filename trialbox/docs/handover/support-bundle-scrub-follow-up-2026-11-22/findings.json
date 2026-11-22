@@ -6,8 +6,8 @@
  "findings": [
   {
    "id": "H76-01",
-   "severity": "Medium",
-   "claim": "the invariant test of the support bundle failed on master about once in 60 runs: on a raw line %2F joined its hex digit to a pseudonym, the log scrubber's phone pattern took digits from its middle, and the decoded view, run after, saw only fragments; 8 to 13 hex digits of the pseudonym left; fixed: the decoded view first, the old pass counted only, and the tests drawn from a seed",
+   "severity": "High",
+   "claim": "a pseudonym hidden by an encoding left a support bundle in part (the invariant test failed on master about once in 60 runs): on a raw line %2F joined its hex digit to a pseudonym, the log scrubber's phone pattern took digits from its middle, and the decoded view, run after, saw only fragments; 8 to 13 hex digits of the pseudonym left; fixed: the decoded view first, the old pass counted only, and the tests drawn from a seed",
    "lane": "H",
    "basis": "shown",
    "state": "fixed a25a5c181c205ec10b8ce46efd4c1a767c3ec3c2"
