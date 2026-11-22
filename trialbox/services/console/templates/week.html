@@ -84,6 +84,6 @@
   </aside>
   {% endif %}
 </div>
-<p class="hint">{{ t('week.footer') }}</p>
+<p class="hint">{{ t('week.footer') }} <span data-testid="unknown-keeps">{{ t('week.unknown_keeps') }}</span></p>
 {% endif %}{% if pf %}{% set attn = (approvals or [])|length + (1 if team_due else 0) + (1 if step < 2 else 0) %}<input type="checkbox" id="study-fold" class="fold-toggle"><label for="study-fold" class="fold-button{{ ' attn' if attn else '' }}" data-testid="study-fold">{% if attn %}<span aria-hidden="true">⚠ </span>{{ t('pf.study.attn', n=attn) }}{% else %}{{ t('pf.study') }}{% endif %}</label><div class="pf-fold" data-testid="study-bits">{{ f_steps }}{{ f_fold }}{{ f_due }}{{ f_team }}</div></div>{% endif %}
 {% endblock %}
