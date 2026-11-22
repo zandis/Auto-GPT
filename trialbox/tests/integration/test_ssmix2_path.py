@@ -146,14 +146,17 @@ def test_reader_versions_deletes_and_delta(tmp_path: Path) -> None:
         d = storage_dir(root, "12345678", day, "OML-11")
         d.mkdir(parents=True, exist_ok=True)
         cs = "~ISO IR87" if enc == "iso2022_jp" else "UNICODE UTF-8"
-        msg = "\r".join(
-            [
-                f"MSH|^~\\&|HIS||TB||20261101||OUL^R22|1|P|2.5||||||{cs}",
-                "PID|||12345678^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
-                f"OBR|1|{order}",
-                f"OBX|1|NM|3C020000002327101^尿酸^JC10||{hl7.escape(value)}|mg/dL||||||||{when}" + "|" * 7 + order,
-            ]
-        )
+        msg = (
+            "\r".join(
+                [
+                    f"MSH|^~\\&|HIS||TB||20261101||OUL^R22|1|P|2.5||||||{cs}",
+                    "PID|||12345678^^^^PI",  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+                    f"OBR|1|{order}",
+                    f"OBX|1|NM|3C020000002327101^尿酸^JC10||{hl7.escape(value)}|mg/dL||||||||{when}" + "|" * 7 + order,
+                ]
+            )
+            + "\r"
+        )  # every segment ended by CR, the last one too (R22-44)
         (d / f"12345678_{day}_OML-11_{order}_{stamp}_-_{flag}").write_bytes(msg.encode(enc))
 
     put("20260101", "L1", "20260101000000000", "1", "7.0", "20260101090000")
