@@ -39,5 +39,13 @@
 | A tool imports the wrong code | the venv has another checkout installed | set `PYTHONPATH=libs:services:.` (the Makefile does) |
 | Test ports taken | | `TB_HOST_<NAME>_PORT` in `deploy/.env` |
 
+**Every container on the host is stopped, TrialBox's and others' (F-16, decided: D-1075).** When the egress table
+cannot be loaded (`trialbox-egress` failed: no state file or a bad one, or nftables refused the table), Docker does not
+start, because it requires that unit; stopping the unit by hand stops Docker too. It fails closed on purpose: no
+container runs on a host whose outbound traffic is not filtered, so other software's containers on the same host stop
+with the box's. You see `trialbox-egress` and `docker` in `systemctl --failed`. Read `journalctl -u trialbox-egress -b`,
+then follow the row "Docker does not start after a reboot" above; tell the owners of the other containers that their
+containers were stopped and are back. This is decided (D-1075), not a defect: do not remove the dependency.
+
 A failed job names its step (received, parsing, compiling, running, reporting) and the requester gets a plain
 "Failed" mail.

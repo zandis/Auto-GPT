@@ -21,6 +21,14 @@ closed table, never an empty one. `sudo make test-egress`
 proves it on a running stack: a fake outside host is reachable before the rules and only the allowed pairs after,
 the gateway's model endpoint included.
 
+**When the egress table cannot be loaded, Docker does not run (F-16, decided: D-1075).** `docker.service` requires
+`trialbox-egress.service` (`RequiredBy=`). When the table cannot be loaded at boot (no state file or a bad one, or
+nftables refuses the table), Docker does not start, and stopping the unit by hand stops Docker too: every container on
+the host stays stopped, also containers that are not TrialBox's. That is fail closed on purpose: no container runs on a
+host whose outbound traffic is not filtered. The operator sees `trialbox-egress` and `docker` in `systemctl --failed`
+and the cause in `journalctl -u trialbox-egress -b`; runbook 4 says what to do. This is the owner's decision (D-1075),
+not a defect: it stays as it is, and a host that runs other containers beside the box shares their fate.
+
 The perimeter is checked (D-388): in PRODUCTION on topology A the gateway does not start when a perimeter endpoint
 (`TB_EP_SERVING_URL`, `TB_EP_VERIFIER_URL`, `TB_EP_EMBED_URL`) resolves to an address that is not loopback or private,
 resolves the names again every minute while it runs and refuses every call while one is off the box.
