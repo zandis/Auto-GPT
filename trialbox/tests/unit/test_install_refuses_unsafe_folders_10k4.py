@@ -965,3 +965,75 @@ def test_a_disk_holding_the_key_or_secrets_folder_is_the_box_s(tmp_path: Path, k
     h = fake_host(tmp_path / "host", ("/mnt/disk2/keys",))
     found = _problems(tmp_path, h, **{key: "/mnt/disk2/keys"})
     assert found and "is on a disk of the box itself (vdb" in found[-1], found
+
+
+# ------------------------------------------------------------------------------------------------ review 4 of #1303
+@pytest.mark.parametrize("current", ["none", "another release"])
+def test_a_stray_tb_install_signed_still_loads_the_bundle(tmp_path: Path, current: str) -> None:
+    """A TB_INSTALL_SIGNED that is not the release `current` names is not the signed tree's run: past the early
+    check (a good box), the bundle step verifies and loads the bundle as on any re-run."""
+    h = fake_host(tmp_path / "host")
+    box = _box(tmp_path, _env_text("good"))
+    if current == "another release":
+        other = tmp_path / "releases" / "r0"
+        (other / "deploy").mkdir(parents=True)
+        (box / "current").symlink_to(other)
+    r = _run_install_rerun(tmp_path, box, h, TB_INSTALL_SIGNED=str(tmp_path / "releases" / "r1"))
+    out = r.stdout + r.stderr
+    assert "bundle: verify" in out and "verifying the signature" in out, out[-3000:]
+    assert "the bundle is not a valid signed TrialBox release" in r.stderr, out[-3000:]
+
+
+def test_without_ip_the_box_s_addresses_cannot_be_told_and_no_share_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No `ip` on the host: the box's own addresses and networks are not read from anything else, and every share
+    is refused as cannot be told."""
+    monkeypatch.setattr(shutil, "which", lambda name: None)  # the module finish_check calls
+    for k in (*finish_check.STAND_INS, "TB_TEST_ROOT"):
+        monkeypatch.delenv(k, raising=False)
+    assert finish_check._own_network() is None
+    hh = finish_check.Host.from_environ()
+    assert hh.own is None and hh.local_nets == frozenset()
+    hh = finish_check.Host(hosts={"nas.hospa.test": ["192.0.2.10"]}, own=hh.own, local_nets=hh.local_nets)
+    assert "own addresses cannot be read" in finish_check.share_problem(_share("nas.hospa.test:/x"), hh)
+
+
+def _box_host(nets: frozenset[str] = frozenset({"172.17.0.0/16"})) -> finish_check.Host:
+    return finish_check.Host(own=frozenset({"10.0.0.5"}), hosts={"nas.hospa.test": ["192.0.2.10"]}, local_nets=nets)
+
+
+@pytest.mark.parametrize("source", ["224.0.0.251:/export", "[ff02::fb]:/export", "239.1.2.3:/export"])
+def test_a_multicast_server_address_is_not_off_the_box(source: str) -> None:
+    assert "served by this box" in finish_check.share_problem(_share(source), _box_host())
+
+
+@pytest.mark.parametrize("bad", ["not-a-network", "172.17.0.0/99", "10.0.0.0/8/8"])
+def test_a_local_network_that_cannot_be_read_refuses_the_share(bad: str) -> None:
+    """N11: a network of the box's own the check cannot read is no proof the server is outside it."""
+    why = finish_check.share_problem(_share("nas.hospa.test:/x"), _box_host(frozenset({bad})))
+    assert "cannot be told apart from this box's own networks" in why, why
+
+
+@pytest.mark.parametrize("name", ["lanbr0", "kvmnat", "mybridge"])
+def test_a_bridge_of_any_name_without_a_physical_port_is_local_only(tmp_path: Path, name: str) -> None:
+    """N15: a bridge is local-only by its ports, not its name (not docker*, br-*, virbr*)."""
+    (tmp_path / "sys" / "class" / "net" / name / "brif" / "vnet0").mkdir(parents=True)
+    link = {"ifname": name, "link_type": "ether", "linkinfo": {"info_kind": "bridge"}}
+    assert finish_check.local_only(link, tmp_path / "sys")
+    (tmp_path / "sys" / "class" / "net" / "vnet0" / "device").mkdir(parents=True)  # now a physical port
+    assert not finish_check.local_only(link, tmp_path / "sys")
+
+
+@pytest.mark.parametrize(
+    ("source", "said"),
+    [
+        ("[::127.0.0.1]:/export", "served by this box"),  # IPv4-compatible loopback
+        ("[::10.0.0.5]:/export", "served by this box"),  # IPv4-compatible, the box's own address
+        ("[::ffff:0:7f00:1]:/export", "served by this box"),  # SIIT loopback
+        ("[::ffff:0:10.0.0.5]:/export", "served by this box"),
+        ("[64:ff9b::127.0.0.1]:/export", "served by this box"),  # NAT64 prefix
+        ("[::172.17.0.2]:/export", "a network of this box's own"),
+    ],
+)  # fmt: skip
+def test_every_ipv6_spelling_of_an_ipv4_address_of_the_box_is_the_box(source: str, said: str) -> None:
+    assert said in finish_check.share_problem(_share(source), _box_host())
+    assert finish_check.share_problem(_share("[::192.0.2.10]:/x"), _box_host()) == ""

@@ -163,13 +163,20 @@ def _own_network() -> tuple[frozenset[str], frozenset[str]] | None:
 
 def _plain_ip(a: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """An address as the box is reached by it: an IPv4-mapped IPv6 address (``::ffff:127.0.0.1``) is its IPv4
-    address, a zone (``fe80::1%eth0``) is dropped; None when it is no address."""
+    address, and so is every other spelling that carries an IPv4 address in its last 32 bits: IPv4-compatible
+    (``::127.0.0.1``), SIIT (``::ffff:0:127.0.0.1``) and the NAT64 prefix (``64:ff9b::127.0.0.1``); a zone
+    (``fe80::1%eth0``) is dropped; None when it is no address."""
     try:
         ip = ipaddress.ip_address(a.strip("[]").split("%", 1)[0])
     except ValueError:
         return None
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+    if not isinstance(ip, ipaddress.IPv6Address):
+        return ip
+    if ip.ipv4_mapped is not None:
         return ip.ipv4_mapped
+    n = int(ip)
+    if (n >> 32 == 0 and n > 1) or n >> 32 == 0xFFFF0000 or n >> 32 == 0x64FF9B << 64:
+        return ipaddress.IPv4Address(n & 0xFFFFFFFF)
     return ip
 
 

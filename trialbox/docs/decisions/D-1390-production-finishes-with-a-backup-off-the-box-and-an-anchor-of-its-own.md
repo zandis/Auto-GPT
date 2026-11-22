@@ -105,6 +105,15 @@
     PRODUCTION install there). Also not told: a bridge whose ports are virtual but which is routed to the network
     outside counts as the box's (refused: fail closed), and a share served by a virtual machine of the box on a
     bridge with a physical port counts as off the box.
+  - **Also not told (review 4):** a share served by a container of the box on macvlan or ipvlan (its address is on
+    the LAN, not in a network of a local-only interface), or by a virtual machine of the box on a bridge with a
+    physical port, still counts as off the box. A LAN bridge whose only port is a VLAN or a bond (no `device` entry
+    of its own) is read as the box's own, so a share on that LAN is refused (fails closed). A `deploy/.env` without
+    `TB_ENV` on a box not yet installed (no `deploy/settings.yaml` nor `deploy/updates/installed.json`) is judged by
+    `--environment`, as install.sh's ENVIRONMENT step then writes it; on an installed box none is PRODUCTION.
+    Every IPv6 spelling that carries an IPv4 address in its last 32 bits (IPv4-mapped, IPv4-compatible `[::10.0.0.5]`,
+    SIIT `[::ffff:0:7f00:1]`, NAT64 `64:ff9b::/96`) is judged as that IPv4 address; a network of the box's own the
+    check cannot read refuses every share.
 - **The gate and the nightly backup agree:** a target the gate accepts is one `backup_schedule.target_kind` (the
   nightly backup's rule) counts off the box; the gate is stricter (the `.trialbox-offbox` mark alone is not a disk).
   Both sides are tested: the accepted targets, and targets every other rule of the gate passes but the nightly rule
