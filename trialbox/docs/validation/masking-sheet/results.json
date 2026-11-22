@@ -1,11 +1,21 @@
 {
  "card": "F-3",
  "rc1_row": 9,
- "commit": "72a293ad3ded88f52c32cd0570b11866db27b7a3",
- "masker_blob": "84a72d1b4741b80b6ed2ac78a0b55930f2add977",
+ "commit": {
+  "master": "72a293ad3ded88f52c32cd0570b11866db27b7a3",
+  "measured_files_differ": [
+   "tools/masking_sheet.py"
+  ]
+ },
+ "blobs": {
+  "libs/tb_common/phi_guard.py": "84a72d1b4741b80b6ed2ac78a0b55930f2add977",
+  "tools/masking_leaks.py": "94843748867e83915b7ab49ae6877272a48d7a1c",
+  "libs/tb_common/logging.py": "d6f1fae4b1ccaa775be15896af46e3cc0fdf833c"
+ },
+ "site_mrn_regex": "^\\d{8}$",
  "date": "2026-11-22",
  "command": "PYTHONPATH=libs:services:. .venv/bin/python -m tools.masking_sheet --write",
- "entry_point": "tb_common.phi_guard.mask_note(text, site_mrn_regex()) as at services/lake/store.py:1463",
+ "entry_point": "tb_common.phi_guard.mask_note(text, site_mrn_regex()), as lake.store.Lake.rebuild runs it before a note is chunked, indexed and embedded",
  "harness": {
   "tool": "tools/masking_leaks.py",
   "seed": 20261117,
@@ -4141,8 +4151,287 @@
    ],
    "probes": 2,
    "missed": 2
+  },
+  "J10C1-06": {
+   "kinds": [
+    "overmasked"
+   ],
+   "probes": 2,
+   "altered": 1
   }
  },
+ "over_masking": [
+  {
+   "lang": "en",
+   "kind": "accession_10",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "age",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "code",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "date_compact8",
+   "probes": 60,
+   "altered": 60
+  },
+  {
+   "lang": "en",
+   "kind": "date_iso",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "date_mdy",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "date_month_name",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "date_slash",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "dose",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "duration",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "gene_variant",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "lab_value",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "score",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "staging",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "en",
+   "kind": "trial_id",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "accession_10",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "age",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "code",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "date_compact8",
+   "probes": 60,
+   "altered": 60
+  },
+  {
+   "lang": "ja",
+   "kind": "date_era",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "date_iso",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "date_nen",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "date_slash",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "dose",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "duration",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "gene_variant",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "lab_value",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "score",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "staging",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "ja",
+   "kind": "trial_id",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "accession_10",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "age",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "code",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "date_compact8",
+   "probes": 60,
+   "altered": 60
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "date_iso",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "date_nen",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "date_roc",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "date_slash",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "dose",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "duration",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "gene_variant",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "lab_value",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "score",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "staging",
+   "probes": 60,
+   "altered": 0
+  },
+  {
+   "lang": "zh-TW",
+   "kind": "trial_id",
+   "probes": 60,
+   "altered": 0
+  }
+ ],
  "r22_23": {
   "en": {
    "probes": 21,
@@ -4163,8 +4452,8 @@
     "percent": {
      "probes": 3,
      "missed": 3,
-     "tripwire_missed": 3,
-     "example": "Patient Aaaaa%ddAaaaaaa admitted."
+     "tripwire_missed": 0,
+     "example": "Name: Aaaaa%ddAaaaaaa. History of diabetes."
     },
     "entities": {
      "probes": 3,
