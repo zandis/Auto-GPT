@@ -8,7 +8,7 @@ Findings for builders, so in one language.
 - **Date:** 2026-11-22
 - **Findings:** [`seal-records-its-back-end-h77-2026-11-22/findings.json`](seal-records-its-back-end-h77-2026-11-22/findings.json)
   (H77-01, H77-02)
-- **Tests:** `tests/unit/test_seal_records_its_back_end_h77.py` (31). The invariant:
+- **Tests:** `tests/unit/test_seal_records_its_back_end_h77.py` (40). The invariant:
   `test_seal_records_its_back_end_h77.py::test_install_copies_the_back_end_seal_keys_recorded`.
 
 ## PR body draft
@@ -28,9 +28,11 @@ own `kek.json` says `file`. The host check (`tools/trialbox/preflight.py`, `tpm_
   wizard's rewrite of `deploy/.env` on a re-run leaves alone. The secrets folder was the first choice; an existing
   test (`test_host_baseline.py::test_seal_keys_wraps_the_plain_keys_under_a_tpm_sealed_kek`) asserts its exact
   listing, and changing that assertion needs the integrator's ruling.
-- A dry run, a seal that fails at any step (a TPM that cannot seal, a wrap or a check that fails) and a box with a KEK
-  already (`kek.json` there: the re-run only wraps) write no record and leave an earlier one as it was. On a re-run
-  the script cannot tell an existing seal's back end (tpm's `kek.json` says `file`), so it records none.
+- A dry run and a seal that fails at any step (a TPM that cannot seal, a wrap or a check that fails) write no record
+  and leave an earlier one as it was.
+- A box with a KEK already (`kek.json` there: the re-run only wraps) records the back end `kek.json` names, once the
+  wrap has passed (`file` is tpm's KEK, so it records `tpm`). The record so follows a `tools.keys rotate-kek` and a
+  seal whose closing check failed once (the review of #1336, its two Mediums; the integrator's ruling).
 - `install.sh`, right after the seal, copies that word to `deploy/.env` as `TB_KEK_BACKEND` (already declared, D-836)
   and says it. It reads nothing else for it. Without a record, or with one that is not a back end's name, it says so
   and leaves `deploy/.env` as it was. Where it does not seal (poc without a usable TPM) it writes nothing.
@@ -38,7 +40,12 @@ own `kek.json` says `file`. The host check (`tools/trialbox/preflight.py`, `tpm_
   the word with the same block, byte for byte: the two scripts source no common file, and
   `test_the_two_installers_copy_the_record_with_one_block` keeps the blocks identical. A failed deferred seal records
   nothing.
-- No refusal was removed or softened; no existing test changed.
+- The copy into `deploy/.env` stops on a missing or linked file, does not join a last line that lacks its newline,
+  and removes every earlier `TB_KEK_BACKEND` line (an `export` one too), so two runs leave one line (the review's
+  Lows). `box-install.sh` unsets the owner's passphrase right after the seal.
+- No refusal was removed or softened. One assertion changed, by the integrator's ruling on the review:
+  `test_a_box_with_a_kek_already_keeps_its_record_as_it_was` asserted no record on the re-run path; it is now
+  `test_a_box_with_a_kek_already_records_the_back_end_kek_json_names`.
 
 ### The invariant
 
@@ -58,6 +65,10 @@ reading hardening.conf, defaulting to tpm without a record, taking any word, wri
 the environment over the record, `install.sh` not passing `--record`, `seal_keys.sh` ignoring it. Then 8 for the box block, 8 caught: no `--record`,
 the conf's word, the environment's word, the copy before the seal, a default without a record, a copy after a failed
 seal, a drifted block in either script.
+
+Review round: 10 more, 10 caught (the copy mutants planted in both scripts at once): no record on the re-run path, the
+environment's word there, no `file` to `tpm`, a record before the wrap and in a dry run, no newline guard, no
+missing-or-link check, the old `sed` pattern, no `sed`, `>` for `>>`, a link followed.
 
 ### Not verified
 
