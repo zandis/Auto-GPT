@@ -98,6 +98,39 @@ def test_on_this_tree_a_review_page_selects_no_property_test() -> None:
     assert "tests/unit/test_findings_register.py" in handover
 
 
+def test_only_the_strings_of_a_tests_code_select_it(tmp_path: Path) -> None:
+    """H-87: a docstring (of the module, a class or a function) or a comment that cites a page does not make a test
+    of that page; a string of the code that names it does, an f-string's literal part too. A file that does not
+    parse is matched on its whole text, never left out."""
+    page = "docs/reviews/2026-11-12-architecture/decision.md"
+    tests = tmp_path / "tests" / "unit"
+    tests.mkdir(parents=True)
+    files = {
+        "test_module_doc.py": f'"""Card AD-5 of ``{page}``."""\nX = 1\n',
+        "test_class_doc.py": f'class TestA:\n    """As ``{page}`` says."""\n',
+        "test_func_doc.py": f'def test_a() -> None:\n    """As ``{page}`` says."""\n',
+        "test_async_doc.py": f'async def test_a() -> None:\n    """As ``{page}`` says."""\n',
+        "test_comment.py": f"X = 1  # {page}\n",
+        "test_reads.py": f'"""A page of the architecture review."""\nPAGE = ROOT / "{page}"\n',
+        "test_reads_in_func.py": f'def test_a() -> None:\n    """Reads it."""\n    read("{page}")\n',
+        "test_fstring.py": f'PAGE = f"{page}?{{n}}"\n',
+        "test_no_parse.py": f'PAGE = "{page}"\ndef broken(:\n',
+    }
+    for name, text in files.items():
+        (tests / name).write_text(text, encoding="utf-8")
+    got = cdo.tests_for([f"trialbox/{page}"], tmp_path)
+    assert got == [f"tests/unit/{n}" for n in ("test_fstring.py", "test_no_parse.py", "test_reads.py",
+                                                "test_reads_in_func.py")]  # fmt: skip
+    assert cdo.code_strings('"""doc"""\nX = "a"  # b\n') == "a"
+
+
+def test_on_this_tree_a_review_page_cited_in_a_docstring_selects_no_property_test() -> None:
+    """H-87: ``tests/property`` cites ``docs/reviews/2026-11-12-architecture/decision.md`` in docstrings only, so a
+    change to that page does not select them (the `cross-card` job, without fonts, cannot run them)."""
+    got = cdo.tests_for(["trialbox/docs/reviews/2026-11-12-architecture/decision.md"], ROOT)
+    assert not [t for t in got if t.startswith("tests/property/")], got
+
+
 def test_the_command_line() -> None:
     def run(*args: str, stdin: str) -> str:
         r = subprocess.run([sys.executable, str(ROOT / "tools/ci_docs_only.py"), *args], input=stdin, text=True,
@@ -115,7 +148,7 @@ def test_the_tool_needs_only_the_standard_library() -> None:
     """It runs in the `changes` job with the runner's python3, before any environment is made."""
     text = (ROOT / "tools/ci_docs_only.py").read_text(encoding="utf-8")
     imports = {ln.split()[1].split(".")[0] for ln in text.splitlines() if ln.startswith(("import ", "from "))}
-    assert imports <= {"__future__", "re", "sys", "pathlib", "collections"}, imports
+    assert imports <= {"__future__", "ast", "re", "sys", "pathlib", "collections"}, imports
 
 
 def _wf() -> dict[Any, Any]:

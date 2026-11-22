@@ -15,10 +15,15 @@ its file name, or its folder (``docs/runbook``; not ``docs`` alone, which every 
 named by the folder itself (``"docs/runbook"``, ``"docs/runbook/*.md"``, ``f"docs/runbook/{page}"``), not by the path
 of another document in it (H-81): ``docs/reviews/2026-11-12-architecture/decision.md`` in a property test's docstring
 does not make it a test of every page under ``docs/reviews/``, and the `cross-card` job has no fonts or JVM to run it.
+Only the strings of a test's code count (H-87): each test file is parsed with ``ast``, and the needles are matched
+against its string constants (an f-string's literal parts included) that are not docstrings (of the module, a class or
+a function); a comment is not code either. A test whose docstring cites a page does not read it; one whose code names
+it does. A file that does not parse is matched on its whole text: it is never left out unread.
 """
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 from collections.abc import Iterable
@@ -48,8 +53,38 @@ def _names(text: str, names: set[str], folders: set[str]) -> bool:
     return any(n in text for n in names) or any(re.search(re.escape(f) + r"(?!/[\w.-])", text) for f in folders)
 
 
+def _docstrings(tree: ast.Module) -> set[int]:
+    """The ids of the docstring nodes: the first statement of the module, a class or a function, when a string."""
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) and node.body:
+            first = node.body[0]
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                out.add(id(first.value))
+    return out
+
+
+def code_strings(text: str) -> str:
+    """The string constants of a test's code, one per line, without its docstrings and comments; the whole text when
+    it does not parse (a file never drops out of the selection because it cannot be read as code)."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return text
+    skip = _docstrings(tree)
+    return "\n".join(
+        n.value
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in skip
+    )
+
+
 def tests_for(paths: Iterable[str], root: Path = ROOT) -> list[str]:
-    """The test files under ``root/tests`` whose text names one of the changed documents, relative to ``root``."""
+    """The test files under ``root/tests`` whose code names one of the changed documents, relative to ``root``."""
     names: set[str] = set()
     folders: set[str] = set()
     for p in paths or ():
@@ -61,7 +96,7 @@ def tests_for(paths: Iterable[str], root: Path = ROOT) -> list[str]:
         return []
     found = []
     for f in sorted((root / "tests").rglob("test_*.py")):
-        text = f.read_text(encoding="utf-8", errors="replace")
+        text = code_strings(f.read_text(encoding="utf-8", errors="replace"))
         if _names(text, names, folders):
             found.append(f.relative_to(root).as_posix())
     return found
