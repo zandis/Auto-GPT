@@ -43,7 +43,10 @@ sign-in: five failures in 15 minutes lock the account for 15 minutes, and the lo
   written to a log or the audit (`console.enrol_code` records who issued one for whom).
 - **The first administrator** (no other administrator can issue a code): on the box,
   `python -m console.cli enrol-code admin` in the console container prints the code. This shell step is the
-  supervised path; record it in the install checklist.
+  supervised path. Enter the bootstrap password at `/login`, then the enrolment code and the authenticator's code
+  at `/login/totp`. 請在 `/login` 輸入初始密碼，再到 `/login/totp` 輸入註冊碼和驗證器代碼。
+  `/login` で初期パスワードを入力し、`/login/totp` で登録コードと認証アプリのコードを入力します。
+  Record this step in the install checklist.
 - **Lost phone**: on the same page choose **Reset authenticator** for that person, after the same identity check. The
   account is signed out everywhere and the page shows the enrolment code for the new device. An administrator's own
   authenticator is reset by another administrator, or with `console.cli reset-totp NAME` (prints the code).
