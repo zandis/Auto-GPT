@@ -675,7 +675,7 @@ def _assert_split(box: dict[str, Any], live: _Recorder, work: Path, state: Path)
     assert _scratch_dbs(box["url"]) == []
     assert not list(work.glob("tb-drill-*")) and not list(state.glob("*.json"))
     assert box["db"].fetchall("SELECT count(*) FROM marks") == [(2,)]
-    return a
+    return [str(x) for x in a]
 
 
 @pytest.mark.parametrize("case", ["pass", "restore_fails", "wrong_key"])
