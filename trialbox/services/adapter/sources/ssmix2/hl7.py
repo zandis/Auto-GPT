@@ -408,11 +408,50 @@ _OFFSET_IN = re.compile(r"(?:^|(?<=[|^&~]))\d{8,14}(?:\.\d*)?[+-](\d{2})(\d{2})(
 
 
 def offset_problem(text: str) -> str:
-    """Why a message's timestamps cannot be placed, empty when they can: an offset beyond ±14:00 or with minutes
-    beyond 59 (``+2400``, ``+9900``). The reader quarantines such a message, never the whole table."""
-    for m in _OFFSET_IN.finditer(text):
+    """Why a text's timestamps cannot be placed, empty when they can: an offset beyond ±14:00 or with minutes
+    beyond 59 (``+2400``, ``+9900``), written in any width. It reads every value between separators as if it were a
+    time, so the reader asks :func:`time_problem` instead, which reads only the fields that are times."""
+    for m in _OFFSET_IN.finditer(one_width(text)):
         if int(m.group(1)) > 14 or int(m.group(2)) > 59:
             return "a time-zone offset out of range"
+    return ""
+
+
+def one_width(value: str) -> str:
+    """Digits and signs in one width: NFKC (``２`` is ``2``, ``＋`` is ``+``, ``－`` is ``-``) and the JIS minus sign
+    U+2212, which is what a full-width minus of an ISO-2022-JP or Shift_JIS file reads as (:func:`decode_bytes`)."""
+    return unicodedata.normalize("NFKC", value).replace("\u2212", "-")
+
+
+#: the fields the reader reads as times, by segment (D-1257): every repetition, component and subcomponent of each
+#: (SPM-17 is a range). A value shaped like a time anywhere else (an order number ``20261001-9900``) is not a time.
+TIME_FIELDS: dict[str, tuple[int, ...]] = {
+    "MSH": (7,),
+    "EVN": (2, 6),
+    "PID": (7, 29),
+    "PV1": (44, 45),
+    "PRB": (2, 7, 9, 15, 16),
+    "ORC": (9,),
+    "TQ1": (7, 8),
+    "RXA": (3, 4),
+    "OBR": (7,),
+    "OBX": (14,),
+    "SPM": (17,),
+}
+_OFFSET = re.compile(r"^\d{8,14}(?:\.\d*)?[+-](\d{2})(\d{2})$")
+
+
+def time_problem(msg: Message) -> str:
+    """Why a message's times cannot be placed, empty when they can (third review of PR #1095 item 10; D-1257): an
+    offset beyond ±14:00 or with minutes beyond 59 in a field the reader reads as a time (:data:`TIME_FIELDS`),
+    written in any width (``＋２４００``). The reader quarantines such a message, never the whole table. A value in
+    any other field is never read as a time, so an identifier shaped like one quarantines nothing."""
+    for seg in msg.segments:
+        for n in TIME_FIELDS.get(seg.name, ()):
+            for part in re.split(r"[~^&]", seg.field(n)):
+                m = _OFFSET.match(one_width(part).strip())
+                if m and (int(m.group(1)) > 14 or int(m.group(2)) > 59):
+                    return "a time-zone offset out of range"
     return ""
 
 
@@ -441,7 +480,7 @@ def ts(value: str) -> str | None:
     Japanese era) is None and counted in :data:`REFUSED` (an impossible date is still passed on, for the mapping to
     reject the row, STD-025). A time with an offset is converted to the site's zone (``TB_TZ``); with no zone set,
     the time is not kept, only the day (second review of PR #1095 item 3: never a wrong time). Counted either way."""
-    raw = unicodedata.normalize("NFKC", value).strip()  # full-width digits too (fifth review of PR #1095 item 4)
+    raw = one_width(value).strip()  # full-width digits and signs too (fifth review of PR #1095 item 4, D-1257)
     v = raw.split("+", maxsplit=1)[0].split("-", maxsplit=1)[0].split(".", maxsplit=1)[0].strip()
     if not v:
         return None

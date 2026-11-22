@@ -67,7 +67,7 @@ def _jp() -> country_layer.Layer:
 # ------------------------------------------------------------------------------------------------ P1 to P16
 def test_the_japan_profile_lists_p1_to_p16_by_name() -> None:
     lay = _jp()
-    assert lay.on and lay.country == "JP" and lay.version == "1.1.0"
+    assert lay.on and lay.country == "JP" and lay.version == "1.2.0"
     assert {pid: p.name for pid, p in lay.parts.items()} == P1_TO_P16
     assert tuple(lay.parts) == tuple(P1_TO_P16)  # in order
 
@@ -120,7 +120,7 @@ def test_the_layer_is_versioned_and_its_digest_is_the_files() -> None:
 
     lay = _jp()
     assert lay.digest == hashlib.sha256(LAYER.read_bytes()).hexdigest()
-    assert country_layer.stamp("jp") == {"country": "JP", "version": "1.1.0", "digest": lay.digest}
+    assert country_layer.stamp("jp") == {"country": "JP", "version": "1.2.0", "digest": lay.digest}
     assert country_layer.stamp("TW") is None and country_layer.stamp("") is None and country_layer.stamp(None) is None
 
 

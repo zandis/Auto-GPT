@@ -158,28 +158,28 @@ DISEASE_CHANGE = {"99990008": "1", "99990009": "X"}
 #: a synthetic 修飾語テーブル (M (2)): 修飾語管理番号 -> (変更区分, 修飾語表記, 修飾語交換用コード, 接続位置区分,
 #: 修飾語区分). The class is the second character of 修飾語区分 (M (2)⑦). Words are ordinary Japanese; codes made up.
 MODIFIERS = {
-    "99980001": ("0", "下葉", "ZM01", "50", "21000000"),  # 部位 (class 1), before the name
-    "99980002": ("0", "左", "ZM02", "60", "22000000"),  # 位置 (2)
-    "99980003": ("0", "右", "ZM03", "60", "22000001"),  # 位置 (2)
-    "99980004": ("0", "細菌性", "ZM04", "40", "23000000"),  # 病因 (3)
-    "99980005": ("0", "急性", "ZM05", "30", "24000000"),  # 経過表現 (4)
-    "99980006": ("0", "慢性", "ZM06", "30", "24000001"),  # 経過表現 (4)
-    "99980007": ("0", "重症", "ZM07", "20", "25000000"),  # 状態表現 (5)
-    "99980008": ("0", "老人性", "ZM08", "20", "26000000"),  # 患者帰属 (6)
-    "99980009": ("0", "高度", "ZM09", "20", "27000000"),  # その他 (7)
-    "99980010": ("0", "の疑い", "ZM10", "1", "28000000"),  # 接尾語 (8), after the name
-    "99980011": ("0", "術後", "ZM11", "1", "28000001"),  # 接尾語 (8)
-    "99980012": ("0", "第１大臼歯", "ZM12", "10", "29000000"),  # 歯科 (9)
-    "99980013": ("1", "旧左", "ZM13", "60", "22000002"),  # retired in this version (変更区分 1)
-    "99980014": ("0", "不明区分", "ZM14", "20", "20000000"),  # a class character outside 1 to 9
-    "99980015": ("0", "の後遺症", "ZM15", "1", "28000002"),  # 接尾語 (8)
-    "99980016": ("3", "上", "ZM16", "60", "22000003"),  # 位置 (2), added in this release: current
-    "99980017": ("5", "下", "ZM17", "60", "22000004"),  # 位置 (2), changed in this release: current
-    "99980018": ("D", "前", "ZM18", "60", "22000005"),  # a 変更区分 the specification does not define
-    "99980019": ("9", "後", "ZM19", "60", "22000006"),  # a 変更区分 the specification does not define
-    "99980020": ("", "外", "ZM20", "60", "22000007"),  # no 変更区分
-    "99980021": ("0", "左", "ZM21", "60", "0" + "22000000"),  # a 修飾語区分 of nine characters (built: the data scan)
-    "99980022": ("0", "右", "ZM22", "60", "2200000"),  # a 修飾語区分 of seven characters
+    "99980001": ("0", "下葉", "ZM01", "50", "A1000000"),  # 部位 (class 1), before the name
+    "99980002": ("0", "左", "ZM02", "60", "A2000000"),  # 位置 (2)
+    "99980003": ("0", "右", "ZM03", "60", "A2000001"),  # 位置 (2)
+    "99980004": ("0", "細菌性", "ZM04", "40", "A3000000"),  # 病因 (3)
+    "99980005": ("0", "急性", "ZM05", "30", "A4000000"),  # 経過表現 (4)
+    "99980006": ("0", "慢性", "ZM06", "30", "A4000001"),  # 経過表現 (4)
+    "99980007": ("0", "重症", "ZM07", "20", "A5000000"),  # 状態表現 (5)
+    "99980008": ("0", "老人性", "ZM08", "20", "A6000000"),  # 患者帰属 (6)
+    "99980009": ("0", "高度", "ZM09", "20", "A7000000"),  # その他 (7)
+    "99980010": ("0", "の疑い", "ZM10", "1", "A8000000"),  # 接尾語 (8), after the name
+    "99980011": ("0", "術後", "ZM11", "1", "A8000001"),  # 接尾語 (8)
+    "99980012": ("0", "第１大臼歯", "ZM12", "10", "A9000000"),  # 歯科 (9)
+    "99980013": ("1", "旧左", "ZM13", "60", "A2000002"),  # retired in this version (変更区分 1)
+    "99980014": ("0", "不明区分", "ZM14", "20", "A0000000"),  # a class character outside 1 to 9
+    "99980015": ("0", "の後遺症", "ZM15", "1", "A8000002"),  # 接尾語 (8)
+    "99980016": ("3", "上", "ZM16", "60", "A2000003"),  # 位置 (2), added in this release: current
+    "99980017": ("5", "下", "ZM17", "60", "A2000004"),  # 位置 (2), changed in this release: current
+    "99980018": ("D", "前", "ZM18", "60", "A2000005"),  # a 変更区分 the specification does not define
+    "99980019": ("9", "後", "ZM19", "60", "A2000006"),  # a 変更区分 the specification does not define
+    "99980020": ("", "外", "ZM20", "60", "A2000007"),  # no 変更区分
+    "99980021": ("0", "左", "ZM21", "60", "0" + "A2000000"),  # a 修飾語区分 of nine characters (built: the data scan)
+    "99980022": ("0", "右", "ZM22", "60", "A200000"),  # a 修飾語区分 of seven characters
 }
 
 
@@ -591,10 +591,18 @@ def modifier_cases() -> list[Case]:
         # a disease row that is not current in the master (変更区分 1, or a value M does not define) is not recognised
         current = "CA" if DISEASE_CHANGE.get(no, "0") in ("0", "3", "5") else "NC"
         specs.append((f"control {name}", no, name, [], "CA", current, ""))
-        specs.append((f"control {name}, ZPR names the same disease", no, name, [zpr(dis=no, dis_ex=ex)], "CA", current,
+        # D-1257 (review of #1189, source.py:1913): without the master the 病名交換用コード of ZPR-5 cannot be compared
+        # with PRB-3's 病名管理番号, so a right one and a conflicting one look the same: unknown without the master
+        # (D-1252 had it confirmed), confirmed with it
+        specs.append((f"control {name}, ZPR names the same disease", no, name, [zpr(dis=no, dis_ex=ex)], "NC", current,
                       ""))  # fmt: skip
-    # S's own example shape: ZPR-2 and ZPR-5 the same disease, nothing else
-    specs.append(("S example ZPR (ZPR-2, ZPR-5 only)", gas, "胃炎", [zpr(dis=gas, dis_ex="ZA02")], "CA", "CA", ""))
+        # ZPR-2 alone repeats PRB-3's own code: that can be compared without the master
+        specs.append((f"control {name}, ZPR-2 repeats PRB-3's code", no, name, [zpr(dis=no)], "CA", current, ""))
+    # S's own example shape: ZPR-2 and ZPR-5 the same disease, nothing else (D-1257: unknown without the master)
+    specs.append(("S example ZPR (ZPR-2, ZPR-5 only)", gas, "胃炎", [zpr(dis=gas, dis_ex="ZA02")], "NC", "CA", ""))
+    # D-1257: the finding's own input, a ZPR-5 exchange code of another disease beside a matching ZPR-2
+    specs.append(("ZPR-5 another disease's exchange code", gas, "胃炎", [zpr(dis=gas, dis_ex="ZA01").replace("肺炎", "胃炎")],
+                  "NC", "NC", ""))  # fmt: skip
 
     # 2. qualifiers written only in the display text (the #1095 limit): unknown with the master, the limit without
     for q in ("（未確定）", "の可能性あり", " provisional", "既往", "家族歴", "の既往", "疑い", "?", "の疑い", "（疑）",
@@ -622,7 +630,8 @@ def modifier_cases() -> list[Case]:
             # the modified name a code of its own (then the coded concept would silently be the unmodified one);
             # 4 経過表現 and 5 状態表現 can say "old", "after", "in remission": unknown, as 6, 7 and 8 are
             own_code = any(name == text for name, _e, _i in DISEASES.values())
-            eight = len(cls) == 8 and cls.isdigit()  # M (2)⑦: 修飾語区分 is 8 characters
+            # M (2)⑦: 修飾語区分 is 8 characters, the class the second; the release writes a letter first (D-1257)
+            eight = len(cls) == 8 and cls.isascii() and cls[1] in "123456789"
             ok = eight and (cls[1] in "129" or (cls[1] == "3" and not own_code)) and _chg in ("0", "3", "5")
             specs.append((f"modifier class {cls[1]} {word} on {base}", no, text, [z], "NC", "CA" if ok else "NC", ""))
 
@@ -1036,13 +1045,18 @@ def independent_cases_2() -> list[Case]:
     one("PRB-10's ICD-10 not the master's", "D", [prb(pneu, "肺炎", "DX05", icd10="C349")], "NC", master="master")
     one("guard: PRB-10's ICD-10 the master's", "D", [prb(pneu, "肺炎", "DX05", icd10="J189")], "CA", master="master")
     # F. no master: PRB-3 the 病名交換用コード, ZPR-2 the 病名管理番号
-    one("PRB-3 exchange code, ZPR-2 管理番号, ZPR-5 the same exchange code", "F",
-        [prb("ZA01", "肺炎", "DX05"), "ZPR||99990001^肺炎^MDCDX2|||ZA01^肺炎^MDCDX2"], "CA")  # fmt: skip
+    # D-1257 (review of #1189, source.py:1913): ZPR-5 no longer links a ZPR-2 the reader cannot check without the
+    # master (a ZPR-2 of another disease looked the same): unknown without it, confirmed with it
+    for kind, want in (("", "NC"), ("master", "CA")):
+        one("PRB-3 exchange code, ZPR-2 管理番号, ZPR-5 the same exchange code", "F",
+            [prb("ZA01", "肺炎", "DX05"), "ZPR||99990001^肺炎^MDCDX2|||ZA01^肺炎^MDCDX2"], want, master=kind)  # fmt: skip
     one("PRB-3 exchange code, ZPR-2 管理番号, no ZPR-5", "F", [prb("ZA01", "肺炎", "DX05"), "ZPR||99990001^肺炎^MDCDX2"],
         "NC", master="")  # fmt: skip
     # correct-site shapes that must stay confirmed with the master (lane J: 100 %)
-    one("correct site: the specification's example shape", "OK",
-        [_set_field(prb(gas, "胃炎", "DX05"), 25, "V^非常に限定^HL70177"), f"ZPR||{gas}^胃炎^MDCDX2|||ZA02^胃炎^MDCDX2"], "CA")  # fmt: skip
+    for kind, want in (("", "NC"), ("master", "CA")):  # D-1257: without the master ZPR-5 cannot be compared
+        one("correct site: the specification's example shape", "OK",
+            [_set_field(prb(gas, "胃炎", "DX05"), 25, "V^非常に限定^HL70177"),
+             f"ZPR||{gas}^胃炎^MDCDX2|||ZA02^胃炎^MDCDX2"], want, master=kind)  # fmt: skip
     one("correct site: a class 2 prefix", "OK", [prb(pneu, "左肺炎", "DX05"), zpr(pre=["99980002"], dis=pneu, pre_ex=["ZM02"])],
         "CA", master="master")  # fmt: skip
     one("correct site: base name in PRB-3, full in PRB-17", "OK",

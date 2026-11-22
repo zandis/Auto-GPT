@@ -218,7 +218,14 @@ class SiteSetup:
         facts, locs, pids = intake.sheet_facts(cleaned, self.pseudonym)
         gone = {p.lower() for p in self._opted_out()}  # D-866: read before anything of the sheet is written
         for domain, system, code, display in locs:
-            self.store.put_local(ws, domain, system, code, display, mapping.suggest(domain, system, code, display))
+            self.store.put_local(
+                ws,
+                domain,
+                system,
+                code,
+                display,
+                mapping.suggest(domain, system, code, display, use_master=ws == "main"),
+            )
         facts = [f for f in facts if str(f.get("pid") or "").lower() not in gone]
         at = self.stamp()
         self.store.replace_facts(ws, input_id, facts, at)

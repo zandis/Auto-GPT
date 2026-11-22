@@ -33,10 +33,12 @@ from urllib.parse import quote, urlencode
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from sitesetup import medis_release
+from sitesetup.medis_master import detail_read
 from tb_common.authz import permit
 from tb_common.verdict_word import shown_of
 
-from console import actor, demo_guard, s28
+from console import actor, demo_guard, medis_page, s28  # medis_page: its words join the catalogue
 from console.api_first import before_body
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
@@ -77,8 +79,15 @@ PER_STUDY = frozenset({"/site", "/site/help", "/api/v1/site/readiness"})
 # chart number). Charts, facts, people and patients do, so the administrator opens them only as a coordinator would.
 ADMIN_SETUP = frozenset({"/site", "/site/start", "/site/codes", "/site/checks", "/site/sheets", "/site/help",
                          "/site/practice", "/api/v1/site/readiness", "/api/v1/site/codes",
-                         "/api/v1/site/checks"})  # fmt: skip
+                         "/api/v1/site/checks",
+                         "/site/codes/medis"})  # fmt: skip  # D-1261: the MEDIS master step, no patient row
 ASK_PER_HOUR = 60  # D-273 (PV-7): one patient's "why" answers per person and hour (the candidate pages' default)
+
+
+def page_only_out(row: Mapping[str, Any]) -> dict[str, Any]:
+    """A local code as the ``/api/v1`` answers give it: without what the MEDIS master says beside a suggestion, which
+    is the local codes page's only (D-1261: a field of an API answer is an export column, the owner's to decide)."""
+    return {k: v for k, v in row.items() if k != "medis_detail"}
 
 
 def site_wide(user: User) -> bool:
@@ -238,7 +247,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             )
         )
         au.append("console.site_map", actor=h.actor(sess), detail={"ws": ws, "local": code[:40], "to": target[:20]})
-        return out
+        return page_only_out(out)  # D-1261: POST /api/v1/site/codes answers as before
 
     def act_check(sess: Session, ws: str, cid: int, answer: str) -> dict[str, Any]:
         need_change(sess, "/site/checks")
@@ -514,6 +523,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         terms: list[dict[str, Any]] = []
         with contextlib.suppress(Problem, Unavailable):
             terms = list(get("/setup/terminology"))  # D-137: the licensed Japanese code lists
+        for c in codes:  # D-1261: what the MEDIS master says beside a suggestion, on this page only
+            d = detail_read(c.pop("medis_detail", None))
+            c |= {"also": d.get("also") or [], "others": d.get("candidates") or [], "medis": d if d.get("who") else {}}
         todo = [c for c in codes if c["mapped_code"] is None]
         return h.page(
             request,
@@ -522,6 +534,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             **ctx(sess, w, rs),
             todo=todo,
             terms=terms,
+            medis_step=medis_release.here(),  # D-1261: the link to the MEDIS master step, where it exists
             mapped=[c for c in codes if c["mapped_code"] is not None],
             done=done[:20],
             err=err[:80],
@@ -848,8 +861,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_codes(request: Request, ws: str = "main") -> Any:
         sess = api_session(request)
         need_view(sess, request.url.path)
-        try:
-            return get(f"/setup/{ws_of(ws)}/codes")
+        try:  # D-1261: the further ICD-10 codes are the page's only; this answer is as before (owner to decide)
+            return [page_only_out(c) for c in get(f"/setup/{ws_of(ws)}/codes")]
         except (Problem, Unavailable) as exc:
             return refused(exc)
 
@@ -879,6 +892,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             return act_check(sess, ws_of(ws), cid, body.answer)
         except (Problem, Unavailable) as exc:
             return refused(exc)
+
+    if medis_release.here():  # D-1261: only where the site's country layer uses the MEDIS master
+        medis_page.register(app, h, need_change=need_change, signed_post=signed_post, get=get)
 
     @app.get("/api/v1/ask", response_model=None)
     def api_ask(request: Request, q: str = "", pid: str = "", ws: str = "main", study: str = "") -> Any:

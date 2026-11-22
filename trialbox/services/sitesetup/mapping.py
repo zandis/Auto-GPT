@@ -262,7 +262,49 @@ def _licensed(kind: str, code: str) -> dict[str, str] | None:
         return None
 
 
-def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str, str]:
+_MEDIS: dict[str, Any] = {"of": None, "master": None}
+
+
+def _medis() -> Any:
+    """The site's loaded MEDIS disease-name master (``sitesetup.medis_master``), or None (D-1261). Built once per
+    answer of ``licensed.tables(cached=True)``."""
+    from adapter import licensed
+
+    from sitesetup import medis_master
+
+    try:
+        tables = licensed.tables(cached=True)
+    except Exception:  # no trial database here: nothing is loaded
+        return None
+    if _MEDIS["of"] is not tables:
+        _MEDIS["of"], _MEDIS["master"] = tables, medis_master.rows(tables)
+    return _MEDIS["master"]
+
+
+def _master_here() -> bool:
+    """D-1261 (lane J, M4): the master is read only at a site whose country layer uses it."""
+    from sitesetup import medis_release
+
+    return medis_release.here()
+
+
+def _medis_index(term: str) -> list[dict[str, Any]]:
+    """The loaded MEDIS index's rows for one term (``TermStore.lookup_term``); [] when it cannot be asked."""
+    from adapter import licensed
+
+    try:
+        st = licensed.TermStore()
+    except Exception:  # no trial database here
+        return []
+    try:
+        return list(st.lookup_term(term))
+    except Exception:  # an index this release does not hold, or a store without it
+        return []
+    finally:
+        st.close()
+
+
+def suggest(domain: str, system: str, code: str, display: str = "", *, use_master: bool = True) -> dict[str, str]:
     """A suggested standard code for one local code: ``{system, code, display, method}`` (``licensed``: the site's
     licensed MEDIS / JLAC10 / YJ release, its standard code or the name it gives; ``lookup``: the shipped table for
     this code; ``same``: the code already is a standard code; ``term``: a known diagnosis name; ``title``: an ICD-10
@@ -272,7 +314,21 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
     (0..1), or ``{}`` when TrialBox is not sure."""
     kind = system.rsplit(":", 1)[-1]
     up = code.strip().upper()
-    lic = _licensed(kind, up)
+    master = domain == "condition" and use_master and _master_here()
+    if master:  # D-1261: the MEDIS master, by its code or by the local name; its answer stands
+        from sitesetup import medis_master
+
+        m = _medis()
+        if m is not None and kind == "dx-code" and up in m.by_exchange:
+            # {} included: never another table's guess for the master's code; a display that names neither a row
+            # of the code nor one of its index terms is said (lane J, M6)
+            return medis_master.by_code(m, up, display, _medis_index)
+        # by name: only the display, never the code's text (lane J, M5)
+        found = medis_master.by_name(m, display, _medis_index) if m is not None and display.strip() else {}
+        if found:
+            return found
+    # the MEDIS master is read above, and only where the country layer uses it (lane J, M4)
+    lic = _licensed(kind, up) if kind != "dx-code" else None
     if lic is not None:
         target = lic.get("target_code") or ""
         if target and valid_target(domain, TARGET.get(domain, ""), target):

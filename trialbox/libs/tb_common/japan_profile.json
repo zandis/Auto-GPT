@@ -2,7 +2,7 @@
   "format": "tb-country-layer/1",
   "_what": "The Japan profile layer (plan 10, commitment C-7, card 10C-25, D-1250): the one description of what a site in Japan gets. The site's country (JP: tb_common.derived.country_of, the same reading the site profile is checked against, D-1233) turns it on; every behaviour reads its part here (tb_common.country_layer). Parts P1 to P16 are review 11 section 8's. A part 'declared, not built' carries no values: the card that builds it adds them here. Each rule and source is the project's reading of the public text named, to be confirmed by the first site's trial office; what is recorded here is not the complete set of a site's requirements (see 'elsewhere').",
   "country": "JP",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "parts": {
     "P1": {
       "name": "Legal pack",
@@ -155,13 +155,16 @@
       "state": "partly built",
       "cards": [
         "10C-9",
-        "10C-20"
+        "10C-20",
+        "10B-22"
       ],
       "decisions": [
-        "D-137"
+        "D-137",
+        "D-1261"
       ],
       "values": {
         "ingredient_stems": true,
+        "medis_master": true,
         "code_tables": [
           "jp_core/byomei_to_icd10.csv",
           "jp_core/jlac10_to_loinc.csv",
@@ -171,6 +174,7 @@
       },
       "readers": [
         "criteria_compiler.terminology.resolver:jp_ingredients",
+        "sitesetup.medis_release:applies",
         "sitesetup.mapping:code_tables"
       ],
       "everywhere": "On everywhere, not switched by country: the licensed MEDIS, JLAC10 and YJ releases are read from the terminology store (D-137) wherever a site loads them",

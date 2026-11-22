@@ -19,7 +19,7 @@ derived at build time from the pinned JP Core 1.1.0 package by ``tools/jpcore_ru
    ICD-10-CM-only shape (``C50.911``, ``M1A.9XX0``) under the WHO URI is listed, never failed; LOINC codes must pass
    the check digit; JLAC10, YJ, HOT9, ATC and MEDIS 病名交換用コード codes must have their shape; when the site's
    licensed release is loaded (``adapter.licensed``), a code missing from it is a warning (a newer code), never an
-   error.
+   error, and so is a MEDIS code the release marks deleted (変更区分 1, D-1261).
 
 Errors fail the resource; warnings are listed. Nothing is dropped: the ingest records the result
 (``jp_core_validation.json`` in the snapshot, ``profile_validation`` in the ingest report) and lists every failure.
@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from tb_common.icd10_who import comparable
 
 Resource = dict[str, Any]
 RULES = Path(__file__).resolve().parent / "jp_core_rules.json"
@@ -68,7 +70,7 @@ _SHAPES = {
 
 @dataclass
 class Issue:
-    severity: str  # error | warning
+    severity: str  # error | warning | information (D-1261: said, never counted)
     expression: str
     text: str
 
@@ -118,6 +120,16 @@ def _icd10cm() -> frozenset[str]:
     return frozenset(
         str(c) for c in pq.read_table(path, columns=["code"], use_threads=False).column("code").to_pylist()
     )
+
+
+def _medis_current(row: dict[str, Any]) -> bool:
+    """D-1261: is a loaded MEDIS row current (変更区分 not 1, deleted in the release)? A row without the column (a
+    release loaded before D-1252) counts as current, as it was read before."""
+    try:
+        extra = json.loads(row.get("extra") or "{}")
+    except (TypeError, ValueError):
+        return True
+    return not (isinstance(extra, dict) and str(extra.get("change") or "").strip() == "1")
 
 
 def loinc_ok(code: str) -> bool:
@@ -358,6 +370,7 @@ class JpCoreValidator:
                 for v in node:
                     yield from walk(v, path)
 
+        unchecked = False
         for path, c in walk({k: v for k, v in res.items() if k != "meta"}, rtype):
             system, code = str(c.get("system") or ""), str(c.get("code") or "")
             if system == ICD10CM:
@@ -366,7 +379,10 @@ class JpCoreValidator:
                     out.issues.append(Issue("error", path, "the code is not an ICD-10-CM code"))
             elif system == ICD10_WHO:
                 if not _WHO_SHAPE.match(code):
-                    out.issues.append(Issue("warning", path, "the code is not written as a WHO ICD-10 code"))
+                    # D-1261: a code as the MEDIS master writes it (E119, E109a) is named with its comparable form
+                    as_cm = comparable(code)
+                    said = f" (the MEDIS master's form of {as_cm})" if as_cm and as_cm != code else ""
+                    out.issues.append(Issue("warning", path, f"the code is not written as a WHO ICD-10 code{said}"))
             elif system == LOINC and path.endswith(".coding"):
                 if re.fullmatch(r"L[AGP]\d+-\d", code):  # answer, group and part codes: their own numbering
                     continue
@@ -378,6 +394,13 @@ class JpCoreValidator:
                     out.issues.append(Issue("error", path, f"the code is not a {label} code"))
                 elif kind and self.licensed.get(kind) and code not in self.licensed[kind]:
                     out.issues.append(Issue("warning", path, f"the code is not in the loaded {label} release"))
+                elif kind == "medis" and self.licensed.get(kind) and not _medis_current(self.licensed[kind][code]):
+                    # D-1261: a code the loaded release marks deleted (変更区分 1) is real but no longer current
+                    out.issues.append(Issue("warning", path, f"the code is deleted in the loaded {label} release"))
+                elif kind == "medis" and not self.licensed.get(kind) and not unchecked:
+                    # D-1261 (lane J, M9): said once per resource, information only
+                    unchecked = True
+                    out.issues.append(Issue("information", path, "MEDIS codes not checked: no release loaded"))
 
     # ------------------------------------------------------------------ a sample
     def validate(self, resources: list[Resource]) -> ValidationReport:
