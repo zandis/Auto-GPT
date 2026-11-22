@@ -1,11 +1,12 @@
 """rc1's refusals in the console (the owner's ruling of 2026-11-20; review R22-34; ``tb_common.rc1_refusals``).
 
-Outside the environments the table allows (DEV, TEST and VALIDATION, D-1072: on a PRODUCTION box, an unset
-``TB_ENV`` and an unknown one), the console serves no stored live patient list and no patient-level download. One route list, :data:`ROUTES`, read by one middleware installed as
-``console.demo_guard``'s is (appended, inside the console's headers middleware): a matching request is refused before
-its route runs, so nothing is read from the store, nothing is rendered and nothing leaves. The refusal is the
-console's problem page (403) with the table's message in the reader's language, JSON on ``/api/``, and one audited
-``console.denied`` event with the refusal's name, the environment and the path (never a query or a body).
+Outside the environments the table allows (DEV, TEST and VALIDATION, D-1072: so on a PRODUCTION box, an unset
+``TB_ENV`` and an unknown one), the console serves no stored live patient list and no patient-level download. One
+route list, :data:`ROUTES`, read by one middleware installed as ``console.demo_guard``'s is (appended, inside the
+console's headers middleware): a matching request is refused before its route runs, so nothing is read from the
+store, nothing is rendered and nothing leaves. The refusal is the console's problem page (403) with the table's
+message in the reader's language, JSON on ``/api/``, and one audited ``console.denied`` event with the refusal's
+name, the environment and the path (never a query or a body).
 
 What the list holds, and why (each a GET):
 

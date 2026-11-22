@@ -121,7 +121,8 @@ def test_no_live_patient_list_on_a_production_box(
             with pytest.raises(StepFailed) as got:
                 first_step()
             assert got.value.step == "rc1" and got.value.detail == LIST_KEY
-            assert got.value.message == rc1_refusals.text(LIST_KEY, environment=env or "PRODUCTION")
+            # a fixed sentence (the job's error names no value): the table's words for a PRODUCTION box
+            assert got.value.message == rc1_refusals.text(LIST_KEY, environment="PRODUCTION")
     else:
         require_released()
         require_open("GZQO")

@@ -98,10 +98,15 @@ def require_released() -> None:
 
     from orchestrator.clients import StepFailed
 
-    try:  # R22-34 (D-1072): rc1 makes no live patient list on a PRODUCTION box; the job fails before anything is read
-        rc1_refusals.check("live_patient_lists")
-    except rc1_refusals.Rc1Refused as exc:
-        raise StepFailed("rc1", exc.say(), exc.refusal.key) from None
+    # R22-34 (D-1072): rc1 makes no live patient list on a PRODUCTION box (an unset or unknown TB_ENV is one); the
+    # job fails before anything is read, with the table's fixed sentence (rc1_refusals.TEXTS) and its key
+    if rc1_refusals.refused("live_patient_lists"):
+        raise StepFailed(
+            "rc1",
+            "rc1 makes and shows no live patient list on a PRODUCTION box. rc1 is a supervised demonstration on "
+            "synthetic or public data. No list was made or shown.",
+            "rc1.live_patient_lists",
+        )
     if restore_held():
         raise StepFailed("restore", RESTORE_HELD)
 
