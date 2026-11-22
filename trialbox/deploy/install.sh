@@ -705,7 +705,7 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
   # every later compose command (as root: update, secrets rotate) reads it: only its owner (root or the installer)
   # may change it, and it must stay where it is
   [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || die "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"
-  [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || die "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"
+  [ $((0$(stat -c %a "$OVR") & 022)) -eq 0 ] || die "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"
   is_standins "$OVR" && rehearsal_only "the model stand-ins ($OVR says x-trialbox-rehearsal-standins)"
   echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
   COMPOSE+=(-f "$OVR"); FILES="$FILES:$OVR"
@@ -781,6 +781,18 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
     || die "the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
+
+  # Record the KEK back‑end that was used for sealing.
+  # If the caller set TB_KEK_BACKEND explicitly, honour it; otherwise infer it.
+  if [ -n "${TB_KEK_BACKEND:-}" ]; then
+    envset TB_KEK_BACKEND "$TB_KEK_BACKEND"
+  else
+    if command -v systemd-creds >/dev/null && systemd-creds has-tpm2 >/dev/null; then
+      envset TB_KEK_BACKEND tpm
+    else
+      envset TB_KEK_BACKEND passphrase
+    fi
+  fi
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
