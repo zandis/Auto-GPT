@@ -120,4 +120,4 @@ volumes:
     driver_opts: {type: none, o: bind, device: "${TB_HOST_OBJECTS_DIR:-${PWD}/deploy/.objects}"}
 networks:
   host-net:
-    name: trialbox-hostnet
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-hostnet   # H-75: the project's (compose's -p)

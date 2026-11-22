@@ -18,7 +18,9 @@ Only reports whose JA and EN tag sequences align are used, so the label comes fr
 criterion text from the aligned English tag. Same prompt and client as :mod:`tools.mlbench`.
 
     python -m tools.medtxt_eval fetch
-    OPENROUTER_API_KEY=... python -m tools.medtxt_eval run --models openai/gpt-oss-120b google/gemma-4-26b-a4b-it
+    read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+    python -m tools.medtxt_eval run --models openai/gpt-oss-120b google/gemma-4-26b-a4b-it
+    unset OPENROUTER_API_KEY
     python -m tools.medtxt_eval score             # -> eval/medtxt/results/scores.json
 """
 

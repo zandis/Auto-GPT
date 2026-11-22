@@ -1,0 +1,26 @@
+# before
+tests/console/test_life_cycle_walk_tidy.py
+tests/e2e/test_life_cycle_walk.py
+tests/e2e/test_life_cycle_walk_390.py
+tests/e2e/test_module_walks.py
+tests/e2e/test_new_study_walk.py
+tests/unit/test_desktop_gpu.py
+tests/unit/test_findings_register.py
+tests/unit/test_handover_readers.py
+tests/unit/test_it_one_page_10k18.py
+tests/unit/test_network_sheet.py
+tests/unit/test_parquet_read_exit_abort_h52.py
+tests/unit/test_parquet_single_thread_guard_h52.py
+tests/unit/test_proposal_10c3_pre_consent_matrix.py
+tests/unit/test_refdata.py
+tests/unit/test_runbook_readers.py
+tests/unit/test_sql_sites_page.py
+tests/unit/test_windows_box_install.py
+tests/unit/test_windows_handover_docs.py
+tests/unit/test_windows_media.py
+# after
+tests/unit/test_handover_readers.py
+tests/unit/test_it_one_page_10k18.py
+tests/unit/test_runbook_readers.py
+tests/unit/test_windows_handover_docs.py
+tests/unit/test_windows_media.py
