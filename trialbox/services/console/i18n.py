@@ -8,6 +8,7 @@ process (``STRICT``, set by ``tests/conftest.py``) ``translate`` raises on a mis
 
 from __future__ import annotations
 
+import importlib
 import os
 
 LANGS = ("en", "ja", "zh-TW")
@@ -1257,3 +1258,39 @@ from console.i18n_profile_form import ZH as _PF_ZH  # noqa: E402
 EN.update(_PF_EN)
 JA.update(_PF_JA)
 ZH.update(_PF_ZH)
+
+# 9i-1: the catalogues a page module joined only when it was imported. A page registered on every box (/ops/users:
+# role.steward) read a key that only the pilot's break-glass page joined, so the page worked or raised by what had
+# been imported before it. Every console/i18n_*.py is joined here, when this module is imported; the page modules
+# still join theirs (the same words again).
+JOINED_BY_PAGES = (
+    "accounts",
+    "audit",
+    "breakglass",
+    "conflicts",
+    "copyassist",
+    "dataops",
+    "demo",
+    "feedback",
+    "firstrun",
+    "flags",
+    "form_errors",
+    "identity",
+    "instruments",
+    "items",
+    "lists",
+    "notmatched",
+    "phone",
+    "plain",
+    "preflight",
+    "prefs",
+    "roles",
+    "sae",
+    "tier",
+    "today",
+)
+for _name in JOINED_BY_PAGES:
+    _mod = importlib.import_module(f"console.i18n_{_name}")
+    EN.update(_mod.EN)
+    JA.update(_mod.JA)
+    ZH.update(_mod.ZH)

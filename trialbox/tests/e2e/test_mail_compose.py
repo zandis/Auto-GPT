@@ -267,6 +267,7 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
 
     from openpyxl import load_workbook
 
+    from tests import alliance_keys
     from tests.inproc_box import SITE_B, ingest_site, make_box
 
     tag = f"cohort-{os.getpid()}"
@@ -290,7 +291,12 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(b"trialbox-test-site-key-B-0123456789abcd")
     ingest_site(ROOT / "tests/fixtures/synthetic_patients/site-b", tmp_path / "lake", sec, "2026-10-04", "DEMO-B")
-    box_b = make_box(tmp_path / "box", tmp_path / "lake", sec, date.today(), settings_update=SITE_B)
+    # D-1226: B signs its table with its alliance key (made in this run, mode 600); the root reads the register of
+    # site keys from the stack's secrets folder (deploy/docker-compose.test.yml, TB_ALLIANCE_SITE_KEYS_FILE)
+    key_b = alliance_keys.key_file(tmp_path / "sec-alliance" / "alliance.key", "DEMO-B")
+    alliance_keys.register(ROOT / ".cache" / "test-secrets", ["DEMO-B"])
+    signing = {"TB_ALLIANCE_SIGNING_KEY_FILE": str(key_b)}
+    box_b = make_box(tmp_path / "box", tmp_path / "lake", sec, date.today(), settings_update=SITE_B, extra_env=signing)
     box_b.mail(
         "COHORT GOUT-COH lookback=1",
         sender="crc1@hospb.test",
