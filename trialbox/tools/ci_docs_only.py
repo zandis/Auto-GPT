@@ -11,11 +11,15 @@ everything, so nothing reaches master untested.
 A document is a file under ``trialbox/docs/`` or any ``.md`` file, except the documents code reads (``CODE_READS``:
 the licence register, which the licence check reads and the image carries, and the model change protocol, which the
 image carries for ``qualify``). A test reads a document when its text names the document's path below ``trialbox/``,
-its file name, or its folder (``docs/runbook``; not ``docs`` alone, which every document test names).
+its file name, or its folder (``docs/runbook``; not ``docs`` alone, which every document test names). The folder is
+named by the folder itself (``"docs/runbook"``, ``"docs/runbook/*.md"``, ``f"docs/runbook/{page}"``), not by the path
+of another document in it (H-81): ``docs/reviews/2026-11-12-architecture/decision.md`` in a property test's docstring
+does not make it a test of every page under ``docs/reviews/``, and the `cross-card` job has no fonts or JVM to run it.
 """
 
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -32,24 +36,33 @@ def docs_only(paths: Iterable[str]) -> bool:
     )
 
 
-def _needles(path: str) -> set[str]:
+def _needles(path: str) -> tuple[set[str], set[str]]:
+    """The path and the file name, and the folder (matched as a folder: not followed by a name in it)."""
     rel = path.removeprefix("trialbox/")
-    out = {rel, rel.rsplit("/", 1)[-1]}
     folder = rel.rsplit("/", 1)[0] if "/" in rel else ""
-    if folder and folder != "docs":
-        out.add(folder)
-    return out
+    return {rel, rel.rsplit("/", 1)[-1]}, ({folder} if folder and folder != "docs" else set())
+
+
+def _names(text: str, names: set[str], folders: set[str]) -> bool:
+    """The text names a document, or a folder not followed by the name of something in it."""
+    return any(n in text for n in names) or any(re.search(re.escape(f) + r"(?!/[\w.-])", text) for f in folders)
 
 
 def tests_for(paths: Iterable[str], root: Path = ROOT) -> list[str]:
     """The test files under ``root/tests`` whose text names one of the changed documents, relative to ``root``."""
-    needles = set().union(*(_needles(p) for p in paths if p)) if paths else set()
-    if not needles:
+    names: set[str] = set()
+    folders: set[str] = set()
+    for p in paths or ():
+        if p:
+            n, f = _needles(p)
+            names |= n
+            folders |= f
+    if not names:
         return []
     found = []
     for f in sorted((root / "tests").rglob("test_*.py")):
         text = f.read_text(encoding="utf-8", errors="replace")
-        if any(n in text for n in needles):
+        if _names(text, names, folders):
             found.append(f.relative_to(root).as_posix())
     return found
 
