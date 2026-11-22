@@ -52,6 +52,9 @@ TEMPLATES = ROOT / "services" / "console" / "templates"
 PERSON = re.compile(r"^(row|member)-[0-9a-f]{8}$")
 #: what changes on every render and says nothing about a person: the idle warning's session clock
 CLOCK = ("data-idle-left", "data-abs-left")
+#: a date input's lower bound is the day of the render (the recheck date): masked here and in the baselines
+TODAY = "<today>"
+DATED_MIN = re.compile(r"^min=\d{4}-\d{2}-\d{2}$")
 #: attributes that are markup and not values (the styling hook, the inline style)
 MARKUP = ("class", "style")
 #: attribute values a card may lose: the label is now a text, the box that scrolled sideways no longer scrolls
@@ -85,6 +88,8 @@ def _facts(el: Any) -> dict[str, list[str]]:
                 v = "<csrf>"
             if k in CLOCK:
                 v = "<clock>"
+            if k == "min" and e.tag == "input" and e.get("type") == "date":
+                v = TODAY  # the recheck date's lower bound is the day of the render
             f["attr"][f"{k}={v}"] += 1
         if e.tag == "a" and "href" in e.attrib:
             f["href"][e.attrib["href"]] += 1
@@ -193,7 +198,18 @@ def _snapshot(rendered: Rendered) -> dict[str, Any]:
 
 def _baseline(scn: str) -> dict[str, Any]:
     data: dict[str, Any] = json.loads(gzip.decompress((DATA / f"person_card_9k14_before_{scn}.json.gz").read_bytes()))
-    return data
+    return _mask_dated_min(data)
+
+
+def _mask_dated_min(x: Any) -> Any:
+    """The baselines were captured with the capture day's date in the recheck input's ``min``: mask it as _facts does."""
+    if isinstance(x, dict):
+        return {k: _mask_dated_min(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_mask_dated_min(v) for v in x]
+    if isinstance(x, str) and DATED_MIN.match(x):
+        return f"min={TODAY}"
+    return x
 
 
 def _check(scn: str, rendered: Rendered) -> None:
