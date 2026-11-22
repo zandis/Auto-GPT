@@ -47,7 +47,7 @@ from jinja2 import Environment, StrictUndefined
 from tb_contracts import PromptMeta, inline_schema, load_schema, null_absent, schema_errors
 from tb_contracts.schema import schema_error_codes
 from tb_llm.budget import MIN_ANSWER_TOKENS, answer_room, estimate_messages, retry_max_tokens, text_budget
-from tb_llm.outage import MODEL_FAULTS
+from tb_llm.outage import ANSWER_TIMEOUT, refusal_fault
 from tb_llm.timeouts import caller_timeout, once_more
 
 from tb_common.audit import AuditLog
@@ -91,19 +91,25 @@ class LlmPromptTooLong(LlmError):
 class LlmUpstreamFailed(LlmError):
     """G4 of the P1b review: the gateway gave up on the answer (``upstream_failed``: its read timeout, an answer past
     the cap, a malformed one) or the endpoint's read timed out. A shorter request may get one; the same one will not.
-    Never a model that is down (:class:`LlmModelFault`)."""
+    Never a model that is down (:class:`LlmModelFault`), except the gateway's timeout (:class:`LlmAnswerTimeout`)."""
 
 
 class LlmModelFault(LlmError):
     """The model did not answer, and not because of this request (T-689, D-456): one of :data:`MODEL_FAULTS`, a
-    gateway or model endpoint that cannot be reached (never a timeout), or an HTTP 5xx without a refusal code. The
-    same call may be sent again later.
+    gateway or model endpoint that cannot be reached (never the client's own timeout; the gateway's is
+    :class:`LlmAnswerTimeout`), or an HTTP 5xx without a refusal code. The same call may be sent again later.
     ``reason``: the refusal code, ``unreachable`` or ``http_5xx``; ``retry_after``: the gateway's ``Retry-After``."""
 
     def __init__(self, message: str, reason: str, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.reason = reason
         self.retry_after = retry_after
+
+
+class LlmAnswerTimeout(LlmUpstreamFailed, LlmModelFault):
+    """The gateway's time ran out on the answer (``upstream_failed`` with only ``timeout`` upstream kinds; walk step
+    5): a model fault for a batch job, which waits and sends it again (``reason`` :data:`tb_llm.outage.ANSWER_TIMEOUT`),
+    and still a part the gateway gave up on for the compiler, which asks a slow part again in halves (G4)."""
 
 
 @dataclass(frozen=True)
@@ -540,7 +546,11 @@ class LlmClient:
                 raise LlmPromptTooLong(f"gateway refused {meta.id}: {exc.reason}") from exc
             if exc.reason == "prompt_unqualified":
                 raise LlmPromptUnqualified(f"gateway refused {meta.id}@{meta.version}: {exc.reason}") from exc
-            if exc.reason in MODEL_FAULTS:  # T-689 (F-04): the caller may wait and send the same call again
+            fault = refusal_fault(exc.reason, exc.upstream_kinds)
+            if fault == ANSWER_TIMEOUT:  # walk step 5: the gateway's time ran out, the model was answering
+                said = f"gateway refused {meta.id}: {exc.reason} (timeout)"
+                raise LlmAnswerTimeout(said, fault, exc.retry_after) from exc
+            if fault is not None:  # T-689 (F-04): the caller may wait and send the same call again
                 raise LlmModelFault(f"gateway refused {meta.id}: {exc.reason}", exc.reason, exc.retry_after) from exc
             if exc.reason == "upstream_failed":  # G4: the gateway gave up on the answer; a shorter request may not
                 raise LlmUpstreamFailed(f"gateway refused {meta.id}: {exc.reason}") from exc
