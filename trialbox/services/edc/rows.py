@@ -115,11 +115,11 @@ class Rows:
             if self.layout.repeating_instrument(ev, form):
                 if instance is None and not (ev == slot.event and slot.instrument == form):
                     raise logic.LogicError(f"{field} repeats; the logic does not say which instance")
-                at = Slot(ev, form, instance or slot.instance)
+                at = Slot(ev, form, instance if instance is not None else slot.instance)
             elif self.layout.repeating_event(ev):
                 if instance is None and not (ev == slot.event and slot.repeat and not slot.instrument):
                     raise logic.LogicError(f"the event {ev} repeats; the logic does not say which instance")
-                at = Slot(ev, "", instance or slot.instance)
+                at = Slot(ev, "", instance if instance is not None else slot.instance)
             else:
                 at = Slot(ev)
             val = self.value(record, at, field)  # a checkbox: its ticks as laid, else as REDCap holds (NEW-EDC-3b)
