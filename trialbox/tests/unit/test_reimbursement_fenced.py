@@ -69,6 +69,24 @@ def test_a_row_that_says_on_opens_nothing_off_a_test_box(
     assert refused.value.step == "reimbursement"
 
 
+def test_a_row_switched_on_on_a_dev_box_opens_nothing_once_the_box_is_production(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The integrator's condition (7083498878): the flag switched on while the box was DEV, then the box made
+    PRODUCTION (or its database carried over): the stored "on" is ignored and NAV and SUBMIT are refused."""
+    monkeypatch.setenv("TB_ENV", "DEV")
+    _switch_on(tmp_path)
+    assert reimbursement.is_open()
+    assert _flags(tmp_path).row(FLAG) == "on"
+    flags.clear_cache()
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    assert _flags(tmp_path).row(FLAG) == "on"  # the row is still there; the box's environment fences it
+    assert not reimbursement.is_open()
+    with pytest.raises(StepFailed) as refused:
+        reimbursement.require_open()
+    assert refused.value.step == "reimbursement"
+
+
 @pytest.mark.parametrize("env", ["STAGING", "", "  ", "prod"])
 def test_an_unknown_environment_is_not_a_test_box(env: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Fails closed: a name that is not DEV or TEST (a made-up one, an empty one) opens nothing, even with the row on."""
