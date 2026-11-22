@@ -140,7 +140,8 @@ def bench_exception(probe: Path, driver: str, card: str, pinned: str, lock: Path
     try:
         doc = json.loads(probe.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        return [f"the engine probe result {probe} cannot be read ({type(exc).__name__}): run tools/engine_probe.py"], rec
+        why = f"the engine probe result {probe} cannot be read ({type(exc).__name__}): run tools/engine_probe.py"
+        return [why], rec
     problems = []
     if not isinstance(doc, dict) or doc.get("schema") != "tb-engine-probe/1":
         return [f"{probe} is not an engine probe result (tb-engine-probe/1)"], rec
