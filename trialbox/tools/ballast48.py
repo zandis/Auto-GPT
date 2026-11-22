@@ -316,9 +316,21 @@ def annotate(summary: dict[str, Any], card: dict[str, Any], view: BallastView, s
 def measure(run: Runner, oid: str, out_dir: Path, engine: str, keep: bool, dry_run: bool,
             target: int = TARGET_MIB, measure_fn: Callable[..., dict[str, Any]] | None = None,
             say: Callable[[str], None] = print, gpu_index: int = 0, gpu_uuid: str | None = None,
-            pin: bool = False) -> dict[str, Any]:  # fmt: skip
-    """``pin``: the servers on the chosen card by UUID, proven (the CLI always asks it)."""
+            pin: bool = False, probe: Path | None = None) -> dict[str, Any]:  # fmt: skip
+    """``pin``: the servers on the chosen card by UUID, proven (the CLI always asks it). ``probe`` (H-74, the bench
+    host's driver exception only): the engine probe's result whose passing form is ``engine``; lane J's measure then
+    reads that form from the file (tools/dgpu48.py engine_from_probe), with the probe's own container environment.
+    Without it the form is forced by name, as before."""
     measure_fn = measure_fn or dgpu48.measure
+    forced = engine
+    if probe is not None:
+        try:
+            use = ((json.loads(probe.read_text(encoding="utf-8")) or {}).get("verdict") or {}).get("use")
+        except (OSError, ValueError, AttributeError) as exc:
+            raise Refused(f"--probe {probe} cannot be read ({type(exc).__name__})") from exc
+        if use != engine:
+            raise Refused(f"--probe {probe} passed with {use!r}, not --engine {engine!r}")
+        forced = ""  # the probe's verdict, environment and all (dgpu48.engine_from_probe)
     if dry_run:
         card = read_card(run, gpu_index, gpu_uuid)
     else:
@@ -334,7 +346,7 @@ def measure(run: Runner, oid: str, out_dir: Path, engine: str, keep: bool, dry_r
         f"{ballast.CONTAINER}; records say '{capped_to(target)}' (never a tier record)"
         + ("; the servers pinned to this card by UUID" if pin_file else ""))  # fmt: skip
     try:
-        s = measure_fn(view, oid, out_dir, None, engine, dry_run, keep, say=say)
+        s = measure_fn(view, oid, out_dir, probe, forced, dry_run, keep, say=say)
     except Refused:
         _mark_refused(out_dir / f"measure.{oid}.json", card, view, target)
         raise
@@ -531,6 +543,8 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("measure", parents=[one], help=f"tools/dgpu48.py measure under the ballast ({dgpu48.SWITCH}=1)")
     m.add_argument("--option", required=True)
     m.add_argument("--engine", default="pinned", help="the engine form (no probe on a measured card): pinned")
+    m.add_argument("--probe", type=Path, default=None,
+                   help="H-74, the bench exception only: the engine probe whose passing form is --engine")  # fmt: skip
     m.add_argument("--out-dir", type=Path, default=None)
     m.add_argument("--keep", action="store_true", help="leave the servers running (then `down`)")
     m.add_argument("--dry-run", action="store_true")
@@ -570,7 +584,7 @@ def main(argv: list[str] | None = None) -> int:
             dgpu48.option(dgpu48.load(), a.option)
             out_dir = a.out_dir or Path.home() / f"tb-dgpu48-{a.option}"
             s = measure(run, a.option, out_dir, a.engine, a.keep, a.dry_run, a.target_mib, gpu_index=a.gpu_index,
-                        gpu_uuid=a.gpu_uuid, pin=True)  # fmt: skip
+                        gpu_uuid=a.gpu_uuid, pin=True, probe=a.probe)  # fmt: skip
             if not a.dry_run:
                 print(json.dumps({k: s.get(k) for k in ("option", "started", "card_peak_mib", "ballast", "outcome")},
                                  indent=1))  # fmt: skip
