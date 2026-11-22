@@ -31,7 +31,9 @@ POC="$ROOT/deploy/poc"
 ADMIN_EMAIL="${TB_POC_ADMIN_EMAIL:-admin@hospa.test}"
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 IMAGE_JVM="${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}"
-IMAGE_DB=trialbox-postgres:16-1  # deploy/build_db_image.sh builds it; compose's db service runs it (card 24-2)
+IMAGE_DB="${TB_DB_IMAGE:-trialbox-postgres:16-1}"  # deploy/build_db_image.sh builds it; compose's db service runs it (card 24-2)
+# H-75: the compose project (TB_COMPOSE_PROJECT, deploy/docker-compose.yml name:) names the volumes checked below
+PROJECT="${TB_COMPOSE_PROJECT:-trialbox}"
 OPENROUTER_MODEL="${TB_OPENROUTER_MODEL:-nvidia/nemotron-3-nano-30b-a3b}"
 
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
@@ -144,7 +146,7 @@ if [ "$EMBED" = model ] && [ "$ACTION" = up ]; then
   [ -z "$pickles" ] || die "TB_POC_EMBED=model: $EMBED_DIR holds pickle or code files ($(echo "$pickles" | tr '\n' ' ')): the pinned build $EMBED_BUILD is the folder without them (D-429); remove them"
   ok "embedder folder $EMBED_DIR (its manifest is checked against the release when it is pinned)"
 fi
-if [ "$ACTION" = up ] && docker volume inspect trialbox_lake-data >/dev/null 2>&1; then
+if [ "$ACTION" = up ] && docker volume inspect "${PROJECT}_lake-data" >/dev/null 2>&1; then
   kept="$(envfile_get TB_POC_EMBED)"
   [ "${kept:-hash}" = "$EMBED" ] || die "the synthetic lake was embedded with the ${kept:-hash} embedder, not the $EMBED one: its sentence vectors would not match. Start again from nothing (deploy/poc.sh reset deletes all PoC data), then run this again"
 fi
@@ -263,16 +265,27 @@ build_images() {
   for cand in "$ROOT/.venv/bin/python" "$(command -v python3 || true)"; do
     if [ -x "$cand" ] && "$cand" -c 'import fontTools' 2>/dev/null; then py="$cand"; break; fi
   done
-  if command -v mvn >/dev/null && [ -n "$py" ] && command -v curl >/dev/null; then
+  # H-75: images of other names (TB_IMAGE, TB_JVM_IMAGE) never go through `make images`, whose tags are the box's
+  # own: the build inputs are fetched here and the images built under the given names, on that base (BASE_IMAGE)
+  local base=() own=0
+  [ "$IMAGE_PY" = trialbox-py:1.0.0 ] && [ "$IMAGE_JVM" = trialbox-jvm:1.0.0 ] || own=1
+  [ "$IMAGE_PY" = trialbox-py:1.0.0 ] || base=(--build-arg "BASE_IMAGE=$IMAGE_PY")
+  if [ "$own" = 0 ] && command -v mvn >/dev/null && [ -n "$py" ] && command -v curl >/dev/null; then
     make images PY="$py"; DB_BUILT=1  # its last build is the database image's (deploy/build_db_image.sh)
   else  # no build tools on the host: fetch the build inputs in a throwaway builder container
-    say "fetching fonts and JVM build inputs in a builder container"
-    docker run --rm -v "$ROOT:/src" -w /src "${TB_BUILDER_IMAGE:-maven:3.9.9-eclipse-temurin-17}" bash -c \
-      'apt-get update -qq && apt-get install -y -qq python3 python3-fonttools curl >/dev/null && PY=python3 bash tools/fetch_jvm_deps.sh && python3 tools/fetch_fonts.py'
-    docker build -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
-    docker build -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+    if [ "$own" = 1 ] && command -v mvn >/dev/null && [ -n "$py" ] && command -v curl >/dev/null; then
+      say "fetching fonts and JVM build inputs (tools/fetch_jvm_deps.sh, tools/fetch_fonts.py)"
+      PY="$py" bash tools/fetch_jvm_deps.sh && "$py" tools/fetch_fonts.py || die "the build inputs did not come"
+    else
+      say "fetching fonts and JVM build inputs in a builder container"
+      docker run --rm -v "$ROOT:/src" -w /src "${TB_BUILDER_IMAGE:-maven:3.9.9-eclipse-temurin-17}" bash -c \
+        'apt-get update -qq && apt-get install -y -qq python3 python3-fonttools curl >/dev/null && PY=python3 bash tools/fetch_jvm_deps.sh && python3 tools/fetch_fonts.py'
+    fi
+    docker build -f deploy/docker/python.Dockerfile -t "$IMAGE_PY" .
+    docker build -f deploy/docker/jvm.Dockerfile ${base[@]+"${base[@]}"} -t "$IMAGE_JVM" .
     # card 24-7: the real embedder's image (trialbox-py plus its CPU library), only when it is asked for
-    [ "$EMBED" != model ] || docker build -f deploy/docker/embed.Dockerfile -t trialbox-embed:1.0.0 .
+    local emb=trialbox-embed:1.0.0; [ "$own" = 0 ] || emb="${TB_EMBED_IMAGE:-$emb}"
+    [ "$EMBED" != model ] || docker build -f deploy/docker/embed.Dockerfile ${base[@]+"${base[@]}"} -t "$emb" .
   fi
 }
 # card 24-2 (root review 24): the database image has no build: entry in compose and is on no registry, so a host
@@ -296,9 +309,10 @@ if [ "$DB_BUILT" = 0 ] && [ "${DB_WANTED:-$IMAGE_DB}" = "$IMAGE_DB" ] \
    && { [ "${TB_POC_BUILD:-0}" = 1 ] || ! docker image inspect "$IMAGE_DB" >/dev/null 2>&1; }; then
   build_db_image
 fi
+EMBED_BASE=(); [ "$IMAGE_PY" = trialbox-py:1.0.0 ] || EMBED_BASE=(--build-arg "BASE_IMAGE=$IMAGE_PY")  # H-75: on the run's own base
 if [ "$EMBED" = model ] && ! docker image inspect "$TB_EMBED_IMAGE" >/dev/null 2>&1; then
   say "building the embedder image $TB_EMBED_IMAGE (card 24-7; a few minutes)"
-  docker build -f deploy/docker/embed.Dockerfile -t "$TB_EMBED_IMAGE" .
+  docker build -f deploy/docker/embed.Dockerfile ${EMBED_BASE[@]+"${EMBED_BASE[@]}"} -t "$TB_EMBED_IMAGE" .
 fi
 
 # ------------------------------------------------------------------------------------------------ settings, model pin

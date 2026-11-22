@@ -140,8 +140,8 @@ tool() {  # tool <name> <args...>: run from the checkout, SIGINT at its default
     complete_run) (cd "$CK" && NODE_PATH=${NODE_TOOLS:-/opt/node-tools}/node_modules TB_ENV=DEV PYTHONPATH=libs:services:. \
                    sigint .venv/bin/python -m tools.complete_run "$@") ;;
     fetch_run_data) (cd "$CK" && sigint .venv/bin/python -m tools.fetch_run_data "$@") ;;
-    canary) docker run --rm --network trialbox-model-backend -e TB_GPU_KEY -v "$CK/tools/canary.py:/app/tools/canary.py:ro" \
-              trialbox-py:1.0.0 python -m tools.canary "$@" ;;
+    canary) docker run --rm --network "${TB_COMPOSE_PROJECT:-trialbox}-model-backend" -e TB_GPU_KEY -v "$CK/tools/canary.py:/app/tools/canary.py:ro" \
+              "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.canary "$@" ;;
     setup) "screen_setup_$1" ;;
   esac
 }
@@ -223,14 +223,16 @@ step_tools() {
   watched tool setup clean; disk_note "s09-tools-freed"
 }
 pair_kept() { case "$(kv kept)" in pair-32k|pair-16k) return 0 ;; *) return 1 ;; esac; }
-servers_up() { [ -n "$SI" ] || [ "$(docker inspect -f '{{.State.Running}}' trialbox-llm-service-1 2>/dev/null)" = true ]; }
+# H-75: the servers' containers, network and image follow TB_COMPOSE_PROJECT and TB_IMAGE (the host run's own;
+# unset, the box's names as on the VM)
+servers_up() { [ -n "$SI" ] || [ "$(docker inspect -f '{{.State.Running}}' "${TB_COMPOSE_PROJECT:-trialbox}-llm-service-1" 2>/dev/null)" = true ]; }
 key_env() {  # the servers' key into the environment, never printed (tools/dgpu48.py _vllm_key's file)
   TB_GPU_KEY="$(sed -n 's/^VLLM_API_KEY=//p' "$CK/deploy/secrets/model/vllm.env" 2>/dev/null | tail -n 1 | tr -d "\"'")"
   export TB_GPU_KEY="${TB_GPU_KEY:-measuring-run-no-key}"
 }
 bridge() {  # bridge connect|disconnect: the kept pair on Docker's local bridge (only this VM reaches it)
-  docker network "$1" bridge trialbox-llm-service-1 >> "$STEP_LOG" 2>&1
-  docker network "$1" bridge trialbox-llm-verifier-1 >> "$STEP_LOG" 2>&1
+  docker network "$1" bridge "${TB_COMPOSE_PROJECT:-trialbox}-llm-service-1" >> "$STEP_LOG" 2>&1
+  docker network "$1" bridge "${TB_COMPOSE_PROJECT:-trialbox}-llm-verifier-1" >> "$STEP_LOG" 2>&1
   return 0
 }
 step_screen() {
@@ -238,8 +240,8 @@ step_screen() {
   servers_up || { NOTE="the kept servers are not running (a restart since the ladder?)"; return 1; }
   bridge connect
   local j v
-  j=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' trialbox-llm-service-1 2>/dev/null)
-  v=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' trialbox-llm-verifier-1 2>/dev/null)
+  j=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' "${TB_COMPOSE_PROJECT:-trialbox}-llm-service-1" 2>/dev/null)
+  v=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' "${TB_COMPOSE_PROJECT:-trialbox}-llm-verifier-1" 2>/dev/null)
   key_env
   export NODE_PATH=${NODE_TOOLS:-/opt/node-tools}/node_modules TB_ENV=DEV PYTHONPATH=libs:services:.
   # SIGINT to complete_run itself (its own command line starts with the venv's python), not to `during` around it,

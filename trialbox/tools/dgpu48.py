@@ -57,8 +57,11 @@ DIR_VAR = {
     "verifier": ("VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit"),
 }
 TEMPLATE = ("JUDGE_CHAT_TEMPLATE", "chat-templates/gemma-4-26b-a4b-it/chat_template.jinja")
-BACKEND_NET = "trialbox-model-backend"  # deploy/docker-compose.yml model-backend-net (internal, fixed name)
-PROJECT = "trialbox"  # deploy/docker-compose.yml name:
+# H-75: the compose project and the python image follow the variables compose reads (the 48 GB host run's own);
+# unset, the box's: trialbox, trialbox-model-backend, trialbox-py:1.0.0
+PROJECT = os.environ.get("TB_COMPOSE_PROJECT") or "trialbox"  # deploy/docker-compose.yml name:
+BACKEND_NET = f"{PROJECT}-model-backend"  # deploy/docker-compose.yml model-backend-net (internal, its name)
+PY_IMAGE = os.environ.get("TB_IMAGE") or "trialbox-py:1.0.0"  # deploy/docker-compose.yml x-python image
 COMPAT_DIR = "/usr/local/cuda/compat"
 # the pinned builds whose weights every profile serves (models/registry.yaml: the same expected manifest in each
 # profile's build); the measuring run checks the weights folders against them before it downloads anything
@@ -346,7 +349,7 @@ def plan_commands(o: dict[str, Any], engine: dict[str, Any], files: list[str], m
     if "judge" in o["serves"]:
         # the checkout's canary.py over the image's: the image was built at page 28, before the judge-alone form
         canary = ["docker", "run", "--rm", "--network", BACKEND_NET, "-e", "TB_GPU_KEY",
-                  "-v", f"{root / 'tools' / 'canary.py'}:/app/tools/canary.py:ro", "trialbox-py:1.0.0",
+                  "-v", f"{root / 'tools' / 'canary.py'}:/app/tools/canary.py:ro", PY_IMAGE,
                   "python", "-m", "tools.canary", "--judge-url", f"http://{ALIAS['judge']}:8000/v1"]  # fmt: skip
         if "verifier" in o["serves"]:
             canary += ["--verifier-url", f"http://{ALIAS['verifier']}:8000/v1"]
@@ -671,7 +674,7 @@ def check_weights(run: Runner, o: dict[str, Any], models: Path, environ: dict[st
         var, default = DIR_VAR[role]
         folder = environ.get(var) or default
         cmd = ["docker", "run", "--rm", "-v", f"{models}:/m:ro", "-v", f"{root / 'tools'}:/app/tools:ro",
-               "-v", f"{root / 'models'}:/app/models:ro", "trialbox-py:1.0.0", "python", "-m", "tools.pin_model",
+               "-v", f"{root / 'models'}:/app/models:ro", PY_IMAGE, "python", "-m", "tools.pin_model",
                "--build", build, "--model-dir", f"/m/{folder}", "--endpoint", endpoint, "--served-name", served,
                "--out", "/home/tb/dgpu48-check.yaml"]  # the image user's home (useradd --create-home)  # fmt: skip
         if role == "judge":
