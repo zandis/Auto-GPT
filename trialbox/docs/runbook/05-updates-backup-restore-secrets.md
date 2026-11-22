@@ -161,18 +161,17 @@ least the last two weeks:
    "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
    `backup-nightly` so a new full chain starts.
 
-**Restore drill (T-730d, D-892).** Proof that the newest backup restores, without touching the box's data. Hospital
-IT brings the key from the envelope and types, on the box's host (the Operations page's backups tab shows this line
-with the newest file filled in): `sudo python3 -m tools.trialbox restore-drill <backup file> --key <the key>`. It
-checks free space first (the unpacked backup and scratch databases; it says how many GB it needs and starts nothing
-when short), opens the backup with the key and checks every file against its signed manifest, restores each
-database into a scratch database (`tb_drill_<id>_<name>`, never the live one), compares rows and content hashes
-with the manifest, and drops the scratch databases and the unpacked files, after a failure too. Exit 0 is a pass,
-1 a fail, 2 nothing started. The result (never the key or its path) is the box's key-check record and an audit
-event (`backup.restore_drill`): the health check's `backup_verified` turns red after `TB_HEALTH_VERIFIED_DAYS` (100)
-days without one, or at once on a failed drill until one passes, and a failed drill is a backup problem that goes
-through the alert route (mail, or the health page). Run it at least every 90 days, after hardware changes and before
-go-live acceptance (§6).
+**Restore drill (T-730d, D-892).** Hospital IT brings the private key from the envelope. In a root shell on the
+box, run `trialbox restore-drill <backup file> --key <key>`. Operations → Backups fills in the newest backup path.
+The command checks free space for the unpacked backup and scratch databases first. If space is short, it reports
+the GB needed and starts nothing. The release image uses its locked zstandard to unpack and verify every file
+against the signed manifest. The database administrator creates scratch databases (`tb_drill_<id>_<name>`).
+The drill runs pg_restore as their owner and uses the site connection from `deploy/.env` to compare rows and hashes.
+It removes scratch databases and unpacked files even after a failure. Exit 0 means pass, 1 failure, 2 nothing started.
+The key-check record and audit event (`backup.restore_drill`) omit the key and its path. A failed drill alerts by mail
+or on the health page and turns `backup_verified` red until a drill passes. It also turns red after
+`TB_HEALTH_VERIFIED_DAYS` (100) days without a key check. Run the drill at least every 90 days, after hardware
+changes and before go-live acceptance (§6).
 
 **Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
 pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not

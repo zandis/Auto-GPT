@@ -6,7 +6,9 @@ model checks and back-translates, exactly as the CONSENT job does on the box. It
 review sheet and the DRAFT patient pages to ``--out``; ``--site`` also writes the record the public site renders
 (``site/data/consent_<study>.json``)::
 
-    OPENROUTER_API_KEY=... .venv/bin/python -m tools.consent_live tests/fixtures/consent/GZQO_ICF_v2.md --site
+    read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+    .venv/bin/python -m tools.consent_live tests/fixtures/consent/GZQO_ICF_v2.md --site
+    unset OPENROUTER_API_KEY
 """
 
 from __future__ import annotations
