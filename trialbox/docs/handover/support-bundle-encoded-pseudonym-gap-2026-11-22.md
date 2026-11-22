@@ -13,7 +13,8 @@ Findings in the register's `--add-from` form: `support-bundle-encoded-pseudonym-
   the pseudonym rule passed it. The log scrubber's phone pattern then took digits from its middle. The decoded view
   ran after that and saw only fragments, so 8 to 13 hex digits of the pseudonym left the bundle. The invariant test
   `test_the_extended_corpus_still_holds_the_invariant` failed on master about once in 60 runs.
-- **What changed.**
+- **What changed.** Two commits (`4cd66786`, `a25a5c18`) and the fix of the review of #1354 (`edcfec47`, then
+  this page's commit).
   - Each line's decoded view is read before any raw rule.
   - The line keeps its own (encoded) form only when the raw rules, decoded, give the decoded view mask for mask.
     Otherwise it is written decoded and scrubbed.
@@ -35,7 +36,7 @@ one for one. Whether those two tests should instead accept a decoded line is the
 
 | Finding | Fix | Test (`tests/unit/test_support_bundle_h76.py`) |
 | --- | --- | --- |
-| H1 (High) the scrub can hang: lining the two lines up by one regex of lazy groups backtracked without end (24 masks on 335 characters: 9.7 s; master 0.04 s) | `_removed` and `_leaks` are gone. The condition is `_MARK.sub("[]", _decode(raw)) == _MARK.sub("[]", clean)`, which is linear. | `test_review_h1_a_line_that_cannot_be_lined_up_does_not_hang_the_scrub` (under 0.5 s); `test_review_the_scrub_of_one_line_is_linear_in_its_masks` (5 shapes, 48 masks under 0.5 s, doubling the masks at most 2.5 times the time) |
+| H1 (High) the scrub can hang: lining the two lines up by one regex of lazy groups backtracked without end (24 masks on 335 characters: 9.7 s; master 0.04 s) | `_removed` and `_leaks` are gone. The raw line is kept only when `_same_masks(_decode(raw), clean)`: the two are the same text. That is linear and stricter than the review's form with marks normalised; one bundle's tags are the same for one token, so equal marks compare equal. | `test_review_h1_a_line_that_cannot_be_lined_up_does_not_hang_the_scrub` (under 0.5 s); `test_review_the_scrub_of_one_line_is_linear_in_its_masks` (5 shapes, 48 masks under 0.5 s, doubling the masks at most 2.5 times the time) |
 | M1 (Medium) two raw rules (phone and a chart pattern) cut a pseudonym into pieces under 8 characters, and the shortcut kept them | The same condition: a raw line whose masks differ from the view's is not kept | `test_review_m1_two_raw_rules_that_cut_a_pseudonym_leave_nothing_of_it`; `test_review_m1_class_*`: chart patterns of 5 to 10 digits, bounded as `mrn_pattern` bounds them and by digits only, 150 seeded pseudonyms each (1,800 in all): no run of 5 or more of a pseudonym's characters left |
 | L1 the shortcut is there for two form tests | Stated above, for the integrator's ruling | — |
 | L2 the seeds fix the draws | The class test above adds 1,800 draws with chart patterns to the 2,400 of the flake's class test | — |
@@ -43,6 +44,11 @@ one for one. Whether those two tests should instead accept a decoded line is the
 
 What the class test admits: a run of 4 characters of a pseudonym can stand in other text of the line by chance (a
 marker's letters, `%2F`), so the test fails on 5 or more. Nothing of the pseudonym is left on purpose.
+
+Mutation pass on the fix: 10 mutants of the condition and the order (keep always, keep never, raw not decoded,
+raw against the unscrubbed view, keep when they differ, lengths only, either one inside the other, any case, the old
+order). 9 were caught on the first run. The tenth (any case) is caught since one more line of
+`test_review_the_raw_line_is_kept_only_when_it_is_the_view_mark_for_mark`: 10 of 10.
 
 ## Not verified
 

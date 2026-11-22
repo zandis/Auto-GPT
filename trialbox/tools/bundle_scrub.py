@@ -462,7 +462,7 @@ class Scrubber:
             # H-76: the line keeps its own (encoded) form only when the raw rules, decoded, give the decoded view mask
             # for mask (the review of #1354: a test of 8 characters in a row let two raw rules leave pieces of 7, and
             # lining the two up by a regex backtracked without end); otherwise it is written decoded and scrubbed
-            if _MARK.sub("[]", _decode(self._rules(line))) == _MARK.sub("[]", clean):
+            if _same_masks(_decode(self._rules(line)), clean):
                 continue
             lines[k] = clean
             self.found["decoded line"] += 1
@@ -575,7 +575,10 @@ def _held(rx: re.Pattern[str], text: str, rules: Callable[[str], str]) -> str:
     return _PRIVATE.sub(lambda m: held[ord(m.group(0)) - 0xF0000], text) if held else text
 
 
-_MARK = re.compile(r"\[[^\[\]\n]{1,80}\]")
+def _same_masks(raw_view: str, clean: str) -> bool:
+    """Whether the raw line's scrub, decoded, is the decoded view's scrub: the same text and the same marks in the
+    same places (one bundle's tags are the same for one token, so the marks are equal too). Linear in the line."""
+    return raw_view == clean
 
 
 def _decode(line: str) -> str:

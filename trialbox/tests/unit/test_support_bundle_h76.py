@@ -116,3 +116,15 @@ def test_review_the_scrub_of_one_line_is_linear_in_its_masks(unit: str) -> None:
     t48 = _timed(lambda: bs.Scrubber.for_bundle().text(lines[48]))
     assert t48 < 0.5, f"{t48:.2f} s"
     assert t48 <= 2.5 * t24 + 0.02, f"24 masks {t24:.3f} s, 48 masks {t48:.3f} s"
+
+
+def test_review_the_raw_line_is_kept_only_when_it_is_the_view_mark_for_mark() -> None:
+    """The condition of the fix, held directly (the mutation pass found no line that told an equal length or a part
+    from the whole): a different mark, a mark missing, the same length, and one inside the other are not the same."""
+    same = "next=/p/[pseudonym #bcdfg]?password=[redacted]"
+    assert bs._same_masks(same, same)
+    assert not bs._same_masks("next=/p/[MRN]?password=[redacted]", same)  # another mark in its place
+    assert not bs._same_masks("next=/p/9659a6d97592b[PHONE]aba1a4b274", "next=/p/[pseudonym #bcdfg]")
+    assert not bs._same_masks("ab[x]cd", "abc[x]d")  # the same length
+    assert not bs._same_masks("a[x]", "a[x]b") and not bs._same_masks("a[x]b", "a[x]")  # a part of the other
+    assert not bs._same_masks("pid=ABCDEF[x]", "pid=abcdef[x]")  # a case of its own: not the same text
