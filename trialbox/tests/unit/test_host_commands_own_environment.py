@@ -350,7 +350,10 @@ def test_every_host_command_runs_from_a_bare_environment(box: dict[str, Any], tm
     the install folder; ``trialbox`` on PATH, install.sh's link to ``__main__.py``, run as its shebang runs it:
     ``python3 -I``, from /) and one read-only call of the installed form, in sudo's and cron's bare environment with
     the system python: no import fault; a command that needs the box image's libraries goes to its container."""
-    trialbox = f"python3 -I {box['root'] / 'tools' / 'trialbox' / '__main__.py'}"
+    link = tmp_path / "usr-local-bin" / "trialbox"  # install.sh's link: the install folder is found through it
+    link.parent.mkdir()
+    link.symlink_to(box["root"] / "tools" / "trialbox" / "__main__.py")
+    trialbox = f"python3 -I {link}"
     for line, cwd in ((f"python3 -m tools.trialbox {cmd} --help", box["root"]), (f"{trialbox} {cmd} --help", "/")):
         r = bare(box, line, cwd=cwd)
         _no_import_fault(r)
@@ -371,6 +374,8 @@ def test_every_host_command_runs_from_a_bare_environment(box: dict[str, Any], tm
         assert a[a.index("--cap-drop") + 1] == "ALL" and "--privileged" not in a, a
         assert not any("docker.sock" in x for x in a), a
         assert DSN not in json.dumps(a), a
+        # the box's settings (its database password among them) only to a command that has a network
+        assert ("--env-file" in a) == (need.network != "none"), a
     elif cmd != "restore-drill":
         assert not runs, f"{cmd} needs nothing of the image and went to it: {runs}"
 
@@ -399,8 +404,8 @@ def test_the_callers_path_and_settings_never_win(box: dict[str, Any], tmp_path: 
     assert runs and PY_IMAGE in runs[0]["argv"] and "caller/image:evil" not in runs[0]["argv"], runs
     assert all(c["env_db_url"] != caller["TB_DB_URL"] for c in calls(box)[before:]), "the caller's DSN reached docker"
     env = dict(caller)
-    replaced = launch.box_settings(env, box["deploy"])
-    assert env["TB_DB_URL"] == DSN and env["TB_IMAGE"] == PY_IMAGE and set(replaced) == {"TB_DB_URL", "TB_IMAGE"}
+    launch.box_settings(env, box["deploy"])
+    assert env["TB_DB_URL"] == DSN and env["TB_IMAGE"] == PY_IMAGE
     path = launch.own_path([str(planted), "", "/usr/lib/python3"], {"PYTHONPATH": str(planted)})
     assert path[:2] == list(launch.OWN_PATH) and "" not in path
     assert launch.caller_entries({"PYTHONPATH": f"{planted}:{launch.ROOT / 'services'}"}) == {str(planted)}
@@ -413,7 +418,7 @@ def test_the_container_keeps_the_exit_code_and_puts_no_secret_on_the_command_lin
                                  launch.COMMANDS["backup-verify"], {"TB_IMAGE": PY_IMAGE, "TB_DB_URL": DSN},
                                  tmp_path, 1000, 1000)  # fmt: skip
     assert argv[argv.index("--network") + 1] == "none" and argv[argv.index("--pull") + 1] == "never"
-    assert argv[argv.index("--user") + 1] == "1000:1000" and DSN not in " ".join(argv)
+    assert argv[argv.index("--user") + 1] == "1000:1000" and DSN not in " ".join(argv) and "--env-file" not in argv
     assert f"{tmp_path}/f.tbbak:{tmp_path}/f.tbbak:ro" in argv and "/media/usb/k.key:/media/usb/k.key:ro" in argv
     assert argv[-4:] == ["--key", "/media/usb/k.key", "--deploy", str(launch.DEPLOY)]
     db = launch.container_argv(["backup", "--to", str(tmp_path / "nas")], launch.COMMANDS["backup"], {}, tmp_path,
@@ -499,6 +504,72 @@ def test_the_box_file_wins_except_for_the_module_forms_drill(tmp_path: Path, mon
         env = {"TB_DB_URL": caller}
         assert launch.enter(args, env, installed=installed) is None
         assert env["TB_DB_URL"] == want, (args, installed, env)
-    argv = launch.container_argv(["backup-check", "f"], launch.COMMANDS["backup-check"], {"TB_IMAGE": "caller/x:1"},
-                                 tmp_path, 0, 0)  # fmt: skip
-    assert PY_IMAGE in argv and "caller/x:1" not in argv  # the image is the box's, whatever the environment says
+    env = {"TB_ENV": "DEV"}  # a TB_ENV the box's file does not set is never the caller's (PRODUCTION applies)
+    (tmp_path / ".env").write_text(f"TB_DB_URL={DSN}\n", encoding="utf-8")
+    assert launch.enter(["backup-status"], env) is None and "TB_ENV" not in env
+    (tmp_path / ".env").unlink()
+    env = {"TB_ENV": "DEV"}
+    assert launch.enter(["backup-status"], env) is None and "TB_ENV" not in env  # no file: no caller TB_ENV either
+
+
+def test_the_runtime_and_the_image_are_never_the_callers(box: dict[str, Any], tmp_path: Path) -> None:
+    """Review M1: install.sh writes neither TB_DOCKER nor TB_IMAGE to deploy/.env. With a box file that has neither
+    and a caller (``sudo -E``, an ``env_keep`` rule) that sets both, the caller's program never runs as the runtime
+    and the caller's image is never given the box's settings: the defaults are used."""
+    env_file = box["deploy"] / ".env"
+    kept = env_file.read_text(encoding="utf-8")
+    marker = tmp_path / "caller-runtime-ran"
+    evil = tmp_path / "evil-docker"
+    evil.write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+    evil.chmod(0o755)
+    try:
+        env_file.write_text("".join(x + "\n" for x in kept.splitlines() if not x.startswith(("TB_IMAGE=", "TB_DOCKER="))),
+                            encoding="utf-8")  # fmt: skip
+        before = len(calls(box))
+        (tmp_path / "f.tbbak").write_bytes(b"not a backup")
+        caller = {"TB_DOCKER": str(evil), "TB_IMAGE": "caller/evil:1"}
+        r = bare(box, f"python3 -I {box['root'] / 'tools' / 'trialbox' / '__main__.py'} backup-check {tmp_path}/f.tbbak",
+                 cwd=tmp_path, **caller)  # fmt: skip
+        _no_import_fault(r)
+        assert not marker.exists(), "the caller's TB_DOCKER ran"
+        runs = [c["argv"] for c in calls(box)[before:] if c["argv"][:1] == ["run"]]
+        assert runs and launch.DEFAULT_IMAGE in runs[0] and "caller/evil:1" not in json.dumps(runs), runs
+    finally:
+        env_file.write_text(kept, encoding="utf-8")
+
+
+def test_a_box_file_that_cannot_be_trusted_stops_everything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review L1, L2: a deploy/.env that is there but is a folder, a dangling link, unreadable, owned by another user
+    or writable by group or others stops the command (exit 2, nothing run, no value said); none there is no setting.
+    (Lane R's #1371 keeps PRODUCTION in these cases instead and goes on: here the review's rule, exit 2.)"""
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(launch, "DEPLOY", tmp_path)
+    assert launch.box_file(tmp_path) == {}
+    f = tmp_path / ".env"
+
+    def refused(why: str) -> None:
+        with pytest.raises(launch.BoxFileError, match=why):
+            launch.box_file(tmp_path)
+        assert launch.enter(["backup-status"], {"TB_ENV": "DEV"}) == 2
+
+    f.mkdir()
+    refused("not a file")
+    f.rmdir()
+    f.symlink_to(tmp_path / "nowhere")
+    refused("cannot be read")
+    f.unlink()
+    f.write_text(f"TB_DB_URL={DSN}\n", encoding="utf-8")
+    f.chmod(0o664)
+    refused("group or others")
+    f.chmod(0o600)
+    assert launch.box_file(tmp_path) == {"TB_DB_URL": DSN}
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: (_ for _ in ()).throw(PermissionError("denied")))
+    refused("cannot be read")
+    monkeypatch.undo()
+    monkeypatch.setattr(launch, "DEPLOY", tmp_path)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    if os.geteuid() == 0:
+        os.chown(f, 4242, 4242)
+    else:
+        monkeypatch.setattr(os, "geteuid", lambda: 4242)
+    refused("neither root nor this user")

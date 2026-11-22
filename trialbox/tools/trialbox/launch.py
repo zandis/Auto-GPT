@@ -7,13 +7,16 @@ nothing else, under ``sudo`` or cron, which drop the caller's environment. So ev
 1. **The import path** is set from this file's own location: the install folder and its ``libs/`` go first
    (:func:`own_path`); what the caller's ``PYTHONPATH`` added comes after and never decides where a command runs.
 2. **The settings** are the box's own ``deploy/.env`` (beside this file's install folder), read by the tool itself
-   (:func:`box_settings`): a key in that file wins over the caller's environment, so ``sudo`` dropping
-   ``TB_DB_URL`` does not matter and a caller's ``TB_DB_URL`` or ``TB_ENV`` never wins over the box's file.
+   (:func:`box_settings`): a key in that file wins over the caller's environment, a ``TB_ENV`` it does not set is
+   never the caller's, and a file that is there but cannot be trusted (not a readable regular file, another user's,
+   writable by group or others) stops the command (:func:`box_file`, exit 2). So ``sudo`` dropping ``TB_DB_URL`` no
+   longer matters, and a caller's ``TB_DB_URL``, ``TB_ENV``, ``TB_DOCKER`` or ``TB_IMAGE`` never wins over the box.
 3. **The libraries** the host does not have (``zstandard``, ``cryptography``, ``psycopg``, ``httpx``): a command
    that needs them runs in a one-off container of the box's own Python image (``TB_IMAGE``, as ``ops.py`` and
    ``audit_heads.py`` run theirs; ``--pull never``), on the compose network only when it needs the database, with
    only the mounts its arguments name (inputs read-only), ``--cap-drop ALL``, the invoking user's uid and gid,
-   the settings by ``--env-file`` (no value on a command line) and its exit code and output passed through
+   the settings by ``--env-file`` only to a command with a network (no value on a command line), the runtime and the
+   image the box file's or the defaults, and its exit code and output passed through
    (:func:`container_argv`). Where the libraries are there (the image itself, a developer's interpreter), the
    command runs here.
 
@@ -27,6 +30,7 @@ import importlib.machinery
 import importlib.util
 import os
 import shlex
+import stat
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -140,15 +144,43 @@ def env_file(path: Path) -> dict[str, str]:
     return out
 
 
-def box_settings(environ: dict[str, str] | os._Environ[str], deploy: Path = DEPLOY) -> list[str]:
-    """Put the box's own ``deploy/.env`` into ``environ``: each key of the file wins over the caller's value. Returns
-    the keys whose caller value was replaced (named, never with a value)."""
-    replaced = []
-    for k, v in env_file(deploy / ".env").items():
-        if k in environ and environ[k] != v:
-            replaced.append(k)
-        environ[k] = v
-    return replaced
+class BoxFileError(RuntimeError):
+    """The box's ``deploy/.env`` is there but cannot be trusted or read: nothing is run."""
+
+
+def box_file(deploy: Path = DEPLOY) -> dict[str, str]:
+    """The box's own ``deploy/.env``, checked before it is used (as root): none there is no setting (``{}``); one that
+    is there but is not a readable regular file (a folder, a dangling link, unreadable), is owned by neither root nor
+    this user, or is writable by group or others raises :class:`BoxFileError` (named, never with a value)."""
+    path = deploy / ".env"
+    if not os.path.lexists(path):
+        return {}
+    try:
+        st = os.stat(path)
+    except OSError as e:
+        raise BoxFileError(f"{path} cannot be read ({e.strerror}): nothing was run") from None
+    if not stat.S_ISREG(st.st_mode):
+        raise BoxFileError(f"{path} is not a file: nothing was run")
+    if st.st_uid not in (0, os.geteuid()):
+        raise BoxFileError(f"{path} belongs to uid {st.st_uid}, neither root nor this user: nothing was run")
+    if st.st_mode & 0o022:
+        raise BoxFileError(f"{path} can be written by group or others (chmod 600 it): nothing was run")
+    try:
+        path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise BoxFileError(f"{path} cannot be read ({type(e).__name__}): nothing was run") from None
+    return env_file(path)
+
+
+def box_settings(environ: dict[str, str] | os._Environ[str], deploy: Path = DEPLOY) -> dict[str, str]:
+    """Put the box's own ``deploy/.env`` into ``environ``: each key of the file wins over the caller's value, and a
+    ``TB_ENV`` the file does not set is never taken from the caller (the default, PRODUCTION, applies). Returns the
+    file's settings; :class:`BoxFileError` when it cannot be trusted."""
+    box = box_file(deploy)
+    environ.update(box)
+    if "TB_ENV" not in box:
+        environ.pop("TB_ENV", None)
+    return box
 
 
 _CALLER: set[str] = set()  # set by enter(): what the caller's PYTHONPATH added
@@ -198,7 +230,7 @@ def _abs(p: str, cwd: Path) -> Path:
     return Path(os.path.normpath(cwd / p))
 
 
-def container_argv(args: Sequence[str], need: Need, settings: Mapping[str, str], cwd: Path,
+def container_argv(args: Sequence[str], need: Need, box: Mapping[str, str], cwd: Path,
                    uid: int, gid: int, docker: Sequence[str] = ("docker",)) -> list[str]:  # fmt: skip
     """The one-off container that runs ``python -m tools.trialbox ARGS`` for a command that needs the box image's
     libraries: the box's own image, never pulled; the compose network only when the command needs the database;
@@ -245,17 +277,19 @@ def container_argv(args: Sequence[str], need: Need, settings: Mapping[str, str],
         mount(site, False)
         if "--deploy" not in args and not any(a.startswith("--deploy=") for a in args):
             out_args += ["--deploy", str(DEPLOY)]
-    envf = ["--env-file", str(DEPLOY / ".env")] if (DEPLOY / ".env").is_file() else []
-    image = env_file(DEPLOY / ".env").get("TB_IMAGE") or settings.get("TB_IMAGE") or DEFAULT_IMAGE
+    # the settings only to a command with a network (the database's password among them); never on a command line
+    envf = ["--env-file", str(DEPLOY / ".env")] if need.network != "none" and (DEPLOY / ".env").is_file() else []
+    image = box.get("TB_IMAGE") or DEFAULT_IMAGE
     return [*docker, "run", "--rm", "-i", "--pull", "never", "--network", need.network, "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true", "--user", f"{uid}:{gid}", "-e", "PYTHONDONTWRITEBYTECODE=1",
             *envf, *mounts, "-w", "/app", image, "python", "-m", "tools.trialbox", *out_args]  # fmt: skip
 
 
-def run_in_image(args: Sequence[str], need: Need, settings: Mapping[str, str]) -> int:
-    """Run the command in the box image; its output and exit code are the command's own."""
-    docker = shlex.split(settings.get("TB_DOCKER") or "docker")
-    argv = container_argv(args, need, settings, Path.cwd(), os.getuid(), os.getgid(), docker)
+def run_in_image(args: Sequence[str], need: Need, box: Mapping[str, str]) -> int:
+    """Run the command in the box image; its output and exit code are the command's own. The runtime and the image
+    are the box file's or the defaults, never the caller's (a caller's TB_DOCKER would run as this user)."""
+    docker = shlex.split(box.get("TB_DOCKER") or "docker")
+    argv = container_argv(args, need, box, Path.cwd(), os.getuid(), os.getgid(), docker)
     try:
         return subprocess.run(argv, check=False).returncode
     except OSError as e:
@@ -276,9 +310,14 @@ def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None
     _CALLER.update(caller_entries(environ))
     sys.path[:] = own_path(sys.path, environ)
     cmd = command_of(args)
-    if installed or cmd != "restore-drill":
-        box_settings(environ, DEPLOY)
+    try:
+        box = box_file(DEPLOY)
+        if installed or cmd != "restore-drill":
+            box_settings(environ, DEPLOY)
+    except BoxFileError as e:
+        print(f"trialbox: {e}", file=sys.stderr)
+        return 2
     need = COMMANDS.get(cmd)
     if need is None or need.where == HOST or "-h" in args or "--help" in args or has_libs(need.libs):
         return None
-    return run_in_image(args, need, environ)
+    return run_in_image(args, need, box)

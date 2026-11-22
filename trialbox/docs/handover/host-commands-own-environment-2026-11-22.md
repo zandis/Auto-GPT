@@ -93,6 +93,25 @@ as "check error" lines, not a crash, and `doctor --preflight` (RUNBOOK 01's host
 one call shown; their real work in the image is not run. `restore` in the image cannot ask compose which services
 run (H88-04).
 
+## Review round (the integrator's independent review of #1373: fix first)
+
+- **M1.** The runtime (`TB_DOCKER`) and the image (`TB_IMAGE`) come from the box's file or the defaults only, never
+  from the caller (install.sh writes neither key, so the caller's used to win). Test:
+  `test_the_runtime_and_the_image_are_never_the_callers` (a box file without either key, a caller setting both: the
+  caller's program never runs, the default image is used).
+- **L1.** A box file that is there but cannot be read (a folder, a dangling link, unreadable) stops the command with
+  one line and exit 2; a `TB_ENV` the file does not set is never the caller's (none there: PRODUCTION). Where this
+  differs from lane R's #1371 (not on master `296f2ff1`): #1371 keeps PRODUCTION and goes on for a folder, a dangling
+  link or an unreadable file; here, as the review asks, exit 2. Test: `test_a_box_file_that_cannot_be_trusted_...`.
+- **L2.** A box file owned by neither root nor the user running the command, or writable by group or others, is
+  refused before it is used (same test).
+- **L3.** `--env-file` only for a command that has a network: `backup-keygen`, `backup-check`, `backup-verify` and
+  `exports` get no settings (the invariant test holds it per command).
+- **The surviving mutant (the install folder not resolved through the link).** The invariant now runs every command
+  through a link like install.sh's. The mutant stays equivalent: both entries already put the install folder on the
+  path resolved (master's entry block resolves `__file__`; `-m` takes the physical cwd).
+- N1 (quoted values keep their quotes, as `update._env_file`) and N2 (cron's mail) are unchanged.
+
 ## Findings
 
 | Id | Severity | Claim | Basis | State |
