@@ -28,8 +28,8 @@ the PR #83 version; PR #82 drops its copy). Reservations D-190 to D-207 of TB-AS
 master stay); reservations D-208 to D-262 stay valid.
 
 The owner's rulings are numbered by the integrator: D-502 to D-519, D-526, D-1020 to D-1039 and D-1060 to
-D-1068 (rows at the end of
-the last table); the next is D-1069 (lane E holds D-1040 to D-1059; lane H holds D-1100 to D-1139 and D-1320 to D-1359; lane R holds D-1140 to D-1149; lane C2 holds D-1150 to D-1179; lane V holds D-1180 to D-1219; lane J holds D-1220 to D-1319). The rulings of 2026-11-16 were relayed to the lanes as D-520 to D-537. Those
+D-1071 (rows at the end of
+the last table); the next is D-1072 (lane E holds D-1040 to D-1059; lane H holds D-1100 to D-1139 and D-1320 to D-1359; lane R holds D-1140 to D-1149; lane C2 holds D-1150 to D-1179; lane V holds D-1180 to D-1219; lane J holds D-1220 to D-1319). The rulings of 2026-11-16 were relayed to the lanes as D-520 to D-537. Those
 numbers, except D-526, were already held by decisions on master, so the rulings were renumbered D-1020 to D-1037
 (the same last two digits). The rows D-520 to D-537 stay with their holders. The mapping, and the citations on
 master that still use the relayed numbers, are in `docs/decisions/OWNER-RULINGS-2026-11-16.md`.
@@ -799,6 +799,9 @@ master that still use the relayed numbers, are in `docs/decisions/OWNER-RULINGS-
 | D-1066 | merged | owner ruling (the integrator) | `docs/decisions/D-1066-a-production-box-without-a-gpu-is-a-product-form.md`: the owner's ruling of 2026-11-17: a PRODUCTION box without a GPU is a product form (feasibility and structured criteria); the installer pins the embedder in stub mode and every site bundle carries it |
 | D-1067 | merged | owner ruling (the integrator) | `docs/decisions/D-1067-plan-8-is-adopted-with-the-owners-rulings.md`: the owner's rulings of 2026-11-17: plan 8 is adopted; every data connector is in release 1.0 and SS-MIX2 is required; his EDC becomes a module; he is the security owner; the label-conflict class beside D-1064 |
 | D-1068 | merged | owner ruling (the integrator) | `docs/decisions/D-1068-plan-10-is-the-plan.md`: the owner's rulings of 2026-11-18: plan 10 is the plan for release 1.0 at 259 cards, one complete release, the order of events, the cap of US$500 for cloud runs |
+| D-1069 | reserved | owner ruling (the integrator), PR pending | `docs/decisions/D-1069-what-a-note-answer-may-do.md`: the owner's ruling of 2026-11-22: a note answer never removes a patient silently (an inclusion "not met" from notes goes to review); the bar is the per-criterion false-block rate and the decided share on physician-checked sets with the product-path figure; supersedes D-918 and D-343 in part |
+| D-1070 | reserved | owner ruling (the integrator), PR pending | `docs/decisions/D-1070-stages-and-ring-0.md`: the owner's rulings of 2026-11-22: one complete release (D-1068 point 3, plan 10 decision 39) withdrawn; stages; ring 0 confirmed and frozen; the rule of the rings |
+| D-1071 | reserved | owner ruling (the integrator), PR pending | `docs/decisions/D-1071-how-a-gate-is-done.md`: the owner's ruling of 2026-11-22: a gate is done by its function, a runtime refusal and a cross-path test; the lists are tripwires; no patch programme |
 | D-1026 | unused | — | not used: the owner's ruling relayed as D-526 kept its number, which was free (`docs/decisions/D-526-superseded-the-same-day.md`) |
 | D-921 | merged | T-695 (rest) | `docs/decisions/D-921-each-services-migrations-as-their-own-step.md`: `db-up` runs each service's start-time migrations in a one-off container of the service, under a restore's sized limit, before the services start; a long migration never meets the health wait |
 | D-873 | merged | ERASE-D (part 1) | `docs/decisions/D-873-a-case-chart-is-checked-before-it-is-read.md`: a CASE job resolves its subject and refuses an opted-out one before the attached chart is read or parsed |
