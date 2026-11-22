@@ -463,13 +463,18 @@ class Scrubber:
         return "\n".join(lines)
 
     def text(self, text: str) -> str:
-        """Every rule, until the text no longer changes (at most three passes; a fourth change is refused)."""
+        """Every rule, until the text no longer changes (at most three passes; a fourth change is refused).
+
+        H-76: the decoded view of a line is taken BEFORE the raw rules run. Run after them, a rule that did not see a
+        token on the raw line (``%2F`` joins its hex digit to a pseudonym) could still cut into it (the log
+        scrubber's phone pattern took digits from its middle), and the decoded view then saw only fragments: the
+        flake of ``test_the_extended_corpus_still_holds_the_invariant``, about 1 corpus in 60."""
         for _ in range(3):
-            new = self.decoded(self._rules(text))
+            new = self._rules(self.decoded(text))
             if new == text:
                 return new
             text = new
-        if self.decoded(self._rules(text)) != text:
+        if self._rules(self.decoded(text)) != text:
             raise ScrubError("the scrub does not settle on this text: it is not written")
         return text
 

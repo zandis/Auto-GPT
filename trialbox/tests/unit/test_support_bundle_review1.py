@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import ast
 import json
-import secrets
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -17,7 +16,16 @@ from typing import Any
 
 import pytest
 
-from tests.unit.test_support_bundle_planted import DAY, NOW, _archive, _assert_clean, _gz, _runner, make_box
+from tests.unit.test_support_bundle_planted import (
+    DAY,
+    NOW,
+    _archive,
+    _assert_clean,
+    _gz,
+    _runner,
+    make_box,
+    secrets,  # one seed per test id (H-76)
+)
 from tools import bundle_scrub as bs
 from tools import support_bundle as sb
 

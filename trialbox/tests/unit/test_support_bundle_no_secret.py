@@ -13,7 +13,6 @@ from __future__ import annotations
 import gzip
 import json
 import re
-import secrets
 import tarfile
 import urllib.parse
 from collections.abc import Sequence
@@ -23,6 +22,7 @@ from typing import Any
 
 import pytest
 
+from tests.unit.test_support_bundle_planted import secrets  # one seed per test id (H-76)
 from tools import support_bundle as sb
 
 ROOT = Path(__file__).resolve().parents[2]
