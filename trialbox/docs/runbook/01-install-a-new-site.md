@@ -173,8 +173,13 @@ health line warns 90 days before the list runs out and is red after it.
    --wait` (`--profile stub` without a GPU; TLS settings first, [§12](12-identity-and-tls.md)). Then
    `deploy/network.sh apply`. `install.sh` does both and enables the systemd units of `deploy/systemd`
    (D-377): the egress table closed at boot before Docker, the stack after a host restart, the egress refresh and
-   watchdog timers. By hand: copy the units with `@TB_ROOT@` replaced by the install folder, then
+   watchdog timers. For a manual install, render the units as the installer does (install folder, timeouts and
+   Compose scale options), then run
    `systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer`.
+   Start `trialbox.service` after enabling it so systemd can stop the stack immediately after installation.
+   手動安裝時，請依安裝程式填入安裝目錄、逾時值及 Compose 容器數量設定。啟用後請啟動 `trialbox.service`，這樣安裝完成後即可透過 systemd 停止所有容器。
+   手動インストールでは、インストーラーと同様に配置先、タイムアウト、Compose のコンテナ数を設定します。
+   有効化したら `trialbox.service` を起動します。これでインストール直後から systemd でコンテナを停止できます。
 6. **Vendor key.** The one command placed it (`deploy/keys/vendor_ed25519.pub`, from the key received out of
    band); the installer refuses to start without it.
 7. **First ingest.** From `/opt/trialbox`: `docker compose --project-directory deploy exec adapter python -m adapter.cli run`,

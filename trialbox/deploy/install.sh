@@ -939,6 +939,7 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     say "systemd units (egress at boot, the stack after a restart, watchdog)"
     for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
       sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_BOOT_WAIT@#${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}#g" \
+          -e "s#@TB_UP_EXTRA@#${UP_EXTRA[*]}#g" \
           -e "s#@TB_BOOT_LIMIT@#$(( ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} + 300 ))#g" \
           -e "s#@TB_STOP_LIMIT@#$(( STOP_WAIT + 10 ))#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
@@ -950,7 +951,8 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
       trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer >/dev/null 2>&1 \
       || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
-    systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
+    systemctl start trialbox.service
+    systemctl start trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
       trialbox-egress-watch.service trialbox-ops.timer >/dev/null 2>&1 || true
     echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer"
   else
@@ -1042,7 +1044,7 @@ fi
 if [ "$CAN_CRON" = 1 ]; then
   say "backups: cron, WAL archiving, first backup"
   set +e
-  python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
+  PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
   if [ "$rc" != 0 ] && [ "${TB_BOX:-0}" != 1 ]; then
@@ -1051,10 +1053,10 @@ if [ "$CAN_CRON" = 1 ]; then
     # OPS-003 (D-566): a box has no alert route yet (no mail relay on a fresh host). A stop here is a stop before
     # the wizard; a FAIL line leaves the stack running, and box-install.sh goes on to the first-run code and
     # installs the schedule again after the owner's answers
-    FAILS+=("the backup schedule is not installed yet (above): box-install.sh installs it again after the first-run set-up; if it is still missing then: python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)")
+    FAILS+=("the backup schedule is not installed yet (above): box-install.sh installs it again after the first-run set-up; if it is still missing, run the command below. 首次設定後會重新安裝備份排程，若仍未安裝，請執行此指令。初期設定後にバックアップスケジュールを再設定します。それでも未設定の場合は次のコマンドを実行してください。 PYTHONPATH=libs python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)")
   fi
 else
-  echo "install: warning: the backup cron is not installed (needs root, /etc/cron.d and python3): python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)" >&2
+  echo "install: warning: the backup cron is not installed (needs root, /etc/cron.d and python3). 備份排程尚未安裝，需要管理員權限、/etc/cron.d 及 python3。バックアップスケジュールは未設定です。管理者権限、/etc/cron.d、python3 が必要です。 PYTHONPATH=libs python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)" >&2
 fi
 
 for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of the install bundle, now the db runs
