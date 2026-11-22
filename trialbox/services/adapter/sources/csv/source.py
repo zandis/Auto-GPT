@@ -93,7 +93,12 @@ def _not_whole(path: Path, codec: str) -> str | None:
             for rec in reader:
                 if not width:
                     if not rec:
-                        return f": line {reader.line_num} is blank where the header must be"
+                        # a blank first line with rows after it would make every row's columns nameless; a file of
+                        # blank lines only is an empty table, as before (a writer with no columns writes one line end)
+                        blank = reader.line_num
+                        if any(more for more in reader):
+                            return f": line {blank} is blank where the header must be"
+                        return None
                     width = len(rec)
                     named = width
                     while named > 1 and not rec[named - 1].strip():

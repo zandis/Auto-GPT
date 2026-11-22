@@ -245,3 +245,10 @@ def test_rows_that_all_carry_a_value_past_the_header_are_set_aside(tmp_path: Pat
     rows = b"".join(r.replace(b"\r\n", b",x\r\n") for r in ROWS)
     why = _set_aside(_write(tmp_path, HEADER + rows), tmp_path)
     assert "line 2 has 7 fields where the header has 6" in why, why
+
+
+def test_a_file_of_one_line_end_only_is_an_empty_table_not_set_aside(tmp_path: Path) -> None:
+    """A writer with no columns and no rows writes one line end (the dense scale profile's empty procedure table):
+    that is an empty table, as on master, not a blank line where the header must be."""
+    assert _read(_write(tmp_path, b"\r\n")) == []
+    assert _read(_write(tmp_path, b"\n\n", "note"), "note") == []
