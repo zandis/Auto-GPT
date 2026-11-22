@@ -33,6 +33,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import hmac
+import html
 import itertools
 import re
 import secrets
@@ -41,6 +42,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "libs" / "tb_common" / "config.py"
@@ -200,18 +202,39 @@ def hide_credentials(text: str) -> tuple[str, Counter[str]]:
 
 PEM = re.compile(r"-----BEGIN [A-Z0-9 ]{1,64}-----.*?(?:-----END [A-Z0-9 ]{1,64}-----|\Z)", re.S)
 SCHEME_TOKEN = re.compile(r"(?i)(?<![A-Za-z0-9])(bearer|basic|digest|token|negotiate)([ \t]+)([A-Za-z0-9._~+/=\-]{8,})")
-USERINFO = re.compile(r"(?i)([A-Za-z][A-Za-z0-9+.\-]*(?:://|%3A%2F%2F))((?:(?!%2F|%40)[^/@\s\"'<>])+)(@|%40)")
+#: URL userinfo up to the LAST ``@`` of the address: a password may hold ``/`` or ``@`` (review M1). The scheme
+#: starts where no scheme character stands before it and the userinfo is at most 256 characters: one pass is linear
+#: on a long run of letters or digits (review: the unanchored scheme took 32 s on a 100 KB line)
+USERINFO = re.compile(
+    r"(?i)(?<![A-Za-z0-9+.\-])([A-Za-z][A-Za-z0-9+.\-]{0,31}://)"
+    r"([^\s\"'<>/@]{0,256}:[^\s\"'<>]{0,256}|[^\s\"'<>/@]{1,256})(@)"
+)
+USERINFO_ENCODED = re.compile(r"(?i)(%3A%2F%2F)((?:(?!%2F|%40)[^/@\s\"'<>]){1,256})(%40)")
+#: a command line's ``--password VALUE`` / ``-token VALUE`` (the ``=`` form is a pair)
+FLAG = re.compile(r"(?<![\w\-])(?P<dash>--?)(?P<key>[A-Za-z][A-Za-z0-9_\-]{0,40})(?P<sep>[ \t]+)(?P<val>[^\s\-]\S*)")
+#: ``curl -u user:password``, ``--user``, ``--proxy-user``
+CLI_USER = re.compile(r"(?<![\w\-])(?P<key>-u|--user|--proxy-user|-U)(?P<sep>[ \t]+|=)(?P<user>[^\s:]*):(?P<val>\S+)")
+#: ``<password>VALUE</password>`` (any namespace, any attributes)
+XML = re.compile(r"<(?P<key>[A-Za-z_][\w.\-:]{0,80})(?P<attrs>\s[^<>]{0,512})?>(?P<val>[^<]{1,4096})</(?P=key)\s*>")
+#: what an encoding makes of a character: ``%2F``, ``%252F``, ``\u002F``, ``\x2F``, ``&#x2F;``, ``&quot;``, ``=3D``
+ENCODED = re.compile(r"%[0-9A-Fa-f]{2}|\\[uxU][0-9A-Fa-f]{2}|&#?[A-Za-z0-9]{1,8};|=3D")
+_BACKSLASH = re.compile(r"\\(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|U([0-9A-Fa-f]{8}))")
+_QP = re.compile(r"=([0-9A-F]{2})")
+#: a PEM block's END line whose BEGIN is not in the text (a cut, a rotated log): the base64 lines before it go too
+PEM_END = re.compile(r"-----END [A-Z0-9 ]{1,64}-----")
+_B64 = re.compile(r"[A-Za-z0-9+/=]{16,}")
 _KEY = r"[A-Za-z_][A-Za-z0-9_.\-\[\]]{0,80}"
 #: a whole ``.env``/YAML/ini line: ``  - export NAME = value``, also commented out (``# NAME=value``: an old password)
 LINE = re.compile(
     rf"^(?P<lead>\s*(?:(?:#+|//|;|>)\s*)?-?\s*(?:export\s+)?)(?P<key>{_KEY})(?P<sep>\s*[:=]\s*)(?P<val>.*)$"
 )
 #: ``name=value`` anywhere: a query string (also percent-encoded inside another URL), a form body, a log's pairs
-PAIR = re.compile(rf"(?:(?<=%3[Ff])|(?<=%26)|(?<![A-Za-z0-9_.%\-]))(?P<key>{_KEY})(?P<sep>=|%3[Dd])")
+PAIR = re.compile(rf"(?:(?<=%3[Ff])|(?<=%26)|(?<![A-Za-z0-9_.%]))(?P<key>{_KEY})(?P<sep>[ \t]*(?:=|%3[Dd])[ \t]*)")
 PAIR_VALUE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'|(?:(?!%26)[^\s&;,\"'<>(){}\[\]])+")
 #: ``"name": value`` and ``'name': value`` (JSON, a Python repr), the value a string, a number, a word or a list
 QUOTED = re.compile(
-    r"(?P<q>[\"'])(?P<key>[^\"'\\\s]{1,80})(?P=q)(?P<sep>[ \t]*(?::|=>|=)[ \t]*)"
+    r"(?P<q>[\"'])(?P<key>[^\"'\\\s]{1,80})(?P=q)"
+    r"(?P<sep>[ \t]*(?::|=>|=)[ \t]*(?:\r?\n[ \t]*(?:(?:#+|//|;|>)[ \t]*)?)?)"
     r"(?P<val>\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|\[[^\]\n]*\]|-?\d[\d.eE+\-]*|[A-Za-z0-9_./+=~\-]+)"
 )
 #: the same inside a JSON string: ``\"name\": \"value\"``
@@ -225,6 +248,7 @@ HEADER = re.compile(
 UUID = re.compile(r"(?<![0-9A-Fa-f-])[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}(?![0-9A-Fa-f-])")
 DIGEST = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{40,}(?![0-9A-Za-z])")
 COMMENT = re.compile(r"^\s*(?:#+|//|;|>)")
+MAPPING_KEY = re.compile(r"^\s*-?\s*[A-Za-z_\"'][\w.\-\"' ]{0,80}:(?:\s|$)")
 YAML_BLOCK = re.compile(r"^[|>][+\-]?\d*\s*(?:#.*)?$")
 
 _TAG_LETTERS = "bcdfghjkmnpqrstvwxz"  # no digit, no hex letter: a tag is never a token of any rule
@@ -269,7 +293,7 @@ class Scrubber:
             def one(t: str, rx: re.Pattern[str] = rx, label: str = label) -> str:
                 return rx.sub(lambda m: self._mask(label, m.group(0)), t)
 
-            text = _held(UUID, text, one) if label == "screening-no" else one(text)
+            text = _held(UUID, text, one)
         return text
 
     # -------------------------------------------------------------------------------- secrets
@@ -320,12 +344,39 @@ class Scrubber:
                 out.append(f"{m['lead']}{m['key']}{m['sep']}{val[0]}{REDACTED}{val[0]}")
                 self.found["secret (multi-line)"] += 1
                 continue
+            if not val or val.startswith("#"):  # key:  -> the value may be on the lines below (review M1)
+                taken, i = self._below(lines, i, line)
+                out += [line, *taken]
+                continue
             if _keeps(val.strip("\"'")) or val == REDACTED or (val.endswith(":") and " " not in val):
                 out.append(line)
                 continue
             out.append(f"{m['lead']}{m['key']}{m['sep']}{REDACTED}")
             self.found["secret (line)"] += 1
         return "\n".join(out)
+
+    def _below(self, lines: list[str], i: int, key_line: str) -> tuple[list[str], int]:
+        """The lines under ``key:`` that are its value (more indented, not a ``name:`` of a nested mapping): each
+        becomes ``[redacted]`` at its indent (a list item keeps its ``- ``). A nested mapping is left to the rules."""
+        mark = COMMENT.match(key_line)
+        body = key_line[mark.end() :] if mark else key_line
+        indent = len(body) - len(body.lstrip())
+        taken: list[str] = []
+        while i < len(lines):
+            nxt = COMMENT.match(lines[i]) if mark else None
+            if mark and not nxt:
+                break
+            rest = lines[i][nxt.end() :] if nxt else lines[i]
+            if not rest.strip():
+                break
+            if len(rest) - len(rest.lstrip()) <= indent or MAPPING_KEY.match(rest):
+                break
+            head = lines[i][: len(lines[i]) - len(rest.lstrip())]
+            item = re.match(r"-\s+", rest.lstrip())
+            taken.append(f"{head}{item.group(0) if item else ''}{REDACTED}")
+            self.found["secret (value below)"] += 1
+            i += 1
+        return taken, i
 
     def _pairs(self, text: str) -> str:
         """``name=value`` pairs. Only a secret's value is taken as a whole; after any other name the search goes on
@@ -354,13 +405,20 @@ class Scrubber:
         self.found["pem block"] += n
         text, n = SCHEME_TOKEN.subn(rf"\1\2{REDACTED}", text)
         self.found["secret (scheme token)"] += n
+        text = _orphan_pem(text, self.found)
         text, n = USERINFO.subn(rf"\1{REDACTED}\3", text)
         self.found["secret (url userinfo)"] += n
+        text, n = USERINFO_ENCODED.subn(rf"\1{REDACTED}\3", text)
+        self.found["secret (url userinfo)"] += n
+        text, n = CLI_USER.subn(rf"\g<key>\g<sep>\g<user>:{REDACTED}", text)
+        self.found["secret (cli user)"] += n
+        text = XML.sub(lambda m: self._value(m, "xml"), text)
         text = ESCAPED.sub(lambda m: self._value(m, "escaped"), text)
         text = QUOTED.sub(lambda m: self._value(m, "quoted"), text)
         text = self._lines(text)
         text = HEADER.sub(lambda m: self._value(m, "header"), text)
         text = self._pairs(text)
+        text = FLAG.sub(lambda m: self._value(m, "flag"), text)
         text = COLON.sub(lambda m: self._value(m, "colon"), text)
         return text
 
@@ -383,14 +441,35 @@ class Scrubber:
         return text
 
     # -------------------------------------------------------------------------------- the one function
+    def _rules(self, text: str) -> str:
+        return self.phi(self.tokens(self.secrets(text)))
+
+    def decoded(self, text: str) -> str:
+        """Review H1: an encoding puts a hex digit or a letter next to a token (``%2F<pid>``, ``%22<pid>%22``,
+        ``\\u002F``, ``&#x2F;``, ``=3D``), and a key or value of a secret can be encoded whole. Each line that holds an
+        encoded character is decoded (percent, twice-percent, ``\\u``/``\\x``/``\\U``, HTML entities, ``=3D``) and
+        scrubbed; if that changes anything, the line is kept decoded and scrubbed."""
+        lines = text.split("\n")
+        for k, line in enumerate(lines):
+            if not ENCODED.search(line):
+                continue
+            plain = _decode(line)
+            if plain == line:
+                continue
+            clean = self._rules(plain)
+            if clean != plain:
+                lines[k] = clean
+                self.found["decoded line"] += 1
+        return "\n".join(lines)
+
     def text(self, text: str) -> str:
         """Every rule, until the text no longer changes (at most three passes; a fourth change is refused)."""
         for _ in range(3):
-            new = self.phi(self.tokens(self.secrets(text)))
+            new = self.decoded(self._rules(text))
             if new == text:
                 return new
             text = new
-        if self.phi(self.tokens(self.secrets(text))) != text:
+        if self.decoded(self._rules(text)) != text:
             raise ScrubError("the scrub does not settle on this text: it is not written")
         return text
 
@@ -485,6 +564,60 @@ def _held(rx: re.Pattern[str], text: str, rules: Callable[[str], str]) -> str:
     return _PRIVATE.sub(lambda m: held[ord(m.group(0)) - 0xF0000], text) if held else text
 
 
+def _decode(line: str) -> str:
+    """``line`` with every encoding undone, up to four layers (``%252F`` is ``/``)."""
+    for _ in range(4):
+        new = unquote(line, errors="replace")
+        new = html.unescape(new)
+        new = _BACKSLASH.sub(lambda m: chr(int(m.group(1) or m.group(2) or m.group(3), 16) % 0x110000), new)
+        if "=3D" in new:
+            new = _QP.sub(lambda m: chr(int(m.group(1), 16)), new)
+        if new == line:
+            break
+        line = new
+    return line
+
+
+def _seg_start(text: str, lo: int, k: int) -> int:
+    """Where the segment that ends at ``k`` starts: after the last newline or literal ``\\n`` before it."""
+    nl = text.rfind("\n", lo, k)
+    esc = text.rfind("\\n", lo, k)
+    return max(lo, nl + 1 if nl >= 0 else lo, esc + 2 if esc >= 0 else lo)
+
+
+def _orphan_pem(text: str, found: Counter[str]) -> str:
+    """An END line of a PEM block whose BEGIN is not in the text (a cut, a rotated log, a day's boundary) and the
+    base64 lines before it: each line's last word, separated by newlines or by ``\\n`` inside a string, so a log's
+    prefix on each line does not stop the walk back. Whole blocks are gone before this runs."""
+    if "-----END " not in text:
+        return text
+    out: list[str] = []
+    at = 0
+    for m in PEM_END.finditer(text):
+        if m.start() < at:
+            continue
+        start = m.start()
+        line_start = _seg_start(text, at, start)
+        while True:
+            k = line_start
+            if k - 2 >= at and text[k - 2 : k] == "\\n":
+                k -= 2
+            elif k - 1 >= at and text[k - 1] == "\n":
+                k -= 1
+            else:
+                break
+            seg = _seg_start(text, at, k)
+            word = re.search(r"([A-Za-z0-9+/=]+)[ \t\r]*$", text[seg:k])
+            if not word or not _B64.fullmatch(word.group(1)):
+                break
+            start = seg + word.start(1)
+            line_start = seg
+        out += [text[at:start], PEM_GONE]
+        at = m.end()
+        found["pem block (no begin)"] += 1
+    return "".join([*out, text[at:]])
+
+
 def _a_count(val: str) -> bool:
     """A whole number of at most three digits: a count (``"secrets_hidden": 3``), kept next to a secret's name."""
     return bool(re.fullmatch(r"\d{1,3}", val.strip()))
@@ -506,19 +639,23 @@ def token_patterns(hex_len: int) -> dict[str, re.Pattern[str]]:
 
     * ``pseudonym``: exactly ``hex_len`` hex digits, any case, with no hex digit either side (``pid=…``, ``"…"``,
       ``/patients/…``, ``0x…`` and ``pid_…`` all match; a 64-digit sha256 and a 40-digit commit do not);
-    * ``pseudonym short``: the 8 hex digits and ``…`` that error messages show (``pidmap.PidCollision``);
+    * ``pseudonym short``: the first 8 hex digits (``pid[:8]``, the console's short form, with or without ``…``),
+      when they hold a hex letter (eight decimal digits are a date or a count far more often than a pseudonym);
     * ``screening-no``: a study's number as ``sitestore._number`` makes it, ``<prefix><seq:04d>``, where the prefix
-      is the ruleset id and ``-`` (``[A-Z0-9][A-Z0-9_-]{0,15}``) or the site's prefix (``[A-Za-z0-9_-]{0,16}``):
-      a prefix that ends in ``-`` or ``_``, any case; or capital letters straight before the digits. Inside a name
-      joined by ``-`` or ``_`` (``report-RA01-0042-x.txt``) too; not before ``-`` and a digit (``iso-8859-1``). A
-      UUID is held out of these rules (its last two groups have that shape and are no screening number)."""
+      is the ruleset id and ``-`` or the site's prefix, which the console takes as any 16 characters
+      (``study_setup.py``: ``.strip()[:16]``). Masked: a prefix of letters (any script), digits, ``_`` and ``-``
+      ending in ``-`` or ``_``; capital letters and digits then ``.``, ``#``, ``/``, ``:`` or a space; a capital and
+      letters straight before the digits (``Scr0042``). Inside a name joined by ``-`` or ``_``
+      (``report-RA01-0042-x.txt``) too; not before ``-`` and a digit (``iso-8859-1``).
+
+    A UUID is held out of all of these (its groups have those shapes and are no token). An encoded neighbour
+    (``%2F``, ``\\u002F``) is handled by :meth:`Scrubber.decoded`."""
     return {
         "pseudonym": re.compile(rf"(?<![0-9A-Fa-f])[0-9A-Fa-f]{{{hex_len}}}(?![0-9A-Fa-f])"),
-        "pseudonym short": re.compile(r"(?<![0-9A-Fa-f])[0-9a-f]{8}…"),
-        "screening-no": re.compile(
-            r"(?<![A-Za-z0-9])[A-Za-z0-9][A-Za-z0-9_\-]{0,15}[\-_]\d{4,}(?![A-Za-z0-9]|[\-_]\d)"
-        ),
-        "screening-no letters": re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,16}\d{4,}(?![A-Za-z0-9]|[\-_]\d)"),
+        "pseudonym short": re.compile(r"(?<![0-9A-Fa-f])(?=[0-9]{0,7}[a-f])[0-9a-f]{8}(?![0-9A-Fa-f])…?"),
+        "screening-no": re.compile(r"(?<![^\W_])[^\W_][\w\-]{0,15}[\-_]\d{4,}(?![^\W_]|[\-_]\d)"),
+        "screening-no separated": re.compile(r"(?<![^\W_])[A-Z][A-Z0-9]{1,15}[ .#/:]\d{4,}(?![^\W_]|[\-_.:/]\d)"),
+        "screening-no letters": re.compile(r"(?<![^\W_])[A-Z][A-Za-z]{0,15}\d{4,}(?![^\W_]|[\-_]\d)"),
     }
 
 
@@ -537,15 +674,15 @@ def scrub_lines(lines: Iterable[str], scrubber: Scrubber | None = None) -> list[
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]")  # \t \n \r and ESC (a log's colours) are text
 
 
-def as_text(data: bytes | str) -> str | None:
+def as_text(data: bytes | str, *, cut: bool = False) -> str | None:
     """The member's text, or None when it is not text the scrub can read (not UTF-8, a NUL or other control byte,
-    as UTF-16 or a binary file would be): such a member is left out and listed, never copied unscrubbed. A last
-    character cut at the read limit is dropped, not a reason to leave the file out."""
+    as UTF-16 or a binary file would be): such a member is left out and listed, never copied unscrubbed. Only when
+    the caller cut the bytes at its read limit (``cut``) is a last character cut there dropped (review L3)."""
     if isinstance(data, bytes):
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError as exc:
-            if exc.reason != "unexpected end of data" or exc.start < len(data) - 3:
+            if not cut or exc.reason != "unexpected end of data" or exc.start < len(data) - 3:
                 return None
             text = data[: exc.start].decode("utf-8")
     else:

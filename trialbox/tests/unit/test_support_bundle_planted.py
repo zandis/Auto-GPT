@@ -13,6 +13,7 @@ import ast
 import base64
 import gzip
 import json
+import re
 import secrets
 import tarfile
 import urllib.parse
@@ -41,7 +42,12 @@ class Planted:
     loose: dict[str, str]  # secrets no setting holds: they leave only by their form
 
     def values(self) -> dict[str, str]:
-        out = {"pid": self.pid, "pid upper": self.pid2.upper(), "pid short": self.pid[:8] + "…"}
+        out = {
+            "pid": self.pid,
+            "pid upper": self.pid2.upper(),
+            "pid short": self.pid[:8] + "…",
+            "pid bare short": self.pid2[:8],
+        }
         out |= {f"screening {i}": s for i, s in enumerate(self.screening)}
         return (
             out
@@ -52,19 +58,37 @@ class Planted:
 
 LOOSE = ("query password", "query token", "form pwd", "userinfo user", "userinfo pass", "bearer", "cookie",
          "pem body", "json secret", "escaped json", "multi line a", "multi line b", "yaml block", "encoded next",
-         "redcap family", "header key")  # fmt: skip
+         "redcap family", "header key",
+         # review round 1 (H1, M1)
+         "double encoded", "cli password", "cli token", "curl user", "yaml next", "userinfo slash", "userinfo at",
+         "xml", "spaced key", "json next line", "escaped key", "flag dash")  # fmt: skip
+
+
+def _pid_with_a_letter() -> str:
+    """A pseudonym whose first 8 digits hold a hex letter (the bare short form is masked only then: the page)."""
+    while True:
+        pid = secrets.token_hex(bs.pid_hex_len() // 2)
+        if re.search("[a-f]", pid[:8]):
+            return pid
 
 
 def _plant() -> Planted:
     hexed = secrets.token_hex
     names = sorted({"TB_SMTP_LOGIN", *bs.declarations().secret, *sb.SECRET_SETTINGS} - {"TB_REDCAP_TOKEN_"})
     return Planted(
-        pid=hexed(bs.pid_hex_len() // 2),
-        pid2=hexed(bs.pid_hex_len() // 2),
+        pid=_pid_with_a_letter(),
+        pid2=_pid_with_a_letter(),
         screening=[
             f"RQ{hexed(2).upper()}-{1000 + secrets.randbelow(8000)}",
             f"scr_{secrets.randbelow(9000) + 1000}",
             f"TBQ{secrets.randbelow(90000) + 10000}",
+            # review round 1 (M2): the prefixes the console takes (any 16 characters)
+            f"Scr{secrets.randbelow(9000) + 1000}",
+            f"SCR.{secrets.randbelow(9000) + 1000}",
+            f"SCR {secrets.randbelow(9000) + 1000}",
+            f"SCR#{secrets.randbelow(9000) + 1000}",
+            f"SCR/{secrets.randbelow(9000) + 1000}",
+            f"\u7be9\u9078-{secrets.randbelow(9000) + 1000}",
         ],
         settings={n: f"s{hexed(9)}" for n in names},
         loose={k: f"l{hexed(9)}" for k in LOOSE},
@@ -87,6 +111,25 @@ def corpus(p: Planted) -> str:
         f"Cookie: sessionid={lo['cookie']}; theme=dark",
         f"x-api-key: {lo['header key']}",
         json.dumps({"msg": json.dumps({"secret": lo["escaped json"]})}),
+        # review round 1, H1: a token next to an encoded character, in every encoding
+        f"GET /demo/ack?back=%2Fstudies%2FRA01%2Fpatients%2F{p.pid} 303",
+        f"GET /x?q=%7B%22pid%22%3A%22{p.pid}%22%7D and %7b%22no%22%3a%22{p.screening[0]}%22%7d",
+        f"next=%252Fp%252F{p.pid2}%253Fpassword%253D{lo['double encoded']}",
+        "\\u002F" + p.pid + "\\u0022 \\x2F" + p.pid2 + " &#x2F;" + p.pid + "&#x2F; &#47;" + p.pid2 + "&quot;",
+        f"/q%2F{p.screening[1]}%2F and =3D{p.pid}=3D",
+        # review round 1, M1: secret forms the first round missed
+        f"pg_dump --password={lo['cli password']} --token {lo['cli token']} -d tb",
+        f"args: --db-password={lo['flag dash']}",
+        f"curl -u admin:{lo['curl user']} https://x.test",
+        f"smtp:\n  password:\n    {lo['yaml next']}\n  user: amy",
+        f"postgres://u:ab/{lo['userinfo slash']}@db/x and redis://:p@{lo['userinfo at']}@host",
+        f"<password>{lo['xml']}</password>",
+        f"smtp password = {lo['spaced key']}",
+        f'{{"password":\n "{lo["json next line"]}"}}',
+        '{"\\u0070assword": "' + lo["escaped key"] + '"}',
+        # review round 1, L1 and M2: the bare short form and the other screening prefixes
+        f"short {p.pid[:8]} and #x-{p.pid2[:8]}",
+        " / ".join(p.screening[3:]),
         f"TB_REDCAP_TOKEN_P42={lo['redcap family']}",
         pem,
         f'TB_SMTP_PASSWORD_HINT="{lo["multi line a"]}\n{lo["multi line b"]}"',
@@ -105,6 +148,11 @@ def _gz(path: Path, data: bytes) -> None:
 
 @pytest.fixture
 def planted_box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Planted, Path]:
+    return make_box(tmp_path, monkeypatch)
+
+
+def make_box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Planted, Path]:
+    """The planted box (also used by test_support_bundle_review1.py)."""
     p = _plant()
     for k in ("TB_LOG_DIR", "TB_AUDIT_HOST_DIR", *p.settings):
         monkeypatch.delenv(k, raising=False)

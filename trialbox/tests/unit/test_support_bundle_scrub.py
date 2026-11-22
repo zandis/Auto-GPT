@@ -142,7 +142,7 @@ def test_a_new_secret_setting_is_covered_without_editing_the_scrub(tmp_path: Pat
     conf.write_text(added, encoding="utf-8")
     decl = bs.declarations(conf)
     assert "TB_ZEBRA_ORCHID" in decl.secret
-    v = _v()
+    v = _v().translate(str.maketrans("0123456789", "ghijklmnop"))  # letters: no phone pattern can take part of it
     assert v not in bs.Scrubber(decl=decl).text(f"TB_ZEBRA_ORCHID={v}")
     assert v in bs.scrub_text(f"TB_ZEBRA_ORCHID={v}")  # the name alone says nothing: the declaration covers it
 
@@ -271,5 +271,6 @@ def test_only_text_the_scrub_can_read_is_text() -> None:
     assert bs.as_text("plain\tline\x1b[0m\n") is not None
     assert bs.as_text("pid".encode("utf-16")) is None  # UTF-16: the rules would read nothing
     assert bs.as_text(b"a\x00b") is None and bs.as_text(b"\xff\xfe") is None
-    assert bs.as_text("é".encode()[:1]) == ""  # a character cut at the read limit is dropped
+    assert bs.as_text("é".encode()[:1], cut=True) == ""  # a character cut at the read limit is dropped
+    assert bs.as_text("é".encode()[:1]) is None  # review L3: only when the caller cut the bytes
     assert bs.as_text(urllib.parse.quote("x").encode()) == "x"

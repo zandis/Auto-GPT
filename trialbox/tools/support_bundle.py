@@ -360,15 +360,32 @@ class Bundle:
     def add(
         self, name: str, text: str, source: str, *, scrubbed: bool = False, mrn: re.Pattern[str] | None = None
     ) -> None:
-        name = self.scrubber.name(name)
-        if len(text.encode("utf-8")) > MAX_MEMBER:
-            text = text.encode("utf-8")[-MAX_MEMBER:].decode("utf-8", errors="ignore").partition("\n")[2]
-            self.note(name, "truncated", 1)
+        name = self._unique(self.scrubber.name(name), self.members)
         if scrubbed:
             text, n = scrub(text, mrn)
             self.note(name, "redacted", n)
-        self.members[name] = self._scrub(name, text)
+        # review H2: the scrub runs on the whole text, THEN the member is cut to its last MAX_MEMBER bytes: a cut made
+        # first can open a PEM block, a quoted value or a YAML block in the middle, where no rule sees its start
+        text = self._scrub(name, text)
+        if len(text.encode("utf-8")) > MAX_MEMBER:
+            text = text.encode("utf-8")[-MAX_MEMBER:].decode("utf-8", errors="ignore").partition("\n")[2]
+            self.note(name, "truncated", 1)
+        self.members[name] = text
         self.sources[name] = self.scrubber.text(source)
+
+    @staticmethod
+    def _unique(name: str, taken: Mapping[str, str]) -> str:
+        """Review L2: two names the scrub makes one (``pw=a.txt``, ``pw=b.txt``) both stay: ``~2`` before the
+        extension of the second."""
+        if name not in taken:
+            return name
+        stem, dot, ext = name.rpartition(".")
+        if not dot or "/" in ext:
+            stem, dot, ext = name, "", ""
+        k = 2
+        while f"{stem}~{k}{dot}{ext}" in taken:
+            k += 1
+        return f"{stem}~{k}{dot}{ext}"
 
     def _scrub(self, name: str, text: str) -> str:
         before = Counter(self.scrubber.found)
@@ -390,12 +407,12 @@ class Bundle:
 
     def seal(self) -> None:
         """The scrub once more over every member, after the passes that change members in place."""
-        for name in list(self.members):
-            text = self.members.pop(name)
-            clean = self.scrubber.name(name)
+        old, self.members = self.members, {}
+        sources, self.sources = self.sources, {}
+        for name, text in old.items():
+            clean = self._unique(self.scrubber.name(name), self.members)
             self.members[clean] = self._scrub(clean, text)
-            if clean != name:
-                self.sources[clean] = self.sources.pop(name, "")
+            self.sources[clean] = sources.get(name, "")
 
     def note(self, name: str, what: str, n: int) -> None:
         if n:
@@ -544,7 +561,8 @@ def _cmd_part(b: Bundle, deploy: Path, runner: Runner) -> None:
     if rc == 0 and ids.split():
         rc, out = runner(["docker", "inspect", "--format", fmt, *ids.split()], 60)
     else:
-        out = f"no containers listed (exit {rc}): {ids.strip()[:200]}"
+        # review H2: the scrub before the cut, so the cut cannot halve a token the scrub would then not know
+        out = f"no containers listed (exit {rc}): {b.scrubber.text(ids.strip())[:200]}"
     if bs.as_text(out) is None:
         b.leave_out("cmd/restarts.txt", "its output is not text the scrub can read")
     else:
@@ -568,7 +586,7 @@ def _logs_part(b: Bundle, deploy: Path, env: Mapping[str, str], days: int, mrn: 
             except (OSError, EOFError) as exc:
                 b.leave_out(f"logs/{d.name}/{svc}.log", f"unreadable ({type(exc).__name__})")
                 continue
-            text = bs.as_text(data)
+            text = bs.as_text(data, cut=len(data) == MAX_MEMBER * 4)  # review L3: a dropped last byte only if cut
             if text is None:  # H-71: not UTF-8 text (UTF-16, binary): left out and listed, never copied unscrubbed
                 b.leave_out(f"logs/{d.name}/{svc}.log", "not UTF-8 text the scrub can read")
                 continue
