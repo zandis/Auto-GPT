@@ -36,7 +36,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from tb_common.llm import LlmClient, LlmError, LlmModelFault
+from tb_common.llm import LlmAnswerTimeout, LlmClient, LlmError, LlmModelFault
 from tb_common.pair import same_model, served_keys
 
 from orchestrator.scenarios.evaluate import postprocess
@@ -171,7 +171,9 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
             res = client.chat_json(prompt, variables, job_id="selftest")
         except LlmError as exc:
             rep.errors.append(clip(f"{c['id']}: {exc}"))
-            rep.faults += isinstance(exc, LlmModelFault)
+            # walk step 5: a model too slow for the gateway's time (LlmAnswerTimeout) was reached and did not answer
+            # in time: that fails the canary, never "not reached" (D-915 would keep an older pass open for it)
+            rep.faults += isinstance(exc, LlmModelFault) and not isinstance(exc, LlmAnswerTimeout)
             continue
         rep.answered += 1
         for name in served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")):
