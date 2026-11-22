@@ -5,23 +5,101 @@
  "source": "docs/handover/rc1-refusals-2026-11-22.md",
  "note": "the independent review of lane-r/rc1-refusals at 62d59420; basis 'shown' means shown by the card's tests (tests/unit/test_rc1_refusals_table.py, tests/unit/test_rc1_refusal_sites.py, tests/console/test_rc1_guard.py, tests/console/test_rc1_orch_box.py).",
  "findings": [
-  {"id": "R2234-01", "severity": "High", "lane": "R", "basis": "shown", "state": "fixed 08a0bbdc8",
-   "claim": "The console's rc1 guard missed routes that serve the same lists or patient rows on PRODUCTION: the week's list API, a patient's page, the candidates and referrals, the screening log page and API, the registry page, the site's people, a record's copy page, a patient's audit report and a cascade run's files"},
-  {"id": "R2234-02", "severity": "High", "lane": "R", "basis": "shown", "state": "fixed 08a0bbdc8",
-   "claim": "The console's rc1 guard refused GET and HEAD only: a POST on a listed person (a mark, a reveal, a referral, a promotion) passed; it now refuses every method of a held path"},
-  {"id": "R2234-03", "severity": "Medium", "lane": "R", "basis": "shown", "state": "fixed 08a0bbdc8",
-   "claim": "A host tool's caller TB_ENV overrode the box's deploy/.env, so TB_ENV=DEV trialbox support-bundle on a PRODUCTION box made a bundle; the host rule is now the stricter of the two (a deploy/.env with no TB_ENV is PRODUCTION)"},
-  {"id": "R2234-04", "severity": "Low", "lane": "R", "basis": "shown", "state": "fixed 08a0bbdc8",
-   "claim": "The live-list job's error named PRODUCTION for every refused environment; it is a fixed sentence now, and its detail names the key and PRODUCTION or an unknown TB_ENV (test_error_answers allows no value in the text)"},
-  {"id": "R2234-05", "severity": "Low", "lane": "R", "basis": "shown", "state": "fixed 08a0bbdc8",
-   "claim": "The mail gateway held a refused mail by a substring of its reason; it holds it by asking the table's row"},
-  {"id": "R2234-06", "severity": "Low", "lane": "R", "basis": "shown", "state": "fixed bb91efbff",
-   "claim": "The table's invariant missed a check or refused imported by name; it now fails such an import and an ask outside its row's named sites, and a CASE job's card is tested as a list"},
-  {"id": "R2234-07", "severity": "Low", "lane": "R", "basis": "shown", "state": "fixed 08a0bbdc8",
-   "claim": "The ja words for the quiet hour were too literal; the console has no ja word for it, so the table says 利用の少ない時間帯"},
-  {"id": "R2234-08", "severity": "Medium", "lane": "H", "basis": "shown", "state": "open",
-   "claim": "Follow-up card for lane H, before rc1: the VALIDATION label (rc1: validation) is in no audit record, because no site within the go writes one for an allowed act, and the producers that refuse write no audit event (the list job's first step, the EDC push, the support bundle, the key ceremony and its commands)"},
-  {"id": "R2234-09", "severity": "Low", "lane": "R", "basis": "shown", "state": "not a defect: send_redcap is a person's own EDC entry, confirmed out of scope by the integrator",
-   "claim": "services/edc/service.py send_redcap is not refused on PRODUCTION"}
+  {
+   "id": "R2234-01",
+   "severity": "High",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 08a0bbdc8",
+   "claim": "The console's rc1 guard missed routes that serve the same lists or patient rows on PRODUCTION: the week's list API, a patient's page, the candidates and referrals, the screening log page and API, the registry page, the site's people, a record's copy page, a patient's audit report and a cascade run's files"
+  },
+  {
+   "id": "R2234-02",
+   "severity": "High",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 08a0bbdc8",
+   "claim": "The console's rc1 guard refused GET and HEAD only: a POST on a listed person (a mark, a reveal, a referral, a promotion) passed; it now refuses every method of a held path"
+  },
+  {
+   "id": "R2234-03",
+   "severity": "Medium",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 08a0bbdc8",
+   "claim": "A host tool's caller TB_ENV overrode the box's deploy/.env, so TB_ENV=DEV trialbox support-bundle on a PRODUCTION box made a bundle; the host rule is now the stricter of the two (a deploy/.env with no TB_ENV is PRODUCTION)"
+  },
+  {
+   "id": "R2234-04",
+   "severity": "Low",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 08a0bbdc8",
+   "claim": "The live-list job's error named PRODUCTION for every refused environment; it is a fixed sentence now, and its detail names the key and PRODUCTION or an unknown TB_ENV (test_error_answers allows no value in the text)"
+  },
+  {
+   "id": "R2234-05",
+   "severity": "Low",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 08a0bbdc8",
+   "claim": "The mail gateway held a refused mail by a substring of its reason; it holds it by asking the table's row"
+  },
+  {
+   "id": "R2234-06",
+   "severity": "Low",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed bb91efbff",
+   "claim": "The table's invariant missed a check or refused imported by name; it now fails such an import and an ask outside its row's named sites, and a CASE job's card is tested as a list"
+  },
+  {
+   "id": "R2234-07",
+   "severity": "Low",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 08a0bbdc8",
+   "claim": "The ja words for the quiet hour were too literal; the console has no ja word for it, so the table says 利用の少ない時間帯"
+  },
+  {
+   "id": "R2234-08",
+   "severity": "Medium",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "claim": "Follow-up card for lane H, before rc1: the VALIDATION label (rc1: validation) is in no audit record, because no site within the go writes one for an allowed act, and the producers that refuse write no audit event (the list job's first step, the EDC push, the support bundle, the key ceremony and its commands)"
+  },
+  {
+   "id": "R2234-09",
+   "severity": "Low",
+   "lane": "R",
+   "basis": "shown",
+   "state": "not a defect: send_redcap is a person's own EDC entry, confirmed out of scope by the integrator",
+   "claim": "services/edc/service.py send_redcap is not refused on PRODUCTION"
+  },
+  {
+   "id": "R2234-10",
+   "severity": "High",
+   "lane": "R",
+   "basis": "shown",
+   "state": "fixed 2cf0ec9aa",
+   "claim": "The second review: the console's deny-list missed routes again; the guard is now an allow-list, fail-closed by construction, and the outermost middleware, so J-5's people-list addresses meet it before their rewrite"
+  },
+  {
+   "id": "R2234-11",
+   "severity": "Medium",
+   "lane": "R",
+   "basis": "shown",
+   "state": "open",
+   "claim": "The N1 morning mail carries candidate rows under the tag aggregate and is not held on a PRODUCTION box: the mail gateway cannot tell it from the health mail (no job, no kind in SendRequest); a ruling on where to hold it is asked"
+  },
+  {
+   "id": "R2234-12",
+   "severity": "Medium",
+   "lane": "R",
+   "basis": "shown",
+   "state": "open",
+   "claim": "A missing deploy/.env still gives the caller's TB_ENV alone; reading it as PRODUCTION refuses every host tool run from a checkout and about 90 existing tests for set-up alone; a ruling is asked"
+  }
  ]
 }

@@ -8,7 +8,7 @@ builders, so in one language.
 - **Rulings:** the owner's ruling of 2026-11-20 and D-1072; the integrator's go, comments 7078088793, 7079138866,
   7080384411 and 7080612399
 - **Findings:** [`rc1-refusals-2026-11-22/findings.json`](rc1-refusals-2026-11-22/findings.json) (R2234-01 to
-  R2234-09)
+  R2234-12)
 - **The table:** `libs/tb_common/rc1_refusals.py`; the console's guard `services/console/rc1_guard.py`
 - **Tests:** `tests/unit/test_rc1_refusals_table.py`, `tests/unit/test_rc1_refusal_sites.py`,
   `tests/console/test_rc1_guard.py`, `tests/console/test_rc1_orch_box.py`, `tests/unit/test_rc1_production_branches.py`
@@ -31,7 +31,14 @@ zh-TW), its test and the audit event that records a refusal.
 | unattended updates | an update left to the quiet hour | `console.ops` |
 | key ceremonies | the backup key ceremony, `trialbox backup-keygen`, `tools.keys` rotate-kek, ceremony-record and escrow-shares | none |
 
-A host tool asks with the stricter of the box's `deploy/.env` and its caller's own `TB_ENV`.
+A host tool asks with the stricter of the box's `deploy/.env` and its caller's own `TB_ENV`. A `.env` that is a
+folder or cannot be read is PRODUCTION; a missing one gives the caller's alone, for now (§5).
+
+**The console's guard: fail-closed by construction: a route the list does not know is refused; the deny-list was
+dropped because two reviews found routes it missed.** On a refused box the console serves only sign-in and sign-out,
+health, the ops and admin pages, aggregate counts and static files (`ALLOWED` in `services/console/rc1_guard.py`), as
+its outermost middleware, before any rewrite of an address (J-5's people lists included). A test walks the whole
+route table.
 
 ## 2. Not refused, and why
 
@@ -53,3 +60,13 @@ commands. Both wait for lane H's audit writer.
 `tests/console/test_rc1_orch_box.py` holds the same box as PRODUCTION refused its SCREEN list. The four
 PRODUCTION-only branches the fixture no longer reaches each have a test on a bare PRODUCTION box
 (`tests/unit/test_rc1_production_branches.py`).
+
+## 5. Waiting for a ruling
+
+- The N1 morning mail at the gateway (the integrator's 7082962352, item 3). The mail gateway cannot tell an N1 mail
+  from the administrators' health mail: both come from the orchestrator's `POST /notices` with no job, the tag
+  `aggregate` and a hashed key, and `SendRequest` has no kind. Holding it at `_still_current` needs the kind, which
+  only the orchestrator's `/notices` route (or `console/notify.py`) knows.
+- A missing `deploy/.env` read as PRODUCTION (item 4). It refuses every host tool run from a checkout with no
+  `.env`: about 90 existing tests of the key ceremony, `tools.keys` and the backup key fail, for set-up alone.
+
