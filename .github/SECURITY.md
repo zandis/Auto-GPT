@@ -8,10 +8,10 @@ disclosure policy is
 
 ## Reporting a vulnerability
 
-- **Email** the address in the `contact` field of
-  [`trialbox/deploy/security/contact.json`](../trialbox/deploy/security/contact.json), or use GitHub's private
-  vulnerability reporting ("Report a vulnerability" on the Security tab) when it is enabled. The address has not
-  been chosen yet; until it is, report through IPA (Japan) or TWCERT/CC (Taiwan), which coordinate with us.
+- **Use** the address in the `contact` field of
+  [`trialbox/deploy/security/contact.json`](../trialbox/deploy/security/contact.json): for now it is GitHub's private
+  vulnerability reporting ("Report a vulnerability" on the Security tab). A role mailbox is still to be chosen. You
+  may also report through IPA (Japan) or TWCERT/CC (Taiwan), which coordinate with us.
 - **Never** open a public issue or pull request for a weakness.
 - **Never** put real patient data in a report. **Never** test against a hospital's running TrialBox: test only on
   an installation you run yourself, with the synthetic data in this repository.
