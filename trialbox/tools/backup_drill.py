@@ -785,12 +785,6 @@ def _admin_signs_in(work: Path, password: str) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from tools.logging_level import restores_logging_level
-
-    return restores_logging_level(_main)(argv)  # H-87: INFO logging is back on when the drill ends
-
-
-def _main(argv: list[str] | None = None) -> int:
     from tb_common.config import adopt_site_tz
 
     adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
