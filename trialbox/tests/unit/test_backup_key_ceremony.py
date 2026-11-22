@@ -615,6 +615,30 @@ def test_a_write_that_reads_back_wrong_on_its_own_descriptor_is_refused(box: Box
     assert box.journal() == [] and not box.pub.exists() and not (stick / bkc.PAPER_FILE).exists()
 
 
+@pytest.mark.parametrize("how", ["torn", "same-key-other-bytes"])
+def test_a_key_file_that_reads_back_other_bytes_at_step_2_is_refused(box: Box, how: str, capsys: Any) -> None:
+    """Step 2's comparison of the key file (third review): opened again through the stick's folder it is the same inode,
+    but the stick gives back other bytes than were written (torn, or other bytes that still read as the same key):
+    refused, saying this run's files stay; no event in the journal and no backup.pub (D-1379: both files read back
+    equal to the key)."""
+    stick, real = box.stick(), bkc._read_back
+
+    def other_bytes(dfd: int, name: str, dev: int, path: Path, ino: int | None) -> bytes:
+        data = real(dfd, name, dev, path, ino)  # the inode and the safety checks as always
+        if name != bkc.KEY_FILE:
+            return data
+        changed = data[:-2] + b"X\n" if how == "torn" else data.replace(b"\n", b"\r\n")
+        assert changed != data and (bkc.read_key(changed) == bkc.read_key(data)) == (how != "torn")
+        return changed
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(bkc, "_read_back", other_bytes)
+        code, _, err = _main(box, stick, capsys)
+    assert code == 1 and err.strip() == bkc.STICK_FAULTY["en"].format(name=bkc.KEY_FILE)
+    assert box.journal() == [] and not box.pub.exists()
+    _invariant(box, [stick])
+
+
 # ------------------------------------------------------------------------------------------------ reruns
 def test_a_rerun_with_another_empty_stick_abandons_the_first_and_says_so(box: Box, capsys: Any) -> None:
     first, second = box.stick("usb-a"), box.stick("usb-b")
@@ -1022,6 +1046,38 @@ def test_h_5_no_key_is_made_while_swap_is_on_and_memory_cannot_be_locked(box: Bo
     assert box.drive(stick, spy=spy).returncode == 0
     seen = json.loads(spy.read_text())
     assert seen["locked_kb"] > 0 or not seen["swap_on"]
+
+
+@pytest.mark.parametrize("unreadable", ["missing", "a-folder"])
+def test_h_5_an_unreadable_swap_list_counts_as_swap_on(box: Box, unreadable: str) -> None:
+    """H-5 (D-1379: an unreadable list counts as swap on): the command in a process of its own that may not lock memory
+    (as in the test above), with a swap list that cannot be read (no such file, or a folder): refused before any key,
+    in three languages, nothing made."""
+    swaps = box.tmp / "no-such-swaps"
+    if unreadable == "a-folder":
+        swaps.mkdir()
+    code = ("import sys; from pathlib import Path; from tools import backup_key_ceremony as b\n"
+            "b.SWAPS = Path(sys.argv[1])\nreal = b.new_key\n"
+            "def watched():\n    print('KEY MADE', flush=True)\n    return real()\n"
+            "b.new_key = watched\nsys.exit(b.main(sys.argv[2:]))\n")  # fmt: skip
+
+    def unprivileged() -> None:
+        import resource
+
+        resource.setrlimit(resource.RLIMIT_MEMLOCK, (0, 0))
+        if os.geteuid() == 0:  # root may always lock memory: run as nobody
+            os.setgroups([])
+            os.setgid(65534)
+            os.setuid(65534)
+
+    stick = box.stick()
+    env = {**box.env(), "HOME": "/"}
+    argv = [sys.executable, "-c", code, str(swaps), "--stick", str(stick), "--operator", OP, "--witness", WIT]
+    r = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, check=False,
+                       preexec_fn=unprivileged)  # fmt: skip
+    assert r.returncode == 1 and r.stderr.strip() == "\n".join(bkc.HARDEN_FAILED[lg] for lg in bkc.LANGS), r.stderr
+    assert "KEY MADE" not in r.stdout and r.stdout == ""
+    assert list(stick.iterdir()) == [] and box.pending() == [] and box.journal() == []
 
 
 def test_m_7_a_key_file_restore_would_reject_is_never_taken(box: Box) -> None:
