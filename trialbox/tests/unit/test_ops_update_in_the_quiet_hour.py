@@ -19,7 +19,7 @@ from tools.trialbox import ops as tb_ops
 
 pytestmark = pytest.mark.nodb
 
-ENV = {"TB_TZ": "Asia/Taipei", "TB_UPDATE_QUIET_AT": "05:00", "TB_UPDATE_QUIET_HOURS": "2"}
+ENV = {"TB_TZ": "Asia/Taipei", "TB_UPDATE_QUIET_AT": "05:00", "TB_UPDATE_QUIET_HOURS": "2", "TB_ENV": "TEST"}  # rc1
 IN_QUIET = datetime(2026, 11, 14, 21, 30, tzinfo=UTC)  # 05:30 in Taipei
 NOT_QUIET = datetime(2026, 11, 14, 6, 0, tzinfo=UTC)  # 14:00 in Taipei
 

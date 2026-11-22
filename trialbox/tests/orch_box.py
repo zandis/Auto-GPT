@@ -5,8 +5,8 @@ console's boundary.
 
 * the real orchestrator app (``orchestrator.app.app``: ``make_app``, the token middleware, the route gate of D-464,
   every router) serving a real ``Orchestrator`` over an ingested synthetic lake (``tests.inproc_box.make_box``);
-* the production configuration of trust: ``TB_ENV=PRODUCTION``, a token registry with every service's own token, the
-  actor-keys file (``tests.service_tokens``);
+* the production configuration of trust: ``TB_ENV=VALIDATION`` (rc1 makes no list in PRODUCTION; see ``build``), a
+  token registry with every service's own token, the actor-keys file (``tests.service_tokens``);
 * the console's real backend (``console.backend.HttpBackend``) with its orchestrator client bound to that app: the
   console's own code builds every request, signs every assertion and reads every refusal;
 * a finished screening job of ``GZQO`` with real listed pseudonyms, and the chart numbers of the synthetic site.
@@ -123,7 +123,10 @@ def build(work: Path, synth_dir: Path, monkeypatch: pytest.MonkeyPatch) -> OrchB
     per_service_tokens(work, monkeypatch)  # the registry, the actor keys; this process signs as the console
     # D-640: a PRODUCTION box runs no seeded example; this one's studies are approved the site's way
     approve_at_site(box.orch.rulesets_dir)
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # R22-34 (D-1072; the integrator's go, comment 7079138866): VALIDATION, the strict environment in which rc1 still
+    # makes a list; PRODUCTION refuses this box's SCREEN (tests/console/test_rc1_orch_box.py). This returns to
+    # PRODUCTION the day the rc1 refusals are lifted for a pilot.
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     monkeypatch.setattr(oapp, "_orch", box.orch)  # the app's routes serve this box
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())  # the caps count from zero in every test
     monkeypatch.setattr(oapp, "EXPORTS", oapp.RevealLimit("TB_EXPORT_MAX_PER_HOUR", 10))
