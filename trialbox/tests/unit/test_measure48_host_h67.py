@@ -678,7 +678,8 @@ def test_a_driver_below_the_engines_minimum_refuses_the_run_before_anything_star
     rig.smi(driver="575.57.08")
     r = rig.go("run")
     assert r.returncode == 2, r.stdout
-    assert "NVIDIA driver 575.57.08 is below 580.65.06" in r.stdout and "this script never installs a driver" in r.stdout
+    assert "NVIDIA driver 575.57.08 is below 580.65.06" in r.stdout
+    assert "this script never installs a driver" in r.stdout
     assert not rig.run_dir.exists()
     assert not rig.calls.exists() or "poc" not in rig.calls.read_text()
     rig.assert_nothing_forbidden_and_others_untouched()
