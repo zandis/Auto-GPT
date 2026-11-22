@@ -16,9 +16,9 @@ WorkingDirectory=@TB_ROOT@
 # (tools/trialbox/bootwait.py), the start limit 300 s above it, the stop limit above the longest stop grace
 # D-888: never on the example settings while the site's exist (deploy/settings_guard.sh says what to add)
 ExecStartPre=/bin/sh @TB_ROOT@/deploy/settings_guard.sh @TB_ROOT@/deploy
-ExecStart=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy up -d --pull never --wait --wait-timeout @TB_BOOT_WAIT@
+ExecStart=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy up -d --pull never @TB_UP_EXTRA@ --wait --wait-timeout @TB_BOOT_WAIT@
 ExecStartPost=@TB_ROOT@/deploy/network.sh apply
-ExecStop=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy stop
+ExecStop=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy down
 TimeoutStartSec=@TB_BOOT_LIMIT@
 TimeoutStopSec=@TB_STOP_LIMIT@
 
