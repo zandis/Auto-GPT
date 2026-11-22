@@ -602,7 +602,8 @@ EOF
     >/dev/null || fail "cannot unseal the throwaway KEK with two shares"
   # the host's python3 has no zstandard (the backup's own module): the key pair and the restore run in the job image
   img="$(envget TB_BACKUP_IMAGE)"; img="${img:-trialbox-backup:1.0.0}"   # the bundle's job image, restic inside
-  docker run --rm --network none --user 0 -v "$rr:$rr" "$img" python -m tools.trialbox backup-keygen \
+  # the box's own environment (rc1 refuses a backup key on PRODUCTION, R22-34; the job image has no deploy/.env)
+  docker run --rm --network none --user 0 -e TB_ENV="$(envget TB_ENV)" -v "$rr:$rr" "$img" python -m tools.trialbox backup-keygen \
     --private "$rr/backup.key" --public "$rr/backup.pub" >/dev/null || fail "cannot make the throwaway backup key pair"
   ok "throwaway shamir KEK (2 of 3), unsealed into the work folder, and a backup key pair: never the box's"
   file="$(python3 - "$BOX/deploy" "$rr" <<'EOF'

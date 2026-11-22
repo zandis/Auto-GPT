@@ -72,6 +72,7 @@ REFUSALS: tuple[Refusal, ...] = (
             "orchestrator.scheduler:require_released",
             "orchestrator.app:reveal",
             "console.rc1_guard:Rc1Guard.lists_refused",
+            "console.notify:_collect",
         ),
         key="rc1.live_patient_lists",
         audit="console.denied (the console); screen.reveal_refused (a reveal); none when a list job fails at its first "
