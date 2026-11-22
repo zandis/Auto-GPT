@@ -207,3 +207,42 @@ def test_a_big5_export_is_read(tmp_path: Path) -> None:
 
 def test_a_table_with_only_its_header_is_empty_not_set_aside(tmp_path: Path) -> None:
     assert _read(_write(tmp_path, HEADER)) == []
+
+
+def test_a_shifted_row_whose_extra_field_is_empty_is_set_aside(tmp_path: Path) -> None:
+    """A decimal comma in a row whose last field is empty makes one empty field more than the header; only the other
+    rows' width tells it from a trailing separator, so a row of another width than the first is set aside."""
+    shifted = b"L002,SYN-0002,HBA1C,6,57,%,\r\n"
+    why = _set_aside(_write(tmp_path, HEADER + ROWS[0] + shifted + ROWS[2]), tmp_path)
+    assert "line 3 has 7 fields where the header has 6 and the first row 6" in why, why
+    assert "57" not in why
+
+
+def test_a_trailing_separator_on_some_rows_only_is_set_aside(tmp_path: Path) -> None:
+    rows = ROWS[0].replace(b"\r\n", b",\r\n") + ROWS[1] + ROWS[2]
+    why = _set_aside(_write(tmp_path, HEADER + rows), tmp_path)
+    assert "line 3 has 6 fields" in why, why
+
+
+def test_an_extra_field_of_spaces_only_counts_as_empty(tmp_path: Path) -> None:
+    rows = _read(_write(tmp_path, HEADER + b"".join(r.replace(b"\r\n", b", \r\n") for r in ROWS)))
+    assert [r["result_value"] for r in rows] == ["1.18", "6.57", "104.25"]
+
+
+def test_a_header_column_named_only_by_spaces_counts_as_unnamed(tmp_path: Path) -> None:
+    rows = _read(_write(tmp_path, HEADER.replace(b"\r\n", b", \r\n") + b"".join(ROWS)))
+    assert [r["result_value"] for r in rows] == ["1.18", "6.57", "104.25"]
+
+
+
+def test_rows_that_all_lack_the_headers_last_column_are_set_aside(tmp_path: Path) -> None:
+    """One width throughout is not enough: a row must also have the header's named columns."""
+    rows = b"".join(r.rsplit(b",", 1)[0] + b"\r\n" for r in ROWS)
+    why = _set_aside(_write(tmp_path, HEADER + rows), tmp_path)
+    assert "line 2 has 5 fields where the header has 6" in why, why
+
+
+def test_rows_that_all_carry_a_value_past_the_header_are_set_aside(tmp_path: Path) -> None:
+    rows = b"".join(r.replace(b"\r\n", b",x\r\n") for r in ROWS)
+    why = _set_aside(_write(tmp_path, HEADER + rows), tmp_path)
+    assert "line 2 has 7 fields where the header has 6" in why, why

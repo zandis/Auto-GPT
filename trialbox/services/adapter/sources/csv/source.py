@@ -81,11 +81,12 @@ def _not_whole(path: Path, codec: str) -> str | None:
     the file ends inside is an error, not a field), the first line is the header (a blank one would make every row's
     columns nameless), and every row has the header's fields: a row short or long is a row cut or split, never one
     whose missing column is taken as empty. Two shapes of a real export are no fault: header columns with no name at
-    its end may be missing from a row, and a row may carry empty fields past the header's end (a trailing separator).
+    its end may be missing from a row, and a row may carry empty fields past the header's end (a trailing separator),
+as long as every row of the file has the width of the first.
     Read as a stream, no row kept (T-692); the reason holds the line, never a cell's text."""
     if not _ends_with_line_end(path):
         return ": the file does not end with a line end, so its last row may be cut"
-    width = named = 0
+    width = named = first = 0
     try:
         with path.open(encoding=codec, newline="") as fh:
             reader = csv.reader(fh, strict=True)
@@ -100,9 +101,16 @@ def _not_whole(path: Path, codec: str) -> str | None:
                     continue
                 if not rec:  # a blank line is no row (as DictReader reads it)
                     continue
-                if named <= len(rec) <= width or (len(rec) > width and not any(f.strip() for f in rec[width:])):
+                n = len(rec)
+                fits = named <= n <= width or (n > width and not any(f.strip() for f in rec[width:]))
+                # every row of one export has one width: a row that differs from the first is shifted, even when its
+                # extra field is empty (a decimal comma in a row whose last field is empty)
+                if fits and n == (first or n):
+                    first = n
                     continue
-                return f": line {reader.line_num} has {len(rec)} fields where the header has {width}"
+                return f": line {reader.line_num} has {n} fields where the header has {width}" + (
+                    f" and the first row {first}" if fits else ""
+                )
     except csv.Error as exc:
         return f" ({exc}, line {reader.line_num})"
     return None
