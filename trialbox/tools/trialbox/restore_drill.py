@@ -178,8 +178,15 @@ def _password() -> str:
 
 
 def _short_parent(work: Path) -> Path:
-    """Where the socket folder goes: under the work folder when the socket path stays short enough, else /tmp."""
-    return work if len(str(work.resolve())) + len("/tbd-xxxxxxxx/s/.s.PGSQL.5432") <= SOCK_MAX else Path("/tmp")
+    """Where the socket folder goes: under the work folder when the socket path stays short enough, else where the
+    test cluster puts its short sockets (``tools.pglocal``: the scratch root, else the system's temp folder)."""
+    if len(str(work.resolve())) + len("/tbd-xxxxxxxx/s/.s.PGSQL.5432") <= SOCK_MAX:
+        return work
+    from tools import pglocal
+
+    parent = pglocal._short_socket_parent()
+    parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return parent
 
 
 def _chown(p: Path, uid: int, gid: int) -> None:
@@ -246,7 +253,7 @@ class Throwaway:
 
     def _common(self, name: str) -> list[str]:
         return ["--rm", "--name", name, "--label", f"{LABEL}={self.drill_id}", "--network", "none", "--pull", "never",
-                "--user", f"{PG_UID}:{PG_UID}", "--read-only", "--tmpfs", "/tmp:size=64m", "--cap-drop", "ALL",
+                "--user", f"{PG_UID}:{PG_UID}", "--read-only", "--cap-drop", "ALL",
                 "--security-opt", "no-new-privileges:true", "--memory", MEMORY, "--memory-swap", MEMORY,
                 "--pids-limit", str(PIDS), "--shm-size", SHM,
                 "-v", f"{self.data}:/var/lib/postgresql/data"]  # fmt: skip

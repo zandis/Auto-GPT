@@ -378,6 +378,7 @@ def _assert_confined(box: dict[str, Any], live: _Recorder, work: Path, state: Pa
     assert {k: after[k] for k in ("volumes", "networks")} == {k: BOX_OBJECTS[k] for k in ("volumes", "networks")}
     assert {n: c for n, c in after["containers"].items() if not n.startswith("tb-restore-drill-") or
             "tb.restore-drill" not in c["labels"]} == BOX_OBJECTS["containers"]  # fmt: skip
+    made: set[Path] = set()
     for c in _calls(s):
         a = c["argv"]
         assert a[0] in {"version", "image", "run", "inspect", "ps", "rm", "exec"}, a  # no compose, volume, network
@@ -388,10 +389,12 @@ def _assert_confined(box: dict[str, Any], live: _Recorder, work: Path, state: Pa
             assert a.count("--network") == 1 and a[a.index("--pull") + 1] == "never", a
             for m in [a[i + 1] for i, x in enumerate(a) if x == "-v"]:
                 src = m.split(":")[0]
-                assert src.startswith((str(work), "/tmp/tbd-")) and "deploy" not in m and "docker" not in src, m
+                assert src.startswith((str(work), str(rd._short_parent(work)))), m
+                assert "deploy" not in m and "docker" not in src, m
+                made.add(Path(src))
         assert SENTINEL not in json.dumps(a)
     assert _scratch_dbs(box["url"]) == []
-    assert not [p for p in work.glob("tb-drill-*")] and not list(Path("/tmp").glob(f"tbd-*{os.getpid()}*"))
+    assert not [p for p in work.glob("tb-drill-*")] and not [p for p in made if p.exists()], made
     assert not list(state.glob("*.json")), "a record is left: the drill did not clean up"
     assert box["db"].fetchall("SELECT count(*) FROM marks") == [(2,)]
 
