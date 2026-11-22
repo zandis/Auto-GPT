@@ -207,6 +207,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         return rid
 
+    h.state_reader = study_or_404  # 10D-16a (D-1373): the jRCT record page reads with this page's own check
+
     def can_edit(sess: Session) -> bool:
         return can_change_setup(sess.user)
 

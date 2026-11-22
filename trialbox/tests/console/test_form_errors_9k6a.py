@@ -188,10 +188,12 @@ def test_csrf_is_still_enforced_and_a_right_post_saves_as_before(box: dict[str, 
         for token in ("", "x" * 32):
             r = c.post(case.action, data={"csrf": token, **case.bad}, follow_redirects=False)
             assert r.status_code in (400, 403) and _summary(r.text) is None, (lang, r.status_code)
-            r = c.post(case.action, data={"csrf": token, **case.good}, follow_redirects=False)
+            r = c.post(case.action, data={"csrf": token, **case.good}, files=case.files or None,
+                       follow_redirects=False)  # fmt: skip
             assert r.status_code in (400, 403), (lang, r.status_code)
         assert len(_events(box, case.saved_event)) == before  # refused: nothing saved
-        r = c.post(case.action, data={"csrf": _csrf(page), **case.good}, follow_redirects=False)
+        r = c.post(case.action, data={"csrf": _csrf(page), **case.good}, files=case.files or None,
+                   follow_redirects=False)  # fmt: skip
         assert r.status_code == 303 and r.headers["location"] == want
         assert len(_events(box, case.saved_event)) == before + 1
         after = c.get(case.page).text
