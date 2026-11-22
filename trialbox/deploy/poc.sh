@@ -2,8 +2,11 @@
 # TrialBox proof of concept in one command (docs/RUNBOOK.md §9, README "Try the POC in 10 minutes").
 #
 #   deploy/poc.sh                          # stub model (no GPU, no key): any Docker host
-#   TB_LLM_MODE=openrouter deploy/poc.sh   # OpenRouter (D0 synthetic data only); key from OPENROUTER_API_KEY or
-#                                          #   deploy/poc/secrets/openrouter_api_key (never stored in the repository)
+#   OpenRouter (D0 synthetic data only). Run in your own Bash shell:
+#   read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+#   sudo --preserve-env=OPENROUTER_API_KEY TB_LLM_MODE=openrouter deploy/poc.sh
+#   unset OPENROUTER_API_KEY
+#   sudo VAR=value command shows the value in the process list.
 #   TB_LLM_MODE=gpu deploy/poc.sh          # the real pair on a plain GPU VM (D-839): rtxpro6000 or gb10 (deploy/
 #                                          #   gpu_profile.sh, or TB_GPU_PROFILE); the weights in deploy/models (the
 #                                          #   pinned builds of models/registry.yaml); checks, pins, starts, canary
@@ -256,7 +259,7 @@ if [ "$MODE" = openrouter ]; then
   if [ -z "${OPENROUTER_API_KEY:-}" ] && [ -s "$POC/secrets/openrouter_api_key" ]; then
     OPENROUTER_API_KEY="$(tr -d '\r\n' < "$POC/secrets/openrouter_api_key")"
   fi
-  [ -n "${OPENROUTER_API_KEY:-}" ] || die "openrouter mode: set OPENROUTER_API_KEY or put the key in deploy/poc/secrets/openrouter_api_key"
+  [ -n "${OPENROUTER_API_KEY:-}" ] || die "openrouter mode: enter the gateway key as shown in RUNBOOK §9"
   export OPENROUTER_API_KEY
 fi
 

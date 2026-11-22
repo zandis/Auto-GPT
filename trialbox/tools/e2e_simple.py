@@ -2083,28 +2083,32 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     import logging
 
+    was = logging.root.manager.disable  # 9i-1: the level found, given back however this ends
     logging.disable(logging.INFO)  # the in-process services log every request; the checks are the output
-    if a.dir.exists():
-        shutil.rmtree(a.dir)
-    a.dir.mkdir(parents=True)
-    out = run(a.dir, os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12), a.lang)
-    print(report(out))
-    if a.json:
-        a.json.write_text(
-            json.dumps(
-                {
-                    "ok": out["ok"],
-                    "seconds": out["seconds"],
-                    "stages": [
-                        {"name": st.name, "ok": st.ok, "seconds": round(st.seconds, 2), "checks": st.checks}
-                        for st in out["stages"]
-                    ],
-                },
-                ensure_ascii=False,
-                indent=1,
+    try:
+        if a.dir.exists():
+            shutil.rmtree(a.dir)
+        a.dir.mkdir(parents=True)
+        out = run(a.dir, os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12), a.lang)
+        print(report(out))
+        if a.json:
+            a.json.write_text(
+                json.dumps(
+                    {
+                        "ok": out["ok"],
+                        "seconds": out["seconds"],
+                        "stages": [
+                            {"name": st.name, "ok": st.ok, "seconds": round(st.seconds, 2), "checks": st.checks}
+                            for st in out["stages"]
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=1,
+                )
             )
-        )
-    return 0 if out["ok"] else 1
+        return 0 if out["ok"] else 1
+    finally:
+        logging.disable(was)
 
 
 if __name__ == "__main__":

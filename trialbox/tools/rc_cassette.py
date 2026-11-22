@@ -1,7 +1,9 @@
 """Record or replay a REDCap cassette: the ICD-04 calls against one real REDCap test project (STD-060, CR-062; T-115).
 
-    TB_RC_CASSETTE_TOKEN=... python -m tools.rc_cassette record --url https://redcap.site.example/ \\
+    read -rs TB_RC_CASSETTE_TOKEN; export TB_RC_CASSETTE_TOKEN
+    python -m tools.rc_cassette record --url https://redcap.site.example/ \\
         --out tests/fixtures/redcap_cassettes/site-a-16.json [--since 2026-01-01] [--write rows.json]
+    unset TB_RC_CASSETTE_TOKEN
     python -m tools.rc_cassette replay tests/fixtures/redcap_cassettes/site-a-16.json
 
 ``record`` runs ``rc_bridge.cassette.icd04_run`` against the project and writes every request (never the token) and
