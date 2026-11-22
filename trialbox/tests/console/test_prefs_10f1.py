@@ -28,11 +28,13 @@ import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import anyio.from_thread
+import httpx
 import pytest
 from console import notify, prefs
 from console.auth import SCHEMA_V9, AuthError, Role, UserStore
@@ -268,7 +270,7 @@ def _measure(r: Any, window: tuple[datetime, datetime] | None = None) -> Measure
     return {k: v for k, v in out.items() if v}
 
 
-def _gets(cl: TestClient, job_id: str) -> tuple[frozenset[str], dict[str, Measure]]:
+def _gets(cl: TestClient | _OneLoop, job_id: str) -> tuple[frozenset[str], dict[str, Measure]]:
     """Every walked GET route: (the routes that answer 200, the patient-linked content of each)."""
     ok: set[str] = set()
     shown: dict[str, Measure] = {}
@@ -292,7 +294,7 @@ def _kind(r: Any) -> str:
     return "error" if r.status_code >= 500 else "ok"
 
 
-def _posts(cl: TestClient, csrf: str, job_id: str, only: set[str] | None = None) -> dict[str, str]:
+def _posts(cl: TestClient | _OneLoop, csrf: str, job_id: str, only: set[str] | None = None) -> dict[str, str]:
     """Every walked changing route (POST, PUT, PATCH, DELETE), sent with the CSRF token and the route table's form
     fields (``tools.role_walk``): its answer's class, by "METHOD path"."""
     out: dict[str, str] = {}
@@ -348,17 +350,37 @@ def test_the_groups_hold_every_combination_once() -> None:
     assert sorted(map(repr, walked)) == sorted(map(repr, COMBOS))
 
 
+class _OneLoop:
+    """H73-01: a page client's walk on one event loop, as a server's requests are. The test client starts a new loop
+    in a new thread for every request (``TestClient._portal_factory``) and crosses threads for every ASGI message;
+    here each request is one call into one loop, through httpx's own ASGI transport, with the page client's cookies,
+    headers and address, and a server error answered as a 500 (``clients()`` makes its page clients so). The app's
+    startup and shutdown are not run (``with TestClient`` would run them): the same app, the same requests."""
+
+    def __init__(self, c: TestClient, portal: anyio.from_thread.BlockingPortal) -> None:
+        self.app = c.app
+        self._portal = portal
+        transport = httpx.ASGITransport(app=c.app, raise_app_exceptions=False, client=("testclient", 50000))
+        self._ac = httpx.AsyncClient(transport=transport, base_url=c.base_url, cookies=c.cookies, headers=c.headers)
+
+    def request(self, method: str, url: str, **kw: Any) -> httpx.Response:
+        return self._portal.call(partial(self._ac.request, method, url, **kw))
+
+    def get(self, url: str, **kw: Any) -> httpx.Response:
+        return self.request("GET", url, **kw)
+
+    def post(self, url: str, **kw: Any) -> httpx.Response:
+        return self.request("POST", url, **kw)
+
+
 @contextmanager
-def _one_event_loop(c: TestClient) -> Iterator[None]:
-    """H73-01: the client's requests share one event loop, as a server's do. Without it the test client starts a new
-    loop in a new thread for every request (``TestClient._portal_factory``), about two thirds of the walk's time. The
-    app's startup and shutdown are not run (``with TestClient`` would run them): the same app, the same requests."""
+def _one_event_loop(c: TestClient) -> Iterator[_OneLoop]:
     with anyio.from_thread.start_blocking_portal(**c.async_backend) as portal:
-        c.portal = portal
+        walker = _OneLoop(c, portal)
         try:
-            yield
+            yield walker
         finally:
-            c.portal = None
+            portal.call(walker._ac.aclose)
 
 
 @pytest.mark.parametrize("group", list(COMBO_GROUPS))
@@ -382,13 +404,13 @@ def test_no_preference_opens_a_route_or_shows_a_patient_value_the_defaults_do_no
     job_id = _ulid(990)
     _done_screen(box["backend"], job_id)
     page, csrf, _api = clients(box)[column]
-    with _one_event_loop(page):
-        _walk_every_combination(box, page, csrf, column, job_id, COMBO_GROUPS[group], tmp_path)
+    with _one_event_loop(page) as walker:
+        _walk_every_combination(box, walker, csrf, column, job_id, COMBO_GROUPS[group], tmp_path)
 
 
 def _walk_every_combination(
     b: dict[str, Any],
-    page: TestClient,
+    page: _OneLoop,
     csrf: str,
     column: str,
     job_id: str,
