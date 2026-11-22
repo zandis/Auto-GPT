@@ -198,7 +198,8 @@ def _snapshot(rendered: Rendered) -> dict[str, Any]:
 
 def _baseline(scn: str) -> dict[str, Any]:
     data: dict[str, Any] = json.loads(gzip.decompress((DATA / f"person_card_9k14_before_{scn}.json.gz").read_bytes()))
-    return _mask_dated_min(data)
+    masked: dict[str, Any] = _mask_dated_min(data)
+    return masked
 
 
 def _mask_dated_min(x: Any) -> Any:
