@@ -5,6 +5,12 @@ the rebuild process each hold those pools, so on a many-core server the lake rea
 a rebuild stops without an answer. ``TB_LAKE_THREADS`` caps every pool; when it is unset its declared default applies
 here, in the code, and not only in Compose. This runs before duckdb's public module is imported, in each worker and in
 the rebuild process, which inherits the environment set here.
+
+One setting governs every pool: the library variables below take its value even where the operator set them, as
+Compose sets them all to it. Arrow's two pools are bounded here even if Arrow ran before ``lake`` was imported. The
+BLAS and OpenMP libraries read their variable once, when they load: a process that loads numpy (pyarrow loads it)
+before importing ``lake`` keeps their per-core pools. Both of the lake's entry points (``lake.app`` under uvicorn and
+``python -m lake.build``) import ``lake`` first; a tool that does not must set the variables itself.
 """
 
 import os
@@ -13,7 +19,7 @@ from collections.abc import MutableMapping
 from tb_common.config import DECLARED
 
 SETTING = "TB_LAKE_THREADS"
-# The native libraries' own variables: each takes the one setting unless the operator set it.
+# The native libraries' own variables: each takes the one setting.
 POOL_VARIABLES = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT", "MKL_NUM_THREADS", "ARROW_IO_THREADS")
 
 
@@ -24,7 +30,8 @@ class LakeThreadsInvalid(ValueError):
 def lake_threads(environ: MutableMapping[str, str]) -> int:
     """The cap for every pool: the setting, else its declared default; the host's CPU count is never read."""
     raw = environ.get(SETTING) or DECLARED[SETTING].default
-    threads = int(raw) if raw.strip().isdigit() else 0
+    raw = raw.strip()
+    threads = int(raw) if raw.isascii() and raw.isdigit() else 0
     if threads < 1:
         raise LakeThreadsInvalid(
             f"{SETTING} must be a whole number of at least 1 / {SETTING} 必須是至少 1 的整數 / "
@@ -40,7 +47,7 @@ def cap_pools(environ: MutableMapping[str, str]) -> int:
     threads = lake_threads(environ)
     environ[SETTING] = str(threads)
     for name in POOL_VARIABLES:
-        environ.setdefault(name, str(threads))
+        environ[name] = str(threads)
 
     import _duckdb
     import pyarrow

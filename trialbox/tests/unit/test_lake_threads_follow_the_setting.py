@@ -33,6 +33,7 @@ PROBE = textwrap.dedent(
     import json, os, multiprocessing, pathlib
     os.cpu_count = lambda: %(cpus)d
     multiprocessing.cpu_count = lambda: %(cpus)d
+    %(before)s
     import lake
     from lake import app, store
     import duckdb, pyarrow
@@ -51,18 +52,27 @@ PROBE = textwrap.dedent(
 )
 
 
-def _probe(tmp_path: Path, **setting: str) -> subprocess.CompletedProcess[str]:
+# Arrow's pools start lazily: a process that used them before importing ``lake`` has them at one thread per core.
+ARROW_FIRST = (
+    "import pyarrow, pyarrow.compute, pyarrow.parquet; "
+    "t = pyarrow.table({'x': list(range(200000))}); pyarrow.compute.sum(t['x']); "
+    "pyarrow.parquet.write_table(t, %(db)r + '.parquet'); pyarrow.parquet.read_table(%(db)r + '.parquet')"
+)
+
+
+def _probe(tmp_path: Path, before: str = "", **setting: str) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k not in POOLS}
     env.update(setting)
     env["PYTHONPATH"] = os.pathsep.join(str(ROOT / p) for p in ("libs", "services", "."))
-    code = PROBE % {"cpus": PLANTED_CPUS, "db": str(tmp_path / "probe.duckdb"), "pools": POOLS}
+    db = str(tmp_path / "probe.duckdb")
+    code = PROBE % {"cpus": PLANTED_CPUS, "db": db, "pools": POOLS, "before": before % {"db": db}}
     return subprocess.run(
         [sys.executable, "-c", code], env=env, cwd=tmp_path, capture_output=True, text=True, check=False, timeout=120
     )
 
 
-def _caps(tmp_path: Path, **setting: str) -> dict[str, object]:
-    done = _probe(tmp_path, **setting)
+def _caps(tmp_path: Path, before: str = "", **setting: str) -> dict[str, object]:
+    done = _probe(tmp_path, before, **setting)
     assert done.returncode == 0, done.stderr[-2000:]
     caps: dict[str, object] = json.loads(done.stdout.strip().splitlines()[-1])
     return caps
@@ -87,7 +97,15 @@ def test_every_pool_follows_the_setting(tmp_path: Path) -> None:
     _assert_every_pool(_caps(tmp_path, TB_LAKE_THREADS="3"), 3)
 
 
-@pytest.mark.parametrize("bad", ["0", "-2", "many", "1.5"])
+def test_arrow_pools_used_before_the_lake_are_bounded_too(tmp_path: Path) -> None:
+    _assert_every_pool(_caps(tmp_path, ARROW_FIRST, TB_LAKE_THREADS="1"), 1)
+
+
+def test_one_setting_governs_a_pool_variable_the_operator_set(tmp_path: Path) -> None:
+    _assert_every_pool(_caps(tmp_path, TB_LAKE_THREADS="3", ARROW_IO_THREADS="8", OMP_NUM_THREADS="8"), 3)
+
+
+@pytest.mark.parametrize("bad", ["0", "-2", "many", "1.5", "\u00b2"])
 def test_a_setting_that_is_not_a_count_stops_the_lake_with_its_name(tmp_path: Path, bad: str) -> None:
     done = _probe(tmp_path, TB_LAKE_THREADS=bad)
     assert done.returncode != 0
