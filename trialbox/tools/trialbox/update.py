@@ -644,6 +644,27 @@ class Updater:
             raise UpdateRefused(f"{problem}; nothing was changed")
         return [] if value == "off" else [f"TB_TLS_OLD_CLIENTS={value} (audited): 443 serves the old-client suites"]
 
+    def _audit_waits(self) -> list[str]:
+        """R22-36: an installed box whose audit chain waits for a person (adopted without its head anchor after a
+        signed head by an earlier writer, or apart from a signed head) is told here, at the update, with the page to
+        read. The update goes on: the box is not stopped, and the nightly signing and archiving wait until then."""
+        from tools.trialbox import audit_heads
+
+        env = getattr(self.box, "env", None)
+        if not env:
+            return []
+        audit_dir = audit_heads.host_dirs(env)[0]
+        try:
+            if not audit_dir.is_dir():
+                return []
+            audit_heads._libs()
+            from tb_common import audit
+
+            why = audit.waits_for_a_person(audit_dir)
+        except (OSError, ValueError):
+            return []
+        return [f"THE AUDIT CHAIN WAITS FOR A PERSON ({why}). Nothing is signed or archived until then"] if why else []
+
     def preflight(self, plan: Plan, backup: bool = True) -> list[str]:
         """Every refusal that needs nothing changed: compat.json against the live box, the release sequence, the
         box's own checks, the free space. Raises :class:`UpdateRefused`; returns notes."""
@@ -652,6 +673,7 @@ class Updater:
         notes: list[str] = []
         notes += self._tls_old_clients()
         notes += self._from_a_commit(plan)
+        notes += self._audit_waits()
         if plan.release_seq is not None:
             inst = us.installed(self.dir)
             have = int(inst["release_seq"])

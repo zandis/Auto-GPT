@@ -10,6 +10,13 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The audit chain is held to its signed heads (R22-36). A chain that lost `HEAD.json` after a head was signed is no
+  longer adopted by the next write, and a chain cut below a signed head is refused even when `HEAD.json` was written
+  to match, wherever the writer or the check is given the anchor folder. **An installed box that an earlier release
+  already adopted this way is not stopped**: the update, `doctor` and the nightly `audit-sign` say that the chain
+  waits for a person, and the signed head and the audit archive wait until `tools/audit_verify.py --reanchor` has
+  been run (runbook 05, "The audit chain waits for a person"). The audit writer asks a refusing chain again after one
+  minute, then less often, up to once an hour.
 - A PRODUCTION install finishes only with a backup target shown to be off the box and the hospital's audit share as
   its anchor folder (10K-4, D-1390). The box's first-run page asks the folder where the backup disk or share is
   mounted, the audit share's mount point and the log folder; a system folder or two overlapping folders are refused
