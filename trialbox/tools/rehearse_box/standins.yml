@@ -29,8 +29,11 @@ services:
     deploy: !reset {}   # no GPU reservation
     healthcheck: *health
   llm-verifier:
+    # Without a tier overlay there is no base verifier to supply its profile or served name.
+    profiles: [gpu]
+    env_file: [{path: ./secrets/model/vllm.env, required: false}]
     image: ${TB_IMAGE:-trialbox-py:1.0.0}
-    entrypoint: ["python", "-m", "tools.vllm_standin"]
+    entrypoint: ["python", "-m", "tools.vllm_standin", "--default-served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}"]
     user: "10001:10001"
     deploy: !reset {}
     healthcheck: *health
