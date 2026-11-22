@@ -5,7 +5,9 @@ through the one detector of D-215 (:mod:`tb_common.encoding`), with the site's d
 (``settings.data_source.encoding``) as the first candidate. A file the detector refuses, or that is not a readable
 CSV, is **quarantined**: it is moved to ``<directory>/quarantine/`` (left in place when the folder is read-only), the
 table yields no rows, and :meth:`CsvSource.quarantine_reason` says why, with the line. The adapter holds the night and
-reads the other tables; nothing is guessed and no U+FFFD reaches a record.
+reads the other tables; nothing is guessed and no U+FFFD reaches a record. A file cut short is not a readable CSV
+either (F-2): one that ends inside a quoted field or inside its last row, or that has a row with more or fewer fields
+than its header, is quarantined with the line, never served with a value cut or a column taken as empty.
 
 Delta (T-615b, DATA-008). ``--since`` filters on the table's change-time column (the mapping's ``delta:``, canonical
 ``updated_at``). A row whose change time is empty is kept, and so is every row of a file that has no such column: a
@@ -62,6 +64,41 @@ def candidates(declared: str | None) -> tuple[str, ...]:
     return (first, *rest) if first else rest
 
 
+def _ends_with_line_end(path: Path) -> bool:
+    """Whether the file's last byte ends a line (every character set read here writes CR and LF as ASCII)."""
+    with path.open("rb") as fh:
+        if fh.seek(0, 2) == 0:
+            return True
+        fh.seek(-1, 2)
+        return fh.read(1) in (b"\n", b"\r")
+
+
+def _not_whole(path: Path, codec: str) -> str | None:
+    """F-2 (H34-01, -03, -04): why the file is not a whole CSV, or None. Parsed strictly (a quoted field the file ends
+    inside is an error, not a field), and every row has as many fields as the header: a row short or long is a row
+    cut or split, never one whose missing column is taken as empty. A short last row with no line end is the file
+    cut inside it. Read as a stream, no row kept (T-692); the reason holds the line, never a cell's text."""
+    width = 0
+    try:
+        with path.open(encoding=codec, newline="") as fh:
+            reader = csv.reader(fh, strict=True)
+            for rec in reader:
+                if not rec:  # a blank line is no row (as DictReader reads it)
+                    continue
+                if not width:
+                    width = len(rec)
+                    continue
+                if len(rec) == width:
+                    continue
+                line, fields = reader.line_num, f"{len(rec)} fields where the header has {width}"
+                if len(rec) < width and next(reader, None) is None and not _ends_with_line_end(path):
+                    return f": the file ends inside its last row (line {line}: {fields})"
+                return f": line {line} has {fields}"
+    except csv.Error as exc:
+        return f" ({exc}, line {reader.line_num})"
+    return None
+
+
 class CsvSource:
     name = "csv"
 
@@ -110,12 +147,9 @@ class CsvSource:
         except encoding.EncodingRefused as exc:
             self._quarantine(path, source_name, str(exc))
             return None
-        try:
-            with path.open(encoding=codec, newline="") as fh:
-                for _ in csv.reader(fh):
-                    pass
-        except csv.Error as exc:
-            self._quarantine(path, source_name, f"not a readable CSV ({exc})")
+        why = _not_whole(path, codec)
+        if why is not None:
+            self._quarantine(path, source_name, f"not a readable CSV{why}")
             return None
         self.encodings[source_name] = codec
         return codec
