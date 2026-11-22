@@ -10,6 +10,7 @@ library only: the VM runs it with its own python3 before any venv exists (as box
     python3 measure48_vm.py summary DIR                          # --collect: what the run measured
     python3 measure48_vm.py quota DIR --zone Z --disk-gb N [--hdb-free-gb N]  # the driver's preflight: GPU, CPU, disk
     python3 measure48_vm.py host-need [--pull]                   # on an existing host (H-67): GB in each place
+    python3 measure48_vm.py bench-exception --probe F --driver D --card NAME --pinned REF   # H-74: the bench host only
 
 Every figure of ``STAGES`` is H-47's (docs/plan/measurements/48gb-measuring-run-2026-11-19.md, section 5), unchanged:
 the unattended form does the same steps in the same order; only the disk is smaller (100 GB, the region's
@@ -61,6 +62,7 @@ LADDER = ["pair-32k", "pair-16k", "judge-alone"]  # lane J's order (runbook 29 s
 ALLOW = [
     "steps.json", "decisions.json", "disk.jsonl", "clock.txt", "vm.log",
     "host.log", "preflight.txt", "records/docker-objects.json",  # the host form (H-67, tools/measure48-host.sh)
+    "records/bench-exception.json",  # H-74: a run under the bench host's driver exception says so
     "records/o0-card.csv", "records/plan.txt", "records/ballast.log", "records/head.json",
     "records/tb-dgpu48-*/measure.*.json", "records/tb-dgpu48-*/serving_config.dgpu48.*.json",
     "records/tb-dgpu48-*/canary.*.json",
@@ -95,6 +97,71 @@ NEED_GB = {
 HOST_DOCKER_STEPS = ("stub",)  # + "engine" with --pull
 HOST_RUN_DIR_STEPS = ("tools", "screen", "host53")
 RENTED_DRIVER_BRANCH = "580"  # the rented run's driver (D-966: nvidia-driver-580-server-open); a host's is recorded
+
+
+# H-74: the bench host's driver exception. The engine image (deploy/images.lock third_party.vllm) is a CUDA 13 build
+# whose config says NVIDIA_REQUIRE_CUDA=cuda>=13.0 and VLLM_ENABLE_CUDA_COMPATIBILITY=0 (the lock's note): below
+# gpu.driver_min it runs only through CUDA's forward-compatibility path, the image's /usr/local/cuda/compat libraries.
+# The repository's one way to show that path works on a card and driver is the engine probe (tools/engine_probe.py):
+# its forms pinned+compat (the switch) and pinned+libs (the libraries first), the same pinned image, a kernel run on the
+# card. The exception is granted only on such a probe's pass, taken with the driver and the card found now; the run
+# then serves with that form (tools/ballast48.py measure --engine). Never in deploy/check_host.sh, deploy/install.sh
+# or tools/images_lock.py: an install is refused below the minimum, always.
+BENCH_EXCEPTION = "forward-compat"
+COMPAT_FORMS = ("pinned+compat", "pinned+libs")
+BENCH_WORDS = "bench exception: driver {found} with the forward-compatibility path; not valid for an install"
+BENCH_CAUTION = (
+    "reported by the server's session (2026-11-22), not measured here: on driver 575 the forward-compatibility path "
+    "leaks driver memory per CUDA context; after many starts the card refuses new contexts, and a driver reload "
+    "fixes it. Reload the driver before the run; read memory.free before and after."
+)
+
+
+def _lock_driver_min(lock: Path) -> str:
+    doc = json.loads(lock.read_text(encoding="utf-8"))
+    return str(doc["third_party"]["vllm"]["gpu"]["driver_min"])
+
+
+def _ver(v: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in re.findall(r"\d+", v))
+
+
+def bench_exception(probe: Path, driver: str, card: str, pinned: str, lock: Path) -> tuple[list[str], dict[str, Any]]:
+    """The bench host's driver exception (H-74): the problems (none: granted) and the record the run keeps. Granted
+    only below gpu.driver_min, on an engine probe result (tb-engine-probe/1) that passed with a forward-compatibility
+    form of the pinned image (pinned+compat or pinned+libs), with the compatibility libraries seen inside, taken on this
+    card's model and this driver, and with the pinned reference of the lock in force now."""
+    need = _lock_driver_min(lock)
+    rec: dict[str, Any] = {"schema": "tb-measure48-bench-exception/1", "exception": BENCH_EXCEPTION,
+                           "driver_found": driver, "driver_min": need, "words": BENCH_WORDS.format(found=driver),
+                           "caution": BENCH_CAUTION, "valid_for_an_install": False}  # fmt: skip
+    if _ver(driver) >= _ver(need):
+        return [f"driver {driver} is not below {need}: no exception is needed (run without the option)"], rec
+    try:
+        doc = json.loads(probe.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        why = f"the engine probe result {probe} cannot be read ({type(exc).__name__}): run tools/engine_probe.py"
+        return [why], rec
+    problems = []
+    if not isinstance(doc, dict) or doc.get("schema") != "tb-engine-probe/1":
+        return [f"{probe} is not an engine probe result (tb-engine-probe/1)"], rec
+    v, host = doc.get("verdict") or {}, doc.get("host") or {}
+    use = v.get("use")
+    if v.get("answer") != "pass" or use not in COMPAT_FORMS or not v.get("pinned_engine"):
+        problems.append(f"the engine probe did not pass with a forward-compatibility form of the pinned image "
+                        f"({', '.join(COMPAT_FORMS)}): its verdict is {v.get('answer')!r}, {use!r}")  # fmt: skip
+    test = next((t for t in doc.get("tests") or [] if t.get("name") == use and t.get("status") == "PASS"), None)
+    if use in COMPAT_FORMS and not ((test or {}).get("probe") or {}).get("compat_libs"):
+        problems.append("the probe's passing form saw no compatibility library (/usr/local/cuda/compat/libcuda.so*)")
+    if str(host.get("driver")) != driver:
+        problems.append(f"the probe ran on driver {host.get('driver')}, this card has {driver}: probe again")
+    if str(host.get("card")) != card:
+        problems.append(f"the probe ran on a {host.get('card')}, this card is a {card}: probe this card")
+    img = (doc.get("images") or {}).get("pinned") or {}
+    if img.get("ref") != pinned or img.get("digest_matches") is False:
+        problems.append(f"the probe's pinned image is {img.get('ref')}, the lock's is {pinned}: probe again")
+    rec.update(engine_form=use, engine_env=v.get("env") or {}, probe_at=doc.get("at"))
+    return problems, rec
 
 
 def host_need(pull: bool = False) -> dict[str, float]:
@@ -489,7 +556,20 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("stop-line-min").add_argument("--no-o", action="store_true")
     hn = sub.add_parser("host-need")
     hn.add_argument("--pull", action="store_true")
+    bx = sub.add_parser("bench-exception")  # H-74: the bench host's driver exception, checked (never an install)
+    bx.add_argument("--probe", type=Path, required=True)
+    bx.add_argument("--driver", required=True)
+    bx.add_argument("--card", required=True)
+    bx.add_argument("--pinned", required=True)
+    bx.add_argument("--lock", type=Path, default=Path(__file__).resolve().parents[1] / "deploy" / "images.lock")
     a = ap.parse_args(argv)
+    if a.cmd == "bench-exception":
+        problems, rec = bench_exception(a.probe, a.driver, a.card, a.pinned, a.lock)
+        for line in problems:
+            print("NO\t" + line)
+        if not problems:
+            print("OK\t" + json.dumps(rec, sort_keys=True))
+        return 2 if problems else 0
     if a.cmd == "estimate":
         est = estimate(not a.no_o, a.disk_gb)
         print(json.dumps(est, indent=1)) if a.json else _print_estimate(est)
