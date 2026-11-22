@@ -170,6 +170,11 @@ In `rehearsal-real-servers-h89-2026-11-22/findings.json` (`--add-from` form).
   image's own value as the probe saw it) replaces the image's value instead of being put in front of it: to be
   checked on the bench.
 
+Mutants of this round: 15 planted (the boot guard dropped and asked always; the allow-list dropped, extra names
+allowed, the libs path loosened; the card id, host id, digest, age, mode and owner checks dropped; `export` not read;
+the banner's sentence cut; the deploy/.env sign ignored); 15 caught (one planted twice: its first form was malformed).
+The invariant was compared again with master 7dcba1be's own installer: identical in all nine cases.
+
 ### Files outside the card (ruled: bodies only)
 
 `deploy/settings_guard.sh` (the boot guard), `services/console/app.py` (`environment_banner`, the sentence),

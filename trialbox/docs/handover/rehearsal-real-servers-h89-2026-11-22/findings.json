@@ -19,7 +19,7 @@
    "claim": "the boot start (deploy/systemd/trialbox.service ExecStartPre deploy/settings_guard.sh) does not run the rehearsal start guard: a rehearsal box whose deploy/.env TB_ENV is edited to PRODUCTION by hand starts at the next boot (doctor FAILs it); settings_guard.sh calling python3 -m tools.rehearsal_real start --deploy would close it",
    "lane": "H",
    "basis": "hypothesis",
-   "state": "open"
+   "state": "fixed e8e050452e991b5c946ef9e070e2490f22773ee0"
   },
   {
    "id": "H89-03",
@@ -35,7 +35,7 @@
    "claim": "the console's banner says VALIDATION REHEARSAL on a real-servers rehearsal box, not the words 'rehearsal: driver below the minimum, not this profile's card, not valid for a site': services/console/app.py environment_banner reads TB_REHEARSAL only, and a change there is the console's lane's",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed e8e050452e991b5c946ef9e070e2490f22773ee0"
   },
   {
    "id": "H89-05",
