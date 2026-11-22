@@ -3,7 +3,7 @@
 Entry point: ``tb_common.kek.kms_seal`` / ``kms_open`` (``_kms_call``). The address is the operator's
 ``TB_KMS_URL`` or the ``kms_url`` recorded in ``kek.json``; the redirect is whatever answers at that address.
 ``_kms_endpoint`` allows only https (or loopback http), but the opener ``_kms_call`` builds keeps urllib's default
-redirect handler, which re-sends the request's headers (``X-Vault-Token`` among them) to the ``Location`` it is
+redirect handler, which re-sends the request's headers (the token header among them) to the ``Location`` it is
 given, on any host and over plain http.
 
 No network: the opener's http and https handlers are replaced by a stand-in that records each request and answers
@@ -42,7 +42,7 @@ def _stand_in(seen: list[tuple[str, dict[str, str]]]) -> tuple[type, type]:
         seen.append((req.full_url, {k.lower(): v for k, v in req.header_items()}))
         if req.host == "kms.example.org":
             return _answer(req.full_url, 302, b"", {"Location": OTHER})
-        return _answer(req.full_url, 200, json.dumps({"data": {"ciphertext": "vault:v1:AAAA"}}).encode(),
+        return _answer(req.full_url, 200, json.dumps({"data": {"ciphertext": "v1:AAAA"}}).encode(),
                        {"Content-Type": "application/json"})  # fmt: skip
 
     class FakeHttps(urllib.request.HTTPSHandler):
@@ -58,7 +58,7 @@ def _stand_in(seen: list[tuple[str, dict[str, str]]]) -> tuple[type, type]:
 
 @pytest.mark.xfail(
     strict=True,
-    reason="open finding: BH1-05: the KMS call follows a 302 to another host and plain http with X-Vault-Token",
+    reason="open finding: BH1-05: the KMS call follows a 302 to another host and plain http with the token header",
 )
 def test_kms_token_is_not_sent_to_a_redirect_target(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[tuple[str, dict[str, str]]] = []
@@ -72,5 +72,5 @@ def test_kms_token_is_not_sent_to_a_redirect_target(monkeypatch: pytest.MonkeyPa
     with contextlib.suppress(kek.KekError):  # refusing the redirect is the safe outcome
         kek.kms_seal(b"\x00" * kek.KEK_LEN, KMS, "trialbox", TOKEN)
     assert seen and seen[0][0].startswith(KMS)  # the stand-in was reached: the probe ran
-    leaked = [url for url, hdr in seen if hdr.get("x-vault-token") == TOKEN and not url.startswith(KMS)]
+    leaked = [url for url, hdr in seen if TOKEN in hdr.values() and not url.startswith(KMS)]
     assert leaked == [], f"the KMS token was sent to {leaked}"

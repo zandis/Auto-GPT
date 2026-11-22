@@ -4,7 +4,7 @@ Entry point: a FEAS run (mail subject ``FEAS <study>`` or the console's run butt
 the requester's mail body from the funnel's biggest barriers, each one a criterion's label or, without one, the
 first 60 characters of the protocol's criterion text (``feas_compute.py``). The orchestrator sends that Markdown
 to the mail gateway (``core.py: Orchestrator.send``), which turns it into the HTML alternative with
-``markdown.markdown`` (``mail_gateway/outbound.py: render_body``). Python-Markdown passes inline HTML through as
+``markdown.markdown`` (``mail_gateway/outbound.py: render_body``). The converter passes inline HTML through as
 written, so markup in a criterion's text reaches the recipient's mail client as markup, where the PDF of the same
 run escapes the same label (``feasibility_pdf.answer_text``).
 

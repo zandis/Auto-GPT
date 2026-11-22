@@ -87,7 +87,7 @@
   {
    "id": "BH1-11",
    "severity": "Low",
-   "claim": "the NHI host opens an orchestrator egress rule without the model-host check the REDCap host gets",
+   "claim": "the NHI host opens an orchestrator egress rule without the model-host check the EDC host gets",
    "lane": "H",
    "basis": "shown",
    "state": "open"

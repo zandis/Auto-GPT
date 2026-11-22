@@ -1,12 +1,12 @@
 """Bug-hunt probes BH1-10 and BH1-11: the egress table's "only the gateway reaches a model host" rule.
 
-Entry point: ``deploy/egress.py`` ``allowlist`` (rendered into the host's nftables table and the platform's
+Entry point: ``deploy/egress.py`` ``allowlist`` (rendered into the host's firewall table and the platform's
 NetworkPolicy). The values are the operator's settings: ``EGRESS_EXTRA`` rows and ``NHI_TWPAS_BASE_URL``.
 
 * BH1-10: an ``EGRESS_EXTRA`` row is compared with the model hosts by exact string, so a model host written
   with another letter case or a trailing dot passes the check and the row gives a non-gateway container the model
   host (DNS answers the same addresses for either spelling).
-* BH1-11: the NHI host opens a rule for the orchestrator without the model-host check the REDCap host gets.
+* BH1-11: the NHI host opens a rule for the orchestrator without the model-host check the EDC host gets.
 
 No network: the resolver is a dict.
 """
