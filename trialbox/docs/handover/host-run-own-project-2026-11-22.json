@@ -47,6 +47,17 @@
    "state": "fixed ae48017b26ea7b0ada0332ac4faaa29a4c075ff7",
    "fix": "tools/measure48-host.sh unsets COMPOSE_PROJECT_NAME after it sets TB_COMPOSE_PROJECT",
    "from": "the integrator's card H-75, 2026-11-22"
+  },
+  {
+   "id": "H75-05",
+   "severity": "Medium",
+   "claim": "three files outside the ruling's six read the names made variable: libs/tb_common/config.py DECLARED lacks TB_COMPOSE_PROJECT (test_config_declared, make guard), tests/unit/test_image_config_scans.py asserts deploy/build_db_image.sh's literal -t trialbox-postgres:16-1, and tools/network_sheet.py prints the compose network name raw (test_network_sheet, three languages)",
+   "severity_basis": "five tests fail on the branch and pass on master; none changes what the box runs, but the branch cannot ride until they are settled",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a question to the integrator: a go for config.py (one DECLARED row) and network_sheet.py (a network name's ${VAR:-default} read as its default), bodies only, and a ruling on test_image_config_scans.py's assertion",
+   "from": "the integrator's card H-75, 2026-11-22"
   }
  ]
 }

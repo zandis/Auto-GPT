@@ -2,7 +2,7 @@
 
 **Reader:** the integrator and the people who build TrialBox
 
-Lane H. Findings H75-01 to H75-04 ([findings JSON](host-run-own-project-2026-11-22.json)). Rides after H-74
+Lane H. Findings H75-01 to H75-05 ([findings JSON](host-run-own-project-2026-11-22.json)). Rides after H-74
 ([its page](host-run-bench-exception-2026-11-22.md); this card is its finding H74-03, part B). The run sheet:
 `docs/plan/measurements/48gb-measuring-run-2026-11-19.md` section 10.2. Decision: D-1356.
 
@@ -28,7 +28,8 @@ touching any of the box's objects (D-1356).**
   `make images` (whose tags are the box's); the Makefile and the Dockerfiles are unchanged.
 - **Tests:** `tests/unit/test_measure48_host_own_names_h75.py`, 24 tests. **Ten tests of H-67's
   `tests/unit/test_measure48_host_h67.py` now fail** (below): they assert the box's fixed names and H-72's refusal.
-  Their assertions are not changed here; a question to the integrator (H75-01).
+  Their assertions are not changed here; a question to the integrator (H75-01). Five more fail on a file outside
+  the six or an assertion of another lane's test (H75-05, below): not changed, a question.
 
 The bench host's commands (an existing host with an installed box, driver 575; card N; H-74's exception):
 
@@ -83,6 +84,26 @@ and the tags (as `OwnRig` in the new test file does), the names asserted become 
 `t1-llm-service-1`, `trialbox-py:t1` (removed, no longer "made and kept"), the three box refusals become the run's
 own names' refusals (as in the new file), and `test_an_installed_boxs_images_refuse_the_run_...` is replaced by the
 new full run beside a box.
+
+## Three files outside the six (H75-05)
+
+These fail on this branch and pass on master (`e9e56b0f`), and need a seventh file or a changed assertion:
+
+- `tests/unit/test_config_declared.py::test_every_tb_setting_read_is_declared` (also in `make guard`):
+  `TB_COMPOSE_PROJECT`, read in `tools/dgpu48.py`, must be in `libs/tb_common/config.py` `DECLARED` (type `str`,
+  default `trialbox`, "the compose project"); `TB_IMAGE` is declared already.
+- `tests/unit/test_image_config_scans.py::test_every_own_image_is_scanned_from_its_dockerfile`: asserts the text
+  `-f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1` in `deploy/build_db_image.sh`, which is now
+  `-t "${TB_DB_IMAGE:-trialbox-postgres:16-1}"`. Not worked around (a second, literal command line would only satisfy
+  the text).
+- `tests/unit/test_network_sheet.py::test_the_committed_sheet_lists_every_port_and_is_up_to_date[en|ja|zh-TW]`:
+  `tools/network_sheet.py` reads the compose file's network names raw and would now print
+  `${TB_COMPOSE_PROJECT:-trialbox}-console`; it needs to take the default (`trialbox-console`), after which the
+  committed sheets are unchanged.
+
+**question:** a go for `libs/tb_common/config.py` (one `DECLARED` row) and `tools/network_sheet.py` (resolve
+`${VAR:-default}` in a network name to its default), bodies only, and a ruling on
+`test_image_config_scans.py`'s assertion (to accept the variable with that default).
 
 ## Files outside the card
 
