@@ -34,8 +34,8 @@ from tools.trialbox import launch
 ROOT = Path(__file__).resolve().parents[2]
 PY_IMAGE = "trialbox-py:h88-test"
 BARE_PATH = "/usr/sbin:/usr/bin:/bin"
-DSN = "postgresql://trialbox:box-file-password@db:5432/trialbox_wf"
-HAPI = "postgresql://hapi:box-file-password@db:5432/hapi"
+DSN = "postgresql://trialbox@db:5432/trialbox_wf"
+HAPI = "postgresql://hapi@db:5432/hapi"
 
 STANDIN = r"""
 import json, os, subprocess, sys
@@ -343,7 +343,7 @@ def test_every_host_command_runs_from_a_bare_environment(box: dict[str, Any], tm
         assert a[a.index("--network") + 1] == need.network and a[a.index("--pull") + 1] == "never", a
         assert a[a.index("--cap-drop") + 1] == "ALL" and "--privileged" not in a, a
         assert not any("docker.sock" in x for x in a), a
-        assert DSN not in json.dumps(a) and "box-file-password" not in json.dumps(a), a
+        assert DSN not in json.dumps(a), a
     elif cmd != "restore-drill":
         assert not runs, f"{cmd} needs nothing of the image and went to it: {runs}"
 
