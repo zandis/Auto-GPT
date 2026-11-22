@@ -47,7 +47,9 @@
 # TB_M48_FUNCTIONS_ONLY=1 and stops at that line, so nothing of the VM's own part below it (the metadata, the bucket,
 # the driver, the reboot, the power-off, the cost cap's timer) is even defined there. The caller defines: RUN, CK, W,
 # SI, POLL, LINE_S, LINE_MIN, ETC, TAKE_O, h, used, tick, say, pack, end_run (and on a host GPU, OWN_ONLY, DISK_PATH,
-# DOCKER_DISK_PATH, NODE_TOOLS, stub_free, engine_room, engine_get and the screen_setup_* functions).
+# DOCKER_DISK_PATH, NODE_TOOLS, stub_free, engine_room, engine_get and the screen_setup_* functions; on the bench host
+# ENGINE, card H-74: ballast48 measure --engine FORM --probe FILE, the engine probe's form and environment; unset on
+# the VM).
 stamp() { date -u +%FT%TZ; }
 
 # A simple command a non-interactive bash starts with & has SIGINT ignored, and Python keeps an ignored SIGINT: the stop
@@ -194,7 +196,7 @@ step_ladder() {
     decide "ladder $opt" try "$why; $GATE_WHY"
     local tb0; tb0=$(grep -c '^Traceback' "$STEP_LOG" 2>/dev/null)
     STOP_TARGET="$MEASURE_RE" TB_UNMEASURED_DGPU48_MEASURING_RUN=1 \
-      watched tool ballast48 measure --option "$opt" --keep --out-dir "$(measure_dir "$opt")" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"}
+      watched tool ballast48 measure --option "$opt" --keep --out-dir "$(measure_dir "$opt")" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"} ${ENGINE[@]+"${ENGINE[@]}"}
     rc=$?
     [ "$STOPLINE" = 0 ] || rc=130
     # exit 1 is "did not start" only with lane J's record and no new traceback; else the tool broke (3): the
@@ -273,7 +275,7 @@ step_down() {
 }
 step_host53() {
   STOP_TARGET="$MEASURE_RE" TB_UNMEASURED_DGPU48_MEASURING_RUN=1 \
-    watched tool ballast48 measure --option pair-32k-host53 --out-dir "$(measure_dir pair-32k-host53)" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"}
+    watched tool ballast48 measure --option pair-32k-host53 --out-dir "$(measure_dir pair-32k-host53)" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"} ${ENGINE[@]+"${ENGINE[@]}"}
   NOTE="pair-32k-host53 exit $?"; return 0
 }
 step_release() {

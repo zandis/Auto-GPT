@@ -1,0 +1,52 @@
+{
+ "card": "H74",
+ "title": "the bench host's driver exception, and the run's own project and image tag",
+ "date": "2026-11-22",
+ "source": "docs/handover/host-run-bench-exception-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H74-01",
+   "severity": "Low",
+   "claim": "the order names G1b's record ('driver 575 with the forward-compatibility path') as the mechanism to follow, but no such record is in the tree: G1b has not run (docs/plan/measurements/b200-g1b/G1b.md 'Status: not run') and no record of the engine image on a 575 driver exists",
+   "severity_basis": "the exception could not copy a recorded run; it is built on the tree's one mechanism instead (tools/engine_probe.py's forward-compatibility forms, which tools/dgpu48.py already serves), so nothing was invented, but no run on 575 has proven it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the bench exception requires an engine probe result that passed with pinned+compat or pinned+libs on this card's model, this driver and the lock's pinned image; the integrator confirms the probe is the record meant",
+   "from": "the integrator's card H-74, 2026-11-22"
+  },
+  {
+   "id": "H74-02",
+   "severity": "Medium",
+   "claim": "s08 served through tools/ballast48.py measure --engine FORM, which handed lane J's tools/dgpu48.py measure the form by name (dgpu48's fixed environment: VLLM_ENABLE_CUDA_COMPATIBILITY=1, or LD_LIBRARY_PATH=/usr/local/cuda/compat), not the probe's own; the probe's forms also set NVIDIA_DISABLE_REQUIRE=1 because the container toolkit refuses the image's cuda>=13.0 requirement on an older driver before the engine starts",
+   "severity_basis": "under the exception the ladder may end with 'did not start' at s08 after about an hour of s05 to s07; not reached: no run on a 575 driver",
+   "lane": "H",
+   "basis": "read",
+   "state": "fixed 6cb269cad5c45a4319c70daf404511d123b0c9d6",
+   "fix": "ballast48 measure --probe FILE (the bench exception only; the probe's verdict must be --engine): lane J's measure reads the form from the probe (dgpu48.engine_from_probe, unchanged), with the probe's container environment; without --probe the call and the run file are as before",
+   "from": "the integrator's card H-74, 2026-11-22"
+  },
+  {
+   "id": "H74-03",
+   "severity": "Medium",
+   "claim": "the run's own image tag cannot be built inside the four files of the ruling: deploy/poc.sh builds the database image only through deploy/build_db_image.sh, which tags trialbox-postgres:16-1 with no variable (and make images, poc.sh's first path, tags trialbox-py, trialbox-jvm, trialbox-embed, trialbox-backup and the database image with fixed tags); deploy/docker-compose.test.yml, the stub's overlay, names a network trialbox-hostnet",
+   "severity_basis": "with the H-72 image refusal relaxed, s05 would build over an installed box's database image; so part B was not built and a host with an installed box is still refused",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a question to the integrator: a go for deploy/build_db_image.sh (its tag from a variable, trialbox-postgres:16-1 by default) and deploy/docker-compose.test.yml (the host network's name from the project), bodies only; then part B in the six files",
+   "from": "the integrator's card H-74, 2026-11-22"
+  },
+  {
+   "id": "H74-04",
+   "severity": "Low",
+   "claim": "reported by the server's session, not measured: on driver 575 the forward-compatibility path leaks driver memory per CUDA context until the card refuses new contexts; the run starts one context for the ballast and two servers for each ladder option tried, stage O's verifier and s13's option (about 6 to 10 server starts)",
+   "severity_basis": "a leak that grows across the ladder would leave each later option less free memory than the first had, so a later option could fail or show a smaller cache for the leak, not for its settings",
+   "lane": "H",
+   "basis": "read",
+   "state": "open",
+   "fix": "the sheet and the preflight carry the caution: reload the driver before the run, compare memory.free before and after; read a later option's result against the first's free figure",
+   "from": "the integrator's card H-74, 2026-11-22"
+  }
+ ]
+}
