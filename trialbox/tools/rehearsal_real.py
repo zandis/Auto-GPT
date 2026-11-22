@@ -39,14 +39,28 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from tools import engine_probe, images_lock, measure48_vm
+from tools import ballast, engine_probe, images_lock, measure48_vm
 
-PROFILE = "rtxpro6000"
+ROOT = Path(__file__).resolve().parents[1]
+PROFILE = "rtxpro6000"  # the default; OPENED holds every profile a rehearsal with real servers takes
 PROFILE_CARD = "RTX PRO 6000"  # tools/serving_config.py PROFILES["rtxpro6000"]["card"]
+# The owner's ruling (7087798913, 7087828219): every shipped profile on the bench, each held to its OWN card's memory
+# on the bench's card: its compose file's utilisations scaled by tools/ballast.py util_on (the 5090 profile's existing
+# cap: "0.81 of 32,607 MiB becomes 26,412 MiB / total"), written into deploy/.env, which the compose file reads.
+#   budget_mib  what the profile's own card reports (nvidia-smi memory.total)
+#   cards       the names of the profile's own cards (tools/serving_config.py PROFILES)
+#   sleep       the pair swaps (one server awake at a time): the free memory needed is the larger server's, not both
+OPENED: dict[str, dict[str, Any]] = {
+    "rtxpro6000": {"compose": "docker-compose.rtxpro6000.yml", "budget_mib": 97887, "cards": ("RTX PRO 6000",),
+                   "sleep": False},
+    "rtx5090": {"compose": "docker-compose.rtx5090.yml", "budget_mib": 32607, "cards": ("5090", "RTX PRO 4500"),
+                "sleep": True},
+}  # fmt: skip
 MARK = "rehearsal.json"
 RECORD = "rehearsal-real-servers.json"
 OVERRIDE = "rehearsal-real-servers.yml"
 OVERRIDE_MARK = "x-trialbox-rehearsal-real-servers: true"
+COMPLETE = "rehearsal-install-complete.json"  # install.sh --rehearsal writes it at its end, and nothing else does
 SCHEMA = "tb-rehearsal-real-servers/1"
 SERVERS = ("llm-service", "llm-verifier")
 NOT_VALID = "not valid for a site"
@@ -219,15 +233,27 @@ def smi(index: str) -> str:
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
-def record_need(record: dict[str, Any], total_mib: int) -> tuple[int, int, float]:
-    """MiB the pair needs free on a card of ``total_mib``: the larger of the record's measured use and the sum of the
-    servers' --gpu-memory-utilization (vLLM's fractions are of the whole card it is given) times this card."""
+def caps(profile: str, total_mib: int) -> dict[str, float]:
+    """The profile's own memory cap on a card of ``total_mib``: each utilisation of its compose file, scaled so the
+    server gets the MiB it gets on the profile's own card (tools/ballast.py util_on, rounded down)."""
+    rule = OPENED[profile]
+    utils = ballast.profile_utils(ROOT / "deploy" / rule["compose"])
+    return {k: ballast.util_on(total_mib, u, rule["budget_mib"]) for k, u in utils.items()}
+
+
+def record_need(record: dict[str, Any], total_mib: int, profile: str = PROFILE) -> tuple[int, int, float]:
+    """MiB the pair needs free on a card of ``total_mib`` under the profile's cap: the larger of the record's measured
+    use (a profile with a record) and the capped utilisations (vLLM's fractions are of the whole card it is given),
+    summed, or the larger one for a pair that swaps."""
     used = int(record.get("memory_used_mib") or 0)
-    frac = round(sum(float(s.get("gpu_memory_utilization") or 0) for s in record.get("servers") or []), 4)
+    got = caps(profile, total_mib).values()
+    frac = round(max(got) if OPENED[profile]["sleep"] else sum(got), 4)
     return max(used, math.ceil(frac * total_mib)), used, frac
 
 
-def card_facts(index: str, line: str, record: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+def card_facts(
+    index: str, line: str, record: dict[str, Any], profile: str = PROFILE
+) -> tuple[list[str], dict[str, Any]]:
     """The one whole card at ``index``: its facts, and why it may not carry the pair (none: it may)."""
     if not re.fullmatch(r"\d{1,3}", index or ""):
         return [f"--gpu-index {index!r} is not a card index (0, 1, ...): one card is named, never all"], {}
@@ -245,7 +271,7 @@ def card_facts(index: str, line: str, record: dict[str, Any]) -> tuple[list[str]
     if not (free.isdigit() and total.isdigit()):
         problems.append(f"card {index}: nvidia-smi gives no memory figures ({free!r}, {total!r})")
         return problems, facts
-    need, used, frac = record_need(record, int(total))
+    need, used, frac = record_need(record, int(total), profile)
     facts.update(memory_free_mib=int(free), memory_total_mib=int(total), need_mib=need)
     if int(free) < need:
         problems.append(f"card {index} ({name}) has {free} MiB free; the pair needs {need} MiB (the record's "
@@ -284,14 +310,18 @@ def _record(path: Path) -> dict[str, Any]:
     return doc
 
 
-def write(deploy: Path, index: str, probe: Path, record_path: Path) -> tuple[list[str], dict[str, Any]]:
+def write(
+    deploy: Path, index: str, probe: Path, record_path: Path | None, profile: str = PROFILE
+) -> tuple[list[str], dict[str, Any]]:
     """Check the card and the driver again and write the record and the compose file (deploy/site). Nothing is
     written when a check fails."""
     problems = box_problems(deploy)
     if not (deploy / "site" / MARK).is_file():
         problems.append(f"no rehearsal mark (deploy/site/{MARK}): written by install.sh --rehearsal only")
-    record = _record(record_path)
-    card_problems, facts = card_facts(index, smi(index), record)
+    if profile not in OPENED:
+        return [*problems, f"the {profile} profile is not opened for a rehearsal with real servers"], {}
+    record = _record(record_path) if record_path else {}
+    card_problems, facts = card_facts(index, smi(index), record, profile)
     problems += card_problems
     if problems:
         return problems, {}
@@ -312,19 +342,20 @@ def write(deploy: Path, index: str, probe: Path, record_path: Path) -> tuple[lis
         if trust or not data:
             return trust or [f"the engine probe file {probe} is empty"], {}
         probe_sha = hashlib.sha256(data).hexdigest()
-    rec_card = str((record.get("card") or {}).get("name") or "?")
-    other = PROFILE_CARD not in facts["name"]
+    rec_card = str((record.get("card") or {}).get("name") or " or ".join(OPENED[profile]["cards"]))
+    other = not any(c in facts["name"] for c in OPENED[profile]["cards"])
     doc = {
         "schema": SCHEMA,
         "made_by": "deploy/install.sh --rehearsal --rehearsal-real-servers",
         "words": words(below, other),
         "valid_for_a_site": False,
         "driver": {"found": facts["driver"], "minimum": need, "below_minimum": below},
-        "card": {"found": facts["name"], "index": facts["index"], "profile": PROFILE, "profile_card": rec_card,
+        "caps": caps(profile, facts["memory_total_mib"]),
+        "card": {"found": facts["name"], "index": facts["index"], "profile": profile, "profile_card": rec_card,
                  "this_profiles_card": not other, "memory_free_mib": facts["memory_free_mib"],
                  "memory_total_mib": facts["memory_total_mib"], "need_mib": facts["need_mib"]},
         "engine_probe": {"sha256": probe_sha, "form": form, "env": env},
-        "serving_record": str(record_path.name),
+        "serving_record": record_path.name if record_path else None,
     }  # fmt: skip
     site = deploy / "site"
     (site / OVERRIDE).write_text(override_text(facts["uuid"], env), encoding="utf-8")
@@ -361,24 +392,34 @@ def start_refusal(deploy: Path, env: dict[str, str]) -> str:
     (a hand edit of TB_ENV); a box with the real-servers record or file starts only as a whole VALIDATION rehearsal
     box (the mark, TB_REHEARSAL=1): removing the mark by hand is not enough."""
     tb_env = _norm(env.get("TB_ENV"))
-    if not tb_env:
-        # the integrator's ruling (7087297960): only an EXPLICIT TB_ENV=PRODUCTION is refused. No deploy/.env, or one
-        # without TB_ENV, on a box with a rehearsal sign is a rehearsal (a fresh rehearsal box's bundle load runs this
-        # check before the settings step writes TB_ENV)
-        return ""
     mark = (deploy / "site" / MARK).is_file()
     flag = (env.get("TB_REHEARSAL") or "").strip() == "1"
     real = real_servers_sign(deploy, env)
+    complete = (deploy / "site" / COMPLETE).is_file()
     signs = [s for s, on in ((f"deploy/site/{MARK}", mark), ("TB_REHEARSAL=1", flag), (real, bool(real))) if on]
-    if signs and tb_env == "PRODUCTION":
-        return (
-            f"this box carries a rehearsal sign ({', '.join(signs)}) and deploy/.env says TB_ENV=PRODUCTION: a "
-            "rehearsal box never becomes a PRODUCTION box; install the site's box afresh on an empty box"
+    if not signs:
+        return ""
+    # the integrator's rulings (7087297960, 7087751791): only an explicit TB_ENV=PRODUCTION is refused, and a missing
+    # TB_ENV (or no deploy/.env) is a rehearsal only while the install is in progress: until install.sh --rehearsal
+    # has written its completion mark (deploy/site/rehearsal-install-complete.json, written by install.sh alone, at
+    # its end). After it, a missing TB_ENV is PRODUCTION to the services (D-127) and refused
+    in_progress = not tb_env and not complete
+    if tb_env == "PRODUCTION" or (not tb_env and complete):
+        said = (
+            "says TB_ENV=PRODUCTION"
+            if tb_env
+            else f"has no TB_ENV after the install completed (deploy/site/{COMPLETE}): PRODUCTION"
         )
-    if real and not (tb_env == "VALIDATION" and mark and flag):
+        return (
+            f"this box carries a rehearsal sign ({', '.join(signs)}) and deploy/.env {said}: a rehearsal box never "
+            "becomes a PRODUCTION box; install the site's box afresh on an empty box"
+        )
+    # the real servers' checks, in every case: the mark always, and once installed a whole VALIDATION rehearsal box
+    if real and not (mark and (in_progress or (tb_env == "VALIDATION" and flag))):
         return (f"this box ran the real model servers as a rehearsal ({real}; {NOT_VALID}) and is no longer a "
-                f"whole rehearsal box (TB_ENV={tb_env}, mark {'present' if mark else 'missing'}, TB_REHEARSAL="
-                f"{'1' if flag else 'missing'}): install the site's box afresh on an empty box")  # fmt: skip
+                f"whole rehearsal box (TB_ENV={tb_env or 'none'}, mark {'present' if mark else 'missing'}, "
+                f"TB_REHEARSAL={'1' if flag else 'missing'}): install the site's box afresh on an "
+                "empty box")  # fmt: skip
     return ""
 
 
@@ -388,20 +429,22 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("box", help="may this box be a rehearsal box (install.sh, before the GPU check)")
     b.add_argument("--deploy", type=Path, required=True)
     c = sub.add_parser("card", help="may the card at this index carry the pair (install.sh, before the GPU check)")
+    c.add_argument("--profile", choices=sorted(OPENED), default=PROFILE)
     c.add_argument("--gpu-index", required=True)
-    c.add_argument("--record", type=Path, required=True)
+    c.add_argument("--record", type=Path, default=None)
     w = sub.add_parser("write", help="write deploy/site's record and compose file (install.sh, after the mark)")
     w.add_argument("--deploy", type=Path, required=True)
+    w.add_argument("--profile", choices=sorted(OPENED), default=PROFILE)
     w.add_argument("--gpu-index", required=True)
     w.add_argument("--engine-probe", type=Path, required=True)
-    w.add_argument("--record", type=Path, required=True)
+    w.add_argument("--record", type=Path, default=None)
     s = sub.add_parser("start", help="may this box start (exit 1 with the reason when not)")
     s.add_argument("--deploy", type=Path, required=True)
     a = ap.parse_args(argv)
     if a.cmd == "box":
         problems = box_problems(a.deploy)
     elif a.cmd == "card":
-        problems, facts = card_facts(a.gpu_index, smi(a.gpu_index), _record(a.record))
+        problems, facts = card_facts(a.gpu_index, smi(a.gpu_index), _record(a.record) if a.record else {}, a.profile)
         if not problems:
             free, total, need = facts["memory_free_mib"], facts["memory_total_mib"], facts["need_mib"]
             print(
@@ -409,7 +452,7 @@ def main(argv: list[str] | None = None) -> int:
                 "MIG off: one whole card"
             )
     elif a.cmd == "write":
-        problems, doc = write(a.deploy, a.gpu_index, a.engine_probe, a.record)
+        problems, doc = write(a.deploy, a.gpu_index, a.engine_probe, a.record, a.profile)
         if not problems:
             drv, card = doc["driver"], doc["card"]
             print(

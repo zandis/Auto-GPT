@@ -210,5 +210,8 @@ loaded just now and nothing has used the card since, as after a fresh boot), the
 
 The probe file and its folder must be root's and writable by no one else; a probe of another card or host, older than
 7 days, or of another image is refused. The page: docs/handover/rehearsal-real-servers-h89-2026-11-22.md.
-The rtxpro6000 profile is the only one this opens: the 32 GB profile on a whole card beside the 96 GB one would be the
-same line with `--gpu rtx5090`, and the installer refuses it ("name the profile: --gpu rtxpro6000").
+
+Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled into deploy/.env):
+`--gpu rtxpro6000` (96 GB) or `--gpu rtx5090` (32 GB, a whole card), with `--gpu-index N` naming the card the probe was
+taken on. The 32 GB profile on a split card's slice, dgpu48, gb10 and the Windows (WSL2) host are not opened; the
+page says why.

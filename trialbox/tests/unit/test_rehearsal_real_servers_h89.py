@@ -216,7 +216,7 @@ def test_under_the_mark_the_driver_is_a_loud_warn_and_the_install_goes_on(tmp_pa
     assert "    WARN  NVIDIA driver 575.57.08 is below 580.65.06" in out
     assert "rehearsal: driver below the minimum (found 575.57.08, minimum 580.65.06)" in out
     assert "not valid for a site" in out and "FAIL" not in out
-    assert "card 1: NVIDIA B200, 180000 MiB free of 183359 (the pair needs 110016)" in out
+    assert "card 1: NVIDIA B200, 180000 MiB free of 183359 (the pair needs 62574)" in out
     assert r.stderr.splitlines()[-1].startswith("install: vendor public key missing"), r.stderr  # past the GPU step
 
 
@@ -333,7 +333,7 @@ def test_a_compose_override_of_the_operators_is_refused(tmp_path: Path) -> None:
     ("bench", "said"),
     [
         ({"mig": "Enabled"}, "has MIG on"),
-        ({"free": 90000}, "has 90000 MiB free; the pair needs 110016 MiB (the record's 62574 MiB measured, and 0.6"),
+        ({"free": 60000}, "has 60000 MiB free; the pair needs 62574 MiB (the record's 62574 MiB measured, and 0.319"),
     ],
 )
 def test_a_mig_card_or_one_short_of_memory_is_refused(tmp_path: Path, bench: dict[str, Any], said: str) -> None:
@@ -350,8 +350,9 @@ def test_a_card_index_that_is_not_there_is_refused(tmp_path: Path) -> None:
 
 def test_the_need_is_the_larger_of_the_record_and_the_fractions() -> None:
     rec = json.loads(REC.read_text(encoding="utf-8"))
-    assert rehearsal_real.record_need(rec, 97887) == (62574, 62574, 0.6)  # the record's own card
-    assert rehearsal_real.record_need(rec, 183359)[0] == 110016  # a B200: vLLM's fractions of the whole card
+    assert rehearsal_real.record_need(rec, 97887) == (62574, 62574, 0.6)  # the record's own card: its own fractions
+    # a B200: the profile is held to its 96 GB card (0.40 and 0.20 of 97,887 MiB, as fractions of 183,359 MiB)
+    assert rehearsal_real.record_need(rec, 183359) == (62574, 62574, 0.319)
 
 
 def test_the_compose_file_pins_one_card_by_uuid_with_the_probes_environment() -> None:
@@ -889,7 +890,7 @@ def _start_ok(deploy: Path) -> None:
 
 
 def _start_refused(deploy: Path) -> None:
-    assert "TB_ENV=PRODUCTION" in rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env"))
+    assert "PRODUCTION" in rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env"))
     with pytest.raises(UpdateFailed, match="refused to start"):
         prestart._rehearsal_guard(deploy, _Box(deploy))  # type: ignore[arg-type]
     r = _guard(deploy)
@@ -916,12 +917,13 @@ def test_the_install_order_of_a_rehearsal_box_is_never_refused_and_a_hand_edit_i
         if real:
             fh.write("TB_REHEARSAL_REAL_SERVERS=1\n")
     _start_ok(deploy)  # the install's own start (pre-start), then the boot
+    (site / rehearsal_real.COMPLETE).write_text('{"rehearsal_install_complete": true}\n', encoding="utf-8")  # its end
     _start_ok(deploy)  # a second install over it (the rehearsal's re-run), its bundle load and start
     text = (deploy / ".env").read_text(encoding="utf-8")
     (deploy / ".env").write_text(text.replace("TB_ENV=VALIDATION", "TB_ENV=PRODUCTION"), encoding="utf-8")
     _start_refused(deploy)  # a hand edit to PRODUCTION: refused at boot and at start
     (deploy / ".env").write_text(text.replace("TB_ENV=VALIDATION\n", ""), encoding="utf-8")
-    _start_ok(deploy)  # the integrator's ruling: only an explicit TB_ENV=PRODUCTION is refused
+    _start_refused(deploy)  # TB_ENV removed by hand after the install completed: PRODUCTION (7087751791), refused
 
 
 @pytest.mark.parametrize("env_text", [None, "", "TB_TZ=Asia/Taipei\n"])
@@ -940,3 +942,121 @@ def test_no_env_file_or_no_tb_env_on_a_signed_box_is_a_rehearsal(
     _start_ok(deploy)  # the load (the boot guard), the start (pre-start)
     (deploy / ".env").write_text((env_text or "") + "TB_ENV=PRODUCTION\n", encoding="utf-8")
     _start_refused(deploy)  # an explicit PRODUCTION: refused at load, at start and at boot
+
+
+# ------------------------------------------------------------------------------- round 5: part 1 (7087751791)
+def test_a_missing_tb_env_after_the_install_completed_is_refused(tmp_path: Path) -> None:
+    """(a): the completion mark is written by install.sh alone, at its end; after it a missing TB_ENV is PRODUCTION."""
+    deploy = _box(tmp_path, "TB_TZ=Asia/Taipei\n", mark=True, record=False)
+    _start_ok(deploy)  # an install in progress
+    (deploy / "site" / rehearsal_real.COMPLETE).write_text("{}\n", encoding="utf-8")
+    _start_refused(deploy)  # at start and at boot
+    assert rehearsal_real.COMPLETE in rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env"))
+    assert "deploy/site/rehearsal-install-complete.json" in INSTALL and INSTALL.count(rehearsal_real.COMPLETE) == 1
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_the_real_servers_checks_run_without_tb_env(tmp_path: Path, complete: bool) -> None:
+    """(b): a box with the real-servers record and no TB_ENV still needs the mark (and, installed, a whole box)."""
+    deploy = _box(tmp_path, "TB_TZ=Asia/Taipei\n", mark=False, record=True)
+    if complete:
+        (deploy / "site" / rehearsal_real.COMPLETE).write_text("{}\n", encoding="utf-8")
+    why = rehearsal_real.start_refusal(deploy, rehearsal_real.env_file(deploy / ".env"))
+    assert why and ("mark missing" in why or "PRODUCTION" in why)
+    r = _guard(deploy)
+    assert r.returncode == 1
+
+
+def test_the_installer_writes_the_completion_mark_only_after_a_clean_end() -> None:
+    end = INSTALL[INSTALL.index('if [ "${#FAILS[@]}" -gt 0 ]; then') :]
+    assert end.index("exit 1") < end.index(rehearsal_real.COMPLETE)
+    assert (
+        'if [ "$REHEARSAL" = 1 ]; then\n  printf \'{"rehearsal_install_complete": true}\\n\' > deploy/site/'
+        + rehearsal_real.COMPLETE
+        in end
+    )
+
+
+# ------------------------------------------------------------------------------- round 5: part 2, every profile
+@pytest.mark.parametrize(
+    ("profile", "need"),
+    [("rtxpro6000", "62574"), ("rtx5090", "26404")],
+)
+def test_each_opened_profile_goes_past_the_gpu_step_held_to_its_own_card(
+    tmp_path: Path, profile: str, need: str
+) -> None:
+    b = Bench(tmp_path)
+    r = b.install("--rehearsal", "--rehearsal-real-servers", "--gpu", profile, "--gpu-index", "1",
+                  "--engine-probe", str(b.probe))  # fmt: skip
+    assert f"card 1: NVIDIA B200, 180000 MiB free of 183359 (the pair needs {need})" in r.stdout, r.stdout + r.stderr
+    assert "WARN  NVIDIA driver 575.57.08" in r.stdout and "FAIL" not in r.stdout
+    assert r.stderr.splitlines()[-1].startswith("install: vendor public key missing"), r.stderr
+
+
+@pytest.mark.parametrize(
+    ("profile", "budget", "keys"),
+    [("rtxpro6000", 97887, {"JUDGE_GPU_MEM_UTIL": 0.40, "VERIFIER_GPU_MEM_UTIL": 0.20}),
+     ("rtx5090", 32607, {"JUDGE_GPU_MEM_UTIL": 0.81, "VERIFIER_GPU_MEM_UTIL": 0.81})],
+)  # fmt: skip
+def test_each_profiles_cap_is_its_own_cards_memory(profile: str, budget: int, keys: dict[str, float]) -> None:
+    """The compose file's own utilisations, scaled by the ballast tool's rule: never more MiB than on its own card."""
+    got = rehearsal_real.caps(profile, 183359)
+    assert set(got) == set(keys)
+    for k, u in keys.items():
+        assert got[k] * 183359 <= u * budget < (got[k] + 0.001) * 183359
+    assert rehearsal_real.caps(profile, budget) == keys  # on its own card: unchanged
+
+
+def test_write_records_the_profile_and_its_caps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    _marked(b)
+    monkeypatch.setenv("PATH", b.env()["PATH"])
+    monkeypatch.setenv("TB_HOST_ROOT", str(b.hostroot))
+    problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, None, "rtx5090")
+    assert (
+        problems == [] and doc["card"]["profile"] == "rtx5090" and doc["caps"] == rehearsal_real.caps("rtx5090", 183359)
+    )
+    assert (
+        doc["serving_record"] is None and "5090" in doc["card"]["profile_card"] and doc["words"] == rehearsal_real.WORDS
+    )
+
+
+def test_the_install_writes_the_caps_into_deploy_env(tmp_path: Path) -> None:
+    marker = "# REHEARSAL-REAL-SERVERS (H-89): deploy/.env says the box ran the real servers"
+    start = INSTALL.index(marker)
+    body = INSTALL[start : INSTALL.index("\n# ---- end of REHEARSAL-REAL-SERVERS (H-89)", start)]
+    site = tmp_path / "deploy" / "site"
+    site.mkdir(parents=True)
+    (tmp_path / "deploy" / ".env").write_text("TB_ENV=VALIDATION\nJUDGE_GPU_MEM_UTIL=0.9\n", encoding="utf-8")
+    (site / rehearsal_real.RECORD).write_text(
+        json.dumps({"caps": {"JUDGE_GPU_MEM_UTIL": 0.144, "VERIFIER_GPU_MEM_UTIL": 0.144}})
+    )
+    script = (
+        f'set -euo pipefail\ncd "{tmp_path}"\nREAL_SERVERS=1\ndie() {{ echo "install: $*" >&2; exit 1; }}\n{body}\n'
+    )
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    lines = (tmp_path / "deploy" / ".env").read_text().splitlines()
+    assert r.returncode == 0, r.stderr
+    assert (
+        "JUDGE_GPU_MEM_UTIL=0.144" in lines
+        and "VERIFIER_GPU_MEM_UTIL=0.144" in lines
+        and "JUDGE_GPU_MEM_UTIL=0.9" not in lines
+    )
+    assert "TB_REHEARSAL_REAL_SERVERS=1" in lines and not (site / ".rehearsal-caps").exists()
+
+
+@pytest.mark.parametrize("profile", ["dgpu48", "gb10"])
+def test_the_profiles_not_opened_are_refused_by_name(tmp_path: Path, profile: str) -> None:
+    b = Bench(tmp_path)
+    r = b.install("--rehearsal", "--rehearsal-real-servers", "--gpu", profile, "--gpu-index", "1",
+                  "--engine-probe", str(b.probe))  # fmt: skip
+    assert r.returncode == 1 and f"the {profile} profile is not opened for a rehearsal with real servers" in r.stderr
+    assert "WARN" not in r.stdout
+
+
+@pytest.mark.parametrize("profile", ["rtx4090", "default", "b200-no-mig"])
+def test_other_profiles_are_refused(tmp_path: Path, profile: str) -> None:
+    b = Bench(tmp_path)
+    r = b.install("--rehearsal", "--rehearsal-real-servers", "--gpu", profile, "--gpu-index", "1",
+                  "--engine-probe", str(b.probe))  # fmt: skip
+    assert r.returncode == 1 and "name the profile: --gpu rtxpro6000 or --gpu rtx5090" in r.stderr

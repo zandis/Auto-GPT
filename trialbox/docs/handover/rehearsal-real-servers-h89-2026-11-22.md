@@ -38,10 +38,26 @@ With `--gpu-index N` the probe runs on that one card (`--gpus device=N`) and rec
 ids (sha256 digests, no UUID or machine id in the file): the card's and this host's (/etc/machine-id). The install
 then requires the probe to be at most 7 days old.
 
-The 32 GB profile on a whole card beside the 96 GB one: its form would be the same line with `--gpu rtx5090`
-(`--gpu-index N` naming the 32 GB card), but this card opens the rtxpro6000 profile only, as ruled (the one measured
-profile whose overlay serves the pair on one whole card): the installer refuses any other profile with
-"--rehearsal-real-servers: name the profile: --gpu rtxpro6000". Opening the 32 GB profile is a new ruling.
+### Every shipped profile (the owner's ruling 7087798913, sharpened by 7087828219)
+
+Each opened profile is held to its OWN card's memory on the bench's card: install.sh scales the profile's compose
+utilisations by tools/ballast.py `util_on` (the 5090 profile's existing cap, "0.81 of 32,607 MiB becomes 26,412 MiB /
+total") and writes them into deploy/.env (JUDGE_GPU_MEM_UTIL, VERIFIER_GPU_MEM_UTIL), which the profile's compose file
+reads; the card check asks for that much free memory. The bench passes only the card index; the cap follows from the
+profile and the card's total. Steps 1 and 2 above are the same for each; step 3 per profile:
+
+| Profile | Its card's memory | Opened | The install line (step 3) |
+| --- | --- | --- | --- |
+| rtxpro6000 (96 GB) | 97,887 MiB | yes | `sudo deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000 --gpu-index 0 --engine-probe /var/lib/trialbox/rehearsal/engine-probe.json --yes` |
+| rtx5090 (32 GB), whole card | 32,607 MiB | yes | the same line with `--gpu rtx5090 --gpu-index 1` (the probe taken with `--gpu-index 1`) |
+| rtx5090 (32 GB), a split card's slice | 32,607 MiB | stopped | the card check, the probe's card id and the device pin are per whole card (`nvidia-smi -i N`, `device_ids` by the card's UUID); a MIG slice needs its own probe form, memory query and a MIG device id: a design choice, not built |
+| dgpu48 (48 GB) | 49,140 MiB | stopped | install.sh refuses it whatever is set (`dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it..."`, in the GPU profile case, cards 24-5 and 24-6; tests/unit/test_dgpu48_draft.py); its one use is tools/dgpu48.py's measuring run. Opening it reverses those cards' rule |
+| gb10 (128 GB unified) | unified | stopped | deploy/docker-compose.gb10.yml pins every service to `platform: linux/arm64` (line 40, the `*arm` anchor), and check_host.sh FAILs "GB10 profile on x86_64": on the bench's x86 host the overlay asks for Arm images the bundle does not hold. Opening it needs the overlay's platform pins overridden for a rehearsal (another card's file) |
+| Windows host (WSL2) | the card's | stopped | what exists: deploy/windows/box-install.ps1 runs deploy/box-install.sh inside WSL2, which runs deploy/install.sh (TB_BOX=1, its own answers); check_host.sh --wsl2 judges the Windows host. What does not: box-install.sh does not pass the real-servers options, and the bench is a Linux host (no WSL2 kernel, no Windows interop). Its install step is the same install.sh line as above |
+
+Every other profile is refused: "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090".
+What the bench cannot prove (7087828219): the 48 GB class's older architecture, the 128 GB class's Arm CPU and
+unified memory, and a real Windows host; it proves the memory budgets and the software path.
 
 ### What changes for a site: nothing
 
@@ -232,6 +248,15 @@ or one without TB_ENV, on a box with a rehearsal sign is a rehearsal (built; the
 gone). Tests: `test_no_env_file_or_no_tb_env_on_a_signed_box_is_a_rehearsal` and the install-order test. Our note:
 on an installed box whose TB_ENV line is removed by hand, the services read the missing setting as PRODUCTION
 (D-127); the start check now lets that box start, and doctor's rehearsal line FAILs it.
+
+## Round 5, part 1 (7087751791)
+
+* A missing TB_ENV (or no deploy/.env) is a rehearsal only while the install is in progress: until install.sh
+  --rehearsal writes its completion mark, deploy/site/rehearsal-install-complete.json, at its clean end (only that
+  line writes it). After it a missing TB_ENV is PRODUCTION and refused at start and at boot.
+* The real servers' checks run in every case: the mark always, and once installed a whole VALIDATION rehearsal box.
+* Tests: `test_a_missing_tb_env_after_the_install_completed_is_refused`, `test_the_real_servers_checks_run_without_tb_env`,
+  `test_the_install_order_of_a_rehearsal_box_is_never_refused_and_a_hand_edit_is` (its second install included).
 
 ### Files outside the card (ruled: bodies only)
 

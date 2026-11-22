@@ -135,7 +135,8 @@ esac
 # REHEARSAL-REAL-SERVERS (H-89): the real model servers on a rehearsal box whose card and driver are not the profile's
 # (the bench host: whole B200-class cards on a driver below gpu.driver_min). One explicit command line, never a
 # default or an environment variable:
-#   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000 --gpu-index N --engine-probe FILE
+#   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000|rtx5090 --gpu-index N --engine-probe FILE
+# Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled down, D-1087)
 # Without --rehearsal each new option is refused here, before anything is checked or written; without the options
 # the three refusals (the driver, the card, the record) stand as before. tools/rehearsal_real.py decides each step;
 # the box says "rehearsal: driver below the minimum, not this profile's card, not valid for a site"
@@ -146,7 +147,12 @@ if [ "$REHEARSAL" != 1 ]; then
 elif [ "$REAL_SERVERS" != 1 ]; then
   [ -z "$GPU_INDEX$ENGINE_PROBE" ] || { echo "install: --gpu-index and --engine-probe go with --rehearsal-real-servers; nothing was checked or written" >&2; exit 2; }
 else
-  [ "$GPU_SET" = 1 ] && [ "$GPU" = rtxpro6000 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 (the one measured profile whose overlay serves the pair on one whole card)"
+  [ "$GPU_SET" = 1 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)"
+  case "$GPU" in
+    rtxpro6000|rtx5090) ;;
+    dgpu48|gb10) die "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;
+    *) die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)" ;;
+  esac
   [ -z "$TIER" ] || die "--rehearsal-real-servers is no tier install: drop --tier"
   [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--rehearsal-real-servers needs the GPU: drop --mode $MODE"
   case "$GPU_INDEX" in ""|*[!0-9]*) die "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all" ;; esac
@@ -299,8 +305,7 @@ if [ "$REAL_SERVERS" = 1 ]; then
   for f in "deploy/site/serving_config.$GPU.json" "deploy/measured/serving_config.$GPU.json"; do
     [ -f "$f" ] && { RRS_REC="$f"; break; }
   done
-  [ -n "$RRS_REC" ] || die "--rehearsal-real-servers: no serving record of the $GPU profile: the memory the pair needs is not known"
-  python3 -m tools.rehearsal_real card --gpu-index "$GPU_INDEX" --record "$RRS_REC" | sed 's/^/    /' \
+  python3 -m tools.rehearsal_real card --profile "$GPU" --gpu-index "$GPU_INDEX" ${RRS_REC:+--record "$RRS_REC"} | sed 's/^/    /' \
     || die "--rehearsal-real-servers: the card at index $GPU_INDEX cannot carry the pair (above): nothing was loaded or written"
   RRS_HOST=(--rehearsal-real-servers --engine-probe "$ENGINE_PROBE" --gpu-index "$GPU_INDEX")
   export TB_COMPOSE_OVERRIDE="$ROOT/deploy/site/rehearsal-real-servers.yml"
@@ -374,7 +379,7 @@ fi
 # REHEARSAL-REAL-SERVERS (H-89): after the mark, the box's record and compose file (deploy/site); a box that ran the
 # real servers as a rehearsal is re-run with the same options or emptied, never installed as anything else
 if [ "$REAL_SERVERS" = 1 ]; then
-  python3 -m tools.rehearsal_real write --deploy "$ROOT/deploy" --gpu-index "$GPU_INDEX" --engine-probe "$ENGINE_PROBE" --record "$RRS_REC" \
+  python3 -m tools.rehearsal_real write --deploy "$ROOT/deploy" --profile "$GPU" --gpu-index "$GPU_INDEX" --engine-probe "$ENGINE_PROBE" ${RRS_REC:+--record "$RRS_REC"} \
     | sed 's/^/install: warning: /' >&2 || die "--rehearsal-real-servers: refused (above)"
 elif [ -f deploy/site/rehearsal-real-servers.json ] || [ -f deploy/site/rehearsal-real-servers.yml ]; then
   die "this box ran the real model servers as a rehearsal (deploy/site/rehearsal-real-servers.json): run with --rehearsal --rehearsal-real-servers, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
@@ -561,8 +566,15 @@ if [ "$REHEARSAL" = 1 ]; then
 fi
 # ---- end of REHEARSAL (D-726): the box says TEST
 # REHEARSAL-REAL-SERVERS (H-89): deploy/.env says the box ran the real servers (the console's banner, the start check)
+# and the profile's own memory cap on this card: its utilisations, scaled to its card's memory (the record's "caps")
 if [ "$REAL_SERVERS" = 1 ]; then
   sed -i '/^TB_REHEARSAL_REAL_SERVERS=/d' deploy/.env && echo "TB_REHEARSAL_REAL_SERVERS=1" >> deploy/.env
+  python3 -c 'import json,sys; [print(f"{k}={v}") for k, v in sorted(json.load(open(sys.argv[1]))["caps"].items())]' \
+    deploy/site/rehearsal-real-servers.json > deploy/site/.rehearsal-caps || die "--rehearsal-real-servers: the record names no caps"
+  while IFS='=' read -r k v; do
+    sed -i "/^$k=/d" deploy/.env && echo "$k=$v" >> deploy/.env
+  done < deploy/site/.rehearsal-caps
+  rm -f deploy/site/.rehearsal-caps
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # ENVIRONMENT (D-837): --environment, or a TB_ENV written before the wizard rewrote deploy/.env; never changed
@@ -1297,3 +1309,9 @@ if [ "${#FAILS[@]}" -gt 0 ]; then
   printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
   exit 1
 fi
+# REHEARSAL-REAL-SERVERS (H-89): a rehearsal box's install is complete: from here on the start check reads a missing
+# TB_ENV as PRODUCTION (tools/rehearsal_real.py COMPLETE). Only this line writes the file
+if [ "$REHEARSAL" = 1 ]; then
+  printf '{"rehearsal_install_complete": true}\n' > deploy/site/rehearsal-install-complete.json
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
