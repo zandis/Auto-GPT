@@ -1,0 +1,86 @@
+{
+  "_": "H-83: the 20 costliest unit test files and their shard of 8, from `python -m tools.test_shard plan docs/handover/unit-shard-costs-h83.json` (seconds: the table's estimate). Every other file keeps the hash. A pinned file that is removed or renamed fails tests/unit/test_test_shard.py: re-plan, do not edit by hand.",
+  "count": 8,
+  "files": {
+    "tests/console/test_prefs_10f1.py": {
+      "shard": 8,
+      "seconds": 1345
+    },
+    "tests/property/test_path_independence.py": {
+      "shard": 3,
+      "seconds": 1246
+    },
+    "tests/unit/test_g1_box_install_run.py": {
+      "shard": 2,
+      "seconds": 801
+    },
+    "tests/integration/test_list_demo.py": {
+      "shard": 5,
+      "seconds": 680
+    },
+    "tests/unit/test_masking_leaks.py": {
+      "shard": 7,
+      "seconds": 564
+    },
+    "tests/integration/test_e2e_simple.py": {
+      "shard": 4,
+      "seconds": 480
+    },
+    "tests/unit/test_negated_inclusion_never_compiles_as_presence.py": {
+      "shard": 6,
+      "seconds": 337
+    },
+    "tests/unit/test_erasure_reach.py": {
+      "shard": 2,
+      "seconds": 321
+    },
+    "tests/e2e/journeys/test_journeys.py": {
+      "shard": 5,
+      "seconds": 312
+    },
+    "tests/integration/test_poc_scripts.py": {
+      "shard": 6,
+      "seconds": 264
+    },
+    "tests/unit/test_phi_english_taiwan_charts.py": {
+      "shard": 3,
+      "seconds": 259
+    },
+    "tests/unit/test_phi_guard_ja.py": {
+      "shard": 2,
+      "seconds": 222
+    },
+    "tests/integration/test_cgmh_demo.py": {
+      "shard": 4,
+      "seconds": 210
+    },
+    "tests/console/test_plain_menu.py": {
+      "shard": 8,
+      "seconds": 205
+    },
+    "tests/unit/test_g1_demo_vm.py": {
+      "shard": 5,
+      "seconds": 204
+    },
+    "tests/unit/test_install_refuses_unsafe_folders_10k4.py": {
+      "shard": 7,
+      "seconds": 200
+    },
+    "tests/console/test_grant_box.py": {
+      "shard": 6,
+      "seconds": 195
+    },
+    "tests/unit/test_measure48_run_h53.py": {
+      "shard": 2,
+      "seconds": 194
+    },
+    "tests/integration/test_rc_demo.py": {
+      "shard": 3,
+      "seconds": 192
+    },
+    "tests/unit/test_proposal_10c3_pre_consent_matrix.py": {
+      "shard": 1,
+      "seconds": 188
+    }
+  }
+}
