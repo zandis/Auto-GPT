@@ -60,11 +60,29 @@ audit_key() {
     || hb_say "the audit signing key was not made (above): trialbox doctor names it; run this script again"
 }
 
+# H-77 (F-22): record WORD: --record FILE gets the back end the seal in place uses, the name only and owner only, whole
+# (a temp file, then renamed). install.sh copies it to deploy/.env (TB_KEK_BACKEND), where the host check reads it
+record() {
+  [ -n "$REC" ] || return 0
+  mkdir -p "$(dirname "$REC")"
+  ( umask 077; printf '%s\n' "$1" > "$REC.tmp" )
+  mv -f "$REC.tmp" "$REC"
+  hb_say "the KEK back end is recorded: $1 ($REC)"
+}
+
 if [ -f "$SECRETS/kek.json" ]; then
   hb_say "the KEK exists ($SECRETS/kek.json): wrapping any key still plain"
   [ "$DRY" = 1 ] && { hb_say "would run: tools.keys wrap"; exit 0; }
   keys wrap --secrets "$SECRETS"
   audit_key
+  # H-77: the record follows the seal in place as kek.json names it (after a rotate-kek, or a seal whose closing check
+  # failed once); kek.json's file back end is tpm's KEK (tools.keys init --backend file --kek-in, above)
+  WAS="$(sed -n 's/^ "backend": "\([a-z]*\)",\{0,1\}$/\1/p' "$SECRETS/kek.json")"
+  [ "$WAS" = file ] && WAS=tpm
+  case "$WAS" in
+    ""|*[!a-z]*) hb_say "kek.json names no back end: nothing recorded" ;;
+    *) record "$WAS" ;;
+  esac
   exit 0
 fi
 
@@ -131,12 +149,6 @@ if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
   find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
   [ -f "$KEK_FILE" ] && chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"
 fi
-# H-77 (F-22): --record FILE gets the back end this run sealed with, only now that every step above passed (a dry run,
-# a failed seal and a box with a KEK already never get here: an earlier record stays as it was). The name only, owner
-# only; install.sh copies it to deploy/.env (TB_KEK_BACKEND), where the host check reads it
-if [ -n "$REC" ]; then
-  mkdir -p "$(dirname "$REC")"
-  ( umask 077; printf '%s\n' "$KEK_BACKEND" > "$REC.tmp" )
-  mv -f "$REC.tmp" "$REC"
-  hb_say "the KEK back end is recorded: $KEK_BACKEND ($REC)"
-fi
+# H-77 (F-22): the back end this run sealed with, recorded only now that every step above passed (a dry run and a failed
+# seal never get here: an earlier record stays as it was)
+record "$KEK_BACKEND"

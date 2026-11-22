@@ -131,17 +131,49 @@ def test_a_dry_run_records_nothing(tmp_path: Path, backend: str) -> None:
     assert not (tmp_path / "secrets" / K.META_FILE).exists()
 
 
-def test_a_box_with_a_kek_already_keeps_its_record_as_it_was(tmp_path: Path) -> None:
-    """A re-run: the script cannot tell an existing seal's back end (tpm's kek.json says file), so it writes none."""
+def test_a_box_with_a_kek_already_records_the_back_end_kek_json_names(tmp_path: Path) -> None:
+    """A re-run (the KEK exists, the keys are only wrapped): the record follows the seal in place as kek.json names it,
+    whatever the environment or the conf ask now; tpm's kek.json says file (the integrator's ruling on the review of
+    #1336: this test asserted no record before)."""
     env = _host(tmp_path)
     assert _seal(tmp_path, {**env, "TB_KEK_BACKEND": "passphrase"}).returncode == 0
-    res = _seal(tmp_path, {**env, "TB_KEK_BACKEND": "tpm"})  # another back end asked on the re-run
+    _record(tmp_path).unlink()
+    res = _seal(tmp_path, {**env, "TB_KEK_BACKEND": "tpm"}, _conf(tmp_path, "shamir"))
     assert res.returncode == 0, res.stderr
     assert "the KEK exists" in res.stdout
     assert _record(tmp_path).read_text(encoding="utf-8") == "passphrase\n"
     _record(tmp_path).unlink()
+    res = _seal(tmp_path, {**env, "TB_KEK_BACKEND": "tpm"}, None, "--dry-run")
+    assert res.returncode == 0, res.stderr
+    _no_record(tmp_path)  # a dry run on the re-run path writes none either
+
+
+def test_a_tpm_box_re_run_records_tpm_from_kek_json_s_file(tmp_path: Path) -> None:
+    env = _host(tmp_path)
     assert _seal(tmp_path, {**env, "TB_KEK_BACKEND": "tpm"}).returncode == 0
-    _no_record(tmp_path)  # none is guessed for an existing seal
+    assert K.read_meta(tmp_path / "secrets")["backend"] == "file"  # type: ignore[index]
+    _record(tmp_path).write_text("passphrase\n", encoding="utf-8")  # stale
+    res = _seal(tmp_path, {**env, "TB_KEK_BACKEND": "passphrase"})
+    assert res.returncode == 0, res.stderr
+    assert _record(tmp_path).read_text(encoding="utf-8") == "tpm\n"
+
+
+def test_a_seal_whose_closing_check_failed_is_recorded_on_the_re_run(tmp_path: Path) -> None:
+    """The review's second Medium: the keys were sealed, `tools.keys check` failed once; the clean re-run records."""
+    env = {**_host(tmp_path), "TB_KEK_BACKEND": "passphrase"}
+    fake = tmp_path / "bin" / "python3"
+    fake.write_text(
+        '#!/bin/sh\ncase " $* " in *" tools.keys check "*) echo "check failed" >&2; exit 1 ;; esac\n'
+        f'exec "{sys.executable}" "$@"\n',
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    assert _seal(tmp_path, env).returncode != 0
+    _no_record(tmp_path)
+    fake.unlink()
+    res = _seal(tmp_path, env)
+    assert res.returncode == 0, res.stderr
+    assert _record(tmp_path).read_text(encoding="utf-8") == "passphrase\n"
 
 
 # ---- install.sh: the seal block as it stands, run with the real seal_keys.sh in a folder laid out as an installer's
@@ -154,10 +186,11 @@ def _install(
     tmp: Path, env: dict[str, str], conf_text: str | None, profile: str = "standard", site: str = "VALIDATION"
 ) -> subprocess.CompletedProcess[str]:
     (tmp / "deploy" / "site").mkdir(parents=True, exist_ok=True)
-    (tmp / "deploy" / "hardening").symlink_to(ROOT / "deploy" / "hardening")
-    (tmp / "tools").symlink_to(ROOT / "tools")
-    (tmp / "libs").symlink_to(ROOT / "libs")
-    (tmp / "deploy" / ".env").write_text("TB_ENV=VALIDATION\n", encoding="utf-8")
+    if not (tmp / "tools").exists():  # a second run (a re-install) keeps the folder as the first left it
+        (tmp / "deploy" / "hardening").symlink_to(ROOT / "deploy" / "hardening")
+        (tmp / "tools").symlink_to(ROOT / "tools")
+        (tmp / "libs").symlink_to(ROOT / "libs")
+        (tmp / "deploy" / ".env").write_text("TB_ENV=VALIDATION\n", encoding="utf-8")
     if conf_text is not None:
         (tmp / "deploy" / "site" / "hardening.conf").write_text(conf_text, encoding="utf-8")
     script = (
@@ -203,16 +236,25 @@ def test_install_copies_the_back_end_seal_keys_recorded(tmp_path: Path, conf: st
     assert meta["backend"] == ("file" if ran == "tpm" else ran)
 
 
-def test_install_invents_no_back_end_when_seal_keys_records_none(tmp_path: Path) -> None:
-    """A box sealed before the record (kek.json there, no kek-backend): deploy/.env is left as it was."""
+def test_a_rotation_moves_the_record_and_deploy_env(tmp_path: Path) -> None:
+    """The review's first Medium: after `tools.keys rotate-kek --backend shamir` the next install records shamir and
+    deploy/.env follows (it copied the stale word back before)."""
     env = {**_host(tmp_path), "TB_KEK_BACKEND": "passphrase"}
-    assert _seal(tmp_path, env).returncode == 0
-    _record(tmp_path).unlink()
-    res = _install(tmp_path, {**env, "TB_KEK_BACKEND": "tpm"}, "KEK_BACKEND=shamir\n")
+    assert _install(tmp_path, env, None).returncode == 0
+    assert _env_value(tmp_path) == ["passphrase"]
+    (tmp_path / "media").mkdir()
+    rot = subprocess.run(
+        [sys.executable, "-m", "tools.keys", "rotate-kek", "--backend", "shamir", "--shares-out", str(tmp_path / "media"),
+         "--secrets", str(tmp_path / "secrets"), "--out", str(tmp_path / "kek.runtime")],
+        capture_output=True, text=True, check=False, cwd=ROOT, env={**env, "PYTHONPATH": f"{ROOT / 'libs'}:{ROOT}"},
+    )  # fmt: skip
+    assert rot.returncode == 0, rot.stderr
+    assert K.read_meta(tmp_path / "secrets")["backend"] == "shamir"  # type: ignore[index]
+    res = _install(tmp_path, env, None)  # the installer's environment still says passphrase
     assert res.returncode == 0, res.stderr
-    assert _env_value(tmp_path) == []
-    assert "no record of the KEK back end" in res.stderr
-    _no_record(tmp_path)
+    assert _record(tmp_path).read_text(encoding="utf-8") == "shamir\n"
+    assert _env_value(tmp_path) == ["shamir"]
+    assert "the KEK back end that sealed the keys: shamir " in res.stdout
 
 
 def test_install_on_a_poc_host_without_a_tpm_records_nothing(tmp_path: Path) -> None:
@@ -283,20 +325,66 @@ def test_a_later_step_that_fails_records_nothing(tmp_path: Path, backend: str, s
     assert not _record(tmp_path).with_name("kek-backend.tmp").exists()
 
 
-def test_install_copies_no_record_that_is_not_a_back_end_name(tmp_path: Path) -> None:
-    env = {**_host(tmp_path), "TB_KEK_BACKEND": "passphrase"}
-    assert _seal(tmp_path, env).returncode == 0
-    _record(tmp_path).write_text("tpm; echo x\n", encoding="utf-8")
-    res = _install(tmp_path, env, None)
+def _copy(
+    tmp: Path, record: str | None, env_text: str | None, *, link: bool = False, runs: int = 1
+) -> subprocess.CompletedProcess[str]:
+    """install.sh's copy block alone (box-install.sh holds the same), on a planted record and deploy/.env."""
+    (tmp / "deploy" / "site").mkdir(parents=True, exist_ok=True)
+    if record is not None:
+        _record(tmp).write_text(record, encoding="utf-8")
+    if env_text is not None:
+        target = tmp / "real.env" if link else tmp / "deploy" / ".env"
+        target.write_text(env_text, encoding="utf-8")
+        if link:
+            (tmp / "deploy" / ".env").symlink_to(target)
+    script = (
+        f'set -euo pipefail\ncd "{tmp}"\ndie() {{ echo "install: $*" >&2; exit 1; }}\n' + _copy_block(INSTALL) * runs
+    )
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+
+@pytest.mark.parametrize("record", [None, "tpm; echo x\n", "windows\n", ""])
+def test_the_copy_leaves_deploy_env_alone_without_a_back_end_name(tmp_path: Path, record: str | None) -> None:
+    res = _copy(tmp_path, record, "TB_ENV=TEST\nTB_KEK_BACKEND=shamir\n")
     assert res.returncode == 0, res.stderr
-    assert _env_value(tmp_path) == []
-    assert "no record of the KEK back end" in res.stderr
+    assert (tmp_path / "deploy" / ".env").read_text(encoding="utf-8") == "TB_ENV=TEST\nTB_KEK_BACKEND=shamir\n"
+    assert "no record of the KEK back end" in res.stderr and "sealed the keys" not in res.stdout
+
+
+def test_the_copy_twice_leaves_one_line_and_the_others_as_they_were(tmp_path: Path) -> None:
+    env_text = "TB_ENV=TEST\nTB_KEK_BACKEND=tpm\nTB_TZ=UTC\nexport TB_KEK_BACKEND=shamir\n  TB_KEK_BACKEND=tpm\n"
+    res = _copy(tmp_path, "passphrase\n", env_text, runs=2)
+    assert res.returncode == 0, res.stderr
+    lines = (tmp_path / "deploy" / ".env").read_text(encoding="utf-8").splitlines()
+    assert lines == ["TB_ENV=TEST", "TB_TZ=UTC", "TB_KEK_BACKEND=passphrase"]
+
+
+def test_the_copy_does_not_join_a_last_line_without_its_newline(tmp_path: Path) -> None:
+    res = _copy(tmp_path, "tpm\n", "TB_ENV=TEST\nTB_TZ=UTC")
+    assert res.returncode == 0, res.stderr
+    lines = (tmp_path / "deploy" / ".env").read_text(encoding="utf-8").splitlines()
+    assert lines == ["TB_ENV=TEST", "TB_TZ=UTC", "TB_KEK_BACKEND=tpm"]
+
+
+def test_the_copy_stops_on_a_missing_deploy_env(tmp_path: Path) -> None:
+    res = _copy(tmp_path, "tpm\n", None)
+    assert res.returncode != 0
+    assert "deploy/.env is missing or a link" in res.stderr and "sealed the keys" not in res.stdout
+    assert not (tmp_path / "deploy" / ".env").exists()
+
+
+def test_the_copy_stops_on_a_linked_deploy_env(tmp_path: Path) -> None:
+    res = _copy(tmp_path, "tpm\n", "TB_ENV=TEST\nTB_KEK_BACKEND=shamir\n", link=True)
+    assert res.returncode != 0
+    assert "deploy/.env is missing or a link" in res.stderr and "sealed the keys" not in res.stdout
+    assert (tmp_path / "deploy" / ".env").is_symlink()  # not replaced by a file
+    assert (tmp_path / "real.env").read_text(encoding="utf-8") == "TB_ENV=TEST\nTB_KEK_BACKEND=shamir\n"
 
 
 def test_the_record_is_written_whole_then_renamed() -> None:
     """A reader never sees half a record: written to kek-backend.tmp, then renamed over kek-backend."""
     seal = SEAL.read_text(encoding="utf-8")
-    tail = seal[seal.index('if [ -n "$REC" ]; then') :]
+    tail = seal[seal.index("record() {") : seal.index("\n}\n", seal.index("record() {"))]
     assert '> "$REC.tmp"' in tail and 'mv -f "$REC.tmp" "$REC"' in tail
     assert '> "$REC"' not in tail and '>> "$REC' not in tail
 
