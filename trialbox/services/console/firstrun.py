@@ -67,12 +67,13 @@ def country_on(env: Mapping[str, str]) -> bool:
 
 # 10K-1 (review of #1088): the answers a re-shown form carries back, by name: the form's own non-secret fields only
 # (an allowlist; a password, a code, a passphrase or a field the form does not have is never sent back). 10K-21: the
-# two named people (operational contact names, not secrets)
+# two named people (operational contact names, not secrets); 10K-4: the three host folders
 SS_FIELDS = ("ssmix2_root", "ssmix2_order_numbers")
 FORM_FIELDS = ("site_name", "tz", "language", "owner_full_name", "owner_username", "owner_email", "box_name",
                "backup_kind", "backup_disk", "backup_share", "source", "chartno_kind", "chartno_width", *SS_FIELDS,
                *OVERRIDABLE, "printed_dates", "year_basis",
-               "health_page_person", "tls_root_confirmed_by")  # fmt: skip
+               "health_page_person", "tls_root_confirmed_by",
+               "backup_dir", "anchor_dir", "log_dir")  # fmt: skip
 
 
 def offered_sources(country: str, asks_country: bool) -> list[str]:
