@@ -277,6 +277,39 @@ the server's superuser. A restore loads `hapi` as the superuser, so the same scr
 tables back to that role.
 
 
+## The audit chain waits for a person
+
+The audit log is a chain: each event carries the hash of the one before. `HEAD.json` in the audit folder says where
+the chain ends, and each night `trialbox audit-sign` writes a signed head to the anchor folder (the hospital's share).
+The box stops and asks for a person in three cases. In each, the message names this section.
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| `audit.anchored after a signed head`, from an update, `doctor`, the nightly `audit-sign`, `trialbox logs` or the console's audit page | A release before this one found the chain without `HEAD.json` and went on without asking. Events after the last signed head may have been removed with it. **The box still works and still writes audit events.** The nightly signed head and the audit archive wait | Steps 1 to 3 below |
+| `the audit chain has no head anchor, but ... a signed head`, and the `audit-writer` service is unhealthy | `HEAD.json` is gone now. Nothing is written to the chain; the events wait in the database (the journal) and none is lost. The writer asks again after 1 minute, then 2, 4, up to once an hour | Steps 1 to 3 below |
+| `signed head on the box (event N)`, or `... is a signed head over event N` | The chain no longer holds an event that was signed: it was cut below a signed head or rewritten, and `HEAD.json` was written to match. **`--reanchor` does not clear this.** | Step 1, then stop and call the vendor (page 07). Keep the audit folder and the anchor folder as they are |
+
+1. **Look first.** As root in `/opt/trialbox`: `python3 -m tools.trialbox audit-sign --deploy deploy`. It checks the
+   chain against every signed head in the anchor folder, signs nothing while the chain waits, and prints why. The
+   console's audit page (Verify) shows the same. Note the event number of the last signed head and its date.
+2. **Decide who signs for it.** The events after the last signed head cannot be proved complete. The site's
+   administrator and the person responsible for the study's records agree on the reason (a restore, a disk fault, a
+   known mistake) and write it in the site log. If nobody can explain the missing `HEAD.json`, treat it as an incident
+   (page 07) before step 3.
+3. **Re-anchor**, once, in the one container that may write the chain:
+   `docker compose --project-directory deploy exec audit-writer python -m tools.audit_verify /data/audit --reanchor "<the reason, with the ticket>" --actor "<your name>"`.
+   It rewrites no line. It adds one event, `audit.reanchored`, with the old anchor, the chain as found, the reason and
+   the name, and it stays in the chain and on the console's audit page for ever. Run step 1 again after it: it now
+   signs, and the night's signing and the archive go on.
+
+What the box can and cannot show. A chain cut **below** a signed head is always found: by the nightly check, and at
+once by a writer or a console that is given the anchor folder. Events removed **after** the newest signed head, with
+`HEAD.json` written to match, are not found by the box alone: the head file is not keyed. That needs a head kept off
+the box (the anchor folder on the hospital's share, never on the box's own disk) and frequent signing; the night's
+signing leaves at most one day open. On an installed box the `audit-writer` service is not given the anchor folder, so
+there the nightly check is the one that finds a cut below a signed head, within a day.
+
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |
