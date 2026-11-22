@@ -7,7 +7,7 @@ a string is never taken for one) of every Python file git tracks under trialbox/
 
 * ``path``      the file, from trialbox/;
 * ``rule``      the codes the comment names, sorted and joined by ", " (``B608``; ``S314``); ``nosec`` with no code
-  is ``all``;
+  is ``all``, and so is a ``noqa`` with no code (``# noqa``, ``# ruff: noqa``: it hides the security rules too; F-4);
 * ``code``      the line's code before the comment, spaces collapsed: the entry follows the line when lines move;
 * ``verdict``   ``safe`` (the reason says why) or ``finding`` (a defect kept out of "safe"; ``finding`` names its id);
 * ``reason``    why, in at least 20 characters;
@@ -46,6 +46,8 @@ FIELDS = ("path", "rule", "code", "verdict", "reason", "reviewer", "reviewed", "
 _NOSEC = re.compile(r"(?<![\w-])nosec\b(?P<codes>(?:[\s:,]*[BS]\d{3})*)")
 _NOQA = re.compile(r"(?<![\w-])noqa\s*:\s*(?P<codes>[A-Z]+\d+(?:\s*,\s*[A-Z]+\d+)*)", re.IGNORECASE)
 _CODE = re.compile(r"[A-Z]+\d+")
+#: F-4: a ``noqa`` that names no code, as ruff reads one (alone, or the file-level ruff form), in any case
+_BLANKET = re.compile(r"#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa\b(?!\s*:\s*[A-Za-z]+\d)", re.IGNORECASE)
 _FINDING_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d{2,}$")
 
 
@@ -89,7 +91,7 @@ def _collapse(text: str) -> str:
 def suppressions_in(text: str, path: str) -> list[Suppression]:
     """The suppressed lines of one Python source: a ``nosec`` comment (any codes, or none: ``all``) and a ``noqa``
     comment naming at least one ruff ``S`` code, in any case as ruff reads it (its other codes are not security
-    rules and are left out)."""
+    rules and are left out), or naming none (``all``)."""
     lines = text.splitlines()
     out: list[Suppression] = []
     try:
@@ -105,6 +107,8 @@ def suppressions_in(text: str, path: str) -> list[Suppression]:
             rules |= set(codes) if codes else {"all"}
         for m in _NOQA.finditer(tok.string):
             rules |= {c for c in _CODE.findall(m.group("codes").upper()) if re.fullmatch(r"S\d+", c)}
+        if _BLANKET.search(tok.string):
+            rules.add("all")
         if not rules:
             continue
         row, col = tok.start

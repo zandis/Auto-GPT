@@ -12,7 +12,15 @@ these) used in a condition. A decision by the error's type or by a typed field o
 What the scan does not see (the review of D-651 tried 21 spellings): ``exc.__str__()``, ``traceback.format_exc()``,
 ``str(exc.__cause__)``, the error under a second name, a text tested outside the ``except`` block, a helper's result
 assigned and tested later, ``match str(exc)``. A grep of ``libs`` and ``services`` for these found one real place,
-``services/gateway/core.py`` (a model called busy by the endings of collected error texts; not about a patient)."""
+``services/gateway/core.py`` (a model called busy by the endings of collected error texts; not about a patient).
+
+F-4 (#639, 7078734731): ``detail`` and ``reason`` are a code or a typed field in some classes (a refusal's stable
+code, an HTTP error's parsed body) and words in others. Reading one, comparing it whole with a code, or looking it up
+is no decision by text; searching its words is: ``"x" in e.detail``, a string search on it (``startswith``, ``find``
+...), a regular expression over it, a part of it or a folded copy compared, a sentence (a literal with a space)
+compared, or the words handed to a helper in a condition. A name assigned from such a search is a decision too. Not
+seen: the words read outside the ``except`` block, or a helper's result assigned and tested later (a parse of the
+body, ``json.loads(e.detail)``, is read so)."""
 
 from __future__ import annotations
 
@@ -65,9 +73,18 @@ _TEXT_CALLS = {"str", "repr", "format", "ascii"}
 #: what reads its type
 _TYPE_CALLS = {"type", "isinstance", "issubclass", "getattr", "hasattr"}
 #: attributes of an error that are its text; R22-14 (G-5, R5): a failed process's output (``CalledProcessError``)
-#: and an HTTP error's body are text too. ``detail`` and ``reason`` are read as typed fields in listed places
-#: (the console's EDC error, the model client's refusal), so they are not here.
+#: and an HTTP error's body are text too
 _TEXT_ATTRS = {"args", "message", "msg", "strerror", "stderr", "stdout", "output", "text"}
+#: F-4: attributes that are a code or a typed field in some classes and words in others; held by their use (above)
+_WORD_ATTRS = {"detail", "reason"}
+#: string methods that keep the words (a folded or trimmed copy)
+_FOLDS = {"lower", "upper", "casefold", "strip", "lstrip", "rstrip", "title", "replace", "decode", "removeprefix",
+          "removesuffix", "split", "rsplit", "splitlines", "partition", "rpartition"}  # fmt: skip
+#: string methods and regular-expression calls that search the words
+_SEARCHES = {"startswith", "endswith", "find", "rfind", "index", "rindex", "count", "__contains__", "search", "match",
+             "fullmatch", "findall", "finditer"}  # fmt: skip
+#: calls that read no words of what they are given
+_NO_WORDS = _TYPE_CALLS | {"len", "bool", "id"}
 
 
 def _is(node: ast.AST, caught: str) -> bool:
@@ -104,6 +121,81 @@ def _hands_on(node: ast.AST, caught: str) -> bool:
     return False
 
 
+def _whole(node: ast.AST, caught: str, whole: set[str]) -> bool:
+    """``e.detail`` / ``e.reason`` as they are (also through ``getattr`` or ``str``), or a name assigned from one."""
+    if isinstance(node, ast.Name):
+        return node.id in whole
+    if isinstance(node, ast.Attribute):
+        return _is(node.value, caught) and node.attr in _WORD_ATTRS
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.args:
+        if node.func.id == "getattr" and len(node.args) >= 2 and _is(node.args[0], caught):
+            key = node.args[1]
+            return isinstance(key, ast.Constant) and key.value in _WORD_ATTRS
+        if node.func.id in _TEXT_CALLS:
+            return _whole(node.args[0], caught, whole)
+    return False
+
+
+def _part(node: ast.AST, caught: str, whole: set[str], parts: set[str]) -> bool:
+    """A folded copy or a part of those words (``.lower()``, ``.split()[0]``, a slice), or a name assigned from one."""
+    if isinstance(node, ast.Name):
+        return node.id in parts
+    if isinstance(node, ast.Subscript):
+        return _words(node.value, caught, whole, parts)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _FOLDS:
+        return _words(node.func.value, caught, whole, parts)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _TEXT_CALLS and node.args:
+        return _part(node.args[0], caught, whole, parts)
+    if isinstance(node, ast.JoinedStr):
+        return any(isinstance(v, ast.FormattedValue) and _words(v.value, caught, whole, parts) for v in node.values)
+    return False
+
+
+def _words(node: ast.AST, caught: str, whole: set[str], parts: set[str]) -> bool:
+    return _whole(node, caught, whole) or _part(node, caught, whole, parts)
+
+
+def _sentence(node: ast.AST) -> bool:
+    """A literal that is a sentence, not a code: a string with a space, or a collection holding one."""
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, str | bytes) and any(c.isspace() for c in str(node.value))
+    return isinstance(node, ast.Tuple | ast.List | ast.Set) and any(_sentence(e) for e in node.elts)
+
+
+def _searches_words(
+    node: ast.AST, caught: str, whole: set[str], parts: set[str], decided: set[str], helpers: bool = True
+) -> bool:
+    """Does the expression decide by the words of ``detail`` / ``reason`` (F-4), not by them as a code. ``helpers``:
+    the words handed to a helper count, as in a condition (assigned, a helper's result is a parse: ``json.loads``)."""
+    for n in ast.walk(node):
+        if isinstance(n, ast.Name) and n.id in decided:
+            return True
+        if isinstance(n, ast.Compare):
+            sides = [n.left, *n.comparators]
+            for op, left, right in zip(n.ops, sides[:-1], sides[1:], strict=True):
+                if isinstance(op, ast.In | ast.NotIn) and _words(right, caught, whole, parts):
+                    return True  # "x" in e.detail: the words are searched
+                if not isinstance(op, ast.Eq | ast.NotEq | ast.In | ast.NotIn | ast.Is | ast.IsNot):
+                    continue
+                for a, b in ((left, right), (right, left)):
+                    if _part(a, caught, whole, parts) and not (isinstance(b, ast.Constant) and b.value is None):
+                        return True  # a part or a folded copy compared
+                    if _whole(a, caught, whole) and _sentence(b):
+                        return True  # compared with a sentence
+        elif isinstance(n, ast.Call):
+            fn = n.func
+            if isinstance(fn, ast.Attribute) and fn.attr in _SEARCHES:
+                if _words(fn.value, caught, whole, parts):
+                    return True  # e.detail.startswith(...)
+                if any(_words(a, caught, whole, parts) for a in n.args):
+                    return True  # re.search(..., e.detail), PATTERN.match(e.reason)
+            name = fn.id if isinstance(fn, ast.Name) else fn.attr if isinstance(fn, ast.Attribute) else ""
+            helper = helpers and name not in {*_NO_WORDS, *_TEXT_CALLS, *_FOLDS, "get"}
+            if helper and any(_words(a, caught, whole, parts) for a in [*n.args, *(k.value for k in n.keywords)]):
+                return True  # the words handed to a helper that may search them
+    return False
+
+
 def decisions_by_text(root: Path) -> list[str]:
     """``file:line`` of every condition, under ``root``, that reads the text of an error caught there, or hands
     the error to a helper to decide."""
@@ -114,14 +206,24 @@ def decisions_by_text(root: Path) -> list[str]:
             caught = handler.name
             assert caught is not None
             tainted: set[str] = set()
+            whole: set[str] = set()  # F-4: names that hold ``detail`` / ``reason`` as they are
+            parts: set[str] = set()  # ... a folded copy or a part of them
+            decided: set[str] = set()  # ... the outcome of a search of their words
             body = [n for b in handler.body for n in ast.walk(b)]
             for _ in range(3):  # names assigned from the error's text, and from those
                 for n in body:
                     if not isinstance(n, ast.Assign | ast.AnnAssign | ast.NamedExpr) or n.value is None:
                         continue
+                    targets = n.targets if isinstance(n, ast.Assign) else [n.target]
+                    names = {t.id for tg in targets for t in ast.walk(tg) if isinstance(t, ast.Name)}
                     if _reads_text(n.value, caught, tainted):
-                        targets = n.targets if isinstance(n, ast.Assign) else [n.target]
-                        tainted |= {t.id for tg in targets for t in ast.walk(tg) if isinstance(t, ast.Name)}
+                        tainted |= names
+                    if _whole(n.value, caught, whole):
+                        whole |= names
+                    elif _part(n.value, caught, whole, parts):
+                        parts |= names
+                    elif _searches_words(n.value, caught, whole, parts, decided, helpers=False):
+                        decided |= names
             for n in body:
                 tests: list[ast.expr] = []
                 if isinstance(n, ast.If | ast.While | ast.IfExp | ast.Assert):
@@ -131,7 +233,8 @@ def decisions_by_text(root: Path) -> list[str]:
                 elif isinstance(n, ast.comprehension):
                     tests.extend(n.ifs)
                 for t in tests:
-                    if _reads_text(t, caught, tainted) or _hands_on(t, caught):
+                    if (_reads_text(t, caught, tainted) or _hands_on(t, caught)
+                            or _searches_words(t, caught, whole, parts, decided)):  # fmt: skip
                         out.append(f"{path.relative_to(root)}:{t.lineno}")
     return sorted(set(out))
 

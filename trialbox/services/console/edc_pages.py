@@ -660,10 +660,17 @@ def register(app: FastAPI, h: Helpers) -> None:
                                                                                      .get("map") or [])  # fmt: skip
         except (Problem, Unavailable) as exc:
             return map_page(request, sess, rid, err_of(exc), 409)
+        await request.body()  # kept, so that a refused form can be read a second time below
         try:
             form = await request.form(max_fields=(rows_known + 1) * MAP_ROW_FIELDS + MAP_FORM_FIELDS)
-        except StarletteHTTPException as exc:  # the review of D-768: only "too many fields" is the size sentence
-            too_many = "too many fields" in str(exc.detail).lower()
+        except StarletteHTTPException:  # the review of D-768: only the field count is the size page
+            # F-4: which limit refused it is told by reading it again without the field limit (the same file and
+            # part limits), never by the refusal's words: when it reads then, the field count was the refusal
+            try:
+                await request.form(max_fields=float("inf"))
+                too_many = True
+            except StarletteHTTPException:
+                too_many = False
             return map_page(request, sess, rid, {"code": "form_too_large" if too_many else "other", "fields": ""},
                             413 if too_many else 400)  # fmt: skip
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):

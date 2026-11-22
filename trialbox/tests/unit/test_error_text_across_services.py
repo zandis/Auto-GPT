@@ -61,9 +61,9 @@ THEIRS: dict[str, str] = {
 
 
 #: R22-14 (G-5, R5): attributes of a caught error that are text, beyond ``.args`` (read by ``_uses_text_of``): a failed
-#: process's output and an HTTP error's body or detail. ``reason`` is a codec's fixed phrase in the one place that
-#: reads it (adapter/sources/ssmix2/hl7.py), so it is not here.
-_TEXT_ATTRS = {"stderr", "stdout", "output", "text", "detail"}
+#: process's output and an HTTP error's body or detail; F-4: and a codec's ``reason`` (the SS-MIX2 reader now says its
+#: own phrase, chosen by its refusal's code)
+_TEXT_ATTRS = {"stderr", "stdout", "output", "text", "detail", "reason"}
 
 
 def _takes_text(stmt: ast.stmt, name: str) -> bool:
