@@ -513,7 +513,6 @@ class _Box:
         ("TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n", True, True, False, "TB_ENV=PRODUCTION"),  # TB_ENV edited by hand
         ("TB_ENV=PRODUCTION\n", True, False, False, "TB_ENV=PRODUCTION"),  # a stand-ins rehearsal box, edited
         ("TB_ENV=PRODUCTION\n", False, True, False, "TB_ENV=PRODUCTION"),  # the mark and the flag removed by hand
-        ("", False, True, False, "TB_ENV=PRODUCTION"),  # TB_ENV removed: PRODUCTION (D-127)
         ("TB_ENV=VALIDATION\n", False, True, False, "no longer a whole rehearsal box"),
         ("TB_ENV=TEST\nTB_REHEARSAL=1\n", True, True, False, "no longer a whole rehearsal box"),
         ("TB_ENV=VALIDATION\n", False, False, True, "no longer a whole rehearsal box"),  # the record removed too
@@ -922,4 +921,22 @@ def test_the_install_order_of_a_rehearsal_box_is_never_refused_and_a_hand_edit_i
     (deploy / ".env").write_text(text.replace("TB_ENV=VALIDATION", "TB_ENV=PRODUCTION"), encoding="utf-8")
     _start_refused(deploy)  # a hand edit to PRODUCTION: refused at boot and at start
     (deploy / ".env").write_text(text.replace("TB_ENV=VALIDATION\n", ""), encoding="utf-8")
-    _start_refused(deploy)  # TB_ENV removed by hand on the installed box: PRODUCTION (D-127), refused
+    _start_ok(deploy)  # the integrator's ruling: only an explicit TB_ENV=PRODUCTION is refused
+
+
+@pytest.mark.parametrize("env_text", [None, "", "TB_TZ=Asia/Taipei\n"])
+@pytest.mark.parametrize("real", [False, True])
+def test_no_env_file_or_no_tb_env_on_a_signed_box_is_a_rehearsal(
+    tmp_path: Path, env_text: str | None, real: bool
+) -> None:
+    """The ruling (7087297960): a fresh rehearsal box's bundle load has no deploy/.env, or one without TB_ENV."""
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    (deploy / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    if real:
+        (deploy / "site" / rehearsal_real.RECORD).write_text("{}\n", encoding="utf-8")
+    if env_text is not None:
+        (deploy / ".env").write_text(env_text, encoding="utf-8")
+    _start_ok(deploy)  # the load (the boot guard), the start (pre-start)
+    (deploy / ".env").write_text((env_text or "") + "TB_ENV=PRODUCTION\n", encoding="utf-8")
+    _start_refused(deploy)  # an explicit PRODUCTION: refused at load, at start and at boot

@@ -26,6 +26,9 @@ a rehearsal box, with one explicit command line.
        sudo install -d -m 0700 -o root -g root /var/lib/trialbox/rehearsal
        sudo python3 tools/engine_probe.py run --gpu-index 1 --out /var/lib/trialbox/rehearsal/engine-probe.json
 
+   Step 1's reload is skipped when the driver was loaded just now and nothing has used the card since (a fresh
+   boot): the reload only clears the driver memory the forward-compatibility path leaks per CUDA context.
+
 3. The install, on an empty box:
 
        sudo deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu rtxpro6000 \
@@ -34,6 +37,11 @@ a rehearsal box, with one explicit command line.
 With `--gpu-index N` the probe runs on that one card (`--gpus device=N`) and records that card's facts and two one-way
 ids (sha256 digests, no UUID or machine id in the file): the card's and this host's (/etc/machine-id). The install
 then requires the probe to be at most 7 days old.
+
+The 32 GB profile on a whole card beside the 96 GB one: its form would be the same line with `--gpu rtx5090`
+(`--gpu-index N` naming the 32 GB card), but this card opens the rtxpro6000 profile only, as ruled (the one measured
+profile whose overlay serves the pair on one whole card): the installer refuses any other profile with
+"--rehearsal-real-servers: name the profile: --gpu rtxpro6000". Opening the 32 GB profile is a new ruling.
 
 ### What changes for a site: nothing
 
@@ -218,6 +226,12 @@ path runs the boot guard before the settings step writes TB_ENV, and the start c
 PRODUCTION. The refusal stays; the start check now reads that state as D-633 does (the mark and no TB_ENV is TEST)
 only while the box has no settings.yaml (an install in progress); on an installed box a missing TB_ENV is PRODUCTION
 and refused. Test: `test_the_install_order_of_a_rehearsal_box_is_never_refused_and_a_hand_edit_is`.
+
+The integrator's ruling 7087297960 then set the rule: only an EXPLICIT TB_ENV=PRODUCTION is refused; no deploy/.env,
+or one without TB_ENV, on a box with a rehearsal sign is a rehearsal (built; the settings.yaml condition above is
+gone). Tests: `test_no_env_file_or_no_tb_env_on_a_signed_box_is_a_rehearsal` and the install-order test. Our note:
+on an installed box whose TB_ENV line is removed by hand, the services read the missing setting as PRODUCTION
+(D-127); the start check now lets that box start, and doctor's rehearsal line FAILs it.
 
 ### Files outside the card (ruled: bodies only)
 

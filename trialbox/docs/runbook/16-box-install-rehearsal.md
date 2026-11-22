@@ -200,7 +200,8 @@ driver and toolkit and the host's libraries from the offline media, not by hand.
 
 On a bench host whose cards and driver are not the rtxpro6000 profile's, the install walk can run the real model
 servers on one whole card, as a rehearsal box only (it says "rehearsal: driver below the minimum, not this profile's
-card, not valid for a site" and never starts as PRODUCTION). Reload the driver first, then, as root:
+card, not valid for a site" and never starts as PRODUCTION). Reload the driver first (skip it when the driver was
+loaded just now and nothing has used the card since, as after a fresh boot), then, as root:
 
     sudo install -d -m 0700 -o root -g root /var/lib/trialbox/rehearsal
     sudo python3 tools/engine_probe.py run --gpu-index 1 --out /var/lib/trialbox/rehearsal/engine-probe.json
@@ -209,3 +210,5 @@ card, not valid for a site" and never starts as PRODUCTION). Reload the driver f
 
 The probe file and its folder must be root's and writable by no one else; a probe of another card or host, older than
 7 days, or of another image is refused. The page: docs/handover/rehearsal-real-servers-h89-2026-11-22.md.
+The rtxpro6000 profile is the only one this opens: the 32 GB profile on a whole card beside the 96 GB one would be the
+same line with `--gpu rtx5090`, and the installer refuses it ("name the profile: --gpu rtxpro6000").
