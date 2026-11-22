@@ -44,7 +44,7 @@ MAX_AHEAD_DAYS = 180
 FIELDS = ("path", "rule", "code", "verdict", "reason", "reviewer", "reviewed", "review_by")
 
 _NOSEC = re.compile(r"(?<![\w-])nosec\b(?P<codes>(?:[\s:,]*[BS]\d{3})*)")
-_NOQA = re.compile(r"(?<![\w-])noqa\s*:\s*(?P<codes>[A-Z]+\d+(?:\s*,\s*[A-Z]+\d+)*)")
+_NOQA = re.compile(r"(?<![\w-])noqa\s*:\s*(?P<codes>[A-Z]+\d+(?:\s*,\s*[A-Z]+\d+)*)", re.IGNORECASE)
 _CODE = re.compile(r"[A-Z]+\d+")
 _FINDING_ID = re.compile(r"^[A-Z][A-Z0-9]*-\d{2,}$")
 
@@ -88,7 +88,8 @@ def _collapse(text: str) -> str:
 
 def suppressions_in(text: str, path: str) -> list[Suppression]:
     """The suppressed lines of one Python source: a ``nosec`` comment (any codes, or none: ``all``) and a ``noqa``
-    comment naming at least one ruff ``S`` code (its other codes are not security rules and are left out)."""
+    comment naming at least one ruff ``S`` code, in any case as ruff reads it (its other codes are not security
+    rules and are left out)."""
     lines = text.splitlines()
     out: list[Suppression] = []
     try:
@@ -103,7 +104,7 @@ def suppressions_in(text: str, path: str) -> list[Suppression]:
             codes = _CODE.findall(m.group("codes"))
             rules |= set(codes) if codes else {"all"}
         for m in _NOQA.finditer(tok.string):
-            rules |= {c for c in _CODE.findall(m.group("codes")) if re.fullmatch(r"S\d+", c)}
+            rules |= {c for c in _CODE.findall(m.group("codes").upper()) if re.fullmatch(r"S\d+", c)}
         if not rules:
             continue
         row, col = tok.start
@@ -127,7 +128,7 @@ def scan(root: Path, files: Iterable[str] | None = None) -> list[Suppression]:
     out: list[Suppression] = []
     for name in files if files is not None else tracked_python(root):
         text = (root / name).read_text(encoding="utf-8", errors="replace")
-        if "nosec" in text or "noqa" in text:
+        if "nosec" in text or "noqa" in text.lower():
             out += suppressions_in(text, name)
     return out
 
