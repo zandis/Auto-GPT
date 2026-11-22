@@ -1,0 +1,63 @@
+{
+ "card": "H75",
+ "title": "the 48 GB host run's own compose project and image tag",
+ "date": "2026-11-22",
+ "source": "docs/handover/host-run-own-project-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H75-01",
+   "severity": "Medium",
+   "claim": "ten tests of tests/unit/test_measure48_host_h67.py assert the box's fixed names (trialbox-net, trialbox_db, trialbox-llm-service-1, trialbox-py:1.0.0 made and kept) and H-72's refusal of any trialbox-* image; with the run's own project and tag they fail",
+   "severity_basis": "the card's change is what the order asks; the assertions cannot hold under it, and changing what a test asserts needs the integrator's ruling, so the branch is red on those ten until the ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 37e1b3e2d62c4d37636f6dc327a0decd704e2927",
+   "fix": "by the ruling: H-67's ten cases moved to the run's own names; H-72's refusal replaced by the invariant tests/unit/test_measure48_host_own_names_h75.py::test_the_boxs_objects_and_images_are_never_touched_by_a_run (pass, failure at s07, SIGTERM, the cap; the box's project and tags refused; the box's lists identical before and after)",
+   "from": "the integrator's card H-75, 2026-11-22"
+  },
+  {
+   "id": "H75-02",
+   "severity": "Medium",
+   "claim": "the stub (s05) publishes host ports on 127.0.0.1 (the console 8090, the mail sink 8025 and eleven more TB_HOST_*_PORT); on a host with an installed box one of them may be the box's, and the stub's start would fail after the preflight passed",
+   "severity_basis": "a run beside a box would end at s05; not reached on a real host",
+   "lane": "H",
+   "basis": "read",
+   "state": "fixed ae48017b26ea7b0ada0332ac4faaa29a4c075ff7",
+   "fix": "the preflight probes each TB_HOST_*_PORT of the checkout's compose files (default or as set) and refuses a taken one, named with its variable; the bench sets the variable to a free port",
+   "from": "the integrator's card H-75, 2026-11-22"
+  },
+  {
+   "id": "H75-03",
+   "severity": "Low",
+   "claim": "on master deploy/poc.sh ran make images whenever the host had Maven, curl and fontTools, also when TB_IMAGE or TB_JVM_IMAGE named other images: make images tags trialbox-py:1.0.0, trialbox-jvm:1.0.0, trialbox-embed:1.0.0, trialbox-backup:1.0.0 and the database image, the box's names, and not the names asked",
+   "severity_basis": "only with those variables set; a run under its own tag would have built over an installed box's images",
+   "lane": "H",
+   "basis": "read",
+   "state": "fixed ae48017b26ea7b0ada0332ac4faaa29a4c075ff7",
+   "fix": "other names build by poc.sh's own docker build path on BASE_IMAGE; the box's names keep make images; the Makefile is unchanged",
+   "from": "the integrator's card H-75, 2026-11-22"
+  },
+  {
+   "id": "H75-04",
+   "severity": "Low",
+   "claim": "COMPOSE_PROJECT_NAME in a user's environment overrides deploy/docker-compose.yml's name: (the containers and volumes) but on master not the networks' fixed names: a project given by -p or that variable split the project from its networks",
+   "severity_basis": "only when that variable is set on the host; the preflight's and the end's object lists would miss the containers",
+   "lane": "H",
+   "basis": "read",
+   "state": "fixed 37e1b3e2d62c4d37636f6dc327a0decd704e2927",
+   "fix": "the networks' names follow compose's own project (${COMPOSE_PROJECT_NAME:-trialbox}, which -p sets for interpolation too); with none given they are master's; the host run sets it to its --project",
+   "from": "the integrator's card H-75, 2026-11-22"
+  },
+  {
+   "id": "H75-05",
+   "severity": "Medium",
+   "claim": "three files outside the ruling's six read the names made variable: libs/tb_common/config.py DECLARED lacks TB_COMPOSE_PROJECT (test_config_declared, make guard), tests/unit/test_image_config_scans.py asserts deploy/build_db_image.sh's literal -t trialbox-postgres:16-1, and tools/network_sheet.py prints the compose network name raw (test_network_sheet, three languages)",
+   "severity_basis": "five tests fail on the branch and pass on master; none changes what the box runs, but the branch cannot ride until they are settled",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 37e1b3e2d62c4d37636f6dc327a0decd704e2927",
+   "fix": "by the ruling: no TB_ variable for the project or the tag (compose's COMPOSE_PROJECT_NAME and TRIALBOX_IMAGE_TAG; config.py unchanged); tools/network_sheet.py reads a network name's default (go, body only; sheets unchanged); deploy/build_db_image.sh keeps the literal box line (test_image_config_scans.py untouched)",
+   "from": "the integrator's card H-75, 2026-11-22"
+  }
+ ]
+}

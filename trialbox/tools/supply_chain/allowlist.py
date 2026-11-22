@@ -53,7 +53,9 @@ in the past or more than 180 days ahead, an unknown or duplicate key, a duplicat
 a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. An entry for every id (D-622,
 ``id: "*"``) is rejected without a package or an image, for an image of ours, for an image that is not a third-party
 image of ``deploy/images.lock`` by its full name, and beside an entry for one id that it covers; it accepts findings
-only in the image at the digest the lock pins. "Today" is the build machine's
+only in the image at the digest the lock pins: a reference that ends in that digest, or scanned content whose
+repository digests (the scanner's or the image store's record of where it was pulled from) hold that repository at
+that digest; a tag alone never is. "Today" is the build machine's
 date (``today()``); there is no override on the command line.
 """
 
@@ -62,6 +64,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -176,18 +179,24 @@ class Allowlist:
                 return e
         return None
 
-    def vuln(self, ids: set[str], package: str, subject: str | None = None) -> VulnEntry | None:
+    def vuln(
+        self, ids: set[str], package: str, subject: str | None = None, digests: Sequence[str] = ()
+    ) -> VulnEntry | None:
         """The entry accepting a finding known by any of ``ids`` in ``package``, if one does. An entry scoped to an
-        image accepts it only when ``subject`` (the scanned image reference) is that image."""
+        image accepts it only when ``subject`` (the scanned image reference) is that image. ``digests``: the
+        repository digests recorded for the scanned content (D-622, see :func:`at_pinned_digest`)."""
         wanted = {i.upper() for i in ids}
         for e in self.vulnerabilities:
             if e.package != norm(package):
                 continue
             if e.id == EVERY_ID:  # D-622: the pinned image: that repository exactly, at the lock's digest
-                if e.image and subject and same_repository(e.image, subject):
-                    digest = third_party_digests().get(e.image)
-                    if digest and "@" in subject and subject.rsplit("@", 1)[1] == digest:
-                        return e
+                if (
+                    e.image
+                    and subject
+                    and same_repository(e.image, subject)
+                    and at_pinned_digest(e.image, subject, digests)
+                ):
+                    return e
             elif e.id.upper() in wanted and image_matches(e.image, subject):
                 return e
         return None
@@ -251,6 +260,33 @@ def third_party_digests() -> dict[str, str]:
         for e in entries.values()
         if isinstance(e, dict) and e.get("image")
     }
+
+
+def at_pinned_digest(image: str, subject: str, digests: Sequence[str] = ()) -> bool:
+    """D-622: the scanned image is the one ``deploy/images.lock`` pins for the repository ``image``: ``subject`` ends in
+    the lock's digest, or one of ``digests`` (``repository@sha256:...``, the repository digests the scanner or the
+    image store recorded for the scanned content) is that repository at that digest. The digest is of the content,
+    so a local image pulled by its tag passes when its content is the pinned one, and a tag that points at other
+    content does not. A name alone, with no digest, never passes; neither does an unreadable lock."""
+    pinned = third_party_digests().get(image)
+    if not pinned:
+        return False
+    return any(
+        "@" in ref and ref.rsplit("@", 1)[1] == pinned and same_repository(image, ref) for ref in (subject, *digests)
+    )
+
+
+def pinned_digest_problem(image: str, package: str, subject: str, digests: Sequence[str] = ()) -> str:
+    """The plain refusal when the D-622 entry for ``package`` in ``image`` did not apply because the scan was not of
+    the pinned image (a tag, or another digest): what was scanned and what the lock pins."""
+    named = subject.rsplit("@", 1)[1] if "@" in subject else "no digest (a tag)"
+    seen = sorted({d.rsplit("@", 1)[1] for d in digests if "@" in d and same_repository(image, d)})
+    return (
+        f"{subject}: scanned by a reference whose digest is not the lock's, so the D-622 entry for every {package} "
+        f"finding does not apply: the reference names {named}, the scanned content records "
+        f"{', '.join(seen) if seen else 'no digest of ' + image}, deploy/images.lock pins "
+        f"{third_party_digests().get(image) or 'nothing readable'}; scan the pinned reference (tag@digest of the lock)"
+    )
 
 
 def third_party_repositories() -> frozenset[str]:

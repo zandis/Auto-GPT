@@ -19,7 +19,7 @@
    "claim": "with every shard at worksteal the medians are measured again only after green CI shard jobs exist; D-564's rule applied to today's load-schedule figures (33.6 x 1.5) would ask for 50 minutes, so the 40-minute limit is kept on the strength of the schedule fix and is to be read again from the next green shard jobs",
    "lane": "Int",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 8a23f28d250ad3f6e1f35b2ebb146177d0531a88"
   },
   {
    "id": "H73-03",
