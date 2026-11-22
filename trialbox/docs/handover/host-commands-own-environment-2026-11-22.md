@@ -14,8 +14,9 @@ merged with master `97048772e0bb82c2ec3d8ec0edb29983e6f9a60e`. It settles H-84's
 installer's, cron's) now goes through `tools/trialbox/launch.py` before it does anything:
 
 - its import path comes from its own folder: the install folder's `libs/` and the install folder first; what the
-  caller's `PYTHONPATH` added from outside the install folder is dropped (`tools/trialbox/__init__.py` also puts
-  `libs/` on the path for `python3 -m tools.trialbox.<module>`);
+  caller's `PYTHONPATH` added comes after them and never decides where a command runs (a module there does not count
+  as the host having it); `tools/trialbox/__init__.py` also puts `libs/` on the path for
+  `python3 -m tools.trialbox.<module>`;
 - its settings are the box's own `deploy/.env`, read by the tool: a key of that file wins over the caller's value,
   so `sudo` dropping `TB_DB_URL` no longer matters, and a caller's `TB_DB_URL`, `TB_IMAGE` or `TB_ENV` never wins
   over the box's file (no new way to override it is added);
@@ -64,8 +65,8 @@ WARN goes). Nothing else.
 `tests/unit/test_host_commands_own_environment.py::test_every_host_command_runs_from_a_bare_environment`
 (parametrised over `launch.COMMANDS`): every `trialbox` host command runs from a bare environment with the system
 interpreter; none reads its import path, its settings or its DSN from the caller's environment
-(`test_the_callers_path_and_settings_never_win`: a planted `tb_common` and `zstandard` on the caller's
-`PYTHONPATH`, a caller's `TB_DB_URL` and `TB_IMAGE`: none is used). The bare environment: `PATH=/usr/sbin:/usr/bin:
+(`test_the_callers_path_and_settings_never_win`: a planted `tb_common`, `zstandard` and `cryptography` on the
+caller's `PYTHONPATH`, a caller's `TB_DB_URL` and `TB_IMAGE`: none is used). The bare environment: `PATH=/usr/sbin:/usr/bin:
 /bin` with the stand-ins first, no `PYTHONPATH`, no `HOME`, cwd `/` (cron) or the install folder (the runbook), and a
 "system" `python3`: a venv of the base interpreter without site packages, PyYAML linked in (what install.sh
 requires), in which `psycopg`, `zstandard`, `cryptography`, `httpx` and `tb_common` do not import.
@@ -150,13 +151,14 @@ H88-05 is old behaviour, seen by the probes.
 ## Mutation pass
 
 20 mutants planted, each run against `tests/unit/test_host_commands_own_environment.py` and
-`tests/unit/test_restore_drill.py`: 20 caught. Two survived the first round (M10, M18: the refusal test's cases were
-refused for another reason, a dump that was not there and a request of the wrong length); the test was given a dump
-that is there outside the unpack folder and a request of the right length with another flag, and both were caught.
+`tests/unit/test_restore_drill.py`: 20 caught. Three survived a first round and the tests were made to catch them:
+M10 and M18 (the refusal test's cases were refused for another reason: a dump that was not there, a request of the
+wrong length) and M01 (only `zstandard` was planted, so the missing `cryptography` still sent the command to the
+image).
 
 | Mutant | Caught by |
 | --- | --- |
-| M01 the launcher keeps the caller's `PYTHONPATH` | `test_the_callers_path_and_settings_never_win` |
+| M01 a module on the caller's `PYTHONPATH` counts as the host's | `test_the_callers_path_and_settings_never_win` (second round) |
 | M02 its own path after the caller's | the same |
 | M03 the caller's `TB_DB_URL` and `TB_IMAGE` win over `deploy/.env` | the same |
 | M04 the drill's container on the compose network | `test_a_drill_in_the_image_never_touches_...` |
@@ -183,8 +185,8 @@ that is there outside the unpack folder and a request of the right length with a
 command), `tools/trialbox/restore_drill.py` (the split), `tools/trialbox/backup_schedule.py` (`cron_old_form`),
 `tools/trialbox/doctor.py` (the old-form WARN), `deploy/backup/trialbox-backup.cron` (no `PYTHONPATH`),
 `tests/unit/test_host_commands_own_environment.py` (new), `tests/unit/test_restore_drill.py` (cases added; no
-assertion of H-84's changed), `docs/runbook/05-updates-backup-restore-secrets.md` (one sentence on the drill and one on
-the old schedule). No runbook command text changed. Files outside the card: none.
+assertion of H-84's changed), `docs/runbook/05-updates-backup-restore-secrets.md` (one paragraph at the page's end:
+other tests pin its line numbers). No runbook command text changed. Files outside the card: none.
 
 ## Questions
 

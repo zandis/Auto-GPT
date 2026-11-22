@@ -4,8 +4,8 @@ A command typed on a box (``sudo python3 -m tools.trialbox ...`` from the instal
 cron line) runs with the host's ``python3``, which has the standard library and PyYAML (install.sh HOST-PYTHON) and
 nothing else, under ``sudo`` or cron, which drop the caller's environment. So every entry goes through here:
 
-1. **The import path** is set from this file's own location: the install folder and its ``libs/`` go first, and
-   what the caller's ``PYTHONPATH`` added is dropped (:func:`own_path`). Never the caller's path or the cwd's.
+1. **The import path** is set from this file's own location: the install folder and its ``libs/`` go first
+   (:func:`own_path`); what the caller's ``PYTHONPATH`` added comes after and never decides where a command runs.
 2. **The settings** are the box's own ``deploy/.env`` (beside this file's install folder), read by the tool itself
    (:func:`box_settings`): a key in that file wins over the caller's environment, so ``sudo`` dropping
    ``TB_DB_URL`` does not matter and a caller's ``TB_DB_URL`` or ``TB_ENV`` never wins over the box's file.
@@ -23,6 +23,7 @@ go into a container that reaches the throwaway's socket folder and nothing else 
 
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import os
 import shlex
@@ -106,22 +107,21 @@ COMMANDS: dict[str, Need] = {
 
 
 def own_path(path: list[str], caller: Mapping[str, str]) -> list[str]:
-    """``sys.path`` with the install folder's ``libs/`` and the install folder first, and what the caller's
-    ``PYTHONPATH`` put there from outside the install folder removed (the image's own ``/app/services`` is inside
-    it). The product is found from this file, never from the caller."""
-    theirs = {os.path.abspath(p) for p in (caller.get("PYTHONPATH") or "").split(os.pathsep) if p}
-    kept = [p for p in path if p and p not in OWN_PATH and (os.path.abspath(p) not in theirs or _inside(p))]
+    """``sys.path`` with the install folder's ``libs/`` and the install folder first, so the product is found from
+    this file, never from the caller: what the caller's ``PYTHONPATH`` put there comes after (a site's own PyYAML
+    folder still imports) and never decides where a command runs (:func:`has_libs`). An empty entry (the cwd) goes."""
+    kept = [p for p in path if p and p not in OWN_PATH]
     return [*OWN_PATH, *kept]
+
+
+def caller_entries(caller: Mapping[str, str]) -> set[str]:
+    """The caller's ``PYTHONPATH`` entries from outside the install folder."""
+    return {os.path.abspath(p) for p in (caller.get("PYTHONPATH") or "").split(os.pathsep) if p and not _inside(p)}
 
 
 def _inside(p: str) -> bool:
     a = os.path.abspath(p)
     return a == str(ROOT) or a.startswith(str(ROOT) + os.sep)
-
-
-def own_pythonpath(caller: Mapping[str, str]) -> str:
-    """The caller's ``PYTHONPATH`` reduced to the install folder's own entries (what a child process inherits)."""
-    return os.pathsep.join(p for p in (caller.get("PYTHONPATH") or "").split(os.pathsep) if p and _inside(p))
 
 
 def env_file(path: Path) -> dict[str, str]:
@@ -149,8 +149,13 @@ def box_settings(environ: dict[str, str] | os._Environ[str], deploy: Path = DEPL
     return replaced
 
 
+_CALLER: set[str] = set()  # set by enter(): what the caller's PYTHONPATH added
+
+
 def has_libs(names: Sequence[str]) -> bool:
-    return all(importlib.util.find_spec(n) is not None for n in names)
+    """Whether this interpreter has ``names`` of its own: a module on the caller's ``PYTHONPATH`` does not count."""
+    own = [p for p in sys.path if os.path.abspath(p or ".") not in _CALLER]
+    return all(importlib.machinery.PathFinder.find_spec(n, own) is not None for n in names)
 
 
 def command_of(args: Sequence[str]) -> str:
@@ -261,12 +266,8 @@ def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None
     """The entry of ``python -m tools.trialbox``: its own import path and the box's settings; then either the exit
     code of the command run in the box image, or None: run it here."""
     environ = os.environ if environ is None else environ
+    _CALLER.update(caller_entries(environ))
     sys.path[:] = own_path(sys.path, environ)
-    kept = own_pythonpath(environ)  # nothing this process starts inherits a path from outside the install folder
-    if kept:
-        environ["PYTHONPATH"] = kept
-    else:
-        environ.pop("PYTHONPATH", None)
     box_settings(environ)
     need = COMMANDS.get(command_of(args))
     if need is None or need.where == HOST or "-h" in args or "--help" in args or has_libs(need.libs):

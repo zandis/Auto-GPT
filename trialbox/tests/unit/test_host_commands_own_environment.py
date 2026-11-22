@@ -358,7 +358,8 @@ def test_the_callers_path_and_settings_never_win(box: dict[str, Any], tmp_path: 
     planted = tmp_path / "planted"
     (planted / "tb_common").mkdir(parents=True)
     (planted / "tb_common" / "__init__.py").write_text(PLANTED, encoding="utf-8")
-    (planted / "zstandard.py").write_text("raise SystemExit('PLANTED zstandard')\n", encoding="utf-8")
+    for lib in ("zstandard", "cryptography"):  # all a command needs: only the box image's may count
+        (planted / f"{lib}.py").write_text(f"raise SystemExit('PLANTED {lib}')\n", encoding="utf-8")
     caller = {"PYTHONPATH": str(planted), "TB_DB_URL": "postgresql://x:caller-secret@caller:5432/x",
               "TB_IMAGE": "caller/image:evil"}  # fmt: skip
     r = bare(box, "python3 -m tools.trialbox backup-status --json", cwd=box["root"], **caller)
@@ -374,7 +375,8 @@ def test_the_callers_path_and_settings_never_win(box: dict[str, Any], tmp_path: 
     replaced = launch.box_settings(env, box["deploy"])
     assert env["TB_DB_URL"] == DSN and env["TB_IMAGE"] == PY_IMAGE and set(replaced) == {"TB_DB_URL", "TB_IMAGE"}
     path = launch.own_path([str(planted), "", "/usr/lib/python3"], {"PYTHONPATH": str(planted)})
-    assert path[:2] == list(launch.OWN_PATH) and str(planted) not in path and "" not in path
+    assert path[:2] == list(launch.OWN_PATH) and "" not in path
+    assert launch.caller_entries({"PYTHONPATH": f"{planted}:{launch.ROOT / 'services'}"}) == {str(planted)}
 
 
 def test_the_container_keeps_the_exit_code_and_puts_no_secret_on_the_command_line(
