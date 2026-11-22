@@ -19,13 +19,16 @@ def production(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_production_box_builds_no_model_client_without_the_gateway(
-    production: None, monkeypatch: pytest.MonkeyPatch
+    production: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``tb_common.llm.LlmClient.from_config`` (T-604): in PRODUCTION a prompt goes through tb-gateway or nowhere."""
     from tb_common.config import get_config
     from tb_common.llm import LlmClient, LlmError
 
     monkeypatch.delenv("TB_GATEWAY_URL", raising=False)
+    # the client built on VALIDATION below opens its audit folder: inside the test's own folder, never /data
+    monkeypatch.setenv("TB_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
     get_config.cache_clear()
     try:
         with pytest.raises(LlmError, match="no TB_GATEWAY_URL in PRODUCTION"):

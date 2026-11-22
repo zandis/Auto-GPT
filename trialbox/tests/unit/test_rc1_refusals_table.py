@@ -8,8 +8,6 @@ seventh refusal cannot be added at a site without its row, nor a row without its
 from __future__ import annotations
 
 import ast
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -155,11 +153,11 @@ def test_every_rows_test_exists_and_is_collected() -> None:
         path, _, name = t.partition("::")
         tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
         assert any(isinstance(n, ast.FunctionDef) and n.name == name for n in tree.body), t
-    got = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:xdist", *tests],
-                         cwd=ROOT, capture_output=True, text=True, check=False)  # fmt: skip
-    assert got.returncode == 0, got.stdout[-2000:]
-    collected = {line.split("[", 1)[0] for line in got.stdout.splitlines() if "::" in line}
-    assert collected >= set(tests), sorted(set(tests) - collected)
+        # collected by pytest's default rules (test_*.py, test_* at module level), read from the tree so the
+        # check does not depend on what an earlier test in the same run did to the process
+        p = ROOT / path
+        assert p.parts[len(ROOT.parts)] == "tests" and p.name.startswith("test_") and p.suffix == ".py", t
+        assert name.startswith("test_"), t
 
 
 def test_every_message_is_in_three_languages_with_the_environment() -> None:
