@@ -65,16 +65,16 @@ def _install(box: Path, env: dict[str, str], bundle: Path, prefix: str = "") -> 
 
 def test_a_second_installer_while_one_runs_refuses_and_changes_nothing(tmp_path: Path) -> None:
     """Review 2 of #1305 (M-2): a second run's cleanup took the first run's containers down while they started. The
-    installer holds a lock (flock on deploy/logs/install.lock) from before its first write; a second run while it is
-    held refuses (exit non-zero, said plainly), writes nothing and asks the engine for nothing that changes it. The
-    positive controls: free, the same run goes past the lock to the next step; the run from the signed tree, which
-    inherits the lock on fd 9, is not refused by its own lock."""
+    installer holds a lock (flock on the deploy folder itself, no lock file) from before its first write; a second run
+    while it is held refuses (exit non-zero, said plainly), writes nothing and asks the engine for nothing that changes
+    it. The positive controls: free, the same run goes past the lock to the next step; the run from the signed tree,
+    which inherits the lock on fd 9, is not refused by its own lock. No run leaves a file behind."""
     box, env, bundle = _box(tmp_path)
-    lock = box / "deploy" / "logs" / "install.lock"
-    lock.parent.mkdir(parents=True)
-    with lock.open("a") as held:
+    lock = box / "deploy"
+    before = _tree(box)
+    held = os.open(lock, os.O_RDONLY)
+    try:
         fcntl.flock(held, fcntl.LOCK_EX)  # the first installer, still running
-        before = _tree(box)
         res = _install(box, env, bundle)
         assert res.returncode != 0, res.stdout + res.stderr
         assert "another deploy/install.sh is running" in res.stderr and "nothing was changed or removed" in res.stderr
@@ -83,12 +83,15 @@ def test_a_second_installer_while_one_runs_refuses_and_changes_nothing(tmp_path:
         calls = (tmp_path / "docker.log").read_text(encoding="utf-8").splitlines()
         changes = {"up", "down", "run", "load", "rm", "stop", "create", "pull", "kill", "pause"}
         assert not [c for c in calls if changes & set(c.split())], calls  # only info and version were asked
+    finally:
+        os.close(held)
     res = _install(box, env, bundle)
     assert res.returncode != 0 and "another deploy/install.sh" not in res.stderr, res.stderr
     assert "this box was a rehearsal box" in res.stderr, res.stderr  # past the lock: the next step's own stop
-    inherited = f'exec 9>>"{lock}" && flock -n 9 && '  # the first run, going on from the signed tree (exec)
+    inherited = f'exec 9<"{lock}" && flock -n 9 && '  # the first run, going on from the signed tree (exec)
     res = _install(box, env, bundle, prefix=inherited)
     assert "another deploy/install.sh" not in res.stderr and "this box was a rehearsal box" in res.stderr, res.stderr
+    assert _tree(box) == before
 
 
 def test_the_lock_comes_before_the_first_write_and_the_cleanup() -> None:

@@ -281,14 +281,13 @@ echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), m
 
 # INSTALL-LOCK (review 2 of #1305, M-2): one installer at a time on this folder, taken here, before the first thing is
 # written. A second run while one holds it refuses and changes or removes nothing: its project cleanup would take down
-# the first run's containers while they start. flock on deploy/logs/install.lock (the site's own state, never in a
-# release); the lock ends with the installer's process, so a killed run leaves none behind. The run from the signed
+# the first run's containers while they start. flock on the deploy folder itself, opened read-only: no lock file is
+# written, and the lock ends with the installer's process, so a killed run leaves none behind. The run from the signed
 # tree (exec below) keeps the lock it inherits on fd 9: it is not taken twice
-INSTALL_LOCK="$ROOT/deploy/logs/install.lock"
+INSTALL_LOCK="$(readlink -f "$ROOT/deploy")"
 command -v flock >/dev/null || die "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed"
-mkdir -p "$ROOT/deploy/logs" || die "deploy/logs cannot be made for the install lock; nothing was changed"
-if [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$(readlink -f "$INSTALL_LOCK")" ]; then
-  exec 9>>"$INSTALL_LOCK" || die "the install lock $INSTALL_LOCK cannot be opened; nothing was changed"
+if [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$INSTALL_LOCK" ]; then
+  exec 9<"$INSTALL_LOCK" || die "the deploy folder $INSTALL_LOCK cannot be opened for the install lock; nothing was changed"
 fi
 flock -n 9 || die "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed"
 # ---- end of INSTALL-LOCK
