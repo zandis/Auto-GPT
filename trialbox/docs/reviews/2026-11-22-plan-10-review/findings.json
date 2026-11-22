@@ -403,6 +403,76 @@
    "claim": "A docs-only pull request that adds a page under docs/reviews/ runs two property tests that need the report fonts in the cross-card job, which fetches none: 277 errors on this page's own pull request (job 137168755036)",
    "lane": "H",
    "basis": "shown"
+  },
+  {
+   "id": "R22-58",
+   "severity": "Medium",
+   "claim": "services/deliverables (the feasibility pack, a specification deliverable) is reached by no service; a feasibility job never builds it",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-59",
+   "severity": "Medium",
+   "claim": "One import cycle through 15 service packages and 296 cross-service imports (280 five days earlier); there is no architecture test",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-60",
+   "severity": "Medium",
+   "claim": "22 of 28 database schemas are reached by two or more service roles, 17 by both the console and the orchestrator; the boundary between them does not bind the data",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-61",
+   "severity": "Medium",
+   "claim": "Configuration grows without a ratchet: 533 declared settings (366 on 2026-11-12), 321 direct reads of the environment; site_params.yaml has no reader",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-62",
+   "severity": "Medium",
+   "claim": "27 erasure entries are owed, about six of them for copies of data the default screening path never reads (the FHIR store, the OMOP history, the second vector store)",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-63",
+   "severity": "Medium",
+   "claim": "tools/ (about 133,000 lines) is in every product container and imported by the console; the operations tool inside it runs on the host interpreter, where it fails",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-64",
+   "severity": "Medium",
+   "claim": "The largest functions keep growing with no ratchet: the console's create_app 2,020 to 2,243 lines and the adapter's _run_ingest 660 to 724 in five days",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-65",
+   "severity": "Low",
+   "claim": "Four identifier maskers give different results on one input: mrn=70000054 survives three of four",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-66",
+   "severity": "Low",
+   "claim": "services/lake/textproc.py:32: the lake's chunker cuts inside a value (BP 120/80); the other chunker does not",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-67",
+   "severity": "Low",
+   "claim": "Two modules each call themselves the only entry to the model; three callers use the lower one and skip the schema check and retry of the upper",
+   "lane": "J",
+   "basis": "shown"
   }
  ]
 }
