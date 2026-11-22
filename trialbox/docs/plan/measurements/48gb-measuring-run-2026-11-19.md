@@ -640,12 +640,13 @@ with its numbers (`card-too-small`, `card-is-the-target`).
 | Need | How it is checked |
 | --- | --- |
 | card N, with no other process on it | `nvidia-smi -i N`; other processes are counted, with their memory, never named |
-| the driver | read and recorded; a note when it is not the rented run's branch (580); no minimum is set |
+| the driver, at or above what the engine image needs | `python3 tools/images_lock.py host --driver <read>`: refused below `deploy/images.lock`'s `gpu.driver_min` (580.65.06: the engine image is CUDA 13), the found and the needed driver named (H-72); a note when it is not the rented run's branch (580) |
 | a card that can offer the target | `python3 -m tools.ballast plan --gpu-index N` (allocates nothing) |
 | Docker, usable by this user | `docker info` answers |
 | the NVIDIA runtime registered with Docker | `docker info`'s `Runtimes` lists `nvidia` (what `nvidia-ctk runtime configure --runtime=docker` adds; the owner's step: this script never does it) |
 | docker compose 2.24.4 or newer | `docker compose version` (the servers' pin uses `!override`) |
 | no TrialBox objects on the host | no container of compose project `trialbox`, no `trialbox-*` network, no `trialbox_*` volume, no `tb-ballast-<run id>` |
+| no TrialBox images on the host | no image named `trialbox-*`: the stub (s05) builds and tags images of those names and would replace an installed box's (H-72); a host with an installed box is refused, not shared |
 | the engine image, by digest | `docker image inspect` of `tools/engine_probe.py`'s `pinned_ref()`; never pulled without `--pull` (9.2 GB compressed, 23.4 GB unpacked) |
 | the weights, as pinned | `python3 -m tools.fetch_weights --profile rtxpro6000 --models-dir <weights folder> --verify-only` (27.9 GB; hashed, nothing fetched) |
 | Docker's data root: **14 GB** free (**44 GB** with `--pull`) | the stub's images (14 GB, `NEED_GB` "stub"), plus the engine (30 GB) when pulled |
