@@ -96,8 +96,13 @@ const path = require("path");
       if (!m.strips.length) failures.push(`${name}: no strip on the page`);
       if (m.scroll > 0) failures.push(`${name}: the page scrolls sideways by ${m.scroll}px`);
       for (const s of m.strips) {
-        const maxRows = p.large ? s.count : p.width <= 760 ? Math.ceil(s.count / 2) : 2; // enlarged text: one column
-        if (s.rows > maxRows) failures.push(`${name}: the strip of ${s.count} takes ${s.rows} rows (at most ${maxRows})`);
+        if (p.large) {
+          // enlarged text on a phone: one column, one item per row (a row limit of n alone could never fail)
+          if (s.rows !== s.count) failures.push(`${name}: the strip of ${s.count} takes ${s.rows} rows at enlarged text (one column: ${s.count})`);
+        } else {
+          const maxRows = p.width <= 760 ? Math.ceil(s.count / 2) : 2;
+          if (s.rows > maxRows) failures.push(`${name}: the strip of ${s.count} takes ${s.rows} rows (at most ${maxRows})`);
+        }
         if (s.wide) failures.push(`${name}: ${s.wide} cell(s) outside the strip`);
         if (s.lone.length) failures.push(`${name}: one character on a line in ${JSON.stringify(s.lone)}`);
         if (s.cut.length) failures.push(`${name}: a label is cut: ${JSON.stringify(s.cut)}`);
