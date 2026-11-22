@@ -35,6 +35,14 @@ private key block, a cloud or chat token, a web token: :data:`CREDENTIALS`) is r
 find it; then every file is read by the data-handling scan
 (``tools.data_scan``) and each line it flags is removed, and the run says so. The finished archive is scanned once
 more; a hit there, or a file the scan cannot read, means no bundle is written.
+
+H-71 (D-1354): every member's name and text, every source and left-out line and the manifest go through the bundle's
+scrub (``tools.bundle_scrub``): pseudonyms and screening numbers masked, secrets replaced by their form (query
+strings, URL userinfo, headers, bearer tokens, PEM blocks, JSON, multi-line values, every setting the declarations
+mark secret). It runs as a member comes in, once more after the passes above, and ``_write_tar``, the one writer,
+refuses a member the scrub would still change. The update history keeps each step's own fields; a step's detail
+(and the builder's own caught errors) is its type and length. A log or a command's output that is not UTF-8 text
+is left out and listed.
 """
 
 from __future__ import annotations
@@ -58,6 +66,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from tools import bundle_scrub as bs  # standard library only at import: libs/ is read when it scrubs
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "libs") not in sys.path:  # the host's python3 from the install folder
@@ -247,19 +257,8 @@ def hide_values(text: str, values: Mapping[str, str]) -> tuple[str, int]:
 
 
 #: credentials of a well-known shape that no setting of the box names (a service that printed its config, a stack trace
-#: with a key in it): the bundle's own form of detect-secrets' core plugins, standard library only (the bundle is made
-#: by the host's python3). A private key is a whole block, so it is replaced as one, never line by line.
-CREDENTIALS: dict[str, re.Pattern[str]] = {
-    "private key": re.compile(
-        r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY"
-        r"(?: BLOCK)?-----|\Z)",
-        re.S,
-    ),
-    "AWS access key": re.compile(r"(?<![A-Z0-9])(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}(?![A-Z0-9])"),
-    "GitHub token": re.compile(r"(?<![A-Za-z0-9_])(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,})"),
-    "Slack token": re.compile(r"(?<![A-Za-z0-9])xox[abposr]-[A-Za-z0-9-]{10,}"),
-    "JSON web token": re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
-}
+#: with a key in it): the bundle's own form of detect-secrets' core plugins, kept with the scrub (H-71, D-1354).
+CREDENTIALS = bs.CREDENTIALS
 
 
 def hide_credentials(text: str) -> tuple[str, Counter[str]]:
@@ -270,6 +269,12 @@ def hide_credentials(text: str) -> tuple[str, Counter[str]]:
         if k:
             found[kind] += k
     return text, found
+
+
+def _bundle_credentials(text: str) -> tuple[str, Counter[str]]:
+    """The bundle's credential pass as the scrub calls it: :func:`hide_credentials` looked up at each call, so the
+    last look of :func:`build` stays a separate check of the same shapes."""
+    return hide_credentials(text)
 
 
 def still_held(text: str, values: Mapping[str, str]) -> list[str]:
@@ -341,6 +346,12 @@ def refusal(path: Path, deploy: Path, env: Mapping[str, str]) -> str | None:
 # ------------------------------------------------------------------------------------------------ the bundle
 @dataclass
 class Bundle:
+    """The members on their way into the archive. H-71 (D-1354): every name, text, source and left-out line goes
+    through the bundle's scrubber as it comes in (:meth:`add`, :meth:`leave_out`), once more after the last secret
+    pass (:meth:`seal`), and the archive writer (:func:`_write_tar`) refuses a member the scrub would still change."""
+
+    scrubber: bs.Scrubber = field(default_factory=bs.Scrubber)
+    say: Callable[[str], None] = lambda _: None
     members: dict[str, str] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
     left_out: list[dict[str, str]] = field(default_factory=list)
@@ -349,14 +360,42 @@ class Bundle:
     def add(
         self, name: str, text: str, source: str, *, scrubbed: bool = False, mrn: re.Pattern[str] | None = None
     ) -> None:
+        name = self.scrubber.name(name)
         if len(text.encode("utf-8")) > MAX_MEMBER:
             text = text.encode("utf-8")[-MAX_MEMBER:].decode("utf-8", errors="ignore").partition("\n")[2]
             self.note(name, "truncated", 1)
         if scrubbed:
             text, n = scrub(text, mrn)
             self.note(name, "redacted", n)
-        self.members[name] = text
-        self.sources[name] = source
+        self.members[name] = self._scrub(name, text)
+        self.sources[name] = self.scrubber.text(source)
+
+    def _scrub(self, name: str, text: str) -> str:
+        before = Counter(self.scrubber.found)
+        text = self.scrubber.content(name, text)
+        kinds = {k: v for k, v in (self.scrubber.found - before).items() if v}
+        creds = {k[len("credential (") : -1]: v for k, v in kinds.items() if k.startswith("credential (")}
+        if creds:  # said as the credential pass says it: the kind and the count, never the value
+            self.note(name, "credentials_removed", sum(creds.values()))
+            row = self.changed[name].setdefault("credentials", {})
+            for k, v in creds.items():
+                row[k] = row.get(k, 0) + v
+            self.say(f"removed {sum(creds.values())} credential(s) from {name}: {', '.join(sorted(creds))}")
+        if kinds:
+            self.note(name, "scrubbed", sum(kinds.values()))
+            row = self.changed[name].setdefault("scrub", {})
+            for k, v in kinds.items():
+                row[k] = row.get(k, 0) + v
+        return text
+
+    def seal(self) -> None:
+        """The scrub once more over every member, after the passes that change members in place."""
+        for name in list(self.members):
+            text = self.members.pop(name)
+            clean = self.scrubber.name(name)
+            self.members[clean] = self._scrub(clean, text)
+            if clean != name:
+                self.sources[clean] = self.sources.pop(name, "")
 
     def note(self, name: str, what: str, n: int) -> None:
         if n:
@@ -364,7 +403,7 @@ class Bundle:
             row[what] = row.get(what, 0) + n
 
     def leave_out(self, what: str, why: str) -> None:
-        self.left_out.append({"what": what, "why": why})
+        self.left_out.append({"what": self.scrubber.text(what), "why": self.scrubber.text(why)})
 
 
 def _json(d: Any) -> str:
@@ -408,8 +447,9 @@ def _box_part(b: Bundle, deploy: Path, env: Mapping[str, str], now: datetime) ->
     try:
         snap = tb_ops.snapshot(box)
     except Exception as exc:  # the bundle reports, it does not stop
-        snap = {"error": f"{type(exc).__name__}: {exc}"[:300]}
-    b.add("ops-snapshot.json", _json(snap), "trialbox ops snapshot")
+        snap = {"error": bs.error_shape(f"{type(exc).__name__}: {exc}")}
+    # H-71: the update rows' step details (often an error's text) as their type and length
+    b.add("ops-snapshot.json", _json(bs.free_text_out(snap)), "trialbox ops snapshot")
     facts = snap.get("health") if isinstance(snap.get("health"), dict) else None
     health = metrics.evaluate(facts, None, now, metrics.Thresholds.from_env(env)).as_dict()
     health["checks"] = [c for c in health["checks"] if c["name"] != "canary"]
@@ -427,12 +467,16 @@ def _box_part(b: Bundle, deploy: Path, env: Mapping[str, str], now: datetime) ->
     b.add("release.json", _json(rel), "pyproject version, deploy/updates/installed.json, deploy/release.json")
     hist = _read(updates / "history.jsonl")
     if hist is not None:
-        b.add("history.jsonl", "\n".join(hist.splitlines()[-HISTORY_LINES:]) + "\n", "deploy/updates/history.jsonl")
+        # H-71: each line's own fields; an error's text as its type and length (the order of 2026-11-20 09:41)
+        last = "\n".join(hist.splitlines()[-HISTORY_LINES:]) + "\n"
+        b.add("history.jsonl", bs.history_text(last), "deploy/updates/history.jsonl (details as type and length)")
     else:
         b.leave_out("history.jsonl", "no update has run on this box yet")
     raw_env = _read(deploy / ".env")
     if raw_env is not None:
-        text, n = redact_secrets(raw_env)
+        # H-71: the scrub first, on the raw text: the name pass below sees one line at a time, so it would leave the
+        # second line of a quoted value and a YAML block value
+        text, n = redact_secrets(b.scrubber.text(raw_env))
         b.add("env.redacted", text, "deploy/.env, secret values redacted")
         b.note("env.redacted", "secrets_redacted", n)
     b.leave_out("deploy/.env (raw), deploy/secrets/", "secrets: only names and ages, in ops-snapshot.json")
@@ -462,7 +506,7 @@ def _audit_part(b: Bundle, env: Mapping[str, str]) -> None:
             res: dict[str, Any] = {"dir": str(d), "ok": r.ok, "files": r.files, "lines": r.lines,
                                    "errors": r.errors[:20], "notes": r.notes[:20]}  # fmt: skip
         except Exception as exc:
-            res = {"dir": str(d), "ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+            res = {"dir": str(d), "ok": False, "error": bs.error_shape(f"{type(exc).__name__}: {exc}")}
         b.add("audit-verify.json", _json(res), "tb_common.audit.verify")
     b.leave_out("the audit chain", "its events name pseudonyms and jobs; only the verification is included")
 
@@ -487,8 +531,11 @@ def _cmd_part(b: Bundle, deploy: Path, runner: Runner) -> None:
     ]
     for name, argv, timeout, secret in cmds:
         rc, out = runner(argv, timeout)
+        if bs.as_text(out) is None:  # H-71: not text the scrub can read: left out and listed, never copied
+            b.leave_out(f"cmd/{name}", f"its output is not text the scrub can read (exit {rc})")
+            continue
         if secret:
-            out, n = redact_secrets(out)
+            out, n = redact_secrets(b.scrubber.text(out))  # H-71: the scrub first, as for env.redacted
             b.note(f"cmd/{name}", "secrets_redacted", n)
         b.add(f"cmd/{name}", out if rc == 0 else f"# exit {rc}\n{out}", " ".join(argv[-4:]))
     rc, ids = runner([*comp, "ps", "--all", "-q"], 60)
@@ -498,7 +545,10 @@ def _cmd_part(b: Bundle, deploy: Path, runner: Runner) -> None:
         rc, out = runner(["docker", "inspect", "--format", fmt, *ids.split()], 60)
     else:
         out = f"no containers listed (exit {rc}): {ids.strip()[:200]}"
-    b.add("cmd/restarts.txt", out, "docker inspect (restart counts)")
+    if bs.as_text(out) is None:
+        b.leave_out("cmd/restarts.txt", "its output is not text the scrub can read")
+    else:
+        b.add("cmd/restarts.txt", out, "docker inspect (restart counts)")
 
 
 def _logs_part(b: Bundle, deploy: Path, env: Mapping[str, str], days: int, mrn: re.Pattern[str] | None) -> list[str]:
@@ -518,7 +568,11 @@ def _logs_part(b: Bundle, deploy: Path, env: Mapping[str, str], days: int, mrn: 
             except (OSError, EOFError) as exc:
                 b.leave_out(f"logs/{d.name}/{svc}.log", f"unreadable ({type(exc).__name__})")
                 continue
-            b.add(f"logs/{d.name}/{svc}.log", data.decode("utf-8", errors="replace"), str(f), scrubbed=True, mrn=mrn)
+            text = bs.as_text(data)
+            if text is None:  # H-71: not UTF-8 text (UTF-16, binary): left out and listed, never copied unscrubbed
+                b.leave_out(f"logs/{d.name}/{svc}.log", "not UTF-8 text the scrub can read")
+                continue
+            b.add(f"logs/{d.name}/{svc}.log", text, str(f), scrubbed=True, mrn=mrn)
     for svc in sorted(third):
         b.leave_out(f"logs of {svc}", NEVER_LOGS.get(svc, "not a TrialBox service: its log is not scrubbed"))
     if not chosen:
@@ -561,7 +615,12 @@ def clean_lines(b: Bundle, say: Callable[[str], None]) -> None:
             say(f"removed {sum(removed.values())} line(s) from {name}: {', '.join(sorted(removed))}")
 
 
-def _write_tar(target: Path, members: Mapping[str, str], at: datetime) -> None:
+def _write_tar(target: Path, members: Mapping[str, str], at: datetime, scrubber: bs.Scrubber) -> None:
+    """The one function that writes into the archive (H-71, D-1354; a test finds every writer). A member the scrub
+    would still change is refused before anything is written."""
+    for i, name in enumerate(sorted(members), 1):
+        if not scrubber.is_clean(name, members[name]):
+            raise BundleRefused(f"member {i} of {len(members)} did not go through the scrub: not written")
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as raw, tarfile.open(fileobj=raw, mode="w:gz") as tar:
         for name in sorted(members):
@@ -576,7 +635,14 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
           say: Callable[[str], None] = print) -> Path:  # fmt: skip
     """Make the bundle in ``out_dir``; return its path. :class:`BundleRefused` when it would hold something it must
     not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written."""
+    try:
+        return _build(deploy, out_dir, days=days, add=add, runner=runner, commands=commands, now=now, say=say)
+    except bs.ScrubError as exc:
+        raise BundleRefused(str(exc)) from None
 
+
+def _build(deploy: Path, out_dir: Path, *, days: int, add: Iterable[Path], runner: Runner, commands: bool,
+           now: datetime | None, say: Callable[[str], None]) -> Path:  # fmt: skip
     now = now or datetime.now(UTC)
     deploy = deploy.resolve()
     env = {**_env_file(deploy), **{k: v for k, v in os.environ.items() if k in ("TB_LOG_DIR", "TB_AUDIT_HOST_DIR")}}
@@ -593,8 +659,10 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
             raise BundleRefused(f"{p}: not a file")
         if p.stat().st_size > MAX_MEMBER:
             raise BundleRefused(f"{p}: larger than {MAX_MEMBER // 2**20} MB")
-    b = Bundle()
     mrn = mrn_pattern(deploy)
+    # H-71: one scrubber for the bundle: the site's chart number, a tag key made now and never kept, and the bundle's
+    # own credential pass (looked up when called, so the last look below stays a separate check)
+    b = Bundle(scrubber=bs.Scrubber.for_bundle(mrn, credentials=_bundle_credentials), say=say)
     _box_part(b, deploy, env, now)
     _audit_part(b, env)
     if commands:
@@ -605,7 +673,7 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
     used: set[str] = set()
     for p in extra:
         text = _read(p)
-        if text is None:
+        if text is None or bs.as_text(text) is None:
             raise BundleRefused(f"{p}: not a UTF-8 text file; the scan could not read it")
         name = p.name if p.name not in used else f"{len(used)}-{p.name}"
         used.add(name)
@@ -625,6 +693,7 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         b.members[name], k = hide_values(b.members[name], values)
         b.note(name, "secrets_hidden", k)
         hidden += k
+    b.seal()  # H-71: the scrub once more, after every pass that changed a member in place
     manifest = {
         "made": now.isoformat(timespec="seconds"),
         "tool": "tools/support_bundle.py (T-209b, D-405)",
@@ -650,14 +719,15 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
             *(f"logs of {s}: {why}" for s, why in sorted(NEVER_LOGS.items())),
         ],
     }
-    b.members["MANIFEST.json"], k = hide_values(_json(manifest), values)
+    text, k = hide_values(_json(manifest), values)
+    b.members["MANIFEST.json"] = b.scrubber.content("MANIFEST.json", text)
     hidden += k
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"trialbox-support-{now:%Y%m%dT%H%M%SZ}.tar.gz"
     part = out_dir / f".{target.name}.part"
     part.unlink(missing_ok=True)
     try:
-        _write_tar(part, b.members, now)
+        _write_tar(part, b.members, now, b.scrubber)
         with tempfile.TemporaryDirectory(prefix="tb-support-scan-") as tmp:  # the scan names a member by path
             scan_copy = Path(tmp) / target.name
             scan_copy.write_bytes(part.read_bytes())
@@ -697,7 +767,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         build(a.deploy, a.out, days=max(0, a.days), add=a.add, commands=not a.no_commands)
     except BundleRefused as exc:
-        print(f"support-bundle: refused, nothing written: {exc}", file=sys.stderr)
+        print(f"support-bundle: refused, nothing written: {bs.scrub_text(str(exc))}", file=sys.stderr)
         return 2
     return 0
 

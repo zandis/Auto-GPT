@@ -1,0 +1,56 @@
+{
+ "card": "H71",
+ "title": "the support bundle's scrub: one function for every byte (D-1354)",
+ "date": "2026-11-22",
+ "source": "docs/handover/support-bundle-scrub-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H71-01",
+   "severity": "High",
+   "claim": "the support bundle let secrets through that its name pass did not know: query and form values (?password=, &token=, pwd=), TB_SMTP_LOGIN, the second line of a quoted value and a YAML block value (the name pass read one line at a time and redacted only the first), commented-out lines; fixed by the scrub (tools/bundle_scrub.py), run on .env and compose config before the name pass",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-02",
+   "severity": "High",
+   "claim": "pseudonyms and screening numbers in log lines, command outputs, file names and the manifest left in a support bundle unmasked; fixed: masked as [pseudonym #tag] and [screening-no #tag] with a per-bundle key never kept",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-03",
+   "severity": "Medium",
+   "claim": "the update history (history.jsonl) and the ops snapshot's update rows carried each step's detail as text into the bundle, an error's text among it; fixed: every field but at, bundle, box, step and ok is its type and length, and so are the builder's own caught errors",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-04",
+   "severity": "Medium",
+   "claim": "a collected log was decoded with errors=replace: a UTF-16 log decoded with NULs between letters, so no pattern of the scrubber or the scan could read it, and it went into the bundle; fixed: a log or command output that is not UTF-8 text is left out and listed in the manifest",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-05",
+   "severity": "Low",
+   "claim": "a screening number whose site prefix is lower-case letters glued to the digits (tbx0042) or all digits is not masked by the bundle's scrub: the site prefixes are in the console's database, which the host's bundle does not read; a prefix ending in - or _, any ruleset id with -, and capital letters before the digits are masked",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H71-06",
+   "severity": "Medium",
+   "claim": "free text in a log message (a name, an address, a date of birth, a diagnosis) is caught only by the data-handling scan's line removal and the log scrubber's fixed patterns; the bundle's scrub masks tokens and secrets, not prose; gate 5's prepare_output, which may call scrub_text, must not take it for a PHI filter",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}
