@@ -160,7 +160,7 @@ def make_box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pla
     (deploy / "secrets" / "services").mkdir(parents=True)
     (deploy / "secrets" / "services" / f"{p.pid}.token").write_text("x" * 12 + "\n", encoding="utf-8")  # a NAME
     audit.mkdir()
-    env = ["TB_TZ=Asia/Taipei", f"TB_LOG_DIR={logs}", f"TB_AUDIT_HOST_DIR={audit}",
+    env = ["TB_TZ=Asia/Taipei", "TB_ENV=TEST", f"TB_LOG_DIR={logs}", f"TB_AUDIT_HOST_DIR={audit}",
            f"TB_SITE_NOTE={p.pid} {p.screening[0]}"]  # fmt: skip
     env += [f"{n}={v}" for n, v in p.settings.items()]
     env += [f"# {line}" for line in corpus(p).splitlines()]

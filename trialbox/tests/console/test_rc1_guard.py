@@ -12,7 +12,9 @@ audited event. On DEV, TEST and VALIDATION (D-1072) the guards let it through. S
 
 from __future__ import annotations
 
+import inspect
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ from console import rc1_guard as rg
 from console.app import create_app
 from console.auth import UserStore
 from console.i18n import CATALOGUES
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from tb_common import rc1_refusals
 from tb_common.audit import AuditLog
@@ -63,10 +66,11 @@ def _console(tmp_path: Path, env: str) -> dict[str, Any]:
         backend, 1, "SCREEN", (("candidate_list_GZQO.json", rows, "phi"), ("counts_GZQO.json", b"{}", "aggregate"))
     )
     feas = _job(backend, 2, "FEAS", (("feasibility_GZQO.json", b'{"start_n": 600}', "aggregate"),))
+    case = _job(backend, 3, "CASE", (("case_GZQO.html", f"<p>{PATIENT}</p>".encode(), "phi"),))
     base = {k: v for k, v in PILOT_ENV.items() if k != "TB_ENV"}
     app = create_app({**base, **({"TB_ENV": env} if env else {}), "TB_CONSOLE_DIR": str(tmp_path / "console")},
                      backend=backend, audit=AuditLog(backend.audit_dir), users=users)  # fmt: skip
-    return {"app": app, "dir": tmp_path, "screen": screen, "feas": feas}
+    return {"app": app, "dir": tmp_path, "screen": screen, "feas": feas, "case": case}
 
 
 def _events(b: dict[str, Any]) -> list[dict[str, Any]]:
@@ -80,25 +84,28 @@ def _refused(env: str) -> bool:
     return env not in rc1_refusals.ALLOWED
 
 
-def _ask(b: dict[str, Any], paths: list[str], key: str, env: str) -> None:
-    """Each path is refused before its route (refused), or reaches its route (allowed)."""
+def _ask(b: dict[str, Any], paths: list[str], key: str, env: str, methods: tuple[str, ...] = ("GET", "HEAD")) -> None:
+    """Each path, by each method, is refused before its route (refused), or reaches its route (allowed)."""
     c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
     shown = rc1_refusals.text(key, "en", environment=env or "PRODUCTION")
-    for path in paths:
-        r = c.get(path)
+    asked = [(m, p) for p in paths for m in methods]
+    for method, path in asked:
+        r = c.request(method, path)
         if _refused(env):
-            assert r.status_code == 403, (path, r.status_code)
-            if path.startswith("/api/"):
+            assert r.status_code == 403, (method, path, r.status_code)
+            if method == "HEAD":
+                assert r.content == b"", path  # the same refusal, with no body
+            elif path.startswith("/api/"):
                 assert r.json() == {"error": key, "detail": {"environment": env or "PRODUCTION"}}, path
             else:
                 assert shown in r.text and 'data-testid="problem-page"' in r.text, path
             assert PATIENT not in r.text, path  # nothing listed or downloaded
         else:
-            assert r.status_code != 403 and shown not in r.text, (path, r.status_code)
+            assert r.status_code != 403 and shown not in r.text, (method, path, r.status_code)
     seen = _events(b)
     if _refused(env):
         assert [e["detail"] for e in seen] == [{"refusal": rc1_refusals.row(key.removeprefix("rc1.")).name,
-                                                "environment": env or "PRODUCTION", "action": p} for p in paths]  # fmt: skip
+                                                "environment": env or "PRODUCTION", "action": p} for _, p in asked]  # fmt: skip
         assert all(e["actor"] == "console:-" for e in seen)
     else:
         assert seen == []
@@ -120,19 +127,35 @@ def test_no_live_patient_list_on_a_production_box(
         for first_step in (require_released, lambda: require_open("GZQO")):
             with pytest.raises(StepFailed) as got:
                 first_step()
-            assert got.value.step == "rc1" and got.value.detail == LIST_KEY
-            # a fixed sentence (the job's error names no value): the table's words for a PRODUCTION box
-            assert got.value.message == rc1_refusals.text(LIST_KEY, environment="PRODUCTION")
+            said = "PRODUCTION" if env in ("", "PRODUCTION") else "an unknown TB_ENV"  # the detail names it
+            assert got.value.step == "rc1" and got.value.detail == f"{LIST_KEY}: {said}"
+            assert got.value.message.startswith("rc1 makes and shows no live patient list on this box.")
     else:
         require_released()
         require_open("GZQO")
     monkeypatch.setenv("TB_DB_URL", db_url)  # the console's own stores
     b = _console(tmp_path, env)
-    paths = ["/studies/GZQO/week", "/studies/GZQO/cohort", f"/pilot/jobs/{b['screen'].job_id}"]
+    paths = ["/studies/GZQO/week", "/api/v1/studies/GZQO/patients", f"/studies/GZQO/patients/{PATIENT}",
+             f"/api/v1/studies/GZQO/patients/{PATIENT}/twin", "/studies/GZQO/candidates",
+             f"/studies/GZQO/candidates/{PATIENT}", "/api/v1/studies/GZQO/candidates",
+             f"/api/v1/studies/GZQO/candidates/{PATIENT}", "/studies/GZQO/referrals", "/api/v1/studies/GZQO/referrals",
+             "/studies/GZQO/screening-log", "/api/v1/studies/GZQO/screening-log", "/studies/GZQO/cohort",
+             "/pilot/registry/GZQO", "/site/patients", "/site/people", f"/pilot/jobs/{b['screen'].job_id}",
+             f"/pilot/jobs/{b['case'].job_id}"]  # fmt: skip
     _ask(b, paths, LIST_KEY, env)
     c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
     assert c.get(f"/pilot/jobs/{b['feas'].job_id}").status_code != 403  # a card of counts stays open
     assert c.get("/week").status_code != 403  # the list of studies; one study's list is the guarded page
+
+
+@pytest.mark.parametrize("env", ["", "PRODUCTION", "DEV"])
+def test_a_write_on_a_listed_person_is_refused_by_every_method(env: str, db_url: str, tmp_path: Path) -> None:
+    """A held path has no open door: a mark, a reveal, a referral, a promotion, a resolution (POST), as its page."""
+    b = _console(tmp_path, env)
+    paths = [f"/studies/GZQO/patients/{PATIENT}/mark", f"/studies/GZQO/patients/{PATIENT}/reveal",
+             f"/api/v1/studies/GZQO/patients/{PATIENT}/reveal", f"/studies/GZQO/candidates/{PATIENT}/referral",
+             "/pilot/registry/GZQO", "/pilot/registry/GZQO/promote", "/site/people/resolve"]  # fmt: skip
+    _ask(b, paths, LIST_KEY, env, methods=("POST",))
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -163,6 +186,8 @@ def test_no_patient_mail_or_download_on_a_production_box(
     b = _console(tmp_path / "console", env)
     s = b["screen"].job_id
     paths = [f"/pilot/jobs/{s}/files/candidate_list_GZQO.json", f"/pilot/jobs/{s}/view/candidate_list_GZQO.json",
+             f"/pilot/jobs/{b['case'].job_id}/files/case_GZQO.html", "/studies/GZQO/edc/copy/GZQO-0001",
+             f"/audit/patients/{PATIENT}/report.csv", "/pilot/cascade/RUN1/files/final_list.json",
              "/studies/GZQO/screening-log.xlsx", "/pilot/registry/GZQO/export.xlsx", "/studies/GZQO/enrolment.csv",
              "/api/v1/studies/GZQO/enrolment/csv", "/studies/GZQO/export.csv", "/api/v1/studies/GZQO/export/csv",
              "/studies/GZQO/edc/export.odm.xml", "/api/v1/studies/GZQO/edc/export/odm", "/studies/GZQO/edc/copy.csv",
@@ -186,3 +211,48 @@ def test_the_consoles_words_are_the_tables_words() -> None:
         for lang in rc1_refusals.LANGS:
             assert cats[lang][r.key] == rc1_refusals.TEXTS[r.key][lang] == CATALOGUES[lang][r.key], (r.key, lang)
             assert CATALOGUES[lang][f"problem.h.{r.key}"] == cats[lang][f"problem.h.{r.key}"]
+
+
+# ---------------------------------------------------------------------------------------------- every file route
+#: routes that answer with a file and hold no patient's data, each with its reason (the integrator's 7080384411)
+NOT_PATIENT_DATA: dict[str, str] = {
+    "/admin/ops/network/{name}": "hospital IT's network sheet of the box (hosts and ports), no person",
+    "/api/v1/studies/{rs}/forms/dictionary": "takes a data dictionary (CSV text) in; answers with forms, no person",
+    "/feedback/export.csv": "the testers' feedback on the console (T-510), no patient field; scanned (demo_guard)",
+    "/pilot/jobs/{job_id}/approve": "names a job's PDF in its text; answers with a page, never a file",
+    "/pilot/jobs/{job_id}/sponsor-pack.zip": "a FEAS job's aggregate files and a README only (D-101)",
+    "/pilot/mailbox": "takes a test mail's attachment in; answers with a page, never a file",
+    "/pilot/protocol": "takes a protocol PDF in; answers with a page, never a file",
+    "/reports/research-office.xlsx": "counts per study with small cells suppressed (D-270), no person",
+    "/site/templates/{name}.xlsx": "a blank candidates template or the site's code mapping sheet, no person",
+}
+_FILE = re.compile(
+    r"FileResponse|StreamingResponse|attachment|spreadsheetml|text/csv|application/zip|application/pdf|"
+    r"\.xlsx|\.csv|\.zip|\.pdf"
+)
+
+
+def _file_routes(app: Any) -> dict[str, str]:
+    """Every route of the console whose endpoint answers with a file: path -> its methods."""
+    out = {}
+    for r in app.routes:
+        if isinstance(r, APIRoute) and _FILE.search(inspect.getsource(r.endpoint)):
+            out[r.path] = ",".join(sorted(r.methods or ()))
+    return out
+
+
+def test_every_route_that_answers_with_a_file_is_held_or_said_to_hold_no_patient_data(
+    db_url: str, tmp_path: Path
+) -> None:
+    app = _console(tmp_path, "PRODUCTION")["app"]
+    routes = _file_routes(app)
+    assert len(routes) > 15 and "/pilot/registry/{ruleset}/export.xlsx" in routes  # the walk reached the files
+    loose = []
+    for path in sorted(routes):
+        filled = re.sub(r"\{[^}]+\}", "X", path)
+        held = any(p.match(filled) for p, _ in rg.ROUTES) or rg.JOB_FILE.match(filled) or rg.JOB_CARD.match(filled)
+        if not held and path not in NOT_PATIENT_DATA:
+            loose.append(f"{routes[path]} {path}")
+    assert loose == [], "a file route on neither the guard's list nor NOT_PATIENT_DATA:\n" + "\n".join(loose)
+    assert set(NOT_PATIENT_DATA) <= set(routes), sorted(set(NOT_PATIENT_DATA) - set(routes))  # no stale reason
+    assert all(len(why) > 20 for why in NOT_PATIENT_DATA.values())

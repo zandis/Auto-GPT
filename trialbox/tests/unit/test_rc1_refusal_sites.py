@@ -110,14 +110,21 @@ def test_no_support_export_on_a_production_box(
         assert out.is_file() and out.parent == usb
 
 
-def test_a_support_export_asks_with_the_callers_tb_env_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A process that sets ``TB_ENV`` itself (a test box's shell) is that environment, as the key ceremony reads."""
+@pytest.mark.parametrize(("box", "caller"), [("PRODUCTION", "DEV"), ("DEV", "PRODUCTION"), ("", "DEV"),
+                                             ("PILOT", "TEST")])  # fmt: skip
+def test_a_support_export_asks_with_the_stricter_of_the_box_and_its_caller(
+    box: str, caller: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review of R22-34: ``TB_ENV=DEV trialbox support-bundle`` on a PRODUCTION box is refused, and so is a box
+    whose ``deploy/.env`` writes no ``TB_ENV`` (PRODUCTION by the one rule) whatever its caller says."""
     from tools import support_bundle as sb
 
-    deploy = _deploy(tmp_path, "DEV")
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
-    with pytest.raises(sb.BundleRefused):
+    deploy = _deploy(tmp_path, box)
+    monkeypatch.setenv("TB_ENV", caller)
+    with pytest.raises(sb.BundleRefused) as got:
         sb.build(deploy, tmp_path / "usb", commands=False, say=lambda _: None)
+    assert str(got.value) == _said("rc1.support_exports", box if box != "DEV" else caller)
+    assert not (tmp_path / "usb").exists()
 
 
 # ---------------------------------------------------------------------------------------------- unattended updates
@@ -135,7 +142,7 @@ def test_no_unattended_update_on_a_production_box(env: str, tmp_path: Path, monk
 
     r = Box(tmp_path)
     r.audited = []
-    r.box.env = {**ENV, **({"TB_ENV": env} if env else {})}  # the box's deploy/.env
+    r.box.env = {**{k: v for k, v in ENV.items() if k != "TB_ENV"}, **({"TB_ENV": env} if env else {})}  # its .env
     quiet = r.ops.submit("update_apply", "admin:owner", {"bundle": "trialbox-2026.11-2.tar", "when": "quiet"})
     res = r.run_pending()
     assert [x["id"] for x in res] == [quiet]
@@ -151,6 +158,14 @@ def test_no_unattended_update_on_a_production_box(env: str, tmp_path: Path, monk
 
 
 # ---------------------------------------------------------------------------------------------- key ceremonies
+def _KEY_COMMANDS(tmp: Path) -> list[list[str]]:
+    """``tools.keys``'s ceremony commands (its ``init`` is not one: it stays allowed), on a bare folder."""
+    sec = ["--secrets", str(tmp / "sec")]
+    return [["rotate-kek", *sec, "--backend", "file", "--audit-dir", str(tmp / "audit")],
+            ["ceremony-record", *sec, "--deploy", str(tmp / "deploy-k"), "--audit-dir", str(tmp / "audit")],
+            ["escrow-shares", *sec, "--escrow-out", str(tmp / "media"), "--audit-dir", str(tmp / "audit")]]  # fmt: skip
+
+
 @pytest.mark.parametrize("env", ENVS)
 def test_no_key_ceremony_on_a_production_box(
     env: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -158,6 +173,7 @@ def test_no_key_ceremony_on_a_production_box(
     """The ceremony (its checks, as root) and ``trialbox backup-keygen`` (the command's entry; the library function
     ``keygen`` the drills use is not refused)."""
     from tools import backup_key_ceremony as bkc
+    from tools.keys import main as keys_main
     from tools.trialbox.__main__ import main as trialbox_main
 
     _env(monkeypatch, env)
@@ -181,7 +197,64 @@ def test_no_key_ceremony_on_a_production_box(
         assert trialbox_main(["backup-keygen", "--private", str(priv), "--public", str(pub)]) == 1
         assert capsys.readouterr().err.strip() == "backup-keygen: " + _said("rc1.key_ceremonies", env)
         assert not priv.exists() and not pub.exists() and not priv.parent.exists()  # nothing generated
+        for argv in _KEY_COMMANDS(tmp_path):
+            assert keys_main(argv, env={"TB_ENV": env} if env else {}) == 1, argv
+            assert capsys.readouterr().err.strip() == "keys: " + _said("rc1.key_ceremonies", env), argv
+        assert not (tmp_path / "sec").exists() and not (tmp_path / "media").exists()  # nothing made
     else:
         assert got.value.text is bkc.SAME_PERSON and passed == ["operator"]
         assert trialbox_main(["backup-keygen", "--private", str(priv), "--public", str(pub)]) == 0
         assert priv.is_file() and pub.is_file()
+        for argv in _KEY_COMMANDS(tmp_path):  # past the refusal: each stops later, on this bare folder, for its own
+            keys_main(argv, env={"TB_ENV": env})  # reason (no KEK, no custodian), never with rc1's words
+            assert "rc1" not in capsys.readouterr().err, argv
+
+
+# ---------------------------------------------------------------------------------------------- the MVP walk
+def test_the_mvp_walk_is_not_refused_on_a_validation_box(
+    db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The integrator's ruling: the MVP walk runs on a VALIDATION rehearsal box, and no step of it meets an rc1
+    refusal (D-1072: VALIDATION is allowed)."""
+    import ast
+
+    from orchestrator.scheduler import require_open, require_released
+
+    from tests.console.test_rc1_guard import PATIENT, _console
+    from tools import backup_key_ceremony as bkc
+    from tools.trialbox.__main__ import main as trialbox_main
+
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
+    validation = {"TB_ENV": "VALIDATION"}
+    for r in rc1_refusals.REFUSALS:  # every row
+        rc1_refusals.check(r.name, validation)
+        assert not rc1_refusals.refused(r.name)
+    # step 1, the install: the backup key pair and the ceremony's own checks
+    priv, pub = tmp_path / "it" / "backup.key", tmp_path / "box" / "backup.pub"
+    assert trialbox_main(["backup-keygen", "--private", str(priv), "--public", str(pub)]) == 0 and pub.is_file()
+    monkeypatch.setattr(bkc, "is_root", lambda: True)
+    with pytest.raises(bkc.Stop) as got:
+        bkc.run(tmp_path / "stick", "operator", "operator", validation)  # past rc1, the ceremony's own next check
+    assert got.value.text is bkc.SAME_PERSON and "rc1" not in capsys.readouterr().err
+    # step 5, a screening night: the first step of SCREEN and MICROBATCH (require_open asks require_released)
+    monkeypatch.delenv("TB_DB_URL", raising=False)  # a bare stack: no restore hold, the study open
+    require_released()
+    require_open("GZQO")
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    # step 6, the console: the week's list (page and API), one patient, the screening log, a job's file
+    b = _console(tmp_path / "console", "VALIDATION")
+    guard = b["app"].state.rc1_guard
+    s = b["screen"].job_id
+    walk = ["/studies/GZQO/week", "/api/v1/studies/GZQO/patients", f"/studies/GZQO/patients/{PATIENT}",
+            "/studies/GZQO/screening-log", "/api/v1/studies/GZQO/screening-log",
+            f"/pilot/jobs/{s}", f"/pilot/jobs/{s}/files/candidate_list_GZQO.json"]  # fmt: skip
+    for path in walk:
+        assert guard.refusal_of("GET", path) is None, path
+    # step 8, the scheduled backup and its restore: nothing there asks the table
+    sites = {s.partition(":")[0] for r in rc1_refusals.REFUSALS for s in r.sites}
+    backup = ("tools.trialbox.backup", "tools.trialbox.backup_schedule", "tools.trialbox.restore_drill")
+    assert not sites & set(backup)
+    root = Path(__file__).resolve().parents[2]
+    for mod in backup:
+        tree = ast.parse((root / Path(*mod.split("."))).with_suffix(".py").read_text(encoding="utf-8"))
+        assert "rc1_refusals" not in ast.unparse(tree), mod  # no import, no call

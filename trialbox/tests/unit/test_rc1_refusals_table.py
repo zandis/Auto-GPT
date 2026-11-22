@@ -28,6 +28,13 @@ def _module_file(module: str) -> Path:
     raise AssertionError(f"no module {module}")
 
 
+def _module_of(f: Path) -> str:
+    rel = f.relative_to(ROOT)
+    if rel.parts[0] in ("libs", "services"):
+        rel = Path(*rel.parts[1:])
+    return ".".join(rel.with_suffix("").parts)
+
+
 def _function(tree: ast.Module, qualname: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
     body: list[ast.stmt] = tree.body
     node: ast.AST | None = None
@@ -63,8 +70,8 @@ def test_the_table_has_the_six_refusals_of_the_ruling_and_one_answer_for_the_env
     for r in rr.REFUSALS:
         assert r.allowed <= rr.KNOWN_ENVIRONMENTS and "PRODUCTION" not in r.allowed and r.sites and r.what, r.name
         assert r.audit.strip(), f"{r.name}: say which audit event records the refusal, or none and why"
-        assert r.audit.startswith("none (") or any(e in r.audit for e in ("console.denied", "mail.failed",
-                                                                            "console.ops")), r.audit  # fmt: skip
+        events = ("console.denied", "mail.failed", "console.ops", "screen.reveal_refused", "registry.export_refused")
+        assert r.audit.startswith("none (") or any(e in r.audit for e in events), r.audit
 
 
 def test_the_rule_and_the_environments_are_the_boxs_own() -> None:
@@ -87,6 +94,38 @@ def test_every_site_asks_the_table_with_its_rows_name() -> None:
             assert r.name in [_name_of(c) for c in _asks(fn)], f"{site} does not ask rc1_refusals about {r.name}"
 
 
+def _enclosing(tree: ast.Module) -> dict[int, str]:
+    """``id(call)`` -> the qualified name of the function the call is in ("" at module level)."""
+    out: dict[int, str] = {}
+
+    def walk(node: ast.AST, names: list[str]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                walk(child, [*names, child.name])
+            else:
+                if isinstance(child, ast.Call):
+                    out[id(child)] = ".".join(names)
+                walk(child, names)
+
+    walk(tree, [])
+    return out
+
+
+def test_nothing_imports_the_question_by_its_name() -> None:
+    """A call ``check(...)`` imported by name would hide from the walk below: only ``rc1_refusals.check`` is asked."""
+    bad = []
+    for top in ("libs", "services", "tools", "tests"):
+        for f in sorted((ROOT / top).rglob("*.py")):
+            for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+                if isinstance(n, ast.ImportFrom) and (n.module or "").endswith("rc1_refusals"):
+                    bad += [f"{f.relative_to(ROOT)}:{n.lineno} {a.name}" for a in n.names if a.name in ASKS]
+                if isinstance(n, ast.Import | ast.ImportFrom):
+                    for a in n.names:
+                        if a.name.endswith("rc1_refusals") and a.asname not in (None, "rr"):
+                            bad.append(f"{f.relative_to(ROOT)}:{n.lineno} as {a.asname}")
+    assert bad == [], bad
+
+
 def test_every_question_asked_anywhere_names_a_row() -> None:
     names = {r.name for r in rr.REFUSALS}
     sites = {s for r in rr.REFUSALS for s in r.sites}
@@ -96,11 +135,15 @@ def test_every_question_asked_anywhere_names_a_row() -> None:
             if f.resolve() == Path(rr.__file__).resolve():
                 continue
             tree = ast.parse(f.read_text(encoding="utf-8"))
+            where = _enclosing(tree)
             for call in _asks(tree):
                 name = _name_of(call)
                 assert name is not None, f"{f.relative_to(ROOT)}:{call.lineno} asks rc1_refusals with no literal name"
                 assert name in names, f"{f.relative_to(ROOT)}:{call.lineno} asks about {name!r}, not a row"
                 asked.setdefault(name, set()).add(str(f.relative_to(ROOT)))
+                module = _module_of(f)
+                site = f"{module}:{where[id(call)]}"
+                assert site in rr.row(name).sites, f"{site} asks about {name} and is not one of its row's sites"
     assert set(asked) == names  # every row is asked somewhere
     files = {str(_module_file(s.partition(":")[0]).relative_to(ROOT)) for s in sites}
     assert set().union(*asked.values()) == files  # and only at the table's sites' modules
@@ -152,9 +195,19 @@ def test_the_one_rule_decides_and_an_unknown_name_fails_closed(env: dict[str, st
         rr.check("a_seventh_refusal", {"TB_ENV": "DEV"})
 
 
-def test_a_host_tool_reads_the_boxs_file_unless_its_caller_sets_tb_env(tmp_path: Path) -> None:
-    (tmp_path / ".env").write_text("# TB_ENV=DEV\nTB_ENV='DEV'\n", encoding="utf-8")
+def test_a_host_tool_asks_with_the_stricter_of_the_box_and_its_caller(tmp_path: Path) -> None:
+    """The review of R22-34: allowed only when the box's environment (its deploy/.env, when there) and the caller's
+    TB_ENV (when set) are both allowed."""
+    (tmp_path / ".env").write_text("# TB_ENV=PRODUCTION\nTB_ENV='DEV'\n", encoding="utf-8")
     assert rr.host_env(tmp_path, {}) == {"TB_ENV": "DEV"}
     assert rr.host_env(tmp_path, {"TB_ENV": "PRODUCTION"}) == {"TB_ENV": "PRODUCTION"}
+    assert rr.host_env(tmp_path, {"TB_ENV": "validation"}) == {"TB_ENV": "DEV"}
+    (tmp_path / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
+    assert rr.host_env(tmp_path, {"TB_ENV": "DEV"}) == {"TB_ENV": "PRODUCTION"}  # TB_ENV=DEV trialbox ... refused
+    (tmp_path / ".env").write_text("TB_TZ=Asia/Taipei\n", encoding="utf-8")
+    assert rr.host_env(tmp_path, {"TB_ENV": "DEV"}) == {"TB_ENV": "PRODUCTION"}  # a box that writes none is PRODUCTION
     assert rr.host_env({"TB_ENV": "TEST"}, {}) == {"TB_ENV": "TEST"}
+    assert rr.host_env({}, {"TB_ENV": "TEST"}) == {"TB_ENV": "PRODUCTION"}
+    assert rr.host_env({"TB_ENV": "TEST"}, {"TB_ENV": "PILOT"}) == {"TB_ENV": "PILOT"}
+    assert rr.host_env(tmp_path / "none", {"TB_ENV": "TEST"}) == {"TB_ENV": "TEST"}  # no box file: the caller's
     assert rr.host_env(tmp_path / "none", {}) == {} and rr.refused("support_exports", {})
