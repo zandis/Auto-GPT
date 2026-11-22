@@ -80,6 +80,7 @@ from tb_common.llm import (
     LlmResult,
     load_prompt,
 )
+from tb_common.screening_inputs import ScreeningRefused, admit_screening_inputs
 from tb_llm.outage import ENV as OUTAGE_ENV
 from tb_llm.outage import OutageBudget, OutageExhausted, wait_and_retry
 
@@ -162,6 +163,7 @@ class PinnedLake:
         # T-724 (D-490): the generation of the pinned date this job reads. ``generation``: the one the job's record
         # names (a job started again); else the date's newest when the job first holds it
         self.generation = generation
+        self._admitted = False
         self._on_generation = on_generation
         self._today = today
         self._max_age = max_age_days
@@ -219,8 +221,30 @@ class PinnedLake:
             if got != recorded and self._on_generation is not None:
                 self._on_generation(got)
 
+    def admit_screen(self) -> tuple[str, str]:
+        """Bind every SCREEN read to the admitted generation, with no fallback to the date alias."""
+        from lake.store import check_snapshot_age
+        from tb_common.generation import Generation
+
+        generation, version = admit_screening_inputs()
+        snap = Generation.parse(generation).snapshot
+        with self._lock:
+            if self.pinned is None:
+                check_snapshot_age(snap, self._today(), self._max_age)
+            if self.pinned not in (None, snap) or self.generation not in (None, generation) or not self.holder:
+                raise ScreeningRefused()
+            # A lost reply can leave a hold at the lake. The worker releases it on every exit.
+            self.held = True
+            if self.lake.hold(generation, self.holder, pin=True) != generation:
+                raise ScreeningRefused()
+            self.pinned, self.generation = snap, generation
+            self._admitted = True
+        return generation, version
+
     def _reads(self, snapshot: str | None) -> str | None:
         """What a read names on the lake: the job's generation for its own date, else what the caller asked for."""
+        if self._admitted and snapshot not in (None, self.pinned, self.generation):
+            raise ScreeningRefused()
         snap = snapshot or self.pin()
         return self.generation if snap == self.pinned and self.generation else snap
 

@@ -34,6 +34,7 @@ from tb_contracts import Job, JobCreate
 
 from tests.inproc_box import Box, ingest_site, make_box
 from tests.rulesets_guard import approve_at_site
+from tests.screening_site import accept_fixture
 from tests.service_tokens import per_service_tokens, token_of
 
 KEY = b"trialbox-test-site-key-0123456789abcdef"
@@ -119,7 +120,8 @@ def build(work: Path, synth_dir: Path, monkeypatch: pytest.MonkeyPatch) -> OrchB
     sec.mkdir(parents=True)
     (sec / "site_hmac.key").write_bytes(KEY)
     ingest_site(synth_dir / "site-a", work / "lake", sec, SNAPSHOT)
-    box = make_box(work / "box", work / "lake", sec, RUN)
+    box = make_box(work / "box", work / "lake", sec, RUN, extra_env={"TB_DATA_DIR": str(work)})
+    accept_fixture(box, STUDY)
     per_service_tokens(work, monkeypatch)  # the registry, the actor keys; this process signs as the console
     # D-640: a PRODUCTION box runs no seeded example; this one's studies are approved the site's way
     approve_at_site(box.orch.rulesets_dir)

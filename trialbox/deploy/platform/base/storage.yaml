@@ -23,6 +23,11 @@ spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 5Gi}}}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
+metadata: {name: screening-inputs, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
 metadata: {name: tb-secrets, labels: {app.kubernetes.io/component: storage}}
 spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 1Gi}}}
 ---

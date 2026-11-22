@@ -112,14 +112,16 @@ def start(work: Path, password: str, lang: str) -> dict[str, Any]:
         out[who] = ld.sign_in(app, who, password, lang, PI)
     states = json.loads((work / "synth" / PROFILE / "states.json").read_text(encoding="utf-8"))
     out["states"] = states
-    out["mrn"] = {pid_of(m): m for m in states}
+    key = fd.site_key(work)
+    out["mrn"] = {pid_of(m, key): m for m in states}
     return out
 
 
-def pid_of(mrn: str) -> str:
+def pid_of(mrn: str, key: bytes = fd.KEY) -> str:
+    """The lake's pseudonym of chart number ``mrn`` under ``key`` (the install's site key, :func:`fd.site_key`)."""
     from tb_common.crypto import pid_for_mrn
 
-    return pid_for_mrn(fd.KEY, mrn)
+    return pid_for_mrn(key, mrn)
 
 
 def screen(s: dict[str, Any], rs: str, pract: str = "") -> dict[str, Any]:

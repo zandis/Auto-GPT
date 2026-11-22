@@ -15,11 +15,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
+from tb_common.config import Config
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.site_profile import Profile as SiteProfile
@@ -53,6 +54,9 @@ from adapter.validate.validator import (
     sample_cap,
     sample_size,
 )
+
+if TYPE_CHECKING:
+    from adapter.screening_evidence import MappedReviews
 
 log = logging.getLogger("adapter")
 Resource = dict[str, Any]
@@ -102,6 +106,7 @@ class AdapterConfig:
     site_profile: Path | None = None
     # 10B-6: settings.profiles (tw_core, twpas_version): a profile's standard versions must agree with them
     profile_standards: dict[str, str] = field(default_factory=dict)
+    screening_site: Config | None = None
 
     def __post_init__(self) -> None:
         from tb_common.config import site_tz
@@ -672,6 +677,7 @@ def _run_ingest(
     from adapter.read_timing import ReadTimes
 
     read_times = ReadTimes()  # 10E-9 (review 13-10): the connector's own time per message, for the report
+    static_inputs: list[Resource] = []
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
@@ -711,7 +717,8 @@ def _run_ingest(
 
             mapper.verify_rules = verify_rules(profile)
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding, profile_files)
-        for res in mapper.static_resources():
+        static_inputs = mapper.static_resources()
+        for res in static_inputs:
             to_spool(res)
         whole: set[str] = set()
         if since:
@@ -959,6 +966,11 @@ def _run_ingest(
         survivors = set(aliases.values())
         carried = {str(r["id"]) for r in read_type(base, "Patient") if str(r["id"]) in survivors}
     cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457): the most resources of one type the sample takes
+    reviews = None
+    if cfg.screening_site is not None and mapping is not None:
+        from adapter.screening_evidence import MappedReviews
+
+        reviews = MappedReviews(mapping.version, static_inputs)
     night = _NightPass(
         zone,
         unit_defaults,
@@ -968,6 +980,7 @@ def _run_ingest(
         cfg.sample_fraction if validate else None,
         cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
         cap,
+        reviews,
     )
     removed: dict[str, int] = {}
     carried_moved: dict[str, int] = {}
@@ -1117,6 +1130,7 @@ def _run_ingest(
     fhir_loaded = fhir_deleted = 0
     lake_result: RebuildResult | None = None
     lake_busy = False
+    promoted_generation = None
     publish_steps: dict[str, str] | None = None
     if held:
         errors.append("night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot")
@@ -1136,6 +1150,7 @@ def _run_ingest(
             cfg, snap, out_dir, last_good=last_good, load_fhir=load_fhir, rebuild_lake=rebuild_lake, on_step=on_step
         )
         out_dir, publish_steps = pub.out_dir, dict(pub.steps)
+        promoted_generation = pub.promoted_generation
         errors += pub.errors
         held, lake_busy = pub.held, pub.lake_busy
         omop_load, fhir_loaded, fhir_deleted, lake_result = pub.omop, pub.fhir_loaded, pub.fhir_deleted, pub.lake
@@ -1276,6 +1291,32 @@ def _run_ingest(
                 ),
             },
         )
+    if cfg.screening_site is not None and cfg.audit_dir:
+        from tb_common.screening_inputs import REFUSAL
+
+        from adapter.screening_evidence import published_inputs
+
+        try:
+            published_inputs(
+                cfg.screening_site,
+                report,
+                out_dir,
+                gate,
+                (lineage_doc.get("mapping") or {}).get("sha256"),
+                reviews,
+                base,
+                promoted_generation,
+                cfg.db_url,
+            )
+        except Exception as exc:
+            # A passed night remains available for other jobs. SCREEN needs its own positive evidence.
+            open_audit(cfg.audit_dir, cfg.tz).append(
+                "screen.inputs_refused",
+                snapshot=snap,
+                actor="adapter",
+                detail={"reason": REFUSAL, "error": type(exc).__name__},
+            )
+            log.warning("SCREEN evidence unavailable for %s (%s)", snap, type(exc).__name__)
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
     return report
 
@@ -1440,9 +1481,11 @@ class _NightPass:
         fraction: float | None,
         per_type: int | None,
         cap: int | None = None,
+        reviews: MappedReviews | None = None,
     ) -> None:
         from lake.flatten import Unread  # the inbound FHIR contract (T-616), the lake's own reading
 
+        self.reviews = reviews
         self.zone, self.unit_defaults, self.presence, self.aliases = zone, unit_defaults, presence, aliases
         self.defaulted = self.presence_read = self.shifted = self.undated = 0
         self.missing: Counter[str] = Counter()
@@ -1457,6 +1500,8 @@ class _NightPass:
         self.jp_sample = Sampler("jp-core", lambda _t: per_type) if per_type is not None else None
 
     def __call__(self, r: Resource) -> bool:
+        if self.reviews is not None:
+            self.reviews.observe(r)
         rtype = r["resourceType"]
         if rtype == "Observation":
             self.defaulted += apply_unit_defaults([r], self.unit_defaults)
@@ -1474,6 +1519,8 @@ class _NightPass:
         if self.jp_sample is not None:
             self.jp_sample.add(r)
         self.unread.add(r)
+        if self.reviews is not None:
+            self.reviews.emitted(r)
         return True
 
     def missing_counts(self) -> Counter[str]:

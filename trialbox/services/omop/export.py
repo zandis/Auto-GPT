@@ -147,7 +147,9 @@ class _Folder:
         weakref.finalize(self, shutil.rmtree, path, True)
 
 
-def export_spool(db: Database, folder: Path, remove_when_done: bool = False) -> dict[str, Spooled]:
+def export_spool(
+    db: Database, folder: Path, remove_when_done: bool = False, *, inventory: dict[str, str] | None = None
+) -> dict[str, Spooled]:
     """:func:`export_rows` (the store now) written table by table into ``folder`` as it is read, one line a row with
     each value's type (a date, a datetime, a decimal), and given back as re-readable streams: the export is never
     held whole (T-702, D-754; scale review F-17). The lake writes its Parquet from the streams; ``folder`` is the
@@ -158,6 +160,15 @@ def export_spool(db: Database, folder: Path, remove_when_done: bool = False) -> 
     files = {name: (folder / f"{name}.jsonl").open("w", encoding="utf-8") for name in SCHEMAS}
     try:
         with db.transaction() as tx:
+            if inventory is not None:
+                from tb_common.screening_inputs import inventory_hash
+
+                # Both the inventory and the export must see precisely the same pre-merge store.
+                tx.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                records = tx.iterdicts("SELECT record_key, status, content_sha FROM tb_record ORDER BY record_key")
+                inventory["omop"] = inventory_hash(
+                    f"{r['record_key']}/{r['status']}/{r['content_sha']}" for r in records
+                )
             _emit_all(tx, lambda t, row: files[t].write(json.dumps(row, default=_encoded, ensure_ascii=False) + "\n"))
     finally:
         for fh in files.values():

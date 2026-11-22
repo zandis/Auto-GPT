@@ -227,16 +227,16 @@ class LakeHttp:
         (T-724, D-490) it pins a generation, which is returned: see :meth:`lake.store.Lake.hold`."""
         resp = self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder, "pin": pin})
         resp.raise_for_status()
-        got = _key(resp, "generation", (str,), none=True)  # D-673: null is "held, not pinned"; missing is not
+        got = _key(resp, "generation", (str,), none=not pin)  # A date-only hold cannot confirm a generation pin.
         return str(got) if got else snapshot
 
-    def generation(self, snapshot: str | None = None) -> str | None:
+    def generation(self, snapshot: str | None = None, *, recover: bool = False) -> str | None:
         """T-724 (D-490): the generation the date ``snapshot`` (default the served one) names now; None when the
         lake has no snapshot, or the date was built before generations."""
         snap = snapshot or self.snapshot()
         if not snap:
             return None
-        resp = self.client.get(f"{self.base}/generations/{snap}")
+        resp = self.client.get(f"{self.base}/generations/{snap}", params={"recover": "true"} if recover else None)
         resp.raise_for_status()
         got = _key(resp, "generation", (str,), none=True)  # D-673: null is "built before generations"
         return str(got) if got else None
@@ -353,8 +353,8 @@ class LakeLocal:
     def hold(self, snapshot: str, holder: str, pin: bool = False) -> str:
         return self.lake.hold(snapshot, holder, pin=pin)
 
-    def generation(self, snapshot: str | None = None) -> str | None:
-        return self.lake.generation(snapshot) if (snapshot or self.lake.current()) else None
+    def generation(self, snapshot: str | None = None, *, recover: bool = False) -> str | None:
+        return self.lake.generation(snapshot, recover=recover)
 
     def site_in_sync(self, snapshot: str | None = None) -> bool | None:
         return self.lake.site_in_sync(snapshot)

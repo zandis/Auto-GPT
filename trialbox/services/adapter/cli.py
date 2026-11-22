@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from tb_common.config import ConfigError, load
+from tb_common.config import Config, ConfigError, load
 from tb_common.logging import setup_logging
 from tb_contracts import RebuildResult, dump
 
@@ -126,8 +126,8 @@ def http_rebuild(lake: Any, snapshot: str, promote: bool = True) -> RebuildResul
     )
 
 
-def build_config() -> tuple[AdapterConfig, str, str]:
-    cfg = load()
+def build_config(cfg: Config | None = None, *, local: bool = False) -> tuple[AdapterConfig, str, str]:
+    cfg = cfg or load()
     ds = cfg.settings.data_source
     mapping = resolve_mapping(ds.mapping)  # T-632: the site's folder first, then the image
     if not mapping.is_file():
@@ -139,7 +139,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
 
     def rebuild(snapshot: str, ndjson_dir: Path, promote: bool = True) -> RebuildResult:
         mode = os.environ.get("TB_ADAPTER_LAKE", "http")
-        if mode == "local":
+        if local or mode == "local":
             from embed_service.embedder import from_env as embedder_from_env
             from lake.store import Lake
 
@@ -166,7 +166,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         return rebuild(snapshot, ndjson_dir, promote=False)
 
     def promote(snapshot: str, generation: str | None = None) -> bool:
-        if os.environ.get("TB_ADAPTER_LAKE", "http") == "local":
+        if local or os.environ.get("TB_ADAPTER_LAKE", "http") == "local":
             from lake.store import Lake
 
             from adapter import failure
@@ -179,6 +179,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
     fc = cfg.settings.feed_completeness  # T-611
     ac = AdapterConfig(
         lake_dir=lake_dir,
+        screening_site=cfg,
         secrets_dir=Path(cfg.env.secrets_dir),
         mapping_path=mapping,
         site_id=cfg.settings.site.id,
@@ -339,6 +340,10 @@ def keys_init(secrets: Path | None = None) -> int:
         except KeyMissingError as exc:  # an empty file is never overwritten: it may be a restore gone wrong
             print(f"{name}: {exc}; put the site's key back from the backup", file=sys.stderr)
             return 1
+        if made and name == SITE_KEY_FILE:
+            from adapter.screening_evidence import first_install
+
+            first_install(secrets)
         print(f"{name}: {'made' if made else 'kept'} (fingerprint {fp})")
     return 0
 

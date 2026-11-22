@@ -90,13 +90,13 @@ def restore_held(url: str | None = None) -> bool:
         return True
 
 
-def require_released() -> None:
+def require_released(url: str | None = None) -> None:
     """The first check of a scenario that lists patients (NEW-B-3, D-522): nothing is listed while the hold of a
     restore stands. :func:`require_open` calls it for SCREEN, MICROBATCH and COHORT; NAV and CASE call it
     themselves (CASE names one patient: the owner's ruling of 2026-11-12). FEAS counts and is not held."""
     from orchestrator.clients import StepFailed
 
-    if restore_held():
+    if restore_held(url):
         raise StepFailed("restore", RESTORE_HELD)
 
 
@@ -181,20 +181,23 @@ def committee_held(ruleset: str, url: str | None = None) -> list[str]:
     return cm.held(country, rec, perm, opened, site_today())
 
 
-def require_open(ruleset: str | None) -> None:
+def require_open(ruleset: str | None, *, site_url: str | None = None) -> None:
     """A list scenario's first check (D-386): refuse to make a list for a study that is not open. The job fails
     with the reason; nothing is listed or mailed. An unreachable trial database is logged and left to the run's own
-    steps, which need the same database (the timer, :func:`_held`, holds the job instead)."""
+    steps, which need the same database (the timer, :func:`_held`, holds the job instead).
+    SCREEN supplies its site's database URL and requires successful reads before admission."""
     from tb_common.db import DatabaseError
 
     from orchestrator.clients import StepFailed
 
-    require_released()  # NEW-B-3 (D-522): before anything is read or listed
+    require_released(site_url)  # NEW-B-3 (D-522): before anything is read or listed
     if not ruleset:
         return
     try:
-        state = study_state(ruleset)
+        state = study_state(ruleset, site_url)
     except DatabaseError as exc:  # the trial database is unreachable: the run that follows needs it and fails there
+        if site_url is not None:
+            raise
         log.warning("study state of %s not read: %s", ruleset, exc)
         return
     if state != OPEN:
@@ -204,8 +207,10 @@ def require_open(ruleset: str | None) -> None:
             "The study coordinator changes the state on the study's set-up page.",
         )
     try:
-        held = committee_held(ruleset)
+        held = committee_held(ruleset, site_url)
     except DatabaseError as exc:  # as above: the run that follows needs the same database and fails there
+        if site_url is not None:
+            raise
         log.warning("committee record of %s not read: %s", ruleset, exc)
         return
     if held:  # 10C-4 (D-1227): the Japan profile's committee record

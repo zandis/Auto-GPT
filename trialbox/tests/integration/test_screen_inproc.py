@@ -20,6 +20,7 @@ from tb_common.crypto import pid_for_mrn
 from tb_common.ruleset import Ruleset
 
 from tests.inproc_box import Box, ingest_site, make_box, unzip_phi
+from tests.screening_site import accept_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 KEY = b"trialbox-test-site-key-0123456789abcdef"
@@ -34,7 +35,8 @@ def world(synth_dir: Path, tmp_path: Path) -> dict[str, Any]:
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(KEY)
     ingest_site(synth_dir / "site-a", tmp / "lake", sec, "2026-10-04")
-    box = make_box(tmp / "box", tmp / "lake", sec, RUN)
+    box = make_box(tmp / "box", tmp / "lake", sec, RUN, extra_env={"TB_DATA_DIR": str(tmp)})
+    accept_fixture(box, "GZQO")
     mrns = [r["mrn"] for r in csv.DictReader((synth_dir / "site-a" / "patient.csv").open(encoding="utf-8"))]
     return {"tmp": tmp, "sec": sec, "box": box, "mrn": {pid_for_mrn(KEY, m): m for m in mrns}}
 

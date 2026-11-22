@@ -125,6 +125,7 @@ def lake_rows(
     lake_dir: Path | None = None,
     deleted: dict[str, list[str]] | None = None,
     stream: bool = False,
+    inventory: dict[str, str] | None = None,
 ) -> Rows:
     """The lake rows of one snapshot: ``feed`` is the snapshot's NDJSON by type, ``site`` the site's inputs;
     ``lake_dir`` names the lake, whose OMOP store is its own (``omop.schema.schema_for``); ``deleted`` the ids the
@@ -137,6 +138,14 @@ def lake_rows(
     if source is None:
         source, origin = rebuild_source()  # read once, when the rebuild starts (D-207)
         record_source(lake_dir, snapshot, source, origin)
+    if inventory is not None:
+        from tb_common.screening_inputs import inventory_hash, lake_resource_key
+
+        inventory["lake"] = inventory_hash(
+            lake_resource_key(kind, row) for inputs in (feed, site) for kind in sorted(inputs) for row in inputs[kind]
+        )
+        if source == "legacy":
+            inventory["omop"] = inventory_hash(())
     if source == "legacy" and stream:
         both = {k: _Joined(feed.get(k, ()), site.get(k, ())) for k in [*feed, *(k for k in site if k not in feed)]}
         return Flattener(tz).stream(both)  # type: ignore[return-value]
@@ -147,7 +156,9 @@ def lake_rows(
         return Flattener(tz).flatten(merged)
     if stream:  # NEW-B-37 (D-678): re-readable streams go to the OMOP load as they are, read a chunk at a time;
         # T-702 (D-754): the export back comes as re-readable streams of a spool on the lake's volume
-        return omop_rows(feed, site, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted, spool=True)
+        return omop_rows(
+            feed, site, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted, spool=True, inventory=inventory
+        )
     feed_l: Resources = {k: list(v) for k, v in feed.items()}
     site_l: Resources = {k: list(v) for k, v in site.items()}
     return omop_rows(feed_l, site_l, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted)
@@ -174,6 +185,7 @@ def omop_rows(
     lake_dir: Path | None = None,
     deleted: dict[str, list[str]] | None = None,
     spool: bool = False,
+    inventory: dict[str, str] | None = None,
 ) -> Rows:
     """Load the snapshot into the lake's OMOP store and export the lake rows back. With ``spool`` (T-702, D-754) the
     rows come back as re-readable streams of files in the lake's scratch folder (``lake.store.temp_dir``), removed
@@ -200,7 +212,7 @@ def omop_rows(
             base.mkdir(parents=True, exist_ok=True)
             out = Path(tempfile.mkdtemp(prefix="omop-export-", dir=base))
             # re-readable streams in place of lists, as the legacy path's stream (Flattener.stream) gives them
-            rows: Rows = cast(Rows, export_spool(db, out, remove_when_done=True))
+            rows: Rows = cast(Rows, export_spool(db, out, remove_when_done=True, inventory=inventory))
         else:
             rows = export_rows(db)
     finally:

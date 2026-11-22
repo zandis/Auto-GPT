@@ -302,6 +302,8 @@ services:
       # looked up before the image's (adapter.mapping.site, T-632, D-382)
       - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:${TB_SOURCE_MOUNT:-/data/source/site-a}:ro
       - ${TB_MAPPING_HOST_DIR:-./site/mapping}:/etc/trialbox/mapping:ro
+      - screening-inputs:/data/screening-inputs
+      - rulesets-data:/data/rulesets:ro
       - lake-data:/data/lake
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - tb-secrets:/run/secrets/trialbox
@@ -352,6 +354,7 @@ services:
     networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - screening-inputs:/data/screening-inputs:ro
       - orch-data:/data/orchestrator
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
@@ -572,6 +575,7 @@ volumes:
   audit-data:
   orch-data:
   rulesets-data:
+  screening-inputs:
   mail-data:
   tb-secrets:
   tb-terminology:   # D-991: TB_TERMINOLOGY_DIR; written only by deploy/terminology.sh, read-only in the readers

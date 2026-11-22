@@ -236,6 +236,8 @@ spec:
             - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
             - {name: tmp, mountPath: /tmp}
             - {name: source-data, mountPath: /data/source/site-a, readOnly: true}
+            - {name: screening-inputs, mountPath: /data/screening-inputs}
+            - {name: rulesets-data, mountPath: /data/rulesets, readOnly: true}
             - {name: lake-data, mountPath: /data/lake}
             - {name: audit-data, mountPath: /data/audit}
             - {name: tb-secrets, mountPath: /run/secrets/trialbox}
@@ -245,6 +247,8 @@ spec:
         - {name: token-registry, configMap: {name: trialbox-service-tokens}}
         - {name: tmp, emptyDir: {}}
         - {name: source-data, persistentVolumeClaim: {claimName: source-data}}
+        - {name: screening-inputs, persistentVolumeClaim: {claimName: screening-inputs}}
+        - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data, readOnly: true}}
         - {name: lake-data, persistentVolumeClaim: {claimName: lake-data}}
         - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
         - {name: tb-secrets, persistentVolumeClaim: {claimName: tb-secrets}}
@@ -292,6 +296,7 @@ spec:
             - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
             - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
             - {name: tmp, mountPath: /tmp}
+            - {name: screening-inputs, mountPath: /data/screening-inputs, readOnly: true}
             - {name: orch-data, mountPath: /data/orchestrator}
             - {name: audit-data, mountPath: /data/audit}
             - {name: rulesets-data, mountPath: /data/rulesets, readOnly: true}
@@ -304,6 +309,7 @@ spec:
         - {name: token, secret: {secretName: trialbox-token-orchestrator, defaultMode: 0440}}
         - {name: token-registry, configMap: {name: trialbox-service-tokens}}
         - {name: tmp, emptyDir: {}}
+        - {name: screening-inputs, persistentVolumeClaim: {claimName: screening-inputs, readOnly: true}}
         - {name: orch-data, persistentVolumeClaim: {claimName: orch-data}}
         - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
         - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data}}

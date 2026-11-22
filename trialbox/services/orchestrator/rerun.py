@@ -25,6 +25,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from tb_common.audit import AuditLog
 from tb_contracts import Job, SendRequest, SendResult
 
 from orchestrator.core import Orchestrator
@@ -43,12 +44,15 @@ class PinnedLake:
         """The re-run's own hold name: never the original job's, and one per re-run (two re-runs of a job at once)."""
         return f"rerun.{holder}.{self._tag}"
 
-    def hold(self, snapshot: str, holder: str) -> None:
+    def hold(self, snapshot: str, holder: str, pin: bool = False) -> str | None:
         """D-462: a re-run holds its snapshot like the job did (``jobs.PinnedLake`` asks for it), so a publish cannot
         rebuild it under the re-run. A lake without holds (a test's fake) holds nothing."""
         hold = getattr(self.lake, "hold", None)
-        if hold is not None:
-            hold(snapshot, self._holder(holder))
+        if hold is None:
+            return None
+        exact = pin and ".g" in snapshot
+        result: str | None = hold(snapshot, self._holder(holder), **({"pin": True} if exact else {}))
+        return result if exact else None
 
     def release(self, holder: str) -> bool:
         release = getattr(self.lake, "release", None)
@@ -96,8 +100,16 @@ class NullMail:
         return SendResult(message_id=f"<rerun-{req.job_id}@trialbox.invalid>", sent_to=list(req.to), encrypted=False)
 
 
-class NullAudit:
+class ReplayAudit:
+    """The simulated run needs a real receipt for admission before it can read patient rows."""
+
+    def __init__(self, audit: AuditLog) -> None:
+        self.audit = audit
+
     def append(self, event: str, **fields: Any) -> dict[str, Any]:
+        if event == "screen.inputs_admitted":
+            fields["detail"] = {**fields.get("detail", {}), "rerun": True}
+            return self.audit.append(event, **fields)
         return {"event": event}
 
 
@@ -154,7 +166,7 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
             orch.cfg,
             db,
             ScratchStore(orch.store),
-            NullAudit(),  # type: ignore[arg-type]
+            ReplayAudit(orch.audit),  # type: ignore[arg-type]
             services,
             orch.scenarios,
             orch.rulesets_dir,

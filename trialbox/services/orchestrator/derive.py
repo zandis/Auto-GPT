@@ -108,10 +108,41 @@ class GenerationReader:
         return self._store.batch(snapshot)
 
 
+def bind_screen_reader(ctx: Any, generation: str, mode: str) -> list[str]:
+    """Resolve a stored-score batch once. All SCREEN engines reuse this reader, including an explicit off."""
+    from tb_common.db import Database
+    from tb_common.generation import Generation
+    from tb_common.screening_inputs import ScreeningRefused
+
+    if mode == "off":
+        ctx._screen_reader = None
+        return []
+    day = Generation.parse(generation).snapshot
+    url = ctx.orch.db.url
+    st = store(url)
+    if mode != "on" or st is None:
+        raise ScreeningRefused()
+    reader = GenerationReader(st, url, ctx)
+    ok, ref = reader._readable(day, generation)
+    batch = st.batch_by_id(int(ref)) if ok and ref.isdigit() else None
+    if batch is None or batch.snapshot != day or batch.failed_pids:
+        raise ScreeningRefused()
+    with Database.connect(url, "derived") as db:
+        rows = db.fetchall(
+            "SELECT id, fingerprint FROM score_row WHERE computed_at <= ? "
+            "AND (superseded_at IS NULL OR superseded_at > ?)",
+            (batch.finished_at, batch.finished_at),
+        )
+    ctx._screen_reader = reader
+    return sorted(f"{batch.run_id}/{key}/{fingerprint}" for key, fingerprint in rows)
+
+
 def reader_for(ctx: Any) -> Any:
     """:func:`reader` of a job's context; a context without a job runner (a test's stand-in) reads as "off". With
     the flag on, the store is read through :class:`GenerationReader` for the generation the job pinned (T-724's
     ``options.lake_generation``; a job without one: its night's date)."""
+    if hasattr(ctx, "_screen_reader"):
+        return ctx._screen_reader
     orch = getattr(ctx, "orch", None)
     st = reader(orch)
     if st is None or getattr(ctx, "job", None) is None:

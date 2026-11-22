@@ -82,10 +82,7 @@ if (-not (Test-Path $EnvFile)) {
     Set-Content -Encoding ascii $EnvFile
 }
 $KeyDir = Join-Path $Root ".cache\test-secrets"
-if (-not (Test-Path (Join-Path $KeyDir "site_hmac.key"))) {
-  New-Item -ItemType Directory -Force -Path $KeyDir | Out-Null
-  [System.IO.File]::WriteAllText((Join-Path $KeyDir "site_hmac.key"), (Rand 48))
-}
+New-Item -ItemType Directory -Force -Path $KeyDir | Out-Null
 if ($Mode -eq "openrouter") {
   $keyFile = Join-Path $Poc "secrets\openrouter_api_key"
   if (-not $env:OPENROUTER_API_KEY -and (Test-Path $keyFile)) { $env:OPENROUTER_API_KEY = (Get-Content $keyFile -Raw).Trim() }
@@ -114,6 +111,7 @@ if ($Mode -eq "openrouter") {
 }
 
 # ---------------------------------------------------------------- up
+Run ($Compose + @("run", "--rm", "--no-deps", "-T", "adapter", "python", "-m", "adapter.cli", "keys-init"))
 Say "starting the stack ($Mode model); the first start pulls images and takes a few minutes"
 & $Compose[0] $Compose[1..($Compose.Length - 1)] rm -sf gateway *> $null
 Run ($Compose + @("up", "-d", "--wait", "--wait-timeout", "900"))

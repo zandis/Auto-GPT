@@ -895,13 +895,15 @@ class Lake:
             return None
         return bool(rec["site"] == site_digest(self.dir))
 
-    def generation(self, snapshot: str | None = None) -> str | None:
+    def generation(self, snapshot: str | None = None, *, recover: bool = False) -> str | None:
         """The generation the date ``snapshot`` (default ``CURRENT``) names now, or None for a date built before
         generations (it gets one at its next rebuild, or when a job pins it)."""
-        snap = snapshot or self.current()
-        return self._newest_generation(snap, adopt=False) if snap else None
+        # A SCREEN may reattach one hash-verified restored file. Its lookup never allocates a generation.
+        with lake_lock(self.dir) if recover else contextlib.nullcontext():
+            snap = snapshot or self.current()
+            return self._newest_generation(snap, adopt=False, recover=recover) if snap else None
 
-    def _newest_generation(self, snapshot: str, adopt: bool) -> str | None:
+    def _newest_generation(self, snapshot: str, adopt: bool, *, recover: bool = False) -> str | None:
         """The generation whose file the date's alias is. Not "the highest number": a swap cut short between the
         generation's file and the alias leaves the date on the generation it had. ``adopt`` (under the lake lock):
         a date built before generations is given generation 1, the file it has."""
@@ -919,9 +921,10 @@ class Lake:
             digest = digest or _file_sha(alias)
             if rec.get("sha256") == digest:
                 return str(rec["generation"])
-        if not adopt:
+        if not (adopt or recover):
             return None
         digest = digest or _file_sha(alias)
+        matches = []
         for rec_path in sorted(gen_dir(self.dir).glob(f"{snapshot}.g*.json"), reverse=True):
             # a record without its file whose hash is the date's: the box was restored (the backup keeps the records,
             # not the files). The date's bytes get the name they had, never a number that named other bytes
@@ -930,12 +933,29 @@ class Lake:
             except (OSError, ValueError):
                 continue
             path = rec_path.with_suffix(".duckdb")
-            if isinstance(body, dict) and body.get("sha256") == digest and not path.exists():
+            if (
+                isinstance(body, dict)
+                and body.get("snapshot") == snapshot
+                and body.get("generation") == rec_path.stem
+                and split_generation(rec_path.stem) == (snapshot, body.get("seq"))
+                and body.get("sha256") == digest
+                and not path.exists()
+            ):
+                matches.append(path)
+        if recover and len(matches) != 1:
+            return None
+        if matches:
+            path = matches[0]
+            try:
+                os.link(alias, path)
+            except OSError:
+                tmp = path.with_suffix(".recovering")
                 try:
-                    os.link(alias, path)
-                except OSError:
-                    shutil.copyfile(alias, path)
-                return str(body["generation"])
+                    shutil.copyfile(alias, tmp)
+                    tmp.replace(path)
+                finally:
+                    tmp.unlink(missing_ok=True)
+            return path.stem
         return self._write_generation(snapshot, alias, digest, "adopted", link_from_alias=True)
 
     def _write_generation(
@@ -1420,8 +1440,16 @@ class Lake:
         site = {f.stem: _NdjsonFile(f) for f in sorted((self.dir / "site").glob("*.ndjson"))}
         # D-151: flattened from the NDJSON (TB_LAKE_SOURCE=legacy) or exported from the OMOP store (omop). T-692: the
         # legacy rows are streams, written one row group at a time; nothing of the night is held
+        inventory: dict[str, str] = {}
         rows = lake_rows(
-            by_type, site, tz=self.tz, snapshot=snapshot, lake_dir=self.dir, deleted=_tombstones(src), stream=True
+            by_type,
+            site,
+            tz=self.tz,
+            snapshot=snapshot,
+            lake_dir=self.dir,
+            deleted=_tombstones(src),
+            stream=True,
+            inventory=inventory,
         )
         counts: dict[str, int] = {}
         pdir.mkdir(parents=True, exist_ok=True)
@@ -1489,7 +1517,7 @@ class Lake:
                 )
             con.execute(
                 "CREATE TABLE lake_meta AS SELECT ? AS snapshot, ? AS built_at, ? AS schema_version, ? AS schema_sha, "
-                "? AS embed_store, ? AS embed_model, ? AS note_mask",
+                "? AS embed_store, ? AS embed_model, ? AS note_mask, ? AS lake_inventory, ? AS omop_inventory",
                 [
                     snapshot,
                     datetime.now(UTC).isoformat(timespec="seconds"),  # D-315: never the container's own zone
@@ -1498,6 +1526,8 @@ class Lake:
                     "embed_cache.duckdb",
                     embedder.model,
                     NOTE_MASK_VERSION,
+                    inventory["lake"],
+                    inventory.get("omop"),
                 ],
             )
             con.execute("CHECKPOINT")
