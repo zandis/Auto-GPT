@@ -25,11 +25,14 @@ import itertools
 import json
 import re
 import shutil
-from datetime import date
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import anyio.from_thread
 import pytest
 from console import notify, prefs
 from console.auth import SCHEMA_V9, AuthError, Role, UserStore
@@ -214,13 +217,45 @@ PATIENT_MARKERS = (
 Measure = dict[str, int]
 
 
-def _measure(r: Any) -> Measure:
+#: H73-01: the run's own time. A page prints when things happened in this run (an audit row, a flag's seeding, an
+#: entry of the team log), and such a stamp can hold a marker: the CSV of the audit report wrote 10:09:30, which holds
+#: the appointment's "09:30" (train 123). Every walk's requests are written at another second, so the defaults' walk
+#: and a preference's differ by the clock alone. A stamp whose instant falls in this run is the page's own and is
+#: masked before counting; a seeded value (the appointment, 2026-10-07 09:30) is never in the run and is counted.
+RUN_STARTED = datetime.now(UTC)
+#: a date with a time of day, as the pages print one: "2026-11-22 20:43", "2026-11-22 20:43:47",
+#: "2026-11-22T20:43:47.416+08:00"
+STAMP = re.compile(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?")
+#: a stamp without an offset is in the site's zone, whichever that is: any offset from UTC-12 to UTC+14
+NO_OFFSET_SLACK = timedelta(hours=14)
+
+
+def _in_run(m: re.Match[str], window: tuple[datetime, datetime]) -> bool:
+    """Is this stamp an instant of the run (``window``, from the minute a stamp may be cut to)?"""
+    try:
+        at = datetime.fromisoformat(f"{m.group(1)}T{m.group(2)}:{m.group(3) or '00'}{m.group(4) or ''}")
+    except ValueError:
+        return False
+    start, end = window[0].replace(second=0, microsecond=0), window[1]
+    if at.tzinfo is None:
+        at, start, end = at.replace(tzinfo=UTC), start - NO_OFFSET_SLACK, end + NO_OFFSET_SLACK
+    return start <= at <= end
+
+
+def _own_stamps_masked(text: str, window: tuple[datetime, datetime] | None = None) -> str:
+    """The text with every stamp of the run replaced by one fixed word: the page's own time, never a patient's."""
+    window = window or (RUN_STARTED, datetime.now(UTC))
+    return STAMP.sub(lambda m: "[run-time]" if _in_run(m, window) else m.group(0), text)
+
+
+def _measure(r: Any, window: tuple[datetime, datetime] | None = None) -> Measure:
     """How much patient-linked content a 2xx text answer holds: each marker's count, the rows that name a patient
-    (a ``data-pid`` or a marker in the row) and their cells. Empty for any other answer."""
+    (a ``data-pid`` or a marker in the row) and their cells. Empty for any other answer. The page's own stamps of
+    this run are masked first (``_own_stamps_masked``): the clock is not a patient value."""
     kind = r.headers.get("content-type", "")
     if not 200 <= r.status_code < 300 or not kind.startswith(("text/", "application/json")):
         return {}
-    text = r.text
+    text = _own_stamps_masked(r.text, window)
     out = {m: text.count(m) for m in PATIENT_MARKERS}
     rows = [
         row
@@ -300,10 +335,38 @@ def _wider(base: dict[str, Measure], now: dict[str, Measure]) -> dict[str, dict[
     return out
 
 
+#: H73-01: the 96 combinations in four groups, one per language (24 each), so the xdist workers share one role's walk
+#: (seven roles x four groups); ``test_the_groups_hold_every_combination_once`` holds that none is left out
+COMBO_GROUPS: dict[str, list[dict[str, str]]] = {
+    lang: [c for c in COMBOS if c["lang"] == lang] for lang in prefs.KEYS["lang"]
+}
+
+
+def test_the_groups_hold_every_combination_once() -> None:
+    walked = [c for group in COMBO_GROUPS.values() for c in group]
+    assert len(walked) == len(COMBOS) == 96
+    assert sorted(map(repr, walked)) == sorted(map(repr, COMBOS))
+
+
+@contextmanager
+def _one_event_loop(c: TestClient) -> Iterator[None]:
+    """H73-01: the client's requests share one event loop, as a server's do. Without it the test client starts a new
+    loop in a new thread for every request (``TestClient._portal_factory``), about two thirds of the walk's time. The
+    app's startup and shutdown are not run (``with TestClient`` would run them): the same app, the same requests."""
+    with anyio.from_thread.start_blocking_portal(**c.async_backend) as portal:
+        c.portal = portal
+        try:
+            yield
+        finally:
+            c.portal = None
+
+
+@pytest.mark.parametrize("group", list(COMBO_GROUPS))
 @pytest.mark.parametrize("column", ROLE_COLUMNS)
 def test_no_preference_opens_a_route_or_shows_a_patient_value_the_defaults_do_not(
     box: dict[str, Any],  # noqa: F811
     column: str,
+    group: str,
     tmp_path: Path,
 ) -> None:
     """For every combination of the closed sets, against the defaults on the same seeded state:
@@ -312,27 +375,41 @@ def test_no_preference_opens_a_route_or_shows_a_patient_value_the_defaults_do_no
     * every changing route the defaults' walk could not use (refused, invalid, an error) is still refused: denied
       stays denied (M-1).
     Each walk starts from the seeded audit trail (M-3), and two walks with the defaults give the same answers, so a
-    difference is the preference's."""
+    difference is the preference's. One case per role and language group (H73-01), each on its own seeded box with
+    its own defaults' walk; the page's own stamps of this run are not patient values (``_measure``)."""
     faithful_reads(box)
     _done_feas(box["backend"])
     job_id = _ulid(990)
     _done_screen(box["backend"], job_id)
     page, csrf, _api = clients(box)[column]
-    users = box["users"]
+    with _one_event_loop(page):
+        _walk_every_combination(box, page, csrf, column, job_id, COMBO_GROUPS[group], tmp_path)
+
+
+def _walk_every_combination(
+    b: dict[str, Any],
+    page: TestClient,
+    csrf: str,
+    column: str,
+    job_id: str,
+    combos: list[dict[str, str]],
+    tmp_path: Path,
+) -> None:
+    users = b["users"]
     name = {"admin": "admin", "viewer": "viewer"}.get(column, f"w{column.replace('_', '')}")  # as clients() names
     assert users.prefs(name) == prefs.DEFAULTS
     posts0 = _posts(page, csrf, job_id)  # the defaults: what each changing route answers (a success may change data)
     assert page.get("/account").status_code == 200  # the walk did not end the session
     refused = {k for k, v in posts0.items() if v != "ok"}
     assert refused  # the defaults are refused somewhere: there is something a preference must not open
-    trail = _AuditSnapshot(box["dir"] / "audit", tmp_path / "audit-seeded")
+    trail = _AuditSnapshot(b["dir"] / "audit", tmp_path / "audit-seeded")
     _gets(page, job_id)  # the stores a GET fills once (first seen, views) are filled before the comparison
     trail.restore()
     ok0, shown0 = _gets(page, job_id)
     trail.restore()
     assert _gets(page, job_id) == (ok0, shown0)  # the same state gives the same answers: a difference is a preference's
     assert ok0  # the walk reached pages
-    for combo in COMBOS:
+    for combo in combos:
         r = page.post("/account/prefs", data={"csrf": csrf, **combo}, follow_redirects=False)
         assert r.status_code == 303, combo
         assert users.prefs(name) == combo
@@ -363,6 +440,27 @@ def test_the_invariant_sees_an_extra_patient_column_and_a_denial_turned_into_a_s
     assert _kind(ok) not in ALLOWED_UNDER_PREF[_kind(denied)]
     assert _kind(denied) in ALLOWED_UNDER_PREF[_kind(SimpleNamespace(status_code=400, headers={}))]
     assert _kind(SimpleNamespace(status_code=303, headers={"location": "/login"})) == "denied"
+
+
+def test_the_invariant_is_blind_to_the_clock_and_still_sees_a_patient_time() -> None:
+    """H73-01 (train 123's red, ``[steward]``): the audit report's CSV printed a row written at 10:09:30, which holds
+    the appointment's "09:30". A stamp of the run is the page's own, in every form a page prints it; the seeded
+    appointment, in a cell or in the CSV, is still a patient value, and one more of it is still wider."""
+    run = (datetime(2026, 11, 22, 2, 9, 12, tzinfo=UTC), datetime(2026, 11, 22, 2, 10, 5, tzinfo=UTC))
+
+    def csv(*lines: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            status_code=200, headers={"content-type": "text/csv"}, text="ts,event\n" + "".join(lines)
+        )
+
+    base = {"/r.csv": _measure(csv("2026-11-22T10:09:12.401+08:00,console.audit_report\n"), run)}
+    for own in ("2026-11-22T10:09:30.512+08:00", "2026-11-22T02:09:30Z", "2026-11-22 10:09:30", "2026-11-22 10:09"):
+        assert _wider(base, {"/r.csv": _measure(csv(f"{own},console.audit_report\n"), run)}) == {}, own
+    shown = csv("2026-11-22T10:09:30.512+08:00,console.audit_report\n", "2026-10-07T09:30:00+08:00,appointment\n")
+    assert _wider(base, {"/r.csv": _measure(shown, run)}) == {"/r.csv": {"09:30": (0, 1), "2026-10-07": (0, 1)}}
+    cell = SimpleNamespace(status_code=200, headers={"content-type": "text/html"},
+                           text='<p>2026-11-22 10:09</p><td class="num">2026-10-07 09:30</td>')  # fmt: skip
+    assert _measure(cell, run) == {"09:30": 1, "2026-10-07": 1}
 
 
 # ---------------------------------------------------------------------------------------------- the structural guard
