@@ -105,10 +105,21 @@ jobs:
             -e TB_TLS_MODE=internal -e TB_TLS_HOSTNAME -e TB_AUTH_HOSTNAME=auth.hosp.test \
             -e TB_CONSOLE_SSO_HEADER=X-Site-Sso-User \
             -v "$PWD/deploy/identity/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY_IMAGE"
-          for _ in $(seq 1 30); do  # 30 tries, one per second
-            curl -sk --resolve "$TB_TLS_HOSTNAME:443:127.0.0.1" "https://$TB_TLS_HOSTNAME/" -o /dev/null && break
+          # H-85: wait for the stand-in console behind Caddy, not for Caddy alone: only a 200 on /login (the path
+          # checked below; the echo answers 200 to any GET) ends the wait; a 502/503/504 while the echo starts
+          # keeps waiting. 30 tries, one per second, then fail here naming the URL and the last status.
+          url="https://$TB_TLS_HOSTNAME/login"
+          status=000
+          for _ in $(seq 1 30); do
+            status=$(curl -sk --max-time 5 --resolve "$TB_TLS_HOSTNAME:443:127.0.0.1" -o /dev/null -w '%{http_code}' "$url" || true)
+            [ "$status" = 200 ] && break
             sleep 1
           done
+          if [ "$status" != 200 ]; then
+            echo "::error::the backend never answered through Caddy: $url gave HTTP $status after 30 tries"
+            docker logs console 2>&1 | tail -20
+            exit 1
+          fi
           curl -sk -D "$RUNNER_TEMP/h.txt" --resolve "$TB_TLS_HOSTNAME:443:127.0.0.1" \
             -H "X-Forwarded-User: admin" -H "Remote-User: admin" -H "X-Site-Sso-User: admin" -H "X-Keep: yes" \
             "https://$TB_TLS_HOSTNAME/login?state=secret-state" -o "$RUNNER_TEMP/body.json"
