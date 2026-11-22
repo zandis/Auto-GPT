@@ -2,29 +2,22 @@
 
 **Reader:** the people who build TrialBox.
 
-**Pull request body (draft).** Card H-87, lane H. Five small parts, one commit each (part 2 has a second commit for
-the workstation follower). It merges #1340's branch (H-81) for part 5, so it rides after #1340. D-1086 is not added
-here: #1346 (H-83) is not on master.
+**Pull request body (draft).** Card H-87, lane H. Parts 2 to 6, a commit or two each; part 1 was dropped
+(lane R's card 9i-1, ruled 13:11 UTC) and its commit is taken back out by a later commit, so its files are as on
+master. It merges #1340's branch (H-81) for part 5, so it rides after #1340.
 
 - **Card:** H-87 (not high-risk)
-- **Decision:** none new. Part 3 cites the owner's ruling D-1075 (its record is not in the tree; not created here).
+- **Decision:** D-1086 recorded (the integrator's number for H-83's decision). Part 3 cites the owner's ruling
+  D-1075 (its record is not in the tree; not created here).
+- **Findings:** [`five-small-cards-2026-11-22/findings.json`](five-small-cards-2026-11-22/findings.json) (H87-01)
 - **Files outside the card:** `tools/runbook_workstation.py` (the follower's table `KNOWN`: two rows for the new
   commands of page 27 step 7); `docs/security/02-network.md` and `docs/runbook/04-troubleshooting.md` (one paragraph
-  each, as the ruling asks).
+  each, as the ruling asks); `docs/decisions/REGISTRY.md` (one row, at the end of the file).
 
-## Part 1: the commands put back the logging level they found
+## Part 1: dropped
 
-`backup_drill.main()`, `update_drill.main()`, `e2e_simple.main()`, `demo.main()` and `complete_run.run_part()` call
-`logging.disable(logging.INFO)` and left it on (`demo` switched it back only on its serving path). In a test process
-that broke every later test reading an INFO record: the polluter
-`test_the_command_prints_them_and_where_the_folder_is` of `tests/unit/test_backup_drill_says_why.py`, the victims the five
-INFO tests of `tests/unit/test_access_log_route.py`. `tools/logging_level.py` holds one wrapper,
-`restores_logging_level`, a `try`/`finally` that puts back the level found on entry on a return, an exception and
-`SystemExit`; the five use it. `update_drill.py`'s call in its child process is left (a process of its own). Nothing
-under `services/` calls it. No lane R branch for card 9i-1 was found on the remote; the conftest fixture is not touched.
-
-Tests: `tests/unit/test_logging_level_restored.py`, 13 cases (each command returns and raises; the drills also exit).
-On the old code 12 of 13 fail. The polluter then the victims in one process: 5 failed before, 8 passed after.
+The commands' logging level is lane R's card 9i-1 (ruled 13:11 UTC). The part's commit (`tools/logging_level.py`, its
+test and the five commands' wrappers) is taken back out by a later commit; the five files are as on master.
 
 ## Part 2: the runbook pages name one card and take a backup
 
@@ -36,6 +29,10 @@ On the old code 12 of 13 fail. The polluter then the victims in one process: 5 f
 - Page 28: the stale sentence ("the embedder has no such record") is corrected: the record
   `deploy/measured/embedder_files.e-embed-1.json` is on master and `tools/fetch_weights.py --embedder` fetches it, but
   only with a GPU profile's two models, so the manual download stays on that page.
+- Page 29: the step that switched the host to `multi-user.target` was there to free the card's memory the desktop
+  holds. It now has the operator see what holds the card first (`nvidia-smi`'s "Processes"; anything but the desktop:
+  stop and send the lines), and stops and starts `display-manager` only. Nothing host-wide is switched; the page names
+  `systemctl isolate multi-user.target` as what is not done (`test_dgpu48_draft.py` reads that name: unchanged).
 - The pages have no ja or zh-TW copies. The test
   `test_the_follower_knows_every_command_of_section_27_and_no_other` holds page 27's commands equal to the follower's
   table (`tools/runbook_workstation.py` `KNOWN`): two rows are added there for step 7.
@@ -55,7 +52,8 @@ register's "read from code or text, not run" (H74-02 was read in the code; H74-0
 measured). `findings_register --add-from` of the file passes in a scratch worktree (4 rows added there, `--check`
 well formed); no register change is committed.
 
-(b) Skipped: #1346 (`claude/lane-h-83-unit-split-measured-again`) is not on master, so D-1086 is not added.
+(b) D-1086: `docs/decisions/D-1086-eight-unit-shards-pinned-from-a-measured-table.md`, pointing at H-83's page
+(on master since 5cca57cb), with a `reserved` row at the end of `REGISTRY.md`, away from #1333's rows after D-1068.
 
 ## Part 5: the docs-only selection matches the strings of a test's code only
 
@@ -78,3 +76,27 @@ Selected test files on this tree, H-81's rule (before) and this one (after):
 
 Each of the four dropped files cites the page in a docstring or a comment only; nothing that reads a page in code drops
 out.
+
+## Part 6: the unit-shard pins looked at again (train 125)
+
+The eight unit-shard jobs of train 125 (run 45024159918, the first run of H-83's split), from the public API and the
+job logs; minutes of pytest, and the cost table's estimate under the same pins:
+
+| shard | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| measured (pytest minutes) | 13.7 | 15.5 | 15.1 | 29.5 | 19.8 | 23.3 | 11.6 | 30.1 |
+| H-83's table, estimated | 16.8 | 16.8 | 16.8 | 16.1 | 16.2 | 16.7 | 16.4 | 16.1 |
+| seconds a test outside the slowest 30 | 0.74 | 1.01 | 1.02 | 2.25 | 1.44 | 1.39 | 0.58 | 2.48 |
+
+The listed files explain part of it: `tests/console/test_prefs_10f1.py` 1,943 s (the table: 1,345),
+`tests/integration/test_e2e_simple.py` 711 s (480), `tests/console/test_orch_box.py` 342 s (141). Most of the
+excess of shards 4 and 8 is in tests below their 30 slowest. A local collection with CI's markers gives each shard's
+test count to within 4 of CI's.
+
+**The pins are left as they are.** A table refreshed from this run (each listed file at its measured time, every
+other test at its shard's seconds a test) reproduces the eight measured shards exactly, but its plan (20 pins) pins
+files whose cost is only their test count times their shard's average:
+`tests/unit/test_negated_inclusion_never_compiles_as_presence.py` comes out at 1,097 s with none of it listed, and
+seven more like it. Its estimate, 19.3 to 22.1 minutes a shard, is still 11.4 % over the mean for one shard (30
+pins: 7.6 %, mostly on such inferred costs). One run with the slowest 30 tests a shard cannot say which files are
+heavy, so a new plan would move guesses. What would: every test's time from CI (H87-01).

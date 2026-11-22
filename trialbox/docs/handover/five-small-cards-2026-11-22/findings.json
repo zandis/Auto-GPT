@@ -1,0 +1,20 @@
+{
+ "card": "H87",
+ "title": "five small parts; part 6: the unit-shard pins looked at again with train 125's run",
+ "date": "2026-11-22",
+ "source": "docs/handover/five-small-cards-2026-11-22.md",
+ "note": "basis 'shown' means shown by the eight public unit-shard job logs of train 125 (run 45024159918) and a local collection with CI's markers, whose per-shard test counts match CI's to within 4 tests.",
+ "findings": [
+  {
+   "id": "H87-01",
+   "severity": "Medium",
+   "claim": "unit-shard 4/8 and 8/8 took 29.5 and 30.1 minutes of pytest in train 125 against 11.6 to 23.3 for the others; most of the excess is in tests outside each shard's --durations=30 list (2.25 and 2.48 s a test, against 0.58 to 1.44 in the other shards), so the per-file costs a better plan needs are not in the logs; a plan over a table refreshed from this run pins files whose cost is inferred from their test count (tests/unit/test_negated_inclusion_never_compiles_as_presence.py: 1,097 s, none of it listed) and still leaves a shard 11.4 % over the mean; the pins are left as they are",
+   "severity_basis": "the two long shards stand at about 75 % of the 40-minute limit on a normal runner; a slow runner (up to 1.55 times, H83-01) would take them past it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "measure every test's time on CI (all durations written to a file of the shard's artifacts, or the shard's trace read with a token), then rebuild the table per file and re-run the plan",
+   "from": "the integrator, 2026-11-22 13:21 UTC (via the lane H lead)"
+  }
+ ]
+}
