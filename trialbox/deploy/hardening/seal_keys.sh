@@ -130,3 +130,11 @@ if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
   find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
   [ -f "$KEK_FILE" ] && chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"
 fi
+# H-77 (F-22): the back end this run sealed with, recorded beside the keys only now that every step above passed (a dry
+# run, a failed seal and a box with a KEK already never get here: an earlier record stays as it was). The name only,
+# owner only like the keys; install.sh copies it to deploy/.env (TB_KEK_BACKEND), where the host check reads it
+REC="$SECRETS/kek-backend"
+( umask 077; printf '%s\n' "$KEK_BACKEND" > "$REC.tmp" )
+if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then chown "$OWNER" "$REC.tmp"; fi
+mv -f "$REC.tmp" "$REC"
+hb_say "the KEK back end is recorded: $KEK_BACKEND ($REC)"

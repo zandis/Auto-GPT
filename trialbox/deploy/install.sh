@@ -845,6 +845,15 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
     || die "the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
+  # H-77 (F-22): the back end is the one seal_keys.sh recorded beside the keys, copied as it is (never worked out
+  # here) to deploy/.env, where the host check reads it. Keys sealed before the record: deploy/.env is left as it is
+  KEK_USED=""; [ -f "$SEC_DIR/kek-backend" ] && KEK_USED="$(tr -d ' \r\t\n' < "$SEC_DIR/kek-backend")"
+  case "$KEK_USED" in
+    tpm|shamir|passphrase)
+      envset TB_KEK_BACKEND "$KEK_USED"
+      echo "    the KEK back end that sealed the keys: $KEK_USED (recorded by seal_keys.sh; deploy/.env TB_KEK_BACKEND)" ;;
+    *) echo "    note: no record of the KEK back end beside the keys (sealed before it was recorded): deploy/.env not changed" >&2 ;;
+  esac
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
