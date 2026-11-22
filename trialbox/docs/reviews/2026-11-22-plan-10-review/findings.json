@@ -71,7 +71,7 @@
   {
    "id": "R22-10",
    "severity": "Medium",
-   "claim": "services/matching/decision.py:110: no test fails when a single-model note answer is allowed to exclude (568 tests green under the planted mistake)",
+   "claim": "services/matching/decision.py:110: no test fails when a single-model note answer is allowed to exclude (568 tests green under the planted mistake); master is safe by a second guard (held_back), so this is a gap in the tests only",
    "lane": "J",
    "basis": "shown"
   },
@@ -364,8 +364,8 @@
   },
   {
    "id": "R22-52",
-   "severity": "Medium",
-   "claim": "On an exclusion criterion the Japanese and Traditional Chinese lines for the two model checks read as absent when the check found the exclusion present (week.html:80, _criteria.html:25)",
+   "severity": "Low",
+   "claim": "The demonstration's opinion fixture records a check's answer in the row's convention, not the engine's (recorded_opinions.py:64), so the demonstration shows present under a quote that says absent; the page's words are right on a real run (the first draft of this finding had it the other way round)",
    "lane": "K",
    "basis": "shown"
   },
@@ -472,6 +472,20 @@
    "severity": "Low",
    "claim": "Two modules each call themselves the only entry to the model; three callers use the lower one and skip the schema check and retry of the upper",
    "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-68",
+   "severity": "Medium",
+   "claim": "tools.role_demo does not start (the site time zone is not set; the tool never adopts it) and no test runs it",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-69",
+   "severity": "Medium",
+   "claim": "tools.role_demo seeds no steward, so a new protocol cannot be approved and the audit page answers 403 for every seeded role",
+   "lane": "K",
    "basis": "shown"
   }
  ]
