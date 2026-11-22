@@ -94,8 +94,14 @@ def require_released() -> None:
     """The first check of a scenario that lists patients (NEW-B-3, D-522): nothing is listed while the hold of a
     restore stands. :func:`require_open` calls it for SCREEN, MICROBATCH and COHORT; NAV and CASE call it
     themselves (CASE names one patient: the owner's ruling of 2026-11-12). FEAS counts and is not held."""
+    from tb_common import rc1_refusals
+
     from orchestrator.clients import StepFailed
 
+    try:  # R22-34 (D-1072): rc1 makes no live patient list on a PRODUCTION box; the job fails before anything is read
+        rc1_refusals.check("live_patient_lists")
+    except rc1_refusals.Rc1Refused as exc:
+        raise StepFailed("rc1", exc.say(), exc.refusal.key) from None
     if restore_held():
         raise StepFailed("restore", RESTORE_HELD)
 
