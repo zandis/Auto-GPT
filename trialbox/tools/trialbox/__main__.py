@@ -154,13 +154,13 @@ def main(argv: list[str] | None = None) -> int:
     kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
     r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
                    help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
-    rd = sub.add_parser("restore-drill", help="prove a backup restores, into scratch databases (needs the key; D-892)")
+    rd = sub.add_parser("restore-drill", help="prove a backup restores, in a throwaway db server (key in hand; D-892)")
     rd.add_argument("file", type=Path)
     rd.add_argument("--key", type=Path, required=True)
     rd.add_argument("--dir", action="append", default=[], help="the audit folder, as restore takes it")
     rd.add_argument("--work", type=Path, default=None, help="where the backup is unpacked (default: the temp folder)")
     rd.add_argument("--db-dir", type=Path, default=None,
-                    help="the database's folder, for the space check (default: Docker root, else --work)")  # fmt: skip
+                    help="where the throwaway database server keeps its data (default: --work)")  # fmt: skip
     rd.add_argument("--deploy", type=Path, default=Path(__file__).resolve().parents[2] / "deploy",
                     help="where deploy/site/backup-verified.json goes")  # fmt: skip
     deploy = Path(__file__).resolve().parents[2] / "deploy"
@@ -502,17 +502,21 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
 
 
 def _drill_cmd(a: argparse.Namespace) -> int:
-    """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started."""
+    """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started,
+    130 when interrupted (Ctrl-C, SIGTERM) after its clean-up."""
     from tools.trialbox import backup as bk
     from tools.trialbox import restore_drill as rd
 
-    docker_root = Path("/var/lib/docker")
-    db_dir = a.db_dir or (docker_root if docker_root.is_dir() else None)
-    try:
-        res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
+    try:  # H-84: the drill's records, for the next drill's sweep, beside the key-check record
+        res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=a.db_dir,
+                       state=a.deploy / "site" / "restore-drill")  # fmt: skip
     except (rd.DrillError, bk.BackupError, OSError) as e:
         print(f"restore-drill: {e}", file=sys.stderr)
         return 2
+    except (KeyboardInterrupt, rd.SigtermError):
+        print("restore-drill: interrupted; the throwaway server and the unpacked files were removed (what could not "
+              "be is removed by the next drill)", file=sys.stderr)  # fmt: skip
+        return 130
     res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
     print(json.dumps(res, indent=1, ensure_ascii=False))
     if not res["ok"]:

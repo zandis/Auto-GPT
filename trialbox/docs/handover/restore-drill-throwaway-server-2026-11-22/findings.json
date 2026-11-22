@@ -1,0 +1,64 @@
+{
+ "card": "H84",
+ "title": "the restore drill runs in a throwaway database server (option d)",
+ "date": "2026-11-22",
+ "source": "docs/handover/restore-drill-throwaway-server-2026-11-22.md",
+ "note": "lane H's card H-84 (high-risk); the integrator's option (d), 2026-11-22",
+ "findings": [
+  {
+   "id": "H84-01",
+   "severity": "High",
+   "claim": "on master the restore drill runs CREATE DATABASE as trialbox, which the box makes NOCREATEDB: the drill cannot run on an installed box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/restore_drill.py",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H84-02",
+   "severity": "High",
+   "claim": "on master the restore drill connects to db:5432 from the host, a name the host cannot resolve and a port compose does not publish: the drill cannot run on an installed box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/restore_drill.py",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H84-03",
+   "severity": "High",
+   "claim": "the restore drill is typed with the host's python3, which install.sh gives only python3-yaml, while backup.py imports zstandard and cryptography and the drill needs psycopg",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "docs/runbook/05-updates-backup-restore-secrets.md",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H84-04",
+   "severity": "Medium",
+   "claim": "sudo drops the operator's environment, so TB_DB_URL (read by the drill for the database names) is unset and the drill refuses at once",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "tools/trialbox/__main__.py",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H84-05",
+   "severity": "Medium",
+   "claim": "a restore drill killed during its restore left the decrypted backup in the work folder with no record, and nothing removed it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/restore_drill.py",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  }
+ ]
+}
