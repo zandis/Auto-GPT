@@ -56,6 +56,11 @@ of shard 1 (372 tests):
 
 - `--dist load`: 2,044 s; the seven cases 257 to 300 s each, 1,923 s together; at 96 % one worker at 85 % CPU, three
   idle. 5 failures of `tests/console/test_grant_box.py` ("failed in reporting": the fonts were not fetched yet).
-- `--dist worksteal`: AFTER_LOCAL
+- `--dist worksteal` (the fonts fetched in between, so `test_grant_box.py` passed): 748 s, 372 passed; the seven
+  cases 242 to 300 s each, 1,841 s together, spread over the four workers. 2.7 times faster on these files.
 
-Estimate for CI (not measured on CI): AFTER_CI
+Estimate for CI (not measured on CI): the seven cases spread over the four workers take about two rounds of 200 s
+beside the other tests instead of 1,127 to 1,440 s on one worker, so shard 1 drops by about 10 to 15 minutes, from
+a median of 33.6 to about 20 to 25 minutes (under the next-slowest shard, 4/6 at 28.2). The other shards'
+logs were not examined; they may gain a little. The limit stays 40; measure the medians again from the first green
+shard jobs after the merge (D-564 item 7).
