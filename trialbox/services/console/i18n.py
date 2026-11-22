@@ -8,8 +8,34 @@ process (``STRICT``, set by ``tests/conftest.py``) ``translate`` raises on a mis
 
 from __future__ import annotations
 
-import importlib
 import os
+
+from console import (
+    i18n_accounts,
+    i18n_audit,
+    i18n_breakglass,
+    i18n_conflicts,
+    i18n_copyassist,
+    i18n_dataops,
+    i18n_demo,
+    i18n_feedback,
+    i18n_firstrun,
+    i18n_flags,
+    i18n_form_errors,
+    i18n_identity,
+    i18n_instruments,
+    i18n_items,
+    i18n_lists,
+    i18n_notmatched,
+    i18n_phone,
+    i18n_plain,
+    i18n_preflight,
+    i18n_prefs,
+    i18n_roles,
+    i18n_sae,
+    i18n_tier,
+    i18n_today,
+)
 
 LANGS = ("en", "ja", "zh-TW")
 
@@ -1263,34 +1289,32 @@ ZH.update(_PF_ZH)
 # role.steward) read a key that only the pilot's break-glass page joined, so the page worked or raised by what had
 # been imported before it. Every console/i18n_*.py is joined here, when this module is imported; the page modules
 # still join theirs (the same words again).
-JOINED_BY_PAGES = (
-    "accounts",
-    "audit",
-    "breakglass",
-    "conflicts",
-    "copyassist",
-    "dataops",
-    "demo",
-    "feedback",
-    "firstrun",
-    "flags",
-    "form_errors",
-    "identity",
-    "instruments",
-    "items",
-    "lists",
-    "notmatched",
-    "phone",
-    "plain",
-    "preflight",
-    "prefs",
-    "roles",
-    "sae",
-    "tier",
-    "today",
-)
-for _name in JOINED_BY_PAGES:
-    _mod = importlib.import_module(f"console.i18n_{_name}")
+for _mod in (
+    i18n_accounts,
+    i18n_audit,
+    i18n_breakglass,
+    i18n_conflicts,
+    i18n_copyassist,
+    i18n_dataops,
+    i18n_demo,
+    i18n_feedback,
+    i18n_firstrun,
+    i18n_flags,
+    i18n_form_errors,
+    i18n_identity,
+    i18n_instruments,
+    i18n_items,
+    i18n_lists,
+    i18n_notmatched,
+    i18n_phone,
+    i18n_plain,
+    i18n_preflight,
+    i18n_prefs,
+    i18n_roles,
+    i18n_sae,
+    i18n_tier,
+    i18n_today,
+):
     EN.update(_mod.EN)
     JA.update(_mod.JA)
     ZH.update(_mod.ZH)
