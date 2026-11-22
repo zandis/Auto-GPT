@@ -60,8 +60,20 @@ Partly. Confirmed on master 225100f4 with a failing probe:
   the raw arguments.
 - `redact()` is also used by `tb_common.fhir` and `model_guard`. They get the decoded pass too (more masked, nothing
   less).
-- The support bundle decodes with the same function. That adds four more `%` layers, entities without `;`, `=40`
-  and doubled backslashes, so it masks more. Its tests pass unchanged.
+- The support bundle decodes with the same function, under H-76's ordering and keep-encoded rule (merged from
+  `a25a5c18`; the rule is passed to `decode_then_scrub` as its `keep` hook). That adds four more `%` layers,
+  entities without `;`, `=40` and doubled backslashes, so it masks more. Its tests and H-76's pass unchanged.
+  Its timing did not move (in seconds, H-76's head, then merged):
+
+  | Bundle text | H-76 head | merged |
+  | --- | ---: | ---: |
+  | 1 MB `%2F` run | 0.94 | 0.88 |
+  | 1 MB `%25…40` layers | 0.56 | 0.67 |
+  | 1 MB hex | 0.34 | 0.37 |
+  | 1 MB `&#x2F;` run | 0.89 | 1.07 |
+  | 1 MB `\u0041` run | 0.75 | 0.77 |
+  | 1 MB of `a.b%40x.org` | 1.23 | 1.23 |
+  | 15 MB realistic log | 61.44 | 61.11 |
 
 ### The invariant test
 
@@ -141,10 +153,18 @@ times. Lines per second; the formatter cuts a line at `TB_LOG_SCRUB_MAX_CHARS` (
   at all, as before. A handler other than the one `setup_logging` installs (pytest's `caplog`, a `print`).
 - **Lost, not leaked:** text past `TB_LOG_SCRUB_MAX_CHARS` is cut, as before. Values past the 1000th of a line, or
   deeper than 8, are withheld.
-- **The bundle (H79-04):** its rules read the encoded text before its decoded pass. A `%`-encoded entity holding an
-  eight-digit run, with a site chart rule, kept the secret in 37 of 150 fuzz cases. Fixing it there changes what two
-  bundle tests assert (`test_url_userinfo_is_replaced_plain_and_encoded` and `test_query_and_form_secrets_are_replaced`
-  keep encoded forms encoded), so it waits for a ruling.
+- **The bundle (H79-04), closed by H-76:** on this card's first head, the bundle's rules read the encoded text
+  before its decoded pass. A `%`-encoded entity holding an eight-digit run, with a site chart rule, kept the secret
+  in 37 of 150 fuzz cases. H-76 step 0 (`a25a5c18`, merged here) fixes it: the decoded view reads each line before
+  the raw rules, and a line keeps its encoded form when the raw rules mask everything in place. On the merged tree
+  the same 150 cases a class keep nothing (0 of 150 in all eight classes, with and without the chart rule).
+
+### Open question
+
+- **Pseudonyms and screening numbers in a service's log line.** The card asked for them to be masked. They are
+  not: logs keep pseudonyms by the stated design, so that support can follow a case, and
+  `test_ordinary_words_are_kept` asserts that a 32-digit pid stays. The lane lead has asked the integrator for a
+  ruling. Nothing is built for it in this card.
 
 ### What is masked though it may hide nothing
 

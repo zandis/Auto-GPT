@@ -444,21 +444,35 @@ class Scrubber:
         encoded character is decoded (percent in up to eight layers, ``\\u``/``\\x``/``\\U``, HTML entities,
         ``=3D``) and scrubbed; if that changes anything, the line is kept decoded and scrubbed. The decoding is the
         service log line's too (``tb_common.decode_scrub``, H-79, D-1358): one source for both."""
-        from tb_common.decode_scrub import decode_then_scrub  # here: the module is standard library only at import
+        from tb_common.decode_scrub import decode, decode_then_scrub  # here: standard library only at import
 
-        text, replaced = decode_then_scrub(text, self._rules)
+        def keep(line: str, plain: str, clean: str) -> bool:
+            # H-76: the line keeps its own (encoded) form when the raw rules mask, where it stands, everything the
+            # decoded view masks; otherwise (a raw rule would leave a fragment) it is written decoded and scrubbed
+            if len(line) > 65536:
+                return False
+            raw_view = decode(self._rules(line))
+            gone = _removed(plain, clean)
+            return gone is not None and not any(_leaks(seg, raw_view) for seg in gone)
+
+        text, replaced = decode_then_scrub(text, self._rules, keep=keep)
         if replaced:
             self.found["decoded line"] += replaced
         return text
 
     def text(self, text: str) -> str:
-        """Every rule, until the text no longer changes (at most three passes; a fourth change is refused)."""
+        """Every rule, until the text no longer changes (at most three passes; a fourth change is refused).
+
+        H-76: the decoded view of a line is taken BEFORE the raw rules run. Run after them, a rule that did not see a
+        token on the raw line (``%2F`` joins its hex digit to a pseudonym) could still cut into it (the log
+        scrubber's phone pattern took digits from its middle), and the decoded view then saw only fragments: the
+        flake of ``test_the_extended_corpus_still_holds_the_invariant``, about 1 corpus in 60."""
         for _ in range(3):
-            new = self.decoded(self._rules(text))
+            new = self._rules(self.decoded(text))
             if new == text:
                 return new
             text = new
-        if self.decoded(self._rules(text)) != text:
+        if self._rules(self.decoded(text)) != text:
             raise ScrubError("the scrub does not settle on this text: it is not written")
         return text
 
@@ -551,6 +565,29 @@ def _held(rx: re.Pattern[str], text: str, rules: Callable[[str], str]) -> str:
 
     text = rules(rx.sub(hold, text))
     return _PRIVATE.sub(lambda m: held[ord(m.group(0)) - 0xF0000], text) if held else text
+
+
+_MARK = re.compile(r"\[[^\[\]\n]{1,80}\]")
+
+
+def _removed(plain: str, clean: str) -> list[str] | None:
+    """The parts of ``plain`` that the scrub replaced in ``clean`` (every mask is a ``[...]`` marker): the text
+    between the literal pieces of ``clean``, found in order in ``plain``. None when they cannot be lined up."""
+    pieces = _MARK.split(clean)
+    if len(pieces) > 200:
+        return None
+    m = re.fullmatch("(.*?)".join(re.escape(x) for x in pieces), plain, re.S)
+    return None if m is None else list(m.groups())
+
+
+def _leaks(seg: str, text: str) -> bool:
+    """Whether ``text`` still holds ``seg`` or 8 of its characters in a row (any case)."""
+    seg, text = seg.strip().lower(), text.lower()
+    if len(seg) < 4:
+        return False
+    if len(seg) <= 8:
+        return seg in text
+    return any(seg[i : i + 8] in text for i in range(len(seg) - 7))
 
 
 def _seg_start(text: str, lo: int, k: int) -> int:

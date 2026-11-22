@@ -74,10 +74,13 @@ def decode(text: str, layers: int = LAYERS, *, short: bool = False) -> str:
     return text
 
 
-def decode_then_scrub(text: str, rules: Callable[[str], str]) -> tuple[str, int]:
+def decode_then_scrub(
+    text: str, rules: Callable[[str], str], keep: Callable[[str, str, str], bool] | None = None
+) -> tuple[str, int]:
     """``text`` with each line that holds an encoded character decoded and given to ``rules``; a line is replaced by
-    its decoded, scrubbed form only when ``rules`` changed the decoded line. Returns the text and how many lines were
-    replaced. A text with no encoded character costs one search."""
+    its decoded, scrubbed form only when ``rules`` changed the decoded line and ``keep(line, decoded, scrubbed)``,
+    when given, does not say the line may keep its own form (the bundle's H-76 rule). Returns the text and how many
+    lines were replaced. A text with no encoded character costs one search."""
     if not ENCODED.search(text):
         return text, 0
     lines = text.split("\n")
@@ -93,7 +96,8 @@ def decode_then_scrub(text: str, rules: Callable[[str], str]) -> tuple[str, int]
                 continue
             clean = rules(plain)
             if clean != plain:
-                lines[k] = clean
-                replaced += 1
+                if keep is None or not keep(line, plain, clean):
+                    lines[k] = clean
+                    replaced += 1
                 break
     return "\n".join(lines), replaced
