@@ -1,0 +1,58 @@
+{
+  "card": "F2",
+  "title": "the CSV reader sets aside a cut or ragged export",
+  "date": "2026-11-22",
+  "source": "docs/handover/csv-cut-rows-2026-11-22.md",
+  "findings": [
+    {
+      "id": "H34-01",
+      "date": "2026-11-18",
+      "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+      "severity": "High",
+      "claim": "a CSV export cut inside its last row: that lab result is served with its value cut short and no sample time; nothing counted",
+      "lane": "E",
+      "basis": "shown",
+      "state": "fixed 50477a851084"
+    },
+    {
+      "id": "H34-03",
+      "date": "2026-11-18",
+      "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+      "severity": "High",
+      "claim": "a CSV export that ends inside a quoted field (no closing quote): the last note is served cut short; nothing counted",
+      "lane": "E",
+      "basis": "shown",
+      "state": "fixed 50477a851084"
+    },
+    {
+      "id": "H34-04",
+      "date": "2026-11-18",
+      "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+      "severity": "High",
+      "claim": "a CSV row one field short is mapped with the missing column taken as empty; nothing counted",
+      "lane": "E",
+      "basis": "shown",
+      "state": "fixed 50477a851084"
+    },
+    {
+      "id": "F2-01",
+      "date": "2026-11-22",
+      "source": "docs/handover/csv-cut-rows-2026-11-22.md",
+      "severity": "Medium",
+      "claim": "a complete CSV export that does not end with a line end, or ends with a DOS end-of-file byte, now holds the night where master read it",
+      "lane": "E",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "F2-02",
+      "date": "2026-11-22",
+      "source": "docs/handover/csv-cut-rows-2026-11-22.md",
+      "severity": "Low",
+      "claim": "a CSV export cut exactly at a line end (whole rows lost) cannot be told from a whole file and is served, as on master",
+      "lane": "E",
+      "basis": "shown",
+      "state": "open"
+    }
+  ]
+}
