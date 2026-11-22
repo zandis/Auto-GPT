@@ -22,18 +22,25 @@ from criteria_compiler.terminology.mapper import Terminology
 from tb_common.audit import AuditLog
 from tb_contracts import LlmExtractOutput
 
+from tests.presence_approval_fixture import approvals_of_own_text
+
 
 def _one(text: str, concept: str, tmp_path: Path, kind: str = "inclusion") -> Any:
     crit = {"kind": kind, "class": "structured", "text": text,
             "logic": {"domain": "encounter", "concept": concept, "quantifier": "any"},
             "concept_candidates": [{"name": concept, "domain": "encounter"}]}  # fmt: skip
+    extracted = LlmExtractOutput.model_validate({"criteria": [crit]})
+    sources = [pp.PresenceSource(text, kind, "en")]
+    # gate 1 (standing ruling, 2026-11-22): a person's recorded approval of this line's own exact text
+    approvals = approvals_of_own_text("T", extracted, Terminology(), sources)
     (c,) = pp.postprocess(
         "T",
-        LlmExtractOutput.model_validate({"criteria": [crit]}),
+        extracted,
         Terminology(),
         "1.0.0",
         audit=AuditLog(tmp_path),
-        sources=[pp.PresenceSource(text, kind, "en")],
+        sources=sources,
+        approvals=approvals,
     ).criteria
     return c
 

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from criteria_compiler.ir_extract.postprocess import PresenceSource, admit_presence
+from criteria_compiler.ir_extract.presence_approvals import approval_of
 from criteria_compiler.terminology.mapper import MappingResult, Terminology, valueset
 from tb_common.audit import AuditLog
 from tb_common.ruleset import SEED_RULESETS, Ruleset
@@ -168,6 +170,8 @@ def test_a_timed_alternative_needs_both_diagnoses_and_the_same_window_per_branch
     candidate = criterion.model_copy(
         update={"kind": source.kind, "text": text, "logic": BoolExpr(op="or", args=[stroke, mi])}
     )
+    # The owner's ruling (2026-11-22): an alternative runs only on a person's recorded approval of its exact text.
+    source = replace(source, approvals=(approval_of(candidate, maps, actor="reviewer A", recorded_at="2026-11-22"),))
     assert admit_presence(candidate, source, maps, term, audit=audit) == candidate
     for wrong in (
         stroke,
@@ -195,7 +199,9 @@ def test_qualifying_text_and_the_mixed_fallback_must_agree(
         }
     )
     maps = {"VTE": term.map("condition", "venous thromboembolism")}
-    source = PresenceSource(line, "inclusion", "en")
+    # The owner's ruling (2026-11-22): a qualified line runs only on a person's recorded approval of its exact text.
+    approval = approval_of(candidate, maps, actor="reviewer A", recorded_at="2026-11-22")
+    source = PresenceSource(line, "inclusion", "en", approvals=(approval,))
     assert admit_presence(candidate, source, maps, term, audit=audit) == candidate
     wrong = candidate.model_copy(update={"note_question": "Does a parent have a pulmonary embolism?"})
     assert admit_presence(wrong, source, maps, term, audit=audit).class_ == "human"

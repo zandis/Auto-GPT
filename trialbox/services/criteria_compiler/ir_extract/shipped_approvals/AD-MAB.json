@@ -1,0 +1,131 @@
+{
+ "approvals": [
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE": {
+     "count": 6,
+     "sha256": "89d59650f2c41fa7658a7d2293c65475b2a408e0783e2ef2ec4ee72baf6fb083"
+    }
+   },
+   "criterion": "AD-MAB-INC-02",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE": [
+     "http://hl7.org/fhir/sid/icd-10-cm|G30",
+     "http://hl7.org/fhir/sid/icd-10|F00"
+    ]
+   },
+   "flags": [],
+   "kind": "inclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE"
+   },
+   "note_question": null,
+   "protocol": "AD-MAB",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "アルツハイマー病による軽度認知障害（MCI）または軽度のアルツハイマー型認知症と診断されている者（ICD-10-CM G31.84 または G30）。",
+   "text_sha256": "231d380b2550d049772dfc5a65411b8bbed4c8534c406b3e2ec1a4e77cc8eb65"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_ANTICOAGULANT": {
+     "count": 5,
+     "sha256": "d162f3c21b9a58b456d0b419e5113683a0ea1cece659b4d3f77f5fa6736071e1"
+    }
+   },
+   "criterion": "AD-MAB-EXC-01",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_ANTICOAGULANT": [
+     "http://www.whocc.no/atc|B01AA",
+     "http://www.whocc.no/atc|B01AE",
+     "http://www.whocc.no/atc|B01AF"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "medication",
+    "quantifier": "any",
+    "valueset": "VS_ANTICOAGULANT",
+    "window": {
+     "anchor": "index",
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "note_question": null,
+   "protocol": "AD-MAB",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "スクリーニング前90日以内に抗凝固薬（ワルファリン、直接経口抗凝固薬）を使用した者。",
+   "text_sha256": "691ddba49d85d37f425510e764d3d508e3fe2048c895b4dc7549b5800065fa9e"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_STROKE": {
+     "count": 117,
+     "sha256": "e274b35ad28ae97ac1a2de56f8234d97cde22faac789f2187990451fab5fdcd3"
+    },
+    "VS_TRANSIENT_ISCHEMIC_ATTACK": {
+     "count": 5,
+     "sha256": "bfa817b71035dc9759270d91f501175890d8c2f68ef244fbdcdd9c84ad78debd"
+    }
+   },
+   "criterion": "AD-MAB-EXC-03",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_STROKE": [
+     "http://hl7.org/fhir/sid/icd-10-cm|I63",
+     "http://hl7.org/fhir/sid/icd-10|I64"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "args": [
+     {
+      "domain": "condition",
+      "quantifier": "any",
+      "valueset": "VS_STROKE",
+      "window": {
+       "anchor": "index",
+       "from_days": -365,
+       "to_days": 0
+      }
+     },
+     {
+      "domain": "condition",
+      "quantifier": "any",
+      "valueset": "VS_TRANSIENT_ISCHEMIC_ATTACK",
+      "window": {
+       "anchor": "index",
+       "from_days": -365,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "or"
+   },
+   "note_question": null,
+   "protocol": "AD-MAB",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "スクリーニング前12か月以内に脳卒中または一過性脳虚血発作（TIA）の既往がある者。",
+   "text_sha256": "e2484016ee2dc620bf36ad1e7a57111bfcd43ecff9df4ed838dcc9c04393d1a0"
+  }
+ ],
+ "form": "trialbox.presence-approvals/1"
+}

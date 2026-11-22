@@ -19,7 +19,7 @@ from doc_parser.parser import HEADINGS, items_with_parents
 from lake.client import LakeAPI
 from tb_common import provenance
 from tb_common.audit import AuditLog
-from tb_common.config import site_tz
+from tb_common.config import environment_name, site_tz
 from tb_common.derived import country_of, egfr_for_site
 from tb_common.fhir import FhirEvalError, FhirEvaluator, library_resource, server_said
 from tb_common.http import ServiceError
@@ -55,6 +55,7 @@ from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
 from criteria_compiler.equivalence.gate import run_gate, unproven, without_pseudonyms
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, PresenceSource, hold_reused_negated, postprocess
+from criteria_compiler.ir_extract.presence_approvals import PresenceApprovalsRefused, release_note, shipped_approvals
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
 from criteria_compiler.semantics import FILTERED, CompileError, atoms, class_split, compiled
@@ -991,6 +992,12 @@ class Compiler:
         valuesets: dict[str, dict[str, Any]] = dict(approved.valuesets) if approved else {}
         # the parser's warnings (hidden text, a planted instruction, masked contact lines; T-208, T-606): to the review
         warnings: list[str] = list(parsed.warnings or [])
+        environment = environment_name(os.environ)
+        try:
+            # gate 1: the labelled approvals shipped with a synthetic protocol, on a test box only
+            recorded = shipped_approvals(ruleset, environment)
+        except PresenceApprovalsRefused as refused:
+            raise CompileFailed("presence_approvals", refused.key) from None
         if todo:
             extracted, guard, unread, calls = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit
@@ -1012,6 +1019,8 @@ class Compiler:
                 criterion_ids=fresh_ids,
                 sources=[sources[i] for i in fresh_indices],
                 audit=self.d.audit,
+                approvals=recorded,
+                environment=environment,
             )
             criteria_new = with_calls(flag_unread(post.criteria, unread, warnings), calls)
             valuesets.update(post.valuesets)
@@ -1228,7 +1237,9 @@ class Compiler:
                 updated.append(c.model_copy(update={"review": review}))
                 continue
             if d.status == "approve":
-                review = CriterionReview(status="approved", by=req.by, at=now, comment=d.comment)
+                # gate 1: a line a recorded approval released keeps that note under the person's own comment
+                kept = "\n".join(x for x in (release_note(c), d.comment) if x) or None
+                review = CriterionReview(status="approved", by=req.by, at=now, comment=kept)
             elif d.status == "reject":
                 review = CriterionReview(status="rejected", by=req.by, at=now, comment=d.comment)
             new = c.model_copy(update={"review": review})

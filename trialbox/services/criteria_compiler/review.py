@@ -18,6 +18,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 from tb_contracts import Atom, BoolExpr, CriterionIR, EquivalenceReport, ReviewDecision
 
+from criteria_compiler.ir_extract.presence_approvals import release_note
 from criteria_compiler.semantics import FILTERED, window
 
 COLUMNS = [
@@ -171,6 +172,8 @@ def rows(
             summary += f"\n[question rewritten from the negated form: {c.note_question_source}]"
         if "negated_logic_rewritten" in (c.flags or []) and c.logic is not None:  # red of 2026-11-15 (jmed)
             summary += f"\n[logic rewritten from the negated form: {logic_summary(_negated(c.logic), valuesets)}]"
+        if note := release_note(c):  # gate 1: executes because a recorded approval released it
+            summary += f"\n[{note}]"
         out.append(
             {
                 "id": c.id,

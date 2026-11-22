@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ir_extract.postprocess import PresenceSource, postprocess
+from criteria_compiler.ir_extract.presence_approvals import shipped_approvals
 from criteria_compiler.semantics import compiled
 from criteria_compiler.service import _presence_passages
 from criteria_compiler.terminology.mapper import Terminology
@@ -223,7 +224,11 @@ def test_numbered_protocol_items_released_from_the_original_passage(
     sources = [s for section in _presence_passages(parsed).values() for _, _, s in section]
     cassette = root / "services/llm_stub/cassettes/ir_extract" / f"{ruleset}.json"
     extraction = LlmExtractOutput.model_validate_json(cassette.read_bytes())
-    post = postprocess(ruleset, extraction, term, sources=sources, audit=AuditLog(tmp_path))
+    # The owner's ruling (2026-11-22): these lines run through the labelled approvals shipped with the protocol.
+    approvals = shipped_approvals(ruleset, "TEST")
+    post = postprocess(
+        ruleset, extraction, term, sources=sources, audit=AuditLog(tmp_path), approvals=approvals, environment="TEST"
+    )
     got = {c.text: c for c in post.criteria}
     expected = Ruleset.load(SEED_RULESETS / ruleset).by_id()
     for text in released:

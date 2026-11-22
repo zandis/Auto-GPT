@@ -19,14 +19,16 @@
 from __future__ import annotations
 
 import csv
+import os
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cache
 from typing import Any
 
 from pydantic import ValidationError
 from tb_common.audit import AuditLog
+from tb_common.config import environment_name
 from tb_common.crypto import sha256_text
 from tb_common.derived import CODES, COMPONENTS
 from tb_common.ruleset import Ruleset
@@ -36,6 +38,7 @@ from tb_contracts.criterion_ir import ACTIVE_STATUSES
 from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
+from criteria_compiler.ir_extract.presence_approvals import Proposal, RecordedApproval, approval_for, release_note
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, Kind, atoms, check_bool, demographic_alone, kind
 from criteria_compiler.terminology.mapper import (
     Concept,
@@ -531,6 +534,9 @@ class PresenceSource:
     language: str
     standalone: bool = True
     complete: bool = True
+    # Recorded approvals of this exact passage (gate 1, presence_approvals): a person's decision, or a labelled
+    # demonstration approval shipped with a synthetic protocol. Each still has to match the proposal exactly.
+    approvals: tuple[RecordedApproval, ...] = ()
 
 
 PRESENCE_REVIEW = "presence_requires_review"
@@ -745,15 +751,20 @@ def admit_presence(
     *,
     audit: AuditLog | None = None,
     approved: Ruleset | None = None,
+    environment: str | None = None,
 ) -> CriterionIR:
     """Release a coded presence only on independent passage evidence or a persisted decision.
 
     Only a trusted reader of the review record may supply `approved`. First extraction has no such record.
-    A bare approval status on the proposal supplies no evidence.
+    A bare approval status on the proposal supplies no evidence. The source's recorded approvals of its exact
+    text (:mod:`criteria_compiler.ir_extract.presence_approvals`) apply only when one matches the proposal
+    exactly, and a shipped synthetic one only on a test box (`environment`, else ``TB_ENV``). A release note in
+    the review record (:func:`presence_approvals.release_note`) survives only a release by that approval.
     """
     flagged = PRESENCE_REVIEW in (criterion.flags or [])
     if not flagged and (criterion.class_ not in FILTERED or not _presence_logic(criterion.logic)):
         return criterion
+    recorded: RecordedApproval | None = None
     if (
         not flagged
         and source
@@ -774,8 +785,27 @@ def admit_presence(
             predicate = _passage_predicate(criterion, source, mappings, term) if source.standalone else None
             allowed = predicate is not None
             if predicate is not None:
-                criterion = criterion.model_copy(update={"logic": predicate, "text": source.text})
+                plain: dict[str, Any] = {"logic": predicate, "text": source.text}
+                if release_note(criterion):  # released by the passage, not by the approval it was labelled with
+                    plain["review"] = CriterionReview(status="draft")
+                criterion = criterion.model_copy(update=plain)
+            elif source.approvals:
+                env = environment if environment is not None else environment_name(os.environ)
+                recorded = approval_for(criterion, source.text, mappings, source.approvals, env)
+                allowed = recorded is not None
         if allowed:
+            if recorded is not None:
+                basis: dict[str, str] = {
+                    "basis": "recorded_approval",
+                    "approval_basis": recorded.basis,
+                    "approval_label": recorded.label,
+                    "recorded_by": recorded.recorded_by,
+                    "approval_actor": recorded.actor,
+                    "approval_date": recorded.date,
+                    "text_sha256": recorded.text_sha256,
+                }
+            else:
+                basis = {"basis": "review" if approved is not None else "text"}
             try:
                 receipt = audit.append(
                     "compile.presence_admitted",
@@ -783,7 +813,7 @@ def admit_presence(
                     input_sha=sha256_text(source.text),
                     output_sha=sha256_text(criterion.logic.model_dump_json(exclude_none=True)),
                     actor="criteria-compiler",
-                    detail={"criterion": criterion.id, "basis": "review" if approved is not None else "text"},
+                    detail={"criterion": criterion.id, **basis},
                 )
             except (OSError, RuntimeError, ValueError):
                 pass  # An unavailable audit destination or invalid audit setting requires human review.
@@ -820,6 +850,8 @@ def postprocess(
     criterion_ids: Sequence[str] | None = None,
     sources: Sequence[PresenceSource] = (),
     audit: AuditLog | None = None,
+    approvals: Sequence[RecordedApproval] = (),
+    environment: str | None = None,
 ) -> PostResult:
     """``egfr``: what a criterion that says only "eGFR" becomes at this site (D-149): ``egfr`` (CKD-EPI 2021, the
     meaning it always had) or ``egfr_jsn`` at a Japanese site; a protocol that names its equation keeps it."""
@@ -1038,7 +1070,18 @@ def postprocess(
         if flags:
             ir = ir.model_copy(update={"flags": sorted(set(flags) | {"needs_review"})})
         source = sources[len(criteria)] if len(sources) == len(extracted.criteria) else None
-        criteria.append(admit_presence(ir, source, mappings, term, audit=audit))
+        if source is not None and approvals:
+            source = replace(source, approvals=(*source.approvals, *(a for a in approvals if a.text == source.text)))
+        env = environment if environment is not None else environment_name(os.environ)
+        # Only the draft's fields are read here: the draft itself goes to the gate and nowhere else.
+        proposal = Proposal(ir.ruleset, ir.id, ir.kind, ir.text, ir.class_, ir.logic, ir.note_question, ir.flags)
+        gated = ir.class_ in FILTERED and _presence_logic(ir.logic)  # only a coded presence is released by one
+        recorded = approval_for(proposal, source.text, mappings, source.approvals, env) if source and gated else None
+        if recorded is not None:
+            # The label travels with the line (its review record, the review report, the screens that read it).
+            # The gate alone decides; on a hold it resets this review record.
+            ir = ir.model_copy(update={"review": CriterionReview(status="draft", comment=recorded.release_note())})
+        criteria.append(admit_presence(ir, source, mappings, term, audit=audit, environment=env))
     criteria = decided_once(criteria, warnings)
     return PostResult(criteria, dict(sorted(valuesets.items())), mappings, warnings)
 
