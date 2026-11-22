@@ -73,9 +73,9 @@ async function measure(page) {
       const r = bar.getBoundingClientRect();
       out.markbar = { top: r.top, bottom: r.bottom };
     }
-    const row = document.querySelector(".pcards > .pcard");
+    const row = document.querySelector("table.worklist tbody tr");
     if (row) out.firstRow = row.getBoundingClientRect().top;
-    const box = document.querySelector(".pcards");
+    const box = document.querySelector(".scroll:has(> table.worklist)");
     if (box) out.worklist = { scrollWidth: box.scrollWidth, clientWidth: box.clientWidth };
     return out;
   }, SELECTORS);

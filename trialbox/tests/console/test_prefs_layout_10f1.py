@@ -1,9 +1,8 @@
 """10F-1 (D-1387; the review's M-5 and L-6): the chosen text size and colour mode, measured in a real browser.
 
-At 150 % text a wide table no longer fits its box on a 1280 px desktop in ja and zh-TW, nor on a 390 px phone: it
-scrolls inside its own ``.scroll`` box, a focusable region with a visible focus ring, and the page never scrolls
-sideways. The week page's list was such a table; since 9k-14 (D-1386) it is person cards, which must fit their list at
-150 % (the ``cards-fit`` check) instead. The account page (a form) is
+At 150 % text the week page's worklist (a table) no longer fits its box on a 1280 px desktop in ja and zh-TW, nor on
+a 390 px phone. It is not restyled here (9k-14 replaces it with cards): it scrolls inside its own ``.scroll`` box,
+a focusable region with a visible focus ring, and the page never scrolls sideways. The account page (a form) is
 measured the same way. A dark mode prints on the paper's colours. Rendered by the in-process box with the person's
 own preferences, opened in Chromium through Node Playwright (``tests/console/prefs_layout_10f1.js``), skipped where
 it is missing, as ``test_cjk_layout``. Synthetic data only.
@@ -57,13 +56,8 @@ def test_at_150_percent_a_wide_table_scrolls_in_its_box_and_the_page_never_sidew
     for lang in ("ja", "zh-TW"):
         pi = _as(box, "drsato", {"lang": lang, "text_size": "150"})
         assert 'data-text-size="150"' in pi.get("/home").text
-        # 9k-14: the week list is person cards now (no table to scroll): the cards hold their list at 150 % text
-        put(pi, f"week-{lang}-desktop.html", "/studies/GZQO/week", lang, DESKTOP, ["cards-fit"])
-        put(pi, f"week-{lang}-phone.html", "/studies/GZQO/week", lang, PHONE, ["cards-fit"])
-        # the candidates' table is still a table: it does not fit at 150 % and scrolls inside its box
-        wide = ["has-wide-table"] if lang == "ja" else []  # zh-TW's shorter text still fits the desktop box
-        put(pi, f"candidates-{lang}-desktop.html", "/studies/GZQO/candidates", lang, DESKTOP, wide)
-        put(pi, f"candidates-{lang}-phone.html", "/studies/GZQO/candidates", lang, PHONE, ["has-wide-table"])
+        put(pi, f"week-{lang}-desktop.html", "/studies/GZQO/week", lang, DESKTOP, ["has-wide-table"])
+        put(pi, f"week-{lang}-phone.html", "/studies/GZQO/week", lang, PHONE, ["has-wide-table"])
         put(pi, f"account-{lang}-desktop.html", "/account", lang, DESKTOP, [])
         put(pi, f"account-{lang}-phone.html", "/account", lang, PHONE, [])
         dark = _as(box, "crc", {"lang": lang, "mode": "dark", "text_size": "150"})

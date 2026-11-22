@@ -36,9 +36,6 @@ async function measure(page) {
       });
       el.blur();
     }
-    // 9k-14: the person cards replace the week table; the list holds its box at this text size (nothing of it clipped)
-    const cards = document.querySelector(".pcards");
-    if (cards) out.cards = { scrollWidth: cards.scrollWidth, clientWidth: cards.clientWidth, n: cards.querySelectorAll(".pcard").length };
     return out;
   });
 }
@@ -85,10 +82,6 @@ async function measure(page) {
       }
       if ((p.checks || []).includes("has-wide-table")) {
         check(m.boxes.some((b) => b.over), `${name}: the table was expected not to fit its box at this size`);
-      }
-      if ((p.checks || []).includes("cards-fit")) {
-        check(m.cards && m.cards.n > 0 && m.cards.scrollWidth <= m.cards.clientWidth + 1,
-          `${name}: the person cards do not fit their list at this text size (${JSON.stringify(m.cards)})`);
       }
       results.push({ file: p.file, width: p.width, boxes: m.boxes, scrollWidth: m.scrollWidth });
       await ctx.close();
