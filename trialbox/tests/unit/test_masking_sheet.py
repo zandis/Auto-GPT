@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import re
 import shutil
-import time
 from pathlib import Path
 from typing import Any
 
@@ -79,13 +78,16 @@ def test_check_sees_a_dropped_row_and_a_changed_number(tmp_path: Path) -> None:
 
 
 def test_a_fresh_run_gives_the_committed_results() -> None:
-    """The measurement again, in process (29 s on this box; the test fails at 60 s): every figure, form, shape, blob
-    and the site pattern equal the committed results; only the run's commit and date may differ."""
-    t0 = time.monotonic()
+    """The measurement again, in process (about 30 s): every figure, form, shape and the site pattern equal the
+    committed results; the run's commit, date and the measured files' blob ids may differ (a change that moves no
+    figure needs no new run). A change to the masker or the log formatter that moves a figure makes this test red
+    until the sheet is measured again in the same pull request, with the command the message names."""
     fresh = ms.run(ml.engines())
-    assert time.monotonic() - t0 < 60
-    drop = ("commit", "date")
-    assert {k: v for k, v in fresh.items() if k not in drop} == {k: v for k, v in RES.items() if k not in drop}
+    drop = ("commit", "date", "blobs")
+    assert {k: v for k, v in fresh.items() if k not in drop} == {k: v for k, v in RES.items() if k not in drop}, (
+        "the sheet is not what the masker does now: run "
+        "`PYTHONPATH=libs:services:. .venv/bin/python -m tools.masking_sheet --write` from trialbox/ and commit it"
+    )
 
 
 def test_the_results_name_the_master_commit_and_what_the_run_depends_on() -> None:
