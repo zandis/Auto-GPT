@@ -91,8 +91,19 @@ if torch is not None:
     step("device", lambda: torch.cuda.get_device_name(0))
     step("capability", lambda: "%d.%d" % torch.cuda.get_device_capability(0))
     step("matmul", lambda: float((torch.ones(64, 64, device="cuda") @ torch.ones(64, 64, device="cuda")).sum().item()))
-    step("vllm_ops", lambda: bool(__import__("vllm._C")))
-    step("vllm_moe_ops", lambda: bool(__import__("vllm._moe_C")))
+    # the engine's compiled-op modules, by either name form the pinned engine image may ship (the plain name, or the
+    # stable-ABI build's): the name found is recorded; neither found is an error
+    def ops(*names):
+        said = []
+        for n in names:
+            try:
+                __import__(n)
+                return n
+            except BaseException as e:
+                said.append(n + ": " + type(e).__name__ + ": " + str(e)[:150])
+        raise ImportError("; ".join(said))
+    step("vllm_ops", lambda: ops("vllm._C", "vllm._C_stable_libtorch"))
+    step("vllm_moe_ops", lambda: ops("vllm._moe_C", "vllm._moe_C_stable_libtorch"))
 print("TBPROBE " + json.dumps(r, sort_keys=True))
 """
 TESTS: list[dict[str, Any]] = [
@@ -245,7 +256,10 @@ def classify(rc: int, stdout: str, stderr: str) -> tuple[str, dict[str, Any] | N
     errors = " | ".join(f"{k}: {v}" for k, v in sorted(probe.items()) if k.endswith("_error"))
     seen = probe.get("available") is True
     ran = probe.get("matmul") == MATMUL_WANT
-    ops = probe.get("vllm_ops") is True and probe.get("vllm_moe_ops") is True
+    # True (a result from before either name form was accepted) or the module name the check found
+    ops = all(
+        probe.get(k) is True or (isinstance(probe.get(k), str) and probe[k]) for k in ("vllm_ops", "vllm_moe_ops")
+    )
     if seen and ran and ops and "vllm" in probe:
         return "PASS", probe, ""
     if _BUSY_WORDS.search(errors):  # a busy or full card says nothing about this engine on this card
