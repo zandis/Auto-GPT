@@ -1,0 +1,101 @@
+{
+ "about": "The e-embed-1 weights as a box holds them (F-35): every visible file of the publisher's repository at revision 7b44caba5c06fd6f1ef1d2786261e636c38e4295 without its three pickle files, hashed on the bench host. Each file's sha256 matches what the publisher lists for that revision (the large files' published sha256, the others' git blob ids). fetch_weights reads this record through the row's expected.source.",
+ "revision": "7b44caba5c06fd6f1ef1d2786261e636c38e4295",
+ "servers": [
+  {
+   "model": "BAAI/bge-m3",
+   "model_files": [
+    {
+     "path": "1_Pooling/config.json",
+     "bytes": 191,
+     "sha256": "e54c164a07274f2eb45bb724f54a79d1efcc90c41573887cd9a29aeee0597352"
+    },
+    {
+     "path": "README.md",
+     "bytes": 14955,
+     "sha256": "9a3b44fb730273b62ccf8d242d7be3c5d8a5352af20a3840ca7a4b93a9528f9b"
+    },
+    {
+     "path": "config.json",
+     "bytes": 687,
+     "sha256": "26159e7ad065073448460117eb24b7a4572f6f4e78eadff65dc0a11c052449fa"
+    },
+    {
+     "path": "config_sentence_transformers.json",
+     "bytes": 123,
+     "sha256": "1eef72430e7194a1e59680e635aed81ffa083f05668dbc5bb1c56c04c0999c38"
+    },
+    {
+     "path": "imgs/bm25.jpg",
+     "bytes": 68964,
+     "sha256": "a31a32ac0dc74dfddffdec28da8a30b685648a23ed5a370ca27f7d4561752d3a"
+    },
+    {
+     "path": "imgs/long.jpg",
+     "bytes": 485432,
+     "sha256": "d2a44539154d2cee75abd032fe773d5514f1129b741c4641cde12554762709a6"
+    },
+    {
+     "path": "imgs/miracl.jpg",
+     "bytes": 447641,
+     "sha256": "7ba3692cca5589ed302e06cf8f4b051977a12a65fa6527c82221327c65643b4f"
+    },
+    {
+     "path": "imgs/mkqa.jpg",
+     "bytes": 608027,
+     "sha256": "ae331fb64bdceeaafecc2f8cd89a2d55a3e41c429dcc5ba906cb9a7bdb73cf2b"
+    },
+    {
+     "path": "imgs/nqa.jpg",
+     "bytes": 158358,
+     "sha256": "5385ca9d6af4124932281039e1366d704d10ed81e905526f795f5732352394bb"
+    },
+    {
+     "path": "imgs/others.webp",
+     "bytes": 20984,
+     "sha256": "9222ef69ba79cbd3aa8c659bd3cbbf9d90b3dbb040526f56298ed9ceb05ec9df"
+    },
+    {
+     "path": "long.jpg",
+     "bytes": 126894,
+     "sha256": "4ba03433ef54575eeef5a291abd81661eb53c432677934dc4050565893e7a8a9"
+    },
+    {
+     "path": "model.safetensors",
+     "bytes": 2271064456,
+     "sha256": "993b2248881724788dcab8c644a91dfd63584b6e5604ff2037cb5541e1e38e7e"
+    },
+    {
+     "path": "modules.json",
+     "bytes": 349,
+     "sha256": "84e40c8e006c9b1d6c122e02cba9b02458120b5fb0c87b746c41e0207cf642cf"
+    },
+    {
+     "path": "sentence_bert_config.json",
+     "bytes": 54,
+     "sha256": "eb9b44b13c0f52a3b3685c3b1cbdea1ba8b04bea123b98f61610048940776eb1"
+    },
+    {
+     "path": "sentencepiece.bpe.model",
+     "bytes": 5069051,
+     "sha256": "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865"
+    },
+    {
+     "path": "special_tokens_map.json",
+     "bytes": 964,
+     "sha256": "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835"
+    },
+    {
+     "path": "tokenizer.json",
+     "bytes": 17098108,
+     "sha256": "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08"
+    },
+    {
+     "path": "tokenizer_config.json",
+     "bytes": 444,
+     "sha256": "a62b2b6784f990259fddef5f16388693a8043be4f69179e6a5257eeb3f9abac4"
+    }
+   ]
+  }
+ ]
+}
