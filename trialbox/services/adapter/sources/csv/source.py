@@ -6,8 +6,9 @@ through the one detector of D-215 (:mod:`tb_common.encoding`), with the site's d
 CSV, is **quarantined**: it is moved to ``<directory>/quarantine/`` (left in place when the folder is read-only), the
 table yields no rows, and :meth:`CsvSource.quarantine_reason` says why, with the line. The adapter holds the night and
 reads the other tables; nothing is guessed and no U+FFFD reaches a record. A file cut short is not a readable CSV
-either (F-2): one that ends inside a quoted field or inside its last row, or that has a row with more or fewer fields
-than its header, is quarantined with the line, never served with a value cut or a column taken as empty.
+either (F-2): one that does not end with a line end, ends inside a quoted field, starts with a blank line, or has a
+row with more or fewer fields than its header, is quarantined with the line, never served with a value cut or a
+column taken as empty.
 
 Delta (T-615b, DATA-008). ``--since`` filters on the table's change-time column (the mapping's ``delta:``, canonical
 ``updated_at``). A row whose change time is empty is kept, and so is every row of a file that has no such column: a
@@ -74,26 +75,34 @@ def _ends_with_line_end(path: Path) -> bool:
 
 
 def _not_whole(path: Path, codec: str) -> str | None:
-    """F-2 (H34-01, -03, -04): why the file is not a whole CSV, or None. Parsed strictly (a quoted field the file ends
-    inside is an error, not a field), and every row has as many fields as the header: a row short or long is a row
-    cut or split, never one whose missing column is taken as empty. A short last row with no line end is the file
-    cut inside it. Read as a stream, no row kept (T-692); the reason holds the line, never a cell's text."""
-    width = 0
+    """F-2 (H34-01, -03, -04): why the file is not a whole CSV, or None. A file that does not end with a line end is
+    cut: a writer ends every row with one, and a row cut anywhere (inside a field, after a separator, after half of an
+    escaped quote) can have the header's width, so only the missing line end tells it. Parsed strictly (a quoted field
+    the file ends inside is an error, not a field), the first line is the header (a blank one would make every row's
+    columns nameless), and every row has the header's fields: a row short or long is a row cut or split, never one
+    whose missing column is taken as empty. Two shapes of a real export are no fault: header columns with no name at
+    its end may be missing from a row, and a row may carry empty fields past the header's end (a trailing separator).
+    Read as a stream, no row kept (T-692); the reason holds the line, never a cell's text."""
+    if not _ends_with_line_end(path):
+        return ": the file does not end with a line end, so its last row may be cut"
+    width = named = 0
     try:
         with path.open(encoding=codec, newline="") as fh:
             reader = csv.reader(fh, strict=True)
             for rec in reader:
+                if not width:
+                    if not rec:
+                        return f": line {reader.line_num} is blank where the header must be"
+                    width = len(rec)
+                    named = width
+                    while named > 1 and not rec[named - 1].strip():
+                        named -= 1
+                    continue
                 if not rec:  # a blank line is no row (as DictReader reads it)
                     continue
-                if not width:
-                    width = len(rec)
+                if named <= len(rec) <= width or (len(rec) > width and not any(f.strip() for f in rec[width:])):
                     continue
-                if len(rec) == width:
-                    continue
-                line, fields = reader.line_num, f"{len(rec)} fields where the header has {width}"
-                if len(rec) < width and next(reader, None) is None and not _ends_with_line_end(path):
-                    return f": the file ends inside its last row (line {line}: {fields})"
-                return f": line {line} has {fields}"
+                return f": line {reader.line_num} has {len(rec)} fields where the header has {width}"
     except csv.Error as exc:
         return f" ({exc}, line {reader.line_num})"
     return None
