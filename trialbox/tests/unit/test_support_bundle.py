@@ -47,6 +47,7 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (deploy / "secrets" / "backup.pub").write_text("public\n", encoding="utf-8")
     (deploy / ".env").write_text(
         "TB_TZ=Asia/Taipei\n"
+        "TB_ENV=TEST\n"  # rc1 (R22-34): a test box; a PRODUCTION box makes no bundle
         f"TB_LOG_DIR={logs}\n"
         f"TB_AUDIT_HOST_DIR={tmp_path / 'audit'}\n"
         f"POSTGRES_PASSWORD={FAKE_PASSWORD}\n"

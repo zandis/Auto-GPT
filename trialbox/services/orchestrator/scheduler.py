@@ -94,8 +94,27 @@ def require_released() -> None:
     """The first check of a scenario that lists patients (NEW-B-3, D-522): nothing is listed while the hold of a
     restore stands. :func:`require_open` calls it for SCREEN, MICROBATCH and COHORT; NAV and CASE call it
     themselves (CASE names one patient: the owner's ruling of 2026-11-12). FEAS counts and is not held."""
+    from tb_common import rc1_refusals
+
     from orchestrator.clients import StepFailed
 
+    # R22-34 (D-1072): rc1 makes no live patient list on a PRODUCTION box (an unset or unknown TB_ENV is one); the
+    # job fails before anything is read. Its error is a fixed sentence (an error names no value, test_error_answers);
+    # the detail is the table's key and the environment: PRODUCTION, or an unset or unknown name, said as such
+    if rc1_refusals.refused("live_patient_lists"):
+        if rc1_refusals.environment() == "PRODUCTION":  # unset or written; any other name is unknown
+            raise StepFailed(
+                "rc1",
+                "rc1 makes and shows no live patient list on this box. rc1 is a supervised demonstration on synthetic "
+                "or public data. No list was made or shown.",
+                "rc1.live_patient_lists: PRODUCTION",
+            )
+        raise StepFailed(
+            "rc1",
+            "rc1 makes and shows no live patient list on this box. rc1 is a supervised demonstration on synthetic "
+            "or public data. No list was made or shown.",
+            "rc1.live_patient_lists: an unknown TB_ENV",
+        )
     if restore_held():
         raise StepFailed("restore", RESTORE_HELD)
 

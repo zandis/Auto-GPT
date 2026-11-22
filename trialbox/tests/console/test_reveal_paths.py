@@ -490,7 +490,8 @@ def test_the_orchestrators_cap_survives_a_restart_and_records_the_purpose(
     from tests.unit.test_service_auth import TOKEN, _fake_box
 
     per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # rc1 (R22-34, go 7082962352): a PRODUCTION box reveals and exports nothing; PRODUCTION again when lifted
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
     events: list[dict[str, Any]] = []
@@ -524,7 +525,8 @@ def test_a_token_holder_signing_new_names_meets_the_services_total_cap(
     from tests.unit.test_service_auth import TOKEN, _fake_box
 
     per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # rc1 (R22-34, go 7082962352): a PRODUCTION box reveals and exports nothing; PRODUCTION again when lifted
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR_PER_SERVICE", "2")
     events: list[dict[str, Any]] = []
@@ -552,7 +554,8 @@ def test_the_whole_registry_export_is_never_given_to_a_break_glass_grant(
     from tests.unit.test_service_auth import TOKEN, _fake_box
 
     per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # rc1 (R22-34, go 7082962352): a PRODUCTION box reveals and exports nothing; PRODUCTION again when lifted
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     events: list[dict[str, Any]] = []
     fake = _fake_box(events)
     fake.cfg = SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(id="S1")), env=fake.cfg.env)

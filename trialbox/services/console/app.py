@@ -1611,6 +1611,10 @@ def create_app(
 
     twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
     people_lists.register(app, helpers, templates.env)  # J-5 (D-1223): Candidates and Participants, behind a flag
+    from console import rc1_guard
+
+    # R22-34 (D-1072): the last middleware added, so the outermost: it reads the address before any rewrite
+    rc1_guard.register(app, helpers, settings.environment)
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00

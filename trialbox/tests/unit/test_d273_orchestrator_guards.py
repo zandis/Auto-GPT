@@ -44,7 +44,8 @@ def box(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[TestClient, li
     from orchestrator.scenarios import screen
 
     per_service_tokens(tmp_path, monkeypatch)
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # rc1 (R22-34, go 7081415241): a PRODUCTION box reveals and exports nothing; PRODUCTION again when it is lifted
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
     monkeypatch.setattr(oapp, "EXPORTS", oapp.RevealLimit("TB_EXPORT_MAX_PER_HOUR", 10))
     events: list[dict[str, Any]] = []
