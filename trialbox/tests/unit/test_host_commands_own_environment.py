@@ -106,10 +106,11 @@ if "compose" in argv and "exec" in argv:  # into the db container: its shell and
     if rest[:1] == ["db"] and rest[1:2] in (["sh"], ["rm"], ["pg_restore"]):
         # the db container's own /tmp spool is this test's folder here: a fixed host path may be another user's
         spool = os.environ["STANDIN_SPOOL"]
-        rest = [x.replace("/tmp/tb-backup", spool) for x in rest]
+        fixed = os.environ["STANDIN_CONTAINER_SPOOL"]
+        rest = [x.replace(fixed, spool) for x in rest]
         data = None if sys.stdin.isatty() else sys.stdin.buffer.read()
         if rest[1] != "pg_restore" and data is not None:
-            data = data.replace(b"/tmp/tb-backup", spool.encode())
+            data = data.replace(fixed.encode(), spool.encode())
         sys.exit(subprocess.run(rest[1:], input=data, env={**os.environ, **pg, "PATH": path}).returncode)
     if rest[:1] == ["orchestrator"] and os.environ.get("STANDIN_AUDIT"):  # the audit event, on stdin
         with open(os.environ["STANDIN_AUDIT"], "a") as fh:
@@ -220,6 +221,7 @@ def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluste
            "STANDIN_DB_URL": f"postgresql://{info.get('user') or 'postgres'}@/{dbs['trialbox_wf']}"
                              f"?host={info.get('host')}&port={info.get('port') or '5432'}",
            "STANDIN_AUDIT": str(d / "audit-events.jsonl"), "STANDIN_SPOOL": str(d / "db-container-tmp" / "tb-backup"),
+           "STANDIN_CONTAINER_SPOOL": bs.CONTAINER_SPOOL,
            **{f"STANDIN_DB_{k}": v for k, v in dbs.items()}}  # fmt: skip
     yield {"root": root, "deploy": root / "deploy", "nas": nas, "env": env, "log": log, "dir": d,
            "key": d / "usb" / "backup.key", "dbs": dbs, "admin": admin, "user": str(info.get("user") or "postgres"),
