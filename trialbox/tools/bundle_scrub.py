@@ -639,8 +639,9 @@ def token_patterns(hex_len: int) -> dict[str, re.Pattern[str]]:
 
     * ``pseudonym``: exactly ``hex_len`` hex digits, any case, with no hex digit either side (``pid=…``, ``"…"``,
       ``/patients/…``, ``0x…`` and ``pid_…`` all match; a 64-digit sha256 and a 40-digit commit do not);
-    * ``pseudonym short``: the first 8 hex digits (``pid[:8]``, the console's short form, with or without ``…``),
-      when they hold a hex letter (eight decimal digits are a date or a count far more often than a pseudonym);
+    * ``pseudonym short``: the first 8 hex digits and ``…`` (``pidmap.PidCollision``), always; ``pid[:8]`` bare
+      (the console's short form) when it holds a hex letter (eight decimal digits are a date or a count far more
+      often than a pseudonym);
     * ``screening-no``: a study's number as ``sitestore._number`` makes it, ``<prefix><seq:04d>``, where the prefix
       is the ruleset id and ``-`` or the site's prefix, which the console takes as any 16 characters
       (``study_setup.py``: ``.strip()[:16]``). Masked: a prefix of letters (any script), digits, ``_`` and ``-``
@@ -652,7 +653,9 @@ def token_patterns(hex_len: int) -> dict[str, re.Pattern[str]]:
     (``%2F``, ``\\u002F``) is handled by :meth:`Scrubber.decoded`."""
     return {
         "pseudonym": re.compile(rf"(?<![0-9A-Fa-f])[0-9A-Fa-f]{{{hex_len}}}(?![0-9A-Fa-f])"),
-        "pseudonym short": re.compile(r"(?<![0-9A-Fa-f])(?=[0-9]{0,7}[a-f])[0-9a-f]{8}(?![0-9A-Fa-f])…?"),
+        "pseudonym short": re.compile(
+            r"(?<![0-9A-Fa-f])[0-9a-f]{8}…|(?<![0-9A-Fa-f])(?=[0-9]{0,7}[a-f])[0-9a-f]{8}(?![0-9A-Fa-f])"
+        ),
         "screening-no": re.compile(r"(?<![^\W_])[^\W_][\w\-]{0,15}[\-_]\d{4,}(?![^\W_]|[\-_]\d)"),
         "screening-no separated": re.compile(r"(?<![^\W_])[A-Z][A-Z0-9]{1,15}[ .#/:]\d{4,}(?![^\W_]|[\-_.:/]\d)"),
         "screening-no letters": re.compile(r"(?<![^\W_])[A-Z][A-Za-z]{0,15}\d{4,}(?![^\W_]|[\-_]\d)"),

@@ -315,6 +315,12 @@ def test_l1_the_bare_short_pseudonym_is_masked(form: str) -> None:
     assert s not in bs.scrub_text(form.format(s=s))
 
 
+def test_l1_the_short_form_with_its_ellipsis_is_masked_even_all_decimal() -> None:
+    """The bare rule wants a hex letter; the ``…`` form needs none (a round-1 test failed 2 times in 100 on it)."""
+    short = "".join(secrets.choice("0123456789") for _ in range(8))
+    assert bs.scrub_text(f"two chart numbers ({short}…)") == "two chart numbers ([pseudonym])"
+
+
 def test_l2_names_that_collide_after_the_scrub_both_stay(tmp_path: Path, mp: pytest.MonkeyPatch) -> None:
     deploy, p, _add = make_box(tmp_path, mp)
     a, b = tmp_path / "pw=a1.txt", tmp_path / "pw=b2.txt"

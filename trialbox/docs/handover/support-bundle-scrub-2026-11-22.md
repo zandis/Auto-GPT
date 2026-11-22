@@ -89,8 +89,8 @@ Corrected after review round 1.
 
   Caught: a prefix in any script ending in `-` or `_`, capitals and digits before `.`, `#`, `/`, `:` or a space, and a
   capital then letters glued to the digits (`Scr0042`).
-- A pseudonym glued to other hex digits (`deadbeef` and 32 hex digits make one run of 40). Its first 8 digits when
-  they are all decimal (about 2 in 100 pseudonyms). Any other cut of a pseudonym (`pid[:12]`). A 64-digit sha256 and
+- A pseudonym glued to other hex digits (`deadbeef` and 32 hex digits make one run of 40). Its first 8 digits shown
+  bare (without `…`) when they are all decimal (about 2 in 100 pseudonyms). Any other cut of a pseudonym (`pid[:12]`). A 64-digit sha256 and
   a 40-digit commit are kept on purpose.
 - A secret with no name or form next to it (a bare value in prose) when it is not a value of the box. The box's own
   values are still found by value (D-723).
@@ -115,7 +115,7 @@ only the instance shown. Tests are in `tests/unit/test_support_bundle_review1.py
 | M3 the ops snapshot's update rows | (test only) | `test_m3_the_ops_snapshots_update_rows_keep_type_and_length`: red with the reviewer's mutant M5 |
 | M4 the writer guard | Every write call of the two modules (`add`, `addfile`, `make_archive`, `GzipFile`, `ZipFile`, `write_bytes`, any open for writing, module level too) must be on a reviewed list. Only the command dispatcher imports the builder. | `test_m4_*` (the finder tried on 6 probes) |
 | Speed: userinfo quadratic | The scheme starts where no scheme character stands before it, and the userinfo is at most 256 characters. Every rule was tried on a 1 MB or 256 KB worst-case line (20 shapes). | `test_speed_every_rule_is_linear_on_a_long_line`: before, one 1 MB hex line was killed at 120 s; after, at most 0.72 s each |
-| L1 bare 8-hex short form | `pid[:8]` with or without `…`, when it holds a hex letter | `test_l1_*` |
+| L1 bare 8-hex short form | `pid[:8]` bare when it holds a hex letter; with `…` always | `test_l1_*`, `test_l1_the_short_form_with_its_ellipsis_is_masked_even_all_decimal` |
 | L2 names that collide after the scrub | The second gets `~2` before its extension | `test_l2_*` (build level) |
 | L3 a trailing invalid byte | Dropped only when the caller cut the bytes (`as_text(..., cut=True)`, the log read limit) | `test_l3_*`; the card's own round-1 assertion in `test_support_bundle_scrub.py` was made stricter to match |
 
