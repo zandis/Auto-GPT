@@ -69,7 +69,7 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
 
 from tb_common import tier_value  # noqa: E402
 
-from tools import g_probes, pin_model  # noqa: E402  (after the path setup, as the parts import them)
+from tools import g_probes, logging_level, pin_model  # noqa: E402  (after the path setup, as the parts import them)
 
 LANGS = ("ja", "zh-TW")
 JUDGE, VERIFIER = pin_model.JUDGE_SERVED, pin_model.VERIFIER_SERVED  # the vLLM served names (D-124)
@@ -911,6 +911,7 @@ def _passed(res: dict[str, Any]) -> bool:
     return all(c[1] for st in res.get("stages") or [] for c in st["checks"]) and bool(res.get("stages"))
 
 
+@logging_level.restores_logging_level
 def run_part(a: argparse.Namespace) -> int:
     import logging
 

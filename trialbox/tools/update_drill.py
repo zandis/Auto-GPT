@@ -496,6 +496,12 @@ def backup_work(work: Path, to: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.logging_level import restores_logging_level
+
+    return restores_logging_level(_main)(argv)  # H-87: INFO logging is back on when the drill ends
+
+
+def _main(argv: list[str] | None = None) -> int:
     from tb_common.config import adopt_site_tz
 
     from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
