@@ -56,6 +56,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.unlock": ("Account unlocked", "アカウントのロック解除", "解除帳號鎖定"),
     "console.enrol_code": ("Enrolment code issued", "登録コードの発行", "核發註冊碼"),
     "console.user": ("Account changed", "アカウントの変更", "帳號變更"),
+    "console.pref_set": ("Own preference set", "自分の表示設定の変更", "變更自己的顯示設定"),  # 10F-1 (D-1387)
     # D-719: nobody holds both factors of a protected account
     "console.account_request": ("Account request made", "アカウントの依頼", "提出帳號申請"),
     "console.account_confirmed": ("Account request confirmed", "アカウント依頼の確認", "確認帳號申請"),

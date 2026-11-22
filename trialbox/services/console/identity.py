@@ -69,7 +69,8 @@ def client_source(request: Request) -> str:
 
 
 #: the pages an account with a password someone else set may still open (D-279): its own password page and sign-out
-MUST_CHANGE_OPEN = frozenset({"/account", "/account/password", "/logout", "/lang"})
+# D-1387 (10F-1): /account/prefs, the account page's own look and language, as /lang
+MUST_CHANGE_OPEN = frozenset({"/account", "/account/password", "/account/prefs", "/logout", "/lang"})
 
 
 class IdentityConfigError(RuntimeError):
