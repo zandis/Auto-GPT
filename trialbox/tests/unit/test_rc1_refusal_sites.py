@@ -299,6 +299,10 @@ def test_the_mvp_walk_is_not_refused_on_a_validation_box(
         assert "rc1" not in r.text, path
     assert "row-aaaaaaaa" in pi.get("/studies/GZQO/week").text  # the list itself, not a page about it
     assert app.state.rc1_guard.refusal_of("GET", "/api/v1/studies/GZQO/patients") is None  # the week's API too
+    # step 7, the audit: the steward (audit.browse) reads one patient's log (refused on PRODUCTION, R2234-14)
+    for path in (f"/audit?pid={listed}", "/audit"):
+        r = stw.get(path)
+        assert r.status_code == 200 and "rc1" not in r.text, (path, r.status_code, r.text[-300:])
     # step 8, the scheduled backup and its restore: nothing there asks the table
     sites = {s.partition(":")[0] for r in rc1_refusals.REFUSALS for s in r.sites}
     backup = ("tools.trialbox.backup", "tools.trialbox.backup_schedule", "tools.trialbox.restore_drill")

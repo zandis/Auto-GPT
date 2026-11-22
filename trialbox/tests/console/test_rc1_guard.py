@@ -25,8 +25,10 @@ from console import rc1_guard as rg
 from console.app import create_app
 from console.auth import UserStore
 from console.i18n import CATALOGUES
+from fastapi import WebSocket
 from fastapi.testclient import TestClient
-from starlette.routing import Mount
+from starlette.routing import Mount, WebSocketRoute
+from starlette.websockets import WebSocketDisconnect
 from tb_common import rc1_refusals
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_bytes
@@ -241,6 +243,8 @@ def _routes(app: Any) -> list[tuple[str, str, Any]]:
     for r in app.routes:
         if isinstance(r, Mount):
             out.append(("*", r.path + "/x", None))
+        elif isinstance(r, WebSocketRoute):  # no methods: a websocket, asked by the guard as one
+            out.append(("WEBSOCKET", r.path, r.endpoint))
         else:
             out.append((",".join(sorted(getattr(r, "methods", None) or ["*"])), r.path, getattr(r, "endpoint", None)))
     return out
@@ -251,7 +255,12 @@ def test_every_route_is_allowed_by_name_or_refused_and_the_guard_is_outermost(db
     a PRODUCTION box; a route that gives a file is refused as a download unless its row above says why not."""
     b = _console(tmp_path, "PRODUCTION")
     app, g = b["app"], b["app"].state.rc1_guard
-    assert app.user_middleware[0].kwargs.get("dispatch") == g.dispatch  # outermost: before any rewrite
+
+    async def live(ws: WebSocket) -> None:  # a websocket route, as a later card might add one
+        await ws.close()
+
+    app.add_api_websocket_route("/studies/{rs}/live", live)
+    assert app.user_middleware[0].cls is rg.Rc1Layer and app.user_middleware[0].kwargs["guard"] is g  # outermost
     routes = _routes(app)
     assert len(routes) > 300 and any(m == "*" for m, _, _ in routes)  # the walk reached the routes and the mount
     allowed, refused, loose = [], [], []
@@ -273,7 +282,8 @@ def test_every_route_is_allowed_by_name_or_refused_and_the_guard_is_outermost(db
         else:
             refused.append(path)
     assert loose == [], "\n".join(loose)
-    assert len(refused) > 200 and len(allowed) > 40
+    assert len(refused) > 200 and len(allowed) > 25
+    assert "/studies/{rs}/live" in refused and any(m == "WEBSOCKET" for m, _, _ in routes)
     for p, why in rg.ALLOWED:  # no stale line: each allows a route the console has
         assert any(p.match(_filled(path)) for _, path, _ in routes), (p.pattern, why)
 
@@ -320,3 +330,148 @@ def test_a_card_of_any_list_job_is_refused_and_a_store_that_fails_refuses(db_url
     assert g.refusal_of("GET", f"/pilot/jobs/{b['feas'].job_id}/files/feasibility_GZQO.json") == (
         "patient_mail_and_downloads"
     )
+
+
+# ---------------------------------------------------------------------------------------------- the third look
+@pytest.mark.parametrize("env", ["PRODUCTION", "VALIDATION"])
+def test_the_admins_send_now_mails_no_candidate_row_on_a_refused_box(
+    env: str, db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R2234-13: ``POST /ops/notices`` (an ops page, allowed) sends today's notices through ``console.notify``; on a
+    refused box no N1 or N2 carries a candidate row (``notify._collect`` asks the table)."""
+    from datetime import date
+    from types import SimpleNamespace
+
+    from console.sitestore import NotifyPerson
+
+    from tests.console.test_console_app import login_totp
+    from tests.console.test_study_state_d386 import _helpers
+
+    monkeypatch.setenv("TB_ENV", env)
+    b = _console(tmp_path, env)
+    h = b["app"].state.helpers
+    fake = _helpers(h.store)  # the week's rows of two candidates, a PI and a coordinator who see the study
+    h.store.save_notify_person(NotifyPerson("pi", None, lang="en"))
+    h.store.save_notify_person(NotifyPerson("crc", None, lang="en"))
+    real_users = h.users
+
+    class Users:  # the real store for the admin's sign-in; the fake's people for the round
+        def users(self) -> Any:
+            return fake.users.users()
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(real_users, name)
+
+    c, csrf = login_totp(b["app"])
+    for name in ("trials", "week_bundle", "delegated_ok"):
+        monkeypatch.setattr(h, name, getattr(fake, name))
+    monkeypatch.setattr(h, "users", Users())
+    monkeypatch.setattr(h, "life_mail", None, raising=False)
+    monkeypatch.setattr(h, "today", lambda: date(2026, 11, 2))  # a Monday: the week's N1 goes without a clinic id
+    h.bk.registry_rows = SimpleNamespace(registry_rows=lambda _rs: []).registry_rows
+    r = c.post("/ops/notices", data={"csrf": csrf})
+    assert r.status_code == 200, r.text[-300:]
+    bodies = [body for _kind, _to, _subject, body in h.bk.notices]
+    rows = [x for x in bodies if "11111111" in x or "22222222" in x]
+    if env == "PRODUCTION":
+        assert rows == []  # no candidate row leaves
+    else:
+        assert rows  # the same round on an allowed box mails its rows
+
+
+@pytest.mark.parametrize("env", ["", "PRODUCTION", "VALIDATION"])
+def test_the_audit_page_of_one_patient_is_refused_on_a_refused_box(env: str, db_url: str, tmp_path: Path) -> None:
+    """R2234-14: ``/audit?pid=`` is the same list as ``/audit/patients/{pid}``; the plain log stays an admin page."""
+    b = _console(tmp_path, env)
+    g = b["app"].state.rc1_guard
+    refused = env != "VALIDATION"
+    assert (g.refusal_of("GET", "/audit", f"pid={PATIENT}") == "live_patient_lists") is refused
+    assert (g.refusal_of("GET", "/audit", f"kind=reveal&pid=%20{PATIENT[:8]}") == "live_patient_lists") is refused
+    assert g.refusal_of("GET", "/audit", "kind=reveal") is None and g.refusal_of("GET", "/audit", "pid=") is None
+    c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
+    r = c.get(f"/audit?pid={PATIENT}")
+    assert (r.status_code == 403) is refused
+    seen = _events(b)
+    if refused:
+        assert [e["detail"]["action"] for e in seen] == ["/audit"] and PATIENT not in json.dumps(seen)
+
+
+@pytest.mark.parametrize("kind", ["SCREEN", "MICROBATCH", "COHORT", "NAV", "CASE", "SUBMIT"])
+def test_the_card_of_every_job_that_names_a_patient_is_refused(kind: str, db_url: str, tmp_path: Path) -> None:
+    """R2234-15 and mutants M09, M10: each list job's card, and SUBMIT's (its card names the patient), is refused."""
+    b = _console(tmp_path, "PRODUCTION")
+    job = _job(b["app"].state.helpers.bk, 20, kind, (("counts.json", b"{}", "aggregate"),))
+    c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
+    assert c.get(f"/pilot/jobs/{job.job_id}").status_code == 403
+    assert c.get(f"/pilot/jobs/{job.job_id}/files/counts.json").status_code != 403  # its counts stay open
+
+
+@pytest.mark.parametrize("tag", ["phi", "D1", "internal"])
+def test_every_file_of_a_job_that_is_not_aggregate_is_refused(tag: str, db_url: str, tmp_path: Path) -> None:
+    """Mutants M12 and M13: a file is open only when the job names it and tags it aggregate."""
+    b = _console(tmp_path, "PRODUCTION")
+    job = _job(b["app"].state.helpers.bk, 21, "FEAS", (("one.json", b"{}", "aggregate"),))
+    if tag != "aggregate":  # a tag the contract does not know yet (fail-closed: only "aggregate" opens a file)
+        (job.outputs or [])[0].__dict__["tag"] = tag
+    g = b["app"].state.rc1_guard
+    assert g.refusal_of("GET", f"/pilot/jobs/{job.job_id}/files/one.json") == "patient_mail_and_downloads"
+    assert g.refusal_of("GET", f"/pilot/jobs/{job.job_id}/files/missing.json") == "patient_mail_and_downloads"
+
+
+@pytest.mark.parametrize("method", ["OPTIONS", "PUT", "PATCH", "DELETE", "POST", "HEAD", "GET"])
+def test_a_refused_route_is_refused_by_every_method(method: str, db_url: str, tmp_path: Path) -> None:
+    """Mutants M14 and M15 (the review's M13 to M15): OPTIONS, PUT, PATCH and DELETE meet the same refusal."""
+    b = _console(tmp_path, "PRODUCTION")
+    c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
+    for path in ("/studies/GZQO/week", "/api/v1/studies/GZQO/patients", "/studies/GZQO/screening-log.xlsx"):
+        assert c.request(method, path).status_code == 403, (method, path)
+    assert len(_events(b)) == 3
+
+
+def test_a_websocket_on_a_refused_box_is_closed_before_it_opens(db_url: str, tmp_path: Path) -> None:
+    """R2234-16 (a): ``BaseHTTPMiddleware`` lets a websocket through; the guard is a plain ASGI layer that closes it."""
+    sent: list[str] = []
+    for env in ("PRODUCTION", "VALIDATION"):
+        b = _console(tmp_path / env, env)
+
+        async def rows(ws: WebSocket) -> None:
+            await ws.accept()
+            sent.append("row")
+            await ws.send_text(PATIENT)
+            await ws.close()
+
+        b["app"].add_api_websocket_route("/studies/{rs}/live", rows)
+        c = TestClient(b["app"], base_url="https://testserver")
+        if env == "PRODUCTION":
+            with pytest.raises(WebSocketDisconnect) as got, c.websocket_connect("/studies/GZQO/live") as ws:
+                ws.receive_text()
+            assert got.value.code == 1008 and sent == []
+            assert [e["detail"]["action"] for e in _events(b)] == ["/studies/GZQO/live"]
+        else:
+            with c.websocket_connect("/studies/GZQO/live") as ws:
+                assert ws.receive_text() == PATIENT
+
+
+def test_the_guard_reads_the_path_without_the_root_path(db_url: str, tmp_path: Path) -> None:
+    """R2234-16 (b): behind a proxy that mounts the console under a root path, the route's own path is matched."""
+    b = _console(tmp_path, "PRODUCTION")
+    c = TestClient(b["app"], base_url="https://testserver", root_path="/tb", follow_redirects=False)
+    assert c.get("/tb/studies/GZQO/week").status_code == 403
+    assert c.get("/tb/healthz").status_code != 403
+    assert [e["detail"]["action"] for e in _events(b)] == ["/studies/GZQO/week"]
+
+
+def test_an_address_is_matched_as_it_is_sent(db_url: str, tmp_path: Path) -> None:
+    """Mutants M20 and M21: a trailing slash is another address (refused), and a query is never part of the match."""
+    b = _console(tmp_path, "PRODUCTION")
+    c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
+    assert c.get("/healthz/").status_code == 403 and c.get("/login/").status_code == 403
+    assert c.get("/login?next=/home").status_code != 403 and c.get("/healthz?full=1").status_code != 403
+
+
+def test_a_new_admin_page_is_refused_until_it_is_listed(db_url: str, tmp_path: Path) -> None:
+    """R2234-16 (c): the admin pages are listed one by one; an admin address the list does not name is refused."""
+    g = _console(tmp_path, "PRODUCTION")["app"].state.rc1_guard
+    assert g.refusal_of("GET", "/admin/ops") is None and g.refusal_of("POST", "/admin/jobs/01J/retry") is None
+    for path in ("/admin/patients", "/admin/ops/x/y", "/admin/jobs/01J/rows", "/adminx"):
+        assert g.refusal_of("GET", path) == "live_patient_lists", path
