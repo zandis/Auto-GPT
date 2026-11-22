@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -206,7 +207,7 @@ def test_the_vm_scripts_container_network_and_image_names(tmp_path: Path, env: d
 
 
 # ------------------------------------------------------------------------------ tools/measure48-host.sh beside a box
-BOX = {"containers": {"trialbox-db-1": {"com.docker.compose.project": "trialbox"},
+BOX: dict[str, Any] = {"containers": {"trialbox-db-1": {"com.docker.compose.project": "trialbox"},
                       "trialbox-console-1": {"com.docker.compose.project": "trialbox"}},
        "networks": ["trialbox-net", "trialbox-model-backend"], "volumes": ["trialbox_db-pg", "trialbox_lake-data"],
        "images": BOX_IMAGES}  # fmt: skip
@@ -221,14 +222,19 @@ class OwnRig(Rig):
         si = (self.bin / "standin").read_text()
         si = si.replace("a = sys.argv[1:]\n", 'a = sys.argv[1:]\nP = os.environ["TB_COMPOSE_PROJECT"]\n', 1)
         si = si.replace('"com.docker.compose.project": "trialbox"', '"com.docker.compose.project": P')
-        si = si.replace('s["images"] += ["trialbox-py:1.0.0"]',
-                        's["images"] += [os.environ[v] for v in ("TB_IMAGE", "TB_JVM_IMAGE", "TB_DB_IMAGE")]')
+        si = si.replace(
+            's["images"] += ["trialbox-py:1.0.0"]',
+            's["images"] += [os.environ[v] for v in ("TB_IMAGE", "TB_JVM_IMAGE", "TB_DB_IMAGE")]',
+        )
         si = re.sub(r'"trialbox([-_])', r'P + "\1', si)
         assert "trialbox-" not in si and "trialbox_" not in si
         (self.bin / "standin").write_text(si)
         dk = (self.bin / "docker").read_text()
-        dk = dk.replace('elif a[0] == "pull":', 'elif a[:2] == ["image", "rm"]:\n'
-                        '    [s["images"].remove(n) for n in a[2:] if n in s["images"]]\n    save()\nelif a[0] == "pull":')
+        dk = dk.replace(
+            'elif a[0] == "pull":',
+            'elif a[:2] == ["image", "rm"]:\n'
+            '    [s["images"].remove(n) for n in a[2:] if n in s["images"]]\n    save()\nelif a[0] == "pull":',
+        )
         (self.bin / "docker").write_text(dk)
         d = self.docker
         self.dock(containers={**d["containers"], **BOX["containers"]}, networks=d["networks"] + BOX["networks"],
@@ -267,7 +273,8 @@ def test_a_full_run_beside_an_installed_box_uses_and_removes_only_its_own_names(
     assert changing and not any(BOX_TAG.search(c) for c in changing), changing
     assert not any(re.search(r"\btrialbox[-_]", c) for c in changing if not c.startswith("image rm")), changing
     assert {"image rm trialbox-py:t1tag", "image rm trialbox-jvm:t1tag", "image rm trialbox-postgres:t1tag"} <= set(
-        changing)
+        changing
+    )
     objs = json.loads((own.out / "records" / "docker-objects.json").read_text())
     assert objs["project"] == "m48h-t1" and objs["image_tag"] == "t1tag" and objs["left"] == []
     made = {o["name"] for o in objs["objects"]}
@@ -316,7 +323,7 @@ def test_the_boxs_project_or_tag_is_refused_in_one_line(own: OwnRig, more: tuple
 def test_the_runs_own_project_or_tag_present_already_refuses(own: OwnRig, setup: dict[str, object],
                                                             words: str) -> None:  # fmt: skip
     d = own.docker
-    merged = {k: (d[k] | v if isinstance(v, dict) else d[k] + v) for k, v in setup.items()}  # type: ignore[operator]
+    merged = {k: (d[k] | v if isinstance(v, dict) else d[k] + v) for k, v in setup.items()}
     own.dock(**merged)
     before = own.docker
     r = own.go("run")
