@@ -41,7 +41,8 @@ def _site(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize("road", [r.name for r in kit.ROADS])
 def test_generated_people_cross_every_road(road: str, order: str, tmp_path: Path, db_url: str) -> None:
     story = gp.generated_story(PEOPLE, SEED)
-    d = kit.drive(kit.ROAD[road], story, order, tmp_path, db_url)
+    d = kit.drive(kit.ROAD[road], story, order, tmp_path, db_url, edc=order == "as_written")
+    assert d.kinds == set(kit.ROAD[road].kinds)
     findings = kit.judge(d)
     assert not findings, f"seed {SEED}, {PEOPLE} people, {road} / {order}: {len(findings)} findings\n" + kit.summary(
         findings[:200]

@@ -24,6 +24,7 @@ whatever key or pseudonym the box gave it.
 
 from __future__ import annotations
 
+import base64
 import csv
 import json
 import random
@@ -37,7 +38,10 @@ from typing import Any
 
 #: the site's chart-number rule for every road (``tb_common.chartno``): leading zeros are not significant
 CHART_RULE = "digits:8"
-TYPES = ("Patient", "Encounter", "Condition", "Observation")
+TYPES = ("Patient", "Encounter", "Condition", "Observation", "DocumentReference")
+#: the people who also have a clinical note (A and B: note number "N1" on two days; C and D: note "1" from two
+#: systems; L: the opted-out person), so the lake's chunks and its retrieval answers are judged too
+NOTED = ("A", "B", "C", "D", "L")
 #: the canonical CSV hospital's tables (``tests/fixtures/synthetic_patients``): the ones a person fills, and the rest
 #: written with their header only so every source reads a whole hospital
 COLUMNS: dict[str, list[str]] = {
@@ -152,10 +156,17 @@ class Story:
     merges: dict[int, list[tuple[str, str, str]]] = field(default_factory=dict)  # before night i: (old, new, why)
     optouts: list[str] = field(default_factory=list)  # charts typed into the register before night 2
     held: set[str] = field(default_factory=set)  # letters whose chart must be held (publishes nothing)
+    #: a conflict pair split over two nights: the first arrives on night 1 and is published; the second arrives on a
+    #: later night (a delta) and that night must be held: the second person's records must appear nowhere
+    later: bool = False
     #: (person, type) -> how many records the published stores hold after the last night
     expected: Counter[tuple[str, str]] = field(default_factory=Counter)
     #: markers that must be gone after the last night (deleted at the source, or replaced by a correction)
     gone: set[str] = field(default_factory=set)
+
+    def optout_letters(self) -> set[str]:
+        """The people opted out (their chart is in :attr:`optouts`): nothing of theirs may be in any store."""
+        return {x for x, p in self.people.items() if p.chart in self.optouts}
 
     def owner_of(self) -> dict[str, str]:
         """marker -> person letter, for every marker any night sends."""
@@ -164,6 +175,16 @@ class Story:
             for r in n.records:
                 out[r.marker] = r.person
         return out
+
+
+def note_text(token: str) -> str:
+    """A short progress note carrying its marker (one chunk; nothing in it is about a real person)."""
+    return f"Follow-up visit. Marker {token}. Stable, continue the plan."
+
+
+def note_token(letter: str) -> str:
+    """The marker of a person's note: a word no other note holds."""
+    return f"G2N{letter}"
 
 
 def _lab_value(i: int, r: int, corrected: bool = False) -> str:
@@ -204,25 +225,52 @@ def people() -> dict[str, Person]:
 
 
 def _records(
-    p: Person, i: int, day: str, numbers: tuple[str, str, str, str], spellings: tuple[str, ...] = ()
+    p: Person,
+    i: int,
+    day: str,
+    numbers: tuple[str, str, str, str],
+    spellings: tuple[str, ...] = (),
+    notes: bool = False,
 ) -> list[Rec]:
-    """A person's four records: one visit, one diagnosis, two labs."""
+    """A person's four records: one visit, one diagnosis, two labs; with ``notes``, a note for :data:`NOTED`."""
     sp = list(spellings) or [p.chart] * 4
     enc, dx, lab1, lab2 = numbers
     return [
         Rec(p.letter, "encounter", enc, sp[0], f"{day} 09:{i:02d}:01", f"{i:02d}:01", p.source),
         Rec(p.letter, "diagnosis", dx, sp[1], day, DX_CODES[i - 1], p.source, visit=enc),
         Rec(p.letter, "lab", lab1, sp[2], f"{day} 10:{i:02d}:00", _lab_value(i, 1), p.source),
-        Rec(p.letter, "lab", lab2, sp[3], f"{day} 11:{i:02d}:00", _lab_value(i, 2), p.source),
-    ]
+        Rec(p.letter, "lab", lab2, sp[3], f"{_next_day(day)} 11:{i:02d}:00", _lab_value(i, 2), p.source),
+    ] + (
+        [
+            Rec(
+                p.letter,
+                "note",
+                _NOTE_NO.get(p.letter, f"{p.letter}N"),
+                sp[0],
+                f"{day} 12:{i:02d}:00",
+                note_token(p.letter),
+                p.source,
+                visit=enc,
+            )
+        ]
+        if notes and p.letter in NOTED
+        else []
+    )
+
+
+_NOTE_NO = {"A": "N1", "B": "N1", "C": "1", "D": "1"}
+
+
+def _next_day(day: str) -> str:
+    return (date.fromisoformat(day) + timedelta(days=1)).isoformat()
 
 
 def _index(ps: dict[str, Person]) -> dict[str, int]:
     return {letter: i for i, letter in enumerate(ps, start=1)}
 
 
-def base_night(ps: dict[str, Person]) -> Night:
-    """Night 1, a full night: A to I and L, every record once."""
+def base_night(ps: dict[str, Person], notes: bool = False) -> Night:
+    """Night 1, a full night: A to I and L, every record once (``notes``: and the notes of :data:`NOTED`)."""
     ix = _index(ps)
     n = Night()
     plan: dict[str, tuple[str, tuple[str, str, str, str], tuple[str, ...]]] = {
@@ -240,17 +288,19 @@ def base_night(ps: dict[str, Person]) -> Night:
     for letter, (day, numbers, spellings) in plan.items():
         p = ps[letter]
         n.patients.append((p, p.chart))
-        n.records += _records(p, ix[letter], day, numbers, spellings)
+        n.records += _records(p, ix[letter], day, numbers, spellings, notes)
     return n
 
 
-def _base_expected(ps: dict[str, Person], letters: Iterable[str]) -> Counter[tuple[str, str]]:
+def _base_expected(ps: dict[str, Person], letters: Iterable[str], notes: bool = False) -> Counter[tuple[str, str]]:
     out: Counter[tuple[str, str]] = Counter()
     for letter in letters:
         out[(letter, "Patient")] += 1
         out[(letter, "Encounter")] += 1
         out[(letter, "Condition")] += 1
         out[(letter, "Observation")] += 2
+        if notes and letter in NOTED:
+            out[(letter, "DocumentReference")] += 1
     return out
 
 
@@ -258,28 +308,44 @@ BASE = ("A", "B", "C", "D", "E", "F", "G", "H", "I", "L")
 
 
 def one_night_story(letters: Iterable[str] = BASE) -> Story:
-    """One full night of the people named (C and D included: the record id ``1`` twice)."""
+    """One full night of the people named (C and D included: the record id ``1`` twice), with the notes: the lake's
+    chunks and answers are judged on this story (a note makes every lake build index its text, so the other
+    stories leave the notes out to keep the run inside its budget)."""
     ps = people()
     keep = set(letters)
-    night = base_night(ps)
+    night = base_night(ps, notes=True)
     night.patients = [(p, c) for p, c in night.patients if p.letter in keep]
     night.records = [r for r in night.records if r.person in keep]
-    return Story(ps, [night], expected=_base_expected(ps, [x for x in BASE if x in keep]))
+    return Story(ps, [night], expected=_base_expected(ps, [x for x in BASE if x in keep], notes=True))
 
 
-def conflict_story(pair: tuple[str, str]) -> Story:
+def conflict_story(pair: tuple[str, str], later: bool = False) -> Story:
     """Night 1 as :func:`base_night`; night 2 the same hospital with the pair added under their one chart. The
-    second night must be held whole (the conflict stops the batch), so the stores keep night 1."""
+    second night must be held whole (the conflict stops the batch), so the stores keep night 1.
+
+    ``later``: the pair split over two nights. Night 1 is the hospital with the first person; night 2 is a delta
+    with the second person's patient row and records under the same chart. Night 2 must be held: the first person
+    stays as published, and nothing of the second person may appear in any store."""
     ps = people()
     ix = _index(ps)
     first = base_night(ps)
+
+    def recs(letter: str, k: int) -> list[Rec]:
+        return _records(
+            ps[letter], ix[letter], f"2026-09-{11 + k:02d}", (f"{letter}V", f"{letter}D", f"{letter}1", f"{letter}2")
+        )
+
+    if later:
+        a, b = pair
+        first.patients.append((ps[a], ps[a].chart))
+        first.records += recs(a, 0)
+        second = Night([(ps[b], ps[b].chart)], recs(b, 1))
+        return Story(ps, [first, second], held=set(pair), later=True, expected=_base_expected(ps, (*BASE, a)))
     second = Night(list(first.patients), list(first.records))
     for k, letter in enumerate(pair):
         p = ps[letter]
         second.patients.append((p, p.chart))
-        second.records += _records(
-            p, ix[letter], f"2026-09-{11 + k:02d}", (f"{letter}V", f"{letter}D", f"{letter}1", f"{letter}2")
-        )
+        second.records += recs(letter, k)
     return Story(ps, [first, second], held=set(pair), expected=_base_expected(ps, BASE))
 
 
@@ -294,7 +360,7 @@ def corrections_story() -> Story:
     second = Night()
     g, h, i_, l_ = ps["G"], ps["H"], ps["I"], ps["L"]
     second.records = [
-        Rec("G", "lab", "G2", g.chart, "2026-09-07 11:07:00", _lab_value(ix["G"], 2, corrected=True)),
+        Rec("G", "lab", "G2", g.chart, "2026-09-08 11:07:00", _lab_value(ix["G"], 2, corrected=True)),
         Rec("G", "lab", "G3", g_new, "2026-09-20 10:07:00", _lab_value(ix["G"], 3)),
         Rec("I", "lab", "I1", h.chart, "2026-09-09 10:09:00", _lab_value(ix["I"], 1, corrected=True)),
         Rec("L", "lab", "L3", l_new, "2026-09-20 10:10:00", _lab_value(ix["L"], 3)),
@@ -384,6 +450,18 @@ def table_rows(night: Night, ps: dict[str, Person], *, delta_at: str = "") -> di
                     "status": "A",
                     "updated_at": delta_at,
                     "deleted": "1" if r.deleted else "",
+                }
+            )
+        elif r.table == "note":
+            rows["note"].append(
+                {
+                    "note_no": r.number,
+                    "mrn": r.chart,
+                    "enc_no": r.visit,
+                    "note_datetime": r.when,
+                    "note_type": "progress",
+                    "text": note_text(r.marker),
+                    "updated_at": delta_at,
                 }
             )
         else:
@@ -493,6 +571,24 @@ def bulk_resources(night: Night, sources: Iterable[str], story: Story | None = N
                 "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": r.marker}]},
                 "onsetDateTime": r.when,
                 "recordedDate": r.when,
+            }
+        elif r.table == "note":
+            res = {
+                "resourceType": "DocumentReference",
+                "id": rid(r),
+                "identifier": ident,
+                "status": "current",
+                "subject": subject,
+                "type": {"coding": [{"system": "http://loinc.org", "code": "11506-3"}], "text": "progress"},
+                "date": r.when.replace(" ", "T") + "+08:00",
+                "content": [
+                    {
+                        "attachment": {
+                            "contentType": "text/plain; charset=utf-8",
+                            "data": base64.b64encode(note_text(r.marker).encode()).decode(),
+                        }
+                    }
+                ],
             }
         else:
             res = {
