@@ -557,6 +557,13 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
     try:
         if a.cmd == "backup-keygen":
+            from tb_common import rc1_refusals
+
+            try:  # R22-34 (D-1072): rc1 makes no backup key on a PRODUCTION box (the box's deploy/.env)
+                box = rc1_refusals.host_env(Path(__file__).resolve().parents[2] / "deploy")
+                rc1_refusals.check("key_ceremonies", box)
+            except rc1_refusals.Rc1Refused as exc:
+                raise bk.BackupError(exc.say()) from None
             fp = bk.keygen(a.private, a.public)
             print(f"backup key {fp}: give {a.private} to hospital IT in a sealed envelope; the box keeps {a.public}")
             return 0

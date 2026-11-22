@@ -846,6 +846,14 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
     """The checks (nothing written when one refuses), then the four steps; returns what the journal holds."""
     if not is_root():
         raise Stop(NOT_ROOT)
+    if str(DEPLOY.parent / "libs") not in sys.path:
+        sys.path.insert(0, str(DEPLOY.parent / "libs"))  # the host's python3 (rc1_refusals: standard library)
+    from tb_common import rc1_refusals
+
+    try:  # R22-34 (D-1072): rc1 holds no backup key ceremony on a PRODUCTION box; nothing is generated
+        rc1_refusals.check("key_ceremonies", env)
+    except rc1_refusals.Rc1Refused as exc:
+        raise Stop(rc1_refusals.TEXTS[exc.refusal.key], environment=exc.environment) from None
     who, wit = person(operator), person(witness)
     if folded(who) == folded(wit):
         raise Stop(SAME_PERSON)
