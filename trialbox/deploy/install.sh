@@ -321,10 +321,31 @@ finish_check() {  # $1: what is true when it refuses; the rest: finish-check's o
     *) die "the finish check did not run (exit $rc, above), so nothing about the folders was decided: $said" ;;
   esac
 }
-if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ -z "${TB_INSTALL_SIGNED:-}" ] && [ -f "$ROOT/deploy/.env" ]; then
+# Review 3 of #1303: skipped only by the run the bundle step below does not load again (TB_INSTALL_SIGNED is the
+# release `current` names): any other value of it (one carried in by sudo -E) is checked here like any re-run (M2).
+# The environment judged is the stricter of the one the box records (deploy/.env TB_ENV; none on an installed box is
+# PRODUCTION, D-127; a value that is none of the four is taken as PRODUCTION) and --environment, so a PRODUCTION
+# box re-run with --environment VALIDATION is refused here, not after the load (M1)
+SIGNED_RUN=0
+if [ -n "${TB_INSTALL_SIGNED:-}" ] && [ "$TB_INSTALL_SIGNED" = "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+  SIGNED_RUN=1
+fi
+GATE_ENV="$EARLY_ENV"
+if [ -f "$ROOT/deploy/.env" ] && [ -r "$ROOT/deploy/.env" ] && [ "$GATE_ENV" != PRODUCTION ]; then
+  REC_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  if [ -z "$REC_ENV" ] && { [ -f "$ROOT/deploy/settings.yaml" ] || [ -f "$ROOT/deploy/updates/installed.json" ]; }; then
+    REC_ENV=PRODUCTION
+  fi
+  case "$REC_ENV" in
+    "") ;;
+    DEV|TEST|VALIDATION) GATE_ENV="${GATE_ENV:-$REC_ENV}" ;;
+    *) GATE_ENV=PRODUCTION ;;
+  esac
+fi
+if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ "$SIGNED_RUN" != 1 ] && [ -f "$ROOT/deploy/.env" ]; then
   if command -v python3 >/dev/null; then
-    finish_check "nothing was loaded or changed; then re-run" ${EARLY_ENV:+--environment "$EARLY_ENV"}
-  elif [ "${EARLY_ENV:-PRODUCTION}" = PRODUCTION ]; then
+    finish_check "nothing was loaded or changed; then re-run" ${GATE_ENV:+--environment "$GATE_ENV"}
+  elif [ "${GATE_ENV:-PRODUCTION}" = PRODUCTION ]; then
     die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder; nothing was loaded or changed (RUNBOOK §5)"
   fi
 fi
@@ -335,7 +356,7 @@ fi
 [ -f deploy/settings.yaml ] && export TB_SETTINGS_FILE="./settings.yaml"
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
-if [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
   echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
   alive_start "verifying the bundle"
   sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"

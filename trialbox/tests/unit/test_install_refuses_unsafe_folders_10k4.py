@@ -190,13 +190,14 @@ def _block(text: str, start: str, end: str) -> str:
 FINISH_FN = _block(INSTALL, "finish_check() {", "\nif [")
 
 
-def _run_install_rerun(tmp: Path, box: Path, h: dict[str, Path], **env: str) -> subprocess.CompletedProcess[str]:
+def _run_install_rerun(tmp: Path, box: Path, h: dict[str, Path], *args: str,
+                       **env: str) -> subprocess.CompletedProcess[str]:  # fmt: skip
     """deploy/install.sh, whole, as an installed box runs it again: a stand-in docker engine, a bundle file."""
     bundle = tmp / "trialbox-1.0.0.tar"
     bundle.write_bytes(b"stand-in bundle")
-    return subprocess.run(["bash", str(box / "deploy" / "install.sh"), str(bundle), "--mode", "stub", "--yes"],
-                          cwd=box, env={**_base_env(tmp, h), **env}, capture_output=True, text=True, check=False,
-                          timeout=180)  # fmt: skip
+    argv = ["bash", str(box / "deploy" / "install.sh"), str(bundle), "--mode", "stub", "--yes", *args]
+    return subprocess.run(argv, cwd=box, env={**_base_env(tmp, h), **env}, capture_output=True, text=True,
+                          check=False, timeout=180)  # fmt: skip
 
 
 def _run_block(tmp: Path, box: Path, h: dict[str, Path], start: str, end: str,
@@ -803,3 +804,164 @@ def test_runbook_05_says_which_steps_now_stop_and_what_is_checked() -> None:
                   "another partition of it", "TB_BACKUP_OFFBOX", "box-install.sh --firstrun",
                   "the release that run brought is applied", "nosuid,nodev", "at every start"):  # fmt: skip
         assert words in para, words
+
+
+# ------------------------------------------------------------------------------------------------ review 3 of #1303
+@pytest.mark.parametrize(("written", "given"), [("TB_ENV=PRODUCTION\n", "VALIDATION"), ("TB_ENV=PRODUCTION\n", "dev"),
+                                                ("", "VALIDATION"), ("TB_ENV=PROD\n", "TEST")])  # fmt: skip
+def test_a_production_box_re_run_with_another_environment_is_judged_as_production(
+    tmp_path: Path, written: str, given: str
+) -> None:
+    """M1: the environment judged before the bundle step is the stricter of the box's own (deploy/.env; none on an
+    installed box, or a value that is none of the four, is PRODUCTION) and --environment: a PRODUCTION box re-run
+    with --environment VALIDATION is refused there, before anything is loaded, not after the release is applied."""
+    h = fake_host(tmp_path / "host")
+    box = _box(tmp_path, _env_text("on_box_backups").replace("TB_ENV=PRODUCTION\n", written))
+    (box / "deploy" / "settings.yaml").write_text("site: synthetic\n", encoding="utf-8")  # an installed box
+    r = _run_install_rerun(tmp_path, box, h, "--environment", given)
+    out = r.stdout + r.stderr
+    assert r.returncode == 1 and "no backup target is shown to be off the box" in r.stderr, out[-3000:]
+    assert "nothing was loaded or changed" in r.stderr and "bundle: verify" not in out
+
+
+@pytest.mark.parametrize("given", ["VALIDATION", "PRODUCTION"])
+def test_a_validation_box_is_judged_as_the_stricter_of_its_own_and_the_given(tmp_path: Path, given: str) -> None:
+    h = fake_host(tmp_path / "host")
+    box = _box(tmp_path, _env_text("on_box_backups", environment="VALIDATION"))
+    r = _run_install_rerun(tmp_path, box, h, "--environment", given)
+    out = r.stdout + r.stderr
+    if given == "VALIDATION":  # the backups are judged in PRODUCTION only: on to the bundle step
+        assert "bundle: verify" in out and "finish-check:" not in r.stderr, out[-3000:]
+    else:
+        assert r.returncode == 1 and "nothing was loaded or changed" in r.stderr and "bundle: verify" not in out
+
+
+@pytest.mark.parametrize("current", ["none", "another release"])
+def test_a_stray_tb_install_signed_does_not_skip_the_early_check(tmp_path: Path, current: str) -> None:
+    """M2: the early check is skipped only by the run the bundle step does not load again (TB_INSTALL_SIGNED is the
+    release `current` names); a value carried in any other way (sudo -E) is checked like any re-run."""
+    h = fake_host(tmp_path / "host")
+    box = _box(tmp_path, _env_text("on_box_backups"))
+    if current == "another release":
+        other = tmp_path / "releases" / "r0"
+        (other / "deploy").mkdir(parents=True)
+        (box / "current").symlink_to(other)
+    r = _run_install_rerun(tmp_path, box, h, TB_INSTALL_SIGNED=str(tmp_path / "releases" / "r1"))
+    out = r.stdout + r.stderr
+    assert r.returncode == 1 and "nothing was loaded or changed" in r.stderr, out[-3000:]
+    assert "no backup target is shown to be off the box" in r.stderr and "bundle: verify" not in out
+
+
+def _share(source: str, options: str = "rw") -> finish_check.Mount:
+    return finish_check.Mount("/mnt/x", "0:90", "cifs" if source.startswith("//") else "nfs4", source, options)
+
+
+@pytest.mark.parametrize(
+    ("source", "options", "said"),
+    [
+        ("[::ffff:127.0.0.1]:/export", "rw", "served by this box"),  # IPv4-mapped loopback
+        ("[::ffff:7f00:1]:/export", "rw", "served by this box"),
+        ("[::ffff:10.0.0.5]:/export", "rw", "served by this box"),  # IPv4-mapped, the box's own address
+        ("//[::ffff:10.0.0.5]/bk", "rw", "served by this box"),
+        ("172.17.0.2:/export", "rw", "172.17.0.0/16, a network of this box's own"),  # a container on docker0
+        ("[::ffff:172.17.0.2]:/export", "rw", "172.17.0.0/16, a network of this box's own"),
+        ("[fe80::1]:/export", "rw", "served by this box"),  # link-local: cannot be told apart from the box
+        ("169.254.3.4:/export", "rw", "served by this box"),
+        ("nas.hospa.test:/x", "rw,vers=4.2,addr=127.0.0.1", "served by this box"),  # mounted from the box itself
+        ("nas.hospa.test:/x", "rw,addr=::ffff:172.17.0.3", "a network of this box's own"),
+    ],
+)  # fmt: skip
+def test_a_share_served_by_the_box_in_any_spelling_is_not_off_the_box(source: str, options: str, said: str) -> None:
+    """M3: an IPv4-mapped IPv6 address is its IPv4 address, and an address in a network of a local-only interface
+    of the box (docker0, a bridge without a physical port, loopback, link-local) is the box."""
+    h = finish_check.Host(own=frozenset({"10.0.0.5", "127.0.0.1"}), hosts={"nas.hospa.test": ["192.0.2.10"]},
+                          local_nets=frozenset({"172.17.0.0/16", "127.0.0.0/8"}))  # fmt: skip
+    why = finish_check.share_problem(_share(source, options), h)
+    assert said in why, why
+
+
+@pytest.mark.parametrize("source", ["[::ffff:127.0.0.1]:/export", "[::ffff:10.0.0.5]:/export", "//[::ffff:10.0.0.5]/b"])
+def test_a_mapped_address_of_the_box_is_refused_by_the_whole_gate(tmp_path: Path, source: str) -> None:
+    """M3 through the gate as the install runs it: the fake host's mount table, its own addresses."""
+    h = fake_host(tmp_path / "host", ("/mnt/mapped/b",))
+    fs = "cifs" if source.startswith("//") else "nfs4"
+    info = h["mountinfo"].read_text(encoding="utf-8") + f"91 1 0:71 / /mnt/mapped rw - {fs} {source} rw\n"
+    hh = finish_check.Host(info, h["sys"], str(h["root"]), {"nas.hospa.test": ["192.0.2.10"]}, frozenset({"10.0.0.5"}))
+    found = finish_check.problems(tmp_path / "box" / "deploy", _env(TB_BACKUP_TARGETS="/mnt/mapped/b"), hh)
+    assert found and "is a share served by this box" in found[-1], found
+
+
+@pytest.mark.parametrize(
+    "source", ["nas.hospa.test:/x", "[::ffff:192.0.2.10]:/x", "192.0.2.10:/x", "//nas.hospa.test/b"]
+)
+def test_a_share_of_another_machine_is_still_off_the_box(source: str) -> None:
+    h = finish_check.Host(own=frozenset({"10.0.0.5", "127.0.0.1"}), hosts={"nas.hospa.test": ["192.0.2.10"]},
+                          local_nets=frozenset({"172.17.0.0/16"}))  # fmt: skip
+    assert finish_check.share_problem(_share(source, "rw,addr=192.0.2.10"), h) == ""
+
+
+def test_the_box_s_local_only_networks_are_read_from_its_interfaces(tmp_path: Path) -> None:
+    """docker0 (a bridge whose ports are veths), a compose bridge, loopback, a veth and a dummy are local-only; a
+    bridge with a physical port (br0 over eth0) and eth0 itself reach the network outside."""
+    net = tmp_path / "sys" / "class" / "net"
+    for name, ports in (("docker0", ["veth1"]), ("br-abc", []), ("br0", ["eth0"]), ("eth0", []), ("veth1", [])):
+        (net / name / "brif").mkdir(parents=True)
+        for p in ports:
+            (net / name / "brif" / p).mkdir()
+    (net / "eth0" / "device").mkdir()
+
+    def link(name: str, addr: str, plen: int, kind: str = "", lt: str = "ether") -> dict[str, object]:
+        info = {"linkinfo": {"info_kind": kind}} if kind else {}
+        return {"ifname": name, "link_type": lt, **info, "addr_info": [{"local": addr, "prefixlen": plen}]}
+
+    links = [link("lo", "127.0.0.1", 8, lt="loopback"), link("eth0", "10.0.0.5", 24),
+             link("docker0", "172.17.0.1", 16, "bridge"), link("br-abc", "172.18.0.1", 16, "bridge"),
+             link("br0", "192.168.1.5", 24, "bridge"), link("veth1", "fd00::1", 64, "veth"),
+             link("dummy0", "198.51.100.1", 32, "dummy")]  # fmt: skip
+    got = finish_check.own_network(links, tmp_path / "sys")
+    assert got is not None
+    own, nets = got
+    assert {"10.0.0.5", "172.17.0.1", "192.168.1.5"} <= own
+    assert nets == {"127.0.0.0/8", "172.17.0.0/16", "172.18.0.0/16", "fd00::/64", "198.51.100.1/32"}
+    assert finish_check.own_network([{"ifname": "eth0", "addr_info": [{"local": "x", "prefixlen": 24}]}]) is None
+
+
+def test_the_stand_in_host_reads_the_local_only_networks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    h = fake_host(tmp_path / "host")
+    (h["base"] / "local-networks").write_text("172.17.0.0/16\n", encoding="utf-8")
+    for k, v in knobs(h).items():
+        monkeypatch.setenv(k, v)
+    hh = finish_check.Host.from_environ()
+    assert hh.local_nets == {"172.17.0.0/16"}
+    assert "a network of this box's own" in finish_check.share_problem(_share("172.17.0.9:/e"), hh)
+
+
+@pytest.mark.parametrize(
+    ("target", "kind"),
+    [("/mnt/disk2/unmarked", "declared, but on this box's disk"), ("/mnt/c", "this box")],
+)  # fmt: skip
+def test_a_target_the_nightly_backup_would_not_count_is_refused(tmp_path: Path, target: str, kind: str) -> None:
+    """M19, the refuse side of the agreement: where every other rule of the gate passes (a second physical disk
+    named in TB_BACKUP_OFFBOX but without the nightly backup's mark; a Windows drive with no outside-drive mark), the
+    nightly backup's rule says not off the box, and so does the gate."""
+    from tools.trialbox import backup_schedule as bs
+
+    h = fake_host(tmp_path / "host", ("/mnt/disk2/unmarked",))
+    hh = host(h)
+    deploy = tmp_path / "box" / "deploy"
+    mounts = "".join(f"{m.source} {hh.on_disk(m.point)} {m.fstype} {m.options}\n" for m in hh.visible())
+    t = bs.target_kind(Path(hh.on_disk(target)), mounts_text=mounts, declared=[hh.on_disk(target)],
+                       local=(Path(hh.on_disk("/")), deploy), windows_own=bs.windows_own_drives(deploy))  # fmt: skip
+    assert not t.offbox and kind in t.kind, t
+    why = finish_check.off_the_box(target, hh, deploy, _env(TB_BACKUP_TARGETS=target, TB_BACKUP_OFFBOX=target))
+    assert why == f"is not counted off the box by the nightly backup ({t.kind})", why
+    found = _problems(tmp_path, h, TB_BACKUP_TARGETS=target, TB_BACKUP_OFFBOX=target)
+    assert found and "is not counted off the box by the nightly backup" in found[-1], found
+
+
+@pytest.mark.parametrize("key", ["TB_KEK_HOST_DIR", "TB_SECRETS_HOST_DIR"])
+def test_a_disk_holding_the_key_or_secrets_folder_is_the_box_s(tmp_path: Path, key: str) -> None:
+    """The host's key and secrets folders are the box's data: a backup on their disk is not off the box."""
+    h = fake_host(tmp_path / "host", ("/mnt/disk2/keys",))
+    found = _problems(tmp_path, h, **{key: "/mnt/disk2/keys"})
+    assert found and "is on a disk of the box itself (vdb" in found[-1], found

@@ -33,16 +33,21 @@ backup target off the box (:func:`off_the_box`), counted only when it can be sho
 (``backup_schedule.target_kind``) counts it too, so the two never disagree:
 
 * a share (nfs, nfs4, cifs, smb3) whose server is not the box: the server's name resolves, and none of its addresses
-  is a loopback address or one of the box's own (``ip -j addr``); a name that does not resolve, or a box whose own
-  addresses cannot be read, cannot be told;
+  (nor the ``addr=`` the kernel mounted it from), an IPv4-mapped IPv6 address read as its IPv4 address, is a
+  loopback, link-local, multicast or unspecified address, one of the box's own, or in a network of a local-only
+  interface of the box (loopback, docker0 and other container links, a bridge without a physical port: its
+  containers; ``ip -j -d addr``, :func:`local_only`); a name that does not resolve, or a box whose own addresses
+  cannot be read (no ``ip``), cannot be told;
 * a local disk whose whole-disk chain (``/sys``: a partition's parent, the members of a device-mapper or md device,
   every device of a btrfs file system) ends only in physical disks (not loop, zram, ram, nbd, nor a virtual device
   without members), none of them a disk of ``/``, the install folder, Docker's data root (the database and the
-  audit volumes) or the audit folders; and ``TB_BACKUP_OFFBOX`` names it (the nightly backup's rule);
+  audit volumes), the audit folders or the host's key and secrets folders (``TB_KEK_HOST_DIR``,
+  ``TB_SECRETS_HOST_DIR``); and ``TB_BACKUP_OFFBOX`` names it (the nightly backup's rule);
 * Under WSL2 a Windows drive is counted only by ``backup_schedule``'s outside-drive rule (D-608).
 
 Stand-ins for the tests only: ``TB_FINISH_MOUNTINFO`` (read for ``/proc/self/mountinfo``; beside it ``hosts``, the
-names a test resolves, and ``own-addresses``, the box's addresses), ``TB_FINISH_SYS`` (for ``/sys``) and
+names a test resolves, ``own-addresses``, the box's addresses, and ``local-networks``, the networks of its
+local-only interfaces), ``TB_FINISH_SYS`` (for ``/sys``) and
 ``TB_FINISH_TEST_ROOT`` (a folder that stands for ``/``). They are honoured only when ``TB_TEST_ROOT`` names a folder
 holding the tests' marker (``.tb-test-root``, ``tools.pglocal.MARKER``) and every stand-in is inside it; set any
 other way (``sudo -E`` included) the check refuses, saying so. Standard library only; ``yaml`` only to write the
@@ -62,6 +67,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "libs") not in sys.path:
@@ -94,21 +100,77 @@ class Mount:
     root: str = "/"  # the folder of the source mounted here (a bind's source folder; "/" for a plain mount)
 
 
-def _own_addresses() -> frozenset[str] | None:
-    """The box's own addresses (``ip -j addr``, else ``hostname -I``), loopback included; None when unread."""
-    found: set[str] = set()
-    ip = shutil.which("ip")
+#: interfaces whose networks are the box's own (containers, bridges and links of this box): a share served from an
+#: address in one of them is served by the box. By name, else by kind (``ip -d``'s ``linkinfo.info_kind``)
+LOCAL_ONLY_NAMES = ("docker", "br-", "virbr", "veth", "cni", "podman", "lxcbr", "lxdbr", "flannel", "cali", "weave")
+LOCAL_ONLY_KINDS = ("veth", "dummy")
+
+
+def _bridge_has_a_port_off_the_box(name: str, sys_root: Path) -> bool:
+    """A bridge with a physical port (``/sys/class/net/<br>/brif/<port>``, the port with a ``device``) reaches the
+    network outside; one whose ports are all virtual (a container's veth) is the box's own."""
+    brif = sys_root / "class" / "net" / name / "brif"
     try:
-        if ip:
-            out = subprocess.run([ip, "-j", "addr", "show"], capture_output=True, text=True, timeout=10, check=True)
-            for link in json.loads(out.stdout):
-                found |= {str(a.get("local", "")) for a in link.get("addr_info", []) if a.get("local")}
-        elif shutil.which("hostname"):
-            out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=10, check=True)
-            found |= set(out.stdout.split())
+        return any((sys_root / "class" / "net" / port.name / "device").exists() for port in brif.iterdir())
+    except OSError:
+        return False
+
+
+def local_only(link: dict[str, Any], sys_root: Path = Path("/sys")) -> bool:
+    """Whether an interface of ``ip -j -d addr`` reaches nothing off the box (loopback, a container's link, a bridge
+    without a physical port, a dummy): its networks are the box's own."""
+    name = str(link.get("ifname") or "")
+    kind = str((link.get("linkinfo") or {}).get("info_kind") or "")
+    if link.get("link_type") == "loopback" or name.startswith(LOCAL_ONLY_NAMES) or kind in LOCAL_ONLY_KINDS:
+        return True
+    return kind == "bridge" and not _bridge_has_a_port_off_the_box(name, sys_root)
+
+
+def own_network(
+    links: list[dict[str, Any]], sys_root: Path = Path("/sys")
+) -> tuple[frozenset[str], frozenset[str]] | None:
+    """The box's own addresses and the networks of its local-only interfaces (:func:`local_only`), from the
+    interfaces ``ip -j -d addr`` lists; None when they cannot be read."""
+    found: set[str] = set()
+    nets: set[str] = set()
+    try:
+        for link in links:
+            for a in link.get("addr_info", []):
+                if not a.get("local"):
+                    continue
+                found.add(str(a["local"]))
+                network = str(ipaddress.ip_interface(f"{a['local']}/{a.get('prefixlen', '')}").network)
+                if local_only(link, sys_root):
+                    nets.add(network)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return (frozenset(found), frozenset(nets)) if found else None
+
+
+def _own_network() -> tuple[frozenset[str], frozenset[str]] | None:
+    """:func:`own_network` of this host; None when ``ip`` is not there or does not answer (which networks are the
+    box's own cannot be told without it)."""
+    ip = shutil.which("ip")
+    if not ip:
+        return None
+    try:
+        out = subprocess.run([ip, "-j", "-d", "addr", "show"], capture_output=True, text=True, timeout=10, check=True)
+        links = json.loads(out.stdout)
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
-    return frozenset(found) if found else None
+    return own_network(links) if isinstance(links, list) else None
+
+
+def _plain_ip(a: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """An address as the box is reached by it: an IPv4-mapped IPv6 address (``::ffff:127.0.0.1``) is its IPv4
+    address, a zone (``fe80::1%eth0``) is dropped; None when it is no address."""
+    try:
+        ip = ipaddress.ip_address(a.strip("[]").split("%", 1)[0])
+    except ValueError:
+        return None
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
 
 
 @dataclass
@@ -120,6 +182,7 @@ class Host:
     test_root: str = ""  # a folder standing for "/" (the tests only)
     hosts: dict[str, list[str]] | None = None  # the tests' names; None: the host's resolver
     own: frozenset[str] | None = None  # the box's own addresses; None: cannot be told
+    local_nets: frozenset[str] = frozenset()  # the networks of its local-only interfaces (docker0, a bridge, ...)
     refused: str = ""  # the stand-ins were set outside a marked test root
     _mounts: list[Mount] = field(default_factory=list)
 
@@ -147,9 +210,12 @@ class Host:
                 own: frozenset[str] | None = frozenset(text.split())
             except OSError:
                 own = None
+            nets = frozenset(_read(info.parent / "local-networks").split())
             return cls(_read(info), Path(given.get("TB_FINISH_SYS") or "/sys"),
-                       given.get("TB_FINISH_TEST_ROOT", "").rstrip("/"), hosts, own)  # fmt: skip
-        return cls(_read(Path("/proc/self/mountinfo")), Path("/sys"), "", None, _own_addresses())
+                       given.get("TB_FINISH_TEST_ROOT", "").rstrip("/"), hosts, own, nets)  # fmt: skip
+        got = _own_network()
+        own, nets = got if got is not None else (None, frozenset())
+        return cls(_read(Path("/proc/self/mountinfo")), Path("/sys"), "", None, own, nets)
 
     def on_disk(self, folder: str) -> str:
         """Where a named folder is looked for (itself; under the test root in the tests)."""
@@ -384,6 +450,36 @@ def _share_host(m: Mount) -> str:
     return got.group(1).lower() if got else ""
 
 
+def _share_addresses(m: Mount, server: str, host: Host) -> list[str]:
+    """The addresses of a share's server: its name resolved, and the address the kernel mounted it from (the
+    ``addr=`` of the nfs and cifs mount options), so a name that now resolves elsewhere does not hide the box."""
+    addrs = host.resolve(server)
+    if addrs:
+        addrs += [o[len("addr=") :] for o in m.options.split(",") if o.startswith("addr=")]
+    return addrs
+
+
+def _the_box(a: str, host: Host) -> str:
+    """Why address ``a`` may be the box itself (empty: it is shown not to be). An IPv4-mapped IPv6 address is its
+    IPv4 address; a loopback, unspecified, link-local or multicast address, one of the box's own, and any address in
+    a network of a local-only interface of the box (docker0, a bridge without a physical port) is the box."""
+    ip = _plain_ip(a)
+    if ip is None:
+        return "is no address the check can read"
+    if ip.is_loopback or ip.is_unspecified or ip.is_link_local or ip.is_multicast:
+        return "is an address of this box"
+    if ip in {_plain_ip(o) for o in host.own or ()}:
+        return "is an address of this box"
+    for net in sorted(host.local_nets):
+        try:
+            inside = ip in ipaddress.ip_network(net, strict=False)
+        except ValueError:
+            return f"cannot be told apart from this box's own networks ({net} cannot be read)"
+        if inside:
+            return f"is in {net}, a network of this box's own (its containers' or a bridge's)"
+    return ""
+
+
 def share_problem(m: Mount, host: Host) -> str:
     """Why a share is not off the box (served by the box, or its server cannot be told); empty when it is off."""
     server = _share_host(m)
@@ -391,15 +487,16 @@ def share_problem(m: Mount, host: Host) -> str:
         return f"is a share whose server cannot be told ({m.source})"
     if server in LOCAL_NAMES:
         return f"is a share served by this box ({server})"
-    addrs = host.resolve(server)
+    addrs = _share_addresses(m, server, host)
     if not addrs:
         return f"is a share whose server {server} cannot be told (the name does not resolve)"
     if host.own is None:
-        return "is a share, but this box's own addresses cannot be read (ip addr), so its server cannot be told apart"
+        return ("is a share, but this box's own addresses cannot be read (ip -j -d addr), so its server cannot be "
+                "told apart")  # fmt: skip
     for a in addrs:
-        ip = ipaddress.ip_address(a)
-        if ip.is_loopback or ip.is_unspecified or a in host.own:
-            return f"is a share served by this box ({server}: {a})"
+        why = _the_box(a, host)
+        if why:
+            return f"is a share served by this box ({server}: {a} {why})"
     return ""
 
 
@@ -413,11 +510,11 @@ def _docker_root(host: Host) -> str:
 
 
 def box_disks(host: Host, deploy: Path, env: dict[str, str]) -> tuple[frozenset[str] | None, str]:
-    """The physical disks of ``/``, the install folder, Docker's data root (the database and audit volumes) and the
-    audit folders, and what could not be told (empty when every one was)."""
+    """The physical disks of ``/``, the install folder, Docker's data root (the database and audit volumes), the
+    audit folders and the host's key and secrets folders, and what could not be told (empty when every one was)."""
     found: set[str] = set()
     named = {"/": "/", INSTALL: host.named(str(deploy.resolve())), "Docker's data root": _docker_root(host)}
-    for k in ("TB_AUDIT_HOST_DIR", "TB_AUDIT_ARCHIVE_DIR"):
+    for k in ("TB_AUDIT_HOST_DIR", "TB_AUDIT_ARCHIVE_DIR", "TB_KEK_HOST_DIR", "TB_SECRETS_HOST_DIR"):
         if env.get(k):
             named[k] = env[k]
     for what, folder in named.items():
@@ -466,7 +563,8 @@ def off_the_box(folder: str, host: Host, deploy: Path, env: dict[str, str] | Non
     shared = sorted(disks & mine)
     if shared:
         return (f"is on a disk of the box itself ({', '.join(shared)}: the system disk, the install folder's, the "
-                "database's or the audit folders'): another partition or volume of it is not off the box")  # fmt: skip
+                "database's, the audit folders' or the key and secrets folders'): another partition or volume of it is "
+                "not off the box")  # fmt: skip
     if not any(_under(folder, d) for d in declared):
         return "is on another disk, but TB_BACKUP_OFFBOX does not name it (the nightly backup counts it only then)"
     return _nightly_counts(folder, m, host, deploy, declared)
