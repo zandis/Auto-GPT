@@ -824,6 +824,8 @@ def test_the_journal_code_refuses_a_file_mode_writer_checks_the_database_and_pri
         def close(self) -> None:
             connected.append("closed")
 
+    import tb_common.audit_writer as real_writer  # the one module object the rest of the run shares
+
     mod = types.ModuleType("tb_common.audit_writer")
     mod.DbAuditWriter = DbAuditWriter  # type: ignore[attr-defined]
     mod._psycopg = lambda: types.SimpleNamespace(connect=lambda dsn, connect_timeout: Con())  # type: ignore[attr-defined]
@@ -840,7 +842,9 @@ def test_the_journal_code_refuses_a_file_mode_writer_checks_the_database_and_pri
     exec(bkc.JOURNAL_CODE, {})
     assert got == [(bkc.EVENT, {"actor": bkc.ACTOR, "detail": {"fingerprint": "f"}})]
     assert capsys.readouterr().out == "journal 7\n"
-    monkeypatch.delitem(sys.modules, "tb_common.audit_writer")
+    # Put the real module back rather than import a second copy: a fresh import would rebind
+    # tb_common.audit_writer to a module no later test's monkeypatch reaches.
+    monkeypatch.setitem(sys.modules, "tb_common.audit_writer", real_writer)
     from tb_common.audit_writer import DbAuditWriter as Real
     from tb_common.audit_writer import _psycopg, foreign  # what the code imports exists in the real module
 
