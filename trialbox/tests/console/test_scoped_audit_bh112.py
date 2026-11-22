@@ -80,3 +80,43 @@ def test_a_scoped_steward_sees_only_its_own_studies_break_glass_grants(box: dict
     whole, _csrf = _account(box, "ubg1", "steward", scoped=False)  # the same role without a scope: every grant
     page = whole.get("/breakglass").text
     assert "aaaaaaaa" in page and "bbbbbbbb" in page
+
+
+def test_a_grant_whose_study_cannot_be_told_is_not_shown_to_a_scoped_steward(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A job grant whose job is gone has no study: a scoped steward is not shown it; an unscoped one still is."""
+    import console.breakglass
+
+    from tests.console.test_console_app import _done_screen, _ulid
+    from tests.console.test_d280_breakglass import _open
+
+    jid = _ulid(931)
+    _done_screen(box["backend"], jid)
+    admin, _ = login(box["app"])
+    assert _open(admin, kind="job", job_id=jid, reason="incident", note="incident 7: list check").status_code == 303
+    monkeypatch.setattr(console.breakglass, "job_study", lambda _h, _job: "")  # the job and its study are gone
+    scoped, _csrf = _account(box, "sbg2", "steward", scoped=True)
+    assert jid[-8:] not in scoped.get("/breakglass").text
+    whole, _csrf = _account(box, "ubg2", "steward", scoped=False)
+    assert jid[-8:] in whole.get("/breakglass").text
+
+
+def test_a_scoped_steward_cannot_review_another_studys_grant(box: dict[str, Any]) -> None:
+    from tests.console.test_d280_breakglass import _events, _open
+    from tests.console.test_role_pages import _csrf
+
+    admin, _ = login(box["app"])
+    for ruleset, pid in ((OTHER, "b" * 32), ("GZQO", "a" * 32)):
+        assert _open(admin, kind="patient", ruleset=ruleset, pid=pid).status_code == 303
+    other, own = (e["detail"]["grant"] for e in _events(box, "console.breakglass_open"))
+    for gid in (other, own):
+        assert admin.post(f"/breakglass/{gid}/end", data={"csrf": _csrf(admin.get("/breakglass").text)},
+                          follow_redirects=False).status_code == 303  # fmt: skip
+    scoped, _csrf_unused = _account(box, "sbg3", "steward", scoped=True)
+    token = _csrf(scoped.get("/breakglass").text)
+    r = scoped.post(f"/breakglass/{other}/review", data={"csrf": token}, follow_redirects=False)
+    assert r.status_code == 403  # another study's grant: refused, not marked
+    assert not any(e["detail"]["grant"] == other for e in _events(box, "console.breakglass_review"))
+    r = scoped.post(f"/breakglass/{own}/review", data={"csrf": token}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/breakglass?done=review"  # its own study's: reviewed
