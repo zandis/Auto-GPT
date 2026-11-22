@@ -179,3 +179,5 @@ The invariant was compared again with master 7dcba1be's own installer: identical
 
 `deploy/settings_guard.sh` (the boot guard), `services/console/app.py` (`environment_banner`, the sentence),
 `tools/engine_probe.py` (`--gpu-index`, the one-way ids `card_id` and `host_id`; without the option as before).
+`libs/tb_common/config.py` (one `DECLARED` row for TB_REHEARSAL_REAL_SERVERS, which the banner reads:
+tests/unit/test_config_declared.py requires every setting read to be declared).
