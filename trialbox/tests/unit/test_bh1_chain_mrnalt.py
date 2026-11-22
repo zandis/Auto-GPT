@@ -9,6 +9,8 @@ chart number in the middle of a line is never found. Synthetic values only.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 from guard.guard import Guard
 from tb_common import logging as tb_logging
@@ -19,7 +21,7 @@ LINE = "lab drawn for C1234567 and 12345678 today"  # synthetic chart numbers, u
 
 
 @pytest.fixture
-def site_rule():
+def site_rule() -> Iterator[None]:
     saved = list(tb_logging._EXTRA_MRN)
     tb_logging.set_mrn_regex(SITE_RULE)
     yield

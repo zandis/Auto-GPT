@@ -14,10 +14,12 @@ Synthetic values only; nothing is sent.
 from __future__ import annotations
 
 from email import message_from_bytes, policy
+from typing import cast
 
 import pytest
 from mail_gateway.outbound import prepare
 from orchestrator.i18n import t
+from tb_common.objstore import ObjectStore
 from tb_contracts.generated.models import SendRequest
 
 # a criterion text as a protocol could carry it (synthetic); the host is a reserved example name
@@ -31,7 +33,9 @@ class _NoStore:
 
 def _html_part(body_md: str) -> str:
     req = SendRequest(job_id="J-BH1", to=["crc@site.example"], subject="FEAS done", body_md=body_md, tag="aggregate")
-    prepared = prepare(req, store=_NoStore(), sender="box@site.example", internal_domains=["site.example"], tz="UTC")
+    prepared = prepare(
+        req, store=cast(ObjectStore, _NoStore()), sender="box@site.example", internal_domains=["site.example"], tz="UTC"
+    )
     msg = message_from_bytes(prepared.data, policy=policy.default)
     part = msg.get_body(preferencelist=("html",))
     assert part is not None

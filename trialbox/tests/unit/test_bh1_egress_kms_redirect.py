@@ -28,12 +28,16 @@ OTHER = "http://other.example.org/collect"
 TOKEN = "synthetic-kms-token-0000"  # a synthetic value, not a credential
 
 
+class _Resp(urllib.response.addinfourl):
+    msg: str  # the status text the redirect handler reads
+
+
 def _answer(url: str, code: int, body: bytes, headers: dict[str, str]) -> Any:
     msg = email.message.Message()
     for k, v in headers.items():
         msg[k] = v
-    resp = urllib.response.addinfourl(io.BytesIO(body), msg, url, code)
-    resp.msg = "Found" if code == 302 else "OK"
+    resp = _Resp(io.BytesIO(body), msg, url, code)
+    resp.msg = "Found" if code == 302 else "OK"  # read by the redirect handler
     return resp
 
 
