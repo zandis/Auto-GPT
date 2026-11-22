@@ -279,3 +279,24 @@ def test_box_restore_with_the_installers_nocreatedb_owner(
             assert res["unpacked_removed"] and res["databases"]["trialbox_wf"]["differ_count"] == 0
         finally:
             con.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(owner)))
+
+
+def test_the_module_form_keeps_the_callers_connection_beside_site_settings(
+    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Review of #1305 (12): ``python -m tools.trialbox restore-drill`` switched to the box's Compose stack whenever
+    ``deploy/.env`` existed, ignoring the caller's TB_DB_URL and ``--dir``. Only the installed command uses the box."""
+    for k, v in box["env"].items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(shutil, "disk_usage", lambda _p: type("U", (), {"free": 10**12})())
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text("TB_DB_URL=postgresql://box-owner@db:5432/trialbox_wf\n", encoding="utf-8")
+    rehearsal = tmp_path / "rehearsal-audit"
+    rehearsal.mkdir()
+    args = ["restore-drill", str(box["file"]), "--key", str(box["priv"]), "--work", str(tmp_path),
+            "--db-dir", str(tmp_path), "--deploy", str(deploy), "--dir", f"audit={rehearsal}"]  # fmt: skip
+    assert cli(args) == 0, capsys.readouterr().err
+    assert json.loads(capsys.readouterr().out)["ok"]
+    events = [json.loads(x) for f in rehearsal.rglob("*.jsonl") for x in f.read_text().splitlines()]
+    assert any(e.get("event") == rd.EVENT for e in events)

@@ -510,8 +510,9 @@ def _drill_cmd(a: argparse.Namespace, installed: bool) -> int:
     db_dir = a.db_dir or (docker_root if docker_root.is_dir() else None)
     res = None
     try:
-        # Installed boxes use the site settings even if another connection was exported by the caller.
-        if installed or (a.deploy / ".env").is_file():
+        # The installed command (on PATH) uses the box's settings even if another connection was exported by the
+        # caller. The module form never switches on its own: it uses the caller's connection and --dir.
+        if installed:
             from tools.trialbox.box_drill import BoxDrill
 
             box = BoxDrill(a.deploy)

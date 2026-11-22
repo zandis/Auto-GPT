@@ -50,7 +50,7 @@ To rotate an already unsealed KEK with the new passphrase supplied in the comman
 passphrase in your own Bash shell. Using `sudo VAR=value command` shows the value in the process list.
 
 ```bash
-read -rs TB_KEK_NEW_PASSPHRASE; export TB_KEK_NEW_PASSPHRASE
+IFS= read -rs TB_KEK_NEW_PASSPHRASE; export TB_KEK_NEW_PASSPHRASE
 sudo --preserve-env=TB_KEK_NEW_PASSPHRASE env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase
 unset TB_KEK_NEW_PASSPHRASE
 ```

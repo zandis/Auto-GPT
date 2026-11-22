@@ -46,9 +46,12 @@ tool() {  # tool MODULE ARGS...: the host's python3 when it can, else the image'
   if python3 -c "import cryptography" 2>/dev/null; then
     (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m "$mod" "$@")
   else
-    # the folders keep their host paths inside the container
-    docker run --rm --network none --user 0:0 -e TB_KEK_PASSPHRASE -e TB_KEK_FILE -e TB_ENV -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" \
-      ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} "${TB_IMAGE:-trialbox-py:1.0.0}" python -m "$mod" "$@"
+    # the folders keep their host paths inside the container. The passphrase goes through the container's stdin (a
+    # pipe; printf is the shell's builtin), never -e: Docker keeps a container's environment in its config on disk
+    printf '%s\n' "${TB_KEK_PASSPHRASE:-}" | docker run --rm -i --network none --user 0:0 -e TB_KEK_FILE -e TB_ENV \
+      -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} \
+      "${TB_IMAGE:-trialbox-py:1.0.0}" sh -c 'IFS= read -r p || :; [ -z "$p" ] || { TB_KEK_PASSPHRASE=$p; export TB_KEK_PASSPHRASE; }; unset p; exec "$@" </dev/null' \
+      sh python -m "$mod" "$@"
   fi
 }
 keys() { tool tools.keys "$@"; }

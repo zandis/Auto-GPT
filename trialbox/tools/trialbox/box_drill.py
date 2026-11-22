@@ -82,6 +82,7 @@ class BoxDrill(ComposeOps):
     def create(self, db: str, name: str) -> None:
         if db not in DATABASES or name in self.live_names or not re.fullmatch(rf"tb_drill_[0-9a-f]{{8}}_{db}", name):
             raise rd.DrillError("invalid scratch database / 暫存資料庫名稱無效 / 一時データベース名が無効です")
+        self.created.add(name)  # before the server answers: a lost acknowledgement is still dropped (IF EXISTS)
         self.box.run(
             self.box._c(
                 "exec",
@@ -95,7 +96,6 @@ class BoxDrill(ComposeOps):
                 name,
             )
         )
-        self.created.add(name)
 
     def restore_compare(self, db: str, name: str, into: Path, want: Mapping[str, Any]) -> list[str]:
         try:

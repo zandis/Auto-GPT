@@ -168,7 +168,7 @@ of at least 12 characters when `read` waits, then press Enter.
 Using `sudo VAR=value command` shows the value in the process list.
 
 ```bash
-read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
 sudo --preserve-env=TB_KEK_PASSPHRASE deploy/box-install.sh "$bundle" --answers owner.json
 unset TB_KEK_PASSPHRASE
 ```

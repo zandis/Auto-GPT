@@ -29,7 +29,7 @@
 # password and enrolment code printed once), then the time zone, the backup schedule and the host check. The file
 # never holds a password or a passphrase (refused); a board without a TPM takes TB_KEK_PASSPHRASE from the
 # environment and the keys are sealed at the install. In your own Bash shell, set bundle to the signed bundle path:
-#   read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
 #   sudo --preserve-env=TB_KEK_PASSPHRASE deploy/box-install.sh "$bundle" --answers owner.json
 #   unset TB_KEK_PASSPHRASE
 # sudo VAR=value command shows the value in the process list.

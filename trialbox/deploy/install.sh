@@ -8,7 +8,7 @@
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
 #   Without a TPM, set bundle and answers to their paths. In your own Bash shell (passphrase of at least 12 characters):
-#   read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
 #   sudo --preserve-env=TB_KEK_PASSPHRASE TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers"
 #   unset TB_KEK_PASSPHRASE
 #   sudo VAR=value command shows the value in the process list.
@@ -33,7 +33,7 @@
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
-#   4. start:     down --remove-orphans in this project / 清除此專案 / このプロジェクトを整理
+#   4. start:     down --remove-orphans after a failed run, only in this install's own project, never a healthy stack
 #                 docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
 #                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
 #                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
@@ -827,11 +827,6 @@ if [ "$PULL" = never ]; then
   [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
-# The same named project and overlays as up. Include inactive profiles from an earlier attempt.
-(
-  COMPOSE+=(--profile '*')
-  "${COMPOSE[@]}" down --remove-orphans
-) || die "project cleanup failed / 專案清理失敗 / プロジェクトのクリーンアップに失敗しました"
 # D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
 # update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
 if command -v python3 >/dev/null; then
@@ -840,6 +835,25 @@ if command -v python3 >/dev/null; then
 else
   echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
 fi
+# PROJECT-CLEANUP (F-19): after the release's checks above passed, before anything uses the project's network. Only a
+# project proven to be this install's (tools/trialbox/project_check.py) and not running healthy is taken down, with
+# the same overlays as up and every profile of an earlier attempt. Anything else is refused or kept.
+if command -v python3 >/dev/null; then
+  CLEANUP="$(python3 -m tools.trialbox.project_check --deploy "$ROOT/deploy" -- "${COMPOSE[@]}" --profile '*')" \
+    || die "the compose project is not proven to be this install's (above): nothing was removed"
+else
+  CLEANUP=none
+  [ -z "${COMPOSE_PROJECT_NAME:-}" ] || [ "$COMPOSE_PROJECT_NAME" = trialbox ] \
+    || die "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME in this shell is not this install's project: unset it, then re-run"
+  echo "    note: no python3 on this host: the project is not proven to be this install's, so nothing is cleaned up" >&2
+fi
+if [ "$CLEANUP" = down ]; then
+(
+  COMPOSE+=(--profile '*')
+  "${COMPOSE[@]}" down --remove-orphans
+) || die "project cleanup failed / 專案清理失敗 / プロジェクトのクリーンアップに失敗しました"
+fi
+# ---- end of PROJECT-CLEANUP
 # T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
 # ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
 say "site keys (made once, never replaced)"

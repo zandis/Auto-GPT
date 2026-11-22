@@ -192,8 +192,8 @@ def drill(
                    files=len(manifest["files"]))  # fmt: skip
         for db, want in manifest["databases"].items():
             scratch_db = scratch_name(db)
+            made.append(scratch_db)  # before the server answers: a lost acknowledgement is still dropped
             ops.create(db, scratch_db)
-            made.append(scratch_db)
             diff = ops.restore_compare(db, scratch_db, unpacked, want)
             res["databases"][db] = {"tables": len(want["rows"]), "rows": sum(r[0] for r in want["rows"].values()),
                                     "differ": diff[:10], "differ_count": len(diff)}  # fmt: skip
