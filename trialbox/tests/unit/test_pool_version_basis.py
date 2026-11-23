@@ -137,11 +137,16 @@ def test_the_after_ingest_run_lists_an_old_row_for_review_and_screens_nobody_aga
 
 
 # ------------------------------------------------------------------------------------------------ H1: the soft fail
-def _note_fail(final: bool | None = None, confidence: float = 0.95) -> CriterionVerdict:
+#: a quote that states the note exclusion's condition (a current gout flare). R22-16 (#639 7079180333): the input was
+#: the placeholder "q", which states nothing and now goes to review on its own; the pinned "q" cases are below
+FLARE = "Acute gout flare of the right first toe since yesterday."
+
+
+def _note_fail(final: bool | None = None, confidence: float = 0.95, quote: str = FLARE) -> CriterionVerdict:
     return CriterionVerdict(
         id=NOTE.id,
         verdict="fail",
-        evidence=Evidence(resource_refs=["DocumentReference/D1"], quote="q", confidence=confidence, reason="note"),
+        evidence=Evidence(resource_refs=["DocumentReference/D1"], quote=quote, confidence=confidence, reason="note"),
         final=final,
     )
 
@@ -212,6 +217,16 @@ def test_a_note_fail_stored_before_the_field_never_excludes(monkeypatch: pytest.
         assert (t, v.final) == ("review", False), stored_tier
     t, v = _retier(monkeypatch, _note_fail(final=True), "excluded")
     assert (t, v.final) == ("excluded", True)
+
+
+def test_a_pairs_final_fail_on_a_quote_that_states_nothing_is_review_at_a_later_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The old input of the two tests above, pinned (R22-16, #639 7079180333): the controls' pair's final fail on
+    the placeholder quote "q", which states no condition, is review, at a later tier and in the weekly re-tier."""
+    assert tier(GZQO, [_note_fail(final=True, quote="q")], 0.75, note_block=True)[0] == "review"
+    t, _v = _retier(monkeypatch, _note_fail(final=True, quote="q"), "excluded")
+    assert t == "review"
 
 
 def test_an_old_excluded_row_whose_coded_exclusion_clears_is_not_excluded_on_one_models_note(

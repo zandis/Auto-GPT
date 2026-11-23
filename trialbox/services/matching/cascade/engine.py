@@ -44,7 +44,6 @@ from tb_common import lakeprobe
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import CALL_CONTEXT
 from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
-from tb_common.pair import INFERRED_REASON, inferred_exclusion
 from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
@@ -91,6 +90,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
+from matching.note_answer import note_answer_may
 from matching.notelang import LANGS, family, main_language, notes_language
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.recorded import NO_RECORD, Recorded
@@ -1195,6 +1195,10 @@ class _Run:
     def _map(
         self, c: CriterionIR, reply: JudgeReply, span: dict[str, Any] | None, stage: Stage, left_out: int = 0
     ) -> Outcome:
+        sentence = ""
+        if span is not None and "sentence" in span:  # R22-16: read by the one rule below, never published
+            sentence = str(span["sentence"] or "")
+            span = {k: v for k, v in span.items() if k != "sentence"}
         ev = [span] if span else []
         meta = {
             "call_id": reply.call_id,
@@ -1211,9 +1215,10 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason=why)
         if span is None:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason="insufficient")
-        condition_present = reply.verdict == "pass"
-        eligible = condition_present if c.kind == "inclusion" else not condition_present
-        if eligible:
+        quoted = str(span.get("quote") or reply.quote or "")
+        # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16)
+        may = note_answer_may(c.kind, reply.verdict == "pass", quoted, c.text, sentence)
+        if may.effect == "keeps":
             if left_out:
                 # T-603 (review LLM-016, CR-004 flag half): the answer that keeps the patient stands, flagged; the
                 # caller marks the patient (PatientTrace.notes_over_budget) and the tier is never "strong"
@@ -1227,13 +1232,11 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
-        quoted = str((span or {}).get("quote") or reply.quote or "")
-        if inferred_exclusion(c.kind, condition_present, quoted, c.text):
-            # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a drug, a
-            # value, findings counted into one) is the models' inference (both agreed on four on jmed): a person looks.
-            # The rule is the pair's (``tb_common.pair``), which every path reads (R22-16)
-            why = INFERRED_REASON
-            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
+        if may.effect == "review":
+            # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a
+            # negated, a relative's, a suspected condition, a drug, a value, findings counted into one) is the
+            # models' inference (both agreed on four on jmed): a person looks
+            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=may.reason)
         if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
             return Outcome(
                 c.id,

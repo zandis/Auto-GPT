@@ -21,6 +21,9 @@ is out of scope: there the value or the drug IS what the line asks about.
 from __future__ import annotations
 
 import re
+import unicodedata
+
+from tb_common.quotes import quote_key
 
 # Concepts named by abbreviation or synonym. English entries are word prefixes (case-insensitive) unless all capitals,
 # which match as whole words, case as written; CJK entries match anywhere.
@@ -97,21 +100,37 @@ _NOT_A_CONDITION = re.compile(
     r"[<>≤≥≦≧]|\bULN\b|\d\s*(?:mg|g/dl|ml|%|u/l|mmol|µmol|umol)|\b(?:eGFR|CrCl|ALT|AST|HbA1c|INR)\b|creatinine|"
     r"bilirubin|platelet|haemoglobin|hemoglobin|neutrophil|\bcount\b|\blevel|positive|negative|therap|treatment|"
     r"medication|\bdrugs?\b|steroid|chemotherap|insulin|anticoagul|inhibitor|vaccin|surgery|surgical|operation|"
-    r"\breceiv|\btaking\b|\buse of\b|\busing\b|服用|内服|投与|治療|薬|手術|陽性|陰性|値|值|使用",
+    r"\breceiv|\btaking\b|\buse of\b|\busing\b|服用|内服|投与|治療|薬(?!疹|物性)|手術|陽性|陰性|値|值|使用",
     re.IGNORECASE,
 )
-# A mention that does not state the condition: negated, a relative's, a risk, a screen, a drug or diet for it.
-_BEFORE = re.compile(
-    r"\b(?:no|not|denies|denied|without|negative for|free of|family|mother|father|sister|brother|sibling|parent|"
-    r"risk|rule out|ruled out|r/o|possible|suspected|screen\w*)\b|家族|母|父|兄|姉|弟|妹|祖|否定|疑",
+# A mention that does not state the condition: negated or stated absent, a relative's, suspected, a risk, a screen
+# (R22-16 round 2). Read in the whole part of the sentence that holds the mention (``_part``), before or after it:
+# Japanese and Chinese put the negation or the doubt at the end (嘔吐はない, 心外膜炎疑い, 腫瘍が増悪する可能性も考慮
+# された), English often before or after ("Epicarditis was suspected", "no enlargement or fibrosis").
+_NOT_STATED = re.compile(
+    r"\b(?:no|not|never|none|nor|neither|without|absent|absence|negative|neg|deny|denies|denied|unlikely|excluded?|"
+    r"free of|no longer|ruled? out|rules out|r/o|resolved|resected|removed|dropped off|disappeared|healed|subsided|"
+    r"cleared|suspect\w*|possib\w*|probab\w*|likely|suggest\w*|consider\w*|may|might|could|quer\w*|questionabl\w*|"
+    r"concern for|differential|versus|vs|either|characteristic\w*|consistent with|compatible with|pending|await\w*|"
+    r"presum\w*|evaluat\w* for|work-?up|screen\w*|risk|"
+    r"(?:grand|step|half-?)?(?:mother|father|parents?|sisters?|brothers?|siblings?|sons?|daughters?)|grandparents?|"
+    r"aunts?|uncles?|cousins?|wife|husband|spouse|relatives?|family|familial|maternal|paternal)\b|n't\b|\?|"
+    r"\(\s*[-−]\s*\)|"
+    r"なし|無し|なく|ない|無い|ません|否定|否認|陰性|認めず|認めな|認められず|認められな|未|疑|可能|考え|推定|推測|示唆|"
+    r"考慮|鑑別|除外|排除|リスク|家族|母|父|兄|姉|弟|妹|祖|叔|伯|息子|娘|妻|夫|親|どちら|性格|沒有|没有|無|不明|待查|消失",
     re.IGNORECASE,
 )
+# A drug or diet for it, said right after the mention (糖尿病薬, "diabetic diet").
 _AFTER = re.compile(
-    r"^\W{0,2}(?:なし|無し|無|は否定|否定|は認め|リスク|疑い|の疑|の可能性|の家族|薬|治療薬|"
-    r"diet|risk|screen|medication|meds|drug|ruled out|excluded)",
+    r"^\W{0,2}(?:薬|治療薬|diet|medication|meds|drug)",
     re.IGNORECASE,
 )
-_CLAUSE = re.compile(r"[.;。；！？!?\n]")
+# A sentence; and within it, the parts a contrast divides ("HTN, but no family history"; 高血圧症がありますが、家族歴は
+# ありません): a negation in the other part says nothing about this mention.
+_SENTENCE = re.compile(r"[;。；！？!?\n]|\.(?=\s|$)")
+_CONTRAST = re.compile(
+    r"が[、,]|けれど|けど|しかし|ただし|但し|但是|不過|\b(?:but|however|although|though|whereas|while)\b", re.IGNORECASE
+)
 
 
 def _is_caps(term: str) -> bool:
@@ -155,29 +174,54 @@ def _translated(criterion: str) -> list[str]:
     return out
 
 
+def _part(text: str, start: int, end: int) -> str:
+    """The part of ``text``'s sentence that holds ``text[start:end]``, between two contrasts, the mention blanked."""
+    s0 = max((m.end() for m in _SENTENCE.finditer(text, 0, start)), default=0)
+    s1 = next((m.start() for m in _SENTENCE.finditer(text, end)), len(text))
+    p0 = max((s0, *(m.end() for m in _CONTRAST.finditer(text, s0, start))))
+    p1 = next((m.start() for m in _CONTRAST.finditer(text, end, s1)), s1)
+    return f"{text[p0:start]} _ {text[end:p1]}"
+
+
 def _stated_at(quote: str, start: int, end: int) -> bool:
     if quote[end - 1 : end].isascii():  # to the end of the word: "diabe" is "diabetic diet"
         end += len(quote[end:]) - len(quote[end:].lstrip("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"))
-    clause = _CLAUSE.split(quote[:start])[-1]
-    return not _BEFORE.search(clause[-40:]) and not _AFTER.search(quote[end : end + 12])
+    return not _NOT_STATED.search(_part(quote, start, end)) and not _AFTER.search(quote[end : end + 12])
 
 
 def names_condition(quote: str, criterion: str) -> bool:
-    """The quote states the criterion's condition: one of its terms (``_terms``), in a mention that is not negated,
-    a relative's, a risk, or a drug or diet for it."""
-    q = quote or ""
-    for term in dict.fromkeys(_terms(criterion or "")):
+    """The quote states the criterion's condition: one of its terms (``_terms``), in a mention that is not negated
+    or stated absent, a relative's, suspected, a risk, or a drug or diet for it. Both are read in NFKC (a record's
+    full-width ＩＣＩｓ, （－）)."""
+    q = unicodedata.normalize("NFKC", quote or "")
+    for term in dict.fromkeys(_terms(unicodedata.normalize("NFKC", criterion or ""))):
         for m in _pattern(term).finditer(q):
             if _stated_at(q, m.start(), m.end()):
                 return True
     return False
 
 
-def inferred(quote: str, criterion: str) -> bool:
+def inferred(quote: str, criterion: str, sentence: str = "") -> bool:
     """The criterion names a condition and the quote does not state it: a "present" on it is an inference (a
-    treatment, a dose, a value, findings the model counted into a diagnosis). Never for a criterion that is itself a
-    value, a drug or a procedure."""
-    c = criterion or ""
+    treatment, a dose, a value, findings the model counted into a diagnosis, a negated, a relative's or a suspected
+    condition). Never for a criterion that is itself a value, a drug or a procedure.
+
+    ``sentence``: the record's sentence the quote was verified in (:func:`sentence_of`), when the caller has it. A
+    quote may be a fragment of it ("HIV" of "Mother has HIV."): then the sentence must state the condition too
+    (R22-16 round 2: the guard read only the quoted fragment)."""
+    c = unicodedata.normalize("NFKC", criterion or "")
     if _NOT_A_CONDITION.search(c) and not any(_pattern(t).search(c) for concept in _CONCEPTS for t in concept):
         return False
-    return not names_condition(quote or "", c)
+    return not names_condition(quote or "", c) or bool(sentence and not names_condition(sentence, c))
+
+
+def sentence_of(quote: str, text: str) -> str:
+    """The sentence(s) of ``text`` (an excerpt) the ``quote`` lies in, read as :func:`tb_common.quotes.quote_key`
+    reads both (NFKC, stray spaces by CJK dropped); "" when the quote is not in it."""
+    q, t = quote_key(quote or ""), quote_key(text or "")
+    at = t.find(q) if q else -1
+    if at < 0:
+        return ""
+    s0 = max((m.end() for m in _SENTENCE.finditer(t, 0, at)), default=0)
+    s1 = next((m.end() for m in _SENTENCE.finditer(t, at + len(q))), len(t))
+    return t[s0:s1].strip()

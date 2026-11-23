@@ -29,6 +29,8 @@ from tb_common.quotes import quote_in, quote_key
 from tb_llm import budget
 from tb_llm.budget import estimate_tokens
 
+from matching.inferred import sentence_of
+
 JUDGE_PROMPT = "judge"
 
 
@@ -337,6 +339,9 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
             "date": d.isoformat(),
             "sentence_hash": sentence_hash(q),
             "quote": reply.quote,
+            # R22-16: the record's sentence the quote lies in, for the one rule of what a note answer may do
+            # (``matching.note_answer``); ``engine._map`` reads it and takes it out, so it is never published
+            "sentence": sentence_of(reply.quote, raw),
         }
     return None
 

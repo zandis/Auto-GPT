@@ -31,8 +31,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from tb_common.pair import inferred_exclusion
 from tb_common.verdict_word import held_back
+
+from matching.note_answer import note_answer_may
 
 Answer = Literal["yes", "no", "unknown"]
 Basis = Literal["coded", "pair", "single", "person"]
@@ -93,17 +94,18 @@ def _flagged(verdict: Any) -> bool:
     return ev is not None and ev.reason == NOTES_OVER_BUDGET
 
 
-def _inferred(criterion: Any, verdict: Any) -> bool:
-    """D-985 (R22-16), the backstop of every builder and of a stored row: a note "fail" on an exclusion whose quote
-    does not state the condition (:func:`tb_common.pair.inferred_exclusion`) is the models' inference. A row with no
-    quote (no path decides a note answer without one: SPEC §7.3, CAS-16) and a criterion that does not say its kind
-    (a caller's stand-in) are read as before."""
+def _reviewed(criterion: Any, verdict: Any) -> bool:
+    """The backstop of every builder and of a stored row: what this note answer may do, by the one rule of every path
+    (:func:`matching.note_answer.note_answer_may`; D-1069, D-985, R22-16), is review. A row with no quote (no path
+    decides a note answer without one: SPEC §7.3, CAS-16) and a criterion that does not say its kind (a caller's
+    stand-in) are read as before."""
     kind = getattr(criterion, "kind", None)
     ev = verdict.evidence
     quote = ev.quote if ev is not None else None
-    if kind != "exclusion" or quote is None:
+    if kind not in ("inclusion", "exclusion") or quote is None:
         return False
-    return inferred_exclusion(kind, True, quote, str(getattr(criterion, "text", "") or ""))
+    present = (verdict.verdict == "pass") == (kind == "inclusion")
+    return note_answer_may(kind, present, quote, str(getattr(criterion, "text", "") or "")).effect == "review"
 
 
 def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
@@ -115,7 +117,7 @@ def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
     if basis == "person" or not is_note_answer(criterion, verdict):
         # the records' answer (T-652's table made it) or a person's decision: final as it stands
         return "yes" if v == "pass" else "no"
-    if v == "fail" and _inferred(criterion, verdict):
+    if v == "fail" and _reviewed(criterion, verdict):
         return "unknown"
     sure = _confidence(verdict) >= policy.threshold
     if v == "pass":
