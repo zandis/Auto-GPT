@@ -1,0 +1,63 @@
+{
+ "card": "H95",
+ "title": "the install copied the bundle off the stick before loading it",
+ "date": "2026-11-23",
+ "source": "docs/handover/load-from-the-stick-h95-2026-11-23.md",
+ "findings": [
+  {
+   "id": "H95-01",
+   "severity": "High",
+   "claim": "a first install copied every payload of the bundle into TMPDIR twice (the dry run, then the load) and the weights once more into the models folder: the peak was about the bundle plus everything loaded",
+   "severity_basis": "the walk's install on the bench host stopped at step 1 for disk: 79 GB free fell to 14 GB on a 60.7 GB bundle",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the verifier stages no image and no weight; the update path loads each straight from the bundle and hashes it again on the way in; tests/unit/test_load_from_the_stick_h95.py measures the peak",
+   "from": "the integrator's card H-95 (comments 7092830629, 7092940586) and the walk of 2026-11-23"
+  },
+  {
+   "id": "H95-02",
+   "severity": "Medium",
+   "claim": "what a real docker load writes in passing inside Docker's data root (the archive unpacked before the image is registered, or compressed layers kept beside the unpacked ones) is not measured: the peak on a real box may pass the installed size plus 10 % while the largest image loads",
+   "severity_basis": "the bound is held on this card's own writes; Docker's are outside it and depend on the image store",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "not in this card: the bench host measures it after H-95 merges (the integrator, D-1094)",
+   "from": "card H-95, 2026-11-23"
+  },
+  {
+   "id": "H95-03",
+   "severity": "Medium",
+   "claim": "a first load (the box not running) that fails on one payload's hash leaves the payloads loaded before it in place; only the failing payload and the pack's record are not written",
+   "severity_basis": "a re-run of the install loads again and the box does not start on a partial load, but a person reading the disk sees a half-loaded pack",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "not in this card: the first-install branch of tools/trialbox/update.py main_apply has no rollback point, as before",
+   "from": "card H-95, tests/unit/test_load_from_the_stick_h95.py, 2026-11-23"
+  },
+  {
+   "id": "H95-04",
+   "severity": "Medium",
+   "claim": "a model pack applied to a running box keeps every weight file it overwrites aside in the rollback point under deploy/updates: that update's peak is the installed size plus the old weights",
+   "severity_basis": "a model pack changes rarely (the pair or the engine), and the copy is what the rollback needs",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card",
+   "from": "reading tools/trialbox/update.py for card H-95, 2026-11-23"
+  },
+  {
+   "id": "H95-05",
+   "severity": "Low",
+   "claim": "the bench's size breakdown of the bundle (each image compressed and loaded, each model folder, where the disk went) was not found on #639; the peak test's proportions are this card's assumption",
+   "severity_basis": "the bound is a ratio, held whatever the proportions; the targets for the packs' sizes are not checked",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open",
+   "fix": "not in this card: the bench's line, then the sizes on the install page",
+   "from": "card H-95, 2026-11-23"
+  }
+ ]
+}
