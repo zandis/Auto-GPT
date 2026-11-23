@@ -50,7 +50,7 @@ EN: dict[str, str] = {
     "sstate.bad_keep_years": "Give the years to keep the study's files after the close as a whole number from 1 to 30.",
     # T-629 (FIT-U06): the study's type for SAE reporting selects the reporting table; no study opens without it
     "sstate.sae_type": "Not opened: choose this study's type for serious adverse event reporting on the set-up page first. The type decides who is told of a serious adverse event and by when.",
-    "sstate.sae_mailbox": "Not opened: this box has no trial office mailbox yet, or only a stand-in for it. A new serious adverse event is mailed at once to the office and the study's PI. Ask the administrator to fill it in on the page \"Information still needed\".",
+    "sstate.sae_mailbox": 'Not opened: this box has no trial office mailbox yet, or only a stand-in for it. A new serious adverse event is mailed at once to the office and the study\'s PI. Ask the administrator to fill it in on the page "Information still needed".',
     "sstate.sae_unknown": "Not opened: TrialBox could not read this study's SAE reporting type just now. Try again in a minute.",
     "sstate.readonly": "The study coordinator or the study's PI changes the state and the identifiers.",
     "sstate.history": "State history",
