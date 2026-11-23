@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from tests.unit.test_rehearsal_real_servers_h89 import GOOD, INSTALL, Bench, _plant
 from tools import rehearsal_real
@@ -142,3 +143,100 @@ def test_dgpu48_under_the_mark_pins_the_same_pair_starts_its_overlay_and_says_so
     r = _later(tmp_path, 0, "TB_ENV=VALIDATION\nTB_REHEARSAL=1\n")  # never reached without the mark; says nothing
     assert r.returncode == 0 and r.stderr == "" and "PIN_GPU=dgpu48 " in r.stdout
 
+
+# ------------------------------------------------------------------------------------------------ 2. gb10 (128 GB)
+BIG = {"TB_TEST_MEM_KIB": "134000000"}  # the bench host's memory: over 96 GiB, so the profile stays gb10
+GB10_FAIL = "    FAIL  GB10 profile on x86_64"
+STAND_IN = "x86 stand-in: memory budget only"
+GB10_MASTER: list[tuple[str, list[str], dict[str, Any], dict[str, str], str]] = [
+    ("named", ["--mode", "gpu", "--gpu", "gb10"], {"driver": GOOD}, BIG, GB10_FAIL),
+    ("a plain rehearsal", ["--rehearsal", "--gpu", "gb10"], {"driver": GOOD}, BIG, GB10_FAIL),
+    ("low driver", ["--gpu", "gb10"], {}, BIG, GB10_FAIL),
+    ("by the variable", ["--mode", "gpu"], {"driver": GOOD}, {**BIG, "TB_GPU_PROFILE": "gb10"}, GB10_FAIL),
+    ("the 64 GB class", ["--mode", "gpu", "--gpu", "gb10"], {"driver": GOOD}, {"TB_TEST_MEM_KIB": "60000000"},
+     "install: this DGX Spark has under 96 GiB of memory (the 64 GB class)"),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("what", "args", "bench", "env", "said"), GB10_MASTER, ids=[m[0] for m in GB10_MASTER])
+def test_gb10_without_the_mark_is_masters_refusal_byte_for_byte(
+    tmp_path: Path, what: str, args: list[str], bench: dict[str, Any], env: dict[str, str], said: str
+) -> None:
+    """Master (371c9857): the host check FAILs the profile on an x86 host and the install stops; the same bytes with
+    or without a passing probe and every rehearsal sign planted, and no word of the stand-in."""
+    clean, planted = _same(tmp_path, args, bench, env)
+    assert clean[0] == 1 and said in clean[1] + clean[2], clean
+    if said == GB10_FAIL:
+        assert clean[2] == "install: this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed\n"
+    assert planted == clean
+    assert "stand-in" not in clean[1] + clean[2] and "rehearsal" not in clean[1] + clean[2]
+
+
+def test_gb10_under_the_mark_goes_past_the_gpu_step_held_to_its_cap(tmp_path: Path) -> None:
+    r = real(Bench(tmp_path), "gb10", **BIG)
+    need = rehearsal_real.record_need({}, TOTAL, "gb10")[0]
+    assert f"card 1: NVIDIA B200, 180000 MiB free of {TOTAL} (the pair needs {need})" in r.stdout, r.stdout + r.stderr
+    assert f"    WARN  GB10 profile on x86_64: {STAND_IN} (a rehearsal with real servers, not valid for a site)" in r.stdout
+    assert "WARN  NVIDIA driver 575.57.08" in r.stdout and "FAIL" not in r.stdout
+    assert r.stderr.splitlines()[-1].startswith("install: vendor public key missing"), r.stderr
+
+
+def test_gb10_the_64gb_class_is_refused_under_the_mark_too(tmp_path: Path) -> None:
+    r = real(Bench(tmp_path), "gb10", TB_TEST_MEM_KIB="60000000")
+    assert r.returncode == 1 and "this DGX Spark has under 96 GiB of memory (the 64 GB class)" in r.stderr
+    assert "WARN" not in r.stdout
+
+
+def test_gb10_cap_is_the_classs_memory() -> None:
+    got = rehearsal_real.caps("gb10", TOTAL)
+    own = {"JUDGE_GPU_MEM_UTIL": 0.30, "VERIFIER_GPU_MEM_UTIL": 0.15}
+    assert set(got) == set(own)
+    for k, u in own.items():
+        assert got[k] * TOTAL <= u * 131072 < (got[k] + 0.001) * TOTAL
+    assert rehearsal_real.caps("gb10", 131072) == own
+    assert rehearsal_real.record_need({}, TOTAL, "gb10")[0] <= 0.45 * 131072
+
+
+def test_gb10_write_overrides_the_arm64_pins_on_x86_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = Bench(tmp_path)
+    (b.deploy / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    monkeypatch.setenv("PATH", b.env()["PATH"])
+    monkeypatch.setenv("TB_HOST_ROOT", str(b.hostroot))
+    monkeypatch.setattr(rehearsal_real.platform, "machine", lambda: "x86_64")
+    problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, None, "gb10")
+    assert problems == [] and doc["caps"] == rehearsal_real.caps("gb10", TOTAL)
+    assert doc["words"] == f"{rehearsal_real.WORDS} ({STAND_IN})" and doc["valid_for_a_site"] is False
+    overlay = yaml.safe_load((ROOT / "deploy" / "docker-compose.gb10.yml").read_text(encoding="utf-8"))
+    pinned = {n for n, svc in overlay["services"].items() if (svc or {}).get("platform") == "linux/arm64"}
+    assert set(doc["platform_override"]["services"]) == pinned and len(pinned) >= 10
+    text = (b.deploy / "site" / rehearsal_real.OVERRIDE).read_text(encoding="utf-8")
+    assert text.count("platform: linux/amd64") == len(doc["platform_override"]["services"])
+    assert text.count("device_ids: [\"GPU-11111111") == 2 and "arm64" not in text.replace("arm64 pins", "")
+    for machine, want in (("aarch64", []), ("x86_64", doc["platform_override"]["services"])):
+        assert rehearsal_real.platform_services("gb10", machine) == want
+    assert rehearsal_real.platform_services("rtxpro6000", "x86_64") == []
+    monkeypatch.setattr(rehearsal_real.platform, "machine", lambda: "ppc64le")
+    (b.deploy / "site" / rehearsal_real.OVERRIDE).unlink()
+    problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, None, "gb10")
+    assert doc == {} and "opened as an x86 stand-in only" in problems[0]
+    assert not (b.deploy / "site" / rehearsal_real.OVERRIDE).exists()
+
+
+def _check_host(tmp: Path, b: Bench, machine: str, *args: str) -> subprocess.CompletedProcess[str]:
+    """deploy/check_host.sh --gpu-only, with uname a stand-in that names ``machine``."""
+    (b.bin / "uname").write_text(f'#!/bin/sh\n[ "$1" = -m ] && echo {machine} || /bin/uname "$@"\n', encoding="utf-8")
+    (b.bin / "uname").chmod(0o755)
+    return subprocess.run(["sh", str(b.deploy / "check_host.sh"), "--gpu-only", *args], capture_output=True,
+                          text=True, env=b.env(**BIG), timeout=120, check=False)  # fmt: skip
+
+
+def test_gb10_the_host_check_keeps_failing_it_on_x86_outside_the_rehearsal(tmp_path: Path) -> None:
+    b = Bench(tmp_path, driver=GOOD)
+    rrs = ["--rehearsal-real-servers", "--engine-probe", str(b.probe), "--gpu-index", "1"]
+    for args in (["--gpu", "gb10"], ["--gb10"]):
+        r = _check_host(tmp_path, b, "x86_64", *args)
+        assert r.returncode == 1 and "FAIL  GB10 profile on x86_64" in r.stdout and STAND_IN not in r.stdout
+    r = _check_host(tmp_path, b, "aarch64", "--gpu", "gb10", *rrs)  # a real GB10 takes no rehearsal arguments
+    assert r.returncode == 2 and r.stderr.startswith("--rehearsal-real-servers needs --engine-probe")
+    r = _check_host(tmp_path, b, "x86_64", "--gpu", "gb10", *rrs)
+    assert f"WARN  GB10 profile on x86_64: {STAND_IN}" in r.stdout and "FAIL  GB10" not in r.stdout

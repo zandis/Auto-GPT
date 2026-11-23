@@ -135,8 +135,9 @@ esac
 # REHEARSAL-REAL-SERVERS (H-89): the real model servers on a rehearsal box whose card and driver are not the profile's
 # (the bench host: whole B200-class cards on a driver below gpu.driver_min). One explicit command line, never a
 # default or an environment variable:
-#   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000|rtx5090|dgpu48 --gpu-index N --engine-probe FILE
-# H-89b: dgpu48, the draft 48 GB profile no site install serves (cards 24-5, 24-6), for this rehearsal only
+#   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000|rtx5090|dgpu48|gb10 --gpu-index N --engine-probe FILE
+# H-89b: dgpu48, the draft 48 GB profile no site install serves (cards 24-5, 24-6), for this rehearsal only; gb10 on
+# an x86 host with the overlay's arm64 pins overridden (tools/rehearsal_real.py platform_services): an x86 stand-in
 # Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled down, D-1087)
 # Without --rehearsal each new option is refused here, before anything is checked or written; without the options
 # the three refusals (the driver, the card, the record) stand as before. tools/rehearsal_real.py decides each step;
@@ -148,11 +149,10 @@ if [ "$REHEARSAL" != 1 ]; then
 elif [ "$REAL_SERVERS" != 1 ]; then
   [ -z "$GPU_INDEX$ENGINE_PROBE" ] || { echo "install: --gpu-index and --engine-probe go with --rehearsal-real-servers; nothing was checked or written" >&2; exit 2; }
 else
-  [ "$GPU_SET" = 1 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 (each held to its own card's memory)"
+  [ "$GPU_SET" = 1 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 or --gpu gb10 (each held to its own card's memory)"
   case "$GPU" in
-    rtxpro6000|rtx5090|dgpu48) ;;
-    gb10) die "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;
-    *) die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 (each held to its own card's memory)" ;;
+    rtxpro6000|rtx5090|dgpu48|gb10) ;;
+    *) die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 or --gpu gb10 (each held to its own card's memory)" ;;
   esac
   [ -z "$TIER" ] || die "--rehearsal-real-servers is no tier install: drop --tier"
   [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--rehearsal-real-servers needs the GPU: drop --mode $MODE"

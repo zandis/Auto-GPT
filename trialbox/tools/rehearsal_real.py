@@ -31,6 +31,7 @@ import hashlib
 import json
 import math
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -61,7 +62,12 @@ OPENED: dict[str, dict[str, Any]] = {
     # class's older architecture (no FP8 or FP4 kernels)
     "dgpu48": {"compose": "docker-compose.dgpu48.yml", "budget_mib": 49140, "cards": ("A6000", "6000 Ada", "PRO 5000"),
                "sleep": False},
+    # H-89b (item 2): the 128 GB unified-memory class, its overlay's utilisations (0.30 and 0.15, both resident) on
+    # 131,072 MiB (128 GiB, the class's nominal memory: no GB10 was read). On an x86 host (the bench) the overlay's
+    # arm64 pins are overridden for this rehearsal only (:func:`platform_services`): an x86 stand-in, memory budget only
+    "gb10": {"compose": "docker-compose.gb10.yml", "budget_mib": 131072, "cards": ("GB10",), "sleep": False},
 }  # fmt: skip
+X86_STAND_IN = "x86 stand-in: memory budget only"
 MARK = "rehearsal.json"
 RECORD = "rehearsal-real-servers.json"
 OVERRIDE = "rehearsal-real-servers.yml"
@@ -286,8 +292,25 @@ def card_facts(
     return problems, facts
 
 
-def override_text(uuid: str, env: dict[str, str]) -> str:
-    """The compose file that pins both model servers to the one card and gives them the probe's environment."""
+def platform_services(profile: str, machine: str | None = None) -> list[str]:
+    """The services whose platform the profile's overlay pins to another architecture than this host's (H-89b: the
+    gb10 overlay's ``<<: *arm`` services on an x86_64 host), in the overlay's order; ``[]`` when none."""
+    machine = machine or platform.machine()
+    if profile != "gb10" or machine == "aarch64":
+        return []
+    out: list[str] = []
+    svc = ""
+    for line in (ROOT / "deploy" / OPENED[profile]["compose"]).read_text(encoding="utf-8").splitlines():
+        top = re.match(r"^  ([a-z][a-z0-9-]*):", line)
+        svc = top.group(1) if top else svc
+        if svc and "<<: *arm" in line and svc not in out:
+            out.append(svc)
+    return out
+
+
+def override_text(uuid: str, env: dict[str, str], platforms: list[str] | None = None) -> str:
+    """The compose file that pins both model servers to the one card and gives them the probe's environment; with
+    ``platforms`` (H-89b, gb10 on x86_64 only) each of those services runs this host's own platform."""
     if not UUID.match(uuid):
         raise ValueError(f"not a card UUID: {uuid!r}")
     bad = [k for k, v in env.items() if not ENV_NAME.match(str(k)) or "\n" in str(v) or "\r" in str(v)]
@@ -301,11 +324,19 @@ def override_text(uuid: str, env: dict[str, str]) -> str:
         OVERRIDE_MARK,
         "services:",
     ]
+    platforms = platforms or []
+    if platforms:
+        lines.insert(-2, f"# H-89b: {X86_STAND_IN}; the gb10 overlay's arm64 pins overridden for this rehearsal only")
     for svc in SERVERS:
         lines += [f"  {svc}:", "    deploy:", "      resources:", "        reservations:", f"          devices: {dev}"]
+        if svc in platforms:
+            lines.append("    platform: linux/amd64")
         if env:
             lines.append("    environment:")
             lines += [f"      {k}: {json.dumps(str(v))}" for k, v in sorted(env.items())]
+    for svc in platforms:
+        if svc not in SERVERS:
+            lines += [f"  {svc}:", "    platform: linux/amd64"]
     return "\n".join(lines) + "\n"
 
 
@@ -363,8 +394,14 @@ def write(
         "engine_probe": {"sha256": probe_sha, "form": form, "env": env},
         "serving_record": record_path.name if record_path else None,
     }  # fmt: skip
+    platforms = platform_services(profile)
+    if platforms and platform.machine() != "x86_64":
+        return [f"the {profile} profile on a {platform.machine()} host: opened as an x86 stand-in only"], {}
+    if platforms:
+        doc["words"] = f"{doc['words']} ({X86_STAND_IN})"
+        doc["platform_override"] = {"services": platforms, "platform": "linux/amd64", "why": X86_STAND_IN}
     site = deploy / "site"
-    (site / OVERRIDE).write_text(override_text(facts["uuid"], env), encoding="utf-8")
+    (site / OVERRIDE).write_text(override_text(facts["uuid"], env, platforms), encoding="utf-8")
     (site / OVERRIDE).chmod(0o644)
     (site / RECORD).write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return [], doc

@@ -44,9 +44,9 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-# REHEARSAL-REAL-SERVERS (H-89): all three or none, never on GB10
+# REHEARSAL-REAL-SERVERS (H-89): all three or none; GB10 on an x86 host only (H-89b: an x86 stand-in)
 if [ "$RRS" = 1 ] || [ -n "$RRS_PROBE" ] || [ -n "$RRS_INDEX" ]; then
-  { [ "$RRS" = 1 ] && [ -n "$RRS_PROBE" ] && [ -n "$RRS_INDEX" ] && [ "$GB10" = 0 ] && [ -n "$GPU_PROFILE" ]; } \
+  { [ "$RRS" = 1 ] && [ -n "$RRS_PROBE" ] && [ -n "$RRS_INDEX" ] && { [ "$GB10" = 0 ] || [ "$(uname -m)" = x86_64 ]; } && [ -n "$GPU_PROFILE" ]; } \
     || { echo "--rehearsal-real-servers needs --engine-probe, --gpu-index and --gpu <profile> (install.sh's rehearsal)" >&2; exit 2; }
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
@@ -86,10 +86,20 @@ gb10_memory_check() {
   [ "$(sh "$ROOT_DIR/deploy/gpu_profile.sh" memory-class "${TB_TEST_MEM_KIB:-}")" = gb10-64 ] || return 0
   fail "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB, and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub, or use a 128 GB Spark or another measured box"
 }
+# REHEARSAL-REAL-SERVERS (H-89b): GB10 under the rehearsal mark (install.sh --rehearsal --rehearsal-real-servers
+# --gpu gb10) on an x86 host: the overlay's arm64 pins are overridden and the servers run on the card named by index,
+# so the GB10's own checks (its architecture, its pinned driver) are not this host's. Outside the mark: as before
+gb10_stand_in() { [ "$GB10" = 1 ] && [ "$RRS" = 1 ] && [ "$(uname -m)" = x86_64 ]; }
+gb10_stand_in_line() { warn "GB10 profile on x86_64: x86 stand-in: memory budget only (a rehearsal with real servers, not valid for a site)"; }
+# ---- end of REHEARSAL-REAL-SERVERS (H-89b)
 [ -n "$GPU_PROFILE" ] || [ "$(envget TB_LLM_MODE)" != vllm ] || GPU_PROFILE=default
 if [ "$GPU_ONLY" = 1 ]; then
   [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }
-  [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"; }
+  if gb10_stand_in; then
+    gb10_stand_in_line  # REHEARSAL-REAL-SERVERS (H-89b), under the mark only
+  else
+    [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"; }
+  fi
   [ "$GB10" = 1 ] && gb10_memory_check
   gpu_image_check
   echo "---"
@@ -338,7 +348,14 @@ if command -v chronyc >/dev/null 2>&1 || command -v timedatectl >/dev/null 2>&1;
 fi
 
 # GPU / GB10 (§2; docker-compose.gb10.yml)
-if [ "$GB10" = 1 ]; then
+# REHEARSAL-REAL-SERVERS (H-89b): gb10_stand_in above, under the mark only
+if gb10_stand_in; then
+  gb10_stand_in_line
+  gb10_memory_check
+  if docker info 2>/dev/null | grep -qi nvidia; then pass "nvidia container runtime"; else fail "nvidia-container-toolkit not configured"; fi
+  gpu_image_check
+# ---- end of REHEARSAL-REAL-SERVERS (H-89b)
+elif [ "$GB10" = 1 ]; then
   [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"
   gb10_memory_check
   d=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
