@@ -64,9 +64,12 @@ def test_who_code_is_written_one_way() -> None:
     assert who_icd10("") == ""
 
 
-def test_reader_keeps_who_code_and_gives_icd10cm_only_when_the_same(tmp_path: Path) -> None:
+def test_reader_keeps_who_code_and_gives_icd10cm_the_same_or_from_a_wider_row(tmp_path: Path) -> None:
+    """D-314 as amended by D-1270 (SDR2, ruling on #639 7103442261): the WHO code is kept as written; ICD-10-CM is
+    the same code, else a WHO-to-CM row whose code holds all of its meaning, else none and the code is counted in
+    ``missed`` (E14 and I64 have no such row: they stay WHO-only)."""
     root = tmp_path / "ss"
-    for n, alt in enumerate(("E14.9", "I64", "F00.1", "E11.9", "e119", "M1A.9XX0")):
+    for n, alt in enumerate(("E14.9", "I64", "F00.1", "E11.9", "e119", "M1A.9XX0", "F01.8")):
         _storage(root, "10000001", f"D{n}", _prb(f"D{n}", alt=alt))
     medis = {"ZX01": {"target_code": "E14.9"}, "ZX02": {"target_code": "M10.9"}}
     _storage(root, "10000001", "D8", _prb("D8", byomei="ZX01"))
@@ -76,16 +79,17 @@ def test_reader_keeps_who_code_and_gives_icd10cm_only_when_the_same(tmp_path: Pa
     assert got == {
         "D0": ("E14.9", ""),
         "D1": ("I64", ""),
-        "D2": ("F00.1", ""),
+        "D2": ("F00.1", "G30.9"),  # D-1270: a wider row's code
         "D3": ("E11.9", "E11.9"),
         "D4": ("E11.9", "E11.9"),
         "D5": ("M1A.9XX0", "M1A.9XX0"),
+        "D6": ("F01.8", ""),  # no same code and no table row: no ICD-10-CM code, counted below
         "D8": ("E14.9", ""),  # the MEDIS target is kept although ICD-10-CM has no E14
         "D9": ("M10.9", "M10.9"),
     }
     assert src.stats["diagnosis:licensed"] == 2 and src.stats["diagnosis:licensed WHO-only code"] == 1
     assert src.stats["diagnosis:not a WHO ICD-10 shape"] == 1
-    assert not src.missed
+    assert src.missed == {"diagnosis:E14.9": 2, "diagnosis:I64": 1, "diagnosis:F01.8": 1}
 
 
 # -------------------------------------------------------------------------------- the JP mapping and JP Core
@@ -101,12 +105,16 @@ def _conditions(tmp_path: Path) -> dict[str, dict[str, Any]]:
     return {next(c["code"] for c in r["code"]["coding"] if c["system"] == WHO): r for r in res}
 
 
-def test_jp_condition_carries_the_who_uri(tmp_path: Path) -> None:
+def test_jp_condition_carries_the_who_uri_and_icd10cm_first_from_a_wider_row(tmp_path: Path) -> None:
+    """D-1270: a WHO code with a wider row gets its ICD-10-CM coding first; E14.9 and I64 stay WHO-only; the WHO
+    code and URI stay on every record, unchanged."""
     conds = _conditions(tmp_path)
     assert set(conds) == {"E14.9", "I64", "F00.1", "E11.9"}
     systems = {k: [c["system"] for c in v["code"]["coding"]] for k, v in conds.items()}
+    codes = {k: [c["code"] for c in v["code"]["coding"]] for k, v in conds.items()}
     assert systems["E14.9"] == [WHO, BYOMEI]  # WHO-only: no ICD-10-CM coding at all
-    assert systems["I64"] == [WHO, BYOMEI] and systems["F00.1"] == [WHO, BYOMEI]
+    assert systems["I64"] == [WHO, BYOMEI]
+    assert systems["F00.1"] == [ICD, WHO, BYOMEI] and codes["F00.1"][:2] == ["G30.9", "F00.1"]
     assert systems["E11.9"] == [ICD, WHO, BYOMEI]  # the same code in both: ICD-10-CM first (the one the lake reads)
     from lake.flatten import Flattener
 
