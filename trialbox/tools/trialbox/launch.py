@@ -148,12 +148,23 @@ class BoxFileError(RuntimeError):
     """The box's ``deploy/.env`` is there but cannot be trusted or read: nothing is run."""
 
 
+def _unwritten_back_link(path: Path) -> bool:
+    """A release's own link back to the site's ``deploy/.env`` (tools/host_tree.py STATE: ``releases/<id>/deploy/.env``
+    -> ``../../../deploy/.env``) while the site's file does not exist at all: a first install stopped after its bundle
+    loaded and before its settings step wrote the file. That is no setting, as on a fresh box; any other link, or a
+    site file that is there (a link included), is judged as before."""
+    if not path.is_symlink() or path.parent.parent.parent.name != "releases":
+        return False
+    site = path.parent.parent.parent.parent / "deploy" / ".env"
+    return os.readlink(path) == os.path.relpath(site, path.parent) and not os.path.lexists(site)
+
+
 def box_file(deploy: Path = DEPLOY) -> dict[str, str]:
     """The box's own ``deploy/.env``, checked before it is used (as root): none there is no setting (``{}``); one that
     is there but is not a readable regular file (a folder, a dangling link, unreadable), is owned by neither root nor
     this user, or is writable by group or others raises :class:`BoxFileError` (named, never with a value)."""
     path = deploy / ".env"
-    if not os.path.lexists(path):
+    if not os.path.lexists(path) or _unwritten_back_link(path):
         return {}
     try:
         st = os.stat(path)
