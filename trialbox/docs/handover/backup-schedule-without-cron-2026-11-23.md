@@ -109,6 +109,11 @@ Each finding has a test that fails on `910db4df` (16 failed there, the rest are 
   the timers are now asked only by the command-line doctor (`inputs_from`, `DoctorInputs.backup_timers`). Test:
   `test_doctor_built_in_code_asks_no_host_and_the_command_line_doctor_does`; the 103 test files that cover doctor
   and backup status also pass with a simulated systemd host.
+- **Host-independent unit tier.** `tests/unit/conftest.py` (new, autouse `_no_host_schedule`): in every unit test systemd
+  is not the init and a cron daemon runs, whatever the machine; the H-88 harness's subprocesses run with `TB_SYSTEMD=0`, so a
+  root run on a systemd host never enables its own timers. With a bench stand-in (a systemd run folder, a
+  `systemctl` answering not-found, no cron daemon) the health-page test fails on `2d96b872` and passes now; the 103
+  doctor and backup files pass under it.
 - H92-02 is not the same code path (install.sh writes the retention file itself): the row stays open.
 
 ## Findings
