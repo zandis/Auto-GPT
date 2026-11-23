@@ -1,0 +1,56 @@
+{
+  "card": "SDR1",
+  "title": "the data TrialBox needs from a hospital and how its codes are mapped (lane M, 2026-11-23)",
+  "date": "2026-11-23",
+  "source": "docs/plan/design/site-data-requirements.md",
+  "findings": [
+    {
+      "id": "SDR1-01",
+      "severity": "Medium",
+      "claim": "A Japanese diagnosis reaches a criterion only when its WHO ICD-10 code is also an ICD-10-CM code (D-314, services/adapter/sources/ssmix2/source.py:1617-1620); every shipped diagnosis value set is ICD-10-CM and no WHO-to-CM cross-walk exists, so E14, I64 or F00 read unknown at a Japanese site",
+      "lane": "to be assigned",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "SDR1-02",
+      "severity": "Medium",
+      "claim": "The department criteria (GZQO-INC-09, NEUR-COH-INC-02) match TrialBox's own department codes, but the mappings write the hospital's department code as it is (tw_core/demo_his.yaml:124; PV1-10 on SS-MIX2) and the site profile has no department table, so a hospital with its own codes reads unknown",
+      "lane": "to be assigned",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "SDR1-03",
+      "severity": "Medium",
+      "claim": "The SS-MIX2 reader reads no procedure type (source.py:108-114) and the only procedure value set uses NHI order codes, so GZQO-EXC-05 (bariatric surgery) reads unknown at every Japanese site; no Japanese procedure master is mapped",
+      "lane": "to be assigned",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "SDR1-04",
+      "severity": "Low",
+      "claim": "JC11 is accepted as a JLAC system name (source.py:168) but its codes are looked up in the JLAC10 table, which holds no JLAC11 row: a site on JLAC11 gets no LOINC code for its results",
+      "lane": "to be assigned",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "SDR1-05",
+      "severity": "Low",
+      "claim": "No HOT-to-ATC table ships: a HOT-only drug reaches ATC only through the site's drug master (HOT to YJ); the shipped YJ sample covers 22 of the synthetic hospital's 36 drugs",
+      "lane": "to be assigned",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "SDR1-06",
+      "severity": "Low",
+      "claim": "The synthetic memory clinic's report kinds (MRI brain, amyloid PET, CSF amyloid) have no LOINC rule in any mapping; no shipped criterion reads them today",
+      "lane": "to be assigned",
+      "basis": "shown",
+      "state": "open"
+    }
+  ]
+}
