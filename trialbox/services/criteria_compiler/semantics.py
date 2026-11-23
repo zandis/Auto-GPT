@@ -160,6 +160,9 @@ def check_bool(expr: Atom | BoolExpr) -> None:
 
 FILTERED = ("structured", "mixed")  # classes whose logic is compiled to CQL/SQL (D-32, D-98)
 JUDGED = ("note", "mixed")  # classes whose note_question goes to the model
+# D-1267: the compiler's flag on a line whose text qualifies its coded concept ("uncontrolled", "despite"): its code
+# alone never settles it (codes_settle)
+QUALIFIED = "coded_part_qualified"
 
 
 def demographic_alone(logic: Atom | BoolExpr | None) -> bool:
@@ -208,7 +211,11 @@ def codes_settle(c: CriterionIR) -> bool:
     sex alone ("18 years or older with a diagnosis of FAP", "women with a negative pregnancy test" kept as
     ``female``, or an age in an "or") is not met on that part: the notes decide the rest, and with no answer from
     them the line stays unknown, never met and never excluded. An exclusion keeps D-98 (the compiler's
-    ``qualifier_dropped`` rule keeps an age-or-sex-alone exclusion from running)."""
+    ``qualifier_dropped`` rule keeps an age-or-sex-alone exclusion from running). D-1267: a mixed line, inclusion or
+    exclusion, whose text qualifies its coded concept (the compiler's ``coded_part_qualified`` flag: "Uncontrolled
+    hypertension despite three antihypertensive drugs" coded as any hypertension) is never settled by its code."""
+    if c.class_ == "mixed" and QUALIFIED in (c.flags or []):
+        return False
     return not (c.class_ == "mixed" and c.kind == "inclusion" and met_on_demographics(c.logic))
 
 
