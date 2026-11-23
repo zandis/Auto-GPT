@@ -310,7 +310,8 @@ def test_a_bad_yj_row_refuses_the_table(tmp_path: Path) -> None:
 
 def test_site_setup_suggests_atc_for_a_yj_code(loaded: str) -> None:
     got = sm.suggest("medication", sm.local_system("drug-code"), "3339004F1020")  # an apixaban tablet
-    assert got == {"system": sm.ATC, "code": "B01AF02", "display": "apixaban", "method": "refdata",
+    # V-18b (D-1183): the ingredient table names an ATC code by the code; WHOCC's names do not ship
+    assert got == {"system": sm.ATC, "code": "B01AF02", "display": "B01AF02", "method": "refdata",
                    "confidence": "0.90"}  # fmt: skip
     assert sm.suggest("medication", sm.local_system("drug-code"), "9999999F1020") == {}  # stem not in the table
     assert jp.yj_atc_targets("333900412345") == []  # all digits: a hospital's own code, not a YJ code

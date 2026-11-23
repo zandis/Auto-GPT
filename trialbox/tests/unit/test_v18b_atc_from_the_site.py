@@ -133,3 +133,28 @@ def test_the_nhi_drug_list_brings_back_a_name_the_shipped_table_answered(
     got = Terminology(installed=tmp_path / "t").map("medication", name)
     assert got.method == "loaded" and got.needs_review and [c.code for c in got.concepts] == [code]
     assert Terminology(installed=tmp_path / "nothing").map("medication", name).method == "none"
+
+
+def test_a_grouper_that_lost_its_atc_codes_is_reviewed_and_listed(bare: Terminology, tmp_path: Path) -> None:
+    """Review F1: a grouper family no code fills (here: no NHI drug list either) sends the compile to review and is
+    named in the mapping check and on the "information still needed" page, never a silent empty list."""
+    from tools import mapping_coverage as mc
+    from tools import terminology_load as tl
+
+    bare.rows["nhi_drug"], bare.nhi_atc = [], []  # neither the shipped NHI table nor a loaded one
+    lost = bare.atc_losses()
+    assert lost["urate-lowering therapy"] == ["M04AA", "M04AB"] and lost["glp-1 receptor agonist"] == ["A10BJ"]
+    ult = bare.map("medication", "urate-lowering therapy")
+    assert ult.concepts == [] and ult.needs_review and "M04AA, M04AB" in ult.notes[0]
+    assert not bare.map("medication", "anticoagulant").needs_review  # its own exact codes fill each family
+    items = tl.skipped({"fhir": [], "omop": [], "problems": [], "atc_losses": lost})
+    assert ("atc/urate-lowering therapy", False) in {(k, f) for k, _, f in items}
+    tl.needed(tmp_path / "site", items)
+    assert "terminology/atc/glp-1 receptor agonist" in (tmp_path / "site" / tl.NEEDED).read_text("utf-8")
+    report = {"mapped": 0, "codes": 0, "by_domain": {}, "unmapped": [], "valuesets": [], "valuesets_reached": 0,
+              "valuesets_without_list": [], "valuesets_not_reached": [], "atc_families_lost": lost}  # fmt: skip
+    assert "  urate-lowering therapy: M04AA, M04AB" in mc.render(report)
+
+
+def test_with_the_shipped_tables_no_grouper_loses_a_code(bare: Terminology) -> None:
+    assert bare.atc_losses() == {}  # the NHI table and the groupers' own codes fill every family

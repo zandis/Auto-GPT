@@ -458,6 +458,20 @@ class Terminology:
                     out.setdefault(str(s["name"]), []).append(c.code)
         return {k: sorted(v) for k, v in sorted(out.items())}
 
+    def atc_losses(self) -> dict[str, list[str]]:
+        """V-18b review F1: each grouper's ATC families (prefix rows) that no code of the site's copy, the NHI lists or
+        the grouper itself fills: such a grouper lost codes the shipped table gave it. The compile sends it for review,
+        and the mapping check and ``needed.jsonl`` name it."""
+        out: dict[str, list[str]] = {}
+        for s in self.synonyms:
+            if s["table"] == "atc" and s["match"] == "prefix" and not self.expand("atc", str(s["code"]), "prefix"):
+                out.setdefault(str(s["name"]), []).append(str(s["code"]))
+        return {k: sorted(set(v)) for k, v in sorted(out.items())}
+
+    def _atc_lost(self, fams: set[tuple[str, str]]) -> list[str]:
+        """The ATC families of ``fams`` with no code to list (``atc_losses``)."""
+        return sorted(code for sy, code in fams if sy == SYSTEMS["atc"] and not self.expand("atc", code, "prefix"))
+
     def concept(self, system: str, code: str) -> Concept | None:
         return self._by_code.get((system, code))
 
@@ -535,7 +549,9 @@ class Terminology:
         #    exact matches of individual example drugs
         hits, fams = grouped([primary])
         if hits or fams:
-            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+            lost = self._atc_lost(fams)  # V-18b F1: a family the site's copy and the NHI lists hold no code of
+            note = [f"ATC families with no code to list ({', '.join(lost)}): load the site's ATC copy"] if lost else []
+            return MappingResult(name, domain, _dedupe(hits), "synonym", bool(lost), note, families=sorted(fams))
         # 2a. the loaded synonym dictionary (D-172), trusted entries only: TrialBox's curated rows that are not
         #     ambiguous (類風濕關節炎 -> rheumatoid arthritis, GPT -> alt), then the curated table and the exact names
         #     on their canonical names. Such a match is a curated synonym: no review.
@@ -547,7 +563,9 @@ class Terminology:
         # 2 (cont.). the curated table on the model's synonyms
         hits, fams = grouped(names)
         if hits or fams:
-            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+            lost = self._atc_lost(fams)
+            note = [f"ATC families with no code to list ({', '.join(lost)}): load the site's ATC copy"] if lost else []
+            return MappingResult(name, domain, _dedupe(hits), "synonym", bool(lost), note, families=sorted(fams))
         # 2b. exact match on the synonyms (flagged for review: the grouping came from the model)
         hits = exact(names[1:])
         if hits:

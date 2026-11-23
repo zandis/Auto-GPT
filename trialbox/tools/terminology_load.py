@@ -118,7 +118,16 @@ def run(term_dir: Path, fhir: str, db: Any | None, wait: float = 900.0, by: str 
         ]
     except (*FAILED, httpx_error()) as exc:
         report["problems"].append(f"fhir: {type(exc).__name__}: {str(exc)[:300]}")
+    report["atc_losses"] = atc_losses(term_dir)
     return report
+
+
+def atc_losses(term_dir: Path) -> dict[str, list[str]]:
+    """V-18b review F1: the groupers whose ATC families no code of the site's copy, the NHI lists or the grouper
+    itself fills (``Terminology.atc_losses``), with the terminology as loaded now."""
+    from criteria_compiler.terminology.mapper import Terminology
+
+    return Terminology(installed=term_dir).atc_losses()
 
 
 def skipped(report: dict[str, Any]) -> list[tuple[str, str, bool]]:
@@ -129,6 +138,9 @@ def skipped(report: dict[str, Any]) -> list[tuple[str, str, bool]]:
     out += [(f"omop/{r['table']}", r.get("detail", ""), True) for r in report.get("omop") or []
             if r.get("state") == "skipped"]  # fmt: skip
     out += [(p.split(":", 1)[0], p, True) for p in report.get("problems") or []]
+    # V-18b F1: a grouper that lost ATC codes reads its families only: information still needed, not a fault
+    out += [(f"atc/{name}", f"ATC families with no code to list ({', '.join(codes)}): load the site's ATC copy",
+             False) for name, codes in (report.get("atc_losses") or {}).items()]  # fmt: skip
     return out
 
 

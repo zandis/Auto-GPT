@@ -27,6 +27,12 @@ Now:
 - The five drug names H-17 lost (hydroxychloroquine, isoniazid, metformin, sulfasalazine, warfarin) answer again on
   a box that loaded the NHI drug list: its ingredient column, for review (method `loaded`). With committed data
   alone they stay unmapped, for review.
+- A grouper family no code fills (the site's copy, the NHI lists and the grouper's own codes all lack one) is a
+  loss against the shipped table: `Terminology.atc_losses()` names it, the compile sends that mapping for review with
+  a note, the mapping check (`tools/mapping_coverage.py`) lists it, and the load writes a line of `needed.jsonl`
+  (`atc/<grouper>`, not a fault). With the committed tables no grouper loses a code.
+- The ruled order was "site copy, NHI column, unmapped". The groupers' own exact codes stay a third source, because
+  without them the shipped rule sets lose codes (anticoagulant, JAK); they are TrialBox's identifiers (D-536).
 - Before F1, `Terminology.atc_source()` was the one source of ATC rows for the groupers:
   - the site's `atc_index` (its level-5 substances);
   - else codes only: the ATC column of the NHI drug lists and the exact codes of TrialBox's own groupers, named
@@ -41,6 +47,17 @@ Now:
   read "unknown" (a family member not listed, SCR-01) rather than a match.
 - The grouper step now answers with a family alone (`if hits or fams`), so a family the site's copy and the NHI lists
   both lack still reaches the ValueSet.
+
+## No ATC names ship (review F2)
+
+- Name columns copied from the index now hold the code; the columns stay, so no reader's interface changes:
+  `services/adapter/mapping/mimic/tables/drug_to_atc.csv` (`display`), `libs/tb_common/refdata_src/jp_yj_atc.csv`
+  (`name_en`), the EMPULSE fixture's ValueSet displays and the Athena test vocabulary's six ATC concept names.
+- Generic names (INNs, which are public) used as TrialBox's own matching text or synthetic labels stay, each file
+  named in NOTICE's ATC entry with its reason. Synthetic patient records and captured site set-up answers are record
+  text.
+- `tests/unit/test_v18b_no_atc_names_ship.py` fails on an ATC ValueSet or coding whose display is not its code, and
+  on any other file that puts an ATC code beside one of those generic names.
 
 ## The shipped rule sets
 
@@ -89,6 +106,10 @@ So:
 - `tests/fixtures/ir/snapshots/ATOMS.cql` (`test_cql_sql_generators.py::test_atoms_cql_snapshot_and_determinism`):
   regenerated; only the versions of its three medication ValueSets (colchicine, methotrexate, TB preventive
   therapy) and the library's version move.
+
+- `test_mimic_mapping.py::test_drug_names_to_atc` and `::test_normalise_bundle`: the ATC display is the code
+  (was `furosemide`, `metformin`, `valsartan and sacubitril`).
+- `test_refdata_jp.py::test_site_setup_suggests_atc_for_a_yj_code`: the display is `B01AF02` (was `apixaban`).
 
 ## Not in this card
 
