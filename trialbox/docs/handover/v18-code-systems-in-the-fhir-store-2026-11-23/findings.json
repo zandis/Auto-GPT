@@ -1,0 +1,80 @@
+{
+  "card": "V18",
+  "title": "the code systems in the FHIR store (lane V, 2026-11-23)",
+  "date": "2026-11-23",
+  "source": "docs/handover/v18-code-systems-in-the-fhir-store-2026-11-23.md",
+  "findings": [
+    {
+      "id": "V18-01",
+      "severity": "Medium",
+      "claim": "The FHIR store caches its $lookup and $validate-code answers for minutes (374 s seen, about ten minutes by its own figure): after a code-system update or rollback it answers from the earlier version until then, and a 'not found' given while it is still storing a large system in the background is kept the same way; the load now waits before anyone asks, but a caller during an update still sees the earlier version",
+      "lane": "V",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "V18-02",
+      "severity": "Medium",
+      "claim": "ATC cannot go into the FHIR store from what ships: its licence register row is permission-to-ask, so the store validates no medication code unless the site loads its own ATC index with a named acceptance (D-1114)",
+      "lane": "V",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "V18-03",
+      "severity": "Low",
+      "claim": "The scheduled code-system update is not built (V-19) and the install question that writes acceptance.json is lane U's: until then the hospital writes acceptance.json by hand, and an update runs only when an operator applies a bundle or runs deploy/terminology-update.sh",
+      "lane": "V",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "V18-04",
+      "severity": "Low",
+      "claim": "$subsumes fails on the deployed FHIR store ('Hibernate Search was not initialized'): hierarchy questions get only each code's parent property through $lookup",
+      "lane": "V",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "V18-05",
+      "severity": "Low",
+      "claim": "$lookup of ICD-10-CM M10.00 answers 'Unable to find code[null] in system[null]' while $validate-code finds the code and $lookup finds its neighbours; cause not found",
+      "lane": "V",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "V18-06",
+      "severity": "Low",
+      "claim": "Several CodeSystem resources of one url left the FHIR store answering from an older one after an update and after a rollback, whatever their status; the loader keeps one resource per system and its history",
+      "lane": "V",
+      "basis": "shown",
+      "state": "fixed 1cf8bf887"
+    },
+    {
+      "id": "V18-07",
+      "severity": "Medium",
+      "claim": "The shipped atc.parquet (licence register row atc: permission-to-ask) still feeds the compiler's mapper and omop.concept (vocab_load.load_terminology's TERM_FILES), while the FHIR store leaves it out: the three readers disagree on ATC until that table is taken out of the image or its row is cleared",
+      "lane": "V",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "V18-08",
+      "severity": "Medium",
+      "claim": "SNOMED CT and the UMLS were loaded into the vocabulary and the FHIR store only at synthetic size: a full SNOMED CT International Snapshot (about 360,000 concepts) as one CodeSystem resource is untested on the deployed store; the walk on the owner's box is its first run",
+      "lane": "V",
+      "basis": "not_run",
+      "state": "open"
+    },
+    {
+      "id": "V18-09",
+      "severity": "Low",
+      "claim": "The doctor compares the readers' release only where it can read TB_TERMINOLOGY_DIR; where its container does not mount the terminology volume it says WARN 'cannot be read here' instead of comparing (which deployments mount it was not checked)",
+      "lane": "V",
+      "basis": "hypothesis",
+      "state": "open"
+    }
+  ]
+}

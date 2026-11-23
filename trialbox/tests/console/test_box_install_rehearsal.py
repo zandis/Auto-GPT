@@ -29,6 +29,7 @@ from tb_common.audit import AuditLog
 from tests.console.test_console_app import PILOT_ENV, FakeBackend
 from tests.console.test_firstrun import HW, _answers
 from tests.unit.test_install_refuses_unsafe_folders_10k4 import GOOD, fake_host, knobs
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 
 ROOT = Path(__file__).resolve().parents[2]
 PRO6000 = "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
@@ -227,7 +228,8 @@ def test_the_wsl2_switch_reads_the_kernel_and_its_knob_takes_two_values(tmp_path
     def wsl2(release: str, knob: str | None) -> subprocess.CompletedProcess[str]:
         script = (
             f'set -euo pipefail\ndie() {{ echo "box-install: $*" >&2; exit 1; }}\nuname() {{ echo "{release}"; }}\n'
-            f'{block}\necho "WSL2=$WSL2"\n'
+            + stop_prelude(who="box-install")
+            + f'{block}\necho "WSL2=$WSL2"\n'
         )
         env = {"PATH": os.environ["PATH"], **({} if knob is None else {"TB_BOX_WSL2": knob})}
         return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=False)

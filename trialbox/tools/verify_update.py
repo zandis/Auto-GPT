@@ -370,6 +370,11 @@ def verify(
             raise Rejected("manifest lists a path twice")
         if sum(f["kind"] == "host" for f in manifest["files"]) > 1:
             raise Rejected("more than one host tree (payload kind host) in the bundle")
+        for f in manifest["files"]:  # V-18 (D-1182): only a code system the box may carry, under its loader command
+            parts = PurePosixPath(f["path"]).parts
+            if f["kind"] == "terminology" and (len(parts) != 2 or parts[0] not in TERMINOLOGY_COMMANDS):
+                raise Rejected(f"{f['path']}: a terminology payload is <command>/<file>, the command one of "
+                               f"{', '.join(TERMINOLOGY_COMMANDS)} (a licensed code system never ships)")  # fmt: skip
         names = set(listed_files)
         for n in names:
             if {str(q) for q in PurePosixPath(n).parents} & names:
@@ -559,7 +564,8 @@ def _schema_errors(manifest: Any) -> list[str]:
     return list(schema_errors("update_manifest", manifest))
 
 
-KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host", "terminology")  # V-18: shippable code systems
+TERMINOLOGY_COMMANDS = ("icd10cm", "icd10pcs", "nhi-drugs", "nhi-services")  # V-18: tools.terminology_install
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}$")
 BUNDLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")

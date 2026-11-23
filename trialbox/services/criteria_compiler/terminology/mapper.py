@@ -168,12 +168,15 @@ def norm(text: str) -> str:
 
 # TERM-2 (D-1113 to D-1116): the systems of the tables loaded at install (``terminology.installed``) that the shipped
 # tables lack, beside ``SYSTEMS``; NHI's service and order codes are the shipped ``nhi_order`` system
-LOADED_SYSTEMS = {**SYSTEMS, "icd10pcs": "http://www.cms.gov/Medicare/Coding/ICD10", "icd10_who": ICD10_WHO}
+LOADED_SYSTEMS = {**SYSTEMS, "icd10pcs": "http://www.cms.gov/Medicare/Coding/ICD10", "icd10_who": ICD10_WHO,
+                  # V-18 (D-1182): the hospital's own copies, loaded at install, never shipped
+                  "snomed": "http://snomed.info/sct", "umls": "http://www.nlm.nih.gov/research/umls"}  # fmt: skip
 # the code system each table loaded at install serves (a site list names its own, row by row): the release stamp
 # (TERM-2 follow-up) says which loaded table of which system a compile read
 TABLE_SYSTEMS = {"icd10cm_blocks": "icd10cm", "icd10cm_index": "icd10cm", "atc_index": "atc",
                  "nhi_drug_list": "nhi_drug", "nhi_service_list": "nhi_order", "icd10pcs": "icd10pcs",
-                 "loinc_table": "loinc", "icd10_who": "icd10_who"}  # fmt: skip
+                 "loinc_table": "loinc", "icd10_who": "icd10_who", "snomed_ct": "snomed",
+                 "umls_concepts": "umls"}  # fmt: skip
 
 
 def table_system(table: str) -> str:
