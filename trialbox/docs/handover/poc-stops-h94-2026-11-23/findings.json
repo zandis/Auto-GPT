@@ -8,7 +8,7 @@
   {
    "id": "H94-01",
    "severity": "High",
-   "claim": "on a PoC box deploy/install.sh stopped at every one of its guards (each walk failure of the day was one of them); now 78 of its stop points warn, are written to deploy/site/poc-stops.jsonl, which doctor shows, and the install goes on, 31 are kept as one of the four refusals and named so, and 15 stay stops marked depends; on PRODUCTION every stop prints master's words with master's exit code",
+   "claim": "on a PoC box deploy/install.sh stopped at every one of its guards (each walk failure of the day was one of them); now 74 of its stop points warn, are written to deploy/site/poc-stops.jsonl, which doctor shows, and the install goes on, 35 are kept as one of the four refusals and named so, and 15 stay stops marked depends; on PRODUCTION every stop prints master's words with master's exit code",
    "lane": "H",
    "basis": "shown",
    "state": "fixed 63e0e371d8c6f28f34e136c80f3b96da71a439a1"
@@ -51,6 +51,14 @@
    "claim": "the container rehearsal (tools/rehearse_box) was not run by the card (no Docker): its new check that the rehearsal's own install lists nothing rides on CI's rehearse jobs",
    "lane": "H",
    "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H94-07",
+   "severity": "Medium",
+   "claim": "four install.sh stops the lane H lead listed are kept as refusals and named as one of the four, though the ruling's words do not plainly cover them: a caller's own compose override with the real servers (3), a profile not opened for the real servers, the 64 GB class and the draft 48 GB profile (2); the integrator's ruling is asked",
+   "lane": "H",
+   "basis": "not stated",
    "state": "open"
   }
  ]

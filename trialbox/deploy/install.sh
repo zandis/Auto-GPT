@@ -213,7 +213,7 @@ else
   [ "$GPU_SET" = 1 ] || rrs_drop rrs-profile-missing "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)"
   [ "$REAL_SERVERS" = 0 ] || case "$GPU" in
     rtxpro6000|rtx5090) ;;
-    dgpu48|gb10) rrs_drop rrs-profile-not-opened "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;
+    dgpu48|gb10) die "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;  # H-94 (2): a profile not opened for the real servers is not shown to run on this card (lane H lead)
     *) rrs_drop rrs-profile-unknown "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)" ;;
   esac
   [ "$REAL_SERVERS" = 0 ] || [ -z "$TIER" ] || rrs_drop rrs-tier "--rehearsal-real-servers is no tier install: drop --tier"
@@ -221,15 +221,17 @@ else
   [ "$REAL_SERVERS" = 0 ] || case "$GPU_INDEX" in ""|*[!0-9]*) rrs_drop rrs-gpu-index "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all" ;; esac
   [ "$REAL_SERVERS" = 0 ] || { [ -n "$ENGINE_PROBE" ] && [ -f "$ENGINE_PROBE" ]; } || rrs_drop rrs-engine-probe "--rehearsal-real-servers: --engine-probe FILE, the engine probe's result taken on that card (tools/engine_probe.py run), is missing"
   [ "$REAL_SERVERS" = 0 ] || ENGINE_PROBE="$(readlink -f "$ENGINE_PROBE")"
-  # the walk's own fault (7092045961): the script's own override, refused after its signed re-run. On a PoC box a
-  # caller's override is dropped: the real servers write their own
-  [ "$REAL_SERVERS" = 0 ] || [ -z "${TB_COMPOSE_OVERRIDE:-}" ] || { stop_or_warn rrs-callers-override "the caller's TB_COMPOSE_OVERRIDE (unset: the real servers write their own)" "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE"; unset TB_COMPOSE_OVERRIDE; }
+  # before the override's check: a run that drops the real servers hands its stand-ins on to the signed re-run,
+  # which drops them again here first
+  [ "$REAL_SERVERS" = 0 ] || command -v python3 >/dev/null || rrs_drop rrs-python3 "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
+  # the script's own override is never handed to the signed re-run (H-89, above the exec); a caller's own stays
+  # refused on every box (the lane H lead's list for H-94; H94-07 asks the integrator)
+  [ "$REAL_SERVERS" = 0 ] || [ -z "${TB_COMPOSE_OVERRIDE:-}" ] || die "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE"  # H-94 (3): a caller's override on the real servers is a state a site must never get (lane H lead)
   if [ "$REAL_SERVERS" = 1 ] && [ -n "$ENVIRONMENT" ] && [ "$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')" != VALIDATION ]; then
     [ "$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')" != PRODUCTION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"  # H-94 (3): a rehearsal box never becomes PRODUCTION
     stop_or_warn rrs-environment "--environment $ENVIRONMENT (a rehearsal box is VALIDATION)" "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
     ENVIRONMENT=""; TB_STOP_ARG_ENV=""
   fi
-  [ "$REAL_SERVERS" = 0 ] || command -v python3 >/dev/null || rrs_drop rrs-python3 "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
   [ "$REAL_SERVERS" = 0 ] || MODE=gpu
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
@@ -371,16 +373,16 @@ fi
 if [ "$MODE" = gpu ] && [ "$GPU" = gb10 ]; then
   GPU="$(sh "$ROOT/deploy/gpu_profile.sh" memory-class "${TB_TEST_MEM_KIB:-}")"
 fi
-# H-94: on a PoC box each of these five warns and the box goes on without its model servers (--mode stub)
+# H-94: on a PoC box three of these five warn and the box goes on without its model servers (--mode stub)
 GPU_STUB="the model servers (the box goes on as --mode stub: structured criteria only)"
 case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances on a platform, RUNBOOK §17
   shared-quota) stop_or_warn gpu-shared-quota "$GPU_STUB" "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)"; MODE=stub; GPU=default ;;
   b200-no-mig) stop_or_warn gpu-b200-no-mig "$GPU_STUB" "a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)"; MODE=stub; GPU=default ;;
-  gb10-64) stop_or_warn gpu-gb10-64 "$GPU_STUB" "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB (its model servers alone are capped at 74 GiB), and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub (structured criteria only; note criteria wait for a GPU), or use a 128 GB Spark or another measured box"; MODE=stub; GPU=default ;;
+  gb10-64) die "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB (its model servers alone are capped at 74 GiB), and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub (structured criteria only; note criteria wait for a GPU), or use a 128 GB Spark or another measured box" ;;  # H-94 (2): the 64 GB class cannot hold the pair (D-1335)
   arm64-dgpu) stop_or_warn gpu-arm64-dgpu "$GPU_STUB" "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile (unmeasured, root review 24): install with --mode stub, or see RUNBOOK §28"; MODE=stub; GPU=default ;;
   # cards 24-5 and 24-6: the 48 GB draft is never installed, whatever is set; TB_UNMEASURED_DGPU48_MEASURING_RUN=1 is
   # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing
-  dgpu48) stop_or_warn gpu-dgpu48 "$GPU_STUB" "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)"; MODE=stub; GPU=default ;;
+  dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;  # H-94 (2): a draft, unmeasured profile is not shown to run on any card
 esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac  # H-94 depends: a command line not understood is not acted on
 # REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU

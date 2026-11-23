@@ -100,30 +100,15 @@ def test_the_real_servers_install_goes_through_the_load_and_the_signed_rerun(tmp
 @pytest.mark.parametrize("signed", [False, True])
 def test_a_callers_own_override_is_refused_before_and_after_the_rerun(tmp_path: Path, signed: bool) -> None:
     """Before: the first run. After: a caller who names the release ``current`` names as TB_INSTALL_SIGNED (the
-    signed run's own marker). H-94 (the owner's ruling 7092087958; this was the walk's second failure): a rehearsal
-    box is a PoC box, so a caller's override is a warning and a line of the list, it is dropped (the real servers
-    write their own), and the install goes on through the signed run, before and after. The refusal stays on a box
-    that records PRODUCTION: test_on_production_a_callers_own_override_is_refused_as_before."""
+    signed run's own marker) still gets the refusal for an override of their own."""
     b = rerun_bench(tmp_path)
     extra = {"TB_COMPOSE_OVERRIDE": str(tmp_path / "mine.yml")}
     if signed:
         assert run(b).stderr.splitlines()[-1] == STOP  # the box now has its release
         extra["TB_INSTALL_SIGNED"] = os.readlink(b.tmp / "current")
     r = run(b, **extra)
-    warned = "install: warning (PoC box, H-94): " + REFUSED.removeprefix("install: ")
-    assert r.returncode == 1 and r.stderr.splitlines()[-1] == STOP, r.stdout + r.stderr
-    assert warned + "; skipped: the caller's TB_COMPOSE_OVERRIDE (unset: the real servers write their own)" in r.stderr
-    assert (SIGNED in r.stdout) is not signed  # a caller's TB_INSTALL_SIGNED is taken as the signed run (as before)
-    assert str(tmp_path / "mine.yml") not in r.stdout
-    assert "install.sh/rrs-callers-override" in (b.deploy / "site" / "poc-stops.jsonl").read_text(encoding="utf-8")
-
-
-def test_on_production_a_callers_own_override_is_refused_as_before(tmp_path: Path) -> None:
-    b = rerun_bench(tmp_path)
-    (b.deploy / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
-    r = run(b, TB_COMPOSE_OVERRIDE=str(tmp_path / "mine.yml"))
     assert r.returncode == 1 and r.stderr.splitlines()[-1] == REFUSED, r.stdout + r.stderr
-    assert SIGNED not in r.stdout and not (b.deploy / "site" / "poc-stops.jsonl").exists()
+    assert SIGNED not in r.stdout
 
 
 def test_without_the_mark_a_callers_override_reaches_the_signed_run_as_before(tmp_path: Path) -> None:

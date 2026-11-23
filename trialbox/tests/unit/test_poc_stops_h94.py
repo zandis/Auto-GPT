@@ -96,6 +96,14 @@ def converted_keys(text: str) -> set[str]:
     return keys | {"fail"}  # the FAIL lines at the end: one point, a key per line
 
 
+def mark_of(lines: list[str], i: int) -> re.Match[str] | None:
+    """The marker of the stop on line ``i``: its own line's first, then the nearest of the two lines above."""
+    for j in (i, i - 1, i - 2):
+        if j >= 0 and (m := MARK.search(lines[j])):
+            return m
+    return None
+
+
 def kept_counts(text: str) -> dict[str, int]:
     counts = {n: 0 for n in ("1", "2", "3", "4", "depends")}
     lines = text.splitlines()
@@ -103,7 +111,7 @@ def kept_counts(text: str) -> dict[str, int]:
         code = line.split("  # ")[0]
         if line.strip().startswith("#") or not STOP.search(code) or "stop_or_warn" in code:
             continue
-        m = MARK.search(" ".join(lines[max(0, i - 2) : i + 1]))
+        m = mark_of(lines, i)
         if m and "not a stop" not in m.group(0):
             counts[m.group(1) or "depends"] += 1
     return counts
@@ -252,7 +260,7 @@ def _scenarios(tmp: Path) -> list[tuple[str, Box, tuple[str, ...], tuple[str, ..
         {},
         ["serving-record-missing", "project-cleanup-refused"],
     )
-    for gpu in ("shared-quota", "b200-no-mig", "gb10-64", "arm64-dgpu", "dgpu48"):
+    for gpu in ("shared-quota", "b200-no-mig", "arm64-dgpu"):
         add(f"gpu-{gpu}", {}, ["--environment", "DEV", "--mode", "gpu", "--gpu", gpu, "--yes"], keys=[f"gpu-{gpu}"])
     add(
         "rehearsal-box-without-the-argument",
@@ -273,13 +281,12 @@ def _scenarios(tmp: Path) -> list[tuple[str, Box, tuple[str, ...], tuple[str, ..
         {"env": POC_VALIDATION, "record": True},
         [*rrs, "--gpu", "rtxpro6000", "--gpu-index", "1", "--engine-probe", _probe(t), "--environment", "TEST"],
         ["rrs-caps"],
-        {"TB_COMPOSE_OVERRIDE": _override(t / "callers")},
-        ["rrs-callers-override", "rrs-environment", "rrs-caps"],
+        {},
+        ["rrs-environment", "rrs-caps"],
     )
     probe = _probe(t)
     for key, args in (
         ("rrs-profile-missing", ["--gpu-index", "1", "--engine-probe", probe]),
-        ("rrs-profile-not-opened", ["--gpu", "gb10", "--gpu-index", "1", "--engine-probe", probe]),
         ("rrs-profile-unknown", ["--gpu", "rtx4090", "--gpu-index", "1", "--engine-probe", probe]),
         ("rrs-tier", ["--gpu", "rtxpro6000", "--tier", "large", "--gpu-index", "1", "--engine-probe", probe]),
         ("rrs-mode", ["--gpu", "rtxpro6000", "--mode", "stub", "--gpu-index", "1", "--engine-probe", probe]),
@@ -379,7 +386,7 @@ PROD_CASES = [
     ("pre-start", PROD_SITE, [], ("pre-start",), {}, "a start-up step of this release failed", 1),
     ("cleanup", PROD_SITE, [], ("project-cleanup-failed",), {}, "project cleanup failed", 1),
     ("site keys", PROD_SITE, [], ("site-keys",), {}, "the site keys could not be made or read", 1),
-    ("gpu profile", PROD_SITE, ["--mode", "gpu", "--gpu", "dgpu48"], (), {}, "dgpu48 is a DRAFT", 1),
+    ("gpu profile", PROD_SITE, ["--mode", "gpu", "--gpu", "shared-quota"], (), {}, "this card has MIG on", 1),
     ("unmeasured", PROD_SITE, ["--mode", "gpu", "--gpu", "rtxpro6000"], (), {"TB_ACCEPT_UNMEASURED_GPU": "1"},
      "$1: only on a rehearsal box", 1),
 ]  # fmt: skip
