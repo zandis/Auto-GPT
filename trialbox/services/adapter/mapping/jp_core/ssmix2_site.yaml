@@ -88,6 +88,9 @@ overlay:
   - type: Procedure
     table: procedure
     elements:
+      # SDR2: an OMG record with no version in force is read as unknown (the OMP rules), never as done; a status the
+      # map does not know is unknown too; none at all (an extended CSV row) is completed, as the base writes
+      status: {column: status, map: {completed: completed, unknown: unknown}, default: completed, unmapped: unknown}
       code.coding[0]: {builder: coding, column: order_code, system: jp_order_local, display_column: proc_name}
       code.coding[0].system: {column: order_code_system, map: {JJ1017-16M: "urn:trialbox:local:jj1017", JJ1017-16P: "urn:trialbox:local:jj1017", JJ1017-32: "urn:trialbox:local:jj1017", JP-K: "https://trialbox.local/fhir/CodeSystem/jp-k-code"}, default: "urn:trialbox:local:order-code", when: {column: order_code, not_empty: true}}
   - type: Encounter

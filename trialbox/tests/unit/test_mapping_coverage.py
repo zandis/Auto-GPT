@@ -595,11 +595,14 @@ def test_a_japanese_procedure_is_never_an_nhi_order_code_and_taiwan_reads_as_bef
         assert [c["system"] for c in proc["code"]["coding"]] != [] and nhi not in [
             c["system"] for c in proc["code"]["coding"]
         ]
+    for status, want in (("completed", "completed"), ("unknown", "unknown"), ("", "completed"), ("odd", "unknown")):
+        res = jp.map_table("procedure", iter([{**base, "proc_no": f"S{status}", "status": status}]))
+        assert next(r for r in res if r["resourceType"] == "Procedure")["status"] == want
     tw = Mapper(Mapping.load(mc.MAPPING / "tw_core" / "demo_his.yaml"), b"k" * 32, "T")
     site = mc.ROOT / "tests/fixtures/synthetic_patients/site-a"
     rows = list(_csv.DictReader((site / "procedure.csv").open(encoding="utf-8")))
     assert rows
     plain = [json.dumps(r, sort_keys=True) for r in tw.map_table("procedure", iter(rows))]
-    tagged = [{**r, "order_code_system": "JJ1017-16M"} for r in rows]
+    tagged = [{**r, "order_code_system": "JJ1017-16M", "status": "unknown"} for r in rows]
     assert [json.dumps(r, sort_keys=True) for r in tw.map_table("procedure", iter(tagged))] == plain
     assert all(nhi in s for s in plain if '"Procedure"' in s)
