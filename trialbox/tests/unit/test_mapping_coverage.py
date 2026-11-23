@@ -524,3 +524,82 @@ def test_a_look_up_that_is_not_optional_still_stops_the_load_when_its_file_is_mi
     shutil.copy(mc.MAPPING / "tw_core" / "demo_his.yaml", tmp_path / "demo_his.yaml")
     with pytest.raises((FileNotFoundError, OSError)):
         Mapping.load(tmp_path / "demo_his.yaml")
+
+
+# --- SDR2 part 3: OMG-11/12 into procedure --------------------------------------------------------------------
+
+
+def _omg(root: Path, number: str, typ: str, orc1: str = "SC", ze1: str = "1^実施^JSHR003", stamp: str = "1") -> None:
+    from adapter.sources.ssmix2.source import storage_dir
+
+    d = storage_dir(root, "10000001", "20260105", typ)
+    d.mkdir(parents=True, exist_ok=True)
+    segs = [
+        f"MSH|^~\\&|HIS||TB||20260105110000||OMI^Z23^OMI_Z23|H{number}|P|2.5",
+        "PID|||10000001^^^^PI",
+        "PV1||O",
+        f"ORC|{orc1}|{number}|||||||20260104090000",
+        "TQ1|1||||||||R^^HL70485",
+        f"OBR|1|{number}||R0001^胸部単純X線撮影^JJ1017-16M|||20260105110000",
+        f"ZE1|1|{ze1}|R0001^胸部単純X線撮影^JJ1017-16M",
+        f"IPC|{number}||2.25.1||CR^^DCM",
+    ]
+    name = f"10000001_20260105_{typ}_{number}_2026010511000000{stamp}_01_1"
+    (d / name).write_bytes(("\r".join(segs) + "\r").encode("utf-8"))
+
+
+def test_ssmix2_reads_a_done_examination_into_procedure_and_keeps_the_extended_csv(tmp_path: Path) -> None:
+    """OMG-11/12 (go on #639 7104711754): ORC-1 SC and ZE1-2 実施 is a done procedure (OBR-4, OBR-7); an order not done
+    (ORC-1 not SC, or ZE1-2 not 実施) is not read as one; the extended CSV's procedures are still read."""
+    from adapter.sources.ssmix2.source import Ssmix2Source
+
+    root = tmp_path / "ss"
+    _omg(root, "G1", "OMG-11")
+    _omg(root, "G2", "OMG-12")
+    _omg(root, "G3", "OMG-11", orc1="NW")
+    _omg(root, "G4", "OMG-11", ze1="2^中止^JSHR003")
+    ext = root / "extended"
+    ext.mkdir()
+    (ext / "procedure.csv").write_text(
+        "proc_no,mrn,order_code,proc_name,proc_date,order_code_system\n"
+        "X1,10000001,K656-2,腹腔鏡下胃縮小術,2025-06-01,JP-K\n",
+        encoding="utf-8",
+    )
+    src = Ssmix2Source(root, licensed={})
+    rows = {r["proc_no"]: r for r in src.rows("procedure", "procedure", None, None)}
+    assert set(rows) == {"G1", "G2", "X1"}  # G3 (ordered, not done) and G4 (ZE1-2 中止) are not procedures
+    g1 = rows["G1"]
+    assert (g1["order_code"], g1["order_code_system"], g1["proc_date"], g1["status"]) == (
+        "R0001",
+        "JJ1017-16M",
+        "2026-01-05",
+        "completed",
+    )
+    assert rows["X1"]["order_code_system"] == "JP-K"
+    assert src.stats["OMG-11:not done (not read as a procedure)"] == 2
+
+
+def test_a_japanese_procedure_is_never_an_nhi_order_code_and_taiwan_reads_as_before() -> None:
+    """The JP overlay writes JJ1017, a K code or the hospital's own system, never ``nhi_order``; the TW mapping
+    ignores ``order_code_system``: a Taiwan row with or without it maps byte for byte as before."""
+    import csv as _csv
+
+    from adapter.mapping.engine import Mapper, Mapping
+
+    nhi = "https://trialbox.local/fhir/CodeSystem/nhi-order"
+    jp = Mapper(Mapping.load(mc.MAPPING / "jp_core" / "ssmix2_site.yaml"), b"k" * 32, "J")
+    base = {"mrn": "M1", "order_code": "X1", "proc_name": "n", "proc_date": "2026-01-05"}
+    for system in ("JJ1017-16M", "JP-K", "99HOS", ""):
+        res = jp.map_table("procedure", iter([{**base, "proc_no": f"P{system}", "order_code_system": system}]))
+        proc = next(r for r in res if r["resourceType"] == "Procedure")
+        assert [c["system"] for c in proc["code"]["coding"]] != [] and nhi not in [
+            c["system"] for c in proc["code"]["coding"]
+        ]
+    tw = Mapper(Mapping.load(mc.MAPPING / "tw_core" / "demo_his.yaml"), b"k" * 32, "T")
+    site = mc.ROOT / "tests/fixtures/synthetic_patients/site-a"
+    rows = list(_csv.DictReader((site / "procedure.csv").open(encoding="utf-8")))
+    assert rows
+    plain = [json.dumps(r, sort_keys=True) for r in tw.map_table("procedure", iter(rows))]
+    tagged = [{**r, "order_code_system": "JJ1017-16M"} for r in rows]
+    assert [json.dumps(r, sort_keys=True) for r in tw.map_table("procedure", iter(tagged))] == plain
+    assert all(nhi in s for s in plain if '"Procedure"' in s)

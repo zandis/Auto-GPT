@@ -33,6 +33,11 @@ systems:
   byomei: urn:oid:1.2.392.200119.4.101.6     # MEDIS 病名交換用コード (verify)
   rp_no: urn:oid:1.2.392.100495.20.3.81      # JP_MedicationRequest identifier:rpNumber
   rp_order: urn:oid:1.2.392.100495.20.3.82   # JP_MedicationRequest identifier:orderInRp
+  # SDR2 (lane M): a procedure's code system in Japan; never NHI order codes. TrialBox's own URIs, marked local
+  # until an official one is found (its own card)
+  jp_order_local: urn:trialbox:local:order-code  # a hospital's own order or examination code (OBR-4, 99xxx)
+  jj1017: urn:trialbox:local:jj1017               # JJ1017 (JIRA / JAMI imaging procedure codes), local URI for now
+  jp_k_code: https://trialbox.local/fhir/CodeSystem/jp-k-code  # 診療報酬点数表 K codes (operations), local system
 # The row-unit check (R-31, D-215) comes with `extends`: the lab Observation reads the reader's `unit` column, which
 # is OBX-6, against the lookup's unit (`source_unit`, else `ucum`); a result in another unit has no value and the
 # reason `unit_mismatch`. A JLAC10 row whose site reports another unit says so in `source_unit` and `factor`.
@@ -78,6 +83,13 @@ profiles:
   https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/DiagnosticReport-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_DiagnosticReport_Common
   https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/DocumentReference-twcore: ""   # JP Core 1.1.0 has no DocumentReference profile
 overlay:
+  # SDR2 (lane M): a Japanese procedure's code is never written as an NHI order code: its system comes from
+  # `order_code_system` (OBR-4.3 for OMG-11/12; a site's extended procedure.csv may say JP-K), else the hospital's own
+  - type: Procedure
+    table: procedure
+    elements:
+      code.coding[0]: {builder: coding, column: order_code, system: jp_order_local, display_column: proc_name}
+      code.coding[0].system: {column: order_code_system, map: {JJ1017-16M: "urn:trialbox:local:jj1017", JJ1017-16P: "urn:trialbox:local:jj1017", JJ1017-32: "urn:trialbox:local:jj1017", JP-K: "https://trialbox.local/fhir/CodeSystem/jp-k-code"}, default: "urn:trialbox:local:order-code", when: {column: order_code, not_empty: true}}
   - type: Encounter
     table: encounter
     elements:

@@ -111,6 +111,8 @@ TYPES = {
     "diagnosis": ("PPR-01",),
     "medication": ("OMP-01", "OMP-02"),
     "lab": ("OML-11",),
+    # SDR2 (lane M): radiology and endoscopy 実施 (OMI^Z23); a site's operations still come from extended/procedure.csv
+    "procedure": ("OMG-11", "OMG-12"),
 }
 _RECORD_TYPES = frozenset(t for types in TYPES.values() for t in types)
 _TABLE_OF = {t: table for table, types in TYPES.items() for t in types}
@@ -257,12 +259,12 @@ def _newer(sf: StoredFile, cur: StoredFile) -> bool:
 SNAPSHOT = "*"  # the day part of a PPR-01 snapshot group's key: every day folder of the patient (D-1252)
 #: the types whose records with no version in force are read as unknown (D-1252 P3, P4); the others keep #1095's
 #: reading (a newest flag 2 set aside, an unreadable newest skipped), stated as a limit
-VERSIONED_TYPES = ("PPR-01", "OMP-01", "OMP-02")
+VERSIONED_TYPES = ("PPR-01", "OMP-01", "OMP-02", "OMG-11", "OMG-12")
 #: P5 (two live versions with one 発生日時) is read as unknown for these too (lane J at 9253347e): a lab result
 TIE_TYPES = ("OML-11",)
 #: the order types whose number filed on several days makes the older day's record unknown (D-1252 P6)
 CROSS_DAY_TYPES = ("OMP-01", "OMP-02")
-_KEY_OF = {"diagnosis": "diag_no", "medication": "rx_no", "lab": "lab_no"}
+_KEY_OF = {"diagnosis": "diag_no", "medication": "rx_no", "lab": "lab_no", "procedure": "proc_no"}
 DOUBT = {
     "tie": "two versions with one 発生日時",  # D-1252 P5
     "past": "no version in force (the newest carries flag 2)",  # D-1252 P3
@@ -1519,6 +1521,9 @@ class Ssmix2Source:
                     yield row
             return
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
+        if table == "procedure" and self.extended is not None:
+            # SDR2: the extended CSV's procedures (operations, K codes) are read beside the 実施 messages, as before
+            yield from self.extended.rows(table, source_name, delta_column, since)
         if table == "lab":
             self._lab_dead = []
         if table == "diagnosis":
@@ -2079,6 +2084,39 @@ class Ssmix2Source:
             # its plain key is tombstoned every night (D-1252 P6), so the row replacing it is sent every night (not a
             # column; lane J at 9253347e: a late older-day file with an old 発生日時 re-keys a record of another day)
             "_always": "1" if rekeyed else "",
+        }
+
+    def _procedure(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
+        """OMG-11 / OMG-12 (OMI^Z23: radiology and endoscopy 実施, 仕様書 表3-84 and 3-92; SDR2, lane M). One done
+        examination: ``proc_no`` the order's key (:func:`order_no`, as for OMP), ``order_code`` / ``proc_name`` /
+        ``order_code_system`` OBR-4's code, text and coding system, ``proc_date`` OBR-7 (the 診療日, 構築ガイドライン
+        表3.1-1 No.32 and 34). Read only when it says it was done: ORC-1 ``SC`` and ZE1-2 実施 (code 1 of JSHR003, or
+        the word); any other message is counted and not read as a procedure, never guessed done."""
+        orc, obr, ze1 = msg.first("ORC"), msg.first("OBR"), msg.first("ZE1")
+        said = unicodedata.normalize("NFKC", ze1.comp(2, 2)).strip() if ze1 is not None else ""
+        table = ze1.comp(2, 3).strip().upper() if ze1 is not None else ""
+        done_ze1 = said == "実施" or (ze1 is not None and ze1.comp(2, 1).strip() == "1" and table.endswith("JSHR003"))
+        if orc is None or obr is None or orc.field(1).strip().upper() != "SC" or not done_ze1:
+            self.stats[f"{sf.type}:not done (not read as a procedure)"] += 1
+            return
+        number = order_no(sf, orc) or ("" if no_order(sf.order) else key_part(sf.order)) or key_part(obr.comp(2, 1))
+        if not number:
+            self._quarantine(sf.type, sf, "no order key", "neither the file name, ORC-2 nor OBR-2 gives a number")
+            return
+        if not self._plain_keys and (sf.patient, sf.type, key_part(sf.order)) in self._repeated:
+            number = f"{number}@{sf.day}"  # one number on two days is two records (D-1252 P6), as for OMP
+        when = hl7.ts(obr.field(7)) or ""
+        if not when:
+            self.stats[f"{sf.type}:no OBR-7 (no procedure date)"] += 1
+        self.stats[f"{sf.type}:procedure"] += 1
+        yield {
+            "proc_no": number,
+            "mrn": sf.patient,
+            "order_code": obr.comp(4, 1).strip(),
+            "proc_name": obr.comp(4, 2).strip(),
+            "order_code_system": obr.comp(4, 3).strip(),
+            "proc_date": when[:10],
+            "status": "completed",
         }
 
     def _medication(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:

@@ -72,7 +72,7 @@ READER = "reader.json"
 #: the SS-MIX2 data types the reader reads (its README: ADT-00/12/22/52, PPR-01, OMP-01/02/11/12, OML-11 and the
 #: extended storage's documents); a declared type outside these and the mapping's tables is not read by this version
 SSMIX2_READS = frozenset({"ADT-00", "ADT-12", "ADT-22", "ADT-52", "PPR-01", "OMP-01", "OMP-02", "OMP-11", "OMP-12",
-                          "OML-11", "document"})  # fmt: skip
+                          "OML-11", "OMG-11", "OMG-12", "document"})  # fmt: skip
 #: the SS-MIX2 reader's tables: the canonical table, the column of the site's code, the column of the standard code
 SSMIX2_COLUMNS = {"ssmix2.diagnosis": ("diagnosis", "byomei_code", "icd10"),
                   "ssmix2.drug": ("medication", "nhi_drug_code", "atc")}  # fmt: skip
