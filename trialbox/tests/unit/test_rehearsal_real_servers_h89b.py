@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -296,3 +297,72 @@ def test_the_engine_probe_takes_the_slice_form(index: str, rc: int) -> None:
     assert r.returncode == rc, r.stdout + r.stderr
     if rc == 0:
         assert f"--gpus device={index} " in r.stdout
+
+
+# ------------------------------------------------------------------------------------- 4. the Windows host path (WSL2)
+HW = {"arch": "x86_64", "cpu_count": 32, "ram_gib": 128, "disk_free_gib": 1800, "tpm": True, "disks": [],
+      "lan": "192.0.2.0/24", "hostname": "box1", "host_tz": "Asia/Tokyo",
+      "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition", "gpu_mem_gib": 96.0}  # fmt: skip
+RRS = ["--rehearsal-real-servers", "--gpu", "rtx5090", "--gpu-index", "1:0", "--engine-probe", "/var/lib/p.json"]
+
+
+def _box(tmp: Path, *args: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """deploy/box-install.sh for real up to the install, with the install a stand-in that logs its arguments and
+    stops (box-install then stops too: nothing for the wizard to serve)."""
+    deploy = tmp / "box" / "deploy"
+    deploy.mkdir(parents=True)
+    for f in [ROOT / "deploy" / "box-install.sh", ROOT / "deploy" / "gpu_profile.sh",
+              *(ROOT / "deploy").glob("docker-compose*.yml")]:  # fmt: skip
+        shutil.copy2(f, deploy / f.name)
+    for name in ("libs", "services", "tools", "schemas"):
+        (tmp / "box" / name).symlink_to(ROOT / name)
+    calls = tmp / "calls.log"
+    install = tmp / "install.sh"
+    install.write_text(f'#!/bin/sh\nfor a in "$@"; do echo "$a"; done > {calls}\nexit 1\n', encoding="utf-8")
+    install.chmod(0o755)
+    hw = tmp / "hardware.json"
+    hw.write_text(json.dumps(HW), encoding="utf-8")
+    bundle = tmp / "trialbox-1.0.0.tar"
+    bundle.write_bytes(b"stand-in bundle")
+    env = {**{k: v for k, v in os.environ.items() if not k.startswith("TB_")}, "TB_BOX_NO_ROOT": "1",
+           "TB_BOX_HARDWARE": str(hw), "TB_BOX_INSTALL": str(install), "TB_BOX_PY": sys.executable,
+           "TB_ISSUE_DIR": str(tmp / "issue.d"), "TB_FIRSTRUN_HOST_DIR": str(tmp / "fr"), "TB_SYSTEMD": "0",
+           "TB_BOX_WSL2": "1"}  # fmt: skip
+    r = subprocess.run(["bash", str(deploy / "box-install.sh"), str(bundle), *args], capture_output=True, text=True,
+                       env=env, timeout=120, check=False)  # fmt: skip
+    got = calls.read_text(encoding="utf-8").splitlines() if calls.is_file() else []
+    return r, [a.replace(str(tmp), "<tmp>") for a in got]
+
+
+# what master's box-install.sh (b6e51e9f) hands install.sh for a rehearsal on this hardware
+MASTER_REHEARSAL = ["<tmp>/trialbox-1.0.0.tar", "--answers", "<tmp>/box/deploy/site/box/answers.json", "--mode", "gpu",
+                    "--gpu", "rtxpro6000", "--rehearsal", "--yes"]  # fmt: skip
+
+
+def test_the_windows_path_hands_the_real_servers_options_to_the_install(tmp_path: Path) -> None:
+    r, got = _box(tmp_path, "--rehearsal", *RRS)
+    assert r.returncode == 1 and "the install stopped" in r.stderr, r.stdout + r.stderr
+    assert got == [*MASTER_REHEARSAL[:-1], *RRS, "--yes"]  # after the plan's flags: the named profile wins
+
+
+def test_the_windows_path_without_the_options_is_as_on_master(tmp_path: Path) -> None:
+    r, got = _box(tmp_path, "--rehearsal")
+    assert got == MASTER_REHEARSAL, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize(
+    ("args", "said"),
+    [
+        (RRS, "box-install: --rehearsal-real-servers is for a rehearsal box only: give --rehearsal too (nothing was checked or written)"),
+        (["--rehearsal", "--gpu", "rtx5090"], "box-install: --gpu, --gpu-index and --engine-probe go with --rehearsal --rehearsal-real-servers; nothing was checked or written"),
+        (["--gpu-index", "1"], "box-install: --gpu, --gpu-index and --engine-probe go with --rehearsal --rehearsal-real-servers; nothing was checked or written"),
+        (["--engine-probe", "/x"], "box-install: --gpu, --gpu-index and --engine-probe go with --rehearsal --rehearsal-real-servers; nothing was checked or written"),
+        (["--rehearsal", "--prepare", *RRS], "box-install: --rehearsal with --prepare: a prepared box goes to a site"),
+        (["--answers", "/x.json", *RRS], "box-install: --rehearsal-real-servers is for a rehearsal box only: give --rehearsal too (nothing was checked or written)"),
+        (["--answers", "/x.json", "--rehearsal", *RRS], "box-install: --answers is the site's unattended install: not with --prepare, --rehearsal or --firstrun"),
+        (["--rehearsal", "--rehearsal-real-servers", "--gpu-index"], "box-install: --gpu-index needs a value"),
+    ],
+)  # fmt: skip
+def test_the_windows_path_refuses_the_options_without_the_mark(tmp_path: Path, args: list[str], said: str) -> None:
+    r, got = _box(tmp_path, *args)
+    assert r.returncode == 2 and r.stdout == "" and r.stderr.splitlines() == [said] and got == []
