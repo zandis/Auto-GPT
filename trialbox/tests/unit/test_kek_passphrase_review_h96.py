@@ -431,3 +431,138 @@ def test_the_host_check_step_keeps_what_the_install_wrote_before_it_in_a_log_fil
         "PASS  the host check",
         "a line after",
     ]
+
+
+# ------------------------------------------------------------------------------------------------ the second review
+def _stat_as(real: Any, target: str, *, mode: int | None = None, uid: int | None = None) -> Any:
+    """os.stat, with the folder ``target`` given another mode or owner (the tests cannot make / writable or chown)."""
+
+    def fake(p: Any, *a: Any, **k: Any) -> os.stat_result:
+        st: os.stat_result = real(p, *a, **k)
+        if os.fspath(p) != target:
+            return st
+        v = list(st)
+        if mode is not None:
+            v[0] = mode
+        if uid is not None:
+            v[4] = uid
+        return os.stat_result(v)
+
+    return fake
+
+
+def test_the_shell_walks_up_to_the_root_folder_itself(tmp_path: Path) -> None:
+    """T-1 of the second review: the walk checks every folder up to / and / itself (a stand-in stat says / can be
+    written by others)."""
+    h = _harness(tmp_path)
+    f = _pp(_folder(tmp_path / "safe") / "kek.pass")
+    b = _folder(tmp_path / "bin", 0o755)
+    (b / "stat").write_text(
+        '#!/bin/sh\n[ "$1 $2 $3 $4" = "-c %u %a -- /" ] && { echo "0 777"; exit 0; }\nexec /usr/bin/stat "$@"\n',
+        encoding="utf-8",
+    )
+    (b / "stat").chmod(0o755)
+    r = subprocess.run(["sh", str(h), str(f), OPERATOR], env={**os.environ, "PATH": f"{b}:{os.environ['PATH']}"},
+                       capture_output=True, text=True, timeout=30, check=False)  # fmt: skip
+    assert r.returncode == 1 and "the folder / can be written by others (mode 777)" in r.stderr, r.stderr
+
+
+def test_tools_keys_walks_up_to_the_root_folder_itself(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    f = _pp(_folder(tmp_path / "safe") / "kek.pass")
+    monkeypatch.setattr(os, "stat", _stat_as(os.stat, "/", mode=0o40777))
+    with pytest.raises(K.KekError, match=re.escape("the folder / can be written by others (mode 777)")):
+        keys.read_passphrase_file(str(f))
+
+
+def test_tools_keys_refuses_a_folder_owned_by_another_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """T-3 of the second review: tools.keys' own folder-owner check (the tests cannot chown: os.stat says uid
+    65534 owns the file's folder)."""
+    safe = _folder(tmp_path / "safe")
+    f = _pp(safe / "kek.pass")
+    monkeypatch.setattr(os, "stat", _stat_as(os.stat, os.path.realpath(safe), uid=65534))
+    with pytest.raises(K.KekError, match=re.escape("is owned by uid 65534, not root")):
+        keys.read_passphrase_file(str(f))
+
+
+def _relinked(tmp: Path) -> tuple[Path, Path, Path, Path]:
+    """base/lnk -> safe (the operator's kek.pass); safe2 holds another root file of the same name."""
+    safe, safe2 = _folder(tmp / "safe"), _folder(tmp / "safe2")
+    read = _pp(safe / "kek.pass")
+    other = _pp(safe2 / "kek.pass", "another root file of the same name\n")
+    base = _folder(tmp / "base", 0o755)
+    (base / "lnk").symlink_to(safe)
+    return base / "lnk" / "kek.pass", read, other, safe2
+
+
+def test_tools_keys_removes_the_file_it_read_when_a_parent_link_is_repointed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R2-1: the file is removed by the real path it was read from; a parent link re-pointed while the command runs
+    cannot turn the removal onto another root file of the same name."""
+    given, read, other, safe2 = _relinked(tmp_path)
+    sec = _folder(tmp_path / "sec")
+    (sec / "site_hmac.key").write_bytes(os.urandom(32))
+    init = keys.COMMANDS["init"]
+
+    def repoint_then_init(a: Any, env: Any) -> int:
+        (given.parent).unlink()
+        given.parent.symlink_to(safe2)
+        return init(a, env)
+
+    monkeypatch.setitem(keys.COMMANDS, "init", repoint_then_init)
+    rc = keys.main(["init", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
+                    "--passphrase-file", str(given)], env={})  # fmt: skip
+    out = capsys.readouterr().out
+    assert rc == 0 and not read.exists() and other.read_text(encoding="utf-8") == "another root file of the same name\n"
+    assert f"the passphrase file {read.resolve()} is removed" in out
+
+
+def test_seal_keys_removes_the_file_it_read_when_a_parent_link_is_repointed(tmp_path: Path) -> None:
+    """R2-1 (T-2) in the shell: seal_keys.sh removes by the real path it read (KP_FILE), never the name given; a
+    stand-in python3 re-points the parent link while the keys are sealed."""
+    given, read, other, safe2 = _relinked(tmp_path)
+    sec = _folder(tmp_path / "secrets")
+    for name in ("site_hmac.key", "pid_map.key"):
+        (sec / name).write_bytes(os.urandom(32))
+    b = _folder(tmp_path / "bin", 0o755)
+    (b / "python3").write_text(
+        f'#!/bin/sh\ncase "$*" in *"tools.keys init"*) ln -sfn "{safe2}" "{given.parent}" ;; esac\n'
+        f'exec {sys.executable} "$@"\n',
+        encoding="utf-8",
+    )
+    (b / "python3").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
+    env |= {"PATH": f"{b}:{Path(sys.executable).parent}:/usr/bin:/bin", "TB_HOST_ROOT": str(tmp_path / "host"),
+            "TB_SYSTEMD": "0", "TB_KEK_FILE": str(tmp_path / "kek.runtime"), "TB_KEK_BACKEND": "passphrase"}  # fmt: skip
+    r = subprocess.run(["sh", str(SEAL), "--secrets", str(sec), "--conf", str(tmp_path / "none"),
+                        "--kek-passphrase-file", str(given)], env=env, capture_output=True, text=True, timeout=300,
+                       check=False)  # fmt: skip
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert os.readlink(given.parent) == str(safe2)  # the stand-in did re-point it
+    assert not read.exists() and other.read_text(encoding="utf-8") == "another root file of the same name\n"
+
+
+def test_tools_keys_refuses_a_file_that_is_not_utf8_by_name(tmp_path: Path) -> None:
+    """R2-3: a byte that is not UTF-8 is a refusal line, not a traceback."""
+    f = _folder(tmp_path / "safe") / "kek.pass"
+    f.write_bytes(b"synthetic\xffh96-not-utf8\n")
+    f.chmod(0o600)
+    with pytest.raises(K.KekError, match="is not UTF-8 text: refused"):
+        keys.read_passphrase_file(str(f))
+
+
+def test_the_host_check_says_when_its_poc_list_line_was_not_written(tmp_path: Path) -> None:
+    """R2-2: on a TEST box whose list cannot be written (here it is a folder), the WARN says the line was NOT listed;
+    when it is written the WARN says it was."""
+    from tests.unit.test_host_baseline import _box, _sh
+
+    args, env = _box(tmp_path, env_name="TEST")
+    (tmp_path / "host" / "dev" / "tpmrm0").unlink()
+    (tmp_path / "site" / "poc-stops.jsonl").mkdir(parents=True)
+    r = _sh(args, {**env, "TB_KEK_BACKEND": "passphrase"})
+    line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
+    assert line.startswith("WARN") and "NOT listed, deploy/site/poc-stops.jsonl cannot be written" in line, r.stdout
+    (tmp_path / "site" / "poc-stops.jsonl").rmdir()
+    r = _sh(args, {**env, "TB_KEK_BACKEND": "passphrase"})
+    line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
+    assert "(a PoC box: listed in deploy/site/poc-stops.jsonl)" in line, r.stdout
