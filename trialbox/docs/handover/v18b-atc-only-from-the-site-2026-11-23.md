@@ -13,7 +13,10 @@ Now:
 
 - Both files are removed, and `tools/build_terminology.py` no longer builds them. The register row no longer names
   them; NOTICE says no ATC name is shipped.
-- `Terminology.atc_source()` is the one source of ATC rows:
+- `atc` is no longer one of the mapper's shipped tables (`TABLE_FILES`): no file in a tables folder can feed it.
+  When the site's `atc_index` is loaded, its substances take the shipped table's place in every step (the exact-name
+  step and the candidates included), so a box with its own copy answers as the shipped table did.
+- `Terminology.atc_source()` is the one source of ATC rows for the groupers:
   - the site's `atc_index` (its level-5 substances);
   - else codes only: the ATC column of the NHI drug lists and the exact codes of TrialBox's own groupers, named
     with the NHI ingredient when there is one, else with the code.
@@ -53,10 +56,29 @@ So:
 - The doctor's terminology line warns when a changed system was not followed by a restart, or the store did not
   answer again, and otherwise says when it restarted.
 
+## Test assertions changed (the integrator's ruling (c))
+
+- `test_licence_register.py::test_the_detector_sees_the_known_data_files`: the known data file `src/atc.csv` is
+  replaced by `src/nhi_drug.csv`.
+- `test_fhir_codesystems.py::test_a_system_its_licence_does_not_let_the_box_carry_is_skipped_with_the_reason`: the
+  licence gate is shown on a file of the `atc` row (`drug_to_atc.csv`) instead of the shipped ATC; same assertion.
+- `test_terminology_load.py::test_the_doctor_fails_when_the_terminology_changed_after_the_load`: its report records
+  the store's restart, as the update step now writes it; same assertions.
+- `test_parser_terminology_review.py::test_terminology_steps`: `allopurinol` was an exact match (WHOCC's name); it is
+  now unmapped, and the exact step is shown on `rheumatology`.
+- `test_h17_nhi_import_and_site_list.py`, three figures: with committed data only, 261 of 1,273 (was 266), medication
+  1 (was 6), methods exact 3 and synonym 50 (were 9 and 49); with the extract medication 8 (was 13); with the
+  50-line site list 391 (was 396), medication 23 (was 28). Six drug names matched WHOCC's names; methotrexate now
+  resolves through TrialBox's own grouper.
+- `test_refdata_jp.py`, two tests: the dictionary's drug names answer from a synthetic site ATC copy the test writes
+  (made-up Z99 codes); PSL's code is that copy's prednisolone code (was H02AB06), and must be one code.
+- `test_study_manifest.py::test_the_criteria_hash_of_a_shipped_study_is_its_golden`: RA-JAK's criteria hash is
+  regenerated (`e1e9eed8...`; D-1366 still quotes the earlier one).
+
 ## Not in this card
 
 - The ATC concepts an existing box loaded from the shipped table stay in `omop.concept` (V18b-01).
-- Real ATC/DDD index releases: only the synthetic index of `tests/fixtures/v18b/atc_index.tsv` was loaded.
+- Real ATC/DDD index releases: only the synthetic index the tests write was loaded.
 
 ## Run, and not run
 

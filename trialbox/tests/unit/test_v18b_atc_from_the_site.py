@@ -3,7 +3,8 @@
 ones the NHI drug lists' ATC column and TrialBox's own groupers name, each without a WHOCC name. A drug named only in
 the WHOCC index is unmapped, and the FHIR store's ATC is a line of the "information still needed" page.
 
-The index here is synthetic (tests/fixtures/v18b/atc_index.tsv): real ATC codes as identifiers, made-up names."""
+The index here is synthetic and written by the test (a tracked index is refused, D-1116): real ATC codes as
+identifiers, made-up names."""
 
 from __future__ import annotations
 
@@ -19,7 +20,14 @@ from tools import fhir_codesystems as fc
 
 ROOT = Path(__file__).resolve().parents[2]
 ATC = SYSTEMS["atc"]
-SITE_ATC = ROOT / "tests/fixtures/v18b/atc_index.tsv"
+SITE_ATC = "ATC code\tATC level name\n" + "".join(f"{c}\t{n}\n" for c, n in [
+    ("M04", "SYNTHETIC antigout group"),
+    ("M04AA", "SYNTHETIC xanthine group"),
+    ("M04AA01", "synthetic urate substance one"),
+    ("M04AA03", "synthetic urate substance three"),
+    ("M04AB03", "synthetic uricosuric substance"),
+    ("L04AX03", "synthetic antifolate substance"),
+])  # fmt: skip
 NAME = "Ada Example (SYNTHETIC test person)"
 # the names the shipped table gave before (WHOCC's); none may reach a reader without the site's copy
 WHOCC_NAMES = {"allopurinol", "febuxostat", "benzbromarone", "methotrexate", "colchicine"}
@@ -36,7 +44,8 @@ def bare(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Terminology:
 def site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Terminology:
     monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")
     where = tmp_path / "terminology"
-    assert installed.install_atc(SITE_ATC, where, NAME, version="2099") == {"atc_index": 6}
+    (tmp_path / "atc.tsv").write_text(SITE_ATC, encoding="utf-8")
+    assert installed.install_atc(tmp_path / "atc.tsv", where, NAME, version="2099") == {"atc_index": 6}
     t = Terminology(installed=where)
     assert not t.installed_problems, t.installed_problems
     return t
@@ -80,7 +89,7 @@ def test_the_sites_copy_names_the_codes_and_answers_its_own_names(site: Terminol
         ("M04AB03", "synthetic uricosuric substance"),
     ]
     one = site.map("medication", "synthetic urate substance three")
-    assert one.method == "loaded" and [c.code for c in one.concepts] == ["M04AA03"]
+    assert one.method == "exact" and [c.code for c in one.concepts] == ["M04AA03"]  # as the shipped table answered
     assert site.concept(ATC, "M04AA01") is not None and site.concept(ATC, "M04AA01").display.startswith("synthetic")
 
 

@@ -68,7 +68,6 @@ DOMAIN_TABLES = {
 }
 TABLE_FILES = {
     "icd10cm": "icd10cm_tw",
-    "atc": "atc",
     "nhi_drug": "nhi_drug",
     "nhi_order": "nhi_order",
     "department": "department",
@@ -616,6 +615,7 @@ class Terminology:
         # ATC code is named from it; none loaded, none (the NHI drug list's own ATC column still answers)
         for gone in getattr(self, "atc_rows", []):
             self._by_code.pop((SYSTEMS["atc"], str(gone["code"])), None)
+        self.rows["atc"] = []
         self.atc_rows: list[dict[str, Any]] = []
         self.nhi_atc: list[dict[str, Any]] = []  # the NHI drug list loaded at install (or shipped): its ATC column
         self.who_categories: dict[str, list[Concept]] = {}  # a WHO ICD-10 category -> its codes, when loaded
@@ -730,6 +730,10 @@ class Terminology:
         if table == inst.ATC_INDEX:
             uri = LOADED_SYSTEMS["atc"]
             self.atc_rows = rows
+            # the site's copy takes the shipped table's place in every step: its substances answer the exact-name
+            # step and the candidates, as the shipped rows did before V-18b
+            self.rows["atc"] = [{"code": str(r["code"]), "display": str(r["display"])} for r in rows
+                                if len(str(r["code"])) == 7]  # fmt: skip
             for r in rows:
                 self._by_code[(uri, str(r["code"]))] = Concept(uri, str(r["code"]), str(r["display"]))
             under: dict[str, list[Concept]] = {}  # an ATC group -> its substances (level 5)

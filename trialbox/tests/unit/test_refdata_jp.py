@@ -415,10 +415,24 @@ def test_the_ctcae_store_answers_en_and_ja(loaded: str, tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ D-175 synonyms
-def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name() -> None:
+def _site_atc(tmp: Path) -> Path:
+    """V-18b (D-1183): no ATC name ships, so a drug's name answers only from the site's own ATC copy. A SYNTHETIC
+    copy: the dictionary's drug names, each under a made-up code (Z99, a group ATC does not have)."""
+    from criteria_compiler.terminology import installed
+
+    names = sorted({r["canonical"] for r in jp.parse_ja_synonyms(jp.REPO_SYNONYMS) if r["domain"] == "medication"})
+    src = tmp / "atc.tsv"
+    src.write_text("ATC code\tATC level name\n" + "".join(f"Z99AA{i:02d}\t{n}\n" for i, n in enumerate(names, 1)),
+                   encoding="utf-8")  # fmt: skip
+    installed.install_atc(src, tmp / "terminology", "Ada Example (SYNTHETIC test person)", version="2099")
+    return tmp / "terminology"
+
+
+def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name(tmp_path: Path) -> None:
     rows = list(jp.parse_ja_synonyms(jp.REPO_SYNONYMS))
     assert len(rows) == 70 and {r["term"] for r in rows if not r["curated"]} == {"RA", "AMI", "MTX", "PSL", "GPT"}
-    plain = Terminology()
+    site = _site_atc(tmp_path)  # V-18b: the drug names answer from the site's copy (synthetic here)
+    plain = Terminology(installed=site)
     dead = [r["term"] for r in rows if plain.map(r["domain"], r["canonical"]).method not in ("exact", "synonym")]
     assert dead == []
 
@@ -427,7 +441,7 @@ def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name() ->
         return [{**r, "source_id": "ja_synonyms"} for r in rows
                 if rd.norm_name(r["term"]) == n and (not domain or r["domain"] == domain)]  # fmt: skip
 
-    t = Terminology(name_synonyms=lookup)
+    t = Terminology(name_synonyms=lookup, installed=site)
     off = [r["term"] for r in rows if r["curated"] and (
         {c.code for c in t.map(r["domain"], r["term"]).concepts}
         != {c.code for c in plain.map(r["domain"], r["canonical"]).concepts}
@@ -435,12 +449,16 @@ def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name() ->
     assert off == []
 
 
-def test_the_name_matcher_reads_the_ja_dictionary(loaded: str) -> None:
-    plain = Terminology()
-    with_dict = Terminology(name_synonyms=rd.synonym_lookup(loaded))
+def test_the_name_matcher_reads_the_ja_dictionary(loaded: str, tmp_path: Path) -> None:
+    site = _site_atc(tmp_path)  # V-18b: the drug names answer from the site's copy (synthetic here)
+    plain = Terminology(installed=site)
+    with_dict = Terminology(name_synonyms=rd.synonym_lookup(loaded), installed=site)
     assert plain.map("condition", "関節リウマチ").method not in ("exact", "synonym")
     ra = with_dict.map("condition", "関節リウマチ")
     assert ra.method == "synonym" and not ra.needs_review and "ja_synonyms" in ra.notes[0]
     assert ra.concepts == plain.map("condition", "rheumatoid arthritis").concepts
     psl = with_dict.map("medication", "PSL")  # a note abbreviation: reviewed
-    assert psl.method == "dictionary" and psl.needs_review and {c.code for c in psl.concepts} == {"H02AB06"}
+    # V-18b: prednisolone's code is the site copy's (H02AB06 in WHOCC's index; a made-up code in this synthetic one)
+    assert psl.method == "dictionary" and psl.needs_review
+    pred = {c.code for c in plain.map("medication", "prednisolone").concepts}
+    assert len(pred) == 1 and {c.code for c in psl.concepts} == pred
