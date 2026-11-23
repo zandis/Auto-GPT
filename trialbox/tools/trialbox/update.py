@@ -440,7 +440,7 @@ def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run:
     reader.start()
     h = hashlib.sha256()
     held = b""
-    ok = False
+    ok = broken = False
     try:
         for chunk in p.chunks():
             h.update(chunk)
@@ -451,7 +451,9 @@ def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run:
         ok = h.hexdigest() == p.sha256
         if ok:
             proc.stdin.write(held)
-    except BrokenPipeError:
+    except BrokenPipeError:  # the load stopped on its own: its exit and its words say why
+        ok, broken = False, True
+    except OSError:  # the stick could not be read to the end: its bytes do not hash to the signed sha256
         ok = False
     finally:
         if not ok:
@@ -466,7 +468,7 @@ def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run:
     for ref in sorted({*configs, *(v for v in configs.values() if v), *manifests}):  # by tag and by id: nothing stays
         with contextlib.suppress(UpdateFailed):
             run(["docker", "image", "rm", "-f", ref])
-    if not ok:
+    if not ok and not broken:
         raise UpdateFailed(f"image {p.name}: its bytes on the stick no longer hash to the signed sha256 (read again "
                            "while loading); the load was stopped and nothing of it is loaded")  # fmt: skip
     raise UpdateFailed(f"image {p.name}: docker load failed (exit {rc}): {said[-500:]}")

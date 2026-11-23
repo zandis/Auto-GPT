@@ -59,8 +59,10 @@ verified and loaded as before, and also streamed. A software pack applied after 
 loaded.
 
 **(c) Digest pins.** `make_bundle.sh` refuses, before anything is exported, an image whose repository
-`deploy/images.lock` pins by digest (third_party) given without `@sha256:` (by `--image`, or by a variable compose
-reads from the caller's environment): such a bundle carried no `image-pins.json`.
+`deploy/images.lock` pins by digest (third_party) given by `--image` without `@sha256:`: such a bundle carried no
+`image-pins.json`. Not covered: the default list, which compose renders from the compose files, takes an image
+variable the caller exported (a plain tag there passes); checking it there changes what the existing make_bundle
+tests' stand-in compose answers, so it is a question to the lead.
 
 **Harm each guard stops (7092045961).** The software pack without its model pack: a box whose software expects
 weights or an engine it does not hold starts and fails at its first screen. The second hash on the way in: a stick

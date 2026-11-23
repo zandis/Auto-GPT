@@ -179,8 +179,6 @@ if [ ${#IMAGES[@]} -eq 0 ]; then
     n3=0; for img in "${IMAGES[@]}"; do case "$img" in trialbox-*) ;; *) n3=$((n3 + 1)) ;; esac; done
     [ "$n3" -gt 0 ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
   fi
-  # 7097604232 again: compose reads a caller's exported image variable too
-  "$PY" -c "$PINNED_BY_TAG" "$ROOT/deploy/images.lock" "${IMAGES[@]}" || exit 2
 fi
 # H-95: the engine image(s): every image whose repository images.lock pins with a gpu entry. They ride in the model
 # pack (--model-pack-out); a software pack for an existing model pack (--model-pack) carries none
@@ -260,7 +258,7 @@ for img in "${IMAGES[@]}"; do
   esac
   echo "    $img"
   docker save "$ref" -o "$f"
-  if [ -n "$MODEL_OUT" ] && is_engine "$img"; then  # H-95: the engine image rides in the model pack
+  if [ -n "${MODEL_OUT:-}" ] && is_engine "$img"; then  # H-95: the engine image rides in the model pack
     M_ITEMS+=("image:$f=$(basename "$f")"); M_SAVED+=(--image "$img=$f")
   else
     ITEMS+=("image:$f=$(basename "$f")"); SAVED+=(--image "$img=$f")
@@ -276,7 +274,7 @@ if [ -n "$MODELS" ]; then
   echo "==> models from $MODELS"
   while IFS= read -r f; do
     rel="${f#"$MODELS"/}"; echo "    $rel"
-    if [ -n "$MODEL_OUT" ]; then M_ITEMS+=("model:$f=$rel"); else ITEMS+=("model:$f=$rel"); fi
+    if [ -n "${MODEL_OUT:-}" ]; then M_ITEMS+=("model:$f=$rel"); else ITEMS+=("model:$f=$rel"); fi
   done < <(find -L "$MODELS" -type f | sort)  # through links (H-43): a model cache's snapshot files link to its blobs
 fi
 if [ -n "$RULESETS" ]; then

@@ -191,7 +191,8 @@ media() (  # a subshell: set -e stops the step, not the run
   tools/make_bundle.sh --allow-dirty "a rehearsal of the working tree" --rehearsal \
     --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
     --out "$W/vendor/dist/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
-    --models "$W/vendor/models" --model-pack-out "$W/vendor/dist/$MODEL_PACK_NAME" --refdata "$pack" "${args[@]}" \
+    --model-pack-out "$W/vendor/dist/$MODEL_PACK_NAME" \
+    --models "$W/vendor/models" --refdata "$pack" "${args[@]}" \
     || { echo "the bundle was not built"; return 1; }
   # H-95: a release in two packs; the model pack (engine image, placeholder weights) beside the software pack
   mv "$W/vendor/dist/$MODEL_PACK_NAME" "$W/vendor/dist/$MODEL_PACK_NAME.sha256" "$MEDIA/linux/" \
