@@ -96,15 +96,17 @@ def _flagged(verdict: Any) -> bool:
 
 def _reviewed(criterion: Any, verdict: Any) -> bool:
     """The backstop of every builder and of a stored row: what this note answer may do, by the one rule of every path
-    (:func:`matching.note_answer.note_answer_may`; D-1069, D-985, R22-16), is review. A row with no quote (no path
-    decides a note answer without one: SPEC §7.3, CAS-16) and a criterion that does not say its kind (a caller's
-    stand-in) are read as before."""
+    (:func:`matching.note_answer.note_answer_may`; D-1069, D-985, R22-16), is review. An exclusion's "present" with no
+    quote is review: what is not shown never excludes (#639 7107834329 L1). A criterion that does not say its kind (a
+    caller's stand-in) is read as before."""
     kind = getattr(criterion, "kind", None)
+    if not kind:
+        return False
     ev = verdict.evidence
     quote = ev.quote if ev is not None else None
-    if kind not in ("inclusion", "exclusion") or quote is None:
-        return False
-    present = (verdict.verdict == "pass") == (kind == "inclusion")
+    if kind == "exclusion" and verdict.verdict == "fail" and not quote:
+        return True
+    present = (verdict.verdict == "pass") == (kind != "exclusion")
     return note_answer_may(kind, present, quote, str(getattr(criterion, "text", "") or "")).effect == "review"
 
 

@@ -253,8 +253,9 @@ TIER_RS = _ruleset(TIER_CRITERIA)
 
 def test_p1_tier_excludes_only_on_a_coded_fail_or_a_sure_blocking_note_fail() -> None:
     """``tier`` over every verdict for two structured criteria, two note criteria at three confidences and a human
-    criterion, with note answers allowed to block or not: ``excluded`` exactly when a structured verdict fails, or a
-    note verdict fails with confidence at or above the threshold while note answers may block. Kills U03."""
+    criterion, with note answers allowed to block or not: ``excluded`` exactly when a structured verdict fails, or the
+    note inclusion fails with confidence at or above the threshold while note answers may block. Kills U03. The note
+    exclusion's "present" here has no quote, so it never excludes (L1, #639 7107834329, D-1069)."""
     threshold = 0.75
     sv: tuple[Verdict, ...] = ("pass", "fail", "unknown")
     notes = [(v, c) for v in sv for c in (0.5, 0.75, 0.95)]
@@ -268,7 +269,8 @@ def test_p1_tier_excludes_only_on_a_coded_fail_or_a_sure_blocking_note_fail() ->
             CriterionVerdict(id="T-INC-03", verdict="pending_human", evidence=Evidence(resource_refs=[])),
         ]
         t, _, n_unknown = tier(TIER_RS, verdicts, threshold, note_block=block)
-        sure_note_fail = block and any(v == "fail" and c >= threshold for v, c in ((n1, c1), (n2, c2)))
+        # L1 (#639 7107834329, D-1069): the note exclusion's "present" here has no quote, so it never excludes
+        sure_note_fail = block and n1 == "fail" and c1 >= threshold
         assert (t == "excluded") is ("fail" in (s1, s2) or sure_note_fail), (s1, s2, n1, c1, n2, c2, block, t)
         assert n_unknown == [s1, s2, n1, n2].count("unknown")
         if t != "excluded" and "unknown" in (s1, s2, n1, n2):

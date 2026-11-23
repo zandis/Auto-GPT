@@ -1216,6 +1216,7 @@ class _Run:
         if span is None:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason="insufficient")
         quoted = str(span.get("quote") or reply.quote or "")
+        sentence = " ".join(s for s in (sentence, reply.sentence) if s)  # L3: the verifier's too
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16)
         may = note_answer_may(c.kind, reply.verdict == "pass", quoted, c.text, sentence)
         if may.effect == "keeps":
@@ -1232,6 +1233,10 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
+        if may.effect == "review" and may.reading_stands:
+            # D-1069: a "not met" from the notes the one rule sends to review (a renewal or documentation criterion,
+            # #639 7107834329 L2) is never a hard fail: the patient stays in the cascade and the tier is review
+            return Outcome(c.id, "fail", stage, hard=False, evidence=[*ev, meta], reason=may.reason)
         if may.effect == "review":
             # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a
             # negated, a relative's, a suspected condition, a drug, a value, findings counted into one) is the
