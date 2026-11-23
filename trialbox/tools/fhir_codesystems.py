@@ -51,6 +51,7 @@ BY = "fhir_codesystems"
 ICD10CM, LOINC, ATC = "http://hl7.org/fhir/sid/icd-10-cm", "http://loinc.org", "http://www.whocc.no/atc"
 ICD10_WHO, PCS = "http://hl7.org/fhir/sid/icd-10", "http://www.cms.gov/Medicare/Coding/ICD10"
 NHI_ORDER, DEPARTMENT = f"{TB}/CodeSystem/nhi-order", f"{TB}/CodeSystem/department"
+SNOMED, UMLS = "http://snomed.info/sct", "http://www.nlm.nih.gov/research/umls"
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ class Source:
     reader: Callable[[Path], list[dict[str, str]]]
     loaded: str = ""  # the table loaded at install that takes its place (terminology.installed)
     hierarchy: bool = False  # ICD-10-CM: a code's parent is its longest listed prefix
+    parents: bool = False  # SNOMED CT, UMLS: each code's parents, from the table's ``parents`` column
     source: str = ""  # ConceptMap: the source system
     target: str = ""  # ConceptMap: the target system
 
@@ -109,6 +111,9 @@ SOURCES: tuple[Source, ...] = (
     Source("department", "CodeSystem", DEPARTMENT, "Departments", _rel(TERM / "department.parquet"), _parquet),
     Source("icd10pcs", "CodeSystem", PCS, "ICD-10-PCS", "", _parquet, loaded="icd10pcs"),
     Source("icd10-who", "CodeSystem", ICD10_WHO, "WHO ICD-10", "", _parquet, loaded="icd10_who"),
+    # V-18: the hospital's own licensed copies (installed.install_snomed, install_umls), never shipped
+    Source("snomed", "CodeSystem", SNOMED, "SNOMED CT", "", _parquet, loaded="snomed_ct", parents=True),
+    Source("umls", "CodeSystem", UMLS, "UMLS", "", _parquet, loaded="umls_concepts", parents=True),
     Source(
         "map-lab-loinc",
         "ConceptMap",
@@ -181,7 +186,13 @@ def content(src: Source, rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     seen: dict[str, str] = {}
     for r in rows:
         seen.setdefault(r["code"], r["display"])
-    flat = [{"code": c, **({"display": d} if d else {})} for c, d in sorted(seen.items())]
+    flat: list[dict[str, Any]] = [{"code": c, **({"display": d} if d else {})} for c, d in sorted(seen.items())]
+    if src.parents:  # several parents are possible: each a ``parent`` property, the concepts flat
+        ups = {r["code"]: str(r.get("parents") or "").split() for r in rows}
+        for c in flat:
+            if ups.get(c["code"]):
+                c["property"] = [{"code": "parent", "valueCode": p} for p in ups[c["code"]]]
+        return flat
     return nest(flat) if src.hierarchy else flat
 
 
@@ -233,7 +244,7 @@ def resource(src: Source, items: list[dict[str, Any]], version: str, origin: str
         res["extension"] = [{"url": REPLACES, "valueString": f"{replaces[0]}|{replaces[1]}"}]
     if src.kind == "CodeSystem":
         res.update({"content": "complete", "count": count(items), "concept": items})
-        if src.hierarchy:
+        if src.hierarchy or src.parents:
             res["hierarchyMeaning"] = "is-a"
             res["property"] = [{"code": "parent", "uri": "http://hl7.org/fhir/concept-properties#parent",
                                 "type": "code", "description": "the code's parent in the hierarchy"}]  # fmt: skip
@@ -313,7 +324,8 @@ def pick(src: Source, terminology: Path, register: list[Any] | None) -> tuple[li
         if rows:
             line = inst.manifest(terminology)["tables"].get(src.loaded) or {}
             return ([{"code": str(r.get("code") or r.get("nhi_code") or ""), "display": str(r.get("display") or
-                      r.get("name") or "")} for r in rows if r.get("code") or r.get("nhi_code")],
+                      r.get("name") or ""), **({"parents": str(r.get("parents") or "")} if src.parents else {})}
+                     for r in rows if r.get("code") or r.get("nhi_code")],
                     str(line.get("version") or "loaded"), f"{src.loaded}, loaded at install")  # fmt: skip
         if refused and not src.path:
             return f"the table loaded at install was refused: {refused}"

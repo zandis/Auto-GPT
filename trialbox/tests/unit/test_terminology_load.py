@@ -140,3 +140,52 @@ def test_the_mapping_check_reports_a_code_missing_from_a_loaded_system(term_dir:
     assert got == {"V99SY01": "", "M04AA01": "not in the loaded atc table (atc_index)"}
     none = mc.Reference.load(terminology=tmp_path / "nothing-loaded")  # nothing loaded: the shape decides, as before
     assert none.loaded == {} and all(mc.check_code(x, none).mapped for x in rows)
+
+
+def test_the_hospitals_snomed_copy_reaches_both_readers_with_its_parents(
+    tmp_path: Path, omop: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from criteria_compiler.terminology import installed as inst
+
+    from tests.unit.test_site_licensed_copies import rf2
+
+    where = tmp_path / "terminology"
+    inst.install_snomed(rf2(tmp_path / "copy"), where, PERSON, "2026-11-23")
+    mem = MemoryStore()
+    monkeypatch.setattr(fc, "Store", lambda base: mem)
+    monkeypatch.setattr(fc, "SOURCES", tuple(s for s in fc.SOURCES if s.key == "snomed"))
+    report = tl.run(where, "http://fhir.invalid/fhir", omop, wait=0)
+    assert report["problems"] == [] and {r["table"] for r in report["omop"]} == {"shipped", "snomed_ct"}
+    cs = mem.get("CodeSystem", "tb-snomed")
+    assert cs is not None and cs["url"] == fc.SNOMED and cs["hierarchyMeaning"] == "is-a"
+    by = {c["code"]: c for c in cs["concept"]}
+    assert by["1000003"]["property"] == [{"code": "parent", "valueCode": "1000002"}]
+    assert by["1000002"]["display"] == "Synthetic child (finding)"
+    vocab = {r[0] for r in omop.fetchall("SELECT concept_code FROM concept WHERE concept_code LIKE '10000%'")}
+    assert vocab == set(by) == {"1000001", "1000002", "1000003"}
+
+
+def test_what_is_still_needed_goes_to_the_u5_list_and_replaces_only_this_steps_lines(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / tl.NEEDED).write_text(json.dumps({"key": "mail/relay", "what": "another step's line"}) + "\n", "utf-8")
+    log = tmp_path / "folder.log"
+    log.write_text("SNOMED CT: loaded: snomed_ct 3 rows\nUMLS: missing: no umls/ in the hospital's folder\n"
+                   "ATC: refused: atc: give --version (the ATC index's year, e.g. 2026)\n", "utf-8")  # fmt: skip
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({"fhir": [{"key": "icd10pcs", "state": "skipped", "detail": "not loaded at install"}],
+                                  "omop": [], "problems": []}), "utf-8")  # fmt: skip
+    assert tl.main(["skipped", "--report", str(report), "--folder-log", str(log), "--site", str(site)]) == 0
+    lines = [json.loads(x) for x in (site / tl.NEEDED).read_text("utf-8").splitlines()]
+    assert [x["key"] for x in lines] == ["mail/relay", "terminology/folder/UMLS", "terminology/folder/ATC",
+                                         "terminology/fhir/icd10pcs"]  # fmt: skip
+    assert all(x["next"] == "deploy/terminology-update.sh" for x in lines[1:])
+    capsys.readouterr()
+    assert tl.main(["still-needed", "--site", str(site)]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "folder/UMLS\tmissing: no umls/ in the hospital's folder"
+    report.write_text(json.dumps({"fhir": [], "omop": [], "problems": []}), "utf-8")
+    log.write_text("UMLS: loaded: umls_concepts 2 rows\n", "utf-8")
+    tl.main(["skipped", "--report", str(report), "--folder-log", str(log), "--site", str(site)])
+    assert [json.loads(x)["key"] for x in (site / tl.NEEDED).read_text("utf-8").splitlines()] == ["mail/relay"]

@@ -143,6 +143,35 @@ def check(report: dict[str, Any] | None, term_dir: Path) -> list[str]:
 
 
 REPORT = "terminology-load.json"  # in the site folder, written by the installer's step
+NEEDED = "needed.jsonl"  # in the site folder: what is still needed, for the U-5 page (U5-1 reads it)
+NEXT = "deploy/terminology-update.sh"  # the one command that loads it later
+
+
+def folder_lines(text: str) -> list[tuple[str, str]]:
+    """``(system, why)`` of each system the hospital's folder did not load (``terminology_install folder`` output)."""
+    out = []
+    for line in text.splitlines():
+        label, _, rest = line.partition(": ")
+        state, _, why = rest.partition(": ")
+        if state in ("missing", "refused") and label:
+            out.append((f"folder/{label}", f"{state}: {why}"))
+    return out
+
+
+def needed(site: Path, items: list[tuple[str, str]], by: str = BY) -> None:
+    """Rewrite this step's lines of ``site/needed.jsonl`` (``terminology/...``): one per system still needed, with
+    why and the command that loads it later; the other steps' lines stay. Standard library only (the host runs it)."""
+    from datetime import UTC, datetime
+
+    path = site / NEEDED
+    keep = [ln for ln in (path.read_text("utf-8").splitlines() if path.is_file() else [])
+            if ln.strip() and not str(json.loads(ln).get("key", "")).startswith("terminology/")]  # fmt: skip
+    at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new = [json.dumps({"key": f"terminology/{k}", "what": f"code system {k.split('/', 1)[-1]} is not loaded",
+                       "why": why, "next": NEXT, "at": at, "by": by}, ensure_ascii=False)
+           for k, why in items]  # fmt: skip
+    site.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f"{ln}\n" for ln in [*keep, *new]), encoding="utf-8")
 
 
 def doctor_line(site: Path, term_dir: Path) -> tuple[Literal["PASS", "WARN", "FAIL"], str]:
@@ -175,13 +204,30 @@ def main(argv: list[str] | None = None) -> int:
     ld.add_argument("--wait", type=float, default=900.0, help="seconds to wait for the FHIR store to store a system")
     sk = sub.add_parser("skipped", help="each system a report did not load, one 'key<TAB>why' line (the installer)")
     sk.add_argument("--report", required=True)
+    sk.add_argument("--folder-log", default="", help="the hospital's folder step's output: its systems not loaded")
+    sk.add_argument("--site", default="", help="also rewrite this step's lines of <site>/needed.jsonl (U-5)")
+    sn = sub.add_parser("still-needed", help="this step's lines of <site>/needed.jsonl, one 'key<TAB>why' each")
+    sn.add_argument("--site", required=True)
     ck = sub.add_parser("check", help="compare a report with the terminology as it is now (the doctor)")
     ck.add_argument("--report", required=True)
     ck.add_argument("--terminology", default="")
     a = p.parse_args(argv)
+    if a.cmd == "still-needed":  # the standard library only: the installer lists them in poc-stops.jsonl
+        path = Path(a.site) / NEEDED
+        for ln in path.read_text("utf-8").splitlines() if path.is_file() else []:
+            rec = json.loads(ln) if ln.strip() else {}
+            if str(rec.get("key", "")).startswith("terminology/"):
+                print(f"{rec['key'].split('/', 1)[1]}\t{' '.join(str(rec.get('why', '')).split())}")
+        return 0
     if a.cmd == "skipped":  # the standard library only: the installer runs it on the host
-        for key, why in skipped(json.loads(Path(a.report).read_text("utf-8"))):
+        rp = Path(a.report)
+        items = skipped(json.loads(rp.read_text("utf-8"))) if rp.is_file() else [("load", "the step did not run")]
+        log = Path(a.folder_log) if a.folder_log else None
+        items = (folder_lines(log.read_text("utf-8")) if log and log.is_file() else []) + items
+        for key, why in items:
             print(f"{key}\t{' '.join(why.split())}")
+        if a.site:
+            needed(Path(a.site), items)
         return 0
     from criteria_compiler.terminology import installed as inst
 

@@ -25,7 +25,11 @@ if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then
   echo "terminology: no volume $VOLUME: start the box once (docker compose up creates it), then load" >&2
   exit 2
 fi
-mkdir -p "$ROOT/deploy/site/terminology"
+# V-18 (D-1182): the hospital's folder may be outside the repository (TB_LICENSED_DIR, in the environment or
+# deploy/.env; its layout in docs/handover/terminology-folder.md); read-only, and only the tables built from it
+# go into the volume
+STAGE="${TB_LICENSED_DIR:-$(val TB_LICENSED_DIR)}"; STAGE="${STAGE:-$ROOT/deploy/site/terminology}"
+mkdir -p "$STAGE"
 exec docker run --rm --network none --user 0:0 -e TB_TERMINOLOGY_DIR=/data/terminology \
-  -v "${PROJECT}_tb-terminology:/data/terminology" -v "$ROOT/deploy/site/terminology:/stage:ro" \
+  -v "${PROJECT}_tb-terminology:/data/terminology" -v "$STAGE:/stage:ro" \
   "$IMAGE" python -m tools.terminology_install "$@"
