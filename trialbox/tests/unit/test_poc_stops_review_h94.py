@@ -311,3 +311,102 @@ def test_h94_09_on_production_the_first_stops_with_master_s_words(tmp_path: Path
         "TrialBox REFUSED to start: the audit anchor folder it would give the console no longer passes the rule"
     ), r.stderr
     assert "PoC box" not in r.stderr and not (deploy / "site" / "poc-stops.jsonl").exists()
+
+
+# ------------------------------------------- the lane H lead: every stop (5) of the KEK passphrase stays a stop, end to end
+def _real_id(box: Box) -> None:
+    """The KEK passphrase's checks compare owners with the user that runs the installer: the real id here (they run
+    before anything is loaded or written, so no root step is reached)."""
+    (box.tmp / "bin" / "id").write_text('#!/bin/sh\nexec /usr/bin/id "$@"\n', encoding="utf-8")
+
+
+def _no_list_line(box: Box) -> bool:
+    f = box.tmp / LISTED
+    return not f.exists() or not f.read_text(encoding="utf-8").strip()
+
+
+def test_kek_a_passphrase_in_the_environment_stops_a_poc_install(tmp_path: Path) -> None:
+    box = Box(tmp_path / "b", env="TB_ENV=DEV\n")
+    r = box.install("--environment", "DEV", "--mode", "stub", "--yes", env={"TB_KEK_PASSPHRASE": "synthetic-pass-h94"})
+    assert r.rc == 2 and "TB_KEK_PASSPHRASE is set in the environment: refused" in r.err, r.text[-2000:]
+    assert "synthetic-pass-h94" not in r.text and "update r1 loaded" not in r.out and _no_list_line(box)
+
+
+@pytest.mark.parametrize("case", ["folder others can write", "link", "second name", "mode 0644"])
+def test_kek_an_unsafe_passphrase_file_stops_a_poc_install(tmp_path: Path, case: str) -> None:
+    box = Box(tmp_path / "b", env="TB_ENV=DEV\n")
+    _real_id(box)
+    folder = tmp_path / "pp"
+    folder.mkdir(mode=0o700)
+    real = folder / "kek.pass"
+    real.write_text("synthetic-pass-h94\n", encoding="utf-8")
+    real.chmod(0o600)
+    given, said = real, ""
+    if case == "folder others can write":
+        folder.chmod(0o777)
+        said = "can be written by others"
+    elif case == "link":
+        given = folder / "kek.link"
+        given.symlink_to(real)
+        said = "is a link"
+    elif case == "second name":
+        os.link(real, folder / "kek.second")
+        said = "names (hard links), not one"
+    else:
+        real.chmod(0o644)
+        said = "has mode 644, not 0600"
+    r = box.install("--environment", "DEV", "--mode", "stub", "--kek-passphrase-file", str(given), "--yes")
+    assert r.rc == 1 and said in r.err and "refused" in r.err, r.text[-2000:]
+    assert "synthetic-pass-h94" not in r.text and "update r1 loaded" not in r.out and _no_list_line(box)
+
+
+@pytest.mark.parametrize("case", ["mode 0644", "environment"])
+def test_kek_seal_keys_refuses_the_same_on_its_own_and_seals_nothing(tmp_path: Path, case: str) -> None:
+    secrets = tmp_path / "secrets"
+    secrets.mkdir(mode=0o700)
+    pp = tmp_path / "pp"
+    pp.mkdir(mode=0o700)
+    f = pp / "kek.pass"
+    f.write_text("synthetic-pass-h94\n", encoding="utf-8")
+    f.chmod(0o644 if case == "mode 0644" else 0o600)
+    env = {**os.environ, "TB_KEK_BACKEND": "passphrase"}
+    if case == "environment":
+        env["TB_KEK_PASSPHRASE"] = "synthetic-pass-h94"
+    r = subprocess.run(["sh", str(ROOT / "deploy" / "hardening" / "seal_keys.sh"), "--secrets", str(secrets),
+                        "--conf", str(tmp_path / "none.conf"), "--kek-passphrase-file", str(f)],
+                       capture_output=True, text=True, env=env, check=False, timeout=60)  # fmt: skip
+    assert r.returncode != 0 and "refused" in r.stderr, r.stderr
+    assert not any(secrets.iterdir()) and "synthetic-pass-h94" not in r.stdout + r.stderr
+
+
+def _seal_step() -> str:
+    start = INSTALL.index('  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh')
+    return INSTALL[start : INSTALL.index('  PP_FILE=""; KP_FILE=""\n', start)]
+
+
+def test_kek_the_install_s_seal_step_never_reaches_those_refusals(tmp_path: Path) -> None:
+    """install.sh refuses the environment and reads and checks the operator's file itself (KEK-INPUT, before anything
+    is loaded); its seal step then hands seal_keys.sh the checked value on stdin alone: never the file's name and never
+    the environment, so seal_keys.sh's own refusals of them cannot be reached from it, and the helper after the seal
+    step can only ever warn about a failure that is not (5)."""
+    assert (
+        INSTALL.index("\nkp_refuse_env\n")
+        < INSTALL.index('if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"')
+        < INSTALL.index(_seal_step())
+    )
+    deploy = tmp_path / "deploy"
+    (deploy / "hardening").mkdir(parents=True)
+    rec = tmp_path / "seal.rec"
+    (deploy / "hardening" / "seal_keys.sh").write_text(
+        f'printf "%s\\n" "$*" > {rec}; env | grep -c "^TB_KEK_.*PASSPHRASE=" >> {rec} || :; cat >> {rec}\n',
+        encoding="utf-8",
+    )
+    script = ('die() { echo "install: $*" >&2; exit 1; }\nkp_remove_file() { :; }\nstop_or_warn() { exit 9; }\n'
+              'KP_VALUE=synthetic-pass-h94; KP_FILE=/root/kek.pass; PP_KEEP=1; SEC_DIR=s; HB_CONF=c; IMAGE_PY=i\n'
+              + _seal_step())  # fmt: skip
+    r = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False,
+                       env={"PATH": os.environ["PATH"]})  # fmt: skip
+    assert r.returncode == 0, r.stderr
+    args, kek_env, value = rec.read_text(encoding="utf-8").splitlines()
+    assert "--kek-passphrase-stdin" in args.split() and "--kek-passphrase-file" not in args and kek_env == "0"
+    assert value == "synthetic-pass-h94"
