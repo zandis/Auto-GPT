@@ -99,6 +99,10 @@ restore.
 **The three `test_backup_key_ceremony.py::test_h_5_*` tests** pass here and in CI: all eight unit shards of
 train/151 (f85edbb6, on master 40f23682) passed with no failure. They fail only in the reviewer's container.
 
+**Files outside the card.** `services/console/i18n_audit.py` (one label, `backup.restore_failed`, with the lane
+lead's go): the cross-card test requires a label for every event the code writes, and the host step now writes
+this one; it existed (written by `backup.py`) without a label.
+
 ## Findings
 
 **H100-05, on the restore's path.** A caller who exports `TB_BACKUP_PUBKEY`, `TB_BACKUP_TARGETS`, `TB_COMPOSE` or
