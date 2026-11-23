@@ -79,6 +79,10 @@ So:
 - `test_study_manifest.py::test_the_criteria_hash_of_a_shipped_study_is_its_golden`: RA-JAK's criteria hash is
   regenerated (`e1e9eed8...`; D-1366 still quotes the earlier one).
 
+- `tests/fixtures/ir/snapshots/ATOMS.cql` (`test_cql_sql_generators.py::test_atoms_cql_snapshot_and_determinism`):
+  regenerated; only the versions of its three medication ValueSets (colchicine, methotrexate, TB preventive
+  therapy) and the library's version move.
+
 ## Not in this card
 
 - The ATC concepts an existing box loaded from the shipped table stay in `omop.concept` (V18b-01).
