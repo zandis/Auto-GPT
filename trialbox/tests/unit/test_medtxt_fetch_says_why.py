@@ -20,7 +20,7 @@ def test_an_unreachable_source_stops_the_fetch_with_the_cause(tmp_path: Path, mo
     def down(*a: object, **k: object) -> None:
         raise httpx.ConnectError("[Errno 101] Network is unreachable")
 
-    monkeypatch.setattr(medtxt_eval.httpx, "get", down)
+    monkeypatch.setattr(httpx, "get", down)
     with pytest.raises(SystemExit) as stop:
         medtxt_eval.fetch()
     msg = str(stop.value)
