@@ -597,7 +597,7 @@ if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
     echo "    verifying the signature and every file of the model pack $(basename "$MODEL_PACK") (minutes for the weights)"
     alive_start "verifying the model pack"
     # H-94 (1): the signature and every payload hash
-    sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" --dry-run >/dev/null || die "the model pack is not a valid signed TrialBox model pack; nothing was changed"
+    sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" --dry-run --for-software "$BUNDLE" >/dev/null || die "the model pack is not a valid signed TrialBox model pack; nothing was changed"
     alive_stop
     WITH_MODEL=(--with-model-pack "$MODEL_PACK")
   fi
@@ -611,7 +611,7 @@ if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
     echo "    loading the model pack: the engine image and the weights, straight from the stick (10-20 minutes)"
     alive_start "loading the model pack"
     # H-94 (1): each payload is hashed again as it streams in; one whose hash fails is not loaded
-    TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" 2>&1 | indent || die "loading the model pack failed"
+    TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" --for-software "$BUNDLE" 2>&1 | indent || die "loading the model pack failed"
     alive_stop
   fi
   echo "    loading the images, models and rulesets straight from the stick (10-20 minutes for a GPU bundle)"

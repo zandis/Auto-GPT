@@ -406,6 +406,8 @@ def stream_models(payloads: Sequence[Streamed], dest: Path, rb: Path, point: Poi
     name only when its sha256 is the signed one: a file whose second read fails its hash never takes the name the
     services load, and its ``.part`` is removed at once."""
     done: list[str] = []
+    for p in payloads:  # review F3: a .part a killed load left behind is removed before anything is written
+        (dest / f"{p.path}.part").unlink(missing_ok=True)
     for p in payloads:
         target = _keep_model(dest, p.path, rb, point)
         part = target.with_name(target.name + ".part")
@@ -425,11 +427,58 @@ def stream_models(payloads: Sequence[Streamed], dest: Path, rb: Path, point: Poi
     return done
 
 
+IMAGE_STATE = ["docker", "image", "ls", "-a", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"]
+
+
+def image_state(run: Runner) -> tuple[dict[str, str], set[str]]:
+    """The engine's images now: ``{repo:tag: id}`` and every image id (untagged ones too)."""
+    tags: dict[str, str] = {}
+    ids: set[str] = set()
+    for line in run(IMAGE_STATE).splitlines():
+        ref, _, iid = line.strip().rpartition(" ")
+        if not iid:
+            continue
+        ids.add(iid)
+        if ref and "<none>" not in ref:
+            tags[ref] = iid
+    return tags, ids
+
+
+def undo_load(before: tuple[dict[str, str], set[str]], run: Runner) -> list[str]:
+    """H-95 (review F1, F2): put the engine back as it was before one load: a tag the load moved points at its old
+    image again, a tag the load made is removed, an image id the load added is removed. Nothing that was there before
+    is removed. Returns what it did."""
+    old_tags, old_ids = before
+    new_tags, new_ids = image_state(run)
+    done: list[str] = []
+    for tag, iid in sorted(new_tags.items()):
+        if old_tags.get(tag) == iid:
+            continue
+        if tag in old_tags:
+            run(["docker", "tag", old_tags[tag], tag])
+            done.append(f"{tag} back to {old_tags[tag]}")
+        elif iid not in old_ids:
+            continue  # the image itself goes below, and its tag with it
+        else:
+            run(["docker", "image", "rm", tag])
+            done.append(f"{tag} removed")
+    for iid in sorted(new_ids - old_ids):
+        with contextlib.suppress(UpdateFailed):
+            run(["docker", "image", "rm", "-f", iid])
+        done.append(f"{iid} removed")
+    return done
+
+
 def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run: Runner) -> None:
-    """H-95: one image archive from the bundle into ``docker load`` on its standard input, hashed as it goes. The last
-    ``HOLD_BACK`` bytes (the archive's end) wait until the whole sha256 is known: on a match they follow and the load
-    completes; on a mismatch the load is stopped with its archive cut short, and every tag and image id the archive
-    names is removed, so nothing of a payload that fails its hash is loaded."""
+    """H-95: one image archive from the bundle into ``docker load`` on its standard input, hashed as it goes, in one
+    read: the bytes hashed are the bytes handed on. The last ``HOLD_BACK`` bytes wait until the whole sha256 is
+    known: on a match they follow and the load completes; on a mismatch the load is killed with its archive cut short.
+
+    The engine is read before the load (every tag and image id). Whatever the load changed is checked after it
+    (review F1): a load that failed, did not match its hash, or moved a tag that is not one of the archive's pinned
+    tags (an archive swapped on the stick after its manifest was read, or a complete tar that ends early) is undone
+    exactly (``undo_load``): tags moved back, what it added removed, nothing that was there before removed (F2)."""
+    before = image_state(run)
     proc = subprocess.Popen(["docker", "load"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)  # fmt: skip
     assert proc.stdin is not None and proc.stdout is not None
@@ -463,18 +512,23 @@ def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run:
         rc = proc.wait(timeout=3600)
         reader.join(timeout=60)
     said = b"".join(out).decode("utf-8", "replace").strip()
-    if ok and rc == 0:
+    moved = sorted(t for t, i in image_state(run)[0].items() if before[0].get(t) != i)
+    stray = [t for t in moved if t not in configs]
+    if ok and rc == 0 and not stray:
         return
-    for ref in sorted({*configs, *(v for v in configs.values() if v), *manifests}):  # by tag and by id: nothing stays
-        with contextlib.suppress(UpdateFailed):
-            run(["docker", "image", "rm", "-f", ref])
+    undone = undo_load(before, run)
+    what = f"; undone: {', '.join(undone)}" if undone else ""
+    if ok and rc == 0:
+        raise UpdateFailed(f"image {p.name}: the load moved tags the archive does not pin ({', '.join(stray)}){what}")
     if not ok and not broken:
         raise UpdateFailed(f"image {p.name}: its bytes on the stick no longer hash to the signed sha256 (read again "
-                           "while loading); the load was stopped and nothing of it is loaded")  # fmt: skip
-    raise UpdateFailed(f"image {p.name}: docker load failed (exit {rc}): {said[-500:]}")
+                           f"while loading); the load was stopped and nothing of it is loaded{what}")  # fmt: skip
+    raise UpdateFailed(f"image {p.name}: docker load failed (exit {rc}): {said[-500:]}{what}")
 
 
 def restore_models(dest: Path, rb: Path, point: Point) -> None:
+    for rel in point.models_new + point.models_saved:  # H-95 (review F3): a stream cut by a kill leaves <file>.part
+        (dest / f"{rel}.part").unlink(missing_ok=True)
     for rel in point.models_new:
         (dest / rel).unlink(missing_ok=True)
     for rel in point.models_saved:
@@ -888,8 +942,7 @@ class Updater:
                 raise UpdateRefused(f"the box is at release_seq {have}; {plan.bundle_id} needs at least "
                                     f"{plan.min_installed_version} (min_installed_version)")  # fmt: skip
             if plan.is_model_pack:  # H-95: a model pack's order is the model packs' own
-                rec = held_model_pack(self.dir) or {}
-                have = 0 if rec.get("whole") else int(rec.get("release_seq") or 0)
+                have = int((held_model_pack(self.dir) or {}).get("release_seq") or 0)
             if plan.release_seq <= have and not plan.downgrade:
                 raise UpdateRefused(f"release_seq {plan.release_seq} is not above the installed {have}: refused "
                                     "(tools/apply_update.sh --allow-downgrade REASON, audited)")  # fmt: skip
@@ -1122,6 +1175,17 @@ class Updater:
         mode = ((plan.release or {}).get("gates") or {}).get("vuln_mode")
         if isinstance(mode, str) and mode:
             record["vuln_mode"] = mode  # D-884: the release gates' mode, said by `apply_update.sh status` and install
+        if plan.pack is not None and plan.pack.get("kind") == "software":
+            record["requires_model"] = plan.pack["requires_model"]  # its model pack (verify_update.py, review F4)
+            old = us.installed(self.dir)
+            if not (self.dir / MODEL_PACK).exists() and not old.get("requires_model") \
+                    and re.fullmatch(r"[0-9a-f]{64}", str(old.get("manifest_sha256") or "")):  # fmt: skip
+                # review F6: a box installed before H-95 holds its whole bundle's models; written down now, before
+                # installed.json names the software pack and can no longer stand for them
+                us.write_atomic(self.dir / MODEL_PACK, {
+                    "format": MODEL_PACK_FORMAT, "bundle_id": old.get("bundle_id"),
+                    "manifest_sha256": old["manifest_sha256"], "release_seq": old.get("release_seq"),
+                    "key_id": old.get("key_id"), "applied_at": _now(), "whole": True})  # fmt: skip
         us.write_atomic(self.dir / us.INSTALLED, record)
         if plan.pack is None and any(f.get("kind") == "model" for f in plan.files):
             # H-95 (D-1094): a whole bundle that carries weights holds both halves: a later software pack may name it
@@ -2480,8 +2544,7 @@ def main_apply(
                 inst = us.installed(updates)
                 have = int(inst["release_seq"])
                 if plan.is_model_pack:  # H-95: a model pack's order is the model packs' own
-                    rec = held_model_pack(updates) or {}
-                    have = 0 if rec.get("whole") else int(rec.get("release_seq") or 0)
+                    have = int((held_model_pack(updates) or {}).get("release_seq") or 0)
                 if plan.release_seq is not None and plan.release_seq <= have and not plan.downgrade:
                     print(f"update REFUSED: release_seq {plan.release_seq} is not above the installed {have}")
                     return 1

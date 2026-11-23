@@ -126,6 +126,40 @@ The bench's size breakdown was not found on #639 (H95-05); the per-pack sizes on
 `box_in_service` reads as a box in service: the software pack's load after it was refused. Now the model pack's
 first load leaves `trust.json` to the software pack (a pack carries no rotation).
 
+## The independent review of 1d8ac220 (FIX FIRST), and what changed
+
+Each finding has a test in `tests/unit/test_load_from_the_stick_h95.py` that fails on 1d8ac220 and passes now.
+
+- **F1 (high), an image archive swapped on the stick after its pins were read.** Fixed by checking what the load
+  did, not by copying the archive first (a copy of the largest image, about a sixth of the installed size for the
+  walk's release, would have broken the +10 % bound). The engine is read before each streamed image (every tag and
+  image id, `image_state`). After the load, every tag it moved must be one the checked manifest named; a load that
+  failed, did not match its hash, or moved any other tag is undone exactly (`undo_load`: a moved tag back to its old
+  image, a new tag and a new image id removed). Tests: `test_review_f1_an_archive_swapped_after_the_pin_read_leaves_nothing_loaded`
+  (a complete tar of another image that ends early, with and without that image on the box before) and
+  `test_review_f1_a_load_that_moves_a_tag_the_first_read_did_not_see_is_undone`.
+- **F2, the clean-up removed images that were there before.** `undo_load` removes only what the load added.
+  `test_review_f2_a_failed_stream_removes_no_image_that_was_there_before`.
+- **F3, a kill mid-stream left `<weights>.part`.** Every load removes this pack's stale `.part` files before it writes
+  anything; a rollback removes them too. `test_review_f3_a_part_left_by_a_killed_load_is_removed`.
+- **F4, a model pack applied alone.** A model pack is refused unless the software on the box names it (a software
+  pack's `requires_model`, now in `installed.json`; a whole bundle names its own models) or the software pack loaded
+  straight after it does (`apply_update.sh --for-software FILE`; `install.sh` passes it). A whole bundle's
+  `release_seq` orders model packs (one sequence for releases). `test_review_f4_a_model_pack_alone_must_be_the_one_the_software_needs`.
+- **F6, a box installed before H-95 refused its second software pack.** When the first software pack is recorded on
+  such a box, the whole bundle's models are written to `model-pack.json` first; a software pack's own
+  `installed.json` record never stands for models. `test_review_f6_a_box_installed_before_h95_takes_its_second_software_pack`.
+- **F5 (low), the engine's working space.** The space stop counts, in Docker's data root, the largest image again
+  (one archive is unpacked at a time); the install prints it beside the sizes. The +10 % bound stays this card's
+  own writes. `test_review_f5_the_space_stop_counts_the_engines_working_space`.
+- **F7 (low), a relative `--with-model-pack` mounted without a dry run.** Without `--dry-run` it is dropped before
+  anything uses it. `test_review_f7_a_model_pack_given_without_a_dry_run_is_not_mounted`.
+- **Surviving mutants M4 and M10:** `test_review_m4_the_bundle_must_be_the_one_verified`,
+  `test_review_m10_the_load_is_killed_on_a_hash_mismatch` (the stand-in writes an exit mark a kill never writes).
+
+Measured again: installed 65,228,800 bytes, peak 65,327,104 (1.0015; the bound 1.10). Mutants: 20 planted (the
+card's own, the review's two survivors and one per fix), 20 caught.
+
 ## Findings
 
 `load-from-the-stick-h95-2026-11-23/findings.json` (H95-01 to H95-05), in the register's `--add-from` form.

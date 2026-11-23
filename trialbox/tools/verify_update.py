@@ -212,6 +212,7 @@ def verify(
     stream_kinds: Collection[str] = (),
     model_pack_record: Path | None = None,
     model_pack_candidate: Path | None = None,
+    software_candidate: Path | None = None,
 ) -> dict[str, Any]:
     from cryptography.exceptions import InvalidSignature
 
@@ -298,14 +299,18 @@ def verify(
         if pack_problem:  # H-94 (1): the pack does not hold together with what the box holds
             raise Rejected(pack_problem)
         is_model_pack = (manifest.get("pack") or {}).get("kind") == "model"
+        if is_model_pack:  # H-95 (review F4): the weights the software the box runs needs, or the next one's
+            mismatch = model_pack_for_software(inst, manifest["bundle_id"], manifest_sha, software_candidate)
+            if mismatch:  # H-94 (1): the pair does not hold together
+                raise Rejected(mismatch)
         seq, have = int(manifest["release_seq"]), int(inst["release_seq"])
         if have < int(manifest["min_installed_version"]):
             raise Rejected(f"the box is at release_seq {have}; this bundle needs at least "
                            f"{manifest['min_installed_version']} installed first (min_installed_version)")  # fmt: skip
         # H-95: a model pack's order is the model packs' own (the record of the one the box holds)
         last = held if is_model_pack else inst
-        if is_model_pack:  # a whole bundle's record does not order model packs
-            have = 0 if (held or {}).get("whole") else int((held or {}).get("release_seq") or 0)
+        if is_model_pack:  # a whole bundle's record orders them too (review F4): one sequence for releases
+            have = int((held or {}).get("release_seq") or 0)
         downgrade = None
         # D-833: the very bundle that is installed (same sequence, same manifest) is a repeat, not a downgrade:
         # install.sh run again continues from where it stopped, and the update answers "already installed". A key
@@ -415,7 +420,12 @@ def load_model_pack(path: Path | None, installed: dict[str, Any] | None = None) 
     holds that bundle's models: its ``installed.json`` record stands for them (D-1094), ``whole`` set. A box that
     took a software pack always has the file: its model pack was loaded first."""
     if path is None or not (path.exists() or path.is_symlink()):
-        if installed and SHA256.match(str(installed.get("manifest_sha256") or "")):
+        # a record of a software pack never stands for models (its model pack's record does: review F6)
+        if (
+            installed
+            and SHA256.match(str(installed.get("manifest_sha256") or ""))
+            and not installed.get("requires_model")
+        ):
             return {"bundle_id": installed.get("bundle_id"), "manifest_sha256": installed["manifest_sha256"],
                     "release_seq": installed.get("release_seq"), "whole": True}  # fmt: skip
         return None
@@ -431,6 +441,37 @@ def load_model_pack(path: Path | None, installed: dict[str, Any] | None = None) 
     if not isinstance(rec, dict) or not SHA256.match(str(rec.get("manifest_sha256") or "")):
         raise Rejected(f"the box's model pack record {path} names no manifest sha256")
     return rec
+
+
+def model_pack_for_software(inst: dict[str, Any], bundle_id: str, sha: str, software: Path | None) -> str:
+    """H-95 (review F4): why a model pack may not replace the weights now ("" when it may). A box with no software
+    yet takes it. Otherwise the software the box runs must name it (a software pack's ``requires_model`` in
+    installed.json; a whole bundle names its own models, so no model pack replaces them alone), or the software pack
+    that comes next must (``--for-software FILE``: install.sh names the software pack it loads straight after)."""
+    if not SHA256.match(str(inst.get("manifest_sha256") or "")):
+        return ""
+    need = inst.get("requires_model") or {
+        "bundle_id": inst.get("bundle_id"),
+        "manifest_sha256": inst["manifest_sha256"],
+    }
+    if need.get("manifest_sha256") == sha:
+        return ""
+    if software is not None:
+        try:
+            with tarfile.open(software, "r:") as tf:
+                m = tf.extractfile("manifest.json")
+                nxt = json.loads(m.read(MAX_META_BYTES + 1) if m is not None else b"{}")
+        except (OSError, KeyError, ValueError, tarfile.TarError) as exc:
+            raise Rejected(f"{software}: not a software pack ({exc})") from exc
+        req = ((nxt.get("pack") or {}) if isinstance(nxt, dict) else {}).get("requires_model") or {}
+        if req.get("manifest_sha256") == sha:
+            return ""
+    return (
+        f"model pack {bundle_id} (manifest sha256 {sha}) is not the one the software on this box needs "
+        f"({need.get('bundle_id')}, manifest sha256 {need.get('manifest_sha256')}); load it with the software "
+        "pack that names it (deploy/install.sh <software pack> --model-pack <model pack>, or tools/apply_update.sh "
+        "<model pack> --for-software <software pack>, then that software pack); nothing was changed"
+    )
 
 
 def candidate_identity(path: Path) -> dict[str, Any]:
@@ -696,12 +737,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--model-pack-record", type=Path, help="deploy/updates/model-pack.json, the model pack held")
     ap.add_argument("--model-pack-candidate", type=Path, help="a dry run only: check against this model pack instead")
+    ap.add_argument("--software-candidate", type=Path, help="a model pack: the software pack loaded straight after it")
     args = ap.parse_args(argv)
     try:
         m = verify(args.bundle, args.pubkey, args.stage, trust_file=args.trust, installed_file=args.installed,
                    images_lock=args.images_lock, allow_downgrade=args.allow_downgrade, stream_kinds=args.stream,
                    model_pack_record=args.model_pack_record,
-                   model_pack_candidate=args.model_pack_candidate)  # fmt: skip
+                   model_pack_candidate=args.model_pack_candidate,
+                   software_candidate=args.software_candidate)  # fmt: skip
     except Rejected as exc:
         print(f"REJECTED: {exc}", file=sys.stderr)
         return 1

@@ -56,9 +56,25 @@ def tags():
 def save(t):
     json.dump(t, open(tags_f, "w"))
 a = sys.argv[1:]
+if os.environ.get("H95_DOCKER_LOG"):
+    with open(os.environ["H95_DOCKER_LOG"], "a") as log:
+        log.write(" ".join(a) + "\n")
+if a[:1] == ["run"]:
+    sys.exit(1)
+if a[:2] == ["image", "ls"]:
+    t = tags()
+    for k, v in sorted(t.items()):
+        print(k + " " + v)
+    for d in sorted(os.listdir(os.path.join(root, "images"))):
+        i = "sha256:" + d.removesuffix(".layers")
+        if d != "loading" and i not in t.values():
+            print("<none>:<none> " + i)
+    sys.exit(0)
 if a[:1] == ["info"]:
     print(root); sys.exit(0)
 if a[:1] == ["load"]:
+    import atexit  # a load killed with SIGKILL never writes this
+    atexit.register(lambda: open(os.path.join(root, "load-exited"), "a").write("x"))
     src = open(a[a.index("-i") + 1], "rb") if "-i" in a else sys.stdin.buffer
     early = os.environ.get("H95_DOCKER_EARLY") == "1"
     got, cfg = [], None
@@ -77,7 +93,9 @@ if a[:1] == ["load"]:
             os.makedirs(d, exist_ok=True)
             with open(os.path.join(d, os.path.basename(m.name)), "wb") as out:
                 shutil.copyfileobj(f, out, 1 << 20)
-    os.replace(os.path.join(root, "images", "loading"), os.path.join(root, "images", cfg[7:] + ".layers"))
+    dest = os.path.join(root, "images", cfg[7:] + ".layers")
+    shutil.rmtree(dest, ignore_errors=True)  # the same image loaded again replaces itself
+    os.replace(os.path.join(root, "images", "loading"), dest)
     t = tags(); t.update({g: cfg for g in got}); save(t)
     for g in got:
         print("Loaded image: " + g)
@@ -92,6 +110,11 @@ if a[:2] == ["image", "inspect"]:
     sys.exit(1)
 if a[:2] == ["image", "rm"]:
     t = tags(); ref = a[-1]
+    if "-f" not in a and ref in t:  # a tag: untagged; its image goes only with its last tag
+        i = t.pop(ref); save(t)
+        if i in t.values():
+            sys.exit(0)
+        ref = i
     ids = {ref} if ref.startswith("sha256:") else ({t[ref]} if ref in t else set())
     t = {k: v for k, v in t.items() if k != ref and v not in ids}
     save(t)
@@ -537,3 +560,262 @@ def test_the_install_stops_before_loading_when_the_disk_cannot_hold_the_peak(tmp
         (updates / name).write_text(json.dumps({"manifest_sha256": packs.manifest_of(f)[1]}), encoding="utf-8")
     fits, lines = packs.space([p["software"], p["model"]], where, updates, free_of=lambda _p: 0)
     assert fits and lines == []
+
+
+# ------------------------------------------------------------------------------------------------ the review's findings
+def _staged_summary(p: dict[str, Path], pack: str, tmp: Path, **kw: Any) -> Path:
+    stage = tmp / f"stage-{pack}"
+    summary = vu.summary(vu.verify(p[pack], p["pub"], stage, stream_kinds=("image", "model"), **kw))
+    (stage / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    return stage
+
+
+def _tags(b: dict[str, Path]) -> dict[str, str]:
+    f = b["dockerroot"] / "tags.json"
+    return json.loads(f.read_text()) if f.exists() else {}
+
+
+def _swap_for_an_early_ending_tar(bundle: Path, path: str, tag: str) -> None:
+    """The archive's bytes on the stick become a complete tar of another image (``tag``) that ends early, padded with
+    zeros to the same size: what a stick swapped after the pin read would hand to the stream."""
+    off, size = _offset(bundle, path)
+    other = bundle.parent / "other-archive.tar"
+    _archive(other, tag, 4096)
+    data = other.read_bytes()
+    assert len(data) < size - (2 << 20)  # its end-of-archive blocks come well before the held-back last MiB
+    with bundle.open("r+b") as fh:
+        fh.seek(off)
+        fh.write(data + b"\0" * (size - len(data)))
+
+
+@pytest.mark.parametrize("db_before", [False, True])
+def test_review_f1_an_archive_swapped_after_the_pin_read_leaves_nothing_loaded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, db_before: bool
+) -> None:
+    """Review F1: the pins are read from the archive's manifest, then the stick changes and the stream hands the
+    engine a complete tar of another image (db:16) that ends early. The load fails, and the engine is as it was:
+    no db:16 left (or the one that was there, unchanged), no image id of it."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    for k, v in _env(b).items():
+        monkeypatch.setenv(k, v)
+    if db_before:
+        (b["dockerroot"] / "images").mkdir(parents=True, exist_ok=True)
+        (b["dockerroot"] / "tags.json").write_text(json.dumps({"db:16": "sha256:" + "d" * 64}), encoding="utf-8")
+        (b["dockerroot"] / "images" / ("d" * 64)).mkdir()
+    before = _tags(b)
+    stage = _staged_summary(p, "model", tmp_path)
+    first_read = up.tar_images  # the pin read sees the archive as it was verified
+    seen = {"engine.tar": first_read(up.streamed_payloads(p["model"], json.loads((stage / "manifest.json").read_text()),
+                                                          ["image"])[0])}  # fmt: skip
+    _swap_for_an_early_ending_tar(p["model"], "engine.tar", "db:16")
+    monkeypatch.setattr(up, "tar_images", lambda tar: seen.get(tar.name) or first_read(tar))
+    with pytest.raises(up.UpdateFailed, match="undone"):
+        up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=p["model"])
+    assert _tags(b) == before
+    ids = {d.name.removesuffix(".layers") for d in (b["dockerroot"] / "images").iterdir() if d.name != "loading"}
+    assert ids == ({"d" * 64} if db_before else set())
+
+
+def test_review_f2_a_failed_stream_removes_no_image_that_was_there_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review F2: the same model pack is streamed again (a re-run) from a stick changed after the verify pass: the
+    load fails, and the engine image already loaded stays, under its tag, with its id."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    assert _apply(b, str(p["model"])).returncode == 0
+    before = _tags(b)
+    assert ENGINE[0] in before
+    (b["box"] / "deploy/updates" / up.MODEL_PACK).unlink()  # so the pack is loaded again, not "already installed"
+    stage = _staged_summary(p, "model", tmp_path)
+    off, size = _offset(p["model"], "engine.tar")
+    with p["model"].open("r+b") as fh:
+        fh.seek(off + size - 100)
+        c = fh.read(1)
+        fh.seek(off + size - 100)
+        fh.write(bytes([c[0] ^ 1]))
+    for k, v in _env(b).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(up.UpdateFailed, match="no longer hash"):
+        up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=p["model"])
+    assert _tags(b) == before
+
+
+def test_review_f3_a_part_left_by_a_killed_load_is_removed(tmp_path: Path) -> None:
+    """Review F3: a load killed mid-stream leaves <weights>.part; the next load removes it before it writes, and a
+    rollback removes it too."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    stale = b["box"] / "deploy/models/judge/model-00002.safetensors.part"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"x" * 4096)  # what a kill -9 mid-stream leaves
+    # a load that fails on an earlier file still clears it: the sweep comes before anything is written
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    q = {**p, "model": bad / p["model"].name}
+    q["model"].write_bytes(p["model"].read_bytes())
+    off, size = _offset(q["model"], "judge/model-00001.safetensors")
+    with q["model"].open("r+b") as fh:
+        fh.seek(off + size // 2)
+        c = fh.read(1)
+        fh.seek(off + size // 2)
+        fh.write(bytes([c[0] ^ 1]))
+    stage = _staged_summary(p, "model", tmp_path)  # verified as it was; changed on the stick after
+    env = _env(b)
+    old = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
+    try:
+        with pytest.raises(up.UpdateFailed, match="no longer hash"):
+            up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=q["model"])
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    assert not stale.exists()
+    assert _apply(b, str(p["model"])).returncode == 0
+    assert not list((b["box"] / "deploy/models").rglob("*.part"))
+    dest = tmp_path / "models"
+    (dest / "a").mkdir(parents=True)
+    (dest / "a/w.bin.part").write_bytes(b"x")
+    up.restore_models(dest, tmp_path / "rb", up.Point(models_new=["a/w.bin"]))
+    assert not (dest / "a/w.bin.part").exists()
+
+
+def test_review_f4_a_model_pack_alone_must_be_the_one_the_software_needs(tmp_path: Path) -> None:
+    """Review F4: a model pack applied on its own is refused unless the software on the box names it, or the
+    software pack loaded straight after it does (--for-software); on a box that holds a whole bundle, a model pack
+    is ordered by that bundle's release_seq (an older one needs --allow-downgrade)."""
+    p = _packs(tmp_path, seq=2)
+    b = _box(tmp_path, p["pub"])
+    _install_load(b, p)
+    keys = (p["priv"], p["pub"])
+    other = _packs(tmp_path / "next", seq=3, tag_suffix="-next", keys=keys)
+    r = _apply(b, str(other["model"]), "--dry-run", dry=True)
+    assert r.returncode == 1 and "is not the one the software on this box needs (r2-models" in r.stderr
+    r = _apply(b, str(other["model"]), "--dry-run", "--for-software", str(other["software"]), dry=True)
+    assert r.returncode == 0, r.stderr
+    w = _box(tmp_path / "w", keys[1])
+    whole = _whole(tmp_path / "w", keys)
+    assert _apply(w, str(whole)).returncode == 0  # a whole bundle at release_seq 1
+    old = _packs(tmp_path / "old", seq=1, tag_suffix="-old", keys=keys)
+    r = _apply(w, str(old["model"]), "--dry-run", "--for-software", str(old["software"]), dry=True)
+    assert r.returncode == 1 and "release_seq 1 is not above the installed 1" in r.stderr
+
+
+def test_review_f6_a_box_installed_before_h95_takes_its_second_software_pack(tmp_path: Path) -> None:
+    """Review F6: on a box installed from a whole bundle before H-95 (no model-pack.json), the first software pack
+    is recorded: the whole bundle's models are written down as the model pack held, so the second software pack
+    that names the same whole bundle is taken too."""
+    keys = keygen(tmp_path / "keys")
+    whole = _whole(tmp_path, keys)
+    b = _box(tmp_path, keys[1])
+    assert _apply(b, str(whole)).returncode == 0
+    updates = b["box"] / "deploy/updates"
+    (updates / up.MODEL_PACK).unlink()  # a box installed before H-95
+    sw2, sw3 = _software_for(tmp_path, keys, whole, seq=2), _software_for(tmp_path, keys, whole, seq=3)
+    stage = tmp_path / "stage-sw2"
+    m = vu.verify(sw2, keys[1], stage, installed_file=updates / "installed.json",
+                  model_pack_record=updates / up.MODEL_PACK, stream_kinds=("image", "model"))  # fmt: skip
+    plan = up.Plan.load(stage, vu.summary(m))
+    plan.pack = m["pack"]
+    up.Updater(up.ComposeBox(b["box"] / "deploy"), updates, say=lambda _m: None)._record(plan, live=False)
+    assert json.loads((updates / "installed.json").read_text())["bundle_id"] == "sw2"
+    assert json.loads((updates / up.MODEL_PACK).read_text())["bundle_id"] == "w1"
+    vu.verify(sw3, keys[1], tmp_path / "stage-sw3", installed_file=updates / "installed.json",
+              model_pack_record=updates / up.MODEL_PACK)  # fmt: skip
+
+
+def test_review_f5_the_space_stop_counts_the_engines_working_space(tmp_path: Path) -> None:
+    p = _packs(tmp_path)
+    where = {"docker_root": tmp_path, "models": tmp_path, "stage": tmp_path, "deploy": tmp_path}
+    _fits, lines = packs.space([p["software"], p["model"]], where, free_of=lambda _p: 1 << 40)
+    assert "the engine's working space (largest image)" in lines[0]
+    assert packs.sizes([p["model"]])["engine"] == _offset(p["model"], "engine.tar")[1]
+
+
+def test_review_f7_a_model_pack_given_without_a_dry_run_is_not_mounted(tmp_path: Path) -> None:
+    """Review F7: --with-model-pack acts in a dry run only; without one it is not passed on, so the verifier's
+    container never mounts it (a relative path would have become a named volume)."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    log = tmp_path / "docker.log"
+    env = {**_env(b), "TB_VERIFY_IN_DOCKER": "1", "H95_DOCKER_LOG": str(log)}
+    rel = os.path.relpath(p["model"], b["box"])
+    subprocess.run(["sh", str(b["box"] / "tools/apply_update.sh"), str(p["software"]), "--with-model-pack", rel],
+                   capture_output=True, text=True, env=env, cwd=b["box"], check=False, timeout=600)  # fmt: skip
+    runs = [ln for ln in log.read_text().splitlines() if ln.startswith("run ")]
+    assert runs and all("--model-pack-candidate" not in ln and f"-v {rel}" not in ln for ln in runs)
+
+
+def test_review_m4_the_bundle_must_be_the_one_verified(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutant M4: the update path reads the payloads from the bundle it is given only when that bundle's manifest is
+    the verified one."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    stage = _staged_summary(p, "model", tmp_path)
+    for k, v in _env(b).items():
+        monkeypatch.setenv(k, v)
+    other = _packs(tmp_path / "o")["model"]  # the same payloads, another signed manifest (signed another day)
+    assert packs.manifest_of(other)[1] != packs.manifest_of(p["model"])[1]
+    assert up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=other) == 1
+    assert not (b["dockerroot"] / "tags.json").exists() and not (b["box"] / "deploy/models").exists()
+
+
+def test_review_m10_the_load_is_killed_on_a_hash_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutant M10: on a mismatch the load is killed, not left to end on a cut stream: the stand-in's exit marker,
+    written by any load that ends by itself, is never written."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    stage = _staged_summary(p, "model", tmp_path)
+    off, size = _offset(p["model"], "engine.tar")
+    with p["model"].open("r+b") as fh:
+        fh.seek(off + size - 100)
+        c = fh.read(1)
+        fh.seek(off + size - 100)
+        fh.write(bytes([c[0] ^ 1]))
+    for k, v in _env(b).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(up.UpdateFailed, match="no longer hash"):
+        up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=p["model"])
+    assert not (b["dockerroot"] / "load-exited").exists()
+
+
+def test_review_f1_a_load_that_moves_a_tag_the_first_read_did_not_see_is_undone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review F1, the other side: the stream hashes as signed, but the archive's manifest read for the pins was not
+    that archive's (the stick changed between the two reads): the load moves a tag the pin check never saw. Every
+    tag the load moved must be one the checked manifest named; else the load is undone."""
+    keys = keygen(tmp_path / "keys")
+    src = tmp_path / "src"
+    src.mkdir()
+    eng = src / "engine.tar"
+    cfg = _archive(eng, ENGINE[0], MB)
+    with tarfile.open(eng) as tf:  # the same image under a second tag
+        members = [(m, tf.extractfile(m).read()) for m in tf.getmembers()]  # type: ignore[union-attr]
+    with tarfile.open(eng, "w:") as tf:
+        for m, data in members:
+            if m.name == "manifest.json":
+                entry = json.loads(data)
+                entry[0]["RepoTags"].append("extra:1")
+                data = json.dumps(entry).encode()
+                m.size = len(data)
+            tf.addfile(m, io.BytesIO(data))
+    release, lock = _release({ENGINE[0]: cfg, "extra:1": cfg}, 1)
+    model = tmp_path / "stick" / "trialbox-models-x.pack"
+    model.parent.mkdir()
+    build(keys[0], "x-models", [("image", eng, eng.name)], model, release_seq=1, release=release, images_lock=lock,
+          pack={"kind": "model"})  # fmt: skip
+    b = _box(tmp_path, keys[1])
+    stage = tmp_path / "stage"
+    summary = vu.summary(vu.verify(model, keys[1], stage, stream_kinds=("image", "model")))
+    (stage / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    for k, v in _env(b).items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(up, "tar_images", lambda tar: ({ENGINE[0]: cfg}, set()))  # the pin read saw one tag only
+    with pytest.raises(up.UpdateFailed, match="moved tags the archive does not pin .extra:1."):
+        up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=model)
+    assert _tags(b) == {}

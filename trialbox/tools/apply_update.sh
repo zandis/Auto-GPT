@@ -54,7 +54,7 @@
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 UPDATES="$ROOT/deploy/updates"
-USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--with-model-pack MODEL_PACK (with --dry-run)] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
+USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
   status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
   rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
@@ -65,7 +65,7 @@ OSPATCH=""; OSCONF=""
 if [ "$1" = ospatch ]; then OSPATCH=1; shift; [ $# -gt 0 ] || { echo "$USAGE" >&2; exit 2; }; fi
 BUNDLE=$1
 shift
-DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; NOBACKUP_REASON=""; DOWNGRADE=""; WITH_MODEL=""
+DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; NOBACKUP_REASON=""; DOWNGRADE=""; WITH_MODEL=""; FOR_SOFTWARE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=--dry-run ;;
@@ -77,6 +77,8 @@ while [ $# -gt 0 ]; do
     # H-95: a dry run of a software pack as if this model pack were held (install.sh checks both before loading);
     # without --dry-run it changes nothing: the load is checked against the box's own record
     --with-model-pack) WITH_MODEL=${2:?--with-model-pack needs a model pack}; shift ;;
+    # H-95: a model pack with the software pack loaded straight after it (it must name this model pack)
+    --for-software) FOR_SOFTWARE=${2:?--for-software needs a software pack}; shift ;;
     *) echo "apply_update: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -126,13 +128,18 @@ if [ ! -f "$UPDATES/trust.json" ]; then
   [ -f "$NEXTKEY" ] && set -- "$@" --pubkey "$NEXTKEY"
 fi
 [ -n "$DOWNGRADE" ] && set -- "$@" --allow-downgrade "$DOWNGRADE"
-if [ -n "$WITH_MODEL" ] && [ -n "$DRY" ]; then  # a dry run only: a load checks the box's own record
+[ -n "$DRY" ] || WITH_MODEL=""  # a dry run only: a load checks the box's own record (and mounts nothing for it)
+if [ -n "$WITH_MODEL" ]; then
   WITH_MODEL=$(cd "$(dirname "$WITH_MODEL")" && pwd)/$(basename "$WITH_MODEL")
   set -- "$@" --model-pack-candidate "$WITH_MODEL"
 fi
+if [ -n "$FOR_SOFTWARE" ]; then
+  FOR_SOFTWARE=$(cd "$(dirname "$FOR_SOFTWARE")" && pwd)/$(basename "$FOR_SOFTWARE")
+  set -- "$@" --software-candidate "$FOR_SOFTWARE"
+fi
 # the docker fallback passes these paths as mount arguments: no whitespace or glob characters in any of them
-case "$ROOT|$BUNDLE_ABS|$STAGE|$PUBKEY|$WITH_MODEL" in
-  *[[:space:]*?\[]*) echo "update REFUSED: a path has a space or a glob character: $ROOT, $BUNDLE_ABS, $STAGE, $PUBKEY $WITH_MODEL" >&2; exit 2 ;;
+case "$ROOT|$BUNDLE_ABS|$STAGE|$PUBKEY|$WITH_MODEL|$FOR_SOFTWARE" in
+  *[[:space:]*?\[]*) echo "update REFUSED: a path has a space or a glob character: $ROOT, $BUNDLE_ABS, $STAGE, $PUBKEY $WITH_MODEL $FOR_SOFTWARE" >&2; exit 2 ;;
 esac
 
 # host python3 with cryptography (a clean site host has it from the media's debs; tools/verify_update.py checks the
@@ -146,6 +153,7 @@ else
   MOUNTS="-v $ROOT:$ROOT:ro -v $BUNDLE_ABS:$BUNDLE_ABS:ro -v $STAGE:$STAGE"
   [ -f "$PUBKEY" ] && MOUNTS="$MOUNTS -v $PUBKEY:$PUBKEY:ro"
   [ -n "$WITH_MODEL" ] && MOUNTS="$MOUNTS -v $WITH_MODEL:$WITH_MODEL:ro"
+  [ -n "$FOR_SOFTWARE" ] && MOUNTS="$MOUNTS -v $FOR_SOFTWARE:$FOR_SOFTWARE:ro"
   # shellcheck disable=SC2086
   SUMMARY=$(docker run --rm --network none --user "$(id -u):$(id -g)" $MOUNTS -e PYTHONPATH="$ROOT/libs:$ROOT" \
       "$IMAGE" python "$ROOT/tools/verify_update.py" "$@") \

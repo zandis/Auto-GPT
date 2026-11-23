@@ -71,11 +71,13 @@ def find(bundle: Path) -> Path | None:
 
 def sizes(bundles: list[Path]) -> dict[str, int]:
     kinds: dict[str, int] = {}
-    stick = 0
+    stick = largest = 0
     for b in bundles:
         stick += b.stat().st_size
         for f in manifest_of(b)[0].get("files") or []:
             kinds[f["kind"]] = kinds.get(f["kind"], 0) + int(f["size"])
+            if f["kind"] == "image":
+                largest = max(largest, int(f["size"]))
     staged = sum(n for k, n in kinds.items() if k not in STREAMED)
     installed = sum(kinds.values()) + kinds.get("host", 0)  # the host tree also lands unpacked
     return {
@@ -87,6 +89,9 @@ def sizes(bundles: list[Path]) -> dict[str, int]:
         "peak": installed + staged,
         "bound": int(installed * PEAK_MARGIN),
         "stick": stick,
+        # review F5: the engine's own working space in its data root while it loads, one archive at a time; not in
+        # the peak above (this card's own writes), counted by ``space``
+        "engine": largest,
     }
 
 
@@ -118,7 +123,14 @@ def space(bundles: list[Path], where: dict[str, Path], updates: Path | None = No
         manifest, sha = manifest_of(b)
         if sha in held:
             continue
-        for f in manifest.get("files") or []:
+        files = manifest.get("files") or []
+        largest = max((int(f["size"]) for f in files if f["kind"] == "image"), default=0)
+        if largest:  # review F5: the engine unpacks one archive at a time in its data root before it keeps it
+            ex = _existing(where["docker_root"])
+            d = per.setdefault(os.stat(ex).st_dev, {"path": ex, "need": 0, "what": {}})
+            d["need"] += largest
+            d["what"]["the engine's working space (largest image)"] = largest
+        for f in files:
             kind, n = f["kind"], int(f["size"])
             targets = [("images", where["docker_root"])] if kind == "image" else \
                 [("weights", where["models"])] if kind == "model" else \
@@ -181,7 +193,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print(f"installed size {gb(n['installed'])} (images {gb(n['images'])}, weights {gb(n['weights'])}, "
           f"the rest {gb(n['rest'])}); peak during the load {gb(n['peak'])}, at most {gb(n['bound'])} "
-          f"(installed + 10 %); the stick holds {gb(n['stick'])}")  # fmt: skip
+          f"(installed + 10 %), and the engine's own working space up to {gb(n['engine'])} while an image loads; "
+          f"the stick holds {gb(n['stick'])}")  # fmt: skip
     return 0
 
 
