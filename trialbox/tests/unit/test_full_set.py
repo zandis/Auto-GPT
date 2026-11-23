@@ -25,7 +25,9 @@ class Fake:
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("a") as f:
             f.write("$ " + " ".join(argv) + "\n")
-        run = int(re.search(r"run-(\d+)", str(log)).group(1))  # type: ignore[union-attr]
+        m = re.search(r"run-(\d+)", str(log))
+        assert m
+        run = int(m.group(1))
         stage = log.stem
         return 1 if (run, stage) in self.red and "test" in " ".join(argv) else 0
 

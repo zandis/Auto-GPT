@@ -28,6 +28,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = 3
@@ -143,7 +144,7 @@ def head() -> str:
     return r.stdout.strip()
 
 
-def render(summary: dict[str, object]) -> str:
+def render(summary: dict[str, Any]) -> str:
     lines = [
         f"# The whole set, {summary['runs_green_in_a_row']} of {summary['runs_wanted']} runs green in a row",
         "",
@@ -152,7 +153,7 @@ def render(summary: dict[str, object]) -> str:
         "| run | stage | result | seconds |",
         "| --- | --- | --- | ---: |",
     ]
-    for n, run in enumerate(summary["runs"], 1):  # type: ignore[arg-type]
+    for n, run in enumerate(summary["runs"], 1):
         for s in run["stages"]:
             lines.append(f"| {n} | {s['stage']} | {s['result']} | {s['seconds']} |")
     return "\n".join(lines) + "\n"
