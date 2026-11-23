@@ -410,3 +410,72 @@ def test_kek_the_install_s_seal_step_never_reaches_those_refusals(tmp_path: Path
     args, kek_env, value = rec.read_text(encoding="utf-8").splitlines()
     assert "--kek-passphrase-stdin" in args.split() and "--kek-passphrase-file" not in args and kek_env == "0"
     assert value == "synthetic-pass-h94"
+
+
+# ------------------------------------------------------------------- the mutants of part 2 that survived a first run
+BOX_INSTALL = (ROOT / "deploy" / "box-install.sh").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(("args", "emptied"), [(("b.tar",), True), (("--firstrun",), False)])
+def test_box_install_empties_the_list_when_a_box_install_starts(
+    tmp_path: Path, args: tuple[str, ...], emptied: bool
+) -> None:
+    """box-install.sh's own lines are the run's: an install empties the list; --firstrun (the same install, finished)
+    keeps it. The block as it stands in box-install.sh, run alone."""
+    start = BOX_INSTALL.index("_clear=1\n")
+    block = BOX_INSTALL[start : BOX_INSTALL.index("\n", BOX_INSTALL.index("|| rm -f --", start)) + 1]
+    listed = tmp_path / "deploy" / "site" / "poc-stops.jsonl"
+    listed.parent.mkdir(parents=True)
+    listed.write_text('{"key": "box-install.sh/old"}\n', encoding="utf-8")
+    script = f"TB_STOP_DEPLOY={str(tmp_path / 'deploy')!r}; TB_STOP_REHEARSAL=0\nset -- {' '.join(args)}\n{block}"
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    assert listed.exists() is not emptied
+
+
+def test_box_install_hands_its_list_on_to_install_sh() -> None:
+    """install.sh run from box-install.sh keeps the lines box-install.sh wrote before it (--keep-poc-list, read by
+    install.sh's own command line); test_l3_a_caller_s_variable_never_keeps_the_list shows install.sh's side."""
+    call = BOX_INSTALL[
+        BOX_INSTALL.index("  run_install() {") : BOX_INSTALL.index("\n  }\n", BOX_INSTALL.index("  run_install() {"))
+    ]
+    assert "--keep-poc-list" in call.split()
+
+
+def test_an_update_reads_the_box_s_environment_as_compose_does(tmp_path: Path) -> None:
+    """apply_update.sh's --no-backup on a box whose deploy/.env ends in an exported PRODUCTION line is the PRODUCTION
+    refusal (H94-08), not a PoC box's warning."""
+    from tests.unit.test_poc_stops_h94 import _apply_update
+
+    r = _apply_update(tmp_path, "--no-backup", environment="VALIDATION\nexport TB_ENV=PRODUCTION")
+    assert r.rc == 2 and "--no-backup on a PRODUCTION box needs --no-backup-reason" in r.err, r.text[-2000:]
+    assert "PoC box" not in r.err
+
+
+def test_a_warned_finish_check_mounts_and_signs_no_anchor(tmp_path: Path) -> None:
+    """D-1091: a finish check that warns on a PoC box sets ANCHOR_UNSAFE: the anchor folders are neither mounted
+    (anchors-compose is never asked) nor signed into by the nightly cron."""
+    box = Box(tmp_path / "b", env="TB_ENV=TEST\n")
+    r = box.install("--environment", "TEST", "--mode", "stub", "--yes", force=("anchor-gate",))
+    assert r.rc == 0 and "install.sh/anchor-gate" in r.listed_keys(), r.text[-3000:]
+    assert "anchors-compose" not in (box.tmp / "calls.log").read_text(encoding="utf-8")
+    assert "audit-sign" not in (box.tmp / "cron" / "trialbox-retention").read_text(encoding="utf-8")
+
+
+def test_the_real_servers_override_names_one_card_by_its_uuid() -> None:
+    with pytest.raises(ValueError, match="not a card UUID"):
+        rehearsal_real.override_text("0", {})
+
+
+def test_bootstrap_stops_a_user_who_is_not_root(tmp_path: Path) -> None:
+    b = tmp_path / "bin"
+    b.mkdir()
+    (b / "id").write_text(
+        '#!/bin/sh\n[ "$1" = -u ] && { echo 4242; exit 0; }\nexec /usr/bin/id "$@"\n', encoding="utf-8"
+    )
+    (b / "id").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
+    env["PATH"] = f"{b}:{env['PATH']}"
+    r = subprocess.run(["bash", str(ROOT / "deploy" / "bootstrap.sh"), str(tmp_path / "b.tar"), "--pub", str(tmp_path / "k")],
+                       capture_output=True, text=True, env=env, check=False, timeout=60)  # fmt: skip
+    assert r.returncode == 1 and "run it as root" in r.stderr, r.stderr
