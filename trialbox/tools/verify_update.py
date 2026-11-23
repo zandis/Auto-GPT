@@ -2,9 +2,10 @@
 
 Bundle = an uncompressed tar holding exactly:
 
-* ``manifest.json``     — ``UpdateManifest`` 1.3.0 (schemas/update_manifest.schema.json): bundle id, signer,
+* ``manifest.json``     — ``UpdateManifest`` 1.4.0 (schemas/update_manifest.schema.json): bundle id, signer,
                           ``release_seq``, ``min_installed_version``, ``key_id``, ``not_after``, the sha256 of the
-                          members below, an optional key ``rotation``, and the files with path, kind, sha256, size;
+                          members below, an optional key ``rotation``, an optional ``pack`` (H-95), and the files
+                          with path, kind, sha256, size;
 * ``manifest.json.sig`` — base64 Ed25519 signature of the manifest bytes by a vendor key the box trusts;
 * ``compat.json``       — the compatibility table (bundle × schema × vocabulary release × model pin × prompt
                           registry, ``tools/update_status.py``), required;
@@ -25,13 +26,26 @@ digest is refused, never read as "nothing to compare"), every size, and the free
 payload is hashed while it is copied from the same open file (``DIR/<kind>/<path>.part``, created exclusively,
 renamed only when every hash matched). Rejected: exit 1, nothing staged.
 
+H-95, load from the stick: ``--stream KIND`` (``image``, ``model``) hashes that kind's payloads here like every other
+payload, from the bundle, but stages none of them: no copy of the weights or the image archives is written on the box.
+The update path then reads them from the bundle once more and hashes each again while it is loaded
+(``tools/trialbox/update.py``, ``load_streamed_images`` and ``stream_models``): a payload whose second read does not
+hash to the signed sha256 is never loaded. The space to stage counts the staged kinds only.
+
+H-95, two packs: a ``pack`` of kind ``model`` carries only the engine image and the weights (payload kinds image and
+model); a ``pack`` of kind ``software`` carries no weights and names the model pack it needs by that pack's bundle id
+and the sha256 of its signed manifest.json. ``--model-pack-record deploy/updates/model-pack.json`` is the model pack
+the box holds (written by the update path after a model pack loads). A software pack whose model pack is not that one
+is refused (exit 1, nothing staged). A model pack's ``release_seq`` is compared with that record, not with
+``installed.json``. A manifest without ``pack`` is a whole bundle, verified as before.
+
 The trust: ``--trust deploy/updates/trust.json`` when that file exists (``--pubkey`` is then ignored), else the one
 or two ``--pubkey`` files. ``--installed deploy/updates/installed.json`` (absent: a box at ``release_seq`` 0). No
 environment variable changes a check.
 
     python tools/verify_update.py bundle.tar --pubkey deploy/keys/vendor_ed25519.pub [--stage DIR] \\
         [--trust deploy/updates/trust.json] [--installed deploy/updates/installed.json] [--images-lock FILE] \\
-        [--allow-downgrade REASON]
+        [--allow-downgrade REASON] [--stream image --stream model] [--model-pack-record FILE]
 """
 
 from __future__ import annotations
@@ -44,7 +58,7 @@ import re
 import shutil
 import sys
 import tarfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -194,6 +208,9 @@ def verify(
     allow_downgrade: str | None = None,
     now: datetime | None = None,
     disk_free: Callable[[Path], int] | None = None,
+    stream_kinds: Collection[str] = (),
+    model_pack_record: Path | None = None,
+    model_pack_candidate: Path | None = None,
 ) -> dict[str, Any]:
     from cryptography.exceptions import InvalidSignature
 
@@ -269,15 +286,24 @@ def verify(
         manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
         trust_after = _rotate(manifest, trust_rec, manifest_sha)
 
+        held = candidate_identity(model_pack_candidate) if model_pack_candidate else load_model_pack(model_pack_record)
+        pack_problem = pack_problems(manifest, held)
+        if pack_problem:  # H-94 (1): the pack does not hold together with what the box holds
+            raise Rejected(pack_problem)
+        is_model_pack = (manifest.get("pack") or {}).get("kind") == "model"
         seq, have = int(manifest["release_seq"]), int(inst["release_seq"])
         if have < int(manifest["min_installed_version"]):
             raise Rejected(f"the box is at release_seq {have}; this bundle needs at least "
                            f"{manifest['min_installed_version']} installed first (min_installed_version)")  # fmt: skip
+        # H-95: a model pack's order is the model packs' own (the record of the one the box holds)
+        last = held if is_model_pack else inst
+        if is_model_pack:
+            have = int((held or {}).get("release_seq") or 0)
         downgrade = None
         # D-833: the very bundle that is installed (same sequence, same manifest) is a repeat, not a downgrade:
         # install.sh run again continues from where it stopped, and the update answers "already installed". A key
         # rotation is never repeated (_rotate refuses it above)
-        repeat = seq == have and manifest_sha == inst.get("manifest_sha256") and not manifest.get("rotation")
+        repeat = seq == have and manifest_sha == (last or {}).get("manifest_sha256") and not manifest.get("rotation")
         if seq <= have and not repeat:
             if not allow_downgrade or not allow_downgrade.strip():
                 raise Rejected(f"release_seq {seq} is not above the installed {have} (a downgrade or a repeat); "
@@ -344,8 +370,8 @@ def verify(
         for name, entry in listed_files.items():
             if members[name].size != entry["size"]:
                 raise Rejected(f"{entry['path']}: size {members[name].size} != manifest {entry['size']}")
-        if stage is not None:
-            need = int(sum(int(f["size"]) for f in manifest["files"]) * STAGE_MARGIN)
+        if stage is not None:  # H-95: a streamed kind is never staged, so it needs no room here
+            need = int(sum(int(f["size"]) for f in manifest["files"] if f["kind"] not in stream_kinds) * STAGE_MARGIN)
             stage_fs = stage if stage.exists() else next(q for q in stage.parents if q.exists())
             free_of = disk_free or _free_bytes
             free = free_of(stage_fs)
@@ -353,7 +379,7 @@ def verify(
                 raise Rejected(f"not enough disk space to stage the bundle in {stage_fs}: needs {gb(need)} "
                                f"(payloads + 5 %), free {gb(free)}; nothing was changed")  # fmt: skip
         try:
-            _check_payloads(tf, members, listed_files, stage)
+            _check_payloads(tf, members, listed_files, stage, stream_kinds)
         except Rejected:
             if stage is not None:
                 _cleanup(stage)
@@ -365,8 +391,70 @@ def verify(
     # trust_sha256: the trust.json this bundle was verified against (None: the deploy/keys files); the update path
     # refuses under its lock when trust.json is no longer exactly that file (a rotation applied in between)
     manifest.update(manifest_sha256=manifest_sha, compat=meta[COMPAT], release=release, trust_after=trust_after,
-                    trust_sha256=trust_sha, downgrade=downgrade, compat_notes=notes, repeat=repeat)  # fmt: skip
+                    trust_sha256=trust_sha, downgrade=downgrade, compat_notes=notes, repeat=repeat,
+                    streamed=sorted({f["kind"] for f in manifest["files"]} & set(stream_kinds)))  # fmt: skip
     return dict(manifest)
+
+
+MODEL_PACK_KINDS = ("image", "model")
+
+
+def load_model_pack(path: Path | None) -> dict[str, Any] | None:
+    """H-95: the model pack the box holds (``deploy/updates/model-pack.json``), None when it holds none. A record
+    that cannot be read is refused, never read as "none"."""
+    if path is None or not path.exists():
+        return None
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise Rejected(f"the box's model pack record {path} is unreadable: {exc}") from exc
+    if not isinstance(rec, dict) or not SHA256.match(str(rec.get("manifest_sha256") or "")):
+        raise Rejected(f"the box's model pack record {path} names no manifest sha256")
+    return rec
+
+
+def candidate_identity(path: Path) -> dict[str, Any]:
+    """H-95, a dry run only (apply_update.sh --dry-run --with-model-pack FILE): the model pack about to be loaded,
+    as if the box held it. Its own signature and hashes are its own dry run's; here only its identity is read."""
+    try:
+        with tarfile.open(path, "r:") as tf:
+            m = tf.extractfile("manifest.json")
+            body = m.read(MAX_META_BYTES + 1) if m is not None else b""
+        manifest = json.loads(body)
+    except (OSError, KeyError, ValueError, tarfile.TarError) as exc:
+        raise Rejected(f"{path}: not a model pack ({exc})") from exc
+    if not isinstance(manifest, dict) or (manifest.get("pack") or {}).get("kind") != "model":
+        raise Rejected(f"{path}: not a model pack")
+    return {"bundle_id": manifest.get("bundle_id"), "manifest_sha256": hashlib.sha256(body).hexdigest()}
+
+
+def held_text(held: dict[str, Any] | None) -> str:
+    if held is None:
+        return "the box holds no model pack"
+    return f"the box holds model pack {held.get('bundle_id')} (manifest sha256 {held.get('manifest_sha256')})"
+
+
+def pack_problems(manifest: dict[str, Any], held: dict[str, Any] | None) -> str:
+    """H-95: why this pack may not be applied on a box that holds ``held`` ("" when it may). The model pack is named
+    by its signed identity: its bundle id and the sha256 of its signed manifest.json, never by a file or folder."""
+    pack = manifest.get("pack")
+    if not pack:
+        return ""
+    kinds = sorted({f["kind"] for f in manifest["files"]})
+    if pack["kind"] == "model":
+        stray = [k for k in kinds if k not in MODEL_PACK_KINDS]
+        if stray:
+            return f"a model pack carries only the engine image and the weights, not {', '.join(stray)}"
+        return ""
+    if "model" in kinds:
+        return "a software pack carries no weights (payload kind model): they ride in its model pack"
+    need = pack["requires_model"]
+    if held is None or held.get("manifest_sha256") != need["manifest_sha256"]:
+        return (f"this software pack needs model pack {need['bundle_id']} (signed manifest sha256 "
+                f"{need['manifest_sha256']}); {held_text(held)}. Load that model pack first "
+                "(deploy/install.sh <software pack> --model-pack <model pack>, or tools/apply_update.sh <model pack>); "
+                "nothing was changed")  # fmt: skip
+    return ""
 
 
 def _schema_errors(manifest: Any) -> list[str]:
@@ -387,7 +475,7 @@ KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}$")
 BUNDLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 REQUIRED = ("bundle_id", "created_at", "signer", "files", "release_seq", "min_installed_version", "key_id",
             "not_after", "compat_sha256")  # fmt: skip
-OPTIONAL = ("description", "release_sha256", "images_lock_sha256", "rotation")
+OPTIONAL = ("description", "release_sha256", "images_lock_sha256", "rotation", "pack")
 
 
 def _is_int(v: Any) -> bool:
@@ -403,7 +491,7 @@ def _is_time(v: Any) -> bool:
 
 
 def _stdlib_schema_errors(m: Any) -> list[str]:
-    """The rules of schemas/update_manifest.schema.json 1.3.0 (D-210; kind host: D-367) in the standard library;
+    """The rules of schemas/update_manifest.schema.json 1.4.0 (D-210; kind host: D-367; pack: H-95) in the standard library;
     tests/unit/test_verify_update_stdlib.py holds the two in step."""
     if not isinstance(m, dict):
         return ["manifest is not an object"]
@@ -428,6 +516,8 @@ def _stdlib_schema_errors(m: Any) -> list[str]:
             errs.append(f"{k} is not 64 lowercase hex digits")
     if "rotation" in m:
         errs += _rotation_errors(m["rotation"])
+    if "pack" in m:
+        errs += _pack_errors(m["pack"])
     files = m.get("files")
     if "files" in m and not isinstance(files, list):
         return [*errs, "files is not an array"]
@@ -445,6 +535,24 @@ def _stdlib_schema_errors(m: Any) -> list[str]:
             errs.append(f"files[{i}]: kind {f['kind']!r} is not one of {', '.join(KINDS)}")
         if "size" in f and not (_is_int(f["size"]) and f["size"] >= 0):
             errs.append(f"files[{i}]: size is not an integer >= 0")
+    return errs
+
+
+def _pack_errors(p: Any) -> list[str]:
+    if not isinstance(p, dict) or p.get("kind") not in ("model", "software"):
+        return ["pack is not an object of kind model or software"]
+    allowed = ("kind",) if p["kind"] == "model" else ("kind", "requires_model")
+    errs = [f"pack: unexpected {k}" for k in p if k not in allowed]
+    if p["kind"] == "software":
+        r = p.get("requires_model")
+        if not isinstance(r, dict):
+            return [*errs, "pack: a software pack names the model pack it needs (requires_model)"]
+        errs += [f"pack.requires_model: missing {k}" for k in ("bundle_id", "manifest_sha256") if k not in r]
+        errs += [f"pack.requires_model: unexpected {k}" for k in r if k not in ("bundle_id", "manifest_sha256")]
+        if "bundle_id" in r and not (isinstance(r["bundle_id"], str) and BUNDLE_ID.match(r["bundle_id"])):
+            errs.append("pack.requires_model: bundle_id is not a bundle id")
+        if "manifest_sha256" in r and not (isinstance(r["manifest_sha256"], str) and SHA256.match(r["manifest_sha256"])):
+            errs.append("pack.requires_model: manifest_sha256 is not 64 lowercase hex digits")
     return errs
 
 
@@ -472,7 +580,11 @@ def gb(n: float) -> str:
 
 
 def _check_payloads(
-    tf: tarfile.TarFile, members: dict[str, tarfile.TarInfo], listed: dict[str, Any], stage: Path | None
+    tf: tarfile.TarFile,
+    members: dict[str, tarfile.TarInfo],
+    listed: dict[str, Any],
+    stage: Path | None,
+    stream_kinds: Collection[str] = (),
 ) -> None:
     for name, entry in sorted(listed.items()):
         m = members[name]
@@ -480,7 +592,7 @@ def _check_payloads(
         assert f is not None
         h = hashlib.sha256()
         out = None
-        if stage is not None:
+        if stage is not None and entry["kind"] not in stream_kinds:
             target = stage / entry["kind"] / str(_safe(entry["path"]))
             target.parent.mkdir(parents=True, exist_ok=True)
             out = target.with_suffix(target.suffix + ".part").open("xb")
@@ -524,7 +636,7 @@ def _cleanup(stage: Path) -> None:
 
 SUMMARY_KEYS = ("bundle_id", "signer", "manifest_sha256", "release_seq", "min_installed_version", "key_id",
                 "not_after", "compat", "release", "rotation", "trust_after", "trust_sha256", "downgrade",
-                "compat_notes", "repeat")  # fmt: skip
+                "compat_notes", "repeat", "pack", "streamed")  # fmt: skip
 
 
 def summary(m: dict[str, Any]) -> dict[str, Any]:
@@ -547,10 +659,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--installed", type=Path, help="deploy/updates/installed.json")
     ap.add_argument("--images-lock", type=Path, help="the box's deploy/images.lock (when the bundle carries none)")
     ap.add_argument("--allow-downgrade", metavar="REASON", help="accept a release_seq not above the installed one")
+    ap.add_argument("--stream", action="append", default=[], choices=MODEL_PACK_KINDS,
+                    help="H-95: hash this kind's payloads but stage none (the update path loads them from the bundle)")
+    ap.add_argument("--model-pack-record", type=Path, help="deploy/updates/model-pack.json: the model pack the box holds")
+    ap.add_argument("--model-pack-candidate", type=Path, help="a dry run only: check against this model pack instead")
     args = ap.parse_args(argv)
     try:
         m = verify(args.bundle, args.pubkey, args.stage, trust_file=args.trust, installed_file=args.installed,
-                   images_lock=args.images_lock, allow_downgrade=args.allow_downgrade)  # fmt: skip
+                   images_lock=args.images_lock, allow_downgrade=args.allow_downgrade, stream_kinds=args.stream,
+                   model_pack_record=args.model_pack_record,
+                   model_pack_candidate=args.model_pack_candidate)  # fmt: skip
     except Rejected as exc:
         print(f"REJECTED: {exc}", file=sys.stderr)
         return 1

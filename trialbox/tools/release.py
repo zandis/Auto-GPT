@@ -463,6 +463,8 @@ def embedder_problems(
 
     if release.get("rehearsal") is True:
         return []
+    if (manifest.get("pack") or {}).get("kind") == "software":  # H-95: the weights, the embedder's too, are its model pack's
+        return []
     # TB_RELEASE_REGISTRY: the unit tests' synthetic registry only (a release reads the one it ships)
     path = registry_path or Path(os.environ.get("TB_RELEASE_REGISTRY") or ROOT / "models" / "registry.yaml")
     reg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

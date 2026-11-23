@@ -9,6 +9,18 @@
 #       [--job-image trialbox-backup:1.0.0]   (an image the box runs as a one-off job: release.json `runs: job`, D-968)
 #       [--allow-dirty "<reason>"]   (a rehearsal or a test only: builds from a working tree, D-631)
 #       [--rehearsal]                (a bundle for a rehearsal box: release.json says so; a site box refuses it, D-726)
+#       [--model-pack-out DIR/trialbox-models-<id>.pack [--model-id ID] [--model-release-seq N]]
+#       [--model-pack DIR/trialbox-models-<id>.pack]   (H-95: see below)
+#
+# H-95, two packs: --model-pack-out FILE splits the release. The model pack (FILE, named trialbox-models-*.pack so the
+# installer finds it beside the software pack and the launcher never takes it for a release) carries the engine image
+# (every image whose repository images.lock pins with a gpu entry) and the weights (--models); it is signed on its
+# own (--model-id, default <id>-models; --model-release-seq, default --release-seq). The software pack (--out) carries
+# everything else and names the model pack by its signed identity (its bundle id and the sha256 of its signed
+# manifest). --model-pack FILE builds a software pack alone for an existing model pack (an update): no engine image
+# and no --models in it. Without either: one whole bundle, as before.
+# An image the stack pins by digest (images.lock third_party) given by its tag alone is refused before anything is
+# saved: such a bundle would carry no image-pins.json (the integrator's 7097604232).
 #
 # The release gates are not optional (T-110b, D-340; CR-046): --gates names the passing record of `make release-gates`
 # (D-186), and the bundle is refused unless every image it carries is a passing image of that record (Trivy, SBOM and
@@ -29,7 +41,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""; REHEARSAL=()
-IMAGES=(); REFDATA=(); JOBS=()
+IMAGES=(); REFDATA=(); JOBS=(); MODEL_OUT=""; MODEL_HAVE=""; MODEL_ID=""; MODEL_SEQ=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --key) KEY="$2"; shift ;;
@@ -48,7 +60,11 @@ while [ $# -gt 0 ]; do
       case "${2:-}" in ""|--*) echo "make_bundle: --allow-dirty needs a reason (--allow-dirty \"a rehearsal\")" >&2; exit 2 ;; esac
       DIRTY=1; DIRTY_WHY="$2"; shift ;;
     --rehearsal) REHEARSAL=(--rehearsal) ;;
-    -h|--help) sed -n 2,26p "$0"; exit 0 ;;
+    --model-pack-out) MODEL_OUT="$2"; shift ;;
+    --model-pack) MODEL_HAVE="$2"; shift ;;
+    --model-id) MODEL_ID="$2"; shift ;;
+    --model-release-seq) MODEL_SEQ="$2"; shift ;;
+    -h|--help) sed -n 2,38p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -62,6 +78,45 @@ GATES="$(cd "$(dirname "$GATES")" && pwd)/$(basename "$GATES")"
 SBOM_DIR="${SBOM_DIR:-$ROOT/dist/sbom}"
 [ -d "$SBOM_DIR" ] || { echo "make_bundle: no SBOM folder $SBOM_DIR (make release-gates writes it)" >&2; exit 2; }
 [ -f "$KEY" ] || { echo "make_bundle: no such key $KEY" >&2; exit 2; }
+# H-95: the two packs' options
+if [ -n "$MODEL_OUT" ] && [ -n "$MODEL_HAVE" ]; then
+  echo "make_bundle: --model-pack-out builds a model pack, --model-pack names an existing one: one of the two" >&2; exit 2
+fi
+if [ -n "$MODEL_OUT" ]; then
+  case "$(basename "$MODEL_OUT")" in trialbox-models-*.pack) ;; *)
+    echo "make_bundle: --model-pack-out must be named trialbox-models-<id>.pack (the installer finds it beside the software pack)" >&2; exit 2 ;; esac
+  [ -n "$MODELS" ] || { echo "make_bundle: --model-pack-out needs --models (the weights ride in the model pack)" >&2; exit 2; }
+fi
+if [ -n "$MODEL_HAVE" ]; then
+  [ -f "$MODEL_HAVE" ] || { echo "make_bundle: no such model pack $MODEL_HAVE" >&2; exit 2; }
+  [ -z "$MODELS" ] || { echo "make_bundle: --models goes into the model pack, not a software pack for an existing one (--model-pack)" >&2; exit 2; }
+fi
+[ -n "$MODEL_OUT$MODEL_HAVE" ] || [ -z "$MODEL_ID$MODEL_SEQ" ] || { echo "make_bundle: --model-id and --model-release-seq go with --model-pack-out" >&2; exit 2; }
+MODEL_ID="${MODEL_ID:-$ID-models}"; MODEL_SEQ="${MODEL_SEQ:-$SEQ}"
+PY="${PY:-$ROOT/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
+# 7097604232: an image the stack pins by digest (deploy/images.lock third_party), given here by its tag alone, would
+# make a bundle without image-pins.json, and the box could not find it offline: refused before anything is exported
+PINNED_BY_TAG='import json, sys
+lock = json.load(open(sys.argv[1]))
+pinned = {}
+for e in (lock.get("third_party") or {}).values():
+    ref, dig = str(e.get("image") or ""), str(e.get("digest") or "")
+    if ref and dig.startswith("sha256:"):
+        pinned[ref.rsplit(":", 1)[0] if ":" in ref.rsplit("/", 1)[-1] else ref] = f"{ref}@{dig}"
+bad = []
+for img in sys.argv[2:]:
+    if "@sha256:" in img:
+        continue
+    repo = img.rsplit(":", 1)[0] if ":" in img.rsplit("/", 1)[-1] else img
+    if repo in pinned:
+        bad.append(f"{img} (the stack pins {pinned[repo]})")
+if bad:
+    print("make_bundle: an image the stack pins by digest is given without its digest: " + "; ".join(bad)
+          + ". Give it as REF@sha256:DIGEST: a bundle without its image pins is never made (7097604232)", file=sys.stderr)
+    sys.exit(2)'
+if [ ${#IMAGES[@]} -gt 0 ]; then
+  "$PY" -c "$PINNED_BY_TAG" "$ROOT/deploy/images.lock" "${IMAGES[@]}" || exit 2
+fi
 # D-631: a release is built from a commit. The host tree is packed from the files on disk (untracked ones too), so a
 # checkout that differs from its commit is refused before anything is exported, and looked at again once the host
 # tree is packed; --allow-dirty "<reason>" is for a rehearsal or a test, and release.json then says dirty
@@ -94,7 +149,6 @@ if [ -n "$CHANGES" ]; then
   fi
 fi
 command -v docker >/dev/null || { echo "make_bundle: docker is needed to export images" >&2; exit 2; }
-PY="${PY:-$ROOT/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
 
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/tb-bundle.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT INT TERM
@@ -125,6 +179,29 @@ if [ ${#IMAGES[@]} -eq 0 ]; then
     n3=0; for img in "${IMAGES[@]}"; do case "$img" in trialbox-*) ;; *) n3=$((n3 + 1)) ;; esac; done
     [ "$n3" -gt 0 ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
   fi
+  # 7097604232 again: compose reads a caller's exported image variable too
+  "$PY" -c "$PINNED_BY_TAG" "$ROOT/deploy/images.lock" "${IMAGES[@]}" || exit 2
+fi
+# H-95: the engine image(s): every image whose repository images.lock pins with a gpu entry. They ride in the model
+# pack (--model-pack-out); a software pack for an existing model pack (--model-pack) carries none
+ENGINE_OF='import json, sys
+lock = json.load(open(sys.argv[1]))
+def repo(r):
+    r = r.split("@", 1)[0]
+    return r.rsplit(":", 1)[0] if ":" in r.rsplit("/", 1)[-1] else r
+gpu = {repo(str(e.get("image") or "")) for e in (lock.get("third_party") or {}).values() if e.get("gpu")}
+for img in sys.argv[2:]:
+    if repo(img) in gpu:
+        print(img)'
+ENGINE=()
+if [ -n "$MODEL_OUT$MODEL_HAVE" ]; then
+  while IFS= read -r img; do ENGINE+=("$img"); done < <("$PY" -c "$ENGINE_OF" "$ROOT/deploy/images.lock" "${IMAGES[@]}")
+fi
+is_engine() { local e; for e in ${ENGINE[@]+"${ENGINE[@]}"}; do [ "$e" = "$1" ] && return 0; done; return 1; }
+if [ -n "$MODEL_HAVE" ] && [ ${#ENGINE[@]} -gt 0 ]; then
+  KEEP=(); for img in "${IMAGES[@]}"; do is_engine "$img" || KEEP+=("$img"); done
+  echo "==> a software pack for the model pack $(basename "$MODEL_HAVE"): the engine image stays in it (${ENGINE[*]})"
+  IMAGES=("${KEEP[@]}")
 fi
 
 for img in "${IMAGES[@]}"; do
@@ -156,7 +233,7 @@ mkdir -p "$(dirname "$OUT")"
 (cd "$ROOT" && PYTHONPATH="$ROOT" "$PY" -m tools.bundle_space --stage "$STAGE" --out "$OUT" ${MODELS:+--models "$MODELS"} \
   "${IMAGES[@]}") || exit 2
 
-ITEMS=(); PINS=(); SAVED=()
+ITEMS=(); PINS=(); SAVED=(); M_ITEMS=(); M_SAVED=()
 CONFIG_ID='import json, sys
 print(json.load(sys.stdin)[0]["Config"].rsplit("/", 1)[-1].removesuffix(".json"))'
 PINS_JSON='import json, re, sys
@@ -183,8 +260,11 @@ for img in "${IMAGES[@]}"; do
   esac
   echo "    $img"
   docker save "$ref" -o "$f"
-  ITEMS+=("image:$f=$(basename "$f")")
-  SAVED+=(--image "$img=$f")
+  if [ -n "$MODEL_OUT" ] && is_engine "$img"; then  # H-95: the engine image rides in the model pack
+    M_ITEMS+=("image:$f=$(basename "$f")"); M_SAVED+=(--image "$img=$f")
+  else
+    ITEMS+=("image:$f=$(basename "$f")"); SAVED+=(--image "$img=$f")
+  fi
   [ "$ref" = "$img" ] || PINS+=("$img=$(tar -xOf "$f" manifest.json | "$PY" -c "$CONFIG_ID")")
 done
 if [ ${#PINS[@]} -gt 0 ]; then
@@ -195,7 +275,8 @@ fi
 if [ -n "$MODELS" ]; then
   echo "==> models from $MODELS"
   while IFS= read -r f; do
-    rel="${f#"$MODELS"/}"; echo "    $rel"; ITEMS+=("model:$f=$rel")
+    rel="${f#"$MODELS"/}"; echo "    $rel"
+    if [ -n "$MODEL_OUT" ]; then M_ITEMS+=("model:$f=$rel"); else ITEMS+=("model:$f=$rel"); fi
   done < <(find -L "$MODELS" -type f | sort)  # through links (H-43): a model cache's snapshot files link to its blobs
 fi
 if [ -n "$RULESETS" ]; then
@@ -231,6 +312,32 @@ if (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.do
 else
   ITEMS+=("other:$ROOT/docs/RUNBOOK.md=RUNBOOK.md")
 fi
+PACK=()
+if [ -n "$MODEL_OUT" ]; then
+  # H-95: the model pack first, signed on its own; the software pack then names it by its signed identity
+  echo "==> model pack $MODEL_OUT (bundle id $MODEL_ID, release_seq $MODEL_SEQ): the engine image and the weights"
+  M_META=()
+  if [ ${#M_SAVED[@]} -gt 0 ]; then
+    (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release build --id "$MODEL_ID" \
+      --release-seq "$MODEL_SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta-model" \
+      ${REHEARSAL[@]+"${REHEARSAL[@]}"} "${M_SAVED[@]}" "${M_ITEMS[@]}") \
+      || { echo "make_bundle: no release record for the model pack: nothing is built" >&2; exit 1; }
+    while IFS= read -r it; do [ -n "$it" ] && M_ITEMS+=("$it"); done < "$STAGE/meta-model/items.txt"
+    M_META=(--release "$STAGE/meta-model/release.json" --images-lock "$STAGE/meta-model/images.lock")
+  fi
+  mkdir -p "$(dirname "$MODEL_OUT")"
+  PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" build --key "$KEY" --id "$MODEL_ID" --out "$MODEL_OUT" \
+    --release-seq "$MODEL_SEQ" --pack model ${M_META[@]+"${M_META[@]}"} \
+    --description "TrialBox model pack $MODEL_ID: the engine image and the weights" "${M_ITEMS[@]}"
+  if [ ${#M_SAVED[@]} -gt 0 ]; then
+    (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release check "$MODEL_OUT") \
+      || { rm -f "$MODEL_OUT"; echo "make_bundle: the signed model pack does not match its release record; removed" >&2; exit 1; }
+  fi
+  (cd "$(dirname "$MODEL_OUT")" && sha256sum "$(basename "$MODEL_OUT")") > "$MODEL_OUT.sha256"
+  PACK=(--pack software --requires-model "$MODEL_OUT")
+elif [ -n "$MODEL_HAVE" ]; then
+  PACK=(--pack software --requires-model "$MODEL_HAVE")
+fi
 echo "==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release build --id "$ID" \
   --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" ${REHEARSAL[@]+"${REHEARSAL[@]}"} ${JOBS[@]+"${JOBS[@]}"} "${SAVED[@]}" "${ITEMS[@]}") \
@@ -239,7 +346,7 @@ while IFS= read -r it; do [ -n "$it" ] && ITEMS+=("$it"); done < "$STAGE/meta/it
 mkdir -p "$(dirname "$OUT")"
 echo "==> signing $OUT (bundle id $ID, release_seq $SEQ)"
 PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" build --key "$KEY" --id "$ID" --out "$OUT" \
-  --release-seq "$SEQ" --release "$STAGE/meta/release.json" --images-lock "$STAGE/meta/images.lock" \
+  --release-seq "$SEQ" --release "$STAGE/meta/release.json" --images-lock "$STAGE/meta/images.lock" ${PACK[@]+"${PACK[@]}"} \
   --description "TrialBox release $ID: images, models, rulesets, installer" "${ITEMS[@]}"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release check "$OUT") \
   || { rm -f "$OUT"; echo "make_bundle: the signed bundle does not match its release record; removed" >&2; exit 1; }
@@ -264,6 +371,10 @@ LAUNCH="$(dirname "$OUT")/install"
 sed "s/@VENDOR_KEY_FINGERPRINT@/$(fingerprint "$STICK_PUB")/" "$ROOT/deploy/launcher.sh" > "$LAUNCH" && chmod 0755 "$LAUNCH"
 grep -q '^PIN="[0-9a-f ]\{29\}"$' "$LAUNCH" || { echo "make_bundle: the launcher's key pin was not written" >&2; exit 1; }
 echo "done: hand over, on a USB stick labelled TRIALBOX (no space): install, vendor_ed25519.pub, $(basename "$OUT"), $(basename "$OUT").sha256, $(basename "$BOOT") and $(basename "$BOOT").sig"
+[ -z "$MODEL_OUT" ] || echo "      and, beside them for a first install, the model pack $(basename "$MODEL_OUT") and $(basename "$MODEL_OUT").sha256 (an update needs the software pack alone)"
+if [ -n "$MODEL_OUT$MODEL_HAVE" ]; then
+  echo "      sizes: $(PYTHONPATH="$ROOT" "$PY" "$ROOT/tools/packs.py" sizes "$OUT" --model-pack "${MODEL_OUT:-$MODEL_HAVE}")"
+fi
 echo "      the delivery sheet carries the vendor key's fingerprint: $(fingerprint "$STICK_PUB")"
 echo "      and the launcher's code: $(sha256sum "$LAUNCH" | cut -c1-24 | sed 's/..../& /g; s/ $//')"
 # the sheet's line stops after the launcher's code is printed: nothing from the stick runs before it is compared

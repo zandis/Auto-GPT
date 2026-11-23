@@ -30,6 +30,8 @@
 #                 `current` names it; the folder's release files become links through `current` (a copied file is
 #                 moved to releases/.replaced-<time>/), the site's own files in deploy/ stay. The install then goes
 #                 on from the signed tree: deploy/install.sh, now a link into it, runs again
+#                 H-95: straight from the stick, nothing copied first; a release in two packs takes the model
+#                 pack (engine image, weights) with --model-pack FILE or finds it beside the bundle, and loads it first
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
@@ -71,7 +73,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
+ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -86,6 +88,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
+    --model-pack) MODEL_PACK="$2"; shift ;;  # H-95: the model pack the software pack needs (else found beside it)
     # REHEARSAL-REAL-SERVERS (H-89): a rehearsal's only (refused below without --rehearsal)
     --rehearsal-real-servers) REAL_SERVERS=1 ;;
     --gpu-index) GPU_INDEX="$2"; shift ;;
@@ -331,6 +334,14 @@ fi
 # H-94 (1): no bundle, no signature that holds: nothing is loaded from nothing
 [ -n "$BUNDLE" ] || die "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]"  # H-94 (1)
 [ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"  # H-94 (1)
+# ---- MODEL-PACK (H-95): a release in two packs. The model pack is --model-pack FILE, else the file beside the bundle
+# whose signed manifest has the sha256 the software pack names (tools/packs.py find; a file's name decides nothing).
+# None for a whole bundle. Whether the pair holds is the verifier's (apply_update.sh, H-94 (1)), before any load
+if [ -z "$MODEL_PACK" ] && command -v python3 >/dev/null; then
+  MODEL_PACK="$(python3 "$ROOT/tools/packs.py" find "$BUNDLE" 2>/dev/null || true)"
+fi
+[ -z "$MODEL_PACK" ] || [ -f "$MODEL_PACK" ] || die "no such model pack: $MODEL_PACK"  # H-94 (1)
+# ---- end of MODEL-PACK
 # H-70: the host baseline near the end (deploy/hardening/apply.sh) refuses SSH=off from an SSH session; ask it now,
 # when it will run (root, deploy/site/hardening.conf), so an install over SSH stops before anything is loaded or written.
 # --ssh-off-over-ssh (or TB_SSH_OFF_OVER_SSH=yes, which sudo may drop) goes ahead, and is handed on to apply.sh
@@ -434,6 +445,12 @@ if [ -f "$BUNDLE.sha256" ]; then
   # H-94 (1): the bundle's hash
   [ -n "$SUM_LINE" ] || die "$(basename "$BUNDLE").sha256 does not name $(basename "$BUNDLE") (a sidecar from before D-996 names the vendor's own path): compare its sum with: sha256sum $BUNDLE"
   (cd "$(dirname "$BUNDLE")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "bundle checksum mismatch: $(basename "$BUNDLE") is not the file the vendor handed over"  # H-94 (1)
+fi
+# H-95: the model pack's own sidecar, the same way
+if [ -n "$MODEL_PACK" ] && [ -f "$MODEL_PACK.sha256" ]; then
+  SUM_LINE="$(awk -v n="$(basename "$MODEL_PACK")" '$2 == n || $2 == "*" n' "$MODEL_PACK.sha256")"
+  [ -n "$SUM_LINE" ] || die "$(basename "$MODEL_PACK").sha256 does not name $(basename "$MODEL_PACK"): compare its sum with: sha256sum $MODEL_PACK"  # H-94 (1)
+  (cd "$(dirname "$MODEL_PACK")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "model pack checksum mismatch: $(basename "$MODEL_PACK") is not the file the vendor handed over"  # H-94 (1)
 fi
 # ---- end of SIDECAR
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
@@ -560,13 +577,36 @@ fi
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
 if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
+  # H-95: every pack is verified (signature, every payload hash, read from the stick: nothing is copied) before any
+  # pack is loaded; the software pack as if its model pack were held, which is loaded first
+  WITH_MODEL=()
+  if [ -n "$MODEL_PACK" ]; then
+    echo "    verifying the signature and every file of the model pack $(basename "$MODEL_PACK") (minutes for the weights)"
+    alive_start "verifying the model pack"
+    # H-94 (1): the signature and every payload hash
+    sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" --dry-run >/dev/null || die "the model pack is not a valid signed TrialBox model pack; nothing was changed"
+    alive_stop
+    WITH_MODEL=(--with-model-pack "$MODEL_PACK")
+  fi
   echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
   alive_start "verifying the bundle"
   # H-94 (1): the signature and every payload hash
-  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
+  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run ${WITH_MODEL[@]+"${WITH_MODEL[@]}"} >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
   alive_stop
-  echo "    loading the images, models and rulesets (10-20 minutes for a GPU bundle)"
+  # H-95: the sizes, from the signed manifests: what the box holds after the install, the most the load needs in
+  # passing, what the stick holds (docs/handover/hospital-install.en.md)
+  if command -v python3 >/dev/null; then
+    echo "    disk: $(python3 "$ROOT/tools/packs.py" sizes "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} 2>&1)"
+  fi
   export PYTHONUNBUFFERED=1
+  if [ -n "$MODEL_PACK" ]; then
+    echo "    loading the model pack: the engine image and the weights, straight from the stick (10-20 minutes)"
+    alive_start "loading the model pack"
+    # H-94 (1): each payload is hashed again as it streams in; one whose hash fails is not loaded
+    TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" 2>&1 | indent || die "loading the model pack failed"
+    alive_stop
+  fi
+  echo "    loading the images, models and rulesets straight from the stick (10-20 minutes for a GPU bundle)"
   alive_start "loading the bundle"
   # H-94 (1): the load checks each payload's hash as it lands; a failed load leaves nothing verified to act on
   TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | indent || die "loading the bundle failed"
