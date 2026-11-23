@@ -309,6 +309,27 @@ signing leaves at most one day open. On an installed box the `audit-writer` serv
 there the nightly check is the one that finds a cut below a signed head, within a day.
 
 
+**Restore over the live stack, one command (H-100).** In a root shell on the box, from the install folder, with
+the private key from the envelope:
+
+    sudo trialbox restore --last --key /media/usb/trialbox-backup.key --yes --restart
+
+`--last` is the newest backup `backup-nightly` recorded good (`deploy/site/backup-last.json`) that is still on a
+target with the same size and sha256; name a file instead to restore another one. `--restart` stops every service
+but `db` first (the restore still asks compose afterwards and refuses while any other runs), and starts them again
+and waits until every one is healthy (`docker compose up -d --wait`) only when the restore ended complete (exit 0)
+or held (exit 4 with `hold: held`: the list jobs wait for a person, step 4 above); after any other end the services
+stay stopped and the command says why. Without `--restart` nothing is stopped and step 2's refusal applies. The
+restore runs in one container of the release's backup image (`TB_BACKUP_IMAGE`), which carries the database client
+tools: the database URLs, the database superuser and the service roles' passwords come from the box's own
+`deploy/.env`, as the nightly's job gets them, never from the shell that typed the command, and travel by name only.
+Each data volume's folder is given to it so its contents move aside within the volume, the copy of the box goes to
+`deploy/pre-restore`, and the service-role script runs inside it after the trial database is restored (the
+paragraph "Database roles after a restore", above, is then done). Every guard of the steps above holds: `--yes`, the
+site, the age, the copy of a box that holds data, the rows checked before any folder moves, the hold. Compare the
+`rows` it prints with `databases` of `trialbox backup-verify <file> --key <private key>`: they are equal. The steps
+above are the same restore by hand.
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |

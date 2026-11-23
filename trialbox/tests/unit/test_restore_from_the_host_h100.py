@@ -159,7 +159,7 @@ def test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller(
 
     deploy = _box(tmp_path)
     rec = Recorder()
-    code, seen = _restore(deploy, tmp_path, monkeypatch, rec)
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--dir", "host=hostpart/deploy")
     assert code == 0 and len(seen) == 1, seen
     argv, values = seen[0]
     assert argv[0] == "docker" and "trialbox-backup:1.0.0" in argv and "caller/evil:1" not in argv
@@ -191,6 +191,8 @@ def test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller(
     for v in ("audit-data", "lake-data", "tb-secrets"):  # each volume's folder read-write: its _data moves within it
         assert f"{vols / f'trialbox_{v}'}:/var/lib/docker/volumes/trialbox_{v}" in mounts
     assert "audit=/var/lib/docker/volumes/trialbox_audit-data/_data" in argv
+    assert f"host={tmp_path / 'hostpart' / 'deploy'}" in argv  # --dir, made absolute, its parent bound
+    assert f"{tmp_path / 'hostpart'}:{tmp_path / 'hostpart'}" in mounts
     assert f"{tmp_path / 'usb' / 'backup.key'}:{tmp_path / 'usb' / 'backup.key'}:ro" in mounts
     assert f"{deploy / 'docker/db-init/30-service-roles.sh'}:{box_restore.ROLES_IN}:ro" in mounts
     assert all(os.path.isabs(m.split(":", 1)[0]) for m in mounts), mounts

@@ -212,10 +212,19 @@ class BoxRestore:
         if roles.is_file():
             bind(roles, ROLES_IN, True)
         dirs: list[str] = []
+        given: dict[str, Path] = {}
+        for pair in a.dir:  # --dir name=path (the host part among them): its folder, moved aside within its parent
+            name, _, path = str(pair).partition("=")
+            if not name or not path:
+                raise RestoreStopped(f"bad directory {pair!r}: use name=path. Nothing was changed")
+            given[name] = absolute(Path(path))
+            given[name].parent.mkdir(parents=True, exist_ok=True)
+            bind(given[name].parent, given[name].parent, False)
+            dirs += ["--dir", f"{name}={given[name]}"]
         root = self.volumes_root()
         for name, vol in BACKUP_VOLUMES.items():  # each volume's own folder: its _data is moved aside within it
             folder = root / f"trialbox_{vol}"
-            if folder.is_dir():
+            if name not in given and folder.is_dir():
                 inside = Path(VOLUME_ROOT.format(vol)).parent
                 bind(folder, inside, False)
                 dirs += ["--dir", f"{name}={inside / '_data'}"]
