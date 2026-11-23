@@ -98,7 +98,7 @@ def test_a_second_installer_while_one_runs_refuses_and_changes_nothing(tmp_path:
 
 def test_the_lock_comes_before_the_first_write_and_the_cleanup() -> None:
     install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
-    lock = install.index("flock -n 9 || {")  # H-94 (D-1091): the helper (PoC: warns, no cleanup)
+    lock = install.index("flock -n 9 || die")
     assert lock < install.index("# REHEARSAL (D-726): before anything loads")
     assert lock < install.index("mkdir -p deploy/site && printf")
     assert lock < install.index("# PROJECT-CLEANUP (F-19)")

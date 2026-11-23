@@ -5,7 +5,7 @@ KEPT AS REFUSALS, everywhere: (1) the bundle's or update's signature or hashes d
 cannot run it (disk, memory, card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step
 needs root and does not have it; (5) a secret would be read from, or written to, a place others can read
 (7095256773). Each such stop names its number in a comment (``H-94 (1)`` ...). A stop the next lines depend on is
-kept only if it protects one of the five on the input that reaches it (7096436960).
+marked ``H-94 depends`` and kept here; the integrator's ruling on each (7096436960) is a later change.
 
 EVERY OTHER STOP calls the helper: :func:`stop_or_warn` here, the shell function ``stop_or_warn`` in the scripts (the
 same rule, the same list). On a PoC box it warns, appends one line to :data:`LIST` and the step goes on; on any other

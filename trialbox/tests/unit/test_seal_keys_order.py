@@ -140,7 +140,7 @@ def test_the_host_check_asks_has_tpm2_and_the_installer_names_the_fix() -> None:
     assert "systemd-creds has-tpm2" in check and "TB_KEK_BACKEND=passphrase" in check
     install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
     seal = install[install.index("sh deploy/hardening/seal_keys.sh") :]
-    assert "TB_KEK_BACKEND=passphrase" in seal[: seal.index("\n", seal.index("|| stop_or_warn seal-keys"))]  # H-94
+    assert "TB_KEK_BACKEND=passphrase" in seal[: seal.index("\n", seal.index("|| die"))]
 
 
 def test_the_kek_backend_setting_is_declared() -> None:

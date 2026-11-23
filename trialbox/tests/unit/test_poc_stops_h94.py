@@ -47,12 +47,10 @@ RUNNING = "TrialBox is running."
 
 # ---------------------------------------------------------------------------------------------------- the points
 STOP = re.compile(r"""(?<![\w-])die\s+["'$]|\bexit\s+(?:[1-9]|"?\$)""")
-#: the five of D-1091 (the fifth, a secret read or written where others can read, added by the integrator,
-#: 7095256773), "depends (N)" (kept: it protects stop N on the input that reaches it, H94-03), or not a stop at all
-MARK = re.compile(r"H-94 (?:\(([1-5])\)|depends \(([1-5])\)|not a stop)")
-CALL = re.compile(
-    r"""(?:stop_or_warn(?:\s+--rc\s+\d+|\s+--silent)*|rrs_drop|rehearsal_only|finish_check)\s+"?([A-Za-z0-9:._-]+)"""
-)
+#: the five of D-1091 (the fifth, a secret read or written where others can read: the integrator, 7095256773;
+#: review M-1 of #1396), "depends" (kept here, ruled later), or not a stop at all
+MARK = re.compile(r"H-94 (?:\(([1-5])\)|depends|not a stop)")
+CALL = re.compile(r"""(?:stop_or_warn(?:\s+--rc\s+\d+|\s+--silent)*|rrs_drop|rehearsal_only)\s+"?([A-Za-z0-9:._-]+)""")
 #: the files of the install, start and update paths, and how many bare stops each may still have. A converted
 #: file is 0. The count of a file not yet converted can only go down (H-94: stop at a file boundary)
 RATCHET = {
@@ -99,8 +97,6 @@ def converted_keys(text: str) -> set[str]:
             if k.startswith(("$", "fail:")):
                 continue
             keys.add(k)
-            if re.search(r"(^|\s)finish_check\s", line):
-                keys.add(f"{k}-did-not-run")
     return keys | {"fail"}  # the FAIL lines at the end: one point, a key per line
 
 
@@ -121,7 +117,7 @@ def kept_counts(text: str) -> dict[str, int]:
             continue
         m = mark_of(lines, i)
         if m and "not a stop" not in m.group(0):
-            counts[m.group(1) or "depends"] += 1  # a "depends (N)" counts as depends
+            counts[m.group(1) or "depends"] += 1
     return counts
 
 
@@ -146,7 +142,6 @@ NOT_DRIVEN = {
     "seal-keys": "root only (the step before it is kept refusal 4 for a user)",
     "install-lock-open": "the deploy folder cannot be made unreadable to root, and the bench may run as root",
     "override-owner": "a file owned by another user cannot be made without root",
-    "docker-missing": "the next step that runs Docker is kept refusal 1: test_with_no_docker_a_poc_box_warns_then_stops_at_the_load",
 }
 
 # --------------------------------------------------------------------------------------------------- the PoC runs
@@ -315,37 +310,6 @@ def _scenarios(tmp: Path) -> list[tuple[str, Box, tuple[str, ...], tuple[str, ..
         ["--rehearsal", "--gpu-index", "1", "--mode", "stub", "--yes"],
         keys=["rrs-options-without-rrs"],
     )
-    # D-1091 (H94-03): the stops that were "depends" and protect none of the five
-    add(
-        "command-line-and-host",
-        {},
-        ["--environment", "TEST", "--mode", "bogus", "--tier-check", "--bogus-flag", "--yes"],
-        [
-            "docker-not-running",
-            "compose-missing",
-            "host-python-modules",
-            "db-start",
-            "stack-health",
-            "finish-gate",
-            "anchor-gate",
-        ],
-        {},
-        [
-            "unknown-option",
-            "tier-check-without-tier",
-            "mode-value",
-            "docker-not-running",
-            "compose-missing",
-            "host-python-modules",
-            "db-start",
-            "stack-health",
-            "finish-gate",
-            "anchor-gate",
-        ],
-    )
-    add("gpu-value", {}, ["--environment", "DEV", "--mode", "gpu", "--gpu", "bogus", "--yes"],
-        ["finish-gate-did-not-run", "anchor-gate-did-not-run"], {},
-        ["gpu-value", "finish-gate-did-not-run", "anchor-gate-did-not-run"])  # fmt: skip
     return out
 
 
@@ -373,25 +337,16 @@ def test_a_poc_install_goes_through_every_converted_point(tmp_path: Path) -> Non
     # (review L-3 of #1396, ruled 7096812799: a point fixed before the next install is not shown again)
     assert first is not None
     r = first.install("--environment", "DEV", "--mode", "stub", "--yes",
-                      force=("project-cleanup-refused", "finish-early"))  # fmt: skip
-    seen |= _check("second install", r, {"environment-change", "project-cleanup-refused", "finish-early"})
-    r = first.install("--mode", "stub", "--yes", force=("finish-early-did-not-run",))
-    seen |= _check("third install", r, {"finish-early-did-not-run"})
-    assert not {"install.sh/project-cleanup-refused", "install.sh/finish-early"} & r.listed_keys()
+                      force=("project-cleanup-refused",))  # fmt: skip
+    seen |= _check("second install", r, {"environment-change", "project-cleanup-refused"})
+    r = first.install("--mode", "stub", "--yes", force=("pre-start",))
+    seen |= _check("third install", r, {"pre-start"})
+    assert "install.sh/project-cleanup-refused" not in r.listed_keys()
     # the questions on a terminal: no answers file, a ClinicalTrials.gov answer that is neither
     tty = Box(tmp_path / "tty", env="TB_ENV=TEST\n")
     r = tty.install("--environment", "TEST", "--mode", "stub", "--answers", str(tmp_path / "none.yaml"),
                     answers=False, tty="bogus\n\n\ny\n")  # fmt: skip
     seen |= _check("questions", r, {"answers-file", "ctgov-answer"})
-    # no answers and no terminal: no settings are written (the services cannot start), the install goes on
-    r = Box(tmp_path / "no-settings").install("--environment", "TEST", "--mode", "stub", "--yes", answers=False)
-    seen |= _check("no settings", r, {"no-settings"})
-    # another installer holds the folder's lock: this run takes nothing of the other's down
-    held = Box(tmp_path / "second-installer")
-    r = held.install("--environment", "TEST", "--mode", "stub", "--yes", force=("project-cleanup-failed",),
-                     hold_lock=True)  # fmt: skip
-    seen |= _check("second installer", r, {"second-installer"})
-    assert " down " not in (held.tmp / "calls.log").read_text(encoding="utf-8")  # no cleanup was run
     assert want <= seen, f"converted points no PoC run reached: {sorted(want - seen)}"
     # doctor shows each point of the first box's list as one WARN line with its action
     lines = doctor.poc_stops(doctor.DoctorInputs(deploy=first.deploy), [])
@@ -671,14 +626,3 @@ def test_the_findings_file_is_in_the_register_s_form() -> None:
     rows = data["findings"]
     assert rows and all(r["id"].startswith("H94-") and r["lane"] == "H" for r in rows)
     assert all(r["basis"] in ("shown", "hypothesis", "not_run", "not stated") for r in rows)
-
-
-def test_with_no_docker_a_poc_box_warns_then_stops_at_the_load(tmp_path: Path) -> None:
-    """D-1091: Docker missing protects none of the five, so it warns; the first step that needs the release's image
-    is kept refusal 1 (it cannot be shown loaded), so the install stops there, with the warning listed."""
-    box = Box(tmp_path / "b", no=("docker",))
-    (box.tmp / "bin" / "docker").unlink()
-    r = box.install("--environment", "TEST", "--mode", "stub", "--yes")
-    assert r.rc == 1 and "install: warning (PoC box, H-94): Docker is not installed" in r.err, r.text[-3000:]
-    assert r.err.splitlines()[-1] == "install: the bundle carried no trialbox-py:1.0.0 image"
-    assert "install.sh/docker-missing" in r.listed_keys()
