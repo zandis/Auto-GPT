@@ -701,7 +701,7 @@ live-restore)
   }
   mapfile -t stopped < <(dc ps --services --status running | grep -vx db | sort)
   [ "${#stopped[@]}" -gt 0 ] || fail "no service runs but db before the failing restore"
-  dc stop "${stopped[@]}" >/dev/null 2>&1 || fail "cannot stop the services for the failing restore"
+  dc stop "${stopped[@]}" > "$rr/stop.log" 2>&1 || { cat "$rr/stop.log"; fail "cannot stop the services for the failing restore"; }
   rows > "$rr/rows.before" || fail "cannot count the rows before the failing restore"
   printf '#!/bin/sh\necho "synthetic: the role step fails (rehearsal)" >&2\nexit 1\n' > "$roles"
   rc=0
@@ -714,7 +714,9 @@ live-restore)
   rows > "$rr/rows.after" || fail "cannot count the rows after the failing restore"
   diff "$rr/rows.before" "$rr/rows.after" > "$rr/rows.diff" || { cat "$rr/rows.diff"; fail "the failed restore did not leave the box as it was"; }
   ok "a restore that failed after replacing the databases put them back: $(wc -l < "$rr/rows.before") tables, each the same rows as before"
-  dc start "${stopped[@]}" >/dev/null 2>&1 || fail "cannot start the services again after the failing restore"
+  # as the product's --restart starts them (box_restore.start_and_wait): only these, waited for until healthy
+  dc up -d --no-deps --wait --wait-timeout 600 "${stopped[@]}" > "$rr/start.log" 2>&1 \
+    || { cat "$rr/start.log"; fail "cannot start the services again after the failing restore"; }
   wait_healthy 900
   rc=0
   trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/restore.json" 2> "$rr/restore.err" || rc=$?
