@@ -14,7 +14,8 @@ past all three. This module is the one place that decides it, and only under the
   ``--rehearsal`` install.sh refuses the box, and on a PRODUCTION box :func:`box_problems` refuses it;
 * the driver: :func:`driver_allowance`, H-74's check (``tools/measure48_vm.py`` ``bench_exception``, the one
   implementation) on the engine probe file, for this card, this driver and the pinned image;
-* the card: :func:`card_facts`, one whole card named by index, no MIG, free memory at least what the pair needs;
+* the card: :func:`card_facts`, one whole card named by index, no MIG, free memory at least what the pair needs; or
+  (H-89b, the rtx5090 profile only) one slice ``N:M`` of a split card, its own UUID and memory (:func:`slice_query`);
 * what the box keeps: deploy/site/rehearsal-real-servers.json (the facts, the probe's digest,
   ``valid_for_a_site: false``) and deploy/site/rehearsal-real-servers.yml (the compose file that pins both model
   servers to that one card by its UUID and gives them the probe's recorded environment, read from the probe file);
@@ -67,6 +68,10 @@ NOT_VALID = "not valid for a site"
 WORDS = "rehearsal: driver below the minimum, not this profile's card, not valid for a site"
 SMI_FIELDS = "name,uuid,driver_version,mig.mode.current,mig.mode.pending,memory.free,memory.total"
 UUID = re.compile(r"^GPU-[0-9A-Fa-f-]{8,}$")
+# H-89b: one slice of a split card, ``N:M`` (card N, its MIG device M, as --gpus device=N:M names it); its own UUID
+MIG_UUID = re.compile(r"^MIG-[0-9A-Fa-f]{8}-[0-9A-Fa-f-]{8,}$")
+INDEX = re.compile(r"(\d{1,3})(?::(\d{1,2}))?")
+SLICE_PROFILES = ("rtx5090",)  # the integrator's ruling 7088891993: the 32 GB profile on a split card's slice
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 UTC0 = timezone(timedelta(0))  # the host's own python3 (3.10 on Ubuntu 22.04) has no datetime.UTC
 PROBE_MAX_AGE = timedelta(days=7)  # the bench reloads its driver and probes right before the install
@@ -227,10 +232,47 @@ def driver_allowance(probe: Path, index: str, deploy: Path) -> tuple[list[str], 
 
 
 def smi(index: str) -> str:
-    """nvidia-smi's line for the one card at ``index`` (a stand-in in the tests: a script on PATH)."""
-    r = subprocess.run(["nvidia-smi", "-i", index, f"--query-gpu={SMI_FIELDS}", "--format=csv,noheader,nounits"],
+    """nvidia-smi's line for the one card at ``index`` (of a slice ``N:M``: card N's; a stand-in in the tests: a
+    script on PATH)."""
+    card = index.partition(":")[0]
+    r = subprocess.run(["nvidia-smi", "-i", card, f"--query-gpu={SMI_FIELDS}", "--format=csv,noheader,nounits"],
                        capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
     return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def slice_problem(index: str, profile: str) -> str:
+    """Why the slice form may not carry this profile (``""``: a whole card, or a slice of a profile that may)."""
+    if ":" in (index or "") and profile not in SLICE_PROFILES:
+        return (f"--gpu-index {index} is a slice of a split card: opened for the {' and '.join(SLICE_PROFILES)} "
+                f"profile only, not {profile}")  # fmt: skip
+    return ""
+
+
+def slice_query(card: str, part: str) -> tuple[str, str, str]:
+    """The slice ``part`` of card ``card`` (H-89b): its UUID from ``nvidia-smi -L`` and its own memory, free and
+    total in MiB, from ``nvidia-smi -q -x -i card`` (the MIG device's ``fb_memory_usage``). Read as text: the form is
+    nvidia-smi's documented one, not yet seen on the bench's card. ``""`` for what is not found."""
+    uuid = free = total = ""
+    r = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=60, check=False)
+    on = None
+    for line in r.stdout.splitlines() if r.returncode == 0 else []:
+        gpu = re.match(r"GPU (\d+):", line)
+        if gpu:
+            on = gpu.group(1)
+            continue
+        dev = re.match(r"\s+MIG \S+\s+Device\s+(\d+): \(UUID: (MIG-[0-9A-Fa-f-]+)\)\s*$", line)
+        if dev and on == card and dev.group(1) == part:
+            uuid = dev.group(2)
+    r = subprocess.run(["nvidia-smi", "-q", "-x", "-i", card], capture_output=True, text=True, timeout=60, check=False)
+    for block in re.findall(r"<mig_device>(.*?)</mig_device>", r.stdout if r.returncode == 0 else "", re.S):
+        at = re.search(r"<index>\s*(\d+)\s*</index>", block)
+        if at and at.group(1) == part:
+            fb = re.search(r"<fb_memory_usage>(.*?)</fb_memory_usage>", block, re.S)
+            fb_text = fb.group(1) if fb else ""
+            got = {k: re.search(rf"<{k}>\s*(\d+)\s*MiB\s*</{k}>", fb_text) for k in ("total", "free")}
+            total = got["total"].group(1) if got["total"] else ""
+            free = got["free"].group(1) if got["free"] else ""
+    return uuid, free, total
 
 
 def caps(profile: str, total_mib: int) -> dict[str, float]:
@@ -254,18 +296,32 @@ def record_need(record: dict[str, Any], total_mib: int, profile: str = PROFILE) 
 def card_facts(
     index: str, line: str, record: dict[str, Any], profile: str = PROFILE
 ) -> tuple[list[str], dict[str, Any]]:
-    """The one whole card at ``index``: its facts, and why it may not carry the pair (none: it may)."""
-    if not re.fullmatch(r"\d{1,3}", index or ""):
-        return [f"--gpu-index {index!r} is not a card index (0, 1, ...): one card is named, never all"], {}
+    """The one whole card at ``index``, or (H-89b) the one slice ``N:M`` of a split card: its facts, and why it may
+    not carry the pair (none: it may). A slice's UUID and memory are its own (:func:`slice_query`)."""
+    form = INDEX.fullmatch(index or "")
+    if not form:
+        return [f"--gpu-index {index!r} is not a card index (0, 1, ...) or a slice of one (N:M): one card or one "
+                "slice is named, never all"], {}  # fmt: skip
+    card, part = form.groups()
     cells = [c.strip() for c in line.splitlines()[0].split(",")] if line.strip() else []
     if len(cells) != len(SMI_FIELDS.split(",")):
-        return [f"nvidia-smi finds no card at index {index} (nvidia-smi -i {index})"], {}
+        return [f"nvidia-smi finds no card at index {card} (nvidia-smi -i {card})"], {}
     name, uuid, driver, mig_now, mig_next, free, total = cells
-    facts: dict[str, Any] = {"index": int(index), "name": name, "uuid": uuid, "driver": driver}
+    facts: dict[str, Any] = {"index": int(index) if part is None else index, "name": name, "uuid": uuid,
+                             "driver": driver}  # fmt: skip
     problems = []
     if not UUID.match(uuid):
-        problems.append(f"card {index}: nvidia-smi gives no card UUID ({uuid!r}): the servers cannot be pinned to it")
-    if "enabled" in (mig_now.lower(), mig_next.lower()):
+        problems.append(f"card {card}: nvidia-smi gives no card UUID ({uuid!r}): the servers cannot be pinned to it")
+    if part is not None:
+        if not (mig_now.lower() == mig_next.lower() == "enabled"):
+            return [*problems, f"card {card} ({name}) is not split (MIG current {mig_now}, pending {mig_next}): "
+                    f"there is no slice {index}; name the whole card (--gpu-index {card})"], facts  # fmt: skip
+        s_uuid, free, total = slice_query(card, part)
+        if not MIG_UUID.match(s_uuid):
+            return [*problems, f"card {card} has no slice {part} (nvidia-smi -L): name a slice it lists"], facts
+        facts.update(uuid=s_uuid, card_uuid=uuid, slice=int(part))
+        name = f"{name} slice {index}"
+    elif "enabled" in (mig_now.lower(), mig_next.lower()):
         problems.append(f"card {index} ({name}) has MIG on (current {mig_now}, pending {mig_next}): the rehearsal "
                         "runs on one whole card; turn MIG off on it, or name another card")  # fmt: skip
     if not (free.isdigit() and total.isdigit()):
@@ -282,8 +338,8 @@ def card_facts(
 
 def override_text(uuid: str, env: dict[str, str]) -> str:
     """The compose file that pins both model servers to the one card and gives them the probe's environment."""
-    if not UUID.match(uuid):
-        raise ValueError(f"not a card UUID: {uuid!r}")
+    if not (UUID.match(uuid) or MIG_UUID.match(uuid)):
+        raise ValueError(f"not a card or slice UUID: {uuid!r}")
     bad = [k for k, v in env.items() if not ENV_NAME.match(str(k)) or "\n" in str(v) or "\r" in str(v)]
     if bad:
         raise ValueError(f"the probe's environment has names or values a compose file cannot carry: {bad}")
@@ -320,6 +376,8 @@ def write(
         problems.append(f"no rehearsal mark (deploy/site/{MARK}): written by install.sh --rehearsal only")
     if profile not in OPENED:
         return [*problems, f"the {profile} profile is not opened for a rehearsal with real servers"], {}
+    if slice_problem(index, profile):
+        return [*problems, slice_problem(index, profile)], {}
     record = _record(record_path) if record_path else {}
     card_problems, facts = card_facts(index, smi(index), record, profile)
     problems += card_problems
@@ -352,7 +410,8 @@ def write(
         "driver": {"found": facts["driver"], "minimum": need, "below_minimum": below},
         "caps": caps(profile, facts["memory_total_mib"]),
         "card": {"found": facts["name"], "index": facts["index"], "profile": profile, "profile_card": rec_card,
-                 "this_profiles_card": not other, "memory_free_mib": facts["memory_free_mib"],
+                 "this_profiles_card": not other, "slice_of_a_split_card": "slice" in facts,
+                 "memory_free_mib": facts["memory_free_mib"],
                  "memory_total_mib": facts["memory_total_mib"], "need_mib": facts["need_mib"]},
         "engine_probe": {"sha256": probe_sha, "form": form, "env": env},
         "serving_record": record_path.name if record_path else None,
@@ -443,13 +502,15 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "box":
         problems = box_problems(a.deploy)
+    elif a.cmd == "card" and slice_problem(a.gpu_index, a.profile):
+        problems = [slice_problem(a.gpu_index, a.profile)]
     elif a.cmd == "card":
         problems, facts = card_facts(a.gpu_index, smi(a.gpu_index), _record(a.record) if a.record else {}, a.profile)
         if not problems:
             free, total, need = facts["memory_free_mib"], facts["memory_total_mib"], facts["need_mib"]
             print(
                 f"card {facts['index']}: {facts['name']}, {free} MiB free of {total} (the pair needs {need}), "
-                "MIG off: one whole card"
+                + ("one slice of a split card" if "slice" in facts else "MIG off: one whole card")
             )
     elif a.cmd == "write":
         problems, doc = write(a.deploy, a.gpu_index, a.engine_probe, a.record, a.profile)

@@ -136,6 +136,7 @@ esac
 # (the bench host: whole B200-class cards on a driver below gpu.driver_min). One explicit command line, never a
 # default or an environment variable:
 #   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000|rtx5090 --gpu-index N --engine-probe FILE
+# H-89b: --gpu rtx5090 --gpu-index N:M takes the one slice M of the split card N (its own UUID and memory)
 # Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled down, D-1087)
 # Without --rehearsal each new option is refused here, before anything is checked or written; without the options
 # the three refusals (the driver, the card, the record) stand as before. tools/rehearsal_real.py decides each step;
@@ -155,7 +156,8 @@ else
   esac
   [ -z "$TIER" ] || die "--rehearsal-real-servers is no tier install: drop --tier"
   [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--rehearsal-real-servers needs the GPU: drop --mode $MODE"
-  case "$GPU_INDEX" in ""|*[!0-9]*) die "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all" ;; esac
+  case "$GPU_INDEX" in ""|*[!0-9:]*|:*|*:|*:*:*) die "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), or N:M one slice of a split card, never all" ;; esac
+  case "$GPU_INDEX" in *:*) [ "$GPU" = rtx5090 ] || die "--rehearsal-real-servers: --gpu-index $GPU_INDEX is a slice of a split card: opened for --gpu rtx5090 only" ;; esac
   [ -n "$ENGINE_PROBE" ] && [ -f "$ENGINE_PROBE" ] || die "--rehearsal-real-servers: --engine-probe FILE, the engine probe's result taken on that card (tools/engine_probe.py run), is missing"
   ENGINE_PROBE="$(readlink -f "$ENGINE_PROBE")"
   [ -z "${TB_COMPOSE_OVERRIDE:-}" ] || die "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE"
