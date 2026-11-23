@@ -18,13 +18,3 @@
     pre-start and db-up, and the boot (deploy/settings_guard.sh) refuse it.
   - Without the mark nothing changes: each refusal is byte-identical to before (the invariant test).
 - **Page:** `docs/handover/rehearsal-real-servers-h89-2026-11-22.md`.
-
-## Amendment (H-89b, 2026-11-23; the integrator's ruling 7088891993)
-
-- Under the same mark, the rtx5090 profile may run on one slice of a split card (`--gpu-index N:M`, for the engine
-  probe and the install), held to its 32 GB cap on the slice's own memory and pinned by the slice's UUID; every check
-  of the probe holds for the slice. Any other profile on a slice is refused.
-- deploy/box-install.sh hands the real-servers options on to install.sh with `--rehearsal` only (the Windows host
-  path, inside WSL2); not verified on a WSL2 host.
-- dgpu48 and gb10 stay closed until a ruling on the test that holds them closed.
-- Page: `docs/handover/rehearsal-real-servers-h89b-2026-11-23.md`.

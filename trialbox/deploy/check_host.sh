@@ -69,9 +69,8 @@ gpu_image_check() {
   set --
   # REHEARSAL-REAL-SERVERS (H-89): the one card named by index, and the allowance's facts
   if [ "$RRS" = 1 ]; then
-    # a slice N:M (H-89b) is read on its card N: the driver and compute capability are the card's
-    drv=$(nvidia-smi -i "${RRS_INDEX%%:*}" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
-    cap=$(nvidia-smi -i "${RRS_INDEX%%:*}" --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)
+    drv=$(nvidia-smi -i "$RRS_INDEX" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+    cap=$(nvidia-smi -i "$RRS_INDEX" --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)
     set -- --rehearsal-real-servers --engine-probe "$RRS_PROBE" --gpu-index "$RRS_INDEX" --deploy "$ROOT_DIR/deploy"
   fi
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
