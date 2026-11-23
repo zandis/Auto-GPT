@@ -4,7 +4,9 @@
 #   make images      with its platform and release labels: deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS)
 #   deploy/poc.sh    the one-command start, when the image is missing or TB_POC_BUILD=1 (no make, no Maven needed)
 # The exception is the Makefile's images-multiarch release target: a buildx build for both platforms pushed to a
-# registry, its own command by design. Arguments are passed to `docker build` as they are. Behind a TLS-intercepting
+# registry, its own command by design. H-75: TRIALBOX_IMAGE_TAG, when set, is the tag instead (the 48 GB host run's
+# own, trialbox-postgres:<tag>); unset, the box's tag below.
+# Arguments are passed to `docker build` as they are. Behind a TLS-intercepting
 # proxy the same two settings as every other image build apply, read from the ENVIRONMENT (or make's command line,
 # which make exports; a value set only inside a makefile would not reach here): HTTPS_PROXY (build on the host
 # network, the proxy handed to apt) and TB_EXTRA_CA (the proxy's CA PEM, given to apt as a build secret; see
@@ -19,4 +21,6 @@ fi
 if [ -n "${TB_EXTRA_CA:-}" ]; then
   extra+=(--secret "id=extra_ca,src=$TB_EXTRA_CA")
 fi
-exec docker build "$@" ${extra[@]+"${extra[@]}"} -f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1 deploy/docker
+build=(-f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1)
+[ -z "${TRIALBOX_IMAGE_TAG:-}" ] || build=(-f deploy/docker/db.Dockerfile -t "trialbox-postgres:$TRIALBOX_IMAGE_TAG")
+exec docker build "$@" ${extra[@]+"${extra[@]}"} "${build[@]}" deploy/docker

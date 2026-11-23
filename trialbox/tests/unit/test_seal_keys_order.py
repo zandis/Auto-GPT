@@ -174,3 +174,15 @@ def test_the_boot_unseal_hands_the_kek_to_the_secrets_owner() -> None:
     unit = (ROOT / "deploy" / "hardening" / "trialbox-unseal.service").read_text(encoding="utf-8")
     post = next(ln for ln in unit.splitlines() if ln.startswith("ExecStartPost="))
     assert "chown" in post and "@TB_SECRETS@" in post and "/run/trialbox/kek" in post and "/run/trialbox " in post
+
+
+def test_seal_keeps_the_inherited_passphrase_out_of_its_output(tmp_path: Path) -> None:
+    env = _host(tmp_path, creds=None, tpm=False)
+    phrase = os.urandom(24).hex()
+    env.update(TB_KEK_BACKEND="passphrase", TB_KEK_PASSPHRASE=phrase)
+    sec = tmp_path / "secrets"
+    proc = _seal(tmp_path, env)
+    assert proc.returncode == 0, proc.stderr
+    assert phrase not in proc.stdout + proc.stderr
+    meta = K.read_meta(sec)
+    assert meta is not None and meta["backend"] == "passphrase"

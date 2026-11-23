@@ -217,7 +217,8 @@ def test_the_orchestrator_gives_no_chart_number_to_the_admin_role(
     from tests.unit.test_service_auth import TOKEN, _fake_box
 
     per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # rc1 (R22-34, go 7082962352): a PRODUCTION box reveals and exports nothing; PRODUCTION again when lifted
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
     events: list[dict[str, Any]] = []
     monkeypatch.setattr(oapp, "orch", lambda: _fake_box(events))

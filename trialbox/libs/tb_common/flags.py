@@ -115,9 +115,10 @@ DECLARED: dict[str, Declared] = {
         default="off",
         seed_env=None,  # what a phone shows first changes only by a person's ruling, with a reason (D-1222)
         help="The console's phone-first layout (J-3, D-1222): on a phone the week list comes first under the title "
-        "and the study's links fold into one 'Study' fold below it, the list's rows are cards, the menu's 'More' folds "
-        "in two levels, and the patient sheet shows the evidence before the mark's note and reason. Off: the pages "
-        "as before. A page uses the value last read: the console reads the layout flags at its start and then in "
+        "and the study's links fold into one 'Study' fold below it, the menu's 'More' folds "
+        "in two levels, and the patient sheet shows the evidence before the mark's note and reason. Off: those pages "
+        "as before. The weekly and cohort lists are person cards (D-1386) with the flag on or off. "
+        "A page uses the value last read: the console reads the layout flags at its start and then in "
         "the background at most every 5 seconds, so a change shows within about 5 seconds; no restart.",
     ),
     "layout.home_today": Declared(
@@ -193,6 +194,14 @@ DECLARED: dict[str, Declared] = {
         "the acting role; the person stays named in the audit trail and the delegation log. Refused, and the console "
         "refuses to start with it on, when TB_ENV is VALIDATION or PRODUCTION (D-1063).",
     ),
+    "reimbursement.paths": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # out of 1.0 (card 9e-9, plan 9 decision 8): switched on with a reason on a test box only
+        help="Reimbursement (plan 9 decision 8, path (ii)): NAV, its TWPAS bundles and SUBMIT to the NHI. Out of 1.0: "
+        "off, a NAV or SUBMIT job fails at its first step, no TWPAS bundle is built and the night passes over NAV. A "
+        "test box (TB_ENV DEV or TEST) only: refused, and read as off, when TB_ENV is VALIDATION or PRODUCTION.",
+    ),
     "omop.dual_write": Declared(
         values=("off", "on"),
         default="off",
@@ -203,9 +212,9 @@ DECLARED: dict[str, Declared] = {
 }
 
 
-#: flags that may leave their default only on a test box (STEPS-ROLE, D-877): refused when TB_ENV is VALIDATION or
-#: PRODUCTION (unset is PRODUCTION)
-TEST_BOX_ONLY = frozenset({"steps.acting_role"})
+#: flags that may leave their default only on a test box (STEPS-ROLE, D-877; card 9e-9): refused when TB_ENV is
+#: VALIDATION or PRODUCTION (unset is PRODUCTION)
+TEST_BOX_ONLY = frozenset({"steps.acting_role", "reimbursement.paths"})
 
 
 def test_box(env: dict[str, str] | None = None) -> bool:

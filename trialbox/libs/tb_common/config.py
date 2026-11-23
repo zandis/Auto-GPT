@@ -946,6 +946,11 @@ DECLARED: dict[str, Declared] = {
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
     "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box; doctor says so (D-726, D-887)"),
+    "TB_REHEARSAL_REAL_SERVERS": Declared(
+        "str",
+        "",
+        "install.sh --rehearsal-real-servers: real model servers on a rehearsal box (D-1087)",
+    ),
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),

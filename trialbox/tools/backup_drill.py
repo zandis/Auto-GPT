@@ -802,17 +802,21 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     import logging
 
+    was = logging.root.manager.disable  # 9i-1: the level found, given back however this ends
     logging.disable(logging.INFO)
-    if a.dir.exists():
-        shutil.rmtree(a.dir)
-    a.dir.mkdir(parents=True)
-    out = run(a.dir, require_extensions=a.require_extensions)
-    for name, ok, detail in out["checks"]:
-        print(f"{'ok  ' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""))
-    if out.get("kept"):
-        print(f"the work folder is kept: {out['kept']}")
-    print(f"backup drill {'PASSED' if out['ok'] else 'FAILED'} in {out['seconds']} s")
-    return 0 if out["ok"] else 1
+    try:
+        if a.dir.exists():
+            shutil.rmtree(a.dir)
+        a.dir.mkdir(parents=True)
+        out = run(a.dir, require_extensions=a.require_extensions)
+        for name, ok, detail in out["checks"]:
+            print(f"{'ok  ' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""))
+        if out.get("kept"):
+            print(f"the work folder is kept: {out['kept']}")
+        print(f"backup drill {'PASSED' if out['ok'] else 'FAILED'} in {out['seconds']} s")
+        return 0 if out["ok"] else 1
+    finally:
+        logging.disable(was)
 
 
 if __name__ == "__main__":

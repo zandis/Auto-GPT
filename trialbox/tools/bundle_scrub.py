@@ -155,7 +155,12 @@ def secret_words(name: str) -> bool:
     singles = {w[:-1] if w.endswith("s") and w[:-1] in SECRET_WORDS else w for w in words}
     if singles & SECRET_WORDS or any(w.endswith(SECRET_ENDINGS) for w in words):
         return True
-    return any(a + b in SECRET_PAIRS for a, b in itertools.pairwise(words))
+    if any(a + b in SECRET_PAIRS for a, b in itertools.pairwise(words)):
+        return True
+    # #1354 round 3: a secret's name under any case (``pAssWord``, ``ToKeN``): the camel-case split above cuts it, so
+    # the whole name, lower case and without separators, is read as one word too
+    whole = "".join(words)
+    return whole in SECRET_WORDS or whole in SECRET_PAIRS or whole.endswith(SECRET_ENDINGS)
 
 
 def secret_name(name: str, decl: Declarations | None = None) -> bool:
@@ -272,7 +277,12 @@ QUOTED = re.compile(
 #: the same inside a JSON string: ``\"name\": \"value\"``
 ESCAPED = re.compile(r"(?P<q>\\+\")(?P<key>[^\"\\\s]{1,80})(?P=q)(?P<sep>\s*:\s*)(?P=q)(?P<val>.*?)(?P=q)")
 #: ``name: value`` inside a line (a header, a log's words), to the end of the line or a quote
-COLON = re.compile(rf"(?<![A-Za-z0-9_./@\-])(?P<key>{_KEY})(?P<sep>[ \t]*:[ \t]*)(?!//)(?P<val>[^\r\n\"']+)")
+#: round 3: a key after ``/`` (``/token: v``) and a quoted value after an unquoted key (``{password: "S"}``, a JS
+#: object, a YAML mapping) are taken too
+COLON = re.compile(
+    rf"(?<![A-Za-z0-9_.@\-])(?P<key>{_KEY})(?P<sep>[ \t]*:[ \t]*)(?!//)"
+    r"(?P<val>\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|[^\r\n\"']+)"
+)
 HEADER = re.compile(
     r"(?im)(?<![A-Za-z0-9_\-])(?P<key>authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)"
     r"(?P<sep>[ \t]*:[ \t]*)(?P<val>[^\r\n\"']+)"
@@ -651,8 +661,18 @@ class Scrubber:
                     cand.append((k, line, plain))
         if not cand:
             return text
-        # the views, then the raw lines, each scrubbed as one text (H-76: one call, not one a line, for speed)
-        cleans = self._batch(self._view_rules, [p for _, _, p in cand])
+        # the views, then the raw lines, each scrubbed as one text (H-76: one call, not one a line, for speed); #1354
+        # round 3 (H2): a view is read from the raw line with its secrets masked first, so a mask only the raw line
+        # gets (a value an encoded separator cuts in the view) is not lost when the view is written instead
+        # where the raw line's secret rule cuts a value the view would have masked whole (``password=a&shy;b``: the
+        # raw value stops at ``&``), the plain view is kept: of the two views, the one that leaves less text is written
+        plains = self._batch(self._view_rules, [p for _, _, p in cand])
+        firsts = [(i, _decode(self.secrets(line))) for i, (_, line, plain) in enumerate(cand)]
+        firsts = [(i, f) for i, f in firsts if f != cand[i][2]]
+        cleans = list(plains)
+        for (i, _f), first in zip(firsts, self._batch(self._view_rules, [f for _, f in firsts]), strict=True):
+            if _unmasked(first) <= _unmasked(plains[i]):
+                cleans[i] = first
         changed = [
             (k, line, plain, clean) for (k, line, plain), clean in zip(cand, cleans, strict=True) if clean != plain
         ]
@@ -857,6 +877,15 @@ def _same_masks(raw_view: str, clean: str) -> bool:
     """Whether the raw line's scrub, decoded, is the decoded view's scrub: the same text and the same marks in the
     same places (one bundle's tags are the same for one token, so the marks are equal too). Linear in the line."""
     return raw_view == clean
+
+
+#: a mask the scrub writes (``[redacted]``, ``[pseudonym #abcde]``, ``[PHONE]``)
+_A_MASK = re.compile(r"\[[^\[\]\n]{1,40}\]")
+
+
+def _unmasked(text: str) -> int:
+    """How much of ``text`` no mask covers: of two views of one line, the one that leaves less is written."""
+    return len(_A_MASK.sub("", text))
 
 
 def _decode(line: str) -> str:

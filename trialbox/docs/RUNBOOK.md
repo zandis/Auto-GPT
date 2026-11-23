@@ -44,7 +44,7 @@ File: [runbook/04-troubleshooting.md](runbook/04-troubleshooting.md). Parts: [RU
 
 ## 5. Updates, backup, restore, secrets
 
-File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-restore-secrets.md). In it: [Secrets (D-128, D-138): the one place to rotate them](runbook/05-updates-backup-restore-secrets.md#secrets-d-128-d-138-the-one-place-to-rotate-them).
+File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-restore-secrets.md). In it: [The audit chain waits for a person](runbook/05-updates-backup-restore-secrets.md#the-audit-chain-waits-for-a-person), [Secrets (D-128, D-138): the one place to rotate them](runbook/05-updates-backup-restore-secrets.md#secrets-d-128-d-138-the-one-place-to-rotate-them).
 
 ## 6. Go-live acceptance
 
@@ -88,7 +88,7 @@ File: [runbook/15-operations-screens.md](runbook/15-operations-screens.md). In i
 
 ## 16. Box-install rehearsal: the gate before a site's IQ
 
-File: [runbook/16-box-install-rehearsal.md](runbook/16-box-install-rehearsal.md).
+File: [runbook/16-box-install-rehearsal.md](runbook/16-box-install-rehearsal.md). In it: [A rehearsal with the real model servers (H-89, D-1087)](runbook/16-box-install-rehearsal.md#a-rehearsal-with-the-real-model-servers-h-89-d-1087).
 
 ## 17. On a hospital platform
 

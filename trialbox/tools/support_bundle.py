@@ -671,6 +671,12 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
           say: Callable[[str], None] = print) -> Path:  # fmt: skip
     """Make the bundle in ``out_dir``; return its path. :class:`BundleRefused` when it would hold something it must
     not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written."""
+    try:  # R22-34 (D-1072): rc1 makes no support bundle on a PRODUCTION box (the box's deploy/.env; first, always)
+        from tb_common import rc1_refusals
+
+        rc1_refusals.check("support_exports", rc1_refusals.host_env(deploy))
+    except rc1_refusals.Rc1Refused as exc:
+        raise BundleRefused(exc.say()) from None
     try:
         return _build(deploy, out_dir, days=days, add=add, runner=runner, commands=commands, now=now, say=say)
     except bs.ScrubError as exc:

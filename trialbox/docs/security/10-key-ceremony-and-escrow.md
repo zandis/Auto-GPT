@@ -42,6 +42,19 @@ A **passphrase** KEK (`KEK_BACKEND=passphrase`) is for a proof of concept or a v
 (`TB_HOST_PROFILE=poc`). Its ceremony record is marked **not a site's key ceremony**; a site box is made again with
 the TPM or steward shares before real data.
 
+For a passphrase box, run `python -m tools.keys unseal` at a terminal and enter the current passphrase at the hidden prompt. To rotate it, then run `python -m tools.keys rotate-kek --backend passphrase` and enter the new passphrase twice.
+在終端執行上述 unseal 指令，依隱藏提示輸入目前密語。更換密語時再執行 rotate-kek，輸入新密語兩次。
+端末で上記の unseal を実行し、非表示のプロンプトに現在のパスフレーズを入力します。変更時は続けて rotate-kek を実行し、新しいパスフレーズを 2 回入力します。
+
+To rotate an already unsealed KEK with the new passphrase supplied in the command environment, type the new
+passphrase in your own Bash shell. Using `sudo VAR=value command` shows the value in the process list.
+
+```bash
+IFS= read -rs TB_KEK_NEW_PASSPHRASE; export TB_KEK_NEW_PASSPHRASE
+sudo --preserve-env=TB_KEK_NEW_PASSPHRASE env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase
+unset TB_KEK_NEW_PASSPHRASE
+```
+
 ## 4. The ceremony, in order
 
 1. Hospital IT makes the backup key pair and puts the private key in the sealed envelope at once:

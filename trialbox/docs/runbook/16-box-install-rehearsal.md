@@ -159,10 +159,19 @@ question, no first-run code and no wait. Use it for the hospital's own unattende
 - The plan is made from that file. The install then makes the first administrator as the IT form does: the password
   and enrolment code are printed once.
 - After the install it sets the host's time zone, installs the backup schedule and runs the host check.
-- A password or passphrase in the file is refused. On a board without a usable TPM, set `TB_KEK_PASSPHRASE` in the
-  command's environment; the site keys are sealed under it at the install.
+- A password or passphrase in the answers file is refused.
 - A file that does not parse changes nothing.
 - It cannot be combined with `--prepare`, `--rehearsal` or `--firstrun`.
+
+Without a usable TPM, set `bundle` to the signed bundle’s path. In your own Bash shell, type a passphrase
+of at least 12 characters when `read` waits, then press Enter.
+Using `sudo VAR=value command` shows the value in the process list.
+
+```bash
+IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+sudo --preserve-env=TB_KEK_PASSPHRASE deploy/box-install.sh "$bundle" --answers owner.json
+unset TB_KEK_PASSPHRASE
+```
 
 **The box's name (OPS-005):** a box named `<name>.local` answers that name on the clinic's network.
 - `hardening.conf` says `MDNS=on`, and the input firewall then lets mDNS (UDP 5353) in from the box's own network only.
@@ -186,3 +195,23 @@ driver and toolkit and the host's libraries from the offline media, not by hand.
 - `box-install.sh` on a machine without Docker says to run this step first.
 - The disk's unlock rule (HW-010) is not set here: it waits on the owner's decision. The run on a real bare box is
   T-213b's.
+
+## A rehearsal with the real model servers (H-89, D-1087)
+
+On a bench host whose cards and driver are not the rtxpro6000 profile's, the install walk can run the real model
+servers on one whole card, as a rehearsal box only (it says "rehearsal: driver below the minimum, not this profile's
+card, not valid for a site" and never starts as PRODUCTION). Reload the driver first (skip it when the driver was
+loaded just now and nothing has used the card since, as after a fresh boot), then, as root:
+
+    sudo install -d -m 0700 -o root -g root /var/lib/trialbox/rehearsal
+    sudo python3 tools/engine_probe.py run --gpu-index 1 --out /var/lib/trialbox/rehearsal/engine-probe.json
+    sudo deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu rtxpro6000 \
+        --gpu-index 1 --engine-probe /var/lib/trialbox/rehearsal/engine-probe.json --yes
+
+The probe file and its folder must be root's and writable by no one else; a probe of another card or host, older than
+7 days, or of another image is refused. The page: docs/handover/rehearsal-real-servers-h89-2026-11-22.md.
+
+Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled into deploy/.env):
+`--gpu rtxpro6000` (96 GB) or `--gpu rtx5090` (32 GB, a whole card), with `--gpu-index N` naming the card the probe was
+taken on. The 32 GB profile on a split card's slice, dgpu48, gb10 and the Windows (WSL2) host are not opened; the
+page says why.

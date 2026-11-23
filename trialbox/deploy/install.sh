@@ -7,6 +7,11 @@
 #        [--ssh-off-over-ssh]   (H-70: run over SSH, hardening.conf's SSH=off is refused unless this is given)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
+#   Without a TPM, set bundle and answers to their paths. In your own Bash shell (passphrase of at least 12 characters):
+#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+#   sudo --preserve-env=TB_KEK_PASSPHRASE TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers"
+#   unset TB_KEK_PASSPHRASE
+#   sudo VAR=value command shows the value in the process list.
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
 #   deploy/install.sh --ctgov-check                # only: which ClinicalTrials.gov mode would be suggested here?
 #
@@ -28,7 +33,8 @@
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
-#   4. start:     docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
+#   4. start:     down --remove-orphans after a failed run, only in this install's own project, never a healthy stack
+#                 docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
 #                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
 #                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
 #                 the egress refresh and watchdog timers; D-377)
@@ -65,7 +71,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ENVIRONMENT=""; SSH_OFF_OVER_SSH=0
+ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -80,7 +86,12 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
-    -h|--help) sed -n 2,40p "$0"; exit 0 ;;
+    # REHEARSAL-REAL-SERVERS (H-89): a rehearsal's only (refused below without --rehearsal)
+    --rehearsal-real-servers) REAL_SERVERS=1 ;;
+    --gpu-index) GPU_INDEX="$2"; shift ;;
+    --engine-probe) ENGINE_PROBE="$2"; shift ;;
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -121,6 +132,38 @@ case "$EARLY_ENV" in
   *) die "the environment '$EARLY_ENV' ($EARLY_FROM) is not DEV, TEST, VALIDATION or PRODUCTION: nothing was loaded or written" ;;
 esac
 # ---- end of ENV-EARLY
+# REHEARSAL-REAL-SERVERS (H-89): the real model servers on a rehearsal box whose card and driver are not the profile's
+# (the bench host: whole B200-class cards on a driver below gpu.driver_min). One explicit command line, never a
+# default or an environment variable:
+#   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000|rtx5090 --gpu-index N --engine-probe FILE
+# Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled down, D-1087)
+# Without --rehearsal each new option is refused here, before anything is checked or written; without the options
+# the three refusals (the driver, the card, the record) stand as before. tools/rehearsal_real.py decides each step;
+# the box says "rehearsal: driver below the minimum, not this profile's card, not valid for a site"
+if [ "$REHEARSAL" != 1 ]; then
+  [ "$REAL_SERVERS" = 0 ] || { echo "install: --rehearsal-real-servers is for a rehearsal box only: give --rehearsal too (nothing was checked or written)" >&2; exit 2; }
+  [ -z "$GPU_INDEX" ] || { echo "install: --gpu-index is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written" >&2; exit 2; }
+  [ -z "$ENGINE_PROBE" ] || { echo "install: --engine-probe is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written" >&2; exit 2; }
+elif [ "$REAL_SERVERS" != 1 ]; then
+  [ -z "$GPU_INDEX$ENGINE_PROBE" ] || { echo "install: --gpu-index and --engine-probe go with --rehearsal-real-servers; nothing was checked or written" >&2; exit 2; }
+else
+  [ "$GPU_SET" = 1 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)"
+  case "$GPU" in
+    rtxpro6000|rtx5090) ;;
+    dgpu48|gb10) die "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;
+    *) die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)" ;;
+  esac
+  [ -z "$TIER" ] || die "--rehearsal-real-servers is no tier install: drop --tier"
+  [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--rehearsal-real-servers needs the GPU: drop --mode $MODE"
+  case "$GPU_INDEX" in ""|*[!0-9]*) die "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all" ;; esac
+  [ -n "$ENGINE_PROBE" ] && [ -f "$ENGINE_PROBE" ] || die "--rehearsal-real-servers: --engine-probe FILE, the engine probe's result taken on that card (tools/engine_probe.py run), is missing"
+  ENGINE_PROBE="$(readlink -f "$ENGINE_PROBE")"
+  [ -z "${TB_COMPOSE_OVERRIDE:-}" ] || die "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE"
+  [ -z "$ENVIRONMENT" ] || [ "$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')" = VALIDATION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
+  command -v python3 >/dev/null || die "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
+  MODE=gpu
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
@@ -252,11 +295,27 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
 esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
+# REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
+# check, so a site box is refused before any allowance), and the one card named carries the pair. The GPU check then
+# runs under the mark: the driver below the minimum is a WARN only with a passed probe of this card, this driver and
+# the pinned image (tools/images_lock.py host --rehearsal-real-servers); anything else FAILs as before
+RRS_HOST=(); RRS_REC=""
+if [ "$REAL_SERVERS" = 1 ]; then
+  python3 -m tools.rehearsal_real box --deploy "$ROOT/deploy" || die "--rehearsal-real-servers: refused (above): nothing was loaded or written"
+  for f in "deploy/site/serving_config.$GPU.json" "deploy/measured/serving_config.$GPU.json"; do
+    [ -f "$f" ] && { RRS_REC="$f"; break; }
+  done
+  python3 -m tools.rehearsal_real card --profile "$GPU" --gpu-index "$GPU_INDEX" ${RRS_REC:+--record "$RRS_REC"} | sed 's/^/    /' \
+    || die "--rehearsal-real-servers: the card at index $GPU_INDEX cannot carry the pair (above): nothing was loaded or written"
+  RRS_HOST=(--rehearsal-real-servers --engine-probe "$ENGINE_PROBE" --gpu-index "$GPU_INDEX")
+  export TB_COMPOSE_OVERRIDE="$ROOT/deploy/site/rehearsal-real-servers.yml"
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # D-348: the vLLM image of deploy/images.lock must run here (its architecture, the driver its CUDA needs, the GPU's
 # compute capability), before anything is loaded: a CUDA 13 image on an older driver would only fail at start
 if [ "$MODE" = gpu ]; then
   if command -v python3 >/dev/null; then
-    sh "$ROOT/deploy/check_host.sh" --gpu-only --gpu "$GPU" 2>&1 | sed 's/^/    /' \
+    sh "$ROOT/deploy/check_host.sh" --gpu-only --gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"} 2>&1 | sed 's/^/    /' \
       || die "this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed"
   else
     echo "install: warning: no python3: the GPU host is not checked against deploy/images.lock" >&2
@@ -272,6 +331,19 @@ if [ -f "$BUNDLE.sha256" ]; then
 fi
 # ---- end of SIDECAR
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
+
+# INSTALL-LOCK (review 2 of #1305, M-2): one installer at a time on this folder, taken here, before the first thing is
+# written. A second run while one holds it refuses and changes or removes nothing: its project cleanup would take down
+# the first run's containers while they start. flock on the deploy folder itself, opened read-only: no lock file is
+# written, and the lock ends with the installer's process, so a killed run leaves none behind. The run from the signed
+# tree (exec below) keeps the lock it inherits on fd 9: it is not taken twice
+INSTALL_LOCK="$(readlink -f "$ROOT/deploy")"
+command -v flock >/dev/null || die "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed"
+if [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$INSTALL_LOCK" ]; then
+  exec 9<"$INSTALL_LOCK" || die "the deploy folder $INSTALL_LOCK cannot be opened for the install lock; nothing was changed"
+fi
+flock -n 9 || die "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed"
+# ---- end of INSTALL-LOCK
 
 # REHEARSAL (D-726): before anything loads
 # the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
@@ -304,6 +376,15 @@ elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_R
   die "this box was a rehearsal box (deploy/site/rehearsal.json or TB_REHEARSAL=1): run with --rehearsal, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
 fi
 # ---- end of REHEARSAL (D-726): before anything loads
+# REHEARSAL-REAL-SERVERS (H-89): after the mark, the box's record and compose file (deploy/site); a box that ran the
+# real servers as a rehearsal is re-run with the same options or emptied, never installed as anything else
+if [ "$REAL_SERVERS" = 1 ]; then
+  python3 -m tools.rehearsal_real write --deploy "$ROOT/deploy" --profile "$GPU" --gpu-index "$GPU_INDEX" --engine-probe "$ENGINE_PROBE" ${RRS_REC:+--record "$RRS_REC"} \
+    | sed 's/^/install: warning: /' >&2 || die "--rehearsal-real-servers: refused (above)"
+elif [ -f deploy/site/rehearsal-real-servers.json ] || [ -f deploy/site/rehearsal-real-servers.yml ]; then
+  die "this box ran the real model servers as a rehearsal (deploy/site/rehearsal-real-servers.json): run with --rehearsal --rehearsal-real-servers, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 
 # FINISH-EARLY (10K-4, D-1390): tools/trialbox/finish_check.py reads deploy/.env, the mount table and /sys and writes
 # nothing: exit 1 is a refusal (each line names the setting to change), any other code means it did not run. Here a
@@ -377,7 +458,17 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # deploy/install.sh is now a link into the signed tree (run by that path, so ROOT stays this folder)
   [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"
   say "continuing from the signed release ($ROOT/deploy/install.sh -> $(readlink "$ROOT/deploy/install.sh"))"
+  # REHEARSAL-REAL-SERVERS (H-89): the compose override this run exported (above) is never handed on: the run from
+  # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
+  [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
+  # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
+fi
+
+# Expose the signed host CLI on PATH. The link follows the release selected by an update or rollback.
+if [ "$(id -u)" = 0 ]; then
+  install -d /usr/local/bin
+  ln -sfnT "$ROOT/tools/trialbox/__main__.py" /usr/local/bin/trialbox
 fi
 
 # ------------------------------------------------------------------------------------------------ 3. settings
@@ -478,6 +569,18 @@ if [ "$REHEARSAL" = 1 ]; then
   sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=VALIDATION\nTB_REHEARSAL=1\n' >> deploy/.env
 fi
 # ---- end of REHEARSAL (D-726): the box says TEST
+# REHEARSAL-REAL-SERVERS (H-89): deploy/.env says the box ran the real servers (the console's banner, the start check)
+# and the profile's own memory cap on this card: its utilisations, scaled to its card's memory (the record's "caps")
+if [ "$REAL_SERVERS" = 1 ]; then
+  sed -i '/^TB_REHEARSAL_REAL_SERVERS=/d' deploy/.env && echo "TB_REHEARSAL_REAL_SERVERS=1" >> deploy/.env
+  python3 -c 'import json,sys; [print(f"{k}={v}") for k, v in sorted(json.load(open(sys.argv[1]))["caps"].items())]' \
+    deploy/site/rehearsal-real-servers.json > deploy/site/.rehearsal-caps || die "--rehearsal-real-servers: the record names no caps"
+  while IFS='=' read -r k v; do
+    sed -i "/^$k=/d" deploy/.env && echo "$k=$v" >> deploy/.env
+  done < deploy/site/.rehearsal-caps
+  rm -f deploy/site/.rehearsal-caps
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # ENVIRONMENT (D-837): --environment, or a TB_ENV written before the wizard rewrote deploy/.env; never changed
 # silently (a pre-written VALIDATION was lost and the D-127 default below made the box PRODUCTION)
 NOW_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
@@ -688,6 +791,13 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
     docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
       || die "$REC is not a measurement of the $GPU profile on its own card (see above)"
     echo "    $GPU profile measured: $REC"
+    # REHEARSAL-REAL-SERVERS (H-89): a record of another card, as TB_ACCEPT_UNMEASURED_GPU=1 for no record: a
+    # rehearsal box only (rehearsal_only), and it says so
+    if [ "$REAL_SERVERS" = 1 ]; then
+      rehearsal_only "--rehearsal-real-servers (the $GPU record is of another card)"
+      echo "install: warning: $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); c=d["card"]; print(d["words"] + ": the record " + sys.argv[2] + " was measured on " + c["profile_card"] + ", the servers run on card " + str(c["index"]) + ", " + c["found"])' deploy/site/rehearsal-real-servers.json "$REC")" >&2
+    fi
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   elif [ -z "$TIER" ] && [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
     rehearsal_only "TB_ACCEPT_UNMEASURED_GPU=1 (an unmeasured card's trial boot)"
     echo "install: warning: $GPU profile not yet measured on this card (TB_ACCEPT_UNMEASURED_GPU=1): capture deploy/site/serving_config.$GPU.json after the first boot (RUNBOOK §8)" >&2
@@ -823,6 +933,27 @@ if command -v python3 >/dev/null; then
 else
   echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
 fi
+# PROJECT-CLEANUP (F-19): after the release's checks above passed, before anything uses the project's network. Only a
+# project proven to be this install's (tools/trialbox/project_check.py) with a failed container (created, dead, exited
+# non-zero, unhealthy) is taken down, with the same overlays as up and every profile of an earlier attempt. A paused,
+# starting or exit-0 container is a working box's: kept. Refused while an update or the watchdog's maintenance flag is
+# there (review 2 of #1305, M-1). Anything else is refused or kept.
+if command -v python3 >/dev/null; then
+  CLEANUP="$(python3 -m tools.trialbox.project_check --deploy "$ROOT/deploy" -- "${COMPOSE[@]}" --profile '*')" \
+    || die "the project cleanup was refused (above): nothing was removed"
+else
+  CLEANUP=none
+  [ -z "${COMPOSE_PROJECT_NAME:-}" ] || [ "$COMPOSE_PROJECT_NAME" = trialbox ] \
+    || die "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME in this shell is not this install's project: unset it, then re-run"
+  echo "    note: no python3 on this host: the project is not proven to be this install's, so nothing is cleaned up" >&2
+fi
+if [ "$CLEANUP" = down ]; then
+(
+  COMPOSE+=(--profile '*')
+  "${COMPOSE[@]}" down --remove-orphans
+) || die "project cleanup failed / 專案清理失敗 / プロジェクトのクリーンアップに失敗しました"
+fi
+# ---- end of PROJECT-CLEANUP
 # T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
 # ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
 say "site keys (made once, never replaced)"
@@ -844,7 +975,7 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
-    || die "the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
+    || die "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
@@ -1123,7 +1254,7 @@ fi
 
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
-HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU")
+HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"})
 sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
@@ -1173,6 +1304,17 @@ cat <<EOT
   Known limit:        SCREEN of the whole hospital stops at about 45,000 patients (the orchestrator's memory cap,
                       TB_MEM_ORCH; lower on the two-device workstation): CHANGELOG.md, "Known limits"
 EOT
+# REHEARSAL-REAL-SERVERS (H-89): the summary says what the box is
+if [ "$REAL_SERVERS" = 1 ]; then
+  echo "  REHEARSAL BOX:      $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["words"])' deploy/site/rehearsal-real-servers.json)"
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
+# REHEARSAL-REAL-SERVERS (H-89): a rehearsal box's install is complete (no FAIL line remains): from here on the start
+# check reads a missing TB_ENV as PRODUCTION (tools/rehearsal_real.py COMPLETE). Only this line writes the file
+if [ "$REHEARSAL" = 1 ] && [ "${#FAILS[@]}" -eq 0 ]; then
+  printf '{"rehearsal_install_complete": true}\n' > deploy/site/rehearsal-install-complete.json
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 if [ "${#FAILS[@]}" -gt 0 ]; then
   printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
   exit 1

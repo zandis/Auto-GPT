@@ -24,6 +24,7 @@ from typing import Any
 from tb_common.authz import allowed, norm
 from tb_common.routing import RoutingViolation, check
 
+from orchestrator import reimbursement
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.scenarios.review import require_approved
@@ -167,6 +168,7 @@ def post_bundle(base_url: str, bundle_bytes: bytes, timeout: float = 120.0, tran
 
 
 def run(ctx: Ctx) -> Outcome:
+    reimbursement.require_open()  # card 9e-9: out of 1.0, a test box with the flag on only
     job = ctx.job
     ruleset = (job.ruleset or "").upper()
     opts = job.options or {}
