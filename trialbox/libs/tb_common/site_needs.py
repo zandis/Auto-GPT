@@ -22,7 +22,8 @@ answers stays with ``doctor``'s own checks.
 
 A value can be present and still be a stand-in, such as the first administrator's mail standing in for the trial
 office's mailbox (the integrator's ruling on #1417). The keys of such values are kept in :data:`STAND_INS`,
-``deploy/site/stand-ins.json`` (the integrator's go on #639, U5-2): keys only, never a value, mode 0600. The
+``deploy/site/needs/stand-ins.json`` (the integrator's go on #639, U5-2): keys only, never a value, mode 0600. Its
+folder holds nothing else, so the services mount it read-only at :data:`MOUNTED` and see a rewrite at once. The
 installer and the page's apply step write it (:func:`write_stand_ins`, :func:`mark`); ``doctor`` and the page read it
 (:func:`read_stand_ins`). It lives in ``deploy/site``, so the nightly backup's host part carries it.
 
@@ -40,7 +41,9 @@ from pathlib import Path
 from typing import Any
 
 LANGS = ("en", "ja", "zh-TW")
-STAND_INS = Path("site") / "stand-ins.json"  # under the deploy folder
+STAND_INS = Path("site") / "needs" / "stand-ins.json"  # under the deploy folder: a folder of its own, mounted read-only
+#: where a service reads it: the folder ``deploy/site/needs`` mounted read-only (the integrator's go on #639)
+MOUNTED = Path("/run/trialbox/needs")
 STAND_INS_FORMAT = "tb-stand-ins/1"
 STATES = ("missing", "unusable", "stand_in", "given")
 
@@ -474,20 +477,29 @@ def all_texts() -> Iterable[tuple[str, str, str]]:
 def read_stand_ins(deploy: Path) -> tuple[frozenset[str], list[str]]:
     """The keys marked as stand-ins, and what could not be read. Never raises: no file is no stand-in; a link, a file
     that is not this list's, or a key the list does not know is named in the second part and left out."""
-    path = deploy / STAND_INS
+    return _read(deploy / STAND_INS, str(STAND_INS))
+
+
+def read_mounted_stand_ins(folder: Path | None = None) -> frozenset[str]:
+    """In a service: the keys marked as stand-ins in the read-only mount (:data:`MOUNTED`). No mount, or a list that
+    cannot be read, is no stand-in here; the host's ``doctor`` names a list it cannot read."""
+    return _read((folder or MOUNTED) / STAND_INS.name, STAND_INS.name)[0]
+
+
+def _read(path: Path, label: str) -> tuple[frozenset[str], list[str]]:
     if path.is_symlink():
-        return frozenset(), [f"{STAND_INS} is a link: not read"]
+        return frozenset(), [f"{label} is a link: not read"]
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return frozenset(), []
     except (OSError, ValueError) as e:
-        return frozenset(), [f"{STAND_INS} cannot be read ({type(e).__name__})"]
+        return frozenset(), [f"{label} cannot be read ({type(e).__name__})"]
     if not isinstance(data, dict) or data.get("format") != STAND_INS_FORMAT or not isinstance(data.get("keys"), list):
-        return frozenset(), [f"{STAND_INS} is not a stand-ins list ({STAND_INS_FORMAT})"]
+        return frozenset(), [f"{label} is not a stand-ins list ({STAND_INS_FORMAT})"]
     keys = [k for k in data["keys"] if isinstance(k, str)]
     unknown = sorted(k for k in keys if k not in BY_KEY)
-    problems = [f"{STAND_INS} names an item the list does not know: {k}" for k in unknown]
+    problems = [f"{label} names an item the list does not know: {k}" for k in unknown]
     return frozenset(k for k in keys if k in BY_KEY), problems
 
 

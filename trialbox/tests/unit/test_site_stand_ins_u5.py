@@ -1,4 +1,4 @@
-"""U5-2 (card U-5, the integrator's go on #639): ``deploy/site/stand-ins.json``, the keys of the values the box put in
+"""U5-2 (card U-5, the integrator's go on #639): ``deploy/site/needs/stand-ins.json``, the keys of the values the box put in
 place of the hospital's own (``tb_common.site_needs``: ``read_stand_ins``, ``write_stand_ins``, ``mark``).
 
 Keys only, never a value; mode 0600; a link is refused when written and not read; a key the list does not know is
@@ -39,7 +39,7 @@ def test_a_key_the_list_does_not_know_is_refused_and_nothing_is_written(tmp_path
 def test_a_link_in_its_place_is_refused_and_not_read(tmp_path: Path) -> None:
     elsewhere = tmp_path / "elsewhere.json"
     elsewhere.write_text(json.dumps({"format": site_needs.STAND_INS_FORMAT, "keys": ["site_name"]}))
-    (tmp_path / "site").mkdir()
+    (tmp_path / STAND_INS).parent.mkdir(parents=True)
     (tmp_path / STAND_INS).symlink_to(elsewhere)
     keys, problems = read_stand_ins(tmp_path)
     assert keys == frozenset() and problems and "link" in problems[0]
@@ -53,14 +53,14 @@ def test_a_link_in_its_place_is_refused_and_not_read(tmp_path: Path) -> None:
     ["not json", json.dumps(["site_name"]), json.dumps({"format": "other/1", "keys": ["site_name"]})],
 )
 def test_a_file_that_is_not_the_list_reads_as_none_and_says_so(tmp_path: Path, body: str) -> None:
-    (tmp_path / "site").mkdir()
+    (tmp_path / STAND_INS).parent.mkdir(parents=True)
     (tmp_path / STAND_INS).write_text(body)
     keys, problems = read_stand_ins(tmp_path)
     assert keys == frozenset() and len(problems) == 1
 
 
 def test_an_unknown_key_in_the_file_is_named_and_left_out(tmp_path: Path) -> None:
-    (tmp_path / "site").mkdir()
+    (tmp_path / STAND_INS).parent.mkdir(parents=True)
     (tmp_path / STAND_INS).write_text(
         json.dumps({"format": site_needs.STAND_INS_FORMAT, "keys": ["site_name", "made_up"]})
     )

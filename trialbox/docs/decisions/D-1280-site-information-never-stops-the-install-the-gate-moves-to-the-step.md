@@ -37,9 +37,11 @@
    - **unusable**: given, but the step's own check cannot use it, with the reason;
    - **stand-in**: the box put a value in its place;
    - **given**.
-5. **Stand-ins.** The keys of the values the box put in place are kept in `deploy/site/stand-ins.json`: keys only,
-   mode 0600, never followed through a link (U5-2a). The installer and the page's apply step write it. `doctor` and
-   the page read it. The nightly backup's host part carries it.
+5. **Stand-ins.** The keys of the values the box put in place are kept in `deploy/site/needs/stand-ins.json`: keys
+   only, mode 0600, never followed through a link (U5-2a). The installer and the page's apply step write it. `doctor`
+   and the page read it. The nightly backup's host part carries it. Its folder holds nothing else: the console,
+   orchestrator, adapter and mail gateway mount it read-only at `/run/trialbox/needs`, so a rewrite is seen without a
+   restart (the integrator's go on #639; the compose change comes after V-18's).
    - The trial office's mailbox stands in as the first administrator's mail.
    - The hospital's name stands in as a marked name.
    - The chart-number rule stands in as the form read from the first records, until it is confirmed.
