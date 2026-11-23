@@ -279,7 +279,7 @@ install)
   [ -f "$KEK_PASS" ] && [ "$(stat -c %a "$KEK_PASS")" = 600 ] || fail "--keep-kek-passphrase-file did not keep the file"
   no_passphrase_left "$KEK_PASS"
   ok "first install through the signed re-run: sealed from --kek-passphrase-file, the file kept as asked"
-  # H-94: the rehearsal box is a PoC box, where a stop that is not one of the four warns and is listed; the
+  # H-94: the rehearsal box is a PoC box, where a stop that is not one of the five warns and is listed; the
   # rehearsal's own install must list nothing (as before, when each of them stopped it)
   [ ! -s deploy/site/poc-stops.jsonl ] || { cat deploy/site/poc-stops.jsonl; fail "the install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"

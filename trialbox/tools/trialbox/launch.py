@@ -169,17 +169,19 @@ def box_file(deploy: Path = DEPLOY) -> dict[str, str]:
     try:
         st = os.stat(path)
     except OSError as e:
-        raise BoxFileError(f"{path} cannot be read ({e.strerror}): nothing was run") from None
+        raise BoxFileError(f"{path} cannot be read ({e.strerror}): nothing was run") from None  # H-94 (3)
     if not stat.S_ISREG(st.st_mode):
-        raise BoxFileError(f"{path} is not a file: nothing was run")
+        raise BoxFileError(f"{path} is not a file: nothing was run")  # H-94 (3): a box that cannot be told
     if st.st_uid not in (0, os.geteuid()):
-        raise BoxFileError(f"{path} belongs to uid {st.st_uid}, neither root nor this user: nothing was run")
+        raise BoxFileError(  # H-94 (5): the box's secrets in a file another user owns
+            f"{path} belongs to uid {st.st_uid}, neither root nor this user: nothing was run"
+        )
     if st.st_mode & 0o022:
-        raise BoxFileError(f"{path} can be written by group or others (chmod 600 it): nothing was run")
+        raise BoxFileError(f"{path} can be written by group or others (chmod 600 it): nothing was run")  # H-94 (5)
     try:
         path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        raise BoxFileError(f"{path} cannot be read ({type(e).__name__}): nothing was run") from None
+        raise BoxFileError(f"{path} cannot be read ({type(e).__name__}): nothing was run") from None  # H-94 (3)
     return env_file(path)
 
 
