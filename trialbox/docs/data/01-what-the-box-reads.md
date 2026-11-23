@@ -52,7 +52,8 @@ Each row says what is read and what is not; "Partly" means only what the row lis
 | OMP-01, 02 | Partly | Every RXE of the message: ORC-1 (CA, OC, CR cancel; DC, OD, DR stop; HD, OH hold; NW, XO, SC, RE, OK, SN leave the status to ORC-5; any other, or none, is unknown, never active), ORC-2, 4, 5, 9; RXE-2, RXE-3 (one dose), RXE-5, RXE-31 (YJ); TQ1-3 (用法), TQ1-7/8, only when its ORC group holds one RXE and one TQ1; the daily dose only from the site's `usage.csv` or a text that is exactly "1日N回" with meal times. An order is keyed by the file's order number (with ORC-2 added when it says something else; ORC-2 alone under "ALL9"; neither: the message is set aside); in a message of several lines, each line by that key, Rp number (ORC-4) and drug code (RXE-2), and a line no newer version holds is deleted (one file is one order, 構築ガイドライン 3.1.2 (2)). An order number filed on several days (any flag): each day is its own record, keyed `<number>@<day>` from the first night, and the plain key is tombstoned; a delete deletes only its own day. **The reader's own caution, not the guideline's rule** (D-1252 P6): a day whose number another day holds with a newer file is read as unknown | JAMI 標準用法 codes are not decoded; RXE-12 refills; any other usage wording gives no daily dose |
 | OMP-11, 12 | Partly | ORC-2, 5, 9; RXA-3/4, RXA-5, RXA-6/7 (the amount given); an administration fills the one line of its order that holds its drug, else it is a row of its own | Other RXA fields |
 | OML-11 | Partly | OBX-2, 3, 5, 6, 7, 8, 11, 14, 21; OBR-2/3, 7; SPM-4, 17 | Microbiology shape untested (10B-9) |
-| OML-01, OMG-01/02/03/11/12/13, OMD | Not | – | 10B-9, 10B-10 |
+| OMG-11, 12 | Partly (SDR2, lane M) | One done examination (radiology, endoscopy) as a procedure: ORC-1 `SC` and ZE1-2 実施 only (any other is counted, not read); ORC-2 (or the file's order number, or OBR-2) as the key, by the OMP record and version rules; OBR-4 code, text and coding system (`order_code_system`); OBR-7 the date. A record with no version in force is read with status `unknown`: the lake keeps it undated, so a procedure criterion on it reads unknown, never true (D-1271) | IPC, the other OBR and ZE1 fields, OMG-13; the JP mapping writes the code under the system OBR-4.3 names (JJ1017, else the hospital's own), never as an NHI order code |
+| OML-01, OMG-01/02/03/13, OMD | Not | – | 10B-9, 10B-10 |
 | Extended storage | Partly | Content folders (versioned and flagged by name; on an equal 発生日時 a deletion wins; symbolic links, hidden names and backup copies such as `.bak` not read), the LOINC code of a CWE data-type folder (`jp_core/document_loinc.csv`, each `verify`), the older layout; text, HTML/XML (tags dropped), Word, PDF with text | `_contents.xml`; CDA sections (HS032, HS008) |
 | Character sets, dates | Partly | ISO-2022-JP (SO/SI katakana; a set left open at a segment end is set aside), UTF-8, EUC-JP and Shift_JIS as above; declared separators, `\.br\`, `\Xhh\`; `""` read as empty; impossible and era dates counted; a time part of another length counted and not read; a leap second counted as not a time of day; a time with an offset converted to the site's zone (`TB_TZ`); an offset beyond ±14:00 sets its message aside | With no site zone a time with an offset keeps only its day |
 
@@ -106,8 +107,8 @@ pins any of it as right:
 標準化ストレージ 仕様書 Ver.1.2j with its コード表 (日本医療情報学会, 2026-08-14, https://www.jami.jp/jamistd/ss-mix2/);
 ICD10対応標準病名マスター Ver.5.18 仕様書 (MEDIS-DC, 2026-06, https://www2.medis.or.jp/stdcd/byomei/spc518.pdf).
 
-Count: of the 26 types, **0 read in full**, **10 partly** (ADT-00, 12, 22, 52, PPR-01, OMP-01, 02, 11, 12, OML-11),
-**16 not**.
+Count: of the 26 types, **0 read in full**, **12 partly** (ADT-00, 12, 22, 52, PPR-01, OMP-01, 02, 11, 12, OML-11,
+OMG-11, 12), **14 not**.
 
 **Code lists.** ICD-10-CM 2026 in full (98,186 codes, public domain) for lookups and family groupers. The licensed
 Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files
