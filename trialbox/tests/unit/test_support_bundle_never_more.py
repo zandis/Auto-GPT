@@ -1,0 +1,243 @@
+"""#1354 round 3, the invariant: never more secret lines than master's scrub on the same corpus.
+
+A seeded corpus of lines that each hold one planted secret value, in the forms a log writes a secret (key and value,
+JSON, an unquoted key in a JS or YAML object, a query, a flag, a key after ``/``), with encodings around it and an
+identifier after it (a phone, a screening number, a Taiwan ID, a pseudonym), as the integrator's reviewer generated
+them. Each line goes through the bundle's path for a text member: ``scrub_text``, then ``redact_secrets``. A line
+"leaves a secret" when its value is still in the output, as written or decoded.
+
+``MASTER_LEAKS`` are the lines master 57aeb293 leaves (computed once with master's own ``tools/bundle_scrub.py`` on
+this corpus and frozen here): this head may leave only lines that master leaves too, never another one; and the
+probes of the re-read (comment 7080678995) and of the bench (7082804302) leave nothing. Synthetic values only."""
+
+from __future__ import annotations
+
+import random
+import urllib.parse
+
+import pytest
+
+from tools import bundle_scrub as bs
+from tools import support_bundle as sb
+
+N = 4000
+KEYS = ["password", "token", "api_key", "secret", "passwd", "access_token", "PASSWORD", "Token", "client_secret"]
+FORMS = [
+    "{k}={v}", "{k}: {v}", '"{k}": "{v}"', '{{{k}: "{v}"}}', "{{{k}: '{v}'}}", "{{{k}:\"{v}\"}}", "/{k}: {v}",
+    "?{k}={v}&x=1", "--{k} {v}", '{k} = "{v}"', "const {k} = '{v}';", "  {k}: \"{v}\"",
+]  # fmt: skip
+NOISE = ["", " 03-1234-5678", " RA01-0042", " A123456789", " user=amy", " 0912-345-678", " {pid}"]
+#: the probes, at the corpus's first lines: the re-read's two (H2) and the bench's unquoted key and its neighbours
+PROBES = [
+    ("/token: fgc3ghhd1g33 03-1234-5678", "fgc3ghhd1g33"),
+    ("%2Fapi%2Fx \\x2fpassword: Zq7xW9pL2mN4vB8k 03-1234-5678", "Zq7xW9pL2mN4vB8k"),
+    ('{password: "Sq7vX2mK9pL4"}', "Sq7vX2mK9pL4"),
+    ("{password: 'Sq7vX2mK9pL5'}", "Sq7vX2mK9pL5"),
+    ('{password:"Sq7vX2mK9pL6"}', "Sq7vX2mK9pL6"),
+    ('{Token: "Sq7vX2mK9pL7", user: "amy"}', "Sq7vX2mK9pL7"),
+    ('const PASSWORD = "Sq7vX2mK9pL8";', "Sq7vX2mK9pL8"),
+    ("cfg = {api_key: 'Sq7vX2mK9pL9'}", "Sq7vX2mK9pL9"),
+]
+
+
+def _wrap(line: str, rng: random.Random) -> str:
+    how = rng.randrange(6)
+    if how == 1:
+        return "%2Fapi%2Fx " + line
+    if how == 2:
+        return line.replace("/", "\\x2f", 1) if "/" in line else "\\x2f" + line
+    if how == 3:
+        return "next=" + urllib.parse.quote(line, safe="")
+    if how == 4:
+        return "back=%252F" + line
+    if how == 5:
+        return "GET /p/%2F" + line.replace(" ", "%20") + " 200"
+    return line
+
+
+def corpus() -> list[tuple[str, str]]:
+    """(line, planted value): the probes, then lines drawn from a fixed seed."""
+    rng = random.Random("#1354 round 3 never more secret lines than master")
+    out = list(PROBES)
+    while len(out) < N:
+        value = rng.choice("BCDFGHJKLMNPQRSTVWXZ") + "".join(
+            rng.choice("bcdfghjkmnpqrstvwxz23456789") for _ in range(13)
+        )
+        line = rng.choice(FORMS).format(k=rng.choice(KEYS), v=value)
+        noise = rng.choice(NOISE).format(pid=rng.getrandbits(128).to_bytes(16, "big").hex())
+        out.append((_wrap(line + noise, rng), value))
+    return out
+
+
+def leaks() -> list[int]:
+    """The corpus lines whose planted value is still in the bundle's output, as written or decoded."""
+    left = []
+    for i, (line, value) in enumerate(corpus()):
+        out, _ = sb.redact_secrets(bs.scrub_text(line))
+        seen = (out + "\n" + bs._decode(out)).lower()
+        if value.lower() in seen:
+            left.append(i)
+    return left
+
+
+#: the lines master 57aeb293 leaves on this corpus (its own ``bundle_scrub.py``; 1,638 of 4,000), as ranges
+MASTER_LEAKS_TEXT = (
+    "0,2-5,7,9-10,15-16,18,21-22,24-25,29,33-35,41,45,47-53,55,62-63,66,73,79,89,91-92,96,98-99,102,106,108-109,"
+    "114,117,119,126,130-132,134,136-137,139-140,143,145,147-148,150,153-154,157,160,162-163,168-169,173,175,177,"
+    "179,185,188,190,192-193,196-197,210,217-218,220,222,226,230,233,241-242,245-247,251,253,255,257,259,261,265,"
+    "271-272,277,281,283,288,290,294,296,298,301,305-306,308,310,312,318,324-325,328,330-332,334,336-338,340,"
+    "342-345,349,354,357,362,366-367,371,379,381,383-384,386,393-394,399,401-402,404-407,411-412,417-418,420-422,"
+    "425,428,432,434,436,441-444,447,449-450,453,455,457,460,462-463,466-468,470-472,479,482,488,491-493,495-497,"
+    "499-500,502-503,507,510,512,515-516,521-522,527,531,533,542,544,548,550,554,556,560,562-566,570-572,575-576,"
+    "579,582-583,586,588,591,593,595-596,599,604,617,619,621,628,632,635,637,639,643,647,649,651,653-654,656-659,"
+    "661,663-665,670,673,676,684,694-696,698,700-702,706,708,712-713,716-717,722,724-725,727,730-731,735,738-740,"
+    "742,744-745,748-751,753,755-756,759-760,764-765,769-770,772-776,779,781-783,788-790,794,799-801,808-809,"
+    "811-813,815-816,821,826,828-829,831,840,842-843,845,847-849,852-853,855-856,858-861,864,866-868,870,874,876,"
+    "879-880,883-884,887,890-891,893,900-903,906-907,916,918,921,925,927-928,936,938-939,944-945,950,952-954,958,"
+    "962-966,969,971-972,981-982,984-988,990,994,996-998,1002-1003,1007-1012,1016-1018,1020-1022,1024,1029-1030,"
+    "1033,1037-1039,1041,1045,1049-1052,1058-1059,1061-1062,1065-1067,1070,1073-1075,1078,1082-1084,1089,"
+    "1091-1093,1095,1098-1101,1103,1105,1110-1111,1113,1124,1129,1134,1136-1139,1145,1148,1150,1152,1154-1156,"
+    "1159-1161,1163-1166,1170-1171,1176,1179-1180,1185,1188-1189,1192,1195-1196,1198,1200,1204-1205,1211,1215,"
+    "1218-1221,1228,1233-1234,1236,1238,1240,1242-1243,1245,1249-1250,1252,1254,1256,1258,1260,1268-1269,"
+    "1275-1276,1280-1283,1285,1290,1292-1293,1297,1300,1302-1303,1306,1311,1313-1314,1317,1319,1325,1327,1334,"
+    "1336-1337,1343-1344,1349,1352,1359-1360,1364,1366,1371,1373,1375-1376,1384,1386-1387,1389,1391,1395-1397,"
+    "1399,1402,1410,1412,1415,1418-1419,1421-1422,1426,1428-1430,1433,1441-1443,1445-1446,1450,1453-1460,1462,"
+    "1464,1466,1468-1469,1472,1475-1477,1481-1485,1488,1492,1494-1495,1497,1504,1506-1507,1509,1522-1525,"
+    "1529-1531,1540,1543,1547,1553,1555,1558-1561,1565,1567-1568,1570-1572,1574-1575,1577,1580,1583,1589,1592,"
+    "1594,1596,1599-1602,1605,1610,1614-1615,1617-1619,1623,1627,1630-1631,1636,1641,1643-1646,1648,1652,"
+    "1654-1655,1657,1659-1660,1662-1663,1670,1672,1674,1676,1678,1684,1686,1688-1689,1692-1693,1697-1698,"
+    "1700-1702,1704-1705,1707,1710,1715-1719,1723-1726,1728-1729,1731-1733,1741,1743-1744,1749-1750,1753-1759,"
+    "1761,1765,1767,1769,1771,1773-1774,1776-1777,1779,1781,1783,1786,1790,1792,1797,1801-1802,1805,1808,"
+    "1810-1811,1813-1814,1817,1819,1822-1823,1825,1827-1828,1836,1838-1839,1842-1843,1845-1846,1848,1850-1851,"
+    "1855-1858,1860,1862,1864,1866,1869,1871-1872,1874,1877,1882-1883,1885,1891,1893-1894,1898,1900-1901,"
+    "1906-1907,1910-1911,1915,1917,1930,1934,1941,1943,1947-1948,1952-1954,1957,1959,1961,1963,1965,1967,1969,"
+    "1972,1977,1979-1981,1983,1989-1993,1995-2000,2002-2003,2005,2007-2008,2012-2013,2022-2024,2029,2034,"
+    "2038-2040,2043,2045-2046,2048,2050-2052,2055,2058,2060,2062,2064,2066,2069,2071,2075-2076,2078-2079,"
+    "2081-2082,2084,2086,2088,2090,2094,2097,2099,2101-2103,2107,2109-2110,2118,2121-2124,2128,2130,2133,"
+    "2135-2137,2142-2144,2146-2147,2153-2155,2157,2161,2165,2174,2176,2181-2182,2184,2189,2194,2197,2199,"
+    "2202-2203,2205,2209-2210,2218,2226-2227,2231-2233,2238,2240-2241,2244-2246,2253,2256,2259,2263-2264,2267,"
+    "2270-2271,2273,2279,2281-2284,2292,2294-2295,2300-2301,2303-2305,2308,2310,2313,2319,2321,2325-2326,"
+    "2329-2330,2334-2336,2340,2348,2351,2353,2356,2358,2360-2361,2363-2364,2366,2368-2369,2374-2376,2380,2385,"
+    "2387,2389-2390,2392,2394,2400,2402-2404,2407,2409,2411,2416,2419,2423,2429,2432,2436,2444-2445,2450-2451,"
+    "2456,2460,2463-2466,2468-2469,2472,2474-2475,2484-2485,2487-2489,2492,2494,2496,2498,2504,2508,2513-2515,"
+    "2519,2523,2525-2526,2528-2529,2531-2532,2535-2536,2539,2542,2546,2548,2551,2555-2558,2565,2567,2570-2572,"
+    "2574,2576,2578,2580,2582,2587-2589,2591,2594-2597,2603,2605,2607-2609,2611,2613,2615,2618,2620-2622,"
+    "2626-2627,2632,2634-2636,2638-2639,2642,2647-2649,2653,2655,2660-2663,2665-2666,2668,2673-2677,2680-2681,"
+    "2685,2691-2692,2694,2699-2701,2706,2708,2715,2720-2724,2726-2727,2732-2733,2735-2736,2738,2748-2749,"
+    "2751-2753,2755,2760,2762-2764,2769,2771-2774,2776,2778,2780,2784,2786-2787,2792,2794,2796-2797,2799-2801,"
+    "2807-2808,2810,2812,2816-2817,2819,2823,2825-2826,2833,2843-2844,2854-2855,2858-2859,2862,2864-2865,2867,"
+    "2870-2872,2876-2877,2879,2881,2883,2887,2889-2891,2894,2898-2899,2901,2907-2910,2912,2919,2921,2924,"
+    "2926-2928,2930,2934,2936,2938,2944,2948-2949,2954,2956,2958,2961,2964-2966,2968,2978,2983,2987,2989,2991,"
+    "2995-2996,2999,3001-3002,3004-3006,3011-3013,3017,3019,3024-3027,3029,3033,3035,3037-3038,3040,3043,3045,"
+    "3048,3050,3053,3057-3059,3061-3062,3064,3066,3068,3070-3071,3074-3077,3079,3088,3092-3093,3097-3101,3103,"
+    "3106,3111,3119-3123,3125-3126,3133,3135,3139-3140,3142,3146,3150,3152,3154,3158-3161,3164-3166,3172,"
+    "3176-3179,3182-3184,3193-3194,3206-3207,3209,3212,3216-3217,3219-3221,3223,3225,3230,3233-3234,3236,"
+    "3238-3239,3242-3245,3247,3254-3256,3259,3262-3263,3268,3271,3274-3275,3278,3281-3282,3284,3286,3290-3292,"
+    "3297-3298,3300,3308,3310,3313-3315,3322,3325,3328,3331,3333-3334,3337-3338,3342,3347-3350,3352,3354-3355,"
+    "3358,3360,3362-3365,3368,3373-3374,3376,3382-3383,3385-3386,3390,3392,3395-3396,3398,3400-3401,3404-3407,"
+    "3410,3414,3416-3417,3422,3426,3428-3429,3431-3432,3434,3436-3438,3443-3444,3446,3449,3451,3453,3455,"
+    "3458-3459,3461-3462,3465-3466,3469,3471,3473,3477,3480,3484-3488,3491-3492,3498,3500,3503-3504,3506,"
+    "3512-3514,3517,3523,3526,3528,3530-3531,3533,3536-3537,3539-3541,3545-3548,3550,3552,3558-3559,3563,"
+    "3567-3571,3573,3576,3580-3582,3585,3587,3589,3592,3595,3599,3603,3605,3607-3608,3614,3620,3625-3626,"
+    "3628-3630,3632,3634-3635,3637,3641-3644,3648,3651,3654-3655,3658,3660,3666,3674,3676-3677,3680,3682,3685,"
+    "3687,3689-3690,3694,3701,3703,3706,3710,3713,3717,3721-3722,3725-3726,3728-3730,3732,3734-3735,3738,"
+    "3740-3742,3745,3749,3751,3753,3755,3758-3763,3767-3768,3773-3774,3776-3778,3780-3781,3784,3786,3790,3794,"
+    "3799,3802,3807-3809,3811,3816,3824,3827-3828,3832-3833,3836,3842,3846,3848,3851-3855,3857,3865,3869,"
+    "3872-3873,3875,3877-3878,3882-3884,3886,3888,3891,3896,3898,3901,3903-3906,3908-3910,3912,3914,3916,3920,"
+    "3925,3929-3930,3932-3933,3935,3938-3939,3942-3945,3947,3949,3952-3953,3955,3958,3962-3964,3966-3968,"
+    "3974-3977,3980-3981,3985,3989-3990,3992-3994,3997,"
+)
+
+
+def _ranges(text: str) -> frozenset[int]:
+    out: set[int] = set()
+    for part in filter(None, text.split(",")):
+        a, _, b = part.partition("-")
+        out |= set(range(int(a), int(b or a) + 1))
+    return frozenset(out)
+
+
+MASTER_LEAKS = _ranges(MASTER_LEAKS_TEXT)
+
+
+def test_the_frozen_master_set_is_this_corpus() -> None:
+    assert len(MASTER_LEAKS) == 1638 and max(MASTER_LEAKS) < N
+
+
+def test_never_more_secret_lines_than_masters_scrub_on_the_same_corpus() -> None:
+    here = set(leaks())
+    more = sorted(here - MASTER_LEAKS)
+    assert more == [], (
+        f"{len(more)} lines leave a secret that master's scrub masks, e.g. {[corpus()[i][0] for i in more[:3]]}"
+    )
+    assert len(here) <= len(MASTER_LEAKS)
+
+
+def test_the_probes_of_the_re_read_and_the_bench_leave_nothing() -> None:
+    assert [i for i in leaks() if i < len(PROBES)] == []
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        '{{pAssWord: "{v}"}}', "{{ToKeN: '{v}'}}", '{{Api_Key:"{v}"}}', "{{password= '{v}'}}", '{{ ACCESS_TOKEN : "{v}" }}',
+        '<script>var cfg={{Secret:"{v}"}}</script>', '- pASSwd: "{v}"', "cLiEnT_sEcReT: {v}", "dbPassWord={v}",
+    ],
+)  # fmt: skip
+def test_an_unquoted_key_s_neighbours_leave_nothing(form: str) -> None:
+    """The bench's probe's neighbours: single quotes, no space, ``=``, a JS object in a page, a YAML item, and a
+    secret's name under any case (the camel-case split read ``pAssWord`` as three words)."""
+    value = "Hq4mT8xR2wK6"
+    out, _ = sb.redact_secrets(bs.scrub_text(form.format(v=value)))
+    assert value not in out + "\n" + bs._decode(out), out
+
+
+#: #1354 round 4: the forms of the 108 corpus lines this head still left after round 3 (one form, both quotes: an
+#: unquoted key, then an encoded space, then the quoted value, ``GET /p/%2F{k:%20"v"}``; 54 + 54 lines), and the
+#: neighbours of that encoded space (a form's ``+``, a tab, ``\x20``, ``&#32;``, `` ``, two of them)
+SPACES = ["%20", "+", "%09", "\\x20", "&#32;", "\\u0020", "%20%20", "%20+"]
+QUOTES = ['"', "'"]
+AROUND = ["GET /p/%2F{line} 200", "GET /p/%2F{line}%20A123456789 200", "{line}", "x=1 {line} y=2", "?q={line}&a=1"]
+
+
+@pytest.mark.parametrize("space", SPACES)
+@pytest.mark.parametrize("quote", QUOTES)
+@pytest.mark.parametrize("around", AROUND)
+def test_none_of_the_forms_the_corpus_still_left_passes(space: str, quote: str, around: str) -> None:
+    """Each form of the lines round 3 left (an encoded space between an unquoted key's colon and its quoted value),
+    with every key of the corpus, leaves nothing; the bundle's path: ``scrub_text``, then ``redact_secrets``."""
+    for k, key in enumerate(KEYS):
+        value = f"Wq3bKmZt9x{k:02d}"
+        line = around.format(line=f"{{{key}:{space}{quote}{value}{quote}}}")
+        out, _ = sb.redact_secrets(bs.scrub_text(line))
+        assert value not in out + "\n" + bs._decode(out), (line, out)
+
+
+def test_the_corpus_leaves_no_line_at_all() -> None:
+    """Round 4: of the 4,000 lines, none leaves its value (round 3 left 108, master leaves 1,638)."""
+    assert leaks() == []
+
+
+@pytest.mark.parametrize(
+    ("line", "written"),
+    [
+        ('GET /p/{password:+"Wq3bKmZt9x"} 200', 'GET /p/{password:+"[redacted]"} 200'),
+        ("GET /p/{token:+'Wq3bKmZt9x'} 200", "GET /p/{token:+'[redacted]'} 200"),
+        ('GET /p/%2F{password:%20"Wq3bKmZt9x"} 200', 'GET /p/%2F{password:%20"[redacted]"} 200'),
+        ('{api_key:%20+"Wq3bKmZt9x"} ok', '{api_key:%20+"[redacted]"} ok'),
+        ('{password: "Wq3bKmZt9x"} ok', '{password: "[redacted]"} ok'),
+    ],
+)
+def test_the_encoded_space_and_the_quotes_stay_where_they_were(line: str, written: str) -> None:
+    """Round 4: only the value is masked; the encoded space before it and its quotes stay, and what follows the
+    value on the line (``} 200``) is not taken with it."""
+    assert bs.Scrubber.for_bundle().text(line) == written
+
+
+@pytest.mark.parametrize(
+    "line", ['{password: "[redacted]"}', "{token:+'[redacted]'}", 'GET /p/{password:%20"[redacted]"}']
+)
+def test_a_value_masked_already_is_not_masked_or_counted_again(line: str) -> None:
+    s = bs.Scrubber.for_bundle()
+    assert s.text(line) == line
+    assert not any(n for k, n in s.found.items() if k.startswith("secret")), dict(s.found)

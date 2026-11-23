@@ -31,12 +31,14 @@ Effect = Literal["keeps", "review", "excludes"]
 INFERRED_REASON = "inferred: the quote does not state the condition; review"
 #: the reason of an inclusion "not met" from the notes (R22-17, D-1069)
 INCLUSION_REASON = "not_met (from the notes, an inclusion: review, not exclusion)"
+#: the reason of a renewal or documentation criterion "not met" from the notes (D-1069, #639 7107834329 L2)
+OTHER_KIND_REASON = "not_met (from the notes, a renewal or documentation criterion: review, not exclusion)"
 
 
 @dataclass(frozen=True)
 class NoteEffect:
     """What one note answer may do, and the reason when it is review. ``reading_stands``: a review whose reading
-    is not in doubt (an inclusion "not met"): the verdict row keeps it; else a review's row says ``unknown``."""
+    is not in doubt (a "not met"): the verdict row keeps it; else a review's row says ``unknown``."""
 
     effect: Effect
     reason: str = ""
@@ -48,18 +50,30 @@ def note_answer_may(
 ) -> NoteEffect:
     """What a decided note answer may do to the patient.
 
-    ``kind``: the criterion's (``inclusion`` / ``exclusion``). ``condition_present``: the models' answer to the
+    ``kind``: the criterion's (``inclusion`` / ``exclusion``; ``renewal`` and ``documentation`` read as an inclusion,
+    ``matching.verdict.kind_class``). ``condition_present``: the models' answer to the
     criterion's question (``pass`` of the judge). ``quote``: the verified quote it rests on. ``criterion``: the
     criterion's text, never its note question. ``sentence``: the record's sentence the quote was verified in, when the
     caller has it (a quote may be a fragment of it)."""
-    eligible = condition_present if kind == "inclusion" else not condition_present
+    eligible = not condition_present if kind == "exclusion" else condition_present
     if eligible:
         return NoteEffect("keeps")
     if kind == "inclusion":
         return NoteEffect("review", INCLUSION_REASON, reading_stands=True)
+    if kind != "exclusion":
+        # D-1069 (#639 7107834329 L2): a renewal or documentation "not met" from the notes is a person's to check
+        return NoteEffect("review", OTHER_KIND_REASON, reading_stands=True)
     if kind == "exclusion" and inferred(str(quote or ""), str(criterion or ""), sentence):
         return NoteEffect("review", INFERRED_REASON)
     return NoteEffect("excludes")
 
 
-__all__ = ["INCLUSION_REASON", "INFERRED_REASON", "Effect", "NoteEffect", "note_answer_may", "sentence_of"]
+__all__ = [
+    "INCLUSION_REASON",
+    "INFERRED_REASON",
+    "OTHER_KIND_REASON",
+    "Effect",
+    "NoteEffect",
+    "note_answer_may",
+    "sentence_of",
+]

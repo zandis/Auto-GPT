@@ -193,9 +193,11 @@ media() (  # a subshell: set -e stops the step, not the run
     || { echo "the bundle was not built"; return 1; }
   # H-22 (D-996): the vendor builds in its own folder and hands the files over; that folder is gone before the site
   # installs, so a sidecar or a check that names the vendor's path fails here as it fails on a site's stick
+  # HS-1: with the stick's launcher (install, the key's fingerprint pinned in it) and the vendor's public key
   mv "$W/vendor/dist/$BUNDLE_NAME" "$W/vendor/dist/$BUNDLE_NAME.sha256" "$W/vendor/dist/trialbox-bootstrap.sh" \
-    "$W/vendor/dist/trialbox-bootstrap.sh.sig" "$MEDIA/linux/" && rmdir "$W/vendor/dist" \
-    || { echo "the bundle's files are not all in the vendor's folder (bundle, .sha256, bootstrap, .sig)"; return 1; }
+    "$W/vendor/dist/trialbox-bootstrap.sh.sig" "$W/vendor/dist/install" "$W/vendor/dist/vendor_ed25519.pub" \
+    "$MEDIA/linux/" && rmdir "$W/vendor/dist" \
+    || { echo "the bundle's files are not all in the vendor's folder (bundle, .sha256, bootstrap, .sig, install, key)"; return 1; }
   [ -s "$MEDIA/linux/$BUNDLE_NAME" ] || { echo "no bundle at $MEDIA/linux/$BUNDLE_NAME"; return 1; }
   cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"
   cp deploy/measured/serving_config.*.json "$MEDIA/measured/"

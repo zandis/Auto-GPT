@@ -9,6 +9,7 @@ exception at all."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -159,9 +160,25 @@ def test_the_helper_grants_only_below_the_minimum(tmp_path: Path) -> None:
 INSTALL_PATH = ("deploy/check_host.sh", "deploy/install.sh", "tools/images_lock.py")
 
 
+# H-89 (the integrator's ruling, 2026-11-22 13:55 UTC): the one exception on the install path is the rehearsal with
+# real servers, and it lives only inside its marked blocks; outside them nothing has changed
+H89_BLOCK = re.compile(r"# rehearsal-real-servers \(h-89\).*?# ---- end of rehearsal-real-servers \(h-89\)", re.S)
+
+
 @pytest.mark.parametrize("rel", INSTALL_PATH)
 def test_the_install_path_has_no_bench_exception(rel: str) -> None:
-    text = (ROOT / rel).read_text(encoding="utf-8").lower()
+    raw = (ROOT / rel).read_text(encoding="utf-8").lower()
+    assert H89_BLOCK.search(raw), f"{rel}: the one rehearsal path (H-89) is named in its block"
+    opened, closed = (
+        raw.count("# rehearsal-real-servers (h-89)"),
+        raw.count("# ---- end of rehearsal-real-servers (h-89)"),
+    )
+    assert opened == closed == len(H89_BLOCK.findall(raw)), f"{rel}: every H-89 block is closed"
+    for word in ("vllm_enable_cuda_compatibility=1", "nvidia_disable_require", "bench exception"):
+        assert word not in raw, f"{rel}: {word}, blocks included (the probe's environment is read, never written)"
+    text = H89_BLOCK.sub("", raw)
+    for name in ("rehearsal-real-servers", "rehearsal_real", "--engine-probe"):
+        assert name not in text, f"{rel}: {name} outside the H-89 rehearsal blocks"
     for word in ("bench-driver-exception", "bench_driver_exception", "bench exception", "engine-probe",
                  "vllm_enable_cuda_compatibility=1", "nvidia_disable_require"):  # fmt: skip
         assert word not in text, f"{rel}: {word}"

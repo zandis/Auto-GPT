@@ -494,7 +494,18 @@ class NoteJudge:
                 opinions=opinions,
                 calls=calls,
             )
-        return replace(first, confidence=d.confidence, reason=d.reason, tokens_in=t_in, tokens_out=t_out, calls=calls)
+        # L3 (#639 7107834329): the pair's answer rests on both quotes, so the one rule reads the verifier's sentence
+        # too (never published)
+        sentence = " ".join(s for s in (first.sentence, second.sentence if second else "") if s)
+        return replace(
+            first,
+            confidence=d.confidence,
+            reason=d.reason,
+            tokens_in=t_in,
+            tokens_out=t_out,
+            calls=calls,
+            sentence=sentence,
+        )
 
 
 # a few unanswered note checks stay "unknown" (manual review); more than this share means the model was down and the
@@ -630,7 +641,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
         may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence)
         if may.effect == "review" and not may.reading_stands:
             verdict, why = "unknown", code_of(may.reason, "unknown")
-        # an inclusion "not met" (R22-17) keeps its row: the status rule (``decision.answer_of``) reads the same
+        # a "not met" the rule sends to review keeps its row: the status rule (``decision.answer_of``) reads the same
         # function and says review
     return CriterionVerdict(
         id=c.id,

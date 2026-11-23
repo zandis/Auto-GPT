@@ -524,10 +524,16 @@ def reveal(job_id: str, req: RevealRequest, request: Request, who: Claim = AS_RE
     is the job's; the right is read here. Under break-glass: the grant row itself (open now, this person's, for this
     patient or this job), and the use is written here. By the person's own rights: the ``id.reveal`` row with the
     standing the delegation log gives the person in this study."""
+    from tb_common import rc1_refusals
+
     from orchestrator import grants
     from orchestrator.scenarios.screen import resolve_mrns
 
     o = orch()
+    if rc1_refusals.refused("live_patient_lists"):  # R22-34 (D-1072): no listed patient is named on a PRODUCTION box
+        o.audit.append("screen.reveal_refused", job_id=job_id, actor=who.name,
+                       detail={"pid": req.pid, "reason": "rc1", "environment": rc1_refusals.environment()})  # fmt: skip
+        raise HTTPException(status_code=403, detail="rc1.live_patient_lists")
     job = o.db.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
@@ -1030,11 +1036,16 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
     """The screening log with every chart number of a study (review 2026-11-09 S-09): a verified signed-in user
     only, at most ``TB_EXPORT_MAX_PER_HOUR`` per person, and one audit event with the actor, the session and the
     file's sha256 here, whoever calls."""
+    from tb_common import rc1_refusals
     from tb_common.crypto import sha256_bytes
 
     o = orch()
     claim = _claim(request, by)  # ``by`` counts only on a DEV/TEST box without a token
     rid = ruleset.strip().upper()
+    if rc1_refusals.refused("patient_mail_and_downloads"):  # R22-34 (D-1072): no file of chart numbers on PRODUCTION
+        o.audit.append("registry.export_refused", ruleset=rid, actor=claim.name,
+                       detail={"reason": "rc1", "environment": rc1_refusals.environment()})  # fmt: skip
+        raise HTTPException(status_code=403, detail="rc1.patient_mail_and_downloads")
     # D-273 (PV-5): the role and the study, not only a name; T-103: never to a break-glass grant (a whole list)
     _id_authority(o, claim, rid, "registry.export_refused")
     if over := _over_cap(o, request, claim, EXPORTS, EXPORTS_SERVICE):

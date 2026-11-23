@@ -8,12 +8,12 @@ from __future__ import annotations
 import ast
 import json
 import re
-import secrets
 import urllib.parse
 from pathlib import Path
 
 import pytest
 
+from tests.unit.test_support_bundle_planted import secrets  # one seed per test id (H-76)
 from tools import bundle_scrub as bs
 from tools import support_bundle as sb
 

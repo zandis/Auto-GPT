@@ -154,12 +154,28 @@ DB_STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
 PHASES = {"pre-start": STEPS, "db-up": DB_STEPS}
 
 
+def _rehearsal_guard(deploy: Path, box: ComposeBox) -> None:
+    """H-89: before any step, on every start the installer or an update makes: a box that carries a rehearsal sign
+    never starts as PRODUCTION, and one that ran the real model servers as a rehearsal starts only as a whole
+    rehearsal box (tools/rehearsal_real.py start_refusal). A guard, not a step: it makes nothing."""
+    from tools import rehearsal_real
+    from tools.trialbox.update import UpdateFailed
+
+    env = getattr(box, "env", None)
+    if not isinstance(env, dict):
+        env = rehearsal_real.env_file(deploy / ".env")
+    why = rehearsal_real.start_refusal(deploy, env)
+    if why:
+        raise UpdateFailed(f"refused to start: {why}")
+
+
 def _run(deploy: Path, phase: str, box: ComposeBox | None) -> list[str]:
     from tools.trialbox.update import ComposeBox, UpdateFailed
 
     if not deploy.is_dir():
         raise UpdateFailed(f"no deploy folder {deploy}")
     box = box or ComposeBox(deploy)
+    _rehearsal_guard(deploy, box)
     lines = []
     for name, step in PHASES[phase]:
         try:

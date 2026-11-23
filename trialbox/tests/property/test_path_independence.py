@@ -35,7 +35,7 @@ import shutil
 import tempfile
 import time
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -371,6 +371,16 @@ class World:
 
 SCR = {"practitioners": [PRACT, PRACT2], "appointment_window_days": 180, "recent_encounter_months": 12,
        "microbatch_window_days": 14}  # fmt: skip
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reimbursement_open() -> Iterator[None]:
+    """Card 9e-9: NAV runs only on a test box with reimbursement switched on; this module's box is."""
+    from orchestrator import reimbursement
+
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(reimbursement, "is_open", lambda *a, **k: True)
+        yield
 
 
 @pytest.fixture(scope="module")

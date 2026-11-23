@@ -34,6 +34,7 @@ import json
 import os
 import pickle
 import shutil
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
@@ -46,18 +47,18 @@ from criteria_compiler.terminology.mapper import Terminology, ValueSets
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake
 from matching import decision
-from matching.cascade.judge import JudgeReply, verify_span
+from matching.cascade.judge import AgreementJudge, JudgeReply, verify_span
 from matching.inferred import sentence_of
-from matching.note_answer import INCLUSION_REASON, INFERRED_REASON, note_answer_may
+from matching.note_answer import INCLUSION_REASON, INFERRED_REASON, OTHER_KIND_REASON, note_answer_may
 from orchestrator.scenarios import nav
-from orchestrator.scenarios.evaluate import NoteResult, PatientVerdicts, note_verdict
+from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, PatientVerdicts, note_verdict
 from tb_common.crypto import pid_for_mrn
 from tb_common.reasons import code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR, CriterionVerdict, Evidence, JobCreate
 
 from tests.inproc_box import Box, make_box
-from tests.judge_kit import Decisive, QuotingOracle, quoting_pair
+from tests.judge_kit import Decisive, QuotingOracle, ScriptedModel, quoting_pair, says
 from tests.unit.test_safety_properties import SPAN, _run_for_map
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -515,6 +516,17 @@ def build_world(w: World, tmp: Path, pg_cluster_url: str) -> dict[str, Seen]:
         return seen
     finally:
         mp.undo()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reimbursement_open() -> Iterator[None]:
+    """Card 9e-9: NAV runs only on a test box with reimbursement switched on; this module's box is (as in
+    ``tests/property/test_path_independence.py``)."""
+    from orchestrator import reimbursement
+
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(reimbursement, "is_open", lambda *a, **k: True)
+        yield
 
 
 def _shared(w: World, tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str, worker_id: str) -> dict[str, Seen]:
@@ -1146,3 +1158,163 @@ def test_a_suspected_or_absent_report_finding_never_excludes_on_any_builder(
                               evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=q, confidence=PAIR,
                                                 reason="note"))  # fmt: skip
     assert decision.answer_of(c, stored, POLICY) == "unknown"
+
+
+# ------------------------------------------------------------------------------------------------ the review's forms
+# The independent review of round 2 (#1334, H1 to H3, M1, M2) and the walk's probes of the real judge (#639
+# 7100765762): forms a pair could read as "present" that do not state the condition. Fail safe: each goes to review on
+# every builder. (criterion, quote, sentence of the record the quote lies in: "" when the quote is the sentence)
+DM_EN, DM_JA, DM_ZH = "Known diabetes mellitus", "糖尿病の既往", "糖尿病"
+TB = "Active tuberculosis requiring treatment"
+REVIEW_FORMS: list[tuple[str, str, str]] = [
+    # H1: a question
+    (DM_EN, "Diabetes?", "Diabetes? Will check HbA1c."),
+    (DM_EN, "DM?", "DM? Will check HbA1c."),
+    (DM_JA, "糖尿病？", "糖尿病？HbA1c確認予定。"),
+    # H2: negated, a relative's, uncertain, in en, ja and zh-TW
+    (DM_EN, "Pt w/o diabetes.", ""),
+    (DM_EN, "denying diabetes", ""),
+    (DM_EN, "diabetes ruled-out", ""),
+    (DM_EN, "diabetes, rule-out", ""),
+    (DM_EN, "Mom has diabetes", ""),
+    (DM_EN, "FHx: DM", ""),
+    (DM_EN, "Diabetes: uncertain", ""),
+    (DM_EN, "equivocal for diabetes", ""),
+    (DM_EN, "borderline diabetes", ""),
+    (DM_EN, "pre-diabetes", ""),
+    (DM_JA, "糖尿病は指摘されず", ""),
+    (DM_JA, "糖尿病は見られず", ""),
+    (DM_JA, "糖尿病の恐れ", ""),
+    (DM_ZH, "非糖尿病", ""),
+    (DM_ZH, "不是糖尿病", ""),
+    (DM_ZH, "糖尿病：否", ""),
+    (DM_ZH, "媽媽有糖尿病", ""),
+    (DM_ZH, "哥哥有糖尿病", ""),
+    (DM_ZH, "姐姐有糖尿病", ""),
+    (DM_ZH, "家人有糖尿病", ""),
+    # H3: a criterion that names a drug, a treatment or a value is not exempt
+    ("Known allergy to study drug", "No known drug allergies.", ""),
+    (TB, "No tuberculosis", ""),
+    (TB, "Mother has tuberculosis", ""),
+    ("Asthma requiring inhaled steroids", "denies asthma", ""),
+    # M1: a period after an abbreviation ends no sentence; M2: every mention must be stated
+    (DM_EN, "hx. of diabetes", "Mother: hx. of diabetes."),
+    ("History of heart failure", "No heart failure, but renal failure.", ""),
+    ("Active hepatitis B infection", "Hepatitis B negative, but recent urinary tract infection", ""),
+]
+#: the same criteria on quotes that state the condition: they still exclude
+REVIEW_CONTROLS: list[tuple[str, str]] = [
+    (DM_EN, "Type 2 diabetes mellitus since 2015."),
+    (DM_JA, "2型糖尿病あり。"),
+    (DM_ZH, "有糖尿病。"),
+    ("History of heart failure", "Heart failure, EF 25%."),
+    (TB, "Active pulmonary tuberculosis on treatment."),
+    ("Known allergy to study drug", "Known allergy to the study drug (rash)."),
+]
+
+
+def _form_criterion(text: str) -> CriterionIR:
+    c = {**CRITERIA[1], "id": "D9-EXC-91", "ruleset": "D9", "text": text, "note_question": f"Do the notes say: {text}?"}
+    return CriterionIR.model_validate(c)
+
+
+def _builders(text: str, quote: str, sentence: str) -> tuple[str, str, str, bool]:
+    """(the one rule's effect, the v1 verdict, the cascade outcome's status, the cascade outcome is hard) for a pair's
+    "present" at 0.9 on ``quote``."""
+    c = _form_criterion(text)
+    sent = sentence or quote
+    may = note_answer_may("exclusion", True, quote, text, sent)
+    v = note_verdict(c, NoteResult("pass", PAIR, quote, "2026-09-20", "note", dids=["d1"], sentence=sent), pair=True)
+    reply = JudgeReply("pass", PAIR, quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": quote, "sentence": sent}, "S3")
+    return may.effect, v.verdict, o.status, o.hard
+
+
+@pytest.mark.parametrize(("text", "quote", "sentence"), REVIEW_FORMS, ids=[f[1] for f in REVIEW_FORMS])
+def test_a_form_that_does_not_state_the_condition_goes_to_review_on_every_builder(
+    text: str, quote: str, sentence: str
+) -> None:
+    """Given "present" by both models, each form goes to review: the one rule, the v1 verdict, the cascade's outcome,
+    and (where the quote alone shows it) a stored row through the status rule."""
+    assert _builders(text, quote, sentence) == ("review", "unknown", "unknown", False)
+    if not sentence or sentence.startswith(quote):  # a stored row keeps the quote, not its sentence
+        stored = CriterionVerdict(id="D9-EXC-91", verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"],
+                                  evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=quote,
+                                                    confidence=PAIR, reason="note"))  # fmt: skip
+        assert decision.answer_of(_form_criterion(text), stored, POLICY) == "unknown"
+
+
+@pytest.mark.parametrize(("text", "quote"), REVIEW_CONTROLS, ids=[f[1] for f in REVIEW_CONTROLS])
+def test_the_same_criteria_on_a_stated_quote_still_exclude(text: str, quote: str) -> None:
+    assert _builders(text, quote, "") == ("excludes", "fail", "fail", True)
+
+
+# ------------------------------------------------------------------------------------------------ round 4 (#639 7107834329)
+@pytest.mark.parametrize("kind", ["renewal", "documentation"])
+def test_a_renewal_or_documentation_not_met_from_the_notes_is_review_on_every_builder(kind: str) -> None:
+    """L2: such a criterion reads as an inclusion (``matching.verdict.kind_class``). A decided "not met" from the notes
+    goes to review: the reading stands (the row says "not met"), the status rule says ``unknown``, and the cascade's
+    outcome is a soft fail; "met" keeps the patient."""
+    c = BY_ID[HIV].model_copy(update={"kind": kind})
+    may = note_answer_may(kind, False, HAS_HIV, c.text, HAS_HIV)
+    assert (may.effect, may.reason, may.reading_stands) == ("review", OTHER_KIND_REASON, True)
+    assert note_answer_may(kind, True, HAS_HIV, c.text, HAS_HIV).effect == "keeps"
+    r = NoteResult("fail", PAIR, HAS_HIV, "2026-09-20", "note", dids=["d1"], sentence=HAS_HIV)
+    v = note_verdict(c, r, pair=True)
+    assert (v.verdict, v.basis) == ("fail", "pair") and decision.answer_of(c, v, POLICY) == "unknown"
+    reply = JudgeReply("fail", PAIR, HAS_HIV, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": HAS_HIV, "sentence": HAS_HIV}, "S3")
+    assert (o.status, o.hard, o.reason) == ("fail", False, OTHER_KIND_REASON)
+
+
+def test_a_note_exclusion_with_no_quote_never_excludes() -> None:
+    """L1: what is not shown never excludes. A stored pair's final, sure "present" with no quote is review."""
+    v = _stored(CONTROLS[0]).model_copy(update={"evidence": Evidence(resource_refs=["DocumentReference/d1"],
+                                                                     confidence=PAIR, reason="note")})  # fmt: skip
+    assert decision.answer_of(BY_ID[HIV], v, POLICY) == "unknown"
+    assert decision.status_of(BY_ID, [AGE_MET, v], POLICY).tier == "review"
+    # a criterion that is a value has no condition word for the guard to look for: still review with no quote
+    alt = BY_ID[HIV].model_copy(update={"text": "ALT > 3x ULN"})
+    assert decision.answer_of(alt, v, POLICY) == "unknown"
+
+
+TWO_QUOTES = "Patient has HIV. Grandmother has HIV."
+
+
+@pytest.mark.parametrize(("verifier_quote", "want"), [(GRANDMOTHER, "unknown"), (HAS_HIV, "fail")])
+def test_the_v1_pair_reads_the_verifiers_quote_too(verifier_quote: str, want: str) -> None:
+    """L3 on v1: the judge quotes a sentence that states HIV, the verifier a relative's. The pair agrees on
+    "present", and the answer rests on both quotes, so it is review; when both state it, it excludes."""
+    nj = NoteJudge(lake=None, llm=ScriptedModel("judge-a", says("pass", HAS_HIV)),  # type: ignore[arg-type]
+                   verifier=ScriptedModel("verifier-b", says("pass", verifier_quote)))  # type: ignore[arg-type]  # fmt: skip
+    r = nj.judge_excerpts(BY_ID[HIV].text, "Do the notes document known HIV infection?", RUN,
+                          [{"did": "d1", "date": "2026-09-20", "text": TWO_QUOTES}])  # fmt: skip
+    assert r.predicate == "pass" and r.quote == HAS_HIV
+    assert note_verdict(BY_ID[HIV], r, pair=True).verdict == want
+    assert verifier_quote not in note_verdict(BY_ID[HIV], r, pair=True).model_dump_json() or want == "fail"
+
+
+class _Says:
+    """A cascade ``JudgeClient`` that answers "present" quoting ``quote``."""
+
+    def __init__(self, quote: str, prompt: str = "judge@test") -> None:
+        self.quote, self.prompt = quote, prompt
+
+    def judge(self, **kw: Any) -> JudgeReply:
+        return JudgeReply("pass", PAIR, self.quote, "2026-09-20", "scripted", call_id=f"c-{self.quote[:4]}",
+                          prompt=self.prompt)  # fmt: skip
+
+
+@pytest.mark.parametrize(("verifier_quote", "want"), [(GRANDMOTHER, ("unknown", False)), (HAS_HIV, ("fail", True))])
+def test_the_cascade_pair_reads_the_verifiers_quote_too(verifier_quote: str, want: tuple[str, bool]) -> None:
+    """L3 on the cascade: the pair's reply carries the verifier's sentence (``JudgeReply.sentence``, never
+    published), which the one rule reads beside the judge's span."""
+    ex = [{"did": "d1", "date": "2026-09-20", "text": TWO_QUOTES}]
+    pair = AgreementJudge(_Says(HAS_HIV), _Says(verifier_quote))
+    reply = pair.judge(role="judge", criterion_text=BY_ID[HIV].text, note_question="Q?", index_date=RUN, excerpts=ex,
+                       study_id="D9", data_class="D3", step_id="t", purpose="screening")  # fmt: skip
+    assert reply.verdict == "pass" and reply.quote == HAS_HIV and reply.sentence == verifier_quote
+    span = verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31))
+    o = _run_for_map(True)._map(BY_ID[HIV], reply, span, "S3")
+    assert (o.status, o.hard) == want
+    assert verifier_quote not in json.dumps(o.evidence) or want[1]

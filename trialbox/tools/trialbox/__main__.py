@@ -171,10 +171,13 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     bs.add_argument("--deploy", type=Path, default=deploy)
     bs.add_argument("--json", action="store_true")
     bs.add_argument("--quiet", action="store_true", help="print nothing when all is well (cron)")
-    bi = sub.add_parser("backup-install", help="install.sh's backup step: cron, WAL archiving, first backup (D-274)")
+    bi = sub.add_parser(
+        "backup-install", help="install.sh's backup step: the schedule (timer or cron), WAL archiving, first backup"
+    )
     bi.add_argument("--deploy", type=Path, default=deploy)
     bi.add_argument("--cron-dir", type=Path, default=Path("/etc/cron.d"))
-    bi.add_argument("--no-first-run", action="store_true", help="install the cron file only; no first backup")
+    bi.add_argument("--systemd-dir", type=Path, default=Path("/etc/systemd/system"))
+    bi.add_argument("--no-first-run", action="store_true", help="install the schedule only; no first backup")
     mi = sub.add_parser(
         "migrate", help="the schemas no service owns, as the admin (D-486); each service's stores (D-921)"
     )
@@ -336,7 +339,7 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         from tools.trialbox import backup_schedule as bsch
 
         if a.cmd == "backup-install":
-            return bsch.main_install(a.deploy, a.cron_dir, first=not a.no_first_run)
+            return bsch.main_install(a.deploy, a.cron_dir, first=not a.no_first_run, systemd_dir=a.systemd_dir)
         if a.cmd == "backup-nightly":
             return bsch.main_nightly(a.deploy)
         return bsch.main_status(a.deploy, a.json, a.quiet)
@@ -580,6 +583,13 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
     try:
         if a.cmd == "backup-keygen":
+            from tb_common import rc1_refusals
+
+            try:  # R22-34 (D-1072): rc1 makes no backup key on a PRODUCTION box (the box's deploy/.env)
+                box = rc1_refusals.host_env(Path(__file__).resolve().parents[2] / "deploy")
+                rc1_refusals.check("key_ceremonies", box)
+            except rc1_refusals.Rc1Refused as exc:
+                raise bk.BackupError(exc.say()) from None
             fp = bk.keygen(a.private, a.public)
             print(f"backup key {fp}: give {a.private} to hospital IT in a sealed envelope; the box keeps {a.public}")
             return 0
@@ -688,4 +698,7 @@ if __name__ == "__main__":
     if not __package__:
         root = Path(__file__).resolve().parents[2]
         sys.path[:0] = [str(root), str(root / "libs"), str(root / "services")]
-    raise SystemExit(main(installed=not __package__))
+    from tools.trialbox import launch  # H-88 (D-1089): its own import path, the box's settings, the box image
+
+    _code = launch.enter(sys.argv[1:], installed=not __package__)
+    raise SystemExit(main(installed=not __package__) if _code is None else _code)

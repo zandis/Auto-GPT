@@ -1,0 +1,108 @@
+{
+ "card": "U1",
+ "title": "the hospital's install path, audited for steps a hospital should not meet",
+ "date": "2026-11-22",
+ "source": "docs/plan/design/hospital-simple-install.md",
+ "findings": [
+  {
+   "id": "U1-01",
+   "severity": "Medium",
+   "claim": "the box form has no field for the mail relay or the trial office's SAE mailbox: tools/box/plan.py:587-588 writes smtp_host and imap_host empty, so mail stays closed until someone edits deploy/.env by hand (section 1.4 row 54)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "a wizard field for each (card HS-4)",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-02",
+   "severity": "Medium",
+   "claim": "the first-run page says the data source is connected 'on the box after sign-in' (services/console/i18n_firstrun.py:50); no console page connects a research database, own database, hospital feed or SS-MIX2 folder, which is done by command (RUNBOOK §1 step 4, §18) (row 55)",
+   "lane": "K",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "the placeholder source for a PoC (HS-9); the SS-MIX2 step of 10K-16; until then the help text says what is true",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-03",
+   "severity": "Medium",
+   "claim": "deploy/install.sh asks for answers mid-way, after a 10 to 20 minute bundle load: ClinicalTrials.gov (:461), the TLS name (:566), the SAE mailbox (:591) and 'Start the stack now?' (:818) (rows 15 to 18)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "no terminal read after the start in box mode (HS-3)",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-04",
+   "severity": "Medium",
+   "claim": "the finish gate refuses after the bundle is loaded and asks for hand edits of deploy/.env (deploy/install.sh:810; deploy/box-install.sh:269, which then needs a typed --firstrun) (rows 19, 60)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "the values asked and checked in the wizard before apply; the gate's refusal before the load (HS-3, HS-4)",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-05",
+   "severity": "Medium",
+   "claim": "nearly every stop line of the deploy scripts is English only and names a setting, a path, a RUNBOOK section or a D number; only four lines of deploy/install.sh are in three languages (:158, :869, :1071, :1074) (row 28)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "message keys in en, ja and zh-TW with one action; detail to the install log (HS-5)",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-06",
+   "severity": "Medium",
+   "claim": "the site time zone must agree in four places (settings.yaml, deploy/.env, the mapping, the host; tools/trialbox/doctor.py:875) while the host's zone is detected and still asked (tools/settings_wizard.py:63, tools/box/plan.py:617) (rows 37, 63)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "the zone from the host, confirmed once (HS-2, HS-4)",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-07",
+   "severity": "Low",
+   "claim": "doctor has no default settings files: a bare 'trialbox doctor' judges only the exported TB_* variables (tools/trialbox/__main__.py:64, tools/trialbox/doctor.py:2274); pyproject.toml installs no trialbox command (row 38)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "a trialbox command that finds deploy/.env and deploy/settings.yaml itself (HS-10)",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-08",
+   "severity": "Low",
+   "claim": "two instructions for the first administrator's enrolment code: the installer prints it once (deploy/install.sh:1151) and RUNBOOK §12 has it printed by a console command (docs/runbook/12-identity-and-tls.md:44) (row 41)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "one instruction on the hospital's page (HS-7)",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-09",
+   "severity": "Low",
+   "claim": "the first-run page asks the language twice (services/console/templates/firstrun.html:7 and :57) and shows Linux paths and device paths as help (services/console/i18n_firstrun.py:139, firstrun.html:104) (rows 56, 57)",
+   "lane": "K",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "one language choice; disks shown by size and maker (HS-4)",
+   "from": "lane U's audit, read in code; no install was run"
+  },
+  {
+   "id": "U1-10",
+   "severity": "Low",
+   "claim": "the study set-up error box prints the raw code (services/console/templates/setup.html:3) and refusal reasons are English inside translated pages (services/console/study_setup.py:305, services/console/app.py:2289) (rows 64, 73)",
+   "lane": "K",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "catalogue keys; the code to the support file (HS-13)",
+   "from": "lane U's audit, read in code; no install was run"
+  }
+ ]
+}

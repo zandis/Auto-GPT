@@ -118,6 +118,7 @@ class OrchestratorJudge(NoteJudge):
             tokens_out=r.tokens_out,
             opinions=list(r.opinions),
             calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
+            sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
         )
 
 

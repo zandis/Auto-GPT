@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import ast
 import json
-import secrets
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -17,7 +16,16 @@ from typing import Any
 
 import pytest
 
-from tests.unit.test_support_bundle_planted import DAY, NOW, _archive, _assert_clean, _gz, _runner, make_box
+from tests.unit.test_support_bundle_planted import (
+    DAY,
+    NOW,
+    _archive,
+    _assert_clean,
+    _gz,
+    _runner,
+    make_box,
+    secrets,  # one seed per test id (H-76)
+)
 from tools import bundle_scrub as bs
 from tools import support_bundle as sb
 
@@ -283,7 +291,15 @@ def test_m4_no_other_module_writes_a_bundle() -> None:
         if f.name not in ("support_bundle.py", "bundle_scrub.py")
         and any(m in f.read_text(encoding="utf-8", errors="replace") for m in ("support_bundle", "bundle_scrub"))
     )
-    assert users == ["tools/trialbox/__main__.py"], users
+    # rc1 (R22-34; the integrator's go, 7080384411): the refusals' table names the builder as its site, and only names
+    # it: it neither imports nor calls the bundle's modules
+    assert users == ["libs/tb_common/rc1_refusals.py", "tools/trialbox/__main__.py"], users
+    table = ast.parse((ROOT / "libs" / "tb_common" / "rc1_refusals.py").read_text(encoding="utf-8"))
+    imported = [n for n in ast.walk(table) if isinstance(n, ast.Import | ast.ImportFrom)
+                and any(m in ast.unparse(n) for m in ("support_bundle", "bundle_scrub"))]  # fmt: skip
+    called = [n for n in ast.walk(table) if isinstance(n, ast.Call)
+              and any(m in ast.unparse(n.func) for m in ("support_bundle", "bundle_scrub", "build"))]  # fmt: skip
+    assert imported == [] and called == [], (imported, called)
 
 
 # ------------------------------------------------------------------------------------------------ speed

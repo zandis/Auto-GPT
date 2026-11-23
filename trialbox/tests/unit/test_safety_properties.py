@@ -250,33 +250,39 @@ TIER_CRITERIA = [
     _ir("T-INC-03", "inclusion", "human", COND, human_question="Q?"),
 ]
 TIER_RS = _ruleset(TIER_CRITERIA)
+STATED_02 = "T-EXC-02 present."  # a quote that states T-EXC-02's condition (the criterion's text is its id)
 
 
 def test_p1_tier_excludes_only_on_a_coded_fail_or_a_sure_blocking_note_fail() -> None:
     """``tier`` over every verdict for two structured criteria, two note criteria at three confidences and a human
     criterion, with note answers allowed to block or not: ``excluded`` exactly when a structured verdict fails, or the
-    note exclusion fails with confidence at or above the threshold while note answers may block. Kills U03. The note
-    inclusion's "not met" is review, never an exclusion (R22-17, D-1069; ruled on #639 7079180333)."""
+    note exclusion fails on a quote that states its condition, with confidence at or above the threshold, while note
+    answers may block. Kills U03. The note inclusion's "not met" is review, never an exclusion (R22-17, D-1069; ruled
+    on #639 7079180333), and so is the note exclusion's "present" with no quote (L1, #639 7107834329).
+    """
     threshold = 0.75
     sv: tuple[Verdict, ...] = ("pass", "fail", "unknown")
     notes = [(v, c) for v in sv for c in (0.5, 0.75, 0.95)]
     n = 0
-    for s1, s2, (n1, c1), (n2, c2), block in itertools.product(sv, sv, notes, notes, (True, False)):
+    for s1, s2, (n1, c1), (n2, c2), block, q2 in itertools.product(
+        sv, sv, notes, notes, (True, False), (STATED_02, None)
+    ):
         verdicts = [
             CriterionVerdict(id="T-INC-01", verdict=s1, evidence=Evidence(resource_refs=[])),
             CriterionVerdict(id="T-EXC-01", verdict=s2, evidence=Evidence(resource_refs=[])),
             CriterionVerdict(id="T-INC-02", verdict=n1, evidence=Evidence(resource_refs=[], confidence=c1)),
-            CriterionVerdict(id="T-EXC-02", verdict=n2, evidence=Evidence(resource_refs=[], confidence=c2)),
+            CriterionVerdict(id="T-EXC-02", verdict=n2, evidence=Evidence(resource_refs=[], confidence=c2, quote=q2)),
             CriterionVerdict(id="T-INC-03", verdict="pending_human", evidence=Evidence(resource_refs=[])),
         ]
         t, _, n_unknown = tier(TIER_RS, verdicts, threshold, note_block=block)
-        sure_note_fail = block and n2 == "fail" and c2 >= threshold  # the note exclusion only (R22-17)
-        assert (t == "excluded") is ("fail" in (s1, s2) or sure_note_fail), (s1, s2, n1, c1, n2, c2, block, t)
+        # R22-17: the note exclusion only; L1: only on its quote (``q2``: a quote that states it, or none)
+        sure_note_fail = block and n2 == "fail" and c2 >= threshold and q2 is not None
+        assert (t == "excluded") is ("fail" in (s1, s2) or sure_note_fail), (s1, s2, n1, c1, n2, c2, block, q2, t)
         assert n_unknown == [s1, s2, n1, n2].count("unknown")
         if t != "excluded" and "unknown" in (s1, s2, n1, n2):
             assert t == "review"
         n += 1
-    assert n == 3 * 3 * 9 * 9 * 2
+    assert n == 3 * 3 * 9 * 9 * 2 * 2
 
 
 # ================================================================================================ fake lake

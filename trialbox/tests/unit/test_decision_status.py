@@ -33,9 +33,15 @@ HELD = Policy(T, False)  # a run on which notes may not exclude
 
 
 def _v(c: Any, verdict: str, *, conf: float | None = None, basis: Any = None, final: bool | None = None,
-       reason: str | None = None) -> CriterionVerdict:  # fmt: skip
+       reason: str | None = None, quote: str | None = None) -> CriterionVerdict:  # fmt: skip
     return CriterionVerdict(id=c.id, verdict=verdict, basis=basis, final=final,  # type: ignore[arg-type]
-                            evidence=Evidence(resource_refs=[], confidence=conf, reason=reason))  # fmt: skip
+                            evidence=Evidence(resource_refs=[], confidence=conf, reason=reason, quote=quote))  # fmt: skip
+
+
+#: L1 (#639 7107834329, D-1069: what is not shown never excludes): a note exclusion's "present" excludes only on a
+#: quote that states the condition. The cases that prove a pair may exclude carry this quote; the old input, with no
+#: quote, is pinned beside them as review
+ABSCESS = "Skin abscess on the left forearm, drained today."
 
 
 # ------------------------------------------------------------------------------------------------ one answer
@@ -47,13 +53,16 @@ def _v(c: Any, verdict: str, *, conf: float | None = None, basis: Any = None, fi
         (_v(AGE, "fail", basis="coded"), HELD, "no"),
         (_v(AGE, "unknown"), PAIR, "unknown"),
         # a note "not met": no only when a pair gave it, it is final, sure enough and the run may exclude
-        (_v(EXC, "fail", conf=0.95, basis="pair"), PAIR, "no"),
+        (_v(EXC, "fail", conf=0.95, basis="pair", quote=ABSCESS), PAIR, "no"),
+        (_v(EXC, "fail", conf=0.95, basis="pair"), PAIR, "unknown"),  # L1: no quote, review
         (_v(EXC, "fail", conf=0.95, basis="pair"), HELD, "unknown"),
         (_v(EXC, "fail", conf=0.95, basis="single"), PAIR, "unknown"),  # one model (H2)
         (_v(EXC, "fail", conf=0.95, basis="pair", final=False), PAIR, "unknown"),  # stored as not final (H1)
         (_v(EXC, "fail", conf=0.60, basis="pair"), PAIR, "unknown"),  # below the threshold
-        (_v(EXC, "fail", conf=0.95), PAIR, "no"),  # neither basis nor final stated: by the rest of the rule
-        (_v(EXC, "fail", conf=0.95, final=True), PAIR, "no"),  # stored by T-707 as final, before the basis
+        (_v(EXC, "fail", conf=0.95, quote=ABSCESS), PAIR, "no"),  # neither basis nor final: by the rest of the rule
+        (_v(EXC, "fail", conf=0.95, final=True, quote=ABSCESS), PAIR, "no"),  # stored by T-707 as final, before basis
+        (_v(EXC, "fail", conf=0.95), PAIR, "unknown"),  # L1: the same with no quote, review
+        (_v(EXC, "fail", conf=0.95, final=True), PAIR, "unknown"),  # L1
         (_v(EXC, "fail", conf=0.95, final=False), PAIR, "unknown"),
         # a note "met": yes only when sure enough and nothing was left out of what the models read
         (_v(INC, "pass", conf=0.95, basis="pair"), PAIR, "yes"),
@@ -91,8 +100,10 @@ ABSENT = _v(EXC, "pass", conf=0.95, basis="pair")
 
 def test_a_status_is_excluded_on_a_no_review_on_an_unknown_else_high() -> None:
     assert status_of(BY, _three(MET, ABSENT), PAIR) == decision.Status("high", [], 0, [])
-    out = status_of(BY, _three(MET, _v(EXC, "fail", conf=0.95, basis="pair")), PAIR)
+    out = status_of(BY, _three(MET, _v(EXC, "fail", conf=0.95, basis="pair", quote=ABSCESS)), PAIR)
     assert (out.tier, out.excluded_by) == ("excluded", ["T-EXC-02"])
+    no_quote = status_of(BY, _three(MET, _v(EXC, "fail", conf=0.95, basis="pair")), PAIR)
+    assert (no_quote.tier, no_quote.excluded_by) == ("review", [])  # L1: what is not shown never excludes
     open_q = status_of(BY, _three(_v(INC, "unknown", reason="disagree"), ABSENT), PAIR)
     assert (open_q.tier, open_q.n_unknown) == ("review", 1)
     coded = status_of(BY, [_v(AGE, "fail", basis="coded"), MET, ABSENT], HELD)
@@ -194,8 +205,13 @@ def test_nav_lists_a_patient_one_model_called_excluded_with_a_row_to_confirm() -
     one = PatientVerdicts("P1", _three(MET, _v(EXC, "fail", conf=0.95, basis="single", final=False)), "review", [], 0)
     name, missing = nav.classify(RS, one, None, None, run, soon, 90, T, False)
     assert name == "likely_eligible" and [m.criterion_id for m in missing] == ["T-EXC-02"]
-    pair = PatientVerdicts("P1", _three(MET, _v(EXC, "fail", conf=0.95, basis="pair")), "excluded", [], 0)
+    pair = PatientVerdicts(
+        "P1", _three(MET, _v(EXC, "fail", conf=0.95, basis="pair", quote=ABSCESS)), "excluded", [], 0
+    )
     assert nav.classify(RS, pair, None, None, run, soon, 90, T, True) == (None, [])
+    bare = PatientVerdicts("P1", _three(MET, _v(EXC, "fail", conf=0.95, basis="pair")), "review", [], 0)
+    name, missing = nav.classify(RS, bare, None, None, run, soon, 90, T, True)
+    assert name == "likely_eligible" and [m.criterion_id for m in missing] == ["T-EXC-02"]  # L1: no quote
     cut = PatientVerdicts("P1", _three(_v(INC, "pass", conf=0.95, basis="pair", reason="notes_over_budget"), ABSENT),
                           "review", [], 0)  # fmt: skip
     name, missing = nav.classify(RS, cut, None, None, run, soon, 90, T, True)

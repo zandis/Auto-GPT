@@ -41,6 +41,7 @@ import pyarrow as pa
 import pytest
 from lake.client import LakeLocal
 from matching.cascade import engine as cascade_engine
+from orchestrator import reimbursement
 from orchestrator.clients import StepFailed
 from orchestrator.scenarios import case as case_mod
 from orchestrator.scenarios import microbatch, nav
@@ -462,6 +463,7 @@ def nav_run(r: Run, mp: pytest.MonkeyPatch) -> dict[str, str]:
     mp.setattr(nav, "require_approved", lambda ctx, rid, v: rs)
     mp.setattr(nav, "classify", spy)
     mp.setattr(nav, "opted_out_now", stop)
+    mp.setattr(reimbursement, "is_open", lambda *a, **k: True)  # card 9e-9: a test box with NAV on
     try:
         with pytest.raises(_Stop):
             nav.run(_ctx(r.lake, r.llm, r.verifier, options={"dept": "RHEUM"}))

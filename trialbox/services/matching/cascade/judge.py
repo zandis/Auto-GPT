@@ -103,6 +103,9 @@ class JudgeReply:
     refused: str | None = None  # gateway refusal code: the pair stays unknown, never excluded
     opinions: list[dict[str, Any]] = field(default_factory=list)  # both answers when the checks disagree (D-120)
     calls: tuple[str, ...] = ()  # D-989: every model call the answer rests on; () = this reply's own call_id
+    # L3 (#639 7107834329): the record's sentences of the pair's other quote, read by the one rule of what a note
+    # answer may do (``matching.note_answer``) beside the span's own; never published
+    sentence: str = ""
 
     @property
     def all_calls(self) -> tuple[str, ...]:
@@ -275,7 +278,13 @@ class AgreementJudge:
             self.disagreements += 1
         calls = first.all_calls + second.all_calls  # D-989: the verifier's call counts too
         if d.verdict == first.verdict:
-            return replace(first, confidence=d.confidence, calls=calls)
+            # L3: the verifier's quote is read too, in its sentence of the excerpts (never published)
+            other = next(
+                (sentence_of(str(second.quote), str(ex.get("text", ""))) for ex in kw.get("excerpts") or []
+                 if second.quote and sentence_of(str(second.quote), str(ex.get("text", "")))),
+                str(second.quote or ""),
+            )  # fmt: skip
+            return replace(first, confidence=d.confidence, calls=calls, sentence=other)
         return JudgeReply(
             "unknown",
             0.0,

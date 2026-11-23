@@ -216,24 +216,25 @@ def test_install_mounts_the_site_mapping_into_the_wizard_and_requires_a_feed_in_
     assert INSTALL.count('"${MAPPING_MOUNT[@]}"') == 2  # answers and questions
     assert "cp -rn" in INSTALL  # the kit's mapping/ is copied, never over the site's own files
     feed = _after('SRC_DIR="$(envget TB_SOURCE_DIR)"')[:1200]
-    assert '[ "$TB_ENV_SITE" != PRODUCTION ] || die "no feed folder' in feed
+    # H-94 (ruling 7092087958): the helper, which stops on PRODUCTION as die did
+    assert '[ "$TB_ENV_SITE" != PRODUCTION ] || stop_or_warn feed-folder-production "" "no feed folder' in feed
     assert "is not a folder on this host" in feed
 
 
 def test_install_turns_tls_on_before_the_stack_starts() -> None:
     tls = _after('TLS_HOST="$(envget TB_TLS_HOSTNAME)"')
-    assert 'die "no TLS host name: a PRODUCTION box runs only behind https' in tls[:1200]
+    assert 'stop_or_warn tls-production "" "no TLS host name: a PRODUCTION box runs only behind https' in tls[:1200]
     check = INSTALL.index("python -m console.cli check-tls")
     overlay = INSTALL.index("COMPOSE+=(-f deploy/docker-compose.identity.yml)")
     up = INSTALL.index('"${COMPOSE[@]}" up -d')
     assert check < overlay < up
-    assert 'die "the TLS settings do not pass' in INSTALL[check : check + 400]
+    assert 'stop_or_warn tls-check "TLS (' in INSTALL[check : check + 400]  # H-94: a PoC box goes on without TLS
 
 
 def test_install_installs_both_cron_files_or_stops_in_production() -> None:
     cron = _after('CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"')
     assert '"$CRON_DIR/trialbox-retention"' in cron[:900]
-    assert 'die "the cron files cannot be installed' in cron[:1200]
+    assert 'stop_or_warn cron-production "" "the cron files cannot be installed' in cron[:1200]  # H-94
     assert 'if [ "$CAN_CRON" = 1 ]; then\n  say "backups: cron' in INSTALL
 
 
@@ -254,7 +255,11 @@ def test_install_ends_with_an_https_url_it_checked_and_exit_1_on_a_fail() -> Non
     assert 'URL="https://$TLS_HOST"' in end and "--resolve" in end and "caddy-root.crt" in end
     assert 'FAILS+=("$URL/login does not answer' in end
     assert "Console:            $URL" in end
-    assert end.rstrip().endswith("printf 'install: FAIL: %s\\n' \"${FAILS[@]}\" >&2\n  exit 1\nfi")
+    # H-94: every FAIL line then exit 1, except on a PoC box (each a warning and a line of the list, exit 0)
+    assert "tb_poc_box || printf 'install: FAIL: %s\\n' \"${FAILS[@]}\" >&2\n" in end
+    assert end.rstrip().endswith(
+        'stop_or_warn --silent "fail: $(printf \'%s\' "$f" | cut -c1-40)" "" "FAIL: $f"; done\nfi'
+    )
     assert '>/dev/null 2>&1 && echo "    network sheet' not in INSTALL  # OPS-014: the error is never hidden
 
 

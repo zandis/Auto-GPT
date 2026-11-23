@@ -121,7 +121,9 @@ def test_stub_mode_pins_the_embedder_and_stops_a_production_install_without_it()
     stub = block[block.index("else") :]
     assert "python -m tools.pin_model --install-embedder --models-root /d/models" in stub
     assert '-e TB_ENV="$TB_ENV_SITE"' in stub and "-e EMBED_MODEL_DIR -e EMBED_MODEL" in stub
-    assert re.search(r'if \[ "\$TB_ENV_SITE" = PRODUCTION \]; then\s+die "[^"]*D-1066', stub)
+    assert re.search(
+        r'if \[ "\$TB_ENV_SITE" = PRODUCTION \]; then\s+stop_or_warn pin-embedder-production "" "[^"]*D-1066', stub
+    )
     # both modes: every pin is checked against its weights before the stack starts
     verify = block[block.index("--verify-all") - 400 :]
     assert "fi\nif ls deploy/site/registry.site.yaml" in block and "--verify-all /d/models" in verify

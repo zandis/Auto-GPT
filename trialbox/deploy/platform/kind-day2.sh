@@ -56,7 +56,9 @@ rollout() {
 images_of() { k get pods -l "app.kubernetes.io/component=$1" -o jsonpath='{.items[*].spec.containers[*].image}'; }
 
 # the backup key pair (throw-away) and the public key ConfigMap; the day-2 overlay sets the site's zone on the jobs
-(cd "$ROOT" && "$PY" -m tools.trialbox backup-keygen --private "$D/backup.key" --public "$D/backup.pub" >/dev/null)
+# a throw-away pair on the day-2 test cluster, a TEST box as the doctor run below (rc1 refuses a backup key on
+# PRODUCTION, R22-34; this checkout has no deploy/.env)
+(cd "$ROOT" && TB_ENV=TEST "$PY" -m tools.trialbox backup-keygen --private "$D/backup.key" --public "$D/backup.pub" >/dev/null)
 k create configmap trialbox-backup-pub --from-file=backup.pub="$D/backup.pub" --dry-run=client -o yaml | k apply -f -
 mkdir -p "$D/overlay"
 cat > "$D/overlay/kustomization.yaml" <<EOF

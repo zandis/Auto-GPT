@@ -21,7 +21,7 @@
 # Spark class, refused by install.sh (card 10E-5, D-1335; H10E5-03). TB_TEST_MEM_KIB stands in for MemTotal in tests.
 set -u
 GB10=0; GPU_PROFILE=""; GPU_ONLY=0; BASELINE=0; ENV_FILE="$(dirname "$0")/.env"
-WSL2=0; WSL2_DISTRO="${WSL_DISTRO_NAME:-}"; ESCROW=""
+WSL2=0; WSL2_DISTRO="${WSL_DISTRO_NAME:-}"; ESCROW=""; RRS=0; RRS_PROBE=""; RRS_INDEX=""
 SECRETS="${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}"
 HR="${TB_HOST_ROOT:-}"
 while [ $# -gt 0 ]; do
@@ -35,10 +35,21 @@ while [ $# -gt 0 ]; do
     --gpu-only) GPU_ONLY=1 ;;
     --env) ENV_FILE="$2"; shift ;;
     --secrets) SECRETS="$2"; shift ;;
+    # REHEARSAL-REAL-SERVERS (H-89): given by install.sh under the rehearsal mark only (tools/rehearsal_real.py)
+    --rehearsal-real-servers) RRS=1 ;;
+    --engine-probe) RRS_PROBE="$2"; shift ;;
+    --gpu-index) RRS_INDEX="$2"; shift ;;
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89)
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
+# REHEARSAL-REAL-SERVERS (H-89): all three or none, never on GB10
+if [ "$RRS" = 1 ] || [ -n "$RRS_PROBE" ] || [ -n "$RRS_INDEX" ]; then
+  { [ "$RRS" = 1 ] && [ -n "$RRS_PROBE" ] && [ -n "$RRS_INDEX" ] && [ "$GB10" = 0 ] && [ -n "$GPU_PROFILE" ]; } \
+    || { echo "--rehearsal-real-servers needs --engine-probe, --gpu-index and --gpu <profile> (install.sh's rehearsal)" >&2; exit 2; }
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 FAILS=0
 pass() { echo "PASS  $1"; }
 warn() { echo "WARN  $1"; }
@@ -55,8 +66,16 @@ gpu_image_check() {
   if ! command -v python3 >/dev/null 2>&1; then
     fail "python3 not found: the GPU host cannot be checked against deploy/images.lock"; return
   fi
+  set --
+  # REHEARSAL-REAL-SERVERS (H-89): the one card named by index, and the allowance's facts
+  if [ "$RRS" = 1 ]; then
+    drv=$(nvidia-smi -i "$RRS_INDEX" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+    cap=$(nvidia-smi -i "$RRS_INDEX" --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)
+    set -- --rehearsal-real-servers --engine-probe "$RRS_PROBE" --gpu-index "$RRS_INDEX" --deploy "$ROOT_DIR/deploy"
+  fi
+  # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   out=$(cd "$ROOT_DIR" && python3 -m tools.images_lock host --arch "$(uname -m)" --driver "$drv" \
-    --compute-cap "$cap" --image "$img" 2>&1)
+    --compute-cap "$cap" --image "$img" "$@" 2>&1)
   echo "$out" | grep -E '^(PASS|WARN|FAIL) ' || echo "FAIL  tools.images_lock: $out"
   n=$(echo "$out" | grep -c '^FAIL ')
   [ "$n" -gt 0 ] && FAILS=$((FAILS + n))
@@ -193,11 +212,23 @@ for dev in $LUKS_DEVS; do
 done
 fi  # the LUKS lines; on WSL2 BitLocker's lines above
 if [ -z "$(swapon --noheadings 2>/dev/null)" ]; then pass "swap disabled"; else fail "swap is enabled (swapoff -a; remove from /etc/fstab)"; fi
+# H-89 (the integrator's ruling, item 1 of #1370's round): the passphrase back end needs no TPM. Chosen: this run has
+# TB_KEK_BACKEND=passphrase and a TB_KEK_PASSPHRASE (the install's way out, never printed), or the site keys are
+# sealed under it (kek.json). Then a missing or unusable TPM is a WARN that names it; otherwise it FAILs as before
+kek_passphrase() {
+  { [ "${TB_KEK_BACKEND:-}" = passphrase ] && [ -n "${TB_KEK_PASSPHRASE:-}" ]; } \
+    || grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null
+}
+KEK_PP="the KEK is under the passphrase back end (TB_KEK_BACKEND=passphrase), which needs no TPM"
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
+elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
+  warn "no TPM device: $KEK_PP; the disk unlock is not bound to this board"
 elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then
   # D-836: a device node is not enough; systemd-creds needs the TPM and its TSS2 libraries. Asked of the running host
   # only (a test's TB_HOST_ROOT has no kernel to ask)
-  if [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1; then
+  if [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1 && kek_passphrase; then
+    warn "TPM 2.0 device present but not usable (systemd-creds has-tpm2): $KEK_PP"
+  elif [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1; then
     facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM
   else
     pass "TPM 2.0 device present"

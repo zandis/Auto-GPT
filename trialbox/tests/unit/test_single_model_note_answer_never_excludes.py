@@ -30,9 +30,14 @@ MAY_EXCLUDE = Policy(0.75, True)  # notes may exclude on this run
 SURE = 0.95  # well above the threshold
 
 
-def _fail(c: Any, basis: str) -> CriterionVerdict:
+#: L1 (#639 7107834329, D-1069: what is not shown never excludes): the note answer rests on a quote that states the
+#: exclusion's condition; with no quote a note exclusion's "present" is review whatever its basis (pinned below)
+ABSCESS = "Skin abscess on the left forearm, drained today."
+
+
+def _fail(c: Any, basis: str, quote: str | None = ABSCESS) -> CriterionVerdict:
     return CriterionVerdict(id=c.id, verdict="fail", basis=basis,  # type: ignore[arg-type]
-                            evidence=Evidence(resource_refs=[], confidence=SURE))  # fmt: skip
+                            evidence=Evidence(resource_refs=[], confidence=SURE, quote=quote))  # fmt: skip
 
 
 def _without_held_back(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,3 +72,10 @@ def test_control_a_pair_fail_under_the_same_input_excludes(criterion: Any, monke
     status = status_of(BY, [_fail(criterion, "pair")], MAY_EXCLUDE)
     assert (status.tier, status.excluded_by) == tier
     assert decision.fail_stands(_fail(criterion, "pair"), MAY_EXCLUDE)
+
+
+def test_a_pair_fail_on_a_note_exclusion_with_no_quote_is_review() -> None:
+    """L1, the old input of the control's exclusion case: nothing shown, nothing excluded."""
+    assert answer_of(EXC, _fail(EXC, "pair", None), MAY_EXCLUDE) == "unknown"
+    status = status_of(BY, [_fail(EXC, "pair", None)], MAY_EXCLUDE)
+    assert (status.tier, status.excluded_by) == ("review", [])
