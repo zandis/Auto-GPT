@@ -33,7 +33,7 @@ import json
 import os
 import pickle
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 from typing import Any, cast
@@ -45,7 +45,7 @@ from criteria_compiler.terminology.mapper import Terminology, ValueSets
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake
 from matching import decision
-from matching.cascade.judge import JudgeReply
+from matching.cascade.judge import JudgeReply, verify_span
 from matching.inferred import sentence_of
 from matching.note_answer import INFERRED_REASON, note_answer_may
 from orchestrator.scenarios.evaluate import NoteResult, note_verdict
@@ -554,6 +554,32 @@ def test_the_cascade_outcome_of_an_inferred_quote_is_unknown(case: Input) -> Non
     o = _cascade(case)
     assert (o.status, o.hard, o.reason) == ("unknown", False, INFERRED_REASON)
     assert all("sentence" not in e for e in o.evidence)  # read by the rule, never published
+
+
+#: the keys of the cascade's verified span on master: what is published
+MASTER_SPAN_KEYS = {"did", "start", "end", "date", "sentence_hash", "quote"}
+
+
+@pytest.mark.parametrize("case", [pytest.param(i, id=f"published-{i.name}") for i in [*QUOTE_ALONE, *CONTROLS]])
+def test_the_sentence_is_read_and_never_published(case: Input) -> None:
+    """The sentence the rule reads is carried where the quote is verified (the cascade's span, ``NoteResult``) and
+    never published (#639 7087774227): the published evidence is byte-identical to what master's span and master's
+    ``NoteResult`` give, for every input whose decision the sentence does not change (the fragment's it does)."""
+    ex = [{"did": "d1", "date": "2026-09-20", "text": PATIENTS[case.patient]["note"]}]
+    reply = JudgeReply("pass", PAIR, case.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    span = verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31))
+    assert span is not None and set(span) == MASTER_SPAN_KEYS | {"sentence"} and span["sentence"] == _sentence(case)
+    master_span = {k: v for k, v in span.items() if k != "sentence"}
+    with_sentence = _run_for_map(True)._map(BY_ID[case.cid], reply, span, "S3")
+    as_master = _run_for_map(True)._map(BY_ID[case.cid], reply, master_span, "S3")
+    assert json.dumps(with_sentence.evidence, sort_keys=True) == json.dumps(as_master.evidence, sort_keys=True)
+    assert (with_sentence.status, with_sentence.hard, with_sentence.reason) == (as_master.status, as_master.hard,
+                                                                              as_master.reason)  # fmt: skip
+    r = _note_result(case)
+    assert r.sentence
+    published = note_verdict(BY_ID[case.cid], r, pair=True).model_dump_json()
+    assert published == note_verdict(BY_ID[case.cid], replace(r, sentence=""), pair=True).model_dump_json()
+    assert case.quote == "" or _sentence(case) not in published.replace(case.quote, "")
 
 
 @pytest.mark.parametrize("case", [pytest.param(i, id=f"cascade.map-{i.name}") for i in CONTROLS])
