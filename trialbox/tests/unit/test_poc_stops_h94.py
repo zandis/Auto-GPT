@@ -61,11 +61,11 @@ RATCHET = {
     "deploy/box-install.sh": 0,
     "tools/apply_update.sh": 0,
     "deploy/bootstrap.sh": 17,
-    "deploy/launcher.sh": 1,
+    "deploy/launcher.sh": 0,
     "deploy/check_host.sh": 6,
-    "deploy/settings_guard.sh": 4,
+    "deploy/settings_guard.sh": 2,
 }
-PY_RATCHET = {"tools/rehearsal_real.py": 4, "tools/trialbox/launch.py": 5}  # sys.exit, SystemExit, raise
+PY_RATCHET = {"tools/rehearsal_real.py": 0, "tools/trialbox/launch.py": 0}  # sys.exit, SystemExit, raise
 
 
 def bare_stops(text: str) -> list[tuple[int, str]]:

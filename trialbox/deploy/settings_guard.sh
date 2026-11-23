@@ -44,11 +44,11 @@ CF_UNREADABLE=0
 if rehearsal_sign; then
   if [ "$CF_UNREADABLE" = 1 ]; then
     echo "TrialBox REFUSED to start: COMPOSE_FILE in $DEPLOY/.env has a comment or a carriage return, so the files it names cannot be checked for a rehearsal's real model servers. Write it as one plain line (deploy/install.sh writes it so), then start again" >&2
-    exit 1
+    exit 1  # H-94 (3): a rehearsal box never starts as PRODUCTION (it cannot be checked)
   fi
   if ! (cd "$DEPLOY/.." && python3 -m tools.rehearsal_real start --deploy "$DEPLOY") >&2; then
     echo "TrialBox REFUSED to start: this box carries a rehearsal sign and is not a whole rehearsal box (above), or the check could not run. A rehearsal box never becomes a site's box: install the site's box afresh on an empty box (RUNBOOK §16)" >&2
-    exit 1
+    exit 1  # H-94 (3)
   fi
 fi
 [ -f "$DEPLOY/settings.yaml" ] || exit 0
