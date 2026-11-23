@@ -408,6 +408,7 @@ PLANTED = {  # what a caller could set: none of it makes a PRODUCTION box a PoC 
     "TB_ENV": "VALIDATION", "TB_STOP_ARG_ENV": "VALIDATION", "TB_STOP_REHEARSAL": "1", "TB_REHEARSAL": "1",
     "TB_STOP_DEPLOY": "/nonexistent", "TB_STOP_WHO": "x", "ENVIRONMENT": "DEV", "REHEARSAL": "1",
     "ANCHOR_OK": "0", "ANCHOR_UNSAFE": "1",  # review H-2 of #1396: the script's own
+    "TB_STOP_KEEP_LIST": "1",  # the lane H lead: box-install.sh hands it on as an option, never a variable
 }  # fmt: skip
 PROD_SITE = "TB_ENV=PRODUCTION\nTB_TLS_HOSTNAME=tb.example.test\nTB_SAE_OFFICE_MAILBOX=office@hospa.test\n"
 

@@ -140,14 +140,14 @@ _prev=""; _clear=1
 for _a in "$@"; do
   [ "$_prev" != --environment ] || TB_STOP_ARG_ENV="$_a"
   [ "$_a" != --rehearsal ] || TB_STOP_REHEARSAL=1
-  case "$_a" in --check|--tier-check|--ctgov-check) _clear=0 ;; esac
+  case "$_a" in --check|--tier-check|--ctgov-check|--keep-poc-list) _clear=0 ;; esac
   _prev="$_a"
 done
 # the list is this install's (review L-3 of #1396): emptied when an install starts, before its first stop_or_warn;
 # kept by the run from the signed tree (the same install, TB_INSTALL_SIGNED naming the release `current` names) and
-# by a run that only checks, and when box-install.sh runs it (TB_STOP_KEEP_LIST=1: box-install.sh empties it itself;
-# a caller's value only keeps more lines). rm takes a link away, never what it names
-if [ "$_clear" = 1 ] && [ "${TB_STOP_KEEP_LIST:-0}" != 1 ] \
+# by a run that only checks, and when box-install.sh runs it (--keep-poc-list: box-install.sh empties it itself; the
+# option only keeps more lines, and no variable of a caller's is read for it). rm takes a link away, never what it names
+if [ "$_clear" = 1 ] \
     && { [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; }; then
   rm -f -- "$TB_STOP_DEPLOY/site/poc-stops.jsonl" 2>/dev/null || true
 fi
@@ -165,6 +165,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
+    --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
     # REHEARSAL-REAL-SERVERS (H-89): a rehearsal's only (refused below without --rehearsal)
     --rehearsal-real-servers) REAL_SERVERS=1 ;;
     --gpu-index) GPU_INDEX="$2"; shift ;;

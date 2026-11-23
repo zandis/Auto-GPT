@@ -115,7 +115,7 @@ for _a in "$@"; do
   [ "$_a" != --firstrun ] || _clear=0
 done
 # the list is this install's (review L-3 of #1396): emptied when a box install starts, kept by --firstrun (it finishes
-# the same install) and by install.sh run from here (TB_STOP_KEEP_LIST=1). rm takes a link away, never what it names
+# the same install) and by install.sh run from here (--keep-poc-list). rm takes a link away, never what it names
 [ "$_clear" = 0 ] || rm -f -- "$TB_STOP_DEPLOY/site/poc-stops.jsonl" 2>/dev/null || true
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -227,8 +227,8 @@ EOP
   # ---------------------------------------------------------------------------------------------- 3. install
   set +e
   # shellcheck disable=SC2086 # TB_BOX_INSTALL is a command line on purpose (tests)
-  TB_STOP_KEEP_LIST=1 TB_BOX="$INBOX" TB_BOX_DEFER_SEAL="$DEFER" ${TB_BOX_INSTALL:-bash "$ROOT/deploy/install.sh"} "$BUNDLE" \
-    --answers "$BOX/answers.json" "${INSTALL_ARGS[@]}" --yes 2>&1 | tee "$BOX/install.log"
+  TB_BOX="$INBOX" TB_BOX_DEFER_SEAL="$DEFER" ${TB_BOX_INSTALL:-bash "$ROOT/deploy/install.sh"} "$BUNDLE" \
+    --answers "$BOX/answers.json" "${INSTALL_ARGS[@]}" --keep-poc-list --yes 2>&1 | tee "$BOX/install.log"
   rc="${PIPESTATUS[0]}"
   set -e
   # a FAIL list at the end (backups not yet placed, say) leaves the stack running; a stop half-way does not

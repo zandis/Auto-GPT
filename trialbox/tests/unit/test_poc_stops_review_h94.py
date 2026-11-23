@@ -266,3 +266,16 @@ def test_h94_08_the_first_check_reads_an_exported_line(tmp_path: Path) -> None:
     r = box.install("--mode", "stub", "--yes")
     assert r.rc == 1 and "the environment 'SOMETHING' (TB_ENV in deploy/.env)" in r.err, r.text[-3000:]
     assert "update r1 loaded" not in r.out
+
+
+def test_l3_a_caller_s_variable_never_keeps_the_list(tmp_path: Path) -> None:
+    """box-install.sh hands the list on with install.sh's option --keep-poc-list; an exported TB_STOP_KEEP_LIST (an
+    older form of it) is not read: the install empties the list as any install does."""
+    box = Box(tmp_path / "b", env="TB_ENV=TEST\n")
+    first = box.install("--environment", "TEST", "--mode", "stub", "--yes", force=("memcaps",))
+    assert first.rc == 0 and "install.sh/memcaps" in first.listed_keys(), first.text[-3000:]
+    planted = box.install("--environment", "TEST", "--mode", "stub", "--yes", env={"TB_STOP_KEEP_LIST": "1"})
+    assert planted.rc == 0 and planted.listed_keys() == set(), planted.text[-3000:]
+    first = box.install("--environment", "TEST", "--mode", "stub", "--yes", force=("memcaps",))
+    kept = box.install("--environment", "TEST", "--mode", "stub", "--keep-poc-list", "--yes")
+    assert kept.rc == 0 and "install.sh/memcaps" in kept.listed_keys(), kept.text[-3000:]
