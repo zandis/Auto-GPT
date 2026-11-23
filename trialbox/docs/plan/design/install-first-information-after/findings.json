@@ -1,0 +1,38 @@
+{
+ "card": "U5",
+ "title": "install first, then the information (part 1)",
+ "date": "2026-11-23",
+ "source": "docs/plan/design/install-first-information-after.md",
+ "findings": [
+  {
+   "id": "U5-01",
+   "severity": "Medium",
+   "claim": "a study of an SAE type cannot open on a VALIDATION (PoC) box without the trial office's mailbox: services/console/study_setup.py:683 exempts only DEV and TEST, while D-1091 counts VALIDATION as a PoC box (the walk's stop)",
+   "lane": "K",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "the gate of U5-6: a warning on a PoC box, refused by name in PRODUCTION",
+   "from": "lane U's sweep for card U-5, read in code; nothing was run"
+  },
+  {
+   "id": "U5-02",
+   "severity": "Medium",
+   "claim": "doctor FAILs on a missing audit anchor share on a VALIDATION box (tools/trialbox/doctor.py:1276) and on a missing site zone everywhere (:892); box-install.sh:304 takes the host check's exit code, so a missing site item ends a PoC install with exit 1",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "a WARN naming the page for a missing item (U5-4)",
+   "from": "lane U's sweep for card U-5, read in code; nothing was run"
+  },
+  {
+   "id": "U5-03",
+   "severity": "Low",
+   "claim": "the box form's apply step runs the settings wizard without the box's environment (tools/box/__main__.py:117, via deploy/box-install.sh:245), so the wizard's PRODUCTION-only rules never apply on that path while its environment-blind refusals always do",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "pass the box's environment, and the four-question rule (U5-2)",
+   "from": "lane U's sweep for card U-5, read in code; nothing was run"
+  }
+ ]
+}
