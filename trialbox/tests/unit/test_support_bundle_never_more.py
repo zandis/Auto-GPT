@@ -190,3 +190,54 @@ def test_an_unquoted_key_s_neighbours_leave_nothing(form: str) -> None:
     value = "Hq4mT8xR2wK6"
     out, _ = sb.redact_secrets(bs.scrub_text(form.format(v=value)))
     assert value not in out + "\n" + bs._decode(out), out
+
+
+#: #1354 round 4: the forms of the 108 corpus lines this head still left after round 3 (one form, both quotes: an
+#: unquoted key, then an encoded space, then the quoted value, ``GET /p/%2F{k:%20"v"}``; 54 + 54 lines), and the
+#: neighbours of that encoded space (a form's ``+``, a tab, ``\x20``, ``&#32;``, `` ``, two of them)
+SPACES = ["%20", "+", "%09", "\\x20", "&#32;", "\\u0020", "%20%20", "%20+"]
+QUOTES = ['"', "'"]
+AROUND = ["GET /p/%2F{line} 200", "GET /p/%2F{line}%20A123456789 200", "{line}", "x=1 {line} y=2", "?q={line}&a=1"]
+
+
+@pytest.mark.parametrize("space", SPACES)
+@pytest.mark.parametrize("quote", QUOTES)
+@pytest.mark.parametrize("around", AROUND)
+def test_none_of_the_forms_the_corpus_still_left_passes(space: str, quote: str, around: str) -> None:
+    """Each form of the lines round 3 left (an encoded space between an unquoted key's colon and its quoted value),
+    with every key of the corpus, leaves nothing; the bundle's path: ``scrub_text``, then ``redact_secrets``."""
+    for k, key in enumerate(KEYS):
+        value = f"Wq3bKmZt9x{k:02d}"
+        line = around.format(line=f"{{{key}:{space}{quote}{value}{quote}}}")
+        out, _ = sb.redact_secrets(bs.scrub_text(line))
+        assert value not in out + "\n" + bs._decode(out), (line, out)
+
+
+def test_the_corpus_leaves_no_line_at_all() -> None:
+    """Round 4: of the 4,000 lines, none leaves its value (round 3 left 108, master leaves 1,638)."""
+    assert leaks() == []
+
+
+@pytest.mark.parametrize(
+    ("line", "written"),
+    [
+        ('GET /p/{password:+"Wq3bKmZt9x"} 200', 'GET /p/{password:+"[redacted]"} 200'),
+        ("GET /p/{token:+'Wq3bKmZt9x'} 200", "GET /p/{token:+'[redacted]'} 200"),
+        ('GET /p/%2F{password:%20"Wq3bKmZt9x"} 200', 'GET /p/%2F{password:%20"[redacted]"} 200'),
+        ('{api_key:%20+"Wq3bKmZt9x"} ok', '{api_key:%20+"[redacted]"} ok'),
+        ('{password: "Wq3bKmZt9x"} ok', '{password: "[redacted]"} ok'),
+    ],
+)
+def test_the_encoded_space_and_the_quotes_stay_where_they_were(line: str, written: str) -> None:
+    """Round 4: only the value is masked; the encoded space before it and its quotes stay, and what follows the
+    value on the line (``} 200``) is not taken with it."""
+    assert bs.Scrubber.for_bundle().text(line) == written
+
+
+@pytest.mark.parametrize(
+    "line", ['{password: "[redacted]"}', "{token:+'[redacted]'}", 'GET /p/{password:%20"[redacted]"}']
+)
+def test_a_value_masked_already_is_not_masked_or_counted_again(line: str) -> None:
+    s = bs.Scrubber.for_bundle()
+    assert s.text(line) == line
+    assert not any(n for k, n in s.found.items() if k.startswith("secret")), dict(s.found)
