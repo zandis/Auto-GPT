@@ -1216,6 +1216,9 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
   fi
 fi
+# H-92 (D-1090): a systemd host schedules the backup with timers, so it needs no /etc/cron.d for that
+SYSTEMD_HOST=0; [ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/systemd/system ] \
+  && command -v systemctl >/dev/null && SYSTEMD_HOST=1
 CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finished install in PRODUCTION
 CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
 if [ "$CAN_CRON" = 1 ]; then
@@ -1225,8 +1228,10 @@ if [ "$CAN_CRON" = 1 ]; then
   printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1" \
     > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
   echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
-elif [ "$TB_ENV_SITE" = PRODUCTION ]; then
+elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "$SYSTEMD_HOST" != 1 ]; then
   stop_or_warn cron-production "" "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
+elif [ "$SYSTEMD_HOST" = 1 ]; then
+  echo "install: warning: no $CRON_DIR: the backup runs from systemd timers; the log retention cron is not installed (H92-02)" >&2
 fi
 if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]; then
   # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
@@ -1298,10 +1303,12 @@ fi
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
 # TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page, D-735); `trialbox
 # doctor` then checks the backup's age and its off-box target
+# H-92: on a systemd host backup-install writes the schedule as timers: no /etc/cron.d (no cron package) needed
+[ "${SYSTEMD_HOST:-0}" = 1 ] && command -v python3 >/dev/null && CAN_CRON=1
 if [ "$CAN_CRON" = 1 ]; then
   say "backups: cron, WAL archiving, first backup"
   set +e
-  PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
+  PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} ${TB_SYSTEMD_DIR:+--systemd-dir "$TB_SYSTEMD_DIR"} 2>&1 | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
   if [ "$rc" != 0 ] && [ "${TB_BOX:-0}" != 1 ]; then
