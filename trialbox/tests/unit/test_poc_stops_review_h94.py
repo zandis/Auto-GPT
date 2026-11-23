@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -283,6 +284,11 @@ def test_l3_a_caller_s_variable_never_keeps_the_list(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------- H94-09 (the integrator's ruling 7102087475, part 2)
+RETENTION = (
+    "20 0 * * * root cd /opt/trialbox && python3 -m tools.trialbox logs-prune; python3 -m tools.trialbox audit-sign\n"
+)
+
+
 def _settings_guard(tmp_path: Path, environment: str) -> tuple[subprocess.CompletedProcess[str], Path]:
     """The real deploy/settings_guard.sh on a box whose anchor rule cannot run (no python3 module for it here: the
     finish check fails) and whose site settings would not be mounted (the example would)."""
@@ -291,7 +297,11 @@ def _settings_guard(tmp_path: Path, environment: str) -> tuple[subprocess.Comple
     (deploy / "site" / "compose.anchors.yml").write_text("services: {}\n", encoding="utf-8")
     (deploy / "settings.yaml").write_text("site: {id: SITE-A}\n", encoding="utf-8")
     (deploy / ".env").write_text(f"TB_ENV={environment}\n", encoding="utf-8")
+    cron = tmp_path / "cron"
+    cron.mkdir()
+    (cron / "trialbox-retention").write_text(RETENTION, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k not in ("TB_SETTINGS_FILE", "PYTHONPATH")}
+    env["TB_CRON_DIR"] = str(cron)  # never the host's /etc/cron.d
     r = subprocess.run(["sh", str(ROOT / "deploy" / "settings_guard.sh"), str(deploy)], cwd=tmp_path, env=env,
                        capture_output=True, text=True, check=False, timeout=120)  # fmt: skip
     return r, deploy
@@ -479,3 +489,115 @@ def test_bootstrap_stops_a_user_who_is_not_root(tmp_path: Path) -> None:
     r = subprocess.run(["bash", str(ROOT / "deploy" / "bootstrap.sh"), str(tmp_path / "b.tar"), "--pub", str(tmp_path / "k")],
                        capture_output=True, text=True, env=env, check=False, timeout=60)  # fmt: skip
     assert r.returncode == 1 and "run it as root" in r.stderr, r.stderr
+
+
+# ---------------------------------------------------------------------------- the review of #1430 (7113577814)
+@pytest.mark.parametrize("environment", ["TEST", "PRODUCTION"])
+@pytest.mark.parametrize(("force", "line"), [("env-mode", "FAIL  .env mode 644"), ("disk-full", "FAIL  free space on")])
+def test_h1_box_install_ends_with_the_host_check_s_code_for_a_kept_kind(
+    tmp_path: Path, environment: str, force: str, line: str
+) -> None:
+    """H-1: the closing host check's FAIL line of a kept refusal (deploy/.env's mode: a secret others can read, kind 5;
+    the disk too full: kind 2) ends the box's real first run with the check's code on every box, as install.sh keeps
+    it a FAIL; nothing lists it."""
+    from tests.unit.test_poc_stops_h94 import _firstrun
+
+    r = _firstrun(tmp_path, force=(force,), environment=environment)
+    assert r.rc == 1, r.text[-3000:]
+    assert line in r.out and "box-install.sh/host-check" not in r.listed_keys()
+
+
+def test_h1_install_keeps_a_kind_2_fail_of_the_host_check_a_fail(tmp_path: Path) -> None:
+    r = Box(tmp_path / "b", env="TB_ENV=TEST\n").install("--mode", "stub", "--yes", force=("disk-full",),
+                                                         env={"TB_BOX_DEFER_SEAL": "1"})  # fmt: skip
+    assert r.rc == 1 and r.err.splitlines()[-1].startswith("install: FAIL: the host check: free space on"), r.err[
+        -2000:
+    ]
+
+
+def test_m1_an_update_stops_at_the_start_guard_s_refusal_on_a_poc_box(tmp_path: Path) -> None:
+    """M-1: on a PoC box settings_guard.sh exits non-zero only for its kept refusals (3) (its other two warn by
+    themselves, test_h94_09_on_a_poc_box_both_start_checks_warn_and_the_box_starts): the update stops there, with
+    master's words, and lists nothing."""
+    from tests.unit.test_poc_stops_h94 import _apply_update
+
+    r = _apply_update(tmp_path, environment="TEST", guard_rc=1)
+    assert r.rc == 1 and r.err.splitlines()[-1] == "update REFUSED: nothing was changed", r.text[-2000:]
+    assert "PoC box" not in r.err and not r.listed_keys()
+
+
+@pytest.mark.parametrize(("environment", "signed"), [("TEST", False), ("PRODUCTION", True)])
+def test_m2_a_warned_anchor_at_a_start_is_signed_into_no_more(tmp_path: Path, environment: str, signed: bool) -> None:
+    """M-2: on a PoC box the start guard's anchor warning takes the nightly signed head out of the retention cron (as
+    install.sh and box-install.sh do); on PRODUCTION the guard stops and the cron is as it was."""
+    r, _ = _settings_guard(tmp_path, environment)
+    assert r.returncode == (1 if signed else 0), r.stderr
+    assert ("audit-sign" in (tmp_path / "cron" / "trialbox-retention").read_text(encoding="utf-8")) is signed
+
+
+def test_m3_tier_check_without_a_tier_is_refused_by_name_on_a_poc_box(tmp_path: Path) -> None:
+    """M-3: a run that asks only a check never becomes an install: refused as a usage error, nothing loaded."""
+    r = Box(tmp_path / "b", env="TB_ENV=TEST\n").install(
+        "--environment", "TEST", "--mode", "stub", "--tier-check", "--yes"
+    )
+    assert r.rc == 1 and r.err.splitlines()[-1] == "install: --tier-check needs --tier small|medium|large", r.err[
+        -2000:
+    ]
+    assert "update r1 loaded" not in r.out and "PoC box" not in r.err
+
+
+def test_l5_an_unknown_option_is_refused_by_name_on_a_poc_box(tmp_path: Path) -> None:
+    """L-5: install.sh, box-install.sh and apply_update.sh refuse an option they do not know (exit 2, master's words)
+    on a PoC box too: its value is never taken for the bundle."""
+    from tests.unit.test_poc_stops_h94 import _apply_update, _firstrun
+
+    r = Box(tmp_path / "i", env="TB_ENV=TEST\n").install("--environment", "TEST", "--typo", "VALUE", "--yes")
+    assert r.rc == 2 and r.err.splitlines()[-1] == "install: unknown option --typo", r.err[-2000:]
+    assert "update r1 loaded" not in r.out
+    r = _firstrun(tmp_path / "b", "--typo")
+    assert r.rc == 2 and r.err.splitlines()[-1] == "box-install: unknown option --typo", r.err[-2000:]
+    r = _apply_update(tmp_path / "u", "--typo")
+    assert r.rc == 2 and r.err.splitlines()[-1] == "apply_update: unknown option --typo", r.err[-2000:]
+
+
+def test_l1_box_install_stops_without_python3_on_a_poc_box(tmp_path: Path) -> None:
+    """L-1, L-4: python3 is kind 2 for box-install.sh, as for bootstrap.sh: every next step runs it. The line as it
+    stands in box-install.sh, on a TEST box, with no python3 on the PATH."""
+    line = next(ln for ln in BOX_INSTALL.splitlines() if ln.startswith("command -v python3 >/dev/null ||"))
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text("TB_ENV=TEST\n", encoding="utf-8")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    for tool in ("sed", "tr", "tail", "cat", "date", "stat", "mkdir", "chmod", "id"):
+        (bin_ / tool).symlink_to(shutil.which(tool) or f"/usr/bin/{tool}")
+    script = (
+        stop_prelude(deploy=str(deploy)) + 'die() { echo "box-install: $*" >&2; exit 1; }\n' + line + "\necho went-on\n"
+    )
+    r = subprocess.run(
+        ["/bin/bash", "-c", script], env={"PATH": str(bin_)}, capture_output=True, text=True, check=False
+    )
+    assert r.returncode == 1 and "python3 is missing" in r.stderr and "went-on" not in r.stdout, r.stderr
+    assert not (deploy / "site" / "poc-stops.jsonl").exists()
+
+
+def test_l2_the_list_is_never_a_second_name_of_another_file(tmp_path: Path) -> None:
+    """L-2: a list that is a hard link (a second name of another root-owned file) is written by neither writer."""
+    d = tmp_path / "deploy"
+    (d / "site").mkdir(parents=True)
+    (d / ".env").write_text("TB_ENV=TEST\n", encoding="utf-8")
+    other = d / "site" / "other"
+    other.write_text("not the list\n", encoding="utf-8")
+    os.link(other, d / "site" / "poc-stops.jsonl")
+    script = stop_prelude(deploy=str(d), environment="TEST") + 'stop_or_warn k "" "a point"\necho went-on\n'
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert r.returncode == 0 and "went-on" in r.stdout and "cannot be written" in r.stderr, r.stderr
+    assert not stops.append(d, "k", "a point", by="test")
+    assert other.read_text(encoding="utf-8") == "not the list\n"
+
+
+def test_l3_a_warning_never_says_refused(tmp_path: Path) -> None:
+    r, _ = _settings_guard(tmp_path, "TEST")
+    warned = [ln for ln in r.stderr.splitlines() if "warning (PoC box, H-94)" in ln]
+    assert r.returncode == 0 and len(warned) == 2 and not any("REFUSED" in ln for ln in warned), r.stderr
+    assert any(ln.startswith("TrialBox: warning (PoC box, H-94): ") for ln in warned), warned

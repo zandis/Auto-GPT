@@ -263,7 +263,9 @@ tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped
 tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
   _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
   [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
-  if [ ! -L "$_f" ] && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+  # a link is never followed, nor a second name of another file (review L-2 of #1430: one name, its own)
+  if [ ! -L "$_f" ] && { [ ! -e "$_f" ] || [ "$(stat -c %h "$_f" 2>/dev/null)" = 1 ]; } \
+      && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
       && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
         "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
     chmod 0640 "$_f" 2>/dev/null || true
@@ -280,9 +282,18 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
     [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
     exit "$_rc"
   fi
-  printf '%s: warning (PoC box, H-94): %s%s\n' "$TB_STOP_WHO" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
+  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
   tb_stop_list "$_key" "$_skipped" "$*"
   return 0
+}
+tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
+  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
+  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
+  _in="$(cat)"
+  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
+    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
+  } | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: the host check's PoC box is the record (deploy/.env beside the --env file, the mark) alone; it never stops by

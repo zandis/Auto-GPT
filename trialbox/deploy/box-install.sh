@@ -85,7 +85,9 @@ tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped
 tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
   _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
   [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
-  if [ ! -L "$_f" ] && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+  # a link is never followed, nor a second name of another file (review L-2 of #1430: one name, its own)
+  if [ ! -L "$_f" ] && { [ ! -e "$_f" ] || [ "$(stat -c %h "$_f" 2>/dev/null)" = 1 ]; } \
+      && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
       && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
         "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
     chmod 0640 "$_f" 2>/dev/null || true
@@ -102,9 +104,18 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
     [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
     exit "$_rc"
   fi
-  printf '%s: warning (PoC box, H-94): %s%s\n' "$TB_STOP_WHO" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
+  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
   tb_stop_list "$_key" "$_skipped" "$*"
   return 0
+}
+tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
+  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
+  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
+  _in="$(cat)"
+  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
+    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
+  } | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: this run's command line (--rehearsal) is read once before the arguments are; box-install.sh has no
@@ -132,7 +143,7 @@ while [ $# -gt 0 ]; do
     --keep-kek-passphrase-file) PP_KEEP=1 ;;
     --kek-passphrase-stdin) PP_STDIN=1 ;;
     -h|--help) sed -n '2,/^set -euo pipefail/{ /^set -euo pipefail/!p; }' "$0"; exit 0 ;;
-    -*) stop_or_warn --rc 2 unknown-option "the option $1 (ignored)" "unknown option $1" ;;
+    -*) echo "box-install: unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: a usage error, refused by name on every box (review L-5 of #1430): an option not understood is never acted on, nor its value taken for the bundle
     *) BUNDLE="$1" ;;
   esac
   shift
@@ -254,7 +265,7 @@ WSL2=0; case "$(uname -r)" in *[Mm]icrosoft*) WSL2=1 ;; esac
 case "${TB_BOX_WSL2:-}" in "") ;; 0|1) WSL2="$TB_BOX_WSL2" ;; *) stop_or_warn wsl2-value "TB_BOX_WSL2 (the kernel's word: $WSL2)" "TB_BOX_WSL2 is 0 or 1, not '$TB_BOX_WSL2'" ;; esac
 export PYTHONPATH="$ROOT/libs:$ROOT"
 [ "${TB_BOX_NO_ROOT:-0}" = 1 ] || [ "$(id -u)" = 0 ] || die "run it as root (sudo deploy/box-install.sh ...)"  # H-94 (4)
-command -v python3 >/dev/null || stop_or_warn python3-missing "every step that runs python3 (each fails where it runs)" "python3 is missing on this machine (Ubuntu 24.04 has it)"  # D-1091
+command -v python3 >/dev/null || die "python3 is missing on this machine (Ubuntu 24.04 has it)"  # H-94 (2): every next step runs it, as bootstrap.sh's own check (review L-1, L-4 of #1430)
 # a bare Ubuntu box gets Docker, the NVIDIA toolkit and the host's libraries from the media first (OPS-006, D-966)
 [ -n "${TB_BOX_PY:-}" ] || command -v docker >/dev/null \
   || stop_or_warn docker-missing "every step that runs Docker (the install's load then stops: kept refusal 1)" "Docker is missing on this machine: prepare it from the media first (sudo <media>/linux/box-prepare.sh <media> --pub <the vendor key given to you>; RUNBOOK §16)"
@@ -520,14 +531,20 @@ rm -f "$BOX/prepared"
 say "host check"
 set +e
 # shellcheck disable=SC2086 # a command line on purpose (tests)
-${TB_BOX_HOST_CHECK:-sh "$ROOT/deploy/check_host.sh"}
+exec 8>&1
+HC_OUT="$(${TB_BOX_HOST_CHECK:-sh "$ROOT/deploy/check_host.sh"} | tee -a /dev/fd/8)"  # -a: as install.sh (a file is not emptied)
 rc=$?
+exec 8>&-
 set -e
+# H-94 (5): its FAIL lines of a kept refusal (tb_kept_fails: a secret's mode, (2), (3)) end the run with its code on
+# every box, as install.sh keeps them FAIL lines (review M-1 of #1396; review H-1 of #1430)
+SECRET_FAIL="$(printf '%s\n' "$HC_OUT" | tb_kept_fails)"
 if [ -n "$OWNER" ]; then
   printf '\n  TrialBox is ready: https://%s  (sign in as admin with the password and enrolment code %s)\n' "$HOST" "$(once_where)"
 else
   printf '\n  TrialBox is ready: https://%s  (sign in with the account you made in the set-up)\n' "$HOST"
 fi
 # H-94: the host check's FAIL lines (above) end the run with its code; on a PoC box a warning and a line of the list
+[ "$rc" = 0 ] || [ -z "$SECRET_FAIL" ] || exit "$rc"  # H-94 (5): a secret's file or key where others can read it
 [ "$rc" = 0 ] || stop_or_warn --rc "$rc" --silent host-check "" "the host check reported FAIL lines (above)"
 exit 0

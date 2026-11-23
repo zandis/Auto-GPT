@@ -348,7 +348,7 @@ def _scenarios(tmp: Path) -> list[tuple[str, Box, tuple[str, ...], tuple[str, ..
     add(
         "command-line-and-host",
         {},
-        ["--environment", "TEST", "--mode", "bogus", "--tier-check", "--bogus-flag", "--yes"],
+        ["--environment", "TEST", "--mode", "bogus", "--yes"],
         [
             "docker-not-running",
             "compose-missing",
@@ -360,8 +360,6 @@ def _scenarios(tmp: Path) -> list[tuple[str, Box, tuple[str, ...], tuple[str, ..
         ],
         {},
         [
-            "unknown-option",
-            "tier-check-without-tier",
             "mode-value",
             "docker-not-running",
             "compose-missing",
@@ -520,7 +518,7 @@ def test_on_production_every_fail_line_and_exit_1_stay(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(("rel", "fixture", "least"), [("deploy/install.sh", "install_sh", 60),
                                                     ("deploy/box-install.sh", "box_install_sh", 8),
-                                                    ("tools/apply_update.sh", "apply_update_sh", 5)])  # fmt: skip
+                                                    ("tools/apply_update.sh", "apply_update_sh", 3)])  # fmt: skip
 def test_every_converted_message_is_master_s(rel: str, fixture: str, least: int) -> None:
     """The words of every converted point, as written in the script, are master's (the fixture of master's stops):
     on PRODUCTION the helper prints exactly them, with master's exit code."""
@@ -722,7 +720,6 @@ def test_with_no_docker_a_poc_box_warns_then_stops_at_the_load(tmp_path: Path) -
 # ---------------------------------------------------------------------------------------- deploy/box-install.sh
 BOX_INSTALL = ROOT / "deploy" / "box-install.sh"
 BOX_NOT_DRIVEN = {
-    "python3-missing": "every step of the script runs python3 (the plan, the code, the finish check)",
     "docker-missing": "the bench's image stand-in (TB_BOX_PY) is the script's own way past the Docker check",
 }
 BOX_PY = r"""#!/bin/sh
@@ -776,7 +773,9 @@ def _firstrun(tmp: Path, *args: str, force: tuple[str, ...] = (), environment: s
     b.mkdir()
     stubs = {"python3": BOX_PYTHON3, "boxpy": BOX_PY,
              "compose": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" stack-restart "*) exit 1 ;; esac\nexit 0\n',
-             "hostcheck": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" host-check "*) echo "FAIL  x"; exit 1 ;; esac\n',
+             "hostcheck": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" host-check "*) echo "FAIL  x"; exit 1 ;; esac\n'
+                          'case " $TB_H94_FORCE " in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned)"; exit 1 ;; esac\n'
+                          'case " $TB_H94_FORCE " in *" disk-full "*) echo "FAIL  free space on /var/lib/docker: 4% (below 10%)"; exit 1 ;; esac\n',
              "probe": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" anchor-read "*) exit 1 ;; esac\nexit 0\n'}  # fmt: skip
     for name, text in stubs.items():
         (b / name).write_text(text, encoding="utf-8")
@@ -802,8 +801,8 @@ def test_a_poc_box_s_first_run_goes_through_every_converted_point_of_box_install
     assert set(BOX_NOT_DRIVEN) <= converted_keys(BOX_INSTALL.read_text(encoding="utf-8"))
     seen: set[str] = set()
     runs = [
-        (("--bogus", "--answers"), ("apply", "finish-gate", "stack-restart", "host-check"), {"TB_BOX_WSL2": "x"},
-         {"unknown-option", "answers-value", "wsl2-value", "apply", "finish-gate", "stack-restart", "host-check"}),
+        (("--answers",), ("apply", "finish-gate", "stack-restart", "host-check"), {"TB_BOX_WSL2": "x"},
+         {"answers-value", "wsl2-value", "apply", "finish-gate", "stack-restart", "host-check"}),
         ((), ("finish-did-not-run",), {}, {"finish-did-not-run"}),
         ((), ("anchor-read",), {}, {"anchor-read"}),
         ((), ("anchor-mount",), {}, {"anchor-mount"}),
@@ -881,7 +880,7 @@ def _apply_update(tmp: Path, *args: str, environment: str = "TEST", guard_rc: in
 def test_a_poc_box_s_update_goes_through_every_converted_point_of_apply_update(tmp_path: Path) -> None:
     """THE ONE TEST for tools/apply_update.sh (H-94, D-1091): on a TEST box every converted point, forced, warns, is
     listed, and the update goes on to the update path."""
-    r = _apply_update(tmp_path, "--conf", "x.conf", "--bogus", "--no-backup-reason", "why", guard_rc=1)
+    r = _apply_update(tmp_path, "--conf", "x.conf", "--no-backup-reason", "why")
     assert r.rc == 0 and "update: applied (stand-in)" in r.out, r.text[-3000:]
     got = {k.removeprefix("apply_update.sh/") for k in r.listed_keys()}
     want = converted_keys(APPLY_UPDATE.read_text(encoding="utf-8")) - set(APPLY_NOT_DRIVEN)

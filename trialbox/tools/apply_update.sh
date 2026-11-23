@@ -94,7 +94,9 @@ tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped
 tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
   _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
   [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
-  if [ ! -L "$_f" ] && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+  # a link is never followed, nor a second name of another file (review L-2 of #1430: one name, its own)
+  if [ ! -L "$_f" ] && { [ ! -e "$_f" ] || [ "$(stat -c %h "$_f" 2>/dev/null)" = 1 ]; } \
+      && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
       && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
         "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
     chmod 0640 "$_f" 2>/dev/null || true
@@ -111,9 +113,18 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
     [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
     exit "$_rc"
   fi
-  printf '%s: warning (PoC box, H-94): %s%s\n' "$TB_STOP_WHO" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
+  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
   tb_stop_list "$_key" "$_skipped" "$*"
   return 0
+}
+tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
+  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
+  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
+  _in="$(cat)"
+  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
+    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
+  } | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: apply_update.sh has no --environment: its PoC box is the record (deploy/.env, the mark) alone
@@ -143,7 +154,7 @@ while [ $# -gt 0 ]; do
     --with-model-pack) WITH_MODEL=${2:?--with-model-pack needs a model pack}; shift ;;
     # H-95: a model pack with the software pack loaded straight after it (it must name this model pack)
     --for-software) FOR_SOFTWARE=${2:?--for-software needs a software pack}; shift ;;
-    *) stop_or_warn --rc 2 unknown-option "the option $1 (ignored)" "unknown option $1" ;;
+    *) echo "apply_update: unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: a usage error, refused by name on every box (review L-5 of #1430): an option not understood is never acted on, nor its value taken for the bundle
   esac
   shift
 done
@@ -250,6 +261,8 @@ fi
 ( umask 077; printf '%s' "$SUMMARY" > "$STAGE/summary.json" )
 cd "$ROOT"
 # D-888: the update restarts the stack: never on the example settings while the site's exist
-sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { TB_STOP_WHO="update REFUSED"; stop_or_warn settings-guard "" "nothing was changed"; TB_STOP_WHO=apply_update; }  # D-1091
+# H-94 (3): the start guard warns by itself on a PoC box for what is not one of the five (7102087475); what it still
+# refuses there is its kept refusal (3), a rehearsal box never starting as PRODUCTION (review M-1 of #1430)
+sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }  # H-94 (3)
 python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" --target "$TARGET" \
   --deploy "$ROOT/deploy" --bundle "$BUNDLE_ABS" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}

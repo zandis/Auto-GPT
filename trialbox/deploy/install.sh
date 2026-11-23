@@ -116,7 +116,9 @@ tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped
 tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
   _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
   [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
-  if [ ! -L "$_f" ] && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+  # a link is never followed, nor a second name of another file (review L-2 of #1430: one name, its own)
+  if [ ! -L "$_f" ] && { [ ! -e "$_f" ] || [ "$(stat -c %h "$_f" 2>/dev/null)" = 1 ]; } \
+      && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
       && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
         "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
     chmod 0640 "$_f" 2>/dev/null || true
@@ -133,9 +135,18 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
     [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
     exit "$_rc"
   fi
-  printf '%s: warning (PoC box, H-94): %s%s\n' "$TB_STOP_WHO" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
+  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
   tb_stop_list "$_key" "$_skipped" "$*"
   return 0
+}
+tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
+  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
+  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
+  _in="$(cat)"
+  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
+    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
+  } | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: this run's command line is read once before the arguments are, so a stop while they are read knows the box
@@ -183,7 +194,7 @@ while [ $# -gt 0 ]; do
     --kek-passphrase-fd) PP_FD="${2:-}"; shift ;;  # the installer's own hand-on (the signed re-run)
     --kek-passphrase-remove) PP_REMOVE="${2:-}"; shift ;;  # the signed re-run's: the operator's file, never opened again
     -h|--help) sed -n 2,47p "$0"; exit 0 ;;
-    -*) stop_or_warn --rc 2 unknown-option "the option $1 (ignored)" "unknown option $1" ;;  # D-1091: protects none of the five
+    -*) echo "install: unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: a usage error, refused by name on every box (review L-5 of #1430): an option not understood is never acted on, nor its value taken for the bundle
     *) BUNDLE="$1" ;;
   esac
   shift
@@ -457,8 +468,9 @@ if [ -n "$TIER" ]; then
     [ "$TIER_CHECK" = 0 ] || exit 0
   fi
 elif [ "$TIER_CHECK" = 1 ]; then
-  stop_or_warn tier-check-without-tier "--tier-check (no tier to check: ignored)" "--tier-check needs --tier small|medium|large"  # D-1091: protects none of the five
-  TIER_CHECK=0
+  # H-94 not a stop: a usage error, refused by name on every box (review M-3 of #1430): a run that asks only a check
+  # never becomes an install
+  die "--tier-check needs --tier small|medium|large"
 fi
 # H-94 (1): no bundle, no signature that holds: nothing is loaded from nothing
 [ -n "$BUNDLE" ] || die "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]"  # H-94 (1)
@@ -1708,7 +1720,7 @@ fi
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
 HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"})
-# H-94 (5): its FAIL lines about a secret's mode (deploy/.env, a key, a token) are kept apart: on a PoC box they stay
+# H-94 (5): its FAIL lines of a kept refusal (tb_kept_fails) are kept apart: on a PoC box they stay
 # FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before. tee -a: when this output is a
 # file (box-install.sh's install.log, a rehearsal's step log) /dev/fd/8 is opened again, and without -a it is emptied
 HOST_OUT=""; exec 8>&1
@@ -1716,8 +1728,8 @@ HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | 
   || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
 exec 8>&-
 SECRET_FAILS=()
-while IFS= read -r l; do SECRET_FAILS+=("the host check: $l"); done < <(printf '%s\n' "$HOST_OUT" \
-  | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password' | sed -E 's/^FAIL +//' || true)
+while IFS= read -r l; do SECRET_FAILS+=("the host check: $l"); done < <(printf '%s\n' "$HOST_OUT" | tb_kept_fails \
+  | sed -E 's/^FAIL +//' || true)
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
 if [ "$MODE" = gpu ]; then
@@ -1779,12 +1791,13 @@ fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # H-94: on a PoC box each FAIL line is a warning and a line of the list, and the install ends 0; elsewhere every
 # FAIL line, then exit 1, as before
-# H-94 (5): on a PoC box a FAIL line of the host check about a secret's mode stays a FAIL: the other FAIL lines warn
+# H-94 (5): on a PoC box a FAIL line of the host check of a kept refusal (tb_kept_fails: a secret's mode, and (2),
+# (3)) stays a FAIL: the other FAIL lines warn
 # and are listed, then those lines and exit 1. On any other box the lines below stop, with master's words
 if [ "${#SECRET_FAILS[@]}" -gt 0 ] && tb_poc_box; then
   for f in "${FAILS[@]}"; do stop_or_warn --silent "fail: $(printf '%s' "$f" | cut -c1-40)" "" "FAIL: $f"; done
   printf 'install: FAIL: %s\n' "${SECRET_FAILS[@]}" >&2
-  exit 1  # H-94 (5): a secret's file or key where others can read it
+  exit 1  # H-94 (5): a secret's file or key where others can read it (and the (2), (3) lines of tb_kept_fails)
 fi
 if [ "${#FAILS[@]}" -gt 0 ]; then
   tb_poc_box || printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
