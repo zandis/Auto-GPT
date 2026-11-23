@@ -192,6 +192,7 @@ UNCERTAIN: dict[str, frozenset[str]] = {
     "Observation": frozenset({"preliminary", "unknown"}),
     "MedicationRequest": frozenset({"unknown"}),
     "MedicationStatement": frozenset({"unknown"}),
+    "Procedure": frozenset({"unknown"}),  # SDR2 (lane M): an SS-MIX2 実施 record with no version in force
 }
 STATUS_SOURCE = "urn:trialbox:status-source"
 NOT_RECORDED = "not-recorded"
@@ -663,12 +664,17 @@ class Flattener:
 
     def procedure(self, r: Resource) -> Row:
         code, system = self.coding(r.get("code"))
+        # SDR2 (D-275's rule, as for an order): a procedure of unknown status is kept undated, so a criterion on it
+        # reads unknown where the dated records do not settle it, never true
+        placed = not uncertain("Procedure", r)
         return {
             "prid": r["id"],
             "pid": _ref_id(r.get("subject")),
             "code": code,
             "system": system,
-            "performed": self.d(r.get("performedDateTime") or (r.get("performedPeriod") or {}).get("start")),
+            "performed": self.d(r.get("performedDateTime") or (r.get("performedPeriod") or {}).get("start"))
+            if placed
+            else None,
         }
 
     def report(self, r: Resource) -> Row:

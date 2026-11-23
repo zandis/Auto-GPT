@@ -606,3 +606,48 @@ def test_a_japanese_procedure_is_never_an_nhi_order_code_and_taiwan_reads_as_bef
     tagged = [{**r, "order_code_system": "JJ1017-16M", "status": "unknown"} for r in rows]
     assert [json.dumps(r, sort_keys=True) for r in tw.map_table("procedure", iter(tagged))] == plain
     assert all(nhi in s for s in plain if '"Procedure"' in s)
+
+
+@pytest.mark.parametrize(("status", "want"), [("unknown", None), ("completed", True)])
+def test_a_procedure_of_unknown_status_reads_unknown_never_true(status: str, want: bool | None) -> None:
+    """The guard of ruling #639 7105496002 / 7105784808: the lake keeps a Procedure of status ``unknown`` undated
+    (D-275's rule, ``lake.flatten``), so the shipped GZQO-EXC-05 (bariatric surgery, no window) reads it unknown,
+    never true; a completed one decides it. The compiled SQL is the shipped one, unchanged."""
+    from datetime import date
+
+    import duckdb
+    from criteria_compiler.compile_sql.generator import SqlGenerator
+    from criteria_compiler.terminology.mapper import Terminology, ValueSets
+    from lake.flatten import Flattener
+    from tb_contracts import CriterionIR
+
+    proc = {
+        "resourceType": "Procedure",
+        "id": "p1",
+        "status": status,
+        "subject": {"reference": "Patient/pt"},
+        "code": {"coding": [{"system": "https://trialbox.local/fhir/CodeSystem/nhi-order", "code": "75614B"}]},
+        "performedDateTime": "2025-06-01",
+    }
+    row = Flattener("Asia/Tokyo").procedure(proc)
+    assert (row["performed"] is None) is (status == "unknown")
+    base = mc.RULESETS / "GZQO"
+    crit = CriterionIR.model_validate(json.loads((base / "ir" / "GZQO-EXC-05.json").read_text(encoding="utf-8")))
+    by_name = {
+        vs["name"]: vs
+        for vs in (json.loads(f.read_text(encoding="utf-8")) for f in sorted((base / "valuesets").glob("*.json")))
+    }
+    sql = SqlGenerator("GZQO", "1.0.0", ValueSets("GZQO", by_name, Terminology())).render([crit])
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)"
+    )
+    con.execute("CREATE TABLE procedure (prid VARCHAR, pid VARCHAR, code VARCHAR, system VARCHAR, performed DATE)")
+    con.execute("INSERT INTO patient VALUES ('pt', DATE '1960-01-01', 'female', NULL, NULL)")
+    con.execute(
+        "INSERT INTO procedure VALUES (?, ?, ?, ?, ?)",
+        [row["prid"], row["pid"], row["code"], row["system"], row["performed"]],
+    )
+    out = con.execute(sql, [[date(2026, 1, 1).isoformat()], ["pt"]]).fetchall()
+    cols = [d[0] for d in con.description]
+    assert dict(zip(cols, out[0], strict=True))["C_GZQO-EXC-05"] is want
