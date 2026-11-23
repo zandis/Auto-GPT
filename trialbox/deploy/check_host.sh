@@ -40,14 +40,14 @@ while [ $# -gt 0 ]; do
     --engine-probe) RRS_PROBE="$2"; shift ;;
     --gpu-index) RRS_INDEX="$2"; shift ;;
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
-    *) echo "unknown option $1" >&2; exit 2 ;;
+    *) echo "unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
   esac
   shift
 done
 # REHEARSAL-REAL-SERVERS (H-89): all three or none, never on GB10
 if [ "$RRS" = 1 ] || [ -n "$RRS_PROBE" ] || [ -n "$RRS_INDEX" ]; then
   { [ "$RRS" = 1 ] && [ -n "$RRS_PROBE" ] && [ -n "$RRS_INDEX" ] && [ "$GB10" = 0 ] && [ -n "$GPU_PROFILE" ]; } \
-    || { echo "--rehearsal-real-servers needs --engine-probe, --gpu-index and --gpu <profile> (install.sh's rehearsal)" >&2; exit 2; }
+    || { echo "--rehearsal-real-servers needs --engine-probe, --gpu-index and --gpu <profile> (install.sh's rehearsal)" >&2; exit 2; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 FAILS=0
@@ -88,12 +88,12 @@ gb10_memory_check() {
 }
 [ -n "$GPU_PROFILE" ] || [ "$(envget TB_LLM_MODE)" != vllm ] || GPU_PROFILE=default
 if [ "$GPU_ONLY" = 1 ]; then
-  [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }
+  [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
   [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"; }
   [ "$GB10" = 1 ] && gb10_memory_check
   gpu_image_check
   echo "---"
-  [ "$FAILS" -eq 0 ] && { echo "GPU host checks passed"; exit 0; } || { echo "$FAILS GPU check(s) failed"; exit 1; }
+  [ "$FAILS" -eq 0 ] && { echo "GPU host checks passed"; exit 0; } || { echo "$FAILS GPU check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 
 # ------------------------------------------------------------------------------------------------ host baseline
@@ -311,7 +311,7 @@ fi
 if [ "$BASELINE" = 1 ]; then
   echo "---"
   facilities
-  [ "$FAILS" -eq 0 ] && { echo "host baseline checks passed"; exit 0; } || { echo "$FAILS baseline check(s) failed"; exit 1; }
+  [ "$FAILS" -eq 0 ] && { echo "host baseline checks passed"; exit 0; } || { echo "$FAILS baseline check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 
 # network egress (§2, deploy/network.sh)
@@ -453,4 +453,4 @@ fi
 
 facilities
 echo "---"
-[ "$FAILS" -eq 0 ] && { echo "host checks passed"; exit 0; } || { echo "$FAILS check(s) failed"; exit 1; }
+[ "$FAILS" -eq 0 ] && { echo "host checks passed"; exit 0; } || { echo "$FAILS check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)

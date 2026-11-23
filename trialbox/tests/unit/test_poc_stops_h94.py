@@ -60,9 +60,9 @@ RATCHET = {
     "deploy/install.sh": 0,
     "deploy/box-install.sh": 0,
     "tools/apply_update.sh": 0,
-    "deploy/bootstrap.sh": 17,
+    "deploy/bootstrap.sh": 0,
     "deploy/launcher.sh": 0,
-    "deploy/check_host.sh": 6,
+    "deploy/check_host.sh": 0,
     "deploy/settings_guard.sh": 2,
 }
 PY_RATCHET = {"tools/rehearsal_real.py": 0, "tools/trialbox/launch.py": 0}  # sys.exit, SystemExit, raise
