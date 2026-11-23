@@ -30,6 +30,7 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 
@@ -124,7 +125,11 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     v.add_argument("--deploy", type=Path, default=None, help="where deploy/site/backup-verified.json goes (T-209a)")
     _restic_args(v)
     r = sub.add_parser("restore", help="restore databases and files from a backup (needs the private key)")
-    r.add_argument("file", type=Path)
+    r.add_argument("file", type=Path, nargs="?", help="the backup file (or --last)")
+    r.add_argument("--last", action="store_true",
+                   help="the newest backup backup-nightly recorded good, on a target of this box (H-100)")  # fmt: skip
+    r.add_argument("--restart", action="store_true",
+                   help="on the host: stop all but db first; start them after, wait until healthy")  # fmt: skip
     r.add_argument("--key", type=Path, required=True)
     r.add_argument("--dir", action="append", default=[])
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
@@ -139,13 +144,14 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     r.add_argument(
         "--public",
         type=Path,
-        default=Path(os.environ.get("TB_BACKUP_PUBKEY", "deploy/secrets/backup.pub")),
-        help="the box's public key: a box that holds data is first kept as an encrypted copy (D-274)",
+        default=None,
+        help="the box's public key: a box that holds data is first kept as an encrypted copy (D-274; default: "
+        "TB_BACKUP_PUBKEY or deploy/secrets/backup.pub, of the box's deploy/.env on the host)",
     )
     r.add_argument(
         "--keep-to",
         type=Path,
-        default=Path(os.environ.get("TB_RESTORE_KEEP_DIR", "deploy/pre-restore")),
+        default=None,
         help="where that copy goes (default: TB_RESTORE_KEEP_DIR or deploy/pre-restore)",
     )
     r.add_argument("--no-copy", action="store_true", help="keep no copy of the box first (audited)")
@@ -153,8 +159,8 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     r.add_argument("--older-ok", action="store_true", help="restore a backup older than 14 days")
     _restic_args(r)
     kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
-    r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
-                   help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
+    r.add_argument("--refdata", type=Path, default=None,
+                   help=f"the kept reference packs (default: TB_REFDATA_DIR or {kept})")  # fmt: skip
     rd = sub.add_parser("restore-drill", help="prove a backup restores, into scratch databases (needs the key; D-892)")
     rd.add_argument("file", type=Path)
     rd.add_argument("--key", type=Path, required=True)
@@ -343,7 +349,9 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         if a.cmd == "backup-nightly":
             return bsch.main_nightly(a.deploy)
         return bsch.main_status(a.deploy, a.json, a.quiet)
-    if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify", "restore"):
+    if a.cmd == "restore":
+        return _restore_cmd(a, installed)
+    if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify"):
         return _backup_cmd(a)
     if a.cmd == "restore-drill":
         return _drill_cmd(a, installed)
@@ -544,6 +552,43 @@ def _drill_cmd(a: argparse.Namespace, installed: bool) -> int:
     if not res["ok"]:
         print(f"restore-drill: FAILED: {res.get('error')}", file=sys.stderr)
     return 0 if res["ok"] else 1
+
+
+def _restore_defaults(a: argparse.Namespace, env: Mapping[str, str], deploy: Path) -> None:
+    """The restore's folders not given on the command line, from ``env`` (H-100: on the host, the box's own
+    deploy/.env; in the restore's container and a developer's interpreter, the process, as before)."""
+    if a.public is None:
+        a.public = Path(env.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub")
+    if a.keep_to is None:
+        a.keep_to = Path(env.get("TB_RESTORE_KEEP_DIR") or deploy / "pre-restore")
+    if a.refdata is None:
+        kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
+        a.refdata = Path(env.get("TB_REFDATA_DIR") or kept)
+
+
+def _restore_cmd(a: argparse.Namespace, installed: bool) -> int:
+    """``restore``: on the host (the installed ``trialbox``, or a host python without the libraries) it runs in the
+    backup image with the box's own settings (H-100, ``box_restore.py``); elsewhere (that container, a developer's
+    interpreter) in this process, as before."""
+    if a.last == (a.file is not None):
+        print("restore: name the backup file, or --last (not both)", file=sys.stderr)
+        return 2
+    if not a.yes:
+        print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
+        return 2
+    from tools.trialbox import launch
+
+    if installed or not launch.has_libs((*launch.CRYPTO, "psycopg")):
+        from tools.trialbox import box_restore, update
+
+        box = update._env_file(a.deploy / ".env")
+        _restore_defaults(a, box, a.deploy)
+        return box_restore.main(a)
+    if a.last or a.restart:
+        print("restore: --last and --restart are the host's (the installed trialbox restore)", file=sys.stderr)
+        return 2
+    _restore_defaults(a, os.environ, Path("deploy"))
+    return _backup_cmd(a)
 
 
 def _restic_args(p: argparse.ArgumentParser) -> None:
