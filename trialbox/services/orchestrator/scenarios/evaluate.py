@@ -43,7 +43,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
 from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
-from tb_common.quotes import quote_in
+from tb_common.quotes import as_in
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
@@ -548,9 +548,11 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
     did = None
     if verdict != "unknown":
         q = str(quote or "")
-        match = next((e for e in excerpts if quote_in(q, str(e["text"]))), None)
-        if match is None:
+        found = next(((e, f) for e in excerpts if (f := as_in(q, str(e["text"]))) is not None), None)
+        if found is None:
             return NoteResult("unknown", 0.0, reason=Reason.QUOTE_NOT_FOUND.value, source=source)
+        match, q = found
+        quote = q  # as the note holds it: one enclosing 「」 or "" dropped (#639 7113069462)
         if planted_in(str(match["text"]), q):  # T-606 (D-359): an instruction found in a note is never evidence
             return NoteResult("unknown", 0.0, reason=Reason.PLANTED_INSTRUCTION.value, source=source)
         did = match.get("did")

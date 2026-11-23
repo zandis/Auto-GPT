@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from tb_common.quotes import quote_key
+from tb_common.quotes import quote_key, unwrap
 
 # Concepts named by abbreviation or synonym. English entries are word prefixes (case-insensitive) unless all capitals,
 # which match as whole words, case as written; CJK entries match anywhere.
@@ -252,6 +252,8 @@ def sentence_of(quote: str, text: str) -> str:
     reads both (NFKC, stray spaces by CJK dropped); "" when the quote is not in it."""
     q, t = quote_key(quote or ""), quote_key(text or "")
     at = t.find(q) if q else -1
+    if at < 0 and (bare := quote_key(unwrap(quote or ""))) != q:  # one enclosing 「」 or "" (#639 7113069462)
+        q, at = bare, (t.find(bare) if bare else -1)
     if at < 0:
         return ""
     s0 = max((m.end() for m in _breaks(t, 0, at)), default=0)
