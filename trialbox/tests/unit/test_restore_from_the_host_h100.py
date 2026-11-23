@@ -99,7 +99,7 @@ class Recorder:
         return ""
 
 
-def _box(tmp_path: Path, extra: str = "") -> Path:
+def _box(tmp_path: Path, extra: str = "TB_KEK_PASSPHRASE=synthetic-kek\n") -> Path:
     deploy = tmp_path / "opt" / "deploy"
     (deploy / "secrets").mkdir(parents=True)
     (deploy / "secrets" / "backup.pub").write_text("synthetic public key", encoding="utf-8")
@@ -186,6 +186,7 @@ def test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller(
     assert values["TB_DB_ROLES_CMD"] == box_restore.ROLES_CMD
     assert values["TB_DB_PW_LAKE"] == "lake-pw" and values["TB_DB_PW_CONSOLE"] == "wf-pw"  # compose's own fallbacks
     assert values["TB_DB_PW_FHIR_STORE"] == ""  # D-541: no fallback
+    assert "TB_KEK_PASSPHRASE" not in values  # the KEK only with --restic-from-box
     for name in values:
         assert ["-e", name] == argv[argv.index(name) - 1 : argv.index(name) + 1], name  # by name only
     text = " ".join(argv)

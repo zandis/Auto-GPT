@@ -186,7 +186,8 @@ class BoxRestore:
         file, key = absolute(file), absolute(a.key)
         pub, keep_to, refdata = absolute(a.public), absolute(a.keep_to), absolute(a.refdata)
         values = {**job_db_env(self.env), **role_env(self.env), "TB_DB_ROLES_CMD": ROLES_CMD}
-        for k in ("TB_SITE_ID", "TB_ENV", "TB_TZ", "TB_REHEARSAL", "TB_KEK_FILE", "TB_KEK_PASSPHRASE"):
+        kek = ("TB_KEK_FILE", "TB_KEK_PASSPHRASE") if a.restic_from_box else ()  # only where the KEK is opened
+        for k in ("TB_SITE_ID", "TB_ENV", "TB_TZ", "TB_REHEARSAL", *kek):
             if k in self.env:
                 values[k] = self.env[k]
         mounts: list[str] = []
