@@ -1029,6 +1029,13 @@ LICENSED.update({
     UMLS_CODES: "UMLS Metathesaurus (NLM, UMLS licence and its source restrictions): the hospital's own subset",
 })  # fmt: skip
 SNOMED_IS_A = "116680003"
+
+
+class CopyRefused(ValueError):
+    """A hospital's copy that is not what it says (a checksum, its own manifest, its format): the sentence is the
+    loader's own, so it may be shown and recorded (never a general error's text, NEW-TRUST-6)."""
+
+
 SNOMED_FSN = "900000000000003001"
 SUMS = ("SHA256SUMS", "sha256sums.txt", "SHA256SUMS.txt")
 
@@ -1040,7 +1047,7 @@ def _files(path: Path) -> dict[str, bytes | Path]:
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as z:
             return {n: z.read(n) for n in z.namelist() if not n.endswith("/")}
-    raise ValueError(f"{path.name}: neither a folder nor a zip archive")
+    raise CopyRefused(f"{path.name}: neither a folder nor a zip archive")
 
 
 def _bytes(item: bytes | Path) -> bytes:
@@ -1074,16 +1081,16 @@ def _verify_sums(files: dict[str, bytes | Path], path: Path, sha256: str = "") -
             want, name = line.split(maxsplit=1)
             key = by_name.get(name.strip().lstrip("*").rsplit("/", 1)[-1])
             if key is None:
-                raise ValueError(f"{path.name}: {sums} lists {name.strip()}, which the copy does not hold")
+                raise CopyRefused(f"{path.name}: {sums} lists {name.strip()}, which the copy does not hold")
             if hashlib.sha256(_bytes(files[key])).hexdigest() != want.lower():
-                raise ValueError(f"{path.name}: {key} does not match its sha256 in {sums}")
+                raise CopyRefused(f"{path.name}: {key} does not match its sha256 in {sums}")
             n += 1
         return f"{sums}: {n} files match"
     if sha256:
         if path.is_dir():
-            raise ValueError(f"{path.name}: a sha256 is checked against an archive, not a folder (or add SHA256SUMS)")
+            raise CopyRefused(f"{path.name}: a sha256 is checked against an archive, not a folder (or add SHA256SUMS)")
         if _sha(path) != sha256.strip().lower():
-            raise ValueError(f"{path.name}: its sha256 is not the one recorded ({sha256.strip()[:16]}...)")
+            raise CopyRefused(f"{path.name}: its sha256 is not the one recorded ({sha256.strip()[:16]}...)")
         return "the sha256 the person recorded"
     return "its own headers only (no SHA256SUMS and no recorded sha256)"
 
@@ -1091,14 +1098,14 @@ def _verify_sums(files: dict[str, bytes | Path], path: Path, sha256: str = "") -
 def _tsv(data: bytes, want: tuple[str, ...], what: str) -> list[list[str]]:
     lines = data.decode("utf-8-sig").splitlines()
     if not lines or tuple(lines[0].split("\t")[: len(want)]) != want:
-        raise ValueError(f"{what}: not an RF2 file (its header is not {' '.join(want)})")
+        raise CopyRefused(f"{what}: not an RF2 file (its header is not {' '.join(want)})")
     return [ln.split("\t") for ln in lines[1:] if ln]
 
 
 def _one(files: dict[str, bytes | Path], pattern: str, what: str, many: bool = False) -> list[str]:
     hits = sorted(k for k in files if re.search(pattern, k.rsplit("/", 1)[-1]))
     if not hits or (len(hits) > 1 and not many):
-        raise ValueError(f"{what}: {'no' if not hits else 'more than one'} file named like {pattern}")
+        raise CopyRefused(f"{what}: {'no' if not hits else 'more than one'} file named like {pattern}")
     return hits
 
 
@@ -1137,7 +1144,7 @@ def install_snomed(path: Path, directory: Path, accepted_by: str, accepted_on: s
     verified = _verify_sums(files, path, sha256)
     rows, effective = snomed_rows(files)
     if not rows:
-        raise ValueError(f"{path.name}: no active SNOMED CT concept")
+        raise CopyRefused(f"{path.name}: no active SNOMED CT concept")
     directory.mkdir(parents=True, exist_ok=True)
     line = _copy_line("SNOMED CT RF2 Snapshot", path, files, f"SNOMED CT {version or effective}", lic.pop("licence"),
                       now, verified=verified, **lic)  # fmt: skip
@@ -1152,7 +1159,7 @@ def _rrf(data: bytes, cols: int, what: str) -> list[list[str]]:
             continue
         f = ln.split("|")
         if len(f) < cols:
-            raise ValueError(f"{what}: line {n} has {len(f)} fields, not {cols}")
+            raise CopyRefused(f"{what}: line {n} has {len(f)} fields, not {cols}")
         out.append(f)
     return out
 
@@ -1170,7 +1177,7 @@ def _verify_mrfiles(files: dict[str, bytes | Path], what: str) -> str:
             continue
         data = _bytes(files[by_name[name]])
         if str(len(data)) != size or str(data.count(b"\n")) != rows:
-            raise ValueError(f"{what}: {name} does not match MRFILES.RRF ({rows} rows, {size} bytes)")
+            raise CopyRefused(f"{what}: {name} does not match MRFILES.RRF ({rows} rows, {size} bytes)")
         n += 1
     return f"MRFILES.RRF: {n} files match" if n else ""
 
@@ -1183,7 +1190,7 @@ def umls_rows(files: dict[str, bytes | Path], what: str = "the UMLS subset") -> 
     and the sources it holds; and each source code with its CUI. ``(concepts, codes, release)``."""
     by_name = {k.rsplit("/", 1)[-1]: k for k in files}
     if "MRCONSO.RRF" not in by_name:
-        raise ValueError(f"{what}: no MRCONSO.RRF")
+        raise CopyRefused(f"{what}: no MRCONSO.RRF")
     names: dict[str, tuple[int, str]] = {}
     sabs: dict[str, set[str]] = {}
     codes: dict[tuple[str, str, str], str] = {}
@@ -1220,9 +1227,9 @@ def install_umls(path: Path, directory: Path, accepted_by: str, accepted_on: str
     verified = _verify_mrfiles(files, "the UMLS subset") or _verify_sums(files, path, sha256)
     concepts, codes, release = umls_rows(files)
     if not concepts:
-        raise ValueError(f"{path.name}: no concept in MRCONSO.RRF")
+        raise CopyRefused(f"{path.name}: no concept in MRCONSO.RRF")
     if not (version or release):
-        raise ValueError("umls: no release.dat in the subset: give --version (the UMLS release, e.g. 2025AB)")
+        raise CopyRefused("umls: no release.dat in the subset: give --version (the UMLS release, e.g. 2025AB)")
     directory.mkdir(parents=True, exist_ok=True)
     label = f"UMLS {version or release}"
     for table, rows, cols in ((UMLS_CONCEPTS, concepts, ("code", "display", "parents", "sources")),
@@ -1259,7 +1266,7 @@ def install_atc_index(path: Path, directory: Path, accepted_by: str, accepted_on
         return install_atc(src, directory, accepted_by, accepted_on, version, now)
     lic = licence_line(ATC_INDEX, accepted_by, accepted_on, now)
     if not version:
-        raise ValueError("atc: give --version (the ATC index's year, e.g. 2026)")
+        raise CopyRefused("atc: give --version (the ATC index's year, e.g. 2026)")
     src = path if path.is_file() else sorted(path.glob("*.xlsx"))[0]
     verified = _verify_sums(_files(path), path, sha256) if path.is_dir() else _verify_sums({}, src, sha256)
     rows = atc_rows(atc_xlsx_text(src.read_bytes()))
@@ -1328,8 +1335,12 @@ def install_folder(folder: Path, directory: Path, accepted_by: str = "", accepte
             else:
                 got = install_icd10_who(src if src.is_file() else next(iter(sorted(where.glob("*.*ml"))), src),
                                         directory, accepted_by, accepted_on, version, now)  # fmt: skip
-        except (ValueError, OSError, KeyError, zipfile.BadZipFile, ET.ParseError) as exc:
+        except CopyRefused as exc:  # the loader's own sentence
             out[label] = ("refused", str(exc)[:300])
+            continue
+        except (ValueError, OSError, KeyError, zipfile.BadZipFile, ET.ParseError) as exc:  # its type, never its text
+            cmd = {"icd10-who": "icd10who"}.get(sub, sub)
+            out[label] = ("refused", f"{type(exc).__name__}: deploy/terminology.sh {cmd} /stage/{sub} says why")
             continue
         out[label] = ("loaded", ", ".join(f"{t} {n} rows" for t, n in got.items()))
     return out
