@@ -43,7 +43,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: [public-e2e, backup-drill, update-drill, perf-5k, pure]
+        # the corpus host is not reachable from the runner (every fetch ended "Network is unreachable"), and ring 0 runs on
+        # synthetic data: public-e2e, which reads the corpus, is in the matrix on a manual dispatch only
+        run: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["public-e2e","backup-drill","update-drill","perf-5k","pure"]' || '["backup-drill","update-drill","perf-5k","pure"]') }}
     name: ${{ matrix.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -76,15 +78,15 @@ jobs:
       # the corpus host is not reachable from the runner (every fetch ended "Network is unreachable"), and ring 0 runs on
       # synthetic data: the steps that read the corpus run on a manual dispatch only, until the owner mirrors it
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        if: matrix.run == 'public-e2e' && github.event_name == 'workflow_dispatch'
+        if: matrix.run == 'public-e2e'
         with:
           path: trialbox/.cache/medtxt
           key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
       - name: The public corpus (MedTxt), fetched once
-        if: matrix.run == 'public-e2e' && github.event_name == 'workflow_dispatch'
+        if: matrix.run == 'public-e2e'
         run: make public-data
       - name: public_e2e (stub model, the public-data site)
-        if: matrix.run == 'public-e2e' && github.event_name == 'workflow_dispatch'
+        if: matrix.run == 'public-e2e'
         run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.public_e2e --dir "$RUNNER_TEMP/public" --lang en
       - name: Backup and restore drill
         if: matrix.run == 'backup-drill'
@@ -289,12 +291,11 @@ jobs:
       # the corpus host is not reachable from the runner (every fetch ended "Network is unreachable"), and ring 0 runs on
       # synthetic data: the steps that read the corpus run on a manual dispatch only, until the owner mirrors it
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        if: github.event_name == 'workflow_dispatch'
         with:
           path: trialbox/.cache/medtxt
           key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
       - name: The public corpus (MedTxt), fetched once
-        if: github.event_name == 'workflow_dispatch'
+        continue-on-error: ${{ github.event_name != 'workflow_dispatch' }}  # the scheduled night goes on without it
         run: make public-data
       - name: Images (as `make images`)
         run: make images
