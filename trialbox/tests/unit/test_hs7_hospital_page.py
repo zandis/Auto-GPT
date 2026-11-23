@@ -11,8 +11,8 @@ import re
 from pathlib import Path
 
 import pytest
-
 from tb_common.wording import check
+
 from tools import doclint
 
 ROOT = Path(__file__).resolve().parents[2]
