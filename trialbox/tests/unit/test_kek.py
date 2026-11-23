@@ -300,7 +300,9 @@ def test_rotate_kek_rewraps_every_key_and_the_old_shares_stop_working(
     old = [str(p) for p in _shares(box)]
     assert _cli(capsys, "unseal", "--secrets", str(box["sec"]), "--share", old[0], "--share", old[2])[0] == 0
     old_id = json.loads((box["sec"] / "kek.json").read_text())["kek_id"]
-    (box["tmp"] / "audit").mkdir(exist_ok=True)  # every rotation is an audit event (ruling 7114085298)
+    from tb_common.audit import AuditLog
+
+    AuditLog(box["tmp"] / "audit").append("test.box_ready", actor="tester")  # the box's chain (7114085298, F3)
     rc, out = _cli(capsys, "rotate-kek", "--secrets", str(box["sec"]), "--backend", "shamir", "--threshold", "2",
                    "--shares", "3", "--shares-out", str(box["tmp"] / "new-stewards"),
                    "--audit-dir", str(box["tmp"] / "audit"))  # fmt: skip

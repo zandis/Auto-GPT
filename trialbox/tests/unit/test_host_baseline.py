@@ -484,6 +484,10 @@ SECRET_PP = "correct-horse-battery-staple-h89"
         ({}, "passphrase", "PRODUCTION", "FAIL"),
         ({}, "passphrase", "TEST", "WARN"),
         ({"TB_ENV": "TEST"}, "passphrase", "PRODUCTION", "FAIL"),  # a caller's variable does not make it a PoC box
+        # the review of #1429, F7 (D-1091): no caller's TB_ENV makes a PRODUCTION box a PoC box, for either line
+        ({"TB_ENV": "DEV"}, "passphrase", "PRODUCTION", "FAIL"),
+        ({"TB_ENV": "VALIDATION"}, "passphrase", "PRODUCTION", "FAIL"),
+        ({"TB_ENV": "DEV", "TB_KEK_BACKEND": "passphrase"}, "file", "PRODUCTION", "FAIL"),
     ],
 )
 def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(

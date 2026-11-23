@@ -8,7 +8,7 @@ Run on the host as root (the secrets volume), from the install folder with ``PYT
     python -m tools.keys init --backend kms --kms-url https://kms.hosp/v1/transit --kms-key trialbox  # a platform
     python -m tools.keys wrap                               # wrap any key still plain (after keys-init)
     python -m tools.keys unseal [--share FILE ...]          # writes the KEK to /run/trialbox/kek (TB_KEK_FILE)
-    python -m tools.keys status [--json]                    # wrapped or plain, fingerprints, the KEK: never a key
+    python -m tools.keys status [--json] [--audit-dir DIR]  # wrapped or plain, fingerprints, the KEK: never a key
     python -m tools.keys check [--for-update]               # exit 1 on a custody problem (apply_update.sh runs it)
     python -m tools.keys inventory [--json]                 # every key of the box: holder, rotation, compromise
     python -m tools.keys rotate-kek --backend ...           # a new KEK; every wrapped key re-wrapped
@@ -39,16 +39,23 @@ integrator's ruling 7101844662): a box sealed under a passphrase rotates it to a
 stdin form, with no escrow set, and the rotation is the audit event ``keys.rotate_kek`` (who, when, the box, the two
 KEK ids; never a value) in ``--audit-dir`` or ``TB_AUDIT_DIR``, without which it is refused. Every rotate-kek, on every
 box, is that audit event and is refused without its folder (the integrator's ruling 7114085298).
+
+The review of #1429: the folder must hold the box's chain; ``keys.rotate_kek_started`` comes before any change and a
+rotation whose started event fails is refused; appends made as root go through the folder's owner; a journal
+(``kek-rotation.json``) lets the next ``status --audit-dir`` or ``rotate-kek`` finish or roll back a rotation cut
+short; and an exclusive lock on the secrets folder runs one rotation at a time.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import getpass
 import json
 import os
 import stat
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -537,7 +544,19 @@ def _status_lines(c: K.Custody) -> list[str]:
 
 
 def cmd_status(a: argparse.Namespace, env: Mapping[str, str]) -> int:
-    c = K.custody(secrets_dir(a.secrets, env), env)
+    """With a rotation cut short (its journal) and the audit folder given, status finishes or rolls it back first
+    under the folder's lock (the review of #1429, F4); without the folder it says so, as a problem."""
+    sec = secrets_dir(a.secrets, env)
+    given = getattr(a, "audit_dir", None) or env.get("TB_AUDIT_DIR")
+    journal = (sec / JOURNAL).exists()
+    if (journal and audit_chain_problem(Path(given) if given else None) is None) or (
+        not journal and sec.is_dir() and _partial_writes(sec)
+    ):
+        with _Locked(sec):
+            done = resume_rotation(sec, Path(str(given)) if given else None, "status")
+        if done is not None:
+            _err(done)
+    c = K.custody(sec, env)
     _say(json.dumps(c.as_dict(), indent=1) if a.json else "\n".join(_status_lines(c)))
     return 1 if c.problems else 0
 
@@ -574,10 +593,19 @@ def cmd_inventory(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     return 0
 
 
-#: the audit event of every KEK rotation, on every box (the integrator's ruling 7114085298; first D-1092's, ruling
-#: 7101844662, H96-04): who, when, the box, the environment and the two KEK ids, never a passphrase or a key
+#: the audit events of every KEK rotation, on every box (the integrator's ruling 7114085298; first D-1092's, ruling
+#: 7101844662, H96-04): who, when, the box, the environment and the two KEK ids, never a passphrase or a key. The
+#: started event is written before anything changes, and a rotation whose started event cannot be written is refused
+#: (the review of #1429, F1); the done event (``keys.rotate_kek``) after ``kek.json`` names the new KEK
 ROTATE_EVENT = "keys.rotate_kek"
+ROTATE_STARTED = "keys.rotate_kek_started"
+ROTATE_STOPPED = "keys.rotate_kek_stopped"  # a rotation that failed before its commit, rolled back
+ROTATE_ROLLED_BACK = "keys.rotate_kek_rolled_back"  # a rotation killed before its commit, rolled back later
 ROTATE_ACTOR = "python -m tools.keys rotate-kek"
+#: F4: the rotation's journal in the secrets folder (no key, no passphrase): "staging" until every new file is
+#: written, "committing" from then until the done event; the next rotate-kek or status finishes or rolls it back
+JOURNAL = K.ROTATION_JOURNAL
+JOURNAL_FORMAT = "tb-kek-rotation/1"
 
 
 def exposed_passphrase_rotation(a: argparse.Namespace, sec: Path) -> bool:
@@ -617,13 +645,200 @@ def _who() -> dict[str, Any]:
     return who
 
 
-def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
-    """A new KEK: every wrapped key is opened with the old one and re-wrapped. The new files are written beside the
-    old (``.next``) and then renamed, key files first and ``kek.json`` last."""
-    import socket
+def audit_chain_problem(where: Path | None) -> str | None:
+    """F3: the audit folder must hold the box's chain (its head anchor, ``HEAD.json``), not be any folder."""
+    from tb_common.audit import HEAD, read_head
+
+    if where is None or not where.is_dir():
+        return "give the audit folder (--audit-dir, TB_AUDIT_DIR)"
+    try:
+        head = read_head(where)
+    except (OSError, ValueError, UnicodeDecodeError):
+        head = None
+    if not isinstance(head, dict) or not isinstance(head.get("lines"), int) or not isinstance(head.get("hash"), str):
+        return f"{where} holds no audit chain ({HEAD}): give the box's audit folder (--audit-dir, TB_AUDIT_DIR)"
+    return None
+
+
+def _audit_owner(where: Path) -> tuple[int, int]:
+    st = where.stat()
+    return st.st_uid, st.st_gid
+
+
+#: the child that appends as the audit folder's owner: the event's name and detail come on stdin, never on argv
+_APPEND_CHILD = (
+    "import json, sys; d = json.load(sys.stdin); sys.path[:0] = d['path']; from pathlib import Path; "
+    "from tools import key_escrow as ke; ke.audit(Path(d['where']), d['event'], d['actor'], d['detail'])"
+)
+
+
+def _run_append(argv: list[str], data: str, uid: int, gid: int) -> subprocess.CompletedProcess[str]:
+    env = {k: v for k, v in os.environ.items() if k not in PASSPHRASE_VARS}
+    return subprocess.run(argv, input=data, capture_output=True, text=True, env=env, cwd="/", check=False,
+                          user=uid, group=gid, extra_groups=[], timeout=120)  # fmt: skip
+
+
+def append_audit(where: Path, event: str, detail: Mapping[str, Any]) -> None:
+    """F2: run as root against a folder another user owns (the console's audit volume, uid 10001), the append is
+    made by that user in a child process, so a day file or lock it creates is that user's and the console can still
+    append to it. Raises OSError when the append fails."""
+    from tools import key_escrow as ke
+
+    uid, gid = _audit_owner(where)
+    if os.geteuid() != 0 or uid == 0:
+        ke.audit(where, event, ROTATE_ACTOR, detail)
+        return
+    path = [str(Path(p).resolve()) for p in sys.path if p]
+    data = json.dumps({"where": str(where.resolve()), "event": event, "actor": ROTATE_ACTOR, "detail": dict(detail),
+                       "path": path})  # fmt: skip
+    try:
+        got = _run_append([sys.executable, "-I", "-c", _APPEND_CHILD], data, uid, gid)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise OSError(f"the append as uid {uid} could not run: {type(e).__name__}") from None
+    if got.returncode != 0:
+        last = (got.stderr.strip().splitlines() or ["the writer stopped"])[-1]
+        raise OSError(f"the append as uid {uid} failed: {last[:300]}")
+
+
+class _Locked:
+    """F5: one key command at a time on a secrets folder, an exclusive lock on the folder itself (no file is added)."""
+
+    def __init__(self, sec: Path) -> None:
+        import fcntl
+
+        self.fd = os.open(sec, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            os.close(self.fd)
+            if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):
+                raise K.KekError(f"another key command holds {sec} (a rotation running): wait for it, then run this "
+                                 "again; nothing was changed") from None  # fmt: skip
+            raise
+
+    def __enter__(self) -> _Locked:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        os.close(self.fd)  # closing the descriptor releases the lock
+
+
+def _fsync_dir(sec: Path) -> None:
+    fd = os.open(sec, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _staged(sec: Path, name: str) -> tuple[Path, Path]:
+    final = K.wrapped_path(sec / name)
+    return final.with_name(final.name + ".next"), final
+
+
+def _write_journal(sec: Path, doc: Mapping[str, Any]) -> None:
+    K._write_private(sec / JOURNAL, (json.dumps({"format": JOURNAL_FORMAT, **doc}, indent=1, sort_keys=True) +
+                                     "\n").encode())  # fmt: skip
+    _fsync_dir(sec)
+
+
+def _read_journal(sec: Path) -> dict[str, Any] | None:
+    path = sec / JOURNAL
+    if not path.exists():
+        return None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise K.KekError(f"{path} cannot be read ({type(e).__name__}): see RUNBOOK §23, a rotation cut short") from None
+    if (
+        not isinstance(doc, dict)
+        or doc.get("format") != JOURNAL_FORMAT
+        or doc.get("step") not in ("staging", "committing")
+    ):
+        raise K.KekError(f"{path} is not a rotation journal: see RUNBOOK §23, a rotation cut short")
+    return doc
+
+
+def _partial_writes(sec: Path) -> list[Path]:
+    """The temporary files a rotation's write cut short leaves (``K._write_private``: ``.<name>.<hex>.tmp``): a
+    staged file's, ``kek.json.next``'s or the journal's; never a key the box opens with."""
+    return sorted({*sec.glob(".*.next.*.tmp"), *sec.glob(f".{JOURNAL}.*.tmp")})
+
+
+def _roll_back(sec: Path, doc: Mapping[str, Any]) -> None:
+    """Before the commit nothing the box opens with has changed: the staged files are removed."""
+    for name in doc.get("keys", []):
+        _staged(sec, str(name))[0].unlink(missing_ok=True)
+    (sec / (K.META_FILE + ".next")).unlink(missing_ok=True)
+    for f in _partial_writes(sec):
+        f.unlink(missing_ok=True)
+
+
+def _roll_forward(sec: Path, doc: Mapping[str, Any]) -> None:
+    """After the commit every new file is whole: the renames not yet made are made, ``kek.json`` last."""
+    for name in doc.get("keys", []):
+        nxt, final = _staged(sec, str(name))
+        if nxt.exists():
+            os.replace(nxt, final)
+    meta_next = sec / (K.META_FILE + ".next")
+    if meta_next.exists():
+        os.replace(meta_next, sec / K.META_FILE)
+    meta = K.read_meta(sec) or {}
+    if meta.get("kek_id") != doc.get("new_kek_id"):
+        raise K.KekError(f"{K.META_FILE} names KEK {meta.get('kek_id')}, the journal {doc.get('new_kek_id')}: see "
+                         "RUNBOOK §23, a rotation cut short")  # fmt: skip
+    for f in _partial_writes(sec):
+        f.unlink(missing_ok=True)
+    _fsync_dir(sec)
+
+
+def resume_rotation(sec: Path, where_audit: Path | None, by: str) -> str | None:
+    """F4: a rotation cut short (a kill, a power cut) is finished (its journal says "committing") or rolled back
+    ("staging"), and the audit chain says which. Returns what was done, or None without a journal. Called under the
+    folder's lock. Without the audit folder nothing is done: the rotation's end is an audit event too."""
+    doc = _read_journal(sec)
+    if doc is None:  # killed while the journal was first written: nothing else was, and no event
+        partial = _partial_writes(sec)
+        for f in partial:
+            f.unlink(missing_ok=True)
+        return f"a rotation killed before it began left {len(partial)} temporary file(s): removed" if partial else None
+    problem = audit_chain_problem(where_audit)
+    if problem is not None:
+        raise K.KekError(f"a KEK rotation was cut short ({JOURNAL}, step {doc['step']}); finishing it is an audit "
+                         f"event: {problem}")  # fmt: skip
+    assert where_audit is not None
+    detail = {k: doc.get(k) for k in ("started_at", "old_kek_id", "new_kek_id", "backend", "box", "environment",
+                                      "rule")}  # fmt: skip
+    detail.update(at=_now(), who=_who(), by=by, resumed=True)
+    if doc["step"] == "staging":
+        _roll_back(sec, doc)
+        append_audit(where_audit, ROTATE_ROLLED_BACK, detail)
+        (sec / JOURNAL).unlink()
+        _fsync_dir(sec)
+        return f"a KEK rotation cut short before its commit was rolled back: KEK {doc.get('old_kek_id')} stands"
+    _roll_forward(sec, doc)
+    append_audit(where_audit, ROTATE_EVENT, detail)
+    (sec / JOURNAL).unlink()
+    _fsync_dir(sec)
+    return (f"a KEK rotation cut short after its commit was finished: KEK {doc.get('new_kek_id')} replaces "
+            f"{doc.get('old_kek_id')}; unseal again with the new KEK (python -m tools.keys unseal)")  # fmt: skip
+
+
+def _now() -> str:
     from datetime import UTC, datetime
 
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
+    """A new KEK: every wrapped key is opened with the old one and re-wrapped. Under the secrets folder's lock (F5):
+    a started event (F1), the journal, the new files written beside the old (``.next``), the journal's commit, the
+    renames (key files first, ``kek.json`` last), the done event, and the journal removed (F4)."""
+    import socket
+
     from tb_common import rc1_refusals
+
+    from tools import key_escrow as ke
 
     sec = secrets_dir(a.secrets, env)
     box_env = rc1_refusals.host_env(Path(DEFAULT_DEPLOY), env)
@@ -637,61 +852,96 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
             _err(exc.say())
             return 1
         rule = "D-1092"  # an exposed passphrase is rotated there; the rest of rc1's refusals stand
-        if where_audit is None or not where_audit.is_dir():
-            raise K.KekError(f"on a {exc.environment} box rc1 lets rotate-kek through only to rotate an exposed "
-                             "passphrase, as an audit event (D-1092): give the audit folder (--audit-dir, "
-                             "TB_AUDIT_DIR); nothing was changed") from None  # fmt: skip
+        problem = audit_chain_problem(where_audit)
+        if problem is not None:
+            raise K.KekError(
+                f"on a {exc.environment} box rc1 lets rotate-kek through only to rotate an exposed "
+                f"passphrase, as an audit event (D-1092): {problem}; nothing was changed"
+            ) from None
     pending = sorted(f.name for f in sec.glob("*.next.key" + K.WRAPPED_SUFFIX))
     if pending:  # a key rotation cut short (audit_sign.next.key): its staged key would stay under the old KEK
         raise K.KekError(f"{', '.join(pending)} is a key rotation not finished: finish it (run it again), then "
                          f"rotate-kek")  # fmt: skip
-    if where_audit is None or not where_audit.is_dir():  # the integrator's ruling 7114085298
-        raise K.KekError("a KEK rotation is an audit event on every box: give the audit folder (--audit-dir, "
-                         "TB_AUDIT_DIR); nothing was changed")  # fmt: skip
-    from tools import key_escrow as ke
-
     names: list[str] = []
-    where: Path | None = None
-    if a.escrow_out:
+    if a.escrow_out:  # the split is checked before anything (read only)
         if a.backend != "file":
             raise K.KekError("--escrow-out is for a TPM-sealed KEK (--backend file)")
         names = ke.check(a.escrow_threshold, a.escrow_shares, a.custodian or [], Path(a.escrow_out), sec)
-        where = ke.audit_dir(env, a.audit_dir)
+    problem = audit_chain_problem(where_audit)
+    if problem is not None:  # the integrator's ruling 7114085298; F3: the box's chain, not any folder
+        raise K.KekError(f"a KEK rotation is an audit event on every box: {problem}; nothing was changed")
+    assert where_audit is not None
+    with _Locked(sec):
+        done = resume_rotation(sec, where_audit, "rotate-kek")
+        if done is not None:
+            _say(done)
+            _say("run rotate-kek again for a new rotation")
+            return 0
+        box_name = rc1_refusals.environment(box_env)
+        return _rotate_kek_locked(a, env, sec, where_audit, rule, box_name, socket.gethostname(), names)
+
+
+def _rotate_kek_locked(a: argparse.Namespace, env: Mapping[str, str], sec: Path, where_audit: Path, rule: str,
+                       box_env: str, box: str, names: list[str]) -> int:  # fmt: skip
+    from tools import key_escrow as ke
+
+    where = ke.audit_dir(env, a.audit_dir) if a.escrow_out else None
     old_meta = K.read_meta(sec)
     old = K.load_kek(sec, env)
     keys = {n: K.unwrap(old, K.read_wrapped(sec / n), n) for n in K.PROTECTED if K.wrapped_path(sec / n).exists()}
-    new, meta = new_kek(a, sec, env, "TB_KEK_NEW_PASSPHRASE")
-    old_esc = ke.current(old_meta)
-    if a.escrow_out:
-        meta["escrow"] = ke.split(new, a.escrow_threshold, names, Path(a.escrow_out))
-    elif old_esc is not None and a.backend == "file":
-        meta["escrow"] = old_esc  # kept so doctor can say it is of the old KEK; its shares open the old KEK only
-    staged = []
-    for name, key in keys.items():
-        nxt = K.wrapped_path(sec / name).with_name(K.wrapped_path(sec / name).name + ".next")
-        K._write_private(nxt, (json.dumps(K.wrap(new, key, name), indent=1, sort_keys=True) + "\n").encode())
-        staged.append((nxt, K.wrapped_path(sec / name)))
-    meta_next = K.write_meta(sec, meta, suffix=".next")
-    for nxt, final in staged:
-        os.replace(nxt, final)
-    os.replace(meta_next, sec / K.META_FILE)
+    # who, when, the box, the environment; never a value
+    base = {"started_at": _now(), "box": box, "environment": box_env, "old_kek_id": (old_meta or {}).get("kek_id", ""),
+            "backend": a.backend, "rule": rule}  # fmt: skip
+    journal = {**base, "step": "staging", "keys": sorted(keys)}
+    _write_journal(sec, journal)  # first, so a kill after the started event is rolled back and said so
+    try:  # F1: the started event before anything changes; without it, no rotation
+        append_audit(where_audit, ROTATE_STARTED, {**base, "at": base["started_at"], "who": _who()})
+    except OSError as e:
+        (sec / JOURNAL).unlink(missing_ok=True)
+        _err(f"the rotation's started event could not be written to {where_audit} ({e}): nothing was changed, the "
+             f"KEK is not rotated")  # fmt: skip
+        return 1
+    try:
+        new, meta = new_kek(a, sec, env, "TB_KEK_NEW_PASSPHRASE")
+        old_esc = ke.current(old_meta)
+        if a.escrow_out:
+            meta["escrow"] = ke.split(new, a.escrow_threshold, names, Path(a.escrow_out))
+        elif old_esc is not None and a.backend == "file":
+            meta["escrow"] = old_esc  # kept so doctor can say it is of the old KEK; its shares open the old KEK only
+        for name, key in keys.items():
+            doc = json.dumps(K.wrap(new, key, name), indent=1, sort_keys=True) + "\n"
+            K._write_private(_staged(sec, name)[0], doc.encode())
+        K.write_meta(sec, meta, suffix=".next")
+        _write_journal(sec, {**journal, "step": "committing", "new_kek_id": meta["kek_id"]})  # the commit
+    except BaseException:  # before the commit: nothing the box opens with has changed
+        _roll_back(sec, journal)
+        (sec / JOURNAL).unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            append_audit(where_audit, ROTATE_STOPPED, {**base, "at": _now(), "who": _who()})
+        raise
+    journal = {**journal, "step": "committing", "new_kek_id": meta["kek_id"]}
+    try:
+        _roll_forward(sec, journal)
+    except OSError as e:
+        _err(f"the rotation stopped after its commit ({type(e).__name__}): python -m tools.keys status --audit-dir "
+             f"{where_audit} finishes it (RUNBOOK §23, a rotation cut short)")  # fmt: skip
+        return 1
     runtime = runtime_kek_path(a.out, env)
     if runtime.exists() and not K._inside(runtime, sec):
         K._write_private(runtime, new)
         _say(f"the unsealed KEK in {runtime} is now the new one")
     _say(f"KEK {meta['kek_id']} (back end {meta['backend']}) replaces the old one; {len(keys)} key(s) re-wrapped")
-    # every box (7114085298): who, when, the box, the environment; never a value
-    detail = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "who": _who(), "box": socket.gethostname(),
-              "environment": rc1_refusals.environment(box_env), "old_kek_id": (old_meta or {}).get("kek_id", ""),
-              "new_kek_id": meta["kek_id"], "backend": meta["backend"], "rule": rule}  # fmt: skip
+    detail = {**base, "at": _now(), "who": _who(), "new_kek_id": meta["kek_id"], "backend": meta["backend"]}
     try:
-        ke.audit(where_audit, ROTATE_EVENT, ROTATE_ACTOR, detail)
-    except OSError as e:
-        _err(f"the KEK is rotated, but its audit event could not be written to {where_audit} ({type(e).__name__}): "
-             f"record it by hand (who, when, KEK {meta['kek_id']})")  # fmt: skip
+        append_audit(where_audit, ROTATE_EVENT, detail)
+    except OSError as e:  # the journal stays: status --audit-dir writes the done event when the folder takes it
+        _err(f"the KEK is rotated, but its done event could not be written to {where_audit} ({e}): python -m "
+             f"tools.keys status --audit-dir {where_audit} writes it (RUNBOOK §23, a rotation cut short)")  # fmt: skip
         return 1
+    (sec / JOURNAL).unlink()
+    _fsync_dir(sec)
     _say(
-        f"audit: {ROTATE_EVENT} in {where_audit}"
+        f"audit: {ROTATE_EVENT} in {where_audit} (started and done)"
         + (" (rc1 lets this rotation through, D-1092)" if rule == "D-1092" else "")
     )
     if "escrow" in meta and meta["escrow"]["kek_id"] == meta["kek_id"] and where is not None:
@@ -854,6 +1104,7 @@ def parser() -> argparse.ArgumentParser:
     u.add_argument("--deploy", default=DEFAULT_DEPLOY, help="escrow shares: the escrow-use record goes to deploy/site")
     with_passphrase(u)
     s = with_secrets(sub.add_parser("status", help="wrapped or plain, fingerprints, the KEK"))
+    s.add_argument("--audit-dir", help="a rotation cut short: the audit folder to finish it in (TB_AUDIT_DIR)")
     s.add_argument("--json", action="store_true")
     c = with_secrets(sub.add_parser("check", help="exit 1 on a custody problem"))
     c.add_argument("--for-update", action="store_true", help="also refuse wrapped keys with no KEK unsealed")

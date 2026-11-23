@@ -335,8 +335,9 @@ show_code() {
   [ -z "$addr" ] || text="$text$(printf '\n  If the name does not open: https://%s/login/first-run (the browser warns about the certificate: it names %s)\n' "$addr" "$HOST")"
   say "open https://$HOST/login/first-run on a computer of the team (or this box) and type the code"
   if [ -t 1 ]; then printf '%s\n\n' "$text"; text=""; return 0; fi
-  if { : >> /dev/tty; } 2>/dev/null; then
-    printf '%s\n\n' "$text" >> /dev/tty; text=""
+  # the write itself is checked: a terminal that is gone (a hung-up SSH session) falls through to the screen and file
+  if { printf '%s\n\n' "$text" >> /dev/tty; } 2>/dev/null; then
+    text=""
     echo "    the one-time code is shown on this terminal only: never in this output, which a log or the journal keeps"
     return 0
   fi
@@ -387,12 +388,18 @@ box_preflight() {  # 10K-3 (D-1361): the live preflight the first-run page shows
 }
 box_preflight
 rm -f /etc/issue.d/trialbox-firstrun.issue 2>/dev/null || true  # H-97: an earlier version's copy, readable by all
+# a run stopped while it waits (the service stopped, a time-out, a reboot, a closed terminal) leaves no code file
+trap 'drop_code_file' EXIT
+trap 'drop_code_file; exit 129' HUP  # H-94 not a stop: the signal's own exit, the code file removed
+trap 'drop_code_file; exit 130' INT  # H-94 not a stop: the signal's own exit, the code file removed
+trap 'drop_code_file; exit 143' TERM  # H-94 not a stop: the signal's own exit, the code file removed
 show_code
 while [ ! -f "$FR/answers.json" ]; do
   [ -f "$FR/code.json" ] || { echo "    the code was voided (five wrong codes): a new one"; show_code; }
   sleep "${TB_BOX_POLL_S:-5}"
 done
 drop_code_file
+trap - EXIT HUP INT TERM
 
 # ------------------------------------------------------------------------------------------------ 6. apply
 say "applying the owner's answers"

@@ -32,6 +32,13 @@ and the page sent it to the vendor (H96-04).
    PRODUCTION or not, `rotate-kek` writes `keys.rotate_kek` (as in 2, with the environment and the new back end) and
    is refused without its audit folder. The event's `rule` says `D-1092` for the PRODUCTION exception and
    `7114085298` elsewhere.
+6. **Audited first, safe when cut short, one at a time** (the review of #1429, F1 to F5). The audit folder must hold
+   the box's chain (`HEAD.json`). `keys.rotate_kek_started` is written before any key file changes, and a rotation
+   whose started event cannot be written is refused; `keys.rotate_kek` follows once `kek.json` names the new KEK. Run
+   as root against a folder another user owns, each append is made as that user. A journal in the secrets folder
+   (`kek-rotation.json`, no key) names the step, so the next `status --audit-dir` or `rotate-kek` rolls a rotation
+   cut short back (before its commit) or finishes it (after), and says so in the chain. An exclusive lock on the
+   secrets folder refuses a second rotation while one runs.
 
-Proved by `tests/unit/test_rotate_exposed_passphrase_h97.py`. The card's page:
+Proved by `tests/unit/test_rotate_exposed_passphrase_h97.py` and `tests/unit/test_rotate_kek_safety_h97.py`. The card's page:
 `docs/handover/first-run-code-h97-2026-11-23.md`.

@@ -60,8 +60,8 @@ box sealed under a passphrase that sudo had logged could not rotate it; RUNBOOK 
 asks rc1 first; on a refusal it goes on only when the box is sealed under a passphrase, the new KEK is a passphrase
 (`--backend passphrase`), the new passphrase comes from `--new-passphrase-file` or `--new-passphrase-stdin` (H-96's
 forms; the environment is refused by every command already), and no escrow set is made. It needs the audit folder
-(`--audit-dir`, else `TB_AUDIT_DIR`), refused before anything is read or written without one, and after the keys
-are re-wrapped it writes `keys.rotate_kek`: who (the user it runs as and the kernel's login uid, never a variable the
+(`--audit-dir`, else `TB_AUDIT_DIR`), refused before anything is read or written without one; it writes
+`keys.rotate_kek_started` before any key file changes and, once `kek.json` names the new KEK, `keys.rotate_kek`: who (the user it runs as and the kernel's login uid, never a variable the
 caller sets), when, the box's host name, the environment, the old and the new KEK ids, `D-1092`. Never a value. The
 rc1 table's row says so; its message, its sites and every other refusal are unchanged. RUNBOOK §23's rotation
 section (still a section, no new number) says a PRODUCTION box rotates itself, with the audit folder, and that every
@@ -133,6 +133,74 @@ caller's `TB_ENV=TEST` on a PRODUCTION box (still a FAIL), and the action on the
 In H-96's final form, a PoC box whose list line cannot be written is a WARN that says it was NOT listed and names the
 action, never a FAIL (`tests/unit/test_host_baseline.py::test_sealed_keys_without_a_tpm_say_when_the_poc_list_line_was_not_written`).
 Mutants: 3 planted (always a WARN; no action named; the unwritten line read as a FAIL), 3 caught.
+
+## The review of #1429 (F1 to F10)
+
+The review (fix first: B audited but with gaps) and the lead's relay of 7114889379. Each fix has its own test.
+
+- **F1, the audit event after the rotation.** `keys.rotate_kek_started` (who, when, the box, its environment, the
+  old KEK id, the back end, the rule) is written before any key file changes, after the journal; if it cannot be
+  written (a full or read-only volume, a broken anchor) the journal is removed and the rotation is refused, nothing
+  changed. `keys.rotate_kek` (the done event, with the new KEK id) follows the commit; if it cannot be written the
+  journal stays and `status --audit-dir` writes it. Tests:
+  `tests/unit/test_rotate_kek_safety_h97.py::test_a_rotation_whose_started_event_cannot_be_written_is_refused` (the
+  real `AuditFull`), `::test_a_done_event_not_written_keeps_the_journal_and_status_writes_it`,
+  `::test_the_append_as_another_user_that_fails_refuses_the_rotation`; the invariant of part B now checks the
+  started event comes first.
+- **F2, the day's file made by root.** Run as root against an audit folder another user owns (the console's 10001),
+  `tools.keys.append_audit` makes the append in a child process started as that user and group with no other
+  groups (`subprocess.run(user=, group=, extra_groups=[])`; the event comes on stdin). A file it creates is that
+  user's. Test: `::test_as_root_the_append_is_made_by_the_audit_folders_owner` (stood in: the child runs as the test's
+  user and the identity asked for is recorded). Probe as root, no stand-in: a folder owned by 10001 whose chain was
+  made the day before; after the rotation the new day file, `.lock` and `HEAD.json` are 10001's and an append as
+  10001 succeeds. RUNBOOK §23 says so. The escrow events (`escrow-shares`, `unseal --from-escrow`, an escrow set made
+  by `rotate-kek --escrow-out`) still append as the caller: H97-12.
+- **F3, any folder.** The audit folder must hold the box's chain (`HEAD.json` with a head); an empty folder is
+  refused, nothing changed. Test: `tests/unit/test_rotate_exposed_passphrase_h97.py::test_without_an_audit_folder_or_with_a_wrong_old_passphrase_nothing_changes`.
+- **F4, a kill between the renames.** A journal in the secrets folder (`kek-rotation.json`: the step, the key names,
+  the two KEK ids; no key) is written first (`staging`), then committed (`committing`) once every new file is
+  written and synced. The next `status --audit-dir` or `rotate-kek`, under the lock, rolls a `staging` rotation back
+  (the staged files and any temporary file of a write cut short removed; `keys.rotate_kek_rolled_back`) or finishes a
+  `committing` one (the remaining renames, `kek.json` last; `keys.rotate_kek` with `resumed`). Without the audit
+  folder it does nothing, and custody (so `status`, `check` and doctor) names the journal as a problem with the
+  command. RUNBOOK §23, "A rotation cut short". Test, a kill at each step:
+  `::test_a_kill_at_any_step_leaves_keys_that_open_and_the_next_command_finishes_or_rolls_back[status]` and
+  `[rotate-kek]`: the rotation runs in a child process killed (`os._exit`, no clean-up) at each of its 10 writes
+  in turn (the journal, the started event's anchor, two staged keys, `kek.json.next`, the commit, two renames,
+  `kek.json`, the done event's anchor); after each, the keys open under the KEK `kek.json` names (old or new, both
+  seen), nothing staged or temporary is left, and the chain says which. Also
+  `::test_a_rotation_cut_short_is_a_custody_problem_until_finished`. A kill between the done event and the journal's
+  removal gives a second `keys.rotate_kek` (with `resumed`) when it is finished: said here, not prevented.
+- **F5, no lock.** `rotate-kek` holds an exclusive, non-blocking `flock` on the secrets folder itself (no file is
+  added) for the whole rotation and its resume; a second one is refused, nothing changed. `status` takes it only to
+  resume. Tests: `::test_a_second_rotation_while_one_runs_is_refused` and `::test_two_rotations_at_once_never_lose_a_key`
+  (two processes started together, five rounds: at most one rotates, every key opens under `kek.json`'s KEK). The
+  other key commands that write the folder (`init`, `wrap`, `rotate`, `seal-objects`) do not take the lock: H97-13.
+- **F6, re-wrap is not re-key.** RUNBOOK §23 says the data keys stay the same, so the old passphrase and a copy of
+  the wrapped files from before the rotation still open them, and names the re-key step (`rotate pid_map`, and each
+  other key by its inventory rule).
+- **F7.** `tests/unit/test_host_baseline.py::test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen`: three rows
+  added, a caller's `TB_ENV=DEV` and `VALIDATION` on a PRODUCTION box with the keys sealed, and `DEV` with the back end
+  only named: each a FAIL, never listed. The reviewer's M13 (a caller's `TB_ENV=DEV` decides PoC) is caught by two.
+- **F8.** `tests/unit/test_rehearsal_poc_stops_h97.py::test_the_rehearsal_passes_only_the_expected_poc_stop` (7 rows):
+  the function is taken from `box.sh` as it is and run in bash with the TPM paths pointed at the test's folder. M12
+  (any other stop accepted) is caught by three rows.
+- **F9, the terminal write unchecked.** The write to `/dev/tty` is the check: when it fails the code goes to the
+  screen and the root-only file, and with neither the run stops and says so (as before). Tests:
+  `tests/unit/test_first_run_code_h97.py::test_a_terminal_write_that_fails_falls_through_to_the_screen_and_file` (the
+  run in an orphaned background process group on a pty with `tostop`: `/dev/tty` opens and every write fails with
+  EIO) and `::test_a_terminal_that_hung_up_never_swallows_the_code` (under nohup, the terminal hung up; there the
+  kernel drops the controlling terminal, so `/dev/tty` does not open either: this one does not tell the two forms
+  apart, the first does).
+- **F10.** A trap removes the code file on EXIT, HUP, INT and TERM while the run waits, and is cleared once the
+  answers are in. Test: `::test_a_first_run_stopped_while_it_waits_leaves_no_code_file[SIGTERM|SIGHUP|SIGINT]` (exit
+  143, 129, 130; no file).
+
+**Mutants for the review:** 13 planted, 13 caught. `tools/keys.py` (9): the started event's failure ignored; no
+started event; the done event's failure drops the journal; every append as root; any folder taken; no journal; no
+commit step; a cut-short rotation always rolled back; no lock (caught by the held-lock test only: the five rounds of
+two processes did not lose a key under it in that run). `deploy/box-install.sh` (2): the terminal write unchecked;
+no trap. M12 (`box.sh`) and M13 (`check_host.sh`).
 
 ## Tests
 
@@ -223,11 +291,14 @@ place of the issue file; a docstring), `tests/rehearsal/box-run/standins/boot.sh
 `tools/keys.py` (rotate-kek), `libs/tb_common/kek.py` (`load_kek`'s body and module text),
 `tools/trialbox/audit_heads.py` (`PASSED`), `tools/trialbox/backup_schedule.py` (one line), `deploy/check_host.sh`
 (part D; H-96's file), the tests named under "Changed assertions", and the hospital pages
-(`docs/handover/hospital-install.en.md`, `.ja.md`, `.zh-TW.md`, step 7).
+(`docs/handover/hospital-install.en.md`, `.ja.md`, `.zh-TW.md`, step 7). For the review: `libs/tb_common/kek.py`
+(`ROTATION_JOURNAL` and one custody problem), `tests/unit/test_host_baseline.py` (three rows), and the set-ups of
+the six tests under 7114085298 above, four of which now seed the audit chain (`test_kek`, `test_objstore_sealed`,
+`test_sign_keys_kek`, `test_kek_passphrase_file_h96`; nothing they assert changed).
 
 ## Findings
 
-In `first-run-code-h97-2026-11-23/findings.json` (H97-01 to H97-10): the code in the journal and the issue file
+In `first-run-code-h97-2026-11-23/findings.json` (H97-01 to H97-15; H97-11 to H97-15 from the review of #1429): the code in the journal and the issue file
 (fixed), the rehearsal that has no first-run step (not run), the screen of a desktop box and a VM's console, a
 terminal's scrollback and sudo's I/O log, boxes before H-97, rotate-kek on PRODUCTION (fixed, D-1092), the host's
 append to the audit folder beside the audit writer (not run), the WSL2 window (not run), the environment form outside the installers (fixed, part C), and keys sealed under the passphrase without a TPM
@@ -237,5 +308,9 @@ append to the audit folder beside the audit writer (not run), the WSL2 window (n
 
 1. Part A changes tests that asserted the code on the output (the list above). They are read as covered by ruling
    7101844662, whose rule they contradict; does the integrator agree?
-2. The rotation on PRODUCTION is audited only there; on DEV, TEST and VALIDATION rotate-kek writes no event (as
-   before). Should every rotation be the same audit event?
+2. (Answered by ruling 7114085298: every rotation is audited.)
+3. `status` now writes when given the audit folder and a rotation was cut short (it finishes or rolls it back, as
+   the lead's relay asked); without the folder it only reports. Should the doctor's own check do the same, or keep
+   reporting only (as now)?
+4. H97-12 and H97-13 (the escrow events still appended as the caller; the other key commands without the lock) are
+   left for a card of their own. Agreed?

@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from tb_common import kek as K
 from tb_common import rc1_refusals
+from tb_common.audit import AuditLog
 
 from tools import keys
 
@@ -47,7 +48,7 @@ def _box(tmp: Path, capsys: pytest.CaptureFixture[str], backend: str = "passphra
     assert keys.main(["init", "--backend", backend, "--secrets", str(sec), *argv], env={}) == 0
     capsys.readouterr()
     audit = tmp / "audit"
-    audit.mkdir()
+    AuditLog(audit).append("test.box_ready", actor="tester")  # the box's chain (F3: not any folder)
     return {"sec": sec, "audit": audit, "runtime": tmp / "kek.runtime", "tmp": tmp}
 
 
@@ -57,7 +58,9 @@ def _site_key(sec: Path, phrase: str) -> bytes:
 
 
 def _events(audit: Path) -> list[dict[str, object]]:
-    return [json.loads(x) for f in audit.rglob("*.jsonl") for x in f.read_text(encoding="utf-8").splitlines() if x]
+    """The rotation's events in the chain (the set-up's own first event left out)."""
+    rows = [json.loads(x) for f in sorted(audit.rglob("*.jsonl")) for x in f.read_text(encoding="utf-8").splitlines()]
+    return [e for e in rows if str(e.get("event", "")).startswith("keys.rotate_kek")]
 
 
 def _everything(b: dict[str, Path]) -> str:
@@ -92,6 +95,10 @@ def test_a_production_box_rotates_its_exposed_passphrase_and_the_rotation_is_aud
     assert _site_key(b["sec"], NEW) == site  # the keys are under the new passphrase
     events = [e for e in _events(b["audit"]) if e.get("event") == keys.ROTATE_EVENT]
     assert len(events) == 1
+    # F1: the started event is in the chain before the done event, naming the KEK it replaces
+    assert [e["event"] for e in _events(b["audit"])] == [keys.ROTATE_STARTED, keys.ROTATE_EVENT]
+    started = _events(b["audit"])[0]["detail"]
+    assert isinstance(started, dict) and started["old_kek_id"] == old_id and "new_kek_id" not in started
     detail = events[0]["detail"]
     assert isinstance(detail, dict)
     assert detail["old_kek_id"] == old_id and detail["new_kek_id"] == meta["kek_id"]
@@ -163,7 +170,8 @@ def test_without_an_audit_folder_or_with_a_wrong_old_passphrase_nothing_changes(
     before = (b["sec"] / K.META_FILE).read_bytes()
     base = ["rotate-kek", "--backend", "passphrase", "--secrets", str(b["sec"]), "--scrypt-n", "1024",
             "--new-passphrase-file", str(_pp(tmp_path / "new.pass", NEW))]  # fmt: skip
-    for audit in (["--audit-dir", str(tmp_path / "no-such-folder")], []):
+    (tmp_path / "empty").mkdir()  # F3: a folder with no audit chain is not the box's audit folder
+    for audit in (["--audit-dir", str(tmp_path / "no-such-folder")], [], ["--audit-dir", str(tmp_path / "empty")]):
         assert keys.main([*base, *audit], env={"TB_KEK_FILE": str(b["runtime"])}) == 1
         err = capsys.readouterr().err
         assert "D-1092" in err and "audit folder" in err and NEW not in err
@@ -196,7 +204,7 @@ def test_a_callers_dev_environment_does_not_widen_or_skip_the_rule(
                     "--new-passphrase-file", str(_pp(tmp_path / "new.pass", NEW)), "--audit-dir", str(b["audit"])],
                    env=env)  # fmt: skip
     assert rc == 0, capsys.readouterr().err
-    assert [e["event"] for e in _events(b["audit"])] == [keys.ROTATE_EVENT]
+    assert [e["event"] for e in _events(b["audit"])] == [keys.ROTATE_STARTED, keys.ROTATE_EVENT]
 
 
 @pytest.mark.parametrize("box_env", ["DEV", "TEST", "VALIDATION"])

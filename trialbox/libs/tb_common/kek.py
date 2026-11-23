@@ -580,6 +580,10 @@ class Custody:
                 "fingerprints": self.fingerprints, "problems": self.problems}  # fmt: skip
 
 
+#: tools.keys rotate-kek's journal (the review of #1429, F4): its step and the two KEK ids, never a key
+ROTATION_JOURNAL = "kek-rotation.json"
+
+
 def custody(secrets_dir: Path, env: Mapping[str, str] | None = None) -> Custody:
     """The state of the protected keys of ``secrets_dir`` and of the KEK. ``problems`` lists what is wrong whatever
     the environment: a key both plain and wrapped, a wrapped key without ``kek.json`` or under another KEK, a KEK
@@ -620,6 +624,9 @@ def custody(secrets_dir: Path, env: Mapping[str, str] | None = None) -> Custody:
     stray = sorted(f.name for f in secrets_dir.glob("*") if f.name.lower() in {"kek", "kek.bin", "kek.key", CREDENTIAL})
     if stray:
         c.problems.append(f"a KEK file is in the secrets folder ({', '.join(stray)}): a KEK beside the keys")
+    if (secrets_dir / ROTATION_JOURNAL).exists():
+        c.problems.append(f"a KEK rotation was cut short ({ROTATION_JOURNAL}): python -m tools.keys status --audit-dir "
+                          "DIR finishes it or rolls it back (RUNBOOK §23)")  # fmt: skip
     if meta is not None:
         try:
             load_kek(secrets_dir, env)

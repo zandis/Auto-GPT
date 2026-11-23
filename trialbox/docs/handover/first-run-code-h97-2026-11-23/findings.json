@@ -62,7 +62,7 @@
   {
    "id": "H97-07",
    "severity": "Low",
-   "claim": "keys.rotate_kek is appended by the host into the audit folder (the audit volume's mount point on a box) beside the audit writer, as the escrow events are; that a concurrent append keeps the chain was not run on a box with the stack up",
+   "claim": "keys.rotate_kek_started and keys.rotate_kek are appended by the host into the audit folder (the audit volume's mount point on a box) beside the console's audit writer; since the review of #1429 (F2) as the folder's owner, each append under the chain's own lock. That a concurrent append by the console keeps the chain was not run on a box with the stack up",
    "lane": "H",
    "basis": "not_run",
    "state": "open",
@@ -94,6 +94,51 @@
    "basis": "shown",
    "state": "open",
    "place": "deploy/check_host.sh (the TPM lines)"
+  },
+  {
+   "id": "H97-11",
+   "severity": "Medium",
+   "claim": "rotate-kek wrote its audit event after the key files and kek.json were replaced, so a failed append left a rotated KEK with no event (the review of #1429, F1); fixed: keys.rotate_kek_started before any change (no event, no rotation), keys.rotate_kek after the commit (no event, the journal stays for status --audit-dir)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek"
+  },
+  {
+   "id": "H97-12",
+   "severity": "Medium",
+   "claim": "run as root, an append to the audit volume made that day's file root's, so the console's user could not append until the day rolled over (the review of #1429, F2); fixed for the rotation's events (appended as the folder's owner); the escrow events (escrow-shares, unseal from escrow, a set made by rotate-kek --escrow-out) still append as the caller: not fixed in this card",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py append_audit, tools/key_escrow.py audit"
+  },
+  {
+   "id": "H97-13",
+   "severity": "Medium",
+   "claim": "a rotation killed between the key renames and kek.json's, or two rotations at once, left keys that no tool opened (the review of #1429, F4, F5); fixed: a journal the next status --audit-dir or rotate-kek finishes or rolls back, and an exclusive lock on the secrets folder for the rotation; the other key commands that write the folder (init, wrap, rotate, seal-objects) do not take the lock yet",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek, resume_rotation, _Locked; libs/tb_common/kek.py custody"
+  },
+  {
+   "id": "H97-14",
+   "severity": "Low",
+   "claim": "rotate-kek took any existing folder as the audit folder, so its event could land outside the box's chain (the review of #1429, F3); fixed: the folder must hold the chain's head anchor (HEAD.json)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py audit_chain_problem"
+  },
+  {
+   "id": "H97-15",
+   "severity": "Low",
+   "claim": "the review of #1429, F6, F9, F10: RUNBOOK §23 did not say a rotation re-wraps and does not re-key (now it does, with the re-key step); a failed write to the terminal counted the code as shown (now it falls through to the screen and the root-only file); a first run stopped while it waited left the code file (now a trap removes it)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "docs/runbook/23-key-inventory-and-the-lost-box-list.md, deploy/box-install.sh show_code"
   }
  ]
 }

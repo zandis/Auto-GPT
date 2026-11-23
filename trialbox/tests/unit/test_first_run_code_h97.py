@@ -249,3 +249,110 @@ def test_the_screen_file_and_its_knob_are_gone() -> None:
     for path in (ROOT / "deploy").rglob("*"):
         if path.is_file() and path.suffix in {".sh", ".py", ".service", ".ps1", ""}:
             assert "TB_ISSUE_DIR" not in path.read_text(encoding="utf-8", errors="replace"), path
+
+
+@pytest.mark.parametrize(("sig", "code"), [("SIGTERM", 143), ("SIGHUP", 129), ("SIGINT", 130)])
+def test_a_first_run_stopped_while_it_waits_leaves_no_code_file(tmp_path: Path, sig: str, code: int) -> None:
+    """The review of #1429, F10: the service stopped (SIGTERM), its terminal closed (SIGHUP) or the run interrupted
+    (SIGINT) while it waits for the owner: the root-only file is removed on the way out, never left holding a code."""
+    b = _box(tmp_path)
+    proc = _as_the_service(tmp_path, b, _env(tmp_path, b))
+    try:
+        _code_in(b["code"], proc)
+        proc.send_signal(getattr(__import__("signal"), sig))
+        assert proc.wait(timeout=60) == code
+    finally:
+        _stop(proc)
+    assert not b["code"].exists() and not b["code"].is_symlink()
+    _nothing_elsewhere(tmp_path, b)
+
+
+def test_a_terminal_that_hung_up_never_swallows_the_code(tmp_path: Path) -> None:
+    """The review of #1429, F9: the run was started on a terminal under nohup with its output in a log, and the
+    terminal hung up (an SSH session closed) before the code was shown: the write to the terminal fails, so the code
+    goes to the screen and the root-only file, the log says where, and the code is never in the log."""
+    b = _box(tmp_path)
+    log = tmp_path / "nohup.log"
+    argv = ["/bin/bash", "-c", f'trap "" HUP; echo ready; sleep 1; exec nohup "$0" "$1" "$2" > "{log}" 2>&1', *_argv(b)]
+    pid, fd = pty.fork()
+    if pid == 0:  # pragma: no cover - the child
+        os.chdir(tmp_path)
+        os.execve(argv[0], argv, _env(tmp_path, b))
+    got = b""
+    while b"ready" not in got:  # SIGHUP ignored from here on, as nohup does
+        got += os.read(fd, 100)
+    os.close(fd)  # the terminal hangs up before the run starts
+    try:
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and not (log.is_file() and "the one-time code is not in this output" in
+                                                   log.read_text(encoding="utf-8", errors="replace")):  # fmt: skip
+            time.sleep(0.1)
+        said = log.read_text(encoding="utf-8", errors="replace")
+        assert "the one-time code is not in this output" in said, said[-800:]
+        assert "shown on this terminal only" not in said and "One-time code" not in said
+        _private(b["code"])
+        m = re.search(r"One-time code:\s+(\S+)", b["code"].read_text(encoding="utf-8"))
+        assert m and m.group(1) not in said
+    finally:
+        os.kill(pid, 9)
+        os.waitpid(pid, 0)
+    _nothing_elsewhere(tmp_path, b)
+
+
+#: on the pty: TOSTOP set, then the run in a process group of its own whose parent has exited (orphaned, in the
+#: background): /dev/tty opens, and every write to it fails (EIO), as on a terminal the run can no longer write
+_ORPHANED = """
+import os, sys, termios, time
+log, pidfile, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
+a = termios.tcgetattr(0)
+a[3] |= termios.TOSTOP
+termios.tcsetattr(0, termios.TCSANOW, a)
+m = os.fork()
+if m == 0:
+    os.setpgid(0, 0)
+    if os.fork() == 0:
+        time.sleep(0.5)  # its parent has exited: the group is orphaned
+        with open(pidfile, "w") as fh:
+            fh.write(str(os.getpid()))
+        fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.dup2(fd, 1)
+        os.dup2(fd, 2)
+        os.execv(argv[0], argv)
+    os._exit(0)
+os.waitpid(m, 0)
+time.sleep(120)
+"""
+
+
+def test_a_terminal_write_that_fails_falls_through_to_the_screen_and_file(tmp_path: Path) -> None:
+    """The review of #1429, F9: /dev/tty opens but the write fails (EIO): the code is not taken as shown. It goes to
+    the screen and the root-only file, the output says where, and the code is never in the output."""
+    b = _box(tmp_path)
+    log, pidfile = tmp_path / "out.log", tmp_path / "run.pid"
+    argv = [sys.executable, "-c", _ORPHANED, str(log), str(pidfile), *_argv(b)]
+    pid, fd = pty.fork()
+    if pid == 0:  # pragma: no cover - the child
+        os.chdir(tmp_path)
+        os.execve(argv[0], argv, _env(tmp_path, b))
+    try:
+        deadline = time.monotonic() + 60
+        said = ""
+        while time.monotonic() < deadline and "the one-time code is not in this output" not in said:
+            ready, _, _ = select.select([fd], [], [], 0.2)
+            if ready:  # the terminal is read, so it never fills
+                with __import__("contextlib").suppress(OSError):
+                    os.read(fd, 4096)
+            said = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+        assert "the one-time code is not in this output" in said, said[-800:]
+        assert "shown on this terminal only" not in said and "One-time code" not in said
+        _private(b["code"])
+        m = re.search(r"One-time code:\s+(\S+)", b["code"].read_text(encoding="utf-8"))
+        assert m and m.group(1) not in said
+    finally:
+        if pidfile.is_file():
+            with __import__("contextlib").suppress(ProcessLookupError):
+                os.kill(int(pidfile.read_text()), 9)
+        os.kill(pid, 9)
+        os.waitpid(pid, 0)
+        os.close(fd)
+    _nothing_elsewhere(tmp_path, b)
