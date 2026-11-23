@@ -201,9 +201,15 @@ def _safe_folders(real_dir: str, path: str, fix: str) -> None:
 
 
 def read_passphrase_file(path: str) -> str:
+    """The passphrase of ``path`` (see :func:`read_passphrase_file_at`)."""
+    return read_passphrase_file_at(path)[0]
+
+
+def read_passphrase_file_at(path: str) -> tuple[str, str]:
     """One line of a regular file owned by the user that runs this (root), mode 0600, one name, in folders only root
     can write; else refused. It is opened once without following a link and checked and read on that descriptor
-    (fstat), never by its name again."""
+    (fstat), never by its name again.
+    Also the real path it was read from: the file is removed by that name, never the one given (R2-1 of #1398)."""
     fix = ("a regular file owned by root with mode 0600, in a folder only root can write (sudo install -m 0600 -o root "
            "-g root /dev/null /root/trialbox-kek.pass)")  # fmt: skip
     real_dir = os.path.realpath(os.path.dirname(os.path.abspath(path)))
@@ -236,10 +242,13 @@ def read_passphrase_file(path: str) -> str:
                 raise K.KekError(f"the passphrase file {path} is too long for a passphrase: one line")
     finally:
         os.close(fd)
-    text = b"".join(chunks).decode("utf-8")
+    try:
+        text = b"".join(chunks).decode("utf-8")
+    except UnicodeDecodeError:
+        raise K.KekError(f"the passphrase file {path} is not UTF-8 text: refused; write it again on one line") from None
     if text.count("\n") > 1 or (text.count("\n") == 1 and not text.endswith("\n")):
         raise K.KekError(f"the passphrase file {path} holds more than one line: the passphrase is one line")
-    return _one_line(text, f"the file {path}")
+    return _one_line(text, f"the file {path}"), name
 
 
 def given_passphrases(a: argparse.Namespace, env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
@@ -255,8 +264,8 @@ def given_passphrases(a: argparse.Namespace, env: Mapping[str, str]) -> tuple[di
         if path and from_stdin:
             raise K.KekError(f"--{file_opt.replace('_', '-')} and --{stdin_opt.replace('_', '-')}: give one")
         if path:
-            got[var] = read_passphrase_file(path)
-            used.append(path)
+            got[var], real = read_passphrase_file_at(path)
+            used.append(real)  # the real path it was read from: a parent link re-pointed since cannot redirect it
         elif from_stdin and not sys.stdin.isatty():
             line = sys.stdin.readline()
             if not line:
