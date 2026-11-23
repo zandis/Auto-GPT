@@ -2140,6 +2140,25 @@ def _signals_raise() -> Callable[[], None]:
     return back
 
 
+@contextlib.contextmanager
+def _signals_ignored() -> Iterator[None]:
+    """H-100 (review R1): while a failed restore puts the box back, SIGINT, SIGTERM and SIGHUP are ignored: one
+    Ctrl-C under ``docker run`` can arrive twice (the engine passes SIGINT on, then the host's step sends SIGTERM), and
+    a second signal must never abandon the put-back half way. The old handlers come back after it."""
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    old = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        yield
+    finally:
+        for sig, h in old.items():
+            signal.signal(sig, h)
+
+
 def _db_bytes(src: DbSource) -> int:
     import psycopg
 
@@ -2172,46 +2191,73 @@ def _put_back(
     srcs: Mapping[str, DbSource],
     replaced: Sequence[str],
     pre: Mapping[str, Path],
-    moved: Sequence[tuple[Path, Path | None, bool]],
+    moved: Sequence[tuple[Path, Path | None, bool, tuple[int, int, int] | None]],
     env: Mapping[str, str],
 ) -> tuple[bool, str]:
     """H-100 (F2): the folders and the databases a failed restore changed, put back as they were. Returns whether
     all of it went back, and the box's state in words (what went back, what did not)."""
     bad: list[str] = []
-    for dest, aside, existed in reversed(list(moved)):
-        try:
+    for dest, aside, existed, top in reversed(list(moved)):
+        try:  # each step on its own: whatever stops one (BaseException included), the others still go back
             if dest.exists():
                 shutil.rmtree(dest)
             if aside is not None and aside.exists():
                 aside.rename(dest)
-            elif existed:
+            elif existed:  # review R4: an empty folder back with its own owner and mode
                 dest.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            bad.append(f"folder {dest.name} ({e.strerror})")
+                if top is not None:
+                    dest.chmod(top[2] & 0o777)  # never a set-id bit
+                    if _is_root():
+                        _chown(dest, top[0], top[1])
+        except BaseException as e:
+            bad.append(f"folder {dest.name} ({getattr(e, 'strerror', None) or type(e).__name__})")
     for name in reversed(list(replaced)):
         try:
             restore_db(srcs[name], pre[name], env, keep_owners=True)
-        except Exception as e:  # named, never a URL
+        except BaseException as e:  # named, never a URL
             bad.append(f"database {name} ({type(e).__name__})")
     if bad:
         return False, ("NOT put back as it was: " + ", ".join(bad) + " may be half restored or empty; do not start "
                        "the services")  # fmt: skip
-    what = ", ".join([*(f"database {n}" for n in replaced), *(f"folder {d.name}" for d, _a, _e in moved)])
+    what = ", ".join([*(f"database {n}" for n in replaced), *(f"folder {d.name}" for d, _a, _e, _t in moved)])
     return True, f"put back as it was before the restore ({what or 'nothing had changed'})"
 
 
+def _keep_dumps(pre: Mapping[str, Path], keep_to: Path | None, stamp: str) -> Path | None:
+    """Review R3: the copy of the databases a put-back could not finish from is the one exact copy of the box as it
+    was: kept (``--keep-to``, else beside the temporary folder), readable by its owner alone, and named."""
+    where = (Path(keep_to) if keep_to is not None else Path(tempfile.gettempdir())) / f"pre-restore-dumps-{stamp}"
+    try:
+        where.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for f in pre.values():
+            if f.is_file():
+                shutil.move(str(f), where / f.name)
+    except BaseException:
+        return None
+    return where
+
+
 def _undo_restore(e: BaseException, srcs: Mapping[str, DbSource], replaced: Sequence[str], pre: Mapping[str, Path],
-                  moved: Sequence[tuple[Path, Path | None, bool]], env: Mapping[str, str], targets: Mapping[str, Path],
-                  sha: str, base: Mapping[str, Any], copy: Path | None, hold: str, hold_dir: Path | None,
-                  hold_reason: str, wf_restored: bool, keep: Callable[[], None]) -> BackupError:  # fmt: skip
+                  moved: Sequence[tuple[Path, Path | None, bool, tuple[int, int, int] | None]],
+                  env: Mapping[str, str], targets: Mapping[str, Path], sha: str, base: Mapping[str, Any],
+                  copy: Path | None, hold: str, hold_dir: Path | None, hold_reason: str, wf_restored: bool,
+                  keep: Callable[[], None], keep_to: Path | None = None, stamp: str = "") -> BackupError:  # fmt: skip
     """H-100 (F2, F3): a restore that failed or was stopped after its first change: put back, held, audited, and the
     error the command says (with ``state``: ``rolled_back`` or ``not_rolled_back``)."""
     ok, words = _put_back(srcs, replaced, pre, moved, env)
     if not ok and wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
         with contextlib.suppress(Exception):
             keep()
-    if hold != "held" or ok:  # NEW-B-3 (D-522): the box is held, on the databases it has now
+    if ok:  # NEW-B-3 (D-522): the box is held, on the databases it has again
         hold = hold_screening(env, hold_dir, f"{hold_reason}; it failed: {words}")
+    else:  # review R5: the hold is a row of a database that is not whole
+        hold = "unknown (the trial database is not whole)"
+        kept = _keep_dumps(pre, keep_to, stamp)
+        words += (
+            (f"; the copy of the databases taken before the restore is kept in {kept}: pg_restore it to put them back")
+            if kept
+            else "; the copy of the databases taken before the restore could not be kept"
+        )
     why = str(e) or type(e).__name__
     with contextlib.suppress(Exception):
         _audit(targets, env, "backup.restore_failed", sha,
@@ -2222,6 +2268,7 @@ def _undo_restore(e: BaseException, srcs: Mapping[str, DbSource], replaced: Sequ
             if lost.get("events") else "")  # fmt: skip
     back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
     err = BackupError(f"{why}; the box is {words}; list jobs: {hold}{said}{back}")
+    err.dumps_kept = None if ok else words  # type: ignore[attr-defined]
     err.state = "rolled_back" if ok else "not_rolled_back"  # type: ignore[attr-defined]
     return err
 
@@ -2367,7 +2414,7 @@ def restore(
         # and the folders back as they were, takes the hold and audits it. Its space is checked before any change
         pre = _pre_restore_dumps([srcs[n] for n in manifest["databases"]], work / "pre-restore", env)
         replaced: list[str] = []
-        moved: list[tuple[Path, Path | None, bool]] = []
+        moved: list[tuple[Path, Path | None, bool, tuple[int, int, int] | None]] = []
         wf_restored = False
         roles: dict[str, str] = {"state": "not_restored"}  # D-573: no trial database in this backup, nothing to move
         jobs_failed: list[dict[str, str]] = []
@@ -2452,11 +2499,11 @@ def restore(
                     aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}"), 1
                     while aside.exists():  # a second restore within the same second: never over the first one's data
                         aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}-{n}"), n + 1
-                    moved.append((dest, aside, existed))  # H-100 (F2): what a failure puts back
+                    moved.append((dest, aside, existed, top))  # H-100 (F2): what a failure puts back
                     dest.rename(aside)
                     asides[dname] = aside
                 else:
-                    moved.append((dest, None, existed))
+                    moved.append((dest, None, existed, top))
                 dest.mkdir(parents=True, exist_ok=True)
                 src = work / "dirs" / dname
                 if src.exists():
@@ -2513,23 +2560,11 @@ def restore(
             for dname, (dest, top) in placed.items():  # D-724: the restore's own audit events were written as root
                 _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
         except BaseException as e:
-            raise _undo_restore(
-                e,
-                srcs,
-                replaced,
-                pre,
-                moved,
-                env,
-                targets,
-                sha,
-                base,
-                copy,
-                hold,
-                hold_dir,
-                hold_reason,
-                wf_restored,
-                keep,
-            ) from e
+            stop_signals()  # the raising handlers off first: none is put back when the put-back ends
+            with _signals_ignored():  # review R1: no second signal stops the put-back
+                err = _undo_restore(e, srcs, replaced, pre, moved, env, targets, sha, base, copy, hold, hold_dir,
+                                    hold_reason, wf_restored, keep, keep_to, stamp)  # fmt: skip
+            raise err from e
         finally:
             stop_signals()
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],

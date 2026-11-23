@@ -292,7 +292,7 @@ def test_last_is_the_backup_the_nightly_recorded_good_on_a_target(
     got, seen = _restore(deploy, tmp_path, monkeypatch, Recorder(), "{}", 0, "--last", file=False)
     assert got == 2 and not seen and "--last: no good backup" in capsys.readouterr().err
     bs.sidecar(f).write_text(f"{sha}  {f.name}\n", encoding="utf-8")
-    (deploy / "site").mkdir()
+    (deploy / "site").mkdir(exist_ok=True)
     (deploy / "site" / "backup-last.json").write_text(json.dumps(
         {"good_file": {"name": f.name, "bytes": f.stat().st_size, "sha256": sha}}), encoding="utf-8")  # fmt: skip
     got, seen = _restore(deploy, tmp_path, monkeypatch, Recorder(), "{}", 0, "--last", file=False)
@@ -554,6 +554,7 @@ def test_the_rehearsal_restores_over_the_live_stack_by_the_documented_command() 
     # review F2: a restore made to fail after it replaced the databases leaves every table as it was
     assert body.index("rows.before") < body.index('--yes > "$rr/failed.json"') < body.index("rows.after")
     assert '"rolled_back"' in body and 'diff "$rr/rows.before" "$rr/rows.after"' in body
+    assert body.index("kill -INT 1") < body.index("kill -TERM 1")  # review R1: two signals, the second in the put-back
     assert body.index("rows.after") < body.index("--yes --restart >")  # the good restore after it
     assert "backup-keygen" in body and "never the box's" in body  # a throwaway key pair
     steps = re.findall(r"^step ([a-z0-9-]+) [01] (\S+)", rehearse, re.M)
@@ -634,7 +635,7 @@ def test_the_key_must_be_a_file_and_last_names_its_pick_before_anything_stops(
     assert "is not a file: nothing was changed" in capsys.readouterr().err and rec.calls == []
     sha = hashlib.sha256(f.read_bytes()).hexdigest()
     bs.sidecar(f).write_text(f"{sha}  {f.name}\n", encoding="utf-8")
-    (deploy / "site").mkdir()
+    (deploy / "site").mkdir(exist_ok=True)
     (deploy / "site" / "backup-last.json").write_text(
         json.dumps({"good_file": {"name": f.name, "bytes": f.stat().st_size, "sha256": sha}}), encoding="utf-8"
     )
@@ -780,7 +781,7 @@ def test_f4_the_host_hashes_the_file_before_anything_stops_and_passes_the_hash(
     assert code == 2 and not seen and rec.calls == []  # nothing asked, nothing stopped
     assert "its sha256 differs. Nothing was changed" in capsys.readouterr().err
     bs.sidecar(f).write_text(f"{sha}  {f.name}\n", encoding="utf-8")
-    (deploy / "site").mkdir()
+    (deploy / "site").mkdir(exist_ok=True)
     (deploy / "site" / "backup-last.json").write_text(json.dumps(  # the record says another content (sidecar too)
         {"good_file": {"name": f.name, "bytes": f.stat().st_size, "sha256": "2" * 64}}), encoding="utf-8")  # fmt: skip
     rec = Recorder(running=["db", "console"])
@@ -958,7 +959,7 @@ def test_f7_the_tls_marker_goes_after_every_exit_that_restored(
     from tools.tls_policy import OLD_CLIENTS_AUDITED
 
     deploy = _box(tmp_path)
-    (deploy / "site").mkdir()
+    (deploy / "site").mkdir(exist_ok=True)
     marker = deploy / "site" / OLD_CLIENTS_AUDITED
     marker.write_text("synthetic", encoding="utf-8")
     assert _restore(deploy, tmp_path, monkeypatch, Recorder(), '{"hold": "held"}', code)[0] == code
@@ -995,3 +996,279 @@ def test_f2_the_copy_and_its_put_back_keep_the_owners_and_grants(
     assert all("--no-owner" not in c and "--no-privileges" not in c for c in pre), pre
     restores = [c for c in seen if c[0].endswith("pg_restore") and c not in pre]
     assert restores and all("--no-owner" in c for c in restores), restores
+
+
+# ------------------------------------------------------------------------------------------------ the re-review (R1-R7)
+# Each fails on da6d1b7a (the head the re-review read).
+@pytest.mark.parametrize(("first", "second"), [("SIGINT", "SIGTERM"), ("SIGTERM", "SIGINT"), ("SIGHUP", "SIGTERM"),
+                                               ("SIGTERM", "SIGHUP")])  # fmt: skip
+def test_r1_a_second_signal_during_the_put_back_never_abandons_it(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch, first: str, second: str
+) -> None:
+    """R1, R6: one Ctrl-C under ``docker run`` can arrive twice. The first signal stops the restore after its first
+    change; the second arrives while the databases are being put back: it is ignored, the put-back finishes, the hold
+    is taken and the event written."""
+    import os
+    import signal
+
+    _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
+    src = bk.db_sources(env)[0]
+    before = _counts(src)
+    real = bk.restore_db
+    sent: list[str] = []
+
+    def stop_once(*a: object, **kw: object) -> Any:
+        os.kill(os.getpid(), getattr(signal, first))
+        return []
+
+    def restore_db(s: Any, dump_file: Path, e: Any, keep_owners: bool = False) -> None:
+        if dump_file.parent.name == "pre-restore" and not sent:
+            sent.append(second)
+            os.kill(os.getpid(), getattr(signal, second))  # the second signal, as the put-back starts
+        real(s, dump_file, e, keep_owners)
+
+    monkeypatch.setattr(bk, "fail_running_jobs", stop_once)
+    monkeypatch.setattr(bk, "restore_db", restore_db)
+    with pytest.raises(bk.BackupError) as err:
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert sent == [second] and getattr(err.value, "state", None) == "rolled_back", err.value
+    assert _counts(src) == before
+    from tb_common.flags import Flags
+
+    assert Flags(url=db_url).row(bk.HOLD_FLAG) == "held"
+    (ev,) = _t728()._audit_events(dirs["audit"], "backup.restore_failed")
+    assert ev["detail"]["state"] == "rolled_back"
+    assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL or callable(signal.getsignal(signal.SIGTERM))
+    assert signal.getsignal(signal.SIGINT) is not signal.SIG_IGN  # the handlers are put back after
+
+
+def test_r3_r5_a_put_back_that_fails_keeps_its_copy_and_says_the_hold_is_unknown(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import stat
+
+    _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
+    real = bk.restore_db
+
+    def restore_db(s: Any, dump_file: Path, e: Any, keep_owners: bool = False) -> None:
+        if dump_file.parent.name == "pre-restore":
+            raise RuntimeError("synthetic: the put-back fails")
+        real(s, dump_file, e, keep_owners)
+
+    monkeypatch.setattr(bk, "restore_db", restore_db)
+    monkeypatch.setattr(bk, "reapply_service_roles", _boom)
+    with pytest.raises(bk.BackupError) as err:
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert getattr(err.value, "state", None) == "not_rolled_back"
+    (kept,) = keep.glob("pre-restore-dumps-*")
+    assert {p.name for p in kept.iterdir()} == {"trialbox_wf.dump"} and str(kept) in str(err.value)
+    assert stat.S_IMODE(kept.stat().st_mode) == 0o700
+    assert "list jobs: unknown (the trial database is not whole)" in str(err.value)
+    (ev,) = _t728()._audit_events(dirs["audit"], "backup.restore_failed")
+    assert ev["detail"]["hold"].startswith("unknown")
+
+
+def test_r3_no_copy_on_the_host_needs_yes_really(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    deploy = _box(tmp_path)
+    rec = Recorder(running=["db", "console"])
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--no-copy", "--restart")
+    assert code == 2 and not seen and rec.calls == [] and "--yes-really" in capsys.readouterr().err
+    code, seen = _restore(deploy, tmp_path, monkeypatch, Recorder(), "{}", 0, "--no-copy", "--yes-really")
+    assert code == 0 and "--no-copy" in seen[0][0]
+
+
+def test_r4_an_empty_folder_comes_back_with_its_own_owner_and_mode(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    import stat
+
+    t = _t728()
+    (tmp_path / "b").mkdir()
+    _reg, _j, dirs = t._box(db_url, tmp_path / "b")
+    priv, pub, keep = t._keys(tmp_path / "b")
+    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", "TB_ENV": "TEST"}
+    objects = tmp_path / "b" / "objects"
+    objects.mkdir()
+    (objects / "a.bin").write_bytes(b"synthetic")
+    dirs = {**dirs, "objects": objects}
+    f = bk.backup([tmp_path / "b" / "nas"], pub, env=env, dirs=dirs)[0]
+    (objects / "a.bin").unlink()  # the box's folder is empty now: no aside, it is made again on a put-back
+    objects.chmod(0o750)
+    owner = (os.getuid(), os.getgid())
+    if os.geteuid() == 0:
+        os.chown(objects, 1234, 1234)
+        owner = (1234, 1234)
+    monkeypatch.setattr(bk, "events_to_reapply", _boom)  # after the folders were placed
+    with pytest.raises(bk.BackupError) as err:
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert getattr(err.value, "state", None) == "rolled_back"
+    st = objects.stat()
+    assert stat.S_IMODE(st.st_mode) == 0o750 and (st.st_uid, st.st_gid) == owner and not any(objects.iterdir())
+
+
+def test_r6_the_hosts_step_raises_on_sighup_and_sigterm() -> None:
+    import os
+    import signal
+
+    from tools.trialbox import box_restore
+
+    back = box_restore._host_signals()
+    try:
+        for sig in (signal.SIGHUP, signal.SIGTERM):
+            with pytest.raises(box_restore.HostInterrupted):
+                os.kill(os.getpid(), sig)
+    finally:
+        back()
+
+
+def test_r6_the_hosts_space_check_refuses_before_anything_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import collections
+    import shutil
+
+    deploy = _box(tmp_path)
+    usage = collections.namedtuple("usage", "total used free")
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: usage(1, 1, 0))
+    rec = Recorder(running=["db", "console"])
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
+    assert code == 2 and not seen and not any("stop" in c for c in rec.calls)
+    assert "GB is free. Nothing was changed" in capsys.readouterr().err
+    assert not list(deploy.glob(".restore-*"))
+
+
+CHILD = r"""
+import json, signal, sys, time
+got = []
+signal.signal(signal.SIGTERM, lambda s, f: got.append(s))
+open(sys.argv[1], "w").write("started")
+t = time.time()
+while time.time() - t < 3 and not got:
+    time.sleep(0.02)
+time.sleep(0.5)  # the restore's put-back, while the host's further signals arrive
+open(sys.argv[1], "w").write(f"sigterm={len(got)}")
+print(json.dumps({"ok": False, "state": "rolled_back"}))
+sys.exit(1)
+"""
+
+
+@pytest.mark.parametrize(("first", "second"), [("SIGINT", "SIGTERM"), ("SIGTERM", "SIGINT"), ("SIGHUP", "SIGINT")])
+def test_r2_two_signals_on_the_host_pass_one_on_and_wait_for_the_container(
+    tmp_path: Path, first: str, second: str
+) -> None:
+    """R2: the first signal goes to the container once; the second is ignored; the host waits for the container's
+    own end and returns its state (never a "did not start")."""
+    import os
+    import signal
+    import sys
+    import threading
+    import time
+
+    from tools.trialbox import box_restore
+
+    mark = tmp_path / "child"
+    script = tmp_path / "child.py"
+    script.write_text(CHILD, encoding="utf-8")
+
+    def fire() -> None:
+        while not mark.exists():
+            time.sleep(0.01)
+        os.kill(os.getpid(), getattr(signal, first))
+        time.sleep(0.15)
+        os.kill(os.getpid(), getattr(signal, second))
+
+    back = box_restore._host_signals()
+    try:
+        threading.Thread(target=fire, daemon=True).start()
+        code, out = box_restore._call([sys.executable, str(script), str(mark)], {}, dict(os.environ))
+    finally:
+        back()
+    assert code == 1 and '"rolled_back"' in out
+    assert mark.read_text() == "sigterm=1"  # passed on once
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+
+def test_r2_an_escape_after_the_container_started_never_says_it_did_not_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tools.trialbox import box_restore
+
+    deploy = _box(tmp_path)
+
+    def escapes(argv: list[str], values: dict[str, str], base: Any = None) -> tuple[int, str]:
+        raise KeyboardInterrupt
+
+    _stand_in(monkeypatch, Recorder(running=["db", "console"]))
+    monkeypatch.setattr(box_restore, "_call", escapes)
+    from tools.trialbox import __main__ as cli
+
+    argv = ["restore", str(tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"), "--key",
+            str(tmp_path / "usb" / "backup.key"), "--yes", "--restart", "--deploy", str(deploy)]  # fmt: skip
+    assert cli.main(argv, installed=True) == 130
+    err = capsys.readouterr().err
+    assert "did not start" not in err and "the data: unknown: the restore's container was started" in err, err
+    assert "do not start the services" in err and list(deploy.glob(".restore-*"))  # its work folder is kept
+
+
+def test_r7_one_restore_at_a_time_and_a_killed_ones_folder_is_swept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import fcntl
+    import os
+
+    deploy = _box(tmp_path)
+    left = deploy / ".restore-killed"
+    left.mkdir(mode=0o700)
+    (left / "plain.dump").write_bytes(b"synthetic")
+    assert _restore(deploy, tmp_path, monkeypatch, Recorder(), "{}", 0)[0] == 0
+    assert not left.exists() and "left by a restore that did not finish" in capsys.readouterr().err
+    fd = os.open(deploy / "site" / "restore.lock", os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        code, seen = _restore(deploy, tmp_path, monkeypatch, Recorder(running=["db", "console"]), "{}", 0, "--restart")
+        assert code == 2 and not seen and "another restore of this box is running" in capsys.readouterr().err
+    finally:
+        os.close(fd)
+
+
+def test_r7_an_interrupt_while_the_services_start_says_the_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class UpInterrupted(Recorder):
+        def __call__(self, argv: list[str], **kw: object) -> str:
+            if "up" in argv:
+                raise KeyboardInterrupt
+            return super().__call__(argv, **kw)
+
+    deploy = _box(tmp_path)
+    code, _ = _restore(deploy, tmp_path, monkeypatch, UpInterrupted(running=["db", "console"]), "{}", 0, "--restart")
+    err = capsys.readouterr().err
+    assert code == 130 and "restore: the box now:" in err and "the data: restored" in err, err
+
+
+def test_r1_whatever_stops_one_put_back_step_the_rest_still_go_back_and_it_is_audited(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R1: a BaseException in one step of the put-back (an interrupt that came before the signals were ignored)
+    leaves the other steps to run, the state said (not_rolled_back) and the event written; nothing escapes."""
+    _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
+    real = bk.restore_db
+
+    def restore_db(s: Any, dump_file: Path, e: Any, keep_owners: bool = False) -> None:
+        if dump_file.parent.name == "pre-restore":
+            raise KeyboardInterrupt
+        real(s, dump_file, e, keep_owners)
+
+    monkeypatch.setattr(bk, "restore_db", restore_db)
+    monkeypatch.setattr(bk, "events_to_reapply", _boom)  # after the folders moved: they go back as well
+    with pytest.raises(bk.BackupError) as err:
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert getattr(err.value, "state", None) == "not_rolled_back" and "database trialbox_wf (KeyboardInterrupt)" in str(
+        err.value
+    )
+    assert (dirs["audit"] / "after-the-backup.txt").is_file()  # the folders went back all the same
+    (ev,) = _t728()._audit_events(dirs["audit"], "backup.restore_failed")
+    assert ev["detail"]["state"] == "not_rolled_back"

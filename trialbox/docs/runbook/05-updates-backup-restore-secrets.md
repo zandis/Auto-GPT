@@ -336,9 +336,15 @@ done). Every guard of the steps above holds: the site, the age, the copy of a bo
 before any folder moves, the hold.
 
 **All or nothing.** The restore first copies each database it replaces. If anything fails, is interrupted (Ctrl-C) or
-is stopped by a signal after the first change, it puts the databases and the folders back as they were, holds the
-list jobs (`screening.after_restore`, step 4) and writes `backup.restore_failed` with `state: rolled_back`. If the
-putting back itself fails, it says `NOT as it was`: do not start the services; restore the kept copy it names.
+is stopped by a signal after the first change, it puts the databases and the folders back as they were (each folder
+with its own owner and mode), holds the list jobs (`screening.after_restore`, step 4) and writes
+`backup.restore_failed` with `state: rolled_back`. While it puts them back, further Ctrl-C, SIGTERM or SIGHUP are
+ignored, and the host's step waits for it to the end whatever it receives. If the putting back itself fails, it says
+`NOT as it was` and keeps the copy of the databases it took first (`deploy/pre-restore/pre-restore-dumps-<time>`,
+readable by root alone) and names it: do not start the services; `pg_restore` that copy, or restore the kept copy of
+the box. `--no-copy` on the host needs `--yes-really`: without the kept copy a failed restore whose putting back also
+fails leaves nothing to go back to. One restore runs at a time (`deploy/site/restore.lock`); a scratch folder
+(`deploy/.restore-*`) left by a restore that was killed is removed by the next one.
 
 **What it says.** Every end says the box in one line: `restore: the box now: <what compose says runs>; the data:
 <restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` the services it

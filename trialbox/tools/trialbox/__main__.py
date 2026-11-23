@@ -157,6 +157,8 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         help="where that copy goes (default: TB_RESTORE_KEEP_DIR or deploy/pre-restore)",
     )
     r.add_argument("--no-copy", action="store_true", help="keep no copy of the box first (audited)")
+    r.add_argument("--yes-really", action="store_true",
+                   help="on the host: --no-copy, though a failed restore then has no copy to go back to")  # fmt: skip
     r.add_argument("--other-site", action="store_true", help="restore a backup of another site (new hardware)")
     r.add_argument("--older-ok", action="store_true", help="restore a backup older than 14 days")
     _restic_args(r)
@@ -590,6 +592,11 @@ def _restore_cmd(a: argparse.Namespace, installed: bool) -> int:
     if installed or not launch.has_libs((*launch.CRYPTO, "psycopg")):
         from tools.trialbox import box_restore, update
 
+        if a.no_copy and not a.yes_really:  # review R3: the kept copy is the way back if the put-back fails
+            print("restore: --no-copy keeps no copy of the box before the restore: if the restore and then its "
+                  "putting back both fail, nothing is left to go back to. Add --yes-really to go on without it; "
+                  "nothing was changed", file=sys.stderr)  # fmt: skip
+            return 2
         box = update._env_file(a.deploy / ".env")
         _restore_defaults(a, box, a.deploy)
         return box_restore.main(a)

@@ -30,6 +30,7 @@ target with the same size and sha256.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -38,7 +39,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -330,6 +331,33 @@ class BoxRestore:
         return shlex.join(self.box._c("up", "-d", "--no-deps", *stopped)) if stopped else "nothing to start"
 
     def restore(self, a: Any) -> int:
+        with self.lock():  # review R7: one restore at a time; what a killed one left is swept first
+            return self._restore(a)
+
+    @contextlib.contextmanager
+    def lock(self) -> Iterator[None]:
+        """``deploy/site/restore.lock`` held for the whole run; a second restore is refused. Under it, a scratch
+        folder another run left (``deploy/.restore-*``: a killed host step's decrypted backup and copies) is removed."""
+        import fcntl
+
+        site = self.deploy / "site"
+        site.mkdir(parents=True, exist_ok=True)
+        fd = os.open(site / "restore.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise RestoreStopped("another restore of this box is running (deploy/site/restore.lock): nothing "
+                                     "was changed") from None  # fmt: skip
+            for old in self.deploy.glob(".restore-*"):
+                if old.is_dir() and not old.is_symlink():
+                    shutil.rmtree(old, ignore_errors=True)
+                    print(f"restore: removed {old.name}, left by a restore that did not finish", file=sys.stderr)
+            yield
+        finally:
+            os.close(fd)
+
+    def _restore(self, a: Any) -> int:
         file = absolute_path(last_good(self.deploy, self.env) if a.last else Path(a.file))
         if a.last:  # said before anything is stopped or changed
             print(f"restore: --last: {file} (the newest backup backup-nightly recorded good)", file=sys.stderr)
@@ -339,6 +367,7 @@ class BoxRestore:
                             "--yes", *(["--restart"] if a.restart else [])])  # fmt: skip
         work = self.work_dir(file)  # the space the restore needs, before anything stops
         stopped: list[str] = []
+        started = keep_work = False
         stop_signals = _host_signals()
         try:
             try:
@@ -349,9 +378,18 @@ class BoxRestore:
                 except Exception as e:  # the refusal, as the restore says it: nothing was changed
                     raise RestoreStopped(str(e)) from None
                 argv, values = self.container(a, file, work, sha)
+                started = True  # review R2: from here on, never "did not start"
                 code, out = self.call(argv, values)
             except BaseException as e:  # F3: a stop that failed, an interrupt, anything: said, audited
                 why = str(e) or type(e).__name__
+                if started and not isinstance(e, RestoreStopped):
+                    keep_work = True  # the container may still be putting the box back from it
+                    self.audit({"error": why[-300:], "stopped": stopped, "file": file.name, "state": "unknown"})
+                    self._state_line(stopped, f"unknown: the restore's container was started and this step stopped "
+                                     f"({type(e).__name__}); its work folder {work} is kept",
+                                     "docker ps: wait until no restore container runs, then trialbox doctor; do not "
+                                     "start the services before")  # fmt: skip
+                    return 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
                 if stopped or not isinstance(e, RestoreStopped):
                     self.audit({"error": why[-300:], "stopped": stopped, "file": file.name})
                     self._state_line(stopped, "not changed by this command (the restore did not start)",
@@ -363,9 +401,15 @@ class BoxRestore:
                     return 130
                 print(f"restore: {type(e).__name__}: {why[-400:]}", file=sys.stderr)
                 return 1
+            finally:
+                if not keep_work:
+                    shutil.rmtree(work, ignore_errors=True)
+            return self._after(a, code, out, stopped, again)
         finally:
             stop_signals()
-            shutil.rmtree(work, ignore_errors=True)
+
+    def _after(self, a: Any, code: int, out: str, stopped: list[str], again: str) -> int:
+        """What the restore's container ended with: said, and with ``--restart`` the services started or not."""
         if out:
             print(out, end="" if out.endswith("\n") else "\n")
         if code in (0, 3, 4):  # restored: H-48's marker goes, as the in-process restore removes it
@@ -380,13 +424,14 @@ class BoxRestore:
         if code == 0 or (code == 4 and hold == "held") or (code != 0 and state == "unchanged"):
             # complete, or held (D-522), or refused before any change (the data is as it was): F6, the services
             # this command stopped, and only those
+            data = "restored" if code in (0, 4) else "not changed"
             try:
                 up = self.start_and_wait(stopped)
-            except Exception as e:  # named, never a setting in it
-                self._state_line(stopped, "restored" if code in (0, 4) else "not changed",
-                                 f"look at docker compose ps; then {self._start_line(stopped)}")  # fmt: skip
-                print(f"restore: the services did not all come back healthy: {str(e)[-400:]}", file=sys.stderr)
-                return 1
+            except BaseException as e:  # review R7: an interrupt here is said too, never a silent end
+                self._state_line(stopped, data, f"look at docker compose ps; then {self._start_line(stopped)}")
+                print(f"restore: the services did not all come back healthy: {str(e)[-400:] or type(e).__name__}",
+                      file=sys.stderr)  # fmt: skip
+                return 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
             what = "not changed (the restore was refused before any change)" if state == "unchanged" else "restored"
             print(f"restore: the data {what}; the services run again and are healthy: {len(up)} "
                   f"({', '.join(sorted(up))})", file=sys.stderr)  # fmt: skip
@@ -403,8 +448,9 @@ class BoxRestore:
                              f"or try again: {again}")  # fmt: skip
         else:  # F2: half restored or unknown: never a start line
             self._state_line(stopped, "NOT as it was: the restore failed and could not put everything back "
-                             "(the lines above say what)", "do not start the services; restore the kept copy the "
-                             "lines above name (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
+                             "(the lines above say what, and where the copy of the databases taken first is kept)",
+                             "do not start the services; put the databases back from that copy, or restore the "
+                             "kept copy of the box (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
         return code
 
     def checked_sha(self, file: Path, last: bool) -> str:
@@ -515,10 +561,17 @@ def _said(out: str) -> dict[str, Any]:
     return d if isinstance(d, dict) else {}
 
 
+def _ignore_signals() -> dict[int, Any]:
+    import signal
+
+    return {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+
+
 def _call(argv: list[str], values: dict[str, str], base: Mapping[str, str] | None = None) -> tuple[int, str]:
     """The restore container: its stdout (the JSON) captured and passed on, its stderr straight to the person. Its
-    environment is the engine's own (base, F1) and the values its -e NAME options name. An interrupt or a
-    signal while it runs is passed to it and waited for: the restore puts the box back itself (F2, F3)."""
+    environment is the engine's own (``base``, F1) and the values its ``-e NAME`` options name. The first interrupt
+    or signal while it runs is passed to it once; from then on further ones are ignored and the container is waited
+    for to the end, whatever arrives (review R2): the restore puts the box back itself and says its state."""
     import signal
 
     try:
@@ -527,14 +580,22 @@ def _call(argv: list[str], values: dict[str, str], base: Mapping[str, str] | Non
         raise RestoreStopped(
             f"the container runtime cannot be started here ({e.strerror}): nothing was changed"
         ) from None
-    out = ""
-    while True:
-        try:
-            out, _ = proc.communicate()
-            return proc.returncode, out or ""
-        except (KeyboardInterrupt, HostInterrupted):
-            print("restore: stopping: the restore is told and puts the box back; waiting for it", file=sys.stderr)
-            proc.send_signal(signal.SIGTERM)
+    old: dict[int, Any] | None = None
+    try:
+        while True:
+            try:
+                out, _ = proc.communicate()
+                return proc.returncode, out or ""
+            except (KeyboardInterrupt, HostInterrupted):
+                if old is None:
+                    old = _ignore_signals()  # first: nothing more stops this wait
+                    print("restore: stopping: the restore is told and puts the box back; waiting for it",
+                          file=sys.stderr)  # fmt: skip
+                    proc.send_signal(signal.SIGTERM)
+    finally:
+        if old is not None:
+            for sig, h in old.items():
+                signal.signal(sig, h)
 
 
 def main(a: Any) -> int:

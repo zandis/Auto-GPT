@@ -779,7 +779,9 @@ live-restore)
   [ "${#stopped[@]}" -gt 0 ] || fail "no service runs but db before the failing restore"
   dc stop "${stopped[@]}" > "$rr/stop.log" 2>&1 || { cat "$rr/stop.log"; fail "cannot stop the services for the failing restore"; }
   rows > "$rr/rows.before" || fail "cannot count the rows before the failing restore"
-  printf '#!/bin/sh\necho "synthetic: the role step fails (rehearsal)" >&2\nexit 1\n' > "$roles"
+  # review R1: one Ctrl-C under the engine can arrive twice: the role step interrupts the restore (PID 1 of its
+  # container) with SIGINT, then sends SIGTERM while the databases are being put back; the second must not stop it
+  printf '#!/bin/sh\necho "synthetic: the role step interrupts the restore twice (rehearsal)" >&2\nkill -INT 1\nsleep 3\nkill -TERM 1\nsleep 1\nexit 1\n' > "$roles"
   rc=0
   trialbox restore --last --key "$rr/backup.key" --yes > "$rr/failed.json" 2> "$rr/failed.err" || rc=$?
   cat "$rr/failed.err"
