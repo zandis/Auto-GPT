@@ -17,11 +17,14 @@
     `inferred_exclusion(criterion, condition_present, quote)` returns the reason `INFERRED` ("inferred: the quote
     does not state the condition; review") or None. It is the only copy:
     - the cascade's S3 calls it in place of its own check (same place in `_map`, same order, same outcome);
-    - `note_verdict` calls it: a v1 note answer that says an exclusion is present on such a quote is `unknown`, the
-      quote, documents and confidence kept, its reason the code the cascade's row carries for the same outcome
-      (`code_of(INFERRED, "unknown", True)`), so the two paths give the same verdict row;
-    - `answer_of` reads it for a note `fail` that could otherwise exclude: a stored row from before this decision,
-      re-tiered (MICROBATCH), says `unknown`, never `no`.
+    - `answer_of` reads it where it decides whether a note `fail` may exclude: a pair's final, sure "present" on
+      such a quote says `unknown`, never `no`. Every path tiers through it (v1's `tier`, the cascade's
+      `verdicts_of`, a stored row re-tiered by MICROBATCH), so none excludes; the patient goes to review.
+  - The v1 verdict row itself is not rewritten: it stays the pair's answer (`fail`, basis `pair`, the quote) and the
+    status reads it as a weak answer, a person's check, as it reads a "not met" below the threshold. Rewriting it to
+    the cascade's `unknown` row was tried and changes an outcome a test holds
+    (`tests/unit/test_decision_status.py::test_a_fresh_note_answer_carries_the_basis_of_the_run`, a placeholder
+    quote "q" on "Skin abscess" keeps basis `pair`), so it is left to the coordinator.
   - `tb_common.quotes.quote_in` also reads a quote without ONE pair of 「」, straight or curly double quotes around
     the whole of it (`unwrapped`). Before, 「母親にHIV感染あり。」 against a record without the brackets was
     `quote_not_found` and went to review. A quote with its own brackets inside (「高血圧」あり、「糖尿病」) is read as
@@ -31,9 +34,9 @@
   different weights (`is_pair` true), the verified span and a run that may exclude on notes. On master's code the
   five v1 cases are `excluded`; the cascade's five are `unknown`, not hard, reason `inferred: …; review`, as here. One
   control, "Known HIV infection, on ART.", still excludes on both paths.
-- **Not changed:** what `inferred` counts as stating a condition (`matching/inferred.py`); the cascade's outcome on an
-  inferred quote (unknown, not hard, the same reason); every other outcome of `_map`, `note_verdict` and `answer_of`;
-  an inclusion; a note `fail` without a quote (no D-985 question: on the cascade it never gets a span, on v1
+- **Not changed:** `note_verdict` and the v1 verdict row; what `inferred` counts as stating a condition
+  (`matching/inferred.py`); the cascade's outcome on an inferred quote (unknown, not hard, the same reason); every
+  other outcome of `_map` and `answer_of`; an inclusion; a note `fail` without a quote (no D-985 question: on the cascade it never gets a span, on v1
   `postprocess` makes it `quote_not_found`); the cascade's own span check (`matching/cascade/judge.py` `verify_span`
   finds the quote with its own `find` and still does not verify a wrapped quote: that answer stays unknown,
   "insufficient", a person looks); the reason codes; what any role may do or read.

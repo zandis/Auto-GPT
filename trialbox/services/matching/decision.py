@@ -19,8 +19,8 @@ single model, a cut record or a low confidence can send a patient to review and 
 
 D-985 (moved here by D-1266, review R22-16): a note "present" on an exclusion stands only on a quote that states the
 condition, never on a negated, family-history, rule-out or suspected quote, a drug, a value or findings counted into
-it. :func:`inferred_exclusion` is that test, the only copy: the cascade's S3 calls it, the v1 note verdict calls it
-and :func:`answer_of` reads it, so no path (v1, cascade, a stored row re-tiered) excludes on such a quote.
+it. :func:`inferred_exclusion` is that test, the only copy: the cascade's S3 calls it and :func:`answer_of` reads it,
+so no path (v1, cascade, a stored row re-tiered) excludes on such a quote.
 
 The verdict of a structured criterion is T-652's table (:mod:`matching.verdict`): ``pass`` / ``fail`` / ``unknown``
 by kind and predicate, with a coded ``fail`` the only one that excludes on its own.

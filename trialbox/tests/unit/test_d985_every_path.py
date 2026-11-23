@@ -67,6 +67,8 @@ def _v1(text: str, record: str, quote: str) -> str:
     assert is_pair(nj)
     r = nj.judge_excerpts(c.text, c.note_question or c.text, IDX, _excerpts(record))
     v = note_verdict(c, r, pair=is_pair(nj))
+    # the pair's answer as given (a final pair "present"); the shared rule decides it may not exclude
+    assert (v.verdict, v.basis) == ("fail", "pair")
     return tier(SimpleNamespace(by_id=lambda: {c.id: c}), [v], 0.75, note_block=True)[0]  # type: ignore[arg-type]
 
 
@@ -98,21 +100,6 @@ def test_cascade_never_excludes(case: str, text: str, record: str, quote: str) -
     assert t != "excluded"
     # the cascade's outcome as before D-1266: unknown, not hard, the inferred reason
     assert o.status == "unknown" and not o.hard and o.reason == decision.INFERRED
-
-
-@pytest.mark.parametrize(("case", "text", "record", "quote"), NEVER, ids=[n[0] for n in NEVER])
-def test_both_paths_give_the_same_row(case: str, text: str, record: str, quote: str) -> None:
-    c = _exclusion(text)
-    nj = NoteJudge(lake=None, llm=PairModel(quote), verifier=PairModel(quote))  # type: ignore[arg-type]
-    v1 = note_verdict(c, nj.judge_excerpts(c.text, c.note_question or c.text, IDX, _excerpts(record)), pair=True)
-    cas = verdict_of(_cascade(text, record, quote)[0], pair=True)
-    assert v1.evidence is not None and cas.evidence is not None
-    assert (v1.verdict, v1.basis, v1.evidence.reason, v1.evidence.quote) == (
-        cas.verdict,
-        cas.basis,
-        cas.evidence.reason,
-        cas.evidence.quote,
-    )
 
 
 def test_control_an_affirmative_quote_still_excludes_on_both_paths() -> None:
