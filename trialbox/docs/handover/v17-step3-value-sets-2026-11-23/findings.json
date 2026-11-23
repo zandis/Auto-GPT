@@ -10,7 +10,7 @@
       "claim": "A compiled ValueSet with no code (a concept that mapped to none) reached the FHIR store with no compose and no expansion; the store holds no code system, so its CQL engine stopped with 'Failed to expand ValueSet' and the equivalence check of the whole protocol could not run (MVP walk step 3, every protocol on a fresh box)",
       "lane": "V",
       "basis": "shown",
-      "state": "fixed 0f032315d188f99b36745bd734c8cb85da4850c8"
+      "state": "fixed db68c7f6"
     },
     {
       "id": "V17-02",
@@ -18,7 +18,7 @@
       "claim": "Every compiled ValueSet reached the FHIR store unexpanded; the store's CQL engine read each compose with the warning 'This will potentially produce incorrect results'; the store is now given each one expanded from its own codes",
       "lane": "V",
       "basis": "shown",
-      "state": "fixed 0f032315d188f99b36745bd734c8cb85da4850c8"
+      "state": "fixed db68c7f6"
     },
     {
       "id": "V17-03",
