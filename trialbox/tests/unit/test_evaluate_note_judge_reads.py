@@ -25,7 +25,7 @@ import orchestrator.scenarios.evaluate as ev
 import pytest
 from orchestrator.clients import StepFailed
 from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, note_window
-from tb_common.llm import LlmError, LlmPromptTooLong
+from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
 from tb_common.reasons import Reason
 
 DAY = date(2026, 11, 1)
@@ -45,7 +45,7 @@ def test_a_note_window_is_a_year_unless_the_criterion_names_a_shorter_one() -> N
     assert note_window(_c(from_days=-365), DAY) == (date(2025, 11, 1), DAY)  # as long as the year: the year
     assert note_window(_c(from_days=-400), DAY) == (date(2025, 11, 1), DAY)  # longer: never more than the year
     assert note_window(_c(from_days=0), DAY) == (DAY, DAY)  # today only
-    no_window = SimpleNamespace(logic=SimpleNamespace(window=SimpleNamespace(from_days=None)))
+    no_window: Any = SimpleNamespace(logic=SimpleNamespace(window=SimpleNamespace(from_days=None)))
     assert note_window(no_window, DAY) == (date(2025, 11, 1), DAY)  # a window with no start
 
 
@@ -61,7 +61,8 @@ class Client:
 
 
 def _judge(llm: Any = None, verifier: Any = None, lake: Any = None, **kw: Any) -> NoteJudge:
-    return NoteJudge(lake, llm if llm is not None else Client(), verifier=verifier, **kw)
+    client: Any = llm if llm is not None else Client()
+    return NoteJudge(lake, client, verifier=verifier, **kw)
 
 
 def test_the_room_of_a_prompt_is_the_smaller_of_the_two_models_and_at_most_the_default() -> None:
@@ -171,7 +172,7 @@ class Seen(NoteJudge):
     given: Any = None
     handed: tuple[Any, ...] = ()
 
-    def window(self, pid: str, c: Any, index_date: date) -> Any:  # type: ignore[override]
+    def window(self, pid: str, c: Any, index_date: date) -> Any:
         return self.given
 
     def judge_window(self, c: Any, index_date: date, excerpts: Any, left_out: int, source: str) -> NoteResult:
@@ -180,7 +181,8 @@ class Seen(NoteJudge):
 
 
 def _seen(window: Any) -> Seen:
-    j = Seen(None, Client())
+    plain: Any = Client()
+    j = Seen(None, plain)
     j.given = window
     return j
 
@@ -215,13 +217,23 @@ def test_shown_notes_go_to_the_models_with_what_was_left_out_and_where_they_came
 class Answer(NoteJudge):
     answer: NoteResult = NoteResult("pass", 0.8, quote="q", quote_date="2026-10-01", dids=["D1"])
 
-    def judge_excerpts(self, text: str, question: str, index_date: date, excerpts: Any, source: str) -> NoteResult:  # type: ignore[override]
-        self.asked = (text, question, index_date, excerpts, source)
+    def judge_excerpts(
+        self,
+        criterion_text: str,
+        note_question: str,
+        index_date: date,
+        excerpts: list[dict[str, Any]],
+        source: str = "chunks",
+        verify: bool = True,
+        primary: LlmClient | None = None,
+    ) -> NoteResult:
+        self.asked = (criterion_text, note_question, index_date, excerpts, source)
         return self.answer
 
 
 def _answering(predicate: str) -> Answer:
-    j = Answer(None, Client())
+    plain: Any = Client()
+    j = Answer(None, plain)
     j.answer = NoteResult(predicate, 0.8, quote="q", quote_date="2026-10-01", dids=["D1"], source="chunks")
     return j
 
