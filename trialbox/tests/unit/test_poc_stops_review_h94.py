@@ -241,8 +241,13 @@ READERS = ("deploy/install.sh", "deploy/box-install.sh", "tools/apply_update.sh"
 
 @pytest.mark.parametrize("rel", READERS)
 def test_h94_08_no_reader_takes_only_the_exact_prefix(rel: str) -> None:
-    text = (ROOT / rel).read_text(encoding="utf-8")
-    assert "s/^TB_ENV=//p" not in text, f"{rel}: a reader of TB_ENV that compose would contradict"
+    lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):  # master's TB_ENV_SITE line stays (pinned), read over at once the compose way
+        if "s/^TB_ENV=//p" in line:
+            assert line.startswith("TB_ENV_SITE=") and lines[i + 1] == (
+                'TB_ENV_SITE="$(tb_env_raw deploy/.env)"  # H94-08: as compose reads it (the line above is master\'s;'
+                " tests pin its place)"
+            ), f"{rel}:{i + 1}: a reader of TB_ENV that compose would contradict"
 
 
 @pytest.mark.parametrize("form", FORMS)

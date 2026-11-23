@@ -760,8 +760,9 @@ elif [ -z "$NOW_ENV" ] && [ -n "$PRE_ENV" ]; then
 fi
 # ---- end of ENVIRONMENT
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
-grep -qE '^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
-TB_ENV_SITE="$(tb_env_raw deploy/.env)"
+grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
+TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
+TB_ENV_SITE="$(tb_env_raw deploy/.env)"  # H94-08: as compose reads it (the line above is master's; tests pin its place)
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
 # HOST PROFILE (D-837): TB_HOST_PROFILE=poc, a proof of concept or validation run on a plain VM: the host-facility
