@@ -115,7 +115,9 @@ back end only named: on a PoC box (the box's recorded environment, `deploy/.env`
 board with one, rotate the KEK to the TPM back end, SECURITY §10); the doctor's line of the PoC list carries it.
 `tests/unit/test_host_baseline.py::test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen` holds both rows, a
 caller's `TB_ENV=TEST` on a PRODUCTION box (still a FAIL), and the action on the FAIL line and the doctor's line.
-Mutants: 2 planted (always a WARN; no action named), 2 caught.
+In H-96's final form, a PoC box whose list line cannot be written is a WARN that says it was NOT listed and names the
+action, never a FAIL (`tests/unit/test_host_baseline.py::test_sealed_keys_without_a_tpm_say_when_the_poc_list_line_was_not_written`).
+Mutants: 3 planted (always a WARN; no action named; the unwritten line read as a FAIL), 3 caught.
 
 ## Tests
 
