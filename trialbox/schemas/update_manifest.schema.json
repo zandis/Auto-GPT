@@ -149,51 +149,60 @@
     "pack": {
       "title": "Pack",
       "description": "H-95: which half of a split release this bundle is. A model pack carries the engine image and the weights; a software pack carries the rest and names the model pack it needs by its bundle_id and the sha256 of its signed manifest.json. A box refuses a software pack whose model pack it does not hold.",
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind"
-          ],
-          "properties": {
-            "kind": {
-              "const": "model"
-            }
-          }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "model",
+            "software"
+          ]
         },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "requires_model"
-          ],
-          "properties": {
-            "kind": {
-              "const": "software"
-            },
-            "requires_model": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "bundle_id",
-                "manifest_sha256"
-              ],
-              "properties": {
-                "bundle_id": {
-                  "type": "string",
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
-                },
-                "manifest_sha256": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$"
-                }
-              }
-            }
+        "requires_model": {
+          "$ref": "#/$defs/requires_model"
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "software"
           }
         }
-      ]
+      },
+      "then": {
+        "required": [
+          "requires_model"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "requires_model"
+          ]
+        }
+      }
+    },
+    "requires_model": {
+      "title": "RequiresModel",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundle_id",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "bundle_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
     }
   }
 }

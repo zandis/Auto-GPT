@@ -32,16 +32,15 @@ own images, the host tree, rule sets, reference data, the installer; a few GB, w
 pack `trialbox-models-<version>.pack` (the engine image and the weights; installed once, and again only when the
 pair or the engine changes), each signed on its own, each with its `.sha256`. The software pack names its model
 pack by that pack's signed identity (its bundle id and the sha256 of its signed manifest), and `install.sh` finds
-the model pack beside it by that identity (or takes `--model-pack FILE`); a whole bundle of before still installs
+the model pack beside it by that identity (or takes the one its model-pack option names); a whole bundle of before still installs
 alone. Nothing is copied off the stick: the verify pass hashes every payload on the stick (no image archive and no
 weight file is written), then each pack is loaded straight from the stick, the model pack first, every image and
-weight file hashed again as it goes in (`tools/trialbox/update.py`: a weight file takes its name only when its hash
-holds; an image stream whose hash fails at its end is cut short and removed). Before it loads, the install prints
-`disk: installed size …; peak during the load …, at most … (installed + 10 %); the stick holds …`
-(`tools/packs.py sizes`); the free disk needed is that peak. A software pack whose model pack the box does not hold
+weight file hashed again as it goes in (a weight file takes its name only when its hash holds; an image stream
+whose hash fails at its end is cut short and removed). Before it loads, the install prints
+`disk: installed size …; peak during the load …, at most … (installed + 10 %); the stick holds …`;
+the free disk needed is that peak. A software pack whose model pack the box does not hold
 is refused before anything is loaded, naming the model pack's bundle id and manifest sha256. The release walked on
-2026-11-23 was 60.7 GB in one bundle; its split sizes are printed by `tools/make_bundle.sh --model-pack-out` when
-it builds the two packs.
+2026-11-23 was 60.7 GB in one bundle; the bundle builder prints the two packs' sizes when it builds them.
 
 **One command** (H-22, D-996). The vendor hands over a USB stick with four files: the signed bundle
 `trialbox-<version>.tar` and its `.sha256`, and the bootstrap `trialbox-bootstrap.sh` and its `.sig`. The vendor key,
