@@ -1,11 +1,11 @@
-# D-1271 Ring 1 is the MVP, and plan 11 is its page (draft for the owner to sign)
+# D-1271 Ring 1 is the MVP, and plan 11 is its page
 
 - **Task:** lane R1, plan 11 (`docs/plan/48-plan-11-2026-11.md`); the number is from lane M's block, given for this
-- **Date:** 2026-11-23 (drafted)
-- **Status:** **draft, not in force.** It takes effect when the owner signs it. Until then nothing below binds a
-  lane beyond the rulings on #639 it records.
+- **Date:** 2026-11-23
+- **Status:** **accepted.** The owner signed it after this revision: "Sign after the revision" (relayed by the
+  integrator to lane R1, 2026-11-23 23:26 UTC). Its merge freezes ring 1 under D-1070's rule of the rings.
 
-## Ruling (as drafted)
+## Ruling
 
 1. **Ring 0 and ring 1 together are the new ring 1, the MVP** [#639 7108087457]. Plan 11 is its page, with D-1070's
    four parts (does; does not; proved by; its cards). When signed, ring 1 is confirmed and frozen under D-1070's rule
