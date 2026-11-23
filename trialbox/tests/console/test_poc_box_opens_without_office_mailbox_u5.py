@@ -31,9 +31,8 @@ def _try_open(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch, env: str) -> 
     c.post("/studies/GZQO/state", data={"csrf": csrf, "state": "paused", "reason": "set-up"}, follow_redirects=False)
     monkeypatch.setattr(study_setup, "environment_name", lambda _env: env)
     page = c.get("/studies/GZQO/state").text
-    return c.post(
-        "/studies/GZQO/state", data={"csrf": _csrf(page), "state": "open"}, follow_redirects=False
-    ).status_code
+    r = c.post("/studies/GZQO/state", data={"csrf": _csrf(page), "state": "open"}, follow_redirects=False)
+    return int(r.status_code)
 
 
 @pytest.mark.parametrize("env", ["DEV", "TEST", "VALIDATION"])
