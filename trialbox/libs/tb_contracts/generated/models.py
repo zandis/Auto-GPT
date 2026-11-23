@@ -1426,7 +1426,9 @@ class ReleaseComponent(BaseModel):
         populate_by_name=True,
     )
     path: str
-    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
+    kind: Literal[
+        "model", "ruleset", "image", "refdata", "other", "host", "terminology"
+    ]
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
     size: int = Field(..., ge=0)
 
@@ -2449,7 +2451,9 @@ class UpdateFile(BaseModel):
     )
     path: str = Field(..., max_length=400, min_length=1)
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
+    kind: Literal[
+        "model", "ruleset", "image", "refdata", "other", "host", "terminology"
+    ]
     size: int = Field(..., ge=0)
 
 

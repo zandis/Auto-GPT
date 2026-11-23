@@ -2065,12 +2065,22 @@ def check_terminology(inp: DoctorInputs) -> Check:
     rest += "".join(f"; shipped: {n} {line.get('rows')} rows ({line.get('version')})"
                     for n, line in sorted(shipped.items()))  # fmt: skip
     if not tables:
-        return Check("terminology", "PASS", f"nothing loaded in {where}: the shipped tables answer (ICD-10-CM "
-                     "FY2026 with its blocks and index); python -m tools.terminology_install loads more"
-                     + rest)  # fmt: skip
+        return _with_readers(inp, where, f"nothing loaded in {where}: the shipped tables answer (ICD-10-CM "
+                             "FY2026 with its blocks and index); python -m tools.terminology_install loads more"
+                             + rest)  # fmt: skip
     said = [f"{t.name} {t.rows} rows ({t.version})" + (f", {a}" if (a := installed.accepted(where, t.name)) else "")
             for t in tables]  # fmt: skip
-    return Check("terminology", "PASS", "; ".join(said) + rest)
+    return _with_readers(inp, where, "; ".join(said) + rest)
+
+
+def _with_readers(inp: DoctorInputs, where: Path, said: str) -> Check:
+    """V-18 (D-1182, DB-C1): the vocabulary and the FHIR store against the same manifest: FAIL when they hold another
+    release than the terminology now or one was not loaded; WARN when the folder cannot be read here; else each
+    system's version (nothing when the load step never ran)."""
+    from tools import terminology_load
+
+    status, readers = terminology_load.doctor_line(_site_dir(inp), where)
+    return Check("terminology", status, f"{said}; vocabulary and FHIR store: {readers}" if readers else said)
 
 
 def check_provenance_index(inp: DoctorInputs) -> Check:
