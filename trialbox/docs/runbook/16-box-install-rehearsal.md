@@ -213,5 +213,18 @@ The probe file and its folder must be root's and writable by no one else; a prob
 
 Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled into deploy/.env):
 `--gpu rtxpro6000` (96 GB) or `--gpu rtx5090` (32 GB, a whole card), with `--gpu-index N` naming the card the probe was
-taken on. The 32 GB profile on a split card's slice, dgpu48, gb10 and the Windows (WSL2) host are not opened; the
-page says why.
+taken on. dgpu48 and gb10 are not opened; the page says why.
+
+H-89b (docs/handover/rehearsal-real-servers-h89b-2026-11-23.md): the 32 GB profile on one slice of a split card takes
+`--gpu-index N:M` (slice M of card N), for the probe and the install alike, held to its 32 GB cap on the slice's own
+memory:
+
+    sudo python3 tools/engine_probe.py run --gpu-index 1:0 --out /var/lib/trialbox/rehearsal/engine-probe.json
+    sudo deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu rtx5090 \
+        --gpu-index 1:0 --engine-probe /var/lib/trialbox/rehearsal/engine-probe.json --yes
+
+Its row does not prove a 32 GB card's own bandwidth, compute or swap timing. On a Windows host, inside WSL2, the box
+installer hands the same options on to install.sh (not verified until a WSL2 host exists):
+
+    sudo deploy/box-install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu rtx5090 \
+        --gpu-index 1 --engine-probe /var/lib/trialbox/rehearsal/engine-probe.json

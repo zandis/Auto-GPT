@@ -1,0 +1,49 @@
+{
+ "card": "H89b",
+ "title": "the rehearsal with real servers on the remaining shipped profiles",
+ "date": "2026-11-23",
+ "source": "docs/handover/rehearsal-real-servers-h89b-2026-11-23.md",
+ "note": "nothing ran on a card, under Docker or on a WSL2 host: nvidia-smi, docker and the inner install are stand-ins; 'shown' means shown with them.",
+ "findings": [
+  {
+   "id": "H89b-01",
+   "severity": "Low",
+   "claim": "the slice form reads the slice's UUID from nvidia-smi -L and its memory from nvidia-smi -q -x (mig_device, fb_memory_usage) in nvidia-smi's documented form; neither form has been seen on a split card of the bench's class",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H89b-02",
+   "severity": "Low",
+   "claim": "the slice number M of --gpu-index N:M is taken to be the same in nvidia-smi -L, in the XML's mig_device index and in docker's --gpus device=N:M; the probe and the install agree with each other by the slice's own UUID, but the bench must see the three agree",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H89b-03",
+   "severity": "Low",
+   "claim": "the Windows entry (deploy/windows/box-install.ps1) passes none of the real-servers options: the Windows host path is box-install.sh run inside WSL2 by hand; no WSL2 host has run it",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H89b-04",
+   "severity": "Low",
+   "claim": "without --rehearsal, box-install.sh refuses --rehearsal-real-servers, --gpu, --gpu-index and --engine-probe with its own line where master said 'unknown option'; both exit 2 before anything is checked or written, and every command line master took is handed on byte for byte",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H89b-05",
+   "severity": "Low",
+   "claim": "dgpu48 and gb10 are not opened: tests/unit/test_rehearsal_real_servers_h89.py::test_the_profiles_not_opened_are_refused_by_name asserts both stay refused under the mark; opening them changes what that test asserts (a ruling is asked for)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
