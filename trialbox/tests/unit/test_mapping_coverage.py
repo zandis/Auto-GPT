@@ -204,3 +204,20 @@ def test_owner_summary_holds_counts_and_names_only(tmp_path: Path) -> None:
     assert s["codes"] == 4 and s["mapped"] == 2
     assert {u["local_code"]: u["local_name"] for u in s["unmapped"]} == {"ZZ9": "院內特殊檢驗", "ZB99": "架空病名"}
     assert str(tmp_path) not in text and "mg/dL" not in text and "lab.tsv" not in text
+
+
+def test_who_icd10_reaches_icd10cm_through_the_table(tmp_path: Path) -> None:
+    """SDR2 part 1: a WHO code ICD-10-CM lacks maps through the WHO-to-CM table; one with no row stays listed."""
+    table = tmp_path / "who_to_cm.csv"
+    table.write_text(
+        "who,icd10cm,relation,source,verified\nE14.9,E11.9,wider,synthetic test row,verify\n", encoding="utf-8"
+    )
+    ref = mc.Reference.load(who_icd10cm=table)
+    rows = _rows(("E149", "糖尿病", "icd-10"), ("I64", "脳卒中", "icd-10"), ("E11.9", "2型糖尿病", "icd-10"))
+    res = {r.local_code: r for r in (mc.check_code(x, ref) for x in rows)}
+    assert res["E149"].mapped and res["E149"].target_code == "E11.9"
+    assert res["E149"].route == "who-icd10 + WHO-to-CM table"
+    assert res["E11.9"].route == "who-icd10"
+    assert not res["I64"].mapped and "no row in the WHO-to-CM table" in res["I64"].reason
+    report = mc.coverage(rows, ref)
+    assert [u["local_code"] for u in report["unmapped"]] == ["I64"]
