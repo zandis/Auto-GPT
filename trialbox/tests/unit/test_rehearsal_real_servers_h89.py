@@ -26,6 +26,7 @@ from typing import Any
 
 import pytest
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tools import engine_probe, images_lock, rehearsal_real
 from tools.trialbox import doctor, prestart
 from tools.trialbox.update import UpdateFailed
@@ -202,10 +203,22 @@ def test_the_new_options_without_rehearsal_are_refused_with_one_line(tmp_path: P
     assert not (tmp_path / "docker.log").exists()
 
 
+@pytest.mark.parametrize("production", [True, False])
 @pytest.mark.parametrize("opt", [["--gpu-index", "1"], ["--engine-probe", "/x"]])
-def test_a_plain_rehearsal_refuses_the_card_options(tmp_path: Path, opt: list[str]) -> None:
-    r = Bench(tmp_path).install("--rehearsal", "--mode", "gpu", "--gpu", "rtxpro6000", *opt)
-    assert r.returncode == 2 and "go with --rehearsal-real-servers" in r.stderr
+def test_a_plain_rehearsal_refuses_the_card_options(tmp_path: Path, opt: list[str], production: bool) -> None:
+    """On a box that records PRODUCTION: refused, exit 2, as before. H-94 (the owner's ruling 7092087958): a
+    rehearsal box is a PoC box, so the options are a warning and a line of the list, ignored, and the install goes on
+    (here to the driver below the minimum, kept refusal 2)."""
+    b = Bench(tmp_path)
+    if production:
+        (b.deploy / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
+    r = b.install("--rehearsal", "--mode", "gpu", "--gpu", "rtxpro6000", *opt)
+    assert "go with --rehearsal-real-servers" in r.stderr
+    if production:
+        assert r.returncode == 2 and r.stderr.splitlines()[-1].startswith("install: --gpu-index and --engine-probe")
+        return
+    assert "warning (PoC box, H-94)" in r.stderr and r.returncode == 1 and r.stderr.splitlines()[-1] == DRIVER_DIE
+    assert "install.sh/rrs-options-without-rrs" in (b.deploy / "site" / "poc-stops.jsonl").read_text(encoding="utf-8")
 
 
 # ------------------------------------------------------------------------------------------------ 1. the driver
@@ -259,11 +272,21 @@ def test_a_probe_of_another_card_driver_or_image_or_a_failed_one_is_refused(
     assert r.stderr.splitlines()[-1] == DRIVER_DIE
 
 
-def test_a_missing_probe_file_is_refused(tmp_path: Path) -> None:
+@pytest.mark.parametrize("production", [True, False])
+def test_a_missing_probe_file_is_refused(tmp_path: Path, production: bool) -> None:
+    """On a box that records PRODUCTION: refused before anything, as before. H-94 (ruling 7092087958): on a
+    rehearsal box (a PoC box) the real servers are dropped with a warning and a line of the list, and the plain
+    rehearsal goes on, to the driver below the minimum (kept refusal 2: no probe, no allowance)."""
     b = Bench(tmp_path)
     b.probe.unlink()
+    if production:
+        (b.deploy / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     r = b.real()
-    assert r.returncode == 1 and "--engine-probe FILE" in r.stderr and not (tmp_path / "docker.log").exists()
+    assert r.returncode == 1 and "--engine-probe FILE" in r.stderr
+    if production:
+        assert not (tmp_path / "docker.log").exists() and "PoC box" not in r.stderr
+        return
+    assert "warning (PoC box, H-94)" in r.stderr and r.stderr.splitlines()[-1] == DRIVER_DIE
 
 
 def test_the_lock_tool_alone_grants_nothing_on_a_production_box(tmp_path: Path) -> None:
@@ -437,7 +460,8 @@ def _record_step(tmp: Path, *, real: int, record: str | None, env_lines: str, un
     script = (
         f'set -euo pipefail\nROOT="{tmp}"\ncd "$ROOT"\nMODE=gpu\nGPU=rtxpro6000\nTIER=""\nREAL_SERVERS={real}\n'
         'die() { echo "install: $*" >&2; exit 1; }\ntree_args() { TREE_D=(); }\nIMAGE_PY=x\n'
-        'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
+        + stop_prelude(deploy='"$ROOT/deploy"')
+        + 'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
         'TB_ENV_SITE="$(envget TB_ENV)"\n'
         "docker() { grep -q 'RTX PRO 6000' \"$ROOT/deploy/measured/serving_config.rtxpro6000.json\"; }\n"
         f"{rh_fn}{body}\necho done\n"
@@ -557,7 +581,8 @@ def test_an_install_without_the_options_refuses_a_box_that_ran_the_real_servers(
         d = tmp_path / leftover / "deploy" / "site"
         d.mkdir(parents=True)
         (d / leftover).write_text("{}\n", encoding="utf-8")
-        script = f'set -euo pipefail\ncd "{d.parent.parent}"\nREAL_SERVERS=0\ndie() {{ echo "install: $*" >&2; exit 1; }}\n{body}\n'
+        script = (f'set -euo pipefail\ncd "{d.parent.parent}"\nREAL_SERVERS=0\ndie() {{ echo "install: $*" >&2; exit 1; }}\n'
+                  + stop_prelude(deploy='"$PWD/deploy"') + f"{body}\n")  # fmt: skip
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
         assert r.returncode == 1 and "ran the real model servers as a rehearsal" in r.stderr
 
