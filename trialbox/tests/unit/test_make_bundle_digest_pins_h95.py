@@ -15,7 +15,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCK = json.loads((ROOT / "deploy/images.lock").read_text(encoding="utf-8"))
-PINNED = {e["image"]: e["digest"] for e in LOCK["third_party"].values() if str(e.get("digest", "")).startswith("sha256:")}
+PINNED = {
+    e["image"]: e["digest"] for e in LOCK["third_party"].values() if str(e.get("digest", "")).startswith("sha256:")
+}
 
 
 def _run(tmp: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -65,7 +67,10 @@ def test_another_tag_of_a_pinned_repository_is_refused_too(tmp_path: Path) -> No
     [
         (["--model-pack-out", "dist/models.tar", "--models", "m"], "must be named trialbox-models-<id>.pack"),
         (["--model-pack-out", "dist/trialbox-models-x.pack"], "--model-pack-out needs --models"),
-        (["--model-pack-out", "dist/trialbox-models-x.pack", "--model-pack", "x.pack", "--models", "m"], "one of the two"),
+        (
+            ["--model-pack-out", "dist/trialbox-models-x.pack", "--model-pack", "x.pack", "--models", "m"],
+            "one of the two",
+        ),
         (["--model-id", "x"], "--model-id and --model-release-seq go with --model-pack-out"),
     ],
 )

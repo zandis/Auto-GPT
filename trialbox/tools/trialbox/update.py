@@ -255,13 +255,16 @@ class Plan:
     def images(self) -> list[Path | Streamed]:
         """The image archives: the staged ones and the ones read from the bundle (H-95), in name order."""
         img = self.kind("image")
-        staged: list[Path | Streamed] = sorted(p for p in img.rglob("*") if p.is_file()) if img.is_dir() else []
+        staged: list[Path | Streamed] = []
+        if img.is_dir():
+            staged.extend(sorted(p for p in img.rglob("*") if p.is_file()))
         return sorted(staged + [p for p in self.streamed if p.kind == "image"], key=lambda p: p.name)
 
     def model_files(self) -> list[tuple[str, int]]:
         """(path under the models folder, size) of every model payload, staged or read from the bundle."""
         d = self.kind("model")
-        out = [(p.relative_to(d).as_posix(), p.stat().st_size) for p in d.rglob("*") if p.is_file()] if d.is_dir() else []
+        out = [(p.relative_to(d).as_posix(), p.stat().st_size) for p in d.rglob("*") if p.is_file()] \
+            if d.is_dir() else []  # fmt: skip
         return out + [(p.path, p.size) for p in self.streamed if p.kind == "model"]
 
     @property
@@ -427,7 +430,7 @@ def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run:
     ``HOLD_BACK`` bytes (the archive's end) wait until the whole sha256 is known: on a match they follow and the load
     completes; on a mismatch the load is stopped with its archive cut short, and every tag and image id the archive
     names is removed, so nothing of a payload that fails its hash is loaded."""
-    proc = subprocess.Popen(["docker", "load"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,  # noqa: S607
+    proc = subprocess.Popen(["docker", "load"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)  # fmt: skip
     assert proc.stdin is not None and proc.stdout is not None
     out: list[bytes] = []
@@ -2404,7 +2407,8 @@ def main_apply(
         except (OSError, KeyError, tarfile.TarError):
             body = b""
         if hashlib.sha256(body).hexdigest() != plan.manifest_sha256:
-            print(f"update REFUSED: {bundle} is not the bundle that was verified (its manifest differs); nothing was changed")
+            print(f"update REFUSED: {bundle} is not the bundle that was verified (its manifest differs); "
+                  "nothing was changed")  # fmt: skip
             return 1
         manifest = json.loads((stage / "manifest.json").read_text(encoding="utf-8"))
         try:

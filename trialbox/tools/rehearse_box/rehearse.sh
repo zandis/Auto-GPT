@@ -10,7 +10,8 @@
 #   wsl2            the WSL2 preflight passes on a WSL2-like host and fails on plain Linux (Windows itself cannot run)
 #   bootstrap       RUNBOOK §1's first command as written: openssl checks the bootstrap's signature, the bootstrap
 #                   verifies the bundle and unpacks its host tree into an empty folder (D-996)
-#   media-negative  missing media, a forged bundle and a missing vendor key each stop the installer, nothing written
+#   media-negative  missing media, a forged bundle, a software pack without its model pack (H-95) and a missing vendor
+#                   key each stop the installer, nothing written
 #   install         install.sh exits 0: bundle verified and loaded, settings, key, pins, stack healthy, serving check
 #   doctor          trialbox doctor --live passes (with the site's TLS proxy assumed: TB_CONSOLE_SECURE_COOKIE=1)
 #   served          the pinned served names are exactly what the stand-ins serve
@@ -74,6 +75,7 @@ fi
 ID="rehearsal-$(date -u +%Y%m%d)"
 MEDIA="$W/media/TRIALBOX-$ID"
 BUNDLE_NAME="trialbox-$ID.tar"
+MODEL_PACK_NAME="trialbox-models-$ID.pack"  # H-95: the model pack, beside the software pack on the media
 BOX="$W/box"
 HOST_IMG="trialbox-rehearsal-host:24.04"
 HOST_CT="tb-rehearse-host"
@@ -189,8 +191,11 @@ media() (  # a subshell: set -e stops the step, not the run
   tools/make_bundle.sh --allow-dirty "a rehearsal of the working tree" --rehearsal \
     --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
     --out "$W/vendor/dist/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
-    --models "$W/vendor/models" --refdata "$pack" "${args[@]}" \
+    --models "$W/vendor/models" --model-pack-out "$W/vendor/dist/$MODEL_PACK_NAME" --refdata "$pack" "${args[@]}" \
     || { echo "the bundle was not built"; return 1; }
+  # H-95: a release in two packs; the model pack (engine image, placeholder weights) beside the software pack
+  mv "$W/vendor/dist/$MODEL_PACK_NAME" "$W/vendor/dist/$MODEL_PACK_NAME.sha256" "$MEDIA/linux/" \
+    || { echo "the model pack and its .sha256 are not in the vendor's folder"; return 1; }
   # H-22 (D-996): the vendor builds in its own folder and hands the files over; that folder is gone before the site
   # installs, so a sidecar or a check that names the vendor's path fails here as it fails on a site's stick
   # HS-1: with the stick's launcher (install, the key's fingerprint pinned in it) and the vendor's public key
@@ -309,13 +314,15 @@ collect() {
 }
 
 restore_images() {  # a run that stopped before the install loaded them must not leave the Docker host without them
-  local ref id b="$MEDIA/linux/$BUNDLE_NAME" m
+  local ref id b="$MEDIA/linux/$BUNDLE_NAME" m src
   [ -f "$W/vendor/bundle-images.txt" ] && [ -f "$b" ] || return 0
   while read -r ref id; do
     docker image inspect "$ref" >/dev/null 2>&1 && continue
     m="files/$(printf '%s' "$ref" | tr '/:' '__').tar"
     echo "restoring $ref from the media" >>"$LOGS/teardown.log"
-    tar -xOf "$b" "$m" | docker load >>"$LOGS/teardown.log" 2>&1 || echo "could not restore $ref" >&2
+    src="$b"  # H-95: the engine image is in the model pack
+    tar -tf "$b" "$m" >/dev/null 2>&1 || src="$MEDIA/linux/$MODEL_PACK_NAME"
+    tar -xOf "$src" "$m" | docker load >>"$LOGS/teardown.log" 2>&1 || echo "could not restore $ref" >&2
   done < "$W/vendor/bundle-images.txt"
 }
 

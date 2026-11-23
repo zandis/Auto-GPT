@@ -46,7 +46,7 @@ ENGINE = ("engine:1", 9 * MB)
 OWN = [(f"svc{i}:1", (1 + i % 3) * MB) for i in range(7)]
 SMALL = {"notes.txt": 64 * 1024, "settings.example.yaml": 16 * 1024}
 
-STANDIN_DOCKER = r'''
+STANDIN_DOCKER = r"""
 import json, os, shutil, sys, tarfile
 root = os.environ["H95_DOCKER_ROOT"]
 os.makedirs(os.path.join(root, "images"), exist_ok=True)
@@ -102,7 +102,7 @@ if a[:2] == ["image", "rm"]:
 if a[:1] == ["tag"]:
     t = tags(); t[a[2]] = t.get(a[1], a[1]); save(t); sys.exit(0)
 sys.exit(0)  # compose ps, volume ls: nothing runs here, nothing is held
-'''
+"""
 
 
 def _pattern(n: int, seed: str) -> bytes:
@@ -260,8 +260,8 @@ def test_peak_disk_during_the_load_is_within_the_installed_size_plus_ten_percent
     sizes = packs.sizes([p["software"], p["model"]])
     assert sizes["bound"] >= sizes["peak"] and sizes["stick"] > payload
     assert not list(b["tmpdir"].iterdir())  # the stage is gone
-    for rel in WEIGHTS:
-        assert (b["box"] / "deploy/models" / rel).read_bytes() == _pattern(WEIGHTS[rel], rel)
+    for rel, n in WEIGHTS.items():
+        assert (b["box"] / "deploy/models" / rel).read_bytes() == _pattern(n, rel)
     tags = json.loads((b["dockerroot"] / "tags.json").read_text())
     assert set(tags) == {ENGINE[0], *(t for t, _n in OWN)}
     held = json.loads((b["box"] / "deploy/updates" / up.MODEL_PACK).read_text())
@@ -321,7 +321,7 @@ def test_a_stream_that_fails_its_hash_leaves_nothing_loaded(tmp_path: Path, monk
     tags = json.loads(tags_f.read_text()) if tags_f.exists() else {}
     if kind == "image":
         assert ENGINE[0] not in tags and not any(v.startswith("sha256:") for v in tags.values())
-        assert not [d for d in (b["dockerroot"] / "images").iterdir() if not d.name == "loading"]
+        assert not [d for d in (b["dockerroot"] / "images").iterdir() if d.name != "loading"]
     else:
         assert not (deploy / "models" / path).exists()
     assert not list((deploy / "models").rglob("*.part")) if (deploy / "models").exists() else True
@@ -347,7 +347,10 @@ def test_software_pack_without_its_model_pack_is_refused_by_its_signed_identity(
     assert o["bundle_id"] == ident["bundle_id"] and o["manifest_sha256"] != ident["manifest_sha256"]
     (updates / up.MODEL_PACK).write_text(json.dumps({**o, "release_seq": 1}), encoding="utf-8")
     r = _apply(b, str(p["software"]))
-    assert r.returncode == 1 and f"the box holds model pack {o['bundle_id']} (manifest sha256 {o['manifest_sha256']})" in r.stderr
+    assert (
+        r.returncode == 1
+        and f"the box holds model pack {o['bundle_id']} (manifest sha256 {o['manifest_sha256']})" in r.stderr
+    )
     (updates / up.MODEL_PACK).unlink()
     assert _apply(b, str(p["model"])).returncode == 0
     r = _apply(b, str(p["software"]))

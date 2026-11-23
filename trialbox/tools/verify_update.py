@@ -494,7 +494,7 @@ def _is_time(v: Any) -> bool:
 
 
 def _stdlib_schema_errors(m: Any) -> list[str]:
-    """The rules of schemas/update_manifest.schema.json 1.4.0 (D-210; kind host: D-367; pack: H-95) in the standard library;
+    """The rules of schemas/update_manifest.schema.json 1.4.0 (D-210; kind host: D-367; pack: H-95) in the stdlib;
     tests/unit/test_verify_update_stdlib.py holds the two in step."""
     if not isinstance(m, dict):
         return ["manifest is not an object"]
@@ -554,7 +554,8 @@ def _pack_errors(p: Any) -> list[str]:
         errs += [f"pack.requires_model: unexpected {k}" for k in r if k not in ("bundle_id", "manifest_sha256")]
         if "bundle_id" in r and not (isinstance(r["bundle_id"], str) and BUNDLE_ID.match(r["bundle_id"])):
             errs.append("pack.requires_model: bundle_id is not a bundle id")
-        if "manifest_sha256" in r and not (isinstance(r["manifest_sha256"], str) and SHA256.match(r["manifest_sha256"])):
+        sha = r.get("manifest_sha256")
+        if "manifest_sha256" in r and not (isinstance(sha, str) and SHA256.match(sha)):
             errs.append("pack.requires_model: manifest_sha256 is not 64 lowercase hex digits")
     return errs
 
@@ -662,9 +663,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--installed", type=Path, help="deploy/updates/installed.json")
     ap.add_argument("--images-lock", type=Path, help="the box's deploy/images.lock (when the bundle carries none)")
     ap.add_argument("--allow-downgrade", metavar="REASON", help="accept a release_seq not above the installed one")
-    ap.add_argument("--stream", action="append", default=[], choices=MODEL_PACK_KINDS,
-                    help="H-95: hash this kind's payloads but stage none (the update path loads them from the bundle)")
-    ap.add_argument("--model-pack-record", type=Path, help="deploy/updates/model-pack.json: the model pack the box holds")
+    ap.add_argument(
+        "--stream",
+        action="append",
+        default=[],
+        choices=MODEL_PACK_KINDS,
+        help="H-95: hash this kind's payloads but stage none (the update path loads them from the bundle)",
+    )
+    ap.add_argument("--model-pack-record", type=Path, help="deploy/updates/model-pack.json, the model pack held")
     ap.add_argument("--model-pack-candidate", type=Path, help="a dry run only: check against this model pack instead")
     args = ap.parse_args(argv)
     try:
