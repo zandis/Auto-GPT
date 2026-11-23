@@ -41,4 +41,3 @@ def test_the_lock_records_the_four_at_the_dockerfile_pin() -> None:
     pin = re.search(r"^ARG KRB5_VERSION=(\S+)$", DOCKERFILE.read_text(encoding="utf-8"), re.M)
     lock = json.loads((ROOT / "deploy" / "images.lock").read_text(encoding="utf-8"))
     assert pin and all(lock["images"]["db"]["packages"][p] == pin.group(1) for p in PACKAGES)
-
