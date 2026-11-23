@@ -112,7 +112,7 @@ def test_a_failed_sizing_stops_the_installer_with_its_message() -> None:
     for module in ("tools.trialbox.memcaps", "tools.trialbox.pgsize"):
         at = text.index(f"python3 -m {module}")
         line = text[at : text.index("\n", at)]
-        assert "|| die" in line, line
+        assert "|| stop_or_warn" in line, line  # H-94: the helper hangs on the pipe, as die did
         assert "PIPESTATUS" not in text[at : at + 400]
 
 

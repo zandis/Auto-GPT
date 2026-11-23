@@ -26,6 +26,7 @@ import pytest
 from tb_common import host_folders as hf
 from tb_common.box_answers import host_dir, parse
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tools import pglocal
 from tools.box import plan as bp
 from tools.trialbox import anchors, finish_check
@@ -208,7 +209,8 @@ def _run_block(tmp: Path, box: Path, h: dict[str, Path], start: str, end: str,
         "set -euo pipefail\n"
         "die() { printf 'install: %s\\n' \"$*\" >&2; exit 1; }\n"
         f'ROOT={str(box)!r}\ncd "$ROOT"\n'
-        "TB_ENV_SITE=\"$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)\"\n"
+        + stop_prelude(deploy='"$ROOT/deploy"')
+        + "TB_ENV_SITE=\"$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)\"\n"
         + FINISH_FN + "\n" + _block(INSTALL, start, end)
         + "\necho '  TrialBox is running.'\n"
     )  # fmt: skip

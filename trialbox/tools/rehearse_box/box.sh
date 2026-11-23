@@ -210,6 +210,9 @@ install)
   install -d deploy/site && rm -rf deploy/site/feed-a && cp -r tests/fixtures/synthetic_patients/site-a deploy/site/feed-a \
     || fail "cannot stage the feed folder"
   install_box || fail "deploy/install.sh failed"
+  # H-94: the rehearsal box is a PoC box, where a stop that is not one of the four warns and is listed; the
+  # rehearsal's own install must list nothing (as before, when each of them stopped it)
+  [ ! -s deploy/site/poc-stops.jsonl ] || { cat deploy/site/poc-stops.jsonl; fail "the install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
   grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
@@ -240,6 +243,7 @@ reinstall)
   before="$(sha256sum "$sec/kek.json" | cut -d' ' -f1)"
   ok "first install: keys sealed under the passphrase KEK (kek.json)"
   install_box || fail "the second install of the same bundle failed"
+  [ ! -s "$BOX/deploy/site/poc-stops.jsonl" ] || { cat "$BOX/deploy/site/poc-stops.jsonl"; fail "the second install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
   [ "$(sha256sum "$sec/kek.json" | cut -d' ' -f1)" = "$before" ] || fail "the second install replaced the KEK"
   [ "$(stat -c %u "$BOX/deploy/site")" = 0 ] || fail "deploy/site is no longer root's"
   grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"

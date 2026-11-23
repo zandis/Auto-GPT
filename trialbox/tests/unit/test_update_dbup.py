@@ -316,7 +316,7 @@ def test_a_fresh_install_runs_the_same_command_after_the_database_is_up() -> Non
     call = text.index('python3 -m tools.trialbox db-up --deploy "$ROOT/deploy"')
     stack = text.index('"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait')
     assert db_up < call < stack
-    assert "|| die" in text[call : call + 300]
+    assert "|| stop_or_warn db-up" in text[call : call + 300]  # H-94: the helper (PoC: warned, listed, goes on)
     # a host without python3 still gets the roles and the schemas, by the two shell commands
     assert text.count(f"exec -T db {ROLES}") == 1 and text.count("python -m orchestrator.migrate") >= 1
 

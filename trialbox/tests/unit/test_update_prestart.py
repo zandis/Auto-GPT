@@ -172,7 +172,7 @@ def test_review_a_fresh_install_runs_the_same_steps_before_its_stack_starts() ->
     text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
     call = text.index('python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy"')
     assert call < text.index('"${COMPOSE[@]}" up -d --pull "$PULL" --wait db')
-    assert "|| die" in text[call : call + 300]
+    assert "|| stop_or_warn pre-start" in text[call : call + 300]  # H-94: the helper (PoC: warned, listed, goes on)
 
 
 def test_review_the_contract_of_a_step_is_written_where_steps_are_added() -> None:
