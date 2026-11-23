@@ -1,0 +1,74 @@
+{
+ "card": "H100",
+ "title": "the live restore could not start from the host",
+ "date": "2026-11-23",
+ "source": "docs/handover/restore-from-the-host-h100-2026-11-23.md",
+ "findings": [
+  {
+   "id": "H100-01",
+   "severity": "High",
+   "claim": "backup-nightly --deploy deploy bound the public key and the dump folder by relative path, which the container engine reads as volume names: the nightly failed when typed from the install folder",
+   "severity_basis": "no backup is written by the documented form of the command",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 27d81f26",
+   "fix": "the schedule's entries and the job's public key path are made absolute (backup_schedule.absolute); tests/unit/test_restore_from_the_host_h100.py",
+   "from": "the integrator's red 7106858719 (the MVP walk's step 8 on the bench host), 2026-11-23"
+  },
+  {
+   "id": "H100-02",
+   "severity": "High",
+   "claim": "trialbox restore typed on the host ran in a plain one-off container with no hapi URL, no data volume, no database client and no way to run the role script, so it stopped before changing anything",
+   "severity_basis": "restore is part of the MVP: a box could not be restored from its backup by any documented command",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 55fafaf0",
+   "fix": "the host form runs the restore in the backup image as the nightly's job runs, with the box's own URLs and role passwords by name, the volumes bound, the role script inside, --last and --restart; tools/trialbox/box_restore.py; tests/unit/test_restore_from_the_host_h100.py",
+   "from": "the integrator's red 7106858719 (the MVP walk's step 8 on the bench host), 2026-11-23"
+  },
+  {
+   "id": "H100-03",
+   "severity": "High",
+   "claim": "the backup image carried no database client tools, so a restore or a drill run in it had no pg_restore",
+   "severity_basis": "the restore's container cannot restore a database without them",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2eecaf3f",
+   "fix": "deploy/docker/backup.Dockerfile installs the client tools of the server's major from the db base's own source, pinned, held and checked; tests/unit/test_restore_from_the_host_h100.py",
+   "from": "the integrator's red 7106858719 (the MVP walk's step 8 on the bench host), 2026-11-23"
+  },
+  {
+   "id": "H100-04",
+   "severity": "Medium",
+   "claim": "the nightly's job container builds the hapi URL with the database password unquoted (update.ComposeBox._backup_container): a password holding @, / or # would give a URL that names another host or database",
+   "severity_basis": "install.sh's generated passwords may not hold those characters; a site's own password could, and the nightly's hapi snapshot would then fail",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card (update.py is in flight on H-99 and H-95); the host restore quotes it (box_restore.job_db_env)",
+   "from": "reading update.py for card H-100, 2026-11-23"
+  },
+  {
+   "id": "H100-05",
+   "severity": "Medium",
+   "claim": "backup_schedule.config lets the process environment win over deploy/.env for every TB_ setting, TB_BACKUP_PUBKEY and TB_BACKUP_TARGETS among them, and ComposeBox reads TB_BACKUP_PUBKEY, TB_COMPOSE and TB_DOCKER from the process: a person who runs backup-nightly with one exported decides where the backup goes and what it is encrypted to",
+   "severity_basis": "cron and sudo drop the caller's environment, so the schedule is not affected; a hand run with sudo -E or a kept variable is",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card: the box file should win as launch.box_settings does; the host restore already takes all of them from the box",
+   "from": "reading backup_schedule.py and update.py for card H-100, 2026-11-23"
+  },
+  {
+   "id": "H100-06",
+   "severity": "High",
+   "claim": "the live restore over a real stack (all services healthy after it, the restored rows equal backup-verify's) and the backup image with the client tools were not run or built in this card's session",
+   "severity_basis": "the done criterion of the card is proved only by the rehearse jobs (box.sh live-restore) or the bench",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the rehearsal's live-restore step runs it in CI; the bench repeats step 8 with the one documented command",
+   "from": "card H-100, 2026-11-23"
+  }
+ ]
+}
