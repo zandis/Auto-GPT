@@ -196,6 +196,13 @@ The review (fix first: B audited but with gaps) and the lead's relay of 71148893
   answers are in. Test: `::test_a_first_run_stopped_while_it_waits_leaves_no_code_file[SIGTERM|SIGHUP|SIGINT]` (exit
   143, 129, 130; no file).
 
+**Master 3945782a (H-94 part 2) merged after the fixes.** H-94 replaced `check_host.sh`'s `poc_list` with the
+shared STOP-OR-WARN helper; part D's branch now asks `tb_poc_box` and writes its line with `tb_stop_list`, in the
+form of the no-TPM branch beside it (same words, same key, same FAIL and WARNs; the host-baseline tests pass
+unchanged, M13 re-planted in `tb_poc_box` is caught by the same two rows). H-94's page gains one row: the first-run
+code's kept stop (5) in `box-install.sh` (its count test counts H-97's line), and the three signal exits of the F10
+trap are marked `H-94 not a stop`.
+
 **Mutants for the review:** 13 planted, 13 caught. `tools/keys.py` (9): the started event's failure ignored; no
 started event; the done event's failure drops the journal; every append as root; any folder taken; no journal; no
 commit step; a cut-short rotation always rolled back; no lock (caught by the held-lock test only: the five rounds of
@@ -294,7 +301,8 @@ place of the issue file; a docstring), `tests/rehearsal/box-run/standins/boot.sh
 (`docs/handover/hospital-install.en.md`, `.ja.md`, `.zh-TW.md`, step 7). For the review: `libs/tb_common/kek.py`
 (`ROTATION_JOURNAL` and one custody problem), `tests/unit/test_host_baseline.py` (three rows), and the set-ups of
 the six tests under 7114085298 above, four of which now seed the audit chain (`test_kek`, `test_objstore_sealed`,
-`test_sign_keys_kek`, `test_kek_passphrase_file_h96`; nothing they assert changed).
+`test_sign_keys_kek`, `test_kek_passphrase_file_h96`; nothing they assert changed), and
+`docs/handover/poc-stops-h94-2026-11-23.md` (one row in its box-install.sh table).
 
 ## Findings
 

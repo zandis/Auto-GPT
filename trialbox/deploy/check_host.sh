@@ -307,12 +307,12 @@ elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_sealed_pp; t
   # FAIL that names the action
   NO_TPM_SEALED="no TPM device: the site keys are sealed under the passphrase back end (kek.json); the disk unlock is not bound to this board"
   NO_TPM_ACTION="reseal the site keys under a TPM: on a board with a TPM, rotate the KEK to the TPM back end (SECURITY §10)"
-  poc_list no-tpm-sealed "the TPM binding of the KEK" "$NO_TPM_SEALED; to do: $NO_TPM_ACTION"; NO_TPM_RC=$?
-  case "$NO_TPM_RC" in
-    0) warn "$NO_TPM_SEALED (a PoC box: listed in deploy/site/poc-stops.jsonl)" ;;
-    2) warn "$NO_TPM_SEALED (a PoC box: NOT listed, deploy/site/poc-stops.jsonl cannot be written). Action: $NO_TPM_ACTION" ;;
-    *) fail "$NO_TPM_SEALED: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) keeps them so. Action: $NO_TPM_ACTION" ;;
-  esac
+  if tb_poc_box; then
+    # the one list's writer says on stderr when it cannot write its line (the WARN says so too, with the action)
+    if [ -z "$(tb_stop_list no-tpm-sealed "the TPM binding of the KEK" "$NO_TPM_SEALED; to do: $NO_TPM_ACTION" 2>&1 >/dev/null)" ]; then
+      warn "$NO_TPM_SEALED (a PoC box: listed in deploy/site/poc-stops.jsonl)"
+    else warn "$NO_TPM_SEALED (a PoC box: NOT listed, deploy/site/poc-stops.jsonl cannot be written). Action: $NO_TPM_ACTION"; fi
+  else fail "$NO_TPM_SEALED: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) keeps them so. Action: $NO_TPM_ACTION"; fi
 elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
   NO_TPM_PP="no TPM device: $KEK_PP, but nothing is sealed under it yet; the disk unlock is not bound to this board"
   if tb_poc_box; then
