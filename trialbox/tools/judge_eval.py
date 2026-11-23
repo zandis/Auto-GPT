@@ -73,15 +73,15 @@ class GatewayEval:
 
 def evaluate(items: list[dict[str, Any]], llm: Any, prompt: str = "judge") -> dict[str, Any]:
     from orchestrator.scenarios.evaluate import postprocess
+    from tb_common.phi_guard import masked_note_variables
 
     confusion: Counter[tuple[str, str]] = Counter()
     per: dict[str, list[int]] = {}
     for it in items:
-        res = llm.chat_json(
-            prompt,
-            {k: it[k] for k in ("criterion_text", "note_question", "index_date", "excerpts")},
-        )
-        got = postprocess(res.data, it["excerpts"], "full_record").predicate
+        fields = ("criterion_text", "note_question", "index_date", "excerpts")
+        variables = masked_note_variables("judge", {k: it[k] for k in fields})
+        res = llm.chat_json(prompt, variables)
+        got = postprocess(res.data, variables["excerpts"], "full_record").predicate
         confusion[(it["gold"], got)] += 1
         per.setdefault(it["criterion_id"], [0, 0])
         per[it["criterion_id"]][0] += int(got == it["gold"])

@@ -1465,7 +1465,7 @@ class Lake:
                             "sha": sha256_text(text),
                         }
                         for did, pid, date_, typ, note in batch
-                        for i, text in enumerate(chunk(mask_note(note or "", self.mrn_regex)))
+                        for i, text in enumerate(chunk(mask_note(note or "", self.mrn_regex, model_input=True)))
                     ]
                     if not part:
                         continue

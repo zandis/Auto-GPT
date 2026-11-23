@@ -38,6 +38,7 @@ from typing import Any
 
 from tb_common.llm import LlmAnswerTimeout, LlmClient, LlmError, LlmModelFault
 from tb_common.pair import same_model, served_keys
+from tb_common.phi_guard import masked_note_variables
 
 from orchestrator.scenarios.evaluate import postprocess
 
@@ -168,6 +169,7 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
     for c in cases:
         variables = {k: c[k] for k in ("criterion_text", "note_question", "index_date", "excerpts")}
         try:
+            variables = masked_note_variables("judge", variables)
             res = client.chat_json(prompt, variables, job_id="selftest")
         except LlmError as exc:
             rep.errors.append(clip(f"{c['id']}: {exc}"))
@@ -179,7 +181,7 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
         for name in served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")):
             if name not in rep.served:
                 rep.served.append(name)
-        answer = postprocess(res.data, c["excerpts"])
+        answer = postprocess(res.data, variables["excerpts"])
         got = answer.predicate
         rep.answers[c["id"]] = got
         want = c["expected"]

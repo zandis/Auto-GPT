@@ -161,7 +161,9 @@ def sample(pairs: list[Pair], n: int, seed: int = 20261017) -> list[Pair]:
 
 
 def messages(pair: Pair, note: list[str]) -> list[dict[str, str]]:
-    numbered = "\n".join(f"[{i}] {s}" for i, s in enumerate(note))
+    from tb_common.phi_guard import mask_name_parts
+
+    numbered = "\n".join(f"[{i}] {s}" for i, s in enumerate(mask_name_parts(note)))
     user = (
         f"Criterion type: {pair.criterion_type}\nCriterion: {pair.criterion}\n\nPatient note:\n{numbered}\n\n"
         "Return the JSON object."

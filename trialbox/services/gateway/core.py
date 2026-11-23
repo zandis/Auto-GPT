@@ -77,6 +77,7 @@ from registry.registry import Registry, RegistryError, Resolved, check_served, p
 from tb_common.audit import AuditLog, canonical
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_text
+from tb_common.phi_guard import NOTE_PROMPTS, NameAnalyserUnavailable, mask_names, masked_note_variables
 from tb_common.policy.classes import Environment, Topology
 from tb_common.ulid import new_ulid
 from tb_contracts.dataclass import ClassLabel, DataClass
@@ -245,6 +246,35 @@ def _content_text(messages: Any) -> str:
         elif isinstance(c, list):
             parts.extend(str(x.get("text", "")) for x in c if isinstance(x, dict))
     return "\n".join(parts)
+
+
+def _masked_note_messages(prompt: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Registered note prompts carry their data in one fenced JSON object. Decode it before
+    masking so escaped letters and line breaks have their original note offsets."""
+    from tb_common.llm import tojson_block
+
+    user = messages[1]["content"]
+    if prompt == "profile_summary@1":
+        # The registered v1 template predates the fenced JSON prompts.
+        return [
+            messages[0],
+            {**messages[1], "content": mask_names(user, gateway=True)},
+            *({**m, "content": mask_names(m["content"], gateway=True)} for m in messages[2:]),
+        ]
+    before, fence, raw = user.partition("```json\n")
+    try:
+        original = json.loads(raw.removesuffix("\n```"))
+        if not isinstance(original, dict):
+            raise ValueError
+    except ValueError:
+        raise Refusal("request_invalid", "Invalid note data / 病歷資料無效 / 診療記録のデータが無効です") from None
+    masked = masked_note_variables(prompt.partition("@")[0], original, gateway=True)
+    safe = list(messages)
+    if masked != original:
+        safe[1] = {**safe[1], "content": before + fence + tojson_block(masked) + "\n```"}
+    if len(safe) > 2:  # a schema correction can repeat the previous answer
+        safe[2] = {**safe[2], "content": mask_names(safe[2]["content"], gateway=True)}
+    return safe
 
 
 def _schema_ok(content: str, response_format: Any) -> bool | None:
@@ -424,6 +454,7 @@ class Gateway:
         process."""
         call = _Call(call_id=new_ulid(), deadline=time.monotonic() + self.call_budget_s)
         h = {k.lower(): v for k, v in headers.items()}
+        body = dict(body)  # the safe copy also goes to the trace on an upstream failure
         try:
             return self._chat(call, h, body, service)
         except Refusal as r:
@@ -577,7 +608,10 @@ class Gateway:
         if label.data_class.rank <= 2 and not cfg.phi_tripwire:
             call.guard = "off"
         elif label.data_class.rank <= 2:
-            verdict = self.guard.tripwire(_content_text(messages))
+            try:
+                verdict = self.guard.tripwire(_content_text(messages))
+            except NameAnalyserUnavailable as exc:
+                raise Refusal("name_analyser_unavailable", str(exc), status=503) from None
             call.guard = "hit:" + ",".join(verdict.kinds) if verdict.hit else "clear"
             if verdict.hit:
                 # on the box: a perimeter endpoint on topology A only. On topology B the perimeter is the tenant's
@@ -593,6 +627,16 @@ class Gateway:
                     ].alias  # defensive: no shipped route puts an external build first (D-792)
                 candidates = on_box
                 call.guard += ":on_box"
+
+        if call.prompt_registered and call.prompt.partition("@")[0] in NOTE_PROMPTS:
+            try:
+                body["messages"] = _masked_note_messages(call.prompt, messages)
+            except NameAnalyserUnavailable as exc:
+                raise Refusal("name_analyser_unavailable", str(exc), status=503) from None
+            call.rendered_sha = sha256_text(
+                canonical({"messages": body["messages"], "response_format": response_format})
+            )
+            call.tokens_est = estimate_messages(body["messages"])
 
         # 5-8 resolve, cache, dispatch, echo
         registry_refusals: list[RegistryError] = []

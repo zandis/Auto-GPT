@@ -362,6 +362,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "ai.confirmed": ("Model answer confirmed by a person", "モデルの回答を人が確認", "模型回答經人員確認"),
     "ai.used": ("Model answer used in a record", "モデルの回答を記録に使用", "模型回答用於紀錄"),
     "llm.call": ("Language model called", "言語モデルの呼出", "呼叫語言模型"),
+    "llm.mask.refuse": (
+        "Note processing refused because name masking was unavailable",
+        "氏名をマスキングできないため記録の処理を拒否",
+        "因無法遮蔽姓名而拒絕處理紀錄",
+    ),
     "llm.outage": ("Job waited for the language model", "言語モデルの応答待ち", "作業等待語言模型回應"),
     "llm.prompt_fallback": ("Prompt fallback used", "プロンプトの代替使用", "使用備用提示詞"),
     "llm.schema_violation": ("Model answer outside its schema", "モデル回答の形式違反", "模型回答不符格式"),

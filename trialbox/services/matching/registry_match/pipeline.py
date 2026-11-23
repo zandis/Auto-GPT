@@ -17,6 +17,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from tb_common.phi_guard import mask_names
+
 from matching.registry_match import core
 from matching.registry_match.llm import LLMClient
 from matching.registry_match.retrieval import HybridIndex
@@ -65,6 +67,7 @@ def run_patient(
     t = time.perf_counter()
     secs: dict[str, float] = {}
     say("Generating search keywords")
+    note = mask_names(note)
     kw = keywords or core.generate_keywords(client, note)
     conds = kw["conditions"] or [note[:200]]
     secs["keywords"] = time.perf_counter() - t

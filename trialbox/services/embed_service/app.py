@@ -78,7 +78,7 @@ def embed(req: EmbedRequest) -> EmbedResponse:
     """Every input is masked first (T-600, D-337): a caller that sends note text unmasked still embeds no name, phone
     number, chart number or ID number. Masking keeps the length and is a no-op on text already masked."""
     e = embedder()
-    texts = [mask_note(t, mrn_regex()) for t in req.texts]
+    texts = [mask_note(t, mrn_regex(), model_input=True) for t in req.texts]
     with gate():
         vectors = e.embed(texts)
     return EmbedResponse(vectors=vectors, model=e.model, dim=e.dim)
