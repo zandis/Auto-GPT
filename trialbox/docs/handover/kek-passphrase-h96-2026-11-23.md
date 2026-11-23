@@ -104,22 +104,25 @@ enrolment code and is treated the same way** (H96-08).
 **Now.** install.sh's accounts step gathers both into one text and shows it once: on stdout only when stdout is a
 terminal (the IT form typed by hand); else on the controlling terminal (box-install.sh run from a terminal: its
 install.log holds the line "shown on this terminal only" and neither value); with no terminal at all (a rehearsal's
-`docker exec` without `-t`, a driver), in `/root/trialbox-admin-first-sign-in` (root's home, mode 0600, made fresh: a
-link at its name is removed, never followed), which the output names but never prints, with how to read it once and
-remove it. A failed `enrol-code` keeps its FAIL line; its own output goes with the password, not to the log. RUNBOOK §1
+`docker exec` without `-t`, a driver), in `/root/trialbox-admin-first-sign-in` (the home root's passwd entry names,
+mode 0600, made new with an exclusive create; a link or anything but a regular file at its name is refused with a FAIL
+line, never followed), which the output names but never prints, with how to read it once and remove it. No variable of
+the caller decides where a value goes: no knob names the terminal and HOME is not read (the lead's review on #1398). A failed `enrol-code` keeps its FAIL line; its own output goes with the password, not to the log. RUNBOOK §1
 and §16 say so.
 
-**Proved by:** `tests/unit/test_one_time_values_h96.py` (6 tests) runs the real accounts step of install.sh (cut from
-the file) with a stand-in `docker compose` printing synthetic values as console.cli prints them: through a tee as
-box-install.sh runs it (the values on the terminal, not in the log), with no terminal (the 0600 file; a planted link
-not followed), on a real terminal (a pty: both on stdout, once), and with `enrol-code` exiting 2 or 1. The rehearsal
+**Proved by:** `tests/unit/test_one_time_values_h96.py` (7 tests) runs the real accounts step of install.sh (cut from
+the file) with a stand-in `docker compose` printing synthetic values as console.cli prints them, and with the caller's
+`TB_ONCE_TTY` exported at a world-readable file and HOME at another folder (both receive nothing, in every test):
+through a tee as box-install.sh runs it from a terminal (a pty as the controlling terminal: the values on the screen,
+not in the log), in a new session with no terminal (the 0600 file in the passwd home; an old file replaced; a planted
+link refused, not followed), stdout on a pty (both shown once), and `enrol-code` exiting 2 or 1. The rehearsal
 (tools/rehearse_box/box.sh, install and reinstall phases) keeps the real installer's output, checks the root-only file
 and that none of its values (read with `grep -F -f`, never printed) is in that output, the stand-in sudo's log or
 deploy/.env, then removes the file. Not run here (no Docker).
 
-**Mutants (the accounts step):** 9 planted, 8 caught by that file: stdout always, no terminal branch, no umask, no
-removal before the write, a failed or a good code echoed to the output, the text printed instead of shown, the terminal
-copy also on stdout. One survived: `set -C` removed. It guards only the moment between the removal and the write (a
+**Mutants (the accounts step):** 12 planted, 11 caught by that file: stdout always, no terminal branch, a knob naming
+the terminal, HOME naming the file, no umask, no link refusal, no removal before the write, a failed or a good code
+echoed to the output, the text printed instead of shown, the terminal copy also on stdout. One survived: `set -C` removed. It guards only the moment between the removal and the write (a
 link planted then), which a single-threaded test cannot reach.
 
 **Other one-time values.**

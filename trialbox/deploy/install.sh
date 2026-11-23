@@ -1327,18 +1327,27 @@ ADMIN_MAIL="${ADMIN_MAIL:-${TB_ADMIN_EMAIL:-}}"
 # H-96 (7097514776; H-94 (5): a secret where others can read it): the administrator's first password and enrolment
 # code are shown on a terminal once and are never written to a log. On stdout only when stdout is a terminal; else on
 # the controlling terminal (box-install.sh tees stdout to deploy/site/box/install.log, a rehearsal to its step log);
-# with no terminal at all, in a root-only file under root's home, never printed. TB_ONCE_TTY: the tests' terminal
-ONCE_FILE="${HOME:-/root}/trialbox-admin-first-sign-in"
-show_once() {  # stdin: the one-time text
-  local tty="${TB_ONCE_TTY:-/dev/tty}"
-  if [ -t 1 ]; then cat; return 0; fi
-  if { : >> "$tty"; } 2>/dev/null; then
-    cat >> "$tty"
+# with no terminal at all, in a root-only file in the home that the passwd entry names, never printed. No variable of
+# the caller names where they go (no home from the environment, no knob); a link at the file's name is refused, the file is made new
+show_once() {  # $1: the one-time text (an argument of a shell function: no process, no temporary file)
+  local home
+  if [ -t 1 ]; then printf '%s\n' "$1"; return 0; fi
+  if { : >> /dev/tty; } 2>/dev/null; then
+    printf '%s\n' "$1" >> /dev/tty
     echo "    shown on this terminal only: never in this output, which a log may keep"
     return 0
   fi
+  home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+  ONCE_FILE="${home%/}/trialbox-admin-first-sign-in"
+  if [ -z "$home" ] || [ ! -d "$home" ] || [ -L "$ONCE_FILE" ] || { [ -e "$ONCE_FILE" ] && [ ! -f "$ONCE_FILE" ]; }; then
+    FAILS+=("no terminal, and $ONCE_FILE is a link or not a regular file (or no home): the first password and enrolment code were not kept; remove it, then console.cli reset-password admin and enrol-code admin on a terminal")
+    return 0
+  fi
   rm -f "$ONCE_FILE"
-  (umask 077; set -C; cat > "$ONCE_FILE")
+  if ! (umask 077; set -C; printf '%s\n' "$1" > "$ONCE_FILE") 2>/dev/null; then
+    FAILS+=("no terminal, and $ONCE_FILE could not be made new: the first password and enrolment code were not kept; console.cli reset-password admin and enrol-code admin on a terminal")
+    return 0
+  fi
   echo "    no terminal to show it on: it is in $ONCE_FILE (root only, 0600), not in this output. Read it once" \
     "(sudo cat $ONCE_FILE), hand it to the administrator in person, then remove it (sudo rm $ONCE_FILE)"
 }
@@ -1359,7 +1368,7 @@ case "$rc" in
      FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
 esac
 ENROL=""
-printf '%s\n' "$ONCE" | sed 's/^/    /' | show_once
+show_once "$(printf '%s\n' "$ONCE" | sed 's/^/    /')"
 ONCE=""
 echo "    add coordinators and viewers on the console's Users page, or: docker compose exec console python -m console.cli add-user"
 fi
