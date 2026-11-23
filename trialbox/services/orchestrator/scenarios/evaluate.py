@@ -575,7 +575,7 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
         [str(did)] if did else [],
         model_reason=model_reason,
         sentence=sentence,
-        affirmed=verdict in ("pass", "fail") and affirms(d),
+        affirmed=affirms(d),  # an abstention never excludes, whatever it says
     )
 
 

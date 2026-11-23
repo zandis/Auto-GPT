@@ -220,15 +220,18 @@ def test_the_inputs_are_inferences_and_the_controls_are_not() -> None:
     """The premise: the one rule sends every input to review and lets every control exclude."""
     for i in INPUTS:
         assert i.quote in PATIENTS[i.patient]["note"]
-        may = note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i))
+        may = note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i), affirmed=True)
         assert may.effect == "review" and may.reason == INFERRED_REASON, i.name
     for i in CONTROLS:
-        assert note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i)).effect == "excludes", i.name
+        assert (
+            note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i), affirmed=True).effect
+            == "excludes"
+        ), i.name
 
 
 def test_a_fragment_is_read_in_its_sentence() -> None:
     """The fragment alone states the condition; its sentence is a relative's (the guard read only the fragment)."""
-    assert note_answer_may("exclusion", True, FRAGMENT, BY_ID[HIV].text).effect == "excludes"
+    assert note_answer_may("exclusion", True, FRAGMENT, BY_ID[HIV].text, affirmed=True).effect == "excludes"
     assert sentence_of(FRAGMENT, PATIENTS["HIV_FRAGMENT"]["note"]) == FRAGMENT_SENTENCE
 
 
@@ -510,6 +513,7 @@ def _stored(i: Input) -> CriterionVerdict:
         basis="pair",
         final=True,
         prov=["c-judge", "c-verifier"],
+        affirmed=True,  # round 5: both models affirmed it (judge v6); a row that does not say is pinned below
     )
 
 
@@ -535,7 +539,15 @@ def test_a_stored_row_on_a_stated_quote_still_excludes(case: Input) -> None:
 
 def _note_result(i: Input) -> NoteResult:
     return NoteResult(
-        "pass", PAIR, i.quote, "2026-09-20", "note", dids=["d1"], calls=["c-judge", "c-verifier"], sentence=_sentence(i)
+        "pass",
+        PAIR,
+        i.quote,
+        "2026-09-20",
+        "note",
+        dids=["d1"],
+        calls=["c-judge", "c-verifier"],
+        sentence=_sentence(i),
+        affirmed=True,
     )
 
 
@@ -557,7 +569,9 @@ def test_the_v1_verdict_of_a_stated_quote_still_fails(case: Input) -> None:
 
 
 def _cascade(i: Input) -> Any:
-    reply = JudgeReply("pass", PAIR, i.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply(
+        "pass", PAIR, i.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True
+    )
     return _run_for_map(True)._map(BY_ID[i.cid], reply, {**SPAN, "quote": i.quote, "sentence": _sentence(i)}, "S3")
 
 
@@ -578,7 +592,9 @@ def test_the_sentence_is_read_and_never_published(case: Input) -> None:
     never published (#639 7087774227): the published evidence is byte-identical to what master's span and master's
     ``NoteResult`` give, for every input whose decision the sentence does not change (the fragment's it does)."""
     ex = [{"did": "d1", "date": "2026-09-20", "text": PATIENTS[case.patient]["note"]}]
-    reply = JudgeReply("pass", PAIR, case.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply(
+        "pass", PAIR, case.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True
+    )
     span = verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31))
     assert span is not None and set(span) == MASTER_SPAN_KEYS | {"sentence"} and span["sentence"] == _sentence(case)
     master_span = {k: v for k, v in span.items() if k != "sentence"}
@@ -607,7 +623,7 @@ def test_an_inclusion_is_never_affected(kind: str) -> None:
     c = BY_ID[i.cid].model_copy(update={"kind": kind})
     v = note_verdict(c, _note_result(i), pair=True)
     o = _run_for_map(True)._map(
-        c, JudgeReply("pass", PAIR, i.quote, None, "both agree", call_id="c1", prompt="judge@test"),
+        c, JudgeReply("pass", PAIR, i.quote, None, "both agree", call_id="c1", prompt="judge@test", affirmed=True),
         {**SPAN, "quote": i.quote}, "S3",
     )  # fmt: skip
     if kind == "inclusion":
@@ -848,14 +864,16 @@ def test_a_suspected_or_absent_report_finding_never_excludes_on_any_builder(
 ) -> None:
     """The one rule, the v1 verdict, the cascade's outcome and a stored row: review, never an exclusion."""
     c, q = _report(row)
-    may = note_answer_may("exclusion", True, q, c.text, q)
+    may = note_answer_may("exclusion", True, q, c.text, q, affirmed=True)
     assert (may.effect, may.reason) == ("review", INFERRED_REASON)
-    v = note_verdict(c, NoteResult("pass", PAIR, q, "2026-09-20", "note", dids=["d1"], sentence=q), pair=True)
+    v = note_verdict(
+        c, NoteResult("pass", PAIR, q, "2026-09-20", "note", dids=["d1"], sentence=q, affirmed=True), pair=True
+    )
     assert (v.verdict, v.basis) == ("unknown", None)
-    reply = JudgeReply("pass", PAIR, q, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply("pass", PAIR, q, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True)
     o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": q, "sentence": q}, "S3")
     assert (o.status, o.hard) == ("unknown", False)
-    stored = CriterionVerdict(id=c.id, verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"],
+    stored = CriterionVerdict(id=c.id, verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"], affirmed=True,
                               evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=q, confidence=PAIR,
                                                 reason="note"))  # fmt: skip
     assert decision.answer_of(c, stored, POLICY) == "unknown"
@@ -1182,9 +1200,13 @@ def _builders(text: str, quote: str, sentence: str) -> tuple[str, str, str, bool
     "present" at 0.9 on ``quote``."""
     c = _form_criterion(text)
     sent = sentence or quote
-    may = note_answer_may("exclusion", True, quote, text, sent)
-    v = note_verdict(c, NoteResult("pass", PAIR, quote, "2026-09-20", "note", dids=["d1"], sentence=sent), pair=True)
-    reply = JudgeReply("pass", PAIR, quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    may = note_answer_may("exclusion", True, quote, text, sent, affirmed=True)
+    v = note_verdict(
+        c, NoteResult("pass", PAIR, quote, "2026-09-20", "note", dids=["d1"], sentence=sent, affirmed=True), pair=True
+    )
+    reply = JudgeReply(
+        "pass", PAIR, quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True
+    )
     o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": quote, "sentence": sent}, "S3")
     return may.effect, v.verdict, o.status, o.hard
 
@@ -1197,7 +1219,7 @@ def test_a_form_that_does_not_state_the_condition_goes_to_review_on_every_builde
     and (where the quote alone shows it) a stored row through the status rule."""
     assert _builders(text, quote, sentence) == ("review", "unknown", "unknown", False)
     if not sentence or (sentence.startswith(quote) and inferred(quote, text)):  # a stored row keeps only the quote
-        stored = CriterionVerdict(id="D9-EXC-91", verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"],
+        stored = CriterionVerdict(id="D9-EXC-91", verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"], affirmed=True,
                                   evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=quote,
                                                     confidence=PAIR, reason="note"))  # fmt: skip
         assert decision.answer_of(_form_criterion(text), stored, POLICY) == "unknown"
@@ -1218,10 +1240,12 @@ def test_a_renewal_or_documentation_not_met_from_the_notes_is_review_on_every_bu
     may = note_answer_may(kind, False, HAS_HIV, c.text, HAS_HIV)
     assert (may.effect, may.reason, may.reading_stands) == ("review", OTHER_KIND_REASON, True)
     assert note_answer_may(kind, True, HAS_HIV, c.text, HAS_HIV).effect == "keeps"
-    r = NoteResult("fail", PAIR, HAS_HIV, "2026-09-20", "note", dids=["d1"], sentence=HAS_HIV)
+    r = NoteResult("fail", PAIR, HAS_HIV, "2026-09-20", "note", dids=["d1"], sentence=HAS_HIV, affirmed=True)
     v = note_verdict(c, r, pair=True)
     assert (v.verdict, v.basis) == ("fail", "pair") and decision.answer_of(c, v, POLICY) == "unknown"
-    reply = JudgeReply("fail", PAIR, HAS_HIV, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply(
+        "fail", PAIR, HAS_HIV, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True
+    )
     o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": HAS_HIV, "sentence": HAS_HIV}, "S3")
     assert (o.status, o.hard, o.reason) == ("fail", False, OTHER_KIND_REASON)
 
@@ -1261,7 +1285,7 @@ class _Says:
 
     def judge(self, **kw: Any) -> JudgeReply:
         return JudgeReply("pass", PAIR, self.quote, "2026-09-20", "scripted", call_id=f"c-{self.quote[:4]}",
-                          prompt=self.prompt)  # fmt: skip
+                          prompt=self.prompt, affirmed=True)  # fmt: skip
 
 
 @pytest.mark.parametrize(("verifier_quote", "want"), [(GRANDMOTHER, ("unknown", False)), (HAS_HIV, ("fail", True))])
@@ -1321,7 +1345,8 @@ class _PairModel:
     def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> Any:
         from tb_common.llm import LlmResult
 
-        d = {"verdict": "pass", "reason": "r", "confidence": 0.9, "quote": self.quote, "quote_date": None}
+        d = {"verdict": "pass", "reason": "r", "confidence": 0.9, "quote": self.quote, "quote_date": None,
+             "certainty": "affirmed", "experiencer": "patient", "time": "current"}  # judge v6, both affirm  # fmt: skip
         return LlmResult(d, prompt_id, 4, self.model, "local", "i" * 64, "o" * 64, 100, 20, 1)
 
 
@@ -1419,7 +1444,9 @@ class _Answers:
         self.quote = quote
 
     def judge(self, **kw: Any) -> JudgeReply:
-        return JudgeReply("pass", PAIR, self.quote, "2026-09-20", "scripted", call_id="c-x", prompt="judge@test")
+        return JudgeReply(
+            "pass", PAIR, self.quote, "2026-09-20", "scripted", call_id="c-x", prompt="judge@test", affirmed=True
+        )
 
 
 #: M1: (the verifier's quote, the pair's verdict). The judge's own quote states HIV and is in the record.
@@ -1457,7 +1484,7 @@ def test_the_cascade_reads_the_judges_sentence_beside_the_verifiers() -> None:
     """Round 5, the re-review's surviving mutant at ``engine._map``: the judge's span sentence is a relative's, the
     verifier's sentence states HIV. The rule reads both, so the patient goes to review; reading only the verifier's
     would exclude."""
-    reply = replace(JudgeReply("pass", PAIR, FRAGMENT, "2026-09-20", "both agree", call_id="c1", prompt="judge@test"),
+    reply = replace(JudgeReply("pass", PAIR, FRAGMENT, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True),
                     sentence=HAS_HIV)  # fmt: skip
     o = _run_for_map(True)._map(BY_ID[HIV], reply, {**SPAN, "quote": FRAGMENT, "sentence": FRAGMENT_SENTENCE}, "S3")
     assert (o.status, o.hard, o.reason) == ("unknown", False, INFERRED_REASON)

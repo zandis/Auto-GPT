@@ -30,8 +30,9 @@ SURE = 0.95  # well above the threshold
 ABSCESS = "Skin abscess on the left forearm, drained today."
 
 
-def _fail(c: Any, basis: str, quote: str | None = ABSCESS) -> CriterionVerdict:
-    return CriterionVerdict(id=c.id, verdict="fail", basis=basis,  # type: ignore[arg-type]
+#: round 5 (#639 7115208555, 7115258794): and both models affirmed it (judge v6); a row that does not say is pinned
+def _fail(c: Any, basis: str, quote: str | None = ABSCESS, affirmed: bool | None = True) -> CriterionVerdict:
+    return CriterionVerdict(id=c.id, verdict="fail", basis=basis, affirmed=affirmed,  # type: ignore[arg-type]
                             evidence=Evidence(resource_refs=[], confidence=SURE, quote=quote))  # fmt: skip
 
 
@@ -62,6 +63,13 @@ def test_control_a_pair_fail_under_the_same_input_excludes(criterion: Any, monke
     assert answer_of(criterion, _fail(criterion, "pair"), MAY_EXCLUDE) == "no"
     status = status_of(BY, [_fail(criterion, "pair")], MAY_EXCLUDE)
     assert (status.tier, status.excluded_by) == ("excluded", [criterion.id])
+
+
+def test_a_pair_fail_on_a_note_exclusion_both_models_did_not_affirm_is_review() -> None:
+    """Round 5, the control's exclusion case with a row that does not say both models affirmed it: review."""
+    assert answer_of(EXC, _fail(EXC, "pair", affirmed=None), MAY_EXCLUDE) == "unknown"
+    status = status_of(BY, [_fail(EXC, "pair", affirmed=None)], MAY_EXCLUDE)
+    assert (status.tier, status.excluded_by) == ("review", [])
 
 
 def test_a_pair_fail_on_a_note_exclusion_with_no_quote_is_review() -> None:

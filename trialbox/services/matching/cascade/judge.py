@@ -247,7 +247,7 @@ class GatewayJudge:
             prompt_sha=p.sha256,
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
-            affirmed=str(data.get("verdict")) in ("pass", "fail") and affirms(data),
+            affirmed=affirms(data),  # an abstention never excludes, whatever it says
         )
 
 
@@ -280,7 +280,7 @@ class AgreementJudge:
         if mismatch:
             # D-300: the pair agrees only on one registered prompt text; two texts are not two opinions on one question
             second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
-        elif second.verdict in ("pass", "fail") and found is None:
+        elif needs_verifier(_vote(second)) and found is None:  # a decided answer
             # M1 (#639 7115208555): the verifier's quote must be in the record too, as v1's ``postprocess`` checks it;
             # a decided answer on a quote that is not there, or on none, is the verifier's "unknown"
             second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
