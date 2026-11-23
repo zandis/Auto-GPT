@@ -10,7 +10,7 @@ import logging
 import re
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -67,6 +67,50 @@ def library_resource(name: str, version: str, cql: str, elm: str | None) -> dict
     }
 
 
+# The one code a ValueSet with no code lists in its FHIR-store copy: of TrialBox's own system, which no record is
+# coded in, so the copy has no member a record can match, as the ValueSet itself
+NO_MEMBER = {"system": "https://trialbox.local/fhir/CodeSystem/no-member", "code": "no-member",
+             "display": "no code: the concept mapped to none"}  # fmt: skip
+
+
+def store_valueset(vs: dict[str, Any]) -> dict[str, Any]:
+    """The copy of a compiled ValueSet the FHIR store is given: expanded already, from the codes it lists. The store
+    holds no code system (none is loaded into it, and none needs to be): its CQL engine read each ValueSet's
+    ``compose`` and warned that results may be wrong, and a ValueSet with no code (a concept that mapped to none) has
+    no ``compose`` at all, which it cannot expand: "Failed to expand ValueSet", and the whole equivalence check of the
+    protocol could not run (MVP walk, step 3). An expansion it reads as it is, offline, for every ValueSet. A ValueSet
+    with no code lists :data:`NO_MEMBER` in its copy (the engine reads an empty expansion as none). A ValueSet that is
+    not a plain list of codes (a filter, another ValueSet, an exclusion, a whole code system) or is expanded already is
+    given as it is."""
+    compose = vs.get("compose") or {}
+    includes = compose.get("include") or []
+    if (
+        vs.get("expansion")
+        or compose.get("exclude")
+        or any(
+            inc.get("filter") or inc.get("valueSet") or not (inc.get("system") and inc.get("concept"))
+            for inc in includes
+        )
+    ):
+        return vs
+    contains = [
+        {"system": inc["system"], "code": c["code"], **({"display": c["display"]} if c.get("display") else {})}
+        for inc in includes
+        for c in inc.get("concept") or []
+    ]
+    out = dict(vs)
+    if not contains:
+        contains = [dict(NO_MEMBER)]
+        member = {"code": NO_MEMBER["code"], "display": NO_MEMBER["display"]}
+        out["compose"] = {"include": [{"system": NO_MEMBER["system"], "concept": [member]}]}
+    out["expansion"] = {
+        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+        "total": len(contains),
+        "contains": contains,
+    }
+    return out
+
+
 class FhirEvaluator:
     def __init__(self, base_url: str, timeout: float = 120.0, workers: int = 8) -> None:
         self.base = base_url.rstrip("/")
@@ -86,7 +130,7 @@ class FhirEvaluator:
 
     def load(self, libraries: list[dict[str, Any]], valuesets: Iterable[dict[str, Any]]) -> None:
         for vs in valuesets:
-            self.put(vs)
+            self.put(store_valueset(vs))
         for lib in libraries:
             self.put(lib)
 
