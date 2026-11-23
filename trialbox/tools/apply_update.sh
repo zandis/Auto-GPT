@@ -74,14 +74,14 @@ while [ $# -gt 0 ]; do
     --no-backup) NOBACKUP=--no-backup ;;
     --no-backup-reason) NOBACKUP_REASON=${2:?--no-backup-reason needs a reason}; shift ;;
     --allow-downgrade) DOWNGRADE=${2:?--allow-downgrade needs a reason}; shift ;;
-    # H-95: a dry run of a software pack as if this model pack were held (install.sh checks both before loading)
+    # H-95: a dry run of a software pack as if this model pack were held (install.sh checks both before loading);
+    # without --dry-run it changes nothing: the load is checked against the box's own record
     --with-model-pack) WITH_MODEL=${2:?--with-model-pack needs a model pack}; shift ;;
     *) echo "apply_update: unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
 [ -z "$NOBACKUP_REASON" ] || [ -n "$NOBACKUP" ] || { echo "apply_update: --no-backup-reason goes with --no-backup" >&2; exit 2; }
-[ -z "$WITH_MODEL" ] || [ -n "$DRY" ] || { echo "apply_update: --with-model-pack is for --dry-run only" >&2; exit 2; }
 # D-1321: the box's environment as the update path reads it (deploy/.env's last TB_ENV line, the rehearsal mark
 # when it names none; tools/trialbox/update.py ComposeBox.environment)
 if [ -z "$OSPATCH" ] && [ -n "$NOBACKUP" ] && [ -z "$NOBACKUP_REASON" ]; then
@@ -126,7 +126,7 @@ if [ ! -f "$UPDATES/trust.json" ]; then
   [ -f "$NEXTKEY" ] && set -- "$@" --pubkey "$NEXTKEY"
 fi
 [ -n "$DOWNGRADE" ] && set -- "$@" --allow-downgrade "$DOWNGRADE"
-if [ -n "$WITH_MODEL" ]; then
+if [ -n "$WITH_MODEL" ] && [ -n "$DRY" ]; then  # a dry run only: a load checks the box's own record
   WITH_MODEL=$(cd "$(dirname "$WITH_MODEL")" && pwd)/$(basename "$WITH_MODEL")
   set -- "$@" --model-pack-candidate "$WITH_MODEL"
 fi

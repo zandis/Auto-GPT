@@ -423,8 +423,9 @@ def test_an_exported_variable_changes_no_check(tmp_path: Path) -> None:
     r = subprocess.run(["sh", str(b["box"] / "tools/apply_update.sh"), str(p["software"])], capture_output=True,
                        text=True, env=env, cwd=b["box"], check=False, timeout=600)  # fmt: skip
     assert r.returncode == 1 and "the box holds no model pack" in r.stderr
-    assert "--with-model-pack is for --dry-run only" in _apply(b, str(p["software"]), "--with-model-pack",
-                                                                 str(p["model"])).stderr  # fmt: skip
+    # --with-model-pack stands for the record in a dry run only: a load is checked against the box's own record
+    r = _apply(b, str(p["software"]), "--with-model-pack", str(p["model"]))
+    assert r.returncode == 1 and "the box holds no model pack" in r.stderr
 
 
 _GOOD_MANIFEST: dict[str, Any] = {
