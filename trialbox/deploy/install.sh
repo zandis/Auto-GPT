@@ -1362,6 +1362,27 @@ for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of t
     FAILS+=("the reference data pack $(basename "$f") was not loaded (python -m tb_common.refdata load, error above): it stays in deploy/refdata/pending; re-run deploy/install.sh to load it again, or tools/apply_update.sh <bundle with refdata>")
   fi
 done
+
+# V-18 (D-1182, DB-C1): the code systems of one manifest (shipped, and loaded at install into the terminology volume)
+# into the vocabulary and the FHIR store, in one step, from the same rows. A system not loaded is a line of the list,
+# never a stop: the same command loads it later. The doctor compares the report with the terminology as it is now
+say "code systems: one manifest into the vocabulary and the FHIR store (python -m tools.terminology_load)"
+docker rm -f tb-terminology-load >/dev/null 2>&1 || true
+TL_REPORT="deploy/site/terminology-load.json"
+if "${COMPOSE[@]}" run --rm --no-deps -T --name tb-terminology-load criteria-compiler \
+    python -m tools.terminology_load load --report - > "$TL_REPORT.new"; then
+  mv -f "$TL_REPORT.new" "$TL_REPORT"
+  while IFS="$(printf '\t')" read -r tl_key tl_why; do
+    [ -n "$tl_key" ] || continue
+    echo "install: warning: code system $tl_key not loaded: $tl_why" >&2
+    tb_stop_list "terminology/$tl_key" "$tl_why" "code system $tl_key not loaded into the vocabulary or the FHIR store"
+  done < <(PYTHONPATH=. python3 -m tools.terminology_load skipped --report "$TL_REPORT" 2>/dev/null)
+else
+  rm -f "$TL_REPORT.new"
+  docker rm -f tb-terminology-load >/dev/null 2>&1 || true
+  echo "install: warning: the code systems were not loaded into the vocabulary and the FHIR store (above); load them later: docker compose run --rm criteria-compiler python -m tools.terminology_load load" >&2
+  tb_stop_list "terminology/load" "the vocabulary and the FHIR store" "the code systems were not loaded (python -m tools.terminology_load load)"
+fi
 if [ "$CTGOV" = offline ] && ! "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata status 2>/dev/null | grep -q pack_id; then
   echo "install: note: offline ClinicalTrials.gov needs a reference data pack: tools/apply_update.sh <bundle with refdata>" >&2
 fi
