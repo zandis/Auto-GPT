@@ -14,6 +14,16 @@ find out itself. If the screen and this page differ, the screen is right: tell t
 - 500 GB free on the machine's disk.
 - The box owner, for the second part. The owner is the person who will look after the box and its data.
 
+## How much disk the install takes
+
+- The stick holds two packs: the software and the models. The first install reads both; an update brings the
+  software pack alone.
+- Nothing on the stick is copied to the disk first: each part is checked on the stick, then loaded. Before it
+  loads, the screen prints three sizes: the box after the install, the most the install takes while it loads (never
+  more than the box after the install and a tenth of it again), and what the stick holds.
+- The release of 23 November 2026 filled 60.7 GB of the stick. The 500 GB free asked above also leaves room for the
+  data the box gathers.
+
 ## Hospital IT: from the stick to the code
 
 1. Plug the stick into the machine. Sign in as the administrator and open a terminal.
@@ -36,7 +46,7 @@ find out itself. If the screen and this page differ, the screen is right: tell t
 2. Type the code from the box's screen.
 3. Answer the questions on the page. A demonstration box never needs real patient data.
 4. If the page asks for a passphrase, the machine has no security chip. Choose one of at least 12 characters. Keep
-   it in a safe place: the box asks for it after every restart.
+   it in a safe place: the box asks for it after every restart. Type it only on this page, never in the terminal.
 5. Press "Make my accounts and finish". Wait a few minutes.
 6. The box's screen shows `TrialBox is ready:` and the address. Sign in with the account you just made.
 

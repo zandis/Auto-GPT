@@ -34,7 +34,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -199,6 +199,9 @@ class Reference:
     icd10cm: set[str]
     departments: set[str]
     sources: dict[str, str]
+    # V-18 (D-1182): target system -> the codes of its table loaded at install (TB_TERMINOLOGY_DIR); a mapped code
+    # missing from a loaded system is reported. Empty: nothing loaded, the shape and shipped lists decide as before
+    loaded: dict[str, set[str]] = field(default_factory=dict)
 
     @classmethod
     def load(
@@ -210,6 +213,7 @@ class Reference:
         ingredient_atc: Path | None = None,
         nhi_drug: Path | None = None,
         who_icd10cm: Path | None = None,
+        terminology: Path | None = None,
     ) -> Reference:
         from tb_common import refdata_jp
 
@@ -247,7 +251,29 @@ class Reference:
                 "who-to-cm": _rel(who_icd10cm) if who_icd10cm else (_rel(WHO_CM) if WHO_CM.exists() else "none"),
                 "report-rule": "services/adapter/mapping/tw_core/demo_his.yaml (the report code rule)",
             },
+            loaded=loaded_codes(terminology),
         )
+
+
+#: the tables loaded at install (``terminology.installed``) that hold a target system's whole code list
+LOADED_TABLES = {"loinc": "loinc_table", "atc": "atc_index", "nhi-order": "nhi_service_list"}
+
+
+def loaded_codes(terminology: Path | None = None) -> dict[str, set[str]]:
+    """V-18 (D-1182): ``target system -> codes`` of each table loaded at install; a table that is refused or absent
+    adds nothing (the doctor says why)."""
+    from criteria_compiler.terminology import installed as inst
+
+    where = terminology or inst.installed_dir()
+    out: dict[str, set[str]] = {}
+    for target, table in LOADED_TABLES.items():
+        try:
+            rows = inst.read_table(where, table) or []
+        except inst.TerminologyRefused:
+            continue
+        if rows:
+            out[target] = {str(r.get("code") or "").strip() for r in rows if r.get("code")}
+    return out
 
 
 def _rel(p: Path) -> str:
@@ -278,7 +304,16 @@ class Result:
 
 
 def well_formed(target_system: str, code: str, ref: Reference) -> str:
-    """Empty when ``code`` is a usable code of ``target_system``; else why not."""
+    """Empty when ``code`` is a usable code of ``target_system``; else why not. V-18 (D-1182): a code of the right
+    shape that is missing from the system's table loaded at install is not usable either."""
+    why = _shape(target_system, code, ref)
+    known = ref.loaded.get(target_system)
+    if not why and known and code not in known:
+        return f"not in the loaded {target_system} table ({LOADED_TABLES[target_system]})"
+    return why
+
+
+def _shape(target_system: str, code: str, ref: Reference) -> str:
     if target_system == "icd-10-cm":
         if not _ICD10CM_SHAPE.match(code):
             return "not an ICD-10-CM shape"
@@ -638,6 +673,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--nhi-drug", type=Path, help="NHI drug code -> ATC CSV (nhi_code,atc; the NHI open data list)")
     ap.add_argument("--who-icd10cm", type=Path, help="WHO ICD-10 -> ICD-10-CM CSV (who,icd10cm)")
     ap.add_argument("--ingredient-atc", type=Path, help="the site's YJ stem -> ATC table (beside the shipped one)")
+    ap.add_argument("--terminology", type=Path, help="TB_TERMINOLOGY_DIR: the code systems loaded at install (V-18)")
     a = ap.parse_args(argv)
     if a.criteria_table:
         print(criteria_table())
@@ -660,7 +696,8 @@ def main(argv: list[str] | None = None) -> int:
         title = "Mapping coverage"
     else:
         ap.error("give code lists, --synthetic, --write-synthetic or --criteria-table")
-    ref = Reference.load(a.lab_lookup, a.jlac10, a.byomei, a.yj, a.ingredient_atc, a.nhi_drug, a.who_icd10cm)
+    ref = Reference.load(a.lab_lookup, a.jlac10, a.byomei, a.yj, a.ingredient_atc, a.nhi_drug, a.who_icd10cm,
+                         a.terminology)  # fmt: skip
     report = coverage(rows, ref)
     print(render(report, title))
     if a.json:

@@ -27,6 +27,7 @@ from tb_common.audit import AuditLog
 from tests.console.test_console_app import PILOT_ENV, FakeBackend
 from tests.console.test_firstrun import HW, _answers
 from tests.unit.test_install_refuses_unsafe_folders_10k4 import GOOD, fake_host, knobs
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 
 ROOT = Path(__file__).resolve().parents[2]
 PRO6000 = "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
@@ -226,7 +227,8 @@ def test_the_wsl2_switch_reads_the_kernel_and_its_knob_takes_two_values(tmp_path
     def wsl2(release: str, knob: str | None) -> subprocess.CompletedProcess[str]:
         script = (
             f'set -euo pipefail\ndie() {{ echo "box-install: $*" >&2; exit 1; }}\nuname() {{ echo "{release}"; }}\n'
-            f'{block}\necho "WSL2=$WSL2"\n'
+            + stop_prelude(who="box-install")
+            + f'{block}\necho "WSL2=$WSL2"\n'
         )
         env = {"PATH": os.environ["PATH"], **({} if knob is None else {"TB_BOX_WSL2": knob})}
         return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=False)
@@ -308,18 +310,29 @@ def test_an_answers_file_with_a_password_or_that_does_not_parse_changes_nothing(
         assert not (t["deploy"] / "site" / "box" / "answers.json").exists()
 
 
-def test_without_a_tpm_the_passphrase_comes_from_the_environment_never_the_file(tmp_path: Path) -> None:
+def test_without_a_tpm_the_passphrase_comes_from_a_root_only_file_never_the_environment(tmp_path: Path) -> None:
+    """H-96 (the integrator's ruling 7094934985): the environment form logged the passphrase in the system journal
+    (sudo --preserve-env). Without a TPM the passphrase comes from a file only root can read (or stdin), never the
+    answers file and never the environment: one there is refused before anything."""
     t: dict[str, Any] = _tree(tmp_path)
     hw = json.loads(Path(t["env"]["TB_BOX_HARDWARE"]).read_text(encoding="utf-8"))
     Path(t["env"]["TB_BOX_HARDWARE"]).write_text(json.dumps({**hw, "tpm": False}), encoding="utf-8")
-    r = _unattended(t, tmp_path, OWNER, env={"TB_KEK_PASSPHRASE": ""})
-    assert r.returncode == 1 and "TB_KEK_PASSPHRASE" in r.stderr and "nothing was changed" in r.stderr
+    r = _unattended(t, tmp_path, OWNER)
+    assert r.returncode == 1 and "--kek-passphrase-file" in r.stderr and "nothing was changed" in r.stderr
     assert not t["calls"].exists()
     r = _unattended(t, tmp_path, OWNER, env={"TB_KEK_PASSPHRASE": "a long synthetic test phrase"})
-    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
-    assert "install TB_BOX=0 TB_BOX_DEFER_SEAL=0" in t["calls"].read_text(encoding="utf-8")  # sealed at install
-    assert "KEK_BACKEND=passphrase" in (t["deploy"] / "site" / "hardening.conf").read_text(encoding="utf-8")
+    assert r.returncode == 2 and "TB_KEK_PASSPHRASE is set in the environment: refused" in r.stderr
+    assert "exposed" in r.stderr and not t["calls"].exists()
     assert "a long synthetic test phrase" not in r.stdout + r.stderr
+    pp = tmp_path / "kek.pass"
+    pp.write_text("a long synthetic test phrase\n", encoding="utf-8")
+    pp.chmod(0o600)
+    r = _unattended(t, tmp_path, OWNER, "--kek-passphrase-file", str(pp))
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    calls = t["calls"].read_text(encoding="utf-8")
+    assert "install TB_BOX=0 TB_BOX_DEFER_SEAL=0" in calls and f"--kek-passphrase-file {pp}" in calls  # sealed there
+    assert "KEK_BACKEND=passphrase" in (t["deploy"] / "site" / "hardening.conf").read_text(encoding="utf-8")
+    assert "a long synthetic test phrase" not in r.stdout + r.stderr + calls
 
 
 def test_answers_is_not_for_a_prepared_or_a_rehearsal_box(tmp_path: Path) -> None:

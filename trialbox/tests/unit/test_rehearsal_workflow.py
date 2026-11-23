@@ -81,9 +81,11 @@ def test_validation_installs_twice_on_one_bundle() -> None:
 
 def test_validation_settings_reach_the_installer() -> None:
     fn = BOX[BOX.index("install_box() (") : BOX.index("\n)\n", BOX.index("install_box() ("))]
-    for want in ("TB_HOST_PROFILE=poc", "TB_KEK_BACKEND=passphrase", "TB_KEK_PASSPHRASE", "chown -R root:root",
+    # H-96 (ruling 7094934985): the passphrase by its root-only file, never the environment
+    for want in ("TB_HOST_PROFILE=poc", "TB_KEK_BACKEND=passphrase", "--kek-passphrase-file", "chown -R root:root",
                  "deploy/site"):  # fmt: skip
         assert want in fn, want
+    assert "TB_KEK_PASSPHRASE" not in fn and "TB_KEK_PASSPHRASE" not in REHEARSE
     assert "--rehearsal" in fn  # the model stand-ins are honoured on a TEST box only (D-726)
     # the box host sees the host's KEK folder and the volumes at their own paths, as a site's host does
     up = REHEARSE[REHEARSE.index("host_up() {") : REHEARSE.index("\n}\n", REHEARSE.index("host_up() {"))]

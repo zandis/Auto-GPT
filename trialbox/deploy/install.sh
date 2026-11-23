@@ -7,11 +7,13 @@
 #        [--ssh-off-over-ssh]   (H-70: run over SSH, hardening.conf's SSH=off is refused unless this is given)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
-#   Without a TPM, set bundle and answers to their paths. In your own Bash shell (passphrase of at least 12 characters):
-#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
-#   sudo --preserve-env=TB_KEK_PASSPHRASE TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers"
-#   unset TB_KEK_PASSPHRASE
-#   sudo VAR=value command shows the value in the process list.
+#   Without a TPM, set bundle and answers to their paths. The KEK passphrase (12 characters or more, one line) comes
+#   from a file only root can read (type it after sudo's own password prompt, then Enter; nothing is shown):
+#   sudo bash -c 'umask 077; IFS= read -rs TB_KEK_PASSPHRASE; printf "%s\n" "$TB_KEK_PASSPHRASE" > /root/trialbox-kek.pass'
+#   sudo TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers" --kek-passphrase-file /root/trialbox-kek.pass
+#   or is typed when asked (twice, not shown): ... --kek-passphrase-stdin. The file must be a regular file owned by
+#   root with mode 0600; it is removed once the keys are sealed (--keep-kek-passphrase-file keeps it). A passphrase in
+#   the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §23, H-96).
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
 #   deploy/install.sh --ctgov-check                # only: which ClinicalTrials.gov mode would be suggested here?
 #
@@ -30,6 +32,8 @@
 #                 `current` names it; the folder's release files become links through `current` (a copied file is
 #                 moved to releases/.replaced-<time>/), the site's own files in deploy/ stay. The install then goes
 #                 on from the signed tree: deploy/install.sh, now a link into it, runs again
+#                 H-95: straight from the stick, nothing copied first; a release in two packs takes the model
+#                 pack (engine image, weights) with --model-pack FILE or finds it beside the bundle, and loads it first
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
@@ -38,7 +42,7 @@
 #                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
 #                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
 #                 the egress refresh and watchdog timers; D-377)
-#   5. accounts:  first console administrator (password and enrolment code printed once); users page for the rest
+#   5. accounts:  first console administrator (password and enrolment code on a terminal once, in no log); users page
 #   6. check:     deploy/check_host.sh; the https:// console URL must answer; the intake address
 # Host baseline (T-634, D-408): in VALIDATION and PRODUCTION the site keys are sealed under a KEK right after they are
 # made (deploy/hardening/seal_keys.sh), and with deploy/site/hardening.conf the input firewall and SSH are set after
@@ -71,7 +75,98 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
+ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
+# ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
+# the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
+# (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk,
+# memory, card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does
+# not have it; (5) a secret would be read from, or written to, a place others can read. Every other stop calls
+# stop_or_warn: on a PoC box a warning, a line of the one list (deploy/site/poc-stops.jsonl, which trialbox doctor
+# shows) and the step goes on; on any other box the same stop as before, the same words and exit code. "H-94
+# depends (N)" marks a stop kept because it protects stop N on the input that reaches it (D-1091, H94-03).
+# A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
+# The sources are TB_ENV in deploy/.env read as compose reads it (an "export", blanks, a comment; the last line wins.
+# A file that cannot be read, or a value none of the four: PRODUCTION), an installed box with none (PRODUCTION,
+# D-127), the rehearsal mark on a box that records none yet (VALIDATION), and this run's command line, upper-cased
+# only, as ENV-EARLY reads it (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a
+# caller's environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+tb_env_raw() {  # FILE: TB_ENV's value as compose reads it (an "export", blanks around the name and the value, a comment
+  # after an unquoted value; the last line wins), quotes kept; nothing when the file names none or cannot be read
+  { sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$1" 2>/dev/null || true; } | tail -1 \
+    | sed -E -e "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//'
+}
+tb_env_of() { tb_env_raw "$1" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]'; }  # FILE: no quotes, no blanks, upper case
+tb_poc_box() {
+  _d="$TB_STOP_DEPLOY"; _rec=""
+  if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
+    [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
+    _rec="$(tb_env_of "$_d/.env")"
+  fi
+  if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
+  if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
+  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr '[:lower:]' '[:upper:]')"
+  [ -n "$_arg" ] || [ "$TB_STOP_REHEARSAL" != 1 ] || _arg=VALIDATION
+  for _e in "$_rec" "$_arg"; do case "$_e" in ""|DEV|TEST|VALIDATION) ;; *) return 1 ;; esac; done
+  [ -n "$_rec$_arg" ]
+}
+tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped for a JSON string
+  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's#[^ ]*/uploads/[^ ]*#<a path under uploads/>#g' \
+    -e 's/\([a-z0-9_]*\(password\|passphrase\|token\|secret\|_key\)\)=[^ ]*/\1=<hidden>/gI' -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
+  _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
+  [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
+  # a link is never followed, nor a second name of another file (review L-2 of #1430: one name, its own)
+  if [ ! -L "$_f" ] && { [ ! -e "$_f" ] || [ "$(stat -c %h "$_f" 2>/dev/null)" = 1 ]; } \
+      && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+      && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
+        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
+    chmod 0640 "$_f" 2>/dev/null || true
+  else
+    printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
+  fi
+}
+stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning, a line of the list, 0; else the stop
+  _rc=1; _silent=0
+  while :; do case "$1" in --rc) _rc="$2"; shift 2 ;; --silent) _silent=1; shift ;; *) break ;; esac; done
+  _key="$1"; _skipped="$2"; shift 2
+  if ! tb_poc_box; then
+    if command -v alive_stop >/dev/null 2>&1; then alive_stop; fi
+    [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
+    exit "$_rc"
+  fi
+  # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
+  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  tb_stop_list "$_key" "$_skipped" "$*"
+  return 0
+}
+tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
+  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
+  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
+  _in="$(cat)"
+  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
+    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
+  } | sort -u || true
+}
+# ---- end of STOP-OR-WARN
+# H-94: this run's command line is read once before the arguments are, so a stop while they are read knows the box
+TB_STOP_WHO=install; TB_STOP_FILE=install.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""; TB_STOP_REHEARSAL=0
+_prev=""; _clear=1
+for _a in "$@"; do
+  [ "$_prev" != --environment ] || TB_STOP_ARG_ENV="$_a"
+  [ "$_a" != --rehearsal ] || TB_STOP_REHEARSAL=1
+  case "$_a" in --check|--tier-check|--ctgov-check|--keep-poc-list) _clear=0 ;; esac
+  _prev="$_a"
+done
+# the list is this install's (review L-3 of #1396): emptied when an install starts, before its first stop_or_warn;
+# kept by the run from the signed tree (the same install, TB_INSTALL_SIGNED naming the release `current` names) and
+# by a run that only checks, and when box-install.sh runs it (--keep-poc-list: box-install.sh empties it itself; the
+# option only keeps more lines, and no variable of a caller's is read for it). rm takes a link away, never what it names
+if [ "$_clear" = 1 ] \
+    && { [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; }; then
+  rm -f -- "$TB_STOP_DEPLOY/site/poc-stops.jsonl" 2>/dev/null || true
+fi
+PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""; PP_REMOVE=""  # H-96: the KEK passphrase's two ways in (the KEK-INPUT block)
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -86,13 +181,20 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
+    --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
+    --model-pack) MODEL_PACK="$2"; shift ;;  # H-95: the model pack the software pack needs (else found beside it)
     # REHEARSAL-REAL-SERVERS (H-89): a rehearsal's only (refused below without --rehearsal)
     --rehearsal-real-servers) REAL_SERVERS=1 ;;
     --gpu-index) GPU_INDEX="$2"; shift ;;
     --engine-probe) ENGINE_PROBE="$2"; shift ;;
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
-    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
-    -*) echo "install: unknown option $1" >&2; exit 2 ;;  # H-94 depends: a command line not understood is not acted on
+    --kek-passphrase-file) PP_FILE="${2:-}"; shift ;;
+    --keep-kek-passphrase-file) PP_KEEP=1 ;;
+    --kek-passphrase-stdin) PP_STDIN=1 ;;
+    --kek-passphrase-fd) PP_FD="${2:-}"; shift ;;  # the installer's own hand-on (the signed re-run)
+    --kek-passphrase-remove) PP_REMOVE="${2:-}"; shift ;;  # the signed re-run's: the operator's file, never opened again
+    -h|--help) sed -n 2,47p "$0"; exit 0 ;;
+    -*) echo "install: unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: a usage error, refused by name on every box (review L-5 of #1430): an option not understood is never acted on, nor its value taken for the bundle
     *) BUNDLE="$1" ;;
   esac
   shift
@@ -118,79 +220,119 @@ alive_stop() {
 }
 die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
 indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
-# ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC
-# box the install, start and update paths stop for five things only, each named where it stops as "H-94 (N)": (1)
-# the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk, memory,
-# card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does not have
-# it; (5) a secret would be read from, or written to, a place others can read. Every other stop calls stop_or_warn:
-# on a PoC box a warning, a line of the one list (deploy/site/poc-stops.jsonl, which trialbox doctor shows) and the
-# step goes on; on any other box the same stop as before, the same words and exit code. "H-94 depends" marks a stop
-# the next lines depend on, kept here; the integrator's ruling on each (D-1091, H94-03) is a later change.
-# A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
-# The sources are TB_ENV in deploy/.env read as compose reads it (an "export", blanks, a comment; the last line wins.
-# A file that cannot be read, or a value none of the four: PRODUCTION), an installed box with none (PRODUCTION,
-# D-127), the rehearsal mark on a box that records none yet (VALIDATION), and this run's command line, upper-cased
-# only, as ENV-EARLY reads it (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a
-# caller's environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
-tb_poc_box() {
-  _d="$TB_STOP_DEPLOY"; _rec=""
-  if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
-    [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
-    _rec="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$_d/.env" | tail -1 \
-      | sed -E "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
-  fi
-  if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
-  if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
-  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr '[:lower:]' '[:upper:]')"
-  [ -n "$_arg" ] || [ "$TB_STOP_REHEARSAL" != 1 ] || _arg=VALIDATION
-  for _e in "$_rec" "$_arg"; do case "$_e" in ""|DEV|TEST|VALIDATION) ;; *) return 1 ;; esac; done
-  [ -n "$_rec$_arg" ]
-}
-tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped for a JSON string
-  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's#[^ ]*/uploads/[^ ]*#<a path under uploads/>#g' \
-    -e 's/\([a-z0-9_]*\(password\|passphrase\|token\|secret\|_key\)\)=[^ ]*/\1=<hidden>/gI' -e 's/\\/\\\\/g' -e 's/"/\\"/g'
-}
-tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
-  _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
-  [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
-  if [ ! -L "$_f" ] && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
-      && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
-        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
-    chmod 0640 "$_f" 2>/dev/null || true
-  else
-    printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
-  fi
-}
-stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning, a line of the list, 0; else the stop
-  _rc=1; _silent=0
-  while :; do case "$1" in --rc) _rc="$2"; shift 2 ;; --silent) _silent=1; shift ;; *) break ;; esac; done
-  _key="$1"; _skipped="$2"; shift 2
-  if ! tb_poc_box; then
-    if command -v alive_stop >/dev/null 2>&1; then alive_stop; fi
-    [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
-    exit "$_rc"
-  fi
-  printf '%s: warning (PoC box, H-94): %s%s\n' "$TB_STOP_WHO" "$*" "${_skipped:+; skipped: $_skipped}" >&2
-  tb_stop_list "$_key" "$_skipped" "$*"
-  return 0
-}
-# ---- end of STOP-OR-WARN
-TB_STOP_WHO=install; TB_STOP_FILE=install.sh; TB_STOP_DEPLOY="$ROOT/deploy"
-# the list is this install's (review L-3 of #1396): emptied when an install starts, before its first stop_or_warn;
-# kept by the run from the signed tree (the same install, TB_INSTALL_SIGNED naming the release `current` names) and
-# by a run that only checks. rm takes a link away, never what it names
-if [ "$CHECK$TIER_CHECK$CTGOV_CHECK" = 000 ] \
-    && { [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; }; then
-  rm -f -- "$TB_STOP_DEPLOY/site/poc-stops.jsonl" 2>/dev/null || true
-fi
 TB_STOP_ARG_ENV="$ENVIRONMENT"; TB_STOP_REHEARSAL="$REHEARSAL"
+# KEK-INPUT (H-96, F-45, H-94 (5); the integrator's ruling 7094934985): never from the environment (refused, before
+# anything); from --kek-passphrase-file FILE (checked here and read again by the seal step, which removes it) or
+# --kek-passphrase-stdin (read here, once). The signed re-run gets a stdin passphrase on a pipe at fd 8
+# (--kek-passphrase-fd 8): never an argument, never the environment, never a file. KP_VALUE is never exported
+KP_WHO=install
+# ---- KEK-INPUT functions (H-96, F-45, H-94 (5); the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
+#   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
+#                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
+#   --kek-passphrase-stdin      one line on stdin; on a terminal it is asked twice, not shown
+# and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
+# (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
+# exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+KP_VALUE=""; KP_FILE=""
+kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
+kp_refuse_env() {  # an empty variable is dropped
+  for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
+    kp_set=""
+    eval "kp_set=\${$kp_var:+yes}"
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }  # H-94 (5)
+  done
+  unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
+}
+kp_check_value() {  # one line, not empty, no control character (the image and the host read it alike)
+  [ -n "$KP_VALUE" ] || kp_die "the KEK passphrase from $1 is empty: nothing was changed"
+  case "$KP_VALUE" in *[[:cntrl:]]*) KP_VALUE=""; kp_die "the KEK passphrase from $1 holds a line break or another control character: write it again on one line; nothing was sealed" ;; esac
+}
+kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened file is regular, root's, 0600, one name
+  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600, in a folder only root can write (sudo install -m 0600 -o root -g root /dev/null /root/trialbox-kek.pass, then write it there); nothing was changed"
+  # (M-1 of the review of #1398) the folders as their real paths: the file's own folder and every one above it owned
+  # by root (the user that runs this), and writable by no one else; above the file's own folder a shared folder with
+  # the sticky bit (/tmp) is allowed, as no one else can rename what is root's there
+  kp_dir="$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P)" \
+    || kp_die "--kek-passphrase-file $1: its folder cannot be reached: refused; $kp_fix"  # H-94 (5)
+  kp_name="${kp_dir%/}/${1##*/}"; kp_d="$kp_dir"; kp_own=1
+  while :; do
+    kp_st="$(stat -c '%u %a' -- "$kp_d" 2>/dev/null)" || kp_die "--kek-passphrase-file $1: the folder $kp_d cannot be read: refused; $kp_fix"  # H-94 (5)
+    kp_m="${kp_st#* }"
+    case "${kp_st%% *}" in 0|"$(id -u)") ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d is owned by uid ${kp_st%% *}, not root: refused; $kp_fix" ;; esac  # H-94 (5)
+    case "${kp_m#"${kp_m%??}"}" in
+      [0145][0145]) ;;
+      *) case "$kp_own:${#kp_m}:$kp_m" in 0:4:[1357]*) ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d can be written by others (mode $kp_m): refused; $kp_fix" ;; esac ;;  # H-94 (5)
+    esac
+    [ "$kp_d" != / ] || break
+    kp_d="$(dirname -- "$kp_d")"; kp_own=0
+  done
+  # opened once on fd 7 and read from it; what was opened is checked through /dev/fd/7 (the same open file, never the
+  # name again), and the name must still be that very file, not a link (the shell cannot open without following one)
+  [ ! -L "$kp_name" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"  # H-94 (5)
+  [ -f "$kp_name" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"  # H-94 (5): never a fifo opened
+  exec 7< "$kp_name"
+  kp_fd="$(stat -L -c '%F|%u|%a|%h|%d:%i' /dev/fd/7 2>/dev/null)" || kp_fd=""
+  kp_nm="$(stat -c '%F|%d:%i' -- "$kp_name" 2>/dev/null)" || kp_nm=""
+  kp_t="${kp_fd%%|*}"; kp_r="${kp_fd#*|}"; kp_u="${kp_r%%|*}"; kp_r="${kp_r#*|}"; kp_a="${kp_r%%|*}"; kp_r="${kp_r#*|}"
+  kp_h="${kp_r%%|*}"; kp_i="${kp_r#*|}"
+  kp_bad=""
+  case "$kp_nm" in "symbolic link|"*) kp_bad="is a link" ;; esac
+  [ -n "$kp_bad" ] || case "$kp_t" in "regular file"|"regular empty file") ;; *) kp_bad="is not a regular file" ;; esac
+  [ -n "$kp_bad" ] || [ "$kp_nm" = "$kp_t|$kp_i" ] || kp_bad="changed while it was opened"
+  [ -n "$kp_bad" ] || [ "$kp_u" = "$(id -u)" ] || kp_bad="is owned by uid $kp_u, not root (the user that runs this)"
+  [ -n "$kp_bad" ] || [ "$kp_a" = 600 ] || kp_bad="has mode $kp_a, not 0600"
+  [ -n "$kp_bad" ] || [ "$kp_h" = 1 ] || kp_bad="has $kp_h names (hard links), not one"
+  if [ -n "$kp_bad" ]; then exec 7<&-; kp_die "--kek-passphrase-file $1 $kp_bad: refused; $kp_fix"; fi  # H-94 (5)
+  KP_VALUE=""; IFS= read -r KP_VALUE <&7 || [ -n "$KP_VALUE" ] || :
+  kp_rest="$(wc -c <&7)"; exec 7<&-
+  if [ "$kp_rest" != 0 ]; then KP_VALUE=""; kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"; fi  # H-94 (5)
+  KP_FILE="$kp_name"
+  kp_check_value "--kek-passphrase-file $1"
+}
+kp_read_stdin() {
+  KP_VALUE=""
+  if [ -t 0 ]; then
+    stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
+    printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
+    kp_again=""
+  else
+    IFS= read -r KP_VALUE || [ -n "$KP_VALUE" ] || kp_die "--kek-passphrase-stdin: nothing on stdin; nothing was changed"
+  fi
+  kp_check_value "stdin"
+}
+kp_remove_file() {  # unlinked, never written through its name (a link is taken away, never what it names)
+  rm -f -- "$1"; [ ! -e "$1" ] && [ ! -L "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"  # H-94 (5)
+}
+# ---- end of KEK-INPUT functions
+kp_refuse_env
+case "$PP_FILE:$PP_STDIN:$PP_FD" in
+  :0:|/*:0:|:1:|:0:[3-9]) ;;
+  ?*:0:) die "--kek-passphrase-file: give the file's full path (/root/...): nothing was changed" ;;  # H-94 (5)
+  *) die "--kek-passphrase-file, --kek-passphrase-stdin, --kek-passphrase-fd 3-9: give one; nothing was changed" ;;  # H-94 (5)
+esac
+case "$PP_REMOVE:$PP_FD" in
+  :*|/*:?*) ;;
+  *) die "--kek-passphrase-remove goes with --kek-passphrase-fd and a full path (the installer's own hand-on)" ;;  # H-94 (5)
+esac
+[ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE$PP_REMOVE" ] || die "--keep-kek-passphrase-file goes with --kek-passphrase-file"  # H-94 (5)
+if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"
+elif [ "$PP_STDIN" = 1 ]; then kp_read_stdin
+elif [ -n "$PP_FD" ]; then
+  IFS= read -r KP_VALUE <&"$PP_FD" || [ -n "$KP_VALUE" ] || die "--kek-passphrase-fd $PP_FD: no passphrase there"  # H-94 (5)
+  eval "exec $PP_FD<&-"
+  kp_check_value "the installer's hand-on"
+  KP_FILE="$PP_REMOVE"  # the operator's file the first run read: removed once sealed, never opened here
+fi
+# ---- end of KEK-INPUT
 # ENV-EARLY (D-1365, re-check of #1175): an environment that is not one of the four stops here, at argument parsing,
 # before anything is loaded, linked, made or copied: --environment, or (neither it nor --rehearsal given) a TB_ENV an
 # existing deploy/.env already holds, read without changing anything. Read as the settings step reads them
 EARLY_ENV="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
 EARLY_FROM="--environment"
 if [ -z "$EARLY_ENV" ] && [ "$REHEARSAL" != 1 ] && [ -f "$ROOT/deploy/.env" ] && [ -r "$ROOT/deploy/.env" ]; then
-  EARLY_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  EARLY_ENV="$(tb_env_of "$ROOT/deploy/.env")"
   EARLY_FROM="TB_ENV in deploy/.env"
 fi
 case "$EARLY_ENV" in
@@ -326,11 +468,21 @@ if [ -n "$TIER" ]; then
     [ "$TIER_CHECK" = 0 ] || exit 0
   fi
 elif [ "$TIER_CHECK" = 1 ]; then
-  die "--tier-check needs --tier small|medium|large"  # H-94 depends: a command line not understood is not acted on
+  # H-94 not a stop: a usage error, refused by name on every box (review M-3 of #1430): a run that asks only a check
+  # never becomes an install
+  die "--tier-check needs --tier small|medium|large"
 fi
 # H-94 (1): no bundle, no signature that holds: nothing is loaded from nothing
 [ -n "$BUNDLE" ] || die "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]"  # H-94 (1)
 [ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"  # H-94 (1)
+# ---- MODEL-PACK (H-95): a release in two packs. The model pack is --model-pack FILE, else the file beside the bundle
+# whose signed manifest has the sha256 the software pack names (tools/packs.py find; a file's name decides nothing).
+# None for a whole bundle. Whether the pair holds is the verifier's (apply_update.sh, H-94 (1)), before any load
+if [ -z "$MODEL_PACK" ] && command -v python3 >/dev/null; then
+  MODEL_PACK="$(python3 "$ROOT/tools/packs.py" find "$BUNDLE" 2>/dev/null || true)"
+fi
+[ -z "$MODEL_PACK" ] || [ -f "$MODEL_PACK" ] || die "no such model pack: $MODEL_PACK"  # H-94 (1)
+# ---- end of MODEL-PACK
 # H-70: the host baseline near the end (deploy/hardening/apply.sh) refuses SSH=off from an SSH session; ask it now,
 # when it will run (root, deploy/site/hardening.conf), so an install over SSH stops before anything is loaded or written.
 # --ssh-off-over-ssh (or TB_SSH_OFF_OVER_SSH=yes, which sudo may drop) goes ahead, and is handed on to apply.sh
@@ -344,10 +496,12 @@ fi
 
 # ------------------------------------------------------------------------------------------------ 1. host
 say "host"
-# H-94 depends: every step after this one runs Docker; going on would only fail at each of them
-command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"  # H-94 depends
-docker info >/dev/null 2>&1 || die "Docker is not running (sudo systemctl start docker)"  # H-94 depends
-docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"  # H-94 depends
+# D-1091 (H94-03): these protect none of the five, so on a PoC box they warn; every step that runs Docker then fails
+# where it runs (the bundle's load first: kept refusal 1, nothing is acted on that was not loaded)
+NO_DOCKER="every step that runs Docker (each fails where it runs)"
+command -v docker >/dev/null || stop_or_warn docker-missing "$NO_DOCKER" "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"
+docker info >/dev/null 2>&1 || stop_or_warn docker-not-running "$NO_DOCKER" "Docker is not running (sudo systemctl start docker)"
+docker compose version >/dev/null 2>&1 || stop_or_warn compose-missing "$NO_DOCKER" "the docker compose plugin is missing"
 # HOST-PYTHON (D-831): the host steps run python3 -m tools.... (anchors, pre-start, doctor, the secrets); the modules
 # they import at the top are checked here, before anything loads, not 20 minutes in. module:Debian package, one per
 # word. Not cryptography: the host python3 may lack it (libs/tb_common/kek.py). Without python3 those steps say so.
@@ -357,8 +511,8 @@ if command -v python3 >/dev/null; then
   for pair in $HOST_PY_MODULES; do
     python3 -c "import ${pair%%:*}" 2>/dev/null || HOST_PY_MISSING="$HOST_PY_MISSING ${pair#*:}"
   done
-  # H-94 depends: the host steps import these at the top; under errexit a missing module ends the script mid-step
-  [ -z "$HOST_PY_MISSING" ] || die "the host's python3 lacks what the installer needs:$HOST_PY_MISSING (Debian/Ubuntu: sudo apt-get install -y$HOST_PY_MISSING); install it, then re-run; nothing was changed"
+  # D-1091: protects none of the five; on a PoC box the host steps that import them fail where they run
+  [ -z "$HOST_PY_MISSING" ] || stop_or_warn host-python-modules "the host steps that import them (each fails where it runs)" "the host's python3 lacks what the installer needs:$HOST_PY_MISSING (Debian/Ubuntu: sudo apt-get install -y$HOST_PY_MISSING); install it, then re-run; nothing was changed"
 fi
 # ---- end of HOST-PYTHON
 if [ "$MODE" = auto ]; then
@@ -369,7 +523,7 @@ case "$MODE" in
   gpu) command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 || die "--mode gpu but nvidia-smi finds no GPU (driver + container toolkit; docs/SECURITY.md)"
        docker info 2>/dev/null | grep -qi nvidia || echo "install: warning: Docker lists no nvidia runtime; the model service may not start" >&2 ;;
   stub) echo "    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model" ;;
-  *) die "--mode must be gpu or stub" ;;  # H-94 depends: a command line not understood is not acted on
+  *) stop_or_warn mode-value "--mode $MODE (stub)" "--mode must be gpu or stub"; MODE=stub ;;  # D-1091: protects none of the five
 esac
 # GPU profile (D-95, D-124; deploy/gpu_profile.sh detects it from the card): rtxpro6000 = judge and verifier both
 # resident on a 96 GB card at 32k; gb10 = the same pair resident on a 128 GB DGX Spark at 16k (a Spark under 96 GiB
@@ -396,7 +550,7 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing
   dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;  # H-94 (2): a draft, unmeasured profile is not shown to run on any card
 esac
-case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac  # H-94 depends: a command line not understood is not acted on
+case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) stop_or_warn gpu-value "$GPU_STUB" "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default"; MODE=stub; GPU=default ;; esac  # D-1091
 # REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
 # check, so a site box is refused before any allowance), and the one card named carries the pair. The GPU check then
 # runs under the mark: the driver below the minimum is a WARN only with a passed probe of this card, this driver and
@@ -435,6 +589,12 @@ if [ -f "$BUNDLE.sha256" ]; then
   [ -n "$SUM_LINE" ] || die "$(basename "$BUNDLE").sha256 does not name $(basename "$BUNDLE") (a sidecar from before D-996 names the vendor's own path): compare its sum with: sha256sum $BUNDLE"
   (cd "$(dirname "$BUNDLE")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "bundle checksum mismatch: $(basename "$BUNDLE") is not the file the vendor handed over"  # H-94 (1)
 fi
+# H-95: the model pack's own sidecar, the same way
+if [ -n "$MODEL_PACK" ] && [ -f "$MODEL_PACK.sha256" ]; then
+  SUM_LINE="$(awk -v n="$(basename "$MODEL_PACK")" '$2 == n || $2 == "*" n' "$MODEL_PACK.sha256")"
+  [ -n "$SUM_LINE" ] || die "$(basename "$MODEL_PACK").sha256 does not name $(basename "$MODEL_PACK"): compare its sum with: sha256sum $MODEL_PACK"  # H-94 (1)
+  (cd "$(dirname "$MODEL_PACK")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "model pack checksum mismatch: $(basename "$MODEL_PACK") is not the file the vendor handed over"  # H-94 (1)
+fi
 # ---- end of SIDECAR
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
 
@@ -450,15 +610,17 @@ command -v flock >/dev/null || { stop_or_warn install-lock-flock "$NO_LOCK" "flo
 if [ "$LOCKED" = 1 ] && [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$INSTALL_LOCK" ]; then
   exec 9<"$INSTALL_LOCK" || { stop_or_warn install-lock-open "$NO_LOCK" "the deploy folder $INSTALL_LOCK cannot be opened for the install lock; nothing was changed"; LOCKED=0; }
 fi
-# H-94 depends: another installer runs: its project cleanup would take down this run's containers, or this one its
-[ "$LOCKED" = 0 ] || flock -n 9 || die "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed"  # H-94 depends
+# D-1091: protects none of the five. On a PoC box the warning skips this run's project cleanup (SECOND_RUN), so the
+# other run's containers are not taken down by it
+SECOND_RUN=0
+[ "$LOCKED" = 0 ] || flock -n 9 || { stop_or_warn second-installer "this run's project cleanup (the other run's containers are kept)" "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed"; SECOND_RUN=1; }
 # ---- end of INSTALL-LOCK
 
 # REHEARSAL (D-726): before anything loads
 # the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
 # from here on, read from the mark until deploy/.env says so. TB_ENV is read as Python reads it (no quotes, no spaces,
 # upper case); only DEV, TEST or nothing may become a rehearsal box, and a VALIDATION box that already is one (D-887)
-RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(tb_env_of deploy/.env)"
 # a rehearsal box (or one left half emptied) never becomes a site box by an install without the argument. H-94: on
 # a box that is not a PoC box the helper stops (the mark never becomes PRODUCTION: kept refusal 3, through the
 # helper's own rule); on a PoC box the install goes on as the rehearsal box it is, as with --rehearsal
@@ -511,19 +673,22 @@ fi
 # the update and restarts the stack: refused here, nothing was loaded or changed. Not for a box's own install before
 # its set-up (TB_BOX=1), a rehearsal (--rehearsal: a VALIDATION box), nor the run from the signed tree after a load
 # (TB_INSTALL_SIGNED): the release that load brought is applied already, so FINISH-GATE says so when it refuses
-# H-94 depends: on a PoC box the check refuses only an anchor folder the console may not be given (a system folder,
-# the install's own); root's nightly signer mounts each anchor folder read-write (tools/trialbox/audit_heads.py), so a
-# warned refusal would let it write there. It stays a stop until it is ruled on (H94-03)
-finish_check() {  # $1: what is true when it refuses; the rest: finish-check's own options (fixed words)
-  local said="$1" rc=0
-  shift
+# D-1091 (H94-03): it protects none of the five, so on a PoC box it warns (there it refuses only an anchor folder the
+# console may not be given). Root's nightly signer and the install's first head write into each anchor folder
+# (tools/trialbox/audit_heads.py), so a warning sets ANCHOR_UNSAFE: no anchor is mounted, written or signed into
+finish_check() {  # $1: the point's key; $2: what is true when it refuses; the rest: finish-check's options (fixed words)
+  local key="$1" said="$2" rc=0
+  shift 2
   python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" "$@" || rc=$?
   case "$rc" in
-    0) ;;
-    1) die "$said (above: the setting to change in deploy/.env; RUNBOOK §5)" ;;  # H-94 depends
-    *) die "the finish check did not run (exit $rc, above), so nothing about the folders was decided: $said" ;;  # H-94 depends
+    0) return 0 ;;
+    1) stop_or_warn "$key" "$ANCHOR_SKIPS" "$said (above: the setting to change in deploy/.env; RUNBOOK §5)" ;;
+    *) stop_or_warn "$key-did-not-run" "$ANCHOR_SKIPS" "the finish check did not run (exit $rc, above), so nothing about the folders was decided: $said" ;;
   esac
+  ANCHOR_UNSAFE=1
 }
+ANCHOR_UNSAFE=0
+ANCHOR_SKIPS="the anchor folders: not mounted into the console, no first head, no nightly signed head (the cron writes the log retention only)"
 # Review 3 of #1303: skipped only by the run the bundle step below does not load again (TB_INSTALL_SIGNED is the
 # release `current` names): any other value of it (one carried in by sudo -E) is checked here like any re-run (M2).
 # The environment judged is the stricter of the one the box records (deploy/.env TB_ENV; none on an installed box is
@@ -535,7 +700,7 @@ if [ -n "${TB_INSTALL_SIGNED:-}" ] && [ "$TB_INSTALL_SIGNED" = "$(readlink "$ROO
 fi
 GATE_ENV="$EARLY_ENV"
 if [ -f "$ROOT/deploy/.env" ] && [ -r "$ROOT/deploy/.env" ] && [ "$GATE_ENV" != PRODUCTION ]; then
-  REC_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  REC_ENV="$(tb_env_of "$ROOT/deploy/.env")"
   if [ -z "$REC_ENV" ] && { [ -f "$ROOT/deploy/settings.yaml" ] || [ -f "$ROOT/deploy/updates/installed.json" ]; }; then
     REC_ENV=PRODUCTION
   fi
@@ -547,7 +712,7 @@ if [ -f "$ROOT/deploy/.env" ] && [ -r "$ROOT/deploy/.env" ] && [ "$GATE_ENV" != 
 fi
 if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ "$SIGNED_RUN" != 1 ] && [ -f "$ROOT/deploy/.env" ]; then
   if command -v python3 >/dev/null; then
-    finish_check "nothing was loaded or changed; then re-run" ${GATE_ENV:+--environment "$GATE_ENV"}
+    finish_check finish-early "nothing was loaded or changed; then re-run" ${GATE_ENV:+--environment "$GATE_ENV"}
   elif [ "${GATE_ENV:-PRODUCTION}" = PRODUCTION ]; then
     stop_or_warn finish-early-no-python3 "" "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder; nothing was loaded or changed (RUNBOOK §5)"
   fi
@@ -560,13 +725,45 @@ fi
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
 if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
+  # H-95: every pack is verified (signature, every payload hash, read from the stick: nothing is copied) before any
+  # pack is loaded; the software pack as if its model pack were held, which is loaded first
+  # H-95: the three sizes first (from the manifests, before the stick is read whole), then stop (2) before anything
+  # is read or loaded when a file system cannot hold what the load writes on it at its peak, with the numbers
+  # (a manifest that cannot be read is left to the verifier below: stop (1))
+  if command -v python3 >/dev/null && SIZES="$(python3 "$ROOT/tools/packs.py" sizes "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} 2>/dev/null)"; then
+    echo "    disk: $SIZES"
+    DOCKER_ROOT="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || true)"
+    SPACE_RC=0
+    SPACE="$(python3 "$ROOT/tools/packs.py" space "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} \
+      --docker-root "${DOCKER_ROOT:-/var/lib/docker}" --models "$ROOT/deploy/models" --stage "${TMPDIR:-/tmp}" \
+      --deploy "$ROOT" --updates "$ROOT/deploy/updates" 2>&1)" || SPACE_RC=$?
+    [ "$SPACE_RC" != 1 ] || die "the disk cannot hold the install at its peak; nothing was loaded: $SPACE"  # H-94 (2)
+    [ -z "$SPACE" ] || printf '%s\n' "$SPACE" | indent
+  fi
+  WITH_MODEL=()
+  if [ -n "$MODEL_PACK" ]; then
+    echo "    verifying the signature and every file of the model pack $(basename "$MODEL_PACK") (minutes for the weights)"
+    alive_start "verifying the model pack"
+    # H-94 (1): the signature and every payload hash
+    sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" --for-software "$BUNDLE" --dry-run >/dev/null || die "the model pack is not a valid signed TrialBox model pack; nothing was changed"
+    alive_stop
+    WITH_MODEL=(--with-model-pack "$MODEL_PACK")
+  fi
   echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
   alive_start "verifying the bundle"
   # H-94 (1): the signature and every payload hash
-  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
+  # (the redirection stands before the model pack's options: they are still arguments of apply_update.sh)
+  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null ${WITH_MODEL[@]+"${WITH_MODEL[@]}"} || die "the bundle is not a valid signed TrialBox release; nothing was changed"
   alive_stop
-  echo "    loading the images, models and rulesets (10-20 minutes for a GPU bundle)"
   export PYTHONUNBUFFERED=1
+  if [ -n "$MODEL_PACK" ]; then
+    echo "    loading the model pack: the engine image and the weights, straight from the stick (10-20 minutes)"
+    alive_start "loading the model pack"
+    # H-94 (1): each payload is hashed again as it streams in; one whose hash fails is not loaded
+    TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" --for-software "$BUNDLE" 2>&1 | indent || die "loading the model pack failed"
+    alive_stop
+  fi
+  echo "    loading the images, models and rulesets straight from the stick (10-20 minutes for a GPU bundle)"
   alive_start "loading the bundle"
   # H-94 (1): the load checks each payload's hash as it lands; a failed load leaves nothing verified to act on
   TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | indent || die "loading the bundle failed"
@@ -587,6 +784,23 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
   [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+  # KEK-INPUT (H-96): the passphrase this run read (from the file or stdin) goes on by a pipe at fd 8, its options
+  # swapped for the fd's; the file's name goes with it only to be removed once sealed, never to be opened again
+  if [ -n "$KP_VALUE" ]; then
+    PP_ARGS=(); skip=0
+    for a in ${ARGS[@]+"${ARGS[@]}"}; do
+      if [ "$skip" = 1 ]; then skip=0; continue; fi
+      case "$a" in
+        --kek-passphrase-stdin) continue ;;
+        --kek-passphrase-fd|--kek-passphrase-file|--kek-passphrase-remove) skip=1; continue ;;
+      esac
+      PP_ARGS+=("$a")
+    done
+    [ -z "$KP_FILE" ] || PP_ARGS+=(--kek-passphrase-remove "$KP_FILE")
+    TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
+      8< <(printf '%s\n' "$KP_VALUE")
+  fi
+  # ---- end of KEK-INPUT
   TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
@@ -600,7 +814,7 @@ fi
 say "settings"
 FRESH=0; [ -f deploy/.env ] || FRESH=1   # a box installed before step 8 keeps its shared token until rotation
 # D-837: a TB_ENV written into deploy/.env before the wizard rewrites the file (ENVIRONMENT below keeps it)
-PRE_ENV=""; [ -f deploy/.env ] && PRE_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+PRE_ENV=""; [ -f deploy/.env ] && PRE_ENV="$(tb_env_of deploy/.env)"
 mkdir -p deploy/keys deploy/secrets deploy/site/mapping deploy/site/terminology
 # D-991: deploy/site/terminology is where the site's IT puts the code-system files it loads (deploy/terminology.sh,
 # docs/handover/OFFLINE-MEDIA.md); git and the image ignore it
@@ -636,11 +850,14 @@ if [ ! -f deploy/settings.yaml ]; then
     docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
   else
-    # H-94 depends: no settings.yaml is made, and every service and step after this one reads it
-    [ -t 0 ] || die "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"  # H-94 depends
-    tree_args
-    docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
-      python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
+    # D-1091: protects none of the five; on a PoC box no settings.yaml is made and the services that read it fail
+    if [ -t 0 ]; then
+      tree_args
+      docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+        python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
+    else
+      stop_or_warn no-settings "the settings wizard (no settings.yaml: the services cannot start)" "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
+    fi
   fi
 else
   echo "    keeping deploy/settings.yaml (re-validating)"
@@ -689,7 +906,7 @@ sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${W
 # REHEARSAL (D-726): the box says TEST
 # D-887 (the integrator's (i)): it says VALIDATION, where D3 stays on the box (D-823), with the mark and TB_REHEARSAL=1
 if [ "$REHEARSAL" = 1 ]; then
-  RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  RH_ENV="$(tb_env_of deploy/.env)"
   case "$RH_ENV" in
     ""|DEV|TEST) ;;
     VALIDATION) [ -f deploy/site/rehearsal.json ] || stop_or_warn rehearsal-answers-validation "" "--rehearsal: the answers make this box VALIDATION with no rehearsal mark: a rehearsal box is made by --rehearsal" ;;
@@ -712,7 +929,7 @@ fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # ENVIRONMENT (D-837): --environment, or a TB_ENV written before the wizard rewrote deploy/.env; never changed
 # silently (a pre-written VALIDATION was lost and the D-127 default below made the box PRODUCTION)
-NOW_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+NOW_ENV="$(tb_env_of deploy/.env)"
 if [ -n "$ENVIRONMENT" ]; then
   ENVIRONMENT="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
   case "$ENVIRONMENT" in DEV|TEST|VALIDATION|PRODUCTION) ;; *) stop_or_warn environment-value "" "--environment must be DEV, TEST, VALIDATION or PRODUCTION, not $ENVIRONMENT" ;; esac
@@ -737,6 +954,7 @@ fi
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
 grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
 TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
+TB_ENV_SITE="$(tb_env_raw deploy/.env)"  # H94-08: as compose reads it (the line above is master's; tests pin its place)
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
 # HOST PROFILE (D-837): TB_HOST_PROFILE=poc, a proof of concept or validation run on a plain VM: the host-facility
@@ -859,7 +1077,7 @@ fi
 chmod 600 deploy/.env
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
 # 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
-chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
+[ ! -f deploy/settings.yaml ] || { chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml; }
 export TB_SETTINGS_FILE="./settings.yaml"
 # D-888: in deploy/.env too, so every start mounts it (the systemd unit, an update, an operator's docker compose up)
 envset TB_SETTINGS_FILE "./settings.yaml"
@@ -983,7 +1201,7 @@ LOCK_FILES="$FILES"
 # ANCHOR-GATE (10K-4, D-1390): the anchor folder is judged before anything mounts it (the read probe below, the
 # console), whatever TB_BOX says: the rule for a folder the console may be given (finish-check --anchor-only)
 if command -v python3 >/dev/null; then
-  finish_check "the audit anchor folder is not given to the console: nothing was mounted, the stack was not started" --anchor-only
+  finish_check anchor-gate "the audit anchor folder is not given to the console: nothing was mounted, the stack was not started" --anchor-only
 fi
 # ---- end of ANCHOR-GATE
 # ANCHOR-MOUNT (D-638): the audit page checks the chain against the signed heads of the anchor folders, which are
@@ -992,8 +1210,8 @@ fi
 # command prints the file, then each folder; a folder that is not there, or that the console's user cannot read
 # (asked of the console's own image), stops the install: the page would say "no signed heads" on a healthy chain
 NO_ANCHOR="the audit anchor folders' mount into the console (the audit page finds no signed head)"
-ANCHOR_OK=1  # set here, never a caller's (review H-2 of #1396)
-if [ "$ANCHOR_OK" = 1 ] && command -v python3 >/dev/null; then
+ANCHOR_OK=1  # set here, never a caller's (review H-2 of #1396); ANCHOR_UNSAFE is the script's too (set above)
+if [ "$ANCHOR_OK" = 1 ] && [ "${ANCHOR_UNSAFE:-0}" = 0 ] && command -v python3 >/dev/null; then
   ANCHOR_OUT="$(python3 -m tools.trialbox anchors-compose --deploy "$ROOT/deploy")" \
     || { stop_or_warn anchors-compose "$NO_ANCHOR" "TB_AUDIT_ANCHOR_TARGETS in deploy/.env names a folder that cannot be mounted (above)"; ANCHOR_OUT=""; }
   if [ -n "$ANCHOR_OUT" ]; then
@@ -1051,7 +1269,7 @@ grep -q '^TB_BACKUP_TARGETS=' deploy/.env || echo "TB_BACKUP_TARGETS=$ROOT/deplo
 # has applied the release and restarted the stack, as trialbox update does) and written its settings; a refusal says so
 if [ "${TB_BOX:-0}" != 1 ]; then
   if command -v python3 >/dev/null; then
-    finish_check "not finished: the bundle this run loaded stays (on a box that was already running, its release is applied and running, as after trialbox update) and the settings it wrote stay; the install's own start, units, cron and checks were not run. Change what the lines above name in deploy/.env, then re-run this command: it goes on from here"
+    finish_check finish-gate "not finished: the bundle this run loaded stays (on a box that was already running, its release is applied and running, as after trialbox update) and the settings it wrote stay; the install's own start, units, cron and checks were not run. Change what the lines above name in deploy/.env, then re-run this command: it goes on from here"
   elif [ "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" = PRODUCTION ]; then
     stop_or_warn finish-gate-no-python3 "" "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder (RUNBOOK §5)"
   fi
@@ -1059,7 +1277,7 @@ fi
 # ---- end of FINISH-GATE
 UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)
 if [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac  # H-94 depends: the operator's own answer
+  printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac  # H-94 not a stop: the operator's own answer (D-1091)
 fi
 say "starting the stack (profile $MODE)"
 "${COMPOSE[@]}" config -q
@@ -1114,6 +1332,7 @@ else
     || { stop_or_warn compose-project-name "the shell's COMPOSE_PROJECT_NAME (unset for this run: this install's project)" "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME in this shell is not this install's project: unset it, then re-run"; unset COMPOSE_PROJECT_NAME; }
   echo "    note: no python3 on this host: the project is not proven to be this install's, so nothing is cleaned up" >&2
 fi
+[ "${SECOND_RUN:-0}" = 0 ] || CLEANUP=none  # H-94: another installer's containers are not this run's to take down
 if [ "$CLEANUP" = down ]; then
 (
   COMPOSE+=(--profile '*')
@@ -1139,17 +1358,33 @@ elif [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
 elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
     && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
   # D-837: a plain VM has no usable TPM; the passphrase back end seals the keys when it is asked for
-  echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE seals them); the host check lists it"
+  echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with --kek-passphrase-file seals them); the host check lists it"
 elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"  # H-94 (4)
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
-  TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
+  # KEK-INPUT (H-96): the passphrase this run read goes to the seal step by a pipe (never an argument's value, an
+  # environment or the file's name again); the operator's file is removed here once the keys are sealed (rm: a link
+  # is taken away, never what it names), kept with --keep-kek-passphrase-file or when the seal failed
+  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" "$@"; }
+  sealed=0
+  if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | seal --kek-passphrase-stdin && sealed=1
+  else seal </dev/null && sealed=1; fi
+  if [ "$sealed" = 1 ] && [ -n "$KP_FILE" ]; then
+    if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
+    else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
+  fi
+  [ "$sealed" = 1 ] \
     || stop_or_warn seal-keys "the sealing of the site keys (they stay plain files; the host check lists it)" "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
+  PP_FILE=""; KP_FILE=""
 fi
+KP_VALUE=""
+[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
+KP_FILE=""
+
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
-# H-94 depends: every step after this one needs the database
-"${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"  # H-94 depends
+# D-1091: protects none of the five; on a PoC box the database steps after it fail where they run
+"${COMPOSE[@]}" up -d --pull "$PULL" --wait db || stop_or_warn db-start "" "the database did not start (docker compose logs db)"
 # D-624: this release's steps once the database is up (tools/trialbox/prestart.py DB_STEPS: the roles of D-378, the
 # schemas no service owns of D-486, whatever a later release adds), by the same command an update runs and with the
 # compose files and profile an update uses (COMPOSE_FILE and COMPOSE_PROFILES in deploy/.env, written above)
@@ -1172,7 +1407,7 @@ BOOT_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy 2>/dev/null)" ||
 STOP_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy --stop 2>/dev/null)" || STOP_WAIT=290
 alive_start "waiting for every service to be healthy (up to ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} s)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}" \
-  || { alive_stop; "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }  # H-94 depends: the accounts and checks after this exec into the running services
+  || { alive_stop; "${COMPOSE[@]}" ps; stop_or_warn stack-health "" "the stack did not become healthy (docker compose logs)"; }  # D-1091: protects none of the five
 alive_stop
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
@@ -1254,6 +1489,9 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "$SYSTEMD_HOST" != 1 ]; then
 elif [ "$SYSTEMD_HOST" = 1 ]; then
   echo "install: warning: no $CRON_DIR: the backup runs from systemd timers; the log retention cron is not installed (H92-02)" >&2
 fi
+# H-94 (D-1091): a finish check warned on a PoC box: the nightly signed head is not written into the refused folder
+[ "${ANCHOR_UNSAFE:-0}" = 0 ] || [ ! -f "$CRON_DIR/trialbox-retention" ] \
+  || sed -i 's/; python3 -m tools.trialbox audit-sign//' "$CRON_DIR/trialbox-retention"
 if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]; then
   # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
   install -m 644 deploy/logrotate/trialbox /etc/logrotate.d/trialbox && echo "    host logs: /etc/logrotate.d/trialbox"
@@ -1362,9 +1600,21 @@ for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of t
     FAILS+=("the reference data pack $(basename "$f") was not loaded (python -m tb_common.refdata load, error above): it stays in deploy/refdata/pending; re-run deploy/install.sh to load it again, or tools/apply_update.sh <bundle with refdata>")
   fi
 done
+
 if [ "$CTGOV" = offline ] && ! "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata status 2>/dev/null | grep -q pack_id; then
   echo "install: note: offline ClinicalTrials.gov needs a reference data pack: tools/apply_update.sh <bundle with refdata>" >&2
 fi
+
+# V-18 (D-1182, DB-C1): the code systems, in one step from one manifest: the hospital's licensed copies from its folder
+# (TB_LICENSED_DIR) into the terminology volume, then the vocabulary and the FHIR store from the volume and the shipped
+# tables. The same command is the manual update. A system not loaded is a line of the "information still needed" page,
+# never a stop: deploy/terminology-update.sh loads it later, with no reinstall. Only a fault (a copy given but refused,
+# or a reader not loaded) is also a line of the list; a system the box was not given is expected, not a fault
+say "code systems: the hospital's folder, the vocabulary and the FHIR store (deploy/terminology-update.sh)"
+deploy/terminology-update.sh 2>&1 | sed 's/^/    /' || true
+while IFS="$(printf '\t')" read -r tl_key tl_why; do
+  [ -z "$tl_key" ] || tb_stop_list "terminology/$tl_key" "$tl_why" "code system $tl_key not loaded (deploy/terminology-update.sh loads it later)"
+done < <(PYTHONPATH=. python3 -m tools.terminology_load still-needed --faults --site deploy/site 2>/dev/null)
 
 for f in deploy/updates/pending_audit/*.json; do  # the bundle's update.applied event, deferred until now
   [ -f "$f" ] || continue
@@ -1403,31 +1653,73 @@ fi
 # ------------------------------------------------------------------------------------------------ 5. accounts
 if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the owner makes the first accounts in the first-run wizard
   say "first accounts: the first-run wizard (box-install.sh shows its address and one-time code)"
+  ONCE_WHERE="with the account the owner makes in the first-run wizard"
 else
 say "first console administrator"
 ADMIN_MAIL="$(sed -n 's/^MAIL_ADMIN_ADDR=//p' deploy/.env | head -1)"
 ADMIN_MAIL="${ADMIN_MAIL:-${TB_ADMIN_EMAIL:-}}"
+# H-96 (7097514776; H-94 (5): a secret where others can read it): the administrator's first password and enrolment
+# code are shown on a terminal once and are never written to a log. On stdout only when stdout is a terminal; else on
+# the controlling terminal (box-install.sh tees stdout to deploy/site/box/install.log, a rehearsal to its step log);
+# with no terminal at all, in a root-only file in the home that the passwd entry names, never printed. No variable of
+# the caller names where they go (no home from the environment, no knob); a link at the file's name is refused, the file is made new
+show_once() {  # $1: the one-time text (an argument of a shell function: no process, no temporary file)
+  local home
+  ONCE_WHERE="as admin, with the password and the enrolment code shown once on this terminal above"
+  if [ -t 1 ]; then printf '%s\n' "$1"; return 0; fi
+  if { : >> /dev/tty; } 2>/dev/null; then
+    printf '%s\n' "$1" >> /dev/tty
+    echo "    shown on this terminal only: never in this output, which a log may keep"
+    return 0
+  fi
+  home="$(getent passwd "$(id -u)" | cut -d: -f6)" || home=""  # no passwd entry: no file, a warning says so
+  ONCE_FILE="${home%/}/trialbox-admin-first-sign-in"
+  ONCE_WHERE="as admin: the first password and the enrolment code were not kept (the FAIL lines below say why)"
+  if [ -z "$home" ] || [ ! -d "$home" ]; then  # no passwd entry or home for this user (never root's on a box)
+    ONCE_WHERE="as admin: the first password and the enrolment code were not kept (no home for uid $(id -u))"
+    echo "    no terminal and no home for uid $(id -u) in the passwd file: the first password and enrolment code were not kept; run console.cli reset-password admin and enrol-code admin on a terminal" >&2
+    return 0
+  fi
+  if [ -L "$ONCE_FILE" ] || { [ -e "$ONCE_FILE" ] && [ ! -f "$ONCE_FILE" ]; }; then
+    FAILS+=("no terminal, and $ONCE_FILE is a link or not a regular file: the first password and enrolment code were not kept; remove it, then console.cli reset-password admin and enrol-code admin on a terminal")
+    return 0
+  fi
+  rm -f "$ONCE_FILE"
+  if ! (umask 077; set -C; printf '%s\n' "$1" > "$ONCE_FILE") 2>/dev/null; then
+    FAILS+=("no terminal, and $ONCE_FILE could not be made new: the first password and enrolment code were not kept; console.cli reset-password admin and enrol-code admin on a terminal")
+    return 0
+  fi
+  ONCE_WHERE="as admin, with the password and the enrolment code in $ONCE_FILE (root only: read it once, then remove it)"
+  echo "    no terminal to show it on: it is in $ONCE_FILE (root only, 0600), not in this output. Read it once" \
+    "(sudo cat $ONCE_FILE), hand it to the administrator in person, then remove it (sudo rm $ONCE_FILE)"
+}
 if [ -n "$ADMIN_MAIL" ]; then
-  "${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin --mailbox "$ADMIN_MAIL"
+  ONCE="$("${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin --mailbox "$ADMIN_MAIL")" \
+    || FAILS+=("the first administrator was not made (console.cli bootstrap-admin above)")
 else
-  "${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin
+  ONCE="$("${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin)" \
+    || FAILS+=("the first administrator was not made (console.cli bootstrap-admin above)")
 fi
-# T-632 (OPS-013, D-192): the first administrator's enrolment code, printed once; without it the account cannot set
-# up its authenticator. An administrator who already has one gets none (exit 2: nothing to print)
+# T-632 (OPS-013, D-192): the first administrator's enrolment code, shown once; without it the account cannot set
+# up its authenticator. An administrator who already has one gets none (exit 2: nothing to show)
 set +e
 ENROL="$("${COMPOSE[@]}" exec -T console python -m console.cli enrol-code admin 2>&1)"; rc=$?
 set -e
 case "$rc" in
-  0) echo "$ENROL" | sed 's/^/    /'; echo "    hand the enrolment code to the administrator in person; it works once, for 24 hours" ;;
+  0) ONCE="$ONCE"$'\n'"$ENROL"$'\n'"hand the enrolment code to the administrator in person; it works once, for 24 hours" ;;
   2) echo "    admin has an authenticator already: no enrolment code (console.cli reset-totp admin for a new one)" ;;
-  *) echo "$ENROL" | sed 's/^/    /' >&2; FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
+  *) ONCE="$ONCE"$'\n'"enrol-code admin failed (rc $rc):"$'\n'"$ENROL"
+     FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
 esac
+ENROL=""
+show_once "$(printf '%s\n' "$ONCE" | sed 's/^/    /')"
+ONCE=""
 echo "    add coordinators and viewers on the console's Users page, or: docker compose exec console python -m console.cli add-user"
 fi
 
 # NEW-STD-2 (D-562): the first signed head of the audit chain, when the site named an anchor folder: the night's own
 # command, once, so the box does not wait for 00:20 for its first head. Not a stop: a line of the install's report
-if [ -n "$(envget TB_AUDIT_ANCHOR_TARGETS)" ] && [ "$(id -u)" = 0 ]; then
+if [ -n "$(envget TB_AUDIT_ANCHOR_TARGETS)" ] && [ "$(id -u)" = 0 ] && [ "${ANCHOR_UNSAFE:-0}" = 0 ]; then
   say "audit chain: the first signed head"
   if SIGN_OUT="$(python3 -m tools.trialbox audit-sign 2>&1)"; then
     echo "$SIGN_OUT" | sed 's/^/    /'
@@ -1440,15 +1732,16 @@ fi
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
 HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"})
-# H-94 (5): its FAIL lines about a secret's mode (deploy/.env, a key, a token) are kept apart: on a PoC box they stay
-# FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before
+# H-94 (5): its FAIL lines of a kept refusal (tb_kept_fails) are kept apart: on a PoC box they stay
+# FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before. tee -a: when this output is a
+# file (box-install.sh's install.log, a rehearsal's step log) /dev/fd/8 is opened again, and without -a it is emptied
 HOST_OUT=""; exec 8>&1
-HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee /dev/fd/8)" \
+HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee -a /dev/fd/8)" \
   || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
 exec 8>&-
 SECRET_FAILS=()
-while IFS= read -r l; do SECRET_FAILS+=("the host check: $l"); done < <(printf '%s\n' "$HOST_OUT" \
-  | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password' | sed -E 's/^FAIL +//' || true)
+while IFS= read -r l; do SECRET_FAILS+=("the host check: $l"); done < <(printf '%s\n' "$HOST_OUT" | tb_kept_fails \
+  | sed -E 's/^FAIL +//' || true)
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
 if [ "$MODE" = gpu ]; then
@@ -1487,7 +1780,7 @@ GATES_MODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).ge
 cat <<EOT
 
   TrialBox is running.
-  Console:            $URL   (sign in as admin with the password and the enrolment code printed above)
+  Console:            $URL   (sign in ${ONCE_WHERE:-as admin})
   Intake mailbox:     $(sed -n 's/^MAIL_INTAKE_ADDR=//p' deploy/.env | head -1)
   Feed folder:        $(envget TB_SOURCE_DIR | grep . || echo "-")   mapping: deploy/site/mapping, then the image
   $JUDGE
@@ -1510,12 +1803,13 @@ fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # H-94: on a PoC box each FAIL line is a warning and a line of the list, and the install ends 0; elsewhere every
 # FAIL line, then exit 1, as before
-# H-94 (5): on a PoC box a FAIL line of the host check about a secret's mode stays a FAIL: the other FAIL lines warn
+# H-94 (5): on a PoC box a FAIL line of the host check of a kept refusal (tb_kept_fails: a secret's mode, and (2),
+# (3)) stays a FAIL: the other FAIL lines warn
 # and are listed, then those lines and exit 1. On any other box the lines below stop, with master's words
 if [ "${#SECRET_FAILS[@]}" -gt 0 ] && tb_poc_box; then
   for f in "${FAILS[@]}"; do stop_or_warn --silent "fail: $(printf '%s' "$f" | cut -c1-40)" "" "FAIL: $f"; done
   printf 'install: FAIL: %s\n' "${SECRET_FAILS[@]}" >&2
-  exit 1  # H-94 (5): a secret's file or key where others can read it
+  exit 1  # H-94 (5): a secret's file or key where others can read it (and the (2), (3) lines of tb_kept_fails)
 fi
 if [ "${#FAILS[@]}" -gt 0 ]; then
   tb_poc_box || printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2

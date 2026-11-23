@@ -224,7 +224,8 @@
             "image",
             "refdata",
             "other",
-            "host"
+            "host",
+            "terminology"
           ]
         },
         "sha256": {

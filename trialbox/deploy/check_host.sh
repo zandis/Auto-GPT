@@ -40,14 +40,14 @@ while [ $# -gt 0 ]; do
     --engine-probe) RRS_PROBE="$2"; shift ;;
     --gpu-index) RRS_INDEX="$2"; shift ;;
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
-    *) echo "unknown option $1" >&2; exit 2 ;;
+    *) echo "unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
   esac
   shift
 done
 # REHEARSAL-REAL-SERVERS (H-89): all three or none, never on GB10
 if [ "$RRS" = 1 ] || [ -n "$RRS_PROBE" ] || [ -n "$RRS_INDEX" ]; then
   { [ "$RRS" = 1 ] && [ -n "$RRS_PROBE" ] && [ -n "$RRS_INDEX" ] && [ "$GB10" = 0 ] && [ -n "$GPU_PROFILE" ]; } \
-    || { echo "--rehearsal-real-servers needs --engine-probe, --gpu-index and --gpu <profile> (install.sh's rehearsal)" >&2; exit 2; }
+    || { echo "--rehearsal-real-servers needs --engine-probe, --gpu-index and --gpu <profile> (install.sh's rehearsal)" >&2; exit 2; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 FAILS=0
@@ -88,12 +88,12 @@ gb10_memory_check() {
 }
 [ -n "$GPU_PROFILE" ] || [ "$(envget TB_LLM_MODE)" != vllm ] || GPU_PROFILE=default
 if [ "$GPU_ONLY" = 1 ]; then
-  [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }
+  [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
   [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"; }
   [ "$GB10" = 1 ] && gb10_memory_check
   gpu_image_check
   echo "---"
-  [ "$FAILS" -eq 0 ] && { echo "GPU host checks passed"; exit 0; } || { echo "$FAILS GPU check(s) failed"; exit 1; }
+  [ "$FAILS" -eq 0 ] && { echo "GPU host checks passed"; exit 0; } || { echo "$FAILS GPU check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 
 # ------------------------------------------------------------------------------------------------ host baseline
@@ -213,27 +213,115 @@ done
 fi  # the LUKS lines; on WSL2 BitLocker's lines above
 if [ -z "$(swapon --noheadings 2>/dev/null)" ]; then pass "swap disabled"; else fail "swap is enabled (swapoff -a; remove from /etc/fstab)"; fi
 # H-89 (the integrator's ruling, item 1 of #1370's round): the passphrase back end needs no TPM. Chosen: this run has
-# TB_KEK_BACKEND=passphrase and a TB_KEK_PASSPHRASE (the install's way out, never printed), or the site keys are
-# sealed under it (kek.json). Then a missing or unusable TPM is a WARN that names it; otherwise it FAILs as before
-kek_passphrase() {
-  { [ "${TB_KEK_BACKEND:-}" = passphrase ] && [ -n "${TB_KEK_PASSPHRASE:-}" ]; } \
-    || grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null
-}
+# TB_KEK_BACKEND=passphrase (the install's way out), or the site keys are sealed under it (kek.json). Then a missing
+# or unusable TPM is a WARN that names it; otherwise it FAILs as before. H-96: the passphrase itself is never read
+# here (it comes from a file only root can read, or stdin, never the environment)
+kek_sealed_pp() { grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null; }
+kek_passphrase() { [ "${TB_KEK_BACKEND:-}" = passphrase ] || kek_sealed_pp; }
 KEK_PP="the KEK is under the passphrase back end (TB_KEK_BACKEND=passphrase), which needs no TPM"
+# H-96 (L-3 of the review of #1398; the integrator's ruling 7102655419): the back end only named (nothing sealed under
+# it yet) WARNs on a PoC box alone, as one line of the PoC list (D-1091: the STOP-OR-WARN block below, the same rule
+# as tools/trialbox/stops.py, where the box's recorded environment decides, never a caller's variable); on any other
+# box it is a FAIL
+# ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
+# the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
+# (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk,
+# memory, card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does
+# not have it; (5) a secret would be read from, or written to, a place others can read. Every other stop calls
+# stop_or_warn: on a PoC box a warning, a line of the one list (deploy/site/poc-stops.jsonl, which trialbox doctor
+# shows) and the step goes on; on any other box the same stop as before, the same words and exit code. "H-94
+# depends (N)" marks a stop kept because it protects stop N on the input that reaches it (D-1091, H94-03).
+# A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
+# The sources are TB_ENV in deploy/.env read as compose reads it (an "export", blanks, a comment; the last line wins.
+# A file that cannot be read, or a value none of the four: PRODUCTION), an installed box with none (PRODUCTION,
+# D-127), the rehearsal mark on a box that records none yet (VALIDATION), and this run's command line, upper-cased
+# only, as ENV-EARLY reads it (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a
+# caller's environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+tb_env_raw() {  # FILE: TB_ENV's value as compose reads it (an "export", blanks around the name and the value, a comment
+  # after an unquoted value; the last line wins), quotes kept; nothing when the file names none or cannot be read
+  { sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$1" 2>/dev/null || true; } | tail -1 \
+    | sed -E -e "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//'
+}
+tb_env_of() { tb_env_raw "$1" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]'; }  # FILE: no quotes, no blanks, upper case
+tb_poc_box() {
+  _d="$TB_STOP_DEPLOY"; _rec=""
+  if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
+    [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
+    _rec="$(tb_env_of "$_d/.env")"
+  fi
+  if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
+  if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
+  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr '[:lower:]' '[:upper:]')"
+  [ -n "$_arg" ] || [ "$TB_STOP_REHEARSAL" != 1 ] || _arg=VALIDATION
+  for _e in "$_rec" "$_arg"; do case "$_e" in ""|DEV|TEST|VALIDATION) ;; *) return 1 ;; esac; done
+  [ -n "$_rec$_arg" ]
+}
+tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped for a JSON string
+  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's#[^ ]*/uploads/[^ ]*#<a path under uploads/>#g' \
+    -e 's/\([a-z0-9_]*\(password\|passphrase\|token\|secret\|_key\)\)=[^ ]*/\1=<hidden>/gI' -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
+  _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
+  [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
+  # a link is never followed, nor a second name of another file (review L-2 of #1430: one name, its own)
+  if [ ! -L "$_f" ] && { [ ! -e "$_f" ] || [ "$(stat -c %h "$_f" 2>/dev/null)" = 1 ]; } \
+      && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+      && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
+        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
+    chmod 0640 "$_f" 2>/dev/null || true
+  else
+    printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
+  fi
+}
+stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning, a line of the list, 0; else the stop
+  _rc=1; _silent=0
+  while :; do case "$1" in --rc) _rc="$2"; shift 2 ;; --silent) _silent=1; shift ;; *) break ;; esac; done
+  _key="$1"; _skipped="$2"; shift 2
+  if ! tb_poc_box; then
+    if command -v alive_stop >/dev/null 2>&1; then alive_stop; fi
+    [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
+    exit "$_rc"
+  fi
+  # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
+  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  tb_stop_list "$_key" "$_skipped" "$*"
+  return 0
+}
+tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
+  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
+  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
+  _in="$(cat)"
+  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
+    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
+  } | sort -u || true
+}
+# ---- end of STOP-OR-WARN
+# H-94: the host check's PoC box is the record (deploy/.env beside the --env file, the mark) alone; it never stops by
+# the helper (its answer is its exit code): it asks tb_poc_box and writes one line with tb_stop_list, the one list
+TB_STOP_WHO=check_host; TB_STOP_FILE=check_host.sh; TB_STOP_DEPLOY="$(dirname "$ENV_FILE")"; TB_STOP_ARG_ENV=""
+TB_STOP_REHEARSAL=0
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
-elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
+elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_sealed_pp; then
   warn "no TPM device: $KEK_PP; the disk unlock is not bound to this board"
+elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
+  NO_TPM_PP="no TPM device: $KEK_PP, but nothing is sealed under it yet; the disk unlock is not bound to this board"
+  if tb_poc_box; then
+    # the one list's writer says on stderr when it cannot write its line (H-96's review: the WARN says so too)
+    if [ -z "$(tb_stop_list no-tpm "the TPM binding of the KEK" "$NO_TPM_PP" 2>&1 >/dev/null)" ]; then
+      warn "$NO_TPM_PP (a PoC box: listed in deploy/site/poc-stops.jsonl)"
+    else warn "$NO_TPM_PP (a PoC box: NOT listed, deploy/site/poc-stops.jsonl cannot be written)"; fi
+  else fail "$NO_TPM_PP: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) goes on without a TPM"; fi
 elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then
   # D-836: a device node is not enough; systemd-creds needs the TPM and its TSS2 libraries. Asked of the running host
   # only (a test's TB_HOST_ROOT has no kernel to ask)
   if [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1 && kek_passphrase; then
     warn "TPM 2.0 device present but not usable (systemd-creds has-tpm2): $KEK_PP"
   elif [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1; then
-    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM
+    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with --kek-passphrase-file)" TPM
   else
     pass "TPM 2.0 device present"
   fi
-else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM; fi
+else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with --kek-passphrase-file)" TPM; fi
 
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then
@@ -311,7 +399,7 @@ fi
 if [ "$BASELINE" = 1 ]; then
   echo "---"
   facilities
-  [ "$FAILS" -eq 0 ] && { echo "host baseline checks passed"; exit 0; } || { echo "$FAILS baseline check(s) failed"; exit 1; }
+  [ "$FAILS" -eq 0 ] && { echo "host baseline checks passed"; exit 0; } || { echo "$FAILS baseline check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 
 # network egress (§2, deploy/network.sh)
@@ -453,4 +541,4 @@ fi
 
 facilities
 echo "---"
-[ "$FAILS" -eq 0 ] && { echo "host checks passed"; exit 0; } || { echo "$FAILS check(s) failed"; exit 1; }
+[ "$FAILS" -eq 0 ] && { echo "host checks passed"; exit 0; } || { echo "$FAILS check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)

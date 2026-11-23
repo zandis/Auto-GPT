@@ -202,6 +202,8 @@ _D1 = {
     "HostFingerprint",
     "UpdateFile",
     "UpdateManifest",
+    "Pack",  # H-95: the manifest's pack and the model pack it names, release identities only
+    "RequiresModel",
     # release.json (T-110b, D-340): versions, digests and sums of the vendor's own build, no site or patient data
     "ReleaseRecord",
     "ReleaseImage",

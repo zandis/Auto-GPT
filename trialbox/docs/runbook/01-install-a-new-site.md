@@ -27,6 +27,25 @@ the site's install (RUNBOOK §16, "A rehearsal box"), keeping the record.
 `python -m tools.gpu_sizing` prints the hardware estimate. Feasibility needs no GPU; notes need one. The tier
 rule is held by `tests/unit/test_install_tiers.py`.
 
+**Load from the stick, two packs** (H-95). A release comes as a software pack `trialbox-<version>.tar` (the box's
+own images, the host tree, rule sets, reference data, the installer; a few GB, what every update carries) and a model
+pack `trialbox-models-<version>.pack` (the engine image and the weights; installed once, and again only when the
+pair or the engine changes), each signed on its own, each with its `.sha256`. The software pack names its model
+pack by that pack's signed identity (its bundle id and the sha256 of its signed manifest), and `install.sh` finds
+the model pack beside it by that identity (or takes the one its model-pack option names); a whole bundle of before still installs
+alone. Nothing is copied off the stick: the verify pass hashes every payload on the stick (no image archive and no
+weight file is written), then each pack is loaded straight from the stick, the model pack first, every image and
+weight file hashed again as it goes in (a weight file takes its name only when its hash holds; an image stream
+whose hash fails at its end is cut short and removed). Before it loads, the install prints
+`disk: installed size …; peak during the load …, at most … (installed + 10 %); the stick holds …`;
+the free disk needed is that peak. A software pack whose model pack the box does not hold
+is refused before anything is loaded, naming the model pack's bundle id and manifest sha256. The release walked on
+2026-11-23 was 60.7 GB in one bundle; the bundle builder prints the two packs' sizes when it builds them.
+An update that changes the pair (a new model pack with a new software pack) loads the model pack first with the
+software pack named by `--for-software` (the update tool refuses a model pack that the software on the box does not
+name, unless the software pack loaded straight after it names it), then the software pack; the installer does this
+itself for a first install. An update of the software alone takes the software pack only.
+
 **One command** (H-22, D-996). The vendor hands over a USB stick with four files: the signed bundle
 `trialbox-<version>.tar` and its `.sha256`, and the bootstrap `trialbox-bootstrap.sh` and its `.sig`. The vendor key,
 `vendor_ed25519.pub`, comes apart from the stick (out of band). Nothing TrialBox is on the machine before this command:
@@ -39,8 +58,9 @@ the bundle's signature with the same key and the release's host tree against it,
 and runs `/opt/trialbox/deploy/install.sh` with the bundle and the options after `--`. An install that stopped (a
 missing answer, a machine check) is run again by the same command. The installer verifies and loads the bundle,
 runs the settings wizard, makes one token per service, turns TLS on (the identity overlay, after `console.cli
-check-tls` passed), starts the stack, creates the first administrator and prints the password and the enrolment code
-once, writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
+check-tls` passed), starts the stack, creates the first administrator and shows the password and the enrolment code
+once on the terminal (never in its output, which a log may keep: box-install.sh keeps one; with no terminal at all
+they are in `/root/trialbox-admin-first-sign-in`, root only: read it once, hand both on in person, remove it), writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
 IT), installs both cron files (log retention and backups), runs the host check, names the judge (its role, the
 registry's label of the build the profile serves, and the pin) and ends with the `https://` console URL, which it
 checks from the box with the certificate the clinic PCs will see. It exits 1 when a FAIL line remains, and lists them
@@ -51,6 +71,16 @@ criteria that need a note's free text wait for a GPU or a pinned cloud model. Th
 (`e-embed-1`, BGE-M3, on the CPU) from the bundle's weights: every site bundle carries them (about 2.3 GB, 18
 files), and `release check` refuses a site bundle without them. A PRODUCTION install stops when they are missing.
 How fast the CPU embeds a hospital's records is not measured yet.
+
+**A machine without a usable TPM** (H-96). The site keys are then sealed under a passphrase (12 characters or more,
+one line). It goes in a file only root can read, and its name goes after `--`: after sudo's own password prompt, type
+the passphrase, then press Enter (nothing is shown):
+`sudo bash -c 'umask 077; IFS= read -rs p; printf "%s\n" "$p" > /root/trialbox-kek.pass'`, then the one command
+with `-- --tier large --answers /root/site/site.yaml --kek-passphrase-file /root/trialbox-kek.pass`, and with
+TB_KEK_BACKEND=passphrase set by sudo before bash. The file must be a regular file owned by root with mode 0600; the
+seal step removes it once the keys are sealed. `--kek-passphrase-stdin` instead asks for it twice on the terminal. A
+passphrase in the environment (sudo's preserve-env or -E option) is refused before anything, on every box: sudo writes a variable it keeps, with its value, to the system journal. A box
+installed that way rotates its passphrase (§23, "Rotate the KEK passphrase").
 
 **Re-running the installer.** After the release's own checks pass (pre-start) and before the database starts, the installer may run Compose `down --remove-orphans` on its own project. It does so only when every container of the project was started from this `deploy` folder and the stack is not running healthy (a failed earlier run). A healthy stack is kept with its logs. A `COMPOSE_PROJECT_NAME` in the shell that is not this install's project, or a container of the project from another folder, stops the installer and nothing is removed. Volumes and data are always kept.
 重新執行安裝程式時，版本檢查（pre-start）通過後、資料庫啟動前，只有當此專案的所有容器都來自本 `deploy` 資料夾且堆疊並非健康運行（先前執行失敗）時，才會對本專案執行 `down --remove-orphans`。健康運行的堆疊與其日誌會保留。若 shell 的 `COMPOSE_PROJECT_NAME` 不是本安裝的專案，或專案中有來自其他資料夾的容器，安裝程式會停止且不移除任何項目。資料卷與資料一律保留。

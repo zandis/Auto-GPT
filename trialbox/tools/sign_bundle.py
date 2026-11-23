@@ -16,6 +16,10 @@ that accepts any installed state; a release that changes a schema or a pin ships
 ``tools/update_status.py``), and, for a bundle with images, ``release.json`` and ``images.lock`` (T-110's release build
 writes both; ``verify_update.py`` refuses images without them or with a null digest). ``--rotate-add`` makes a key
 rotation bundle: signed by a trusted key, it adds the new key and may retire one; a box accepts it once.
+
+H-95 (manifest 1.4.0): ``--pack model`` signs a model pack (the engine image and the weights only); ``--pack software
+--requires-model MODEL_PACK.tar`` signs a software pack that names that model pack by its signed identity (its
+bundle id and the sha256 of its signed manifest.json, read from the file given). Without ``--pack``: a whole bundle.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host", "terminology")  # V-18 (D-1182)
 
 
 def keygen(out: Path) -> tuple[Path, Path]:
@@ -145,6 +149,7 @@ def build(
     images_lock: dict[str, Any] | None = None,
     rotation: dict[str, Any] | None = None,
     valid_days: int = 365,
+    pack: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import load_pem_private_key
@@ -191,6 +196,8 @@ def build(
             manifest[field] = hashlib.sha256(meta[name]).hexdigest()
     if rotation is not None:
         manifest["rotation"] = rotation
+    if pack is not None:
+        manifest["pack"] = pack
     from tb_contracts import validate
 
     validate("update_manifest", manifest)
@@ -220,6 +227,22 @@ def build(
     return manifest
 
 
+def model_pack_identity(path: Path) -> dict[str, str]:
+    """H-95: a model pack's signed identity, read from the pack itself: its bundle id and the sha256 of its signed
+    manifest.json (the bytes its signature covers)."""
+    try:
+        with tarfile.open(path, "r:") as tf:
+            m = tf.extractfile("manifest.json")
+            body = m.read() if m is not None else b""
+    except (OSError, KeyError, tarfile.TarError) as exc:
+        raise SystemExit(f"{path}: not a signed bundle ({exc})") from exc
+    manifest = json.loads(body)
+    # a whole bundle (no pack) holds its models too (D-1094): a software pack may name it
+    if (manifest.get("pack") or {}).get("kind") not in ("model", None):
+        raise SystemExit(f"{path}: a software pack holds no models: name its model pack or a whole bundle")
+    return {"bundle_id": str(manifest["bundle_id"]), "manifest_sha256": hashlib.sha256(body).hexdigest()}
+
+
 def main(argv: list[str] | None = None) -> int:
     import sys
 
@@ -246,6 +269,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--images-lock", type=Path, help="the release's deploy/images.lock (required with images)")
     b.add_argument("--rotate-add", type=Path, help="a key rotation bundle: the new vendor public key")
     b.add_argument("--rotate-retire", help="with --rotate-add: the key_id to retire")
+    b.add_argument("--pack", choices=("model", "software"), help="H-95: one half of a split release")
+    b.add_argument("--requires-model", type=Path, help="with --pack software: the model pack it needs")
     b.add_argument("items", nargs="+", help="kind:path[=bundle/path]")
     args = ap.parse_args(argv)
     if args.cmd == "keygen":
@@ -264,10 +289,17 @@ def main(argv: list[str] | None = None) -> int:
     def load(p: Path | None) -> dict[str, Any] | None:
         return json.loads(p.read_text(encoding="utf-8")) if p else None
 
+    if (args.pack == "software") != (args.requires_model is not None):
+        raise SystemExit("--pack software and --requires-model MODEL_PACK go together")
+    pack: dict[str, Any] | None = {"kind": args.pack} if args.pack else None
+    if pack is not None and args.requires_model is not None:
+        pack["requires_model"] = model_pack_identity(args.requires_model)
+
     m = build(args.key, args.id, items, args.out, args.signer, args.description, release_seq=args.release_seq,
               min_installed_version=args.min_installed, valid_days=args.valid_days, compat=load(args.compat),
               release=load(args.release), images_lock=load(args.images_lock),
-              rotation=rotation_for(args.rotate_add, args.rotate_retire) if args.rotate_add else None)  # fmt: skip
+              rotation=rotation_for(args.rotate_add, args.rotate_retire) if args.rotate_add else None,
+              pack=pack)  # fmt: skip
     print(f"wrote {args.out}: {len(m['files'])} files, bundle {m['bundle_id']}")
     return 0
 
