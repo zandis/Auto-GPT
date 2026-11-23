@@ -51,8 +51,9 @@ closed). Checks:
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
 * ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
   (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD``,
-  ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no ``/etc/cron.d/trialbox-backup`` on a
-  host with ``/etc/cron.d``, no good backup or one
+  ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no schedule that fires (H-92: the
+  ``trialbox-backup-nightly`` timer where systemd is the init, else ``/etc/cron.d/trialbox-backup`` and a cron
+  daemon; both at once is a problem too), no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
   on a platform it passes and points to ``backup_target`` and ``backup_job``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
@@ -196,6 +197,7 @@ class DoctorInputs:
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
     timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
+    cron_running: Callable[[], bool] | None = None  # H-92: a cron daemon runs; None: not asked (inputs_from asks)
     proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
     gpu_query: Callable[[], tuple[str, str] | None] | None = None  # NEW-WIN-5: (card, driver); None: nvidia-smi
 
@@ -992,7 +994,7 @@ def check_site_key(inp: DoctorInputs) -> Check:
 
 
 def check_backup(inp: DoctorInputs) -> Check:
-    """D-274 (CR-058, OPS-028, OPS-048): targets, an off-box one, an alert route, the cron file, the newest good
+    """D-274 (CR-058, OPS-028, OPS-048): targets, an off-box one, an alert route, the schedule (H-92), the newest good
     backup's age, WAL archiving. In PRODUCTION every problem is a FAIL except archiving off (WARN)."""
     if inp.platform:
         return Check(
@@ -1007,9 +1009,12 @@ def check_backup(inp: DoctorInputs) -> Check:
     cfg = bs.config(inp.deploy, dict(inp.env), process_env=False)
     st = bs.status(cfg)
     fails = list(st["problems"])
-    if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
-        fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
-    warns = []
+    # H-92: the timer where systemd is the init, else the cron file and a cron daemon; one action when none fires
+    running = inp.cron_running() if inp.cron_running is not None else None
+    sched = bs.schedule_state(inp.cron_dir, (inp.timer_state or _timer_state)(bs.TIMER), running)
+    if sched["problem"]:
+        fails.append(sched["problem"])
+    warns = [sched["warn"]] if sched["warn"] else []
     old_form = ""
     with contextlib.suppress(OSError):  # H-88: a schedule installed before the tools brought their own environment
         old_form = bs.cron_old_form((inp.cron_dir / bs.CRON_NAME).read_text(encoding="utf-8"))
@@ -1023,7 +1028,7 @@ def check_backup(inp: DoctorInputs) -> Check:
         warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
     off = sum(t["offbox"] for t in st["targets"])
     good = st["newest_good"]
-    facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
+    facts = f"schedule: {sched['active']}; {len(cfg.targets)} target(s), {off} off-box; newest good " + (
         f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
     if fails:
         return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails + warns) + f" ({facts})")
@@ -2315,7 +2320,14 @@ def inputs_from(
         ingest_lake=wd,
         deploy=deploy,
         input_errors=tuple(errors),
+        cron_running=_cron_running,
     )
+
+
+def _cron_running() -> bool:
+    from tools.trialbox import backup_schedule as bs
+
+    return bs.cron_daemon()
 
 
 def render(checks: list[Check]) -> str:

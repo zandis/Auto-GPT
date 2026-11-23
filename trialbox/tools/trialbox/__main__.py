@@ -171,10 +171,11 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     bs.add_argument("--deploy", type=Path, default=deploy)
     bs.add_argument("--json", action="store_true")
     bs.add_argument("--quiet", action="store_true", help="print nothing when all is well (cron)")
-    bi = sub.add_parser("backup-install", help="install.sh's backup step: cron, WAL archiving, first backup (D-274)")
+    bi = sub.add_parser("backup-install", help="install.sh's backup step: the schedule (timer or cron), WAL archiving, first backup")
     bi.add_argument("--deploy", type=Path, default=deploy)
     bi.add_argument("--cron-dir", type=Path, default=Path("/etc/cron.d"))
-    bi.add_argument("--no-first-run", action="store_true", help="install the cron file only; no first backup")
+    bi.add_argument("--systemd-dir", type=Path, default=Path("/etc/systemd/system"))
+    bi.add_argument("--no-first-run", action="store_true", help="install the schedule only; no first backup")
     mi = sub.add_parser(
         "migrate", help="the schemas no service owns, as the admin (D-486); each service's stores (D-921)"
     )
@@ -336,7 +337,7 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         from tools.trialbox import backup_schedule as bsch
 
         if a.cmd == "backup-install":
-            return bsch.main_install(a.deploy, a.cron_dir, first=not a.no_first_run)
+            return bsch.main_install(a.deploy, a.cron_dir, first=not a.no_first_run, systemd_dir=a.systemd_dir)
         if a.cmd == "backup-nightly":
             return bsch.main_nightly(a.deploy)
         return bsch.main_status(a.deploy, a.json, a.quiet)
