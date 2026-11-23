@@ -458,6 +458,10 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # deploy/install.sh is now a link into the signed tree (run by that path, so ROOT stays this folder)
   [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"
   say "continuing from the signed release ($ROOT/deploy/install.sh -> $(readlink "$ROOT/deploy/install.sh"))"
+  # REHEARSAL-REAL-SERVERS (H-89): the compose override this run exported (above) is never handed on: the run from
+  # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
+  [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
+  # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
