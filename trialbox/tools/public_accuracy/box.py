@@ -179,6 +179,14 @@ def run(built: Path, work: Path, screen: bool = True, approve: bool = True) -> d
     )
     box.gw.per_recipient_per_day = MAIL_PER_RECIPIENT_PER_DAY
     key = secrets.token_hex(16)  # the stand-ins' key for this run only
+    # the run's services call the gateway under their own names, as on a box (D-437): one verified token each, not the
+    # old shared one, which the PRODUCTION gateway refuses as caller_unverified
+    from orchestrator import app as orch_app
+
+    from tools.role_demo import orch_client
+
+    orch_app._orch = box.orch
+    orch_client(orch_app.app)
     urls, servers = standin_pair(key)
     gw = gateway_clients(work, urls, key)
     canary = attach_models(box, gw["judge"], gw["verifier"])
