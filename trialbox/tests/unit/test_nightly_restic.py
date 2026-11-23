@@ -53,7 +53,10 @@ def test_a_passphrase_kek_and_no_kek_are_not_covered(
     pp = box["tmp"] / "kek.pass"  # H-96 (ruling 7094934985): tools.keys takes it from a root-only file, not the env
     pp.write_text("a passphrase long enough for the rule here\n", encoding="utf-8")
     pp.chmod(0o600)
-    assert _cli(capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--passphrase-file", str(pp))[0] == 0
+    assert (
+        _cli(capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--passphrase-file", str(pp))[0]
+        == 0
+    )
     assert "not covered by escrow shares" in rr.shares_cover(box["sec"])
 
 

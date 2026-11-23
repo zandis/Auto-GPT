@@ -59,7 +59,7 @@ def test_unattended_runbook_and_help_pass_only_the_exported_name() -> None:
         instructions = [
             "umask 077; IFS= read -rs TB_KEK_PASSPHRASE; printf",
             "> /root/trialbox-kek.pass",
-            "deploy/box-install.sh \"$bundle\" --answers owner.json --kek-passphrase-file /root/trialbox-kek.pass",
+            'deploy/box-install.sh "$bundle" --answers owner.json --kek-passphrase-file /root/trialbox-kek.pass',
         ]
         positions = [text.index(instruction) for instruction in instructions]
         assert positions == sorted(positions) and "--kek-passphrase-stdin" in text

@@ -273,6 +273,7 @@ def test_unseal_refuses_a_kek_path_inside_the_secrets_folder(
 
 def test_passphrase_init_then_wrap_and_unseal(box: dict[str, Path], capsys: pytest.CaptureFixture[str]) -> None:
     site = (box["sec"] / "site_hmac.key").read_bytes()
+
     # H-96 (ruling 7094934985): the passphrase from a file only root can read, never the environment
     def phrase_file(text: str) -> str:
         f = box["tmp"] / "kek.pass"

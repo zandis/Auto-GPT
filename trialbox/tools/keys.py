@@ -205,8 +205,10 @@ def given_passphrases(a: argparse.Namespace, env: Mapping[str, str]) -> tuple[di
     to remove once the command has done its work. A terminal on stdin is left to the prompts (``_passphrase``)."""
     got: dict[str, str] = {}
     used: list[str] = []
-    for var, file_opt, stdin_opt in (("TB_KEK_PASSPHRASE", "passphrase_file", "passphrase_stdin"),
-                                     ("TB_KEK_NEW_PASSPHRASE", "new_passphrase_file", "new_passphrase_stdin")):
+    for var, file_opt, stdin_opt in (
+        ("TB_KEK_PASSPHRASE", "passphrase_file", "passphrase_stdin"),
+        ("TB_KEK_NEW_PASSPHRASE", "new_passphrase_file", "new_passphrase_stdin"),
+    ):
         path, from_stdin = getattr(a, file_opt, None), getattr(a, stdin_opt, False)
         if path and from_stdin:
             raise K.KekError(f"--{file_opt.replace('_', '-')} and --{stdin_opt.replace('_', '-')}: give one")
@@ -227,8 +229,11 @@ def _passphrase(env: Mapping[str, str], var: str, prompt: str, twice: bool) -> s
     if env.get(var):
         return env[var]
     if not sys.stdin.isatty():
-        opt = "--new-passphrase-file FILE or --new-passphrase-stdin" if var == "TB_KEK_NEW_PASSPHRASE" else \
-            "--passphrase-file FILE or --passphrase-stdin"
+        opt = (
+            "--new-passphrase-file FILE or --new-passphrase-stdin"
+            if var == "TB_KEK_NEW_PASSPHRASE"
+            else "--passphrase-file FILE or --passphrase-stdin"
+        )
         raise K.KekError(f"no passphrase: give {opt}, or run on a terminal")
     first = getpass.getpass(f"{prompt}: ")
     if twice and getpass.getpass(f"{prompt} again: ") != first:
@@ -699,8 +704,11 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--passphrase-stdin", action="store_true", help="the passphrase: one line on stdin")
         if new:
             p.add_argument("--new-passphrase-file", help="the new passphrase: one line of a file only root can read")
-            p.add_argument("--new-passphrase-stdin", action="store_true",
-                           help="the new passphrase: one line on stdin (after the old one's line, when both)")
+            p.add_argument(
+                "--new-passphrase-stdin",
+                action="store_true",
+                help="the new passphrase: one line on stdin (after the old one's line, when both)",
+            )
         p.add_argument("--keep-passphrase-files", action="store_true", help="keep the passphrase files once used")
 
     ini = with_secrets(sub.add_parser("init", help="make the KEK and wrap the site keys"))

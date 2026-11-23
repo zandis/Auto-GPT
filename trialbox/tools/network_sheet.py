@@ -201,7 +201,8 @@ T: dict[str, dict[str, str]] = {
     "host_kek": {
         "en": "the host only; never in a container's configuration, the environment or a file other than the "
         "operator's root-only one (removed once used)",
-        "ja": "ホストのみ（コンテナの設定、環境変数、操作者の root 専用ファイル以外のファイルには残さない。そのファイルも使用後に削除）",
+        "ja": "ホストのみ（コンテナの設定、環境変数、操作者の root 専用ファイル以外のファイルには残さない。"
+        "そのファイルも使用後に削除）",
         "zh-TW": "僅主機（不寫入容器設定、環境變數，或操作者僅限 root 的檔案以外的檔案；該檔案用後即刪除）",
     },
     "every": {
@@ -507,8 +508,11 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
         ("TB_DB_PW_<SERVICE> (one role per service)", "deploy/.env (0600, root)", "db; each service its own only"),
         ("IMAP_PASS, SMTP_PASS", "deploy/.env (0600, root)", keep("IMAP_PASS")),
         # H-96: a file only root can read, or stdin; the environment is refused (sudo logs a kept variable)
-        ("KEK passphrase", "a root-only file (--kek-passphrase-file, 0600) or stdin (RUNBOOK §16)",
-         T["host_kek"][lang]),
+        (
+            "KEK passphrase",
+            "a root-only file (--kek-passphrase-file, 0600) or stdin (RUNBOOK §16)",
+            T["host_kek"][lang],
+        ),
         ("TB_KMS_TOKEN", "KMS token (RUNBOOK §17)", keep("TB_KMS_TOKEN")),
         ("CLOUD_LLM_API_KEY (empty by default)", "deploy/.env (0600, root)", keep("CLOUD_LLM_API_KEY")),
         (

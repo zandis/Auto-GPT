@@ -101,7 +101,7 @@ kp_read_file() {  # refused unless a regular file, not a link, owned by the user
   [ -f "$1" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"
   [ "$(stat -c %u "$1")" = "$(id -u)" ] || kp_die "--kek-passphrase-file $1 is owned by uid $(stat -c %u "$1"), not root (the user that runs this): refused; $kp_fix"
   [ "$(stat -c %a "$1")" = 600 ] || kp_die "--kek-passphrase-file $1 has mode $(stat -c %a "$1"), not 0600: refused; $kp_fix"
-  [ "$(wc -l < "$1")" -le 1 ] && [ "$(tail -c 1 "$1" | wc -l)" = "$(wc -l < "$1")" ] \
+  [ "$(tail -c 1 "$1" | wc -l)" = "$(wc -l < "$1")" ] \
     || kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"
   KP_VALUE=""; IFS= read -r KP_VALUE < "$1" || [ -n "$KP_VALUE" ] || :
   kp_check_value "--kek-passphrase-file $1"

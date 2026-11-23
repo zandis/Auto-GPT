@@ -185,7 +185,9 @@ def test_a_passphrase_kek_has_no_shares_and_gets_no_copy(
     pp = box["tmp"] / "kek.pass"  # H-96 (ruling 7094934985): tools.keys takes it from a root-only file, not the env
     pp.write_text("a passphrase long enough for the rule here\n", encoding="utf-8")
     pp.chmod(0o600)
-    rc, out = _cli(capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--passphrase-file", str(pp))
+    rc, out = _cli(
+        capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--passphrase-file", str(pp)
+    )
     assert rc == 0, out
     monkeypatch.setenv("TB_KEK_PASSPHRASE", "a passphrase long enough for the rule here")  # the library's own path
     target = box["tmp"] / "target"
