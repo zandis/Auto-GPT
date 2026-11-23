@@ -78,10 +78,18 @@ def test_the_shell_entry_without_no_backup_is_unchanged_on_production(tmp_path: 
     assert r.returncode == 1 and "an update is unfinished" in r.stderr
 
 
-def test_a_reason_alone_or_an_empty_reason_is_a_usage_error(tmp_path: Path) -> None:
-    root = _install(tmp_path, "TB_ENV=TEST")
+@pytest.mark.parametrize("env_line", ["TB_ENV=PRODUCTION", "TB_ENV=TEST"])
+def test_a_reason_alone_or_an_empty_reason_is_a_usage_error(tmp_path: Path, env_line: str) -> None:
+    """A reason alone: a usage error on PRODUCTION (exit 2). H-94 (D-1091): on a TEST box (a PoC box) a warning and a
+    line of the list, the reason is ignored (the backup is made), and the run goes on to the next refusal (the
+    unfinished update, kept)."""
+    root = _install(tmp_path, env_line)
     r = _sh(root, tmp_path, "--no-backup-reason", "why")
-    assert r.returncode == 2 and "goes with --no-backup" in r.stderr
+    assert "goes with --no-backup" in r.stderr
+    if env_line == "TB_ENV=PRODUCTION":
+        assert r.returncode == 2
+    else:
+        assert r.returncode == 1 and "warning (PoC box, H-94)" in r.stderr and "an update is unfinished" in r.stderr
     r = _sh(root, tmp_path, "--no-backup", "--no-backup-reason", "")
     assert r.returncode != 0 and "needs a reason" in r.stderr
 

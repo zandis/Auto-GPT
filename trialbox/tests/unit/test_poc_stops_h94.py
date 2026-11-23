@@ -57,7 +57,7 @@ CALL = re.compile(
 RATCHET = {
     "deploy/install.sh": 0,
     "deploy/box-install.sh": 0,
-    "tools/apply_update.sh": 16,
+    "tools/apply_update.sh": 0,
     "deploy/bootstrap.sh": 17,
     "deploy/launcher.sh": 1,
     "deploy/check_host.sh": 6,
@@ -489,7 +489,8 @@ def test_on_production_every_fail_line_and_exit_1_stay(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(("rel", "fixture", "least"), [("deploy/install.sh", "install_sh", 60),
-                                                    ("deploy/box-install.sh", "box_install_sh", 8)])  # fmt: skip
+                                                    ("deploy/box-install.sh", "box_install_sh", 8),
+                                                    ("tools/apply_update.sh", "apply_update_sh", 5)])  # fmt: skip
 def test_every_converted_message_is_master_s(rel: str, fixture: str, least: int) -> None:
     """The words of every converted point, as written in the script, are master's (the fixture of master's stops):
     on PRODUCTION the helper prints exactly them, with master's exit code."""
@@ -654,7 +655,7 @@ def test_the_helper_is_the_same_bytes_wherever_it_is() -> None:
 
 
 # ------------------------------------------------------------------------------------------ the card's inventory
-@pytest.mark.parametrize("rel", ["deploy/install.sh", "deploy/box-install.sh"])
+@pytest.mark.parametrize("rel", ["deploy/install.sh", "deploy/box-install.sh", "tools/apply_update.sh"])
 def test_the_page_lists_every_point_of_install_sh(rel: str) -> None:
     """The inventory (the card's page): every converted key of the script is a row, and the kept stops per number
     are as many as the rows that say so."""
@@ -809,3 +810,68 @@ def test_on_production_box_install_stops_as_before(
 def test_on_production_the_host_check_s_code_stays_the_exit_code(tmp_path: Path) -> None:
     r = _firstrun(tmp_path, force=("host-check",), environment="PRODUCTION")
     assert r.rc == 1 and "TrialBox is ready" in r.out and "PoC box" not in r.err
+
+
+# ---------------------------------------------------------------------------------------- tools/apply_update.sh
+APPLY_UPDATE = ROOT / "tools" / "apply_update.sh"
+APPLY_NOT_DRIVEN = {"no-backup-production": "its condition is a box that is not DEV, TEST or VALIDATION"}
+AU_DOCKER = '#!/bin/sh\necho \'{"bundle_id": "b1", "stand_in": true}\'\n'
+AU_PYTHON3 = r"""#!/bin/sh
+case "$1 $2 $3" in "-m tools.trialbox update") echo "update: applied (stand-in)"; exit 0 ;; esac
+case "$1 $2" in "-c import") exit 1 ;; esac
+exec "$TB_H94_REAL_PY" "$@"
+"""
+
+
+def _apply_update(tmp: Path, *args: str, environment: str = "TEST", guard_rc: int = 0) -> Run:
+    """tools/apply_update.sh, the real script, on a box that records ``environment``: the verifier in its container
+    (a stand-in that passes: the signature is not what is tested here), the settings guard and the update path
+    stand-ins."""
+    box = tmp / "box"
+    (box / "tools").mkdir(parents=True)
+    (box / "deploy" / "keys").mkdir(parents=True)
+    shutil.copy(APPLY_UPDATE, box / "tools" / "apply_update.sh")
+    (box / "deploy" / "keys" / "vendor_ed25519.pub").write_text("stand-in key\n")
+    (box / "deploy" / ".env").write_text(f"TB_ENV={environment}\n")
+    (box / "deploy" / "settings_guard.sh").write_text(f"#!/bin/sh\nexit {guard_rc}\n")
+    (tmp / "b.tar").write_bytes(b"stand-in bundle\n")
+    b = tmp / "bin"
+    b.mkdir()
+    for name, text in (("docker", AU_DOCKER), ("python3", AU_PYTHON3)):
+        (b / name).write_text(text, encoding="utf-8")
+        (b / name).chmod(0o755)
+    full = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
+    full.update(PATH=f"{b}:{os.environ['PATH']}", TB_VERIFY_IN_DOCKER="1", TB_H94_REAL_PY=sys.executable,
+                TB_SECRETS_HOST_DIR=str(tmp / "no-secrets"), TMPDIR=str(tmp))  # fmt: skip
+    r = subprocess.run(["sh", str(box / "tools" / "apply_update.sh"), str(tmp / "b.tar"), *args], cwd=tmp, env=full,
+                       capture_output=True, text=True, check=False, timeout=120)  # fmt: skip
+    return Run(r.returncode, r.stdout, r.stderr, box)
+
+
+def test_a_poc_box_s_update_goes_through_every_converted_point_of_apply_update(tmp_path: Path) -> None:
+    """THE ONE TEST for tools/apply_update.sh (H-94, D-1091): on a TEST box every converted point, forced, warns, is
+    listed, and the update goes on to the update path."""
+    r = _apply_update(tmp_path, "--conf", "x.conf", "--bogus", "--no-backup-reason", "why", guard_rc=1)
+    assert r.rc == 0 and "update: applied (stand-in)" in r.out, r.text[-3000:]
+    got = {k.removeprefix("apply_update.sh/") for k in r.listed_keys()}
+    want = converted_keys(APPLY_UPDATE.read_text(encoding="utf-8")) - set(APPLY_NOT_DRIVEN)
+    assert want <= got, (want - got, r.err)
+    assert set(APPLY_NOT_DRIVEN) <= converted_keys(APPLY_UPDATE.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    ("args", "guard_rc", "said", "rc"),
+    [
+        (("--conf", "x.conf"), 0, "apply_update: --conf is for ospatch", 2),
+        (("--bogus",), 0, "apply_update: unknown option --bogus", 2),
+        (("--no-backup-reason", "why"), 0, "apply_update: --no-backup-reason goes with --no-backup", 2),
+        (("--no-backup",), 0, "update REFUSED: --no-backup on a PRODUCTION box needs --no-backup-reason REASON", 2),
+        ((), 1, "update REFUSED: nothing was changed", 1),
+    ],
+)  # fmt: skip
+def test_on_production_apply_update_stops_as_before(
+    tmp_path: Path, args: tuple[str, ...], guard_rc: int, said: str, rc: int
+) -> None:
+    r = _apply_update(tmp_path, *args, environment="PRODUCTION", guard_rc=guard_rc)
+    assert r.rc == rc and r.err.splitlines()[-1].startswith(said), r.text[-2000:]
+    assert "PoC box" not in r.err and not r.listed_keys()
