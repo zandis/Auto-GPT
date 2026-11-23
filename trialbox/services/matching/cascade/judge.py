@@ -270,20 +270,22 @@ class AgreementJudge:
         second: JudgeReply = self.verifier.judge(role=role, **kw)
         answered = second
         mismatch = (first.prompt, first.prompt_sha) != (second.prompt, second.prompt_sha)
+        texts = [str(ex.get("text", "")) for ex in kw.get("excerpts") or []]
+        found = next((f for t in texts if (f := as_in(str(second.quote or ""), t))), None) if second.quote else None
         if mismatch:
             # D-300: the pair agrees only on one registered prompt text; two texts are not two opinions on one question
+            second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
+        elif second.verdict in ("pass", "fail") and found is None:
+            # M1 (#639 7115208555): the verifier's quote must be in the record too, as v1's ``postprocess`` checks it;
+            # a decided answer on a quote that is not there, or on none, is the verifier's "unknown"
             second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
         d = combine(_vote(first), _vote(second))  # the one two-model rule (tb_common.pair, D-118)
         if d.disagreement:
             self.disagreements += 1
         calls = first.all_calls + second.all_calls  # D-989: the verifier's call counts too
         if d.verdict == first.verdict:
-            # L3: the verifier's quote is read too, in its sentence of the excerpts (never published)
-            other = next(
-                (sentence_of(str(second.quote), str(ex.get("text", ""))) for ex in kw.get("excerpts") or []
-                 if second.quote and sentence_of(str(second.quote), str(ex.get("text", "")))),
-                str(second.quote or ""),
-            )  # fmt: skip
+            # L3: the verifier's quote is read too, in its sentence of the excerpts (never published); M1: it was found
+            other = next((x for t in texts if found and (x := sentence_of(found, t))), str(found or ""))
             return replace(first, confidence=d.confidence, calls=calls, sentence=other)
         return JudgeReply(
             "unknown",

@@ -1213,6 +1213,116 @@ REVIEW_CONTROLS: list[tuple[str, str]] = [
 ]
 
 
+# ------------------------------------------------------------------------------------------------ round 5 (#639 7115208555)
+# The re-review of round 4 (#1334 7115208182) put 96 forms through the four builders; 27 still excluded: negated,
+# another person's, unknown or pending, and outside the rule (an exposure, a prevention, cured, borderline). The guard
+# is now the second net, widened by pattern family (``matching.inferred``: negated, another person, uncertain,
+# pending, not now). The forms below are those 27, lane J's five rows (#1327 7094287787), and variants of each
+# family in en, ja, zh-TW and zh-CN; with the review's 30 above they are one table through all four builders.
+R5_HIV, R5_HCV = "Known HIV infection", "Active hepatitis C"
+ROUND5_FORMS: list[tuple[str, str, str]] = [
+    # the re-review's 27
+    (R5_HIV, "HIV-ve", ""),
+    (R5_HIV, "HIV -", ""),
+    (R5_HIV, "HIV antibody non-reactive", ""),
+    (R5_HIV, "HIV nonreactive", ""),
+    (DM_EN, "Non-diabetic", ""),
+    (R5_HIV, "HIV（ー）", ""),
+    (R5_HIV, "HIV(―)", ""),
+    (DM_ZH, "无糖尿病", ""),
+    (R5_HIV, "HIV阴性", ""),
+    (R5_HIV, "Partner is HIV positive.", ""),
+    (R5_HIV, "Boyfriend has HIV.", ""),
+    (DM_JA, "パートナーが糖尿病", ""),
+    (DM_JA, "おばが糖尿病", ""),
+    (DM_ZH, "外公有糖尿病", ""),
+    (DM_ZH, "女兒有糖尿病", ""),
+    (DM_ZH, "兒子有糖尿病", ""),
+    (DM_ZH, "太太有糖尿病", ""),
+    (R5_HIV, "HIV status unknown", ""),
+    (R5_HIV, "HIV status: unknown.", ""),
+    (R5_HIV, "HIV test ordered", ""),
+    (R5_HIV, "HIV検査予定", ""),
+    (R5_HIV, "On PrEP for HIV prevention", ""),
+    (R5_HIV, "HIV exposure in 2019", ""),
+    (R5_HCV, "Hepatitis C, cured with DAA in 2018", ""),
+    (R5_HCV, "history of hepatitis C, treated, SVR", ""),
+    (DM_JA, "糖尿病境界型", ""),
+    (DM_JA, "糖尿病予備群", ""),
+    # lane J's five rows: the quote's record
+    (R5_HIV, "Mother has HIV.", ""),
+    ("History of myocardial infarction", "Rule out myocardial infarction; troponin pending.", ""),
+    (R5_HCV, "Suspected hepatitis C, awaiting PCR.", ""),
+    ("HIV感染が既知の患者", "母親にHIV感染あり。", "母親にHIV感染あり。患者本人のHIV検査は陰性。"),
+    (R5_HIV, "母親にHIV感染あり。", "母親にHIV感染あり。患者本人のHIV検査は陰性。"),
+    # each family's variants
+    (R5_HCV, "HCV-ve", ""),
+    (R5_HIV, "HIV: neg", ""),
+    (R5_HIV, "HIV Ab (-ve)", ""),
+    (R5_HIV, "non-reactive HIV serology", ""),
+    (R5_HIV, "HIV (−)", ""),
+    (R5_HIV, "HIV（－）", ""),
+    (DM_ZH, "無糖尿病", ""),
+    (DM_ZH, "否认糖尿病", ""),
+    (DM_ZH, "糖尿病：无", ""),
+    (R5_HIV, "HIV陰性", ""),
+    (R5_HIV, "HIV抗体陰性", ""),
+    (DM_EN, "nondiabetic", ""),
+    (R5_HIV, "Girlfriend has HIV.", ""),
+    (R5_HIV, "Husband is HIV positive.", ""),
+    (DM_EN, "Her son has diabetes.", ""),
+    (DM_EN, "Grandson has diabetes", ""),
+    (DM_EN, "Niece: diabetes", ""),
+    (R5_HIV, "Close contact with an HIV-positive person", ""),
+    (DM_JA, "叔母が糖尿病", ""),
+    (DM_JA, "祖父母が糖尿病", ""),
+    (DM_JA, "孫が糖尿病", ""),
+    (DM_JA, "夫が糖尿病", ""),
+    (DM_ZH, "外婆有糖尿病", ""),
+    (DM_ZH, "老公有糖尿病", ""),
+    (DM_ZH, "女儿有糖尿病", ""),
+    (DM_ZH, "儿子有糖尿病", ""),
+    (DM_ZH, "爷爷有糖尿病", ""),
+    (DM_ZH, "妈妈有糖尿病", ""),
+    (R5_HIV, "HIV test pending", ""),
+    (R5_HIV, "HIV screen scheduled", ""),
+    (R5_HIV, "Will test for HIV", ""),
+    (R5_HIV, "HIV serology sent", ""),
+    (R5_HIV, "HIV status not known", ""),
+    (R5_HIV, "HIV檢驗待報告", ""),
+    (R5_HIV, "HIV检查预约", ""),
+    (R5_HIV, "HIV検査結果待ち", ""),
+    (R5_HIV, "HIV status: TBD", ""),
+    (R5_HCV, "Hepatitis C, eradicated", ""),
+    (R5_HCV, "HCV, s/p treatment, SVR12", ""),
+    (R5_HCV, "C型肝炎は治癒", ""),
+    (R5_HCV, "C型肝炎治療後SVR", ""),
+    (R5_HCV, "C型肝炎已治愈", ""),
+    (R5_HCV, "丙型肝炎痊癒", ""),
+    (R5_HIV, "Needlestick HIV exposure, on PEP", ""),
+    (R5_HIV, "HIV prophylaxis", ""),
+    (R5_HIV, "HIV暴露後予防", ""),
+    (R5_HIV, "HIV暴露", ""),
+    (DM_ZH, "糖尿病前期", ""),
+    (DM_JA, "境界型糖尿病", ""),
+    (DM_JA, "糖尿病予備軍", ""),
+    (DM_EN, "prediabetic", ""),
+    # a drug criterion reads the quote's sentence too (the re-review's surviving mutant at ``inferred.inferred``)
+    ("Known allergy to study drug", "drug allergies", "No known drug allergies."),
+]
+#: stated quotes the widened families must not catch: a prefix "non-" that names the condition, a past procedure
+ROUND5_CONTROLS: list[tuple[str, str]] = [
+    (R5_HIV, "Patient has HIV."),
+    (R5_HIV, "HIV infection on ART since 2019."),
+    (R5_HCV, "Active hepatitis C infection on treatment."),
+    ("History of myocardial infarction", "NSTEMI (non-ST elevation myocardial infarction) in 2020."),
+    ("Lymphoma", "Non-Hodgkin lymphoma, stage II."),
+    ("Prior stem cell transplant", "s/p allogeneic HSCT 2019"),
+]
+ALL_FORMS = REVIEW_FORMS + ROUND5_FORMS
+ALL_CONTROLS = REVIEW_CONTROLS + ROUND5_CONTROLS
+
+
 def _form_criterion(text: str) -> CriterionIR:
     c = {**CRITERIA[1], "id": "D9-EXC-91", "ruleset": "D9", "text": text, "note_question": f"Do the notes say: {text}?"}
     return CriterionIR.model_validate(c)
@@ -1230,7 +1340,7 @@ def _builders(text: str, quote: str, sentence: str) -> tuple[str, str, str, bool
     return may.effect, v.verdict, o.status, o.hard
 
 
-@pytest.mark.parametrize(("text", "quote", "sentence"), REVIEW_FORMS, ids=[f[1] for f in REVIEW_FORMS])
+@pytest.mark.parametrize(("text", "quote", "sentence"), ALL_FORMS, ids=[f[1] for f in ALL_FORMS])
 def test_a_form_that_does_not_state_the_condition_goes_to_review_on_every_builder(
     text: str, quote: str, sentence: str
 ) -> None:
@@ -1244,7 +1354,7 @@ def test_a_form_that_does_not_state_the_condition_goes_to_review_on_every_builde
         assert decision.answer_of(_form_criterion(text), stored, POLICY) == "unknown"
 
 
-@pytest.mark.parametrize(("text", "quote"), REVIEW_CONTROLS, ids=[f[1] for f in REVIEW_CONTROLS])
+@pytest.mark.parametrize(("text", "quote"), ALL_CONTROLS, ids=[f[1] for f in ALL_CONTROLS])
 def test_the_same_criteria_on_a_stated_quote_still_exclude(text: str, quote: str) -> None:
     assert _builders(text, quote, "") == ("excludes", "fail", "fail", True)
 
@@ -1451,3 +1561,57 @@ def test_a_note_that_holds_the_marks_itself_is_matched_as_written() -> None:
     note = "患者は「胸が痛い」と訴えた。"
     assert as_in("「胸が痛い」", note) == "「胸が痛い」"  # the marks are the note's: kept
     assert sentence_of("「母親にHIV感染あり。」", J_RECORD_JA) == "母親にHIV感染あり。"
+
+
+class _Answers:
+    """A cascade ``JudgeClient`` that answers "present" quoting ``quote`` (which may be None)."""
+
+    def __init__(self, quote: str | None) -> None:
+        self.quote = quote
+
+    def judge(self, **kw: Any) -> JudgeReply:
+        return JudgeReply("pass", PAIR, self.quote, "2026-09-20", "scripted", call_id="c-x", prompt="judge@test")
+
+
+#: M1: (the verifier's quote, the pair's verdict). The judge's own quote states HIV and is in the record.
+VERIFIER_QUOTES = [
+    (None, "unknown"),  # no quote: nothing shown
+    ("Patient has HIV and is on ART.", "unknown"),  # not in the record
+    ("「Patient has HIV.」", "pass"),  # in the record, in marks
+    (HAS_HIV, "pass"),
+]
+
+
+@pytest.mark.parametrize(("verifier_quote", "want"), VERIFIER_QUOTES)
+def test_the_cascade_checks_the_verifiers_quote_against_the_record_as_v1_does(
+    verifier_quote: str | None, want: str
+) -> None:
+    """Round 5, M1 (#639 7115208555): on the cascade's ``AgreementJudge`` a decided verifier answer whose quote is not
+    in the record (or is missing) is the verifier's "unknown", so the pair disagrees and the patient goes to review,
+    as on v1, where ``postprocess`` gives that answer ``unknown``. Both paths agree on every row."""
+    ex = [{"did": "d1", "date": "2026-09-20", "text": HAS_HIV + " On ART since 2019."}]
+    pair = AgreementJudge(_Answers(HAS_HIV), _Answers(verifier_quote))
+    reply = pair.judge(role="judge", criterion_text=BY_ID[HIV].text, note_question="Q?", index_date=RUN, excerpts=ex,
+                       study_id="D9", data_class="D3", step_id="t", purpose="screening")  # fmt: skip
+    assert reply.verdict == want
+    assert pair.disagreements == (want == "unknown")
+    o = _run_for_map(True)._map(BY_ID[HIV], reply, verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31)), "S3")
+    assert (o.status, o.hard) == (("fail", True) if want == "pass" else ("unknown", False))
+    # v1 on the same pair
+    nj = NoteJudge(lake=None, llm=ScriptedModel("judge-a", says("pass", HAS_HIV)),  # type: ignore[arg-type]
+                   verifier=ScriptedModel("verifier-b", says("pass", verifier_quote)))  # type: ignore[arg-type]  # fmt: skip
+    r = nj.judge_excerpts(BY_ID[HIV].text, "Do the notes document known HIV infection?", RUN, ex)
+    assert note_verdict(BY_ID[HIV], r, pair=True).verdict == ("fail" if want == "pass" else "unknown")
+
+
+def test_the_cascade_reads_the_judges_sentence_beside_the_verifiers() -> None:
+    """Round 5, the re-review's surviving mutant at ``engine._map``: the judge's span sentence is a relative's, the
+    verifier's sentence states HIV. The rule reads both, so the patient goes to review; reading only the verifier's
+    would exclude."""
+    reply = replace(JudgeReply("pass", PAIR, FRAGMENT, "2026-09-20", "both agree", call_id="c1", prompt="judge@test"),
+                    sentence=HAS_HIV)  # fmt: skip
+    o = _run_for_map(True)._map(BY_ID[HIV], reply, {**SPAN, "quote": FRAGMENT, "sentence": FRAGMENT_SENTENCE}, "S3")
+    assert (o.status, o.hard, o.reason) == ("unknown", False, INFERRED_REASON)
+    both_stated = replace(reply, quote=HAS_HIV)
+    o = _run_for_map(True)._map(BY_ID[HIV], both_stated, {**SPAN, "quote": HAS_HIV, "sentence": HAS_HIV}, "S3")
+    assert (o.status, o.hard) == ("fail", True)  # the control: both state it

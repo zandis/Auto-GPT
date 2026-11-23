@@ -103,26 +103,53 @@ _NOT_A_CONDITION = re.compile(
     r"\breceiv|\btaking\b|\buse of\b|\busing\b|服用|内服|投与|治療|薬(?!疹|物性)|手術|陽性|陰性|値|值|使用",
     re.IGNORECASE,
 )
-# A mention that does not state the condition: negated or stated absent, a relative's, suspected, a risk, a screen
-# (R22-16 round 2). Read in the whole part of the sentence that holds the mention (``_part``), before or after it:
-# Japanese and Chinese put the negation or the doubt at the end (嘔吐はない, 心外膜炎疑い, 腫瘍が増悪する可能性も考慮
-# された), English often before or after ("Epicarditis was suspected", "no enlargement or fibrosis").
-_NOT_STATED = re.compile(
+# A mention that does not state the condition (R22-16 rounds 2 to 5). Read in the whole part of the sentence that
+# holds the mention (``_part``), before or after it: Japanese and Chinese put the negation or the doubt at the end
+# (嘔吐はない, 心外膜炎疑い), English often before or after ("Epicarditis was suspected", "HIV-ve").
+#
+# This guard is the second net (#639 7115208555): a note exclusion stands only on a quote that affirms the condition,
+# now, in this patient. It is widened by pattern, family by family, not by single words, in en, ja, zh-TW and zh-CN.
+# Each family errs towards review: a stated condition beside one of these words goes to a person.
+_NEGATED = (
+    # words, and the suffix and prefix forms: "-ve", "HIV -", "non-reactive", "Non-diabetic", (-), （ー）
     r"\b(?:no|not|never|none|nor|neither|without|absent|absence|negative|neg|den(?:y|ies|ied|ying|ial)|unlikely|"
-    r"exclud\w*|free of|no longer|rul(?:ed|es|e|ing)[- ]?out|r/o|resolved|resected|removed|dropped off|disappeared|"
-    r"healed|subsided|cleared|suspect\w*|possib\w*|probab\w*|likely|suggest\w*|consider\w*|may|might|could|"
-    r"quer\w*|questionabl\w*|uncertain\w*|unclear|unsure|equivocal|indeterminate|borderline|concern for|"
-    r"differential|versus|vs|either|characteristic\w*|consistent with|compatible with|pending|await\w*|presum\w*|"
-    r"evaluat\w* for|work-?up|screen\w*|risks?|"
-    r"(?:grand|step|half-?)?(?:mother|father|parents?|sisters?|brothers?|siblings?|sons?|daughters?)|grandparents?|"
-    r"moms?|mums?|dads?|aunts?|uncles?|cousins?|wife|husband|spouse|relatives?|family|familial|maternal|paternal|"
-    r"fhx|fh|f/h)\b|n't\b|\bw/o\b|\bpre-|\?|"
-    r"\(\s*[-−]\s*\)|"
-    r"なし|無し|なく|ない|無い|なかっ|ません|否|陰性|ず|認めな|認められな|未|疑|可能|考え|推定|推測|示唆|恐れ|おそれ|"
-    r"考慮|鑑別|除外|排除|リスク|家族|家人|母|父|兄|姉|姐|弟|妹|祖|叔|伯|舅|姨|媽|爸|哥|奶|爺|婆|公公|息子|娘|妻|夫|親|"
-    r"どちら|性格|沒有|没有|無|不是|不明|待查|待排|消失|非(?!ホジキン|小細胞|結核|典型|常)",
-    re.IGNORECASE,
+    r"exclud\w*|free of|no longer|rul(?:ed|es|e|ing)[- ]?out|r/o|unremarkable|ve)\b|n't\b|\bw/o\b|"
+    r"\bnon(?!-?(?:hodgkin|small|st\b|st-|q\b|q-|alcoholic|insulin|ischem|invasive|obstructive|specific|steroidal|"
+    r"valvular))|"
+    r"\(\s*[-−ー―‐–—]+\s*\)|\s[-−ー―‐–—]+(?=\s*(?:$|[.,;:)]))|"
+    r"なし|無し|なく|ない|無い|なかっ|ません|否|陰性|阴性|ず|認めな|認められな|未|沒有|没有|没|無|无|不是|非(?!ホジキン|小細胞|結核|典型|常)"
 )
+_OTHER_PERSON = (
+    # a relative, a partner, a contact: the condition is someone else's
+    r"\b(?:(?:grand|step|half-?)?(?:mother|father|parents?|sisters?|brothers?|siblings?|sons?|daughters?)|"
+    r"grandparents?|grand(?:child\w*|kids?)|moms?|mums?|dads?|aunts?|uncles?|cousins?|nephews?|nieces?|in-?laws?|"
+    r"wife|husband|spouse|partners?|boy-?friends?|girl-?friends?|fianc\w*|friends?|roommates?|colleagues?|"
+    r"neighbou?rs?|child(?:ren)?|kids?|relatives?|family|familial|maternal|paternal|fhx|fh|f/h|"
+    r"contacts? (?:with|of)|close contacts?|household)\b|"
+    r"家族|家人|母|父|兄|姉|姐|姊|弟|妹|祖|叔|伯|舅|姨|姑|嬸|婶|媽|妈|爸|哥|奶|爺|爷|婆|公公|外公|息子|娘|妻|夫|親|"
+    r"おば|おじ|いとこ|子供|子ども|孫|孙|甥|姪|侄|配偶|パートナー|彼氏|彼女|友人|知人|同居|兒|儿|太太|老公|老婆|"
+    r"男友|女友|朋友|室友|同事|鄰居|邻居|伴侶|伴侣"
+)
+_UNCERTAIN = (
+    r"\b(?:suspect\w*|possib\w*|probab\w*|likely|suggest\w*|consider\w*|may|might|could|quer\w*|questionabl\w*|"
+    r"uncertain\w*|unclear|unsure|equivocal|indeterminate|borderline|concern for|differential|versus|vs|either|"
+    r"characteristic\w*|consistent with|compatible with|presum\w*|risks?)\b|\bpre-|\?|"
+    r"疑|可能|考え|推定|推測|示唆|恐れ|おそれ|考慮|鑑別|除外|排除|リスク|どちら|性格|境界|予備群|予備軍|前期|臨界|临界"
+)
+_PENDING = (
+    # not known yet, asked for, planned
+    r"\b(?:pending|await\w*|unknown|unk|not known|tbd|ordered|scheduled|planned|sent|to be (?:done|tested|checked)|"
+    r"will (?:test|check|be)|evaluat\w* for|work-?up|screen\w*)\b|"
+    r"不明|未知|不詳|不详|待|予定|予約|預約|预约|安排|計畫|计划|検査中|結果待"
+)
+_NOT_NOW = (
+    # gone, treated, or only an exposure or a prevention: not the condition now
+    r"\b(?:resolved|resected|removed|dropped off|disappeared|healed|subsided|cleared|cured|eradicat\w*|treated|"
+    r"svr\d*|remission|recovered|post-?treatment|prep|pep|prophyla\w*|exposures?|exposed|"
+    r"prevent\w*)\b|"
+    r"消失|治癒|治愈|痊癒|痊愈|寛解|緩解|缓解|完治|治療後|治疗后|治療済|已治|予防|預防|预防|曝露|暴露"
+)
+_NOT_STATED = re.compile("|".join((_NEGATED, _OTHER_PERSON, _UNCERTAIN, _PENDING, _NOT_NOW)), re.IGNORECASE)
 # A drug or diet for it, said right after the mention (糖尿病薬, "diabetic diet").
 _AFTER = re.compile(
     r"^\W{0,2}(?:薬|治療薬|diet|medication|meds|drug)",
