@@ -33,6 +33,7 @@ import json
 import os
 import pickle
 import shutil
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
@@ -418,6 +419,17 @@ def build_world(tmp: Path, pg_cluster_url: str) -> dict[str, Seen]:
         return seen
     finally:
         mp.undo()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reimbursement_open() -> Iterator[None]:
+    """Card 9e-9: NAV runs only on a test box with reimbursement switched on; this module's box is (as in
+    ``tests/property/test_path_independence.py``)."""
+    from orchestrator import reimbursement
+
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(reimbursement, "is_open", lambda *a, **k: True)
+        yield
 
 
 @pytest.fixture(scope="module")
@@ -847,3 +859,92 @@ def test_a_suspected_or_absent_report_finding_never_excludes_on_any_builder(
                               evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=q, confidence=PAIR,
                                                 reason="note"))  # fmt: skip
     assert decision.answer_of(c, stored, POLICY) == "unknown"
+
+
+# ------------------------------------------------------------------------------------------------ the review's forms
+# The independent review of round 2 (#1334, H1 to H3, M1, M2) and the walk's probes of the real judge (#639
+# 7100765762): forms a pair could read as "present" that do not state the condition. Fail safe: each goes to review on
+# every builder. (criterion, quote, sentence of the record the quote lies in: "" when the quote is the sentence)
+DM_EN, DM_JA, DM_ZH = "Known diabetes mellitus", "糖尿病の既往", "糖尿病"
+TB = "Active tuberculosis requiring treatment"
+REVIEW_FORMS: list[tuple[str, str, str]] = [
+    # H1: a question
+    (DM_EN, "Diabetes?", "Diabetes? Will check HbA1c."),
+    (DM_EN, "DM?", "DM? Will check HbA1c."),
+    (DM_JA, "糖尿病？", "糖尿病？HbA1c確認予定。"),
+    # H2: negated, a relative's, uncertain, in en, ja and zh-TW
+    (DM_EN, "Pt w/o diabetes.", ""),
+    (DM_EN, "denying diabetes", ""),
+    (DM_EN, "diabetes ruled-out", ""),
+    (DM_EN, "diabetes, rule-out", ""),
+    (DM_EN, "Mom has diabetes", ""),
+    (DM_EN, "FHx: DM", ""),
+    (DM_EN, "Diabetes: uncertain", ""),
+    (DM_EN, "equivocal for diabetes", ""),
+    (DM_EN, "borderline diabetes", ""),
+    (DM_EN, "pre-diabetes", ""),
+    (DM_JA, "糖尿病は指摘されず", ""),
+    (DM_JA, "糖尿病は見られず", ""),
+    (DM_JA, "糖尿病の恐れ", ""),
+    (DM_ZH, "非糖尿病", ""),
+    (DM_ZH, "不是糖尿病", ""),
+    (DM_ZH, "糖尿病：否", ""),
+    (DM_ZH, "媽媽有糖尿病", ""),
+    (DM_ZH, "哥哥有糖尿病", ""),
+    (DM_ZH, "姐姐有糖尿病", ""),
+    (DM_ZH, "家人有糖尿病", ""),
+    # H3: a criterion that names a drug, a treatment or a value is not exempt
+    ("Known allergy to study drug", "No known drug allergies.", ""),
+    (TB, "No tuberculosis", ""),
+    (TB, "Mother has tuberculosis", ""),
+    ("Asthma requiring inhaled steroids", "denies asthma", ""),
+    # M1: a period after an abbreviation ends no sentence; M2: every mention must be stated
+    (DM_EN, "hx. of diabetes", "Mother: hx. of diabetes."),
+    ("History of heart failure", "No heart failure, but renal failure.", ""),
+    ("Active hepatitis B infection", "Hepatitis B negative, but recent urinary tract infection", ""),
+]
+#: the same criteria on quotes that state the condition: they still exclude
+REVIEW_CONTROLS: list[tuple[str, str]] = [
+    (DM_EN, "Type 2 diabetes mellitus since 2015."),
+    (DM_JA, "2型糖尿病あり。"),
+    (DM_ZH, "有糖尿病。"),
+    ("History of heart failure", "Heart failure, EF 25%."),
+    (TB, "Active pulmonary tuberculosis on treatment."),
+    ("Known allergy to study drug", "Known allergy to the study drug (rash)."),
+]
+
+
+def _form_criterion(text: str) -> CriterionIR:
+    c = {**CRITERIA[1], "id": "D9-EXC-91", "ruleset": "D9", "text": text, "note_question": f"Do the notes say: {text}?"}
+    return CriterionIR.model_validate(c)
+
+
+def _builders(text: str, quote: str, sentence: str) -> tuple[str, str, str, bool]:
+    """(the one rule's effect, the v1 verdict, the cascade outcome's status, the cascade outcome is hard) for a pair's
+    "present" at 0.9 on ``quote``."""
+    c = _form_criterion(text)
+    sent = sentence or quote
+    may = note_answer_may("exclusion", True, quote, text, sent)
+    v = note_verdict(c, NoteResult("pass", PAIR, quote, "2026-09-20", "note", dids=["d1"], sentence=sent), pair=True)
+    reply = JudgeReply("pass", PAIR, quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": quote, "sentence": sent}, "S3")
+    return may.effect, v.verdict, o.status, o.hard
+
+
+@pytest.mark.parametrize(("text", "quote", "sentence"), REVIEW_FORMS, ids=[f[1] for f in REVIEW_FORMS])
+def test_a_form_that_does_not_state_the_condition_goes_to_review_on_every_builder(
+    text: str, quote: str, sentence: str
+) -> None:
+    """Given "present" by both models, each form goes to review: the one rule, the v1 verdict, the cascade's outcome,
+    and (where the quote alone shows it) a stored row through the status rule."""
+    assert _builders(text, quote, sentence) == ("review", "unknown", "unknown", False)
+    if not sentence or sentence.startswith(quote):  # a stored row keeps the quote, not its sentence
+        stored = CriterionVerdict(id="D9-EXC-91", verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"],
+                                  evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=quote,
+                                                    confidence=PAIR, reason="note"))  # fmt: skip
+        assert decision.answer_of(_form_criterion(text), stored, POLICY) == "unknown"
+
+
+@pytest.mark.parametrize(("text", "quote"), REVIEW_CONTROLS, ids=[f[1] for f in REVIEW_CONTROLS])
+def test_the_same_criteria_on_a_stated_quote_still_exclude(text: str, quote: str) -> None:
+    assert _builders(text, quote, "") == ("excludes", "fail", "fail", True)

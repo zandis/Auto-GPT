@@ -108,16 +108,19 @@ _NOT_A_CONDITION = re.compile(
 # Japanese and Chinese put the negation or the doubt at the end (嘔吐はない, 心外膜炎疑い, 腫瘍が増悪する可能性も考慮
 # された), English often before or after ("Epicarditis was suspected", "no enlargement or fibrosis").
 _NOT_STATED = re.compile(
-    r"\b(?:no|not|never|none|nor|neither|without|absent|absence|negative|neg|deny|denies|denied|unlikely|excluded?|"
-    r"free of|no longer|ruled? out|rules out|r/o|resolved|resected|removed|dropped off|disappeared|healed|subsided|"
-    r"cleared|suspect\w*|possib\w*|probab\w*|likely|suggest\w*|consider\w*|may|might|could|quer\w*|questionabl\w*|"
-    r"concern for|differential|versus|vs|either|characteristic\w*|consistent with|compatible with|pending|await\w*|"
-    r"presum\w*|evaluat\w* for|work-?up|screen\w*|risk|"
+    r"\b(?:no|not|never|none|nor|neither|without|absent|absence|negative|neg|den(?:y|ies|ied|ying|ial)|unlikely|"
+    r"exclud\w*|free of|no longer|rul(?:ed|es|e|ing)[- ]?out|r/o|resolved|resected|removed|dropped off|disappeared|"
+    r"healed|subsided|cleared|suspect\w*|possib\w*|probab\w*|likely|suggest\w*|consider\w*|may|might|could|"
+    r"quer\w*|questionabl\w*|uncertain\w*|unclear|unsure|equivocal|indeterminate|borderline|concern for|"
+    r"differential|versus|vs|either|characteristic\w*|consistent with|compatible with|pending|await\w*|presum\w*|"
+    r"evaluat\w* for|work-?up|screen\w*|risks?|"
     r"(?:grand|step|half-?)?(?:mother|father|parents?|sisters?|brothers?|siblings?|sons?|daughters?)|grandparents?|"
-    r"aunts?|uncles?|cousins?|wife|husband|spouse|relatives?|family|familial|maternal|paternal)\b|n't\b|\?|"
+    r"moms?|mums?|dads?|aunts?|uncles?|cousins?|wife|husband|spouse|relatives?|family|familial|maternal|paternal|"
+    r"fhx|fh|f/h)\b|n't\b|\bw/o\b|\bpre-|\?|"
     r"\(\s*[-−]\s*\)|"
-    r"なし|無し|なく|ない|無い|ません|否定|否認|陰性|認めず|認めな|認められず|認められな|未|疑|可能|考え|推定|推測|示唆|"
-    r"考慮|鑑別|除外|排除|リスク|家族|母|父|兄|姉|弟|妹|祖|叔|伯|息子|娘|妻|夫|親|どちら|性格|沒有|没有|無|不明|待查|消失",
+    r"なし|無し|なく|ない|無い|なかっ|ません|否|陰性|ず|認めな|認められな|未|疑|可能|考え|推定|推測|示唆|恐れ|おそれ|"
+    r"考慮|鑑別|除外|排除|リスク|家族|家人|母|父|兄|姉|姐|弟|妹|祖|叔|伯|舅|姨|媽|爸|哥|奶|爺|婆|公公|息子|娘|妻|夫|親|"
+    r"どちら|性格|沒有|没有|無|不是|不明|待查|待排|消失|非(?!ホジキン|小細胞|結核|典型|常)",
     re.IGNORECASE,
 )
 # A drug or diet for it, said right after the mention (糖尿病薬, "diabetic diet").
@@ -127,7 +130,22 @@ _AFTER = re.compile(
 )
 # A sentence; and within it, the parts a contrast divides ("HTN, but no family history"; 高血圧症がありますが、家族歴は
 # ありません): a negation in the other part says nothing about this mention.
-_SENTENCE = re.compile(r"[;。；！？!?\n]|\.(?=\s|$)")
+# A question mark does not end the sentence here: it marks the mention as a question (R22-16 review H1). A period
+# after an abbreviation ("hx.", "Dr.") ends nothing (review M1).
+_SENTENCE = re.compile(r"[;。；！!\n]|\.(?=\s|$)")
+_ABBREV = re.compile(r"(?:^|[^A-Za-z/])(?:hx|fhx|pmh|h/o|s/p|dr|mr|mrs|ms|pt|pts|vs|approx|no|e\.g|i\.e|etc|st)$", re.I)
+
+
+def _breaks(text: str, lo: int = 0, hi: int | None = None) -> list[re.Match[str]]:
+    """The sentence ends of ``text`` between ``lo`` and ``hi``: not a period after an abbreviation."""
+    out = []
+    for m in _SENTENCE.finditer(text, lo, len(text) if hi is None else hi):
+        if m.group() == "." and _ABBREV.search(text[max(0, m.start() - 8) : m.start()]):
+            continue
+        out.append(m)
+    return out
+
+
 _CONTRAST = re.compile(
     r"が[、,]|けれど|けど|しかし|ただし|但し|但是|不過|\b(?:but|however|although|though|whereas|while)\b", re.IGNORECASE
 )
@@ -176,8 +194,8 @@ def _translated(criterion: str) -> list[str]:
 
 def _part(text: str, start: int, end: int) -> str:
     """The part of ``text``'s sentence that holds ``text[start:end]``, between two contrasts, the mention blanked."""
-    s0 = max((m.end() for m in _SENTENCE.finditer(text, 0, start)), default=0)
-    s1 = next((m.start() for m in _SENTENCE.finditer(text, end)), len(text))
+    s0 = max((m.end() for m in _breaks(text, 0, start)), default=0)
+    s1 = next((m.start() for m in _breaks(text, end)), len(text))
     p0 = max((s0, *(m.end() for m in _CONTRAST.finditer(text, s0, start))))
     p1 = next((m.start() for m in _CONTRAST.finditer(text, end, s1)), s1)
     return f"{text[p0:start]} _ {text[end:p1]}"
@@ -190,28 +208,42 @@ def _stated_at(quote: str, start: int, end: int) -> bool:
 
 
 def names_condition(quote: str, criterion: str) -> bool:
-    """The quote states the criterion's condition: one of its terms (``_terms``), in a mention that is not negated
-    or stated absent, a relative's, suspected, a risk, or a drug or diet for it. Both are read in NFKC (a record's
-    full-width ＩＣＩｓ, （－）)."""
+    """The quote states the criterion's condition: one of its terms (``_terms``) is mentioned, and every mention of
+    them is stated, not negated or stated absent, a relative's, suspected, a question, a risk, or a drug or diet for
+    it (fail safe, R22-16 review M2: "No heart failure, but renal failure." does not state heart failure). Both are
+    read in NFKC (a record's full-width ＩＣＩｓ, （－）)."""
     q = unicodedata.normalize("NFKC", quote or "")
+    found = False
     for term in dict.fromkeys(_terms(unicodedata.normalize("NFKC", criterion or ""))):
         for m in _pattern(term).finditer(q):
-            if _stated_at(q, m.start(), m.end()):
-                return True
-    return False
+            if not _stated_at(q, m.start(), m.end()):
+                return False
+            found = True
+    return found
+
+
+def doubted(text: str) -> bool:
+    """Anything in ``text`` that says a condition is negated, absent, a relative's, suspected or asked about."""
+    t = unicodedata.normalize("NFKC", text or "")
+    return bool(_NOT_STATED.search(t))
 
 
 def inferred(quote: str, criterion: str, sentence: str = "") -> bool:
-    """The criterion names a condition and the quote does not state it: a "present" on it is an inference (a
-    treatment, a dose, a value, findings the model counted into a diagnosis, a negated, a relative's or a suspected
-    condition). Never for a criterion that is itself a value, a drug or a procedure.
+    """The quote, read in its sentence, does not plainly state the criterion's condition: a "present" on it is an
+    inference (a treatment, a dose, a value, findings the model counted into a diagnosis, a negated, a relative's, a
+    suspected or a questioned condition), so a person looks.
 
     ``sentence``: the record's sentence the quote was verified in (:func:`sentence_of`), when the caller has it. A
     quote may be a fragment of it ("HIV" of "Mother has HIV."): then the sentence must state the condition too
-    (R22-16 round 2: the guard read only the quoted fragment)."""
+    (R22-16 round 2: the guard read only the quoted fragment).
+
+    A criterion that is itself a value, a drug or a procedure (ALT > 3x ULN, corticosteroids) has no condition word
+    to find: there the value or the drug is what the line asks about, so the quote need not name a condition. It is
+    never exempt from the rest (R22-16 review H3, fail safe): a quote or sentence with any sign of negation, family,
+    doubt or a question goes to review ("No known drug allergies." for "Known allergy to study drug")."""
     c = unicodedata.normalize("NFKC", criterion or "")
     if _NOT_A_CONDITION.search(c) and not any(_pattern(t).search(c) for concept in _CONCEPTS for t in concept):
-        return False
+        return doubted(quote) or doubted(sentence)
     return not names_condition(quote or "", c) or bool(sentence and not names_condition(sentence, c))
 
 
@@ -222,6 +254,6 @@ def sentence_of(quote: str, text: str) -> str:
     at = t.find(q) if q else -1
     if at < 0:
         return ""
-    s0 = max((m.end() for m in _SENTENCE.finditer(t, 0, at)), default=0)
-    s1 = next((m.end() for m in _SENTENCE.finditer(t, at + len(q))), len(t))
+    s0 = max((m.end() for m in _breaks(t, 0, at)), default=0)
+    s1 = next((m.end() for m in _breaks(t, at + max(len(q) - 1, 0))), len(t))  # a quote may end with its own "."
     return t[s0:s1].strip()
