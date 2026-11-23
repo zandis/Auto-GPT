@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tools.trialbox import doctor as d
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +38,7 @@ def _install(tmp: Path, block: str, env_lines: str, pre: str = "", **shell: str)
         'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
         'envset() { sed -i "/^$1=/d" deploy/.env && printf "%s=%s\\n" "$1" "$2" >> deploy/.env; }\n'
         f'cd "{tmp}"\nREHEARSAL=0\nENVIRONMENT=""\nPRE_ENV=""\n{sets}{pre}'
+        + stop_prelude(deploy='"$PWD/deploy"', environment='"$ENVIRONMENT"', rehearsal='"$REHEARSAL"')
         + _block(block)
         + '\necho "TB_SYSTEMD=${TB_SYSTEMD:-1}"\n'
     )
@@ -71,10 +73,16 @@ def test_a_conflicting_environment_is_refused(tmp_path: Path) -> None:
     assert res.returncode == 1 and "PRODUCTION" in res.stderr and "VALIDATION" in res.stderr
     bad = _install(tmp_path, "ENVIRONMENT", "\n", ENVIRONMENT="STAGING")
     assert bad.returncode == 1 and "--environment" in bad.stderr
-    # D-887 (the integrator's (i)): --rehearsal makes a VALIDATION box; any other --environment is refused
-    for other in ("TEST", "PRODUCTION"):
-        rehearsal = _install(tmp_path, "ENVIRONMENT", "\n", ENVIRONMENT=other, REHEARSAL="1")
-        assert rehearsal.returncode == 1 and "VALIDATION" in rehearsal.stderr and other in rehearsal.stderr
+    # D-887 (the integrator's (i)): --rehearsal makes a VALIDATION box; PRODUCTION is refused (kept refusal 3).
+    # H-94 (the owner's ruling 7092087958): TEST on a rehearsal is a PoC box: a warning, a line of the list, and the
+    # box is VALIDATION
+    rehearsal = _install(tmp_path, "ENVIRONMENT", "\n", ENVIRONMENT="PRODUCTION", REHEARSAL="1")
+    assert rehearsal.returncode == 1 and "VALIDATION" in rehearsal.stderr and "PRODUCTION" in rehearsal.stderr
+    rehearsal = _install(tmp_path, "ENVIRONMENT", "\n", ENVIRONMENT="TEST", REHEARSAL="1")
+    assert rehearsal.returncode == 0 and "warning (PoC box, H-94): --rehearsal makes a VALIDATION box, not TEST" in (
+        rehearsal.stderr
+    )
+    assert "TB_ENV=VALIDATION" in (tmp_path / "deploy" / ".env").read_text(encoding="utf-8").splitlines()
 
 
 def test_install_takes_the_environment_option() -> None:
@@ -98,9 +106,17 @@ def test_the_poc_profile_is_kept_and_skips_the_systemd_units(tmp_path: Path) -> 
     assert "TB_SYSTEMD=0" in res.stdout and "WARN" in res.stdout
 
 
-def test_an_unknown_profile_is_refused(tmp_path: Path) -> None:
-    res = _install(tmp_path, "HOST PROFILE", "TB_ENV=VALIDATION\n", TB_ENV_SITE="VALIDATION", TB_HOST_PROFILE="lab")
-    assert res.returncode == 1 and "TB_HOST_PROFILE" in res.stderr
+@pytest.mark.parametrize("env", ["PRODUCTION", "VALIDATION"])
+def test_an_unknown_profile_is_refused(tmp_path: Path, env: str) -> None:
+    """Refused on PRODUCTION. H-94 (the owner's ruling 7092087958): on a VALIDATION box (a PoC box) a warning and a
+    line of the list, and the profile is read as site (no relaxation)."""
+    res = _install(tmp_path, "HOST PROFILE", f"TB_ENV={env}\n", TB_ENV_SITE=env, TB_HOST_PROFILE="lab")
+    assert "TB_HOST_PROFILE" in res.stderr
+    if env == "PRODUCTION":
+        assert res.returncode == 1
+        return
+    assert res.returncode == 0 and "warning (PoC box, H-94)" in res.stderr and "read as site" in res.stderr
+    assert "TB_HOST_PROFILE" not in (tmp_path / "deploy" / ".env").read_text(encoding="utf-8")
 
 
 def test_the_settings_are_declared() -> None:
