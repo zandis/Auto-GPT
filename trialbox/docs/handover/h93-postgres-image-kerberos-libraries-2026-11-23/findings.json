@@ -1,0 +1,41 @@
+{
+ "card": "H93",
+ "title": "the Kerberos libraries in the PostgreSQL image",
+ "date": "2026-11-23",
+ "source": "docs/handover/h93-postgres-image-kerberos-libraries-2026-11-23.md",
+ "note": "basis 'shown' means shown by the job log, the tree or the distribution's package lists read by the card; no image was built or scanned by the card.",
+ "findings": [
+  {
+   "id": "H93-01",
+   "severity": "High",
+   "claim": "the 15 failing findings on libkrb5-3 and libkrb5support0 1.21.3-5+deb13u1 that stop rehearse step 3 belong to trialbox-postgres:16-1 (deploy/docker/db.Dockerfile): read from the gate's image order, as the job log cuts the image line",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H93-02",
+   "severity": "Medium",
+   "claim": "postgresql-16 and libpq5 (and pgbackrest through libpq5) depend on libgssapi-krb5-2, which depends on libkrb5-3, libk5crypto3 and libkrb5support0: the server links Kerberos, so the packages cannot be removed; the box configures no GSSAPI authentication",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H93-03",
+   "severity": "High",
+   "claim": "trixie-security has krb5 1.21.3-5+deb13u2; db.Dockerfile installs exact versions without an upgrade, so the image keeps the base's deb13u1, unlike python.Dockerfile, which upgrades",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H93-04",
+   "severity": "Low",
+   "claim": "that 1.21.3-5+deb13u2 fixes these 15 findings is inferred from the gate failing only on findings with a fixed version; no image was built or scanned with it",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  }
+ ]
+}
