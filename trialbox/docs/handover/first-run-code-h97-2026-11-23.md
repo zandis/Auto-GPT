@@ -174,6 +174,11 @@ No test asserted that rotate-kek with a passphrase is refused on a PRODUCTION bo
    `[extra5-passphrase-PRODUCTION-FAIL]`; two rows added (the same on TEST: a listed WARN; a caller's TB_ENV=TEST on
    PRODUCTION: a FAIL), and the listed key is checked for both the named and the sealed back end.
 
+9. The box rehearsal (tools/rehearse\_box/box.sh, install and reinstall phases; H-94's check) required an empty PoC
+   list. With part D the rehearsal box (no TPM, keys sealed under the passphrase, a VALIDATION box) lists exactly
+   `check_host.sh/no-tpm-sealed`, which the ruling requires: the check now allows that one line and still fails on any
+   other. The rehearse (validation) job of PR #1429 showed the line on the real path, which is part D's real-path check.
+
 ### Changed assertions (ruling 7102655419, part C)
 
 6. `tests/unit/test_audit_heads_nightly.py::test_on_a_site_box_the_signer_sees_the_audit_volume_read_only_and_the_event_goes_to_the_journal`
