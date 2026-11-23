@@ -151,7 +151,12 @@ def secret_words(name: str) -> bool:
     singles = {w[:-1] if w.endswith("s") and w[:-1] in SECRET_WORDS else w for w in words}
     if singles & SECRET_WORDS or any(w.endswith(SECRET_ENDINGS) for w in words):
         return True
-    return any(a + b in SECRET_PAIRS for a, b in itertools.pairwise(words))
+    if any(a + b in SECRET_PAIRS for a, b in itertools.pairwise(words)):
+        return True
+    # #1354 round 3: a secret's name under any case (``pAssWord``, ``ToKeN``): the camel-case split above cuts it, so
+    # the whole name, lower case and without separators, is read as one word too
+    whole = "".join(words)
+    return whole in SECRET_WORDS or whole in SECRET_PAIRS or whole.endswith(SECRET_ENDINGS)
 
 
 def secret_name(name: str, decl: Declarations | None = None) -> bool:
@@ -240,7 +245,12 @@ QUOTED = re.compile(
 #: the same inside a JSON string: ``\"name\": \"value\"``
 ESCAPED = re.compile(r"(?P<q>\\+\")(?P<key>[^\"\\\s]{1,80})(?P=q)(?P<sep>\s*:\s*)(?P=q)(?P<val>.*?)(?P=q)")
 #: ``name: value`` inside a line (a header, a log's words), to the end of the line or a quote
-COLON = re.compile(rf"(?<![A-Za-z0-9_./@\-])(?P<key>{_KEY})(?P<sep>[ \t]*:[ \t]*)(?!//)(?P<val>[^\r\n\"']+)")
+#: round 3: a key after ``/`` (``/token: v``) and a quoted value after an unquoted key (``{password: "S"}``, a JS
+#: object, a YAML mapping) are taken too
+COLON = re.compile(
+    rf"(?<![A-Za-z0-9_.@\-])(?P<key>{_KEY})(?P<sep>[ \t]*:[ \t]*)(?!//)"
+    r"(?P<val>\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|[^\r\n\"']+)"
+)
 HEADER = re.compile(
     r"(?im)(?<![A-Za-z0-9_\-])(?P<key>authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)"
     r"(?P<sep>[ \t]*:[ \t]*)(?P<val>[^\r\n\"']+)"
@@ -456,20 +466,33 @@ class Scrubber:
             plain = _decode(line)
             if plain == line:
                 continue
-            clean = self._rules(plain)
-            if clean != plain:
-                lines[k] = clean
-                self.found["decoded line"] += 1
+            # #1354 round 3 (H2): the secret rule runs on the raw line first, so a mask only the raw line gets is
+            # not lost when the decoded view is written instead
+            clean = self._rules(_decode(self.secrets(line)))
+            if clean == plain:
+                continue
+            # H-76: the line keeps its own (encoded) form only when the raw rules, decoded, give the decoded view mask
+            # for mask (the review of #1354: a test of 8 characters in a row let two raw rules leave pieces of 7, and
+            # lining the two up by a regex backtracked without end); otherwise it is written decoded and scrubbed
+            if _same_masks(_decode(self._rules(line)), clean):
+                continue
+            lines[k] = clean
+            self.found["decoded line"] += 1
         return "\n".join(lines)
 
     def text(self, text: str) -> str:
-        """Every rule, until the text no longer changes (at most three passes; a fourth change is refused)."""
+        """Every rule, until the text no longer changes (at most three passes; a fourth change is refused).
+
+        H-76: the decoded view of a line is taken BEFORE the raw rules run. Run after them, a rule that did not see a
+        token on the raw line (``%2F`` joins its hex digit to a pseudonym) could still cut into it (the log
+        scrubber's phone pattern took digits from its middle), and the decoded view then saw only fragments: the
+        flake of ``test_the_extended_corpus_still_holds_the_invariant``, about 1 corpus in 60."""
         for _ in range(3):
-            new = self.decoded(self._rules(text))
+            new = self._rules(self.decoded(text))
             if new == text:
                 return new
             text = new
-        if self.decoded(self._rules(text)) != text:
+        if self._rules(self.decoded(text)) != text:
             raise ScrubError("the scrub does not settle on this text: it is not written")
         return text
 
@@ -562,6 +585,12 @@ def _held(rx: re.Pattern[str], text: str, rules: Callable[[str], str]) -> str:
 
     text = rules(rx.sub(hold, text))
     return _PRIVATE.sub(lambda m: held[ord(m.group(0)) - 0xF0000], text) if held else text
+
+
+def _same_masks(raw_view: str, clean: str) -> bool:
+    """Whether the raw line's scrub, decoded, is the decoded view's scrub: the same text and the same marks in the
+    same places (one bundle's tags are the same for one token, so the marks are equal too). Linear in the line."""
+    return raw_view == clean
 
 
 def _decode(line: str) -> str:
