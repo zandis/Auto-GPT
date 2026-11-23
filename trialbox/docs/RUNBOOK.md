@@ -5,7 +5,8 @@
 Each page names its reader on its **Reader:** line (T-735a, D-729): the box owner, hospital IT, the data
 steward, the trial team, Aimedics, or the people who build TrialBox. The box owner's own pages for a box set up by
 the owner are in [`docs/handover/`](handover/) (`windows-owner.*.md`); IT's one page is
-[`docs/handover/it-one-page.en.md`](handover/it-one-page.en.md). Commands run on the box from `/opt/trialbox` as
+[`docs/handover/it-one-page.en.md`](handover/it-one-page.en.md). A hospital installs from
+[`docs/handover/hospital-install.en.md`](handover/hospital-install.en.md) (ja, zh-TW beside it): one line to type. Commands run on the box from `/opt/trialbox` as
 root unless noted; a new install's first command runs from the USB stick and puts the release in `/opt/trialbox`
 (§1, D-996). D-numbers are in
 [DECISIONS](DECISIONS.md). Host hardening is in [Security](SECURITY.md); data sources in [Data](DATA.md).
@@ -88,7 +89,7 @@ File: [runbook/15-operations-screens.md](runbook/15-operations-screens.md). In i
 
 ## 16. Box-install rehearsal: the gate before a site's IQ
 
-File: [runbook/16-box-install-rehearsal.md](runbook/16-box-install-rehearsal.md).
+File: [runbook/16-box-install-rehearsal.md](runbook/16-box-install-rehearsal.md). In it: [A rehearsal with the real model servers (H-89, D-1087)](runbook/16-box-install-rehearsal.md#a-rehearsal-with-the-real-model-servers-h-89-d-1087).
 
 ## 17. On a hospital platform
 
@@ -156,7 +157,7 @@ build TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 
 | § | Title | Holder | Audience |
 | --- | --- | --- | --- |
-| 1 | Install a new site | on master | Aimedics, IT |
+| 1 | Install a new site | on master | Aimedics |
 | 2 | Daily operation | on master | owner |
 | 3 | Accounts | on master | owner (the build-gate parts: team) |
 | 4 | Troubleshooting | on master | owner |

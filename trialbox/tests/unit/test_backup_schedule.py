@@ -968,4 +968,7 @@ def test_install_sh_runs_the_backup_step_after_the_stack_is_up() -> None:
             "# ------------------------------------------------------------------------------------------------ 5. accounts"
         )
     )
-    assert 'die "the backup schedule is not installed' in sh[step : step + 600]
+    assert (
+        'stop_or_warn backup-schedule "the backup schedule (no backup runs)" "the backup schedule is not installed'
+        in (sh[step : step + 600])
+    )  # H-94: the helper (stops on PRODUCTION as die did)

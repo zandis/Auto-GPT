@@ -194,6 +194,14 @@ DECLARED: dict[str, Declared] = {
         "the acting role; the person stays named in the audit trail and the delegation log. Refused, and the console "
         "refuses to start with it on, when TB_ENV is VALIDATION or PRODUCTION (D-1063).",
     ),
+    "reimbursement.paths": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # out of 1.0 (card 9e-9, plan 9 decision 8): switched on with a reason on a test box only
+        help="Reimbursement (plan 9 decision 8, path (ii)): NAV, its TWPAS bundles and SUBMIT to the NHI. Out of 1.0: "
+        "off, a NAV or SUBMIT job fails at its first step, no TWPAS bundle is built and the night passes over NAV. A "
+        "test box (TB_ENV DEV or TEST) only: refused, and read as off, when TB_ENV is VALIDATION or PRODUCTION.",
+    ),
     "omop.dual_write": Declared(
         values=("off", "on"),
         default="off",
@@ -204,9 +212,9 @@ DECLARED: dict[str, Declared] = {
 }
 
 
-#: flags that may leave their default only on a test box (STEPS-ROLE, D-877): refused when TB_ENV is VALIDATION or
-#: PRODUCTION (unset is PRODUCTION)
-TEST_BOX_ONLY = frozenset({"steps.acting_role"})
+#: flags that may leave their default only on a test box (STEPS-ROLE, D-877; card 9e-9): refused when TB_ENV is
+#: VALIDATION or PRODUCTION (unset is PRODUCTION)
+TEST_BOX_ONLY = frozenset({"steps.acting_role", "reimbursement.paths"})
 
 
 def test_box(env: dict[str, str] | None = None) -> bool:

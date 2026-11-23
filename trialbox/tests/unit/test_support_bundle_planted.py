@@ -13,8 +13,9 @@ import ast
 import base64
 import gzip
 import json
+import os
+import random
 import re
-import secrets
 import tarfile
 import urllib.parse
 from collections.abc import Sequence
@@ -29,6 +30,41 @@ from tools import bundle_scrub as bs
 from tools import support_bundle as sb
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class Seeded:
+    """The random values of the bundle's tests, the same on every run of a test whatever the order, the worker or
+    ``--dist`` (H-76: a value drawn from ``secrets`` made the invariant test fail about once in 60 runs). The seed
+    is the test's node id, read from ``PYTEST_CURRENT_TEST``; a test draws the same values in the same order."""
+
+    def __init__(self) -> None:
+        self.key: str | None = None
+        self.rng = random.Random(0)
+
+    def _r(self) -> random.Random:
+        key = os.environ.get("PYTEST_CURRENT_TEST", "").rsplit(" (", 1)[0]
+        if key != self.key:
+            self.key, self.rng = key, random.Random(f"H-76|{key}")
+        return self.rng
+
+    def token_bytes(self, n: int = 32) -> bytes:
+        return self._r().getrandbits(8 * n).to_bytes(n, "big")
+
+    def token_hex(self, n: int = 32) -> str:
+        return self.token_bytes(n).hex()
+
+    def token_urlsafe(self, n: int = 32) -> str:
+        return base64.urlsafe_b64encode(self.token_bytes(n)).rstrip(b"=").decode()
+
+    def randbelow(self, n: int) -> int:
+        return self._r().randrange(n)
+
+    def choice(self, seq: str) -> str:
+        return self._r().choice(seq)
+
+
+SEEDED = Seeded()
+secrets = SEEDED  # the module's draws, by the name the code read before
 NOW = datetime(2026, 11, 22, 4, 31, tzinfo=UTC)
 DAY = "2026-11-21"
 
@@ -160,7 +196,7 @@ def make_box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pla
     (deploy / "secrets" / "services").mkdir(parents=True)
     (deploy / "secrets" / "services" / f"{p.pid}.token").write_text("x" * 12 + "\n", encoding="utf-8")  # a NAME
     audit.mkdir()
-    env = ["TB_TZ=Asia/Taipei", f"TB_LOG_DIR={logs}", f"TB_AUDIT_HOST_DIR={audit}",
+    env = ["TB_TZ=Asia/Taipei", "TB_ENV=TEST", f"TB_LOG_DIR={logs}", f"TB_AUDIT_HOST_DIR={audit}",
            f"TB_SITE_NOTE={p.pid} {p.screening[0]}"]  # fmt: skip
     env += [f"{n}={v}" for n, v in p.settings.items()]
     env += [f"# {line}" for line in corpus(p).splitlines()]

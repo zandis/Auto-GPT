@@ -28,6 +28,8 @@ def _box(tmp: Path) -> tuple[Path, dict[str, str], Path]:
     (box / "deploy" / "site").mkdir()
     (box / "deploy" / "keys" / "vendor_ed25519.pub").write_text("stand-in key\n", encoding="utf-8")
     (box / "deploy" / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    # H-94: the box records PRODUCTION, so the mark stops the run (kept refusal 3); on a PoC box it would go on
+    (box / "deploy" / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     shutil.copy2(ROOT / "deploy" / "install.sh", box / "deploy" / "install.sh")
     for name in ("libs", "services", "tools"):
         (box / name).symlink_to(ROOT / name)

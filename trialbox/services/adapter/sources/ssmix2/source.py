@@ -904,6 +904,12 @@ class Ssmix2Source:
         self.extended = CsvSource(ext) if ext.is_dir() else None
         self.ext_storage = extended_storage or directory / "extended_storage"
         self.byomei = _lookup(byomei_to_icd10 or JP_CORE / "byomei_to_icd10.csv", "code", "icd10")
+        # SDR2 (lane M): a WHO ICD-10 code ICD-10-CM lacks takes the table's ICD-10-CM code; a row still to verify is
+        # applied, as the 病名 rows are, and counted apart ("applied, not verified")
+        self.who_cm = _lookup(JP_CORE / "who_icd10_to_icd10cm.csv", "who", "icd10cm")
+        self.who_cm_verified = {
+            k for k, v in _lookup(JP_CORE / "who_icd10_to_icd10cm.csv", "who", "verified").items() if v == "yes"
+        }
         self.yj = _lookup(yj_to_atc or JP_CORE / "yj_to_atc.csv", "yj_code", "atc")
         # 10B-4: the site's 用法 table (review 12 §7 ``codes/usage.csv``: ``code,doses_per_day``), optional; a code it
         # does not list is read from its text ("1日3回"), else the daily dose stays unknown
@@ -1614,10 +1620,20 @@ class Ssmix2Source:
         return bool(code) and code in self._cm
 
     def _icd_columns(self, code: str) -> dict[str, str]:
-        """``icd10`` (WHO, always) and ``icd10cm`` (the same code when ICD-10-CM has it, else empty), D-314."""
+        """``icd10`` (WHO, always) and ``icd10cm``: the same code when ICD-10-CM has it (D-314), else the WHO-to-CM
+        table's code (SDR2), else empty, and the WHO code is counted as unmapped (``missed``), never dropped."""
         if code and not _WHO_SHAPE.match(code):
             self.stats["diagnosis:not a WHO ICD-10 shape"] += 1
-        return {"icd10": code, "icd10cm": code if self._in_cm(code) else ""}
+        if not code or self._in_cm(code):
+            return {"icd10": code, "icd10cm": code}
+        cm = self.who_cm.get(code, "")
+        if cm and self._in_cm(cm):
+            state = "applied" if code in self.who_cm_verified else "applied, not verified"
+            self.stats[f"diagnosis:ICD-10-CM from the WHO-to-CM table ({state})"] += 1
+            return {"icd10": code, "icd10cm": cm}
+        self.stats["diagnosis:WHO ICD-10 with no ICD-10-CM"] += 1
+        self.missed[f"diagnosis:{code}"] += 1
+        return {"icd10": code, "icd10cm": ""}
 
     def _atc(self, yj: str) -> str:
         hit = self.licensed.get("yj", {}).get(yj.upper()) if yj else None

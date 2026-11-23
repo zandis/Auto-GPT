@@ -431,6 +431,18 @@ class OpsRunner:
         res = self.take_quiet(req)
         if res is not None:
             return res
+        import sys
+
+        if str(ROOT / "libs") not in sys.path:
+            sys.path.insert(0, str(ROOT / "libs"))  # the host's python3 (rc1_refusals: standard library)
+        from tb_common import rc1_refusals
+
+        try:  # R22-34 (D-1072): rc1 applies no update in the quiet hour on a PRODUCTION box; a person's update runs now
+            rc1_refusals.check("unattended_updates", rc1_refusals.host_env(self.box.env))
+        except rc1_refusals.Rc1Refused as exc:
+            lines = [f"{exc.refusal.key}: {exc.environment}"]
+            self.ops.write_result(req, False, f"refused: {exc.say()}", lines, _now())
+            return self.ops.result(str(req.get("id")))
         if self.quiet_reason(req) is not None:
             return None
         seen = self._seen(req)

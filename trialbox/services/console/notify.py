@@ -54,6 +54,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from tb_common import rc1_refusals
 from tb_common.workdays import WEEKDAYS_ONLY, Calendar
 
 from console import actor
@@ -431,6 +432,8 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
                 life[r.id] = lf  # its rows already carry the screening number beside the pseudonym (D-136)
             if not state.runs:
                 continue  # paused: no list rows, marks, calls or new pre-screens; enrolled participants' care stays
+            if rc1_refusals.refused("live_patient_lists"):
+                continue  # R22-34 (D-1072): a refused box mails no candidate rows, as a paused study; care stays
             wk = h.week_bundle(sess, r.id)
             if wk is None:
                 continue
