@@ -433,7 +433,9 @@ def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name(tmp_
     assert len(rows) == 70 and {r["term"] for r in rows if not r["curated"]} == {"RA", "AMI", "MTX", "PSL", "GPT"}
     site = _site_atc(tmp_path)  # V-18b: the drug names answer from the site's copy (synthetic here)
     plain = Terminology(installed=site)
-    dead = [r["term"] for r in rows if plain.map(r["domain"], r["canonical"]).method not in ("exact", "synonym")]
+    # V-18b: a drug name answers from the site's copy, a table loaded at install (method "loaded")
+    dead = [r["term"] for r in rows
+            if plain.map(r["domain"], r["canonical"]).method not in ("exact", "synonym", "loaded")]  # fmt: skip
     assert dead == []
 
     def lookup(term: str, domain: str = "") -> list[dict[str, Any]]:

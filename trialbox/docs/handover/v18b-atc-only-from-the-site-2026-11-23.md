@@ -17,8 +17,9 @@ Now:
 - Both files are removed, and `tools/build_terminology.py` no longer builds them. The register row no longer names
   them; NOTICE says no ATC name is shipped.
 - `atc` is no longer one of the mapper's shipped tables (`TABLE_FILES`): no file in a tables folder can feed it.
-  When the site's `atc_index` is loaded, its substances take the shipped table's place in every step (the exact-name
-  step and the candidates included), so a box with its own copy answers as the shipped table did.
+  When the site's `atc_index` is loaded, a substance whose name no other substance shares takes the shipped table's
+  place in the exact-name step (so the Japanese dictionary reaches it, as before), reported with the method
+  `loaded`; a name several codes share still answers for review (TERM-2, D-1113).
 - `Terminology.atc_source()` is the one source of ATC rows for the groupers:
   - the site's `atc_index` (its level-5 substances);
   - else codes only: the ATC column of the NHI drug lists and the exact codes of TrialBox's own groupers, named

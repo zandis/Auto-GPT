@@ -14,8 +14,10 @@
    `tools/build_terminology.py` no longer builds them. The licence register's `atc` row (permission-to-ask) no longer
    names them. So the compiler's mapper, `omop.concept` and the FHIR store read ATC from the same place.
 2. **Where ATC comes from.** In this order:
-   - the site's own ATC index (`atc_index`, loaded at install under a named acceptance, D-1114): its names and codes,
-     in every step the shipped table answered (its substances answer the exact-name step);
+   - the site's own ATC index (`atc_index`, loaded at install under a named acceptance, D-1114): its names and codes.
+     A substance whose name no other substance of the index shares answers the exact-name step (and the dictionary
+     through it), as the shipped table did, with the method `loaded`; a name several codes share answers for review,
+     as TERM-2 decided (D-1113);
    - else, codes only, as identifiers (D-536): the ATC column of the NHI drug lists (open data, D-1127) and the codes
      TrialBox's own groupers (`src/synonyms.csv`) name. Such a code's name is the NHI ingredient when there is one, else
      the code itself. A WHOCC name never reaches a reader without the site's copy;

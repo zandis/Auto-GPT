@@ -510,7 +510,9 @@ class Terminology:
             wide = self._via(name, domain, trusted, grouped, exact, "synonym", False)
             if wide is not None and {c.code for c in hits} < {c.code for c in wide.concepts}:
                 return wide
-            return MappingResult(name, domain, _dedupe(hits), "exact", False)
+            # V-18b: a name of the site's own ATC copy keeps the method of a table loaded at install
+            site = bool(self.rows.get("atc")) and all(c.system == SYSTEMS["atc"] for c in hits)
+            return MappingResult(name, domain, _dedupe(hits), "loaded" if site else "exact", False)
         # 2. curated synonym/grouper table on the name — a grouper such as "urate-lowering therapy" must win over
         #    exact matches of individual example drugs
         hits, fams = grouped([primary])
@@ -730,10 +732,15 @@ class Terminology:
         if table == inst.ATC_INDEX:
             uri = LOADED_SYSTEMS["atc"]
             self.atc_rows = rows
-            # the site's copy takes the shipped table's place in every step: its substances answer the exact-name
-            # step and the candidates, as the shipped rows did before V-18b
-            self.rows["atc"] = [{"code": str(r["code"]), "display": str(r["display"])} for r in rows
-                                if len(str(r["code"])) == 7]  # fmt: skip
+            # the site's copy takes the shipped table's place: a substance (level 5) whose name no other substance
+            # shares answers the exact-name step (and the dictionary through it), as the shipped rows did before
+            # V-18b; a name several codes share answers below, for review (TERM-2, D-1113)
+            subs = [r for r in rows if len(str(r["code"])) == 7]
+            seen: dict[str, int] = {}
+            for r in subs:
+                seen[norm(str(r["display"]))] = seen.get(norm(str(r["display"])), 0) + 1
+            self.rows["atc"] = [{"code": str(r["code"]), "display": str(r["display"])} for r in subs
+                                if seen[norm(str(r["display"]))] == 1]  # fmt: skip
             for r in rows:
                 self._by_code[(uri, str(r["code"]))] = Concept(uri, str(r["code"]), str(r["display"]))
             under: dict[str, list[Concept]] = {}  # an ATC group -> its substances (level 5)

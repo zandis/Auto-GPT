@@ -89,7 +89,7 @@ def test_the_sites_copy_names_the_codes_and_answers_its_own_names(site: Terminol
         ("M04AB03", "synthetic uricosuric substance"),
     ]
     one = site.map("medication", "synthetic urate substance three")
-    assert one.method == "exact" and [c.code for c in one.concepts] == ["M04AA03"]  # as the shipped table answered
+    assert one.method == "loaded" and [c.code for c in one.concepts] == ["M04AA03"]  # a table loaded at install
     named = site.concept(ATC, "M04AA01")
     assert named is not None and named.display.startswith("synthetic")
 
