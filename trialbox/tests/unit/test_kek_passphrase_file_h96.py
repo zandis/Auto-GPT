@@ -26,6 +26,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tb_common import kek as K
@@ -465,9 +466,9 @@ def test_the_runbook_tool_writes_the_throwaway_passphrase_by_stdin_never_the_env
     src = Path(ri.__file__).read_text(encoding="utf-8")
     assert '"TB_KEK_PASSPHRASE"' not in src and "KEK_PASS_FILE" in src
     cls = next(v for v in vars(ri).values() if isinstance(v, type) and hasattr(v, "_kek_file"))
-    run = object.__new__(cls)
-    run.m = Machine()  # type: ignore[attr-defined]
-    run.kek_pass = PHRASE  # type: ignore[attr-defined]
-    assert run._kek_file()  # type: ignore[attr-defined]
+    run: Any = object.__new__(cls)
+    run.m = Machine()
+    run.kek_pass = PHRASE
+    assert run._kek_file()
     ((command, env, stdin),) = seen
     assert PHRASE not in command and not env and stdin == PHRASE + "\n" and "umask 077" in command
