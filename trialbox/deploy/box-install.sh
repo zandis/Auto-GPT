@@ -7,6 +7,8 @@
 #   sudo deploy/box-install.sh trialbox-<version>.tar --rehearsal    # a rehearsal box: TEST, stand-ins (D-726)
 #   deploy/box-install.sh --firstrun                                 # the prepared box's first boot (trialbox-firstrun.service)
 #   sudo deploy/box-install.sh trialbox-<version>.tar --answers owner.json   # unattended (D-898): the hospital's install
+#   sudo deploy/box-install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu <profile> \
+#       --gpu-index N --engine-probe FILE   # H-89b: a rehearsal box with the real model servers (install.sh, D-1087)
 #
 # What it does, in order:
 #   1. hardware: python3 -m tools.box detect (the GPU, memory, disks, TPM, the box's network); shown, and the one
@@ -43,6 +45,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""
+# REHEARSAL-REAL-SERVERS (H-89b): handed on to install.sh as given, after the plan's flags; the options exist only
+# under the mark (--rehearsal with --rehearsal-real-servers): otherwise each is an unknown option, as before
+RRS_ARGS=(); RRS_MARK=0; rrs_r=0; rrs_q=0
+for a in "$@"; do case "$a" in --rehearsal) rrs_r=1 ;; --rehearsal-real-servers) rrs_q=1 ;; esac; done
+[ "$rrs_r$rrs_q" != 11 ] || RRS_MARK=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
@@ -51,6 +58,13 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --answers) [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "box-install: --answers needs the owner's answers file (JSON)" >&2; exit 2; }
       OWNER="$2"; shift ;;
+    # REHEARSAL-REAL-SERVERS (H-89b): under the mark only
+    --rehearsal-real-servers) [ "$RRS_MARK" = 1 ] || { echo "box-install: unknown option $1" >&2; exit 2; }
+      RRS_ARGS+=("$1") ;;
+    --gpu|--gpu-index|--engine-probe) [ "$RRS_MARK" = 1 ] || { echo "box-install: unknown option $1" >&2; exit 2; }
+      [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "box-install: $1 needs a value" >&2; exit 2; }
+      RRS_ARGS+=("$1" "$2"); shift ;;
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89b)
     -h|--help) sed -n '2,/^set -euo pipefail/{ /^set -euo pipefail/!p; }' "$0"; exit 0 ;;
     -*) echo "box-install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
@@ -141,6 +155,7 @@ EOP
   fi
   read -r -a INSTALL_ARGS <<< "${ARGS_LINE#install-args: }"
   [ "$REHEARSAL" = 1 ] && INSTALL_ARGS+=(--rehearsal)  # D-726: a rehearsal box, handed on to install.sh
+  INSTALL_ARGS+=(${RRS_ARGS[@]+"${RRS_ARGS[@]}"})  # REHEARSAL-REAL-SERVERS (H-89b): after the plan's, so they win
   DEFER=0; [ "$(json_get "$BOX/hardware.json" tpm)" = True ] || [ -n "$OWNER" ] || DEFER=1
   INBOX=1; [ -z "$OWNER" ] || INBOX=0  # D-898: unattended, the install makes the first administrator (the IT form)
   echo "    install: ${INSTALL_ARGS[*]}"
