@@ -1,0 +1,10 @@
+who,icd10cm,relation,source,verified
+F00,G30.9,wider,"ICD-10-CM Alphabetic Index FY2026 (CMS, public domain): Disease, diseased, Alzheimer's -> G30.9",verify
+F00.0,G30.9,wider,"ICD-10-CM Alphabetic Index FY2026 (CMS, public domain): Disease, diseased, Alzheimer's -> G30.9",verify
+F00.1,G30.9,wider,"ICD-10-CM Alphabetic Index FY2026 (CMS, public domain): Disease, diseased, Alzheimer's -> G30.9",verify
+F00.2,G30.9,wider,"ICD-10-CM Alphabetic Index FY2026 (CMS, public domain): Disease, diseased, Alzheimer's -> G30.9",verify
+F00.9,G30.9,wider,"ICD-10-CM Alphabetic Index FY2026 (CMS, public domain): Disease, diseased, Alzheimer's -> G30.9",verify
+F01.9,F01.5,wider,"ICD-10-CM Tabular List FY2026 (CMS, public domain): F01.5 Vascular dementia, unspecified severity (the index's F01.50 also asserts no behavioral disturbance)",verify
+A16.0,A15.0,wider,"ICD-10-CM Alphabetic Index FY2026 (CMS, public domain): Tuberculosis, tubercular, tuberculous, pulmonary -> A15.0",verify
+A16.1,A15.0,wider,"ICD-10-CM Alphabetic Index FY2026 (CMS, public domain): Tuberculosis, tubercular, tuberculous, pulmonary -> A15.0",verify
+A16.2,A15.0,wider,"ICD-10-CM Alphabetic Index FY2026 (CMS, public domain): Tuberculosis, tubercular, tuberculous, pulmonary -> A15.0",verify
