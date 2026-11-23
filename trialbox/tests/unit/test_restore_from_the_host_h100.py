@@ -275,3 +275,52 @@ def test_the_roles_step_signs_in_as_the_superuser_of_the_url_with_its_password_i
     assert env["PGHOST"] == "db" and env["PGPORT"] == "5432" and env["POSTGRES_USER"] == "hapi"
     assert env["PGPASSWORD"] == PW and env["TB_DB_PW_LAKE"] == "lake-pw"
     assert box_restore.roles({"TB_HAPI_DB_URL": ""}, run) == 2 and len(ran) == 1
+
+
+# ------------------------------------------------------------------------------------------------ gap 3
+ROOT = Path(__file__).resolve().parents[2]
+BACKUP_IMAGE = ROOT / "deploy" / "docker" / "backup.Dockerfile"
+
+
+def _final_stage(text: str) -> str:
+    return text[text.rindex("\nFROM ") :]
+
+
+def test_the_backup_image_carries_the_database_client_tools_pinned_held_and_checked() -> None:
+    """The restore's container (and its copy of the box before it) restores and dumps with the client tools of the
+    server's own major: each package at an exact version from the db image's own base and package source, held,
+    its installed version and each tool's major checked when the image builds; the image still runs as its user."""
+    import json
+    import re
+
+    text = BACKUP_IMAGE.read_text(encoding="utf-8")
+    lock = json.loads((ROOT / "deploy" / "images.lock").read_text(encoding="utf-8"))["images"]["db"]
+    base = re.search(r"^FROM (\S+)@(sha256:[0-9a-f]{64}) AS pgdg$", text, re.M)
+    assert base and base.group(1) == lock["base"]["ref"] and base.group(2) == lock["base"]["digest"], base
+    final = _final_stage(text)
+    args = dict(re.findall(r"^ARG (\w+)=(\S+)$", final, re.M))
+    assert args["PG_CLIENT_MAJOR"] == str(lock["postgres_major"])
+    pins = {"postgresql-client-${PG_CLIENT_MAJOR}": "PG_CLIENT_VERSION", "libpq5": "LIBPQ_VERSION",
+            "postgresql-client-common": "PG_CLIENT_COMMON_VERSION"}  # fmt: skip
+    for pkg, var in pins.items():
+        assert re.fullmatch(r"[0-9.]+(-\d+)?\.pgdg13\+\d+", args[var]), (var, args[var])  # PGDG's Debian 13 build
+        var_ref = "${" + var + "}"
+        assert '"' + pkg + "=" + var_ref + '"' in final, pkg  # installed at that version
+        named = '"' + pkg + '"' if "$" in pkg else pkg
+        check = "test \"$(dpkg-query -W -f '${Version}' " + named + ')" = "' + var_ref + '"'
+        assert check in final, (pkg, check)  # checked after the install
+    assert args["PG_CLIENT_VERSION"].startswith(args["PG_CLIENT_MAJOR"] + ".")
+    assert 'apt-mark hold "postgresql-client-${PG_CLIENT_MAJOR}" libpq5 postgresql-client-common;' in final
+    assert "for tool in pg_restore pg_dump psql; do" in final and '"$tool (PostgreSQL) ${PG_CLIENT_MAJOR}."*' in final
+    assert 'test "$VERSION_CODENAME" = trixie' in final  # the package source's suite
+    assert "COPY --from=pgdg /usr/local/share/keyrings/postgres.gpg.asc" in final  # the db base's own signing key
+    assert re.findall(r"^USER (\S+)$", final, re.M)[-1] == "tb"  # never left running as root
+    assert "apt-get install" not in final.replace("--no-install-recommends", "")  # every install is the pinned one
+
+
+def test_the_restore_runs_in_the_box_files_backup_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deploy = _box(tmp_path, "TB_BACKUP_IMAGE=trialbox-backup:1.0.1\nTB_IMAGE=trialbox-py:1.0.1\n")
+    code, seen = _restore(deploy, tmp_path, monkeypatch, Recorder())
+    argv = seen[0][0]
+    assert code == 0 and "trialbox-backup:1.0.1" in argv and "trialbox-py:1.0.1" not in argv
+    assert "caller/evil:1" not in argv  # the caller exported TB_BACKUP_IMAGE too
