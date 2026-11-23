@@ -780,6 +780,8 @@ def test_the_worker_knows_every_name_an_omop_store_can_have() -> None:
         "services/orchestrator/app.py": ["omop"],  # NEW-ARCH-3 slice 2 (D-865): the clinical conflicts, the box's own
         "tools/backup_drill.py": ["omop"],
         "tools/codemap_release.py": ["omop"],
+        # V-18 (D-1182): the box's own store, for the vocabulary load (omop.concept): no patient row is written
+        "tools/terminology_load.py": ["omop"],
         "tools/omop_parity.py": ["schema.schema_for(lake_dir)"],
         # D-720/D-721: the drill's write paths: the box's own store as each service role, then a second lake's,
         # named by schema.schema_for(folder) (second_lake)
