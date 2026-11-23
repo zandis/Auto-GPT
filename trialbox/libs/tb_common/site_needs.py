@@ -21,19 +21,27 @@ else. The list says whether an answer was given, not whether it is good: whether
 answers stays with ``doctor``'s own checks.
 
 A value can be present and still be a stand-in, such as the first administrator's mail standing in for the trial
-office's mailbox (the integrator's ruling on #1417). The caller passes the keys it knows are stand-ins. Where that
-mark is kept is part 2's choice (U5-2), not this list's.
+office's mailbox (the integrator's ruling on #1417). The keys of such values are kept in :data:`STAND_INS`,
+``deploy/site/stand-ins.json`` (the integrator's go on #639, U5-2): keys only, never a value, mode 0600. The
+installer and the page's apply step write it (:func:`write_stand_ins`, :func:`mark`); ``doctor`` and the page read it
+(:func:`read_stand_ins`). It lives in ``deploy/site``, so the nightly backup's host part carries it.
 
 Standard library only: the console, the services and the host's ``python3`` all import it.
 """
 
 from __future__ import annotations
 
+import contextlib
+import json
+import os
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 LANGS = ("en", "ja", "zh-TW")
+STAND_INS = Path("site") / "stand-ins.json"  # under the deploy folder
+STAND_INS_FORMAT = "tb-stand-ins/1"
 STATES = ("missing", "stand_in", "given")
 
 #: the steps an item is needed before, in the order a site meets them
@@ -391,3 +399,61 @@ def all_texts() -> Iterable[tuple[str, str, str]]:
             t = getattr(n, part)
             for lg in LANGS:
                 yield f"{n.key}.{part}", lg, t.get(lg, "")
+
+
+def read_stand_ins(deploy: Path) -> tuple[frozenset[str], list[str]]:
+    """The keys marked as stand-ins, and what could not be read. Never raises: no file is no stand-in; a link, a file
+    that is not this list's, or a key the list does not know is named in the second part and left out."""
+    path = deploy / STAND_INS
+    if path.is_symlink():
+        return frozenset(), [f"{STAND_INS} is a link: not read"]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return frozenset(), []
+    except (OSError, ValueError) as e:
+        return frozenset(), [f"{STAND_INS} cannot be read ({type(e).__name__})"]
+    if not isinstance(data, dict) or data.get("format") != STAND_INS_FORMAT or not isinstance(data.get("keys"), list):
+        return frozenset(), [f"{STAND_INS} is not a stand-ins list ({STAND_INS_FORMAT})"]
+    keys = [k for k in data["keys"] if isinstance(k, str)]
+    unknown = sorted(k for k in keys if k not in BY_KEY)
+    problems = [f"{STAND_INS} names an item the list does not know: {k}" for k in unknown]
+    return frozenset(k for k in keys if k in BY_KEY), problems
+
+
+def write_stand_ins(deploy: Path, keys: Iterable[str]) -> None:
+    """Replace the list with ``keys`` (each a key of :data:`NEEDS`; a value is never written). Written to a new file
+    of mode 0600 beside it and moved into place, so a reader sees the old list or the new one; a link in its place is
+    refused, never followed. Raises ValueError for an unknown key and OSError when it cannot be written."""
+    wanted = sorted(set(keys))
+    unknown = [k for k in wanted if k not in BY_KEY]
+    if unknown:
+        raise ValueError(f"not items of the list: {', '.join(unknown)}")
+    path = deploy / STAND_INS
+    if path.is_symlink():
+        raise OSError(f"{path} is a link: not written")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    body = json.dumps({"format": STAND_INS_FORMAT, "keys": wanted}, indent=1) + "\n"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        try:
+            os.write(fd, body.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+
+
+def mark(deploy: Path, key: str, *, stand_in: bool) -> frozenset[str]:
+    """Add ``key`` to the list (a stand-in was put in its place) or take it off (the hospital gave the value), and
+    return the list as written. A list that could not be read is rewritten from what could."""
+    keys, _ = read_stand_ins(deploy)
+    new = keys | {key} if stand_in else keys - {key}
+    if new != keys or not (deploy / STAND_INS).is_file():
+        write_stand_ins(deploy, new)
+    return frozenset(new)
