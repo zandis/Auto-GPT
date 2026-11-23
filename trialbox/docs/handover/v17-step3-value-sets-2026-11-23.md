@@ -37,8 +37,7 @@ in, so the store answers "no member" as the SQL does. The ruleset's own ValueSet
 version) are unchanged: only the copy sent to the store differs. A ValueSet that is not a plain list (a filter,
 another ValueSet, an exclusion) or is expanded already is sent as it is.
 
-Decision: D-1073 (`docs/decisions/D-1073-the-fhir-store-needs-no-code-system.md`; the number is to be confirmed by the
-integrator): the FHIR store needs no code system at install; built on D-1028 and D-991.
+Decision: D-1181 (`docs/decisions/D-1181-the-fhir-store-needs-no-code-system.md`): the FHIR store needs no code system at install; built on D-1028 and D-991.
 
 ## Proof
 

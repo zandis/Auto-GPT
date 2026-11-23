@@ -1,9 +1,9 @@
-# D-1073 The FHIR store needs no code system: each value set reaches it expanded (V-17)
+# D-1181 The FHIR store needs no code system: each value set reaches it expanded (V-17)
 
 - **Task:** lane V, card V-17 (MVP walk step 3: every compile on a fresh box failed its equivalence check with "Failed
   to expand ValueSet"; the integrator's addition: close the gap D-1028 and D-991 leave for the FHIR store) ·
   **Date:** 2026-11-23
-- **Status:** reserved for V-17, number to be confirmed by the integrator (the integrator writes the row)
+- **Status:** reserved for V-17 (the integrator flips the row when merged)
 - **Builds on:** D-1028 (code systems are loaded at install), D-991 (the services read the loaded code systems)
 
 ## Decision
