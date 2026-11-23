@@ -468,7 +468,7 @@ def measure_stub(work: Path, patients: int = GATE_PATIENTS, trial: str = GATE_TR
 
 
 def compare(
-    baseline: dict[str, Any], current: dict[str, Any], tolerance: float = TOLERANCE
+    baseline: dict[str, Any], current: dict[str, Any], tolerance: float = TOLERANCE, ratio: bool = False
 ) -> tuple[bool, list[dict[str, Any]]]:
     """Each baseline metric against the current run: (passed, rows). Times are scaled by the hosts' calibration
     ratio (clamped to SCALE_LIMITS); memory is not. A metric fails when it is over ``1 + tolerance`` times the scaled
@@ -478,6 +478,8 @@ def compare(
                          f"{current.get('patients')} of {current.get('trial')}: not comparable")  # fmt: skip
     lo, hi = SCALE_LIMITS
     scale = min(hi, max(lo, float(current["calibration_s"]) / float(baseline["calibration_s"])))
+    if ratio:  # the baseline's numbers were measured on this runner just now (:func:`ratio_baseline`): no scaling
+        scale = 1.0
     rows = []
     for key, base in baseline["metrics"].items():
         cur = current["metrics"].get(key)
@@ -492,7 +494,28 @@ def compare(
     return all(r["ok"] for r in rows) and bool(current.get("passed")), rows
 
 
-def gate_markdown(current: dict[str, Any], baseline: dict[str, Any], rows: list[dict[str, Any]], ok: bool) -> str:
+REF_COMMIT_KEY = "ref_commit"  # tools/bench_baseline.json: the full sha measured on the runner when its CPU differs
+
+
+def host_differs(baseline: dict[str, Any], host: dict[str, Any]) -> bool:
+    """Whether this host's CPU model is not the one the baseline was written on (both named). A runner of another
+    CPU model runs the same code at another speed (an AMD runner against an Intel baseline: +41 % on one night with
+    no commit to blame), so the calibration loop, which scales one hash-and-sort loop, does not speak for the stub."""
+    mine, theirs = str(host.get("cpu") or ""), str((baseline.get("host") or {}).get("cpu") or "")
+    return bool(mine and theirs and mine != theirs)
+
+
+def ratio_baseline(baseline: dict[str, Any], ref: dict[str, Any]) -> dict[str, Any]:
+    """The baseline for a gate on the ratio: the reference commit's metrics measured on this runner (``ref``, a
+    ``--write-baseline`` file written by that commit's own bench), under the baseline's size and trial. The 20 %
+    tolerance and the floors are unchanged; the numbers are the runner's own, so the host's speed cancels."""
+    return {**baseline, "metrics": ref["metrics"], "calibration_s": ref["calibration_s"], "host": ref["host"],
+            "written": f"just now, at {ref.get('commit', '?')}"}  # fmt: skip
+
+
+def gate_markdown(
+    current: dict[str, Any], baseline: dict[str, Any], rows: list[dict[str, Any]], ok: bool, ratio: bool = False
+) -> str:
     h = current["host"]
     lines = [
         f"## Performance gate: the stub at {current['patients']:,} patients ({current['trial']}): "
@@ -506,6 +529,10 @@ def gate_markdown(current: dict[str, Any], baseline: dict[str, Any], rows: list[
         "| metric | baseline | scaled baseline | this run | change | ok |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
+    if ratio:
+        at = lines.index("| metric | baseline | scaled baseline | this run | change | ok |") - 1
+        lines[at:at] = ["", "Ratio mode: the baseline column is the reference commit measured on this runner "
+                        f"({baseline['written']})."]  # fmt: skip
     for r in rows:
         chg = "-" if r["change_pct"] is None else f"{r['change_pct']:+.1f} %"
         verdict = ("yes" if r["ok"] else "NO") if r["gated"] else "not gated"
@@ -549,7 +576,9 @@ def adopt(report: Path, baseline_path: Path) -> int:
     return 0
 
 
-def gate(out: Path, baseline_path: Path, patients: int, write_baseline: bool, runs: int = GATE_RUNS) -> int:
+def gate(
+    out: Path, baseline_path: Path, patients: int, write_baseline: bool, runs: int = GATE_RUNS, ref: Path | None = None
+) -> int:
     before = calibrate()
     measured = []
     for _ in range(runs):
@@ -571,10 +600,12 @@ def gate(out: Path, baseline_path: Path, patients: int, write_baseline: bool, ru
         print(json.dumps(current["metrics"]), flush=True)
         return 0
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
-    ok, rows = compare(baseline, current)
+    if ref is not None:
+        baseline = ratio_baseline(baseline, json.loads(ref.read_text(encoding="utf-8")))
+    ok, rows = compare(baseline, current, ratio=ref is not None)
     (out / "bench_gate.json").write_text(json.dumps({"passed": ok, "current": current, "rows": rows,
                                                      "baseline": baseline}, indent=1) + "\n", "utf-8")  # fmt: skip
-    md = gate_markdown(current, baseline, rows, ok)
+    md = gate_markdown(current, baseline, rows, ok, ratio=ref is not None)
     (out / "bench_gate.md").write_text(md, encoding="utf-8")
     print(md, flush=True)
     return 0 if ok else 1
@@ -616,14 +647,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--runs", type=int, default=GATE_RUNS, help="--gate: runs; each metric is the best of them")
     ap.add_argument("--adopt", type=Path, help="--gate: write the baseline from a bench_gate.json (the nightly's "
                     "artifact), so the baseline is the runner's own numbers; nothing is measured")  # fmt: skip
+    ap.add_argument("--ref", type=Path, help="--gate: the reference commit measured on this runner (a --write-baseline "
+                    "file): the gate is then on the ratio to it, not to the baseline's own numbers")  # fmt: skip
+    ap.add_argument("--cpu-differs", action="store_true", help="exit 0 when this host's CPU model is not "
+                    "the baseline's (gate on the ratio), 1 when it is; prints the reference commit")  # fmt: skip
     args = ap.parse_args(argv)
+    if args.cpu_differs:
+        base = json.loads(args.baseline.read_text(encoding="utf-8"))
+        differs = host_differs(base, host_info())
+        print(base.get(REF_COMMIT_KEY, ""))
+        return 0 if differs else 1
     from tb_common.config import adopt_site_tz
 
     adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ when unset (D-315)
     if args.gate and args.adopt:
         return adopt(args.adopt, args.baseline)
     if args.gate:
-        return gate(args.out, args.baseline, args.patients, args.write_baseline, max(1, args.runs))
+        return gate(args.out, args.baseline, args.patients, args.write_baseline, max(1, args.runs), args.ref)
     LLM.update(url=args.llm_url, model=args.llm_model)
     tasks = list(TARGETS) if args.tasks == "all" else [t.strip() for t in args.tasks.split(",")]
     work = Path(tempfile.mkdtemp(prefix="tb-bench-"))
