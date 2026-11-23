@@ -1555,6 +1555,15 @@ class ReportProvenance(BaseModel):
     site: str
 
 
+class RequiresModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    manifest_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+
+
 class Routing(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2444,51 +2453,6 @@ class UpdateFile(BaseModel):
     size: int = Field(..., ge=0)
 
 
-class UpdateManifest(BaseModel):
-    """
-    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.3.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required; 1.3.0, D-367: payload kind host, the host tree of compose files, host tools and configuration, at most one per bundle).
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
-    created_at: AwareDatetime
-    signer: str
-    description: str | None = None
-    files: list[UpdateFile]
-    release_seq: int = Field(..., ge=1)
-    """
-    Monotonic release counter: a box refuses a bundle whose release_seq is not above the installed one (unless an audited --allow-downgrade).
-    """
-    min_installed_version: int = Field(..., ge=0)
-    """
-    The lowest installed release_seq this bundle applies over (0: also a box never updated under D-210). Never overridable.
-    """
-    key_id: str = Field(..., pattern="^ed25519:[0-9a-f]{16}$")
-    """
-    The signing key: ed25519: + the first 16 hex of the sha256 of its raw 32-byte public key. Must be a key the box trusts and must be the key the signature verifies with.
-    """
-    not_after: AwareDatetime
-    """
-    The bundle is refused after this time.
-    """
-    compat_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member compat.json (the compatibility table, checked before any file is touched).
-    """
-    release_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member release.json (provisional until T-110). Required when the bundle carries images.
-    """
-    images_lock_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member images.lock (the release's deploy/images.lock).
-    """
-    rotation: KeyRotation | None = None
-
-
 class ValidationSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2943,6 +2907,19 @@ class NavRow(BaseModel):
     precheck: Precheck | None = None
 
 
+class Pack(BaseModel):
+    """
+    H-95: which half of a split release this bundle is. A model pack carries the engine image and the weights; a software pack carries the rest and names the model pack it needs by its bundle_id and the sha256 of its signed manifest.json. A box refuses a software pack whose model pack it does not hold.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    kind: Literal["model", "software"]
+    requires_model: RequiresModel | None = None
+
+
 class ParsedDoc(BaseModel):
     """
     doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.1.0 (1.1.0: ie_block.item_refs, NEW-LIFE-2).
@@ -3188,6 +3165,52 @@ class TrialSimResult(BaseModel):
     reach_rate: float | None = None
     accept_rate: float | None = None
     rows: list[TrialSimRow]
+
+
+class UpdateManifest(BaseModel):
+    """
+    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.4.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required; 1.3.0, D-367: payload kind host, the host tree of compose files, host tools and configuration, at most one per bundle; 1.4.0, H-95: the optional pack, a software pack that names the model pack it needs by that pack's signed identity, or a model pack; no pack: a whole bundle as before).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    created_at: AwareDatetime
+    signer: str
+    description: str | None = None
+    files: list[UpdateFile]
+    release_seq: int = Field(..., ge=1)
+    """
+    Monotonic release counter: a box refuses a bundle whose release_seq is not above the installed one (unless an audited --allow-downgrade).
+    """
+    min_installed_version: int = Field(..., ge=0)
+    """
+    The lowest installed release_seq this bundle applies over (0: also a box never updated under D-210). Never overridable.
+    """
+    key_id: str = Field(..., pattern="^ed25519:[0-9a-f]{16}$")
+    """
+    The signing key: ed25519: + the first 16 hex of the sha256 of its raw 32-byte public key. Must be a key the box trusts and must be the key the signature verifies with.
+    """
+    not_after: AwareDatetime
+    """
+    The bundle is refused after this time.
+    """
+    compat_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member compat.json (the compatibility table, checked before any file is touched).
+    """
+    release_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member release.json (provisional until T-110). Required when the bundle carries images.
+    """
+    images_lock_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member images.lock (the release's deploy/images.lock).
+    """
+    rotation: KeyRotation | None = None
+    pack: Pack | None = None
 
 
 class CandidateRow(BaseModel):
