@@ -129,7 +129,9 @@ def test_the_v1_tier_is_the_status_function() -> None:
 
 # ------------------------------------------------------------------------------------------------ the basis
 def test_a_fresh_note_answer_carries_the_basis_of_the_run() -> None:
-    said_no = NoteResult(predicate="pass", confidence=0.95, quote="q", quote_date="2026-10-01", dids=["D1"])
+    # the quote states the condition (R22-16, ruled on #639 7078540170: only the input changed)
+    stated = "Skin abscess on the left forearm, drained today."
+    said_no = NoteResult(predicate="pass", confidence=0.95, quote=stated, quote_date="2026-10-01", dids=["D1"])
     assert note_verdict(EXC, said_no, pair=True).basis == "pair"
     assert note_verdict(EXC, said_no, pair=False).basis == "single"
     assert note_verdict(EXC, said_no).basis is None  # a caller that does not say: unstated, the policy decides
@@ -142,6 +144,15 @@ def test_a_fresh_note_answer_carries_the_basis_of_the_run() -> None:
     assert is_pair(judge(llm=model_a, verifier=model_b))
     assert not is_pair(judge(llm=model_a, verifier=None)) and not is_pair(judge(llm=model_a, verifier=again))
     assert not is_pair(None)
+
+
+def test_a_fresh_note_answer_on_a_quote_that_states_nothing_is_review_with_no_basis() -> None:
+    """The old input of the test above, pinned (R22-16, #639 7078540170): an exclusion "present" on the placeholder
+    quote "q", which states no condition, is the models' inference: ``unknown``, no basis, whatever the pair."""
+    on_q = NoteResult(predicate="pass", confidence=0.95, quote="q", quote_date="2026-10-01", dids=["D1"])
+    for pair in (True, False, None):
+        v = note_verdict(EXC, on_q, pair=pair)
+        assert (v.verdict, v.basis) == ("unknown", None), pair
 
 
 def test_a_cascade_outcome_carries_its_basis() -> None:

@@ -10,6 +10,33 @@ from __future__ import annotations
 
 import os
 
+from console import (
+    i18n_accounts,
+    i18n_audit,
+    i18n_breakglass,
+    i18n_conflicts,
+    i18n_copyassist,
+    i18n_dataops,
+    i18n_demo,
+    i18n_feedback,
+    i18n_firstrun,
+    i18n_flags,
+    i18n_form_errors,
+    i18n_identity,
+    i18n_instruments,
+    i18n_items,
+    i18n_lists,
+    i18n_notmatched,
+    i18n_phone,
+    i18n_plain,
+    i18n_preflight,
+    i18n_prefs,
+    i18n_roles,
+    i18n_sae,
+    i18n_tier,
+    i18n_today,
+)
+
 LANGS = ("en", "ja", "zh-TW")
 
 EN: dict[str, str] = {
@@ -1257,3 +1284,37 @@ from console.i18n_profile_form import ZH as _PF_ZH  # noqa: E402
 EN.update(_PF_EN)
 JA.update(_PF_JA)
 ZH.update(_PF_ZH)
+
+# 9i-1: the catalogues a page module joined only when it was imported. A page registered on every box (/ops/users:
+# role.steward) read a key that only the pilot's break-glass page joined, so the page worked or raised by what had
+# been imported before it. Every console/i18n_*.py is joined here, when this module is imported; the page modules
+# still join theirs (the same words again).
+for _mod in (
+    i18n_accounts,
+    i18n_audit,
+    i18n_breakglass,
+    i18n_conflicts,
+    i18n_copyassist,
+    i18n_dataops,
+    i18n_demo,
+    i18n_feedback,
+    i18n_firstrun,
+    i18n_flags,
+    i18n_form_errors,
+    i18n_identity,
+    i18n_instruments,
+    i18n_items,
+    i18n_lists,
+    i18n_notmatched,
+    i18n_phone,
+    i18n_plain,
+    i18n_preflight,
+    i18n_prefs,
+    i18n_roles,
+    i18n_sae,
+    i18n_tier,
+    i18n_today,
+):
+    EN.update(_mod.EN)
+    JA.update(_mod.JA)
+    ZH.update(_mod.ZH)

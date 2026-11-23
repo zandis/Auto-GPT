@@ -18,8 +18,6 @@ The rule:
    build (``served``), the judge did not really answer (a gateway that let another build stand in, two names of one
    model): ``unknown`` / ``model_down``, counted as a failure, never an exclusion (review LLM-002).
    :func:`same_model` asks the same of the two configured clients before a run.
-7. an exclusion's "present" from the notes stands only on a quote that states its condition (D-985): a negated,
-   relative's, rule-out, suspected, drug or value quote goes to review on every path (:func:`inferred_exclusion`).
 """
 
 from __future__ import annotations
@@ -79,26 +77,6 @@ def combine(first: Vote, second: Vote | None, minimum: float = MIN_CONFIDENCE) -
     if second.verdict != first.verdict:
         return Decision("unknown", 0.0, Reason.DISAGREE.value, disagreement=True)
     return floor(Vote(first.verdict, min(first.confidence, second.confidence), first.reason), minimum)
-
-
-# ------------------------------------------------------------------------------------------------ D-985
-#: the reason of a note exclusion whose "present" is the models' inference, the cascade's wording (D-985)
-INFERRED_REASON = "inferred: the quote does not state the condition; review"
-
-
-def inferred_exclusion(kind: str, condition_present: bool, quote: str | None, criterion: str) -> bool:
-    """D-985 (R22-16): a note exclusion answered "condition present" on a ``quote`` that does not state the
-    ``criterion``'s condition (a negated, family-history, rule-out, suspected, drug or value quote): the models'
-    inference, a person looks, never an exclusion. False for an inclusion, an absent condition, or a criterion that
-    is itself a value, a drug or a procedure. ``criterion`` is the criterion's text, never its note question.
-
-    The rule reads :func:`matching.inferred.inferred`, imported here when called: a library does not import the
-    services at module level."""
-    if kind != "exclusion" or not condition_present:
-        return False
-    from matching.inferred import inferred
-
-    return inferred(str(quote or ""), str(criterion or ""))
 
 
 # ------------------------------------------------------------------------------------------------ model identity
@@ -193,13 +171,11 @@ def same_model(judge: Any, verifier: Any) -> str | None:
 
 __all__ = [
     "DECIDED",
-    "INFERRED_REASON",
     "Decision",
     "Vote",
     "combine",
     "floor",
     "gateway_default_alias",
-    "inferred_exclusion",
     "needs_verifier",
     "same_model",
     "served_key",

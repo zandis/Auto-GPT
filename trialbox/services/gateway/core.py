@@ -882,7 +882,8 @@ class Gateway:
                     time.sleep(self.retry_delay_s)
                 left = call.deadline - time.monotonic()
             if left < 1.0:
-                errors.append(f"{name}: the call's budget of {self.call_budget_s:.0f}s is spent")
+                # walk step 5: the call ran out of time (its wait for a slot included), as a read timeout does
+                errors.append(Upstream(f"{name}: the call's budget of {self.call_budget_s:.0f}s is spent", "timeout"))
                 if breaker is not None:
                     breaker.cancel()
                 return None

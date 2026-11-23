@@ -29,6 +29,8 @@ from tb_common.quotes import quote_in, quote_key
 from tb_llm import budget
 from tb_llm.budget import estimate_tokens
 
+from matching.inferred import sentence_of
+
 JUDGE_PROMPT = "judge"
 
 
@@ -157,14 +159,14 @@ class GatewayJudge:
         from tb_common.llm import load_prompt, render
         from tb_contracts import inline_schema, load_schema, null_absent, schema_errors
         from tb_llm import CallLabels, GatewayDown, GatewayRefused, json_schema_format
-        from tb_llm.outage import MODEL_FAULTS, OutageBudget, wait_and_retry
+        from tb_llm.outage import OutageBudget, refusal_fault, wait_and_retry
 
         if self.outage is None:
             self.outage = OutageBudget()
 
         def fault_of(exc: BaseException) -> tuple[str, float | None] | None:
-            if isinstance(exc, GatewayRefused) and exc.reason in MODEL_FAULTS:
-                return exc.reason, exc.retry_after
+            if isinstance(exc, GatewayRefused) and (fault := refusal_fault(exc.reason, exc.upstream_kinds)):
+                return fault, exc.retry_after  # walk step 5: a timeout of the gateway's is waited for too
             return ("unreachable", None) if isinstance(exc, GatewayDown) else None
 
         p = load_prompt(self.prompt_id)
@@ -337,6 +339,9 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
             "date": d.isoformat(),
             "sentence_hash": sentence_hash(q),
             "quote": reply.quote,
+            # R22-16: the record's sentence the quote lies in, for the one rule of what a note answer may do
+            # (``matching.note_answer``); ``engine._map`` reads it and takes it out, so it is never published
+            "sentence": sentence_of(reply.quote, raw),
         }
     return None
 

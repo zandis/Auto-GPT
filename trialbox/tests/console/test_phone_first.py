@@ -153,7 +153,9 @@ def test_with_the_flag_on_the_phone_sees_the_list_first_and_the_same_links(box: 
             < week.index('data-testid="study-fold"')
         )
         assert re.search(r'data-testid="study-bits">.*?<p class="hint" data-testid="team-nav">', week, re.S)  # folded
-        assert f'data-label="{html.escape(CATALOGUES[lang]["wb.c.visit"])}"' in week
+        assert (
+            f'<span class="pcard-lab">{html.escape(CATALOGUES[lang]["wb.c.visit"])} </span>' in week
+        )  # 9k-14: the card's label
         chart = page.split('data-testid="chart"')[1]
         assert (
             chart.index('data-testid="actions"')

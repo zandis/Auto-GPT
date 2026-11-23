@@ -79,7 +79,10 @@ def study(lb: dict[str, Any]) -> dict[str, Any]:  # noqa: F811
 
 def _cell(page: str, start: str, end: str = "</tr>") -> str:
     i = page.index(start)
-    return page[i : page.index(end, i)]
+    stops = [
+        j for j in (page.find(end, i), page.find("</article>", i) if end == "</tr>" else -1) if j >= 0
+    ]  # 9k-14: a card
+    return page[i : min(stops)]
 
 
 def _state_in(fragment: str) -> list[str]:

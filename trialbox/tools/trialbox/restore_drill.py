@@ -24,10 +24,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
-from tools.trialbox import backup as bk
 from tools.trialbox import backup_schedule as _sched
+
+if TYPE_CHECKING:
+    from tools.trialbox import backup as bk
 
 SCRATCH_PREFIX = "tb_drill_"
 UNPACK_FACTOR = 4.0  # the unpacked backup: a compressed dump and the lake are about this many times the file
@@ -95,6 +97,8 @@ def check_space(file: Path, work: Path, db_dir: Path, free: Callable[[Path], int
 
 def compare(src: bk.DbSource, want: Mapping[str, Any]) -> list[str]:
     """The tables whose rows or content hash differ from the manifest, as ``trialbox restore`` compares them."""
+    from tools.trialbox import backup as bk
+
     scheme = want.get("row_hash", "md5")
     skip = [*want.get("excluded_tables", []), *want.get("excluded_data_schemas", [])]
     got = bk.row_counts(src, skip, scheme)
@@ -107,6 +111,60 @@ def compare(src: bk.DbSource, want: Mapping[str, Any]) -> list[str]:
     return diff
 
 
+def finish_database(scratch: bk.DbSource, unpacked: Path, want: Mapping[str, Any]) -> list[str]:
+    from tools.trialbox import backup as bk
+
+    for table in _sched.BULK_REFDATA:
+        rows = unpacked / "db" / f"{scratch.name}.site.{table}.copy"
+        if want.get("refdata_schema") and rows.is_file() and rows.stat().st_size:
+            bk._copy_in(scratch, f"{want['refdata_schema']}.{table}", rows)
+    return compare(scratch, want)
+
+
+class DrillOps(Protocol):
+    def unpack(self, file: Path, key: Path, into: Path) -> dict[str, Any]: ...
+    def create(self, db: str, name: str) -> None: ...
+    def restore_compare(self, db: str, name: str, into: Path, want: Mapping[str, Any]) -> list[str]: ...
+    def drop(self, name: str) -> None: ...
+
+
+class LocalDrill:
+    """The direct CLI, for an environment with the Python dependencies and PostgreSQL client installed."""
+
+    def __init__(self, env: Mapping[str, str]) -> None:
+        from tools.trialbox import backup as bk
+
+        self.env = env
+        self.sources = {s.name: s for s in bk.db_sources(env)}
+        # Direct callers supply a scratch-capable connection. The installed box uses its own cluster role.
+        self.admin = (self.sources.get("trialbox_wf") or next(iter(self.sources.values()))).dsn
+        self.created: set[str] = set()
+
+    def unpack(self, file: Path, key: Path, into: Path) -> dict[str, Any]:
+        from tools.trialbox import backup as bk
+
+        return bk.unpack(file, key, into, lake_from_restic=False)
+
+    def create(self, db: str, name: str) -> None:
+        if db not in self.sources:
+            raise DrillError(f"the backup holds database {db} but its URL is not set on this box")
+        scratch = scratch_source(self.sources[db], self.admin, name)
+        self.created.add(name)  # after the live-name guard, before the server answers (review 2 of #1305, L-1)
+        _create(self.admin, _dbname(scratch.dsn))
+
+    def restore_compare(self, db: str, name: str, into: Path, want: Mapping[str, Any]) -> list[str]:
+        from tools.trialbox import backup as bk
+
+        scratch = scratch_source(self.sources[db], self.admin, name)
+        bk.restore_db(scratch, into / "db" / f"{db}.dump", self.env)
+        return finish_database(scratch, into, want)
+
+    def drop(self, name: str) -> None:
+        if name not in self.created:  # only a name that passed the guard in create: never a live or admin database
+            raise DrillError(f"refused to drop {name!r}: this drill did not create it")
+        _drop(self.admin, name)
+
+
 def drill(
     file: Path,
     key: Path,
@@ -117,6 +175,7 @@ def drill(
     free: Callable[[Path], int] | None = None,
     now: datetime | None = None,
     name: Callable[[str], str] | None = None,
+    ops: DrillOps | None = None,
 ) -> dict[str, Any]:
     """Run the drill on ``file`` with ``key``; return the result (``ok`` true or false). Raises :class:`DrillError`
     only when nothing was started (space, settings); every later failure is a result with ``ok`` false."""
@@ -124,8 +183,7 @@ def drill(
     work = work or Path(tempfile.gettempdir())
     db_dir = db_dir or work
     check_space(file, work, db_dir, free or (lambda p: shutil.disk_usage(p).free))
-    srcs = {s.name: s for s in bk.db_sources(env)}
-    admin = srcs["trialbox_wf"].dsn if "trialbox_wf" in srcs else next(iter(srcs.values())).dsn
+    ops = ops or LocalDrill(env)
     drill_id = secrets.token_hex(4)
     scratch_name = name or (lambda db: f"{SCRATCH_PREFIX}{drill_id}_{db}")
     made: list[str] = []
@@ -133,21 +191,18 @@ def drill(
                            "drill": drill_id, "databases": {}}  # fmt: skip
     unpacked = Path(tempfile.mkdtemp(prefix="tb-drill-", dir=work))
     try:
-        manifest = bk.unpack(file, key, unpacked, lake_from_restic=False)  # D-968: the drill reads the sealed part
+        manifest = ops.unpack(file, key, unpacked)  # D-968: the drill reads the sealed part
         res.update(created_at=manifest["created_at"], site=manifest.get("site", ""), sha256=manifest["_sha256"],
                    files=len(manifest["files"]))  # fmt: skip
         for db, want in manifest["databases"].items():
-            if db not in srcs:
-                raise DrillError(f"the backup holds database {db} but its URL is not set on this box")
-            scratch = scratch_source(srcs[db], admin, scratch_name(db))
-            _create(admin, _dbname(scratch.dsn))
-            made.append(_dbname(scratch.dsn))
-            bk.restore_db(scratch, unpacked / "db" / f"{db}.dump", env)
-            for t in _sched.BULK_REFDATA:  # the hospital's own reference rows, as the restore copies them in
-                f = unpacked / "db" / f"{db}.site.{t}.copy"
-                if f.is_file() and want.get("refdata_schema") and f.stat().st_size:
-                    bk._copy_in(scratch, f"{want['refdata_schema']}.{t}", f)
-            diff = compare(scratch, want)
+            scratch_db = scratch_name(db)
+            made.append(scratch_db)  # before the server answers: a lost acknowledgement is still dropped
+            try:
+                ops.create(db, scratch_db)
+            except DrillError:  # refused before the server was asked (a live or invalid name): nothing to drop
+                made.remove(scratch_db)
+                raise
+            diff = ops.restore_compare(db, scratch_db, unpacked, want)
             res["databases"][db] = {"tables": len(want["rows"]), "rows": sum(r[0] for r in want["rows"].values()),
                                     "differ": diff[:10], "differ_count": len(diff)}  # fmt: skip
         bad = {db: r["differ_count"] for db, r in res["databases"].items() if r["differ_count"]}
@@ -156,29 +211,40 @@ def drill(
             res["error"] = "restored rows differ from the backup's manifest: " + ", ".join(
                 f"{db} in {n} table(s)" for db, n in sorted(bad.items())
             )
-    except (bk.BackupError, DrillError, OSError) as e:
-        res["error"] = str(e)[-400:]
     except Exception as e:  # a database that refused (psycopg), a damaged dump: a failed drill, said
         res["error"] = f"{type(e).__name__}: {str(e)[-400:]}"
     finally:
         dropped = []
         for n in made:
             try:
-                _drop(admin, n)
+                ops.drop(n)
                 dropped.append(n)
             except Exception as e:  # said in the result: a scratch database left behind is named, never hidden
+                res["ok"] = False
+                res.setdefault(
+                    "error", "scratch cleanup failed / 暫存資料庫清理失敗 / 一時データベースの削除に失敗しました"
+                )
                 res.setdefault("left_behind", []).append(f"{n} ({type(e).__name__})")
         shutil.rmtree(unpacked, ignore_errors=True)
         res["scratch_dropped"] = dropped
         res["unpacked_removed"] = not unpacked.exists()
+        if not res["unpacked_removed"]:
+            res["ok"] = False
+            res.setdefault("error", "could not remove the unpacked backup")
     return res
+
+
+def audit_detail(res: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: res.get(k) for k in ("ok", "at", "file", "created_at", "files", "databases", "error", "drill", "sha256")}
 
 
 def record(deploy: Path, res: Mapping[str, Any], env: Mapping[str, str], dirs: Mapping[str, Path]) -> str:
     """The drill's result as the box's key-check record and an audit event; never the key or its path."""
     from tb_common import metrics
 
+    from tools.trialbox import backup as bk
+
     metrics.record_drill(deploy, res)
-    detail = {k: res.get(k) for k in ("ok", "at", "file", "created_at", "files", "databases", "error", "drill")}
+    detail = audit_detail(res)
     actor = {**env, "TB_RESTORE_ACTOR": env.get("TB_RESTORE_ACTOR") or "trialbox restore-drill"}
     return bk._audit(dirs, actor, EVENT, str(res.get("sha256") or ""), detail)

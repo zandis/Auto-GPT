@@ -324,14 +324,27 @@ public-data:
 
 # integration or e2e (HAPI CQL and the equivalence gate against HAPI, the compose data, the database image, mail
 # through GreenMail and Mailpit, the role walk) except the egress test (root and nftables: `make test-egress`) and the
-# console POC (`make poc`, `make test-console-e2e`). TB_STRICT_SKIPS=1: a skipped test fails, so a missing stack,
-# browser or jar never passes for green. COMPOSE_JUNIT names the junit file.
+# console POC (`make poc`, `make test-console-e2e`) and the steps-mode walks (`make test-walks`). TB_STRICT_SKIPS=1: a
+# skipped test fails, so a missing stack, browser or jar never passes for green. COMPOSE_JUNIT names the junit file.
 COMPOSE_JUNIT ?= $(TB_TEST_ROOT)/compose-junit.xml
 test-compose:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	$(HL7_ENV) TB_INTEGRATION=1 TB_STRICT_SKIPS=1 PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-m "(integration or e2e) and not egress" --junitxml "$(COMPOSE_JUNIT)" \
-		--ignore tests/e2e/test_console_poc.py tests/integration tests/e2e
+		--ignore tests/e2e/test_console_poc.py $(addprefix --ignore ,$(WALK_TESTS)) tests/integration tests/e2e
+
+# 9i-1: the five steps-mode walks. Each module starts its own local box (tools.demo on pglocal; no compose stack) and
+# took 8 to 19 minutes on 2026-11-19, 63 in all: in the compose job they ran it past its 90 minutes. The nightly runs
+# them in its `walks` job, one module per runner (WALK_TEST); nothing may skip. WALKS_JUNIT names the junit file.
+WALK_TESTS := tests/e2e/test_new_study_walk.py tests/e2e/test_life_cycle_walk.py tests/e2e/test_life_cycle_walk_390.py \
+	tests/e2e/test_phone_walk.py tests/e2e/test_module_walks.py
+WALK_TEST ?= $(WALK_TESTS)
+WALKS_JUNIT ?= $(TB_TEST_ROOT)/walks-junit.xml
+.PHONY: test-walks
+test-walks:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	$(HL7_ENV) TB_INTEGRATION=1 TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e \
+		--junitxml "$(WALKS_JUNIT)" $(WALK_TEST)
 
 # the browser walk of the public console (tools/public_walk.js: 5 roles x 3 languages x desktop and phone, axe-core,
 # 44 px targets, tap counts) on the stub, as the complete run's walk part; needs Node Playwright with Chromium

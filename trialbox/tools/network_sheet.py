@@ -196,6 +196,13 @@ T: dict[str, dict[str, str]] = {
         "ja": "ホストのみ（コンテナには渡さない）",
         "zh-TW": "僅主機（不進容器）",
     },
+    # review 2 of #1305 (L-3): without cryptography on the host, seal_keys.sh hands the passphrase to a container's
+    # process on its stdin; it is never in a container's configuration or in a file
+    "host_kek": {
+        "en": "the host only; never in a container's configuration or in a file",
+        "ja": "ホストのみ（コンテナの設定やファイルには残さない）",
+        "zh-TW": "僅主機（不寫入容器設定或檔案）",
+    },
     "every": {
         "en": "every TrialBox service (hashes only, not secret)",
         "ja": "全 TrialBox サービス（ハッシュのみ、秘密ではない）",
@@ -498,11 +505,8 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
         # D-378 / D-450: each service's own password reaches it inside its own TB_DB_URL, never as a variable
         ("TB_DB_PW_<SERVICE> (one role per service)", "deploy/.env (0600, root)", "db; each service its own only"),
         ("IMAP_PASS, SMTP_PASS", "deploy/.env (0600, root)", keep("IMAP_PASS")),
-        (
-            "TB_KEK_PASSPHRASE, TB_KMS_TOKEN (if the KEK back end uses them)",
-            "deploy/.env (0600, root)",
-            keep("TB_KMS_TOKEN"),
-        ),
+        ("TB_KEK_PASSPHRASE", "terminal / command environment (RUNBOOK §16)", T["host_kek"][lang]),
+        ("TB_KMS_TOKEN", "KMS token (RUNBOOK §17)", keep("TB_KMS_TOKEN")),
         ("CLOUD_LLM_API_KEY (empty by default)", "deploy/.env (0600, root)", keep("CLOUD_LLM_API_KEY")),
         (
             "site_hmac.key, pid_map.key, REDCap API tokens",
@@ -548,7 +552,7 @@ def tables(files: list[str], env: dict[str, str] | None, lang: str, root: Path =
     data = load(files, root)
     nets = []
     for n, spec in sorted((data.get("networks") or {}).items()):
-        name = (spec or {}).get("name", n)
+        name = interpolate(str((spec or {}).get("name", n)))  # H-75: ${COMPOSE_PROJECT_NAME:-trialbox}-net: its default
         kind = "net_internal" if (spec or {}).get("internal") else "net_console" if n == "console-net" else "net_egress"
         nets.append((name, T[kind][lang]))
     return {"services": svcs, "ports": ports, "nets": nets, "out": outbound(env), "secrets": secrets_rows(svcs, lang),

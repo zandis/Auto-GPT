@@ -28,7 +28,11 @@
 # plan is made from those answers, the install makes the first administrator as the IT form does (TB_BOX=0: its
 # password and enrolment code printed once), then the time zone, the backup schedule and the host check. The file
 # never holds a password or a passphrase (refused); a board without a TPM takes TB_KEK_PASSPHRASE from the
-# environment and the keys are sealed at the install. A bad file changes nothing.
+# environment and the keys are sealed at the install. In your own Bash shell, set bundle to the signed bundle path:
+#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
+#   sudo --preserve-env=TB_KEK_PASSPHRASE deploy/box-install.sh "$bundle" --answers owner.json
+#   unset TB_KEK_PASSPHRASE
+# sudo VAR=value command shows the value in the process list.
 # Knobs for the tests and the rehearsal only: TB_BOX_HARDWARE (a hardware.json instead of detecting), TB_BOX_INSTALL
 # (the install command), TB_BOX_PY (a python command instead of the image), TB_BOX_COMPOSE (the compose command),
 # TB_BOX_HOST_CHECK (the host check command), TB_ISSUE_DIR, TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
@@ -47,7 +51,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --answers) [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "box-install: --answers needs the owner's answers file (JSON)" >&2; exit 2; }
       OWNER="$2"; shift ;;
-    -h|--help) sed -n 2,35p "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo pipefail/{ /^set -euo pipefail/!p; }' "$0"; exit 0 ;;
     -*) echo "box-install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -117,8 +121,8 @@ if secret:
              "(the administrator's password is made and printed by the install; TB_KEK_PASSPHRASE comes from the "
              "environment)")
 EOP
-    if [ "$(json_get "$BOX/hardware.json" tpm)" != True ] && [ "${#TB_KEK_PASSPHRASE}" -lt 12 ]; then
-      die "no usable TPM: set TB_KEK_PASSPHRASE (12 characters or more) in the environment of this command; the site keys are sealed under it at the install (nothing was changed)"
+    if [ "$(json_get "$BOX/hardware.json" tpm)" != True ] && { [ -z "${TB_KEK_PASSPHRASE:-}" ] || [ "${#TB_KEK_PASSPHRASE}" -lt 12 ]; }; then
+      die "no usable TPM: TB_KEK_PASSPHRASE must contain at least 12 characters; follow the Bash example in box-install.sh --help (nothing was changed)"
     fi
     YES=1
   fi

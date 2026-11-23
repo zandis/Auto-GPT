@@ -8,8 +8,14 @@ creates the administrator (password printed once), ingests a 600-patient synthet
 console <http://127.0.0.1:8090>, web mail (MailHog) <http://127.0.0.1:8025>, mail to the box on SMTP port 3025
 (`tools/send_test_mail.py "FEAS GZQO" --sender admin@hospa.test`). `deploy/poc.sh status|down|reset`.
 
-- **Modes** (`TB_LLM_MODE`): `stub` (default, no GPU), `openrouter` (DEV, D0 data only, key in `OPENROUTER_API_KEY`
-  or `deploy/poc/secrets/openrouter_api_key`, given to the gateway only), `gpu` (needs the pin of §8).
+- **Modes** (`TB_LLM_MODE`): `stub` (default, no GPU), `openrouter` (DEV, D0 data only, gateway key), `gpu` (needs the pin of §8).
+  For OpenRouter, enter the key in your own Bash shell. Using `sudo VAR=value command` shows the value in the process list.
+
+  ```bash
+  read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+  sudo --preserve-env=OPENROUTER_API_KEY TB_LLM_MODE=openrouter deploy/poc.sh
+  unset OPENROUTER_API_KEY
+  ```
 - **The weights folder (gpu mode, D-896):** the weights go in `deploy/models`, or anywhere with
   `TB_MODELS_DIR=<folder>` given once: `poc.sh` keeps it in `deploy/.env`, so a restart, the next run, `trialbox
   doctor` and `deploy/check_weights.sh` read the same folder. Do not bind-mount the weights onto `deploy/models` by

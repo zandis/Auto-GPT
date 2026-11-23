@@ -13,7 +13,9 @@ Trial criteria for both come from the ClinicalTrials.gov API (``eligibilityCrite
 bullet. Today's registry text may differ from the text the assessors read (trials are amended); that is a caveat.
 
     python -m tools.open_cohorts_eval fetch
-    OPENROUTER_API_KEY=... python -m tools.open_cohorts_eval run --cohort sigir --models <m> [--variant suspected]
+    read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+    python -m tools.open_cohorts_eval run --cohort sigir --models <m> [--variant suspected]
+    unset OPENROUTER_API_KEY
     python -m tools.open_cohorts_eval score       # -> eval/open_cohorts/results/scores.json
 """
 

@@ -34,22 +34,15 @@ from matching import verdict as verdict_table
 from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
+from matching.inferred import sentence_of
+from matching.note_answer import note_answer_may
 from matching.proposed import Proposed
 from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
-from tb_common.pair import (
-    DECIDED,
-    INFERRED_REASON,
-    Vote,
-    combine,
-    inferred_exclusion,
-    needs_verifier,
-    same_model,
-    served_keys,
-)
+from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
@@ -232,6 +225,9 @@ class NoteResult:
     tokens_out: int = 0
     # D-120: when the two checks disagree, each model's answer and verified quote, so a person sees both
     opinions: list[dict[str, Any]] = field(default_factory=list)
+    # R22-16: the record's sentence the quote was verified in, read by the one rule of what a note answer may do
+    # (``matching.note_answer``); never published
+    sentence: str = ""
 
 
 def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
@@ -547,10 +543,21 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
         if planted_in(str(match["text"]), q):  # T-606 (D-359): an instruction found in a note is never evidence
             return NoteResult("unknown", 0.0, reason=Reason.PLANTED_INSTRUCTION.value, source=source)
         did = match.get("did")
+    else:
+        match = None
     why = Reason.NOTE.value if verdict in ("pass", "fail") else Reason.ABSTAINED.value
     model_reason = str(d.get("reason") or "")
+    sentence = sentence_of(str(quote or ""), str(match["text"])) if match is not None else ""
     return NoteResult(
-        verdict, conf, quote, d.get("quote_date"), why, source, [str(did)] if did else [], model_reason=model_reason
+        verdict,
+        conf,
+        quote,
+        d.get("quote_date"),
+        why,
+        source,
+        [str(did)] if did else [],
+        model_reason=model_reason,
+        sentence=sentence,
     )
 
 
@@ -616,11 +623,13 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
     why = r.reason
-    if verdict == "fail" and inferred_exclusion(c.kind, pred is True, r.quote, c.text):
-        # D-985 (R22-16): an exclusion "present" on a quote that does not state its condition is the models'
-        # inference: a person looks, as on the cascade (the same rule, ``tb_common.pair``, published with the
-        # cascade's code for its reason). The quote and its notes stay, so the person sees what was quoted
-        verdict, why = "unknown", code_of(INFERRED_REASON, "unknown")
+    if pred is not None:
+        # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
+        # exclusion "present" on a quote that does not state its condition is the models' inference: a person looks,
+        # as on the cascade, published with the cascade's code for its reason. The quote and its notes stay
+        may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence)
+        if may.effect == "review":
+            verdict, why = "unknown", code_of(may.reason, "unknown")
     return CriterionVerdict(
         id=c.id,
         verdict=verdict,

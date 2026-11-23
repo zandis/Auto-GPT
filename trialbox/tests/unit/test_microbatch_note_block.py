@@ -43,10 +43,15 @@ def _pool_verdicts() -> list[dict[str, Any]]:
     return out
 
 
-def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any) -> str:
+#: a quote that states the note exclusion's condition. R22-16 (#639 7079180333): the input was the placeholder "q",
+#: which states nothing and now goes to review on its own; the pinned "q" case is below
+FLARE = "Acute gout flare of the right first toe since yesterday."
+
+
+def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any, quote: str = FLARE) -> str:
     """One pool patient; this week the judge answers the note exclusion as present at 0.95. The tier the run gives."""
     fresh = CriterionVerdict(
-        id=NOTE, verdict="fail", evidence=Evidence(resource_refs=["DocumentReference/D1"], quote="q", confidence=0.95)
+        id=NOTE, verdict="fail", evidence=Evidence(resource_refs=["DocumentReference/D1"], quote=quote, confidence=0.95)
     )
     seen: list[Any] = []
 
@@ -117,3 +122,11 @@ def test_a_pair_of_two_models_still_excludes_in_the_weekly_run(monkeypatch: pyte
     judge = SimpleNamespace(model="judge-a", base_url="http://a/v1", gateway=None, served_root="judge-a")
     verifier = SimpleNamespace(model="verifier-b", base_url="http://b/v1", gateway=None, served_root="verifier-b")
     assert _weekly_tier(monkeypatch, judge, verifier) == "excluded"  # control
+
+
+def test_a_pair_on_a_quote_that_states_nothing_is_review_in_the_weekly_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The old input of the control above, pinned (R22-16, #639 7079180333): a pair's "present" on the placeholder
+    quote "q", which states no condition, is review."""
+    judge = SimpleNamespace(model="judge-a", base_url="http://a/v1", gateway=None, served_root="judge-a")
+    verifier = SimpleNamespace(model="verifier-b", base_url="http://b/v1", gateway=None, served_root="verifier-b")
+    assert _weekly_tier(monkeypatch, judge, verifier, quote="q") == "review"
