@@ -3,7 +3,8 @@
 **Reader:** the integrator, the independent reviewer, and the people who build TrialBox
 
 Lane H, 2026-11-23. Card H-97 (High, keys), HIGH-RISK: an independent review reads it before it rides. Built to the
-integrator's ruling 7101844662 on findings H96-09 (part A) and H96-04 (part B, decision D-1092). It builds on H-96
+integrator's ruling 7101844662 on findings H96-09 (part A) and H96-04 (part B, decision D-1092), and to 7102655419
+on the review of H-96's L-2 (part C). It builds on H-96
 (PR #1398, not merged when this was written). Synthetic codes and passphrases only; no real host, address or key is
 named here. The refusals of part A are the PoC list's fifth stop (a secret read from or written to a place others can
 read) and are marked "H-94 (5)": they stand on every box.
@@ -66,6 +67,33 @@ rc1 table's row says so; its message, its sites and every other refusal are unch
 section (still a section, no new number) says a PRODUCTION box rotates itself, with the audit folder, and that every
 other rotation stays refused there.
 
+## Part C: no path takes the passphrase from a caller's environment
+
+The review of H-96 (L-2) and the integrator's 7102655419 name this card as the follow-up: H-96 refused
+`TB_KEK_PASSPHRASE` in the installers, the seal step and `tools.keys`, and three paths still honoured it.
+
+**The start path, read first.** A passphrase box opens its KEK at every start by `tools.keys unseal` (the passphrase
+typed, or `--passphrase-file` / `--passphrase-stdin`), which writes the KEK to `/run/trialbox/kek`; every service and
+host tool's `load_kek` reads that file first. The environment branch was reached only with no KEK file, and its one
+real user was `tools.keys` itself, which hands `load_kek` a mapping holding the value it read from a file or stdin.
+That path is unchanged (the lead was told before the change).
+
+**Now.**
+- `libs/tb_common/kek.py` `load_kek`: when the passphrase would be derived and the process environment holds
+  `TB_KEK_PASSPHRASE`, it refuses (`KekError`, H-96's words, never the value), whatever mapping it was handed (the
+  process environment or a copy of it). A mapping `tools.keys` built is still taken. The KEK file is still read first.
+- `tools/trialbox/audit_heads.py`: `PASSED` no longer names `TB_KEK_PASSPHRASE`, so the signer's container never gets
+  `-e TB_KEK_PASSPHRASE`; it opens the KEK from the unsealed file it mounts, as before.
+- `tools/trialbox/backup_schedule.py`: the restic key step no longer forwards it (only `TB_KEK_FILE`). A passphrase
+  KEK has no custodians' shares, so that step never makes a restic key for one; the forward was dead there.
+
+**Tests:** `tests/unit/test_kek_env_refused_h97.py` (3): the library refuses an exported value (handed the process
+environment, a copy, or a copy with the value) and never prints it, a box unsealed the usual way still opens with the
+variable exported, and `tools.keys`'s mapping still opens it; the signer's command line and the environment its
+docker command runs with hold neither the name nor the value; the restic step forwards none from `deploy/.env`, and an
+exported one is refused at the key's load. Mutants: 5 planted, 4 caught; the survivor (a second guard on the mapping
+being the process environment) was equivalent to the refusal above it and was removed from the code.
+
 ## Tests
 
 **Part A, the invariant:**
@@ -114,6 +142,13 @@ passes (its rotate-kek is `--backend file`).
 
 No test asserted that rotate-kek with a passphrase is refused on a PRODUCTION box, so part B changed none.
 
+### Changed assertions (ruling 7102655419, part C)
+
+6. `tests/unit/test_audit_heads_nightly.py::test_on_a_site_box_the_signer_sees_the_audit_volume_read_only_and_the_event_goes_to_the_journal`
+   asserted the signer is handed `TB_KEK_PASSPHRASE` by name; it now asserts the name is not there either.
+7. `tests/unit/test_restic_password.py::test_a_passphrase_kek_has_no_shares_and_gets_no_copy`: its set-up exported
+   `TB_KEK_PASSPHRASE` for "the library's own path"; it now hands the value in a mapping, as `tools.keys` does.
+
 **H96-07 left as it is.** `tests/unit/test_install_faults_runbook.py::test_installers_reject_passphrase_file_input`
 keeps its name (no ruling to rename or retire it); H96-07 stays open.
 
@@ -131,15 +166,16 @@ the removal and the write, which a single-threaded test cannot reach; H-96's sur
 Bodies only: `deploy/gcp/box-install-run.sh` and `deploy/gcp/box_vm.py` (the cloud box run: the root-only file in
 place of the issue file; a docstring), `tests/rehearsal/box-run/standins/boot.sh` and the new
 `tests/rehearsal/box-run/shims/getent`, `libs/tb_common/rc1_refusals.py` (the key ceremonies row's words),
-`tools/keys.py` (rotate-kek), the tests named under "Changed assertions", and the hospital pages
+`tools/keys.py` (rotate-kek), `libs/tb_common/kek.py` (`load_kek`'s body and module text),
+`tools/trialbox/audit_heads.py` (`PASSED`), `tools/trialbox/backup_schedule.py` (one line), the tests named under "Changed assertions", and the hospital pages
 (`docs/handover/hospital-install.en.md`, `.ja.md`, `.zh-TW.md`, step 7).
 
 ## Findings
 
-In `first-run-code-h97-2026-11-23/findings.json` (H97-01 to H97-08): the code in the journal and the issue file
+In `first-run-code-h97-2026-11-23/findings.json` (H97-01 to H97-09): the code in the journal and the issue file
 (fixed), the rehearsal that has no first-run step (not run), the screen of a desktop box and a VM's console, a
 terminal's scrollback and sudo's I/O log, boxes before H-97, rotate-kek on PRODUCTION (fixed, D-1092), the host's
-append to the audit folder beside the audit writer (not run), and the WSL2 window (not run).
+append to the audit folder beside the audit writer (not run), the WSL2 window (not run), and the environment form outside the installers (fixed, part C).
 
 ## Questions
 

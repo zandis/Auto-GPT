@@ -1116,7 +1116,7 @@ class ComposeOps:
         if why:
             return False, why
         env: dict[str, str] = dict(os.environ)
-        env.update({k: self.env[k] for k in ("TB_KEK_FILE", "TB_KEK_PASSPHRASE") if k in self.env})
+        env.update({k: self.env[k] for k in ("TB_KEK_FILE",) if k in self.env})  # H-97: never the passphrase
         try:
             made = rr.make_key(sec, env)
         except Exception as e:  # a locked KEK, a plain key left there: named, never with a key in it

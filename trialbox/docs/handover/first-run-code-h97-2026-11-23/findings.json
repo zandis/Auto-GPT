@@ -1,6 +1,6 @@
 {
  "card": "H97",
- "title": "the first-run code in no journal or file others read; a PRODUCTION box rotates its exposed passphrase (D-1092)",
+ "title": "the first-run code in no journal or file others read; a PRODUCTION box rotates its exposed passphrase (D-1092); no passphrase from a caller's environment",
  "date": "2026-11-23",
  "source": "docs/handover/first-run-code-h97-2026-11-23.md",
  "note": "basis 'shown' means shown by the card's local runs (no Docker, no systemd, no Windows, stand-ins); the container rehearsal was not run by the card.",
@@ -76,6 +76,15 @@
    "basis": "not_run",
    "state": "open",
    "place": "deploy/windows/wsl-setup.sh, deploy/windows/box-install.ps1"
+  },
+  {
+   "id": "H97-09",
+   "severity": "Low",
+   "claim": "the KEK passphrase from a caller's environment was still honoured outside the installers (the review of H-96, L-2): tb_common.kek load_kek derived the KEK from TB_KEK_PASSPHRASE in the process environment, the nightly audit signer's container was given -e TB_KEK_PASSPHRASE (a caller's value in its configuration, docker inspect), and the restic key step forwarded it; fixed: load_kek refuses the process environment's value (the KEK file, read first, and tools.keys' own mapping unchanged), the signer is never given the name, the restic step forwards only TB_KEK_FILE",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "libs/tb_common/kek.py load_kek, tools/trialbox/audit_heads.py PASSED, tools/trialbox/backup_schedule.py"
   }
  ]
 }

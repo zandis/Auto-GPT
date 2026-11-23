@@ -189,10 +189,11 @@ def test_a_passphrase_kek_has_no_shares_and_gets_no_copy(
         capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--passphrase-file", str(pp)
     )
     assert rc == 0, out
-    monkeypatch.setenv("TB_KEK_PASSPHRASE", "a passphrase long enough for the rule here")  # the library's own path
+    # the library's own path, as tools.keys hands it the file's value (H-97, ruling 7102655419: never the process env)
+    monkeypatch.delenv("TB_KEK_PASSPHRASE", raising=False)
     target = box["tmp"] / "target"
     target.mkdir()
-    rr.make_key(box["sec"], os.environ)
+    rr.make_key(box["sec"], {**os.environ, "TB_KEK_PASSPHRASE": "a passphrase long enough for the rule here"})
     with pytest.raises(rr.ResticKeyError, match="not covered by escrow shares"):
         rr.escrow_copy(box["sec"], target)
     assert not list(target.iterdir())
