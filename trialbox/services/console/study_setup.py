@@ -32,6 +32,7 @@ from datacore import proxy_consent
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
+from tb_common import site_needs
 from tb_common.authz import permit
 from tb_common.config import environment_name
 from tb_common.retention import STUDY_YEARS_AFTER_CLOSE, STUDY_YEARS_MAX, kept_until
@@ -678,12 +679,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         the reporting table (who is told, by when). Without the study store there is no SAE register to gate."""
         if not s28.has_api(bk) or s28.load(bk, store, rid, defaults(rid)).study_type not in SAE_STUDY_TYPES:
             return ""
-        # NEW-LIFE-7 (D-764): on a box (not DEV or TEST) the trial office's mailbox is a required answer: a new SAE
-        # is mailed to it at once, with the PI
-        if not os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip() and environment_name(os.environ) not in (
-            "DEV",
-            "TEST",
-        ):
+        # NEW-LIFE-7 (D-764): a new SAE is mailed at once to the trial office's mailbox, with the PI. D-1280 (U5-6):
+        # the study-open gate. A PRODUCTION box refuses while the mailbox is missing or only a stand-in (the first
+        # administrator's mail); a PoC box (DEV, TEST or VALIDATION, D-1091) opens with the stand-in
+        poc = environment_name(os.environ) in ("DEV", "TEST", "VALIDATION")
+        opening = site_needs.gate(
+            "study_open", production=not poc, env=os.environ, stand_ins=site_needs.read_mounted_stand_ins()
+        )
+        if opening.refused:
             return "sstate.sae_mailbox"
         try:
             row = s28.call(bk, "GET", f"/studies/{rid}/sae-rule")

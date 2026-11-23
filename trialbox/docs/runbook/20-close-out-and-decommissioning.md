@@ -97,6 +97,10 @@ follows Rev. 2 of 2025 uses the same three categories):
 | volumes on a hospital platform (§17) | Purge by crypto erase, else Clear (logical) | the platform team deletes the volumes and their storage-class keys | the platform's deletion record |
 | paper (printed lists) | Destroy | cross-cut shredding | the shredding record |
 
+**Only a box that is the whole machine** has its disks sanitized. On a shared host (another system runs on the same
+machine), remove the box's Docker volumes and its folders (`/opt/trialbox`, the data and backup folders it names),
+never the disks (F-47).
+
 The host disks go last, after every other row. The audit archive and the anchor folders are **keep** rows: they are
 in the archive and stay with the hospital for their retention; they are not purged.
 

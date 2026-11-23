@@ -815,3 +815,10 @@ rehearse:
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build *.egg-info
+
+# rc1 line 1: the whole test set (unit, integration, e2e, goldens, the GPU suites) three runs in a row, a log per stage
+# per run, a summary (tools/full_set.py). FULL_SET_ARGS: --out DIR --llm-url URL --llm-model NAME, --only, --list
+FULL_SET_ARGS ?=
+.PHONY: full-set
+full-set: venv-check
+	PYTHONPATH=libs:services:. $(PY) -m tools.full_set $(FULL_SET_ARGS)

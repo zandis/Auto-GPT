@@ -720,6 +720,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
     "TB_INSTALL_UP_TIMEOUT": Declared("int", "", "install: seconds to wait for health; empty: from the health checks"),
+    "TB_INTEGRATION": Declared("str", "", "tests: 1 lets the integration and e2e tests start (they skip without it)"),
     "TB_IRB_TEXT_GATE": Declared(
         "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
     ),
@@ -787,6 +788,8 @@ DECLARED: dict[str, Declared] = {
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
+    "TB_LLM_EVAL_MODEL": Declared("str", "", "tests: the served model name the model-quality suites (marker llm) call"),
+    "TB_LLM_EVAL_URL": Declared("str", "", "tests: the model endpoint the model-quality suites (marker llm) call"),
     "TB_LLM_MODE": Declared("str", "vllm", "model client (vllm, llamacpp, openai, stub)"),
     "TB_LLM_OUTAGE_WAIT_S": Declared(
         "float",
