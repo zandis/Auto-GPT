@@ -26,8 +26,12 @@
    (plan 11 R1-M3).
 6. **The EDC is in ring 1**, integrated as plan 11 section 8 defines it (forms, pre-fill, write-back, audit), on the
    REDCap door and on EDC-lite. No REDCap source, SQL or text is in this repository [#639 7108012824].
-7. **Ring 1 meets or beats every public Lind figure** by the same definition, measured on public or synthetic sets
-   (plan 11 section 10) [#639 7107908330].
+7. **Ring 1 meets or beats every public Lind figure, like with like** [#639 7107908330, 7108816601]. One metric,
+   Lind's whole-system per-criterion agreement, measured on our whole system (coded rules and the model pair, product
+   path, installed box) per (patient, criterion), with the label mapping written first, on a synthetic hospital with
+   coded data and notes whose gold labels are made blind (plan 11 section 10.0, card R1-L0, the first card of S6).
+   Every other product is compared only on its own definition and set; a row whose definitions differ is marked "not
+   comparable".
 8. **No patient data leaves a site.** Real data is read only on the hospital's own machine or the owner's own;
    only counts files of plan 11 section 7's form leave, sent by a named person [#639 7099836527].
 9. **A cloud GPU VM is a demonstration and test box only**, on synthetic or public data, never PRODUCTION and never a
@@ -52,7 +56,7 @@
 ## Where the wording comes from
 
 The owner's rulings of 2026-11-23 on #639: 7107908330, 7108012824, 7108087457 and 7108195110, relayed by the
-integrator; the owner's data rule, 7099836527.
+integrator; the owner's ruling to compare like with like, 7108816601; the owner's data rule, 7099836527.
 
 ## Used by
 
