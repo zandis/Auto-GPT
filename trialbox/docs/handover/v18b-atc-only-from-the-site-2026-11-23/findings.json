@@ -1,0 +1,32 @@
+{
+ "card": "V18b",
+ "title": "ATC only from the site's own copy; the FHIR store restarted after a terminology change (lane V, 2026-11-23)",
+ "date": "2026-11-23",
+ "source": "docs/handover/v18b-atc-only-from-the-site-2026-11-23.md",
+ "findings": [
+  {
+   "id": "V18b-01",
+   "severity": "Medium",
+   "claim": "A box that loaded the vocabulary from the shipped atc.parquet keeps those ATC concepts, with WHOCC's English names, in omop.concept after this card: a vocabulary load upserts and never removes a concept; only the term:atc attribute rows are emptied on the next load",
+   "lane": "V",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "V18b-02",
+   "severity": "Low",
+   "claim": "Without the site's own ATC copy, every shipped medication ValueSet names its ATC codes by the code itself (M04AA01), not by a drug name: the reviewer of a rule set sees codes only until the site loads its index",
+   "lane": "V",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "V18b-03",
+   "severity": "Medium",
+   "claim": "Each terminology change now restarts the FHIR store (38 s on the test machine, up to 15 minutes allowed): a CQL evaluation or a validation asked during it fails; install, the manual update and a bundle update are the only callers, but a screening run at that moment is not held back",
+   "lane": "V",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

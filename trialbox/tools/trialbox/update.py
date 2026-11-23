@@ -1821,7 +1821,34 @@ class ComposeBox(_DockerImages):
         site = self.deploy / "site"
         site.mkdir(parents=True, exist_ok=True)
         (site / "terminology-load.json").write_text(report, encoding="utf-8")
+        self._restart_fhir_store(site / "terminology-load.json")
         return done
+
+    def _restart_fhir_store(self, path: Path) -> None:
+        """V-18b (D-1183, V18-01): after a load that changed a system, the FHIR store is restarted and waited for, so
+        it never answers ``$lookup`` or ``$validate-code`` from the earlier version (its cache keeps them for minutes,
+        and no operation clears it); the report records it for the doctor."""
+        import time
+        from datetime import UTC, datetime
+
+        from tools import terminology_load as tl
+
+        try:
+            rep = json.loads(path.read_text("utf-8"))
+        except (OSError, ValueError):
+            return
+        if not tl.changed(rep):
+            return
+        start = time.monotonic()
+        answered = True
+        try:
+            self.run(self._c("restart", "fhir-store"), timeout=300)
+            self.run(self._c("up", "-d", "--wait", "--wait-timeout", "900", "fhir-store"), timeout=960)
+        except (UpdateFailed, subprocess.TimeoutExpired):  # said in the report and by the doctor, never a stop
+            answered = False
+        at = datetime.now(UTC).isoformat(timespec="seconds")
+        out = tl.restarted(rep, answered, int(time.monotonic() - start), at)
+        path.write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
 
     def check(self, plan: Plan) -> str:
         weights = self.check_weights()  # first: a flag it writes makes the gateway unhealthy for the wait below

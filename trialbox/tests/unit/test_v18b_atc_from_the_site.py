@@ -1,0 +1,90 @@
+"""V-18b (D-1183, V18-07): ATC is never shipped. Its names reach the readers only from the hospital's own copy
+(``atc_index``, loaded at install under a named acceptance); without it, ATC codes are identifiers only (D-536): the
+ones the NHI drug lists' ATC column and TrialBox's own groupers name, each without a WHOCC name. A drug named only in
+the WHOCC index is unmapped, and the FHIR store's ATC is a line of the "information still needed" page.
+
+The index here is synthetic (tests/fixtures/v18b/atc_index.tsv): real ATC codes as identifiers, made-up names."""
+
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+
+import pytest
+from criteria_compiler.terminology import installed
+from criteria_compiler.terminology.mapper import SYSTEMS, TERM_DIR, Terminology
+
+from tools import build_terminology
+from tools import fhir_codesystems as fc
+
+ROOT = Path(__file__).resolve().parents[2]
+ATC = SYSTEMS["atc"]
+SITE_ATC = ROOT / "tests/fixtures/v18b/atc_index.tsv"
+NAME = "Ada Example (SYNTHETIC test person)"
+# the names the shipped table gave before (WHOCC's); none may reach a reader without the site's copy
+WHOCC_NAMES = {"allopurinol", "febuxostat", "benzbromarone", "methotrexate", "colchicine"}
+
+
+@pytest.fixture
+def bare(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Terminology:
+    """Nothing loaded at install and no NHI list shipped: the image's tables alone."""
+    monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")
+    return Terminology(installed=tmp_path / "nothing")
+
+
+@pytest.fixture
+def site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Terminology:
+    monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")
+    where = tmp_path / "terminology"
+    assert installed.install_atc(SITE_ATC, where, NAME, version="2099") == {"atc_index": 6}
+    t = Terminology(installed=where)
+    assert not t.installed_problems, t.installed_problems
+    return t
+
+
+def test_no_atc_table_ships_and_nothing_builds_one() -> None:
+    assert not (TERM_DIR / "atc.parquet").exists() and not (TERM_DIR / "src" / "atc.csv").exists()
+    assert "atc" not in build_terminology.FILES
+    with (ROOT / "docs/licences/register.csv").open(encoding="utf-8") as f:
+        row = next(r for r in csv.DictReader(f) if r["id"] == "atc")
+    assert "terminology/atc" not in row["paths"] and "src/atc.csv" not in row["paths"]
+
+
+def test_without_the_sites_copy_atc_codes_are_identifiers_with_no_whocc_name(bare: Terminology) -> None:
+    r = bare.map("medication", "urate-lowering therapy")  # TrialBox's own grouper: two families
+    assert {c.code for c in r.concepts} == {"M04AA01", "M04AA03", "M04AB03"}  # the NHI drug list's ATC column
+    assert {c.display for c in r.concepts} == {"M04AA01", "M04AA03", "M04AB03"}  # the code, never a WHOCC name
+    assert set(r.families) == {(ATC, "M04AA"), (ATC, "M04AB")}
+    m = bare.map("medication", "methotrexate")  # the grouper's own exact code
+    assert [(c.code, c.display) for c in m.concepts] == [("L04AX03", "L04AX03")]
+    for word in WHOCC_NAMES:
+        assert all(c.display.lower() != word for c in bare.map("medication", word).concepts), word
+
+
+def test_a_drug_only_the_whocc_index_named_is_unmapped_without_the_sites_copy(bare: Terminology) -> None:
+    r = bare.map("medication", "febuxostat")  # was the shipped table's name of M04AA03
+    assert r.method == "none" and r.concepts == []
+
+
+def test_a_family_with_no_code_in_the_nhi_lists_still_answers_with_its_codes(bare: Terminology) -> None:
+    r = bare.map("medication", "anticoagulant")
+    assert {c.code for c in r.concepts} == {"B01AA03", "B01AE07", "B01AF01", "B01AF02", "B01AF03"}
+    assert set(r.families) == {(ATC, "B01AA"), (ATC, "B01AE"), (ATC, "B01AF")}
+
+
+def test_the_sites_copy_names_the_codes_and_answers_its_own_names(site: Terminology) -> None:
+    r = site.map("medication", "urate-lowering therapy")  # the grouper expands from the site's index only
+    assert [(c.code, c.display) for c in r.concepts] == [
+        ("M04AA01", "synthetic urate substance one"),
+        ("M04AA03", "synthetic urate substance three"),
+        ("M04AB03", "synthetic uricosuric substance"),
+    ]
+    one = site.map("medication", "synthetic urate substance three")
+    assert one.method == "loaded" and [c.code for c in one.concepts] == ["M04AA03"]
+    assert site.concept(ATC, "M04AA01") is not None and site.concept(ATC, "M04AA01").display.startswith("synthetic")
+
+
+def test_the_fhir_store_carries_atc_only_from_the_sites_copy(tmp_path: Path) -> None:
+    src = next(s for s in fc.SOURCES if s.key == "atc")
+    got = fc.pick(src, tmp_path / "nothing", [])
+    assert isinstance(got, str)  # nothing to load: absent, a line of needed.jsonl and no fault (D-1182)

@@ -96,13 +96,14 @@ WHO ICD-10 to ICD-10-CM category bridge (TrialBox)
 
 ATC (Anatomical Therapeutic Chemical classification)
   Version: not recorded (open item 9.2).
-  Where: services/criteria_compiler/terminology/src/atc.csv (codes and English names), nhi_drug.csv,
+  Where: codes only, as identifiers: nhi_drug.csv,
     rulesets/*/valuesets, catalogue, services/adapter/mapping/mimic/tables/drug_to_atc.csv,
     services/adapter/mapping/jp_core/yj_to_atc.csv, libs/tb_common/refdata_src/jp_yj_atc.csv.
   Licence: WHO Collaborating Centre for Drug Statistics Methodology (WHOCC) copyright,
     https://atcddd.fhi.no/copyright_disclaimer/
   Obligation: credit the WHOCC; WHOCC terms restrict copying and distribution of the ATC/DDD index in a
-    commercial product. Written permission has not been asked (open item 9.2). No DDD values are shipped.
+    commercial product. Written permission has not been asked (open item 9.2). No ATC names and no DDD values
+    are shipped: the names come from the site's own copy, loaded at install (D-1183).
   Attribution: ATC codes: WHO Collaborating Centre for Drug Statistics Methodology, Oslo, Norway.
 
 YJ code stems to ATC (TrialBox)

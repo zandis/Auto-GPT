@@ -132,6 +132,36 @@ def skipped(report: dict[str, Any]) -> list[tuple[str, str, bool]]:
     return out
 
 
+def changed(report: dict[str, Any]) -> list[str]:
+    """V-18b (D-1183): the systems this run loaded into the FHIR store anew (a new version, or one rolled back). The
+    store keeps its ``$lookup`` and ``$validate-code`` answers for minutes, and no operation of the pinned store clears
+    them: after such a load it is restarted, so no caller sees the earlier version's answer (V18-01)."""
+    return [str(r["key"]) for r in report.get("fhir") or [] if r.get("state") == "loaded"]
+
+
+def restarted(report: dict[str, Any], answered: bool, seconds: int, at: str) -> dict[str, Any]:
+    """The report with the store's restart after the load (``store_restart``): when, whether it answered again, and
+    how long it took. The doctor reads it."""
+    return {**report, "store_restart": {"at": at, "answered": answered, "seconds": seconds,
+                                        "systems": changed(report)}}  # fmt: skip
+
+
+def restart_line(report: dict[str, Any]) -> tuple[Literal["PASS", "WARN"], str]:
+    """The doctor's word on the store's restart after a load that changed a system: WARN when it was not restarted
+    (it may answer from the earlier version for minutes) or did not answer again; nothing when nothing changed."""
+    systems = changed(report)
+    if not systems:
+        return "PASS", ""
+    done = report.get("store_restart")
+    if not isinstance(done, dict):
+        return "WARN", (f"the FHIR store was not restarted after loading {', '.join(systems)}: it may answer from the "
+                        "earlier version for minutes (deploy/terminology-update.sh restarts it)")  # fmt: skip
+    if not done.get("answered"):
+        return "WARN", (f"the FHIR store did not answer after its restart at {done.get('at')}: see "
+                        "docker compose ps fhir-store")  # fmt: skip
+    return "PASS", f"the FHIR store restarted at {done.get('at')} after the load ({done.get('seconds')} s)"
+
+
 def check(report: dict[str, Any] | None, term_dir: Path) -> list[str]:
     """What the doctor says: the readers hold another release than the terminology now, or one was not loaded."""
     if report is None:
@@ -197,10 +227,12 @@ def doctor_line(site: Path, term_dir: Path) -> tuple[Literal["PASS", "WARN", "FA
     said = f"release {report.get('release')}; in the FHIR store: {', '.join(loaded) or 'none'}"
     not_loaded = [k.split("/", 1)[-1] for k, _, _ in skipped(report) if k.startswith("fhir/")]
     said += f"; not loaded: {', '.join(not_loaded)}" if not_loaded else ""
+    restart, why = restart_line(report)
+    said += f"; {why}" if why else ""
     if not term_dir.is_dir():
         return "WARN", f"{said}; {term_dir} cannot be read here: the release was not compared"
     problems = check(report, term_dir)
-    return ("FAIL", "; ".join(problems) + f" ({said})") if problems else ("PASS", said)
+    return ("FAIL", "; ".join(problems) + f" ({said})") if problems else (restart, said)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -219,6 +251,12 @@ def main(argv: list[str] | None = None) -> int:
     sn = sub.add_parser("still-needed", help="this step's lines of <site>/needed.jsonl, one 'key<TAB>why' each")
     sn.add_argument("--site", required=True)
     sn.add_argument("--faults", action="store_true", help="only the faults: a system given but refused or not loaded")
+    ch = sub.add_parser("changed", help="the systems a report loaded anew, one a line; exit 1 when none (V18-01)")
+    ch.add_argument("--report", required=True)
+    rs = sub.add_parser("restarted", help="record the FHIR store's restart after the load in the report")
+    rs.add_argument("--report", required=True)
+    rs.add_argument("--answered", choices=("yes", "no"), required=True)
+    rs.add_argument("--seconds", type=int, default=0)
     ck = sub.add_parser("check", help="compare a report with the terminology as it is now (the doctor)")
     ck.add_argument("--report", required=True)
     ck.add_argument("--terminology", default="")
@@ -229,6 +267,18 @@ def main(argv: list[str] | None = None) -> int:
             rec = json.loads(ln) if ln.strip() else {}
             if str(rec.get("key", "")).startswith("terminology/") and (rec.get("fault", True) or not a.faults):
                 print(f"{rec['key'].split('/', 1)[1]}\t{' '.join(str(rec.get('why', '')).split())}")
+        return 0
+    if a.cmd in ("changed", "restarted"):  # the standard library only: deploy/terminology-update.sh, on the host
+        rp = Path(a.report)
+        rep = json.loads(rp.read_text("utf-8")) if rp.is_file() else {}
+        if a.cmd == "changed":
+            print("\n".join(changed(rep)))
+            return 0 if changed(rep) else 1
+        from datetime import UTC, datetime
+
+        at = datetime.now(UTC).isoformat(timespec="seconds")
+        rp.write_text(json.dumps(restarted(rep, a.answered == "yes", a.seconds, at), indent=1, ensure_ascii=False)
+                      + "\n", encoding="utf-8")  # fmt: skip
         return 0
     if a.cmd == "skipped":  # the standard library only: the installer runs it on the host
         rp = Path(a.report)
