@@ -105,3 +105,12 @@ def test_the_runbook_sends_a_hospital_to_its_page() -> None:
     assert "(handover/hospital-install.en.md)" in (ROOT / "docs" / "RUNBOOK.md").read_text(encoding="utf-8")
     first = (ROOT / "docs" / "runbook" / "01-install-a-new-site.md").read_text(encoding="utf-8").splitlines()[2]
     assert first.startswith("**Reader:** Aimedics") and "../handover/hospital-install.en.md" in first
+
+
+def test_the_page_quotes_the_sheets_line_exactly_as_the_stick_builder_prints_it() -> None:
+    builder = (ROOT / "tools" / "make_bundle.sh").read_text(encoding="utf-8")
+    found = re.findall(r"""^echo "      the sheet's line: (.*)"$""", builder, re.M)
+    assert len(found) == 1
+    printed = found[0].replace('\\"', '"').replace("\\$", "$")  # as the shell prints the echo's double quotes
+    for lang in LANGS:
+        assert FENCE.findall(_text(lang))[0].strip() == printed, lang

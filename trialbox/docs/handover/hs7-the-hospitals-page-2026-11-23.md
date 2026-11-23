@@ -12,7 +12,7 @@ sections 2.1, 2.3, 2.5, 2.6, 2.7). Findings in the register's `--add-from` form:
 `docs/handover/hospital-install.en.md`, `.ja.md` and `.zh-TW.md`. The reader is hospital IT, then the box owner.
 
 - **What you need:** the machine prepared by the vendor, the stick, the delivery sheet, an administrator's login,
-  500 GB free (the figure of RUNBOOK §27, the only disk figure the runbook gives for a box; card H-95 changes it),
+  500 GB free (`docs/runbook/27-workstation-rtx-pro-6000.md` line 11, the only disk figure the runbook gives for a box; card H-95 changes it),
   and the box owner for the second part.
 - **Hospital IT, 7 steps:** plug in, type the delivery sheet's line (the integrator's ruling, comments 7090648193
   and 7090760988 on #639: the first step checks the launcher with stock tools), compare the launcher's code, compare
@@ -43,14 +43,12 @@ design's rows 1, 3, 4, 5, 30 to 33, 35, 39 to 42, 44 and 46 are off the hospital
 
 ## The test
 
-`tests/unit/test_hs7_hospital_page.py` (9 tests): one shell command per page, the same line in the three languages;
+`tests/unit/test_hs7_hospital_page.py` (10 tests): one shell command per page, the same line in the three languages and
+exactly the sheet's line `tools/make_bundle.sh` prints;
 no setting name, flag, path or internal number outside it (the design's test); every quoted screen line is printed by
-deploy/launcher.sh, `deploy/bootstrap.sh` or `deploy/box-install.sh`; the three languages have the same headings,
+`deploy/launcher.sh`, `deploy/bootstrap.sh` or `deploy/box-install.sh`; the three languages have the same headings,
 steps, bullets, rows and quotes in the same order; the runbook sends a hospital to the page. Five mutations of the
 ja page (a step merged, a flag, a quote changed, a bullet dropped, a setting name) each fail it.
-
-**It reads deploy/launcher.sh, which HS-1 (#1386) adds.** On master before #1386 the quote test fails: HS-7 rides
-after HS-1.
 
 ## What is not built yet, so the page says today's path
 
@@ -72,5 +70,4 @@ after HS-1.
 
 ## Checks
 
-Listed in the train-ready line. deploy/launcher.sh was taken from the HS-1 branch into the working tree, not
-committed, for the runs that need it.
+Listed in the train-ready line, run on the branch merged with master after HS-1 (#1386) landed.
