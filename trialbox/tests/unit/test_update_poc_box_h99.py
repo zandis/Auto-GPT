@@ -167,9 +167,7 @@ def test_h99_production_keeps_its_refusal_whatever_the_caller_exports(
     assert (tmp_path / "models/judge/config.json").read_text() == "old"
 
 
-def test_h99_production_with_the_key_still_backs_up_first(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_h99_production_with_the_key_still_backs_up_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     deploy, run = _box(tmp_path, monkeypatch, "PRODUCTION")
     (deploy / "secrets").mkdir()
     (deploy / "secrets" / "backup.pub").write_text("pub")
