@@ -447,7 +447,8 @@ class Scrubber:
         # #1354 round 4: an encoded space before a quoted value (``key:+"S"``, ``key:%20"S"``) stays before it; a value
         # that decodes to nothing (the encoded space alone) is no value: masking it left the quoted value after it on
         # the line, and the decoded view then saw the key already masked
-        lead = ENCODED_SPACE.match(val).group(0) if rule == "colon" else ""
+        spaced = ENCODED_SPACE.match(val) if rule == "colon" else None
+        lead = spaced.group(0) if spaced else ""
         rest = val[len(lead) :]
         core = rest.strip("\"'")
         if not secret_name(m.group("key"), self.decl) or _keeps(_decode(core)) or core.strip() == REDACTED:
