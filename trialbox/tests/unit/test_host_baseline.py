@@ -509,3 +509,16 @@ def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(
         said = line if status == "FAIL" else " ".join(d for _, d in stops.doctor_lines(tmp_path))
         assert "reseal the site keys under a TPM" in said, said
     assert SECRET_PP not in r.stdout + r.stderr
+
+
+def test_sealed_keys_without_a_tpm_say_when_the_poc_list_line_was_not_written(tmp_path: Path) -> None:
+    """H-97 part D, in H-96's form (R2-2): on a TEST box whose list cannot be written (a folder there), keys already
+    sealed under the passphrase are a WARN that says it was NOT listed and names the action; never a FAIL."""
+    args, env = _box(tmp_path, env_name="TEST")
+    (tmp_path / "host" / "dev" / "tpmrm0").unlink()
+    (tmp_path / "secrets" / "kek.json").write_text('{"backend": "passphrase"}', encoding="utf-8")
+    (tmp_path / "site" / "poc-stops.jsonl").mkdir(parents=True)
+    r = _sh(args, env)
+    line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
+    assert line.startswith("WARN") and "NOT listed, deploy/site/poc-stops.jsonl cannot be written" in line, r.stdout
+    assert "reseal the site keys under a TPM" in line
