@@ -245,8 +245,19 @@ fi
 # BOX-APPLIED (D-576): the owner's answers were applied by an earlier start that did not reach its last line (the
 # window closed, the session dropped). The console's set-up is finished: a new code would never be accepted and the
 # wait would never end. Nothing is asked again; what follows the apply is done again.
+# H-96 (7097514776): where the install put the administrator's first password and enrolment code (never their values):
+# on the terminal, or with no terminal in the root-only file its output names
+once_where() {
+  local home
+  home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+  if grep -q "no terminal to show it on" "$BOX/install.log" 2>/dev/null; then
+    echo "not printed above: in ${home%/}/trialbox-admin-first-sign-in, root only: read it once, then remove it"
+  else
+    echo "printed above, on the install's terminal only"
+  fi
+}
 if [ -n "$OWNER" ]; then  # D-898: the answers were the install's own; no wizard, no code
-  say "unattended: the owner's answers came from $OWNER (no first-run code; the administrator's password and enrolment code are printed above)"
+  say "unattended: the owner's answers came from $OWNER (no first-run code; the administrator's password and enrolment code are $(once_where))"
 elif [ -f "$BOX/applied" ]; then
   say "the owner's answers were applied on $(cat "$BOX/applied"): finishing the set-up (no new code)"
 else
@@ -380,7 +391,7 @@ ${TB_BOX_HOST_CHECK:-sh "$ROOT/deploy/check_host.sh"}
 rc=$?
 set -e
 if [ -n "$OWNER" ]; then
-  printf '\n  TrialBox is ready: https://%s  (sign in as admin with the password and enrolment code printed above)\n' "$HOST"
+  printf '\n  TrialBox is ready: https://%s  (sign in as admin with the password and enrolment code %s)\n' "$HOST" "$(once_where)"
 else
   printf '\n  TrialBox is ready: https://%s  (sign in with the account you made in the set-up)\n' "$HOST"
 fi

@@ -1321,6 +1321,7 @@ fi
 # ------------------------------------------------------------------------------------------------ 5. accounts
 if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the owner makes the first accounts in the first-run wizard
   say "first accounts: the first-run wizard (box-install.sh shows its address and one-time code)"
+  ONCE_WHERE="with the account the owner makes in the first-run wizard"
 else
 say "first console administrator"
 ADMIN_MAIL="$(sed -n 's/^MAIL_ADMIN_ADDR=//p' deploy/.env | head -1)"
@@ -1332,6 +1333,7 @@ ADMIN_MAIL="${ADMIN_MAIL:-${TB_ADMIN_EMAIL:-}}"
 # the caller names where they go (no home from the environment, no knob); a link at the file's name is refused, the file is made new
 show_once() {  # $1: the one-time text (an argument of a shell function: no process, no temporary file)
   local home
+  ONCE_WHERE="as admin, with the password and the enrolment code shown once on this terminal above"
   if [ -t 1 ]; then printf '%s\n' "$1"; return 0; fi
   if { : >> /dev/tty; } 2>/dev/null; then
     printf '%s\n' "$1" >> /dev/tty
@@ -1340,6 +1342,7 @@ show_once() {  # $1: the one-time text (an argument of a shell function: no proc
   fi
   home="$(getent passwd "$(id -u)" | cut -d: -f6)"
   ONCE_FILE="${home%/}/trialbox-admin-first-sign-in"
+  ONCE_WHERE="as admin: the first password and the enrolment code were not kept (the FAIL lines below say why)"
   if [ -z "$home" ] || [ ! -d "$home" ] || [ -L "$ONCE_FILE" ] || { [ -e "$ONCE_FILE" ] && [ ! -f "$ONCE_FILE" ]; }; then
     FAILS+=("no terminal, and $ONCE_FILE is a link or not a regular file (or no home): the first password and enrolment code were not kept; remove it, then console.cli reset-password admin and enrol-code admin on a terminal")
     return 0
@@ -1349,6 +1352,7 @@ show_once() {  # $1: the one-time text (an argument of a shell function: no proc
     FAILS+=("no terminal, and $ONCE_FILE could not be made new: the first password and enrolment code were not kept; console.cli reset-password admin and enrol-code admin on a terminal")
     return 0
   fi
+  ONCE_WHERE="as admin, with the password and the enrolment code in $ONCE_FILE (root only: read it once, then remove it)"
   echo "    no terminal to show it on: it is in $ONCE_FILE (root only, 0600), not in this output. Read it once" \
     "(sudo cat $ONCE_FILE), hand it to the administrator in person, then remove it (sudo rm $ONCE_FILE)"
 }
@@ -1428,7 +1432,7 @@ GATES_MODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).ge
 cat <<EOT
 
   TrialBox is running.
-  Console:            $URL   (sign in as admin with the password and the enrolment code printed above)
+  Console:            $URL   (sign in ${ONCE_WHERE:-as admin})
   Intake mailbox:     $(sed -n 's/^MAIL_INTAKE_ADDR=//p' deploy/.env | head -1)
   Feed folder:        $(envget TB_SOURCE_DIR | grep . || echo "-")   mapping: deploy/site/mapping, then the image
   $JUDGE

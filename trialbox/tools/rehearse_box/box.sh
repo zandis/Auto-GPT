@@ -66,6 +66,8 @@ no_passphrase_left() {
 
 # H-96 (7097514776; H-94 (5)): the installer shows the administrator's first password and enrolment code on a terminal
 # once and writes them to no log; with no terminal (docker exec without -t, as here) they are in a root-only file.
+# The install and reinstall phases keep the installer's output (the step log's lines) in a file for the check below
+ONCE_FILE=/root/trialbox-admin-first-sign-in  # root's home, as the passwd entry names it in the box
 # no_once_value_left OUT MIN: the root-only file holds at least MIN one-time values; none of them (read by grep -F -f,
 # never printed) is in the install's output, the stand-in sudo's log or deploy/.env. The file is removed after, as
 # RUNBOOK §1 says

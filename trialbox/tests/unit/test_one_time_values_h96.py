@@ -81,7 +81,8 @@ def _bench(tmp: Path, enrol_rc: int = 0) -> tuple[Path, dict[str, str]]:
         "FAILS=()\n"
         f'COMPOSE=("{tmp / "bin" / "compose"}")\n'
         + _accounts_step()
-        + 'for f in "${FAILS[@]+"${FAILS[@]}"}"; do echo "FAIL: $f"; done\n',
+        + 'for f in "${FAILS[@]+"${FAILS[@]}"}"; do echo "FAIL: $f"; done\n'
+        + 'echo "SIGN IN: ${ONCE_WHERE:-}"\n',
         encoding="utf-8",
     )
     # the caller's own variables point elsewhere: an exported TB_ONCE_TTY at a world-readable file, HOME at another
@@ -148,6 +149,7 @@ def test_under_box_installs_tee_the_values_reach_the_terminal_and_not_the_instal
     for value in (PASSWORD, CODE):
         assert value not in log and screen.count(value) == 1
     assert "shown on this terminal only" in log
+    assert "SIGN IN: as admin, with the password and the enrolment code shown once on this terminal above" in log
     assert "hand the enrolment code to the administrator in person" in screen
     assert not (tmp_path / "pwhome" / ONCE_NAME).exists()
     _nothing_elsewhere(tmp_path)
@@ -168,6 +170,7 @@ def test_with_no_terminal_the_values_go_to_a_root_only_file_in_the_passwd_home(t
     for value in (PASSWORD, CODE):
         assert value in text and value not in out
     assert f"no terminal to show it on: it is in {once}" in out and f"sudo rm {once}" in out
+    assert f"SIGN IN: as admin, with the password and the enrolment code in {once} (root only" in out
     _nothing_elsewhere(tmp_path)
 
 
@@ -184,6 +187,7 @@ def test_with_no_terminal_a_link_at_the_files_name_is_refused(tmp_path: Path) ->
     assert victim.read_text(encoding="utf-8") == "kept\n" and once.is_symlink()
     assert PASSWORD not in out and CODE not in out
     assert "FAIL: no terminal, and" in out and "is a link or not a regular file" in out
+    assert "SIGN IN: as admin: the first password and the enrolment code were not kept" in out
     _nothing_elsewhere(tmp_path)
 
 
@@ -222,3 +226,6 @@ def test_the_box_form_tees_the_install_and_no_caller_variable_names_the_place() 
     assert step.count('show_once "$(') == 1 and "show_once() {" in step
     assert 'echo "$ENROL"' not in step  # the code is never echoed to the output
     assert "TB_ONCE" not in step and "$HOME" not in step and "${HOME" not in step
+    # the closing summaries say where the values were shown, never "printed above"
+    assert "(sign in ${ONCE_WHERE:-as admin})" in INSTALL
+    assert "password and enrolment code printed above" not in BOX_INSTALL and "$(once_where)" in BOX_INSTALL
