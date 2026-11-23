@@ -296,11 +296,11 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   # cards 24-5 and 24-6: the 48 GB draft is never installed, whatever is set; TB_UNMEASURED_DGPU48_MEASURING_RUN=1 is
   # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing.
   # H-89b: a rehearsal with real servers alone goes on (--rehearsal --rehearsal-real-servers, checked above)
-  dgpu48) [ "$REAL_SERVERS" = 1 ] || die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
+  dgpu48) [ "${REAL_SERVERS:-0}" = 1 ] || die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
 esac
 case "$GPU" in
   auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;;
-  dgpu48) [ "$REAL_SERVERS" = 1 ] || die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;;  # H-89b
+  dgpu48) [ "${REAL_SERVERS:-0}" = 1 ] || die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;;  # H-89b
   *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;;
 esac
 # REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
@@ -739,7 +739,7 @@ if [ "$MODE" = gpu ]; then
   done
   # H-89b: the 48 GB draft has no pins of its own (tools/pin_model.py PROFILE_PAIRS); its overlay serves the 96 GB
   # profile's pair from the same weights folders, so a rehearsal with real servers pins that pair
-  PIN_GPU="$GPU"; [ "$REAL_SERVERS:$GPU" != 1:dgpu48 ] || PIN_GPU=rtxpro6000
+  PIN_GPU="$GPU"; [ "${REAL_SERVERS:-0}:$GPU" != 1:dgpu48 ] || PIN_GPU=rtxpro6000
   say "pinning the $PIN_GPU model pair from deploy/models (tools/pin_model.py --install)"
   # D-835: as the installer's own user (the image user 10001 cannot write a root-owned deploy/site, and a failed pin
   # was only a warning: lane G's box went on with no model pinned); a pin that fails stops the install
@@ -818,7 +818,7 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
 esac
 # REHEARSAL-REAL-SERVERS (H-89b): the 48 GB draft has no record and no measurement rule (cards 24-5, 24-6): a
 # rehearsal box only, and it says so
-if [ "$REAL_SERVERS:$GPU" = 1:dgpu48 ]; then
+if [ "${REAL_SERVERS:-0}:$GPU" = 1:dgpu48 ]; then
   rehearsal_only "--rehearsal-real-servers (the dgpu48 profile, a draft with no record)"
   echo "install: warning: $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["words"])' deploy/site/rehearsal-real-servers.json): the dgpu48 profile is a DRAFT, UNMEASURED 48 GB profile with no serving record; held to its own card's memory on card $GPU_INDEX" >&2
 fi
