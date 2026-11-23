@@ -25,7 +25,7 @@ from typing import Any, Protocol
 
 from tb_common.llm import no_sentinel_date
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
-from tb_common.quotes import quote_in, quote_key
+from tb_common.quotes import as_in, quote_key
 from tb_llm import budget
 from tb_llm.budget import estimate_tokens
 
@@ -329,12 +329,16 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
     """CAS-16: the verified span (excerpt id, offsets, date, sentence hash) or None when it does not verify."""
     if not reply.quote:
         return None
-    q = quote_key(reply.quote)  # stray spaces next to CJK characters do not count (tb_common.quotes)
     for ex in excerpts:
         raw = str(ex.get("text", ""))
+        # D-641: never across a cut of the excerpt, never the mark; one enclosing 「」 or "" dropped (#639 7113069462)
+        quote = as_in(reply.quote, raw)
+        if quote is None:
+            continue
+        q = quote_key(quote)  # stray spaces next to CJK characters do not count (tb_common.quotes)
         text = quote_key(raw)
         start = text.find(q)
-        if start < 0 or not quote_in(reply.quote, raw):  # D-641: never across a cut of the excerpt, never the mark
+        if start < 0:
             continue
         d = date.fromisoformat(str(ex["date"])[:10])
         if not lo <= d <= hi:
@@ -347,10 +351,10 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
             "end": start + len(q),
             "date": d.isoformat(),
             "sentence_hash": sentence_hash(q),
-            "quote": reply.quote,
+            "quote": quote,
             # R22-16: the record's sentence the quote lies in, for the one rule of what a note answer may do
             # (``matching.note_answer``); ``engine._map`` reads it and takes it out, so it is never published
-            "sentence": sentence_of(reply.quote, raw),
+            "sentence": sentence_of(quote, raw),
         }
     return None
 

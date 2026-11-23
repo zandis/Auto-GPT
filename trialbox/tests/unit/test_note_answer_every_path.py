@@ -1318,3 +1318,136 @@ def test_the_cascade_pair_reads_the_verifiers_quote_too(verifier_quote: str, wan
     o = _run_for_map(True)._map(BY_ID[HIV], reply, span, "S3")
     assert (o.status, o.hard) == want
     assert verifier_quote not in json.dumps(o.evidence) or want[1]
+
+
+# ------------------------------------------------------------------------------------ lane J's reproduction
+# Lane J reproduced R22-16 on master with the two models faked as a real pair (#1327 7094287787): its four inputs were
+# excluded on v1. They are this file's first four inputs; here they run as lane J ran them: a judge and a verifier
+# that are two different models (each its own ``served_root``), v1 through ``NoteJudge`` -> ``note_verdict`` ->
+# ``tier``/``status_of``, the cascade through ``OrchestratorJudge`` -> ``verify_span`` -> ``_map`` (#639 7113069462).
+# Each input also runs with its quote wrapped in 「」 or "" as a model may write it, which lane J found matched no note
+# (``quote_not_found``); one enclosing pair of marks is now dropped before the quote is matched. A stated quote, bare
+# and wrapped, still excludes on both paths.
+J_IDX = date(2026, 2, 1)
+J_HIV, J_MI, J_HCV = "Known HIV infection", "History of myocardial infarction", "Active hepatitis C"
+J_HIV_JA = "HIV感染が既知の患者"
+J_RECORD_JA = "母親にHIV感染あり。患者本人のHIV検査は陰性。"
+J_INPUTS = [  # (criterion, record, quote): the quote verbatim in the record
+    (J_HIV, FAMILY, FAMILY),
+    (J_MI, RULE_OUT, RULE_OUT),
+    (J_HCV, SUSPECTED, SUSPECTED),
+    (J_HIV_JA, J_RECORD_JA, FAMILY_JA),
+    (J_HIV, J_RECORD_JA, FAMILY_JA),
+]
+J_STATED = [
+    (J_HIV, "Patient has HIV. On ART since 2019.", HAS_HIV),
+    (J_HIV_JA, "HIV感染症あり。抗HIV療法中。", HAS_HIV_JA),
+]
+
+
+def _wrapped(quote: str) -> str:
+    return f"「{quote}」" if any(ord(ch) > 0x3000 for ch in quote) else f'"{quote}"'
+
+
+class _PairModel:
+    """One of two different models answering every judge call "present" at 0.9 with ``quote``."""
+
+    made = 0
+
+    def __init__(self, quote: str) -> None:
+        _PairModel.made += 1
+        self.model = self.served_root = f"pair-{_PairModel.made}"  # its own weights (D-276): a real pair
+        self.quote = quote
+
+    def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> Any:
+        from tb_common.llm import LlmResult
+
+        d = {"verdict": "pass", "reason": "r", "confidence": 0.9, "quote": self.quote, "quote_date": None}
+        return LlmResult(d, prompt_id, 4, self.model, "local", "i" * 64, "o" * 64, 100, 20, 1)
+
+
+def _j_criterion(text: str) -> CriterionIR:
+    return CriterionIR.model_validate(
+        {"id": "J-EXC-01", "ruleset": "J", "text": text, "kind": "exclusion", "class": "note",
+         "note_question": f"Do the notes document: {text}?", "logic": {"domain": "condition", "valueset": "VS_X"}}
+    )  # fmt: skip
+
+
+def _j_paths(criterion: str, record: str, quote: str) -> tuple[str, str, Any, Any]:
+    """The v1 tier, the v1 status and the published v1 verdict, and the cascade's outcome, on a real pair."""
+    from orchestrator.scenarios.evaluate import is_pair, tier
+    from orchestrator.scenarios.screen_cascade import OrchestratorJudge
+
+    from tests.unit.test_safety_properties import _run_for_map
+
+    c = _j_criterion(criterion)
+    excerpts = [{"date": "2026-01-10", "note_type": "progress", "text": record, "did": "D1"}]
+    nj = NoteJudge(lake=None, llm=_PairModel(quote), verifier=_PairModel(quote))  # type: ignore[arg-type]
+    assert is_pair(nj)
+    v = note_verdict(c, nj.judge_excerpts(c.text, c.note_question or c.text, J_IDX, excerpts), pair=is_pair(nj))
+    rs = cast(Ruleset, type("RS", (), {"by_id": staticmethod(lambda: {c.id: c})}))
+    v1_tier = tier(rs, [v], 0.75, note_block=True)[0]
+    status = decision.status_of({c.id: c}, [v], decision.Policy(0.75, True)).tier
+    oj = OrchestratorJudge(None, _PairModel(quote), verifier=_PairModel(quote))  # type: ignore[arg-type]
+    reply = oj.judge(role="judge", criterion_text=c.text, note_question=c.note_question or c.text, index_date=J_IDX,
+                     excerpts=excerpts, study_id="J", data_class="D0", step_id="s", purpose="screen")  # fmt: skip
+    span = verify_span(reply, excerpts, date(2025, 1, 1), J_IDX)
+    assert span is not None, "the quote must verify against the record"
+    return v1_tier, status, v, _run_for_map(True)._map(c, reply, span, "S3")
+
+
+@pytest.mark.parametrize("wrap", [False, True], ids=["bare", "wrapped"])
+@pytest.mark.parametrize(
+    ("criterion", "record", "quote"), J_INPUTS, ids=["mother", "rule_out", "suspected", "ja", "ja_en"]
+)
+def test_no_path_excludes_on_a_negated_family_history_rule_out_or_suspected_quote(
+    criterion: str, record: str, quote: str, wrap: bool
+) -> None:
+    """Lane J's four inputs (the Japanese line under the Japanese and the English criterion): review on every path."""
+    v1_tier, status, v, o = _j_paths(criterion, record, _wrapped(quote) if wrap else quote)
+    assert (v1_tier, status) == ("review", "review"), (v1_tier, status)
+    assert v.verdict == "unknown" and v.evidence is not None and v.evidence.quote == quote  # read as the note holds it
+    assert v.evidence.reason == code_of(INFERRED_REASON, "unknown")
+    assert o.status == "unknown" and not o.hard and o.reason == INFERRED_REASON
+
+
+@pytest.mark.parametrize("wrap", [False, True], ids=["bare", "wrapped"])
+@pytest.mark.parametrize(("criterion", "record", "quote"), J_STATED, ids=["en", "ja"])
+def test_lane_js_control_a_stated_quote_still_excludes_bare_or_in_marks(
+    criterion: str, record: str, quote: str, wrap: bool
+) -> None:
+    """Red before the marks were dropped (wrapped): the quote matched no note, so nothing could ever exclude on it."""
+    v1_tier, status, v, o = _j_paths(criterion, record, _wrapped(quote) if wrap else quote)
+    assert (v1_tier, status) == ("excluded", "excluded"), (v1_tier, status)
+    assert v.verdict == "fail" and v.evidence is not None and v.evidence.quote == quote
+    assert o.status == "fail" and o.hard
+
+
+@pytest.mark.parametrize(
+    ("quote", "bare"),
+    [
+        ("「母親にHIV感染あり。」", "母親にHIV感染あり。"),
+        ('"Mother has HIV."', "Mother has HIV."),
+        ("“Mother has HIV.”", "Mother has HIV."),
+        (" 「HIV感染症あり。」 ", "HIV感染症あり。"),
+        ("「母」と「父」", "「母」と「父」"),  # not one quote in marks
+        ('"a" and "b"', '"a" and "b"'),
+        ("「unclosed", "「unclosed"),
+        ("「」", "「」"),
+        ("Mother has HIV.", "Mother has HIV."),
+    ],
+)
+def test_one_enclosing_pair_of_marks_is_dropped_and_nothing_else(quote: str, bare: str) -> None:
+    from tb_common.quotes import as_in, unwrap
+
+    assert unwrap(quote) == bare
+    note = "「母」と「父」 a note. Mother has HIV. HIV感染症あり。"
+    assert as_in(quote, note) == (bare if bare in note else None)
+
+
+def test_a_note_that_holds_the_marks_itself_is_matched_as_written() -> None:
+    from tb_common.quotes import as_in
+
+    note = "患者は「胸が痛い」と訴えた。"
+    assert as_in("「胸が痛い」", note) == "「胸が痛い」"  # the marks are the note's: kept
+    assert sentence_of("「母親にHIV感染あり。」", J_RECORD_JA) == "母親にHIV感染あり。"

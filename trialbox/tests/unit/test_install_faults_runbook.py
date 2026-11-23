@@ -52,15 +52,18 @@ def test_operator_docs_and_installer_help_keep_secrets_off_command_lines() -> No
 
 
 def test_unattended_runbook_and_help_pass_only_the_exported_name() -> None:
+    """H-96 (the integrator's ruling 7094934985): the passphrase goes in a file only root can read, then its name goes
+    on the command line; never --preserve-env (sudo logs a kept variable with its value)."""
     help_text = subprocess.check_output(["bash", "deploy/box-install.sh", "--help"], cwd=ROOT, text=True)
     for text in (help_text, next(PAGES.glob("16-*")).read_text()):
         instructions = [
-            "read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE",
-            "sudo --preserve-env=TB_KEK_PASSPHRASE deploy/box-install.sh",
-            "unset TB_KEK_PASSPHRASE",
+            "umask 077; IFS= read -rs TB_KEK_PASSPHRASE; printf",
+            "> /root/trialbox-kek.pass",
+            'deploy/box-install.sh "$bundle" --answers owner.json --kek-passphrase-file /root/trialbox-kek.pass',
         ]
         positions = [text.index(instruction) for instruction in instructions]
-        assert positions == sorted(positions) and "process list" in text
+        assert positions == sorted(positions) and "--kek-passphrase-stdin" in text
+        assert "--preserve-env=TB_KEK" not in text and "export TB_KEK_PASSPHRASE" not in text
 
 
 def test_installers_reject_passphrase_file_input() -> None:
