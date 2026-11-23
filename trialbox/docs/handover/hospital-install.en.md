@@ -28,7 +28,8 @@ find out itself. If the screen and this page differ, the screen is right: tell t
 5. The screen shows the machine's graphics card, memory and free disk, and asks
    `Is this the machine to install TrialBox on? [Y/n]`. If it is, press Enter.
 6. Wait. Loading takes 10 to 20 minutes. Nothing is asked.
-7. The screen shows `TrialBox set-up:` with an address, and `One-time code:`. Give both to the box owner.
+7. The screen shows `TrialBox set-up:` with an address, and `One-time code:`. Give both to the box owner. The code
+   is shown on this screen only and is kept in no log: keep this window open until the owner has finished.
 
 ## The box owner: the set-up page
 

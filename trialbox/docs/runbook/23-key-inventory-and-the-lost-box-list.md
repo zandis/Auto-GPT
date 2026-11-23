@@ -84,8 +84,19 @@ sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend p
 sudo systemctl restart trialbox
 ```
 
-rc1 refuses `rotate-kek` on a PRODUCTION box (R22-34): there, call Aimedics. A passphrase KEK is not a PRODUCTION
-site's back end; such a box is made again with the TPM or steward shares (SECURITY §10).
+**On a PRODUCTION box** the box rotates itself (D-1092; the integrator's ruling 7101844662). rc1 refuses the key
+ceremonies there (R22-34), but rotating an exposed passphrase is a safety action: `rotate-kek --backend passphrase`
+with the new passphrase from the file or from stdin goes through, as an audit event `keys.rotate_kek` (who, when,
+the box, the old and the new KEK's ids; never a passphrase). Name the audit folder, or nothing is changed:
+
+```sh
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"
+sudo systemctl restart trialbox
+```
+
+Every other `rotate-kek` (to the TPM, to steward shares, with an escrow set, or with the new passphrase typed at the
+prompt without `--new-passphrase-stdin`) and the other key ceremonies stay refused there. A passphrase KEK is still
+not a PRODUCTION site's back end: plan the move to the TPM or steward shares (SECURITY §10).
 
 **4. Keep the new passphrase** where the old one was kept (the sealed envelope); destroy the old copy. Then make a
 backup (`trialbox backup`, §5): backups made before the rotation hold the old `kek.json`, so they open with the old

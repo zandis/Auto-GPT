@@ -108,8 +108,8 @@ DGX Spark, plan v6.1 OD-11) is installed by `sudo deploy/box-install.sh trialbox
 the settings from the hardware (`tools/box/plan.py`: the GPU profile from `deploy/gpu_profile.sh`, the memory caps
 from the RAM, TLS `internal` under the box's name, `deploy/site/hardening.conf` with the KEK on the TPM or, without
 one, a passphrase the owner sets), runs `install.sh` with `TB_BOX=1` (the overlay `deploy/docker-compose.box.yml`,
-no `bootstrap-admin`), prints the address `https://<name>.local/login/first-run` and a one-time code (also on the
-box's own screen, `/etc/issue.d/trialbox-firstrun.issue`) and waits. The owner answers the first-run wizard
+no `bootstrap-admin`), prints the address `https://<name>.local/login/first-run`, shows a one-time code once, and
+waits. The owner answers the first-run wizard
 (site name, time zone, language, their account and authenticator, the box's name, where backups go, the kind of data
 source); the console makes the owner's accounts (steward and `<name>-admin`) and hands the answers over the tmpfs
 folder `/run/trialbox-firstrun`; the script then applies them (`python -m tools.box apply` in the image: settings
@@ -117,8 +117,24 @@ and `deploy/.env` rewritten from the answers, the install's passwords kept), set
 installs the backup schedule and runs the host check. On a box the inner install does not stop when the backup
 schedule cannot be installed yet (a fresh host has no alert route): it is a line in the install's FAIL list, the
 stack runs and the wizard is served (OPS-003, D-566); `install.sh` without `TB_BOX` still stops there.
-Under WSL2 (the Windows form; the script reads the kernel's release) the address and the code are
-printed and not written to the box's screen file, and the host's time zone is left to Windows (D-571).
+Under WSL2 (the Windows form; the script reads the kernel's release) the host's time zone is left to Windows (D-571).
+
+**Where the one-time code is** (H-97; the integrator's ruling 7101844662). The code is never in the script's output
+(the boot's `trialbox-firstrun.service` sends that output to the system journal, and `install.log` keeps the install's)
+and never in a file other users can read; `/etc/issue.d` is no longer used, and an earlier version's
+`/etc/issue.d/trialbox-firstrun.issue` is removed. The person at the box gets it this way:
+
+- **At a terminal** (`sudo deploy/box-install.sh <bundle>` typed on the box, or over SSH with a terminal): on that
+  terminal, once, under the address. The output piped to a log holds only "shown on this terminal only".
+- **The Windows form (WSL2):** in the Windows installer's window, which is the script's terminal.
+- **A prepared box's first boot, at a physical console:** on the box's screen (the text console, written directly,
+  not through the journal), and in `/root/trialbox-firstrun-code`.
+- **A headless box, or a desktop whose screen shows the graphical login:** over SSH, `sudo cat
+  /root/trialbox-firstrun-code` (root only, mode 0600; the output names the file, never the code).
+
+The file is made new for each code (a link or anything but a regular file at its name is refused, never followed)
+and is removed when the owner's answers are in. Five wrong codes void a code: a new code replaces the file and is
+shown again. With no terminal, no screen and no such file the script stops and says to run it on a terminal.
 When the answers are applied the script writes `deploy/site/box/applied`; a start that finds it (the window
 closed before the last line) shows no new code and finishes the set-up (D-576).
 **A rehearsal box** (D-726, D-887). `deploy/install.sh <bundle> --rehearsal` (or `deploy/box-install.sh <bundle>
@@ -141,7 +157,8 @@ box, and doctor fails the stand-ins in the compose files of any box that is not 
 
 **Prepared image:** Aimedics runs the same script with
 `--prepare` before shipping; it stops before the code and enables `trialbox-firstrun.service`, which at the site's
-first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the wizard, the apply). The rehearsal of
+first boot runs `deploy/box-install.sh --firstrun` (the code on the screen and in the root-only file, the wizard, the
+apply). The rehearsal of
 this path without Docker is `tests/console/test_box_install_rehearsal.py` (the real script, stand-ins for the inner
 install, compose and the host check, the wizard in process); what only a real box proves is listed in D-466 for
 T-213b's rental-workstation and Spark runs.

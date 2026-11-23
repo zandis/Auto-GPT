@@ -1,0 +1,81 @@
+{
+ "card": "H97",
+ "title": "the first-run code in no journal or file others read; a PRODUCTION box rotates its exposed passphrase (D-1092)",
+ "date": "2026-11-23",
+ "source": "docs/handover/first-run-code-h97-2026-11-23.md",
+ "note": "basis 'shown' means shown by the card's local runs (no Docker, no systemd, no Windows, stand-ins); the container rehearsal was not run by the card.",
+ "findings": [
+  {
+   "id": "H97-01",
+   "severity": "Medium",
+   "claim": "the first-run wizard's one-time code went to stdout, which trialbox-firstrun.service sends to the system journal, and outside WSL2 to /etc/issue.d/trialbox-firstrun.issue, a file every local user reads (H96-09); fixed: box-install.sh show_code writes it to stdout only when stdout is a terminal, else to the controlling terminal, and with no terminal to the virtual console directly and a root-only 0600 file in the passwd home (made new, a link refused, removed when the answers are in); TB_ISSUE_DIR is gone",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/box-install.sh show_code, deploy/systemd/trialbox-firstrun.service"
+  },
+  {
+   "id": "H97-02",
+   "severity": "Low",
+   "claim": "the box rehearsal (tools/rehearse_box/box.sh) runs install.sh and never box-install.sh --firstrun, so the rule has no real-path check there; the first-run step runs in the box-run rehearsal (tests/rehearsal/box-run, its getent shim now names the VM's root home) and the cloud box run (deploy/gcp/box-install-run.sh reads the root-only file), neither run in this session",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "tools/rehearse_box/box.sh, tests/rehearsal/box-run, deploy/gcp/box-install-run.sh"
+  },
+  {
+   "id": "H97-03",
+   "severity": "Low",
+   "claim": "on a box whose screen shows a graphical login (a desktop install) the code written to the virtual console is not seen; the root-only file is the way there (runbook 16 says so). On a VM the virtual console is its display, not a serial console a hypervisor logs; not shown on real hardware or a VM",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/box-install.sh show_code"
+  },
+  {
+   "id": "H97-04",
+   "severity": "Low",
+   "claim": "the code shown on a terminal stays in that terminal's scrollback, and a site that turns on sudo's I/O logging (log_output) would record it with the session; the code is single use and voided after five wrong codes",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/box-install.sh show_code"
+  },
+  {
+   "id": "H97-05",
+   "severity": "Low",
+   "claim": "a box installed before H-97 holds its first-run code in its journal and, outside WSL2, in /etc/issue.d until the next first run removes that file; a code already used opens nothing, and a box still waiting for its owner gets a new code at its next first run",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/box-install.sh"
+  },
+  {
+   "id": "H97-06",
+   "severity": "Medium",
+   "claim": "rc1 refused tools.keys rotate-kek on a PRODUCTION box, so a box sealed under an exposed passphrase could not rotate it (H96-04); fixed by D-1092: a passphrase box rotates to a new passphrase from a root-only file or stdin, with no escrow set, as the audit event keys.rotate_kek (who, when, the box, the two KEK ids; never a value), refused without an audit folder; every other rotate-kek and key ceremony stays refused there",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek, libs/tb_common/rc1_refusals.py (key_ceremonies)"
+  },
+  {
+   "id": "H97-07",
+   "severity": "Low",
+   "claim": "keys.rotate_kek is appended by the host into the audit folder (the audit volume's mount point on a box) beside the audit writer, as the escrow events are; that a concurrent append keeps the chain was not run on a box with the stack up",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek, tools/key_escrow.py audit"
+  },
+  {
+   "id": "H97-08",
+   "severity": "Low",
+   "claim": "the Windows installer's window (wsl.exe owning the console) as the controlling terminal of box-install.sh under WSL2 is stood in for by a pty; not run on Windows",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "deploy/windows/wsl-setup.sh, deploy/windows/box-install.ps1"
+  }
+ ]
+}

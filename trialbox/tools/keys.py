@@ -33,6 +33,11 @@ this, mode 0600; removed once used unless ``--keep-passphrase-files``), from std
 ``--new-passphrase-stdin``: one line each, the old first; on a terminal they are asked, not shown), or is asked on the
 terminal. ``TB_KEK_PASSPHRASE`` or ``TB_KEK_NEW_PASSPHRASE`` in the environment is refused by every command: sudo logs
 the variables it keeps, with their values (``RUNBOOK §23, rotate the KEK passphrase``).
+
+rc1 refuses the key ceremonies on a PRODUCTION box (R22-34), rotate-kek among them, with one exception (D-1092; the
+integrator's ruling 7101844662): a box sealed under a passphrase rotates it to a new passphrase given by the file or
+stdin form, with no escrow set, and the rotation is the audit event ``keys.rotate_kek`` (who, when, the box, the two
+KEK ids; never a value) in ``--audit-dir`` or ``TB_AUDIT_DIR``, without which it is refused.
 """
 
 from __future__ import annotations
@@ -517,17 +522,73 @@ def cmd_inventory(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     return 0
 
 
+#: D-1092 (the integrator's ruling 7101844662, H96-04): the audit event of a passphrase rotated where rc1 refuses the
+#: other key ceremonies; who, when, the box and the two KEK ids, never a passphrase or a key
+ROTATE_EVENT = "keys.rotate_kek"
+ROTATE_ACTOR = "python -m tools.keys rotate-kek (D-1092)"
+
+
+def exposed_passphrase_rotation(a: argparse.Namespace, sec: Path) -> bool:
+    """D-1092: the one rotate-kek rc1 lets through on a PRODUCTION box. A box sealed under a passphrase rotates that
+    passphrase (a leaked key rotated is a safety action, not a ceremony): to a new passphrase (``--backend
+    passphrase``) given by H-96's file or stdin form only, with no escrow set. Any other rotate-kek stays refused."""
+    if a.backend != "passphrase" or a.escrow_out:
+        return False
+    if not (getattr(a, "new_passphrase_file", None) or getattr(a, "new_passphrase_stdin", False)):
+        return False
+    try:
+        meta = K.read_meta(sec)
+    except K.KekError:
+        return False
+    return meta is not None and meta.get("backend") == "passphrase"
+
+
+def _who() -> dict[str, Any]:
+    """Who ran it: the user it runs as and the kernel's login uid (the person behind sudo), never a variable the
+    caller sets."""
+    import pwd
+
+    def name(uid: int) -> str:
+        try:
+            return pwd.getpwuid(uid).pw_name
+        except KeyError:
+            return str(uid)
+
+    euid = os.geteuid()
+    who: dict[str, Any] = {"user": name(euid), "uid": euid}
+    try:
+        login = int(Path("/proc/self/loginuid").read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        login = -1
+    if 0 <= login < 0xFFFFFFFF:  # 4294967295: no login session (a service)
+        who.update(login_user=name(login), login_uid=login)
+    return who
+
+
 def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     """A new KEK: every wrapped key is opened with the old one and re-wrapped. The new files are written beside the
     old (``.next``) and then renamed, key files first and ``kek.json`` last."""
+    import socket
+    from datetime import UTC, datetime
+
     from tb_common import rc1_refusals
 
+    sec = secrets_dir(a.secrets, env)
+    exposed: tuple[Path, str] | None = None  # D-1092: the audit folder and the box's environment
     try:  # R22-34 (D-1072): rc1 holds no key ceremony on a PRODUCTION box (the stricter of the box and the caller)
         rc1_refusals.check("key_ceremonies", rc1_refusals.host_env(Path(DEFAULT_DEPLOY), env))
     except rc1_refusals.Rc1Refused as exc:
-        _err(exc.say())
-        return 1
-    sec = secrets_dir(a.secrets, env)
+        if not exposed_passphrase_rotation(a, sec):
+            _err(exc.say())
+            return 1
+        # D-1092: an exposed passphrase is rotated there, as an audited event (refused without its audit folder)
+        given = a.audit_dir or env.get("TB_AUDIT_DIR")
+        where_audit = Path(given) if given else None
+        if where_audit is None or not where_audit.is_dir():
+            raise K.KekError(f"on a {exc.environment} box rc1 lets rotate-kek through only to rotate an exposed "
+                             "passphrase, as an audit event (D-1092): give the audit folder (--audit-dir, "
+                             "TB_AUDIT_DIR); nothing was changed") from None  # fmt: skip
+        exposed = (where_audit, exc.environment)
     pending = sorted(f.name for f in sec.glob("*.next.key" + K.WRAPPED_SUFFIX))
     if pending:  # a key rotation cut short (audit_sign.next.key): its staged key would stay under the old KEK
         raise K.KekError(f"{', '.join(pending)} is a key rotation not finished: finish it (run it again), then "
@@ -564,6 +625,17 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
         K._write_private(runtime, new)
         _say(f"the unsealed KEK in {runtime} is now the new one")
     _say(f"KEK {meta['kek_id']} (back end {meta['backend']}) replaces the old one; {len(keys)} key(s) re-wrapped")
+    if exposed is not None:  # D-1092: who, when, the box; never a value
+        detail = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "who": _who(), "box": socket.gethostname(),
+                  "environment": exposed[1], "old_kek_id": (old_meta or {}).get("kek_id", ""),
+                  "new_kek_id": meta["kek_id"], "backend": "passphrase", "rule": "D-1092"}  # fmt: skip
+        try:
+            ke.audit(exposed[0], ROTATE_EVENT, ROTATE_ACTOR, detail)
+        except OSError as e:
+            _err(f"the KEK is rotated, but its audit event could not be written to {exposed[0]} ({type(e).__name__}): "
+                 f"record it by hand (who, when, KEK {meta['kek_id']})")  # fmt: skip
+            return 1
+        _say(f"audit: {ROTATE_EVENT} in {exposed[0]} (rc1 lets this rotation through, D-1092)")
     if "escrow" in meta and meta["escrow"]["kek_id"] == meta["kek_id"] and where is not None:
         ke.audit(where, ke.EVENT, ke.ACTOR, ke.summary(meta["escrow"]))
         for r in meta["escrow"]["shares"]:
