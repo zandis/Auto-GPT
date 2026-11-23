@@ -481,3 +481,26 @@ def test_a_timer_enabled_but_not_running_reads_as_stopped(monkeypatch: pytest.Mo
     assert bs.timer_word(NIGHTLY) == "disabled"
     monkeypatch.setattr(bs, "systemd_init", lambda: False)
     assert bs.timer_word(NIGHTLY) is None
+
+
+def test_doctor_built_in_code_asks_no_host_and_the_command_line_doctor_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bench's red on 2d96b872: on a systemd host, DoctorInputs built in code read the host's own timers. Like
+    the cron daemon, the timers are asked only by the doctor of the command line (inputs_from)."""
+    asked: list[str] = []
+    monkeypatch.setattr(bs, "systemd_init", lambda: True)
+
+    def ask(verb: str, unit: str) -> str:
+        asked.append(unit)
+        return "not-found"
+
+    monkeypatch.setattr(bs, "_ask", ask)
+    deploy, env = _good_box(tmp_path)
+    cron = tmp_path / "cron.d"
+    cron.mkdir()
+    (cron / bs.CRON_NAME).write_text("# installed\n")
+    inp = doctor.DoctorInputs(env=env, deploy=deploy, cron_dir=cron, host_tz="Asia/Taipei")
+    assert doctor.check_backup(inp).status == "PASS" and not asked
+    cli_inp = doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, lake=None)
+    assert cli_inp.backup_timers is not None and cli_inp.backup_timers(NIGHTLY) == "not-found" and asked

@@ -198,6 +198,7 @@ class DoctorInputs:
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
     timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
     cron_running: Callable[[], bool] | None = None  # H-92: a cron daemon runs; None: not asked (inputs_from asks)
+    backup_timers: Callable[[str], str | None] | None = None  # D-1090: each backup timer's word; None: not asked
     proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
     gpu_query: Callable[[], tuple[str, str] | None] | None = None  # NEW-WIN-5: (card, driver); None: nvidia-smi
 
@@ -1011,7 +1012,8 @@ def check_backup(inp: DoctorInputs) -> Check:
     fails = list(st["problems"])
     # H-92: the timer where systemd is the init, else the cron file and a cron daemon; one action when none fires
     running = inp.cron_running() if inp.cron_running is not None else None
-    word = inp.timer_state or bs.timer_word  # every backup timer, enabled and running (D-1090)
+    # every backup timer, enabled and running (D-1090); the host is asked only from the command line (inputs_from)
+    word = inp.timer_state or inp.backup_timers or (lambda unit: None)
     sched = bs.schedule_state(inp.cron_dir, {t: word(t) for t in bs.TIMERS}, running)
     if sched["problem"]:
         fails.append(sched["problem"])
@@ -2347,7 +2349,14 @@ def inputs_from(
         deploy=deploy,
         input_errors=tuple(errors),
         cron_running=_cron_running,
+        backup_timers=_backup_timer,
     )
+
+
+def _backup_timer(unit: str) -> str | None:
+    from tools.trialbox import backup_schedule as bs
+
+    return bs.timer_word(unit)
 
 
 def _cron_running() -> bool:

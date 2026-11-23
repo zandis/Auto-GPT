@@ -104,6 +104,11 @@ Each finding has a test that fails on `910db4df` (16 failed there, the rest are 
   `TB_SYSTEMD=0` keeping the timers, non-root not refused, doctor reading the nightly timer only, a stopped timer
   firing, environment lines skipped, range unchecked, 02:xx allowed, install.sh's PRODUCTION stop kept, no
   `--systemd-dir`, cron's PATH dropped): 18 planted, 18 caught (the stopped-timer one after one added test).
+- **The bench's red on `2d96b872`** (`test_backup_alert_on_the_health_page.py::test_doctor_warns_in_production_when_the_page_is_the_only_route`,
+  WARN where PASS is due on a systemd host): doctor built in code asked the host's own timers. Like the cron daemon,
+  the timers are now asked only by the command-line doctor (`inputs_from`, `DoctorInputs.backup_timers`). Test:
+  `test_doctor_built_in_code_asks_no_host_and_the_command_line_doctor_does`; the 103 test files that cover doctor
+  and backup status also pass with a simulated systemd host.
 - H92-02 is not the same code path (install.sh writes the retention file itself): the row stays open.
 
 ## Findings
