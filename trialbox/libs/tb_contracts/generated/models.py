@@ -958,6 +958,34 @@ class LlmJudgeOutput(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 
+class LlmJudgeOutputV2(BaseModel):
+    """
+    Output of prompt judge from version 6 (SPEC 7.3). Schema version 1.2.0: the 1.1.0 answer (llm_judge_output.schema.json, kept for judge versions 3 to 5) plus three fields on the quote (#639 7115208555): certainty, experiencer and time. A note exclusion stands only when both models give affirmed, patient and current; any other value, or null, sends the patient to review. Every property is required so strict structured output accepts the schema; null means absent. The three fields come before reason, and reason before confidence, the order a guided decoder writes them (1.1.0's note).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    verdict: Literal["pass", "fail", "unknown"]
+    certainty: Literal["affirmed", "negated", "possible", "unknown"] | None
+    """
+    What the quote says of the condition: affirmed (stated present), negated (stated absent), possible (suspected, a question, to rule out), unknown (unknown or pending: a test ordered, a result awaited).
+    """
+    experiencer: Literal["patient", "other"] | None
+    """
+    Whose condition the quote states: the patient's, or another person's (a relative, a partner, a contact).
+    """
+    time: Literal["current", "past_resolved", "planned"] | None
+    """
+    When the quote places the condition: current (now, or ongoing), past_resolved (cured, resolved, treated and gone), planned (a test or a treatment to come, a prevention).
+    """
+    reason: str | None = Field(..., max_length=300)
+    quote: str | None = Field(..., max_length=400)
+    quote_date: date_aliased | None
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
 class ManifestReview(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1426,7 +1454,9 @@ class ReleaseComponent(BaseModel):
         populate_by_name=True,
     )
     path: str
-    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
+    kind: Literal[
+        "model", "ruleset", "image", "refdata", "other", "host", "terminology"
+    ]
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
     size: int = Field(..., ge=0)
 
@@ -1553,6 +1583,15 @@ class ReportProvenance(BaseModel):
     The language the report is written in: the site's report language (its locale), not the language of the notes that were read (G12 of the P1b review, D-980).
     """
     site: str
+
+
+class RequiresModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    manifest_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 
 class Routing(BaseModel):
@@ -2440,53 +2479,10 @@ class UpdateFile(BaseModel):
     )
     path: str = Field(..., max_length=400, min_length=1)
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
+    kind: Literal[
+        "model", "ruleset", "image", "refdata", "other", "host", "terminology"
+    ]
     size: int = Field(..., ge=0)
-
-
-class UpdateManifest(BaseModel):
-    """
-    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.3.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required; 1.3.0, D-367: payload kind host, the host tree of compose files, host tools and configuration, at most one per bundle).
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
-    created_at: AwareDatetime
-    signer: str
-    description: str | None = None
-    files: list[UpdateFile]
-    release_seq: int = Field(..., ge=1)
-    """
-    Monotonic release counter: a box refuses a bundle whose release_seq is not above the installed one (unless an audited --allow-downgrade).
-    """
-    min_installed_version: int = Field(..., ge=0)
-    """
-    The lowest installed release_seq this bundle applies over (0: also a box never updated under D-210). Never overridable.
-    """
-    key_id: str = Field(..., pattern="^ed25519:[0-9a-f]{16}$")
-    """
-    The signing key: ed25519: + the first 16 hex of the sha256 of its raw 32-byte public key. Must be a key the box trusts and must be the key the signature verifies with.
-    """
-    not_after: AwareDatetime
-    """
-    The bundle is refused after this time.
-    """
-    compat_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member compat.json (the compatibility table, checked before any file is touched).
-    """
-    release_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member release.json (provisional until T-110). Required when the bundle carries images.
-    """
-    images_lock_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member images.lock (the release's deploy/images.lock).
-    """
-    rotation: KeyRotation | None = None
 
 
 class ValidationSummary(BaseModel):
@@ -2676,6 +2672,10 @@ class CriterionVerdict(BaseModel):
     basis: Literal["coded", "pair", "single", "person"] | None = None
     """
     T-709 (D-478): what the answer rests on. coded: the patient's coded records; pair: two different models agreed; single: one model (or two clients of one model); person: a person decides or decided. Absent on an answer nobody gave (unknown) and on rows stored before the field.
+    """
+    affirmed: bool | None = None
+    """
+    Round 5 of R22-16 (#639 7115208555): on a note exclusion's "present" (a verdict of fail), true when both models said the quote affirms the condition, in this patient, now (certainty affirmed, experiencer patient, time current). Only then may the answer exclude. Absent or null: not said (a judge before version 6, one model, or a row stored before the field), and the answer never excludes.
     """
     final: bool | None = None
     """
@@ -2943,6 +2943,19 @@ class NavRow(BaseModel):
     precheck: Precheck | None = None
 
 
+class Pack(BaseModel):
+    """
+    H-95: which half of a split release this bundle is. A model pack carries the engine image and the weights; a software pack carries the rest and names the model pack it needs by its bundle_id and the sha256 of its signed manifest.json. A box refuses a software pack whose model pack it does not hold.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    kind: Literal["model", "software"]
+    requires_model: RequiresModel | None = None
+
+
 class ParsedDoc(BaseModel):
     """
     doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.1.0 (1.1.0: ie_block.item_refs, NEW-LIFE-2).
@@ -3188,6 +3201,52 @@ class TrialSimResult(BaseModel):
     reach_rate: float | None = None
     accept_rate: float | None = None
     rows: list[TrialSimRow]
+
+
+class UpdateManifest(BaseModel):
+    """
+    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.4.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required; 1.3.0, D-367: payload kind host, the host tree of compose files, host tools and configuration, at most one per bundle; 1.4.0, H-95: the optional pack, a software pack that names the model pack it needs by that pack's signed identity, or a model pack; no pack: a whole bundle as before).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    created_at: AwareDatetime
+    signer: str
+    description: str | None = None
+    files: list[UpdateFile]
+    release_seq: int = Field(..., ge=1)
+    """
+    Monotonic release counter: a box refuses a bundle whose release_seq is not above the installed one (unless an audited --allow-downgrade).
+    """
+    min_installed_version: int = Field(..., ge=0)
+    """
+    The lowest installed release_seq this bundle applies over (0: also a box never updated under D-210). Never overridable.
+    """
+    key_id: str = Field(..., pattern="^ed25519:[0-9a-f]{16}$")
+    """
+    The signing key: ed25519: + the first 16 hex of the sha256 of its raw 32-byte public key. Must be a key the box trusts and must be the key the signature verifies with.
+    """
+    not_after: AwareDatetime
+    """
+    The bundle is refused after this time.
+    """
+    compat_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member compat.json (the compatibility table, checked before any file is touched).
+    """
+    release_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member release.json (provisional until T-110). Required when the bundle carries images.
+    """
+    images_lock_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member images.lock (the release's deploy/images.lock).
+    """
+    rotation: KeyRotation | None = None
+    pack: Pack | None = None
 
 
 class CandidateRow(BaseModel):

@@ -25,7 +25,21 @@ if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then
   echo "terminology: no volume $VOLUME: start the box once (docker compose up creates it), then load" >&2
   exit 2
 fi
-mkdir -p "$ROOT/deploy/site/terminology"
-exec docker run --rm --network none --user 0:0 -e TB_TERMINOLOGY_DIR=/data/terminology \
-  -v "${PROJECT}_tb-terminology:/data/terminology" -v "$ROOT/deploy/site/terminology:/stage:ro" \
-  "$IMAGE" python -m tools.terminology_install "$@"
+# V-18 (D-1182): the hospital's folder may be outside the repository (TB_LICENSED_DIR, in the environment or
+# deploy/.env; its layout in docs/handover/terminology-folder.md); read-only, and only the tables built from it
+# go into the volume
+STAGE_MOUNT="$ROOT/deploy/site/terminology:/stage:ro"
+LICENSED="${TB_LICENSED_DIR:-$(val TB_LICENSED_DIR)}"
+[ -z "$LICENSED" ] || STAGE_MOUNT="$LICENSED:/stage:ro"
+mkdir -p "${STAGE_MOUNT%:/stage:ro}"
+rc=0
+docker run --rm --network none --user 0:0 -e TB_TERMINOLOGY_DIR=/data/terminology \
+  -v "${PROJECT}_tb-terminology:/data/terminology" -v "$STAGE_MOUNT" \
+  "$IMAGE" python -m tools.terminology_install "$@" || rc=$?
+# V-18 (D-1182, DB-C1): a system loaded here changes the terminology's release, so the vocabulary and the FHIR store
+# are loaded again from the same manifest at once: the three readers never hold different releases. Not after
+# `status`, nor when deploy/terminology-update.sh runs this as its first step (it loads the readers itself)
+if [ "$rc" = 0 ] && [ "$1" != status ] && [ "${TB_TERMINOLOGY_READERS:-1}" != 0 ]; then
+  "$ROOT/deploy/terminology-update.sh" --readers-only || rc=$?
+fi
+exit "$rc"

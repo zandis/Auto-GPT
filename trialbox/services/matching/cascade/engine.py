@@ -1218,7 +1218,9 @@ class _Run:
         quoted = str(span.get("quote") or reply.quote or "")
         sentence = " ".join(s for s in (sentence, reply.sentence) if s)  # L3: the verifier's too
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16)
-        may = note_answer_may(c.kind, reply.verdict == "pass", quoted, c.text, sentence)
+        may = note_answer_may(c.kind, reply.verdict == "pass", quoted, c.text, sentence, affirmed=reply.affirmed)
+        # round 5 (#639 7115208555): the stored row says the models affirmed this note exclusion (decision.answer_of)
+        affirmed = True if may.effect == "excludes" and c.kind == "exclusion" else None
         if may.effect == "keeps":
             if left_out:
                 # T-603 (review LLM-016, CR-004 flag half): the answer that keeps the patient stands, flagged; the
@@ -1251,8 +1253,18 @@ class _Run:
                 hard=False,
                 evidence=[*ev, meta],
                 reason="not_met (single model: review, not exclusion)",
+                affirmed=affirmed,
             )
-        return Outcome(c.id, "fail", stage, hard=True, stratum=STRATUM_S3, evidence=[*ev, meta], reason="not_met")
+        return Outcome(
+            c.id,
+            "fail",
+            stage,
+            hard=True,
+            stratum=STRATUM_S3,
+            evidence=[*ev, meta],
+            reason="not_met",
+            affirmed=affirmed,
+        )
 
     def s3(self, routes: list[_Route]) -> list[_Route]:
         by_pid: dict[str, list[_Route]] = {}

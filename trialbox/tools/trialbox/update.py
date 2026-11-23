@@ -30,6 +30,14 @@ key, every payload's size and sha256: ``tools/verify_update.py``, D-77) and stag
    models put back, the database restored from the local dump, the services restarted and checked again;
    ``update.rolled_back`` is audited; exit 1.
 
+H-95, load from the stick: the verifier stages only the small payloads; the image archives and the weights stay on
+the stick (``Plan.bundle``, the summary's ``streamed`` kinds). Each is read from the bundle once more here and hashed
+while it goes in: a weight file is written as ``<file>.part`` and renamed only when its sha256 is the signed one; an
+image archive goes into ``docker load`` on its standard input with its last MiB held back until the whole sha256 is
+known: a mismatch cuts the stream short, stops the load and removes every image the archive names, so a payload whose
+second read fails its hash is never loaded. A model pack (manifest ``pack``) is recorded in
+``deploy/updates/model-pack.json``, not in ``installed.json``.
+
 Every step is written to ``deploy/updates/history.jsonl`` (no secret in it). Three boxes implement the steps:
 :class:`ComposeBox` (a site box, ``docker compose``), :class:`DemoBox` (the one-container demo VM, D-111) and
 :class:`InProcessBox` (the in-process box of ``e2e_simple``: ``tools/update_drill.py`` exercises the whole path on
@@ -39,6 +47,8 @@ it, with a real backup, a real ``pg_dump`` / ``pg_restore`` and real migrations)
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import io
 import json
 import os
 import re
@@ -103,6 +113,97 @@ class UpdateRefused(UpdateFailed):
 # The steps, in order, as the marker (deploy/updates/IN_PROGRESS.json) names them (D-210).
 STEPS = ("backup", "rollback point", "apply", "migrate and restart", "rulesets", "check", "refdata", "finish")
 SPACE_MARGIN = 1.10
+#: H-95: the model pack the box holds (verify_update.py --model-pack-record reads it)
+MODEL_PACK = "model-pack.json"
+MODEL_PACK_FORMAT = "trialbox-model-pack/1"
+#: H-95: what an image stream holds back from ``docker load`` until its whole sha256 is known
+HOLD_BACK = 1 << 20
+_READ = 1 << 20
+
+
+@dataclass(frozen=True)
+class Streamed:
+    """H-95: a payload the verifier hashed on the stick and did not stage; read from the bundle where it lies."""
+
+    bundle: Path
+    path: str
+    kind: str
+    sha256: str
+    size: int
+    offset: int
+
+    @property
+    def name(self) -> str:
+        return PurePosixPath(self.path).name
+
+    def chunks(self) -> Any:
+        """The payload's bytes from the bundle, at most ``size`` of them (fewer when the stick was cut short)."""
+        left = self.size
+        with self.bundle.open("rb") as fh:
+            fh.seek(self.offset)
+            while left > 0:
+                chunk = fh.read(min(_READ, left))
+                if not chunk:
+                    return
+                left -= len(chunk)
+                yield chunk
+
+    def reader(self) -> io.BufferedReader:
+        """A seekable view of the payload alone (to read a docker archive's manifest.json without copying it)."""
+        return io.BufferedReader(_Slice(self.bundle, self.offset, self.size))
+
+
+class _Slice(io.RawIOBase):
+    def __init__(self, path: Path, offset: int, size: int) -> None:
+        self._fh = path.open("rb")
+        self._start, self._size, self._pos = offset, size, 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seek(self, pos: int, whence: int = io.SEEK_SET) -> int:
+        base = {io.SEEK_SET: 0, io.SEEK_CUR: self._pos, io.SEEK_END: self._size}[whence]
+        self._pos = max(0, min(self._size, base + pos))
+        return self._pos
+
+    def readinto(self, b: Any) -> int:
+        n = min(len(b), self._size - self._pos)
+        if n <= 0:
+            return 0
+        self._fh.seek(self._start + self._pos)
+        data = self._fh.read(n)
+        b[: len(data)] = data
+        self._pos += len(data)
+        return len(data)
+
+    def close(self) -> None:
+        self._fh.close()
+        super().close()
+
+
+def streamed_payloads(bundle: Path, manifest: dict[str, Any], kinds: Sequence[str]) -> list[Streamed]:
+    """The signed manifest's payloads of ``kinds``, each with where its bytes lie in the bundle (one pass over the
+    tar headers; nothing is read from the payloads)."""
+    want = {f"files/{f['path']}": f for f in manifest.get("files") or [] if f.get("kind") in kinds}
+    out: list[Streamed] = []
+    try:
+        with tarfile.open(bundle, "r:") as tf:
+            for m in tf.getmembers():
+                f = want.pop(m.name, None)
+                if f is not None and m.isfile():
+                    out.append(Streamed(bundle, str(f["path"]), str(f["kind"]), str(f["sha256"]), int(f["size"]),
+                                        m.offset_data))  # fmt: skip
+    except (OSError, tarfile.TarError) as exc:
+        raise UpdateFailed(f"the bundle {bundle} cannot be read again: {exc}") from exc
+    if want:
+        raise UpdateFailed(f"the bundle {bundle} no longer holds {sorted(want)[:3]}")
+    return sorted(out, key=lambda p: p.path)
 
 
 @dataclass
@@ -122,6 +223,8 @@ class Plan:
     trust_sha256: str | None = None  # the trust.json verify read (None: none, the deploy/keys files)
     no_backup_reason: str | None = None  # D-1321: why the backup is skipped (--no-backup-reason), audited
     poc_no_backup: str = ""  # H-99: the preflight's backup refusal, warned on a PoC box; the backup is skipped
+    streamed: list[Streamed] = field(default_factory=list)  # H-95: payloads read from the bundle, never staged
+    pack: dict[str, Any] | None = None  # H-95: the manifest's pack (None: a whole bundle)
 
     @classmethod
     def load(cls, stage: Path, summary: dict[str, Any]) -> Plan:
@@ -147,7 +250,27 @@ class Plan:
 
     def payload_bytes(self, kind: str) -> int:
         d = self.kind(kind)
-        return sum(p.stat().st_size for p in d.rglob("*") if p.is_file()) if d.is_dir() else 0
+        staged = sum(p.stat().st_size for p in d.rglob("*") if p.is_file()) if d.is_dir() else 0
+        return staged + sum(p.size for p in self.streamed if p.kind == kind)
+
+    def images(self) -> list[Path | Streamed]:
+        """The image archives: the staged ones and the ones read from the bundle (H-95), in name order."""
+        img = self.kind("image")
+        staged: list[Path | Streamed] = []
+        if img.is_dir():
+            staged.extend(sorted(p for p in img.rglob("*") if p.is_file()))
+        return sorted(staged + [p for p in self.streamed if p.kind == "image"], key=lambda p: p.name)
+
+    def model_files(self) -> list[tuple[str, int]]:
+        """(path under the models folder, size) of every model payload, staged or read from the bundle."""
+        d = self.kind("model")
+        out = [(p.relative_to(d).as_posix(), p.stat().st_size) for p in d.rglob("*") if p.is_file()] \
+            if d.is_dir() else []  # fmt: skip
+        return out + [(p.path, p.size) for p in self.streamed if p.kind == "model"]
+
+    @property
+    def is_model_pack(self) -> bool:
+        return (self.pack or {}).get("kind") == "model"
 
 
 @dataclass
@@ -203,10 +326,16 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def image_tags(tar: Path) -> list[str]:
+def _open_archive(tar: Path | Streamed) -> tarfile.TarFile:
+    if isinstance(tar, Streamed):
+        return tarfile.open(fileobj=tar.reader(), mode="r:")
+    return tarfile.open(tar, "r:*")
+
+
+def image_tags(tar: Path | Streamed) -> list[str]:
     """The repo:tag names a ``docker save`` archive carries (its manifest.json)."""
     try:
-        with tarfile.open(tar, "r:*") as tf:
+        with _open_archive(tar) as tf:
             m = tf.extractfile("manifest.json")
             data = json.loads(m.read()) if m else []
     except (tarfile.TarError, KeyError, OSError, ValueError):
@@ -214,14 +343,14 @@ def image_tags(tar: Path) -> list[str]:
     return [t for entry in data for t in (entry.get("RepoTags") or [])]
 
 
-def tar_images(tar: Path) -> tuple[dict[str, str], set[str]]:
+def tar_images(tar: Path | Streamed) -> tuple[dict[str, str], set[str]]:
     """A ``docker save`` archive's ``{tag: config digest}`` (manifest.json ``Config``: ``<hex>.json`` or
     ``blobs/sha256/<hex>``) and the manifest digests of its index.json (an OCI layout, Docker 25 and later). The
     archive's sha256 is verified with the bundle, so these name exactly what ``docker load`` will load."""
     configs: dict[str, str] = {}
     manifests: set[str] = set()
     try:
-        with tarfile.open(tar, "r:*") as tf:
+        with _open_archive(tar) as tf:
             m = tf.extractfile("manifest.json")
             for entry in json.loads(m.read()) if m else []:
                 name = PurePosixPath(str(entry.get("Config") or "")).name.removesuffix(".json")
@@ -253,22 +382,191 @@ def copy_models(src: Path, dest: Path, rb: Path, point: Point) -> list[str]:
         return done
     for f in sorted(p for p in src.rglob("*") if p.is_file()):
         rel = f.relative_to(src).as_posix()
-        target = dest / rel
-        if target.exists():
-            keep = rb / "models" / rel
-            keep.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(target, keep)
-            point.models_saved.append(rel)
-        else:
-            point.models_new.append(rel)
-        save_point(rb, point)  # before the copy: a crash mid-copy still knows to put this file back
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target = _keep_model(dest, rel, rb, point)
         shutil.copy2(f, target)
         done.append(f"model {rel}")
     return done
 
 
+def _keep_model(dest: Path, rel: str, rb: Path, point: Point) -> Path:
+    target = dest / rel
+    if target.exists():
+        keep = rb / "models" / rel
+        keep.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(target, keep)
+        point.models_saved.append(rel)
+    else:
+        point.models_new.append(rel)
+    save_point(rb, point)  # before the copy: a crash mid-copy still knows to put this file back
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def stream_models(payloads: Sequence[Streamed], dest: Path, rb: Path, point: Point) -> list[str]:
+    """H-95: each weight file from the bundle to ``dest/<path>.part``, hashed while it is written, renamed to its
+    name only when its sha256 is the signed one: a file whose second read fails its hash never takes the name the
+    services load, and its ``.part`` is removed at once."""
+    done: list[str] = []
+    for p in payloads:  # review F3: a .part a killed load left behind is removed before anything is written
+        (dest / f"{p.path}.part").unlink(missing_ok=True)
+    for p in payloads:
+        target = _keep_model(dest, p.path, rb, point)
+        part = target.with_name(target.name + ".part")
+        h = hashlib.sha256()
+        try:
+            with part.open("wb") as out:
+                for chunk in p.chunks():
+                    h.update(chunk)
+                    out.write(chunk)
+            if h.hexdigest() != p.sha256:
+                raise UpdateFailed(f"model {p.path}: its bytes on the stick no longer hash to the signed sha256 "
+                                   "(read again while loading); not loaded")  # fmt: skip
+            os.replace(part, target)
+        finally:
+            part.unlink(missing_ok=True)
+        done.append(f"model {p.path}")
+    return done
+
+
+IMAGE_STATE = ["docker", "image", "ls", "-a", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"]
+
+
+def image_state(run: Runner) -> tuple[dict[str, str], set[str]]:
+    """The engine's images now: ``{repo:tag: id}`` and every image id (untagged ones too)."""
+    tags: dict[str, str] = {}
+    ids: set[str] = set()
+    for line in run(IMAGE_STATE).splitlines():
+        ref, _, iid = line.strip().rpartition(" ")
+        if not iid:
+            continue
+        ids.add(iid)
+        if ref and "<none>" not in ref:
+            tags[ref] = iid
+    return tags, ids
+
+
+def undo_load(before: tuple[dict[str, str], set[str]], run: Runner) -> list[str]:
+    """H-95 (review F1, F2): put the engine back as it was before one load: a tag the load moved points at its old
+    image again, a tag the load made is removed, an image id the load added is removed. Nothing that was there before
+    is removed. Returns what it did."""
+    old_tags, old_ids = before
+    new_tags, new_ids = image_state(run)
+    done: list[str] = []
+    for tag, iid in sorted(new_tags.items()):
+        if old_tags.get(tag) == iid:
+            continue
+        if tag in old_tags:
+            run(["docker", "tag", old_tags[tag], tag])
+            done.append(f"{tag} back to {old_tags[tag]}")
+        elif iid not in old_ids:
+            continue  # the image itself goes below, and its tag with it
+        else:
+            run(["docker", "image", "rm", tag])
+            done.append(f"{tag} removed")
+    for iid in sorted(new_ids - old_ids):
+        with contextlib.suppress(UpdateFailed):
+            run(["docker", "image", "rm", "-f", iid])
+        done.append(f"{iid} removed")
+    return done
+
+
+LOAD_BEFORE = "load_before"  # the rollback point's record of the engine before a streamed load (re-review F1)
+
+
+def undo_recorded_load(point: Point, run: Runner) -> list[str]:
+    """Undo a streamed load the rollback point recorded and nothing undid (a kill between the load and its undo)."""
+    rec = point.extra.pop(LOAD_BEFORE, None)
+    if not isinstance(rec, dict):
+        return []
+    return undo_load(({str(k): str(v) for k, v in (rec.get("tags") or {}).items()}, set(rec.get("ids") or [])), run)
+
+
+def stream_image(
+    p: Streamed,
+    configs: dict[str, str],
+    manifests: set[str],
+    run: Runner,
+    rb: Path | None = None,
+    point: Point | None = None,
+) -> None:
+    """H-95: one image archive from the bundle into ``docker load`` on its standard input, hashed as it goes, in one
+    read: the bytes hashed are the bytes handed on. The last ``HOLD_BACK`` bytes wait until the whole sha256 is
+    known: on a match they follow and the load completes; on a mismatch the load is killed with its archive cut short.
+
+    The engine is read before the load (every tag and image id). Whatever the load changed is checked after it
+    (review F1): a load that failed, did not match its hash, or moved a tag that is not one of the archive's pinned
+    tags (an archive swapped on the stick after its manifest was read, or a complete tar that ends early) is undone
+    exactly (``undo_load``): tags moved back, what it added removed, nothing that was there before removed (F2).
+
+    Re-review F1: on a mismatch the load client is not killed (the engine goes on and registers the archive after a
+    killed client, after the undo). Its input is closed with the archive cut short and the client is waited for: it
+    exits only once the engine has answered, so the undo reads a settled engine. The engine as it was before is
+    written into the rollback point first (``rb``, ``point``): a kill between the load and the undo is undone by the
+    rollback, or by the next run of the same pack (``main_apply``)."""
+    before = image_state(run)
+    if rb is not None and point is not None:
+        point.extra[LOAD_BEFORE] = {"image": p.name, "tags": before[0], "ids": sorted(before[1])}
+        save_point(rb, point)
+    proc = subprocess.Popen(["docker", "load"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)  # fmt: skip
+    assert proc.stdin is not None and proc.stdout is not None
+    out: list[bytes] = []
+    import threading
+
+    reader = threading.Thread(target=lambda: out.append(proc.stdout.read() if proc.stdout else b""), daemon=True)
+    reader.start()
+    h = hashlib.sha256()
+    held = b""
+    ok = broken = False
+    try:
+        for chunk in p.chunks():
+            h.update(chunk)
+            held += chunk
+            if len(held) > HOLD_BACK:
+                proc.stdin.write(held[:-HOLD_BACK])
+                held = held[-HOLD_BACK:]
+        ok = h.hexdigest() == p.sha256
+        if ok:
+            proc.stdin.write(held)
+    except BrokenPipeError:  # the load stopped on its own: its exit and its words say why
+        ok, broken = False, True
+    except OSError:  # the stick could not be read to the end: its bytes do not hash to the signed sha256
+        ok = False
+    finally:
+        # never a kill (re-review F1): the archive is cut short by closing the input, and the client exits only
+        # once the engine has answered; only a client that hangs for an hour is killed
+        with contextlib.suppress(BrokenPipeError):
+            proc.stdin.close()
+        try:
+            rc = proc.wait(timeout=3600)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            rc = proc.wait()
+        reader.join(timeout=60)
+    said = b"".join(out).decode("utf-8", "replace").strip()
+    moved = sorted(t for t, i in image_state(run)[0].items() if before[0].get(t) != i)
+    stray = [t for t in moved if t not in configs]
+    if ok and rc == 0 and not stray:
+        if point is not None and rb is not None:
+            point.extra.pop(LOAD_BEFORE, None)
+            save_point(rb, point)
+        return
+    undone = undo_load(before, run)
+    if point is not None and rb is not None:
+        point.extra.pop(LOAD_BEFORE, None)
+        save_point(rb, point)
+    what = f"; undone: {', '.join(undone)}" if undone else ""
+    if ok and rc == 0:
+        raise UpdateFailed(f"image {p.name}: the load moved tags the archive does not pin ({', '.join(stray)}){what}")
+    if not ok and not broken:
+        raise UpdateFailed(f"image {p.name}: its bytes on the stick no longer hash to the signed sha256 (read again "
+                           f"while loading); the load was stopped and nothing of it is loaded{what}")  # fmt: skip
+    raise UpdateFailed(f"image {p.name}: docker load failed (exit {rc}): {said[-500:]}{what}")
+
+
 def restore_models(dest: Path, rb: Path, point: Point) -> None:
+    for rel in point.models_new + point.models_saved:  # H-95 (review F3): a stream cut by a kill leaves <file>.part
+        (dest / f"{rel}.part").unlink(missing_ok=True)
     for rel in point.models_new:
         (dest / rel).unlink(missing_ok=True)
     for rel in point.models_saved:
@@ -279,6 +577,25 @@ def refdata_packs(plan: Plan) -> list[Path]:
     """The reference data packs of a bundle (payload kind ``refdata``), oldest date first."""
     rd = plan.kind("refdata")
     return sorted(p for p in rd.rglob("*.tar") if p.is_file()) if rd.is_dir() else []
+
+
+# V-18 (D-1182): the bundle's code systems (payload kind ``terminology``)
+TERMINOLOGY_VOLUME = "tb-terminology"
+TERMINOLOGY_RUN = "tb-terminology-load"
+TERMINOLOGY_SAVE_PY = ("from pathlib import Path\nfrom criteria_compiler.terminology import installed as i\n"
+                       "print(i.save_tables(Path('/data/terminology'), Path('/keep')))\n")  # fmt: skip
+
+
+def terminology_files(plan: Plan) -> list[Path]:
+    """The code-system files of a bundle, ``<command>/<file>`` (verify_update allows only the commands that load a
+    system the box may carry); each folder's ``VERSION`` is the year or version its command is given."""
+    d = plan.kind("terminology")
+    return sorted(p for p in d.glob("*/*") if p.is_file() and p.name != "VERSION") if d.is_dir() else []
+
+
+def terminology_version(file: Path) -> str:
+    v = file.parent / "VERSION"
+    return v.read_text(encoding="utf-8").strip() if v.is_file() else ""
 
 
 def host_tars(plan: Plan) -> list[Path]:
@@ -681,6 +998,8 @@ class Updater:
             if have < plan.min_installed_version:
                 raise UpdateRefused(f"the box is at release_seq {have}; {plan.bundle_id} needs at least "
                                     f"{plan.min_installed_version} (min_installed_version)")  # fmt: skip
+            if plan.is_model_pack:  # H-95: a model pack's order is the model packs' own
+                have = int((held_model_pack(self.dir) or {}).get("release_seq") or 0)
             if plan.release_seq <= have and not plan.downgrade:
                 raise UpdateRefused(f"release_seq {plan.release_seq} is not above the installed {have}: refused "
                                     "(tools/apply_update.sh --allow-downgrade REASON, audited)")  # fmt: skip
@@ -872,6 +1191,15 @@ class Updater:
                 refdata_note = f"{type(exc).__name__}: {exc}"[:500]
                 step("reference data", False, f"{refdata_note}; the release stays; load the pack again "
                                               "(python -m tb_common.refdata load)")  # fmt: skip
+        terminology = getattr(self.box, "terminology", None)
+        if terminology is not None and terminology_files(plan):
+            try:  # V-18: after the check, as the reference data; a failure leaves the healthy release in place
+                loaded = terminology(plan)
+                step("code systems", True, f"{len(loaded)} loaded; back: deploy/terminology-update.sh --rollback "
+                                           f"{plan.bundle_id}")  # fmt: skip
+            except Exception as exc:
+                step("code systems", False, f"{type(exc).__name__}; the release stays; the previous tables are in "
+                                            f"deploy/terminology/previous/{plan.bundle_id}")  # fmt: skip
         enter("finish")
         self._record(plan)
         self.box.audit(
@@ -887,10 +1215,20 @@ class Updater:
         return {"ok": True, "bundle_id": plan.bundle_id, "steps": steps, "refdata_failed": refdata_note or None}
 
     def _record(self, plan: Plan, live: bool = True) -> None:
-        """installed.json and trust.json for the release just checked (atomic writes, under the marker)."""
+        """installed.json and trust.json for the release just checked (atomic writes, under the marker). H-95: a
+        model pack writes model-pack.json instead: installed.json stays the software's release."""
         from tools import update_status as us
 
         if plan.release_seq is None:
+            return
+        if plan.is_model_pack:
+            us.write_atomic(self.dir / MODEL_PACK, {
+                "format": MODEL_PACK_FORMAT, "bundle_id": plan.bundle_id, "manifest_sha256": plan.manifest_sha256,
+                "release_seq": plan.release_seq, "key_id": plan.key_id, "applied_at": _now()})  # fmt: skip
+            # a first load (live False) leaves trust.json to the software pack loaded next: a pack carries no key
+            # rotation (verify_update.py), and trust.json is evidence of a box in service (box_in_service)
+            if plan.trust_after and live:
+                us.write_atomic(self.dir / us.TRUST, plan.trust_after)
             return
         prev = us.installed(self.dir).get("state") or {}
         state: dict[str, Any] = {k: prev.get(k) for k in us.DIMENSIONS}
@@ -925,7 +1263,24 @@ class Updater:
         mode = ((plan.release or {}).get("gates") or {}).get("vuln_mode")
         if isinstance(mode, str) and mode:
             record["vuln_mode"] = mode  # D-884: the release gates' mode, said by `apply_update.sh status` and install
+        if plan.pack is not None and plan.pack.get("kind") == "software":
+            record["requires_model"] = plan.pack["requires_model"]  # its model pack (verify_update.py, review F4)
+            old = us.installed(self.dir)
+            if not (self.dir / MODEL_PACK).exists() and not old.get("requires_model") \
+                    and re.fullmatch(r"[0-9a-f]{64}", str(old.get("manifest_sha256") or "")):  # fmt: skip
+                # review F6: a box installed before H-95 holds its whole bundle's models; written down now, before
+                # installed.json names the software pack and can no longer stand for them
+                us.write_atomic(self.dir / MODEL_PACK, {
+                    "format": MODEL_PACK_FORMAT, "bundle_id": old.get("bundle_id"),
+                    "manifest_sha256": old["manifest_sha256"], "release_seq": old.get("release_seq"),
+                    "key_id": old.get("key_id"), "applied_at": _now(), "whole": True})  # fmt: skip
         us.write_atomic(self.dir / us.INSTALLED, record)
+        if plan.pack is None and any(f.get("kind") == "model" for f in plan.files):
+            # H-95 (D-1094): a whole bundle that carries weights holds both halves: a later software pack may name it
+            us.write_atomic(self.dir / MODEL_PACK, {
+                "format": MODEL_PACK_FORMAT, "bundle_id": plan.bundle_id, "manifest_sha256": plan.manifest_sha256,
+                "release_seq": plan.release_seq, "key_id": plan.key_id, "applied_at": _now(),
+                "whole": True})  # fmt: skip
         if plan.trust_after:
             us.write_atomic(self.dir / us.TRUST, plan.trust_after)
 
@@ -1095,8 +1450,7 @@ class _DockerImages:
     run: Runner
 
     def snapshot_images(self, plan: Plan, point: Point) -> None:
-        img = plan.kind("image")
-        for tar in sorted(img.rglob("*")) if img.is_dir() else []:
+        for tar in plan.images():
             for tag in image_tags(tar):
                 try:
                     have = self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
@@ -1109,12 +1463,11 @@ class _DockerImages:
                 else:
                     point.images[tag] = ""
 
-    def load_images(self, plan: Plan) -> list[str]:
-        img = plan.kind("image")
+    def load_images(self, plan: Plan, rb: Path | None = None, point: Point | None = None) -> list[str]:
         done = []
         pins = _image_pins(plan)
         checked: set[str] = set()
-        for tar in sorted(p for p in img.rglob("*") if p.is_file()) if img.is_dir() else []:
+        for tar in plan.images():
             configs, manifests = tar_images(tar)
             tags = sorted(configs)
             unpinned = [t for t in tags if t not in pins]
@@ -1124,7 +1477,10 @@ class _DockerImages:
                 if tag in pins and configs[tag] != pins[tag]:
                     raise UpdateFailed(f"image {tar.name}: {tag} has config {configs[tag] or '(none)'}, "
                                        f"release.json pins {pins[tag]}; nothing loaded")  # fmt: skip
-            self.run(["docker", "load", "-i", str(tar)], timeout=3600)
+            if isinstance(tar, Streamed):  # H-95: from the stick, hashed again on the way in
+                stream_image(tar, configs, manifests, self.run, rb, point)
+            else:
+                self.run(["docker", "load", "-i", str(tar)], timeout=3600)
             done.append(f"image {tar.name}")
             for tag in tags:
                 self.check_loaded(plan, tag, {configs[tag], *manifests} - {""})
@@ -1146,6 +1502,7 @@ class _DockerImages:
                                f"({', '.join(sorted(accepted)) or 'none'})")  # fmt: skip
 
     def restore_images(self, point: Point) -> None:
+        undo_recorded_load(point, self.run)  # re-review F1: a streamed load the kill left half done, first
         for tag, rt in point.images.items():
             if rt:
                 self.run(["docker", "tag", rt, tag])
@@ -1403,10 +1760,8 @@ class ComposeBox(_DockerImages):
             root = Path(self.run(["docker", "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
         except UpdateFailed:
             root = Path("/var/lib/docker")
-        kept = sum((self.models / p.relative_to(plan.kind("model"))).stat().st_size
-                   for p in plan.kind("model").rglob("*")
-                   if p.is_file() and (self.models / p.relative_to(plan.kind("model"))).is_file()) \
-            if plan.kind("model").is_dir() else 0  # fmt: skip
+        kept = sum((self.models / rel).stat().st_size for rel, _n in plan.model_files()
+                   if (self.models / rel).is_file())  # fmt: skip
         needs = [(root, plan.payload_bytes("image"), "images"), (self.models, plan.payload_bytes("model"), "models"),
                  (updates, kept, "models kept aside"), (updates, 2 * sizes, "database dumps"),
                  (updates, plan.payload_bytes("other"), "other files"),
@@ -1434,8 +1789,9 @@ class ComposeBox(_DockerImages):
 
     def apply(self, plan: Plan, rb: Path, point: Point) -> list[str]:
         done = apply_host(plan, self.deploy.parent, rb, point)  # first: the restart runs the new compose files
-        done += self.load_images(plan)
+        done += self.load_images(plan, rb, point)
         done += copy_models(plan.kind("model"), self.models, rb, point)
+        done += stream_models([p for p in plan.streamed if p.kind == "model"], self.models, rb, point)
         done += copy_other(plan.kind("other"), self.deploy / "updates" / plan.bundle_id / "files")
         pins = plan.kind("other") / image_pins.PINS
         if pins.is_file():  # D-176: the bundle's digest pins, for an image store that keeps no digests (overlay2)
@@ -1763,6 +2119,38 @@ class ComposeBox(_DockerImages):
             done.append(pack.name)
         return done
 
+    def terminology(self, plan: Plan) -> list[str]:
+        """V-18 (D-1182): the bundle's code systems (payload kind ``terminology``, ``<command>/<file>``, a code system
+        the box may carry), after the release passed its check. The terminology volume's tables are kept aside first
+        (``deploy/terminology/previous/<bundle>``: ``deploy/terminology-update.sh --rollback <bundle>`` puts them back);
+        each file is loaded by its command with no network; then the vocabulary and the FHIR store from the one
+        manifest, the report in ``deploy/site/terminology-load.json``."""
+        files = terminology_files(plan)
+        if not files:
+            return []
+        keep = self.deploy / "terminology" / "previous" / plan.bundle_id
+        keep.mkdir(parents=True, exist_ok=True)
+        image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+        vol = f"trialbox_{TERMINOLOGY_VOLUME}:/data/terminology"
+        base = ["docker", "run", "--rm", "--network", "none", "--user", "0:0", "-e",
+                "TB_TERMINOLOGY_DIR=/data/terminology", "-v", vol]  # fmt: skip
+        self.run([*base, "-v", f"{keep.resolve()}:/keep", image, "python", "-c", TERMINOLOGY_SAVE_PY], timeout=1800)
+        done = []
+        for f in files:
+            cmd, version = f.parent.name, terminology_version(f)
+            opt = (["--year" if cmd in ("icd10cm", "icd10pcs") else "--version", version]) if version else []
+            self.run([*base, "-v", f"{f.resolve()}:/in/{f.name}:ro", image, "python", "-m", "tools.terminology_install",
+                      cmd, f"/in/{f.name}", *opt], timeout=3600)  # fmt: skip
+            done.append(f"{cmd}/{f.name}")
+        self._rm_run(TERMINOLOGY_RUN)
+        report = self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", TERMINOLOGY_RUN, "criteria-compiler",
+                                  "python", "-m", "tools.terminology_load", "load", "--report", "-"),
+                          timeout=7200)  # fmt: skip
+        site = self.deploy / "site"
+        site.mkdir(parents=True, exist_ok=True)
+        (site / "terminology-load.json").write_text(report, encoding="utf-8")
+        return done
+
     def check(self, plan: Plan) -> str:
         weights = self.check_weights()  # first: a flag it writes makes the gateway unhealthy for the wait below
         self.run(self._c("up", "-d", "--wait", "--wait-timeout", "300"), timeout=420)  # every service healthy
@@ -1865,7 +2253,7 @@ class DemoBox(_DockerImages):
             point.images[self.image] = rt
 
     def apply(self, plan: Plan, rb: Path, point: Point) -> list[str]:
-        return self.load_images(plan) + copy_other(
+        return self.load_images(plan, rb, point) + copy_other(
             plan.kind("other"), self.deploy / "updates" / plan.bundle_id / "files"
         )
 
@@ -2129,6 +2517,40 @@ class InProcessBox:
         _append_audit(self.work / "box" / "audit", event, plan, detail)
 
 
+def first_load_needs(box: Any, plan: Plan, deploy: Path) -> list[tuple[Path, int, str]]:
+    """H-95: what a first load writes, by where it goes: the images into Docker's data root, the weights into the
+    models folder, the host tree unpacked beside deploy/, the other files under deploy/updates. The payloads
+    themselves stay on the stick, so nothing is counted for a copy of the bundle."""
+    try:
+        root = Path(box.run(["docker", "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
+    except (UpdateFailed, OSError):
+        root = Path("/var/lib/docker")
+    models = Path(getattr(box, "models", deploy / "models"))
+    return [(root, plan.payload_bytes("image"), "images"), (models, plan.payload_bytes("model"), "models"),
+            (deploy.parent, 2 * plan.payload_bytes("host"), "host tree (unpacked)"),
+            (deploy / "updates", plan.payload_bytes("other"), "other files")]  # fmt: skip
+
+
+def sweep_parts(models: Path) -> None:
+    """H-95: every ``*.part`` under the models folder is a weight file a killed load left half written (no payload
+    path may end in .part, verify_update.py), removed at the start of every run."""
+    if models.is_dir() and not models.is_symlink():
+        for part in models.rglob("*.part"):
+            if part.is_file() and not part.is_symlink():
+                part.unlink(missing_ok=True)
+
+
+def held_model_pack(updates: Path) -> dict[str, Any] | None:
+    """H-95: the model pack record (``deploy/updates/model-pack.json``), None when there is none; the same checks as
+    the verifier's (a link, or a file others may write, is refused: ValueError)."""
+    from tools import verify_update as vu
+
+    try:
+        return vu.load_model_pack(updates / MODEL_PACK)
+    except vu.Rejected as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def box_in_service(deploy: Path, box: Any = None) -> str:
     """What shows this box holds data ("" for none): its update records, or the compose project's volumes (a box
     in the field before D-210 that has run has them). install.sh's settings (``.env``, ``settings.yaml``,
@@ -2151,7 +2573,13 @@ def no_backup_refused(target: str, deploy: Path) -> bool:
 
 
 def main_apply(
-    stage: Path, summary_file: Path, target: str, deploy: Path, backup: bool = True, no_backup_reason: str | None = None
+    stage: Path,
+    summary_file: Path,
+    target: str,
+    deploy: Path,
+    backup: bool = True,
+    no_backup_reason: str | None = None,
+    bundle: Path | None = None,
 ) -> int:
     """``apply_update.sh`` after verify. A box never installed (no ``installed.json``) that is not running yet, or
     install.sh's first load (``TB_SKIP_AUDIT``), only loads the payloads; an installed box that is not running is
@@ -2173,10 +2601,33 @@ def main_apply(
         print("update REFUSED: the summary does not belong to the staged manifest.json (sha256 differs)")
         return 1
     plan = Plan.load(stage, summary)
+    plan.pack = summary.get("pack") if isinstance(summary.get("pack"), dict) else None
+    streamed = [k for k in summary.get("streamed") or [] if k in ("image", "model")]
+    if streamed:  # H-95: these payloads are read from the bundle the summary was made from, and hashed again
+        if bundle is None or not bundle.is_file():
+            print("update REFUSED: the verified payloads stay in the bundle (H-95), and no bundle was given (--bundle)")
+            return 1
+        try:
+            with tarfile.open(bundle, "r:") as tf:
+                m = tf.extractfile("manifest.json")
+                body = m.read() if m is not None else b""
+        except (OSError, KeyError, tarfile.TarError):
+            body = b""
+        if hashlib.sha256(body).hexdigest() != plan.manifest_sha256:
+            print(f"update REFUSED: {bundle} is not the bundle that was verified (its manifest differs); "
+                  "nothing was changed")  # fmt: skip
+            return 1
+        manifest = json.loads((stage / "manifest.json").read_text(encoding="utf-8"))
+        try:
+            plan.streamed = streamed_payloads(bundle, manifest, streamed)
+        except UpdateFailed as exc:
+            print(f"update REFUSED: {exc}; nothing was changed")
+            return 1
     if not backup and no_backup_reason and no_backup_reason.strip():
         plan.no_backup_reason = no_backup_reason.strip()[:500]
     updates = deploy / "updates"
     box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
+    sweep_parts(Path(box.models))  # re-review: a .part a killed load left goes at the start of every run
     try:
         inst = us.installed(updates)
     except ValueError as exc:  # a malformed record: never guessed
@@ -2192,8 +2643,15 @@ def main_apply(
     except UpdateRefused as exc:
         print(f"update REFUSED: {exc}; nothing was changed")
         return 1
-    if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
-        print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
+    try:
+        held = held_model_pack(updates)
+    except ValueError as exc:
+        print(f"update REFUSED: {updates / MODEL_PACK} is unreadable ({exc}); nothing was changed")
+        return 1
+    last = (held or {}) if plan.is_model_pack else inst
+    if last.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
+        what = "the model pack the box holds" if plan.is_model_pack else "same manifest"
+        print(f"update {plan.bundle_id}: already installed ({what}); nothing to do")
         return 0
     in_service = box_in_service(deploy, box)
     if not box.running():
@@ -2217,10 +2675,11 @@ def main_apply(
                     print("update REFUSED: trust.json changed since this bundle was verified; run it again")
                     return 1
                 inst = us.installed(updates)
-                if plan.release_seq is not None and plan.release_seq <= int(inst["release_seq"]) \
-                        and not plan.downgrade:  # fmt: skip
-                    print(f"update REFUSED: release_seq {plan.release_seq} is not above the installed "
-                          f"{inst['release_seq']}")  # fmt: skip
+                have = int(inst["release_seq"])
+                if plan.is_model_pack:  # H-95: a model pack's order is the model packs' own
+                    have = int((held_model_pack(updates) or {}).get("release_seq") or 0)
+                if plan.release_seq is not None and plan.release_seq <= have and not plan.downgrade:
+                    print(f"update REFUSED: release_seq {plan.release_seq} is not above the installed {have}")
                     return 1
                 if plan.kind("ruleset").is_dir():
                     print("rulesets: imported when the box runs (tools/apply_update.sh <bundle> again after the start)")
@@ -2229,8 +2688,17 @@ def main_apply(
                     pend.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(tar, pend / tar.name)
                     print(f"reference data {tar.name}: loaded when the box runs (deploy/install.sh)")
+                try:  # H-94 (2): the disk cannot hold what this load writes (the payloads stay on the stick)
+                    for note in Updater(box, updates, say=print).space(first_load_needs(box, plan, deploy)):
+                        print(f"disk: {note}")
+                except UpdateRefused as exc:
+                    print(f"update REFUSED: {exc}")
+                    return 1
                 point = Point()
                 rb = updates / plan.bundle_id / "rollback"
+                if (rb / "point.json").is_file():  # re-review F1: a load of an earlier run killed before its undo
+                    for line in undo_recorded_load(Point.read(rb), box.run):
+                        print(f"undone from an earlier run: {line}")
                 rb.mkdir(parents=True, exist_ok=True)
                 for line in box.apply(plan, rb, point):
                     print(line)

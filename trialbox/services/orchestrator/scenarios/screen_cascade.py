@@ -119,6 +119,7 @@ class OrchestratorJudge(NoteJudge):
             opinions=list(r.opinions),
             calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
             sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
+            affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
         )
 
 
@@ -410,6 +411,7 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
         ),
         final=_final(o, status),
         basis=basis_of(o, status, pair),
+        affirmed=o.affirmed if status == "fail" else None,  # round 5: both models affirmed this note exclusion
         prov=list(dict.fromkeys(prov)),
     )
 

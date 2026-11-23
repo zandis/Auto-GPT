@@ -40,7 +40,7 @@
   {
    "id": "H94-05",
    "severity": "Medium",
-   "claim": "the files after install.sh are not converted: deploy/box-install.sh, tools/apply_update.sh, deploy/bootstrap.sh, deploy/launcher.sh, deploy/check_host.sh, deploy/settings_guard.sh, tools/rehearsal_real.py and tools/trialbox/launch.py keep their stops (the ratchet holds each to its count); the walk's third failure (a half-done install's link refused at the start path) can still happen there",
+   "claim": "the files after install.sh are not converted: deploy/bootstrap.sh, deploy/launcher.sh, deploy/check_host.sh, deploy/settings_guard.sh, tools/rehearsal_real.py and tools/trialbox/launch.py keep their stops (the ratchet holds each to its count); the walk's third failure (a half-done install's link refused at the start path) can still happen there; part 2 converted deploy/box-install.sh and tools/apply_update.sh",
    "lane": "H",
    "basis": "shown",
    "state": "open"
@@ -65,6 +65,14 @@
    "id": "H94-08",
    "severity": "Low",
    "claim": "install.sh's other readers of TB_ENV in deploy/.env (ENV-EARLY, the REHEARSAL step, the environment gate, the settings step) still take only lines that start exactly TB_ENV=, as on master; the PoC rule now reads it as compose does (review H-1 of #1396), so on a .env with an exported or blank-led TB_ENV line those readers and compose can differ; not changed by this card (outside the ruling's two places)",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H94-09",
+   "severity": "Low",
+   "claim": "two stops of deploy/settings_guard.sh (every start that is not install.sh) are left bare in part 2 and asked: an anchor folder that no longer passes the rule at a start (there is no step to skip there: the anchors' compose file is already in COMPOSE_FILE) and a box whose site settings exist while compose would mount the example's (converting it changes the VALIDATION and TEST cases of test_settings_file_every_start.py, which needs a ruling); ruled by the integrator (7102087475): both warn on a PoC box and stay stops on PRODUCTION, converted in part 2",
    "lane": "H",
    "basis": "not stated",
    "state": "open"

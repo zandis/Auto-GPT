@@ -48,7 +48,7 @@ from embed_service.embedder import HashEmbedder
 from lake.store import Lake
 from matching import decision
 from matching.cascade.judge import AgreementJudge, JudgeReply, verify_span
-from matching.inferred import sentence_of
+from matching.inferred import inferred, sentence_of
 from matching.note_answer import INCLUSION_REASON, INFERRED_REASON, OTHER_KIND_REASON, note_answer_may
 from orchestrator.scenarios import nav
 from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, PatientVerdicts, note_verdict
@@ -223,15 +223,18 @@ def test_the_inputs_are_inferences_and_the_controls_are_not() -> None:
     """The premise: the one rule sends every input to review and lets every control exclude."""
     for i in INPUTS:
         assert i.quote in PATIENTS[i.patient]["note"]
-        may = note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i))
+        may = note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i), affirmed=True)
         assert may.effect == "review" and may.reason == INFERRED_REASON, i.name
     for i in CONTROLS:
-        assert note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i)).effect == "excludes", i.name
+        assert (
+            note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i), affirmed=True).effect
+            == "excludes"
+        ), i.name
 
 
 def test_a_fragment_is_read_in_its_sentence() -> None:
     """The fragment alone states the condition; its sentence is a relative's (the guard read only the fragment)."""
-    assert note_answer_may("exclusion", True, FRAGMENT, BY_ID[HIV].text).effect == "excludes"
+    assert note_answer_may("exclusion", True, FRAGMENT, BY_ID[HIV].text, affirmed=True).effect == "excludes"
     assert sentence_of(FRAGMENT, PATIENTS["HIV_FRAGMENT"]["note"]) == FRAGMENT_SENTENCE
 
 
@@ -659,6 +662,7 @@ def _stored(i: Input) -> CriterionVerdict:
         basis="pair",
         final=True,
         prov=["c-judge", "c-verifier"],
+        affirmed=True,  # round 5: both models affirmed it (judge v6); a row that does not say is pinned below
     )
 
 
@@ -684,7 +688,15 @@ def test_a_stored_row_on_a_stated_quote_still_excludes(case: Input) -> None:
 
 def _note_result(i: Input) -> NoteResult:
     return NoteResult(
-        "pass", PAIR, i.quote, "2026-09-20", "note", dids=["d1"], calls=["c-judge", "c-verifier"], sentence=_sentence(i)
+        "pass",
+        PAIR,
+        i.quote,
+        "2026-09-20",
+        "note",
+        dids=["d1"],
+        calls=["c-judge", "c-verifier"],
+        sentence=_sentence(i),
+        affirmed=True,
     )
 
 
@@ -706,7 +718,9 @@ def test_the_v1_verdict_of_a_stated_quote_still_fails(case: Input) -> None:
 
 
 def _cascade(i: Input) -> Any:
-    reply = JudgeReply("pass", PAIR, i.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply(
+        "pass", PAIR, i.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True
+    )
     return _run_for_map(True)._map(BY_ID[i.cid], reply, {**SPAN, "quote": i.quote, "sentence": _sentence(i)}, "S3")
 
 
@@ -727,7 +741,9 @@ def test_the_sentence_is_read_and_never_published(case: Input) -> None:
     never published (#639 7087774227): the published evidence is byte-identical to what master's span and master's
     ``NoteResult`` give, for every input whose decision the sentence does not change (the fragment's it does)."""
     ex = [{"did": "d1", "date": "2026-09-20", "text": PATIENTS[case.patient]["note"]}]
-    reply = JudgeReply("pass", PAIR, case.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply(
+        "pass", PAIR, case.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True
+    )
     span = verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31))
     assert span is not None and set(span) == MASTER_SPAN_KEYS | {"sentence"} and span["sentence"] == _sentence(case)
     master_span = {k: v for k, v in span.items() if k != "sentence"}
@@ -756,7 +772,7 @@ def test_an_inclusion_is_never_affected(kind: str) -> None:
     c = BY_ID[i.cid].model_copy(update={"kind": kind})
     v = note_verdict(c, _note_result(i), pair=True)
     o = _run_for_map(True)._map(
-        c, JudgeReply("pass", PAIR, i.quote, None, "both agree", call_id="c1", prompt="judge@test"),
+        c, JudgeReply("pass", PAIR, i.quote, None, "both agree", call_id="c1", prompt="judge@test", affirmed=True),
         {**SPAN, "quote": i.quote}, "S3",
     )  # fmt: skip
     if kind == "inclusion":
@@ -775,6 +791,7 @@ def _i_note_row(i: Input, *, basis: Any = "pair", final: bool | None = True, con
         basis=basis,
         final=final,
         prov=["c-judge", "c-verifier"],
+        affirmed=True,  # round 5 of R22-16 (#639 7115208555): both models affirmed it (judge v6)
     )
 
 
@@ -851,6 +868,7 @@ def _i_note_result(i: Input) -> NoteResult:
         dids=["d1"],
         calls=["c-judge", "c-verifier"],
         sentence=_i_sentence(i),
+        affirmed=True,  # round 5 of R22-16: both models affirmed it (judge v6)
     )
 
 
@@ -893,7 +911,8 @@ def test_nav_reads_a_coded_inclusion_or_a_stated_exclusion_as_a_no(case: Input) 
 
 
 def _i_cascade(i: Input, note_block: bool, stage: str = "S3") -> Any:
-    reply = JudgeReply("fail", PAIR, i.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply("fail", PAIR, i.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test",
+                       affirmed=True)  # round 5 of R22-16: a pair of judge v6  # fmt: skip
     span = {**SPAN, "quote": i.quote, "sentence": _i_sentence(i)}
     return _run_for_map(note_block)._map(I_BY_ID[i.cid], reply, span, stage)
 
@@ -910,9 +929,12 @@ def test_the_cascade_outcome_of_an_inclusion_not_met_is_a_soft_fail(case: Input,
 
 def test_the_cascade_outcome_of_a_stated_exclusion_is_a_hard_fail() -> None:
     c = I_CONTROLS[1]
-    reply = JudgeReply("pass", PAIR, c.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply("pass", PAIR, c.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test",
+                       affirmed=True)  # round 5 of R22-16: both models affirmed it  # fmt: skip
     o = _run_for_map(True)._map(I_BY_ID[c.cid], reply, {**SPAN, "quote": c.quote}, "S3")
     assert (o.status, o.hard) == ("fail", True)
+    unsaid = _run_for_map(True)._map(I_BY_ID[c.cid], replace(reply, affirmed=False), {**SPAN, "quote": c.quote}, "S3")
+    assert (unsaid.status, unsaid.hard) == ("unknown", False)  # round 5: not affirmed by both models
 
 
 # ------------------------------------------------------------------------------------------------ the report sentences
@@ -1147,14 +1169,16 @@ def test_a_suspected_or_absent_report_finding_never_excludes_on_any_builder(
 ) -> None:
     """The one rule, the v1 verdict, the cascade's outcome and a stored row: review, never an exclusion."""
     c, q = _report(row)
-    may = note_answer_may("exclusion", True, q, c.text, q)
+    may = note_answer_may("exclusion", True, q, c.text, q, affirmed=True)
     assert (may.effect, may.reason) == ("review", INFERRED_REASON)
-    v = note_verdict(c, NoteResult("pass", PAIR, q, "2026-09-20", "note", dids=["d1"], sentence=q), pair=True)
+    v = note_verdict(
+        c, NoteResult("pass", PAIR, q, "2026-09-20", "note", dids=["d1"], sentence=q, affirmed=True), pair=True
+    )
     assert (v.verdict, v.basis) == ("unknown", None)
-    reply = JudgeReply("pass", PAIR, q, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply("pass", PAIR, q, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True)
     o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": q, "sentence": q}, "S3")
     assert (o.status, o.hard) == ("unknown", False)
-    stored = CriterionVerdict(id=c.id, verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"],
+    stored = CriterionVerdict(id=c.id, verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"], affirmed=True,
                               evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=q, confidence=PAIR,
                                                 reason="note"))  # fmt: skip
     assert decision.answer_of(c, stored, POLICY) == "unknown"
@@ -1319,8 +1343,156 @@ ROUND5_CONTROLS: list[tuple[str, str]] = [
     ("Lymphoma", "Non-Hodgkin lymphoma, stage II."),
     ("Prior stem cell transplant", "s/p allogeneic HSCT 2019"),
 ]
-ALL_FORMS = REVIEW_FORMS + ROUND5_FORMS
-ALL_CONTROLS = REVIEW_CONTROLS + ROUND5_CONTROLS
+#: the re-review's probe of round 4, as posted on #1334 (7115258420): its 96 forms (expected review) and 6 controls
+#: (expected to exclude), verbatim. 27 of the 96 excluded on round 4's guard.
+P_DM, P_HIV, P_HCV, P_MI = (
+    "Known diabetes mellitus",
+    "Known HIV infection",
+    "Active hepatitis C",
+    "History of myocardial infarction",
+)
+P_DMJ, P_DMZ, P_HIVJ = "糖尿病の既往", "糖尿病病史", "HIV感染症の既往"
+PROBE_FORMS: list[tuple[str, str, str]] = [
+    (P_DM, "Diabetes?", ""),
+    (P_DM, "DM?", ""),
+    (P_DM, "糖尿病？", ""),
+    (P_DM, "w/o diabetes", ""),
+    (P_DM, "denying diabetes", ""),
+    (P_DM, "diabetes ruled-out", ""),
+    (P_DM, "diabetes, rule-out", ""),
+    (P_DM, "Mom has diabetes", ""),
+    (P_DM, "FHx: DM", ""),
+    (P_DM, "Diabetes: uncertain", ""),
+    (P_DM, "equivocal for diabetes", ""),
+    (P_DM, "borderline diabetes", ""),
+    (P_DM, "pre-diabetes", ""),
+    (P_DMJ, "糖尿病は指摘されず", ""),
+    (P_DMJ, "糖尿病は見られず", ""),
+    (P_DMJ, "糖尿病の恐れ", ""),
+    (P_DMZ, "非糖尿病", ""),
+    (P_DMZ, "不是糖尿病", ""),
+    (P_DMZ, "糖尿病：否", ""),
+    (P_DMZ, "媽媽有糖尿病", ""),
+    (P_DMZ, "哥哥有糖尿病", ""),
+    (P_DMZ, "姐姐有糖尿病", ""),
+    (P_DMZ, "家人有糖尿病", ""),
+    ("Known allergy to study drug", "No known drug allergies.", ""),
+    ("Active tuberculosis requiring treatment", "No tuberculosis", ""),
+    ("Active tuberculosis requiring treatment", "Mother has tuberculosis", ""),
+    ("Asthma requiring inhaled steroids", "denies asthma", ""),
+    (P_DM, "hx. of diabetes", "Mother: hx. of diabetes."),
+    ("History of heart failure", "No heart failure, but renal failure.", ""),
+    ("Active hepatitis B infection", "Hepatitis B negative, but recent urinary tract infection", ""),
+    (P_HIV, "Mother has HIV.", ""),
+    (P_MI, "Rule out myocardial infarction; troponin pending.", ""),
+    (P_HCV, "Suspected hepatitis C, awaiting PCR.", ""),
+    (P_HIVJ, "母親にHIV感染あり。", ""),
+    (P_HIV, "母親にHIV感染あり。", ""),
+    (P_HIV, "HIV status unknown", ""),
+    (P_HIV, "HIV status: unknown.", ""),
+    (P_HIV, "Partner is HIV positive.", ""),
+    (P_HIV, "Boyfriend has HIV.", ""),
+    (P_HIV, "HIV-ve", ""),
+    (P_HIV, "HIV -", ""),
+    (P_HIV, "HIV antibody non-reactive", ""),
+    (P_HIV, "HIV nonreactive", ""),
+    (P_HIV, "HIV test ordered", ""),
+    (P_HIV, "On PrEP for HIV prevention", ""),
+    (P_HIV, "HIV exposure in 2019", ""),
+    (P_DM, "Non-diabetic", ""),
+    (P_DM, "nondiabetic", ""),
+    (P_DM, "No hx of DM", ""),
+    (P_DM, "DDx: DM vs stress hyperglycaemia", ""),
+    (P_DM, "DM cannot be excluded", ""),
+    (P_DM, "?DM", ""),
+    (P_DM, "Diabetes ?", ""),
+    (P_DM, "Father's diabetes", ""),
+    (P_DM, "DM in 1st-degree relative", ""),
+    (P_HCV, "Hepatitis C, cured with DAA in 2018", ""),
+    (P_HCV, "HCV Ab positive, RNA negative", ""),
+    (P_HCV, "history of hepatitis C, treated, SVR", ""),
+    (P_MI, "MI was excluded", ""),
+    (P_MI, "possible MI", ""),
+    (P_MI, "MI unlikely", ""),
+    (P_HIV, "Grandmother has HIV.", ""),
+    (P_HIV, "HIV in her son", ""),
+    (P_HIV, "Patient's daughter has HIV.", ""),
+    (P_HIV, "Mother has HIV", "Mother has HIV and hepatitis."),
+    (P_HIV, "HIV", "Her aunt: HIV."),
+    (P_HIV, "HIV", "HIV? will test."),
+    (P_DMJ, "糖尿病境界型", ""),
+    (P_DMJ, "糖尿病予備群", ""),
+    (P_DMJ, "おばが糖尿病", ""),
+    (P_DMJ, "糖尿病の既往なし", ""),
+    (P_DMJ, "糖尿病（－）", ""),
+    (P_DMJ, "糖尿病は否定的", ""),
+    (P_DMJ, "糖尿病ではない", ""),
+    (P_DMJ, "糖尿病でなかった", ""),
+    (P_DMJ, "糖尿病を除外できない", ""),
+    (P_DMJ, "糖尿病の診断には至らず", ""),
+    (P_DMJ, "パートナーが糖尿病", ""),
+    (P_HIVJ, "HIV（ー）", ""),
+    (P_HIVJ, "HIV(―)", ""),
+    (P_HIVJ, "HIV（−）", ""),
+    (P_HIVJ, "HIV抗体陰性", ""),
+    (P_HIVJ, "HIV検査予定", ""),
+    (P_HIVJ, "HIV感染の既往はありません", ""),
+    (P_DMZ, "外公有糖尿病", ""),
+    (P_DMZ, "女兒有糖尿病", ""),
+    (P_DMZ, "兒子有糖尿病", ""),
+    (P_DMZ, "太太有糖尿病", ""),
+    (P_DMZ, "疑似糖尿病", ""),
+    (P_DMZ, "糖尿病待查", ""),
+    (P_DMZ, "排除糖尿病", ""),
+    (P_DMZ, "未患糖尿病", ""),
+    (P_DMZ, "无糖尿病", ""),
+    (P_DMZ, "否认糖尿病", ""),
+    ("HIV感染", "HIV阴性", ""),
+    ("HIV感染", "HIV陰性", ""),
+]
+PROBE_CONTROLS: list[tuple[str, str, str]] = [
+    (P_HIV, "Patient has HIV.", ""),
+    (P_MI, "History of myocardial infarction in 2019.", ""),
+    (P_HCV, "Active hepatitis C infection on treatment.", ""),
+    (P_HIV, "HIV感染症あり。", ""),
+    (P_HIVJ, "HIV感染症あり。", ""),
+    (P_DM, "Type 2 diabetes mellitus since 2015.", ""),
+]
+UNWRAP_CASES: list[tuple[str, str]] = [  # the probe's quote cases: (quote, text)
+    ("「「HIV」」", "N"),
+    ("「HIV」」", "N"),
+    ("「「HIV」", "N"),
+    ('"HIV”', "N"),
+    ('“HIV"', "N"),
+    ('「HIV"', "N"),
+    ('"「HIV」"', "N"),
+    ('「"HIV"」', "N"),
+    ("＂HIV＂", "N"),
+    ("｢HIV｣", "N"),
+    ("『HIV』", "N"),
+    ("「 HIV 」", "N"),
+    ("「 母親 に HIV 感染 あり 。」", "N"),
+    ("「胸が痛い」", "N"),
+    ("「胸が痛い」と訴えた", "N"),
+    ('"Patient has HIV."', "N"),
+    ('"HIV" ', "N"),
+    ("「」", "N"),
+    ('""', "N"),
+    ('"a"', "xyz"),
+    ('"x"', "xyz"),
+    ("「母」と「父」", "母と父"),
+    ("「HIV」", "H I V"),
+    ('"Mother has HIV.', "N"),
+    ('Mother has HIV."', "N"),
+    ("「Mother has HIV.」", "N"),
+    ('"Mother has HIV"', "Mother has [HIV]"),
+    ('"DM (-)"', "N"),
+    ("「DM(-)」", "N"),
+    ("「HIV感染」", "HIV\n[…]\n感染"),
+]
+UNWRAP_NOTE = '患者は「胸が痛い」と訴えた。Mother has HIV. 母親にHIV感染あり。Patient denies "HIV". DM ( - ).'
+ALL_FORMS = list(dict.fromkeys(REVIEW_FORMS + PROBE_FORMS + ROUND5_FORMS))
+ALL_CONTROLS = list(dict.fromkeys(REVIEW_CONTROLS + [(t, q) for t, q, _ in PROBE_CONTROLS] + ROUND5_CONTROLS))
 
 
 def _form_criterion(text: str) -> CriterionIR:
@@ -1333,9 +1505,13 @@ def _builders(text: str, quote: str, sentence: str) -> tuple[str, str, str, bool
     "present" at 0.9 on ``quote``."""
     c = _form_criterion(text)
     sent = sentence or quote
-    may = note_answer_may("exclusion", True, quote, text, sent)
-    v = note_verdict(c, NoteResult("pass", PAIR, quote, "2026-09-20", "note", dids=["d1"], sentence=sent), pair=True)
-    reply = JudgeReply("pass", PAIR, quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    may = note_answer_may("exclusion", True, quote, text, sent, affirmed=True)
+    v = note_verdict(
+        c, NoteResult("pass", PAIR, quote, "2026-09-20", "note", dids=["d1"], sentence=sent, affirmed=True), pair=True
+    )
+    reply = JudgeReply(
+        "pass", PAIR, quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True
+    )
     o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": quote, "sentence": sent}, "S3")
     return may.effect, v.verdict, o.status, o.hard
 
@@ -1347,8 +1523,8 @@ def test_a_form_that_does_not_state_the_condition_goes_to_review_on_every_builde
     """Given "present" by both models, each form goes to review: the one rule, the v1 verdict, the cascade's outcome,
     and (where the quote alone shows it) a stored row through the status rule."""
     assert _builders(text, quote, sentence) == ("review", "unknown", "unknown", False)
-    if not sentence or sentence.startswith(quote):  # a stored row keeps the quote, not its sentence
-        stored = CriterionVerdict(id="D9-EXC-91", verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"],
+    if not sentence or (sentence.startswith(quote) and inferred(quote, text)):  # a stored row keeps only the quote
+        stored = CriterionVerdict(id="D9-EXC-91", verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"], affirmed=True,
                                   evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=quote,
                                                     confidence=PAIR, reason="note"))  # fmt: skip
         assert decision.answer_of(_form_criterion(text), stored, POLICY) == "unknown"
@@ -1369,10 +1545,12 @@ def test_a_renewal_or_documentation_not_met_from_the_notes_is_review_on_every_bu
     may = note_answer_may(kind, False, HAS_HIV, c.text, HAS_HIV)
     assert (may.effect, may.reason, may.reading_stands) == ("review", OTHER_KIND_REASON, True)
     assert note_answer_may(kind, True, HAS_HIV, c.text, HAS_HIV).effect == "keeps"
-    r = NoteResult("fail", PAIR, HAS_HIV, "2026-09-20", "note", dids=["d1"], sentence=HAS_HIV)
+    r = NoteResult("fail", PAIR, HAS_HIV, "2026-09-20", "note", dids=["d1"], sentence=HAS_HIV, affirmed=True)
     v = note_verdict(c, r, pair=True)
     assert (v.verdict, v.basis) == ("fail", "pair") and decision.answer_of(c, v, POLICY) == "unknown"
-    reply = JudgeReply("fail", PAIR, HAS_HIV, "2026-09-20", "both agree", call_id="c1", prompt="judge@test")
+    reply = JudgeReply(
+        "fail", PAIR, HAS_HIV, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True
+    )
     o = _run_for_map(True)._map(c, reply, {**SPAN, "quote": HAS_HIV, "sentence": HAS_HIV}, "S3")
     assert (o.status, o.hard, o.reason) == ("fail", False, OTHER_KIND_REASON)
 
@@ -1412,7 +1590,7 @@ class _Says:
 
     def judge(self, **kw: Any) -> JudgeReply:
         return JudgeReply("pass", PAIR, self.quote, "2026-09-20", "scripted", call_id=f"c-{self.quote[:4]}",
-                          prompt=self.prompt)  # fmt: skip
+                          prompt=self.prompt, affirmed=True)  # fmt: skip
 
 
 @pytest.mark.parametrize(("verifier_quote", "want"), [(GRANDMOTHER, ("unknown", False)), (HAS_HIV, ("fail", True))])
@@ -1472,7 +1650,8 @@ class _PairModel:
     def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> Any:
         from tb_common.llm import LlmResult
 
-        d = {"verdict": "pass", "reason": "r", "confidence": 0.9, "quote": self.quote, "quote_date": None}
+        d = {"verdict": "pass", "reason": "r", "confidence": 0.9, "quote": self.quote, "quote_date": None,
+             "certainty": "affirmed", "experiencer": "patient", "time": "current"}  # judge v6, both affirm  # fmt: skip
         return LlmResult(d, prompt_id, 4, self.model, "local", "i" * 64, "o" * 64, 100, 20, 1)
 
 
@@ -1570,7 +1749,9 @@ class _Answers:
         self.quote = quote
 
     def judge(self, **kw: Any) -> JudgeReply:
-        return JudgeReply("pass", PAIR, self.quote, "2026-09-20", "scripted", call_id="c-x", prompt="judge@test")
+        return JudgeReply(
+            "pass", PAIR, self.quote, "2026-09-20", "scripted", call_id="c-x", prompt="judge@test", affirmed=True
+        )
 
 
 #: M1: (the verifier's quote, the pair's verdict). The judge's own quote states HIV and is in the record.
@@ -1608,10 +1789,158 @@ def test_the_cascade_reads_the_judges_sentence_beside_the_verifiers() -> None:
     """Round 5, the re-review's surviving mutant at ``engine._map``: the judge's span sentence is a relative's, the
     verifier's sentence states HIV. The rule reads both, so the patient goes to review; reading only the verifier's
     would exclude."""
-    reply = replace(JudgeReply("pass", PAIR, FRAGMENT, "2026-09-20", "both agree", call_id="c1", prompt="judge@test"),
+    reply = replace(JudgeReply("pass", PAIR, FRAGMENT, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True),
                     sentence=HAS_HIV)  # fmt: skip
     o = _run_for_map(True)._map(BY_ID[HIV], reply, {**SPAN, "quote": FRAGMENT, "sentence": FRAGMENT_SENTENCE}, "S3")
     assert (o.status, o.hard, o.reason) == ("unknown", False, INFERRED_REASON)
     both_stated = replace(reply, quote=HAS_HIV)
     o = _run_for_map(True)._map(BY_ID[HIV], both_stated, {**SPAN, "quote": HAS_HIV, "sentence": HAS_HIV}, "S3")
     assert (o.status, o.hard) == ("fail", True)  # the control: both state it
+
+
+@pytest.mark.parametrize(("quote", "text"), UNWRAP_CASES)
+def test_a_quote_matched_without_its_marks_is_always_in_the_text(quote: str, text: str) -> None:
+    """The re-review's 30 quote cases: ``as_in`` never yields a quote that is not in the text (nested, unbalanced,
+    mixed, full-width marks; a quote across a cut)."""
+    from tb_common.quotes import as_in, quote_in
+
+    t = UNWRAP_NOTE if text == "N" else text
+    got = as_in(quote, t)
+    assert got is None or quote_in(got, t)
+
+
+# ------------------------------------------------------------------------------------------------ round 5: affirmed
+# Point 1 of the ruling (#639 7115208555, 7115258794): the guard is inverted. A note exclusion stands only when both
+# models say the quote affirms the condition, in this patient, now: judge v6's ``certainty``, ``experiencer`` and
+# ``time`` (schema ``llm_judge_output_v2``, 1.2.0). Any other value, or a missing or null field, is review; so an
+# answer of a judge before v6, which gives none, never excludes. The deterministic guard stays as the second net.
+NOT_AFFIRMED = [
+    ("negated", "patient", "current"),
+    ("possible", "patient", "current"),
+    ("unknown", "patient", "current"),
+    ("affirmed", "other", "current"),
+    ("affirmed", "patient", "past_resolved"),
+    ("affirmed", "patient", "planned"),
+    (None, "patient", "current"),
+    ("affirmed", None, "current"),
+    ("affirmed", "patient", None),
+]
+
+
+def _fields(t: tuple[str | None, ...]) -> dict[str, str | None]:
+    return dict(zip(("certainty", "experiencer", "time"), t, strict=True))
+
+
+def test_only_affirmed_patient_current_affirms() -> None:
+    from matching.note_answer import affirms
+
+    assert affirms(_fields(("affirmed", "patient", "current")))
+    assert not any(affirms(_fields(t)) for t in NOT_AFFIRMED)
+    assert not affirms({"verdict": "pass", "quote": HAS_HIV})  # a judge before v6: nothing said
+
+
+def test_a_stated_exclusion_excludes_only_when_both_models_affirmed_it() -> None:
+    from matching.note_answer import NOT_AFFIRMED_REASON
+
+    assert note_answer_may("exclusion", True, HAS_HIV, BY_ID[HIV].text, HAS_HIV, affirmed=True).effect == "excludes"
+    for affirmed in (None, False):
+        may = note_answer_may("exclusion", True, HAS_HIV, BY_ID[HIV].text, HAS_HIV, affirmed=affirmed)
+        assert (may.effect, may.reason) == ("review", NOT_AFFIRMED_REASON)
+    # the second net: the guard's review stands whatever the models said
+    may = note_answer_may("exclusion", True, GRANDMOTHER, BY_ID[HIV].text, GRANDMOTHER, affirmed=True)
+    assert (may.effect, may.reason) == ("review", INFERRED_REASON)
+    # an answer that keeps the patient needs no affirmation
+    assert note_answer_may("exclusion", False, ABSENT[HIV], BY_ID[HIV].text, affirmed=None).effect == "keeps"
+
+
+@pytest.mark.parametrize("other", NOT_AFFIRMED, ids=[str(t) for t in NOT_AFFIRMED])
+def test_a_v1_pair_excludes_only_when_both_models_affirm(other: tuple[str | None, ...]) -> None:
+    """v1: the judge affirms; the verifier agrees on "present" with the same stated quote but reads it otherwise (or
+    says nothing of it). Review; when both affirm, the patient is excluded."""
+    ex = [{"did": "d1", "date": "2026-09-20", "text": HAS_HIV + " On ART since 2019."}]
+
+    def answer(fields: tuple[str | None, ...]) -> Any:
+        return lambda v: {**says("pass", HAS_HIV)(v), **_fields(fields)}
+
+    for second, want in ((other, "unknown"), (("affirmed", "patient", "current"), "fail")):
+        nj = NoteJudge(lake=None, llm=ScriptedModel("judge-a", answer(("affirmed", "patient", "current"))),  # type: ignore[arg-type]
+                       verifier=ScriptedModel("verifier-b", answer(second)))  # type: ignore[arg-type]  # fmt: skip
+        r = nj.judge_excerpts(BY_ID[HIV].text, "Do the notes document known HIV infection?", RUN, ex)
+        v = note_verdict(BY_ID[HIV], r, pair=True)
+        assert v.verdict == want
+        assert v.affirmed is (True if want == "fail" else None)
+        assert decision.answer_of(BY_ID[HIV], v, POLICY) == ("no" if want == "fail" else "unknown")
+
+
+@pytest.mark.parametrize("other", NOT_AFFIRMED, ids=[str(t) for t in NOT_AFFIRMED])
+def test_a_cascade_pair_excludes_only_when_both_models_affirm(other: tuple[str | None, ...]) -> None:
+    """The cascade: the gateway judge parses each model's fields, ``AgreementJudge`` needs both, ``_map`` reads it,
+    and the stored verdict says it (``verdict_of``)."""
+    from orchestrator.scenarios.screen_cascade import verdict_of
+
+    ex = [{"did": "d1", "date": "2026-09-20", "text": HAS_HIV + " On ART since 2019."}]
+
+    class _Model:
+        def __init__(self, fields: tuple[str | None, ...]) -> None:
+            self.fields = fields
+
+        def judge(self, **kw: Any) -> JudgeReply:
+            return JudgeReply("pass", PAIR, HAS_HIV, "2026-09-20", "scripted", call_id="c-x", prompt="judge@test",
+                              affirmed=_fields(self.fields) == _fields(("affirmed", "patient", "current")))  # fmt: skip
+
+    for second, want in ((other, ("unknown", False)), (("affirmed", "patient", "current"), ("fail", True))):
+        pair = AgreementJudge(_Model(("affirmed", "patient", "current")), _Model(second))
+        reply = pair.judge(role="judge", criterion_text=BY_ID[HIV].text, note_question="Q?", index_date=RUN,
+                           excerpts=ex, study_id="D9", data_class="D3", step_id="t", purpose="screening")  # fmt: skip
+        o = _run_for_map(True)._map(BY_ID[HIV], reply, verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31)),
+                                    "S3")  # fmt: skip
+        assert (o.status, o.hard) == want
+        v = verdict_of(o, pair=True)
+        assert v.affirmed is (True if want[1] else None)
+        assert decision.answer_of(BY_ID[HIV], v, POLICY) == ("no" if want[1] else "unknown")
+
+
+def test_the_gateway_judge_reads_the_three_fields() -> None:
+    """The cascade's parse of one model's answer: affirmed only on the three values, never on a v5 answer."""
+    from matching.note_answer import affirms
+
+    base = {"verdict": "pass", "reason": "r", "quote": HAS_HIV, "quote_date": None, "confidence": 0.9}
+    assert affirms({**base, **_fields(("affirmed", "patient", "current"))})
+    assert not affirms(base)
+
+
+def test_a_stored_row_that_does_not_say_affirmed_never_excludes() -> None:
+    """The status rule over a stored row: a pair's final, sure "present" on a stated quote excludes only when the row
+    says both models affirmed it; a row stored before the field (or by a judge before v6) is review."""
+    v = _stored(CONTROLS[0])
+    assert decision.answer_of(BY_ID[HIV], v.model_copy(update={"affirmed": True}), POLICY) == "no"
+    for flag in (None, False):
+        assert decision.answer_of(BY_ID[HIV], v.model_copy(update={"affirmed": flag}), POLICY) == "unknown"
+
+
+def test_the_stub_answers_the_three_fields_only_when_the_schema_asks() -> None:
+    from llm_stub.handlers import assertion_fields
+    from tb_contracts import inline_schema
+
+    answer = {"verdict": "pass", "quote": HAS_HIV, "quote_date": None, "confidence": 0.9, "reason": "r"}
+    v2 = {"response_format": {"json_schema": {"schema": inline_schema("llm_judge_output_v2")}}}
+    v1 = {"response_format": {"json_schema": {"schema": inline_schema("llm_judge_output")}}}
+    assert assertion_fields(v1, answer) == answer  # 1.1.0 forbids other keys
+    got = assertion_fields(v2, answer)
+    assert (got["certainty"], got["experiencer"], got["time"]) == ("affirmed", "patient", "current")
+    none = assertion_fields(v2, {**answer, "verdict": "unknown", "quote": None})
+    assert (none["certainty"], none["experiencer"], none["time"]) == (None, None, None)
+
+
+def test_judge_v6_asks_for_the_three_fields_and_is_not_qualified() -> None:
+    """Judge v6 is registered on schema 1.2.0 with no qualification: PRODUCTION serves the newest qualified judge,
+    whose answers say nothing of the three fields, so no note exclusion stands there until v6 qualifies."""
+    from tb_llm.prompt_registry import default_registry
+
+    reg = default_registry()
+    v6 = next(e for e in reg.entries() if e.id == "judge" and e.version == 6)
+    assert v6.schema == "llm_judge_output_v2" and v6.qualification is None
+    v5 = next(e for e in reg.entries() if e.id == "judge" and e.version == 5)
+    assert v5.schema == "llm_judge_output"  # the 1.1.0 schema stays for judge 3 to 5 and their pins
+    text = (ROOT / "libs" / "tb_llm" / "prompts" / "judge_v6.md").read_text(encoding="utf-8")
+    assert all(f"`{k}`" in text for k in ("certainty", "experiencer", "time"))

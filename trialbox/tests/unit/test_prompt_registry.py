@@ -163,7 +163,7 @@ def test_active_set_is_the_newest_version_per_id() -> None:
     rows = prompt_registry.active_set()
     by = {r["id"]: r for r in rows}
     assert len(rows) == len(by) == len({e.id for e in ENTRIES})
-    assert by["judge"]["ref"] == "judge@5" and by["ir_extract"]["version"] == 4  # T-606 (D-359); D-984
+    assert by["judge"]["ref"] == "judge@6" and by["ir_extract"]["version"] == 4  # T-606 (D-359); D-984
     assert by["judge"]["sha256"] == load_prompt("judge").sha256
     assert set(by["judge"]) >= {"sha256", "schema", "approved_by", "date", "qualification"}
 
@@ -534,7 +534,7 @@ def test_gateway_start_in_production_refuses_a_changed_or_unqualified_prompt(tmp
 
 @pytest.mark.req("LLM-20", "S1-06")
 def test_v1_shim_sends_the_registered_sha(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``tb_common.llm`` through the gateway: the labels carry ``judge@5`` and its sha; the gateway accepts them."""
+    """``tb_common.llm`` through the gateway: the labels carry ``judge@6`` and its sha; the gateway accepts them."""
     gw = _gw(tmp_path)
     sent: list[dict[str, str]] = []
 
@@ -549,7 +549,7 @@ def test_v1_shim_sends_the_registered_sha(tmp_path: Path, monkeypatch: pytest.Mo
     c = LlmClient("http://unused", "m", gateway=Client())
     monkeypatch.setenv("TB_DATA_CLASS", "D0")
     r = c.chat_json("judge", JUDGE_VARS)
-    assert sent[0]["X-TB-Prompt"] == "judge@5" and sent[0]["X-TB-Prompt-Sha"] == load_prompt("judge").sha256
+    assert sent[0]["X-TB-Prompt"] == "judge@6" and sent[0]["X-TB-Prompt-Sha"] == load_prompt("judge").sha256
     assert r.prompt_sha == load_prompt("judge").sha256
 
 

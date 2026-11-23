@@ -48,10 +48,16 @@ def _pool_verdicts() -> list[dict[str, Any]]:
 FLARE = "Acute gout flare of the right first toe since yesterday."
 
 
-def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any, quote: str = FLARE) -> str:
-    """One pool patient; this week the judge answers the note exclusion as present at 0.95. The tier the run gives."""
+def _weekly_tier(
+    monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any, quote: str = FLARE, affirmed: bool | None = True
+) -> str:
+    """One pool patient; this week the judge answers the note exclusion as present at 0.95. The tier the run gives.
+    ``affirmed``: both models affirmed it (round 5 of R22-16, #639 7115208555; judge v6)."""
     fresh = CriterionVerdict(
-        id=NOTE, verdict="fail", evidence=Evidence(resource_refs=["DocumentReference/D1"], quote=quote, confidence=0.95)
+        id=NOTE,
+        verdict="fail",
+        evidence=Evidence(resource_refs=["DocumentReference/D1"], quote=quote, confidence=0.95),
+        affirmed=affirmed,
     )
     seen: list[Any] = []
 
@@ -122,6 +128,7 @@ def test_a_pair_of_two_models_still_excludes_in_the_weekly_run(monkeypatch: pyte
     judge = SimpleNamespace(model="judge-a", base_url="http://a/v1", gateway=None, served_root="judge-a")
     verifier = SimpleNamespace(model="verifier-b", base_url="http://b/v1", gateway=None, served_root="verifier-b")
     assert _weekly_tier(monkeypatch, judge, verifier) == "excluded"  # control
+    assert _weekly_tier(monkeypatch, judge, verifier, affirmed=None) == "review"  # round 5: not affirmed by both
 
 
 def test_a_pair_on_a_quote_that_states_nothing_is_review_in_the_weekly_run(monkeypatch: pytest.MonkeyPatch) -> None:
