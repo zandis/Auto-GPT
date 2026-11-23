@@ -13,6 +13,7 @@ import pytest
 
 from tests.unit.test_support_bundle_review1 import ENCODED
 from tools import bundle_scrub as bs
+from tools import support_bundle as sb
 
 #: pseudonyms that left in part when the raw line's phone pattern cut them before the decoded view read the line
 #: (found by drawing 20 000 pseudonyms; the invariant test failed on master about once in 60 runs)
@@ -104,18 +105,25 @@ def test_review_m1_class_no_pair_of_raw_rules_leaves_part_of_a_pseudonym(digits:
         assert _run_left(pid, out) == [], (form, pid, out)
 
 
+#: the time bounds of the scrub's tests, in one place (#1354 round 3, L4): a line of 48 masks, and the ratio of 4,000
+#: masks to 1,000 on one line (linear is 4; a quadratic path is 16; no slack added)
+BOUNDS = {"line_of_48_masks_s": 0.5, "four_times_the_masks_ratio": 6.0}
+
+
 @pytest.mark.parametrize(
     "unit",
     ["03-1234-5678", "0912-345-678", "RA01-0042", "password=abcd1234", "a1b2c3d4e5f60718293a4b5c6d7e8f90"],
 )
 def test_review_the_scrub_of_one_line_is_linear_in_its_masks(unit: str) -> None:
-    """No line may take more than 0.5 s at 48 masks, and doubling the masks may not much more than double the time
-    (a linear scrub; the hang grew 16-fold with each 4 masks)."""
-    lines = {n: "%2F " + " ".join([unit] * n) + " 'token': abcdefgh12" for n in (24, 48)}
-    t24 = _timed(lambda: bs.Scrubber.for_bundle().text(lines[24]))
-    t48 = _timed(lambda: bs.Scrubber.for_bundle().text(lines[48]))
-    assert t48 < 0.5, f"{t48:.2f} s"
-    assert t48 <= 2.5 * t24 + 0.02, f"24 masks {t24:.3f} s, 48 masks {t48:.3f} s"
+    """No line of 48 masks may take more than its bound, and four times the masks may take at most the bound's ratio
+    of the time (a linear scrub; the hang grew 16-fold with each 4 masks). Timed at 1,000 and 4,000 masks, where the
+    time is far above a timer's noise, so the ratio needs no slack."""
+    line = {n: "%2F " + " ".join([unit] * n) + " 'token': abcdefgh12" for n in (48, 1000, 4000)}
+    t48 = _timed(lambda: bs.Scrubber.for_bundle().text(line[48]))
+    assert t48 < BOUNDS["line_of_48_masks_s"], f"{t48:.2f} s"
+    t1 = _timed(lambda: bs.Scrubber.for_bundle().text(line[1000]))
+    t4 = _timed(lambda: bs.Scrubber.for_bundle().text(line[4000]))
+    assert t4 <= BOUNDS["four_times_the_masks_ratio"] * t1, f"1,000 masks {t1:.3f} s, 4,000 masks {t4:.3f} s"
 
 
 def test_review_the_raw_line_is_kept_only_when_it_is_the_view_mark_for_mark() -> None:
@@ -128,3 +136,46 @@ def test_review_the_raw_line_is_kept_only_when_it_is_the_view_mark_for_mark() ->
     assert not bs._same_masks("ab[x]cd", "abc[x]d")  # the same length
     assert not bs._same_masks("a[x]", "a[x]b") and not bs._same_masks("a[x]b", "a[x]")  # a part of the other
     assert not bs._same_masks("pid=ABCDEF[x]", "pid=abcdef[x]")  # a case of its own: not the same text
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "GET /p/%2F--passwd%20D9tshbrt5tntdg%20A123456789 200",  # found by the mutation search of round 3
+        "GET /p/%2F--token%20Q7xk2mVb9tLpw%20RA01-0042 200",
+        "x=%2F--api-key%20Wm4k8pZq2xJr%2003-1234-5678",
+    ],
+)
+def test_review_an_encoded_flag_value_beside_an_identifier_leaves_nothing(line: str) -> None:
+    """#1354 round 3, L5: a raw line the same length as its view, but not the view, is not kept (a mutant that kept
+    it left the value; only the direct ``_same_masks`` test told it apart before)."""
+    value = line.split("%20")[1]
+    out = bs.Scrubber.for_bundle().text(line)
+    assert value.lower() not in (out + bs._decode(out)).lower(), out
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "--password Kq7w%20Zx9m",
+        '"password": "Kq7w\\u0022Zx9m"',
+        "Authorization: Bearer Kq7w%0AZx9m",
+        "password=Kq7w%0aZx9m",
+        "password=Kq7w&#10;Zx9m",
+    ],
+)
+def test_review_a_secret_masked_on_the_raw_line_stays_masked_when_the_line_is_written_decoded(line: str) -> None:
+    """#1354 round 3, H2: an encoded separator inside a secret's value (a space, a quote, a line break) cuts the value
+    in the decoded view, so the view alone masks only its first part. The secret rule runs on the raw line first,
+    and no part of the value is left (through the bundle's path: ``scrub_text``, then ``redact_secrets``)."""
+    out, _ = sb.redact_secrets(bs.scrub_text(line))
+    seen = out + "\n" + bs._decode(out)
+    assert "Kq7w" not in seen and "Zx9m" not in seen, out
+
+
+@pytest.mark.parametrize("line", ["%2F %2F[--password%20Wq3bKmZt9x]", "%2F %2F[--password%20Wq3bKmZt9x] user=amy"])
+def test_review_a_secret_inside_a_log_s_own_brackets_is_not_taken_for_a_mask(line: str) -> None:
+    """#1354 round 3, L5: a log's own ``[...]`` is text, not a mask; a comparison that blanked every bracket kept the
+    raw line with the value in it (only the direct ``_same_masks`` test told it apart before)."""
+    out, _ = sb.redact_secrets(bs.scrub_text(line))
+    assert "wq3bkmzt9x" not in (out + "\n" + bs._decode(out)).lower(), out
