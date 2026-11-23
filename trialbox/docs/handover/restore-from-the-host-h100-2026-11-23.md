@@ -67,4 +67,11 @@ and the Python base's suite are read, not built). Shellcheck was not run in this
 
 ## Findings
 
+**H100-05, on the restore's path.** A caller who exports `TB_BACKUP_PUBKEY`, `TB_BACKUP_TARGETS`, `TB_COMPOSE` or
+`TB_DOCKER` steers none of them during `trialbox restore` typed on the host: the public key and the copy folder
+(`__main__._restore_defaults` with the box file), the targets of `--last` (`last_good`, `process_env=False`), the
+engine and compose (`BoxRestore`) all come from `deploy/.env`, and the container gets only the names it is given. They
+are steered in `backup-nightly`, `backup-status`, `backup-install` (`backup_schedule.config`) and the update's backup
+(`ComposeBox`), which this card does not change.
+
 In `restore-from-the-host-h100-2026-11-23/findings.json` (the register's `--add-from` form).

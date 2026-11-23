@@ -56,7 +56,7 @@
    "lane": "H",
    "basis": "hypothesis",
    "state": "open",
-   "fix": "not in this card: the box file should win as launch.box_settings does; the host restore already takes all of them from the box",
+   "fix": "not in this card. On the restore's path a caller steers none of them: `trialbox restore` on the host takes the public key, the copy folder, the targets (--last), the engine and compose from deploy/.env (BoxRestore, __main__._restore_defaults, last_good with process_env=False), and the container gets only the names it is given; tested by test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller. A caller steers them in backup-nightly, backup-status and backup-install (config) and in the update's backup (ComposeBox: TB_BACKUP_PUBKEY, TB_COMPOSE, TB_DOCKER, TB_MODELS_DIR)",
    "from": "reading backup_schedule.py and update.py for card H-100, 2026-11-23"
   },
   {
