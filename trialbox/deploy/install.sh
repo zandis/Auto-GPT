@@ -7,11 +7,13 @@
 #        [--ssh-off-over-ssh]   (H-70: run over SSH, hardening.conf's SSH=off is refused unless this is given)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
-#   Without a TPM, set bundle and answers to their paths. In your own Bash shell (passphrase of at least 12 characters):
-#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
-#   sudo --preserve-env=TB_KEK_PASSPHRASE TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers"
-#   unset TB_KEK_PASSPHRASE
-#   sudo VAR=value command shows the value in the process list.
+#   Without a TPM, set bundle and answers to their paths. The KEK passphrase (12 characters or more, one line) comes
+#   from a file only root can read (type it after sudo's own password prompt, then Enter; nothing is shown):
+#   sudo bash -c 'umask 077; IFS= read -rs TB_KEK_PASSPHRASE; printf "%s\n" "$TB_KEK_PASSPHRASE" > /root/trialbox-kek.pass'
+#   sudo TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers" --kek-passphrase-file /root/trialbox-kek.pass
+#   or is typed when asked (twice, not shown): ... --kek-passphrase-stdin. The file must be a regular file owned by
+#   root with mode 0600; it is removed once the keys are sealed (--keep-kek-passphrase-file keeps it). A passphrase in
+#   the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §30, H-96).
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
 #   deploy/install.sh --ctgov-check                # only: which ClinicalTrials.gov mode would be suggested here?
 #
@@ -72,6 +74,7 @@ ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arg
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
 ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
+PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""  # H-96: the KEK passphrase's two ways in (deploy/kek_passphrase.sh)
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -91,6 +94,10 @@ while [ $# -gt 0 ]; do
     --gpu-index) GPU_INDEX="$2"; shift ;;
     --engine-probe) ENGINE_PROBE="$2"; shift ;;
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+    --kek-passphrase-file) PP_FILE="${2:-}"; shift ;;
+    --keep-kek-passphrase-file) PP_KEEP=1 ;;
+    --kek-passphrase-stdin) PP_STDIN=1 ;;
+    --kek-passphrase-fd) PP_FD="${2:-}"; shift ;;  # the installer's own hand-on (the signed re-run, box-install.sh)
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
@@ -118,6 +125,72 @@ alive_stop() {
 }
 die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
 indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
+# KEK-PASSPHRASE (H-96, F-45; the integrator's ruling 7094934985): never from the environment (refused, before
+# anything); from --kek-passphrase-file FILE (checked here and read again by the seal step, which removes it) or
+# --kek-passphrase-stdin (read here, once). The signed re-run gets a stdin passphrase on a pipe at fd 8
+# (--kek-passphrase-fd 8): never an argument, never the environment, never a file. KP_VALUE is never exported
+KP_WHO=install
+# ---- KEK-PASSPHRASE functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
+#   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
+#                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
+#   --kek-passphrase-stdin      one line on stdin; on a terminal it is asked twice, not shown
+# and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
+# (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
+# exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+KP_VALUE=""
+kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
+kp_refuse_env() {  # an empty variable is dropped
+  for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
+    eval "kp_set=\${$kp_var:+yes}"
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (docs/runbook/30-rotate-the-kek-passphrase.md). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
+  done
+  unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
+}
+kp_check_value() {  # one line, not empty, no control character (the image and the host read it alike)
+  [ -n "$KP_VALUE" ] || kp_die "the KEK passphrase from $1 is empty: nothing was changed"
+  case "$KP_VALUE" in *[[:cntrl:]]*) KP_VALUE=""; kp_die "the KEK passphrase from $1 holds a line break or another control character: write it again on one line; nothing was sealed" ;; esac
+}
+kp_read_file() {  # refused unless a regular file, not a link, owned by the user that runs this (root), mode 0600, one line
+  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600 (sudo install -m 0600 -o root -g root /dev/null FILE, then write it there); nothing was changed"
+  [ ! -L "$1" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"
+  [ -f "$1" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"
+  [ "$(stat -c %u "$1")" = "$(id -u)" ] || kp_die "--kek-passphrase-file $1 is owned by uid $(stat -c %u "$1"), not root (the user that runs this): refused; $kp_fix"
+  [ "$(stat -c %a "$1")" = 600 ] || kp_die "--kek-passphrase-file $1 has mode $(stat -c %a "$1"), not 0600: refused; $kp_fix"
+  [ "$(wc -l < "$1")" -le 1 ] && [ "$(tail -c 1 "$1" | wc -l)" = "$(wc -l < "$1")" ] \
+    || kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"
+  KP_VALUE=""; IFS= read -r KP_VALUE < "$1" || [ -n "$KP_VALUE" ] || :
+  kp_check_value "--kek-passphrase-file $1"
+}
+kp_read_stdin() {
+  KP_VALUE=""
+  if [ -t 0 ]; then
+    stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
+    printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
+    kp_again=""
+  else
+    IFS= read -r KP_VALUE || [ -n "$KP_VALUE" ] || kp_die "--kek-passphrase-stdin: nothing on stdin; nothing was changed"
+  fi
+  kp_check_value "stdin"
+}
+kp_remove_file() { shred -u -- "$1" 2>/dev/null || rm -f -- "$1"; [ ! -e "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"; }
+# ---- end of KEK-PASSPHRASE functions
+kp_refuse_env
+case "$PP_FILE:$PP_STDIN:$PP_FD" in
+  :0:|/*:0:|:1:|:0:[3-9]) ;;
+  ?*:0:) die "--kek-passphrase-file: give the file's full path (/root/...): nothing was changed" ;;
+  *) die "--kek-passphrase-file, --kek-passphrase-stdin, --kek-passphrase-fd 3-9: give one; nothing was changed" ;;
+esac
+[ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE" ] || die "--keep-kek-passphrase-file goes with --kek-passphrase-file"
+if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"
+elif [ "$PP_STDIN" = 1 ]; then kp_read_stdin
+elif [ -n "$PP_FD" ]; then
+  IFS= read -r KP_VALUE <&"$PP_FD" || [ -n "$KP_VALUE" ] || die "--kek-passphrase-fd $PP_FD: no passphrase there"
+  eval "exec $PP_FD<&-"
+  kp_check_value "the installer's hand-on"
+fi
+# ---- end of KEK-PASSPHRASE
 # ENV-EARLY (D-1365, re-check of #1175): an environment that is not one of the four stops here, at argument parsing,
 # before anything is loaded, linked, made or copied: --environment, or (neither it nor --rehearsal given) a TB_ENV an
 # existing deploy/.env already holds, read without changing anything. Read as the settings step reads them
@@ -462,6 +535,18 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
   [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+  # KEK-PASSPHRASE (H-96): a passphrase read from stdin goes on by a pipe at fd 8, its option swapped for the fd's
+  if [ "$PP_STDIN" = 1 ] || [ -n "$PP_FD" ]; then
+    PP_ARGS=(); skip=0
+    for a in ${ARGS[@]+"${ARGS[@]}"}; do
+      if [ "$skip" = 1 ]; then skip=0; continue; fi
+      case "$a" in --kek-passphrase-stdin) continue ;; --kek-passphrase-fd) skip=1; continue ;; esac
+      PP_ARGS+=("$a")
+    done
+    TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
+      8< <(printf '%s\n' "$KP_VALUE")
+  fi
+  # ---- end of KEK-PASSPHRASE
   TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
@@ -969,14 +1054,24 @@ if [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
 elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
     && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
   # D-837: a plain VM has no usable TPM; the passphrase back end seals the keys when it is asked for
-  echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE seals them); the host check lists it"
+  echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with --kek-passphrase-file seals them); the host check lists it"
 elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
-  TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
-    || die "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
+  # KEK-PASSPHRASE (H-96): the operator's file goes on by its name (the seal step removes it once sealed), a
+  # passphrase read from stdin by a pipe; neither is an argument's value or in an environment
+  SEAL_PP=(); [ -z "$PP_FILE" ] || SEAL_PP=(--kek-passphrase-file "$PP_FILE")
+  [ "$PP_KEEP" = 0 ] || SEAL_PP+=(--keep-kek-passphrase-file)
+  [ -n "$PP_FILE" ] || [ -z "$KP_VALUE" ] || SEAL_PP=(--kek-passphrase-stdin)
+  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" ${SEAL_PP[@]+"${SEAL_PP[@]}"}; }
+  if [ "${SEAL_PP[0]:-}" = --kek-passphrase-stdin ]; then printf '%s\n' "$KP_VALUE" | seal; else seal </dev/null; fi \
+    || die "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the --kek-passphrase-file example in deploy/install.sh --help; docs/security/01-the-host.md"
+  PP_FILE=""
 fi
+KP_VALUE=""
+[ -z "$PP_FILE" ] || echo "    the KEK passphrase file $PP_FILE was not used (no seal step on this box): it stays; remove it"
+
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
 # D-624: this release's steps once the database is up (tools/trialbox/prestart.py DB_STEPS: the roles of D-378, the

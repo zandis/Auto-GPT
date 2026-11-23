@@ -158,8 +158,12 @@ def _seal(tmp: Path, phrase: str) -> subprocess.CompletedProcess[str]:
     docker.chmod(0o755)
     keep = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
     env = {**keep, "PATH": f"{b}:/usr/bin:/bin", "TB_HOST_ROOT": str(tmp / "host"), "TB_SYSTEMD": "0"}
-    env |= {"TB_KEK_FILE": str(tmp / "kek.runtime"), "TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": phrase}
-    argv = ["sh", str(SEAL), "--secrets", str(tmp / "secrets"), "--conf", str(tmp / "none"), "--dry-run"]
+    env |= {"TB_KEK_FILE": str(tmp / "kek.runtime"), "TB_KEK_BACKEND": "passphrase"}
+    pp = tmp / "kek.pass"  # H-96 (ruling 7094934985): in a file only root can read, not in the environment
+    pp.write_text(phrase + "\n", encoding="utf-8")
+    pp.chmod(0o600)
+    argv = ["sh", str(SEAL), "--secrets", str(tmp / "secrets"), "--conf", str(tmp / "none"), "--dry-run",
+            "--kek-passphrase-file", str(pp)]  # fmt: skip
     return subprocess.run(argv, capture_output=True, text=True, env=env, check=False, timeout=120)
 
 

@@ -213,11 +213,11 @@ done
 fi  # the LUKS lines; on WSL2 BitLocker's lines above
 if [ -z "$(swapon --noheadings 2>/dev/null)" ]; then pass "swap disabled"; else fail "swap is enabled (swapoff -a; remove from /etc/fstab)"; fi
 # H-89 (the integrator's ruling, item 1 of #1370's round): the passphrase back end needs no TPM. Chosen: this run has
-# TB_KEK_BACKEND=passphrase and a TB_KEK_PASSPHRASE (the install's way out, never printed), or the site keys are
-# sealed under it (kek.json). Then a missing or unusable TPM is a WARN that names it; otherwise it FAILs as before
+# TB_KEK_BACKEND=passphrase (the install's way out), or the site keys are sealed under it (kek.json). Then a missing
+# or unusable TPM is a WARN that names it; otherwise it FAILs as before. H-96: the passphrase itself is never read
+# here (it comes from a file only root can read, or stdin, never the environment)
 kek_passphrase() {
-  { [ "${TB_KEK_BACKEND:-}" = passphrase ] && [ -n "${TB_KEK_PASSPHRASE:-}" ]; } \
-    || grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null
+  [ "${TB_KEK_BACKEND:-}" = passphrase ] || grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null
 }
 KEK_PP="the KEK is under the passphrase back end (TB_KEK_BACKEND=passphrase), which needs no TPM"
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
@@ -229,11 +229,11 @@ elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then
   if [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1 && kek_passphrase; then
     warn "TPM 2.0 device present but not usable (systemd-creds has-tpm2): $KEK_PP"
   elif [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1; then
-    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM
+    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with --kek-passphrase-file)" TPM
   else
     pass "TPM 2.0 device present"
   fi
-else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM; fi
+else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with --kek-passphrase-file)" TPM; fi
 
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then

@@ -20,9 +20,20 @@
 # Run it again at any time (an install that stopped is run again by the same command): nothing it did is done twice.
 #
 # The fingerprint it shows is the one the stick's launcher shows and the delivery sheet carries (HS-1).
+# A KEK passphrase goes to the installer after `--` as --kek-passphrase-file FILE (full path) or --kek-passphrase-stdin;
+# one in the environment (TB_KEK_PASSPHRASE) is refused before anything (H-96: sudo logs the variables it keeps).
 # Knobs for the tests only: TB_BOOTSTRAP_NO_ROOT=1, TB_BOOTSTRAP_ROOT (/opt/trialbox).
 set -euo pipefail
 die() { echo "trialbox-bootstrap: $*" >&2; exit 1; }
+# H-96 (F-45; the integrator's ruling 7094934985): a KEK passphrase in the environment is refused here, before anything
+# is read or written, with the words of deploy/kek_passphrase.sh (this file runs before that one is on the machine)
+for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
+  if [ -n "${!kp_var:-}" ]; then
+    echo "trialbox-bootstrap: $kp_var is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (docs/runbook/30-rotate-the-kek-passphrase.md). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset $kp_var." >&2
+    exit 2
+  fi
+done
+unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_var
 # the fingerprint: the first 24 hex digits of the sha256 of the key's DER form, in groups of four
 # (the same line is in the stick's launcher and the bundle builder; a test holds the three together)
 fingerprint() { openssl pkey -pubin -in "$1" -outform DER 2>/dev/null | sha256sum | cut -c1-24 | sed 's/..../& /g; s/ $//'; }
@@ -36,7 +47,7 @@ while [ $# -gt 0 ]; do
     --pub) [ -n "${2:-}" ] || usage; PUB="$2"; shift ;;
     --box) BOX=1 ;;
     --) shift; break ;;
-    -h|--help) sed -n 2,22p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,24p "$0"; exit 0 ;;
     -*) echo "trialbox-bootstrap: unknown option $1 (the installer's options go after --)" >&2; usage ;;
     *) [ -z "$BUNDLE" ] || usage; BUNDLE="$1" ;;
   esac

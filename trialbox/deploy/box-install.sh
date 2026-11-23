@@ -27,12 +27,14 @@
 # nested; `environment` PRODUCTION or VALIDATION) instead of the first-run wizard. No question, no code, no wait: the
 # plan is made from those answers, the install makes the first administrator as the IT form does (TB_BOX=0: its
 # password and enrolment code printed once), then the time zone, the backup schedule and the host check. The file
-# never holds a password or a passphrase (refused); a board without a TPM takes TB_KEK_PASSPHRASE from the
-# environment and the keys are sealed at the install. In your own Bash shell, set bundle to the signed bundle path:
-#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
-#   sudo --preserve-env=TB_KEK_PASSPHRASE deploy/box-install.sh "$bundle" --answers owner.json
-#   unset TB_KEK_PASSPHRASE
-# sudo VAR=value command shows the value in the process list.
+# never holds a password or a passphrase (refused); a board without a TPM takes the KEK passphrase (12 characters or
+# more, one line) from a file only root can read, and the keys are sealed at the install. Set bundle to the signed
+# bundle path; type the passphrase after sudo's own password prompt, then Enter (nothing is shown):
+#   sudo bash -c 'umask 077; IFS= read -rs TB_KEK_PASSPHRASE; printf "%s\n" "$TB_KEK_PASSPHRASE" > /root/trialbox-kek.pass'
+#   sudo deploy/box-install.sh "$bundle" --answers owner.json --kek-passphrase-file /root/trialbox-kek.pass
+# or it is typed when asked (twice, not shown): ... --kek-passphrase-stdin. The file must be a regular file owned by
+# root with mode 0600; it is removed once the keys are sealed (--keep-kek-passphrase-file keeps it). A passphrase in
+# the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §30, H-96).
 # Knobs for the tests and the rehearsal only: TB_BOX_HARDWARE (a hardware.json instead of detecting), TB_BOX_INSTALL
 # (the install command), TB_BOX_PY (a python command instead of the image), TB_BOX_COMPOSE (the compose command),
 # TB_BOX_HOST_CHECK (the host check command), TB_ISSUE_DIR, TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
@@ -43,6 +45,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""
+PP_FILE=""; PP_KEEP=0; PP_STDIN=0  # H-96: the KEK passphrase's two ways in (deploy/kek_passphrase.sh)
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
@@ -51,6 +54,9 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --answers) [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "box-install: --answers needs the owner's answers file (JSON)" >&2; exit 2; }
       OWNER="$2"; shift ;;
+    --kek-passphrase-file) PP_FILE="${2:-}"; shift ;;
+    --keep-kek-passphrase-file) PP_KEEP=1 ;;
+    --kek-passphrase-stdin) PP_STDIN=1 ;;
     -h|--help) sed -n '2,/^set -euo pipefail/{ /^set -euo pipefail/!p; }' "$0"; exit 0 ;;
     -*) echo "box-install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
@@ -64,6 +70,69 @@ fi
 if [ "$REHEARSAL" = 1 ] && [ "$FIRSTRUN" = 1 ]; then echo "box-install: --rehearsal with --firstrun: the first run finishes the box as it was installed" >&2; exit 2; fi
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'box-install: %s\n' "$*" >&2; exit 1; }
+# KEK-PASSPHRASE (H-96, F-45; the integrator's ruling 7094934985): never from the environment (refused, before
+# anything); only with --answers (the wizard's box takes it on the set-up page). A file goes on to install.sh by its
+# name (its seal step removes it); a passphrase read from stdin by a pipe at fd 8. KP_VALUE is never exported
+KP_WHO=box-install
+# ---- KEK-PASSPHRASE functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
+#   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
+#                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
+#   --kek-passphrase-stdin      one line on stdin; on a terminal it is asked twice, not shown
+# and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
+# (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
+# exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+KP_VALUE=""
+kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
+kp_refuse_env() {  # an empty variable is dropped
+  for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
+    eval "kp_set=\${$kp_var:+yes}"
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (docs/runbook/30-rotate-the-kek-passphrase.md). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
+  done
+  unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
+}
+kp_check_value() {  # one line, not empty, no control character (the image and the host read it alike)
+  [ -n "$KP_VALUE" ] || kp_die "the KEK passphrase from $1 is empty: nothing was changed"
+  case "$KP_VALUE" in *[[:cntrl:]]*) KP_VALUE=""; kp_die "the KEK passphrase from $1 holds a line break or another control character: write it again on one line; nothing was sealed" ;; esac
+}
+kp_read_file() {  # refused unless a regular file, not a link, owned by the user that runs this (root), mode 0600, one line
+  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600 (sudo install -m 0600 -o root -g root /dev/null FILE, then write it there); nothing was changed"
+  [ ! -L "$1" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"
+  [ -f "$1" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"
+  [ "$(stat -c %u "$1")" = "$(id -u)" ] || kp_die "--kek-passphrase-file $1 is owned by uid $(stat -c %u "$1"), not root (the user that runs this): refused; $kp_fix"
+  [ "$(stat -c %a "$1")" = 600 ] || kp_die "--kek-passphrase-file $1 has mode $(stat -c %a "$1"), not 0600: refused; $kp_fix"
+  [ "$(wc -l < "$1")" -le 1 ] && [ "$(tail -c 1 "$1" | wc -l)" = "$(wc -l < "$1")" ] \
+    || kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"
+  KP_VALUE=""; IFS= read -r KP_VALUE < "$1" || [ -n "$KP_VALUE" ] || :
+  kp_check_value "--kek-passphrase-file $1"
+}
+kp_read_stdin() {
+  KP_VALUE=""
+  if [ -t 0 ]; then
+    stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
+    printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
+    kp_again=""
+  else
+    IFS= read -r KP_VALUE || [ -n "$KP_VALUE" ] || kp_die "--kek-passphrase-stdin: nothing on stdin; nothing was changed"
+  fi
+  kp_check_value "stdin"
+}
+kp_remove_file() { shred -u -- "$1" 2>/dev/null || rm -f -- "$1"; [ ! -e "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"; }
+# ---- end of KEK-PASSPHRASE functions
+kp_refuse_env
+if [ -n "$PP_FILE" ] || [ "$PP_KEEP" = 1 ] || [ "$PP_STDIN" = 1 ]; then
+  [ -n "$OWNER" ] || die "--kek-passphrase-file and --kek-passphrase-stdin go with --answers (the unattended install); otherwise the owner sets the passphrase on the set-up page. Nothing was changed"
+  [ -z "$PP_FILE" ] || [ "$PP_STDIN" = 0 ] || die "--kek-passphrase-file and --kek-passphrase-stdin: give one; nothing was changed"
+  [ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE" ] || die "--keep-kek-passphrase-file goes with --kek-passphrase-file"
+  case "$PP_FILE" in ""|/*) ;; *) die "--kek-passphrase-file: give the file's full path (/root/...): nothing was changed" ;; esac
+  if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"; else kp_read_stdin; fi
+fi
+PP_INSTALL=()  # what install.sh is given: the file's name, or the pipe at fd 8
+if [ -n "$PP_FILE" ]; then
+  PP_INSTALL=(--kek-passphrase-file "$PP_FILE"); [ "$PP_KEEP" = 0 ] || PP_INSTALL+=(--keep-kek-passphrase-file)
+elif [ -n "$KP_VALUE" ]; then PP_INSTALL=(--kek-passphrase-fd 8); fi
+# ---- end of KEK-PASSPHRASE
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 FR="${TB_FIRSTRUN_HOST_DIR:-/run/trialbox-firstrun}"
 BOX="$ROOT/deploy/site/box"
@@ -118,11 +187,11 @@ except (OSError, ValueError) as e:
 secret = sorted(k for k in d if k in ("password", "password2", "totp", "kek", "kek2", "kek_passphrase"))
 if secret:
     sys.exit(f"box-install: {', '.join(secret)} in the answers file: a password or passphrase never goes in a file "
-             "(the administrator's password is made and printed by the install; TB_KEK_PASSPHRASE comes from the "
-             "environment)")
+             "(the administrator's password is made and printed by the install; the KEK passphrase comes from "
+             "--kek-passphrase-file or --kek-passphrase-stdin)")
 EOP
-    if [ "$(json_get "$BOX/hardware.json" tpm)" != True ] && { [ -z "${TB_KEK_PASSPHRASE:-}" ] || [ "${#TB_KEK_PASSPHRASE}" -lt 12 ]; }; then
-      die "no usable TPM: TB_KEK_PASSPHRASE must contain at least 12 characters; follow the Bash example in box-install.sh --help (nothing was changed)"
+    if [ "$(json_get "$BOX/hardware.json" tpm)" != True ] && [ "${#KP_VALUE}" -lt 12 ]; then
+      die "no usable TPM: the KEK passphrase (--kek-passphrase-file or --kek-passphrase-stdin) must contain at least 12 characters; follow the example in box-install.sh --help (nothing was changed)"
     fi
     YES=1
   fi
@@ -149,8 +218,10 @@ EOP
   set +e
   # shellcheck disable=SC2086 # TB_BOX_INSTALL is a command line on purpose (tests)
   TB_BOX="$INBOX" TB_BOX_DEFER_SEAL="$DEFER" ${TB_BOX_INSTALL:-bash "$ROOT/deploy/install.sh"} "$BUNDLE" \
-    --answers "$BOX/answers.json" "${INSTALL_ARGS[@]}" --yes 2>&1 | tee "$BOX/install.log"
+    --answers "$BOX/answers.json" "${INSTALL_ARGS[@]}" ${PP_INSTALL[@]+"${PP_INSTALL[@]}"} --yes \
+    8< <(printf '%s\n' "$KP_VALUE") 2>&1 | tee "$BOX/install.log"
   rc="${PIPESTATUS[0]}"
+  KP_VALUE=""
   set -e
   # a FAIL list at the end (backups not yet placed, say) leaves the stack running; a stop half-way does not
   if [ "$rc" != 0 ] && ! grep -q "TrialBox is running" "$BOX/install.log"; then
@@ -230,14 +301,15 @@ done
 say "applying the owner's answers"
 if [ -f "$ROOT/deploy/site/hardening.conf" ] && grep -q '^KEK_BACKEND=passphrase' "$ROOT/deploy/site/hardening.conf" \
    && [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ]; then
-  # deferred at install (no TPM): the keys are sealed now, under the passphrase the owner set (never written to disk)
-  TB_KEK_PASSPHRASE="$(json_get "$FR/answers.json" kek_passphrase)"
-  [ -n "$TB_KEK_PASSPHRASE" ] || die "no passphrase in the owner's answers: the keys stay unsealed (run the wizard again)"
-  export TB_KEK_PASSPHRASE
+  # deferred at install (no TPM): the keys are sealed now, under the passphrase the owner set on the set-up page (in
+  # the tmpfs first-run folder; never written to disk). H-96: it goes to the seal step by a pipe, never exported
+  KP_VALUE="$(json_get "$FR/answers.json" kek_passphrase)"
+  [ -n "$KP_VALUE" ] || die "no passphrase in the owner's answers: the keys stay unsealed (run the wizard again)"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets")}"
-  TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$ROOT/deploy/site/hardening.conf" \
+  printf '%s\n' "$KP_VALUE" | TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" \
+    --conf "$ROOT/deploy/site/hardening.conf" --kek-passphrase-stdin \
     || die "the site keys could not be sealed (above)"
-  unset TB_KEK_PASSPHRASE
+  KP_VALUE=""
 fi
 TZ_NEW="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tz"])' "$FR/answers.json")"
 if [ -n "${TB_BOX_PY:-}" ]; then APPLY=(--firstrun "$FR" --hardware "$BOX/hardware.json" --deploy "$ROOT/deploy")
