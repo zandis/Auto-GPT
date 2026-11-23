@@ -52,14 +52,17 @@ def test_jp_synthetic_uses_the_japanese_routes(ref: mc.Reference) -> None:
 def test_who_icd10_maps_by_the_same_code_then_the_shipped_table(ref: mc.Reference) -> None:
     """D-314's same code first; then the shipped WHO-to-CM table, applied and reported "applied, not verified"
     while its rows say ``verify`` (SDR2); a code in neither stays on the unmapped list."""
-    rows = _rows(("e119", "2型糖尿病", "icd-10"), ("E14.9", "糖尿病", "icd-10"), ("F01.8", "血管性認知症", "icd-10"))
+    rows = _rows(
+        ("e119", "2型糖尿病", "icd-10"), ("F00.1", "アルツハイマー型認知症", "icd-10"), ("E14.9", "糖尿病", "icd-10")
+    )
     res = {r.local_code: r for r in (mc.check_code(x, ref) for x in rows)}
     assert res["e119"].mapped and res["e119"].target_code == "E11.9" and not res["e119"].unverified
-    assert res["E14.9"].mapped and res["E14.9"].target_code == "E11.9" and res["E14.9"].unverified
-    assert not res["F01.8"].mapped and "no row in the WHO-to-CM table" in res["F01.8"].reason
+    assert res["F00.1"].mapped and res["F00.1"].target_code == "G30.9" and res["F00.1"].unverified
+    # E14 has no row: ICD-10-CM has no code holding all of "diabetes, type not stated" (D-1270)
+    assert not res["E14.9"].mapped and "no row in the WHO-to-CM table" in res["E14.9"].reason
     report = mc.coverage(rows, ref)
     assert report["by_domain"]["diagnosis"]["applied_not_verified"] == 1
-    assert [u["local_code"] for u in report["unmapped"]] == ["F01.8"]
+    assert [u["local_code"] for u in report["unmapped"]] == ["E14.9"]
     assert "applied, not verified: 1" in mc.render(report)
 
 
@@ -74,9 +77,11 @@ def test_shipped_who_table_rows_are_icd10cm_codes_with_a_source(ref: mc.Referenc
     for r in rows:
         assert r["who"] not in ref.icd10cm, r
         assert r["icd10cm"] in ref.icd10cm, r
-        assert r["relation"] in ("equivalent", "wider"), r
-        assert r["source"].startswith("ICD-10-CM Alphabetic Index"), r
+        assert r["relation"] == "wider", r  # the ICD-10-CM code holds all of the WHO code's meaning (D-173's sense)
+        assert r["source"].startswith(("ICD-10-CM Alphabetic Index", "ICD-10-CM Tabular List")), r
         assert r["verified"] == "verify", r
+    # a target that would assert more than the WHO code says has no row (D-1270): diabetes type, infarction
+    assert not {r["who"] for r in rows} & {"E14", "E14.9", "I64"}
 
 
 def test_ssmix2_reader_takes_the_table_and_counts_the_rest(tmp_path: Path) -> None:
@@ -85,7 +90,7 @@ def test_ssmix2_reader_takes_the_table_and_counts_the_rest(tmp_path: Path) -> No
 
     src = Ssmix2Source(tmp_path, licensed={})
     assert src._icd_columns("E11.9") == {"icd10": "E11.9", "icd10cm": "E11.9"}
-    assert src._icd_columns("E14.9") == {"icd10": "E14.9", "icd10cm": "E11.9"}
+    assert src._icd_columns("F00.1") == {"icd10": "F00.1", "icd10cm": "G30.9"}
     assert src._icd_columns("F01.8") == {"icd10": "F01.8", "icd10cm": ""}
     assert src.stats["diagnosis:ICD-10-CM from the WHO-to-CM table (applied, not verified)"] == 1
     assert src.stats["diagnosis:WHO ICD-10 with no ICD-10-CM"] == 1
@@ -256,3 +261,61 @@ def test_who_icd10_reaches_icd10cm_through_the_table(tmp_path: Path) -> None:
     assert not res["I64"].mapped and "no row in the WHO-to-CM table" in res["I64"].reason
     report = mc.coverage(rows, ref)
     assert [u["local_code"] for u in report["unmapped"]] == ["I64"]
+
+
+def test_a_night_marks_a_diagnosis_that_rests_on_an_unverified_who_row(tmp_path: Path, pg_cluster_url: str) -> None:
+    """SDR2 part 1 through a whole SS-MIX2 night (adapter.pipeline, body only): F00.1 is given G30.9 from the table
+    and carries D-135's ``verify`` basis tag; E11.9 itself (the same code) carries none; a WHO code with no row keeps
+    no ICD-10-CM coding and is on the night's unmapped list."""
+    import os
+
+    from adapter.mapping.engine import BASIS, VERIFY_BASIS
+    from adapter.ndjson import snapshot_dir
+    from adapter.pipeline import AdapterConfig, run_ingest
+    from adapter.sources.ssmix2.source import storage_dir
+    from tb_contracts import RebuildResult
+
+    class _Rebuild:
+        def __call__(self, snap: str, nd: Path) -> RebuildResult:
+            return RebuildResult(snapshot=snap, tables={}, chunks=0, embedded_new=0, seconds=0.0)
+
+    root = tmp_path / "ss"
+    for n, who in enumerate(("F00.1", "E11.9", "F01.8")):
+        d = storage_dir(root, "10000001", "20260101", "PPR-01")
+        d.mkdir(parents=True, exist_ok=True)
+        msh = f"MSH|^~\\&|HIS||TB||20261101||PPR^ZD1|D{n}|P|2.5"
+        prb = f"PRB|AD|20260101|^病名^99XYZ^{who}^^I10|D{n}||||||||||A||20260101"
+        text = "\r".join([msh, "PID|||10000001^^^^PI", "PV1||O", prb]) + "\r"
+        (d / f"10000001_20260101_PPR-01_D{n}_20261101000000000_01_1").write_bytes(text.encode("utf-8"))
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(b"k" * 32)
+    sep = "&" if "?" in pg_cluster_url else "?"
+    cfg = AdapterConfig(
+        lake_dir=tmp_path / "lake",
+        secrets_dir=sec,
+        mapping_path=mc.MAPPING / "jp_core" / "ssmix2_site.yaml",
+        site_id="T",
+        tz="Asia/Tokyo",
+        rebuild=_Rebuild(),
+        audit_dir=tmp_path / "audit",
+        db_url=f"{pg_cluster_url}{sep}tb_prefix=sdr{os.getpid()}_",
+    )
+    rep = run_ingest(cfg, "ssmix2", str(root), snapshot="2026-11-01", load_fhir=False, validate=False)
+    assert rep.passed
+    nd = snapshot_dir(tmp_path / "lake", "2026-11-01")
+    conds = [json.loads(x) for x in (nd / "Condition.ndjson").read_text(encoding="utf-8").splitlines()]
+    by_who = {
+        next(c["code"] for c in r["code"]["coding"] if c["system"] == "http://hl7.org/fhir/sid/icd-10"): r
+        for r in conds
+    }
+    verify = {"system": BASIS, "code": VERIFY_BASIS}
+
+    def cm(r: dict) -> list[str]:
+        return [c["code"] for c in r["code"]["coding"] if c["system"] == mc.TARGETS["icd-10-cm"]]
+
+    assert cm(by_who["F00.1"]) == ["G30.9"] and verify in by_who["F00.1"]["meta"]["tag"]
+    assert cm(by_who["E11.9"]) == ["E11.9"] and verify not in by_who["E11.9"]["meta"]["tag"]
+    assert cm(by_who["F01.8"]) == []
+    reader = json.loads((nd / "reader.json").read_text(encoding="utf-8"))
+    assert reader["unmapped"]["diagnosis"] == [{"code": "F01.8", "count": 1}]

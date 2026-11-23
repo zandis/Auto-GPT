@@ -710,6 +710,19 @@ def _run_ingest(
             from adapter.site_profile import verify_rules
 
             mapper.verify_rules = verify_rules(profile)
+        if source_kind == "ssmix2":  # SDR2: a diagnosis whose ICD-10-CM code rests on a WHO-to-CM row still to verify
+            from adapter.mapping.engine import VerifyRule
+            from adapter.sources.ssmix2.source import JP_CORE, _lookup
+
+            who = JP_CORE / "who_icd10_to_icd10cm.csv"
+            done = {k for k, v in _lookup(who, "who", "verified").items() if v == "yes"}
+            codes = {k: v for k, v in _lookup(who, "who", "icd10cm").items() if k not in done}
+            if codes:
+                rule = VerifyRule("diagnosis", "icd10", codes, "icd10cm")
+                mapper.verify_rules = {
+                    **mapper.verify_rules,
+                    "diagnosis": [*mapper.verify_rules.get("diagnosis", []), rule],
+                }
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding, profile_files)
         for res in mapper.static_resources():
             to_spool(res)
