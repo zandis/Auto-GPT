@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -49,13 +50,13 @@ STOP = re.compile(r"""(?<![\w-])die\s+["'$]|\bexit\s+(?:[1-9]|"?\$)""")
 #: 7095256773), "depends (N)" (kept: it protects stop N on the input that reaches it, H94-03), or not a stop at all
 MARK = re.compile(r"H-94 (?:\(([1-5])\)|depends \(([1-5])\)|not a stop)")
 CALL = re.compile(
-    r"""(?:stop_or_warn(?:\s+--rc\s+\d+|\s+--silent)*|rrs_drop|rehearsal_only|finish_check)\s+"?([A-Za-z0-9:._-]+)"""
+    r"""(?:stop_or_warn(?:\s+--rc\s+(?:\d+|"\$\w+")|\s+--silent)*|rrs_drop|rehearsal_only|finish_check)\s+"?([A-Za-z0-9:._-]+)"""
 )
 #: the files of the install, start and update paths, and how many bare stops each may still have. A converted
 #: file is 0. The count of a file not yet converted can only go down (H-94: stop at a file boundary)
 RATCHET = {
     "deploy/install.sh": 0,
-    "deploy/box-install.sh": 28,
+    "deploy/box-install.sh": 0,
     "tools/apply_update.sh": 16,
     "deploy/bootstrap.sh": 17,
     "deploy/launcher.sh": 1,
@@ -99,7 +100,7 @@ def converted_keys(text: str) -> set[str]:
             keys.add(k)
             if re.search(r"(^|\s)finish_check\s", line):
                 keys.add(f"{k}-did-not-run")
-    return keys | {"fail"}  # the FAIL lines at the end: one point, a key per line
+    return keys | ({"fail"} if '"fail: ' in text else set())  # install.sh's FAIL lines: one point, a key per line
 
 
 def mark_of(lines: list[str], i: int) -> re.Match[str] | None:
@@ -116,6 +117,8 @@ def kept_counts(text: str) -> dict[str, int]:
     for i, line in enumerate(lines):
         code = line.split("  # ")[0]
         if line.strip().startswith("#") or not STOP.search(code) or "stop_or_warn" in code:
+            continue
+        if re.match(r"\s*\w+\(\) *\{", line) or code.strip() == 'exit "$_rc"':  # a definition, the helper's own
             continue
         m = mark_of(lines, i)
         if m and "not a stop" not in m.group(0):
@@ -485,11 +488,14 @@ def test_on_production_every_fail_line_and_exit_1_stay(tmp_path: Path) -> None:
     assert r.err.splitlines()[-len(fails) :] == fails and "PoC box" not in r.err
 
 
-def test_every_converted_message_is_master_s() -> None:
-    """The words of every converted point, as written in install.sh, are master's (the fixture of master's stops):
+@pytest.mark.parametrize(("rel", "fixture", "least"), [("deploy/install.sh", "install_sh", 60),
+                                                    ("deploy/box-install.sh", "box_install_sh", 8)])  # fmt: skip
+def test_every_converted_message_is_master_s(rel: str, fixture: str, least: int) -> None:
+    """The words of every converted point, as written in the script, are master's (the fixture of master's stops):
     on PRODUCTION the helper prints exactly them, with master's exit code."""
-    text = INSTALL.read_text(encoding="utf-8")
-    master = {(s["message"], s["rc"]) for s in MASTER["stops"]}
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    doc = json.loads((ROOT / "tests" / "fixtures" / "h94" / f"{fixture}_master_stops.json").read_text(encoding="utf-8"))
+    master = {(s["message"], s["rc"]) for s in doc["stops"]}
     q = r'"((?:[^"\\]|\\.)*)"'
     found = 0
     for line in text.splitlines():
@@ -508,7 +514,7 @@ def test_every_converted_message_is_master_s() -> None:
     for m in re.finditer(r"(?:rrs_drop)\s+[\w-]+\s+" + q, text):  # its words are master's die words
         assert (m.group(1), 1) in master, m.group(1)
         found += 1
-    assert found >= 60
+    assert found >= least
 
 
 # ------------------------------------------------------------------------------------------------- what a box is
@@ -648,18 +654,19 @@ def test_the_helper_is_the_same_bytes_wherever_it_is() -> None:
 
 
 # ------------------------------------------------------------------------------------------ the card's inventory
-def test_the_page_lists_every_point_of_install_sh() -> None:
-    """The inventory (the card's page): every converted key of install.sh is a row, and the kept stops per number
+@pytest.mark.parametrize("rel", ["deploy/install.sh", "deploy/box-install.sh"])
+def test_the_page_lists_every_point_of_install_sh(rel: str) -> None:
+    """The inventory (the card's page): every converted key of the script is a row, and the kept stops per number
     are as many as the rows that say so."""
     page = PAGE.read_text(encoding="utf-8")
-    section = page[page.index("### deploy/install.sh") :]
+    section = page[page.index(f"### {rel}\n") :]
     section = section[: section.index("\n### ", 4)] if "\n### " in section[4:] else section
-    text = INSTALL.read_text(encoding="utf-8")
+    text = (ROOT / rel).read_text(encoding="utf-8")
     for key in converted_keys(text):
         assert f"`{key}`" in section, f"{key} is not in the page's install.sh table"
     for n, count in kept_counts(text).items():
-        label = f"kept ({n})" if n != "depends" else "depends"
-        assert section.count(f"| {label} |") == count, (n, section.count(f"| {label} |"), count)
+        label = f"| kept ({n}) |" if n != "depends" else "| depends"
+        assert section.count(label) == count, (n, section.count(label), count)
 
 
 def test_the_findings_file_is_in_the_register_s_form() -> None:
@@ -679,3 +686,126 @@ def test_with_no_docker_a_poc_box_warns_then_stops_at_the_load(tmp_path: Path) -
     assert r.rc == 1 and "install: warning (PoC box, H-94): Docker is not installed" in r.err, r.text[-3000:]
     assert r.err.splitlines()[-1] == "install: the bundle carried no trialbox-py:1.0.0 image"
     assert "install.sh/docker-missing" in r.listed_keys()
+
+
+# ---------------------------------------------------------------------------------------- deploy/box-install.sh
+BOX_INSTALL = ROOT / "deploy" / "box-install.sh"
+BOX_NOT_DRIVEN = {
+    "python3-missing": "every step of the script runs python3 (the plan, the code, the finish check)",
+    "docker-missing": "the bench's image stand-in (TB_BOX_PY) is the script's own way past the Docker check",
+}
+BOX_PY = r"""#!/bin/sh
+F=" ${TB_H94_FORCE:-} "
+case "$F" in *" apply "*) [ "$3" = apply ] && { echo "apply: refused (stand-in)"; exit 1; } ;; esac
+exit 0
+"""
+BOX_PYTHON3 = r"""#!/bin/sh
+F=" ${TB_H94_FORCE:-} "
+has() { case "$F" in *" $1 "*) return 0 ;; esac; return 1; }
+if [ "$1 $2 $3" = "-m tools.trialbox finish-check" ]; then
+  case " $* " in
+    *" --print-anchors "*)
+      has finish-did-not-run && exit 2
+      has finish-gate && { echo "  - the anchor is a system folder (stand-in)" >&2; exit 1; }
+      has anchor-read && echo "$TB_H94_TMP/anchor"
+      exit 0 ;;
+    *" --mount-anchors "*) has anchor-mount && exit 1; exit 0 ;;
+  esac
+fi
+exec "$TB_H94_REAL_PY" "$@"
+"""
+
+
+def _firstrun(tmp: Path, *args: str, force: tuple[str, ...] = (), environment: str = "VALIDATION",
+              env: dict[str, str] | None = None) -> Run:  # fmt: skip
+    """box-install.sh --firstrun, the real script, on a box its install made (a rehearsal box, a PoC box, unless
+    ``environment`` says PRODUCTION), the owner's answers given: stand-ins for the image (TB_BOX_PY), compose, the
+    host check, the read probe and the finish check's verdict; every other python3 call is the real one."""
+    box = tmp / "box"
+    d = box / "deploy"
+    (d / "site" / "box").mkdir(parents=True)
+    shutil.copy(BOX_INSTALL, d / "box-install.sh")
+    for name in ("libs", "services", "tools"):
+        (box / name).symlink_to(ROOT / name)
+    (d / "site" / "box" / "answers.json").write_text('{"tls_hostname": "trialbox.local", "tz": "Asia/Tokyo"}\n')
+    (d / "site" / "box" / "hardware.json").write_text('{"tpm": true}\n')
+    if environment != "PRODUCTION":
+        (d / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n')
+    (d / ".env").write_text(f"TB_ENV={environment}\n" + ("TB_REHEARSAL=1\n" if environment != "PRODUCTION" else ""))
+    fr = tmp / "fr"
+    fr.mkdir()
+    (fr / "answers.json").write_text('{"tz": "Asia/Tokyo"}\n')
+    cron = tmp / "cron"
+    cron.mkdir()
+    (cron / "trialbox-retention").write_text(
+        "20 0 * * * root cd x && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; }\n"
+    )
+    (tmp / "anchor").mkdir()
+    b = tmp / "bin"
+    b.mkdir()
+    stubs = {"python3": BOX_PYTHON3, "boxpy": BOX_PY,
+             "compose": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" stack-restart "*) exit 1 ;; esac\nexit 0\n',
+             "hostcheck": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" host-check "*) echo "FAIL  x"; exit 1 ;; esac\n',
+             "probe": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" anchor-read "*) exit 1 ;; esac\nexit 0\n'}  # fmt: skip
+    for name, text in stubs.items():
+        (b / name).write_text(text, encoding="utf-8")
+        (b / name).chmod(0o755)
+    full = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
+    full.update(
+        PATH=f"{b}:{os.environ['PATH']}", HOME=str(tmp), TB_H94_FORCE=" ".join(force), TB_H94_TMP=str(tmp),
+        TB_H94_REAL_PY=sys.executable, TB_BOX_NO_ROOT="1", TB_BOX_PY=str(b / "boxpy"), TB_BOX_COMPOSE=str(b / "compose"),
+        TB_BOX_HOST_CHECK=str(b / "hostcheck"), TB_BOX_DOCKER=str(b / "probe"), TB_ISSUE_DIR=str(tmp / "issue.d"),
+        TB_FIRSTRUN_HOST_DIR=str(fr), TB_SYSTEMD="0", TB_BOX_WSL2="0", TB_CRON_DIR=str(cron),
+    )  # fmt: skip
+    full.update(env or {})
+    r = subprocess.run(["bash", str(d / "box-install.sh"), "--firstrun", *args], cwd=tmp, env=full,
+                       stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=180)  # fmt: skip
+    return Run(r.returncode, r.stdout, r.stderr, box)
+
+
+def test_a_poc_box_s_first_run_goes_through_every_converted_point_of_box_install(tmp_path: Path) -> None:
+    """THE ONE TEST for deploy/box-install.sh (H-94, D-1091): its real first run on a rehearsal box, every converted
+    point forced, each warned and listed, the run ending "ready" with exit 0; a warned finish check takes the signed
+    head out of the nightly cron (the folder is never written into)."""
+    want = converted_keys(BOX_INSTALL.read_text(encoding="utf-8")) - set(BOX_NOT_DRIVEN)
+    assert set(BOX_NOT_DRIVEN) <= converted_keys(BOX_INSTALL.read_text(encoding="utf-8"))
+    seen: set[str] = set()
+    runs = [
+        (("--bogus", "--answers"), ("apply", "finish-gate", "stack-restart", "host-check"), {"TB_BOX_WSL2": "x"},
+         {"unknown-option", "answers-value", "wsl2-value", "apply", "finish-gate", "stack-restart", "host-check"}),
+        ((), ("finish-did-not-run",), {}, {"finish-did-not-run"}),
+        ((), ("anchor-read",), {}, {"anchor-read"}),
+        ((), ("anchor-mount",), {}, {"anchor-mount"}),
+    ]  # fmt: skip
+    for i, (args, force, env, keys) in enumerate(runs):
+        r = _firstrun(tmp_path / str(i), *args, force=force, env=env)
+        assert r.rc == 0 and "TrialBox is ready" in r.out, r.text[-4000:]
+        got = {k.removeprefix("box-install.sh/") for k in r.listed_keys()}
+        assert keys <= got, (keys - got, r.err[-3000:])
+        assert "box-install: warning (PoC box, H-94): " in r.err
+        cron = (tmp_path / str(i) / "cron" / "trialbox-retention").read_text(encoding="utf-8")
+        assert ("audit-sign" in cron) is not bool({"finish-gate", "finish-did-not-run"} & set(force))
+        seen |= got
+    assert want <= seen, sorted(want - seen)
+
+
+@pytest.mark.parametrize(
+    ("force", "env", "said", "rc"),
+    [
+        ((), {"TB_BOX_WSL2": "x"}, "box-install: TB_BOX_WSL2 is 0 or 1, not 'x'", 1),
+        (("apply",), {}, "box-install: the owner's answers could not be applied (above)", 1),
+        (("stack-restart",), {}, "box-install: the stack did not restart on the new settings", 1),
+        (("finish-gate",), {}, "box-install: the set-up is not finished (above).", 1),
+    ],
+)  # fmt: skip
+def test_on_production_box_install_stops_as_before(
+    tmp_path: Path, force: tuple[str, ...], env: dict[str, str], said: str, rc: int
+) -> None:
+    r = _firstrun(tmp_path, force=force, environment="PRODUCTION", env={**env, **PLANTED})
+    assert r.rc == rc and r.err.splitlines()[-1].startswith(said), r.text[-3000:]
+    assert "PoC box" not in r.err and not r.listed_keys()
+
+
+def test_on_production_the_host_check_s_code_stays_the_exit_code(tmp_path: Path) -> None:
+    r = _firstrun(tmp_path, force=("host-check",), environment="PRODUCTION")
+    assert r.rc == 1 and "TrialBox is ready" in r.out and "PoC box" not in r.err

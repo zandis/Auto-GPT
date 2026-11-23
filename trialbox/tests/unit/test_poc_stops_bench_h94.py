@@ -309,13 +309,14 @@ def test_the_bench_runs_as_a_user_and_writes_nothing_outside(tmp_path: Path) -> 
     assert not shutil.which("trialbox") or "b/tools" not in os.path.realpath(shutil.which("trialbox") or "")
 
 
-def stop_prelude(deploy: str = "/nonexistent/h94-no-box", environment: str = "", rehearsal: str = "0") -> str:
+def stop_prelude(deploy: str = "/nonexistent/h94-no-box", environment: str = "", rehearsal: str = "0",
+                 who: str = "install") -> str:  # fmt: skip
     """install.sh's STOP-OR-WARN block and its inputs, for a test that runs a block of install.sh alone (as the
     installer has them by then). The arguments are shell words: a test may pass ``"$ROOT/deploy"`` or
     ``"$ENVIRONMENT"``. The default box is none: nothing speaks, so it is PRODUCTION and every stop stops."""
     text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
     block = text[text.index("# ---- STOP-OR-WARN") : text.index("# ---- end of STOP-OR-WARN")]
     return (
-        f"{block}\nTB_STOP_WHO=install; TB_STOP_FILE=install.sh; TB_STOP_DEPLOY={deploy}\n"
+        f"{block}\nTB_STOP_WHO={who}; TB_STOP_FILE={who}.sh; TB_STOP_DEPLOY={deploy}\n"
         f"TB_STOP_ARG_ENV={environment or '""'}; TB_STOP_REHEARSAL={rehearsal}\n"
     )

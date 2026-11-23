@@ -43,25 +43,86 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""
+# ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
+# the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
+# (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk,
+# memory, card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does
+# not have it; (5) a secret would be read from, or written to, a place others can read. Every other stop calls
+# stop_or_warn: on a PoC box a warning, a line of the one list (deploy/site/poc-stops.jsonl, which trialbox doctor
+# shows) and the step goes on; on any other box the same stop as before, the same words and exit code. "H-94
+# depends (N)" marks a stop kept because it protects stop N on the input that reaches it (D-1091, H94-03).
+# A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
+# The sources are TB_ENV in deploy/.env (a file that cannot be read, or a value none of the four: PRODUCTION), an
+# installed box with none (PRODUCTION, D-127), the rehearsal mark on a box that records none yet (VALIDATION), and
+# this run's command line (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a caller's
+# environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+tb_poc_box() {
+  _d="$TB_STOP_DEPLOY"; _rec=""
+  if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
+    [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
+    _rec="$(sed -n 's/^TB_ENV=//p' "$_d/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  fi
+  if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
+  if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
+  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  [ -n "$_arg" ] || [ "$TB_STOP_REHEARSAL" != 1 ] || _arg=VALIDATION
+  for _e in "$_rec" "$_arg"; do case "$_e" in ""|DEV|TEST|VALIDATION) ;; *) return 1 ;; esac; done
+  [ -n "$_rec$_arg" ]
+}
+tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped for a JSON string
+  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's#[^ ]*/uploads/[^ ]*#<a path under uploads/>#g' \
+    -e 's/\([a-z0-9_]*\(password\|passphrase\|token\|secret\|_key\)\)=[^ ]*/\1=<hidden>/gI' -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
+  _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
+  [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
+  if [ ! -L "$_f" ] && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+      && printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
+        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f" 2>/dev/null; then
+    chmod 0640 "$_f" 2>/dev/null || true
+  else
+    printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
+  fi
+}
+stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning, a line of the list, 0; else the stop
+  _rc=1; _silent=0
+  while :; do case "$1" in --rc) _rc="$2"; shift 2 ;; --silent) _silent=1; shift ;; *) break ;; esac; done
+  _key="$1"; _skipped="$2"; shift 2
+  if ! tb_poc_box; then
+    if command -v alive_stop >/dev/null 2>&1; then alive_stop; fi
+    [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
+    exit "$_rc"
+  fi
+  printf '%s: warning (PoC box, H-94): %s%s\n' "$TB_STOP_WHO" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  tb_stop_list "$_key" "$_skipped" "$*"
+  return 0
+}
+# ---- end of STOP-OR-WARN
+# H-94: this run's command line (--rehearsal) is read once before the arguments are; box-install.sh has no
+# --environment (the owner's answers file is not read for it: on a fresh box it stays PRODUCTION, the stricter)
+TB_STOP_WHO=box-install; TB_STOP_FILE=box-install.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""
+TB_STOP_REHEARSAL=0
+for _a in "$@"; do [ "$_a" != --rehearsal ] || TB_STOP_REHEARSAL=1; done
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
     --prepare) PREPARE=1 ;;
     --firstrun) FIRSTRUN=1 ;;
     --rehearsal) REHEARSAL=1 ;;
-    --answers) [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "box-install: --answers needs the owner's answers file (JSON)" >&2; exit 2; }
-      OWNER="$2"; shift ;;
+    --answers) if [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then OWNER="$2"; shift
+      else stop_or_warn --rc 2 answers-value "--answers (ignored)" "--answers needs the owner's answers file (JSON)"; fi ;;
     -h|--help) sed -n '2,/^set -euo pipefail/{ /^set -euo pipefail/!p; }' "$0"; exit 0 ;;
-    -*) echo "box-install: unknown option $1" >&2; exit 2 ;;
+    -*) stop_or_warn --rc 2 unknown-option "the option $1 (ignored)" "unknown option $1" ;;
     *) BUNDLE="$1" ;;
   esac
   shift
 done
-if [ "$REHEARSAL" = 1 ] && [ "$PREPARE" = 1 ]; then echo "box-install: --rehearsal with --prepare: a prepared box goes to a site" >&2; exit 2; fi
+# H-94 (3): a rehearsal box (a PoC box) never becomes a prepared box for a site, nor the site's unattended install
+if [ "$REHEARSAL" = 1 ] && [ "$PREPARE" = 1 ]; then echo "box-install: --rehearsal with --prepare: a prepared box goes to a site" >&2; exit 2; fi  # H-94 (3)
 if [ -n "$OWNER" ] && [ "$PREPARE$REHEARSAL$FIRSTRUN" != 000 ]; then
-  echo "box-install: --answers is the site's unattended install: not with --prepare, --rehearsal or --firstrun" >&2; exit 2
+  echo "box-install: --answers is the site's unattended install: not with --prepare, --rehearsal or --firstrun" >&2; exit 2  # H-94 (3)
 fi
-if [ "$REHEARSAL" = 1 ] && [ "$FIRSTRUN" = 1 ]; then echo "box-install: --rehearsal with --firstrun: the first run finishes the box as it was installed" >&2; exit 2; fi
+if [ "$REHEARSAL" = 1 ] && [ "$FIRSTRUN" = 1 ]; then echo "box-install: --rehearsal with --firstrun: the first run finishes the box as it was installed" >&2; exit 2; fi  # H-94 (3): a first-run box is a site's box (review F7)
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'box-install: %s\n' "$*" >&2; exit 1; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
@@ -71,13 +132,13 @@ ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
 # BOX-WSL2 (D-571): under WSL2 (the Windows form, plan v7.2 section 2.3) no screen shows /etc/issue.d, and Windows
 # keeps the clock and the time zone. The kernel's release says so; TB_BOX_WSL2=0|1 sets it for a test.
 WSL2=0; case "$(uname -r)" in *[Mm]icrosoft*) WSL2=1 ;; esac
-case "${TB_BOX_WSL2:-}" in "") ;; 0|1) WSL2="$TB_BOX_WSL2" ;; *) die "TB_BOX_WSL2 is 0 or 1, not '$TB_BOX_WSL2'" ;; esac
+case "${TB_BOX_WSL2:-}" in "") ;; 0|1) WSL2="$TB_BOX_WSL2" ;; *) stop_or_warn wsl2-value "TB_BOX_WSL2 (the kernel's word: $WSL2)" "TB_BOX_WSL2 is 0 or 1, not '$TB_BOX_WSL2'" ;; esac
 export PYTHONPATH="$ROOT/libs:$ROOT"
-[ "${TB_BOX_NO_ROOT:-0}" = 1 ] || [ "$(id -u)" = 0 ] || die "run it as root (sudo deploy/box-install.sh ...)"
-command -v python3 >/dev/null || die "python3 is missing on this machine (Ubuntu 24.04 has it)"
+[ "${TB_BOX_NO_ROOT:-0}" = 1 ] || [ "$(id -u)" = 0 ] || die "run it as root (sudo deploy/box-install.sh ...)"  # H-94 (4)
+command -v python3 >/dev/null || stop_or_warn python3-missing "every step that runs python3 (each fails where it runs)" "python3 is missing on this machine (Ubuntu 24.04 has it)"  # D-1091
 # a bare Ubuntu box gets Docker, the NVIDIA toolkit and the host's libraries from the media first (OPS-006, D-966)
 [ -n "${TB_BOX_PY:-}" ] || command -v docker >/dev/null \
-  || die "Docker is missing on this machine: prepare it from the media first (sudo <media>/linux/box-prepare.sh <media> --pub <the vendor key given to you>; RUNBOOK §16)"
+  || stop_or_warn docker-missing "every step that runs Docker (the install's load then stops: kept refusal 1)" "Docker is missing on this machine: prepare it from the media first (sudo <media>/linux/box-prepare.sh <media> --pub <the vendor key given to you>; RUNBOOK §16)"
 box_py() {  # tools.box with the image's libraries (the settings wizard needs them)
   if [ -n "${TB_BOX_PY:-}" ]; then
     # shellcheck disable=SC2086 # a command line on purpose (tests)
@@ -93,8 +154,9 @@ chmod 700 "$FR"
 chown 10001:10001 "$FR" 2>/dev/null || true   # the console's user (tb) writes the owner's answers there
 
 if [ "$FIRSTRUN" = 0 ]; then
-  [ -n "$BUNDLE" ] || die "usage: deploy/box-install.sh trialbox-<version>.tar [--prepare | --rehearsal] [--yes]"
-  [ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"
+  # H-94 (1): no bundle, no signature that holds
+  [ -n "$BUNDLE" ] || die "usage: deploy/box-install.sh trialbox-<version>.tar [--prepare | --rehearsal] [--yes]"  # H-94 (1)
+  [ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"  # H-94 (1)
   # ---------------------------------------------------------------------------------------------- 1. hardware
   say "this machine"
   if [ -n "${TB_BOX_HARDWARE:-}" ]; then cp "$TB_BOX_HARDWARE" "$BOX/hardware.json"
@@ -108,8 +170,10 @@ print(f"    disks for backups: {', '.join(d['path'] for d in h.get('disks') or [
 print(f"    security chip (TPM): {'yes' if h.get('tpm') else 'no'};  network: {h.get('lan') or '-'};  name: {h['hostname']}")
 EOP
   if [ -n "$OWNER" ]; then  # D-898: checked before anything is written; a bad file changes nothing
-    [ -f "$OWNER" ] || die "no such answers file: $OWNER (nothing was changed)"
-    python3 - "$OWNER" <<'EOP' || die "the owner's answers file is refused (above): nothing was changed"
+    # H-94 (3): the unattended install is the site's (never on a PoC box's arguments); (5): a password or passphrase
+    # in the answers file is a secret in a file others may read
+    [ -f "$OWNER" ] || die "no such answers file: $OWNER (nothing was changed)"  # H-94 (3)
+    python3 - "$OWNER" <<'EOP' || die "the owner's answers file is refused (above): nothing was changed"  # H-94 (5)
 import json, sys
 try:
     d = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -122,20 +186,21 @@ if secret:
              "environment)")
 EOP
     if [ "$(json_get "$BOX/hardware.json" tpm)" != True ] && { [ -z "${TB_KEK_PASSPHRASE:-}" ] || [ "${#TB_KEK_PASSPHRASE}" -lt 12 ]; }; then
+      # H-94 (5): the passphrase that seals the site keys (H-96's part; unchanged here)
       die "no usable TPM: TB_KEK_PASSPHRASE must contain at least 12 characters; follow the Bash example in box-install.sh --help (nothing was changed)"
     fi
     YES=1
   fi
   if [ "$YES" != 1 ] && [ -t 0 ]; then
     printf 'Is this the machine to install TrialBox on? [Y/n] '; read -r ans
-    case "$ans" in n|N) die "stopped: nothing was changed" ;; esac
+    case "$ans" in n|N) die "stopped: nothing was changed" ;; esac  # H-94 not a stop: the operator's own answer
   fi
   # ---------------------------------------------------------------------------------------------- 2. plan
   say "plan from the hardware"
   rm -f "$BOX/applied"  # D-576: a new install: the answers are provisional again and the wizard is due
   if [ -n "$OWNER" ]; then
     ARGS_LINE="$(python3 -m tools.box plan --hardware "$BOX/hardware.json" --owner "$OWNER" --deploy "$ROOT/deploy" --out "$BOX/answers.json" | tail -1)" \
-      || die "the owner's answers do not parse (above): nothing was changed"
+      || die "the owner's answers do not parse (above): nothing was changed"  # H-94 (3): the site's unattended install
   else
     ARGS_LINE="$(python3 -m tools.box plan --hardware "$BOX/hardware.json" --provisional --deploy "$ROOT/deploy" --out "$BOX/answers.json" | tail -1)"
   fi
@@ -154,6 +219,7 @@ EOP
   set -e
   # a FAIL list at the end (backups not yet placed, say) leaves the stack running; a stop half-way does not
   if [ "$rc" != 0 ] && ! grep -q "TrialBox is running" "$BOX/install.log"; then
+    # H-94 depends (1): on a PoC box install.sh stops only for one of the five (D-1091); a box with none is not served
     die "the install stopped (above; $BOX/install.log): nothing for the wizard to serve"
   fi
   if [ "$PREPARE" = 1 ]; then
@@ -169,6 +235,8 @@ EOP
 fi
 
 # ------------------------------------------------------------------------------------------------ 5. first run
+# H-94 depends (3): the first run serves only a box this installer planned; another box's settings (a site's) are
+# never taken over by a first-run wizard
 [ -f "$BOX/answers.json" ] && [ -f "$BOX/hardware.json" ] || die "this box was not installed by box-install.sh"
 # BOX-APPLIED (D-576): the owner's answers were applied by an earlier start that did not reach its last line (the
 # window closed, the session dropped). The console's set-up is finished: a new code would never be accepted and the
@@ -232,17 +300,18 @@ if [ -f "$ROOT/deploy/site/hardening.conf" ] && grep -q '^KEK_BACKEND=passphrase
    && [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ]; then
   # deferred at install (no TPM): the keys are sealed now, under the passphrase the owner set (never written to disk)
   TB_KEK_PASSPHRASE="$(json_get "$FR/answers.json" kek_passphrase)"
+  # H-94 (5): the site keys stay plain without it (H-96's part; unchanged here)
   [ -n "$TB_KEK_PASSPHRASE" ] || die "no passphrase in the owner's answers: the keys stay unsealed (run the wizard again)"
   export TB_KEK_PASSPHRASE
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets")}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$ROOT/deploy/site/hardening.conf" \
-    || die "the site keys could not be sealed (above)"
+    || die "the site keys could not be sealed (above)"  # H-94 (5): H-96's part, unchanged
   unset TB_KEK_PASSPHRASE
 fi
 TZ_NEW="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tz"])' "$FR/answers.json")"
 if [ -n "${TB_BOX_PY:-}" ]; then APPLY=(--firstrun "$FR" --hardware "$BOX/hardware.json" --deploy "$ROOT/deploy")
 else APPLY=(--firstrun /fr --hardware /d/site/box/hardware.json --deploy /d); fi  # the image's mounts (box_py)
-box_py apply "${APPLY[@]}" || die "the owner's answers could not be applied (above)"
+box_py apply "${APPLY[@]}" || stop_or_warn apply "the owner's answers (the install's provisional settings stay)" "the owner's answers could not be applied (above)"  # D-1091
 date -u +%FT%TZ > "$BOX/applied"  # D-576: from here a new start does not ask again
 if [ "$WSL2" = 1 ]; then
   echo "    the host's time zone is not set here: Windows keeps the clock and the time zone (the site's zone $TZ_NEW is in the settings)"
@@ -263,21 +332,31 @@ fi
 # the console an anchor folder the rule refuses. Then that one folder is mounted into the console, read-only, as
 # install.sh mounts it (D-638), once the console's own image has shown it can read it (as install.sh asks it).
 # Unattended (--answers), install.sh ran the same check before it started the stack.
+# D-1091 (H94-03): the finish check protects none of the five, so on a PoC box it warns; a warning sets ANCHOR_UNSAFE:
+# the anchor folder is not mounted into the console and root's nightly cron signs no head into it
+ANCHOR_UNSAFE=0
+ANCHOR_SKIPS="the anchor folders: not mounted into the console, no nightly signed head (the cron writes the log retention only)"
 if [ -z "$OWNER" ]; then
   rc=0; ANCHORS="$(python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --print-anchors)" || rc=$?
-  [ "$rc" = 0 ] || [ "$rc" = 1 ] || die "the finish check did not run (exit $rc, above): the set-up is not finished; nothing was restarted"
-  [ "$rc" = 0 ] || die "the set-up is not finished (above). Mount the disk or the share at the folder the owner named; or, when a folder was typed wrongly or is mounted elsewhere, change the setting each line names in $ROOT/deploy/.env (the first-run page does not open again: the answers are applied). Then: sudo deploy/box-install.sh --firstrun"
-  if [ -z "${TB_BOX_PY:-}" ] || [ -n "${TB_BOX_DOCKER:-}" ]; then  # the tests' stand-in for the image: TB_BOX_DOCKER
+  [ "$rc" = 0 ] || [ "$rc" = 1 ] || { stop_or_warn finish-did-not-run "$ANCHOR_SKIPS" "the finish check did not run (exit $rc, above): the set-up is not finished; nothing was restarted"; ANCHOR_UNSAFE=1; }
+  [ "$rc" = 0 ] || [ "$ANCHOR_UNSAFE" = 1 ] || { stop_or_warn finish-gate "$ANCHOR_SKIPS" "the set-up is not finished (above). Mount the disk or the share at the folder the owner named; or, when a folder was typed wrongly or is mounted elsewhere, change the setting each line names in $ROOT/deploy/.env (the first-run page does not open again: the answers are applied). Then: sudo deploy/box-install.sh --firstrun"; ANCHOR_UNSAFE=1; }
+  if [ "$ANCHOR_UNSAFE" = 0 ] && { [ -z "${TB_BOX_PY:-}" ] || [ -n "${TB_BOX_DOCKER:-}" ]; }; then  # the tests' stand-in for the image: TB_BOX_DOCKER
     while IFS= read -r anchor; do
       [ -n "$anchor" ] || continue
       # shellcheck disable=SC2086 # a command line on purpose (tests)
+      # H-94 not a stop: the exit inside the probe container's script is the probe's own answer
       ${TB_BOX_DOCKER:-docker} run --rm --network none -v "$anchor:/anchor:ro" "$IMAGE_PY" sh -c \
         'test -r /anchor && test -x /anchor && for d in heads keys; do [ ! -e "/anchor/$d" ] || { test -r "/anchor/$d" && test -x "/anchor/$d"; } || exit 1; done' </dev/null \
-        || die "the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then: sudo deploy/box-install.sh --firstrun"
+        || { stop_or_warn anchor-read "the anchor folder's mount into the console" "the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then: sudo deploy/box-install.sh --firstrun"; ANCHOR_READ=0; }
     done <<< "$ANCHORS"
   fi
-  python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --mount-anchors >/dev/null \
-    || die "the audit anchor folder is not mounted into the console (above); then: sudo deploy/box-install.sh --firstrun"
+  if [ "$ANCHOR_UNSAFE" = 0 ] && [ "${ANCHOR_READ:-1}" = 1 ]; then
+    python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" --mount-anchors >/dev/null \
+      || stop_or_warn anchor-mount "" "the audit anchor folder is not mounted into the console (above); then: sudo deploy/box-install.sh --firstrun"
+  fi
+  if [ "$ANCHOR_UNSAFE" = 1 ] && [ -f "${TB_CRON_DIR:-/etc/cron.d}/trialbox-retention" ]; then  # no head into a refused folder
+    sed -i 's/; python3 -m tools.trialbox audit-sign//' "${TB_CRON_DIR:-/etc/cron.d}/trialbox-retention"
+  fi
 fi
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose
 # OPS-005: the name the box prints resolves on the clinic's network: the host takes the owner's name and the mDNS
@@ -294,7 +373,7 @@ if [ "$WSL2" = 0 ] && [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ] && [ "${HOST
 fi
 chown "$(id -u):10001" deploy/settings.yaml 2>/dev/null && chmod 640 deploy/settings.yaml
 # shellcheck disable=SC2086 # a command line on purpose (tests)
-${TB_BOX_COMPOSE:-docker compose --project-directory deploy} up -d --wait || die "the stack did not restart on the new settings"
+${TB_BOX_COMPOSE:-docker compose --project-directory deploy} up -d --wait || stop_or_warn stack-restart "" "the stack did not restart on the new settings"  # D-1091
 if grep -q '^TB_BACKUP_TARGETS=.' deploy/.env && [ -z "${TB_BOX_PY:-}" ]; then
   python3 -m tools.trialbox backup-install --deploy deploy 2>&1 | sed 's/^/    /' \
     || echo "box-install: warning: the backup schedule is not installed yet (the health page says why; T-730)" >&2
@@ -311,4 +390,6 @@ if [ -n "$OWNER" ]; then
 else
   printf '\n  TrialBox is ready: https://%s  (sign in with the account you made in the set-up)\n' "$HOST"
 fi
-exit "$rc"
+# H-94: the host check's FAIL lines (above) end the run with its code; on a PoC box a warning and a line of the list
+[ "$rc" = 0 ] || stop_or_warn --rc "$rc" --silent host-check "" "the host check reported FAIL lines (above)"
+exit 0
