@@ -470,7 +470,25 @@ def undo_load(before: tuple[dict[str, str], set[str]], run: Runner) -> list[str]
     return done
 
 
-def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run: Runner) -> None:
+LOAD_BEFORE = "load_before"  # the rollback point's record of the engine before a streamed load (re-review F1)
+
+
+def undo_recorded_load(point: Point, run: Runner) -> list[str]:
+    """Undo a streamed load the rollback point recorded and nothing undid (a kill between the load and its undo)."""
+    rec = point.extra.pop(LOAD_BEFORE, None)
+    if not isinstance(rec, dict):
+        return []
+    return undo_load(({str(k): str(v) for k, v in (rec.get("tags") or {}).items()}, set(rec.get("ids") or [])), run)
+
+
+def stream_image(
+    p: Streamed,
+    configs: dict[str, str],
+    manifests: set[str],
+    run: Runner,
+    rb: Path | None = None,
+    point: Point | None = None,
+) -> None:
     """H-95: one image archive from the bundle into ``docker load`` on its standard input, hashed as it goes, in one
     read: the bytes hashed are the bytes handed on. The last ``HOLD_BACK`` bytes wait until the whole sha256 is
     known: on a match they follow and the load completes; on a mismatch the load is killed with its archive cut short.
@@ -478,8 +496,17 @@ def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run:
     The engine is read before the load (every tag and image id). Whatever the load changed is checked after it
     (review F1): a load that failed, did not match its hash, or moved a tag that is not one of the archive's pinned
     tags (an archive swapped on the stick after its manifest was read, or a complete tar that ends early) is undone
-    exactly (``undo_load``): tags moved back, what it added removed, nothing that was there before removed (F2)."""
+    exactly (``undo_load``): tags moved back, what it added removed, nothing that was there before removed (F2).
+
+    Re-review F1: on a mismatch the load client is not killed (the engine goes on and registers the archive after a
+    killed client, after the undo). Its input is closed with the archive cut short and the client is waited for: it
+    exits only once the engine has answered, so the undo reads a settled engine. The engine as it was before is
+    written into the rollback point first (``rb``, ``point``): a kill between the load and the undo is undone by the
+    rollback, or by the next run of the same pack (``main_apply``)."""
     before = image_state(run)
+    if rb is not None and point is not None:
+        point.extra[LOAD_BEFORE] = {"image": p.name, "tags": before[0], "ids": sorted(before[1])}
+        save_point(rb, point)
     proc = subprocess.Popen(["docker", "load"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)  # fmt: skip
     assert proc.stdin is not None and proc.stdout is not None
@@ -506,18 +533,28 @@ def stream_image(p: Streamed, configs: dict[str, str], manifests: set[str], run:
     except OSError:  # the stick could not be read to the end: its bytes do not hash to the signed sha256
         ok = False
     finally:
-        if not ok:
-            proc.kill()
+        # never a kill (re-review F1): the archive is cut short by closing the input, and the client exits only
+        # once the engine has answered; only a client that hangs for an hour is killed
         with contextlib.suppress(BrokenPipeError):
             proc.stdin.close()
-        rc = proc.wait(timeout=3600)
+        try:
+            rc = proc.wait(timeout=3600)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            rc = proc.wait()
         reader.join(timeout=60)
     said = b"".join(out).decode("utf-8", "replace").strip()
     moved = sorted(t for t, i in image_state(run)[0].items() if before[0].get(t) != i)
     stray = [t for t in moved if t not in configs]
     if ok and rc == 0 and not stray:
+        if point is not None and rb is not None:
+            point.extra.pop(LOAD_BEFORE, None)
+            save_point(rb, point)
         return
     undone = undo_load(before, run)
+    if point is not None and rb is not None:
+        point.extra.pop(LOAD_BEFORE, None)
+        save_point(rb, point)
     what = f"; undone: {', '.join(undone)}" if undone else ""
     if ok and rc == 0:
         raise UpdateFailed(f"image {p.name}: the load moved tags the archive does not pin ({', '.join(stray)}){what}")
@@ -1398,7 +1435,7 @@ class _DockerImages:
                 else:
                     point.images[tag] = ""
 
-    def load_images(self, plan: Plan) -> list[str]:
+    def load_images(self, plan: Plan, rb: Path | None = None, point: Point | None = None) -> list[str]:
         done = []
         pins = _image_pins(plan)
         checked: set[str] = set()
@@ -1413,7 +1450,7 @@ class _DockerImages:
                     raise UpdateFailed(f"image {tar.name}: {tag} has config {configs[tag] or '(none)'}, "
                                        f"release.json pins {pins[tag]}; nothing loaded")  # fmt: skip
             if isinstance(tar, Streamed):  # H-95: from the stick, hashed again on the way in
-                stream_image(tar, configs, manifests, self.run)
+                stream_image(tar, configs, manifests, self.run, rb, point)
             else:
                 self.run(["docker", "load", "-i", str(tar)], timeout=3600)
             done.append(f"image {tar.name}")
@@ -1437,6 +1474,7 @@ class _DockerImages:
                                f"({', '.join(sorted(accepted)) or 'none'})")  # fmt: skip
 
     def restore_images(self, point: Point) -> None:
+        undo_recorded_load(point, self.run)  # re-review F1: a streamed load the kill left half done, first
         for tag, rt in point.images.items():
             if rt:
                 self.run(["docker", "tag", rt, tag])
@@ -1723,7 +1761,7 @@ class ComposeBox(_DockerImages):
 
     def apply(self, plan: Plan, rb: Path, point: Point) -> list[str]:
         done = apply_host(plan, self.deploy.parent, rb, point)  # first: the restart runs the new compose files
-        done += self.load_images(plan)
+        done += self.load_images(plan, rb, point)
         done += copy_models(plan.kind("model"), self.models, rb, point)
         done += stream_models([p for p in plan.streamed if p.kind == "model"], self.models, rb, point)
         done += copy_other(plan.kind("other"), self.deploy / "updates" / plan.bundle_id / "files")
@@ -2155,7 +2193,7 @@ class DemoBox(_DockerImages):
             point.images[self.image] = rt
 
     def apply(self, plan: Plan, rb: Path, point: Point) -> list[str]:
-        return self.load_images(plan) + copy_other(
+        return self.load_images(plan, rb, point) + copy_other(
             plan.kind("other"), self.deploy / "updates" / plan.bundle_id / "files"
         )
 
@@ -2433,6 +2471,15 @@ def first_load_needs(box: Any, plan: Plan, deploy: Path) -> list[tuple[Path, int
             (deploy / "updates", plan.payload_bytes("other"), "other files")]  # fmt: skip
 
 
+def sweep_parts(models: Path) -> None:
+    """H-95: every ``*.part`` under the models folder is a weight file a killed load left half written (no payload
+    path may end in .part, verify_update.py), removed at the start of every run."""
+    if models.is_dir() and not models.is_symlink():
+        for part in models.rglob("*.part"):
+            if part.is_file() and not part.is_symlink():
+                part.unlink(missing_ok=True)
+
+
 def held_model_pack(updates: Path) -> dict[str, Any] | None:
     """H-95: the model pack record (``deploy/updates/model-pack.json``), None when there is none; the same checks as
     the verifier's (a link, or a file others may write, is refused: ValueError)."""
@@ -2520,6 +2567,7 @@ def main_apply(
         plan.no_backup_reason = no_backup_reason.strip()[:500]
     updates = deploy / "updates"
     box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
+    sweep_parts(Path(box.models))  # re-review: a .part a killed load left goes at the start of every run
     try:
         inst = us.installed(updates)
     except ValueError as exc:  # a malformed record: never guessed
@@ -2588,6 +2636,9 @@ def main_apply(
                     return 1
                 point = Point()
                 rb = updates / plan.bundle_id / "rollback"
+                if (rb / "point.json").is_file():  # re-review F1: a load of an earlier run killed before its undo
+                    for line in undo_recorded_load(Point.read(rb), box.run):
+                        print(f"undone from an earlier run: {line}")
                 rb.mkdir(parents=True, exist_ok=True)
                 for line in box.apply(plan, rb, point):
                     print(line)

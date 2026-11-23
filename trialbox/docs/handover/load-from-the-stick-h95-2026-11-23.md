@@ -160,6 +160,29 @@ Each finding has a test in `tests/unit/test_load_from_the_stick_h95.py` that fai
 Measured again: installed 65,228,800 bytes, peak 65,327,104 (1.0015; the bound 1.10). Mutants: 20 planted (the
 card's own, the review's two survivors and one per fix), 20 caught.
 
+## The re-review of 4060f5c3 (FIX FIRST: F1 on a real engine), and what changed
+
+- **F1 on a real engine.** The undo ran before the engine had finished: on a mismatch the load client was killed,
+  and the engine went on and registered the swapped archive about 2 s after the undo (both image stores). Fixed as
+  the reviewer checked it: the client is never killed (only one that hangs for an hour). Its input is closed with
+  the archive cut short and the client is waited for; it exits once the engine has answered, so the undo reads a
+  settled engine. The engine as it was before the load is written into the rollback point first (`load_before`): a
+  kill between the load and the undo is undone by the rollback (`restore_images`) and by the next run of the same
+  pack (`main_apply`). Tests: `test_review_f1_an_archive_swapped_after_the_pin_read_leaves_nothing_loaded` now also
+  runs with a stand-in engine that registers a second after the client's end (`late`), and
+  `test_rereview_a_load_killed_before_its_undo_is_undone_by_the_rollback_and_the_next_run`.
+  **Changed assertion, this card's own test:** M10's test was "the load is killed on a hash mismatch"; it is now
+  `test_review_m10_the_load_is_waited_for_not_killed_on_a_hash_mismatch` (the client's exit mark is written, nothing
+  loaded), as the re-review asked.
+- **On the real engine (the rehearsal job).** `tools/rehearse_box/h95_probe.py`, step `swapped-stream` of
+  `tools/rehearse_box/rehearse.sh`: synthetic images, an archive swapped after the pin read (a new name, and another
+  image under the pinned name with the original loaded), the real `stream_image`, then 30 s: no new tag, no new
+  image id, the pinned name unmoved.
+- **Low: a `.part` stayed until the same pack ran again.** Every run now removes every `.part` under the models
+  folder first. `test_rereview_every_run_removes_a_stale_part`.
+- **Low: `--for-software` read an unsigned manifest.** Its manifest counts only when its signature verifies with a
+  key the box trusts. `test_rereview_for_software_reads_only_a_signed_manifest`.
+
 ## Findings
 
 `load-from-the-stick-h95-2026-11-23/findings.json` (H95-01 to H95-05), in the register's `--add-from` form.

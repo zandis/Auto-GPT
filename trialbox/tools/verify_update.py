@@ -300,7 +300,7 @@ def verify(
             raise Rejected(pack_problem)
         is_model_pack = (manifest.get("pack") or {}).get("kind") == "model"
         if is_model_pack:  # H-95 (review F4): the weights the software the box runs needs, or the next one's
-            mismatch = model_pack_for_software(inst, manifest["bundle_id"], manifest_sha, software_candidate)
+            mismatch = model_pack_for_software(inst, manifest["bundle_id"], manifest_sha, software_candidate, keys)
             if mismatch:  # H-94 (1): the pair does not hold together
                 raise Rejected(mismatch)
         seq, have = int(manifest["release_seq"]), int(inst["release_seq"])
@@ -443,11 +443,14 @@ def load_model_pack(path: Path | None, installed: dict[str, Any] | None = None) 
     return rec
 
 
-def model_pack_for_software(inst: dict[str, Any], bundle_id: str, sha: str, software: Path | None) -> str:
+def model_pack_for_software(
+    inst: dict[str, Any], bundle_id: str, sha: str, software: Path | None, keys: dict[str, Any] | None = None
+) -> str:
     """H-95 (review F4): why a model pack may not replace the weights now ("" when it may). A box with no software
     yet takes it. Otherwise the software the box runs must name it (a software pack's ``requires_model`` in
     installed.json; a whole bundle names its own models, so no model pack replaces them alone), or the software pack
-    that comes next must (``--for-software FILE``: install.sh names the software pack it loads straight after)."""
+    that comes next must (``--for-software FILE``: install.sh names the software pack it loads straight after;
+    its manifest is read only when its signature verifies with a key the box trusts, re-review)."""
     if not SHA256.match(str(inst.get("manifest_sha256") or "")):
         return ""
     need = inst.get("requires_model") or {
@@ -459,10 +462,17 @@ def model_pack_for_software(inst: dict[str, Any], bundle_id: str, sha: str, soft
     if software is not None:
         try:
             with tarfile.open(software, "r:") as tf:
-                m = tf.extractfile("manifest.json")
-                nxt = json.loads(m.read(MAX_META_BYTES + 1) if m is not None else b"{}")
+                m, s = tf.extractfile("manifest.json"), tf.extractfile("manifest.json.sig")
+                body = m.read(MAX_META_BYTES + 1) if m is not None else b""
+                sig = base64.b64decode((s.read(4096) if s is not None else b"").strip(), validate=True)
         except (OSError, KeyError, ValueError, tarfile.TarError) as exc:
-            raise Rejected(f"{software}: not a software pack ({exc})") from exc
+            raise Rejected(f"{software}: not a signed software pack ({exc})") from exc
+        if not _signed_by_any(sig, body, keys or {}):
+            raise Rejected(f"{software}: its manifest is not signed by a key this box trusts; nothing was changed")
+        try:
+            nxt = json.loads(body)
+        except ValueError as exc:
+            raise Rejected(f"{software}: manifest.json is not JSON") from exc
         req = ((nxt.get("pack") or {}) if isinstance(nxt, dict) else {}).get("requires_model") or {}
         if req.get("manifest_sha256") == sha:
             return ""
@@ -472,6 +482,18 @@ def model_pack_for_software(inst: dict[str, Any], bundle_id: str, sha: str, soft
         "pack that names it (deploy/install.sh <software pack> --model-pack <model pack>, or tools/apply_update.sh "
         "<model pack> --for-software <software pack>, then that software pack); nothing was changed"
     )
+
+
+def _signed_by_any(sig: bytes, body: bytes, keys: dict[str, Any]) -> bool:
+    from cryptography.exceptions import InvalidSignature
+
+    for key in keys.values():
+        try:
+            key.verify(sig, body)
+        except InvalidSignature:
+            continue
+        return True
+    return False
 
 
 def candidate_identity(path: Path) -> dict[str, Any]:

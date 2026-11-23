@@ -32,6 +32,8 @@
 #                   the gateway refuses the call
 #   missing-key     the gateway without the key: the doctor FAILs "refused the key (HTTP 401)", calls are refused
 #   no-registry-pull  the Docker daemon's image events from the clearing of the images to the end: loads, no pull
+#   swapped-stream  H-95 on this real engine (tools/rehearse_box/h95_probe.py): an image archive swapped on the stick
+#                   after the pin read is refused, and 30 s later no image, no tag, the pinned name unmoved
 #
 # Writes $TB_REHEARSE_DIR/report.md and report.json; exit 0 only when every step passes.
 #
@@ -272,6 +274,12 @@ clear_images() {  # only the media may bring them back: by id, so every tag and 
   echo "ok: $(wc -l < "$W/vendor/bundle-images.txt") box images removed from the Docker host ($(docker info --format '{{.Driver}}') store); only the media has them"
 }
 
+swapped_stream() {  # H-95 (the re-review of #1409, F1): the update path's streamed load on the real engine
+  PYTHONPATH="$ROOT/libs:$ROOT" "$PY" -m tools.rehearse_box.h95_probe "$W/h95-probe"; local rc=$?
+  rm -rf "$W/h95-probe"
+  return "$rc"
+}
+
 no_registry_pull() {
   [ -n "$EVENTS_PID" ] || { echo "no image event log"; return 1; }
   sleep 1; kill "$EVENTS_PID" 2>/dev/null; wait "$EVENTS_PID" 2>/dev/null; EVENTS_PID=""
@@ -374,6 +382,7 @@ step restic-restore 0 in_box restic-restore
 step wrong-name 0 in_box wrong-name
 step missing-key 0 in_box missing-key
 step no-registry-pull 0 no_registry_pull
+step swapped-stream 0 swapped_stream
 collect
 teardown
 

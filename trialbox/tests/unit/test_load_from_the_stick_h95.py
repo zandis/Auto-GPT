@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tarfile
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,17 @@ if a[:1] == ["load"]:
             with open(os.path.join(d, os.path.basename(m.name)), "wb") as out:
                 shutil.copyfileobj(f, out, 1 << 20)
     dest = os.path.join(root, "images", cfg[7:] + ".layers")
+    if os.environ.get("H95_DOCKER_LATE") == "1":
+        # a real engine: the daemon, not this client, registers the archive, about a second after its end, and a
+        # killed client does not stop it. The client answers only once the daemon has
+        import subprocess
+        reg = ("import json, os, shutil, sys, time; time.sleep(1); r, d, cfg, got = sys.argv[1:5]; "
+               "shutil.rmtree(d, ignore_errors=True); os.replace(os.path.join(r, 'images', 'loading'), d); "
+               "f = os.path.join(r, 'tags.json'); t = json.load(open(f)) if os.path.exists(f) else {}; "
+               "t.update({g: cfg for g in got.split(',')}); json.dump(t, open(f, 'w'))")
+        daemon = subprocess.Popen([sys.executable, "-c", reg, root, dest, cfg, ",".join(got)], start_new_session=True)
+        daemon.wait()
+        sys.exit(0)
     shutil.rmtree(dest, ignore_errors=True)  # the same image loaded again replaces itself
     os.replace(os.path.join(root, "images", "loading"), dest)
     t = tags(); t.update({g: cfg for g in got}); save(t)
@@ -588,9 +600,10 @@ def _swap_for_an_early_ending_tar(bundle: Path, path: str, tag: str) -> None:
         fh.write(data + b"\0" * (size - len(data)))
 
 
+@pytest.mark.parametrize("late", [False, True])
 @pytest.mark.parametrize("db_before", [False, True])
 def test_review_f1_an_archive_swapped_after_the_pin_read_leaves_nothing_loaded(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, db_before: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, db_before: bool, late: bool
 ) -> None:
     """Review F1: the pins are read from the archive's manifest, then the stick changes and the stream hands the
     engine a complete tar of another image (db:16) that ends early. The load fails, and the engine is as it was:
@@ -599,6 +612,8 @@ def test_review_f1_an_archive_swapped_after_the_pin_read_leaves_nothing_loaded(
     b = _box(tmp_path, p["pub"])
     for k, v in _env(b).items():
         monkeypatch.setenv(k, v)
+    if late:  # re-review F1: the engine registers the swapped archive after the client's end, as a real one did
+        monkeypatch.setenv("H95_DOCKER_LATE", "1")
     if db_before:
         (b["dockerroot"] / "images").mkdir(parents=True, exist_ok=True)
         (b["dockerroot"] / "tags.json").write_text(json.dumps({"db:16": "sha256:" + "d" * 64}), encoding="utf-8")
@@ -612,6 +627,7 @@ def test_review_f1_an_archive_swapped_after_the_pin_read_leaves_nothing_loaded(
     monkeypatch.setattr(up, "tar_images", lambda tar: seen.get(tar.name) or first_read(tar))
     with pytest.raises(up.UpdateFailed, match="undone"):
         up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=p["model"])
+    time.sleep(2)  # what a late registration would have put back by now (the re-review saw it at 2 s)
     assert _tags(b) == before
     ids = {d.name.removesuffix(".layers") for d in (b["dockerroot"] / "images").iterdir() if d.name != "loading"}
     assert ids == ({"d" * 64} if db_before else set())
@@ -764,9 +780,12 @@ def test_review_m4_the_bundle_must_be_the_one_verified(tmp_path: Path, monkeypat
     assert not (b["dockerroot"] / "tags.json").exists() and not (b["box"] / "deploy/models").exists()
 
 
-def test_review_m10_the_load_is_killed_on_a_hash_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutant M10: on a mismatch the load is killed, not left to end on a cut stream: the stand-in's exit marker,
-    written by any load that ends by itself, is never written."""
+def test_review_m10_the_load_is_waited_for_not_killed_on_a_hash_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutant M10, changed by the re-review (F1 on a real engine): on a mismatch the load client is not killed but
+    its input is closed with the archive cut short and it is waited for, so the undo reads a settled engine: the
+    stand-in's exit mark, which a killed client never writes, is written, and nothing is loaded."""
     p = _packs(tmp_path)
     b = _box(tmp_path, p["pub"])
     stage = _staged_summary(p, "model", tmp_path)
@@ -780,7 +799,8 @@ def test_review_m10_the_load_is_killed_on_a_hash_mismatch(tmp_path: Path, monkey
         monkeypatch.setenv(k, v)
     with pytest.raises(up.UpdateFailed, match="no longer hash"):
         up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=p["model"])
-    assert not (b["dockerroot"] / "load-exited").exists()
+    assert (b["dockerroot"] / "load-exited").exists()
+    assert _tags(b) == {}
 
 
 def test_review_f1_a_load_that_moves_a_tag_the_first_read_did_not_see_is_undone(
@@ -819,3 +839,88 @@ def test_review_f1_a_load_that_moves_a_tag_the_first_read_did_not_see_is_undone(
     with pytest.raises(up.UpdateFailed, match="moved tags the archive does not pin .extra:1."):
         up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=model)
     assert _tags(b) == {}
+
+
+def test_rereview_a_load_killed_before_its_undo_is_undone_by_the_rollback_and_the_next_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-review F1: the engine as it was before a streamed load is in the rollback point, so a kill between the
+    load and its undo (here: the undo never runs) is undone by the rollback (restore_images) and by the next run of
+    the same pack (main_apply), which then loads it whole."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    for k, v in _env(b).items():
+        monkeypatch.setenv(k, v)
+    stage = _staged_summary(p, "model", tmp_path)
+    seen = {"engine.tar": up.tar_images(up.streamed_payloads(p["model"], json.loads((stage / "manifest.json").read_text()),
+                                                             ["image"])[0])}  # fmt: skip
+    original = p["model"].read_bytes()
+    _swap_for_an_early_ending_tar(p["model"], "engine.tar", "db:16")
+    monkeypatch.setattr(up, "tar_images", lambda tar: seen.get(tar.name) or ({}, set()))
+
+    class Killed(BaseException):
+        pass
+
+    def killed(*_a: Any) -> list[str]:
+        raise Killed
+
+    monkeypatch.setattr(up, "undo_load", killed)
+    with pytest.raises(Killed):
+        up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=p["model"])
+    monkeypatch.undo()
+    for k, v in _env(b).items():
+        monkeypatch.setenv(k, v)
+    assert "db:16" in _tags(b)  # the kill left the swapped load in place
+    rb = b["box"] / "deploy/updates/r1-models/rollback"
+    point = up.Point.read(rb)
+    assert up.LOAD_BEFORE in point.extra
+    up.ComposeBox(b["box"] / "deploy").restore_images(up.Point.read(rb))  # the rollback undoes it
+    assert _tags(b) == {}
+    _swap_for_an_early_ending_tar(p["model"], "engine.tar", "db:16")
+    monkeypatch.setattr(up, "tar_images", lambda tar: seen.get(tar.name) or ({}, set()))
+    monkeypatch.setattr(up, "undo_load", killed)
+    with pytest.raises(Killed):
+        up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=p["model"])
+    monkeypatch.undo()
+    for k, v in _env(b).items():
+        monkeypatch.setenv(k, v)
+    p["model"].write_bytes(original)  # the stick as it was verified
+    up.main_apply(stage, stage / "summary.json", "compose", b["box"] / "deploy", bundle=p["model"])  # the next run
+    assert set(_tags(b)) == {ENGINE[0]}
+
+
+def test_rereview_every_run_removes_a_stale_part(tmp_path: Path) -> None:
+    """Re-review (low): a .part a killed load left is removed at the start of every run, whatever pack it runs."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    assert _apply(b, str(p["model"])).returncode == 0
+    stale = b["box"] / "deploy/models/elsewhere/w.bin.part"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"x")
+    r = _apply(b, str(p["model"]))  # the same pack again: "already installed", and the stale .part still goes
+    assert r.returncode == 0 and "already installed" in r.stdout
+    assert not stale.exists()
+
+
+def test_rereview_for_software_reads_only_a_signed_manifest(tmp_path: Path) -> None:
+    """Re-review (low): --for-software names the next software pack; its manifest counts only when its signature
+    verifies with a key the box trusts."""
+    p = _packs(tmp_path, seq=2)
+    b = _box(tmp_path, p["pub"])
+    _install_load(b, p)
+    nxt = _packs(tmp_path / "next", seq=3, tag_suffix="-next", keys=(p["priv"], p["pub"]))
+    stranger = _packs(tmp_path / "s", seq=3, tag_suffix="-next")  # another key
+    forged = tmp_path / "forged.tar"
+    with tarfile.open(stranger["software"]) as src, tarfile.open(forged, "w:") as out:
+        for m in src.getmembers():
+            data = src.extractfile(m).read()  # type: ignore[union-attr]
+            if m.name == "manifest.json":  # it names the model pack the box is offered
+                man = json.loads(data)
+                man["pack"]["requires_model"] = model_pack_identity(nxt["model"])
+                data = json.dumps(man).encode()
+                m.size = len(data)
+            out.addfile(m, io.BytesIO(data))
+    r = _apply(b, str(nxt["model"]), "--dry-run", "--for-software", str(forged), dry=True)
+    assert r.returncode == 1 and "not signed by a key this box trusts" in r.stderr
+    r = _apply(b, str(nxt["model"]), "--dry-run", "--for-software", str(nxt["software"]), dry=True)
+    assert r.returncode == 0, r.stderr
