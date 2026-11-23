@@ -213,27 +213,49 @@ done
 fi  # the LUKS lines; on WSL2 BitLocker's lines above
 if [ -z "$(swapon --noheadings 2>/dev/null)" ]; then pass "swap disabled"; else fail "swap is enabled (swapoff -a; remove from /etc/fstab)"; fi
 # H-89 (the integrator's ruling, item 1 of #1370's round): the passphrase back end needs no TPM. Chosen: this run has
-# TB_KEK_BACKEND=passphrase and a TB_KEK_PASSPHRASE (the install's way out, never printed), or the site keys are
-# sealed under it (kek.json). Then a missing or unusable TPM is a WARN that names it; otherwise it FAILs as before
-kek_passphrase() {
-  { [ "${TB_KEK_BACKEND:-}" = passphrase ] && [ -n "${TB_KEK_PASSPHRASE:-}" ]; } \
-    || grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null
-}
+# TB_KEK_BACKEND=passphrase (the install's way out), or the site keys are sealed under it (kek.json). Then a missing
+# or unusable TPM is a WARN that names it; otherwise it FAILs as before. H-96: the passphrase itself is never read
+# here (it comes from a file only root can read, or stdin, never the environment)
+kek_sealed_pp() { grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null; }
+kek_passphrase() { [ "${TB_KEK_BACKEND:-}" = passphrase ] || kek_sealed_pp; }
 KEK_PP="the KEK is under the passphrase back end (TB_KEK_BACKEND=passphrase), which needs no TPM"
+# H-96 (L-3 of the review of #1398; the integrator's ruling 7102655419): the back end only named (nothing sealed under
+# it yet) WARNs on a PoC box alone, as one line of the PoC list (D-1091: tools/trialbox/stops.py, where the box's
+# recorded environment decides, never a caller's variable); on any other box it is a FAIL
+poc_list() {  # KEY SKIPPED WHAT: on a PoC box 0 with one line of deploy/site/poc-stops.jsonl, 2 when it cannot be written; else 1
+  python3 - "$(cd "$(dirname "$0")/.." && pwd)" "$(dirname "$ENV_FILE")" "$@" <<'EOP' 2>/dev/null
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from tools.trialbox import stops
+deploy, key, skipped, what = Path(sys.argv[2]), *sys.argv[3:6]
+if not stops.poc_box(deploy):
+    sys.exit(1)
+sys.exit(0 if stops.append(deploy, f"check_host.sh/{key}", what, skipped, by="check_host.sh") else 2)
+EOP
+}
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
-elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
+elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_sealed_pp; then
   warn "no TPM device: $KEK_PP; the disk unlock is not bound to this board"
+elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
+  NO_TPM_PP="no TPM device: $KEK_PP, but nothing is sealed under it yet; the disk unlock is not bound to this board"
+  poc_list no-tpm "the TPM binding of the KEK" "$NO_TPM_PP"; NO_TPM_RC=$?
+  case "$NO_TPM_RC" in
+    0) warn "$NO_TPM_PP (a PoC box: listed in deploy/site/poc-stops.jsonl)" ;;
+    2) warn "$NO_TPM_PP (a PoC box: NOT listed, deploy/site/poc-stops.jsonl cannot be written)" ;;
+    *) fail "$NO_TPM_PP: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) goes on without a TPM" ;;
+  esac
 elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then
   # D-836: a device node is not enough; systemd-creds needs the TPM and its TSS2 libraries. Asked of the running host
   # only (a test's TB_HOST_ROOT has no kernel to ask)
   if [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1 && kek_passphrase; then
     warn "TPM 2.0 device present but not usable (systemd-creds has-tpm2): $KEK_PP"
   elif [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1; then
-    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM
+    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with --kek-passphrase-file)" TPM
   else
     pass "TPM 2.0 device present"
   fi
-else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM; fi
+else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with --kek-passphrase-file)" TPM; fi
 
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then

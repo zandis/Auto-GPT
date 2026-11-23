@@ -39,8 +39,9 @@ the bundle's signature with the same key and the release's host tree against it,
 and runs `/opt/trialbox/deploy/install.sh` with the bundle and the options after `--`. An install that stopped (a
 missing answer, a machine check) is run again by the same command. The installer verifies and loads the bundle,
 runs the settings wizard, makes one token per service, turns TLS on (the identity overlay, after `console.cli
-check-tls` passed), starts the stack, creates the first administrator and prints the password and the enrolment code
-once, writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
+check-tls` passed), starts the stack, creates the first administrator and shows the password and the enrolment code
+once on the terminal (never in its output, which a log may keep: box-install.sh keeps one; with no terminal at all
+they are in `/root/trialbox-admin-first-sign-in`, root only: read it once, hand both on in person, remove it), writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
 IT), installs both cron files (log retention and backups), runs the host check, names the judge (its role, the
 registry's label of the build the profile serves, and the pin) and ends with the `https://` console URL, which it
 checks from the box with the certificate the clinic PCs will see. It exits 1 when a FAIL line remains, and lists them
@@ -51,6 +52,16 @@ criteria that need a note's free text wait for a GPU or a pinned cloud model. Th
 (`e-embed-1`, BGE-M3, on the CPU) from the bundle's weights: every site bundle carries them (about 2.3 GB, 18
 files), and `release check` refuses a site bundle without them. A PRODUCTION install stops when they are missing.
 How fast the CPU embeds a hospital's records is not measured yet.
+
+**A machine without a usable TPM** (H-96). The site keys are then sealed under a passphrase (12 characters or more,
+one line). It goes in a file only root can read, and its name goes after `--`: after sudo's own password prompt, type
+the passphrase, then press Enter (nothing is shown):
+`sudo bash -c 'umask 077; IFS= read -rs p; printf "%s\n" "$p" > /root/trialbox-kek.pass'`, then the one command
+with `-- --tier large --answers /root/site/site.yaml --kek-passphrase-file /root/trialbox-kek.pass`, and with
+TB_KEK_BACKEND=passphrase set by sudo before bash. The file must be a regular file owned by root with mode 0600; the
+seal step removes it once the keys are sealed. `--kek-passphrase-stdin` instead asks for it twice on the terminal. A
+passphrase in the environment (sudo's preserve-env or -E option) is refused before anything, on every box: sudo writes a variable it keeps, with its value, to the system journal. A box
+installed that way rotates its passphrase (§23, "Rotate the KEK passphrase").
 
 **Re-running the installer.** After the release's own checks pass (pre-start) and before the database starts, the installer may run Compose `down --remove-orphans` on its own project. It does so only when every container of the project was started from this `deploy` folder and the stack is not running healthy (a failed earlier run). A healthy stack is kept with its logs. A `COMPOSE_PROJECT_NAME` in the shell that is not this install's project, or a container of the project from another folder, stops the installer and nothing is removed. Volumes and data are always kept.
 重新執行安裝程式時，版本檢查（pre-start）通過後、資料庫啟動前，只有當此專案的所有容器都來自本 `deploy` 資料夾且堆疊並非健康運行（先前執行失敗）時，才會對本專案執行 `down --remove-orphans`。健康運行的堆疊與其日誌會保留。若 shell 的 `COMPOSE_PROJECT_NAME` 不是本安裝的專案，或專案中有來自其他資料夾的容器，安裝程式會停止且不移除任何項目。資料卷與資料一律保留。

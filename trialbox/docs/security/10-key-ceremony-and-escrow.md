@@ -46,13 +46,14 @@ For a passphrase box, run `python -m tools.keys unseal` at a terminal and enter 
 在終端執行上述 unseal 指令，依隱藏提示輸入目前密語。更換密語時再執行 rotate-kek，輸入新密語兩次。
 端末で上記の unseal を実行し、非表示のプロンプトに現在のパスフレーズを入力します。変更時は続けて rotate-kek を実行し、新しいパスフレーズを 2 回入力します。
 
-To rotate an already unsealed KEK with the new passphrase supplied in the command environment, type the new
-passphrase in your own Bash shell. Using `sudo VAR=value command` shows the value in the process list.
+To rotate an already unsealed KEK without a terminal prompt, put the new passphrase in a file only root can read
+(type it after sudo's own password prompt, then Enter; nothing is shown). The file is removed once the KEK is
+rotated. A passphrase in the environment is refused by `tools.keys` (H-96): sudo writes a variable it keeps, with
+its value, to the system journal. RUNBOOK §23 ("Rotate the KEK passphrase") is the whole procedure.
 
 ```bash
-IFS= read -rs TB_KEK_NEW_PASSPHRASE; export TB_KEK_NEW_PASSPHRASE
-sudo --preserve-env=TB_KEK_NEW_PASSPHRASE env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase
-unset TB_KEK_NEW_PASSPHRASE
+sudo bash -c 'umask 077; IFS= read -rs TB_KEK_NEW_PASSPHRASE; printf "%s\n" "$TB_KEK_NEW_PASSPHRASE" > /root/trialbox-kek-new.pass'
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass
 ```
 
 ## 4. The ceremony, in order
