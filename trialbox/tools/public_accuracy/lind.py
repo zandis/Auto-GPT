@@ -117,7 +117,8 @@ def score_lind(
 ) -> dict[str, Any]:
     """Lind's agreement on the gold criterion rows ``crits`` against the box's ``answers``."""
     lang_of = ids.get("lang") or {}
-    overall, by_class = _cell(), defaultdict(_cell)
+    overall = _cell()
+    by_class: dict[str, dict[str, int]] = defaultdict(_cell)
     by_lang: dict[str, dict[str, dict[str, int]]] = defaultdict(lambda: defaultdict(_cell))
     decided = _cell()
     wrongable, blocked = 0, 0
@@ -133,7 +134,7 @@ def score_lind(
         a = answers.get(rs) or {}
         c = sc.match_criterion(str(g.get("text")), a.get("draft") or [], kind)
         p = (a.get("patients") or {}).get(sc.pid_of(str(mrn), key))
-        v = None
+        v: dict[str, Any] | None = None
         if c is None:
             not_answered["not compiled"] += 1
         elif p is None:
@@ -161,7 +162,7 @@ def score_lind(
         # a false block: the gold keeps the patient (an inclusion met, an exclusion not met), the box says fail
         if (kind, gold) in (("inclusion", MET), ("exclusion", NOT_MET)):
             wrongable += 1
-            blocked += int(bool(v) and str(v.get("verdict")) == "fail")
+            blocked += int(v is not None and str(v.get("verdict")) == "fail")
     return {
         "definition": "Lind: whole-system, per-criterion agreement; the box's mapped label against the gold's, over "
         "all (patient, criterion) pairs",

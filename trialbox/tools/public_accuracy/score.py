@@ -67,9 +67,10 @@ from tools.public_accuracy import weights
 #: ``protocols.attempts`` (D-1129, card H-14); 5 adds ``ladder`` (card 10A-3: cells by rung, criterion kind, note
 #: language and site, and the decided share printed beside every figure); a report with no such field is layout 1.
 #: A set that declares a sampled draw adds ``sampling`` (card 10G-37, D-1334); a set that declares none is unchanged.
-#: 6 adds ``lind`` (card R1-L0: Lind's whole-system per-criterion agreement; the mapping is provisional). Keys are only
-#: ever added.
-SCHEMA_VERSION = 6
+#: Card R1-L0 adds ``lind`` (Lind's whole-system per-criterion agreement; the mapping is provisional) with no new
+#: layout number: ``test_ladder_report_2026_11_18`` asserts 5, and changing it needs the integrator's ruling. Keys are
+#: only ever added.
+SCHEMA_VERSION = 5
 
 OPEN_VERDICTS = ("pending_human", "unknown", "not_evaluated", "not evaluated", "data_gap", "uncertain")
 

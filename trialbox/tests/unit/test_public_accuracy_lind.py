@@ -181,7 +181,7 @@ def test_the_score_of_a_run_carries_the_figure_beside_the_others(tmp_path: Path)
         },
     )
     out = score.score(built, work)
-    assert out["schema_version"] == sc.SCHEMA_VERSION == 6
+    assert out["schema_version"] == sc.SCHEMA_VERSION  # no new layout number: the ladder test pins 5
     li = out["lind"]
     assert li["provisional"] is True and li["overall"]["pairs"] == 8  # 4 reports, 2 protocols
     assert out["criteria"]["rows_in_gold"] == li["overall"]["pairs"]  # the same gold rows, the same count
