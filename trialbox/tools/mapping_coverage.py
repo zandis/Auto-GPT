@@ -248,7 +248,7 @@ class Reference:
                 + (f" and {_rel(ingredient_atc)}" if ingredient_atc else ""),
                 "nhi-drug": _rel(nhi_drug) if nhi_drug else "services/criteria_compiler/terminology/nhi_drug.parquet",
                 "who-icd10": "services/criteria_compiler/terminology/icd10cm_full.parquet (the same code, D-314)",
-                "department-table": _rel(department_table or DEPT_TABLE),
+                "department-table": _rel(department_table) if department_table else "none",
                 "who-to-cm": _rel(who_icd10cm) if who_icd10cm else (_rel(WHO_CM) if WHO_CM.exists() else "none"),
                 "report-rule": "services/adapter/mapping/tw_core/demo_his.yaml (the report code rule)",
             },
@@ -524,6 +524,10 @@ def render(report: dict[str, Any], title: str = "Mapping coverage") -> str:
         pct = "n/a (no list)" if v["percent"] is None else f"{v['percent']:.1f}%"
         routes = ", ".join(f"{k} {n}" for k, n in v["routes"].items()) or "-"
         out.append(f"  {d:<11} {v['mapped']:>5} / {v['codes']:<5} {pct:>14}   routes: {routes}")
+        if d == "department" and v["codes"]:
+            table = report.get("references", {}).get("department-table", "none")
+            shown = table if table != "none" else "none (TrialBox's own codes only)"
+            out.append(f"  {'':<11} department table: {shown}; {v['unmapped']} reach no TrialBox department code")
         if v.get("applied_not_verified"):
             out.append(
                 f"  {'':<11} applied, not verified: {v['applied_not_verified']} (a table row still marked verify)"

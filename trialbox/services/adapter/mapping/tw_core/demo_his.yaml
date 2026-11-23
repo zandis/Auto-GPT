@@ -71,8 +71,9 @@ tables:
 lookups:
   lab: {file: lab_local_to_loinc.csv, key: local_code}
   # SDR2 (lane M): the hospital's department code -> TrialBox's department code (the criteria's system). The shipped
-  # file holds TrialBox's own codes only; a site's table is its profile's `used_by: [mapping.department]`
-  department: {file: department_to_trialbox.csv, key: dept_code}
+  # file holds TrialBox's own codes only; a site's table is its profile's `used_by: [mapping.department]`. Optional:
+  # a mapping copied without the file loads and writes the hospital's code as before
+  department: {file: department_to_trialbox.csv, key: dept_code, optional: true, columns: [dept_code, code]}
 static:
   - resourceType: Organization
     id: hospital

@@ -378,6 +378,8 @@ def test_hospital_departments_reach_trialbox_codes_only_through_the_table(tmp_pa
     res = {r.local_code: r for r in (mc.check_code(x, shipped) for x in rows)}
     assert res["RHEU"].mapped and res["RHEU"].route == "department-table"
     assert not res["IM01"].mapped and res["IM01"].reason == "not in the department-table table"
+    shown = mc.render(mc.coverage(rows, shipped))
+    assert "department table: none (TrialBox's own codes only); 1 reach no TrialBox department code" in shown
     site = tmp_path / "dept.csv"
     site.write_text("dept_code,code,verified\nIM01,META,verify\n", encoding="utf-8")
     ref = mc.Reference.load(department_table=site)
@@ -484,7 +486,7 @@ def test_a_site_with_no_department_table_reads_exactly_as_before(tmp_path: Path)
     before.mkdir()
     text = (mc.MAPPING / "tw_core" / "demo_his.yaml").read_text(encoding="utf-8")
     # master's lines before SDR2: no department look-up, and line 124 as it was
-    lookup = "  department: {file: department_to_trialbox.csv, key: dept_code}\n"
+    lookup = text[text.index("  # SDR2 (lane M): the hospital's department code") : text.index("static:")]
     new_124 = text[text.index("      # SDR2 (lane M): the department table") : text.index("      # TW Core slice")]
     assert text.count(lookup) == 1 and new_124.count("serviceType.coding[0]") == 3
     old_124 = "      serviceType.coding[0]: {builder: coding, column: dept_code, system: department}\n"
@@ -502,5 +504,23 @@ def test_a_site_with_no_department_table_reads_exactly_as_before(tmp_path: Path)
             out += [json.dumps(r, sort_keys=True, ensure_ascii=False) for r in mapper.map_table(table, iter(rows))]
         return out
 
-    now, then = mapped(mc.MAPPING / "tw_core" / "demo_his.yaml"), mapped(before / "demo_his.yaml")
-    assert len(now) > 100 and now == then
+    copied = tmp_path / "copied"  # a site that copied the base mapping and its lab table, not the department table
+    copied.mkdir()
+    shutil.copy(mc.MAPPING / "tw_core" / "demo_his.yaml", copied / "demo_his.yaml")
+    shutil.copy(mc.MAPPING / "tw_core" / "lab_local_to_loinc.csv", copied / "lab_local_to_loinc.csv")
+    then = mapped(before / "demo_his.yaml")
+    assert len(then) > 100
+    assert mapped(mc.MAPPING / "tw_core" / "demo_his.yaml") == then
+    assert mapped(copied / "demo_his.yaml") == then  # the optional look-up loads empty: the codes as written
+
+
+def test_a_look_up_that_is_not_optional_still_stops_the_load_when_its_file_is_missing(tmp_path: Path) -> None:
+    """The go's second test (#639 7105055050): only ``optional: true`` loads empty; the lab look-up's file missing
+    still stops the mapping from loading."""
+    import shutil
+
+    from adapter.mapping.engine import Mapping
+
+    shutil.copy(mc.MAPPING / "tw_core" / "demo_his.yaml", tmp_path / "demo_his.yaml")
+    with pytest.raises((FileNotFoundError, OSError)):
+        Mapping.load(tmp_path / "demo_his.yaml")
