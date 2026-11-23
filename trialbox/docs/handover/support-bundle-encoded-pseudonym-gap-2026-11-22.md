@@ -5,7 +5,7 @@ so in one language.
 
 Card H-76a, the first part of H-76 (the follow-up of H-71, decision D-1354; no new decision), split off to ride alone.
 Findings in the register's `--add-from` form: `support-bundle-encoded-pseudonym-gap-2026-11-22/findings.json`
-(H76A-01 to H76A-11).
+(H76A-01 to H76A-12).
 
 ## Pull request body (draft)
 
@@ -65,6 +65,31 @@ Red before: on 7f9534fb, 12 of the round's tests fail; the invariant counts 68 l
 10 mutants (secret rule first off, the colon rule's quoted value off, each quote alone, `/` back in its
 look-behind, the space around `:` required, the whole-name read off, three of the mask comparison): 9 caught through
 the public tests, with the direct `_same_masks` test left out; the tenth is the equivalent one above.
+
+### Round 4 of #1354: the 108 lines round 3 left (`7642ab50`)
+
+The integrator's ruling: the 108 corpus lines this head still left after round 3 are a High (H76A-12). Their forms,
+grouped (synthetic values):
+
+| Form | Lines left | Of the corpus's lines of that form | Example |
+| --- | --- | --- | --- |
+| an unquoted key, `%20`, a double-quoted value, in a GET path | 54 | 54 | `GET /p/%2F{access_token:%20"Fp8xhft6q3pw43"} 200` |
+| the same with single quotes | 54 | 55 | `GET /p/%2F{secret:%20'Nvc74n3bc7shmq'} 200` |
+| any other form of the corpus, and the 8 probes | 0 | 3,883 and 8 | — |
+
+Cause: the raw colon rule took the encoded space alone (`%20`) for the value and masked it. The quoted value after it
+stayed, and the decoded view then saw the key already followed by a mask. Fix: a value that decodes to nothing is no
+value, and the colon rule takes an encoded space (`+`, `%20`, `%09`) before a quoted value, keeping it and the quotes
+around the mask. Not the gap of H76A-11 (a phone pattern inside a pseudonym), which stays open.
+
+Tests (`tests/unit/test_support_bundle_never_more.py`): `test_none_of_the_forms_the_corpus_still_left_passes` (8
+encoded spaces, `+`, `%09`, `\x20`, `&#32;`, `\u0020` and pairs, x 2 quotes x 5 settings x the 9 keys);
+`test_the_corpus_leaves_no_line_at_all`; `test_the_encoded_space_and_the_quotes_stay_where_they_were`;
+`test_a_value_masked_already_is_not_masked_or_counted_again`. The never-more invariant stays. Red before: 81 of the
+file's tests fail on ad305628. Mutation pass: 9 mutants (the encoded space in the colon rule off, `+` off, `%20` off,
+the decoded check off, the space dropped from the output, the space read for every rule, the value not stripped of its
+quotes, the value read with its space, the masked-value check off): 8 caught; the ninth is equivalent (`_keeps`
+already holds `[redacted]` as no value).
 
 ## Not verified
 
