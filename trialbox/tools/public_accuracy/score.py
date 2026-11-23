@@ -67,8 +67,9 @@ from tools.public_accuracy import weights
 #: ``protocols.attempts`` (D-1129, card H-14); 5 adds ``ladder`` (card 10A-3: cells by rung, criterion kind, note
 #: language and site, and the decided share printed beside every figure); a report with no such field is layout 1.
 #: A set that declares a sampled draw adds ``sampling`` (card 10G-37, D-1334); a set that declares none is unchanged.
-#: Keys are only ever added.
-SCHEMA_VERSION = 5
+#: 6 adds ``lind`` (card R1-L0: Lind's whole-system per-criterion agreement; the mapping is provisional). Keys are only
+#: ever added.
+SCHEMA_VERSION = 6
 
 OPEN_VERDICTS = ("pending_human", "unknown", "not_evaluated", "not evaluated", "data_gap", "uncertain")
 
@@ -1056,6 +1057,9 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
 
             sents = json.loads((CRITERION_ML / "notes_en.json").read_text(encoding="utf-8"))
         out["criteria"] = score_criteria(ids, crits, answers, sents, key)
+        from tools.public_accuracy.lind import score_lind  # card R1-L0: the like-for-like figure, beside the others
+
+        out["lind"] = score_lind(ids, crits, answers, key)
     wf = built / "gold" / "written.json"
     if wf.exists():  # S3, S4 (a set built before the file existed has no such row)
         written = json.loads(wf.read_text(encoding="utf-8"))
