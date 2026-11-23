@@ -1508,8 +1508,10 @@ def unit_files(text: str, mailto: str = "") -> dict[str, str]:
         out[f"{name}.service"] = (f"{head}[Unit]\nDescription=TrialBox {name} (the backup schedule)\n"
                                   "After=docker.service\n\n[Service]\nType=oneshot\nTimeoutStartSec=infinity\n"
                                   f"ExecStart={_exec_start(script)}\n")  # fmt: skip
-        out[f"{name}.timer"] = (f"{head}[Unit]\nDescription=TrialBox {name} schedule\n\n[Timer]\n"
-                                f"OnCalendar={cal}\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n")
+        out[f"{name}.timer"] = (
+            f"{head}[Unit]\nDescription=TrialBox {name} schedule\n\n[Timer]\n"
+            f"OnCalendar={cal}\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n"
+        )
     return out
 
 
@@ -1638,13 +1640,15 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
             try:
                 notes = install_timers(cfg, systemd_dir, cron_dir, root, has_mta())
             except (OSError, subprocess.SubprocessError) as e:
-                notes = [f"note: the timer could not be enabled ({type(e).__name__}: {str(e)[-200:]}): the cron "
-                         "file instead"] + install_cron(cfg, cron_dir, root, has_mta())  # fmt: skip
+                why = f"note: the timer could not be enabled ({type(e).__name__}: {str(e)[-200:]}): the cron file"
+                notes = [why, *install_cron(cfg, cron_dir, root, has_mta())]
         else:
             notes = install_cron(cfg, cron_dir, root, has_mta())
             if not cron_daemon():
-                notes.append(f"backup-install: no cron daemon runs on this host and systemd is not its init: nothing "
-                             f"will run {cron_dir / CRON_NAME}; start the host's cron daemon (RUNBOOK §5)")
+                notes.append(
+                    f"backup-install: no cron daemon runs on this host and systemd is not its init: nothing "
+                    f"will run {cron_dir / CRON_NAME}; start the host's cron daemon (RUNBOOK §5)"
+                )
         for n in notes:
             print(n)
     except (OSError, ValueError) as e:
@@ -1752,8 +1756,7 @@ def main_nightly(deploy: Path) -> int:
     return 0 if res["ok"] else 1
 
 
-def main_status(deploy: Path, as_json: bool = False, quiet: bool = False,
-                cron_dir: Path = Path("/etc/cron.d")) -> int:
+def main_status(deploy: Path, as_json: bool = False, quiet: bool = False, cron_dir: Path = Path("/etc/cron.d")) -> int:
     from tools.trialbox import update
 
     cfg = config(deploy, update._env_file(deploy / ".env"))

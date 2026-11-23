@@ -23,21 +23,14 @@ from typing import Any
 
 import pytest
 
-from tests.unit.test_host_commands_own_environment import (  # noqa: F401 (the fixtures)
-    DSN,
-    PY_IMAGE,
-    _a_host,
-    _no_import_fault,
-    bare,
-    box,
-    calls,
-    system_python,
-)
+from tests.unit import test_host_commands_own_environment as h88
+from tests.unit.test_host_commands_own_environment import DSN, PY_IMAGE, _no_import_fault, bare, calls
 from tools.trialbox import backup_schedule as bs
 from tools.trialbox import doctor, launch
 from tools.trialbox.__main__ import main as cli
 
 ROOT = Path(__file__).resolve().parents[2]
+box, system_python, _a_host = h88.box, h88.system_python, h88._a_host  # H-88's harness: the box, its host python
 
 
 def _exec(service: str) -> str:
@@ -114,7 +107,7 @@ def systemd_host(monkeypatch: pytest.MonkeyPatch) -> Systemctl:
     """A root shell on a host whose init is systemd (as install.sh tests it); ``systemctl`` records."""
     rec = Systemctl()
     monkeypatch.setattr(bs, "systemd_init", lambda: True)
-    monkeypatch.setattr(bs.os, "geteuid", lambda: 0)
+    monkeypatch.setattr("os.geteuid", lambda: 0)
     monkeypatch.setattr(bs, "_systemctl", rec)
     monkeypatch.setattr(bs, "cron_daemon", lambda proc=None: False)
     monkeypatch.delenv("TB_SYSTEMD", raising=False)
@@ -174,6 +167,8 @@ def test_the_mail_cron_sent_is_sent_by_the_timer_and_a_line_it_cannot_carry_is_r
     text = bs.cron_text(text, Path("/opt/x"), "it@hospital.example")
     units = bs.unit_files(text, "it@hospital.example")
     script = _exec(units[bs.TIMER.replace(".timer", ".service")])
+    raw = next(x for x in units[bs.TIMER.replace(".timer", ".service")].splitlines() if x.startswith("ExecStart="))
+    assert "$$out" in raw and not re.search(r"(?<!\$)\$[a-z(?]", raw), raw  # systemd would expand $out itself
     assert "sendmail -t" in script and 'echo "To: it@hospital.example"' in script
     assert next(c for c in _cron_jobs(text) if "backup-nightly" in c) in script
     for bad in ("*/5 * * * * root cd /x && python3 -m tools.trialbox backup-status", "45 4 * * 1 root python3 -m "

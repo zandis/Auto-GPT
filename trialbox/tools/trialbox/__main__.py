@@ -171,7 +171,9 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     bs.add_argument("--deploy", type=Path, default=deploy)
     bs.add_argument("--json", action="store_true")
     bs.add_argument("--quiet", action="store_true", help="print nothing when all is well (cron)")
-    bi = sub.add_parser("backup-install", help="install.sh's backup step: the schedule (timer or cron), WAL archiving, first backup")
+    bi = sub.add_parser(
+        "backup-install", help="install.sh's backup step: the schedule (timer or cron), WAL archiving, first backup"
+    )
     bi.add_argument("--deploy", type=Path, default=deploy)
     bi.add_argument("--cron-dir", type=Path, default=Path("/etc/cron.d"))
     bi.add_argument("--systemd-dir", type=Path, default=Path("/etc/systemd/system"))
