@@ -251,5 +251,21 @@ PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" sign-file --key
   || { echo "make_bundle: the bootstrap could not be signed" >&2; exit 1; }
 # each file named bare, written from its own folder: the sidecar checks wherever the stick is mounted (H-22 finding 4)
 (cd "$(dirname "$OUT")" && sha256sum "$(basename "$OUT")" "$(basename "$BOOT")" "$(basename "$BOOT").sig") | tee "$OUT.sha256"
-echo "done: hand over, on a USB stick: $(basename "$OUT"), $(basename "$OUT").sha256, $(basename "$BOOT") and $(basename "$BOOT").sig"
-echo "      (the vendor key goes apart from the stick); the site runs RUNBOOK section 1's first command"
+# HS-1: the hospital's one command. The launcher goes to the stick's root as `install`, with the vendor key's
+# fingerprint pinned inside it and the vendor's public key beside it. The delivery sheet carries two codes on
+# paper: the key's fingerprint, which the launcher shows, and the first 24 hex digits of the launcher's own sha256,
+# which the sheet's line prints with stock tools before the launcher runs (HS1-01, the integrator's ruling).
+# The same line is in deploy/launcher.sh and deploy/bootstrap.sh; a test holds the three together.
+fingerprint() { openssl pkey -pubin -in "$1" -outform DER 2>/dev/null | sha256sum | cut -c1-24 | sed 's/..../& /g; s/ $//'; }
+STICK_PUB="$(dirname "$OUT")/vendor_ed25519.pub"
+openssl pkey -in "$KEY" -pubout -out "$STICK_PUB" 2>/dev/null \
+  || { echo "make_bundle: the vendor's public key could not be written" >&2; exit 1; }
+LAUNCH="$(dirname "$OUT")/install"
+sed "s/@VENDOR_KEY_FINGERPRINT@/$(fingerprint "$STICK_PUB")/" "$ROOT/deploy/launcher.sh" > "$LAUNCH" && chmod 0755 "$LAUNCH"
+grep -q '^PIN="[0-9a-f ]\{29\}"$' "$LAUNCH" || { echo "make_bundle: the launcher's key pin was not written" >&2; exit 1; }
+echo "done: hand over, on a USB stick labelled TRIALBOX (no space): install, vendor_ed25519.pub, $(basename "$OUT"), $(basename "$OUT").sha256, $(basename "$BOOT") and $(basename "$BOOT").sig"
+echo "      the delivery sheet carries the vendor key's fingerprint: $(fingerprint "$STICK_PUB")"
+echo "      and the launcher's code: $(sha256sum "$LAUNCH" | cut -c1-24 | sed 's/..../& /g; s/ $//')"
+# the sheet's line stops after the launcher's code is printed: nothing from the stick runs before it is compared
+echo "      the sheet's line: sudo install -m 0700 /media/<user>/TRIALBOX/install /root/trialbox-install && sudo sha256sum /root/trialbox-install | cut -c1-24 | sed 's/..../& /g' && read -r -p 'Same as the sheet? Type yes: ' a && [ \"\$a\" = yes ] && sudo bash /root/trialbox-install /media/<user>/TRIALBOX"
+echo "      (RUNBOOK section 1's longer command keeps working)"
