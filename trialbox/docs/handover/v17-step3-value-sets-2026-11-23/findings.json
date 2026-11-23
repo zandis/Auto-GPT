@@ -1,0 +1,40 @@
+{
+  "card": "V17",
+  "title": "step 3, the FHIR store cannot expand the compiled value sets (lane V, 2026-11-23)",
+  "date": "2026-11-23",
+  "source": "docs/handover/v17-step3-value-sets-2026-11-23.md",
+  "findings": [
+    {
+      "id": "V17-01",
+      "severity": "High",
+      "claim": "A compiled ValueSet with no code (a concept that mapped to none) reached the FHIR store with no compose and no expansion; the store holds no code system, so its CQL engine stopped with 'Failed to expand ValueSet' and the equivalence check of the whole protocol could not run (MVP walk step 3, every protocol on a fresh box)",
+      "lane": "V",
+      "basis": "shown",
+      "state": "fixed db68c7f6"
+    },
+    {
+      "id": "V17-02",
+      "severity": "Low",
+      "claim": "Every compiled ValueSet reached the FHIR store unexpanded; the store's CQL engine read each compose with the warning 'This will potentially produce incorrect results'; the store is now given each one expanded from its own codes",
+      "lane": "V",
+      "basis": "shown",
+      "state": "fixed db68c7f6"
+    },
+    {
+      "id": "V17-03",
+      "severity": "Medium",
+      "claim": "A criterion whose concept mapped to no code still compiles to a coded criterion no patient meets; both engines agree, so the equivalence check passes it, and only the mapping's needs_review flag tells the reviewer; whether it should go to a person, as B14 (D-502) does for a value set no concept defined, is the compiler owner's decision",
+      "lane": "V",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "V17-04",
+      "severity": "Low",
+      "claim": "Which concept of the box's GZQO compile with the real models mapped to no code is not known: the box's compile output was not available to the card; the rehearsal and the compose tests compile with the test model, whose answers map every concept, so neither could show the fault",
+      "lane": "V",
+      "basis": "hypothesis",
+      "state": "open"
+    }
+  ]
+}
