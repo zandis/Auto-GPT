@@ -1,6 +1,6 @@
 {
  "card": "H94",
- "title": "on a PoC box the install stops for four things only",
+ "title": "on a PoC box the install stops for five things only",
  "date": "2026-11-23",
  "source": "docs/handover/poc-stops-h94-2026-11-23.md",
  "note": "basis 'shown' means shown by the card's local runs (no Docker, no GPU, stand-ins); the container rehearsal was not run by the card.",
@@ -8,7 +8,7 @@
   {
    "id": "H94-01",
    "severity": "High",
-   "claim": "on a PoC box deploy/install.sh stopped at every one of its guards (each walk failure of the day was one of them); now 74 of its stop points warn, are written to deploy/site/poc-stops.jsonl, which doctor shows, and the install goes on, 35 are kept as one of the four refusals and named so, and 15 stay stops marked depends; on PRODUCTION every stop prints master's words with master's exit code",
+   "claim": "on a PoC box deploy/install.sh stopped at every one of its guards (each walk failure of the day was one of them); now 92 of its stop points warn, are written to deploy/site/poc-stops.jsonl, which doctor shows, and the install goes on, 35 are kept as one of the five refusals (D-1091) and named so, and the operator's own no is not a stop; on PRODUCTION every stop prints master's words with master's exit code",
    "lane": "H",
    "basis": "shown",
    "state": "fixed 63e0e371d8c6f28f34e136c80f3b96da71a439a1"
@@ -24,7 +24,7 @@
   {
    "id": "H94-03",
    "severity": "Medium",
-   "claim": "15 stops of install.sh stay stops because the lines after them depend on them (a command line not understood, Docker or its compose plugin, the host's python3 modules, a second installer, no settings and no terminal, the operator's no, the database, the stack's health, and the finish check, whose only refusal on a PoC box is an anchor folder that root's nightly signer would mount read-write); each waits for the integrator's ruling",
+   "claim": "15 stops of install.sh stay stops because the lines after them depend on them (a command line not understood, Docker or its compose plugin, the host's python3 modules, a second installer, no settings and no terminal, the operator's no, the database, the stack's health, and the finish check, whose only refusal on a PoC box is an anchor folder that root's nightly signer would mount read-write); each waits for the integrator's ruling; ruled (7096436960): kept only if it protects one of the five on the input that reaches it; none does, so all warn",
    "lane": "H",
    "basis": "shown",
    "state": "open"

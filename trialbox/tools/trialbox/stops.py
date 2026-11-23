@@ -1,9 +1,11 @@
-"""H-94 (the owner's ruling, relayed as 7092087958): on a PoC box the install, start and update paths stop for four
-things only.
+"""H-94 (the owner's ruling, relayed as 7092087958; D-1091): on a PoC box the install, start and update paths stop
+for five things only.
 
 KEPT AS REFUSALS, everywhere: (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically
 cannot run it (disk, memory, card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step
-needs root and does not have it. Each such stop names its number in a comment (``H-94 (1)`` ...).
+needs root and does not have it; (5) a secret would be read from, or written to, a place others can read
+(7095256773). Each such stop names its number in a comment (``H-94 (1)`` ...). A stop the next lines depend on is
+kept only if it protects one of the five on the input that reaches it (7096436960).
 
 EVERY OTHER STOP calls the helper: :func:`stop_or_warn` here, the shell function ``stop_or_warn`` in the scripts (the
 same rule, the same list). On a PoC box it warns, appends one line to :data:`LIST` and the step goes on; on any other
@@ -22,8 +24,7 @@ box. A caller's environment variable is never read for it:
   a box that records PRODUCTION;
 * nothing at all (a fresh box, no environment given): PRODUCTION, the D-127 default.
 
-A PoC box is one whose every speaking source says DEV, TEST or VALIDATION. TEST is counted with DEV and VALIDATION:
-it is looser than VALIDATION and stricter than DEV.
+A PoC box is one whose every speaking source says DEV, TEST or VALIDATION (TEST: the integrator, 7096436960).
 
 THE LIST (:data:`LIST`, ``deploy/site/poc-stops.jsonl``): one JSON object per line, ``key`` (the script and a stable
 name of the point), ``what`` (the stop's own words), ``skipped`` (what was not done because of it, or empty), ``at``
