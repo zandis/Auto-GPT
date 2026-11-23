@@ -63,8 +63,9 @@ def test_the_image_fallback_takes_the_passphrase_on_stdin_never_in_the_container
     """Review 3: ``docker run -e TB_KEK_PASSPHRASE`` put the passphrase in the container's configuration on disk
     until it was removed. It now goes through the container's stdin; the keys are sealed and unsealed by it."""
     phrase = "  " + os.urandom(12).hex() + " with spaces  "
-    env = {**_sealing_host(tmp_path), "TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": phrase}
-    res = subprocess.run(["sh", str(SEAL), "--secrets", str(tmp_path / "secrets"), "--conf", str(tmp_path / "none")],
+    env = {**_sealing_host(tmp_path), "TB_KEK_BACKEND": "passphrase"}  # H-96: on stdin (ruling 7094934985)
+    res = subprocess.run(["sh", str(SEAL), "--secrets", str(tmp_path / "secrets"), "--conf", str(tmp_path / "none"),
+                          "--kek-passphrase-stdin"], input=phrase + "\n",
                          capture_output=True, text=True, env=env, check=False, timeout=300)  # fmt: skip
     assert res.returncode == 0, res.stderr
     calls = [json.loads(x) for x in (tmp_path / "docker.log").read_text().splitlines()]
