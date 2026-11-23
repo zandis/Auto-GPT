@@ -222,6 +222,12 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     u = sub.add_parser("update", help="apply a verified, staged bundle: backup, apply, migrate, check, roll back")
     u.add_argument("--stage", type=Path, required=True)
     u.add_argument("--summary", type=Path, required=True, help="verify_update.py's JSON summary")
+    u.add_argument(
+        "--bundle",
+        type=Path,
+        default=None,
+        help="H-95: the verified bundle, which still holds the payloads the verifier did not stage",
+    )
     u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
@@ -342,7 +348,8 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
                   "nothing was changed", file=sys.stderr)  # fmt: skip
             return 2
         return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
-                                    no_backup_reason=reason or None)  # fmt: skip
+                                    no_backup_reason=reason or None,
+                                    **({"bundle": a.bundle} if a.bundle else {}))  # fmt: skip
     if a.cmd in ("backup-nightly", "backup-status", "backup-install"):
         from tools.trialbox import backup_schedule as bsch
 

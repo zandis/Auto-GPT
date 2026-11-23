@@ -7,11 +7,13 @@
 #        [--ssh-off-over-ssh]   (H-70: run over SSH, hardening.conf's SSH=off is refused unless this is given)
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
-#   Without a TPM, set bundle and answers to their paths. In your own Bash shell (passphrase of at least 12 characters):
-#   IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
-#   sudo --preserve-env=TB_KEK_PASSPHRASE TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers"
-#   unset TB_KEK_PASSPHRASE
-#   sudo VAR=value command shows the value in the process list.
+#   Without a TPM, set bundle and answers to their paths. The KEK passphrase (12 characters or more, one line) comes
+#   from a file only root can read (type it after sudo's own password prompt, then Enter; nothing is shown):
+#   sudo bash -c 'umask 077; IFS= read -rs TB_KEK_PASSPHRASE; printf "%s\n" "$TB_KEK_PASSPHRASE" > /root/trialbox-kek.pass'
+#   sudo TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers" --kek-passphrase-file /root/trialbox-kek.pass
+#   or is typed when asked (twice, not shown): ... --kek-passphrase-stdin. The file must be a regular file owned by
+#   root with mode 0600; it is removed once the keys are sealed (--keep-kek-passphrase-file keeps it). A passphrase in
+#   the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §23, H-96).
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
 #   deploy/install.sh --ctgov-check                # only: which ClinicalTrials.gov mode would be suggested here?
 #
@@ -30,6 +32,8 @@
 #                 `current` names it; the folder's release files become links through `current` (a copied file is
 #                 moved to releases/.replaced-<time>/), the site's own files in deploy/ stay. The install then goes
 #                 on from the signed tree: deploy/install.sh, now a link into it, runs again
+#                 H-95: straight from the stick, nothing copied first; a release in two packs takes the model
+#                 pack (engine image, weights) with --model-pack FILE or finds it beside the bundle, and loads it first
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
@@ -38,7 +42,7 @@
 #                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
 #                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
 #                 the egress refresh and watchdog timers; D-377)
-#   5. accounts:  first console administrator (password and enrolment code printed once); users page for the rest
+#   5. accounts:  first console administrator (password and enrolment code on a terminal once, in no log); users page
 #   6. check:     deploy/check_host.sh; the https:// console URL must answer; the intake address
 # Host baseline (T-634, D-408): in VALIDATION and PRODUCTION the site keys are sealed under a KEK right after they are
 # made (deploy/hardening/seal_keys.sh), and with deploy/site/hardening.conf the input firewall and SSH are set after
@@ -71,7 +75,8 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
+ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
+PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""; PP_REMOVE=""  # H-96: the KEK passphrase's two ways in (the KEK-INPUT block)
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -86,12 +91,18 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
+    --model-pack) MODEL_PACK="$2"; shift ;;  # H-95: the model pack the software pack needs (else found beside it)
     # REHEARSAL-REAL-SERVERS (H-89): a rehearsal's only (refused below without --rehearsal)
     --rehearsal-real-servers) REAL_SERVERS=1 ;;
     --gpu-index) GPU_INDEX="$2"; shift ;;
     --engine-probe) ENGINE_PROBE="$2"; shift ;;
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
-    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
+    --kek-passphrase-file) PP_FILE="${2:-}"; shift ;;
+    --keep-kek-passphrase-file) PP_KEEP=1 ;;
+    --kek-passphrase-stdin) PP_STDIN=1 ;;
+    --kek-passphrase-fd) PP_FD="${2:-}"; shift ;;  # the installer's own hand-on (the signed re-run)
+    --kek-passphrase-remove) PP_REMOVE="${2:-}"; shift ;;  # the signed re-run's: the operator's file, never opened again
+    -h|--help) sed -n 2,47p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;  # H-94 depends: a command line not understood is not acted on
     *) BUNDLE="$1" ;;
   esac
@@ -118,6 +129,111 @@ alive_stop() {
 }
 die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
 indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
+# KEK-INPUT (H-96, F-45, H-94 (5); the integrator's ruling 7094934985): never from the environment (refused, before
+# anything); from --kek-passphrase-file FILE (checked here and read again by the seal step, which removes it) or
+# --kek-passphrase-stdin (read here, once). The signed re-run gets a stdin passphrase on a pipe at fd 8
+# (--kek-passphrase-fd 8): never an argument, never the environment, never a file. KP_VALUE is never exported
+KP_WHO=install
+# ---- KEK-INPUT functions (H-96, F-45, H-94 (5); the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
+#   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
+#                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
+#   --kek-passphrase-stdin      one line on stdin; on a terminal it is asked twice, not shown
+# and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
+# (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
+# exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+KP_VALUE=""; KP_FILE=""
+kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
+kp_refuse_env() {  # an empty variable is dropped
+  for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
+    kp_set=""
+    eval "kp_set=\${$kp_var:+yes}"
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }  # H-94 (5)
+  done
+  unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
+}
+kp_check_value() {  # one line, not empty, no control character (the image and the host read it alike)
+  [ -n "$KP_VALUE" ] || kp_die "the KEK passphrase from $1 is empty: nothing was changed"
+  case "$KP_VALUE" in *[[:cntrl:]]*) KP_VALUE=""; kp_die "the KEK passphrase from $1 holds a line break or another control character: write it again on one line; nothing was sealed" ;; esac
+}
+kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened file is regular, root's, 0600, one name
+  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600, in a folder only root can write (sudo install -m 0600 -o root -g root /dev/null /root/trialbox-kek.pass, then write it there); nothing was changed"
+  # (M-1 of the review of #1398) the folders as their real paths: the file's own folder and every one above it owned
+  # by root (the user that runs this), and writable by no one else; above the file's own folder a shared folder with
+  # the sticky bit (/tmp) is allowed, as no one else can rename what is root's there
+  kp_dir="$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P)" \
+    || kp_die "--kek-passphrase-file $1: its folder cannot be reached: refused; $kp_fix"  # H-94 (5)
+  kp_name="${kp_dir%/}/${1##*/}"; kp_d="$kp_dir"; kp_own=1
+  while :; do
+    kp_st="$(stat -c '%u %a' -- "$kp_d" 2>/dev/null)" || kp_die "--kek-passphrase-file $1: the folder $kp_d cannot be read: refused; $kp_fix"  # H-94 (5)
+    kp_m="${kp_st#* }"
+    case "${kp_st%% *}" in 0|"$(id -u)") ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d is owned by uid ${kp_st%% *}, not root: refused; $kp_fix" ;; esac  # H-94 (5)
+    case "${kp_m#"${kp_m%??}"}" in
+      [0145][0145]) ;;
+      *) case "$kp_own:${#kp_m}:$kp_m" in 0:4:[1357]*) ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d can be written by others (mode $kp_m): refused; $kp_fix" ;; esac ;;  # H-94 (5)
+    esac
+    [ "$kp_d" != / ] || break
+    kp_d="$(dirname -- "$kp_d")"; kp_own=0
+  done
+  # opened once on fd 7 and read from it; what was opened is checked through /dev/fd/7 (the same open file, never the
+  # name again), and the name must still be that very file, not a link (the shell cannot open without following one)
+  [ ! -L "$kp_name" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"  # H-94 (5)
+  [ -f "$kp_name" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"  # H-94 (5): never a fifo opened
+  exec 7< "$kp_name"
+  kp_fd="$(stat -L -c '%F|%u|%a|%h|%d:%i' /dev/fd/7 2>/dev/null)" || kp_fd=""
+  kp_nm="$(stat -c '%F|%d:%i' -- "$kp_name" 2>/dev/null)" || kp_nm=""
+  kp_t="${kp_fd%%|*}"; kp_r="${kp_fd#*|}"; kp_u="${kp_r%%|*}"; kp_r="${kp_r#*|}"; kp_a="${kp_r%%|*}"; kp_r="${kp_r#*|}"
+  kp_h="${kp_r%%|*}"; kp_i="${kp_r#*|}"
+  kp_bad=""
+  case "$kp_nm" in "symbolic link|"*) kp_bad="is a link" ;; esac
+  [ -n "$kp_bad" ] || case "$kp_t" in "regular file"|"regular empty file") ;; *) kp_bad="is not a regular file" ;; esac
+  [ -n "$kp_bad" ] || [ "$kp_nm" = "$kp_t|$kp_i" ] || kp_bad="changed while it was opened"
+  [ -n "$kp_bad" ] || [ "$kp_u" = "$(id -u)" ] || kp_bad="is owned by uid $kp_u, not root (the user that runs this)"
+  [ -n "$kp_bad" ] || [ "$kp_a" = 600 ] || kp_bad="has mode $kp_a, not 0600"
+  [ -n "$kp_bad" ] || [ "$kp_h" = 1 ] || kp_bad="has $kp_h names (hard links), not one"
+  if [ -n "$kp_bad" ]; then exec 7<&-; kp_die "--kek-passphrase-file $1 $kp_bad: refused; $kp_fix"; fi  # H-94 (5)
+  KP_VALUE=""; IFS= read -r KP_VALUE <&7 || [ -n "$KP_VALUE" ] || :
+  kp_rest="$(wc -c <&7)"; exec 7<&-
+  if [ "$kp_rest" != 0 ]; then KP_VALUE=""; kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"; fi  # H-94 (5)
+  KP_FILE="$kp_name"
+  kp_check_value "--kek-passphrase-file $1"
+}
+kp_read_stdin() {
+  KP_VALUE=""
+  if [ -t 0 ]; then
+    stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
+    printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
+    kp_again=""
+  else
+    IFS= read -r KP_VALUE || [ -n "$KP_VALUE" ] || kp_die "--kek-passphrase-stdin: nothing on stdin; nothing was changed"
+  fi
+  kp_check_value "stdin"
+}
+kp_remove_file() {  # unlinked, never written through its name (a link is taken away, never what it names)
+  rm -f -- "$1"; [ ! -e "$1" ] && [ ! -L "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"  # H-94 (5)
+}
+# ---- end of KEK-INPUT functions
+kp_refuse_env
+case "$PP_FILE:$PP_STDIN:$PP_FD" in
+  :0:|/*:0:|:1:|:0:[3-9]) ;;
+  ?*:0:) die "--kek-passphrase-file: give the file's full path (/root/...): nothing was changed" ;;  # H-94 (5)
+  *) die "--kek-passphrase-file, --kek-passphrase-stdin, --kek-passphrase-fd 3-9: give one; nothing was changed" ;;  # H-94 (5)
+esac
+case "$PP_REMOVE:$PP_FD" in
+  :*|/*:?*) ;;
+  *) die "--kek-passphrase-remove goes with --kek-passphrase-fd and a full path (the installer's own hand-on)" ;;  # H-94 (5)
+esac
+[ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE$PP_REMOVE" ] || die "--keep-kek-passphrase-file goes with --kek-passphrase-file"  # H-94 (5)
+if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"
+elif [ "$PP_STDIN" = 1 ]; then kp_read_stdin
+elif [ -n "$PP_FD" ]; then
+  IFS= read -r KP_VALUE <&"$PP_FD" || [ -n "$KP_VALUE" ] || die "--kek-passphrase-fd $PP_FD: no passphrase there"  # H-94 (5)
+  eval "exec $PP_FD<&-"
+  kp_check_value "the installer's hand-on"
+  KP_FILE="$PP_REMOVE"  # the operator's file the first run read: removed once sealed, never opened here
+fi
+# ---- end of KEK-INPUT
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC
 # box the install, start and update paths stop for five things only, each named where it stops as "H-94 (N)": (1)
 # the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk, memory,
@@ -331,6 +447,14 @@ fi
 # H-94 (1): no bundle, no signature that holds: nothing is loaded from nothing
 [ -n "$BUNDLE" ] || die "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]"  # H-94 (1)
 [ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"  # H-94 (1)
+# ---- MODEL-PACK (H-95): a release in two packs. The model pack is --model-pack FILE, else the file beside the bundle
+# whose signed manifest has the sha256 the software pack names (tools/packs.py find; a file's name decides nothing).
+# None for a whole bundle. Whether the pair holds is the verifier's (apply_update.sh, H-94 (1)), before any load
+if [ -z "$MODEL_PACK" ] && command -v python3 >/dev/null; then
+  MODEL_PACK="$(python3 "$ROOT/tools/packs.py" find "$BUNDLE" 2>/dev/null || true)"
+fi
+[ -z "$MODEL_PACK" ] || [ -f "$MODEL_PACK" ] || die "no such model pack: $MODEL_PACK"  # H-94 (1)
+# ---- end of MODEL-PACK
 # H-70: the host baseline near the end (deploy/hardening/apply.sh) refuses SSH=off from an SSH session; ask it now,
 # when it will run (root, deploy/site/hardening.conf), so an install over SSH stops before anything is loaded or written.
 # --ssh-off-over-ssh (or TB_SSH_OFF_OVER_SSH=yes, which sudo may drop) goes ahead, and is handed on to apply.sh
@@ -434,6 +558,12 @@ if [ -f "$BUNDLE.sha256" ]; then
   # H-94 (1): the bundle's hash
   [ -n "$SUM_LINE" ] || die "$(basename "$BUNDLE").sha256 does not name $(basename "$BUNDLE") (a sidecar from before D-996 names the vendor's own path): compare its sum with: sha256sum $BUNDLE"
   (cd "$(dirname "$BUNDLE")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "bundle checksum mismatch: $(basename "$BUNDLE") is not the file the vendor handed over"  # H-94 (1)
+fi
+# H-95: the model pack's own sidecar, the same way
+if [ -n "$MODEL_PACK" ] && [ -f "$MODEL_PACK.sha256" ]; then
+  SUM_LINE="$(awk -v n="$(basename "$MODEL_PACK")" '$2 == n || $2 == "*" n' "$MODEL_PACK.sha256")"
+  [ -n "$SUM_LINE" ] || die "$(basename "$MODEL_PACK").sha256 does not name $(basename "$MODEL_PACK"): compare its sum with: sha256sum $MODEL_PACK"  # H-94 (1)
+  (cd "$(dirname "$MODEL_PACK")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "model pack checksum mismatch: $(basename "$MODEL_PACK") is not the file the vendor handed over"  # H-94 (1)
 fi
 # ---- end of SIDECAR
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
@@ -560,13 +690,45 @@ fi
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
 if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
+  # H-95: every pack is verified (signature, every payload hash, read from the stick: nothing is copied) before any
+  # pack is loaded; the software pack as if its model pack were held, which is loaded first
+  # H-95: the three sizes first (from the manifests, before the stick is read whole), then stop (2) before anything
+  # is read or loaded when a file system cannot hold what the load writes on it at its peak, with the numbers
+  # (a manifest that cannot be read is left to the verifier below: stop (1))
+  if command -v python3 >/dev/null && SIZES="$(python3 "$ROOT/tools/packs.py" sizes "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} 2>/dev/null)"; then
+    echo "    disk: $SIZES"
+    DOCKER_ROOT="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || true)"
+    SPACE_RC=0
+    SPACE="$(python3 "$ROOT/tools/packs.py" space "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} \
+      --docker-root "${DOCKER_ROOT:-/var/lib/docker}" --models "$ROOT/deploy/models" --stage "${TMPDIR:-/tmp}" \
+      --deploy "$ROOT" --updates "$ROOT/deploy/updates" 2>&1)" || SPACE_RC=$?
+    [ "$SPACE_RC" != 1 ] || die "the disk cannot hold the install at its peak; nothing was loaded: $SPACE"  # H-94 (2)
+    [ -z "$SPACE" ] || printf '%s\n' "$SPACE" | indent
+  fi
+  WITH_MODEL=()
+  if [ -n "$MODEL_PACK" ]; then
+    echo "    verifying the signature and every file of the model pack $(basename "$MODEL_PACK") (minutes for the weights)"
+    alive_start "verifying the model pack"
+    # H-94 (1): the signature and every payload hash
+    sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" --for-software "$BUNDLE" --dry-run >/dev/null || die "the model pack is not a valid signed TrialBox model pack; nothing was changed"
+    alive_stop
+    WITH_MODEL=(--with-model-pack "$MODEL_PACK")
+  fi
   echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
   alive_start "verifying the bundle"
   # H-94 (1): the signature and every payload hash
-  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
+  # (the redirection stands before the model pack's options: they are still arguments of apply_update.sh)
+  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null ${WITH_MODEL[@]+"${WITH_MODEL[@]}"} || die "the bundle is not a valid signed TrialBox release; nothing was changed"
   alive_stop
-  echo "    loading the images, models and rulesets (10-20 minutes for a GPU bundle)"
   export PYTHONUNBUFFERED=1
+  if [ -n "$MODEL_PACK" ]; then
+    echo "    loading the model pack: the engine image and the weights, straight from the stick (10-20 minutes)"
+    alive_start "loading the model pack"
+    # H-94 (1): each payload is hashed again as it streams in; one whose hash fails is not loaded
+    TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$MODEL_PACK" --for-software "$BUNDLE" 2>&1 | indent || die "loading the model pack failed"
+    alive_stop
+  fi
+  echo "    loading the images, models and rulesets straight from the stick (10-20 minutes for a GPU bundle)"
   alive_start "loading the bundle"
   # H-94 (1): the load checks each payload's hash as it lands; a failed load leaves nothing verified to act on
   TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | indent || die "loading the bundle failed"
@@ -587,6 +749,23 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
   [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+  # KEK-INPUT (H-96): the passphrase this run read (from the file or stdin) goes on by a pipe at fd 8, its options
+  # swapped for the fd's; the file's name goes with it only to be removed once sealed, never to be opened again
+  if [ -n "$KP_VALUE" ]; then
+    PP_ARGS=(); skip=0
+    for a in ${ARGS[@]+"${ARGS[@]}"}; do
+      if [ "$skip" = 1 ]; then skip=0; continue; fi
+      case "$a" in
+        --kek-passphrase-stdin) continue ;;
+        --kek-passphrase-fd|--kek-passphrase-file|--kek-passphrase-remove) skip=1; continue ;;
+      esac
+      PP_ARGS+=("$a")
+    done
+    [ -z "$KP_FILE" ] || PP_ARGS+=(--kek-passphrase-remove "$KP_FILE")
+    TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
+      8< <(printf '%s\n' "$KP_VALUE")
+  fi
+  # ---- end of KEK-INPUT
   TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
@@ -1139,14 +1318,30 @@ elif [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
 elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
     && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
   # D-837: a plain VM has no usable TPM; the passphrase back end seals the keys when it is asked for
-  echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE seals them); the host check lists it"
+  echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with --kek-passphrase-file seals them); the host check lists it"
 elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"  # H-94 (4)
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
-  TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
+  # KEK-INPUT (H-96): the passphrase this run read goes to the seal step by a pipe (never an argument's value, an
+  # environment or the file's name again); the operator's file is removed here once the keys are sealed (rm: a link
+  # is taken away, never what it names), kept with --keep-kek-passphrase-file or when the seal failed
+  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" "$@"; }
+  sealed=0
+  if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | seal --kek-passphrase-stdin && sealed=1
+  else seal </dev/null && sealed=1; fi
+  if [ "$sealed" = 1 ] && [ -n "$KP_FILE" ]; then
+    if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
+    else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
+  fi
+  [ "$sealed" = 1 ] \
     || stop_or_warn seal-keys "the sealing of the site keys (they stay plain files; the host check lists it)" "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
+  PP_FILE=""; KP_FILE=""
 fi
+KP_VALUE=""
+[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
+KP_FILE=""
+
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 # H-94 depends: every step after this one needs the database
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"  # H-94 depends
@@ -1403,25 +1598,65 @@ fi
 # ------------------------------------------------------------------------------------------------ 5. accounts
 if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the owner makes the first accounts in the first-run wizard
   say "first accounts: the first-run wizard (box-install.sh shows its address and one-time code)"
+  ONCE_WHERE="with the account the owner makes in the first-run wizard"
 else
 say "first console administrator"
 ADMIN_MAIL="$(sed -n 's/^MAIL_ADMIN_ADDR=//p' deploy/.env | head -1)"
 ADMIN_MAIL="${ADMIN_MAIL:-${TB_ADMIN_EMAIL:-}}"
+# H-96 (7097514776; H-94 (5): a secret where others can read it): the administrator's first password and enrolment
+# code are shown on a terminal once and are never written to a log. On stdout only when stdout is a terminal; else on
+# the controlling terminal (box-install.sh tees stdout to deploy/site/box/install.log, a rehearsal to its step log);
+# with no terminal at all, in a root-only file in the home that the passwd entry names, never printed. No variable of
+# the caller names where they go (no home from the environment, no knob); a link at the file's name is refused, the file is made new
+show_once() {  # $1: the one-time text (an argument of a shell function: no process, no temporary file)
+  local home
+  ONCE_WHERE="as admin, with the password and the enrolment code shown once on this terminal above"
+  if [ -t 1 ]; then printf '%s\n' "$1"; return 0; fi
+  if { : >> /dev/tty; } 2>/dev/null; then
+    printf '%s\n' "$1" >> /dev/tty
+    echo "    shown on this terminal only: never in this output, which a log may keep"
+    return 0
+  fi
+  home="$(getent passwd "$(id -u)" | cut -d: -f6)" || home=""  # no passwd entry: no file, a warning says so
+  ONCE_FILE="${home%/}/trialbox-admin-first-sign-in"
+  ONCE_WHERE="as admin: the first password and the enrolment code were not kept (the FAIL lines below say why)"
+  if [ -z "$home" ] || [ ! -d "$home" ]; then  # no passwd entry or home for this user (never root's on a box)
+    ONCE_WHERE="as admin: the first password and the enrolment code were not kept (no home for uid $(id -u))"
+    echo "    no terminal and no home for uid $(id -u) in the passwd file: the first password and enrolment code were not kept; run console.cli reset-password admin and enrol-code admin on a terminal" >&2
+    return 0
+  fi
+  if [ -L "$ONCE_FILE" ] || { [ -e "$ONCE_FILE" ] && [ ! -f "$ONCE_FILE" ]; }; then
+    FAILS+=("no terminal, and $ONCE_FILE is a link or not a regular file: the first password and enrolment code were not kept; remove it, then console.cli reset-password admin and enrol-code admin on a terminal")
+    return 0
+  fi
+  rm -f "$ONCE_FILE"
+  if ! (umask 077; set -C; printf '%s\n' "$1" > "$ONCE_FILE") 2>/dev/null; then
+    FAILS+=("no terminal, and $ONCE_FILE could not be made new: the first password and enrolment code were not kept; console.cli reset-password admin and enrol-code admin on a terminal")
+    return 0
+  fi
+  ONCE_WHERE="as admin, with the password and the enrolment code in $ONCE_FILE (root only: read it once, then remove it)"
+  echo "    no terminal to show it on: it is in $ONCE_FILE (root only, 0600), not in this output. Read it once" \
+    "(sudo cat $ONCE_FILE), hand it to the administrator in person, then remove it (sudo rm $ONCE_FILE)"
+}
 if [ -n "$ADMIN_MAIL" ]; then
-  "${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin --mailbox "$ADMIN_MAIL"
+  ONCE="$("${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin --mailbox "$ADMIN_MAIL")"
 else
-  "${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin
+  ONCE="$("${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin)"
 fi
-# T-632 (OPS-013, D-192): the first administrator's enrolment code, printed once; without it the account cannot set
-# up its authenticator. An administrator who already has one gets none (exit 2: nothing to print)
+# T-632 (OPS-013, D-192): the first administrator's enrolment code, shown once; without it the account cannot set
+# up its authenticator. An administrator who already has one gets none (exit 2: nothing to show)
 set +e
 ENROL="$("${COMPOSE[@]}" exec -T console python -m console.cli enrol-code admin 2>&1)"; rc=$?
 set -e
 case "$rc" in
-  0) echo "$ENROL" | sed 's/^/    /'; echo "    hand the enrolment code to the administrator in person; it works once, for 24 hours" ;;
+  0) ONCE="$ONCE"$'\n'"$ENROL"$'\n'"hand the enrolment code to the administrator in person; it works once, for 24 hours" ;;
   2) echo "    admin has an authenticator already: no enrolment code (console.cli reset-totp admin for a new one)" ;;
-  *) echo "$ENROL" | sed 's/^/    /' >&2; FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
+  *) ONCE="$ONCE"$'\n'"enrol-code admin failed (rc $rc):"$'\n'"$ENROL"
+     FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
 esac
+ENROL=""
+show_once "$(printf '%s\n' "$ONCE" | sed 's/^/    /')"
+ONCE=""
 echo "    add coordinators and viewers on the console's Users page, or: docker compose exec console python -m console.cli add-user"
 fi
 
@@ -1441,9 +1676,10 @@ fi
 say "host check"
 HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"})
 # H-94 (5): its FAIL lines about a secret's mode (deploy/.env, a key, a token) are kept apart: on a PoC box they stay
-# FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before
+# FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before. tee -a: when this output is a
+# file (box-install.sh's install.log, a rehearsal's step log) /dev/fd/8 is opened again, and without -a it is emptied
 HOST_OUT=""; exec 8>&1
-HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee /dev/fd/8)" \
+HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee -a /dev/fd/8)" \
   || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
 exec 8>&-
 SECRET_FAILS=()
@@ -1487,7 +1723,7 @@ GATES_MODE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).ge
 cat <<EOT
 
   TrialBox is running.
-  Console:            $URL   (sign in as admin with the password and the enrolment code printed above)
+  Console:            $URL   (sign in ${ONCE_WHERE:-as admin})
   Intake mailbox:     $(sed -n 's/^MAIL_INTAKE_ADDR=//p' deploy/.env | head -1)
   Feed folder:        $(envget TB_SOURCE_DIR | grep . || echo "-")   mapping: deploy/site/mapping, then the image
   $JUDGE

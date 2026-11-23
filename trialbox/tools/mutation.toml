@@ -98,6 +98,8 @@ tests = [
 [[target]]
 file = "services/orchestrator/scenarios/evaluate.py"
 tests = [
+  "tests/unit/test_evaluate_note_judge_reads.py",
+  "tests/unit/test_evaluate_branches.py",
   "tests/unit/test_judge_tier.py",
   "tests/unit/test_one_engine.py",
   "tests/unit/test_mixed_and_polarity.py",
