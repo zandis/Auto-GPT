@@ -73,8 +73,9 @@ def test_the_sigir_row_is_cc_by_sa_with_the_publishers_citation() -> None:
 
 def test_medtxt_jmed_dict_mini_manbyo_and_mimic_have_rows() -> None:
     rows = _rows()
-    medtxt = rows["medtxt"]  # 148 reports used, 100 on offer "due to licensing issues": asked
-    assert medtxt["spdx"] == "CC-BY-4.0" and medtxt["status"] == "permission-to-ask"
+    medtxt = rows["medtxt"]  # 148 reports used, 100 on offer "due to licensing issues": cleared by the owner's ruling
+    assert medtxt["spdx"] == "CC-BY-4.0" and medtxt["status"] == "cleared"  # 2026-11-23, #639 7116492812 (was: asked)
+    assert "7116492812" in medtxt["evidence"]  # the ruling it rests on
     assert rows["jmed-dict-mini"]["spdx"] == "CC-BY-4.0" and "SNOMED" in rows["jmed-dict-mini"]["obligation"]
     manbyo = rows["manbyo"]
     assert manbyo["status"] == "permission-to-ask" and "asked" in manbyo["licence"]
