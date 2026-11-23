@@ -604,7 +604,8 @@ if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
   echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
   alive_start "verifying the bundle"
   # H-94 (1): the signature and every payload hash
-  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" ${WITH_MODEL[@]+"${WITH_MODEL[@]}"} --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
+  # (the redirection stands before the model pack's options: they are still arguments of apply_update.sh)
+  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null ${WITH_MODEL[@]+"${WITH_MODEL[@]}"} || die "the bundle is not a valid signed TrialBox release; nothing was changed"
   alive_stop
   export PYTHONUNBUFFERED=1
   if [ -n "$MODEL_PACK" ]; then
