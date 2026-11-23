@@ -47,7 +47,7 @@ from embed_service.embedder import HashEmbedder
 from lake.store import Lake
 from matching import decision
 from matching.cascade.judge import AgreementJudge, JudgeReply, verify_span
-from matching.inferred import sentence_of
+from matching.inferred import inferred, sentence_of
 from matching.note_answer import INFERRED_REASON, OTHER_KIND_REASON, note_answer_may
 from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, note_verdict
 from tb_common.crypto import pid_for_mrn
@@ -1020,8 +1020,156 @@ ROUND5_CONTROLS: list[tuple[str, str]] = [
     ("Lymphoma", "Non-Hodgkin lymphoma, stage II."),
     ("Prior stem cell transplant", "s/p allogeneic HSCT 2019"),
 ]
-ALL_FORMS = REVIEW_FORMS + ROUND5_FORMS
-ALL_CONTROLS = REVIEW_CONTROLS + ROUND5_CONTROLS
+#: the re-review's probe of round 4, as posted on #1334 (7115258420): its 96 forms (expected review) and 6 controls
+#: (expected to exclude), verbatim. 27 of the 96 excluded on round 4's guard.
+P_DM, P_HIV, P_HCV, P_MI = (
+    "Known diabetes mellitus",
+    "Known HIV infection",
+    "Active hepatitis C",
+    "History of myocardial infarction",
+)
+P_DMJ, P_DMZ, P_HIVJ = "糖尿病の既往", "糖尿病病史", "HIV感染症の既往"
+PROBE_FORMS: list[tuple[str, str, str]] = [
+    (P_DM, "Diabetes?", ""),
+    (P_DM, "DM?", ""),
+    (P_DM, "糖尿病？", ""),
+    (P_DM, "w/o diabetes", ""),
+    (P_DM, "denying diabetes", ""),
+    (P_DM, "diabetes ruled-out", ""),
+    (P_DM, "diabetes, rule-out", ""),
+    (P_DM, "Mom has diabetes", ""),
+    (P_DM, "FHx: DM", ""),
+    (P_DM, "Diabetes: uncertain", ""),
+    (P_DM, "equivocal for diabetes", ""),
+    (P_DM, "borderline diabetes", ""),
+    (P_DM, "pre-diabetes", ""),
+    (P_DMJ, "糖尿病は指摘されず", ""),
+    (P_DMJ, "糖尿病は見られず", ""),
+    (P_DMJ, "糖尿病の恐れ", ""),
+    (P_DMZ, "非糖尿病", ""),
+    (P_DMZ, "不是糖尿病", ""),
+    (P_DMZ, "糖尿病：否", ""),
+    (P_DMZ, "媽媽有糖尿病", ""),
+    (P_DMZ, "哥哥有糖尿病", ""),
+    (P_DMZ, "姐姐有糖尿病", ""),
+    (P_DMZ, "家人有糖尿病", ""),
+    ("Known allergy to study drug", "No known drug allergies.", ""),
+    ("Active tuberculosis requiring treatment", "No tuberculosis", ""),
+    ("Active tuberculosis requiring treatment", "Mother has tuberculosis", ""),
+    ("Asthma requiring inhaled steroids", "denies asthma", ""),
+    (P_DM, "hx. of diabetes", "Mother: hx. of diabetes."),
+    ("History of heart failure", "No heart failure, but renal failure.", ""),
+    ("Active hepatitis B infection", "Hepatitis B negative, but recent urinary tract infection", ""),
+    (P_HIV, "Mother has HIV.", ""),
+    (P_MI, "Rule out myocardial infarction; troponin pending.", ""),
+    (P_HCV, "Suspected hepatitis C, awaiting PCR.", ""),
+    (P_HIVJ, "母親にHIV感染あり。", ""),
+    (P_HIV, "母親にHIV感染あり。", ""),
+    (P_HIV, "HIV status unknown", ""),
+    (P_HIV, "HIV status: unknown.", ""),
+    (P_HIV, "Partner is HIV positive.", ""),
+    (P_HIV, "Boyfriend has HIV.", ""),
+    (P_HIV, "HIV-ve", ""),
+    (P_HIV, "HIV -", ""),
+    (P_HIV, "HIV antibody non-reactive", ""),
+    (P_HIV, "HIV nonreactive", ""),
+    (P_HIV, "HIV test ordered", ""),
+    (P_HIV, "On PrEP for HIV prevention", ""),
+    (P_HIV, "HIV exposure in 2019", ""),
+    (P_DM, "Non-diabetic", ""),
+    (P_DM, "nondiabetic", ""),
+    (P_DM, "No hx of DM", ""),
+    (P_DM, "DDx: DM vs stress hyperglycaemia", ""),
+    (P_DM, "DM cannot be excluded", ""),
+    (P_DM, "?DM", ""),
+    (P_DM, "Diabetes ?", ""),
+    (P_DM, "Father's diabetes", ""),
+    (P_DM, "DM in 1st-degree relative", ""),
+    (P_HCV, "Hepatitis C, cured with DAA in 2018", ""),
+    (P_HCV, "HCV Ab positive, RNA negative", ""),
+    (P_HCV, "history of hepatitis C, treated, SVR", ""),
+    (P_MI, "MI was excluded", ""),
+    (P_MI, "possible MI", ""),
+    (P_MI, "MI unlikely", ""),
+    (P_HIV, "Grandmother has HIV.", ""),
+    (P_HIV, "HIV in her son", ""),
+    (P_HIV, "Patient's daughter has HIV.", ""),
+    (P_HIV, "Mother has HIV", "Mother has HIV and hepatitis."),
+    (P_HIV, "HIV", "Her aunt: HIV."),
+    (P_HIV, "HIV", "HIV? will test."),
+    (P_DMJ, "糖尿病境界型", ""),
+    (P_DMJ, "糖尿病予備群", ""),
+    (P_DMJ, "おばが糖尿病", ""),
+    (P_DMJ, "糖尿病の既往なし", ""),
+    (P_DMJ, "糖尿病（－）", ""),
+    (P_DMJ, "糖尿病は否定的", ""),
+    (P_DMJ, "糖尿病ではない", ""),
+    (P_DMJ, "糖尿病でなかった", ""),
+    (P_DMJ, "糖尿病を除外できない", ""),
+    (P_DMJ, "糖尿病の診断には至らず", ""),
+    (P_DMJ, "パートナーが糖尿病", ""),
+    (P_HIVJ, "HIV（ー）", ""),
+    (P_HIVJ, "HIV(―)", ""),
+    (P_HIVJ, "HIV（−）", ""),
+    (P_HIVJ, "HIV抗体陰性", ""),
+    (P_HIVJ, "HIV検査予定", ""),
+    (P_HIVJ, "HIV感染の既往はありません", ""),
+    (P_DMZ, "外公有糖尿病", ""),
+    (P_DMZ, "女兒有糖尿病", ""),
+    (P_DMZ, "兒子有糖尿病", ""),
+    (P_DMZ, "太太有糖尿病", ""),
+    (P_DMZ, "疑似糖尿病", ""),
+    (P_DMZ, "糖尿病待查", ""),
+    (P_DMZ, "排除糖尿病", ""),
+    (P_DMZ, "未患糖尿病", ""),
+    (P_DMZ, "无糖尿病", ""),
+    (P_DMZ, "否认糖尿病", ""),
+    ("HIV感染", "HIV阴性", ""),
+    ("HIV感染", "HIV陰性", ""),
+]
+PROBE_CONTROLS: list[tuple[str, str, str]] = [
+    (P_HIV, "Patient has HIV.", ""),
+    (P_MI, "History of myocardial infarction in 2019.", ""),
+    (P_HCV, "Active hepatitis C infection on treatment.", ""),
+    (P_HIV, "HIV感染症あり。", ""),
+    (P_HIVJ, "HIV感染症あり。", ""),
+    (P_DM, "Type 2 diabetes mellitus since 2015.", ""),
+]
+UNWRAP_CASES: list[tuple[str, str]] = [  # the probe's quote cases: (quote, text)
+    ("「「HIV」」", "N"),
+    ("「HIV」」", "N"),
+    ("「「HIV」", "N"),
+    ('"HIV”', "N"),
+    ('“HIV"', "N"),
+    ('「HIV"', "N"),
+    ('"「HIV」"', "N"),
+    ('「"HIV"」', "N"),
+    ("＂HIV＂", "N"),
+    ("｢HIV｣", "N"),
+    ("『HIV』", "N"),
+    ("「 HIV 」", "N"),
+    ("「 母親 に HIV 感染 あり 。」", "N"),
+    ("「胸が痛い」", "N"),
+    ("「胸が痛い」と訴えた", "N"),
+    ('"Patient has HIV."', "N"),
+    ('"HIV" ', "N"),
+    ("「」", "N"),
+    ('""', "N"),
+    ('"a"', "xyz"),
+    ('"x"', "xyz"),
+    ("「母」と「父」", "母と父"),
+    ("「HIV」", "H I V"),
+    ('"Mother has HIV.', "N"),
+    ('Mother has HIV."', "N"),
+    ("「Mother has HIV.」", "N"),
+    ('"Mother has HIV"', "Mother has [HIV]"),
+    ('"DM (-)"', "N"),
+    ("「DM(-)」", "N"),
+    ("「HIV感染」", "HIV\n[…]\n感染"),
+]
+UNWRAP_NOTE = '患者は「胸が痛い」と訴えた。Mother has HIV. 母親にHIV感染あり。Patient denies "HIV". DM ( - ).'
+ALL_FORMS = list(dict.fromkeys(REVIEW_FORMS + PROBE_FORMS + ROUND5_FORMS))
+ALL_CONTROLS = list(dict.fromkeys(REVIEW_CONTROLS + [(t, q) for t, q, _ in PROBE_CONTROLS] + ROUND5_CONTROLS))
 
 
 def _form_criterion(text: str) -> CriterionIR:
@@ -1048,7 +1196,7 @@ def test_a_form_that_does_not_state_the_condition_goes_to_review_on_every_builde
     """Given "present" by both models, each form goes to review: the one rule, the v1 verdict, the cascade's outcome,
     and (where the quote alone shows it) a stored row through the status rule."""
     assert _builders(text, quote, sentence) == ("review", "unknown", "unknown", False)
-    if not sentence or sentence.startswith(quote):  # a stored row keeps the quote, not its sentence
+    if not sentence or (sentence.startswith(quote) and inferred(quote, text)):  # a stored row keeps only the quote
         stored = CriterionVerdict(id="D9-EXC-91", verdict="fail", basis="pair", final=True, prov=["c-judge", "c-verifier"],
                                   evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=quote,
                                                     confidence=PAIR, reason="note"))  # fmt: skip
@@ -1316,3 +1464,14 @@ def test_the_cascade_reads_the_judges_sentence_beside_the_verifiers() -> None:
     both_stated = replace(reply, quote=HAS_HIV)
     o = _run_for_map(True)._map(BY_ID[HIV], both_stated, {**SPAN, "quote": HAS_HIV, "sentence": HAS_HIV}, "S3")
     assert (o.status, o.hard) == ("fail", True)  # the control: both state it
+
+
+@pytest.mark.parametrize(("quote", "text"), UNWRAP_CASES)
+def test_a_quote_matched_without_its_marks_is_always_in_the_text(quote: str, text: str) -> None:
+    """The re-review's 30 quote cases: ``as_in`` never yields a quote that is not in the text (nested, unbalanced,
+    mixed, full-width marks; a quote across a cut)."""
+    from tb_common.quotes import as_in, quote_in
+
+    t = UNWRAP_NOTE if text == "N" else text
+    got = as_in(quote, t)
+    assert got is None or quote_in(got, t)
