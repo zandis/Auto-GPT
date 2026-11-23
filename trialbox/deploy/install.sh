@@ -86,12 +86,17 @@ ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE="
 # D-127), the rehearsal mark on a box that records none yet (VALIDATION), and this run's command line, upper-cased
 # only, as ENV-EARLY reads it (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a
 # caller's environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+tb_env_raw() {  # FILE: TB_ENV's value as compose reads it (an "export", blanks around the name and the value, a comment
+  # after an unquoted value; the last line wins), quotes kept; nothing when the file names none or cannot be read
+  { sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$1" 2>/dev/null || true; } | tail -1 \
+    | sed -E -e "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//'
+}
+tb_env_of() { tb_env_raw "$1" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]'; }  # FILE: no quotes, no blanks, upper case
 tb_poc_box() {
   _d="$TB_STOP_DEPLOY"; _rec=""
   if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
     [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
-    _rec="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$_d/.env" | tail -1 \
-      | sed -E "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+    _rec="$(tb_env_of "$_d/.env")"
   fi
   if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
   if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
@@ -199,7 +204,7 @@ TB_STOP_ARG_ENV="$ENVIRONMENT"; TB_STOP_REHEARSAL="$REHEARSAL"
 EARLY_ENV="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
 EARLY_FROM="--environment"
 if [ -z "$EARLY_ENV" ] && [ "$REHEARSAL" != 1 ] && [ -f "$ROOT/deploy/.env" ] && [ -r "$ROOT/deploy/.env" ]; then
-  EARLY_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  EARLY_ENV="$(tb_env_of "$ROOT/deploy/.env")"
   EARLY_FROM="TB_ENV in deploy/.env"
 fi
 case "$EARLY_ENV" in
@@ -472,7 +477,7 @@ SECOND_RUN=0
 # the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
 # from here on, read from the mark until deploy/.env says so. TB_ENV is read as Python reads it (no quotes, no spaces,
 # upper case); only DEV, TEST or nothing may become a rehearsal box, and a VALIDATION box that already is one (D-887)
-RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(tb_env_of deploy/.env)"
 # a rehearsal box (or one left half emptied) never becomes a site box by an install without the argument. H-94: on
 # a box that is not a PoC box the helper stops (the mark never becomes PRODUCTION: kept refusal 3, through the
 # helper's own rule); on a PoC box the install goes on as the rehearsal box it is, as with --rehearsal
@@ -552,7 +557,7 @@ if [ -n "${TB_INSTALL_SIGNED:-}" ] && [ "$TB_INSTALL_SIGNED" = "$(readlink "$ROO
 fi
 GATE_ENV="$EARLY_ENV"
 if [ -f "$ROOT/deploy/.env" ] && [ -r "$ROOT/deploy/.env" ] && [ "$GATE_ENV" != PRODUCTION ]; then
-  REC_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  REC_ENV="$(tb_env_of "$ROOT/deploy/.env")"
   if [ -z "$REC_ENV" ] && { [ -f "$ROOT/deploy/settings.yaml" ] || [ -f "$ROOT/deploy/updates/installed.json" ]; }; then
     REC_ENV=PRODUCTION
   fi
@@ -617,7 +622,7 @@ fi
 say "settings"
 FRESH=0; [ -f deploy/.env ] || FRESH=1   # a box installed before step 8 keeps its shared token until rotation
 # D-837: a TB_ENV written into deploy/.env before the wizard rewrites the file (ENVIRONMENT below keeps it)
-PRE_ENV=""; [ -f deploy/.env ] && PRE_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+PRE_ENV=""; [ -f deploy/.env ] && PRE_ENV="$(tb_env_of deploy/.env)"
 mkdir -p deploy/keys deploy/secrets deploy/site/mapping deploy/site/terminology
 # D-991: deploy/site/terminology is where the site's IT puts the code-system files it loads (deploy/terminology.sh,
 # docs/handover/OFFLINE-MEDIA.md); git and the image ignore it
@@ -709,7 +714,7 @@ sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${W
 # REHEARSAL (D-726): the box says TEST
 # D-887 (the integrator's (i)): it says VALIDATION, where D3 stays on the box (D-823), with the mark and TB_REHEARSAL=1
 if [ "$REHEARSAL" = 1 ]; then
-  RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  RH_ENV="$(tb_env_of deploy/.env)"
   case "$RH_ENV" in
     ""|DEV|TEST) ;;
     VALIDATION) [ -f deploy/site/rehearsal.json ] || stop_or_warn rehearsal-answers-validation "" "--rehearsal: the answers make this box VALIDATION with no rehearsal mark: a rehearsal box is made by --rehearsal" ;;
@@ -732,7 +737,7 @@ fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # ENVIRONMENT (D-837): --environment, or a TB_ENV written before the wizard rewrote deploy/.env; never changed
 # silently (a pre-written VALIDATION was lost and the D-127 default below made the box PRODUCTION)
-NOW_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+NOW_ENV="$(tb_env_of deploy/.env)"
 if [ -n "$ENVIRONMENT" ]; then
   ENVIRONMENT="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
   case "$ENVIRONMENT" in DEV|TEST|VALIDATION|PRODUCTION) ;; *) stop_or_warn environment-value "" "--environment must be DEV, TEST, VALIDATION or PRODUCTION, not $ENVIRONMENT" ;; esac
@@ -755,8 +760,8 @@ elif [ -z "$NOW_ENV" ] && [ -n "$PRE_ENV" ]; then
 fi
 # ---- end of ENVIRONMENT
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
-grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
-TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
+grep -qE '^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
+TB_ENV_SITE="$(tb_env_raw deploy/.env)"
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
 # HOST PROFILE (D-837): TB_HOST_PROFILE=poc, a proof of concept or validation run on a plain VM: the host-facility

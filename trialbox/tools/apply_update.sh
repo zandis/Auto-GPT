@@ -62,12 +62,17 @@ UPDATES="$ROOT/deploy/updates"
 # D-127), the rehearsal mark on a box that records none yet (VALIDATION), and this run's command line, upper-cased
 # only, as ENV-EARLY reads it (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a
 # caller's environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+tb_env_raw() {  # FILE: TB_ENV's value as compose reads it (an "export", blanks around the name and the value, a comment
+  # after an unquoted value; the last line wins), quotes kept; nothing when the file names none or cannot be read
+  { sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$1" 2>/dev/null || true; } | tail -1 \
+    | sed -E -e "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//'
+}
+tb_env_of() { tb_env_raw "$1" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]'; }  # FILE: no quotes, no blanks, upper case
 tb_poc_box() {
   _d="$TB_STOP_DEPLOY"; _rec=""
   if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
     [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
-    _rec="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$_d/.env" | tail -1 \
-      | sed -E "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+    _rec="$(tb_env_of "$_d/.env")"
   fi
   if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
   if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
@@ -135,7 +140,7 @@ done
 # D-1321: the box's environment as the update path reads it (deploy/.env's last TB_ENV line, the rehearsal mark
 # when it names none; tools/trialbox/update.py ComposeBox.environment)
 if [ -z "$OSPATCH" ] && [ -n "$NOBACKUP" ] && [ -z "$NOBACKUP_REASON" ]; then
-  BOX_ENV=""; [ -f "$ROOT/deploy/.env" ] && BOX_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  BOX_ENV=""; [ -f "$ROOT/deploy/.env" ] && BOX_ENV="$(tb_env_of "$ROOT/deploy/.env")"
   [ -z "$BOX_ENV" ] && [ -f "$ROOT/deploy/site/rehearsal.json" ] && BOX_ENV=TEST
   case "$BOX_ENV" in
     DEV|TEST|VALIDATION) ;;

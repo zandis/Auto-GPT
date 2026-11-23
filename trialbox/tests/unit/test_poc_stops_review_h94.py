@@ -233,3 +233,31 @@ def test_l4_the_shell_list_is_made_0640_with_no_window(tmp_path: Path) -> None:
     r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stderr
     assert stat.S_IMODE((d / "site" / "poc-stops.jsonl").stat().st_mode) == 0o640
+
+
+# ------------------------------------------------------------------- H94-08 (part 2): every reader, the compose way
+READERS = ("deploy/install.sh", "deploy/box-install.sh", "tools/apply_update.sh")
+
+
+@pytest.mark.parametrize("rel", READERS)
+def test_h94_08_no_reader_takes_only_the_exact_prefix(rel: str) -> None:
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    assert "s/^TB_ENV=//p" not in text, f"{rel}: a reader of TB_ENV that compose would contradict"
+
+
+@pytest.mark.parametrize("form", FORMS)
+def test_h94_08_the_shell_reader_gives_compose_s_value(tmp_path: Path, form: str) -> None:
+    env = tmp_path / ".env"
+    env.write_text(f"TB_ENV=VALIDATION\n{form}\n", encoding="utf-8")
+    script = stop_prelude() + f"tb_env_of {str(env)!r}\n"
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert r.returncode == 0 and r.stdout.strip() == _compose_env(tmp_path) == "PRODUCTION", r.stderr
+
+
+def test_h94_08_the_first_check_reads_an_exported_line(tmp_path: Path) -> None:
+    """A re-run whose deploy/.env ends in an exported value none of the four: ENV-EARLY stops before anything is
+    loaded (it read only ``TB_ENV=`` lines before, and took the earlier TEST)."""
+    box = Box(tmp_path / "b", env="TB_ENV=TEST\n", prewritten_env="TB_ENV=TEST\nexport TB_ENV=SOMETHING\n")
+    r = box.install("--mode", "stub", "--yes")
+    assert r.rc == 1 and "the environment 'SOMETHING' (TB_ENV in deploy/.env)" in r.err, r.text[-3000:]
+    assert "update r1 loaded" not in r.out
