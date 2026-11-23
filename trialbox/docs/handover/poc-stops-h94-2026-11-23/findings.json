@@ -1,0 +1,57 @@
+{
+ "card": "H94",
+ "title": "on a PoC box the install stops for four things only",
+ "date": "2026-11-23",
+ "source": "docs/handover/poc-stops-h94-2026-11-23.md",
+ "note": "basis 'shown' means shown by the card's local runs (no Docker, no GPU, stand-ins); the container rehearsal was not run by the card.",
+ "findings": [
+  {
+   "id": "H94-01",
+   "severity": "High",
+   "claim": "on a PoC box deploy/install.sh stopped at every one of its guards (each walk failure of the day was one of them); now 78 of its stop points warn, are written to deploy/site/poc-stops.jsonl, which doctor shows, and the install goes on, 31 are kept as one of the four refusals and named so, and 15 stay stops marked depends; on PRODUCTION every stop prints master's words with master's exit code",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H94-02",
+   "severity": "Low",
+   "claim": "the ruling names the rehearsal mark or TB_ENV DEV and VALIDATION as a PoC box; the card counts TEST with them (looser than VALIDATION): a ruling is wanted",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H94-03",
+   "severity": "Medium",
+   "claim": "15 stops of install.sh stay stops because the lines after them depend on them (a command line not understood, Docker or its compose plugin, the host's python3 modules, a second installer, no settings and no terminal, the operator's no, the database, the stack's health, and the finish check, whose only refusal on a PoC box is an anchor folder that root's nightly signer would mount read-write); each waits for the integrator's ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H94-04",
+   "severity": "Low",
+   "claim": "18 converted points of install.sh are not driven by the PoC test: 7 whose condition is PRODUCTION, 3 whose value makes a box that cannot be told, 2 a PoC run cannot reach, 4 root's only (the tests run as a user), and 2 that cannot be forced without root (an unreadable deploy folder, a file of another owner)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H94-05",
+   "severity": "Medium",
+   "claim": "the files after install.sh are not converted: deploy/box-install.sh, tools/apply_update.sh, deploy/bootstrap.sh, deploy/check_host.sh, deploy/settings_guard.sh, tools/rehearsal_real.py and tools/trialbox/launch.py keep their stops (the ratchet holds each to its count); the walk's third failure (a half-done install's link refused at the start path) can still happen there",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H94-06",
+   "severity": "Low",
+   "claim": "the container rehearsal (tools/rehearse_box) was not run by the card (no Docker): its new check that the rehearsal's own install lists nothing rides on CI's rehearse jobs",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  }
+ ]
+}

@@ -49,7 +49,7 @@ LIST = Path("site") / "poc-stops.jsonl"  # under the deploy folder
 POC_ENVS = ("DEV", "TEST", "VALIDATION")
 ENVS = (*POC_ENVS, "PRODUCTION")
 ACTION = "fix what it names before this box serves a site, then run the step again"
-_SECRET = re.compile(r"\b([A-Z0-9_]*(?:PASSWORD|PASSPHRASE|TOKEN|SECRET|_KEY))=\S*")
+_SECRET = re.compile(r"\b([a-z0-9_]*(?:password|passphrase|token|secret|_key))=\S*", re.I)
 _UPLOADS = re.compile(r"\S*/uploads/\S*")
 
 
@@ -155,8 +155,8 @@ def read(deploy: Path) -> tuple[list[Entry], list[str]]:
     try:
         if path.is_symlink():
             raise OSError("a link (never followed)")
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as e:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()  # a cut byte never hides the rest
+    except OSError as e:
         return [], [f"{path} cannot be read: {e}"]
     newest: dict[str, Entry] = {}
     bad = 0

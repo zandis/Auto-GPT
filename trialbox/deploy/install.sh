@@ -92,7 +92,7 @@ while [ $# -gt 0 ]; do
     --engine-probe) ENGINE_PROBE="$2"; shift ;;
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
-    -*) echo "install: unknown option $1" >&2; exit 2 ;;
+    -*) echo "install: unknown option $1" >&2; exit 2 ;;  # H-94 depends: a command line not understood is not acted on
     *) BUNDLE="$1" ;;
   esac
   shift
@@ -118,6 +118,62 @@ alive_stop() {
 }
 die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
 indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
+# ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958; the same bytes in every script that has it): on a PoC box
+# the install, start and update paths stop for four things only, each named where it stops as "H-94 (N)": (1) the
+# bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk, memory,
+# card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does not have
+# it. Every other stop calls stop_or_warn: on a PoC box a warning, a line of the one list (deploy/site/
+# poc-stops.jsonl, which trialbox doctor shows) and the step goes on; on any other box the same stop as before, the
+# same words and exit code. "H-94 depends" marks a stop the next lines depend on, kept until it is ruled on.
+# A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
+# The sources are TB_ENV in deploy/.env (a file that cannot be read, or a value none of the four: PRODUCTION), an
+# installed box with none (PRODUCTION, D-127), the rehearsal mark on a box that records none yet (VALIDATION), and
+# this run's command line (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a caller's
+# environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+tb_poc_box() {
+  _d="$TB_STOP_DEPLOY"; _rec=""
+  if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
+    [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
+    _rec="$(sed -n 's/^TB_ENV=//p' "$_d/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  fi
+  if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
+  if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
+  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  [ -n "$_arg" ] || [ "$TB_STOP_REHEARSAL" != 1 ] || _arg=VALIDATION
+  for _e in "$_rec" "$_arg"; do case "$_e" in ""|DEV|TEST|VALIDATION) ;; *) return 1 ;; esac; done
+  [ -n "$_rec$_arg" ]
+}
+tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped for a JSON string
+  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's#[^ ]*/uploads/[^ ]*#<a path under uploads/>#g' \
+    -e 's/\([a-z0-9_]*\(password\|passphrase\|token\|secret\|_key\)\)=[^ ]*/\1=<hidden>/gI' -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
+  _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
+  [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
+  if [ ! -L "$_f" ] && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+      && printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
+        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f" 2>/dev/null; then
+    chmod 0640 "$_f" 2>/dev/null || true
+  else
+    printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
+  fi
+}
+stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning, a line of the list, 0; else the stop
+  _rc=1; _silent=0
+  while :; do case "$1" in --rc) _rc="$2"; shift 2 ;; --silent) _silent=1; shift ;; *) break ;; esac; done
+  _key="$1"; _skipped="$2"; shift 2
+  if ! tb_poc_box; then
+    if command -v alive_stop >/dev/null 2>&1; then alive_stop; fi
+    [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
+    exit "$_rc"
+  fi
+  printf '%s: warning (PoC box, H-94): %s%s\n' "$TB_STOP_WHO" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  tb_stop_list "$_key" "$_skipped" "$*"
+  return 0
+}
+# ---- end of STOP-OR-WARN
+TB_STOP_WHO=install; TB_STOP_FILE=install.sh; TB_STOP_DEPLOY="$ROOT/deploy"
+TB_STOP_ARG_ENV="$ENVIRONMENT"; TB_STOP_REHEARSAL="$REHEARSAL"
 # ENV-EARLY (D-1365, re-check of #1175): an environment that is not one of the four stops here, at argument parsing,
 # before anything is loaded, linked, made or copied: --environment, or (neither it nor --rehearsal given) a TB_ENV an
 # existing deploy/.env already holds, read without changing anything. Read as the settings step reads them
@@ -129,7 +185,7 @@ if [ -z "$EARLY_ENV" ] && [ "$REHEARSAL" != 1 ] && [ -f "$ROOT/deploy/.env" ] &&
 fi
 case "$EARLY_ENV" in
   ""|DEV|TEST|VALIDATION|PRODUCTION) ;;
-  *) die "the environment '$EARLY_ENV' ($EARLY_FROM) is not DEV, TEST, VALIDATION or PRODUCTION: nothing was loaded or written" ;;
+  *) stop_or_warn early-env "" "the environment '$EARLY_ENV' ($EARLY_FROM) is not DEV, TEST, VALIDATION or PRODUCTION: nothing was loaded or written" ;;
 esac
 # ---- end of ENV-EARLY
 # REHEARSAL-REAL-SERVERS (H-89): the real model servers on a rehearsal box whose card and driver are not the profile's
@@ -141,27 +197,40 @@ esac
 # the three refusals (the driver, the card, the record) stand as before. tools/rehearsal_real.py decides each step;
 # the box says "rehearsal: driver below the minimum, not this profile's card, not valid for a site"
 if [ "$REHEARSAL" != 1 ]; then
-  [ "$REAL_SERVERS" = 0 ] || { echo "install: --rehearsal-real-servers is for a rehearsal box only: give --rehearsal too (nothing was checked or written)" >&2; exit 2; }
-  [ -z "$GPU_INDEX" ] || { echo "install: --gpu-index is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written" >&2; exit 2; }
-  [ -z "$ENGINE_PROBE" ] || { echo "install: --engine-probe is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written" >&2; exit 2; }
+  RRS_IGNORED="the option (ignored)"
+  [ "$REAL_SERVERS" = 0 ] || { stop_or_warn --rc 2 rrs-without-rehearsal "$RRS_IGNORED" "--rehearsal-real-servers is for a rehearsal box only: give --rehearsal too (nothing was checked or written)"; REAL_SERVERS=0; }
+  [ -z "$GPU_INDEX" ] || { stop_or_warn --rc 2 gpu-index-without-rehearsal "$RRS_IGNORED" "--gpu-index is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written"; GPU_INDEX=""; }
+  [ -z "$ENGINE_PROBE" ] || { stop_or_warn --rc 2 engine-probe-without-rehearsal "$RRS_IGNORED" "--engine-probe is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written"; ENGINE_PROBE=""; }
 elif [ "$REAL_SERVERS" != 1 ]; then
-  [ -z "$GPU_INDEX$ENGINE_PROBE" ] || { echo "install: --gpu-index and --engine-probe go with --rehearsal-real-servers; nothing was checked or written" >&2; exit 2; }
+  [ -z "$GPU_INDEX$ENGINE_PROBE" ] || { stop_or_warn --rc 2 rrs-options-without-rrs "the options (ignored)" "--gpu-index and --engine-probe go with --rehearsal-real-servers; nothing was checked or written"; GPU_INDEX=""; ENGINE_PROBE=""; }
 else
-  [ "$GPU_SET" = 1 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)"
-  case "$GPU" in
+  # H-94: each check of the bench-only options, on a PoC box, drops the real servers: the install goes on as a plain
+  # rehearsal (the model stand-ins), and the checks after the first are not asked again
+  rrs_drop() {  # KEY WHAT: stop_or_warn, then no real servers
+    stop_or_warn "$1" "--rehearsal-real-servers (a plain rehearsal: the model stand-ins)" "$2"
+    REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
+  }
+  [ "$GPU_SET" = 1 ] || rrs_drop rrs-profile-missing "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)"
+  [ "$REAL_SERVERS" = 0 ] || case "$GPU" in
     rtxpro6000|rtx5090) ;;
-    dgpu48|gb10) die "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;
-    *) die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)" ;;
+    dgpu48|gb10) rrs_drop rrs-profile-not-opened "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;
+    *) rrs_drop rrs-profile-unknown "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)" ;;
   esac
-  [ -z "$TIER" ] || die "--rehearsal-real-servers is no tier install: drop --tier"
-  [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--rehearsal-real-servers needs the GPU: drop --mode $MODE"
-  case "$GPU_INDEX" in ""|*[!0-9]*) die "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all" ;; esac
-  [ -n "$ENGINE_PROBE" ] && [ -f "$ENGINE_PROBE" ] || die "--rehearsal-real-servers: --engine-probe FILE, the engine probe's result taken on that card (tools/engine_probe.py run), is missing"
-  ENGINE_PROBE="$(readlink -f "$ENGINE_PROBE")"
-  [ -z "${TB_COMPOSE_OVERRIDE:-}" ] || die "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE"
-  [ -z "$ENVIRONMENT" ] || [ "$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')" = VALIDATION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
-  command -v python3 >/dev/null || die "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
-  MODE=gpu
+  [ "$REAL_SERVERS" = 0 ] || [ -z "$TIER" ] || rrs_drop rrs-tier "--rehearsal-real-servers is no tier install: drop --tier"
+  [ "$REAL_SERVERS" = 0 ] || [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || rrs_drop rrs-mode "--rehearsal-real-servers needs the GPU: drop --mode $MODE"
+  [ "$REAL_SERVERS" = 0 ] || case "$GPU_INDEX" in ""|*[!0-9]*) rrs_drop rrs-gpu-index "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all" ;; esac
+  [ "$REAL_SERVERS" = 0 ] || { [ -n "$ENGINE_PROBE" ] && [ -f "$ENGINE_PROBE" ]; } || rrs_drop rrs-engine-probe "--rehearsal-real-servers: --engine-probe FILE, the engine probe's result taken on that card (tools/engine_probe.py run), is missing"
+  [ "$REAL_SERVERS" = 0 ] || ENGINE_PROBE="$(readlink -f "$ENGINE_PROBE")"
+  # the walk's own fault (7092045961): the script's own override, refused after its signed re-run. On a PoC box a
+  # caller's override is dropped: the real servers write their own
+  [ "$REAL_SERVERS" = 0 ] || [ -z "${TB_COMPOSE_OVERRIDE:-}" ] || { stop_or_warn rrs-callers-override "the caller's TB_COMPOSE_OVERRIDE (unset: the real servers write their own)" "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE"; unset TB_COMPOSE_OVERRIDE; }
+  if [ "$REAL_SERVERS" = 1 ] && [ -n "$ENVIRONMENT" ] && [ "$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')" != VALIDATION ]; then
+    [ "$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')" != PRODUCTION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"  # H-94 (3): a rehearsal box never becomes PRODUCTION
+    stop_or_warn rrs-environment "--environment $ENVIRONMENT (a rehearsal box is VALIDATION)" "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
+    ENVIRONMENT=""; TB_STOP_ARG_ENV=""
+  fi
+  [ "$REAL_SERVERS" = 0 ] || command -v python3 >/dev/null || rrs_drop rrs-python3 "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
+  [ "$REAL_SERVERS" = 0 ] || MODE=gpu
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
@@ -210,46 +279,61 @@ if [ "$CTGOV_CHECK" = 1 ]; then
   else echo "internet: no (offline only)"; fi
   exit 0
 fi
-case "$CTGOV" in ""|live|offline) ;; *) echo "install: --ctgov must be live or offline" >&2; exit 2 ;; esac
+case "$CTGOV" in ""|live|offline) ;; *) stop_or_warn --rc 2 ctgov-value "--ctgov $CTGOV (the box's mode, else offline)" "--ctgov must be live or offline"; CTGOV="" ;; esac
 
 # ------------------------------------------------------------------------------------------------ 0. tier
 # D-138: before anything is loaded or started. The record rule is tools/serving_config.py's (D-112, D-124).
 # TB_TIER_TEST_ARCH / TB_TIER_TEST_CARD stand in for uname and nvidia-smi in the tests only, TB_TEST_MEM_KIB for
 # /proc/meminfo's MemTotal (card 10E-5: a GB10 under 96 GiB is not tier medium).
 TIER_RECORD=""
+TIER_DROPPED="--tier $TIER (dropped: the profile is detected, as an install without a tier)"
 if [ -n "$TIER" ]; then
-  [ "$GPU_SET" = 0 ] || die "--tier and --gpu: give one (a tier names its GPU profile)"
-  [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--tier needs the GPU: drop --mode $MODE"
-  command -v python3 >/dev/null || die "--tier needs python3 on the host to read the serving records"
+  [ "$GPU_SET" = 0 ] || stop_or_warn tier-and-gpu "--gpu $GPU (the tier names its profile)" "--tier and --gpu: give one (a tier names its GPU profile)"
+  [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || stop_or_warn tier-mode "--mode $MODE (a tier is the GPU)" "--tier needs the GPU: drop --mode $MODE"
+  if ! command -v python3 >/dev/null; then
+    stop_or_warn tier-python3 "$TIER_DROPPED" "--tier needs python3 on the host to read the serving records"
+    TIER=""; [ "$TIER_CHECK" = 0 ] || exit 3  # H-94 not a stop: --tier-check's own answer (no), not an install
+  fi
+fi
+if [ -n "$TIER" ]; then
   set +e
   TIER_OUT="$(python3 "$ROOT/tools/tiers.py" check --tier "$TIER" --deploy "$ROOT/deploy" \
     ${TB_TIER_TEST_ARCH:+--arch "$TB_TIER_TEST_ARCH"} ${TB_TIER_TEST_CARD:+--card "$TB_TIER_TEST_CARD"} \
     ${TB_TEST_MEM_KIB:+--mem-kib "$TB_TEST_MEM_KIB"})"
   rc=$?
   set -e
-  [ "$rc" = 0 ] || exit 3   # the reason is on stderr: what is missing and how to get a record
-  GPU="${TIER_OUT%% *}"; TIER_RECORD="${TIER_OUT#* }"; MODE=gpu
-  echo "    tier $TIER: $GPU profile, measured record $TIER_RECORD"
-  [ "$TIER_CHECK" = 0 ] || exit 0
+  if [ "$rc" != 0 ]; then  # the reason is on stderr: what is missing and how to get a record
+    [ "$TIER_CHECK" = 0 ] || exit 3  # H-94 not a stop: --tier-check's own answer (no), not an install
+    stop_or_warn --rc 3 --silent tier-record "$TIER_DROPPED" "tier $TIER may not be installed on this machine (the reason above)"
+    TIER=""
+  else
+    GPU="${TIER_OUT%% *}"; TIER_RECORD="${TIER_OUT#* }"; MODE=gpu
+    echo "    tier $TIER: $GPU profile, measured record $TIER_RECORD"
+    [ "$TIER_CHECK" = 0 ] || exit 0
+  fi
 elif [ "$TIER_CHECK" = 1 ]; then
-  die "--tier-check needs --tier small|medium|large"
+  die "--tier-check needs --tier small|medium|large"  # H-94 depends: a command line not understood is not acted on
 fi
-[ -n "$BUNDLE" ] || die "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]"
-[ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"
+# H-94 (1): no bundle, no signature that holds: nothing is loaded from nothing
+[ -n "$BUNDLE" ] || die "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]"  # H-94 (1)
+[ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"  # H-94 (1)
 # H-70: the host baseline near the end (deploy/hardening/apply.sh) refuses SSH=off from an SSH session; ask it now,
 # when it will run (root, deploy/site/hardening.conf), so an install over SSH stops before anything is loaded or written.
 # --ssh-off-over-ssh (or TB_SSH_OFF_OVER_SSH=yes, which sudo may drop) goes ahead, and is handed on to apply.sh
+# H-94: on a PoC box the warning skips the host baseline's apply step near the end (HB_SKIP), so the session stays
 HB_OVER=(); [ "$SSH_OFF_OVER_SSH" = 1 ] && HB_OVER=(--ssh-off-over-ssh)
+HB_SKIP=0
 if [ "$(id -u)" = 0 ] && [ -f "$ROOT/deploy/site/hardening.conf" ]; then
   sh "$ROOT/deploy/hardening/apply.sh" --conf "$ROOT/deploy/site/hardening.conf" ${HB_OVER[@]+"${HB_OVER[@]}"} check \
-    || die "the host baseline would cut this SSH session (above): nothing was loaded or written"
+    || { stop_or_warn host-baseline-ssh "the host baseline (input firewall and SSH: deploy/hardening/apply.sh all)" "the host baseline would cut this SSH session (above): nothing was loaded or written"; HB_SKIP=1; }
 fi
 
 # ------------------------------------------------------------------------------------------------ 1. host
 say "host"
-command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"
-docker info >/dev/null 2>&1 || die "Docker is not running (sudo systemctl start docker)"
-docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"
+# H-94 depends: every step after this one runs Docker; going on would only fail at each of them
+command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"  # H-94 depends
+docker info >/dev/null 2>&1 || die "Docker is not running (sudo systemctl start docker)"  # H-94 depends
+docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"  # H-94 depends
 # HOST-PYTHON (D-831): the host steps run python3 -m tools.... (anchors, pre-start, doctor, the secrets); the modules
 # they import at the top are checked here, before anything loads, not 20 minutes in. module:Debian package, one per
 # word. Not cryptography: the host python3 may lack it (libs/tb_common/kek.py). Without python3 those steps say so.
@@ -259,6 +343,7 @@ if command -v python3 >/dev/null; then
   for pair in $HOST_PY_MODULES; do
     python3 -c "import ${pair%%:*}" 2>/dev/null || HOST_PY_MISSING="$HOST_PY_MISSING ${pair#*:}"
   done
+  # H-94 depends: the host steps import these at the top; under errexit a missing module ends the script mid-step
   [ -z "$HOST_PY_MISSING" ] || die "the host's python3 lacks what the installer needs:$HOST_PY_MISSING (Debian/Ubuntu: sudo apt-get install -y$HOST_PY_MISSING); install it, then re-run; nothing was changed"
 fi
 # ---- end of HOST-PYTHON
@@ -266,10 +351,11 @@ if [ "$MODE" = auto ]; then
   if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then MODE=gpu; else MODE=stub; fi
 fi
 case "$MODE" in
+  # H-94 (2): no card the driver can see
   gpu) command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 || die "--mode gpu but nvidia-smi finds no GPU (driver + container toolkit; docs/SECURITY.md)"
        docker info 2>/dev/null | grep -qi nvidia || echo "install: warning: Docker lists no nvidia runtime; the model service may not start" >&2 ;;
   stub) echo "    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model" ;;
-  *) die "--mode must be gpu or stub" ;;
+  *) die "--mode must be gpu or stub" ;;  # H-94 depends: a command line not understood is not acted on
 esac
 # GPU profile (D-95, D-124; deploy/gpu_profile.sh detects it from the card): rtxpro6000 = judge and verifier both
 # resident on a 96 GB card at 32k; gb10 = the same pair resident on a 128 GB DGX Spark at 16k (a Spark under 96 GiB
@@ -285,26 +371,30 @@ fi
 if [ "$MODE" = gpu ] && [ "$GPU" = gb10 ]; then
   GPU="$(sh "$ROOT/deploy/gpu_profile.sh" memory-class "${TB_TEST_MEM_KIB:-}")"
 fi
+# H-94: on a PoC box each of these five warns and the box goes on without its model servers (--mode stub)
+GPU_STUB="the model servers (the box goes on as --mode stub: structured criteria only)"
 case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances on a platform, RUNBOOK §17
-  shared-quota) die "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)" ;;
-  b200-no-mig) die "a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)" ;;
-  gb10-64) die "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB (its model servers alone are capped at 74 GiB), and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub (structured criteria only; note criteria wait for a GPU), or use a 128 GB Spark or another measured box" ;;
-  arm64-dgpu) die "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile (unmeasured, root review 24): install with --mode stub, or see RUNBOOK §28" ;;
+  shared-quota) stop_or_warn gpu-shared-quota "$GPU_STUB" "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)"; MODE=stub; GPU=default ;;
+  b200-no-mig) stop_or_warn gpu-b200-no-mig "$GPU_STUB" "a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)"; MODE=stub; GPU=default ;;
+  gb10-64) stop_or_warn gpu-gb10-64 "$GPU_STUB" "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB (its model servers alone are capped at 74 GiB), and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub (structured criteria only; note criteria wait for a GPU), or use a 128 GB Spark or another measured box"; MODE=stub; GPU=default ;;
+  arm64-dgpu) stop_or_warn gpu-arm64-dgpu "$GPU_STUB" "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile (unmeasured, root review 24): install with --mode stub, or see RUNBOOK §28"; MODE=stub; GPU=default ;;
   # cards 24-5 and 24-6: the 48 GB draft is never installed, whatever is set; TB_UNMEASURED_DGPU48_MEASURING_RUN=1 is
   # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing
-  dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
+  dgpu48) stop_or_warn gpu-dgpu48 "$GPU_STUB" "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)"; MODE=stub; GPU=default ;;
 esac
-case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
+case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac  # H-94 depends: a command line not understood is not acted on
 # REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
 # check, so a site box is refused before any allowance), and the one card named carries the pair. The GPU check then
 # runs under the mark: the driver below the minimum is a WARN only with a passed probe of this card, this driver and
 # the pinned image (tools/images_lock.py host --rehearsal-real-servers); anything else FAILs as before
 RRS_HOST=(); RRS_REC=""
 if [ "$REAL_SERVERS" = 1 ]; then
+  # H-94 (3): a site box (which may hold real patient data) is never made a rehearsal box
   python3 -m tools.rehearsal_real box --deploy "$ROOT/deploy" || die "--rehearsal-real-servers: refused (above): nothing was loaded or written"
   for f in "deploy/site/serving_config.$GPU.json" "deploy/measured/serving_config.$GPU.json"; do
     [ -f "$f" ] && { RRS_REC="$f"; break; }
   done
+  # H-94 (2): the card named cannot carry the pair
   python3 -m tools.rehearsal_real card --profile "$GPU" --gpu-index "$GPU_INDEX" ${RRS_REC:+--record "$RRS_REC"} | sed 's/^/    /' \
     || die "--rehearsal-real-servers: the card at index $GPU_INDEX cannot carry the pair (above): nothing was loaded or written"
   RRS_HOST=(--rehearsal-real-servers --engine-probe "$ENGINE_PROBE" --gpu-index "$GPU_INDEX")
@@ -315,19 +405,21 @@ fi
 # compute capability), before anything is loaded: a CUDA 13 image on an older driver would only fail at start
 if [ "$MODE" = gpu ]; then
   if command -v python3 >/dev/null; then
+    # H-94 (2): the driver, the architecture or the card's compute capability cannot run the pinned image
     sh "$ROOT/deploy/check_host.sh" --gpu-only --gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"} 2>&1 | sed 's/^/    /' \
       || die "this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed"
   else
     echo "install: warning: no python3: the GPU host is not checked against deploy/images.lock" >&2
   fi
 fi
-[ -f "$PUBKEY" ] || die "vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to $PUBKEY"
+[ -f "$PUBKEY" ] || die "vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to $PUBKEY"  # H-94 (1): no key, no signature check
 # ---- SIDECAR (H-22, D-996): make_bundle.sh names each file bare (the bundle, the bootstrap and its .sig), so the
 # check works wherever the stick is mounted; only the bundle's own line is checked here
 if [ -f "$BUNDLE.sha256" ]; then
   SUM_LINE="$(awk -v n="$(basename "$BUNDLE")" '$2 == n || $2 == "*" n' "$BUNDLE.sha256")"
+  # H-94 (1): the bundle's hash
   [ -n "$SUM_LINE" ] || die "$(basename "$BUNDLE").sha256 does not name $(basename "$BUNDLE") (a sidecar from before D-996 names the vendor's own path): compare its sum with: sha256sum $BUNDLE"
-  (cd "$(dirname "$BUNDLE")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "bundle checksum mismatch: $(basename "$BUNDLE") is not the file the vendor handed over"
+  (cd "$(dirname "$BUNDLE")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "bundle checksum mismatch: $(basename "$BUNDLE") is not the file the vendor handed over"  # H-94 (1)
 fi
 # ---- end of SIDECAR
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
@@ -337,12 +429,15 @@ echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), m
 # the first run's containers while they start. flock on the deploy folder itself, opened read-only: no lock file is
 # written, and the lock ends with the installer's process, so a killed run leaves none behind. The run from the signed
 # tree (exec below) keeps the lock it inherits on fd 9: it is not taken twice
+# H-94: on a PoC box with no flock, or a folder that cannot be opened, the warning skips the lock (LOCKED=0)
 INSTALL_LOCK="$(readlink -f "$ROOT/deploy")"
-command -v flock >/dev/null || die "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed"
-if [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$INSTALL_LOCK" ]; then
-  exec 9<"$INSTALL_LOCK" || die "the deploy folder $INSTALL_LOCK cannot be opened for the install lock; nothing was changed"
+LOCKED=1; NO_LOCK="the install lock (a second installer on this folder is not kept out)"
+command -v flock >/dev/null || { stop_or_warn install-lock-flock "$NO_LOCK" "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed"; LOCKED=0; }
+if [ "$LOCKED" = 1 ] && [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$INSTALL_LOCK" ]; then
+  exec 9<"$INSTALL_LOCK" || { stop_or_warn install-lock-open "$NO_LOCK" "the deploy folder $INSTALL_LOCK cannot be opened for the install lock; nothing was changed"; LOCKED=0; }
 fi
-flock -n 9 || die "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed"
+# H-94 depends: another installer runs: its project cleanup would take down this run's containers, or this one its
+[ "$LOCKED" = 0 ] || flock -n 9 || die "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed"  # H-94 depends
 # ---- end of INSTALL-LOCK
 
 # REHEARSAL (D-726): before anything loads
@@ -350,39 +445,49 @@ flock -n 9 || die "another deploy/install.sh is running on this folder (it holds
 # from here on, read from the mark until deploy/.env says so. TB_ENV is read as Python reads it (no quotes, no spaces,
 # upper case); only DEV, TEST or nothing may become a rehearsal box, and a VALIDATION box that already is one (D-887)
 RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+# a rehearsal box (or one left half emptied) never becomes a site box by an install without the argument. H-94: on
+# a box that is not a PoC box the helper stops (the mark never becomes PRODUCTION: kept refusal 3, through the
+# helper's own rule); on a PoC box the install goes on as the rehearsal box it is, as with --rehearsal
+if [ "$REHEARSAL" != 1 ] && { [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_REHEARSAL=1' deploy/.env; }; }; then
+  stop_or_warn rehearsal-without-argument "the install as a site box (it goes on as the rehearsal box it is: --rehearsal)" "this box was a rehearsal box (deploy/site/rehearsal.json or TB_REHEARSAL=1): run with --rehearsal, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
+  REHEARSAL=1; TB_STOP_REHEARSAL=1
+fi
 if [ "$REHEARSAL" = 1 ]; then
   case "$RH_ENV" in
     ""|DEV|TEST) ;;
-    VALIDATION) [ -f deploy/site/rehearsal.json ] || die "--rehearsal: this box is VALIDATION (deploy/.env TB_ENV) with no rehearsal mark: a site box is never made a rehearsal box" ;;
-    *) die "--rehearsal: this box is $RH_ENV (deploy/.env TB_ENV): a site box is never made a rehearsal box" ;;
+    # H-94 (3): a site box (VALIDATION with no mark, or PRODUCTION) may hold real patient data: never a rehearsal box
+    VALIDATION) [ -f deploy/site/rehearsal.json ] || die "--rehearsal: this box is VALIDATION (deploy/.env TB_ENV) with no rehearsal mark: a site box is never made a rehearsal box" ;;  # H-94 (3)
+    *) die "--rehearsal: this box is $RH_ENV (deploy/.env TB_ENV): a site box is never made a rehearsal box" ;;  # H-94 (3)
   esac
   if [ ! -f deploy/site/rehearsal.json ]; then
     for f in settings.yaml updates/installed.json; do
+      # H-94 (3): a site's install from no rehearsal: its data are taken as real patient data
       [ ! -e "deploy/$f" ] || die "--rehearsal: this box holds a site's install (deploy/$f) from no rehearsal: a rehearsal starts on an empty box"
     done
+    # H-94 (3): volumes that cannot be listed cannot be shown to hold no real patient data
     RH_VOLS="$(docker volume ls -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-trialbox}")" \
       || die "--rehearsal: docker cannot list the volumes, so the box's data cannot be checked (is Docker running?)"
     RH_VOLS="$(printf '%s' "$RH_VOLS" | tr '\n' ' ')"
+    # H-94 (3): data from no rehearsal are taken as real patient data
     [ -z "${RH_VOLS// /}" ] || die "--rehearsal: this box holds data from no rehearsal (volumes: $RH_VOLS): a rehearsal starts on an empty box"
   fi
-  [ -f "$ROOT/tools/rehearse_box/standins.yml" ] || die "--rehearsal: no model stand-ins at tools/rehearse_box/standins.yml"
+  STANDINS="$ROOT/tools/rehearse_box/standins.yml"
+  [ -f "$STANDINS" ] || { stop_or_warn rehearsal-standins "the model stand-ins (the real model servers, as TB_COMPOSE_OVERRIDE= empty)" "--rehearsal: no model stand-ins at tools/rehearse_box/standins.yml"; STANDINS=""; }
   mkdir -p deploy/site && printf '{"rehearsal": true}\n' > deploy/site/rehearsal.json
   # the stand-ins unless TB_COMPOSE_OVERRIDE is set: set empty, the real model servers (an unmeasured card's trial boot)
-  export TB_COMPOSE_OVERRIDE="${TB_COMPOSE_OVERRIDE-$ROOT/tools/rehearse_box/standins.yml}"
+  export TB_COMPOSE_OVERRIDE="${TB_COMPOSE_OVERRIDE-$STANDINS}"
   export TB_ACCEPT_UNMEASURED_GPU=1
   echo "install: note: a rehearsal box (TB_ENV VALIDATION, ${TB_COMPOSE_OVERRIDE:-the real model servers}, an unmeasured card accepted)" >&2
-elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_REHEARSAL=1' deploy/.env; }; then
-  # a rehearsal box (or one left half emptied) never becomes a site box by an install without the argument
-  die "this box was a rehearsal box (deploy/site/rehearsal.json or TB_REHEARSAL=1): run with --rehearsal, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
 fi
 # ---- end of REHEARSAL (D-726): before anything loads
 # REHEARSAL-REAL-SERVERS (H-89): after the mark, the box's record and compose file (deploy/site); a box that ran the
 # real servers as a rehearsal is re-run with the same options or emptied, never installed as anything else
 if [ "$REAL_SERVERS" = 1 ]; then
+  # H-94 (2) and (3): the card checked again, and a site box is never made a rehearsal box
   python3 -m tools.rehearsal_real write --deploy "$ROOT/deploy" --profile "$GPU" --gpu-index "$GPU_INDEX" --engine-probe "$ENGINE_PROBE" ${RRS_REC:+--record "$RRS_REC"} \
     | sed 's/^/install: warning: /' >&2 || die "--rehearsal-real-servers: refused (above)"
 elif [ -f deploy/site/rehearsal-real-servers.json ] || [ -f deploy/site/rehearsal-real-servers.yml ]; then
-  die "this box ran the real model servers as a rehearsal (deploy/site/rehearsal-real-servers.json): run with --rehearsal --rehearsal-real-servers, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
+  stop_or_warn rrs-box-without-options "" "this box ran the real model servers as a rehearsal (deploy/site/rehearsal-real-servers.json): run with --rehearsal --rehearsal-real-servers, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 
@@ -392,14 +497,17 @@ fi
 # the update and restarts the stack: refused here, nothing was loaded or changed. Not for a box's own install before
 # its set-up (TB_BOX=1), a rehearsal (--rehearsal: a VALIDATION box), nor the run from the signed tree after a load
 # (TB_INSTALL_SIGNED): the release that load brought is applied already, so FINISH-GATE says so when it refuses
+# H-94 depends: on a PoC box the check refuses only an anchor folder the console may not be given (a system folder,
+# the install's own); root's nightly signer mounts each anchor folder read-write (tools/trialbox/audit_heads.py), so a
+# warned refusal would let it write there. It stays a stop until it is ruled on (H94-03)
 finish_check() {  # $1: what is true when it refuses; the rest: finish-check's own options (fixed words)
   local said="$1" rc=0
   shift
   python3 -m tools.trialbox finish-check --deploy "$ROOT/deploy" "$@" || rc=$?
   case "$rc" in
     0) ;;
-    1) die "$said (above: the setting to change in deploy/.env; RUNBOOK §5)" ;;
-    *) die "the finish check did not run (exit $rc, above), so nothing about the folders was decided: $said" ;;
+    1) die "$said (above: the setting to change in deploy/.env; RUNBOOK §5)" ;;  # H-94 depends
+    *) die "the finish check did not run (exit $rc, above), so nothing about the folders was decided: $said" ;;  # H-94 depends
   esac
 }
 # Review 3 of #1303: skipped only by the run the bundle step below does not load again (TB_INSTALL_SIGNED is the
@@ -427,7 +535,7 @@ if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ "$SIGNED_RUN" != 1 ] &&
   if command -v python3 >/dev/null; then
     finish_check "nothing was loaded or changed; then re-run" ${GATE_ENV:+--environment "$GATE_ENV"}
   elif [ "${GATE_ENV:-PRODUCTION}" = PRODUCTION ]; then
-    die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder; nothing was loaded or changed (RUNBOOK §5)"
+    stop_or_warn finish-early-no-python3 "" "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder; nothing was loaded or changed (RUNBOOK §5)"
   fi
 fi
 # ---- end of FINISH-EARLY
@@ -440,23 +548,26 @@ say "bundle: verify and load (host tree, images, models, rulesets)"
 if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
   echo "    verifying the signature and every file of $(basename "$BUNDLE") (minutes for a large bundle)"
   alive_start "verifying the bundle"
+  # H-94 (1): the signature and every payload hash
   sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
   alive_stop
   echo "    loading the images, models and rulesets (10-20 minutes for a GPU bundle)"
   export PYTHONUNBUFFERED=1
   alive_start "loading the bundle"
+  # H-94 (1): the load checks each payload's hash as it lands; a failed load leaves nothing verified to act on
   TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | indent || die "loading the bundle failed"
   alive_stop
 fi
-docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $IMAGE_PY image"
+# H-94 (1): the signed release does not hold what every later step runs (its image, its host tree, its installer)
+docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $IMAGE_PY image"  # H-94 (1)
 # T-631, D-367: compose files, host tools and configuration come only from the signed release
 [ -L "$ROOT/current" ] && [ -d "$ROOT/current/deploy" ] \
-  || die "the bundle carried no host tree (payload kind host, D-367): build the release with tools/make_bundle.sh of T-631 or later"
+  || die "the bundle carried no host tree (payload kind host, D-367): build the release with tools/make_bundle.sh of T-631 or later"  # H-94 (1)
 RELEASE="$(readlink "$ROOT/current")"
 echo "    release: $ROOT/current -> $RELEASE"
 if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # deploy/install.sh is now a link into the signed tree (run by that path, so ROOT stays this folder)
-  [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"
+  [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"  # H-94 (1)
   say "continuing from the signed release ($ROOT/deploy/install.sh -> $(readlink "$ROOT/deploy/install.sh"))"
   # REHEARSAL-REAL-SERVERS (H-89): the compose override this run exported (above) is never handed on: the run from
   # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
@@ -496,19 +607,23 @@ WIZ_ENV="$ENVIRONMENT"; [ -n "$WIZ_ENV" ] || { [ "$REHEARSAL" != 1 ] || WIZ_ENV=
 WIZ_ENV="$(printf '%s' "${WIZ_ENV:-${PRE_ENV:-PRODUCTION}}" | tr '[:lower:]' '[:upper:]')"
 case "$WIZ_ENV" in
   DEV|TEST|VALIDATION|PRODUCTION) [ "${TB_BOX:-0}" = 1 ] || WIZ_ARGS=(--environment "$WIZ_ENV") ;;
-  *) die "the environment '$WIZ_ENV' (--environment, or TB_ENV in deploy/.env) is not DEV, TEST, VALIDATION or PRODUCTION: the settings wizard was not run" ;;
+  *) stop_or_warn wizard-env "" "the environment '$WIZ_ENV' (--environment, or TB_ENV in deploy/.env) is not DEV, TEST, VALIDATION or PRODUCTION: the settings wizard was not run" ;;
 esac
 # ---- end of WIZARD-ENV (D-1365)
 SETTINGS_NEW=0
 if [ ! -f deploy/settings.yaml ]; then
   SETTINGS_NEW=1  # D-736: a fresh install (a re-run keeps the site's settings and never stops a running site)
+  if [ -n "$ANSWERS" ] && [ ! -f "$ANSWERS" ]; then
+    stop_or_warn answers-file "the answers file (the questions, when there is a terminal)" "no such answers file: $ANSWERS"
+    ANSWERS=""
+  fi
   if [ -n "$ANSWERS" ]; then
-    [ -f "$ANSWERS" ] || die "no such answers file: $ANSWERS"
     tree_args
     docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
   else
-    [ -t 0 ] || die "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
+    # H-94 depends: no settings.yaml is made, and every service and step after this one reads it
+    [ -t 0 ] || die "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"  # H-94 depends
     tree_args
     docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
       python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
@@ -525,7 +640,7 @@ case "$CTGOV" in
   *) CTGOV=offline
      if [ "$YES" != 1 ] && [ -t 0 ]; then
        ctgov_question; printf '  offline / live [offline]: '; read -r ans
-       case "${ans:-offline}" in live|offline) CTGOV="${ans:-offline}" ;; *) die "answer offline or live" ;; esac
+       case "${ans:-offline}" in live|offline) CTGOV="${ans:-offline}" ;; *) stop_or_warn ctgov-answer "the answer $ans (offline)" "answer offline or live" ;; esac
      fi ;;
 esac
 if [ "$CTGOV" = live ] && ! ctgov_internet; then
@@ -563,8 +678,8 @@ if [ "$REHEARSAL" = 1 ]; then
   RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
   case "$RH_ENV" in
     ""|DEV|TEST) ;;
-    VALIDATION) [ -f deploy/site/rehearsal.json ] || die "--rehearsal: the answers make this box VALIDATION with no rehearsal mark: a rehearsal box is made by --rehearsal" ;;
-    *) die "--rehearsal: the answers make this box $RH_ENV: a rehearsal box is VALIDATION" ;;
+    VALIDATION) [ -f deploy/site/rehearsal.json ] || stop_or_warn rehearsal-answers-validation "" "--rehearsal: the answers make this box VALIDATION with no rehearsal mark: a rehearsal box is made by --rehearsal" ;;
+    *) die "--rehearsal: the answers make this box $RH_ENV: a rehearsal box is VALIDATION" ;;  # H-94 (3): a rehearsal box never becomes PRODUCTION
   esac
   sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=VALIDATION\nTB_REHEARSAL=1\n' >> deploy/.env
 fi
@@ -574,7 +689,7 @@ fi
 if [ "$REAL_SERVERS" = 1 ]; then
   sed -i '/^TB_REHEARSAL_REAL_SERVERS=/d' deploy/.env && echo "TB_REHEARSAL_REAL_SERVERS=1" >> deploy/.env
   python3 -c 'import json,sys; [print(f"{k}={v}") for k, v in sorted(json.load(open(sys.argv[1]))["caps"].items())]' \
-    deploy/site/rehearsal-real-servers.json > deploy/site/.rehearsal-caps || die "--rehearsal-real-servers: the record names no caps"
+    deploy/site/rehearsal-real-servers.json > deploy/site/.rehearsal-caps || { stop_or_warn rrs-caps "the profile's memory caps on this card (the compose defaults)" "--rehearsal-real-servers: the record names no caps"; : > deploy/site/.rehearsal-caps; }
   while IFS='=' read -r k v; do
     sed -i "/^$k=/d" deploy/.env && echo "$k=$v" >> deploy/.env
   done < deploy/site/.rehearsal-caps
@@ -586,10 +701,19 @@ fi
 NOW_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
 if [ -n "$ENVIRONMENT" ]; then
   ENVIRONMENT="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
-  case "$ENVIRONMENT" in DEV|TEST|VALIDATION|PRODUCTION) ;; *) die "--environment must be DEV, TEST, VALIDATION or PRODUCTION, not $ENVIRONMENT" ;; esac
-  [ "$REHEARSAL" != 1 ] || [ "$ENVIRONMENT" = VALIDATION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
-  [ -z "$NOW_ENV" ] || [ "$NOW_ENV" = "$ENVIRONMENT" ] \
-    || die "deploy/.env says TB_ENV=$NOW_ENV and --environment says $ENVIRONMENT: a box's environment is not changed by an install"
+  case "$ENVIRONMENT" in DEV|TEST|VALIDATION|PRODUCTION) ;; *) stop_or_warn environment-value "" "--environment must be DEV, TEST, VALIDATION or PRODUCTION, not $ENVIRONMENT" ;; esac
+  if [ "$REHEARSAL" = 1 ] && [ "$ENVIRONMENT" != VALIDATION ]; then
+    [ "$ENVIRONMENT" != PRODUCTION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"  # H-94 (3): a rehearsal box never becomes PRODUCTION
+    stop_or_warn rehearsal-environment "--environment $ENVIRONMENT (a rehearsal box is VALIDATION)" "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
+    ENVIRONMENT=VALIDATION; TB_STOP_ARG_ENV=VALIDATION
+  fi
+  if [ -n "$NOW_ENV" ] && [ "$NOW_ENV" != "$ENVIRONMENT" ]; then
+    # H-94 (3): to or from PRODUCTION, a box's environment is never changed by an install
+    [ "$NOW_ENV" != PRODUCTION ] && [ "$ENVIRONMENT" != PRODUCTION ] \
+      || die "deploy/.env says TB_ENV=$NOW_ENV and --environment says $ENVIRONMENT: a box's environment is not changed by an install"  # H-94 (3)
+    stop_or_warn environment-change "--environment $ENVIRONMENT (the box stays $NOW_ENV)" "deploy/.env says TB_ENV=$NOW_ENV and --environment says $ENVIRONMENT: a box's environment is not changed by an install"
+    ENVIRONMENT="$NOW_ENV"; TB_STOP_ARG_ENV="$NOW_ENV"
+  fi
   sed -i '/^TB_ENV=/d' deploy/.env && echo "TB_ENV=$ENVIRONMENT" >> deploy/.env
 elif [ -z "$NOW_ENV" ] && [ -n "$PRE_ENV" ]; then
   sed -i '/^TB_ENV=/d' deploy/.env && echo "TB_ENV=$PRE_ENV" >> deploy/.env
@@ -608,19 +732,21 @@ HOST_PROFILE="${TB_HOST_PROFILE:-$(envget TB_HOST_PROFILE)}"; HOST_PROFILE="${HO
 case "$HOST_PROFILE" in
   site) ;;
   poc)
+    # H-94 (3): the PoC relaxations never on a PRODUCTION box
     [ "$TB_ENV_SITE" != PRODUCTION ] \
       || die "TB_HOST_PROFILE=poc is never a PRODUCTION box: install with --environment VALIDATION (or TEST), or without the profile"
     envset TB_HOST_PROFILE poc
     TB_SYSTEMD="${TB_SYSTEMD:-0}"; export TB_SYSTEMD
     echo "    host profile poc ($TB_ENV_SITE): WARN, not FAIL, for the TPM seal, LUKS, the egress table, the systemd units, the firewall, SSH and cron (listed by the host check)"
     ;;
-  *) die "TB_HOST_PROFILE must be site or poc, not '$HOST_PROFILE'" ;;
+  *) stop_or_warn host-profile-value "TB_HOST_PROFILE=$HOST_PROFILE (read as site)" "TB_HOST_PROFILE must be site or poc, not '$HOST_PROFILE'"; HOST_PROFILE=site ;;
 esac
 # ---- end of HOST PROFILE
 # D-726: what only a rehearsal box may use (the model stand-ins, an unmeasured card's trial boot)
-rehearsal_only() {  # D-887: TEST with TB_REHEARSAL=1, or VALIDATION with TB_REHEARSAL=1 and the mark file
+rehearsal_only() {  # KEY WHAT. D-887: TEST with TB_REHEARSAL=1, or VALIDATION with TB_REHEARSAL=1 and the mark file
+  # H-94: on a PoC box that is no rehearsal box, a warning (the stand-ins or the unmeasured card are used)
   [ "$(envget TB_REHEARSAL)" = 1 ] && { [ "$TB_ENV_SITE" = TEST ] || { [ "$TB_ENV_SITE" = VALIDATION ] && [ -f deploy/site/rehearsal.json ]; }; } \
-    || die "$1: only on a rehearsal box (TB_REHEARSAL=1 on TEST, or on VALIDATION with deploy/site/rehearsal.json: deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
+    || stop_or_warn "$1" "" "$2: only on a rehearsal box (TB_REHEARSAL=1 on TEST, or on VALIDATION with deploy/site/rehearsal.json: deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
 }
 # D-726 (review F1): the stand-ins are known by what the file says, wherever it lies (a copy, the release tree's own)
 is_standins() {
@@ -630,12 +756,12 @@ is_standins() {
 # settings' data_source.path); compose mounts the one at the other. PRODUCTION never falls back to the test fixture
 SRC_DIR="$(envget TB_SOURCE_DIR)"
 if [ -z "$SRC_DIR" ]; then
-  [ "$TB_ENV_SITE" != PRODUCTION ] || die "no feed folder: set TB_SOURCE_DIR in deploy/.env (the host folder the HIS export lands in; the settings wizard asks for it, RUNBOOK §1 step 3)"
+  [ "$TB_ENV_SITE" != PRODUCTION ] || stop_or_warn feed-folder-production "" "no feed folder: set TB_SOURCE_DIR in deploy/.env (the host folder the HIS export lands in; the settings wizard asks for it, RUNBOOK §1 step 3)"
   echo "    feed folder: none set ($TB_ENV_SITE): the synthetic fixture is mounted"
 else
   case "$SRC_DIR" in /*) SRC_ABS="$SRC_DIR" ;; *) SRC_ABS="$ROOT/deploy/${SRC_DIR#./}" ;; esac
   case "$SRC_ABS" in "$ROOT"/deploy/site/*) mkdir -p "$SRC_ABS" ;; esac   # the default ./site/feed is made here
-  [ -d "$SRC_ABS" ] || die "the feed folder $SRC_DIR (TB_SOURCE_DIR) is not a folder on this host: mount the HIS export there first"
+  [ -d "$SRC_ABS" ] || stop_or_warn feed-folder-missing "the feed folder's contents (Docker mounts an empty folder there)" "the feed folder $SRC_DIR (TB_SOURCE_DIR) is not a folder on this host: mount the HIS export there first"
   echo "    feed folder: $SRC_ABS -> $(envget TB_SOURCE_MOUNT) in the adapter"
 fi
 # T-632 (OPS-013): TLS on. The console is reached only at https://TB_TLS_HOSTNAME through Caddy (RUNBOOK §12)
@@ -645,7 +771,7 @@ if [ -z "$TLS_HOST" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
   [ -z "$TLS_HOST" ] || envset TB_TLS_HOSTNAME "$TLS_HOST"
 fi
 if [ -z "$TLS_HOST" ]; then
-  [ "$TB_ENV_SITE" != PRODUCTION ] || die "no TLS host name: a PRODUCTION box runs only behind https. Put TB_TLS_HOSTNAME (and TB_TLS_MODE) in deploy/.env or the answers file (tls_hostname), then re-run (RUNBOOK §12)"
+  [ "$TB_ENV_SITE" != PRODUCTION ] || stop_or_warn tls-production "" "no TLS host name: a PRODUCTION box runs only behind https. Put TB_TLS_HOSTNAME (and TB_TLS_MODE) in deploy/.env or the answers file (tls_hostname), then re-run (RUNBOOK §12)"
   echo "    TLS: off ($TB_ENV_SITE, no TB_TLS_HOSTNAME): the console stays on 127.0.0.1"
 else
   grep -q '^TB_TLS_MODE=.' deploy/.env || envset TB_TLS_MODE internal
@@ -660,7 +786,8 @@ TLS_OLD="${TB_TLS_OLD_CLIENTS-$(envget TB_TLS_OLD_CLIENTS)}"; TLS_OLD="${TLS_OLD
 case "$TLS_OLD" in
   off) ;;
   cbc) [ -z "$TLS_HOST" ] || echo "    TLS: TB_TLS_OLD_CLIENTS=cbc: 443 also serves TLS 1.2 ECDHE AES-CBC-SHA to old clients (audited; doctor and the TLS check name it)" ;;
-  *) die "TB_TLS_OLD_CLIENTS must be off or cbc, not '$TLS_OLD': fix it in deploy/.env (RUNBOOK §12), then re-run" ;;
+  *) stop_or_warn tls-old-clients-value "TB_TLS_OLD_CLIENTS=$TLS_OLD (set to off, the strict default, in deploy/.env)" "TB_TLS_OLD_CLIENTS must be off or cbc, not '$TLS_OLD': fix it in deploy/.env (RUNBOOK §12), then re-run"
+     TLS_OLD=off; envset TB_TLS_OLD_CLIENTS off; export TB_TLS_OLD_CLIENTS=off ;;
 esac
 # SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"
@@ -670,13 +797,15 @@ if [ -z "$SAE_TO" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
 fi
 SAE_TO="$(printf '%s' "$SAE_TO" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 case "$SAE_TO" in \"*\") SAE_TO="${SAE_TO#\"}"; SAE_TO="${SAE_TO%\"}" ;; \'*\') SAE_TO="${SAE_TO#\'}"; SAE_TO="${SAE_TO%\'}" ;; esac
+if [ -n "$SAE_TO" ] && ! printf '%s\n' "$SAE_TO" | grep -Eqx "[A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+"; then
+  stop_or_warn sae-mailbox-form "TB_SAE_OFFICE_MAILBOX (not set: nobody is mailed)" "TB_SAE_OFFICE_MAILBOX $SAE_TO is not one mail address (for example trial-office@hospital.tw)"
+  SAE_TO=""
+fi
 if [ -n "$SAE_TO" ]; then
-  printf '%s\n' "$SAE_TO" | grep -Eqx "[A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+" \
-    || die "TB_SAE_OFFICE_MAILBOX $SAE_TO is not one mail address (for example trial-office@hospital.tw)"
   envset TB_SAE_OFFICE_MAILBOX "$SAE_TO"
   echo "    SAE office mailbox: $SAE_TO"
 elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "${TB_BOX:-0}" != 1 ] && [ "${SETTINGS_NEW:-0}" = 1 ]; then
-  die "no SAE office mailbox: when a serious adverse event is entered the trial office must be told at once (a sponsor report can be due within 24 h). Put TB_SAE_OFFICE_MAILBOX in deploy/.env or sae_office_mailbox in the answers file, then re-run (RUNBOOK §1)"
+  stop_or_warn sae-mailbox-production "" "no SAE office mailbox: when a serious adverse event is entered the trial office must be told at once (a sponsor report can be due within 24 h). Put TB_SAE_OFFICE_MAILBOX in deploy/.env or sae_office_mailbox in the answers file, then re-run (RUNBOOK §1)"
 else
   echo "install: warning: no SAE office mailbox ($TB_ENV_SITE): nobody is mailed when a serious adverse event is entered until TB_SAE_OFFICE_MAILBOX is set in deploy/.env (RUNBOOK §1)" >&2
 fi
@@ -704,14 +833,14 @@ grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPO
 if command -v python3 >/dev/null; then
   LAKE_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_lake-data" 2>/dev/null || true)"
   # D-832: the die hangs on the pipe (under pipefail a failing pipe ended the script before a PIPESTATUS line)
-  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | indent || die "the memory caps could not be sized (above): set TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH in deploy/.env, then re-run"
+  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | indent || stop_or_warn memcaps "the memory caps (the compose defaults)" "the memory caps could not be sized (above): set TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH in deploy/.env, then re-run"
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH keep the compose defaults (doctor memory_caps checks them)" >&2
 fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
 if command -v python3 >/dev/null; then
-  python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | indent || die "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
+  python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | indent || stop_or_warn pgsize "PostgreSQL's sizes (the compose defaults)" "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
 fi
 chmod 600 deploy/.env
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
@@ -739,7 +868,7 @@ if [ "$MODE" = gpu ]; then
   docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL \
     -e TB_ENV="$TB_ENV_SITE" -e TB_REHEARSAL="$(envget TB_REHEARSAL)" "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
-    || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
+    || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"  # H-94 (1): the pin hashes the weights against the release's (D-358, D-887)
   alive_stop
 else
   # D-1066 (D-998, the owner's ruling): a box without a GPU is a product form (a feasibility-only site that may add a
@@ -757,7 +886,7 @@ else
       python -m tools.pin_model --install-embedder --models-root /d/models --out /d/site/registry.site.yaml; then
     alive_stop
     if [ "$TB_ENV_SITE" = PRODUCTION ]; then
-      die "the embedder is not pinned (see above): a PRODUCTION box without a GPU needs it (D-1066); install from a bundle that carries embedder/, then run install again"
+      stop_or_warn pin-embedder-production "" "the embedder is not pinned (see above): a PRODUCTION box without a GPU needs it (D-1066); install from a bundle that carries embedder/, then run install again"
     fi
     echo "install: warning: the embedder is not pinned; on a $TB_ENV_SITE box the embed service runs its hash stub" >&2
   fi
@@ -770,7 +899,7 @@ if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
   tree_args
   docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" \
     python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
-    || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
+    || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"  # H-94 (1): weights whose hashes do not hold are never served
   alive_stop
 else
   echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)" >&2
@@ -788,21 +917,23 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
   done
   if [ -n "$REC" ]; then
     tree_args
-    docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
-      || die "$REC is not a measurement of the $GPU profile on its own card (see above)"
-    echo "    $GPU profile measured: $REC"
+    if docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}"; then
+      echo "    $GPU profile measured: $REC"
+    else
+      stop_or_warn serving-record "the record $REC (an unmeasured card's trial boot)" "$REC is not a measurement of the $GPU profile on its own card (see above)"
+    fi
     # REHEARSAL-REAL-SERVERS (H-89): a record of another card, as TB_ACCEPT_UNMEASURED_GPU=1 for no record: a
     # rehearsal box only (rehearsal_only), and it says so
     if [ "$REAL_SERVERS" = 1 ]; then
-      rehearsal_only "--rehearsal-real-servers (the $GPU record is of another card)"
+      rehearsal_only rrs-record-other-card "--rehearsal-real-servers (the $GPU record is of another card)"
       echo "install: warning: $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); c=d["card"]; print(d["words"] + ": the record " + sys.argv[2] + " was measured on " + c["profile_card"] + ", the servers run on card " + str(c["index"]) + ", " + c["found"])' deploy/site/rehearsal-real-servers.json "$REC")" >&2
     fi
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   elif [ -z "$TIER" ] && [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
-    rehearsal_only "TB_ACCEPT_UNMEASURED_GPU=1 (an unmeasured card's trial boot)"
+    rehearsal_only unmeasured-card "TB_ACCEPT_UNMEASURED_GPU=1 (an unmeasured card's trial boot)"
     echo "install: warning: $GPU profile not yet measured on this card (TB_ACCEPT_UNMEASURED_GPU=1): capture deploy/site/serving_config.$GPU.json after the first boot (RUNBOOK §8)" >&2
   else
-    die "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run as a rehearsal box (TB_COMPOSE_OVERRIDE= deploy/install.sh <bundle> --gpu $GPU --rehearsal), then capture the record (RUNBOOK §1)"
+    stop_or_warn serving-record-missing "the measurement (an unmeasured card's trial boot)" "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run as a rehearsal box (TB_COMPOSE_OVERRIDE= deploy/install.sh <bundle> --gpu $GPU --rehearsal), then capture the record (RUNBOOK §1)"
   fi ;;
 esac
 case "$MODE:$GPU" in
@@ -828,8 +959,8 @@ if [ -n "$TLS_HOST" ]; then
   docker run --rm -e TB_ENV="$TB_ENV_SITE" -e TB_TLS_MODE="$(envget TB_TLS_MODE)" -e TB_TLS_HOSTNAME="$TLS_HOST" \
     -e TB_TLS_CERT_FILE="$(envget TB_TLS_CERT_FILE)" -e TB_TLS_KEY_FILE="$(envget TB_TLS_KEY_FILE)" \
     ${TLS_MOUNT[@]+"${TLS_MOUNT[@]}"} --user 0 "$IMAGE_PY" python -m console.cli check-tls 2>&1 \
-    | indent || die "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"
-  COMPOSE+=(-f deploy/docker-compose.identity.yml); FILES="$FILES:$ROOT/deploy/docker-compose.identity.yml"
+    | indent || { stop_or_warn tls-check "TLS (deploy/docker-compose.identity.yml is not added: the console stays on 127.0.0.1)" "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"; TLS_HOST=""; }
+  [ -z "$TLS_HOST" ] || { COMPOSE+=(-f deploy/docker-compose.identity.yml); FILES="$FILES:$ROOT/deploy/docker-compose.identity.yml"; }
 fi
 if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the console's first-run folder (box-install.sh makes it, tmpfs)
   COMPOSE+=(-f deploy/docker-compose.box.yml); FILES="$FILES:$ROOT/deploy/docker-compose.box.yml"
@@ -846,38 +977,51 @@ fi
 # the name (the shipped compose file clears it). No folder set: no file, and an earlier one is taken away. The
 # command prints the file, then each folder; a folder that is not there, or that the console's user cannot read
 # (asked of the console's own image), stops the install: the page would say "no signed heads" on a healthy chain
-if command -v python3 >/dev/null; then
+NO_ANCHOR="the audit anchor folders' mount into the console (the audit page finds no signed head)"
+if [ "${ANCHOR_OK:-1}" = 1 ] && command -v python3 >/dev/null; then
   ANCHOR_OUT="$(python3 -m tools.trialbox anchors-compose --deploy "$ROOT/deploy")" \
-    || die "TB_AUDIT_ANCHOR_TARGETS in deploy/.env names a folder that cannot be mounted (above)"
+    || { stop_or_warn anchors-compose "$NO_ANCHOR" "TB_AUDIT_ANCHOR_TARGETS in deploy/.env names a folder that cannot be mounted (above)"; ANCHOR_OUT=""; }
   if [ -n "$ANCHOR_OUT" ]; then
     ANCHOR_FILE="${ANCHOR_OUT%%$'\n'*}"
     while IFS= read -r anchor; do
+      # H-94 not a stop: the exit inside the probe container's script is the probe's own answer
       docker run --rm --network none -v "$anchor:/anchor:ro" "$IMAGE_PY" sh -c \
         'test -r /anchor && test -x /anchor && for d in heads keys; do [ ! -e "/anchor/$d" ] || { test -r "/anchor/$d" && test -x "/anchor/$d"; } || exit 1; done' </dev/null \
-        || die "TB_AUDIT_ANCHOR_TARGETS: the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then re-run"
+        || { stop_or_warn anchor-read "$NO_ANCHOR" "TB_AUDIT_ANCHOR_TARGETS: the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then re-run"; ANCHOR_OK=0; }
     done <<< "${ANCHOR_OUT#*$'\n'}"
-    COMPOSE+=(-f "$ANCHOR_FILE"); FILES="$FILES:$ANCHOR_FILE"
+    [ "${ANCHOR_OK:-1}" = 0 ] || { COMPOSE+=(-f "$ANCHOR_FILE"); FILES="$FILES:$ANCHOR_FILE"; }
   fi
 elif [ -n "$(envget TB_AUDIT_ANCHOR_TARGETS)" ]; then
   echo "install: note: no python3 on this host: the anchor folders are not mounted into the console, so the audit page will not check the signed heads (D-638)" >&2
 fi
+# H-94: on a PoC box an override that is not there, or that others could change, is warned and not used (a file
+# root's later compose commands would read is never one a warned check let through)
+NO_OVR="the compose override (not used)"
+if [ -n "${TB_COMPOSE_OVERRIDE:-}" ] && [ ! -f "$TB_COMPOSE_OVERRIDE" ]; then
+  stop_or_warn override-missing "$NO_OVR" "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE"
+  TB_COMPOSE_OVERRIDE=""
+fi
 if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand-ins (or a site's own override)
-  [ -f "$TB_COMPOSE_OVERRIDE" ] || die "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE"
   OVR="$(cd "$(dirname "$TB_COMPOSE_OVERRIDE")" && pwd)/$(basename "$TB_COMPOSE_OVERRIDE")"
   # every later compose command (as root: update, secrets rotate) reads it: only its owner (root or the installer)
   # may change it, and it must stay where it is
-  [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || die "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"
-  [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || die "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"
-  is_standins "$OVR" && rehearsal_only "the model stand-ins ($OVR says x-trialbox-rehearsal-standins)"
-  echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
-  COMPOSE+=(-f "$OVR"); FILES="$FILES:$OVR"
+  OVR_OK=1
+  [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || { stop_or_warn override-owner "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"; OVR_OK=0; }
+  [ "$OVR_OK" = 0 ] || [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || { stop_or_warn override-mode "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"; OVR_OK=0; }
+  if [ "$OVR_OK" = 1 ]; then
+    is_standins "$OVR" && rehearsal_only standins "the model stand-ins ($OVR says x-trialbox-rehearsal-standins)"
+    echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
+    COMPOSE+=(-f "$OVR"); FILES="$FILES:$OVR"
+  else
+    OVR=""
+  fi
 fi
 COMPOSE+=(--profile "$MODE")
 # D-348: every third-party image of TrialBox's own compose files is the one deploy/images.lock pins, by digest (the
 # site's TB_COMPOSE_OVERRIDE is its own and is not checked)
 if command -v python3 >/dev/null; then
   python3 -m tools.images_lock check-compose --files "$LOCK_FILES" 2>&1 | sed 's/^/    /' \
-    || die "a compose file names a third-party image that deploy/images.lock does not pin (FAIL above)"
+    || die "a compose file names a third-party image that deploy/images.lock does not pin (FAIL above)"  # H-94 (1): an image with no digest pin
 fi
 # the same file set for every later `docker compose --project-directory deploy ...` (secrets rotate, update, logs)
 sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.env
@@ -894,13 +1038,13 @@ if [ "${TB_BOX:-0}" != 1 ]; then
   if command -v python3 >/dev/null; then
     finish_check "not finished: the bundle this run loaded stays (on a box that was already running, its release is applied and running, as after trialbox update) and the settings it wrote stay; the install's own start, units, cron and checks were not run. Change what the lines above name in deploy/.env, then re-run this command: it goes on from here"
   elif [ "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" = PRODUCTION ]; then
-    die "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder (RUNBOOK §5)"
+    stop_or_warn finish-gate-no-python3 "" "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder (RUNBOOK §5)"
   fi
 fi
 # ---- end of FINISH-GATE
 UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)
 if [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac
+  printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac  # H-94 depends: the operator's own answer
 fi
 say "starting the stack (profile $MODE)"
 "${COMPOSE[@]}" config -q
@@ -909,27 +1053,27 @@ say "starting the stack (profile $MODE)"
 # tools/image_pins.py sets its compose variable in deploy/.env). TB_INSTALL_PULL=missing only on a site that mirrors
 # the third-party images itself (make_bundle.sh --no-third-party).
 PULL="${TB_INSTALL_PULL:-never}"
-case "$PULL" in never|missing) ;; *) die "TB_INSTALL_PULL must be never or missing" ;; esac
+case "$PULL" in never|missing) ;; *) stop_or_warn install-pull "TB_INSTALL_PULL=$PULL (never)" "TB_INSTALL_PULL must be never or missing"; PULL=never ;; esac
 if command -v python3 >/dev/null; then
   # OPS-004b (D-574): what the stack will run, with the box's overrides applied; an image no service runs (a model
   # server a compose override replaces) is not asked for
   USED_IMAGES="$("${COMPOSE[@]}" config --images | sort -u)"
   python3 -m tools.image_pins resolve --deploy deploy --files "$FILES" --used "$USED_IMAGES" 2>&1 | sed 's/^/    /' \
-    || die "a pinned image is not on this box (MISSING above): the bundle must carry it (make_bundle.sh without --no-third-party)"
+    || die "a pinned image is not on this box (MISSING above): the bundle must carry it (make_bundle.sh without --no-third-party)"  # H-94 (1): an image pinned by digest that is not here
 fi
 if [ "$PULL" = never ]; then
   MISSING=""
   while IFS= read -r img; do
     docker image inspect "$img" >/dev/null 2>&1 || MISSING="$MISSING $img"
   done < <("${COMPOSE[@]}" config --images | sort -u)
-  [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
+  [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"  # H-94 (1)
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
 # D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
 # update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
 if command -v python3 >/dev/null; then
   python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
-    || die "a start-up step of this release failed (pre-start above)"
+    || stop_or_warn pre-start "" "a start-up step of this release failed (pre-start above)"
 else
   echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
 fi
@@ -940,31 +1084,34 @@ fi
 # there (review 2 of #1305, M-1). Anything else is refused or kept.
 if command -v python3 >/dev/null; then
   CLEANUP="$(python3 -m tools.trialbox.project_check --deploy "$ROOT/deploy" -- "${COMPOSE[@]}" --profile '*')" \
-    || die "the project cleanup was refused (above): nothing was removed"
+    || { stop_or_warn project-cleanup-refused "the cleanup of a failed earlier attempt (nothing is taken down)" "the project cleanup was refused (above): nothing was removed"; CLEANUP=none; }
 else
   CLEANUP=none
   [ -z "${COMPOSE_PROJECT_NAME:-}" ] || [ "$COMPOSE_PROJECT_NAME" = trialbox ] \
-    || die "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME in this shell is not this install's project: unset it, then re-run"
+    || { stop_or_warn compose-project-name "the shell's COMPOSE_PROJECT_NAME (unset for this run: this install's project)" "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME in this shell is not this install's project: unset it, then re-run"; unset COMPOSE_PROJECT_NAME; }
   echo "    note: no python3 on this host: the project is not proven to be this install's, so nothing is cleaned up" >&2
 fi
 if [ "$CLEANUP" = down ]; then
 (
   COMPOSE+=(--profile '*')
   "${COMPOSE[@]}" down --remove-orphans
-) || die "project cleanup failed / 專案清理失敗 / プロジェクトのクリーンアップに失敗しました"
+) || stop_or_warn project-cleanup-failed "" "project cleanup failed / 專案清理失敗 / プロジェクトのクリーンアップに失敗しました"
 fi
 # ---- end of PROJECT-CLEANUP
 # T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
 # ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
 say "site keys (made once, never replaced)"
+KEYS_OK=1
 "${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
-  || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
+  || { stop_or_warn site-keys "the sealing of the site keys" "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"; KEYS_OK=0; }
 # T-634 (D-408; OPS-043): sealed at once, before any service opens them. VALIDATION and PRODUCTION always; a DEV or TEST
 # box only when it has deploy/site/hardening.conf or TB_KEK_BACKEND asks for it (D-887). The KEK's back end is the site's (TB_KEK_BACKEND in the installer's
 # environment, else hardening.conf's KEK_BACKEND, default tpm; D-836); the
 # host check FAILs a plain site key in VALIDATION and PRODUCTION
 HB_CONF="$ROOT/deploy/site/hardening.conf"
-if [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
+if [ "$KEYS_OK" = 0 ]; then
+  echo "    site keys: not sealed (they could not be made or read, above)"
+elif [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
   echo "    site keys: sealed at the box's apply step, under the owner's passphrase (box-install.sh, T-729)"
 elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
     && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
@@ -972,28 +1119,29 @@ elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
   echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE seals them); the host check lists it"
 elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
-  [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
+  [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"  # H-94 (4)
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
-    || die "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
+    || stop_or_warn seal-keys "the sealing of the site keys (they stay plain files; the host check lists it)" "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
 fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
-"${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"
+# H-94 depends: every step after this one needs the database
+"${COMPOSE[@]}" up -d --pull "$PULL" --wait db || die "the database did not start (docker compose logs db)"  # H-94 depends
 # D-624: this release's steps once the database is up (tools/trialbox/prestart.py DB_STEPS: the roles of D-378, the
 # schemas no service owns of D-486, whatever a later release adds), by the same command an update runs and with the
 # compose files and profile an update uses (COMPOSE_FILE and COMPOSE_PROFILES in deploy/.env, written above)
 if command -v python3 >/dev/null; then
   TB_INSTALL_PULL="$PULL" python3 -m tools.trialbox db-up --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
-    || die "a database step of this release failed (db-up above; docker compose logs db)"
+    || stop_or_warn db-up "" "a database step of this release failed (db-up above; docker compose logs db)"
 else
   echo "    note: no python3 on this host: the release's database steps (tools.trialbox db-up) were not run; the roles and the schemas are set by the installer" >&2
   "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
-    || die "the database roles could not be set (docker compose logs db)"
+    || stop_or_warn db-roles "" "the database roles could not be set (docker compose logs db)"
   # D-486 (T-718): the schemas no service owns (edc), by the box's admin; the admin's URL goes in the environment,
   # not on the command line
   TB_DB_URL="postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" "${COMPOSE[@]}" run --rm --no-deps -T -e TB_DB_URL \
     orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
-    || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
+    || stop_or_warn db-schemas "" "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
 fi
 # T-695 (D-752, F-24): the wait for every service healthy, from the compose files' health checks (start period, then
 # the retries); the stop, from the longest stop grace. Without PyYAML on the host, the waits of before (900 s, 300 s).
@@ -1001,7 +1149,7 @@ BOOT_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy 2>/dev/null)" ||
 STOP_WAIT="$(python3 -m tools.trialbox.bootwait --deploy deploy --stop 2>/dev/null)" || STOP_WAIT=290
 alive_start "waiting for every service to be healthy (up to ${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT} s)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-$BOOT_WAIT}" \
-  || { alive_stop; "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
+  || { alive_stop; "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }  # H-94 depends: the accounts and checks after this exec into the running services
 alive_stop
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
@@ -1013,7 +1161,7 @@ if [ "$MODE" = gpu ]; then
     -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.trialbox doctor --serving | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
-  [ "$rc" = 0 ] || die "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL), the key (python3 -m tools.trialbox secrets rotate --service model) or re-pin (RUNBOOK §8), then re-run"
+  [ "$rc" = 0 ] || stop_or_warn serving "" "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL), the key (python3 -m tools.trialbox secrets rotate --service model) or re-pin (RUNBOOK §8), then re-run"
 fi
 EGRESS_OK=0
 if [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then
@@ -1025,7 +1173,11 @@ fi
 # deploy/site/hardening.conf; without it a VALIDATION or PRODUCTION box fails the host check at the end
 if [ "$(id -u)" = 0 ] && [ -f "$HB_CONF" ]; then
   say "host baseline: input firewall and SSH (deploy/hardening/apply.sh)"
-  sh deploy/hardening/apply.sh --conf "$HB_CONF" ${HB_OVER[@]+"${HB_OVER[@]}"} all || die "the host baseline could not be applied (above)"
+  if [ "$HB_SKIP" = 1 ]; then
+    echo "install: warning: the host baseline is not applied: it would cut this SSH session (above)" >&2
+  else
+    sh deploy/hardening/apply.sh --conf "$HB_CONF" ${HB_OVER[@]+"${HB_OVER[@]}"} all || stop_or_warn host-baseline "" "the host baseline could not be applied (above)"
+  fi
 elif [ ! -f "$HB_CONF" ]; then
   echo "install: warning: no deploy/site/hardening.conf (the clinic ranges, SSH, the KEK back end): copy deploy/hardening/hardening.example.conf, fill it in with hospital IT, re-run" >&2
 fi
@@ -1045,15 +1197,18 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
     done
     systemctl daemon-reload
+    SYSTEMD_OK=1
     # trialbox-weights.timer (T-677, D-393): the weights against their pins before the night's runs
     # trialbox-ops.timer (NEW-OPS-8, D-561): the runner that writes the host's health facts every minute and runs
     # the Operations page's requests; without it the health line is red (OPS-009)
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
       trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer >/dev/null 2>&1 \
-      || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
-    systemctl start trialbox.service
-    systemctl start trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
-      trialbox-egress-watch.service trialbox-ops.timer >/dev/null 2>&1 || true
+      || { stop_or_warn systemd-units "the start of the units" "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"; SYSTEMD_OK=0; }
+    if [ "$SYSTEMD_OK" = 1 ]; then  # H-94: units a PoC box could not enable are not started
+      systemctl start trialbox.service
+      systemctl start trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
+        trialbox-egress-watch.service trialbox-ops.timer >/dev/null 2>&1 || true
+    fi
     echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer"
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
@@ -1069,7 +1224,7 @@ if [ "$CAN_CRON" = 1 ]; then
     > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
   echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
 elif [ "$TB_ENV_SITE" = PRODUCTION ]; then
-  die "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
+  stop_or_warn cron-production "" "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 fi
 if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]; then
   # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
@@ -1148,7 +1303,7 @@ if [ "$CAN_CRON" = 1 ]; then
   rc="${PIPESTATUS[0]}"
   set -e
   if [ "$rc" != 0 ] && [ "${TB_BOX:-0}" != 1 ]; then
-    die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD, TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page in deploy/.env (RUNBOOK §5), then re-run"
+    stop_or_warn backup-schedule "the backup schedule (no backup runs)" "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD, TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page in deploy/.env (RUNBOOK §5), then re-run"
   elif [ "$rc" != 0 ]; then
     # OPS-003 (D-566): a box has no alert route yet (no mail relay on a fresh host). A stop here is a stop before
     # the wizard; a FAIL line leaves the stack running, and box-install.sh goes on to the first-run code and
@@ -1315,7 +1470,9 @@ if [ "$REHEARSAL" = 1 ] && [ "${#FAILS[@]}" -eq 0 ]; then
   printf '{"rehearsal_install_complete": true}\n' > deploy/site/rehearsal-install-complete.json
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+# H-94: on a PoC box each FAIL line is a warning and a line of the list, and the install ends 0; elsewhere every
+# FAIL line, then exit 1, as before
 if [ "${#FAILS[@]}" -gt 0 ]; then
-  printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
-  exit 1
+  tb_poc_box || printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
+  for f in "${FAILS[@]}"; do stop_or_warn --silent "fail: $(printf '%s' "$f" | cut -c1-40)" "" "FAIL: $f"; done
 fi

@@ -330,8 +330,9 @@ def test_ci_validates_the_relaxed_snippets_with_caddy() -> None:
 
 
 def test_the_installer_refuses_another_value_and_audits_the_switch() -> None:
-    assert re.search(r"case \"\$TLS_OLD\" in\n  off\) ;;\n  cbc\) .*\n  \*\) die \"TB_TLS_OLD_CLIENTS must be off or cbc",
-                     INSTALL)  # fmt: skip
+    # H-94 (ruling 7092087958): the helper; on a PoC box the value is set to off and listed
+    assert re.search(r"case \"\$TLS_OLD\" in\n  off\) ;;\n  cbc\) .*\n  \*\) stop_or_warn tls-old-clients-value \"[^\"]*\" "
+                     r"\"TB_TLS_OLD_CLIENTS must be off or cbc", INSTALL)  # fmt: skip
     block = INSTALL[INSTALL.index("TLS_OLD_MARK=deploy/site/tls-old-clients.audited") :]
     block = block[: block.index("# ----")]
     assert "TLS_OLD_EVENT=update.tls_relaxed" in block and "TLS_OLD_EVENT=update.tls_strict" in block

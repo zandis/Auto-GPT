@@ -11,6 +11,7 @@ No GPU is needed: the arch, the card and the memory are given to the scripts, do
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -102,7 +103,6 @@ def _install(tmp: Path, *args: str, **env: str) -> subprocess.CompletedProcess[s
         (["--mode", "gpu", "--gpu", "gb10"], {}),  # named by hand on a small Spark
         (["--mode", "gpu"], {"TB_GPU_PROFILE": "gb10"}),  # named in the environment
         (["--mode", "gpu", "--gpu", "gb10-64"], {}),  # its own word
-        (["--mode", "gpu", "--gpu", "gb10", "--rehearsal"], {"TB_COMPOSE_OVERRIDE": ""}),  # a rehearsal box too
     ],
 )
 def test_install_refuses_the_small_spark_before_anything_is_written(
@@ -118,6 +118,30 @@ def test_install_refuses_the_small_spark_before_anything_is_written(
     assert [q.exists() for q in state] == before
     log = (tmp_path / "docker.log").read_text(encoding="utf-8") if (tmp_path / "docker.log").exists() else ""
     assert "load" not in log.split() and " up " not in f" {log} "
+
+
+def test_on_a_rehearsal_box_the_small_spark_warns_and_the_box_goes_on_without_the_pair(tmp_path: Path) -> None:
+    """H-94 (the owner's ruling 7092087958; the case was "a rehearsal box too" of the test above): a rehearsal box
+    is a PoC box, so the small Spark is a warning, a line of the list, and the install goes on as --mode stub (to
+    the next stop of this bare folder: the vendor key, kept refusal 1). Run on a copy of the installer, so the list
+    is written there; the three cases above stay stops (nothing speaks for a PoC box there: PRODUCTION)."""
+    box = tmp_path / "box"
+    (box / "deploy").mkdir(parents=True)
+    for name in ("install.sh", "gpu_profile.sh"):
+        shutil.copy(ROOT / "deploy" / name, box / "deploy" / name)
+    (box / "tools").symlink_to(ROOT / "tools")
+    bundle = tmp_path / "trialbox-x.tar"
+    bundle.write_bytes(b"")
+    full = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
+    full.update(PATH=f"{_bin(tmp_path)}:{os.environ['PATH']}", TB_TEST_LOG=str(tmp_path / "docker.log"),
+                TB_TEST_MEM_KIB=str(SMALL_KIB), TB_COMPOSE_OVERRIDE="")  # fmt: skip
+    res = subprocess.run(["bash", str(box / "deploy/install.sh"), str(bundle), "--mode", "gpu", "--gpu", "gb10",
+                          "--rehearsal"], capture_output=True, text=True, env=full, timeout=120, check=False)  # fmt: skip
+    assert f"install: warning (PoC box, H-94): this DGX Spark has {SENTENCE}" in res.stderr, res.stderr
+    assert "--mode stub: structured criteria only" in res.stderr  # what was skipped
+    assert res.returncode == 1 and res.stderr.splitlines()[-1].startswith("install: vendor public key missing")
+    listed = (box / "deploy" / "site" / "poc-stops.jsonl").read_text(encoding="utf-8")
+    assert '"key": "install.sh/gpu-gb10-64"' in listed
 
 
 def test_install_lets_a_128_gb_spark_past_the_profile_step(tmp_path: Path) -> None:

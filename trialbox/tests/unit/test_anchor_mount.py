@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from tb_common import audit
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tools import network_sheet
 from tools.trialbox import anchors, doctor
 
@@ -112,18 +113,19 @@ def _block() -> str:
 
 
 def _installer(
-    box: dict[str, Any], targets: str, *, docker: str = "return 0", python: bool = True
+    box: dict[str, Any], targets: str, *, docker: str = "return 0", python: bool = True, environment: str = "TEST"
 ) -> subprocess.CompletedProcess[str]:
     """The installer's block as it stands in install.sh, with the names it uses from earlier lines; ``docker`` is
     the body of a stand-in that records how it was called."""
-    (box["deploy"] / ".env").write_text(f"TB_ENV=TEST\nTB_AUDIT_ANCHOR_TARGETS={targets}\n", encoding="utf-8")
+    (box["deploy"] / ".env").write_text(f"TB_ENV={environment}\nTB_AUDIT_ANCHOR_TARGETS={targets}\n", encoding="utf-8")
     hide = 'command() { [ "$2" = python3 ] && return 1; builtin command "$@"; }\n' if not python else ""
     script = (
         "set -euo pipefail\n"
         f'ROOT="{box["root"]}"\ncd "$ROOT"\nIMAGE_PY=trialbox-py:test\n'
         'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
         'die() { echo "install: $*" >&2; exit 1; }\n'
-        f'docker() {{ printf "%s\\n" "$*" >> "$ROOT/docker.calls"; {docker}; }}\n'
+        + stop_prelude(deploy='"$ROOT/deploy"')
+        + f'docker() {{ printf "%s\\n" "$*" >> "$ROOT/docker.calls"; {docker}; }}\n'
         f"{hide}"
         'COMPOSE=(docker compose); FILES="$ROOT/deploy/docker-compose.yml"\n'
         f'{_block()}\nprintf "%s\\n" "$FILES" "${{COMPOSE[@]}}"\n'
@@ -150,9 +152,19 @@ def test_the_installer_of_a_box_with_no_anchor_folder_adds_nothing(box: dict[str
     assert not (box["root"] / MADE).exists()
 
 
-def test_the_installer_stops_on_a_folder_it_cannot_mount(box: dict[str, Any]) -> None:
-    r = _installer(box, "relative/heads")
-    assert r.returncode == 1 and "TB_AUDIT_ANCHOR_TARGETS" in r.stderr and "relative/heads" in r.stderr
+def _warned(box: dict[str, Any], r: subprocess.CompletedProcess[str]) -> bool:
+    """H-94 (the owner's ruling 7092087958): on a TEST box (a PoC box) the stop is a warning and a line of the list,
+    the anchor file is not added to the compose files, and the install goes on."""
+    listed = box["deploy"] / "site" / "poc-stops.jsonl"
+    return (r.returncode == 0 and "warning (PoC box, H-94)" in r.stderr and "mount into the console" in r.stderr
+            and listed.exists() and r.stdout.splitlines()[0] == f"{box['root']}/deploy/docker-compose.yml")  # fmt: skip
+
+
+@pytest.mark.parametrize("environment", ["PRODUCTION", "TEST"])
+def test_the_installer_stops_on_a_folder_it_cannot_mount(box: dict[str, Any], environment: str) -> None:
+    r = _installer(box, "relative/heads", environment=environment)
+    assert "TB_AUDIT_ANCHOR_TARGETS" in r.stderr and "relative/heads" in r.stderr
+    assert r.returncode == 1 if environment == "PRODUCTION" else _warned(box, r), r.stderr
     assert not (box["root"] / "docker.calls").exists()
 
 
@@ -165,18 +177,22 @@ def test_the_block_is_after_the_pinned_files_and_before_the_sites_own_override()
     assert INSTALL.index('IMAGE_PY="') < at and INSTALL.index("envget() {") < at
 
 
-def test_the_installer_stops_on_a_folder_that_is_not_there(box: dict[str, Any]) -> None:
+@pytest.mark.parametrize("environment", ["PRODUCTION", "TEST"])
+def test_the_installer_stops_on_a_folder_that_is_not_there(box: dict[str, Any], environment: str) -> None:
     gone = box["root"] / "mnt" / "not mounted yet"
-    r = _installer(box, f"{box['a']}:{gone}")
-    assert r.returncode == 1 and f"no such folder {gone}" in r.stderr and "mount the hospital's share" in r.stderr
+    r = _installer(box, f"{box['a']}:{gone}", environment=environment)
+    assert f"no such folder {gone}" in r.stderr and "mount the hospital's share" in r.stderr
+    assert r.returncode == 1 if environment == "PRODUCTION" else _warned(box, r), r.stderr
     assert not (box["root"] / MADE).exists()  # nothing half-made is left for a later compose command
 
 
-def test_a_pattern_in_a_folder_name_is_a_name_not_a_search(box: dict[str, Any]) -> None:
+@pytest.mark.parametrize("environment", ["PRODUCTION", "TEST"])
+def test_a_pattern_in_a_folder_name_is_a_name_not_a_search(box: dict[str, Any], environment: str) -> None:
     (box["root"] / "mnt" / "anc1").mkdir()
     (box["root"] / "mnt" / "anc2").mkdir()
-    r = _installer(box, str(box["root"] / "mnt" / "anc?"))
-    assert r.returncode == 1 and "no such folder" in r.stderr and "anc?" in r.stderr
+    r = _installer(box, str(box["root"] / "mnt" / "anc?"), environment=environment)
+    assert "no such folder" in r.stderr and "anc?" in r.stderr
+    assert r.returncode == 1 if environment == "PRODUCTION" else _warned(box, r), r.stderr
 
 
 def test_the_installer_asks_the_consoles_own_image_whether_it_can_read_each_folder(box: dict[str, Any]) -> None:
@@ -188,9 +204,11 @@ def test_the_installer_asks_the_consoles_own_image_whether_it_can_read_each_fold
     assert all("--user" not in c for c in calls)  # as the image's own user, which is the console's
 
 
-def test_the_installer_stops_on_a_folder_the_console_cannot_read(box: dict[str, Any]) -> None:
-    r = _installer(box, box["env"]["TB_AUDIT_ANCHOR_TARGETS"], docker="return 1")
-    assert r.returncode == 1 and "the console's user cannot read" in r.stderr and str(box["a"]) in r.stderr
+@pytest.mark.parametrize("environment", ["PRODUCTION", "TEST"])
+def test_the_installer_stops_on_a_folder_the_console_cannot_read(box: dict[str, Any], environment: str) -> None:
+    r = _installer(box, box["env"]["TB_AUDIT_ANCHOR_TARGETS"], docker="return 1", environment=environment)
+    assert "the console's user cannot read" in r.stderr and str(box["a"]) in r.stderr
+    assert r.returncode == 1 if environment == "PRODUCTION" else _warned(box, r), r.stderr
 
 
 def test_without_python_the_installer_says_that_the_page_will_not_check_the_heads(box: dict[str, Any]) -> None:

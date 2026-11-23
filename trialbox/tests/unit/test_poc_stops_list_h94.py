@@ -83,3 +83,14 @@ def test_doctor_without_a_box_shows_no_list() -> None:
 
 
 # ----------------------------------------------------------------------------------------------- the ratchet
+
+
+def test_a_byte_that_is_not_utf8_hides_no_other_entry(tmp_path: Path) -> None:
+    d = tmp_path / "deploy"
+    (d / "site").mkdir(parents=True)
+    good = b'{"key": "install.sh/a", "what": "w", "skipped": "", "at": "t", "by": "b"}\n'
+    (d / stops.LIST).write_bytes(
+        b'{"key": "install.sh/b", "what": "\xff\xfe", "skipped": "", "at": "t", "by": "b"}\n' + good
+    )
+    entries, problems = stops.read(d)
+    assert [e.key for e in entries] == ["install.sh/a", "install.sh/b"] and not problems
