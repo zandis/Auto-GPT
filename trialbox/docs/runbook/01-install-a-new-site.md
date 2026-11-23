@@ -1,6 +1,6 @@
 # 1. Install a new site (about one day)
 
-**Reader:** Aimedics and hospital IT, who install a site's box (the box form's owner sets a box up from the owner's pages in `docs/handover/`).
+**Reader:** Aimedics, who install a site's box by hand or prepare it (a hospital installs from its own page, [hospital-install](../handover/hospital-install.en.md), in three languages, with one line to type; the box form's owner sets a box up from the owner's pages in `docs/handover/`).
 
 **Pick the tier.** The three boxes we sell install with `--tier` (D-138):
 
