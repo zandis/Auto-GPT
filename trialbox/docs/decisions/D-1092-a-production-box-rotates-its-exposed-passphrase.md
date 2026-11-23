@@ -28,6 +28,10 @@ and the page sent it to the vendor (H96-04).
    rotation and the backup key ceremony stay refused with the same words and exit code. The environment is the
    stricter of the box's and the caller's, as before.
 4. RUNBOOK §23 "Rotate the KEK passphrase" says a PRODUCTION box rotates itself; the section stays a section.
+5. **Every rotation is audited** (the integrator's ruling 7114085298, after this decision's first form): on every box,
+   PRODUCTION or not, `rotate-kek` writes `keys.rotate_kek` (as in 2, with the environment and the new back end) and
+   is refused without its audit folder. The event's `rule` says `D-1092` for the PRODUCTION exception and
+   `7114085298` elsewhere.
 
 Proved by `tests/unit/test_rotate_exposed_passphrase_h97.py`. The card's page:
 `docs/handover/first-run-code-h97-2026-11-23.md`.

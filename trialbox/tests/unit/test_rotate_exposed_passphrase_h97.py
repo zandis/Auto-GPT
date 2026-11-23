@@ -197,3 +197,41 @@ def test_a_callers_dev_environment_does_not_widen_or_skip_the_rule(
                    env=env)  # fmt: skip
     assert rc == 0, capsys.readouterr().err
     assert [e["event"] for e in _events(b["audit"])] == [keys.ROTATE_EVENT]
+
+
+@pytest.mark.parametrize("box_env", ["DEV", "TEST", "VALIDATION"])
+@pytest.mark.parametrize("backend", ["passphrase", "file"])
+def test_every_rotation_on_a_poc_box_is_an_audit_event(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, box_env: str, backend: str
+) -> None:
+    """The integrator's ruling 7114085298: on a PoC box (its deploy/.env says DEV, TEST or VALIDATION) every KEK
+    rotation writes keys.rotate_kek (who, when, the box, the environment, the two KEK ids and the new back end; never
+    a value), and without an audit folder it is refused before anything is changed."""
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text(f"TB_ENV={box_env}\n", encoding="utf-8")
+    monkeypatch.setattr(keys, "DEFAULT_DEPLOY", str(deploy))
+    b = _box(tmp_path, capsys)
+    old_id = (K.read_meta(b["sec"]) or {})["kek_id"]
+    before = (b["sec"] / K.META_FILE).read_bytes()
+    argv = ["rotate-kek", "--backend", backend, "--secrets", str(b["sec"]), "--scrypt-n", "1024", "--passphrase-file",
+            str(_pp(tmp_path / "old.pass", OLD)), "--keep-passphrase-files"]  # fmt: skip
+    if backend == "passphrase":
+        argv += ["--new-passphrase-file", str(_pp(tmp_path / "new.pass", NEW))]
+    else:
+        argv += ["--kek-out", str(tmp_path / "new.kek")]
+    env = {"TB_KEK_FILE": str(b["runtime"])}
+    assert keys.main(argv, env=env) == 1  # no audit folder: refused
+    err = capsys.readouterr().err
+    assert "audit event on every box" in err and (b["sec"] / K.META_FILE).read_bytes() == before
+    assert keys.main([*argv, "--audit-dir", str(b["audit"])], env=env) == 0, capsys.readouterr().err
+    out = capsys.readouterr().out
+    meta = K.read_meta(b["sec"]) or {}
+    events = [e for e in _events(b["audit"]) if e.get("event") == keys.ROTATE_EVENT]
+    assert len(events) == 1 and f"audit: {keys.ROTATE_EVENT} in {b['audit']}" in out
+    detail = events[0]["detail"]
+    assert isinstance(detail, dict)
+    assert detail["environment"] == box_env and detail["rule"] == "7114085298" and detail["backend"] == backend
+    assert detail["old_kek_id"] == old_id and detail["new_kek_id"] == meta["kek_id"] != old_id
+    assert isinstance(detail["who"], dict) and detail["at"] and detail["box"]
+    assert OLD not in _everything(b) and NEW not in _everything(b)

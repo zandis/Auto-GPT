@@ -157,7 +157,7 @@ def test_after_rotate_kek_the_copy_waits_for_new_escrow_shares(
     rr.escrow_copy(sec, target)
     before = (target / rr.ESCROW).read_bytes()
     rc, out = _cli(capsys, "rotate-kek", "--secrets", str(sec), "--backend", "file", "--kek-out",
-                   str(tpm["tmp"] / "new.kek"))  # fmt: skip
+                   str(tpm["tmp"] / "new.kek"), "--audit-dir", str(tpm["audit"]))  # fmt: skip  # every rotation is an audit event (ruling 7114085298)
     assert rc == 0, out
     rc, out = _cli(capsys, "unseal", "--secrets", str(sec), "--from", str(tpm["tmp"] / "new.kek"))
     assert rc == 0, out

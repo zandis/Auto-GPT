@@ -388,9 +388,11 @@ def test_rotation_takes_the_old_and_the_new_passphrase_from_files_or_stdin(
     new = "synthetic-h96-the-new-one-for-tests"
     old_f, new_f = _write_pp(tmp_path / "old.pass"), _write_pp(tmp_path / "new.pass", new + "\n")
     runtime = tmp_path / "kek.runtime"  # not unsealed: the old passphrase opens it
+    audit = tmp_path / "audit"  # every rotation is an audit event (ruling 7114085298)
+    audit.mkdir()
     rc = keys.main(["rotate-kek", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
                     "--passphrase-file", str(old_f), "--new-passphrase-file", str(new_f)],
-                   env={"TB_KEK_FILE": str(runtime), "TB_ENV": "DEV"})  # fmt: skip
+                   env={"TB_KEK_FILE": str(runtime), "TB_ENV": "DEV", "TB_AUDIT_DIR": str(audit)})  # fmt: skip
     out = capsys.readouterr()
     assert rc == 0, out.err
     meta = K.read_meta(sec) or {}
@@ -408,7 +410,7 @@ def test_rotation_takes_the_old_and_the_new_passphrase_from_files_or_stdin(
         try:
             rc = keys.main(["rotate-kek", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
                             "--passphrase-stdin", "--new-passphrase-stdin"],
-                           env={"TB_KEK_FILE": str(runtime), "TB_ENV": "DEV"})  # fmt: skip
+                           env={"TB_KEK_FILE": str(runtime), "TB_ENV": "DEV", "TB_AUDIT_DIR": str(audit)})  # fmt: skip
         finally:
             sys.stdin = sys_stdin
         capsys.readouterr()

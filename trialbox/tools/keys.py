@@ -37,7 +37,8 @@ the variables it keeps, with their values (``RUNBOOK §23, rotate the KEK passph
 rc1 refuses the key ceremonies on a PRODUCTION box (R22-34), rotate-kek among them, with one exception (D-1092; the
 integrator's ruling 7101844662): a box sealed under a passphrase rotates it to a new passphrase given by the file or
 stdin form, with no escrow set, and the rotation is the audit event ``keys.rotate_kek`` (who, when, the box, the two
-KEK ids; never a value) in ``--audit-dir`` or ``TB_AUDIT_DIR``, without which it is refused.
+KEK ids; never a value) in ``--audit-dir`` or ``TB_AUDIT_DIR``, without which it is refused. Every rotate-kek, on every
+box, is that audit event and is refused without its folder (the integrator's ruling 7114085298).
 """
 
 from __future__ import annotations
@@ -573,10 +574,10 @@ def cmd_inventory(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     return 0
 
 
-#: D-1092 (the integrator's ruling 7101844662, H96-04): the audit event of a passphrase rotated where rc1 refuses the
-#: other key ceremonies; who, when, the box and the two KEK ids, never a passphrase or a key
+#: the audit event of every KEK rotation, on every box (the integrator's ruling 7114085298; first D-1092's, ruling
+#: 7101844662, H96-04): who, when, the box, the environment and the two KEK ids, never a passphrase or a key
 ROTATE_EVENT = "keys.rotate_kek"
-ROTATE_ACTOR = "python -m tools.keys rotate-kek (D-1092)"
+ROTATE_ACTOR = "python -m tools.keys rotate-kek"
 
 
 def exposed_passphrase_rotation(a: argparse.Namespace, sec: Path) -> bool:
@@ -625,25 +626,28 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     from tb_common import rc1_refusals
 
     sec = secrets_dir(a.secrets, env)
-    exposed: tuple[Path, str] | None = None  # D-1092: the audit folder and the box's environment
+    box_env = rc1_refusals.host_env(Path(DEFAULT_DEPLOY), env)
+    given = a.audit_dir or env.get("TB_AUDIT_DIR")
+    where_audit = Path(given) if given else None
+    rule = "7114085298"  # every rotation is an audit event, on every box
     try:  # R22-34 (D-1072): rc1 holds no key ceremony on a PRODUCTION box (the stricter of the box and the caller)
-        rc1_refusals.check("key_ceremonies", rc1_refusals.host_env(Path(DEFAULT_DEPLOY), env))
+        rc1_refusals.check("key_ceremonies", box_env)
     except rc1_refusals.Rc1Refused as exc:
         if not exposed_passphrase_rotation(a, sec):
             _err(exc.say())
             return 1
-        # D-1092: an exposed passphrase is rotated there, as an audited event (refused without its audit folder)
-        given = a.audit_dir or env.get("TB_AUDIT_DIR")
-        where_audit = Path(given) if given else None
+        rule = "D-1092"  # an exposed passphrase is rotated there; the rest of rc1's refusals stand
         if where_audit is None or not where_audit.is_dir():
             raise K.KekError(f"on a {exc.environment} box rc1 lets rotate-kek through only to rotate an exposed "
                              "passphrase, as an audit event (D-1092): give the audit folder (--audit-dir, "
                              "TB_AUDIT_DIR); nothing was changed") from None  # fmt: skip
-        exposed = (where_audit, exc.environment)
     pending = sorted(f.name for f in sec.glob("*.next.key" + K.WRAPPED_SUFFIX))
     if pending:  # a key rotation cut short (audit_sign.next.key): its staged key would stay under the old KEK
         raise K.KekError(f"{', '.join(pending)} is a key rotation not finished: finish it (run it again), then "
                          f"rotate-kek")  # fmt: skip
+    if where_audit is None or not where_audit.is_dir():  # the integrator's ruling 7114085298
+        raise K.KekError("a KEK rotation is an audit event on every box: give the audit folder (--audit-dir, "
+                         "TB_AUDIT_DIR); nothing was changed")  # fmt: skip
     from tools import key_escrow as ke
 
     names: list[str] = []
@@ -676,17 +680,20 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
         K._write_private(runtime, new)
         _say(f"the unsealed KEK in {runtime} is now the new one")
     _say(f"KEK {meta['kek_id']} (back end {meta['backend']}) replaces the old one; {len(keys)} key(s) re-wrapped")
-    if exposed is not None:  # D-1092: who, when, the box; never a value
-        detail = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "who": _who(), "box": socket.gethostname(),
-                  "environment": exposed[1], "old_kek_id": (old_meta or {}).get("kek_id", ""),
-                  "new_kek_id": meta["kek_id"], "backend": "passphrase", "rule": "D-1092"}  # fmt: skip
-        try:
-            ke.audit(exposed[0], ROTATE_EVENT, ROTATE_ACTOR, detail)
-        except OSError as e:
-            _err(f"the KEK is rotated, but its audit event could not be written to {exposed[0]} ({type(e).__name__}): "
-                 f"record it by hand (who, when, KEK {meta['kek_id']})")  # fmt: skip
-            return 1
-        _say(f"audit: {ROTATE_EVENT} in {exposed[0]} (rc1 lets this rotation through, D-1092)")
+    # every box (7114085298): who, when, the box, the environment; never a value
+    detail = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "who": _who(), "box": socket.gethostname(),
+              "environment": rc1_refusals.environment(box_env), "old_kek_id": (old_meta or {}).get("kek_id", ""),
+              "new_kek_id": meta["kek_id"], "backend": meta["backend"], "rule": rule}  # fmt: skip
+    try:
+        ke.audit(where_audit, ROTATE_EVENT, ROTATE_ACTOR, detail)
+    except OSError as e:
+        _err(f"the KEK is rotated, but its audit event could not be written to {where_audit} ({type(e).__name__}): "
+             f"record it by hand (who, when, KEK {meta['kek_id']})")  # fmt: skip
+        return 1
+    _say(
+        f"audit: {ROTATE_EVENT} in {where_audit}"
+        + (" (rc1 lets this rotation through, D-1092)" if rule == "D-1092" else "")
+    )
     if "escrow" in meta and meta["escrow"]["kek_id"] == meta["kek_id"] and where is not None:
         ke.audit(where, ke.EVENT, ke.ACTOR, ke.summary(meta["escrow"]))
         for r in meta["escrow"]["shares"]:

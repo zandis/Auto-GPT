@@ -67,6 +67,21 @@ rc1 table's row says so; its message, its sites and every other refusal are unch
 section (still a section, no new number) says a PRODUCTION box rotates itself, with the audit folder, and that every
 other rotation stays refused there.
 
+**Every rotation is audited** (the integrator's ruling 7114085298, after the first review). Every `rotate-kek`, on
+every box, writes `keys.rotate_kek` (who, when, the box, its environment, the two KEK ids and the new back end; never a
+value) and is refused without its audit folder, before anything is read or written (after the check for a key
+rotation cut short, which keeps its own words). `rule` is `D-1092` for the PRODUCTION exception, `7114085298`
+elsewhere. RUNBOOK §23's and SECURITY §10's rotation commands name the audit folder. Test:
+`tests/unit/test_rotate_exposed_passphrase_h97.py::test_every_rotation_on_a_poc_box_is_an_audit_event` (DEV, TEST and
+VALIDATION by the box's deploy/.env; the passphrase and the file back end). Mutants: 3 planted (no refusal without a
+folder; audited on PRODUCTION only; the environment not recorded), 3 caught. Set-ups changed under that ruling (an
+audit folder given; nothing they assert changed): `tests/unit/test_kek.py::test_rotate_kek_rewraps_every_key_and_the_old_shares_stop_working`,
+`tests/unit/test_restic_password.py::test_after_rotate_kek_the_copy_waits_for_new_escrow_shares`,
+`tests/unit/test_objstore_sealed.py::test_custody_lists_the_object_key_once_made_and_rotate_kek_keeps_objects_readable`,
+`tests/unit/test_key_escrow.py::test_the_ceremony_record_lists_the_set_and_the_doctor_warns_on_an_older_or_unrecorded_set`,
+`tests/unit/test_sign_keys_kek.py::test_rotate_kek_rewraps_both_signing_keys_and_the_readers_open_them`,
+`tests/unit/test_kek_passphrase_file_h96.py::test_rotation_takes_the_old_and_the_new_passphrase_from_files_or_stdin`.
+
 ## Part C: no path takes the passphrase from a caller's environment
 
 The review of H-96 (L-2) and the integrator's 7102655419 name this card as the follow-up: H-96 refused

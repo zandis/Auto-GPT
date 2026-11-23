@@ -267,7 +267,7 @@ def test_the_ceremony_record_lists_the_set_and_the_doctor_warns_on_an_older_or_u
     assert _doctor(tpm).status == "PASS"
     # a rotation without a new set: the old set is kept, said, and refused on the record until a new one is made
     rc, out = _cli(capsys, "rotate-kek", "--secrets", str(tpm["sec"]), "--backend", "file", "--kek-out",
-                   str(tpm["tmp"] / "n.kek"))  # fmt: skip
+                   str(tpm["tmp"] / "n.kek"), "--audit-dir", str(tpm["audit"]))  # fmt: skip  # every rotation is an audit event (ruling 7114085298)
     assert rc == 0 and "opens the old KEK only" in out
     d = _doctor(tpm)
     assert d.status == "WARN" and "older KEK" in d.detail and "escrow-shares" in d.detail

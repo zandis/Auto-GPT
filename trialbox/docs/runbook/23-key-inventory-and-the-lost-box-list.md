@@ -77,17 +77,18 @@ sudo bash -c 'umask 077; IFS= read -rs p; printf "%s\n" "$p" > /root/trialbox-ke
 
 **3. Rotate.** Every wrapped key is re-wrapped under the new KEK, and the open KEK in `/run/trialbox/kek` is replaced.
 The file is removed when the rotation succeeds (`--keep-passphrase-files` keeps it). On a terminal,
-`--new-passphrase-stdin` asks for it twice instead of the file.
+`--new-passphrase-stdin` asks for it twice instead of the file. Every rotation, on every box, is the audit event
+`keys.rotate_kek` (who, when, the box, its environment, the old and the new KEK's ids; never a passphrase; the
+integrator's ruling 7114085298): name the audit folder, or nothing is changed.
 
 ```sh
-sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"
 sudo systemctl restart trialbox
 ```
 
 **On a PRODUCTION box** the box rotates itself (D-1092; the integrator's ruling 7101844662). rc1 refuses the key
 ceremonies there (R22-34), but rotating an exposed passphrase is a safety action: `rotate-kek --backend passphrase`
-with the new passphrase from the file or from stdin goes through, as an audit event `keys.rotate_kek` (who, when,
-the box, the old and the new KEK's ids; never a passphrase). Name the audit folder, or nothing is changed:
+with the new passphrase from the file or from stdin goes through, with the same audit event and the same command:
 
 ```sh
 sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"

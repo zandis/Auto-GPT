@@ -166,8 +166,9 @@ def test_rotate_kek_rewraps_both_signing_keys_and_the_readers_open_them(
     audit_key, edc_key = (box["sec"] / AUDIT).read_bytes(), (box["sec"] / EDC).read_bytes()
     _init_and_unseal(box, capsys)
     old_id = json.loads((box["sec"] / K.META_FILE).read_text())["kek_id"]
+    (box["tmp"] / "audit").mkdir(exist_ok=True)  # every rotation is an audit event (ruling 7114085298)
     rc, out = _cli(capsys, "rotate-kek", "--secrets", str(box["sec"]), "--backend", "shamir", "--shares-out",
-                   str(box["tmp"] / "new-stewards"))  # fmt: skip
+                   str(box["tmp"] / "new-stewards"), "--audit-dir", str(box["tmp"] / "audit"))  # fmt: skip
     assert rc == 0 and "4 key(s) re-wrapped" in out, out
     new_id = json.loads((box["sec"] / K.META_FILE).read_text())["kek_id"]
     assert new_id != old_id
