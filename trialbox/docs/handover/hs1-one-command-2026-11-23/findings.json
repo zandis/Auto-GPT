@@ -1,0 +1,48 @@
+{
+  "card": "HS1",
+  "title": "the hospital's one command (lane H, 2026-11-23)",
+  "date": "2026-11-23",
+  "source": "docs/handover/hs1-one-command-2026-11-23.md",
+  "findings": [
+    {
+      "id": "HS1-01",
+      "severity": "High",
+      "claim": "The stick's launcher (deploy/launcher.sh, copied as install) is not signed: a swapped stick can carry another launcher, key and bootstrap and show the genuine fingerprint; the paper code protects only an honest launcher, and RUNBOOK section 1's longer form (key out of band) stays the stronger check",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "open"
+    },
+    {
+      "id": "HS1-02",
+      "severity": "Low",
+      "claim": "deploy/bootstrap.sh ended with exec, so its EXIT trap never ran and every run left its temp folder, with the unpacked host tree, behind; fixed in HS-1",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed"
+    },
+    {
+      "id": "HS1-03",
+      "severity": "Medium",
+      "claim": "A bare machine with no Docker still stops in deploy/box-install.sh with a message that names box-prepare.sh with --pub; design row 53's second half is not removed by HS-1",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "HS1-04",
+      "severity": "Low",
+      "claim": "RUNBOOK section 1 (docs/runbook/01-install-a-new-site.md) still writes only the long first command; the one command is not on the runbook page",
+      "lane": "H",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "HS1-05",
+      "severity": "Low",
+      "claim": "The fingerprint's form (the first 24 hex digits of the sha256 of the key's DER form) was chosen in HS-1 without a decision",
+      "lane": "H",
+      "basis": "not stated",
+      "state": "open"
+    }
+  ]
+}

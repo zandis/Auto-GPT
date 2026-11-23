@@ -251,5 +251,14 @@ PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" sign-file --key
   || { echo "make_bundle: the bootstrap could not be signed" >&2; exit 1; }
 # each file named bare, written from its own folder: the sidecar checks wherever the stick is mounted (H-22 finding 4)
 (cd "$(dirname "$OUT")" && sha256sum "$(basename "$OUT")" "$(basename "$BOOT")" "$(basename "$BOOT").sig") | tee "$OUT.sha256"
-echo "done: hand over, on a USB stick: $(basename "$OUT"), $(basename "$OUT").sha256, $(basename "$BOOT") and $(basename "$BOOT").sig"
-echo "      (the vendor key goes apart from the stick); the site runs RUNBOOK section 1's first command"
+# HS-1: the hospital's one command. The launcher goes to the stick's root as `install`, with the vendor's public
+# key beside it; the delivery sheet carries the key's fingerprint on paper, which the launcher shows for comparison.
+# The same line is in deploy/launcher.sh and deploy/bootstrap.sh; a test holds the three together
+fingerprint() { openssl pkey -pubin -in "$1" -outform DER 2>/dev/null | sha256sum | cut -c1-24 | sed 's/..../& /g; s/ $//'; }
+STICK_PUB="$(dirname "$OUT")/vendor_ed25519.pub"
+openssl pkey -in "$KEY" -pubout -out "$STICK_PUB" 2>/dev/null \
+  || { echo "make_bundle: the vendor's public key could not be written" >&2; exit 1; }
+install -m 0755 "$ROOT/deploy/launcher.sh" "$(dirname "$OUT")/install"
+echo "done: hand over, on a USB stick: install, vendor_ed25519.pub, $(basename "$OUT"), $(basename "$OUT").sha256, $(basename "$BOOT") and $(basename "$BOOT").sig"
+echo "      the delivery sheet carries the vendor key's fingerprint: $(fingerprint "$STICK_PUB")"
+echo "      the site types: sudo bash /media/<stick>/install (RUNBOOK section 1's longer command keeps working)"
