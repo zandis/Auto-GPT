@@ -1041,7 +1041,7 @@ def test_the_install_writes_the_caps_into_deploy_env(tmp_path: Path) -> None:
     assert "TB_REHEARSAL_REAL_SERVERS=1" in lines and not (site / ".rehearsal-caps").exists()
 
 
-@pytest.mark.parametrize("profile", ["dgpu48", "gb10"])
+@pytest.mark.parametrize("profile", ["gb10"])  # dgpu48: opened by H-89b (ruling 7088891993)
 def test_the_profiles_not_opened_are_refused_by_name(tmp_path: Path, profile: str) -> None:
     b = Bench(tmp_path)
     r = b.install("--rehearsal", "--rehearsal-real-servers", "--gpu", profile, "--gpu-index", "1",

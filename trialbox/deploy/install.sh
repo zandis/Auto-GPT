@@ -135,7 +135,8 @@ esac
 # REHEARSAL-REAL-SERVERS (H-89): the real model servers on a rehearsal box whose card and driver are not the profile's
 # (the bench host: whole B200-class cards on a driver below gpu.driver_min). One explicit command line, never a
 # default or an environment variable:
-#   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000|rtx5090 --gpu-index N --engine-probe FILE
+#   deploy/install.sh <bundle> --rehearsal --rehearsal-real-servers --gpu rtxpro6000|rtx5090|dgpu48 --gpu-index N --engine-probe FILE
+# H-89b: dgpu48, the draft 48 GB profile no site install serves (cards 24-5, 24-6), for this rehearsal only
 # Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled down, D-1087)
 # Without --rehearsal each new option is refused here, before anything is checked or written; without the options
 # the three refusals (the driver, the card, the record) stand as before. tools/rehearsal_real.py decides each step;
@@ -147,11 +148,11 @@ if [ "$REHEARSAL" != 1 ]; then
 elif [ "$REAL_SERVERS" != 1 ]; then
   [ -z "$GPU_INDEX$ENGINE_PROBE" ] || { echo "install: --gpu-index and --engine-probe go with --rehearsal-real-servers; nothing was checked or written" >&2; exit 2; }
 else
-  [ "$GPU_SET" = 1 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)"
+  [ "$GPU_SET" = 1 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 (each held to its own card's memory)"
   case "$GPU" in
-    rtxpro6000|rtx5090) ;;
-    dgpu48|gb10) die "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;
-    *) die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)" ;;
+    rtxpro6000|rtx5090|dgpu48) ;;
+    gb10) die "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)" ;;
+    *) die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 (each held to its own card's memory)" ;;
   esac
   [ -z "$TIER" ] || die "--rehearsal-real-servers is no tier install: drop --tier"
   [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--rehearsal-real-servers needs the GPU: drop --mode $MODE"
@@ -291,10 +292,15 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   gb10-64) die "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB (its model servers alone are capped at 74 GiB), and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub (structured criteria only; note criteria wait for a GPU), or use a 128 GB Spark or another measured box" ;;
   arm64-dgpu) die "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile (unmeasured, root review 24): install with --mode stub, or see RUNBOOK §28" ;;
   # cards 24-5 and 24-6: the 48 GB draft is never installed, whatever is set; TB_UNMEASURED_DGPU48_MEASURING_RUN=1 is
-  # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing
-  dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
+  # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing.
+  # H-89b: a rehearsal with real servers alone goes on (--rehearsal --rehearsal-real-servers, checked above)
+  dgpu48) [ "$REAL_SERVERS" = 1 ] || die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;
 esac
-case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
+case "$GPU" in
+  auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;;
+  dgpu48) [ "$REAL_SERVERS" = 1 ] || die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;;  # H-89b
+  *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;;
+esac
 # REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
 # check, so a site box is refused before any allowance), and the one card named carries the pair. The GPU check then
 # runs under the mark: the driver below the minimum is a WARN only with a passed probe of this card, this driver and
@@ -690,7 +696,7 @@ if [ "$MODE" = gpu ] && ! grep -q '^TB_LLM_API_KEY=.' deploy/.env; then
 fi
 NOTE_BLOCK=both_agree; [ "$GPU" = rtx4090 ] && NOTE_BLOCK=never
 # the pair profiles run the verifier build: name it, or both_agree has no second model (doctor note_block), D-142
-case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
+case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090|gpu:dgpu48)  # dgpu48: a rehearsal with real servers only (H-89b)
   grep -q '^TB_GATEWAY_VERIFIER_MODEL=.' deploy/.env || { sed -i "/^TB_GATEWAY_VERIFIER_MODEL=/d" deploy/.env; echo "TB_GATEWAY_VERIFIER_MODEL=v-verifier" >> deploy/.env; }
   # and the judge build by name: a judge that names none could be answered by another build of its route (D-276)
   grep -q '^TB_GATEWAY_MODEL=.' deploy/.env || { sed -i "/^TB_GATEWAY_MODEL=/d" deploy/.env; echo "TB_GATEWAY_MODEL=j-workhorse" >> deploy/.env; } ;;
@@ -729,7 +735,10 @@ if [ "$MODE" = gpu ]; then
   for v in JUDGE_MODEL_DIR JUDGE_MODEL JUDGE_CHAT_TEMPLATE VERIFIER_MODEL_DIR VERIFIER_MODEL; do  # as compose reads them from deploy/.env
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
   done
-  say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
+  # H-89b: the 48 GB draft has no pins of its own (tools/pin_model.py PROFILE_PAIRS); its overlay serves the 96 GB
+  # profile's pair from the same weights folders, so a rehearsal with real servers pins that pair
+  PIN_GPU="$GPU"; [ "$REAL_SERVERS:$GPU" != 1:dgpu48 ] || PIN_GPU=rtxpro6000
+  say "pinning the $PIN_GPU model pair from deploy/models (tools/pin_model.py --install)"
   # D-835: as the installer's own user (the image user 10001 cannot write a root-owned deploy/site, and a failed pin
   # was only a warning: lane G's box went on with no model pinned); a pin that fails stops the install
   alive_start "hashing the model weights"
@@ -738,8 +747,8 @@ if [ "$MODE" = gpu ]; then
   tree_args
   docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL \
     -e TB_ENV="$TB_ENV_SITE" -e TB_REHEARSAL="$(envget TB_REHEARSAL)" "$IMAGE_PY" \
-    python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
-    || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
+    python -m tools.pin_model --install "$PIN_GPU" --models-root /d/models --out /d/site/registry.site.yaml \
+    || die "a model of the $PIN_GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
   alive_stop
 else
   # D-1066 (D-998, the owner's ruling): a box without a GPU is a product form (a feasibility-only site that may add a
@@ -805,7 +814,16 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
     die "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run as a rehearsal box (TB_COMPOSE_OVERRIDE= deploy/install.sh <bundle> --gpu $GPU --rehearsal), then capture the record (RUNBOOK §1)"
   fi ;;
 esac
+# REHEARSAL-REAL-SERVERS (H-89b): the 48 GB draft has no record and no measurement rule (cards 24-5, 24-6): a
+# rehearsal box only, and it says so
+if [ "$REAL_SERVERS:$GPU" = 1:dgpu48 ]; then
+  rehearsal_only "--rehearsal-real-servers (the dgpu48 profile, a draft with no record)"
+  echo "install: warning: $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["words"])' deploy/site/rehearsal-real-servers.json): the dgpu48 profile is a DRAFT, UNMEASURED 48 GB profile with no serving record; held to its own card's memory on card $GPU_INDEX" >&2
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89b)
 case "$MODE:$GPU" in
+  # H-89b: the label its overlay gives the gateway; a rehearsal with real servers only (dgpu48 stops above otherwise)
+  gpu:dgpu48) PROFILE=P-DGPU48-UNMEASURED ;;
   gpu:rtxpro6000) PROFILE=P-PRO6000 ;; gpu:gb10) PROFILE=P-GB10 ;; gpu:rtx5090|gpu:rtx4090) PROFILE=P-5090 ;; *) PROFILE=P-GB10 ;;
 esac
 grep -q '^TB_PROFILE=' deploy/.env && sed -i "s/^TB_PROFILE=.*/TB_PROFILE=$PROFILE/" deploy/.env || echo "TB_PROFILE=$PROFILE" >> deploy/.env
@@ -818,6 +836,8 @@ case "$MODE:$GPU" in
   gpu:rtxpro6000) COMPOSE+=(-f deploy/docker-compose.rtxpro6000.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtxpro6000.yml" ;;
   gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml); FILES="$FILES:$ROOT/deploy/docker-compose.gb10.yml" ;;
   gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtx5090.yml" ;;
+  # H-89b: the 48 GB draft's overlay, a rehearsal with real servers only (dgpu48 stops at the profile step otherwise)
+  gpu:dgpu48) COMPOSE+=(-f deploy/docker-compose.dgpu48.yml); FILES="$FILES:$ROOT/deploy/docker-compose.dgpu48.yml" ;;
 esac
 if [ -n "$TLS_HOST" ]; then
   # the certificate, its key and the host name are checked before Caddy uses them (console.cli check-tls); the

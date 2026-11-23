@@ -55,6 +55,12 @@ OPENED: dict[str, dict[str, Any]] = {
                    "sleep": False},
     "rtx5090": {"compose": "docker-compose.rtx5090.yml", "budget_mib": 32607, "cards": ("5090", "RTX PRO 4500"),
                 "sleep": True},
+    # H-89b (the integrator's ruling 7088891993, item 1): the 48 GB class, a draft profile no site install serves
+    # (cards 24-5, 24-6): its overlay's utilisations (option pair-32k, both resident) on 49,140 MiB, the class's card
+    # as deploy/docker-compose.dgpu48.yml sizes it. A rehearsal with real servers only; the bench does not prove the
+    # class's older architecture (no FP8 or FP4 kernels)
+    "dgpu48": {"compose": "docker-compose.dgpu48.yml", "budget_mib": 49140, "cards": ("A6000", "6000 Ada", "PRO 5000"),
+               "sleep": False},
 }  # fmt: skip
 MARK = "rehearsal.json"
 RECORD = "rehearsal-real-servers.json"
