@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
+
 ROOT = Path(__file__).resolve().parents[2]
 INSTALL = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
 
@@ -45,14 +47,19 @@ def _block() -> str:
     return INSTALL[start : INSTALL.index("# ---- end of HOST-PYTHON", start)]
 
 
-def _run(tmp: Path, python_body: str | None) -> subprocess.CompletedProcess[str]:
+def _run(tmp: Path, python_body: str | None, environment: str = "") -> subprocess.CompletedProcess[str]:
     bindir = tmp / "bin"
     bindir.mkdir(exist_ok=True)
     if python_body is not None:
         py = bindir / "python3"
         py.write_text("#!/bin/sh\n" + python_body, encoding="utf-8")
         py.chmod(0o755)
-    script = 'set -euo pipefail\ndie() { echo "install: $*" >&2; exit 1; }\n' + _block() + "\necho reached-the-load\n"
+    script = (
+        'set -euo pipefail\ndie() { echo "install: $*" >&2; exit 1; }\n'
+        + stop_prelude(deploy=f'"{tmp}/deploy"', environment=environment)
+        + _block()
+        + "\necho reached-the-load\n"
+    )
     env = {**os.environ, "PATH": f"{bindir}{os.pathsep}/usr/bin:/bin"}
     if python_body is None:  # no python3 at all: only the shell's own tools
         env["PATH"] = str(bindir)
@@ -64,6 +71,14 @@ def test_a_host_python_without_yaml_stops_before_the_load_naming_the_package(tmp
     assert res.returncode == 1
     assert "python3-yaml" in res.stderr and "nothing was changed" in res.stderr
     assert "reached-the-load" not in res.stdout
+
+
+def test_on_a_poc_box_a_host_python_without_yaml_warns_and_goes_on(tmp_path: Path) -> None:
+    """D-1091 (H94-03): it protects none of the five, so on a TEST box it warns, is listed and the install goes on
+    (the host steps that import the module then fail where they run); on PRODUCTION it stops (above)."""
+    res = _run(tmp_path, 'case "$2" in *yaml*) exit 1 ;; esac\nexit 0\n', environment="TEST")
+    assert res.returncode == 0 and "reached-the-load" in res.stdout, res.stderr
+    assert "install: warning (PoC box, H-94): the host's python3 lacks" in res.stderr and "python3-yaml" in res.stderr
 
 
 def test_a_host_python_with_the_modules_goes_on(tmp_path: Path) -> None:

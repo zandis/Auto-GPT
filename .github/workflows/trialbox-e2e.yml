@@ -95,11 +95,28 @@ jobs:
       - name: Pure tests with no PostgreSQL
         if: matrix.run == 'pure'
         run: make test-pure PYTEST_N=auto
+      # A runner of another CPU model than the baseline's runs the same code at another speed (an AMD runner against
+      # the Intel baseline: +41 % on one night, no commit to blame). Then the baseline's reference commit is measured
+      # here too, and the gate is on the ratio to it; the 20 % tolerance stays, and nothing is re-baselined.
+      - name: Reference commit on this runner (only when the runner's CPU is not the baseline's)
+        if: matrix.run == 'perf-5k'
+        run: |
+          if ref=$(.venv/bin/python tools/bench.py --cpu-differs); then
+            git fetch --depth=1 origin "$ref"
+            git worktree add "$RUNNER_TEMP/tb-ref" "$ref"
+            ln -s "$PWD/.venv" "$RUNNER_TEMP/tb-ref/trialbox/.venv"
+            ln -s "$PWD/.cache" "$RUNNER_TEMP/tb-ref/trialbox/.cache"
+            (cd "$RUNNER_TEMP/tb-ref/trialbox" && make bench-baseline BENCH_OUT="$RUNNER_TEMP/bench-ref")
+            cp "$RUNNER_TEMP/tb-ref/trialbox/tools/bench_baseline.json" "$RUNNER_TEMP/bench-ref.json"
+            echo "BENCH_REF=$RUNNER_TEMP/bench-ref.json" >> "$GITHUB_ENV"
+          else
+            echo "the runner's CPU is the baseline's (or unnamed): the gate is on the baseline's own numbers"
+          fi
       - name: Performance gate (the stub at 5,000 patients against tools/bench_baseline.json)
         if: matrix.run == 'perf-5k'
         run: |
           rc=0
-          make bench-gate BENCH_OUT="$RUNNER_TEMP/bench-gate" || rc=$?
+          make bench-gate BENCH_OUT="$RUNNER_TEMP/bench-gate" BENCH_REF="${BENCH_REF:-}" || rc=$?
           cat "$RUNNER_TEMP/bench-gate/bench_gate.md" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$rc"
       # D-1245 (10E-13): the console's ten pages, p95 of the console's own time (Server-Timing) under 300 ms; held here

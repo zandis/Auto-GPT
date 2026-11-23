@@ -548,9 +548,14 @@ bench:
 # (in the pull request that changes the speed on purpose, with the reason in the commit)
 BENCH_PATIENTS ?= 5000
 BENCH_OUT ?= $(TB_TEST_ROOT)/bench-gate
+# BENCH_REF=<file>: the baseline's reference commit measured on this runner (`make bench-baseline` in a checkout of it,
+# the copy of its tools/bench_baseline.json): the gate is then on the ratio to it. The nightly sets it when the runner's
+# CPU model is not the one the baseline was written on (`tools/bench.py --cpu-differs`)
+BENCH_REF ?=
 bench-gate:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)"
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)" \
+		$(if $(BENCH_REF),--ref "$(BENCH_REF)",)
 
 # D-1245 (10E-13): the console's ten-page timing walk (p95 of the Server-Timing header under 300 ms; marker perf, nightly
 # in trialbox-e2e.yml's perf-5k job). The walk's rules and the planted slow page are tests/console/test_console_timing.py
