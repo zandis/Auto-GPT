@@ -32,13 +32,13 @@ KP_WHO="seal_keys.sh"
 # and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
 # (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
 # exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
-KP_VALUE=""
+KP_VALUE=""; KP_FILE=""
 kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped
   for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
     kp_set=""
     eval "kp_set=\${$kp_var:+yes}"
-    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }  # H-94 (5)
   done
   unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
 }
@@ -46,15 +46,46 @@ kp_check_value() {  # one line, not empty, no control character (the image and t
   [ -n "$KP_VALUE" ] || kp_die "the KEK passphrase from $1 is empty: nothing was changed"
   case "$KP_VALUE" in *[[:cntrl:]]*) KP_VALUE=""; kp_die "the KEK passphrase from $1 holds a line break or another control character: write it again on one line; nothing was sealed" ;; esac
 }
-kp_read_file() {  # refused unless a regular file, not a link, owned by the user that runs this (root), mode 0600, one line
-  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600 (sudo install -m 0600 -o root -g root /dev/null FILE, then write it there); nothing was changed"
-  [ ! -L "$1" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"
-  [ -f "$1" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"
-  [ "$(stat -c %u "$1")" = "$(id -u)" ] || kp_die "--kek-passphrase-file $1 is owned by uid $(stat -c %u "$1"), not root (the user that runs this): refused; $kp_fix"
-  [ "$(stat -c %a "$1")" = 600 ] || kp_die "--kek-passphrase-file $1 has mode $(stat -c %a "$1"), not 0600: refused; $kp_fix"
-  [ "$(tail -c 1 "$1" | wc -l)" = "$(wc -l < "$1")" ] \
-    || kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"
-  KP_VALUE=""; IFS= read -r KP_VALUE < "$1" || [ -n "$KP_VALUE" ] || :
+kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened file is regular, root's, 0600, one name
+  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600, in a folder only root can write (sudo install -m 0600 -o root -g root /dev/null /root/trialbox-kek.pass, then write it there); nothing was changed"
+  # (M-1 of the review of #1398) the folders as their real paths: the file's own folder and every one above it owned
+  # by root (the user that runs this), and writable by no one else; above the file's own folder a shared folder with
+  # the sticky bit (/tmp) is allowed, as no one else can rename what is root's there
+  kp_dir="$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P)" \
+    || kp_die "--kek-passphrase-file $1: its folder cannot be reached: refused; $kp_fix"  # H-94 (5)
+  kp_name="${kp_dir%/}/${1##*/}"; kp_d="$kp_dir"; kp_own=1
+  while :; do
+    kp_st="$(stat -c '%u %a' -- "$kp_d" 2>/dev/null)" || kp_die "--kek-passphrase-file $1: the folder $kp_d cannot be read: refused; $kp_fix"  # H-94 (5)
+    kp_m="${kp_st#* }"
+    case "${kp_st%% *}" in 0|"$(id -u)") ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d is owned by uid ${kp_st%% *}, not root: refused; $kp_fix" ;; esac  # H-94 (5)
+    case "${kp_m#"${kp_m%??}"}" in
+      [0145][0145]) ;;
+      *) case "$kp_own:${#kp_m}:$kp_m" in 0:4:[1357]*) ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d can be written by others (mode $kp_m): refused; $kp_fix" ;; esac ;;  # H-94 (5)
+    esac
+    [ "$kp_d" != / ] || break
+    kp_d="$(dirname -- "$kp_d")"; kp_own=0
+  done
+  # opened once on fd 7 and read from it; what was opened is checked through /dev/fd/7 (the same open file, never the
+  # name again), and the name must still be that very file, not a link (the shell cannot open without following one)
+  [ ! -L "$kp_name" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"  # H-94 (5)
+  [ -f "$kp_name" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"  # H-94 (5): never a fifo opened
+  exec 7< "$kp_name"
+  kp_fd="$(stat -L -c '%F|%u|%a|%h|%d:%i' /dev/fd/7 2>/dev/null)" || kp_fd=""
+  kp_nm="$(stat -c '%F|%d:%i' -- "$kp_name" 2>/dev/null)" || kp_nm=""
+  kp_t="${kp_fd%%|*}"; kp_r="${kp_fd#*|}"; kp_u="${kp_r%%|*}"; kp_r="${kp_r#*|}"; kp_a="${kp_r%%|*}"; kp_r="${kp_r#*|}"
+  kp_h="${kp_r%%|*}"; kp_i="${kp_r#*|}"
+  kp_bad=""
+  case "$kp_nm" in "symbolic link|"*) kp_bad="is a link" ;; esac
+  [ -n "$kp_bad" ] || case "$kp_t" in "regular file"|"regular empty file") ;; *) kp_bad="is not a regular file" ;; esac
+  [ -n "$kp_bad" ] || [ "$kp_nm" = "$kp_t|$kp_i" ] || kp_bad="changed while it was opened"
+  [ -n "$kp_bad" ] || [ "$kp_u" = "$(id -u)" ] || kp_bad="is owned by uid $kp_u, not root (the user that runs this)"
+  [ -n "$kp_bad" ] || [ "$kp_a" = 600 ] || kp_bad="has mode $kp_a, not 0600"
+  [ -n "$kp_bad" ] || [ "$kp_h" = 1 ] || kp_bad="has $kp_h names (hard links), not one"
+  if [ -n "$kp_bad" ]; then exec 7<&-; kp_die "--kek-passphrase-file $1 $kp_bad: refused; $kp_fix"; fi  # H-94 (5)
+  KP_VALUE=""; IFS= read -r KP_VALUE <&7 || [ -n "$KP_VALUE" ] || :
+  kp_rest="$(wc -c <&7)"; exec 7<&-
+  if [ "$kp_rest" != 0 ]; then KP_VALUE=""; kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"; fi  # H-94 (5)
+  KP_FILE="$kp_name"
   kp_check_value "--kek-passphrase-file $1"
 }
 kp_read_stdin() {
@@ -69,7 +100,9 @@ kp_read_stdin() {
   fi
   kp_check_value "stdin"
 }
-kp_remove_file() { shred -u -- "$1" 2>/dev/null || rm -f -- "$1"; [ ! -e "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"; }
+kp_remove_file() {  # unlinked, never written through its name (a link is taken away, never what it names)
+  rm -f -- "$1"; [ ! -e "$1" ] && [ ! -L "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"  # H-94 (5)
+}
 # ---- end of KEK-INPUT functions
 kp_refuse_env  # H-96: before anything is read or made
 CONF="$ROOT/deploy/site/hardening.conf"; SECRETS=""; PP_FILE=""; PP_STDIN=0; PP_KEEP=0
@@ -78,7 +111,7 @@ while [ $# -gt 0 ]; do
     --secrets) SECRETS="$2"; shift ;;
     --conf) CONF="$2"; shift ;;
     --dry-run) DRY=1 ;;
-    --kek-passphrase-file) [ -n "${2:-}" ] || hb_die "--kek-passphrase-file needs a file"; PP_FILE="$2"; shift ;;
+    --kek-passphrase-file) [ -n "${2:-}" ] || hb_die "--kek-passphrase-file needs a file"; PP_FILE="$2"; shift ;;  # H-94 (5)
     --keep-kek-passphrase-file) PP_KEEP=1 ;;
     --kek-passphrase-stdin) PP_STDIN=1 ;;
     *) echo "seal_keys.sh: unknown option $1" >&2; exit 2 ;;
@@ -92,8 +125,8 @@ KEK_BACKEND=tpm; KEK_SHARES_OUT=""
 # H-96: the passphrase from the operator's root-only file or from stdin, never from the environment. Read before
 # anything is made or sealed; a line break or another control character is refused (review 2 of #1305, L-2: the image
 # and the host must seal under the same value). The value is never printed
-[ -z "$PP_FILE" ] || [ "$PP_STDIN" = 0 ] || hb_die "--kek-passphrase-file and --kek-passphrase-stdin: give one"
-[ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE" ] || hb_die "--keep-kek-passphrase-file goes with --kek-passphrase-file"
+[ -z "$PP_FILE" ] || [ "$PP_STDIN" = 0 ] || hb_die "--kek-passphrase-file and --kek-passphrase-stdin: give one"  # H-94 (5)
+[ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE" ] || hb_die "--keep-kek-passphrase-file goes with --kek-passphrase-file"  # H-94 (5)
 if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"; elif [ "$PP_STDIN" = 1 ]; then kp_read_stdin; fi
 # what a host that cannot seal with its TPM does instead (a fresh box has no hardening.conf)
 NO_TPM_FIX="on a host without a usable TPM 2.0 run the installer with TB_KEK_BACKEND=passphrase and --kek-passphrase-file FILE (one line of 12 characters or more, a file only root can read; no hardening.conf needed)"
@@ -121,9 +154,9 @@ keys_pp() { printf '%s\n' "$KP_VALUE" | tool tools.keys "$@" --passphrase-stdin;
 # the operator's file, once the keys are sealed (kept with --keep-kek-passphrase-file)
 pp_done() {
   KP_VALUE=""
-  [ -n "$PP_FILE" ] || return 0
-  if [ "$PP_KEEP" = 1 ]; then hb_say "the passphrase file $PP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
-  else kp_remove_file "$PP_FILE"; hb_say "the passphrase file $PP_FILE is removed"; fi
+  [ -n "$KP_FILE" ] || return 0  # the real path the file was read from; rm, never written through the name
+  if [ "$PP_KEEP" = 1 ]; then hb_say "the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
+  else kp_remove_file "$KP_FILE"; hb_say "the passphrase file $KP_FILE is removed"; fi
 }
 # NEW-STD-2 (D-562): the audit signing key, made once beside the site keys and wrapped under the same KEK; a key that
 # is there is kept. Not a stop: `trialbox doctor` (audit_heads) names a missing key

@@ -43,6 +43,7 @@ KEK ids; never a value) in ``--audit-dir`` or ``TB_AUDIT_DIR``, without which it
 from __future__ import annotations
 
 import argparse
+import errno
 import getpass
 import json
 import os
@@ -181,25 +182,66 @@ def _one_line(text: str, where: str) -> str:
     return line
 
 
+def _safe_folders(real_dir: str, path: str, fix: str) -> None:
+    """H-94 (5), M-1 of the review of #1398: the file's own folder and every folder above it (real paths) are owned by
+    root (the user that runs this) and writable by no one else; above the file's own folder a shared folder with the
+    sticky bit (/tmp) is allowed, as no one else can rename what is root's there."""
+    euid, d, own = os.geteuid(), real_dir, True
+    while True:
+        try:
+            st = os.stat(d)
+        except OSError as exc:
+            raise K.KekError(
+                f"the passphrase file {path}: the folder {d} cannot be read ({type(exc).__name__})"
+            ) from None
+        if st.st_uid not in (0, euid):
+            raise K.KekError(f"the passphrase file {path}: the folder {d} is owned by uid {st.st_uid}, not root: "
+                             f"refused; {fix}")  # fmt: skip
+        if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and (own or not st.st_mode & stat.S_ISVTX):
+            raise K.KekError(f"the passphrase file {path}: the folder {d} can be written by others (mode "
+                             f"{stat.S_IMODE(st.st_mode):o}): refused; {fix}")  # fmt: skip
+        if d == "/":
+            return
+        d, own = os.path.dirname(d), False
+
+
 def read_passphrase_file(path: str) -> str:
-    """One line from a regular file (not a link) owned by the user that runs this (root), mode 0600; else refused."""
-    fix = "a regular file owned by root with mode 0600 (sudo install -m 0600 -o root -g root /dev/null FILE)"
+    """One line of a regular file owned by the user that runs this (root), mode 0600, one name, in folders only root
+    can write; else refused. It is opened once without following a link and checked and read on that descriptor
+    (fstat), never by its name again."""
+    fix = ("a regular file owned by root with mode 0600, in a folder only root can write (sudo install -m 0600 -o root "
+           "-g root /dev/null /root/trialbox-kek.pass)")  # fmt: skip
+    real_dir = os.path.realpath(os.path.dirname(os.path.abspath(path)))
+    _safe_folders(real_dir, path, fix)
+    name = os.path.join(real_dir, os.path.basename(path))
     try:
-        st = os.lstat(path)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NOCTTY | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise K.KekError(f"the passphrase file {path} is a link: refused; {fix}") from None
         raise K.KekError(f"the passphrase file {path} cannot be read ({type(exc).__name__}): {fix}") from None
-    if stat.S_ISLNK(st.st_mode):
-        raise K.KekError(f"the passphrase file {path} is a link: refused; {fix}")
-    if not stat.S_ISREG(st.st_mode):
-        raise K.KekError(f"the passphrase file {path} is not a regular file: refused; {fix}")
-    if st.st_uid != os.geteuid():
-        raise K.KekError(f"the passphrase file {path} is owned by uid {st.st_uid}, not root (the user that runs "
-                         f"this): refused; {fix}")  # fmt: skip
-    if stat.S_IMODE(st.st_mode) != 0o600:
-        raise K.KekError(f"the passphrase file {path} has mode {stat.S_IMODE(st.st_mode):o}, not 0600: refused; {fix}")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    with os.fdopen(fd, encoding="utf-8") as f:
-        text = f.read()
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise K.KekError(f"the passphrase file {path} is not a regular file: refused; {fix}")
+        if st.st_uid != os.geteuid():
+            raise K.KekError(f"the passphrase file {path} is owned by uid {st.st_uid}, not root (the user that runs "
+                             f"this): refused; {fix}")  # fmt: skip
+        if stat.S_IMODE(st.st_mode) != 0o600:
+            raise K.KekError(f"the passphrase file {path} has mode {stat.S_IMODE(st.st_mode):o}, not 0600: refused; "
+                             f"{fix}")  # fmt: skip
+        if st.st_nlink != 1:
+            raise K.KekError(
+                f"the passphrase file {path} has {st.st_nlink} names (hard links), not one: refused; {fix}"
+            )
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 4096):
+            chunks.append(chunk)
+            if sum(map(len, chunks)) > 65536:
+                raise K.KekError(f"the passphrase file {path} is too long for a passphrase: one line")
+    finally:
+        os.close(fd)
+    text = b"".join(chunks).decode("utf-8")
     if text.count("\n") > 1 or (text.count("\n") == 1 and not text.endswith("\n")):
         raise K.KekError(f"the passphrase file {path} holds more than one line: the passphrase is one line")
     return _one_line(text, f"the file {path}")

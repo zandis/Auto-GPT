@@ -267,12 +267,12 @@ install)
   rc=0; install_box > "$W/install-output.log" 2>&1 || rc=$?
   cat "$W/install-output.log"; [ "$rc" = 0 ] || fail "deploy/install.sh failed"
   no_once_value_left "$W/install-output.log" 2
-  # H-94: the rehearsal box is a PoC box, where a stop that is not one of the four warns and is listed; the
-  # rehearsal's own install must list nothing (as before, when each of them stopped it)
-  [ ! -s deploy/site/poc-stops.jsonl ] || { cat deploy/site/poc-stops.jsonl; fail "the install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
   [ -f "$KEK_PASS" ] && [ "$(stat -c %a "$KEK_PASS")" = 600 ] || fail "--keep-kek-passphrase-file did not keep the file"
   no_passphrase_left "$KEK_PASS"
   ok "first install through the signed re-run: sealed from --kek-passphrase-file, the file kept as asked"
+  # H-94: the rehearsal box is a PoC box, where a stop that is not one of the four warns and is listed; the
+  # rehearsal's own install must list nothing (as before, when each of them stopped it)
+  [ ! -s deploy/site/poc-stops.jsonl ] || { cat deploy/site/poc-stops.jsonl; fail "the install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
   grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
@@ -307,10 +307,10 @@ reinstall)
   rc=0; install_box > "$W/reinstall-output.log" 2>&1 || rc=$?
   cat "$W/reinstall-output.log"; [ "$rc" = 0 ] || { rm -f "$pp_copy"; fail "the second install of the same bundle failed"; }
   no_once_value_left "$W/reinstall-output.log" 0
-  [ ! -s "$BOX/deploy/site/poc-stops.jsonl" ] || { rm -f "$pp_copy"; cat "$BOX/deploy/site/poc-stops.jsonl"; fail "the second install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
   [ ! -e "$KEK_PASS" ] || { rm -f "$pp_copy"; fail "the seal step did not remove the passphrase file"; }
   no_passphrase_left "$pp_copy"; rm -f "$pp_copy"
   ok "second install: the passphrase file removed after sealing"
+  [ ! -s "$BOX/deploy/site/poc-stops.jsonl" ] || { cat "$BOX/deploy/site/poc-stops.jsonl"; fail "the second install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
   [ "$(sha256sum "$sec/kek.json" | cut -d' ' -f1)" = "$before" ] || fail "the second install replaced the KEK"
   [ "$(stat -c %u "$BOX/deploy/site")" = 0 ] || fail "deploy/site is no longer root's"
   grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"

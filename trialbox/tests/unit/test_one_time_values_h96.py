@@ -57,7 +57,9 @@ def _accounts_step() -> str:
 
 
 GETENT = """#!/bin/sh
-# a stand-in getent: the passwd entry of the user that runs it, with the test's home (PATH is the bench's own)
+# a stand-in getent: the passwd entry of the user that runs it, with the test's home (PATH is the bench's own);
+# FAKE_GETENT_RC: a uid with no entry (getent exits 2)
+[ -z "${FAKE_GETENT_RC:-}" ] || exit "$FAKE_GETENT_RC"
 echo "tester:x:$(id -u):$(id -g)::$FAKE_PW_HOME:/bin/sh"
 """
 
@@ -229,3 +231,16 @@ def test_the_box_form_tees_the_install_and_no_caller_variable_names_the_place() 
     # the closing summaries say where the values were shown, never "printed above"
     assert "(sign in ${ONCE_WHERE:-as admin})" in INSTALL
     assert "password and enrolment code printed above" not in BOX_INSTALL and "$(once_where)" in BOX_INSTALL
+
+
+def test_with_no_terminal_and_no_passwd_entry_nothing_is_kept_and_the_install_goes_on(tmp_path: Path) -> None:
+    """getent exits 2 for a uid with no passwd entry (pipefail): the step goes on, keeps no file anywhere, prints
+    neither value, and says how to get new ones; it is not a FAIL line (a PoC bench runs as such a user)."""
+    harness, env = _bench(tmp_path)
+    rc, out = _teed_without_a_terminal(tmp_path, harness, {**env, "FAKE_GETENT_RC": "2"})
+    assert rc == 0, out
+    assert PASSWORD not in out and CODE not in out and "FAIL:" not in out
+    assert "no terminal and no home for uid" in out and "reset-password admin and enrol-code admin" in out
+    assert "SIGN IN: as admin: the first password and the enrolment code were not kept (no home for uid" in out
+    assert not (tmp_path / "pwhome" / ONCE_NAME).exists()
+    _nothing_elsewhere(tmp_path)

@@ -470,20 +470,22 @@ SECRET_PP = "correct-horse-battery-staple-h89"
 
 
 @pytest.mark.parametrize(
-    ("extra", "kek", "status"),
+    ("extra", "kek", "env_name", "status"),
     [
-        ({}, "file", "FAIL"),  # no passphrase back end: as before
-        # H-96 (ruling 7094934985): the back end alone chooses it; the passphrase is never read from the environment
-        ({"TB_KEK_BACKEND": "passphrase"}, "file", "WARN"),  # the back end named: the install's way out
-        ({"TB_KEK_PASSPHRASE": SECRET_PP}, "file", "FAIL"),  # a passphrase without the back end
-        ({"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": SECRET_PP}, "file", "WARN"),  # the install's way out
-        ({}, "passphrase", "WARN"),  # the site keys already sealed under it
+        ({}, "file", "PRODUCTION", "FAIL"),  # no passphrase back end: as before
+        # H-96 (the integrator's rulings 7094934985 and 7102655419, L-3): the back end only named, nothing sealed
+        # under it: a FAIL on PRODUCTION; on a PoC box a WARN and one line of the PoC list (D-1091)
+        ({"TB_KEK_BACKEND": "passphrase"}, "file", "PRODUCTION", "FAIL"),
+        ({"TB_KEK_BACKEND": "passphrase"}, "file", "TEST", "WARN"),
+        ({"TB_KEK_PASSPHRASE": SECRET_PP}, "file", "PRODUCTION", "FAIL"),  # a passphrase without the back end
+        ({"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": SECRET_PP}, "file", "PRODUCTION", "FAIL"),
+        ({}, "passphrase", "PRODUCTION", "WARN"),  # the site keys already sealed under it
     ],
 )
 def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(
-    tmp_path: Path, extra: dict[str, str], kek: str, status: str
+    tmp_path: Path, extra: dict[str, str], kek: str, env_name: str, status: str
 ) -> None:
-    args, env = _box(tmp_path)
+    args, env = _box(tmp_path, env_name=env_name)
     (tmp_path / "host" / "dev" / "tpmrm0").unlink()
     (tmp_path / "secrets" / "kek.json").write_text(f'{{"backend": "{kek}"}}', encoding="utf-8")
     r = _sh(args, {**env, **extra})
@@ -491,4 +493,11 @@ def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(
     assert line.startswith(status), r.stdout
     if status == "WARN":
         assert "passphrase back end (TB_KEK_BACKEND=passphrase)" in line
+    listed = tmp_path / "site" / "poc-stops.jsonl"
+    if kek == "file" and extra.get("TB_KEK_BACKEND") and env_name != "PRODUCTION":
+        assert [json.loads(x)["key"] for x in listed.read_text(encoding="utf-8").splitlines()] == [
+            "check_host.sh/no-tpm"
+        ]
+    else:
+        assert not listed.exists()  # never listed on PRODUCTION, nor when the keys are sealed under the passphrase
     assert SECRET_PP not in r.stdout + r.stderr

@@ -154,9 +154,11 @@ def test_the_code_never_reaches_the_journal_or_a_file_others_read(tmp_path: Path
     _nothing_elsewhere(tmp_path, b)
 
 
-def _on_a_pty(tmp: Path, argv: list[str], env: dict[str, str], until: str, seconds: float = 60) -> str:
-    """argv in a new session whose controlling terminal is a pty, until the terminal shows the pattern ``until``;
-    what it showed."""
+def _on_a_pty(
+    tmp: Path, argv: list[str], env: dict[str, str], until: str, seconds: float = 60, log: Path | None = None
+) -> str:
+    """argv in a new session whose controlling terminal is a pty, until the terminal shows the pattern ``until`` (and
+    ``log``, when given, says where the code was shown); what it showed."""
     pid, fd = pty.fork()
     if pid == 0:  # pragma: no cover - the child
         os.chdir(tmp)
@@ -164,7 +166,10 @@ def _on_a_pty(tmp: Path, argv: list[str], env: dict[str, str], until: str, secon
     out = b""
     deadline = time.monotonic() + seconds
     try:
-        while time.monotonic() < deadline and not re.search(until, out.decode("utf-8", "replace")):
+        while time.monotonic() < deadline and not (
+            re.search(until, out.decode("utf-8", "replace"))
+            and (log is None or (log.is_file() and "shown on this terminal only" in log.read_text(encoding="utf-8")))
+        ):
             ready, _, _ = select.select([fd], [], [], 1)
             if not ready:
                 continue
@@ -198,10 +203,7 @@ def test_with_its_output_piped_to_a_log_the_code_goes_to_the_terminal_only(tmp_p
     b = _box(tmp_path)
     log = tmp_path / "piped.log"
     argv = ["/bin/bash", "-c", f'"$0" "$1" "$2" 2>&1 | tee "{log}" > /dev/null', *_argv(b)]
-    screen = _on_a_pty(tmp_path, argv, _env(tmp_path, b, "1"), r"One-time code:\s+\S+\r?\n")
-    end = time.monotonic() + 30
-    while "shown on this terminal only" not in log.read_text(encoding="utf-8") and time.monotonic() < end:
-        time.sleep(0.1)
+    screen = _on_a_pty(tmp_path, argv, _env(tmp_path, b, "1"), r"One-time code:\s+\S+\r?\n", log=log)
     piped = log.read_text(encoding="utf-8")
     m = re.search(r"One-time code:\s+(\S+)", screen)
     assert m and m.group(1) not in piped and "One-time code" not in piped
