@@ -42,7 +42,7 @@ from typing import Any
 LANGS = ("en", "ja", "zh-TW")
 STAND_INS = Path("site") / "stand-ins.json"  # under the deploy folder
 STAND_INS_FORMAT = "tb-stand-ins/1"
-STATES = ("missing", "stand_in", "given")
+STATES = ("missing", "unusable", "stand_in", "given")
 
 #: the steps an item is needed before, in the order a site meets them
 STEPS: dict[str, dict[str, str]] = {
@@ -356,11 +356,15 @@ def state(
     settings: Mapping[str, Any] | None = None,
     files: Collection[str] = (),
     stand_ins: Collection[str] = (),
+    unusable: Collection[str] = (),
 ) -> str:
-    """``missing``, ``stand_in`` (a value is there, and the caller marks it a stand-in) or ``given``."""
+    """``missing``; ``unusable`` (a value is there, and the caller's own check found it cannot be used: D-1280);
+    ``stand_in`` (a value is there, and the caller marks it a stand-in); or ``given``."""
     present = all(any(_value(n, env, settings or {}, files) for n in group) for group in need.answers)
     if not present:
         return "missing"
+    if need.key in unusable:
+        return "unusable"
     return "stand_in" if need.key in stand_ins else "given"
 
 
@@ -370,6 +374,7 @@ def still_needed(
     settings: Mapping[str, Any] | None = None,
     files: Collection[str] = (),
     stand_ins: Collection[str] = (),
+    unusable: Collection[str] = (),
     before: str | None = None,
 ) -> list[tuple[Need, str]]:
     """Each need that is not given, with its state, in the list's order. With ``before``, only those needed before
@@ -380,10 +385,72 @@ def still_needed(
     for n in NEEDS:
         if before is not None and before not in n.before:
             continue
-        s = state(n, env=env, settings=settings, files=files, stand_ins=stand_ins)
+        s = state(n, env=env, settings=settings, files=files, stand_ins=stand_ins, unusable=unusable)
         if s != "given":
             out.append((n, s))
     return out
+
+
+#: the words of a gate, per language (D-1280); {step} and {items} are filled in
+GATE_TEXT: dict[str, dict[str, str]] = {
+    "refused": {
+        "en": 'Not done: {step}. It needs first: {items}. Fill them in on the page "Information still needed".',
+        "ja": "実行しませんでした：{step}。先に必要です：{items}。「まだ必要な情報」ページで入力してください。",
+        "zh-TW": "未執行：{step}。需要先提供：{items}。請在「尚需填寫的資料」頁面填寫。",
+    },
+    "warned": {
+        "en": '{step} goes on with stand-ins for: {items}. Fill them in on the page "Information still needed".',
+        "ja": "{step}は、次の項目を仮の値で続けます：{items}。「まだ必要な情報」ページで入力してください。",
+        "zh-TW": "{step}將以暫定值繼續：{items}。請在「尚需填寫的資料」頁面填寫。",
+    },
+}
+SEP = {"en": "; ", "ja": "、", "zh-TW": "、"}
+
+
+@dataclass(frozen=True)
+class Gate:
+    """What a step finds before it runs (D-1280). ``blocking`` is what refuses it on a PRODUCTION box (an item missing,
+    not usable, or a stand-in); on a PoC box the same items are ``warning`` and the step goes on."""
+
+    step: str
+    production: bool
+    blocking: tuple[tuple[Need, str], ...]
+    warning: tuple[tuple[Need, str], ...]
+
+    @property
+    def refused(self) -> bool:
+        return bool(self.blocking)
+
+    def message(self, lang: str = "en") -> str:
+        """One line in ``lang`` naming the step and every item, or "" when nothing is still needed."""
+        items = self.blocking or self.warning
+        if not items:
+            return ""
+        lg = lang if lang in LANGS else "en"
+        names = SEP[lg].join(n.title[lg] for n, _ in items)
+        kind = "refused" if self.blocking else "warned"
+        return GATE_TEXT[kind][lg].format(step=STEPS[self.step][lg], items=names)
+
+
+def gate(
+    step: str,
+    *,
+    production: bool,
+    env: Mapping[str, str],
+    settings: Mapping[str, Any] | None = None,
+    files: Collection[str] = (),
+    stand_ins: Collection[str] = (),
+    unusable: Collection[str] = (),
+) -> Gate:
+    """The one check every step that needs site information makes before it runs (D-1280). ``production`` is the
+    caller's reading of the box (``tb_common.config.environment_name`` in a service, ``tools.trialbox.stops.poc_box``
+    on the host): a box that cannot be told is PRODUCTION."""
+    need = tuple(
+        still_needed(env=env, settings=settings, files=files, stand_ins=stand_ins, unusable=unusable, before=step)
+    )
+    return Gate(
+        step=step, production=production, blocking=need if production else (), warning=() if production else need
+    )
 
 
 def all_texts() -> Iterable[tuple[str, str, str]]:
@@ -394,6 +461,9 @@ def all_texts() -> Iterable[tuple[str, str, str]]:
     for k, t in WHO.items():
         for lg in LANGS:
             yield f"who.{k}", lg, t.get(lg, "")
+    for k, t in GATE_TEXT.items():
+        for lg in LANGS:
+            yield f"gate.{k}", lg, t.get(lg, "")
     for n in NEEDS:
         for part in ("title", "why", "stand_in"):
             t = getattr(n, part)
