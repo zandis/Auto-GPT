@@ -225,7 +225,26 @@ register's keeper adds them.
 | SDR1-05 | Low | No HOT-to-ATC table ships: a HOT-only drug reaches ATC only through the site's drug master (HOT to YJ); the shipped YJ sample covers 22 of the synthetic hospital's 36 drugs (the other 14 map through the ATC alternate code the export writes) |
 | SDR1-06 | Low | The synthetic memory clinic's report kinds (MRI brain, amyloid PET, CSF amyloid) have no LOINC rule in a mapping; no shipped criterion reads them, but an AD criterion on imaging would read unknown |
 
-## 7. What was not verified
+## 7. SDR2 part 1: WHO ICD-10 codes ICD-10-CM lacks (D-1270)
+
+Finding SDR1-01, closed in part by card SDR2 under the integrator's rulings on #639 (comments 7102870311,
+7103067815, 7103442261).
+
+- The reader tries three things in order. First, the very same ICD-10-CM code (D-314). Second, a row of
+  `services/adapter/mapping/jp_core/who_icd10_to_icd10cm.csv`, allowed only when its ICD-10-CM code holds all of the
+  WHO code's meaning (D-173's "wider"). Third, no code: the WHO code is counted in `missed` and listed.
+- The rows today:
+  - F00, F00.0 to F00.2 and F00.9 → G30.9;
+  - F01.9 → F01.5;
+  - A16.0 to A16.2 → A15.0.
+- Sources: the ICD-10-CM Alphabetic Index and Tabular List FY2026 (CMS, public domain). Every row is marked `verify`.
+- **E14 and I64 have no row.** No ICD-10-CM code holds "diabetes, type not stated" or "stroke, not stated as
+  haemorrhage or infarction" without saying more. They stay WHO-only: unknown through the groupers, never false.
+  `tests/unit/test_mapping_coverage.py` holds this on GZQO-EXC-01 and GOUT-COH-INC-07.
+- A fact that rests on a `verify` row carries the `verify` basis tag, and the mapping check reports "applied, not
+  verified" with a count.
+
+## 8. What was not verified
 
 - No real hospital's dictionary was read. The figures are the synthetic hospitals'; the owner's script has run here
   only on synthetic files written by its tests.

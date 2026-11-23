@@ -1,0 +1,52 @@
+{
+ "card": "H99",
+ "title": "the box's own update path could not update a PoC box",
+ "date": "2026-11-23",
+ "source": "docs/handover/update-on-a-poc-box-h99-2026-11-23.md",
+ "note": "basis 'shown' means shown by the card's local runs (a local PostgreSQL 16 cluster with the real role script, the update's fake runner for Docker); the bench host and Docker were not run.",
+ "findings": [
+  {
+   "id": "H99-01",
+   "severity": "High",
+   "claim": "the update preflight's space check read the size of hapi as trialbox from trialbox_wf; the real role script lets trialbox not connect to hapi, so every update on a box with the D-541 roles was refused with permission denied for database hapi (the lines the red named, db_bytes, already read as hapi on hapi and fail open); now each size is read on its own database as the role that dumps it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed a9cc50c91ea9c4245fc6fa521d8089c9ff3f7619"
+  },
+  {
+   "id": "H99-02",
+   "severity": "High",
+   "claim": "on a PoC box no backup key (or no backup target) refused the update, though it is not one of the five stops of D-1091; now it warns, goes on deploy/site/poc-stops.jsonl through stops.stop_or_warn, is audited as update.backup_skipped and the update goes on with the rollback point as its way back; PRODUCTION refuses word for word",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed a9cc50c91ea9c4245fc6fa521d8089c9ff3f7619"
+  },
+  {
+   "id": "H99-03",
+   "severity": "Low",
+   "claim": "on a PoC box updated without the backup, the rollback point's dumps are taken with the services running (the backup's quiet-box stop is skipped), as --no-backup does today; a write during the dump may leave the two databases' dumps a moment apart",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card"
+  },
+  {
+   "id": "H99-04",
+   "severity": "Low",
+   "claim": "the update path has two rules for a PoC box: the command line's --no-backup rule (no_backup_refused, D-1321) reads ComposeBox.environment(), the preflight's backup check reads stops.poc_box; they agree on the boxes tested, a box where they differ was not looked for",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card"
+  },
+  {
+   "id": "H99-05",
+   "severity": "Medium",
+   "claim": "the fix was not run on the bench host or with Docker: the size reads ran against the real role script on a local PostgreSQL 16 cluster with hapi made the superuser as the db image's POSTGRES_USER makes it, the update's commands against a fake runner",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the walk's next update on the bench host"
+  }
+ ]
+}

@@ -64,7 +64,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
 
 from tools import host_tree, image_pins
 
@@ -222,6 +222,7 @@ class Plan:
     release: dict[str, Any] | None = None
     trust_sha256: str | None = None  # the trust.json verify read (None: none, the deploy/keys files)
     no_backup_reason: str | None = None  # D-1321: why the backup is skipped (--no-backup-reason), audited
+    poc_no_backup: str = ""  # H-99: the preflight's backup refusal, warned on a PoC box; the backup is skipped
     streamed: list[Streamed] = field(default_factory=list)  # H-95: payloads read from the bundle, never staged
     pack: dict[str, Any] | None = None  # H-95: the manifest's pack (None: a whole bundle)
 
@@ -970,7 +971,7 @@ class Updater:
             try:
                 notes.append(ready())
             except UpdateFailed as exc:
-                raise UpdateRefused(f"backup not possible, nothing was changed: {exc}") from exc
+                notes.append(self._backup_not_possible(plan, exc))
         own = getattr(self.box, "preflight", None)
         if own is not None:
             notes += own(plan)
@@ -978,6 +979,25 @@ class Updater:
         if needs is not None:
             notes += self.space(needs(plan, self.dir))
         return notes
+
+    def _backup_not_possible(self, plan: Plan, exc: UpdateFailed) -> str:
+        """H-99 (D-1091): no backup key or target is not one of the five stops. On a PoC box (the box's own state,
+        ``stops.poc_box``) it warns, goes on the PoC list and the update goes on without the backup: the rollback
+        point's local dumps are its way back. On any other box the refusal of before."""
+
+        def refuse(_what: str) -> NoReturn:
+            raise UpdateRefused(f"backup not possible, nothing was changed: {exc}") from exc
+
+        deploy = getattr(self.box, "deploy", None)
+        if not isinstance(deploy, Path):
+            refuse("")
+        from tools.trialbox import stops
+
+        skipped = "the backup before the update (D-126); the rollback point's local dumps are the way back"
+        stops.stop_or_warn("update.backup", f"backup not possible: {exc}", deploy=deploy, by="trialbox update",
+                           stop=refuse, skipped=skipped)  # fmt: skip
+        plan.poc_no_backup = f"PoC box (H-99), backup not possible: {exc}"
+        return f"{plan.poc_no_backup}; skipped: {skipped}"
 
     def space(self, needs: Sequence[tuple[Path, int, str]]) -> list[str]:
         """Sum the needs per file system (st_dev) and refuse with the numbers when one is short."""
@@ -1049,7 +1069,10 @@ class Updater:
             self.box.audit("update.downgrade", plan, {"bundle_id": plan.bundle_id, **plan.downgrade})
             step("downgrade allowed (audited update.downgrade)", True, str(plan.downgrade.get("reason", "")))
         enter("backup")
-        if backup:
+        if backup and plan.poc_no_backup:  # H-99: warned and listed in the preflight; audited as a skip is
+            self.box.audit("update.backup_skipped", plan, {"bundle_id": plan.bundle_id, "reason": plan.poc_no_backup})
+            step("backup skipped (PoC box, H-99: deploy/site/poc-stops.jsonl)", True, plan.poc_no_backup)
+        elif backup:
             try:
                 where = self.box.backup(plan, rb)
             except Exception as exc:
@@ -1646,9 +1669,9 @@ class ComposeBox(_DockerImages):
         """Start the services ``backup`` stopped (a failed backup or rollback point, or a recovery before it)."""
         self.run(self._c("start", *PY_SERVICES), timeout=900)
 
-    def _psql(self, sql: str) -> list[list[str]]:
-        out = self.run(self._c("exec", "-T", "db", "psql", "-X", "-At", "-F", "|", "-U", "trialbox", "-d",
-                               "trialbox_wf", "-c", sql))  # fmt: skip
+    def _psql(self, sql: str, user: str = "trialbox", db: str = "trialbox_wf") -> list[list[str]]:
+        out = self.run(self._c("exec", "-T", "db", "psql", "-X", "-At", "-F", "|", "-U", user, "-d", db, "-c",
+                               sql))  # fmt: skip
         return [ln.split("|") for ln in out.splitlines() if ln.strip()]
 
     def installed_state(self) -> dict[str, int]:
@@ -1661,8 +1684,10 @@ class ComposeBox(_DockerImages):
         decrypted copy during a rollback) under deploy/updates, and the backup on each target (at least the
         databases)."""
         sizes = largest = 0
-        for db in ("trialbox_wf", "hapi"):
-            rows = self._psql(f"SELECT pg_database_size('{db}')")
+        # H-99: each size on its own database as the role that dumps it (``_dump``): `trialbox` may not connect to
+        # `hapi` (deploy/docker/db-init/30-service-roles.sh), and pg_database_size of another database needs that
+        for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
+            rows = self._psql("SELECT pg_database_size(current_database())", user=user, db=db)
             n = int(rows[0][0]) if rows and rows[0][0].isdigit() else 0
             sizes, largest = sizes + n, max(largest, n)
         try:
