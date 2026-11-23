@@ -53,7 +53,8 @@ RATCHET = {
     "deploy/install.sh": 0,
     "deploy/box-install.sh": 28,
     "tools/apply_update.sh": 16,
-    "deploy/bootstrap.sh": 15,
+    "deploy/bootstrap.sh": 17,
+    "deploy/launcher.sh": 1,
     "deploy/check_host.sh": 6,
     "deploy/settings_guard.sh": 4,
 }
