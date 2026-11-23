@@ -91,6 +91,45 @@ every box, a PoC box too: RUNBOOK §16 and §23 say so. The lane H lead asks the
   someone sets there by hand would be in that container's configuration on disk (`docker inspect`, root only); no log
   this card knows of records a container's environment. Not run on a box (H96-05).
 
+## The one-time values in the install log (7097514776)
+
+**Where the log is and how the values reached it.** install.sh writes no log file of its own. Two callers keep its
+output: deploy/box-install.sh runs it through `tee deploy/site/box/install.log`, and the box rehearsal keeps it as its
+step log (`logs/NN-install.log`, uploaded as the rehearsal job's artifact). In the box's unattended form (an owner's
+answers file, TB_BOX=0) and in the IT form, install.sh's accounts step printed console.cli's output on its stdout:
+`bootstrap-admin`'s generated first password ("password (shown once)") and `enrol-code admin`'s enrolment code. So both
+were in install.log and in the rehearsal's step log. **The administrator's first password takes the same path as the
+enrolment code and is treated the same way** (H96-08).
+
+**Now.** install.sh's accounts step gathers both into one text and shows it once: on stdout only when stdout is a
+terminal (the IT form typed by hand); else on the controlling terminal (box-install.sh run from a terminal: its
+install.log holds the line "shown on this terminal only" and neither value); with no terminal at all (a rehearsal's
+`docker exec` without `-t`, a driver), in `/root/trialbox-admin-first-sign-in` (root's home, mode 0600, made fresh: a
+link at its name is removed, never followed), which the output names but never prints, with how to read it once and
+remove it. A failed `enrol-code` keeps its FAIL line; its own output goes with the password, not to the log. RUNBOOK §1
+and §16 say so.
+
+**Proved by:** `tests/unit/test_one_time_values_h96.py` (6 tests) runs the real accounts step of install.sh (cut from
+the file) with a stand-in `docker compose` printing synthetic values as console.cli prints them: through a tee as
+box-install.sh runs it (the values on the terminal, not in the log), with no terminal (the 0600 file; a planted link
+not followed), on a real terminal (a pty: both on stdout, once), and with `enrol-code` exiting 2 or 1. The rehearsal
+(tools/rehearse_box/box.sh, install and reinstall phases) keeps the real installer's output, checks the root-only file
+and that none of its values (read with `grep -F -f`, never printed) is in that output, the stand-in sudo's log or
+deploy/.env, then removes the file. Not run here (no Docker).
+
+**Other one-time values.**
+- The first-run wizard's one-time code (box-install.sh `show_code`) is not in install.log (the tee covers the install
+  step only), but under `trialbox-firstrun.service` (`StandardOutput=journal+console`) it is in the system journal,
+  and outside WSL2 it is in `/etc/issue.d/` for the screen (lane D's #368), a file any local user reads. It works once
+  and is voided after five wrong codes. Not changed here: the box's screen is that service's only display, and the
+  WSL2 window path cannot be tried in this session (H96-09, question 4).
+- deploy/poc.sh prints the PoC administrator's password on stdout and keeps no log. deploy/gcp/box_vm.py (another
+  lane's) redacts its log's password lines; with no terminal there the values now go to the root-only file.
+- `console.cli add-user`, `reset-password` and `reset-totp` typed by an operator print to that operator's terminal.
+
+The refusals of this card are the PoC list's fifth stop (7095256773: a secret read from or written to a place others
+can read) and are named "H-94 (5)" in their comments.
+
 ## Tests
 
 The card's file: `tests/unit/test_kek_passphrase_file_h96.py`, 47 tests.
@@ -153,9 +192,10 @@ refusal), `tools/network_sheet.py`. Not named by the ruling: `deploy/check_host.
 
 ## Findings
 
-In `kek-passphrase-h96-2026-11-23/findings.json` (H96-01 to H96-07): the fault itself (High), the runbook tool's
+In `kek-passphrase-h96-2026-11-23/findings.json` (H96-01 to H96-10): the fault itself (High), the runbook tool's
 `-e` on docker exec's command line, the boxes installed before H-96, rc1's refusal of rotate-kek on a PRODUCTION box,
-the passphrase's place in a container's environment, the unit invariant's cut, and an old test's name.
+the passphrase's place in a container's environment, the unit invariant's cut, an old test's name, the one-time
+values in the install log (High), the first-run code in the journal and /etc/issue.d, and the rehearsal artifacts.
 
 ## Questions
 
@@ -164,3 +204,5 @@ the passphrase's place in a container's environment, the unit invariant's cut, a
 2. rc1 refuses rotate-kek on a PRODUCTION box (H96-04): may a PRODUCTION box whose passphrase was exposed rotate it
    under rc1, or is it made again?
 3. `test_installers_reject_passphrase_file_input` (H96-07): rename or retire it under this ruling?
+4. The first-run code under `trialbox-firstrun.service` is in the journal and in a world-readable `/etc/issue.d/`
+   file (H96-09): change the unit to show it on the console only, in this card or a card of its own?
