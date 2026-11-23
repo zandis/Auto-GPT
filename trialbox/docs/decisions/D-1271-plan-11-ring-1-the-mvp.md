@@ -1,13 +1,13 @@
 # D-1271 Ring 1 is the first real sites, supervised (draft for the owner to sign)
 
-- **Task:** lane R1's ring 1 page (`docs/plan/ring-1-2026-11.md`); the number is from lane M's block, given for this
+- **Task:** lane R1's ring 1 page (`docs/plan/48-plan-11-2026-11.md`); the number is from lane M's block, given for this
 - **Date:** 2026-11-23 (drafted)
 - **Status:** **draft, not in force.** It takes effect when the owner signs it, and not before ring 0's proof is
   recorded (D-1070 rule 5). Until then nothing below binds a lane.
 
 ## Ruling (as drafted)
 
-1. **Ring 1 is confirmed and frozen** as written on its page, `docs/plan/ring-1-2026-11.md`, sections 3 and 5
+1. **Ring 1 is confirmed and frozen** as written on its page, `docs/plan/48-plan-11-2026-11.md`, sections 3 and 5
    (does; does not; proved by; its cards). D-1070's rule of the rings holds for it.
 2. **Its sites are two**, each supervised: Chang Gung Memorial Hospital in Taiwan (its CGRD-type SQL views;
    ICD-10-CM, NHI order codes, LOINC where present and the hospital's own codes; screens in Traditional Chinese), and
