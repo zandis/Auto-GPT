@@ -87,11 +87,22 @@ That path is unchanged (the lead was told before the change).
 - `tools/trialbox/backup_schedule.py`: the restic key step no longer forwards it (only `TB_KEK_FILE`). A passphrase
   KEK has no custodians' shares, so that step never makes a restic key for one; the forward was dead there.
 
-**Tests:** `tests/unit/test_kek_env_refused_h97.py` (3): the library refuses an exported value (handed the process
-environment, a copy, or a copy with the value) and never prints it, a box unsealed the usual way still opens with the
-variable exported, and `tools.keys`'s mapping still opens it; the signer's command line and the environment its
-docker command runs with hold neither the name nor the value; the restic step forwards none from `deploy/.env`, and an
-exported one is refused at the key's load. Mutants: 5 planted, 4 caught; the survivor (a second guard on the mapping
+**What relied on the environment branch.** Nothing in the tree or the runbooks tells an operator to export the
+variable any more: the installers' and runbook 16's `read -rs TB_KEK_PASSPHRASE` is a shell variable of root's own
+`bash -c`, written to the root-only file and never exported. RUNBOOK §23's "Where the passphrase still is" said the
+adapter and the orchestrator would take it from the stack's environment and the signer was handed it by name: it now
+says nothing takes it from an environment, and never to export it. The decision records D-347, D-836 and D-898
+describe the environment form as it was; they are history and are left as written (H-96 and this card supersede
+them).
+
+**Tests:** `tests/unit/test_kek_env_refused_h97.py` (10): the library refuses an exported value (handed the process
+environment, a copy, or a copy with the value) and never prints it, and `tools.keys`'s mapping still opens it; an
+empty variable (the compose file's `TB_KEK_PASSPHRASE: ""`) is neither a refusal nor a passphrase, the box is locked
+as before; with the KEK file present `load_kek` returns that file's bytes exactly whatever the environment holds
+(unset, empty, the passphrase, another value); `tools.keys` builds its mapping only from the file or stdin (a caller's
+value is refused before any command runs, an empty one adds nothing); the signer's command line and the environment
+its docker command runs with hold neither the name nor the value; the restic step forwards none from `deploy/.env`,
+and an exported one is refused at the key's load. Mutants: 5 planted, 4 caught; the survivor (a second guard on the mapping
 being the process environment) was equivalent to the refusal above it and was removed from the code.
 
 ## Tests

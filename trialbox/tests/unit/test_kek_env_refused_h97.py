@@ -125,3 +125,72 @@ def test_the_restic_key_step_never_forwards_the_passphrase(
     sec = _passphrase_box(tmp_path / "pp", capsys)
     with pytest.raises(K.KekError, match="refused"):
         K.load_kek(sec, dict(os.environ))  # what the step hands the key's load
+
+
+@pytest.mark.parametrize("given", ["process", "mapping"])
+def test_an_empty_variable_is_neither_a_refusal_nor_a_passphrase(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, given: str
+) -> None:
+    """docker-compose.secrets.yml gives every other service TB_KEK_PASSPHRASE="" : an empty value is dropped. A box
+    not unsealed is locked, as before (no refusal's words), and no KEK is derived from an empty passphrase."""
+    sec = _passphrase_box(tmp_path, capsys)
+    monkeypatch.setenv("TB_KEK_FILE", str(tmp_path / "not-unsealed"))
+    if given == "process":
+        monkeypatch.setenv("TB_KEK_PASSPHRASE", "")
+        env: dict[str, str] | None = None
+    else:
+        monkeypatch.delenv("TB_KEK_PASSPHRASE", raising=False)
+        env = {**os.environ, "TB_KEK_PASSPHRASE": ""}
+    with pytest.raises(K.KekLockedError) as got:
+        K.load_kek(sec, env)
+    assert "refused" not in str(got.value) and "not unsealed" in str(got.value)
+
+
+@pytest.mark.parametrize("value", [None, "", PHRASE, "synthetic-h97-some-other-value"])
+def test_with_the_kek_file_the_start_path_is_byte_for_byte_unchanged(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, value: str | None
+) -> None:
+    """A box unsealed the usual way (tools.keys unseal writes the KEK file): load_kek returns exactly that file's bytes,
+    and the site key opens, whatever the environment holds (unset, empty, the passphrase, another value)."""
+    sec = _passphrase_box(tmp_path, capsys)
+    runtime = tmp_path / "run" / "kek"
+    runtime.parent.mkdir()
+    pp = tmp_path / "unseal.pass"
+    pp.write_text(PHRASE + "\n", encoding="utf-8")
+    pp.chmod(0o600)
+    monkeypatch.delenv("TB_KEK_PASSPHRASE", raising=False)
+    assert (
+        keys.main(["unseal", "--secrets", str(sec), "--out", str(runtime), "--passphrase-file", str(pp)], env={}) == 0
+    )
+    monkeypatch.setenv("TB_KEK_FILE", str(runtime))
+    if value is not None:
+        monkeypatch.setenv("TB_KEK_PASSPHRASE", value)
+    for env in (None, dict(os.environ)):
+        assert K.load_kek(sec, env) == runtime.read_bytes()
+    assert K.load_key_file(sec / "site_hmac.key")
+
+
+def test_tools_keys_builds_its_mapping_only_from_the_file_or_stdin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mapping tools.keys hands a command holds the passphrase only from --passphrase-file or --passphrase-stdin:
+    a caller's value is refused before any command runs (exit 2, never printed), and an empty one adds nothing."""
+    seen: list[dict[str, str]] = []
+
+    def spy(a: object, env: dict[str, str]) -> int:
+        seen.append(dict(env))
+        return 0
+
+    monkeypatch.setitem(keys.COMMANDS, "unseal", spy)
+    pp = tmp_path / "unseal.pass"
+    pp.write_text(PHRASE + "\n", encoding="utf-8")
+    pp.chmod(0o600)
+    argv = ["unseal", "--secrets", str(tmp_path / "sec"), "--passphrase-file", str(pp), "--keep-passphrase-files"]
+    monkeypatch.setenv("TB_KEK_PASSPHRASE", "synthetic-h97-a-callers-value")
+    assert keys.main(argv) == 2 and seen == []
+    err = capsys.readouterr().err
+    assert "refused" in err and "synthetic-h97-a-callers-value" not in err
+    monkeypatch.setenv("TB_KEK_PASSPHRASE", "")
+    assert keys.main(argv) == 0 and seen[-1]["TB_KEK_PASSPHRASE"] == PHRASE  # the file's value, nothing else
+    monkeypatch.delenv("TB_KEK_PASSPHRASE")
+    assert keys.main(["unseal", "--secrets", str(tmp_path / "sec")]) == 0 and "TB_KEK_PASSPHRASE" not in seen[-1]

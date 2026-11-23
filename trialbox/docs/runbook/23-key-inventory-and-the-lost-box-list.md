@@ -118,11 +118,11 @@ rotation those lines open the box's keys only together with a backup made before
 in a shell variable that is never exported and hand it on by a pipe (to the seal step, to the keys commands in the
 trialbox-py image by the container's stdin), and the operator's file is removed. The open KEK in `/run/trialbox/kek`
 (tmpfs) is derived from it, not the passphrase. A box set up on its first-run page keeps the owner's passphrase in the
-first-run folder (`/run/trialbox-firstrun`, tmpfs) until the apply step has sealed the keys. Inside the box, the
-adapter and the orchestrator would take `TB_KEK_PASSPHRASE` from the stack's environment and the nightly audit signer
-is handed it by name (`tools/trialbox/audit_heads.py`), but neither the installers nor `deploy/.env` (refused there)
-give it a value; a value someone puts there by hand would sit in that container's configuration on disk (`docker
-inspect`, root only), which is not a log.
+first-run folder (`/run/trialbox-firstrun`, tmpfs) until the apply step has sealed the keys. Nothing takes it from an
+environment (H-97): every service, the nightly audit signer and the backup open the KEK from `/run/trialbox/kek`, which
+`tools.keys unseal` writes after each restart; a `TB_KEK_PASSPHRASE` with a value in a caller's environment is refused
+by the key library too, and the signer's container is never given it. Never export it: unseal with the passphrase typed,
+or from a root-only file (`--passphrase-file`) or stdin (`--passphrase-stdin`).
 
 ## Alliance site keys
 
