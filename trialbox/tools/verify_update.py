@@ -387,6 +387,7 @@ def verify(
         if stage is not None:
             for part in sorted(stage.rglob("*.part")):
                 part.rename(part.with_suffix(""))
+            stage.mkdir(parents=True, exist_ok=True)  # H-95: a pack of streamed payloads alone stages nothing else
             (stage / MANIFEST).write_bytes(manifest_bytes)
     # trust_sha256: the trust.json this bundle was verified against (None: the deploy/keys files); the update path
     # refuses under its lock when trust.json is no longer exactly that file (a rotation applied in between)
@@ -440,6 +441,8 @@ def pack_problems(manifest: dict[str, Any], held: dict[str, Any] | None) -> str:
     pack = manifest.get("pack")
     if not pack:
         return ""
+    if manifest.get("rotation"):
+        return "a key rotation rides in a whole bundle, not in a pack"
     kinds = sorted({f["kind"] for f in manifest["files"]})
     if pack["kind"] == "model":
         stray = [k for k in kinds if k not in MODEL_PACK_KINDS]

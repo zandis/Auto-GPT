@@ -1078,7 +1078,9 @@ class Updater:
             us.write_atomic(self.dir / MODEL_PACK, {
                 "format": MODEL_PACK_FORMAT, "bundle_id": plan.bundle_id, "manifest_sha256": plan.manifest_sha256,
                 "release_seq": plan.release_seq, "key_id": plan.key_id, "applied_at": _now()})  # fmt: skip
-            if plan.trust_after:
+            # a first load (live False) leaves trust.json to the software pack loaded next: a pack carries no key
+            # rotation (verify_update.py), and trust.json is evidence of a box in service (box_in_service)
+            if plan.trust_after and live:
                 us.write_atomic(self.dir / us.TRUST, plan.trust_after)
             return
         prev = us.installed(self.dir).get("state") or {}
