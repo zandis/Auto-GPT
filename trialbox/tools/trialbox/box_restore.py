@@ -30,11 +30,14 @@ target with the same size and sha256.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -50,6 +53,10 @@ ROLES_CMD = f"python -m tools.trialbox.box_restore roles {ROLES_IN}"
 ROLE_PASSWORDS = ("LAKE", "CRITERIA_COMPILER", "ADAPTER", "ORCHESTRATOR", "MAIL_GATEWAY", "GATEWAY", "CONSOLE",
                   "AUDIT_WRITER")  # fmt: skip
 FHIR_PASSWORD = "TB_DB_PW_FHIR_STORE"
+SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+#: H-100 (F1): the engine variables taken from the box file when it names them; never from the caller
+ENGINE_KEYS = ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")
+UNPACK_FACTOR = 4  # restore_drill.UNPACK_FACTOR: the unpacked backup, about this many times the file
 WAIT_S = 600  # the services' health wait after the restore (as an update's start waits, update.ComposeBox)
 
 
@@ -141,43 +148,105 @@ class BoxRestore:
     its output passed through) are the tests' seams; the box's settings are its ``deploy/.env`` alone."""
 
     def __init__(self, deploy: Path, run: Callable[..., str] | None = None,
-                 call: Callable[[list[str], dict[str, str]], tuple[int, str]] | None = None) -> None:  # fmt: skip
-        from tools.trialbox import update
+                 call: Callable[..., tuple[int, str]] | None = None) -> None:  # fmt: skip
+        from tools.trialbox import backup_schedule as bs
         from tools.trialbox.backup_schedule import absolute
 
         self.deploy = absolute(deploy)
-        self.box = update.ComposeBox(self.deploy, run or update.run_cmd)
+        # the box's own commands run with a clean environment (F1): the box file's settings, never the caller's
+        self.ops = bs.ComposeOps(self.deploy, run or self._run)
+        self.box = self.ops.box
         self.env = self.box.env  # deploy/.env, read by the box (launch.box_file checked it first)
         # the runtime and compose are the box file's or the defaults, never the caller's (launch.run_in_image)
         self.box.docker = shlex.split(self.env.get("TB_DOCKER") or "docker")
         self.box.compose = shlex.split(self.env.get("TB_COMPOSE") or "") or [
             *self.box.docker, "compose", "--project-directory", str(self.deploy)]  # fmt: skip
-        self.call = call or _call
+        self.call = call or (lambda argv, values: _call(argv, values, self.engine_env()))
+
+    # ------------------------------------------------------------------------------------------- the engine
+    def engine_env(self) -> dict[str, str]:
+        """H-100 (F1): the whole environment of compose and of the container engine. The engine's own needs: PATH
+        (this process's: sudo's secure_path for the documented command) and HOME (the user's own folder, where the
+        engine keeps its client settings); then only the engine variables the box file names. A caller's exported
+        ``COMPOSE_PROJECT_NAME``, ``COMPOSE_FILE``, ``COMPOSE_PROFILES``, ``DOCKER_HOST``, ``DOCKER_CONTEXT`` ... never
+        reach them: compose reads the project's name and files from ``deploy/.env`` itself (``--project-directory``)."""
+        import pwd
+
+        try:
+            home = pwd.getpwuid(os.geteuid()).pw_dir
+        except KeyError:
+            home = "/root"
+        env = {"PATH": os.environ.get("PATH") or SAFE_PATH, "HOME": home}
+        env.update({k: self.env[k] for k in ENGINE_KEYS if self.env.get(k)})
+        return env
+
+    def _run(self, argv: Sequence[str], stdin_file: Path | None = None, stdout_file: Path | None = None,
+             env: dict[str, str] | None = None, timeout: float | None = None) -> str:  # fmt: skip
+        """``update.run_cmd`` with the clean environment of :meth:`engine_env` in place of the caller's."""
+        from tools.trialbox import procgroup
+        from tools.trialbox.update import UpdateFailed
+
+        fin = stdin_file.open("rb") if stdin_file else None
+        fout = (
+            os.fdopen(os.open(stdout_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") if stdout_file else None
+        )
+        try:
+            r = procgroup.run(list(argv), stdin=fin, stdout=fout or subprocess.PIPE, stderr=subprocess.PIPE,
+                              env={**self.engine_env(), **(env or {})}, timeout=timeout)  # fmt: skip
+        finally:
+            for f in (fin, fout):
+                if f:
+                    f.close()
+        if r.returncode != 0:
+            err = (r.stderr or b"").decode(errors="replace").strip()[-600:]
+            raise UpdateFailed(f"{shlex.join(list(argv)[:8])} ... exit {r.returncode}: {err}")
+        return "" if fout else (r.stdout or b"").decode(errors="replace")
 
     # ------------------------------------------------------------------------------------------- the services
     def running(self) -> list[str] | None:
         return self.box.running_services()
 
-    def stop_all_but_db(self) -> list[str]:
+    def stop_all_but_db(self, stopped: list[str]) -> None:
+        """``--restart``: every service but db stopped; ``stopped`` holds them as they go (for the state line)."""
         names = self.running()
         if names is None:
             raise RestoreStopped("compose cannot say which services run: --restart stops nothing it cannot see. "
                                  "Nothing was changed")  # fmt: skip
         others = sorted(set(names) - RESTORE_MAY_RUN)
         if others:
+            stopped.extend(others)  # before the stop: a stop that fails part-way may have stopped any of them
             self.box.run(self.box._c("stop", *others), timeout=900)
-        return others
+            print(f"restore: stopped {', '.join(others)} (--restart); db keeps running", file=sys.stderr)
 
-    def start_and_wait(self) -> list[str]:
-        """Every service up, waited for until healthy (``up --wait``); the services that run after it."""
-        self.box.run(self.box._c("up", "-d", "--wait", "--wait-timeout", str(WAIT_S)), timeout=WAIT_S + 120)
+    def start_and_wait(self, stopped: Sequence[str]) -> list[str]:
+        """H-100 (F6): only the services this command stopped, started again and waited for until healthy."""
+        if stopped:
+            self.box.run(self.box._c("up", "-d", "--no-deps", "--wait", "--wait-timeout", str(WAIT_S), *stopped),
+                         timeout=WAIT_S + 120)  # fmt: skip
         return self.running() or []
+
+    def state(self) -> str:
+        """What compose says runs now (asked, never assumed)."""
+        try:
+            names = self.running()
+        except Exception:
+            names = None
+        return "compose cannot say which services run" if names is None else (
+            "running: " + (", ".join(sorted(names)) or "none"))  # fmt: skip
+
+    def audit(self, detail: dict[str, Any]) -> None:
+        """The host's own event of a restore it could not finish (F3): through the orchestrator, else kept in
+        deploy/site/backup-audit-pending.jsonl for the next run (``ComposeOps.audit``)."""
+        try:
+            self.ops.audit("backup.restore_failed", {"where": "host", **detail})
+        except Exception as e:
+            print(f"restore: the audit event could not be written or kept ({type(e).__name__})", file=sys.stderr)
 
     # ------------------------------------------------------------------------------------------- the container
     def volumes_root(self) -> Path:
         return Path(self.env.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
 
-    def container(self, a: Any, file: Path) -> tuple[list[str], dict[str, str]]:
+    def container(self, a: Any, file: Path, work: Path, sha: str) -> tuple[list[str], dict[str, str]]:
         """The restore's one container and the values its ``-e NAME`` options take (never on its command line)."""
         from tools.trialbox.backup_schedule import absolute
         from tools.trialbox.update import BACKUP_VOLUMES
@@ -185,7 +254,7 @@ class BoxRestore:
         image = self.env.get("TB_BACKUP_IMAGE") or "trialbox-backup:1.0.0"
         file, key = absolute(file), absolute(a.key)
         pub, keep_to, refdata = absolute(a.public), absolute(a.keep_to), absolute(a.refdata)
-        values = {**job_db_env(self.env), **role_env(self.env), "TB_DB_ROLES_CMD": ROLES_CMD}
+        values = {**job_db_env(self.env), **role_env(self.env), "TB_DB_ROLES_CMD": ROLES_CMD, "TMPDIR": str(work)}
         kek = ("TB_KEK_FILE", "TB_KEK_PASSPHRASE") if a.restic_from_box else ()  # only where the KEK is opened
         for k in ("TB_SITE_ID", "TB_ENV", "TB_TZ", "TB_REHEARSAL", *kek):
             if k in self.env:
@@ -200,6 +269,7 @@ class BoxRestore:
 
         bind(file.parent, file.parent, True)  # the file, its sha256 sidecar and a restic repository beside it
         bind(key, key, True)
+        bind(work, work, False)  # the restore's scratch on the host (TMPDIR), its space checked first
         if pub.is_file():
             bind(pub, pub, True)
         keep_to.mkdir(parents=True, exist_ok=True)
@@ -239,8 +309,8 @@ class BoxRestore:
                 "--security-opt", "no-new-privileges:true", "-e", "PYTHONDONTWRITEBYTECODE=1",
                 *[x for n in names for x in ("-e", n)], *mounts, image,
                 "python", "-m", "tools.trialbox", "restore", str(file), "--key", str(key), "--yes",
-                "--services-stopped", "--public", str(pub), "--keep-to", str(keep_to), "--refdata", str(refdata),
-                *dirs]  # fmt: skip
+                "--services-stopped", "--expect-sha256", sha, "--public", str(pub), "--keep-to", str(keep_to),
+                "--refdata", str(refdata), *dirs]  # fmt: skip
         flags = (("--no-copy", a.no_copy), ("--other-site", a.other_site), ("--older-ok", a.older_ok),
                  ("--restic-from-box", a.restic_from_box))  # fmt: skip
         argv += [x for x, on in flags if on]
@@ -249,85 +319,226 @@ class BoxRestore:
         return argv, values
 
     # ------------------------------------------------------------------------------------------- the command
-    def _left_stopped(self, stopped: list[str], why: str, again: str) -> None:
-        """H-100: never a box left stopped without saying so: its state and the one command for each way back."""
-        start = shlex.join([*self.box._c("start", *stopped)]) if stopped else ""
-        now = (f"db runs; {', '.join(stopped)} stay stopped (stopped by --restart)" if stopped
-               else "db runs; this command stopped no service")  # fmt: skip
-        print(f"restore: the services stay stopped: {why}. The box now: {now}. To start them as they were: "
-              f"{start or 'nothing to start'}; to try again once that is dealt with: {again} (RUNBOOK §5)",
+    def _state_line(self, stopped: Sequence[str], data: str, nxt: str) -> None:
+        """H-100 (F2, F3): one line, never a box left stopped without it: what runs (asked of compose), what the
+        restore left in the data, and the next command."""
+        stop = f"; stopped by --restart: {', '.join(stopped)}" if stopped else ""
+        print(f"restore: the box now: {self.state()}{stop}; the data: {data}; next: {nxt} (RUNBOOK §5)",
               file=sys.stderr)  # fmt: skip
 
+    def _start_line(self, stopped: Sequence[str]) -> str:
+        return shlex.join(self.box._c("up", "-d", "--no-deps", *stopped)) if stopped else "nothing to start"
+
     def restore(self, a: Any) -> int:
-        file = last_good(self.deploy, self.env) if a.last else Path(a.file)
+        file = absolute_path(last_good(self.deploy, self.env) if a.last else Path(a.file))
         if a.last:  # said before anything is stopped or changed
-            print(f"restore: --last: {file} (the newest backup backup-nightly recorded good, its size and sha256 "
-                  "checked on the target)", file=sys.stderr)  # fmt: skip
-        key = Path(a.key)
-        if not key.is_file():  # read only inside the container (bound read-only); refused before anything stops
-            raise RestoreStopped(f"--key {key} is not a file: nothing was changed")
-        again = shlex.join(["trialbox", "restore", *([str(file)] if not a.last else ["--last"]), "--key", str(key),
+            print(f"restore: --last: {file} (the newest backup backup-nightly recorded good)", file=sys.stderr)
+        check_key(Path(a.key))  # F5, before anything stops
+        sha = self.checked_sha(file, a.last)  # F4: the file itself, before anything stops
+        again = shlex.join(["trialbox", "restore", *(["--last"] if a.last else [str(file)]), "--key", str(a.key),
                             "--yes", *(["--restart"] if a.restart else [])])  # fmt: skip
-        stopped = self.stop_all_but_db() if a.restart else []
-        if stopped:
-            print(f"restore: stopped {', '.join(stopped)} (--restart); db keeps running", file=sys.stderr)
+        work = self.work_dir(file)  # the space the restore needs, before anything stops
+        stopped: list[str] = []
+        stop_signals = _host_signals()
         try:
-            try:  # D-724: asked of compose here, on the host, before anything is read or changed
-                only_the_database_runs(["db"] if a.services_stopped else self.running())
-            except Exception as e:  # the refusal, as the restore says it: nothing was changed
-                raise RestoreStopped(str(e)) from None
-            argv, values = self.container(a, file)
-            code, out = self.call(argv, values)
-        except RestoreStopped as e:
-            if a.restart:
-                self._left_stopped(stopped, f"the restore did not start ({e})", again)
-            raise
+            try:
+                if a.restart:
+                    self.stop_all_but_db(stopped)
+                try:  # D-724: asked of compose here, on the host, before anything is read or changed
+                    only_the_database_runs(["db"] if a.services_stopped else self.running())
+                except Exception as e:  # the refusal, as the restore says it: nothing was changed
+                    raise RestoreStopped(str(e)) from None
+                argv, values = self.container(a, file, work, sha)
+                code, out = self.call(argv, values)
+            except BaseException as e:  # F3: a stop that failed, an interrupt, anything: said, audited
+                why = str(e) or type(e).__name__
+                if stopped or not isinstance(e, RestoreStopped):
+                    self.audit({"error": why[-300:], "stopped": stopped, "file": file.name})
+                    self._state_line(stopped, "not changed by this command (the restore did not start)",
+                                     f"start them as they were: {self._start_line(stopped)}; or try again: "
+                                     f"{again}")  # fmt: skip
+                if isinstance(e, RestoreStopped):
+                    raise
+                if isinstance(e, (KeyboardInterrupt, HostInterrupted)):
+                    return 130
+                print(f"restore: {type(e).__name__}: {why[-400:]}", file=sys.stderr)
+                return 1
+        finally:
+            stop_signals()
+            shutil.rmtree(work, ignore_errors=True)
         if out:
             print(out, end="" if out.endswith("\n") else "\n")
         if code in (0, 3, 4):  # restored: H-48's marker goes, as the in-process restore removes it
             from tools.tls_policy import OLD_CLIENTS_AUDITED
 
             (self.deploy / "site" / OLD_CLIENTS_AUDITED).unlink(missing_ok=True)
+        said = _said(out)
         if not a.restart:
             return code
-        hold = _hold_of(out)
-        if code == 0 or (code == 4 and hold == "held"):
+        hold = str(said.get("hold") or "")
+        state = str(said.get("state") or ("restored" if code in (0, 3, 4) else "unknown"))
+        if code == 0 or (code == 4 and hold == "held") or (code != 0 and state == "unchanged"):
+            # complete, or held (D-522), or refused before any change (the data is as it was): F6, the services
+            # this command stopped, and only those
             try:
-                up = self.start_and_wait()
+                up = self.start_and_wait(stopped)
             except Exception as e:  # named, never a setting in it
-                print(f"restore: the restore is done, but the services did not all come back healthy: "
-                      f"{str(e)[-400:]} (docker compose ps; RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+                self._state_line(stopped, "restored" if code in (0, 4) else "not changed",
+                                 f"look at docker compose ps; then {self._start_line(stopped)}")  # fmt: skip
+                print(f"restore: the services did not all come back healthy: {str(e)[-400:]}", file=sys.stderr)
                 return 1
-            print(f"restore: the services run again and are healthy: {len(up)} ({', '.join(sorted(up))})",
-                  file=sys.stderr)  # fmt: skip
+            what = "not changed (the restore was refused before any change)" if state == "unchanged" else "restored"
+            print(f"restore: the data {what}; the services run again and are healthy: {len(up)} "
+                  f"({', '.join(sorted(up))})", file=sys.stderr)  # fmt: skip
             return code
-        why = {3: "a reference pack is missing (put it in --refdata)",
-               4: f"the restore is not complete and the hold on the list jobs is {hold or 'unknown'}"}  # fmt: skip
-        self._left_stopped(stopped, why.get(code, f"the restore failed (exit {code}; its lines above say where it "
-                                                   "stopped and name the kept copy of the box)"), again)  # fmt: skip
+        if code == 3:
+            self._state_line(stopped, "the databases and folders are restored; a reference pack is missing",
+                             f"put the pack named above in --refdata and run {again}")  # fmt: skip
+        elif code == 4:
+            self._state_line(stopped, f"restored, NOT complete; the hold on the list jobs is {hold or 'unknown'}",
+                             "keep the services stopped until the lines above are dealt with")  # fmt: skip
+        elif state == "rolled_back":  # F2: the restore put the box back as it was and holds its list jobs
+            self._state_line(stopped, "put back as it was before the restore (the restore failed); list jobs held",
+                             f"read the error above; start them as they were: {self._start_line(stopped)}; "
+                             f"or try again: {again}")  # fmt: skip
+        else:  # F2: half restored or unknown: never a start line
+            self._state_line(stopped, "NOT as it was: the restore failed and could not put everything back "
+                             "(the lines above say what)", "do not start the services; restore the kept copy the "
+                             "lines above name (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
         return code
 
+    def checked_sha(self, file: Path, last: bool) -> str:
+        """H-100 (F4): the backup file's own sha256, read here before anything stops, equal to what the nightly
+        recorded for it (``--last``; a named file: its sidecar, and the record when it names the same file). The
+        restore's container is given this hash and refuses a file that is not it."""
+        from tools.trialbox import backup_schedule as bs
 
-def _hold_of(out: str) -> str:
+        h = hashlib.sha256()
+        try:
+            with file.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+        except OSError as e:
+            raise RestoreStopped(f"{file} cannot be read ({e.strerror}): nothing was changed") from None
+        got = h.hexdigest()
+        want = {"its .sha256 sidecar": bs.read_sidecar(file)}
+        cfg = bs.config(self.deploy, self.env, process_env=False)
+        try:
+            good = json.loads(cfg.last_file.read_text(encoding="utf-8")).get("good_file") or {}
+        except (OSError, ValueError):
+            good = {}
+        if last or good.get("name") == file.name:
+            want["the nightly's record"] = str(good.get("sha256") or "") or None
+        for where, sha in want.items():
+            if sha is not None and sha != got:
+                raise RestoreStopped(f"{file.name} is not the file {where} names: its sha256 differs. Nothing was "
+                                     "changed")  # fmt: skip
+        return got
+
+    def work_dir(self, file: Path) -> Path:
+        """The restore's scratch folder on the host (the unpacked backup, the copy of the databases taken first, the
+        kept copy's work), checked for space before anything stops: the databases' size (``pg_database_size``,
+        asked through the db container) plus four times the backup file (``restore_drill.UNPACK_FACTOR``)."""
+        work = Path(tempfile.mkdtemp(prefix=".restore-", dir=self.deploy))  # 0700
+        dbs = [self.box.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))]
+        need = sum(n or 0 for n in dbs) + UNPACK_FACTOR * file.stat().st_size
+        free = shutil.disk_usage(work).free
+        if free < need:
+            shutil.rmtree(work, ignore_errors=True)
+            raise RestoreStopped(f"the restore needs about {need / 1e9:.1f} GB in {self.deploy} (the backup unpacked "
+                                 f"and the databases copied aside first, to be put back if it fails), "
+                                 f"{free / 1e9:.1f} GB is free. Nothing was changed")  # fmt: skip
+        if None in dbs:
+            print("restore: the databases' size could not be asked: their copy is checked inside the restore",
+                  file=sys.stderr)  # fmt: skip
+        return work
+
+
+class HostInterrupted(BaseException):
+    """SIGTERM or SIGHUP to the host's restore step (a closed session): its state is said and audited (F3)."""
+
+
+def _host_signals() -> Callable[[], None]:
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None
+
+    def stop(signum: int, _frame: Any) -> None:
+        raise HostInterrupted(f"signal {signal.Signals(signum).name}")
+
+    old = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)}
+
+    def back() -> None:
+        for sig, h in old.items():
+            signal.signal(sig, h)
+
+    return back
+
+
+def absolute_path(p: Path) -> Path:
+    return Path(os.path.abspath(p))
+
+
+def check_key(path: Path) -> None:
+    """H-100 (F5): the private key, opened without following a link and checked on the open file: a regular file,
+    owned by root (or by the user running the command, as launch.box_file reads the box file), readable by its
+    owner alone. A key on a removable stick that cannot carry such a mode is copied to a root-only file first
+    (RUNBOOK §5). Its content is never read here: the restore's container reads it, bound read-only."""
+    import stat
+
     try:
-        return str(json.loads(out).get("hold") or "")
-    except (ValueError, AttributeError):
-        return ""
-
-
-def _call(argv: list[str], values: dict[str, str]) -> tuple[int, str]:
-    """The restore container: its stdout (the JSON) captured and passed on, its stderr straight to the person."""
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as e:
+        why = "a link" if os.path.islink(path) else (e.strerror or "cannot be opened")
+        raise RestoreStopped(f"--key {path}: {why}: nothing was changed") from None
     try:
-        r = subprocess.run(argv, env={**os.environ, **values}, stdout=subprocess.PIPE, text=True, check=False)
+        st = os.fstat(fd)
+    finally:
+        os.close(fd)
+    if not stat.S_ISREG(st.st_mode):
+        raise RestoreStopped(f"--key {path} is not a file: nothing was changed")
+    if st.st_uid not in (0, os.geteuid()) or st.st_mode & 0o077:
+        raise RestoreStopped(
+            f"--key {path} must be owned by root and readable by root alone (mode 0600): copy it to such a file "
+            f"first (install -m 0600 -o root -g root {path} /root/trialbox-backup.key) and name that one. Nothing "
+            "was changed"
+        )
+
+
+def _said(out: str) -> dict[str, Any]:
+    try:
+        d = json.loads(out)
+    except (ValueError, TypeError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def _call(argv: list[str], values: dict[str, str], base: Mapping[str, str] | None = None) -> tuple[int, str]:
+    """The restore container: its stdout (the JSON) captured and passed on, its stderr straight to the person. Its
+    environment is the engine's own (base, F1) and the values its -e NAME options name. An interrupt or a
+    signal while it runs is passed to it and waited for: the restore puts the box back itself (F2, F3)."""
+    import signal
+
+    try:
+        proc = subprocess.Popen(argv, env={**(base or {}), **values}, stdout=subprocess.PIPE, text=True)
     except OSError as e:
         raise RestoreStopped(
             f"the container runtime cannot be started here ({e.strerror}): nothing was changed"
         ) from None
-    return r.returncode, r.stdout or ""
+    out = ""
+    while True:
+        try:
+            out, _ = proc.communicate()
+            return proc.returncode, out or ""
+        except (KeyboardInterrupt, HostInterrupted):
+            print("restore: stopping: the restore is told and puts the box back; waiting for it", file=sys.stderr)
+            proc.send_signal(signal.SIGTERM)
 
 
 def main(a: Any) -> int:
-    """``trialbox restore`` on the host (the installed form, or a host python without the libraries)."""
+    """trialbox restore on the host (the installed form, or a host python without the libraries)."""
     try:
         return BoxRestore(a.deploy).restore(a)
     except RestoreStopped as e:

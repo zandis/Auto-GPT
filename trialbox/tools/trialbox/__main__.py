@@ -132,6 +132,8 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
                    help="on the host: stop all but db first; start them after, wait until healthy")  # fmt: skip
     r.add_argument("--key", type=Path, required=True)
     r.add_argument("--dir", action="append", default=[])
+    r.add_argument("--expect-sha256", default=None,
+                   help="refuse the file unless its sha256 is this one (what the host checked)")  # fmt: skip
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
     r.add_argument(
         "--deploy",
@@ -667,7 +669,7 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata,
                          public_key=a.public, keep_to=a.keep_to, no_copy=a.no_copy, other_site=a.other_site,
                          max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS, running=running,
-                         restic_pw=_restic_pw(a))  # fmt: skip
+                         restic_pw=_restic_pw(a), expect_sha256=a.expect_sha256)  # fmt: skip
         # H-48: the restored audit chain may lack the box's update.tls_relaxed; without the marker, doctor FAILs a
         # relaxed TLS setting and the next deploy/install.sh sends the event again
         from tools.tls_policy import OLD_CLIENTS_AUDITED
@@ -734,6 +736,8 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             return 4
         return 0 if bk.optouts_ok(lost) and not roles_missing else 4
     except bk.BackupError as exc:
+        if a.cmd == "restore":  # H-100: the box's state for the host's step (unchanged: refused before any change)
+            print(json.dumps({"ok": False, "state": getattr(exc, "state", "unchanged")}))
         print(f"{a.cmd}: {exc}", file=sys.stderr)
         return 1
 

@@ -117,6 +117,7 @@ def _box(tmp_path: Path, extra: str = "TB_KEK_PASSPHRASE=synthetic-kek\n") -> Pa
     (tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak").write_bytes(b"synthetic")
     (tmp_path / "usb").mkdir()
     (tmp_path / "usb" / "backup.key").write_text("synthetic private key", encoding="utf-8")
+    (tmp_path / "usb" / "backup.key").chmod(0o600)
     return deploy
 
 
@@ -137,11 +138,11 @@ def _restore(
 
     seen: list[tuple[list[str], dict[str, str]]] = []
 
-    def call(argv: list[str], values: dict[str, str]) -> tuple[int, str]:
+    def call(argv: list[str], values: dict[str, str], base: object = None) -> tuple[int, str]:
         seen.append((argv, values))
         return code, out
 
-    monkeypatch.setattr(update, "run_cmd", rec)
+    _stand_in(monkeypatch, rec)
     monkeypatch.setattr(box_restore, "_call", call)
     for k, v in CALLER.items():
         monkeypatch.setenv(k, v)
@@ -149,6 +150,13 @@ def _restore(
     given = [str(tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak")] if file else []
     argv = ["restore", *given, "--key", "usb/backup.key", "--yes", "--deploy", str(deploy), *more]
     return cli.main(argv, installed=True), seen
+
+
+def _stand_in(monkeypatch: pytest.MonkeyPatch, rec: Recorder) -> None:
+    """The box's commands (compose and the engine) stood in for, at the host restore's own runner."""
+    from tools.trialbox import box_restore
+
+    monkeypatch.setattr(box_restore.BoxRestore, "_run", lambda self, argv, **kw: rec(argv, **kw))
 
 
 def _value(argv: list[str], flag: str) -> str:
@@ -254,17 +262,19 @@ def test_restart_starts_the_services_only_after_a_complete_or_held_restore(
     ups = [c for c in rec.calls if "up" in c]
     assert bool(ups) is starts, rec.calls
     if starts:
-        assert got == code and ups[0][-4:] == ["-d", "--wait", "--wait-timeout", "600"]
+        # F6: only what this command stopped, waited for until healthy
+        assert got == code and ups[0][-6:] == ["-d", "--no-deps", "--wait", "--wait-timeout", "600", "console"]
         assert "healthy" in capsys.readouterr().err
     else:
-        assert got == code and "the services stay stopped" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert got == code and "restore: the box now: running: db; stopped by --restart: console" in err, err
 
 
 def test_a_service_that_does_not_come_back_healthy_fails_the_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     deploy = _box(tmp_path)
-    got, _ = _restore(deploy, tmp_path, monkeypatch, Recorder(up_fails=True), "{}", 0, "--restart")
+    got, _ = _restore(deploy, tmp_path, monkeypatch, Recorder(["db", "console"], up_fails=True), "{}", 0, "--restart")
     assert got == 1 and "did not all come back healthy" in capsys.readouterr().err
 
 
@@ -516,8 +526,9 @@ def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(
     assert r.returncode == 4 and out["optouts_after_backup"]["state"] == "unknown", (r.returncode, r.stderr[-2000:])
     assert out["hold"] == "held" and "NOT complete" in r.stderr, r.stderr[-2000:]
     assert "the services run again and are healthy" in r.stderr, r.stderr[-2000:]
+    # F6: the stand-in's compose says nothing ran but db, so nothing was stopped and nothing is started
     ups = [c["argv"] for c in h88.calls(box) if "compose" in c["argv"] and "up" in c["argv"]]
-    assert ups and ups[-1][-4:] == ["-d", "--wait", "--wait-timeout", "600"], ups
+    assert not ups and "the services run again and are healthy: 0" in r.stderr, (ups, r.stderr[-1500:])
     assert bs.recorded_good([nas], {"name": made.name, "bytes": made.stat().st_size, "sha256": sha})
 
 
@@ -561,7 +572,7 @@ def test_restart_and_yes_never_imply_each_other_and_the_refusals_stay(
 
     deploy = _box(tmp_path, f"TB_ENV={env}\n")
     rec = Recorder(running=["db", "console"])
-    monkeypatch.setattr(update, "run_cmd", rec)
+    _stand_in(monkeypatch, rec)
     key = tmp_path / "usb" / "backup.key"
     f = tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"
     assert cli.main(["restore", str(f), "--key", str(key), "--restart", "--deploy", str(deploy)], installed=True) == 2
@@ -579,17 +590,16 @@ def test_a_restore_that_fails_after_the_stop_says_the_state_and_the_way_back(
     code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "", 1, "--restart")
     err = capsys.readouterr().err
     assert code == 1 and seen and not any("up" in c for c in rec.calls)
-    assert "The box now: db runs; console stay stopped (stopped by --restart)" in err, err
-    assert f"docker compose --project-directory {deploy} start console" in err, err
-    assert "to try again once that is dealt with: trialbox restore " in err and "--restart" in err, err
+    assert "restore: the box now: running: db; stopped by --restart: console; the data: NOT as it was" in err, err
+    assert "up -d --no-deps console" not in err and "do not start the services" in err, err  # F2: never a start
 
     from tools.trialbox import box_restore
 
-    def no_runtime(argv: list[str], values: dict[str, str]) -> tuple[int, str]:
+    def no_runtime(argv: list[str], values: dict[str, str], base: object = None) -> tuple[int, str]:
         raise box_restore.RestoreStopped("the container runtime cannot be started here: nothing was changed")
 
     rec = Recorder(running=["db", "console"])
-    monkeypatch.setattr(update, "run_cmd", rec)
+    _stand_in(monkeypatch, rec)
     monkeypatch.setattr(box_restore, "_call", no_runtime)
     from tools.trialbox import __main__ as cli
 
@@ -598,7 +608,8 @@ def test_a_restore_that_fails_after_the_stop_says_the_state_and_the_way_back(
             str(deploy)]  # fmt: skip
     assert cli.main(argv, installed=True) == 2
     err = capsys.readouterr().err
-    assert "the restore did not start" in err and "console stay stopped" in err and "start console" in err, err
+    assert "the data: not changed by this command (the restore did not start)" in err, err
+    assert f"docker compose --project-directory {deploy} up -d --no-deps console" in err, err
 
 
 def test_the_key_must_be_a_file_and_last_names_its_pick_before_anything_stops(
@@ -612,7 +623,7 @@ def test_the_key_must_be_a_file_and_last_names_its_pick_before_anything_stops(
 
     deploy = _box(tmp_path, f"TB_BACKUP_TARGETS={tmp_path / 'nas'}\n")
     rec = Recorder(running=["db", "console"])
-    monkeypatch.setattr(update, "run_cmd", rec)
+    _stand_in(monkeypatch, rec)
     f = tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"
     argv = ["restore", str(f), "--key", str(tmp_path / "usb"), "--yes", "--restart", "--deploy", str(deploy)]
     assert cli.main(argv, installed=True) == 2  # a folder, not a key file
@@ -626,3 +637,325 @@ def test_the_key_must_be_a_file_and_last_names_its_pick_before_anything_stops(
     code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--last", "--restart", file=False)
     err = capsys.readouterr().err
     assert code == 0 and str(f) in seen[0][0] and err.index(f"--last: {f}") < err.index("stopped console"), err
+
+
+# ------------------------------------------------------------------------------------------------ the review (F1-F7)
+# Each test below fails on 1455734f (the head the independent review read) and holds what its finding asks.
+def _t728() -> Any:
+    from tests.unit import test_t728_asof_restore_optouts as t
+
+    return t
+
+
+def _counts(src: Any) -> dict[str, list[Any]]:
+    """Every table's rows and hash but the flags store's (the hold a failed restore takes is a flag row in it)."""
+    return {k: v for k, v in bk.row_counts(src).items() if not k.split(".")[0].endswith("app")}
+
+
+def _box_db(tmp_path: Path, db_url: str) -> tuple[Any, dict[str, Path], Path, Path, Path, dict[str, str], Path]:
+    t = _t728()
+    reg, _jobs, dirs = t._box(db_url, tmp_path)
+    priv, pub, keep = t._keys(tmp_path)
+    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", "TB_ENV": "TEST"}
+    f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
+    reg.add("P-LATER-2", "office", "", "office:a", "2026-11-23T10:00:00+00:00")  # the box moved on after the backup
+    (dirs["audit"] / "after-the-backup.txt").write_text("synthetic", encoding="utf-8")
+    return reg, dirs, priv, pub, keep, env, f
+
+
+def _boom(*a: object, **kw: object) -> Any:
+    raise bk.BackupError("synthetic failure after the first change")
+
+
+@pytest.mark.parametrize("where", ["roles", "after-the-folders", "interrupt", "sigterm"])
+def test_f2_a_restore_that_fails_after_its_first_change_puts_the_box_back_holds_and_audits(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch, where: str
+) -> None:
+    """F2, F3 (inside): all or nothing. A failure, an interrupt or a signal after the databases were replaced (and,
+    for one case, after the folders moved) puts the databases and the folders back as they were, takes the hold on
+    the box's list jobs and audits ``backup.restore_failed`` with ``state: rolled_back``."""
+    import os
+    import signal
+
+    _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
+    src = bk.db_sources(env)[0]
+    before = _counts(src)
+
+    def interrupt(*a: object, **kw: object) -> Any:
+        raise KeyboardInterrupt
+
+    def sigterm(*a: object, **kw: object) -> Any:
+        os.kill(os.getpid(), signal.SIGTERM)
+        return []
+
+    if where == "roles":
+        monkeypatch.setattr(bk, "reapply_service_roles", _boom)
+    elif where == "after-the-folders":
+        monkeypatch.setattr(bk, "events_to_reapply", _boom)
+    else:
+        monkeypatch.setattr(bk, "fail_running_jobs", interrupt if where == "interrupt" else sigterm)
+    with pytest.raises(bk.BackupError) as err:
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert getattr(err.value, "state", None) == "rolled_back", err.value
+    assert "put back as it was before the restore" in str(err.value) and "list jobs: held" in str(err.value)
+    assert _counts(src) == before  # the databases as they were, P-LATER-2 among them
+    assert (dirs["audit"] / "after-the-backup.txt").is_file()  # the folders as they were
+    assert not list(dirs["audit"].parent.glob(f"{dirs['audit'].name}.pre-restore-*"))
+    from tb_common.flags import Flags
+
+    assert Flags(url=db_url).row(bk.HOLD_FLAG) == "held"
+    (ev,) = _t728()._audit_events(dirs["audit"], "backup.restore_failed")
+    assert ev["detail"]["state"] == "rolled_back" and ev["detail"]["hold"] == "held"
+    assert signal.getsignal(signal.SIGTERM) is not None  # the handlers are put back after
+
+
+def test_f2_a_put_back_that_fails_says_so_and_never_claims_the_box_is_whole(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
+    real = bk.restore_db
+
+    def restore_db(src: Any, dump_file: Path, e: Any) -> None:
+        if dump_file.parent.name == "pre-restore":
+            raise RuntimeError("synthetic: the put-back fails")
+        real(src, dump_file, e)
+
+    monkeypatch.setattr(bk, "restore_db", restore_db)
+    monkeypatch.setattr(bk, "reapply_service_roles", _boom)
+    with pytest.raises(bk.BackupError) as err:
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert getattr(err.value, "state", None) == "not_rolled_back"
+    assert "NOT put back as it was" in str(err.value) and "do not start the services" in str(err.value)
+    assert "trialbox restore" in str(err.value) and "kept in" in str(err.value)  # the kept copy is the way back
+
+
+def test_f2_no_space_for_the_copy_of_the_databases_refuses_before_any_change(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import collections
+
+    _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
+    src = bk.db_sources(env)[0]
+    before = _counts(src)
+    usage = collections.namedtuple("usage", "total used free")
+    import shutil
+
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: usage(1, 1, 0))
+    with pytest.raises(bk.BackupError, match="copied aside.*Nothing was changed") as err:
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep, no_copy=False)
+    assert getattr(err.value, "state", "unchanged") == "unchanged"
+    assert _counts(src) == before and not _t728()._audit_events(dirs["audit"], "backup.restore_failed")
+
+
+def test_f4_the_container_refuses_a_file_that_is_not_the_one_the_host_checked(tmp_path: Path, db_url: str) -> None:
+    _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
+    src = bk.db_sources(env)[0]
+    before = _counts(src)
+    with pytest.raises(bk.BackupError, match="not the backup that was named.*Nothing was changed"):
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep, expect_sha256="0" * 64)
+    assert _counts(src) == before
+
+
+def test_f4_the_host_hashes_the_file_before_anything_stops_and_passes_the_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import hashlib
+    import json
+
+    from tools.trialbox import backup_schedule as bs
+
+    deploy = _box(tmp_path, f"TB_BACKUP_TARGETS={tmp_path / 'nas'}\n")
+    f = tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"
+    sha = hashlib.sha256(f.read_bytes()).hexdigest()
+    rec = Recorder(running=["db", "console"])
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
+    assert code == 0 and _value(seen[0][0], "--expect-sha256") == sha  # the hash the host read, to the container
+    bs.sidecar(f).write_text(f"{'1' * 64}  {f.name}\n", encoding="utf-8")  # the sidecar names another file
+    rec = Recorder(running=["db", "console"])
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
+    assert code == 2 and not seen and rec.calls == []  # nothing asked, nothing stopped
+    assert "its sha256 differs. Nothing was changed" in capsys.readouterr().err
+    bs.sidecar(f).write_text(f"{sha}  {f.name}\n", encoding="utf-8")
+    (deploy / "site").mkdir()
+    (deploy / "site" / "backup-last.json").write_text(json.dumps(  # the record says another content (sidecar too)
+        {"good_file": {"name": f.name, "bytes": f.stat().st_size, "sha256": "2" * 64}}), encoding="utf-8")  # fmt: skip
+    rec = Recorder(running=["db", "console"])
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
+    assert code == 2 and not seen and rec.calls == []
+    assert "the nightly's record" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["mode", "link", "owner", "folder"])
+def test_f5_the_key_is_a_root_only_regular_file_and_not_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], bad: str
+) -> None:
+    import os
+
+    deploy = _box(tmp_path)
+    key = tmp_path / "usb" / "backup.key"
+    if bad == "mode":
+        key.chmod(0o640)
+    elif bad == "link":
+        real = tmp_path / "usb" / "real.key"
+        key.rename(real)
+        key.symlink_to(real)
+    elif bad == "owner":  # owned by neither root nor the user running it
+        if os.geteuid() == 0:
+            os.chown(key, 65534, 65534)
+        else:
+            monkeypatch.setattr(os, "geteuid", lambda: 99999)
+    else:
+        key.unlink()
+        key.mkdir()
+    rec = Recorder(running=["db", "console"])
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
+    err = capsys.readouterr().err
+    assert code == 2 and not seen and rec.calls == [] and "Nothing was changed" in err.replace("nothing", "Nothing")
+
+
+COMPOSE_AND_ENGINE = ("COMPOSE_PROJECT_NAME", "COMPOSE_FILE", "COMPOSE_PROFILES", "DOCKER_HOST", "DOCKER_CONTEXT",
+                      "DOCKER_CONFIG")  # fmt: skip
+
+
+@pytest.mark.parametrize("var", COMPOSE_AND_ENGINE)
+def test_f1_a_callers_compose_or_engine_variable_reaches_neither_compose_nor_the_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, var: str
+) -> None:
+    """F1 (probe P10): with the variable exported, compose still asks the box's own project, so the running
+    services are seen and the restore is refused; the container's engine gets the clean environment too."""
+    from tools.trialbox import box_restore, procgroup
+
+    deploy = _box(tmp_path)
+    monkeypatch.setenv(var, "caller-value")
+    envs: list[dict[str, str]] = []
+
+    class Done:
+        def __init__(self, out: bytes) -> None:
+            self.returncode, self.stdout, self.stderr = 0, out, b""
+
+    def run(argv: list[str], env: dict[str, str], **kw: object) -> Done:
+        envs.append(dict(env))
+        steered = env.get("COMPOSE_PROJECT_NAME") == "caller-value" or env.get(var) == "caller-value"
+        return Done(b"" if steered else (b"db\nconsole\n" if "ps" in argv else b""))
+
+    monkeypatch.setattr(procgroup, "run", run)
+    calls: list[dict[str, str]] = []
+
+    def container(argv: list[str], values: dict[str, str], base: Any = None) -> tuple[int, str]:
+        calls.append(dict(base or {}))
+        return 0, "{}"
+
+    monkeypatch.setattr(box_restore, "_call", container)
+    from tools.trialbox import __main__ as cli
+
+    argv = ["restore", str(tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"), "--key",
+            str(tmp_path / "usb" / "backup.key"), "--yes", "--deploy", str(deploy)]  # fmt: skip
+    assert cli.main(argv, installed=True) == 2 and not calls  # the box's services run: refused, as on the box
+    assert envs and all(var not in e for e in envs), envs
+    assert all(set(e) <= {"PATH", "HOME"} for e in envs), envs  # the engine's own needs, nothing of the caller's
+    rec = Recorder()
+    _stand_in(monkeypatch, rec)
+    monkeypatch.setattr(box_restore, "_call", container)
+    assert cli.main(argv, installed=True) == 0 and calls and var not in calls[0] and set(calls[0]) <= {"PATH", "HOME"}
+
+
+def test_f1_the_box_file_names_the_engine_and_that_reaches_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.trialbox import box_restore
+
+    deploy = _box(tmp_path, "DOCKER_HOST=unix:///run/box-engine.sock\n")
+    monkeypatch.setenv("DOCKER_HOST", "tcp://caller:2375")
+    assert box_restore.BoxRestore(deploy).engine_env()["DOCKER_HOST"] == "unix:///run/box-engine.sock"
+
+
+def test_f3_a_stop_that_fails_says_the_state_and_keeps_the_audit_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    deploy = _box(tmp_path)
+
+    class StopFails(Recorder):
+        def __call__(self, argv: list[str], **kw: object) -> str:
+            if "stop" in argv:
+                self.calls.append(list(argv))
+                raise update.UpdateFailed("compose stop ... exit 1: synthetic")
+            if "exec" in argv and "orchestrator" in argv:  # the orchestrator is down: the event is kept
+                raise update.UpdateFailed("synthetic: no orchestrator")
+            return super().__call__(argv, **kw)
+
+    rec = StopFails(running=["db", "console", "orchestrator"])
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
+    err = capsys.readouterr().err
+    assert code == 1 and not seen
+    assert "restore: the box now: running: console, db, orchestrator; stopped by --restart: console, orchestrator" \
+           in err, err  # fmt: skip
+    assert "next: start them as they were: docker compose" in err and "up -d --no-deps console orchestrator" in err
+    (ev,) = [json.loads(x) for x in (deploy / "site" / "backup-audit-pending.jsonl").read_text().splitlines()]
+    assert ev["event"] == "backup.restore_failed" and ev["detail"]["where"] == "host"
+    assert ev["detail"]["stopped"] == ["console", "orchestrator"]
+
+
+def test_f3_an_interrupt_while_the_container_runs_is_passed_on_and_waited_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    import signal
+    import subprocess
+
+    from tools.trialbox import box_restore
+
+    sent: list[int] = []
+
+    class Proc:
+        returncode = 1
+        n = 0
+
+        def __init__(self, *a: object, **kw: object) -> None:
+            pass
+
+        def communicate(self) -> tuple[str, str]:
+            Proc.n += 1
+            if Proc.n == 1:
+                raise KeyboardInterrupt
+            return '{"ok": false, "state": "rolled_back"}', ""
+
+        def send_signal(self, sig: int) -> None:
+            sent.append(sig)
+
+    monkeypatch.setattr(subprocess, "Popen", Proc)
+    code, out = box_restore._call(["docker", "run"], {}, {"PATH": "/usr/bin"})
+    assert code == 1 and sent == [signal.SIGTERM] and '"rolled_back"' in out
+
+
+@pytest.mark.parametrize(
+    ("state", "starts", "says"),
+    [
+        ("unchanged", True, "the data not changed (the restore was refused before any change)"),
+        ("rolled_back", False, "the data: put back as it was before the restore"),
+        ("not_rolled_back", False, "do not start the services"),
+    ],
+)
+def test_f2_after_a_failed_restore_the_host_starts_only_what_is_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], state: str, starts: bool,
+    says: str,
+) -> None:  # fmt: skip
+    import json
+
+    deploy = _box(tmp_path)
+    rec = Recorder(running=["db", "console"])
+    code, _ = _restore(deploy, tmp_path, monkeypatch, rec, json.dumps({"ok": False, "state": state}), 1, "--restart")
+    err = capsys.readouterr().err
+    assert code == 1 and bool([c for c in rec.calls if "up" in c]) is starts and says in err, err
+    if state == "not_rolled_back":
+        assert "up -d" not in err  # never a start line for a box that is not as it was
+
+
+@pytest.mark.parametrize(("code", "gone"), [(0, True), (3, True), (4, True), (1, False), (2, False)])
+def test_f7_the_tls_marker_goes_after_every_exit_that_restored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: int, gone: bool
+) -> None:
+    from tools.tls_policy import OLD_CLIENTS_AUDITED
+
+    deploy = _box(tmp_path)
+    (deploy / "site").mkdir()
+    marker = deploy / "site" / OLD_CLIENTS_AUDITED
+    marker.write_text("synthetic", encoding="utf-8")
+    assert _restore(deploy, tmp_path, monkeypatch, Recorder(), '{"hold": "held"}', code)[0] == code
+    assert marker.exists() is not gone
