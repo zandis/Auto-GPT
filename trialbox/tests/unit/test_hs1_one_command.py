@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import io
-import select
 import json
 import os
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -281,7 +281,7 @@ def _at_the_prompt(s: dict[str, Path], during, answer: bytes = b"yes\n", argv: l
         ready, _, _ = select.select([proc.stdout], [], [], 30)
         assert ready, f"no question within 30 s: {seen!r}"
         chunk = os.read(proc.stdout.fileno(), 4096)
-        assert chunk, f"the launcher ended before its question: {seen!r} {proc.stderr.read() if proc.stderr else ''}"
+        assert chunk, f"the launcher ended before its question: {seen!r} {proc.stderr.read() if proc.stderr else b''!r}"
         seen += chunk
     during()
     out, err = proc.communicate(answer, timeout=120)
@@ -319,6 +319,7 @@ def test_a_line_written_into_install_during_the_prompt_does_not_run(stick: dict[
     rc, out, err = _at_the_prompt(stick, write)
     assert "PLANTED-RAN" not in out and not (stick["tmp"] / "PLANTED").exists(), out + err
     assert "==> plan from the hardware" in out + err
+    assert rc == 1 and "the install stopped" in err  # the stand-in install's stop, not a planted exit 0
 
 
 def test_the_sticks_files_swapped_during_the_prompt_are_not_what_runs(stick: dict[str, Path]) -> None:
@@ -334,6 +335,7 @@ def test_the_sticks_files_swapped_during_the_prompt_are_not_what_runs(stick: dic
     rc, out, err = _at_the_prompt(stick, swap)
     assert "PLANTED-RAN" not in out and not (stick["tmp"] / "PLANTED").exists(), out + err
     assert "==> plan from the hardware" in out + err, out + err
+    assert rc == 1 and "the install stopped" in err
     assert (stick["opt"] / "deploy/keys/vendor_ed25519.pub").read_bytes() == stick["pub"].read_bytes()
     assert f"fingerprint: {_fingerprint(stick['pub'])}" in out  # the bootstrap was handed the confirmed key
 
@@ -440,7 +442,7 @@ def test_a_stick_path_with_a_space_stops_before_anything_changes(stick: dict[str
 def test_the_sheets_line_runs_the_copy_only_after_its_code_is_confirmed(stick: dict[str, Path], first: str) -> None:
     """HS1-01, the ruling: the sheet's line copies the launcher, prints its code with stock tools, waits, and runs
     that copy with the stick's folder. Run here with the paths of the test (no sudo, no /root)."""
-    line = re.search(r"the sheet's line: (.*)\"$", _make_bundle_lines('echo "      the sheet\'s line:'))
+    line = re.search(r"the sheet's line: (.*)\"$", _make_bundle_lines("echo \"      the sheet's line:"))
     assert line
     cmd = line.group(1).replace('\\"', '"').replace("\\$", "$").replace("sudo ", "")
     copy = stick["tmp"] / "trialbox-install"
