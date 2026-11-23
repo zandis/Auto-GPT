@@ -62,7 +62,9 @@ def _tree(tmp_path: Path) -> dict[str, Path]:
     # H-97: the passwd entry names the home of the root-only code file (a stand-in getent: never the tester's own home)
     pw_home = tmp_path / "pwhome"
     pw_home.mkdir()
-    (stubs / "getent").write_text(f'#!/bin/sh\necho "tester:x:$(id -u):$(id -g)::{pw_home}:/bin/sh"\n', encoding="utf-8")
+    (stubs / "getent").write_text(
+        f'#!/bin/sh\necho "tester:x:$(id -u):$(id -g)::{pw_home}:/bin/sh"\n', encoding="utf-8"
+    )
     for f in stubs.iterdir():
         f.chmod(0o755)
     hw = tmp_path / "hardware.json"
@@ -194,9 +196,7 @@ def _until_code(proc: subprocess.Popen[str], seconds: float = 60) -> str:
 
 
 @pytest.mark.parametrize("wsl2", ["1", "0"])
-def test_on_or_off_wsl2_the_code_is_never_on_the_output_and_no_issue_file_is_written(
-    tmp_path: Path, wsl2: str
-) -> None:
+def test_on_or_off_wsl2_the_code_is_never_on_the_output_and_no_issue_file_is_written(tmp_path: Path, wsl2: str) -> None:
     """H-97 (ruling 7101844662): with no terminal (the boot's service; a run whose output a log keeps) the code is in
     the root-only file the output names, on or off WSL2; never on the output and never in /etc/issue.d. (Under WSL2
     the Windows installer's window is the controlling terminal: tests/unit/test_first_run_code_h97.py.)"""

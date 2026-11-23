@@ -26,7 +26,7 @@ from tools import keys
 pytestmark = pytest.mark.nodb
 OLD = "synthetic-h97-" + "the-exposed-passphrase"  # synthetic
 NEW = "synthetic-h97-" + "the-new-passphrase-here"  # synthetic
-PRODUCTION_ENVS = ({}, {"TB_ENV": "PRODUCTION"})  # unset is PRODUCTION (D-127)
+PRODUCTION_ENVS: tuple[dict[str, str], ...] = ({}, {"TB_ENV": "PRODUCTION"})  # unset is PRODUCTION (D-127)
 
 
 def _pp(path: Path, text: str) -> Path:
