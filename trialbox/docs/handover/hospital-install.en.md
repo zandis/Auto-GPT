@@ -46,7 +46,7 @@ find out itself. If the screen and this page differ, the screen is right: tell t
 2. Type the code from the box's screen.
 3. Answer the questions on the page. A demonstration box never needs real patient data.
 4. If the page asks for a passphrase, the machine has no security chip. Choose one of at least 12 characters. Keep
-   it in a safe place: the box asks for it after every restart.
+   it in a safe place: the box asks for it after every restart. Type it only on this page, never in the terminal.
 5. Press "Make my accounts and finish". Wait a few minutes.
 6. The box's screen shows `TrialBox is ready:` and the address. Sign in with the account you just made.
 

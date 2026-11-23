@@ -111,14 +111,17 @@ step() {  # step <name> <fatal 0|1> <command...>
   [ "$fatal" = 1 ] && BLOCKED="$name"
   return 1
 }
-# Keep one synthetic KEK passphrase in this rehearsal process for the install and reinstall.
+# Keep one synthetic KEK passphrase in this rehearsal process for the install and reinstall. H-96 (F-45; the
+# integrator's ruling 7094934985): it reaches the box as a site gives it, in a file only root can read (written there
+# by docker exec's stdin: never an argument, never an environment), and install.sh reads it with --kek-passphrase-file
 rehearsal_passphrase="$(openssl rand -hex 24)" || exit 1
 in_box() {
-  local -a pass_env=()
   case "$1" in
-    install|reinstall) local -x TB_KEK_PASSPHRASE="$rehearsal_passphrase"; pass_env=(-e TB_KEK_PASSPHRASE) ;;
+    install|reinstall)
+      printf '%s\n' "$rehearsal_passphrase" \
+        | docker exec -i "$HOST_CT" sh -c 'umask 077 && cat > /root/rehearsal-kek.pass' || return 1 ;;
   esac
-  docker exec "${pass_env[@]}" -e TB_RH_VARIANT="$VARIANT" -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
+  docker exec -e TB_RH_VARIANT="$VARIANT" -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
   "$HOST_CT" bash "$W/run/box.sh" "$@"; }
 box_containers() { docker ps -q --filter label=com.docker.compose.project=trialbox; }
 
