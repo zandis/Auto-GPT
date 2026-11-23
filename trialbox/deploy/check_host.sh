@@ -222,7 +222,7 @@ KEK_PP="the KEK is under the passphrase back end (TB_KEK_BACKEND=passphrase), wh
 # H-96 (L-3 of the review of #1398; the integrator's ruling 7102655419): the back end only named (nothing sealed under
 # it yet) WARNs on a PoC box alone, as one line of the PoC list (D-1091: tools/trialbox/stops.py, where the box's
 # recorded environment decides, never a caller's variable); on any other box it is a FAIL
-poc_list() {  # KEY SKIPPED WHAT: 0 and one line of deploy/site/poc-stops.jsonl on a PoC box; else 1
+poc_list() {  # KEY SKIPPED WHAT: on a PoC box 0 with one line of deploy/site/poc-stops.jsonl, 2 when it cannot be written; else 1
   python3 - "$(cd "$(dirname "$0")/.." && pwd)" "$(dirname "$ENV_FILE")" "$@" <<'EOP' 2>/dev/null
 import sys
 from pathlib import Path
@@ -231,7 +231,7 @@ from tools.trialbox import stops
 deploy, key, skipped, what = Path(sys.argv[2]), *sys.argv[3:6]
 if not stops.poc_box(deploy):
     sys.exit(1)
-stops.append(deploy, f"check_host.sh/{key}", what, skipped, by="check_host.sh")
+sys.exit(0 if stops.append(deploy, f"check_host.sh/{key}", what, skipped, by="check_host.sh") else 2)
 EOP
 }
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
@@ -246,8 +246,12 @@ elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_sealed_pp; t
   else fail "$NO_TPM_SEALED: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) keeps them so. Action: $NO_TPM_ACTION"; fi
 elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
   NO_TPM_PP="no TPM device: $KEK_PP, but nothing is sealed under it yet; the disk unlock is not bound to this board"
-  if poc_list no-tpm "the TPM binding of the KEK" "$NO_TPM_PP"; then warn "$NO_TPM_PP (a PoC box: listed in deploy/site/poc-stops.jsonl)"
-  else fail "$NO_TPM_PP: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) goes on without a TPM"; fi
+  poc_list no-tpm "the TPM binding of the KEK" "$NO_TPM_PP"; NO_TPM_RC=$?
+  case "$NO_TPM_RC" in
+    0) warn "$NO_TPM_PP (a PoC box: listed in deploy/site/poc-stops.jsonl)" ;;
+    2) warn "$NO_TPM_PP (a PoC box: NOT listed, deploy/site/poc-stops.jsonl cannot be written)" ;;
+    *) fail "$NO_TPM_PP: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) goes on without a TPM" ;;
+  esac
 elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then
   # D-836: a device node is not enough; systemd-creds needs the TPM and its TSS2 libraries. Asked of the running host
   # only (a test's TB_HOST_ROOT has no kernel to ask)

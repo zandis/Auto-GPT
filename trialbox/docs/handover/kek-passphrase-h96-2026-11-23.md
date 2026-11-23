@@ -258,6 +258,15 @@ The review's mutation survivors each have a test now: a mode of 0400 or 0700, th
 a carriage return or a tab on stdin and in a file, `--kek-passphrase-fd` 0 to 2, box-install's passphrase options
 without `--answers`, and fd 8 left open (the invariant).
 
+**The second review (7105659968):** R2-1, tools.keys removes the file by the real path it read, not the path given
+(`test_tools_keys_removes_the_file_it_read_when_a_parent_link_is_repointed`; the shell's case:
+`test_seal_keys_removes_the_file_it_read_when_a_parent_link_is_repointed`); R2-2, the host check says when its PoC
+list line could not be written (`test_the_host_check_says_when_its_poc_list_line_was_not_written`); R2-3, a file
+that is not UTF-8 is a refusal line (`test_tools_keys_refuses_a_file_that_is_not_utf8_by_name`). The walk up to /
+itself (`test_the_shell_walks_up_to_the_root_folder_itself`, `test_tools_keys_walks_up_to_the_root_folder_itself`)
+and tools.keys' folder owner (`test_tools_keys_refuses_a_folder_owned_by_another_user`) are tested. Seven mutants on
+these points, seven caught.
+
 ## Files outside the card
 
 Named by the ruling but perhaps another lane's: `tools/keys.py` (rotation; bodies only, new options and the
