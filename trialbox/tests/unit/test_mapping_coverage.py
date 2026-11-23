@@ -49,12 +49,47 @@ def test_jp_synthetic_uses_the_japanese_routes(ref: mc.Reference) -> None:
     assert "yj" in report["by_domain"]["medication"]["routes"]
 
 
-def test_who_icd10_maps_only_where_icd10cm_has_the_same_code(ref: mc.Reference) -> None:
-    rows = _rows(("e119", "2型糖尿病", "icd-10"), ("E14.9", "糖尿病", "icd-10"), ("I64", "脳卒中", "icd-10"))
+def test_who_icd10_maps_by_the_same_code_then_the_shipped_table(ref: mc.Reference) -> None:
+    """D-314's same code first; then the shipped WHO-to-CM table, applied and reported "applied, not verified"
+    while its rows say ``verify`` (SDR2); a code in neither stays on the unmapped list."""
+    rows = _rows(("e119", "2型糖尿病", "icd-10"), ("E14.9", "糖尿病", "icd-10"), ("F01.8", "血管性認知症", "icd-10"))
     res = {r.local_code: r for r in (mc.check_code(x, ref) for x in rows)}
-    assert res["e119"].mapped and res["e119"].target_code == "E11.9"
-    assert not res["E14.9"].mapped and "no same ICD-10-CM" in res["E14.9"].reason
-    assert not res["I64"].mapped
+    assert res["e119"].mapped and res["e119"].target_code == "E11.9" and not res["e119"].unverified
+    assert res["E14.9"].mapped and res["E14.9"].target_code == "E11.9" and res["E14.9"].unverified
+    assert not res["F01.8"].mapped and "no row in the WHO-to-CM table" in res["F01.8"].reason
+    report = mc.coverage(rows, ref)
+    assert report["by_domain"]["diagnosis"]["applied_not_verified"] == 1
+    assert [u["local_code"] for u in report["unmapped"]] == ["F01.8"]
+    assert "applied, not verified: 1" in mc.render(report)
+
+
+def test_shipped_who_table_rows_are_icd10cm_codes_with_a_source(ref: mc.Reference) -> None:
+    """Every row of the reader's WHO-to-CM table: a WHO code ICD-10-CM lacks, an ICD-10-CM code that exists, a
+    relation and a public source; none claims to be verified yet."""
+    import csv
+
+    with mc.WHO_CM.open(encoding="utf-8", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    assert rows
+    for r in rows:
+        assert r["who"] not in ref.icd10cm, r
+        assert r["icd10cm"] in ref.icd10cm, r
+        assert r["relation"] in ("equivalent", "wider"), r
+        assert r["source"].startswith("ICD-10-CM Alphabetic Index"), r
+        assert r["verified"] == "verify", r
+
+
+def test_ssmix2_reader_takes_the_table_and_counts_the_rest(tmp_path: Path) -> None:
+    """The reader (lane B2's file, body only): same code, table code, or empty and counted in ``missed``."""
+    from adapter.sources.ssmix2.source import Ssmix2Source
+
+    src = Ssmix2Source(tmp_path, licensed={})
+    assert src._icd_columns("E11.9") == {"icd10": "E11.9", "icd10cm": "E11.9"}
+    assert src._icd_columns("E14.9") == {"icd10": "E14.9", "icd10cm": "E11.9"}
+    assert src._icd_columns("F01.8") == {"icd10": "F01.8", "icd10cm": ""}
+    assert src.stats["diagnosis:ICD-10-CM from the WHO-to-CM table (applied, not verified)"] == 1
+    assert src.stats["diagnosis:WHO ICD-10 with no ICD-10-CM"] == 1
+    assert src.missed["diagnosis:F01.8"] == 1
 
 
 def test_standard_codes_are_checked_too(ref: mc.Reference) -> None:

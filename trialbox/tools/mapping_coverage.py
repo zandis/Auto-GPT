@@ -164,11 +164,14 @@ def _csv_map(path: Path, key: str, value: str, system: str | None = None) -> dic
     return out
 
 
-WHO_CM = MAPPING / "jp_core" / "who_icd10_to_icd10cm.csv"  # lane B2's folder: absent until that card lands
+WHO_CM = MAPPING / "jp_core" / "who_icd10_to_icd10cm.csv"  # the SS-MIX2 reader's table (SDR2)
 
 
-def _shipped_who_cm() -> dict[str, tuple[str, str]]:
-    return _csv_map(WHO_CM, "who", "icd10cm", "icd-10-cm") if WHO_CM.exists() else {}
+def _verified_rows(path: Path) -> set[str]:
+    """The ``who`` codes of the table's rows marked ``verified`` ``yes``; the others are applied and reported apart."""
+    if not path.exists():
+        return set()
+    return {k for k, (_s, v) in _csv_map(path, "who", "verified").items() if v == "yes"}
 
 
 def _parquet_column(name: str, *cols: str) -> list[tuple[str, ...]]:
@@ -192,6 +195,7 @@ class Reference:
     nhi_drug: dict[str, tuple[str, str]]
     stems: dict[str, tuple[str, str]]
     who_cm: dict[str, tuple[str, str]]
+    who_cm_verified: set[str]
     icd10cm: set[str]
     departments: set[str]
     sources: dict[str, str]
@@ -218,7 +222,10 @@ class Reference:
             jlac10=_csv_map(jlac10, "local_code", "code"),
             byomei=_csv_map(byomei, "code", "icd10", "icd-10"),
             yj=_csv_map(yj, "yj_code", "atc", "atc"),
-            who_cm=_csv_map(who_icd10cm, "who", "icd10cm", "icd-10-cm") if who_icd10cm else _shipped_who_cm(),
+            who_cm=_csv_map(who_icd10cm or WHO_CM, "who", "icd10cm", "icd-10-cm")
+            if (who_icd10cm or WHO_CM).exists()
+            else {},
+            who_cm_verified=_verified_rows(who_icd10cm or WHO_CM),
             stems={
                 k.upper(): ("atc", v["atc"])
                 for k, v in refdata_jp.ingredient_atc(*([ingredient_atc] if ingredient_atc else [])).items()
@@ -263,6 +270,7 @@ class Result:
     target_system: str
     target_code: str
     reason: str  # why it does not map; empty when it maps
+    unverified: bool = False  # the map rests on a table row still marked ``verify`` (applied, reported apart)
 
     @property
     def mapped(self) -> bool:
@@ -318,6 +326,10 @@ def check_code(row: dict[str, str], ref: Reference) -> Result:
             cm = who_to_cm(who_icd10(found[1]), ref)
             if cm:
                 hit, route = ("icd-10-cm", cm[0]), (route if cm[1] == "same" else f"{route} + WHO-to-CM table")
+                if cm[1] == "table" and who_icd10(found[1]).upper() not in ref.who_cm_verified:
+                    r = done(route, *hit)
+                    r.unverified = r.mapped
+                    return r
             elif not site_target:
                 why = "no same ICD-10-CM code and no row in the WHO-to-CM table"
                 return Result(
@@ -449,6 +461,7 @@ def coverage(rows: list[dict[str, str]], ref: Reference, rulesets: Path = RULESE
             "unmapped": len(rs) - mapped,
             "percent": round(100.0 * mapped / len(rs), 1) if rs else None,
             "routes": dict(sorted(Counter(r.route for r in rs if r.mapped).items())),
+            "applied_not_verified": sum(r.unverified for r in rs),
             "systems": dict(sorted(Counter(r.system for r in rs).items())),
         }
     reached = {(r.target_system, r.target_code) for r in results if r.mapped}
@@ -472,6 +485,11 @@ def coverage(rows: list[dict[str, str]], ref: Reference, rulesets: Path = RULESE
         "codes": len(results),
         "mapped": sum(r.mapped for r in results),
         "by_domain": by_domain,
+        "applied_not_verified": [
+            {"domain": r.domain, "system": r.system, "local_code": r.local_code, "target_code": r.target_code}
+            for r in results
+            if r.unverified
+        ],
         "unmapped": [
             {
                 "domain": r.domain,
@@ -499,6 +517,10 @@ def render(report: dict[str, Any], title: str = "Mapping coverage") -> str:
         pct = "n/a (no list)" if v["percent"] is None else f"{v['percent']:.1f}%"
         routes = ", ".join(f"{k} {n}" for k, n in v["routes"].items()) or "-"
         out.append(f"  {d:<11} {v['mapped']:>5} / {v['codes']:<5} {pct:>14}   routes: {routes}")
+        if v.get("applied_not_verified"):
+            out.append(
+                f"  {'':<11} applied, not verified: {v['applied_not_verified']} (a table row still marked verify)"
+            )
     if report["unmapped"]:
         out.append(f"Not mapped ({len(report['unmapped'])}):")
         for u in report["unmapped"]:
