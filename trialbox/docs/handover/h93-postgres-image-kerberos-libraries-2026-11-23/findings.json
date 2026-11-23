@@ -3,7 +3,7 @@
  "title": "the Kerberos libraries in the PostgreSQL image",
  "date": "2026-11-23",
  "source": "docs/handover/h93-postgres-image-kerberos-libraries-2026-11-23.md",
- "note": "basis 'shown' means shown by the job log, the tree or the distribution's package lists read by the card; no image was built or scanned by the card.",
+ "note": "basis 'shown' means shown by the job log, the tree, the distribution's package lists or its security tracker, read by the card; no image was built or scanned by the card.",
  "findings": [
   {
    "id": "H93-01",
@@ -24,7 +24,7 @@
   {
    "id": "H93-03",
    "severity": "High",
-   "claim": "trixie-security has krb5 1.21.3-5+deb13u2; db.Dockerfile installs exact versions without an upgrade, so the image keeps the base's deb13u1, unlike python.Dockerfile, which upgrades",
+   "claim": "trixie-security has krb5 1.21.3-5+deb13u2; db.Dockerfile installs exact versions without an upgrade, so the image keeps the base's deb13u1, unlike python.Dockerfile, which upgrades; option 1 pins and holds the four at it (built for the go)",
    "lane": "H",
    "basis": "shown",
    "state": "open"
@@ -32,7 +32,7 @@
   {
    "id": "H93-04",
    "severity": "Low",
-   "claim": "that 1.21.3-5+deb13u2 fixes these 15 findings is inferred from the gate failing only on findings with a fixed version; no image was built or scanned with it",
+   "claim": "the security tracker lists all 14 CVE ids as fixed in trixie (security) 1.21.3-5+deb13u2 (DSA-6650-1); that the built image then passes the gate is not shown: no image was built or scanned by the card",
    "lane": "H",
    "basis": "not_run",
    "state": "open"
