@@ -139,6 +139,8 @@ as the ``trialbox-weights`` timer before the night's runs and an update after it
   profile (``deploy/gb10-profile.yaml``) puts on it, the link is the only port the Spark publishes and only on the
   link address (a gateway or any listener on 0.0.0.0 there is a FAIL), the link has its certificates, its peer and
   its route alias, and the Spark's memory limits are the profile's. WARN when the driver hold's re-test is past due.
+* ``poc_stop`` (H-94): with ``--env-file``, one WARN line per stop a PoC box's install, start or update warned instead
+  of stopping (``deploy/site/poc-stops.jsonl``, ``tools/trialbox/stops.py``), each with its action; never a FAIL.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -2301,7 +2303,18 @@ def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] =
             out.append(fn(inp))
         except Exception as e:  # fail closed: a check that cannot run is a failure
             out.append(Check(name, "FAIL", f"check error: {type(e).__name__}: {e}"))
-    return tls_old_clients(inp, host_profile(inp, out))
+    return poc_stops(inp, tls_old_clients(inp, host_profile(inp, out)))
+
+
+def poc_stops(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    """H-94 (the owner's ruling 7092087958): each stop a PoC box's install, start or update warned instead of
+    stopping (``deploy/site/poc-stops.jsonl``, ``tools/trialbox/stops.py``), as one WARN line with its action; a list
+    that cannot be read is a WARN line too, never a FAIL. Only with ``--env-file`` (the box's own deploy folder)."""
+    if inp.deploy is None:
+        return out
+    from tools.trialbox import stops
+
+    return [*out, *(Check(name, "WARN", detail) for name, detail in stops.doctor_lines(inp.deploy))]
 
 
 def ok(checks: list[Check]) -> bool:
