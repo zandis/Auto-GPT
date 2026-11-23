@@ -4,6 +4,7 @@ jobs with side effects are never re-run."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,16 @@ from tb_contracts import JobCreate, JobOutput
 from tests.inproc_box import Box, ingest_site, make_box
 
 KEY = b"trialbox-test-site-key-0123456789abcdef"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reimbursement_open() -> Iterator[None]:
+    """Card 9e-9: NAV, TWPAS and SUBMIT run only on a test box with reimbursement switched on; this module's box is."""
+    from orchestrator import reimbursement
+
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(reimbursement, "is_open", lambda *a, **k: True)
+        yield
 
 
 @pytest.fixture(scope="module")
