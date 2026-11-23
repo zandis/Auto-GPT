@@ -41,6 +41,10 @@ whose hash fails at its end is cut short and removed). Before it loads, the inst
 the free disk needed is that peak. A software pack whose model pack the box does not hold
 is refused before anything is loaded, naming the model pack's bundle id and manifest sha256. The release walked on
 2026-11-23 was 60.7 GB in one bundle; the bundle builder prints the two packs' sizes when it builds them.
+An update that changes the pair (a new model pack with a new software pack) loads the model pack first with the
+software pack named by `--for-software` (the update tool refuses a model pack that the software on the box does not
+name, unless the software pack loaded straight after it names it), then the software pack; the installer does this
+itself for a first install. An update of the software alone takes the software pack only.
 
 **One command** (H-22, D-996). The vendor hands over a USB stick with four files: the signed bundle
 `trialbox-<version>.tar` and its `.sha256`, and the bootstrap `trialbox-bootstrap.sh` and its `.sig`. The vendor key,
