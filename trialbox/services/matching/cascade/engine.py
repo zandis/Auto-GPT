@@ -1226,14 +1226,14 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
-        from matching.inferred import inferred  # D-985; local, beside the one rule that reads it
+        from matching.decision import inferred_exclusion  # D-985, the one rule every path reads (D-1266)
 
         quoted = str((span or {}).get("quote") or reply.quote or "")
-        if c.kind == "exclusion" and condition_present and inferred(quoted, c.text):
+        inferred_why = inferred_exclusion(c, condition_present, quoted)
+        if inferred_why:
             # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a drug, a
             # value, findings counted into one) is the models' inference (both agreed on four on jmed): a person looks
-            why = "inferred: the quote does not state the condition; review"
-            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
+            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=inferred_why)
         if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
             return Outcome(
                 c.id,

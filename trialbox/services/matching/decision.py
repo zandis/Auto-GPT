@@ -17,6 +17,11 @@ and the run may exclude on notes (:class:`Policy`). Otherwise a note "not met" s
 note "met" below the threshold, or with notes left out of what the models read (T-603), says ``unknown`` too. So a
 single model, a cut record or a low confidence can send a patient to review and can never take them off.
 
+D-985 (moved here by D-1266, review R22-16): a note "present" on an exclusion stands only on a quote that states the
+condition, never on a negated, family-history, rule-out or suspected quote, a drug, a value or findings counted into
+it. :func:`inferred_exclusion` is that test, the only copy: the cascade's S3 calls it, the v1 note verdict calls it
+and :func:`answer_of` reads it, so no path (v1, cascade, a stored row re-tiered) excludes on such a quote.
+
 The verdict of a structured criterion is T-652's table (:mod:`matching.verdict`): ``pass`` / ``fail`` / ``unknown``
 by kind and predicate, with a coded ``fail`` the only one that excludes on its own.
 
@@ -32,11 +37,15 @@ from typing import Any, Literal
 
 from tb_common.verdict_word import held_back
 
+from matching.inferred import inferred
+
 Answer = Literal["yes", "no", "unknown"]
 Basis = Literal["coded", "pair", "single", "person"]
 #: the reason code of a note answer that the notes did not fit (T-603): flagged, a person looks
 NOTES_OVER_BUDGET = "notes_over_budget"
 TIERS = ("high", "review", "excluded")
+#: D-985: why an exclusion's "present" on a quote that does not state the condition is not an answer: a person looks
+INFERRED = "inferred: the quote does not state the condition; review"
 
 
 @dataclass(frozen=True)
@@ -81,6 +90,20 @@ def basis_of(criterion: Any, verdict: Any, pair: bool) -> Basis | None:
     return "coded"
 
 
+def inferred_exclusion(criterion: Any, condition_present: bool, quote: str | None) -> str | None:
+    """D-985, the one rule of every path: :data:`INFERRED` when a note answer says an exclusion's condition is
+    present on a quote that does not state it (negated, a relative's, ruled out, suspected, a drug, a value), else
+    None. The quote is the verified span, never the model's reason; the criterion is its text only."""
+    if getattr(criterion, "kind", None) != "exclusion" or not condition_present:
+        return None
+    return INFERRED if inferred(str(quote or ""), str(getattr(criterion, "text", "") or "")) else None
+
+
+def _quote(verdict: Any) -> str:
+    ev = verdict.evidence
+    return str(ev.quote or "") if ev is not None else ""
+
+
 def _confidence(verdict: Any) -> float:
     ev = verdict.evidence
     return float(ev.confidence) if ev is not None and ev.confidence is not None else 1.0
@@ -108,6 +131,8 @@ def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
     # a caller that states no basis (a tool, a test of the evaluator) and a list published before the field. A
     # stored pool row never reaches here so: MICROBATCH stamps ``final: false`` on it first (D-476 rule 3).
     may_exclude = policy.note_block and sure and basis in (None, "pair") and held_back(verdict) is None
+    if may_exclude and _quote(verdict) and inferred_exclusion(criterion, True, _quote(verdict)):
+        return "unknown"  # D-985: a quote that does not state the condition never excludes (D-1266: on every path)
     return "no" if may_exclude else "unknown"
 
 
