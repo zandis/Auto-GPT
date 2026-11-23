@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -311,7 +312,7 @@ def test_a_night_marks_a_diagnosis_that_rests_on_an_unverified_who_row(tmp_path:
     }
     verify = {"system": BASIS, "code": VERIFY_BASIS}
 
-    def cm(r: dict) -> list[str]:
+    def cm(r: dict[str, Any]) -> list[str]:
         return [c["code"] for c in r["code"]["coding"] if c["system"] == mc.TARGETS["icd-10-cm"]]
 
     assert cm(by_who["F00.1"]) == ["G30.9"] and verify in by_who["F00.1"]["meta"]["tag"]
@@ -319,3 +320,48 @@ def test_a_night_marks_a_diagnosis_that_rests_on_an_unverified_who_row(tmp_path:
     assert cm(by_who["F01.8"]) == []
     reader = json.loads((nd / "reader.json").read_text(encoding="utf-8"))
     assert reader["unmapped"]["diagnosis"] == [{"code": "F01.8", "count": 1}]
+
+
+@pytest.mark.parametrize(
+    ("ruleset", "crit_id", "cm_reads"),
+    [("GZQO", "GZQO-EXC-01", False), ("GOUT-COH", "GOUT-COH-INC-07", True)],
+)
+def test_e14_stays_unknown_on_the_shipped_diabetes_criteria_never_false(
+    tmp_path: Path, ruleset: str, crit_id: str, cm_reads: bool
+) -> None:
+    """D-1270's guard (ruling on #639 7103442261): E14.9 has no WHO-to-CM row, so the reader gives it no ICD-10-CM
+    code, and the shipped criterion (its own IR and value sets, compiled) reads it unknown, never false: neither the
+    type 1 exclusion (GZQO-EXC-01) nor the type 2 inclusion (GOUT-COH-INC-07). An E11.9 record decides both."""
+    from datetime import date
+
+    import duckdb
+    from adapter.sources.ssmix2.source import Ssmix2Source
+    from criteria_compiler.compile_sql.generator import SqlGenerator
+    from criteria_compiler.terminology.mapper import Terminology, ValueSets
+    from tb_contracts import CriterionIR
+
+    assert Ssmix2Source(tmp_path, licensed={})._icd_columns("E14.9") == {"icd10": "E14.9", "icd10cm": ""}
+    base = mc.RULESETS / ruleset
+    crit = CriterionIR.model_validate(json.loads((base / "ir" / f"{crit_id}.json").read_text(encoding="utf-8")))
+    by_name = {
+        vs["name"]: vs
+        for vs in (json.loads(f.read_text(encoding="utf-8")) for f in sorted((base / "valuesets").glob("*.json")))
+    }
+    sql = SqlGenerator(ruleset, "1.0.0", ValueSets(ruleset, by_name, Terminology())).render([crit])
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)"
+    )
+    con.execute(
+        "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, system VARCHAR, code VARCHAR, onset DATE, recorded DATE)"
+    )
+    who = "http://hl7.org/fhir/sid/icd-10"
+    pts = {"who_e14": (who, "E14.9"), "cm_e11": (mc.TARGETS["icd-10-cm"], "E11.9")}
+    for i, (pid, (sy, code)) in enumerate(pts.items()):
+        con.execute("INSERT INTO patient VALUES (?, DATE '1960-01-01', 'male', NULL, NULL)", [pid])
+        con.execute("INSERT INTO condition VALUES (?, ?, ?, ?, DATE '2025-01-01', NULL)", [pid, f"c{i}", sy, code])
+    rows = con.execute(sql, [[date(2026, 1, 1).isoformat()], list(pts)]).fetchall()
+    cols = [d[0] for d in con.description]
+    got = {dict(zip(cols, r, strict=True))["pid"]: dict(zip(cols, r, strict=True))[f"C_{crit_id}"] for r in rows}
+    assert got["who_e14"] is None  # unknown, never false
+    assert got["cm_e11"] is cm_reads
