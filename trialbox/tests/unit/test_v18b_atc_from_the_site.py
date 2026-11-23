@@ -98,3 +98,38 @@ def test_the_fhir_store_carries_atc_only_from_the_sites_copy(tmp_path: Path) -> 
     src = next(s for s in fc.SOURCES if s.key == "atc")
     got = fc.pick(src, tmp_path / "nothing", [])
     assert isinstance(got, str)  # nothing to load: absent, a line of needed.jsonl and no fault (D-1182)
+
+
+def test_a_partial_site_copy_never_takes_a_code_from_a_grouper(bare: Terminology, site: Terminology) -> None:
+    """Review F1: each code is looked up in order (the site's copy, the NHI lists' ATC column, the grouper itself),
+    so a copy that lacks a code (older, or cut to a formulary) leaves every grouper its codes; ``atc_gaps`` names the
+    codes the copy does not hold."""
+    names = sorted({(str(s["domain"]), str(s["name"])) for s in bare.synonyms if s["table"] == "atc"})
+    lost = {n: sorted({c.code for c in bare.map(d, n).concepts} - {c.code for c in site.map(d, n).concepts})
+            for d, n in names}  # fmt: skip
+    assert {n: codes for n, codes in lost.items() if codes} == {}
+    gaps = site.atc_gaps()
+    assert gaps["anticoagulant"] == ["B01AA03", "B01AE07", "B01AF01", "B01AF02", "B01AF03"]
+    assert "urate-lowering therapy" not in gaps  # the copy holds all three
+    assert bare.atc_gaps() == {}
+
+
+NHI_HEAD = ("異動,藥品代號,藥品英文名稱,藥品中文名稱,成分,規格量,規格單位,單複方,支付價,有效起日,有效迄日,藥商,製造廠名稱,"
+            "劑型,藥品分類,分類分組名稱,ATC代碼,給付規定章節,藥品代碼超連結,給付規定章節連結")  # NHIA's layout  # fmt: skip
+
+
+@pytest.mark.parametrize(("name", "code"), [("hydroxychloroquine", "P01BA02"), ("isoniazid", "J04AC01"),
+                                            ("metformin", "A10BA02"), ("sulfasalazine", "A07EC01"),
+                                            ("warfarin", "B01AA03")])  # fmt: skip
+def test_the_nhi_drug_list_brings_back_a_name_the_shipped_table_answered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, code: str
+) -> None:
+    """Review: the five drug names H-17 lost without the shipped table answer again on a box that loaded the NHI drug
+    list (its ingredient column, open data), for review; with committed data alone they stay unmapped."""
+    monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")
+    row = f",ZZ00000100,SYNTHETIC,合成,{name.upper()} 100 MG,,,單方,1.00,1100101,1991231,,,錠,,,{code},,,"
+    (tmp_path / "d.csv").write_text(NHI_HEAD + "\n" + row + "\n", encoding="utf-8")
+    installed.install_nhi_drugs(tmp_path / "d.csv", tmp_path / "t")
+    got = Terminology(installed=tmp_path / "t").map("medication", name)
+    assert got.method == "loaded" and got.needs_review and [c.code for c in got.concepts] == [code]
+    assert Terminology(installed=tmp_path / "nothing").map("medication", name).method == "none"

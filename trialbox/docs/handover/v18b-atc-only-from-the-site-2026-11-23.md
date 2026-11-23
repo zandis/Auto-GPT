@@ -20,7 +20,14 @@ Now:
   When the site's `atc_index` is loaded, a substance whose name no other substance shares takes the shipped table's
   place in the exact-name step (so the Japanese dictionary reaches it, as before), reported with the method
   `loaded`; a name several codes share still answers for review (TERM-2, D-1113).
-- `Terminology.atc_source()` is the one source of ATC rows for the groupers:
+- `Terminology.atc_source()` looks each ATC code up in order (review F1): the site's copy names it; else the NHI
+  drug lists' ATC column holds it; else TrialBox's own grouper names it. So a site copy that lacks a code (older, or
+  cut to a formulary) never takes a code from a grouper: shown with a one-substance copy, every grouper keeps the
+  codes it has with no copy. `Terminology.atc_gaps()` lists, per grouper, the codes the site's copy does not hold.
+- The five drug names H-17 lost (hydroxychloroquine, isoniazid, metformin, sulfasalazine, warfarin) answer again on
+  a box that loaded the NHI drug list: its ingredient column, for review (method `loaded`). With committed data
+  alone they stay unmapped, for review.
+- Before F1, `Terminology.atc_source()` was the one source of ATC rows for the groupers:
   - the site's `atc_index` (its level-5 substances);
   - else codes only: the ATC column of the NHI drug lists and the exact codes of TrialBox's own groupers, named
     with the NHI ingredient when there is one, else with the code.
@@ -86,6 +93,12 @@ So:
 ## Not in this card
 
 - The ATC concepts an existing box loaded from the shipped table stay in `omop.concept` (V18b-01).
+- Review F3: a fresh box writes no "TB has ATC" relationships from the NHI drug codes into the vocabulary
+  (`omop.vocab_load.load_terminology` relates an NHI code only to an ATC concept of the shipped tables, and none
+  ships). Its ATC concepts come only from the site's `atc_index`, as a code list (`load_code_list`), which carries
+  no such relationship. No reader of those relationships was found.
+- Review F4: a shipped ValueSet names an ATC member by its code (`"display": "L04AB01"`); a view that prints members
+  shows codes, unless it names them from the site's copy or the NHI list.
 - Real ATC/DDD index releases: only the synthetic index the tests write was loaded.
 
 ## Run, and not run

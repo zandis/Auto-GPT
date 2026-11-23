@@ -18,8 +18,8 @@
      A substance whose name no other substance of the index shares answers the exact-name step (and the dictionary
      through it), as the shipped table did, with the method `loaded`; a name several codes share answers for review,
      as TERM-2 decided (D-1113);
-   - else, codes only, as identifiers (D-536): the ATC column of the NHI drug lists (open data, D-1127) and the codes
-     TrialBox's own groupers (`src/synonyms.csv`) name. Such a code's name is the NHI ingredient when there is one, else
+   - else, per code (a site copy that lacks a code included), codes only, as identifiers (D-536): the ATC column of
+     the NHI drug lists (open data, D-1127), then the codes TrialBox's own groupers (`src/synonyms.csv`) name. Such a code's name is the NHI ingredient when there is one, else
      the code itself. A WHOCC name never reaches a reader without the site's copy;
    - else nothing: a drug named only in the WHOCC index is unmapped, and the FHIR store's ATC is a line of the
      "information still needed" page (D-1182 point 3).
@@ -44,4 +44,6 @@
 - A box that loaded the vocabulary from the shipped table before this keeps those ATC concepts, with their WHOCC
   names, in `omop.concept`: a load never removes a concept. The attribute rows `term:atc` are emptied on the next
   load, so the compiler no longer reads them (finding V18b-01).
+- A fresh box writes no "TB has ATC" relationships from the NHI drug codes into the vocabulary: none relates to a
+  shipped ATC concept, and the site's copy loads as a code list without them.
 - A terminology change costs the store's restart (38 s on the test machine) during which the store does not answer.

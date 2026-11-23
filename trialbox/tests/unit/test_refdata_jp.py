@@ -420,7 +420,10 @@ def _site_atc(tmp: Path) -> Path:
     copy: the dictionary's drug names, each under a made-up code (Z99, a group ATC does not have)."""
     from criteria_compiler.terminology import installed
 
-    names = sorted({r["canonical"] for r in jp.parse_ja_synonyms(jp.REPO_SYNONYMS) if r["domain"] == "medication"})
+    # a substance name only: TrialBox's own groupers (urate-lowering therapy, colchicine, ...) answer theirs themselves
+    groupers = {str(s["name"]) for s in Terminology().synonyms if s["table"] == "atc"}
+    names = sorted({r["canonical"] for r in jp.parse_ja_synonyms(jp.REPO_SYNONYMS)
+                    if r["domain"] == "medication" and r["canonical"] not in groupers})  # fmt: skip
     src = tmp / "atc.tsv"
     src.write_text("ATC code\tATC level name\n" + "".join(f"Z99AA{i:02d}\t{n}\n" for i, n in enumerate(names, 1)),
                    encoding="utf-8")  # fmt: skip

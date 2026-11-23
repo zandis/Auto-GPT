@@ -422,16 +422,19 @@ class Terminology:
         return Concept(SYSTEMS[table], r["code"], r["display"])
 
     def atc_source(self) -> list[dict[str, Any]]:
-        """V-18b (D-1183): ATC is never shipped (WHOCC, permission to ask). Its rows come from the site's own copy
-        (``atc_index``) when loaded; else codes only, as identifiers (D-536): the NHI drug lists' ATC column (open
-        data) and the codes TrialBox's own groupers name, each with the NHI ingredient as its name when there is one,
-        else the code. Never a WHOCC name."""
-        if self.atc_rows:  # its substances (level 5); a group is a family, never a member
-            return [r for r in self.atc_rows if len(str(r["code"])) == 7]
+        """V-18b (D-1183): ATC is never shipped (WHOCC, permission to ask). Each code is looked up in order: the site's
+        own copy (``atc_index``, its substances, level 5) names it; else the NHI drug lists' ATC column (open data)
+        holds it, named by the NHI ingredient when there is one; else TrialBox's own groupers name it, as the code
+        itself (D-536). So a site copy that lacks a code (older, or cut to a formulary) never takes a code from a
+        grouper; ``atc_gaps`` lists those codes. Never a WHOCC name without the site's copy."""
         named: dict[str, str] = {}
+        for r in self.atc_rows:  # a group is a family, never a member
+            if len(str(r["code"])) == 7:
+                named[str(r["code"])] = str(r["display"])
+        site = set(named)
         for r in [*self.rows.get("nhi_drug", []), *self.nhi_atc]:
             code = str(r.get("atc") or "")
-            if len(code) == 7:
+            if len(code) == 7 and code not in site:
                 ing = str(r.get("ingredient") or "")
                 if ing or code not in named:
                     named[code] = ing or code
@@ -439,6 +442,21 @@ class Terminology:
             if s["table"] == "atc" and s["match"] == "exact":
                 named.setdefault(str(s["code"]), str(s["code"]))
         return [{"code": c, "display": d} for c, d in sorted(named.items())]
+
+    def atc_gaps(self) -> dict[str, list[str]]:
+        """V-18b review F1: each grouper's ATC codes that the site's own copy does not hold (they come from the NHI
+        lists or the grouper itself); empty when no copy is loaded or the copy holds them all."""
+        if not self.atc_rows:
+            return {}
+        site = {str(r["code"]) for r in self.atc_rows}
+        out: dict[str, list[str]] = {}
+        for s in self.synonyms:
+            if s["table"] != "atc":
+                continue
+            for c in self.expand("atc", str(s["code"]), str(s["match"])):
+                if c.code not in site and c.code not in out.get(str(s["name"]), []):
+                    out.setdefault(str(s["name"]), []).append(c.code)
+        return {k: sorted(v) for k, v in sorted(out.items())}
 
     def concept(self, system: str, code: str) -> Concept | None:
         return self._by_code.get((system, code))
