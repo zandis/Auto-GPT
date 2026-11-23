@@ -52,7 +52,7 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, dict[str
     deploy = tmp_path / "deploy"
     (deploy / "secrets").mkdir(parents=True)
     logs = tmp_path / "logs"
-    lines = ["TB_TZ=Asia/Taipei", f"TB_LOG_DIR={logs}", f"TB_AUDIT_HOST_DIR={tmp_path / 'audit'}"]
+    lines = ["TB_TZ=Asia/Taipei", "TB_ENV=TEST", f"TB_LOG_DIR={logs}", f"TB_AUDIT_HOST_DIR={tmp_path / 'audit'}"]
     lines += [f"{name}={value}" for name, value in values.items() if name != "TB_KEK_PASSPHRASE"]
     lines.append(f'TB_KEK_NEW_PASSPHRASE_QUOTED="{values["TB_KEK_NEW_PASSPHRASE"]}"')  # quoted, under another name
     (deploy / ".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -153,7 +153,8 @@ def _one_box(tmp_path: Path, env_lines: str, monkeypatch: pytest.MonkeyPatch) ->
     deploy = tmp_path / "deploy"
     (deploy / "secrets").mkdir(parents=True)
     (deploy / ".env").write_text(  # the box's own folders, never the host's (a CI runner has /var/lib/docker)
-        f"TB_TZ=Asia/Taipei\nTB_LOG_DIR={tmp_path / 'logs'}\nTB_AUDIT_HOST_DIR={tmp_path / 'audit'}\n" + env_lines,
+        f"TB_TZ=Asia/Taipei\nTB_ENV=TEST\nTB_LOG_DIR={tmp_path / 'logs'}\nTB_AUDIT_HOST_DIR={tmp_path / 'audit'}\n"
+        + env_lines,
         encoding="utf-8",
     )
     (deploy / "settings.yaml").write_text('mrn_regex: "^\\\\d{8}$"\n', encoding="utf-8")
