@@ -466,7 +466,7 @@ def test_install_sh_hands_its_systemd_folder_to_backup_install() -> None:
 def test_the_systemd_host_line_comes_before_the_backup_step() -> None:
     step = INSTALL.index("python3 -m tools.trialbox backup-install --deploy deploy")
     before = INSTALL[INSTALL.rindex("\n# H-92", 0, step) : step]
-    assert '[ "$SYSTEMD_HOST" = 1 ] && command -v python3 >/dev/null && CAN_CRON=1\n' in before, before
+    assert '[ "${SYSTEMD_HOST:-0}" = 1 ] && command -v python3 >/dev/null && CAN_CRON=1\n' in before, before
 
 
 def test_a_timer_enabled_but_not_running_reads_as_stopped(monkeypatch: pytest.MonkeyPatch) -> None:

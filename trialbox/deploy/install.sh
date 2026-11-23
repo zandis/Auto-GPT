@@ -1143,7 +1143,7 @@ fi
 # TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page, D-735); `trialbox
 # doctor` then checks the backup's age and its off-box target
 # H-92: on a systemd host backup-install writes the schedule as timers: no /etc/cron.d (no cron package) needed
-[ "$SYSTEMD_HOST" = 1 ] && command -v python3 >/dev/null && CAN_CRON=1
+[ "${SYSTEMD_HOST:-0}" = 1 ] && command -v python3 >/dev/null && CAN_CRON=1
 if [ "$CAN_CRON" = 1 ]; then
   say "backups: cron, WAL archiving, first backup"
   set +e
