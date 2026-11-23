@@ -74,8 +74,9 @@ volumes and folders are removed, never the disks. RUNBOOK §20 is English only.
 
 ## The refusal on a proof-of-concept box
 
-Under the owner's ruling 7092087958 a PoC box stops for four things only. This refusal protects a key and stands on
-every box, a PoC box too: RUNBOOK §16 and §23 say so. The lane H lead asks the integrator to confirm it.
+The integrator confirmed it (7095256773): a secret read from or written to a place others can read is the PoC
+list's fifth stop, and this card's refusals are that stop. They stay dies on every box and are marked "H-94 (5)"
+where they stop; install.sh's six are rows of the H-94 inventory (docs/handover/poc-stops-h94-2026-11-23.md).
 
 ## Where the passphrase still lives
 
@@ -185,32 +186,103 @@ Each asserted or set up the environment form; each now uses the file or stdin fo
 10. `tests/unit/test_key_ceremony.py::test_a_passphrase_box_gets_a_record_marked_not_a_site_ceremony`
 11. tests/console/test\_box\_install\_rehearsal.py::test\_without\_a\_tpm\_the\_passphrase\_comes\_from\_the\_environment\_never\_the\_file,
     renamed `..._comes_from_a_root_only_file_never_the_environment` (the environment form now refused, exit 2)
-12. tests/unit/test\_host\_baseline.py::test\_no\_tpm\_fails\_unless\_the\_passphrase\_back\_end\_is\_chosen\[extra1-file-FAIL],
-    now `[extra1-file-WARN]` (the back end alone chooses the WARN; the passphrase is not read there)
+12. tests/unit/test\_host\_baseline.py::test\_no\_tpm\_fails\_unless\_the\_passphrase\_back\_end\_is\_chosen: in the
+    form the integrator ruled (7102655419, L-3): a host with no TPM and the back end only named (nothing sealed
+    under it) is a FAIL on PRODUCTION (rows 2 and 4, master's FAIL and WARN) and, on a TEST box, a WARN with
+    exactly one line of `deploy/site/poc-stops.jsonl` (a new row); no row is listed on PRODUCTION. The test gained
+    the box's environment as a parameter
 13. `tests/unit/test_rehearsal_workflow.py::test_validation_settings_reach_the_installer`
 14. `tests/unit/test_nightly_restic.py::test_a_passphrase_kek_and_no_kek_are_not_covered` (its set-up)
 15. `tests/unit/test_restic_password.py::test_a_passphrase_kek_has_no_shares_and_gets_no_copy` (its set-up)
+
+## The review round (7102655010; the integrator's ruling 7102655419)
+
+**M-1 (Medium): the file was checked by its name and its folder never.** Now, in the shared KEK-INPUT block (the three
+copies stay one) and in tools.keys:
+- the file's folders, as their real paths (`cd -P`/`pwd -P`; `os.path.realpath`): the file's own folder and every
+  folder above it up to `/` must be owned by root (the user that runs this) and writable by no one else; above the
+  file's own folder a shared folder with the sticky bit is allowed (`/tmp`: no one else can rename what is root's
+  there), the file's own folder never;
+- the file is opened once and checked on that open file: in the shell `exec 7<` then `stat -L /dev/fd/7` (type,
+  owner, mode, number of names, device and inode) and read with `read <&7`, the rest counted with `wc -c <&7`; the
+  shell cannot open without following a link, so the name must still be that very file (`stat` of the name: not a
+  link, the same device and inode). No python3 helper was needed: `/dev/fd/7` is the open file, not the name.
+  tools.keys opens with `O_NOFOLLOW` and checks with `fstat` (type, owner, mode 0600, `st_nlink == 1`);
+- the file is removed with `rm -f` (unlink: a link is taken away, never what it names), never `shred`;
+- the value is read once per script: install.sh reads the file in its first run and hands the value to the run from
+  the signed release at fd 8 with the file's real path for removal only (`--kek-passphrase-remove`, the installer's
+  own), and to the seal step on stdin; install.sh removes the file once the keys are sealed. box-install.sh checks the
+  file and passes its real path to install.sh (L-1); seal_keys.sh run alone reads it itself.
+
+**The race, as the review ran it:** `test_kek_passphrase_review_h96.py::test_the_swap_race_never_reads_another_value_in_the_shell`
+and `..._in_tools_keys` exchange the file's name (renameat2 RENAME_EXCHANGE, in a loop) with another value while the
+real code reads it. Shell, 300 reads: in a folder others can write, 0 accepted (300 refused); in a 0700 folder with a
+link swapped in, 0 accepted the other value (34 the operator's, 266 refused). tools.keys, 3000 reads: 0 and 0 of 3000;
+0 accepted the other value (1178 the operator's, 1822 refused). The link at removal:
+`test_a_link_at_removal_is_taken_away_never_what_it_names` (the file a link names keeps every byte) and
+`test_seal_keys_refuses_a_file_in_a_folder_others_can_write_and_touches_nothing`. Root-owned folders of another uid
+are not built by the tests (they run as a user, as CI does); a folder others can write stands for it.
+
+**L-1 (Low): fd 8 in the file form.** box-install.sh opens fd 8 only for a passphrase from stdin and keeps no copy of a
+file's value (`test_box_install_opens_fd_8_only_for_a_passphrase_from_stdin` [file, stdin]); the invariant now also
+asserts no child of the run from the signed release holds fd 8 open.
+
+**L-2 (Low): the environment form outside the named paths** (`libs/tb_common/kek.py` `load_kek`,
+`tools/trialbox/audit_heads.py` `PASSED`, `tools/trialbox/backup_schedule.py`) is not this card's: it goes to card
+H-97 (the integrator's ruling 7102655419).
+
+**L-3 (Low), ruled:** deploy/check_host.sh: no TPM with the back end only named is a WARN and one line of the PoC list
+on a PoC box (through tools/trialbox/stops.py, where the box's recorded environment decides, never a caller's
+variable), a FAIL on every other box; keys already sealed under the passphrase stay a WARN, not listed (master's row).
+Changed assertion 12 is in that form.
+
+**Also:** a uid with no passwd entry (getent exits 2 under pipefail) no longer stops the install: the one-time values
+are then not kept, and a warning says how to get new ones
+(`test_one_time_values_h96.py::test_with_no_terminal_and_no_passwd_entry_nothing_is_kept_and_the_install_goes_on`).
+**Found by the rehearsal after the merge of master (H-94 part 1):** install.sh's host check step tees its output to
+/dev/fd/8; when the install's output is a file (box-install.sh's install.log, the rehearsal's step log) that is the
+same file opened again, and `tee` without `-a` emptied it, so every line before the host check was lost (here the line
+naming the one-time values' file, so the rehearsal's check failed). Now `tee -a`
+(`test_kek_passphrase_review_h96.py::test_the_host_check_step_keeps_what_the_install_wrote_before_it_in_a_log_file`,
+which fails without `-a`). The line is H-94's; it is named under the files outside the card.
+
+**Mutants (the review round):** 26 planted (the shared block's changed in all three copies alike), 25 caught: the
+folder checks (writable, sticky own folder, the walk up, the owner; shell and tools.keys), one name, the
+name-and-descriptor comparison, a read by the name again, shred again, the rest of the file, the opened file's owner,
+O_NOFOLLOW, the mode, the files removed after a failure, control characters, fd 8 left open, fd 0-9, the file kept
+after sealing, box-install's fd 8 and --answers, check_host's FAIL and its list line, and getent's exit. One
+survived and is equivalent: the shell's "is a link" case after the open (the check before the open and the
+name-and-descriptor comparison each refuse a link already).
+
+The review's mutation survivors each have a test now: a mode of 0400 or 0700, the files kept after a failed rotation,
+a carriage return or a tab on stdin and in a file, `--kek-passphrase-fd` 0 to 2, box-install's passphrase options
+without `--answers`, and fd 8 left open (the invariant).
 
 ## Files outside the card
 
 Named by the ruling but perhaps another lane's: `tools/keys.py` (rotation; bodies only, new options and the
 refusal), `tools/network_sheet.py`. Not named by the ruling: `deploy/check_host.sh` (it read `TB_KEK_PASSPHRASE`),
 `docs/runbook/23-key-inventory-and-the-lost-box-list.md` (the rotation section), `docs/security/10-key-ceremony-and-escrow.md`
-(it showed the environment form for rotation), and the tests of the list above outside lane H's own files.
+(it showed the environment form for rotation), and the tests of the list above outside lane H's own files. In the
+review round: `docs/handover/poc-stops-h94-2026-11-23.md` (six rows of install.sh's H-96 stops, kept (5): the
+inventory's count must match the marks), `tests/unit/test_host_baseline.py` (assertion 12, ruled), and in install.sh
+H-94's host check line (`tee -a`, above).
 
 ## Findings
 
-In `kek-passphrase-h96-2026-11-23/findings.json` (H96-01 to H96-10): the fault itself (High), the runbook tool's
+In `kek-passphrase-h96-2026-11-23/findings.json` (H96-01 to H96-14): the fault itself (High), the runbook tool's
 `-e` on docker exec's command line, the boxes installed before H-96, rc1's refusal of rotate-kek on a PRODUCTION box,
 the passphrase's place in a container's environment, the unit invariant's cut, an old test's name, the one-time
-values in the install log (High), the first-run code in the journal and /etc/issue.d, and the rehearsal artifacts.
+values in the install log (High), the first-run code in the journal and /etc/issue.d, the rehearsal artifacts, and the review round's M-1, L-1,
+L-2 (card H-97) and L-3.
 
 ## Questions
 
-1. The rotation page is a new section of §23, not a page of its own number (a RUNBOOK number needs the integrator's
-   row). Does the integrator want its own number?
-2. rc1 refuses rotate-kek on a PRODUCTION box (H96-04): may a PRODUCTION box whose passphrase was exposed rotate it
-   under rc1, or is it made again?
-3. `test_installers_reject_passphrase_file_input` (H96-07): rename or retire it under this ruling?
-4. The first-run code under `trialbox-firstrun.service` is in the journal and in a world-readable `/etc/issue.d/`
-   file (H96-09): change the unit to show it on the console only, in this card or a card of its own?
+1. Answered (7101844662): the rotation section of RUNBOOK §23 is enough.
+2. Answered (7101844662): yes, a PRODUCTION box with an exposed passphrase may run rotate-kek under rc1 (D-1092),
+   audited, file or stdin only; the change is card H-97's, not this card's.
+3. `test_installers_reject_passphrase_file_input` (H96-07): rename or retire it under this ruling? (waits)
+5. L-3: the ruling's words "a host with no TPM may WARN only outside PRODUCTION" read generally would also make a
+   PRODUCTION box whose keys are already sealed under the passphrase a FAIL (master's row, kept a WARN here). This card
+   read it as assertion 12's case (the back end only named); does the integrator want the general form?
+4. Answered (7101844662): the first-run code (H96-09) is card H-97's.

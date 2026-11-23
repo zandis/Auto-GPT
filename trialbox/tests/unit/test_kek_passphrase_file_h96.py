@@ -50,10 +50,12 @@ exec env "$@"
 """
 PY3 = f"""#!/bin/sh
 {{ printf 'ARGV=%s\\n' "$*"; env | sed 's/^/ENV=/'; }} >> "$TB_ARGS_LOG"
+[ ! -e /proc/self/fd/8 ] || echo "FD8=open" >> "$TB_ARGS_LOG"
 exec {sys.executable} "$@"
 """
 DOCKER = r"""#!/bin/sh
 echo "$*" >> "$TB_TEST_LOG"
+[ ! -e /proc/self/fd/8 ] || echo "FD8=open" >> "$TB_TEST_LOG"
 case "$1 $2" in
   "volume ls") exit 0 ;;
   "version --format") echo 27.0; exit 0 ;;
@@ -81,7 +83,7 @@ def _write_pp(path: Path, text: str = PHRASE + "\n", mode: int = 0o600) -> Path:
 def _signed_copy(text: str) -> str:
     head, rest = text.split(CUT_START, 1)
     rest = rest[rest.index(CUT_END) :]
-    after = '[ -z "$PP_FILE" ] || echo "    the KEK passphrase file $PP_FILE was not used'
+    after = '[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used'
     i = rest.index("\n", rest.index(after)) + 1
     return head + CUT_IN + rest[:i] + f'echo "{SEALED}"; exit 0\n'
 
@@ -141,6 +143,8 @@ def test_no_passphrase_in_a_sudo_log_an_argument_or_an_environment_through_the_s
     for name, text in {**logs, "output": out}.items():
         assert PHRASE not in text, f"the passphrase is in {name}"
     assert "TB_KEK_PASSPHRASE=" not in logs["args.log"] + logs["sudo.log"]
+    # the hand-on at fd 8 is read and closed by the run from the signed release: no child of it holds it open
+    assert "FD8=open" not in logs["args.log"] + logs["docker.log"]
     env_file = b.deploy / ".env"  # type: ignore[attr-defined]
     assert not env_file.exists() or PHRASE not in env_file.read_text(encoding="utf-8")
     meta = K.read_meta(tmp_path / "secrets")

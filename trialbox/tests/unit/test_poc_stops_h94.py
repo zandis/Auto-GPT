@@ -157,6 +157,7 @@ def kept_counts(text: str) -> dict[str, int]:
 #: converted points a PoC run cannot reach, and why (each is still converted: it calls the helper, which stops on
 #: PRODUCTION; the PRODUCTION twins cover them)
 NOT_DRIVEN = {
+    "seal-keys": "root only (the step before it is kept refusal 4 for a user)",
     "early-env": "an environment that is none of the four is a box that cannot be told: the helper always stops",
     "wizard-env": "an environment that is none of the four is a box that cannot be told: the helper always stops",
     "environment-value": "an environment that is none of the four is a box that cannot be told: the helper always stops",

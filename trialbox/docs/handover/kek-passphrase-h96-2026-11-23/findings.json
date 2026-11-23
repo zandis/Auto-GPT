@@ -93,6 +93,42 @@
    "basis": "hypothesis",
    "state": "open",
    "place": ".github/workflows/trialbox-rehearse-box.yml (upload-artifact logs), tools/rehearse_box/rehearse.sh step"
+  },
+  {
+   "id": "H96-11",
+   "severity": "Medium",
+   "claim": "the passphrase file was checked by its name, one check at a time, and its folder never: another user who could write the folder could swap the file between the checks and the read (the review won 23 of 400 in the shell, 259 of 3000 in tools.keys), and a link put in place once kek.json appeared made shred -u empty any root file (review M-1 of #1398); fixed: the folders (real paths) root's and writable by no one else, the file opened once and checked and read on that descriptor, removed with rm; the race tests accept the other value 0 times",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/install.sh, deploy/box-install.sh, deploy/hardening/seal_keys.sh (KEK-INPUT), tools/keys.py read_passphrase_file"
+  },
+  {
+   "id": "H96-12",
+   "severity": "Low",
+   "claim": "box-install.sh opened fd 8 with the passphrase on every install call, the file form too, and install.sh read and closed it only with --kek-passphrase-fd, so every child of the install inherited it (review L-1); fixed: fd 8 only for a passphrase from stdin, no copy of a file's value",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/box-install.sh (3. install)"
+  },
+  {
+   "id": "H96-13",
+   "severity": "Low",
+   "claim": "the environment form is still honoured outside the paths this card names: libs/tb_common/kek.py load_kek, tools/trialbox/audit_heads.py PASSED (docker run -e by name), tools/trialbox/backup_schedule.py (review L-2); card H-97's",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open",
+   "place": "libs/tb_common/kek.py, tools/trialbox/audit_heads.py, tools/trialbox/backup_schedule.py"
+  },
+  {
+   "id": "H96-14",
+   "severity": "Low",
+   "claim": "the host check's no-TPM line became a WARN on the back end's name alone (review L-3); ruled (7102655419): a listed WARN on a PoC box only (D-1091), a FAIL elsewhere; done",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/check_host.sh, tests/unit/test_host_baseline.py"
   }
  ]
 }
