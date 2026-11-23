@@ -138,7 +138,8 @@ def test_d130_unloaded_codes_stay_unknown_and_loaded_ones_resolve(
 ) -> None:
     """標準病名 codes without an ICD-10 alternate: with no lookup and no licensed list they resolve nowhere (D-130
     keeps them unknown; the code itself reaches the mapping); a loaded MEDIS release resolves its codes to their WHO
-    ICD-10 target, kept even when ICD-10-CM has no such code (D-314), and given as ICD-10-CM only where it has."""
+    ICD-10 target, kept even when ICD-10-CM has no such code (D-314), and given as ICD-10-CM only where it has; a
+    WHO-only target with no wider row (E14.9) is counted in ``missed`` (D-1270)."""
     from adapter.sources.ssmix2 import source as ss
 
     empty = tmp_path / "no-lookups"
@@ -161,7 +162,7 @@ def test_d130_unloaded_codes_stay_unknown_and_loaded_ones_resolve(
     rows = list(src.rows("diagnosis", "diagnosis", None, None))
     got = {r["byomei_code"]: (r["icd10"], r["icd10cm"]) for r in rows}
     assert got == {"ZB26": ("M10.9", "M10.9"), "ZB27": ("", ""), "ZB99": ("", ""), "ZB30": ("E14.9", "")}
-    assert src.missed == {"diagnosis:ZB27": 1, "diagnosis:ZB99": 1}
+    assert src.missed == {"diagnosis:ZB27": 1, "diagnosis:ZB99": 1, "diagnosis:E14.9": 1}
     assert src.stats["diagnosis:licensed"] == 2 and src.stats["diagnosis:licensed WHO-only code"] == 1
 
 
