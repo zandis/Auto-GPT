@@ -132,6 +132,15 @@ def loinc_check_digit_ok(code: str) -> bool:
     return (10 - total % 10) % 10 == int(m.group(2))
 
 
+def who_to_cm(who: str, ref: Reference) -> tuple[str, str] | None:
+    """``(ICD-10-CM code, "same" | "table")`` for a WHO ICD-10 code: the very same code when ICD-10-CM has it (D-314),
+    else the WHO-to-CM table's row; ``None`` when neither (the code stays on the unmapped list, never dropped)."""
+    if who in ref.icd10cm or (not ref.icd10cm and _ICD10CM_SHAPE.match(who)):
+        return who, "same"
+    row = ref.who_cm.get(who.upper())
+    return (row[1], "table") if row else None
+
+
 def who_icd10(code: str) -> str:
     """The WHO ICD-10 spelling the SS-MIX2 reader writes (upper case, mark dropped, ``E149`` -> ``E14.9``)."""
     from adapter.sources.ssmix2.source import who_icd10 as _who
@@ -155,6 +164,16 @@ def _csv_map(path: Path, key: str, value: str, system: str | None = None) -> dic
     return out
 
 
+WHO_CM = MAPPING / "jp_core" / "who_icd10_to_icd10cm.csv"  # the SS-MIX2 reader's table (SDR2)
+
+
+def _verified_rows(path: Path) -> set[str]:
+    """The ``who`` codes of the table's rows marked ``verified`` ``yes``; the others are applied and reported apart."""
+    if not path.exists():
+        return set()
+    return {k for k, (_s, v) in _csv_map(path, "who", "verified").items() if v == "yes"}
+
+
 def _parquet_column(name: str, *cols: str) -> list[tuple[str, ...]]:
     import pyarrow.parquet as pq
 
@@ -175,6 +194,8 @@ class Reference:
     yj: dict[str, tuple[str, str]]
     nhi_drug: dict[str, tuple[str, str]]
     stems: dict[str, tuple[str, str]]
+    who_cm: dict[str, tuple[str, str]]
+    who_cm_verified: set[str]
     icd10cm: set[str]
     departments: set[str]
     sources: dict[str, str]
@@ -188,6 +209,7 @@ class Reference:
         yj: Path | None = None,
         ingredient_atc: Path | None = None,
         nhi_drug: Path | None = None,
+        who_icd10cm: Path | None = None,
     ) -> Reference:
         from tb_common import refdata_jp
 
@@ -200,6 +222,10 @@ class Reference:
             jlac10=_csv_map(jlac10, "local_code", "code"),
             byomei=_csv_map(byomei, "code", "icd10", "icd-10"),
             yj=_csv_map(yj, "yj_code", "atc", "atc"),
+            who_cm=_csv_map(who_icd10cm or WHO_CM, "who", "icd10cm", "icd-10-cm")
+            if (who_icd10cm or WHO_CM).exists()
+            else {},
+            who_cm_verified=_verified_rows(who_icd10cm or WHO_CM),
             stems={
                 k.upper(): ("atc", v["atc"])
                 for k, v in refdata_jp.ingredient_atc(*([ingredient_atc] if ingredient_atc else [])).items()
@@ -217,7 +243,8 @@ class Reference:
                 "yj-stem": "libs/tb_common/refdata_jp.py ingredient_atc"
                 + (f" and {_rel(ingredient_atc)}" if ingredient_atc else ""),
                 "nhi-drug": _rel(nhi_drug) if nhi_drug else "services/criteria_compiler/terminology/nhi_drug.parquet",
-                "who-icd10": "services/criteria_compiler/terminology/icd10cm_full.parquet (same code only, D-314)",
+                "who-icd10": "services/criteria_compiler/terminology/icd10cm_full.parquet (the same code, D-314)",
+                "who-to-cm": _rel(who_icd10cm) if who_icd10cm else (_rel(WHO_CM) if WHO_CM.exists() else "none"),
                 "report-rule": "services/adapter/mapping/tw_core/demo_his.yaml (the report code rule)",
             },
         )
@@ -243,6 +270,7 @@ class Result:
     target_system: str
     target_code: str
     reason: str  # why it does not map; empty when it maps
+    unverified: bool = False  # the map rests on a table row still marked ``verify`` (applied, reported apart)
 
     @property
     def mapped(self) -> bool:
@@ -292,21 +320,20 @@ def check_code(row: dict[str, str], ref: Reference) -> Result:
         c = code.upper() if system != "loinc" else code
         return done("direct", targets[0], c)
     hit: tuple[str, str] | None = None
-    if route == "who-icd10":
-        w = who_icd10(code)
-        if w in ref.icd10cm or (not ref.icd10cm and _ICD10CM_SHAPE.match(w)):
-            hit = ("icd-10-cm", w)
-        elif not site_target:
-            return Result(domain, system, code, name, "", "icd-10-cm", w, "WHO ICD-10 code with no same ICD-10-CM code")
-    elif route == "byomei":
-        found = ref.byomei.get(code.upper())
+    if route in ("who-icd10", "byomei"):
+        found = ref.byomei.get(code.upper()) if route == "byomei" else ("icd-10", code)
         if found:
-            w = who_icd10(found[1])
-            if w in ref.icd10cm or not ref.icd10cm:
-                hit = ("icd-10-cm", w)
+            cm = who_to_cm(who_icd10(found[1]), ref)
+            if cm:
+                hit, route = ("icd-10-cm", cm[0]), (route if cm[1] == "same" else f"{route} + WHO-to-CM table")
+                if cm[1] == "table" and who_icd10(found[1]).upper() not in ref.who_cm_verified:
+                    r = done(route, *hit)
+                    r.unverified = r.mapped
+                    return r
             elif not site_target:
+                why = "no same ICD-10-CM code and no row in the WHO-to-CM table"
                 return Result(
-                    domain, system, code, name, "", "icd-10-cm", w, "its WHO ICD-10 code has no same ICD-10-CM code"
+                    domain, system, code, name, "", "icd-10-cm", who_icd10(found[1]), f"WHO ICD-10 code with {why}"
                 )
     elif route == "lab-lookup":
         hit = ref.lab.get(code.upper())
@@ -434,6 +461,7 @@ def coverage(rows: list[dict[str, str]], ref: Reference, rulesets: Path = RULESE
             "unmapped": len(rs) - mapped,
             "percent": round(100.0 * mapped / len(rs), 1) if rs else None,
             "routes": dict(sorted(Counter(r.route for r in rs if r.mapped).items())),
+            "applied_not_verified": sum(r.unverified for r in rs),
             "systems": dict(sorted(Counter(r.system for r in rs).items())),
         }
     reached = {(r.target_system, r.target_code) for r in results if r.mapped}
@@ -457,6 +485,11 @@ def coverage(rows: list[dict[str, str]], ref: Reference, rulesets: Path = RULESE
         "codes": len(results),
         "mapped": sum(r.mapped for r in results),
         "by_domain": by_domain,
+        "applied_not_verified": [
+            {"domain": r.domain, "system": r.system, "local_code": r.local_code, "target_code": r.target_code}
+            for r in results
+            if r.unverified
+        ],
         "unmapped": [
             {
                 "domain": r.domain,
@@ -484,6 +517,10 @@ def render(report: dict[str, Any], title: str = "Mapping coverage") -> str:
         pct = "n/a (no list)" if v["percent"] is None else f"{v['percent']:.1f}%"
         routes = ", ".join(f"{k} {n}" for k, n in v["routes"].items()) or "-"
         out.append(f"  {d:<11} {v['mapped']:>5} / {v['codes']:<5} {pct:>14}   routes: {routes}")
+        if v.get("applied_not_verified"):
+            out.append(
+                f"  {'':<11} applied, not verified: {v['applied_not_verified']} (a table row still marked verify)"
+            )
     if report["unmapped"]:
         out.append(f"Not mapped ({len(report['unmapped'])}):")
         for u in report["unmapped"]:
@@ -599,6 +636,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--byomei", type=Path, help="標準病名 -> ICD-10 CSV (default: jp_core sample)")
     ap.add_argument("--yj", type=Path, help="YJ -> ATC CSV (default: jp_core sample)")
     ap.add_argument("--nhi-drug", type=Path, help="NHI drug code -> ATC CSV (nhi_code,atc; the NHI open data list)")
+    ap.add_argument("--who-icd10cm", type=Path, help="WHO ICD-10 -> ICD-10-CM CSV (who,icd10cm)")
     ap.add_argument("--ingredient-atc", type=Path, help="the site's YJ stem -> ATC table (beside the shipped one)")
     a = ap.parse_args(argv)
     if a.criteria_table:
@@ -622,7 +660,7 @@ def main(argv: list[str] | None = None) -> int:
         title = "Mapping coverage"
     else:
         ap.error("give code lists, --synthetic, --write-synthetic or --criteria-table")
-    ref = Reference.load(a.lab_lookup, a.jlac10, a.byomei, a.yj, a.ingredient_atc, a.nhi_drug)
+    ref = Reference.load(a.lab_lookup, a.jlac10, a.byomei, a.yj, a.ingredient_atc, a.nhi_drug, a.who_icd10cm)
     report = coverage(rows, ref)
     print(render(report, title))
     if a.json:

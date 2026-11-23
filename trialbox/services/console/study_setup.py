@@ -678,11 +678,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         the reporting table (who is told, by when). Without the study store there is no SAE register to gate."""
         if not s28.has_api(bk) or s28.load(bk, store, rid, defaults(rid)).study_type not in SAE_STUDY_TYPES:
             return ""
-        # NEW-LIFE-7 (D-764): on a box (not DEV or TEST) the trial office's mailbox is a required answer: a new SAE
-        # is mailed to it at once, with the PI
+        # NEW-LIFE-7 (D-764): on a PRODUCTION box the trial office's mailbox is a required answer: a new SAE is
+        # mailed to it at once, with the PI. U5-01: a PoC box (DEV, TEST or VALIDATION, D-1091) opens without it
         if not os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip() and environment_name(os.environ) not in (
             "DEV",
             "TEST",
+            "VALIDATION",
         ):
             return "sstate.sae_mailbox"
         try:

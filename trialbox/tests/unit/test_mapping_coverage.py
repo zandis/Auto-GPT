@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -49,12 +50,52 @@ def test_jp_synthetic_uses_the_japanese_routes(ref: mc.Reference) -> None:
     assert "yj" in report["by_domain"]["medication"]["routes"]
 
 
-def test_who_icd10_maps_only_where_icd10cm_has_the_same_code(ref: mc.Reference) -> None:
-    rows = _rows(("e119", "2型糖尿病", "icd-10"), ("E14.9", "糖尿病", "icd-10"), ("I64", "脳卒中", "icd-10"))
+def test_who_icd10_maps_by_the_same_code_then_the_shipped_table(ref: mc.Reference) -> None:
+    """D-314's same code first; then the shipped WHO-to-CM table, applied and reported "applied, not verified"
+    while its rows say ``verify`` (SDR2); a code in neither stays on the unmapped list."""
+    rows = _rows(
+        ("e119", "2型糖尿病", "icd-10"), ("F00.1", "アルツハイマー型認知症", "icd-10"), ("E14.9", "糖尿病", "icd-10")
+    )
     res = {r.local_code: r for r in (mc.check_code(x, ref) for x in rows)}
-    assert res["e119"].mapped and res["e119"].target_code == "E11.9"
-    assert not res["E14.9"].mapped and "no same ICD-10-CM" in res["E14.9"].reason
-    assert not res["I64"].mapped
+    assert res["e119"].mapped and res["e119"].target_code == "E11.9" and not res["e119"].unverified
+    assert res["F00.1"].mapped and res["F00.1"].target_code == "G30.9" and res["F00.1"].unverified
+    # E14 has no row: ICD-10-CM has no code holding all of "diabetes, type not stated" (D-1270)
+    assert not res["E14.9"].mapped and "no row in the WHO-to-CM table" in res["E14.9"].reason
+    report = mc.coverage(rows, ref)
+    assert report["by_domain"]["diagnosis"]["applied_not_verified"] == 1
+    assert [u["local_code"] for u in report["unmapped"]] == ["E14.9"]
+    assert "applied, not verified: 1" in mc.render(report)
+
+
+def test_shipped_who_table_rows_are_icd10cm_codes_with_a_source(ref: mc.Reference) -> None:
+    """Every row of the reader's WHO-to-CM table: a WHO code ICD-10-CM lacks, an ICD-10-CM code that exists, a
+    relation and a public source; none claims to be verified yet."""
+    import csv
+
+    with mc.WHO_CM.open(encoding="utf-8", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    assert rows
+    for r in rows:
+        assert r["who"] not in ref.icd10cm, r
+        assert r["icd10cm"] in ref.icd10cm, r
+        assert r["relation"] == "wider", r  # the ICD-10-CM code holds all of the WHO code's meaning (D-173's sense)
+        assert r["source"].startswith(("ICD-10-CM Alphabetic Index", "ICD-10-CM Tabular List")), r
+        assert r["verified"] == "verify", r
+    # a target that would assert more than the WHO code says has no row (D-1270): diabetes type, infarction
+    assert not {r["who"] for r in rows} & {"E14", "E14.9", "I64"}
+
+
+def test_ssmix2_reader_takes_the_table_and_counts_the_rest(tmp_path: Path) -> None:
+    """The reader (lane B2's file, body only): same code, table code, or empty and counted in ``missed``."""
+    from adapter.sources.ssmix2.source import Ssmix2Source
+
+    src = Ssmix2Source(tmp_path, licensed={})
+    assert src._icd_columns("E11.9") == {"icd10": "E11.9", "icd10cm": "E11.9"}
+    assert src._icd_columns("F00.1") == {"icd10": "F00.1", "icd10cm": "G30.9"}
+    assert src._icd_columns("F01.8") == {"icd10": "F01.8", "icd10cm": ""}
+    assert src.stats["diagnosis:ICD-10-CM from the WHO-to-CM table (applied, not verified)"] == 1
+    assert src.stats["diagnosis:WHO ICD-10 with no ICD-10-CM"] == 1
+    assert src.missed["diagnosis:F01.8"] == 1
 
 
 def test_standard_codes_are_checked_too(ref: mc.Reference) -> None:
@@ -204,3 +245,123 @@ def test_owner_summary_holds_counts_and_names_only(tmp_path: Path) -> None:
     assert s["codes"] == 4 and s["mapped"] == 2
     assert {u["local_code"]: u["local_name"] for u in s["unmapped"]} == {"ZZ9": "院內特殊檢驗", "ZB99": "架空病名"}
     assert str(tmp_path) not in text and "mg/dL" not in text and "lab.tsv" not in text
+
+
+def test_who_icd10_reaches_icd10cm_through_the_table(tmp_path: Path) -> None:
+    """SDR2 part 1: a WHO code ICD-10-CM lacks maps through the WHO-to-CM table; one with no row stays listed."""
+    table = tmp_path / "who_to_cm.csv"
+    table.write_text(
+        "who,icd10cm,relation,source,verified\nE14.9,E11.9,wider,synthetic test row,verify\n", encoding="utf-8"
+    )
+    ref = mc.Reference.load(who_icd10cm=table)
+    rows = _rows(("E149", "糖尿病", "icd-10"), ("I64", "脳卒中", "icd-10"), ("E11.9", "2型糖尿病", "icd-10"))
+    res = {r.local_code: r for r in (mc.check_code(x, ref) for x in rows)}
+    assert res["E149"].mapped and res["E149"].target_code == "E11.9"
+    assert res["E149"].route == "who-icd10 + WHO-to-CM table"
+    assert res["E11.9"].route == "who-icd10"
+    assert not res["I64"].mapped and "no row in the WHO-to-CM table" in res["I64"].reason
+    report = mc.coverage(rows, ref)
+    assert [u["local_code"] for u in report["unmapped"]] == ["I64"]
+
+
+def test_a_night_marks_a_diagnosis_that_rests_on_an_unverified_who_row(tmp_path: Path, pg_cluster_url: str) -> None:
+    """SDR2 part 1 through a whole SS-MIX2 night (adapter.pipeline, body only): F00.1 is given G30.9 from the table
+    and carries D-135's ``verify`` basis tag; E11.9 itself (the same code) carries none; a WHO code with no row keeps
+    no ICD-10-CM coding and is on the night's unmapped list."""
+    import os
+
+    from adapter.mapping.engine import BASIS, VERIFY_BASIS
+    from adapter.ndjson import snapshot_dir
+    from adapter.pipeline import AdapterConfig, run_ingest
+    from adapter.sources.ssmix2.source import storage_dir
+    from tb_contracts import RebuildResult
+
+    class _Rebuild:
+        def __call__(self, snap: str, nd: Path) -> RebuildResult:
+            return RebuildResult(snapshot=snap, tables={}, chunks=0, embedded_new=0, seconds=0.0)
+
+    root = tmp_path / "ss"
+    for n, who in enumerate(("F00.1", "E11.9", "F01.8")):
+        d = storage_dir(root, "10000001", "20260101", "PPR-01")
+        d.mkdir(parents=True, exist_ok=True)
+        msh = f"MSH|^~\\&|HIS||TB||20261101||PPR^ZD1|D{n}|P|2.5"
+        prb = f"PRB|AD|20260101|^病名^99XYZ^{who}^^I10|D{n}||||||||||A||20260101"
+        text = "\r".join([msh, "PID|||10000001^^^^PI", "PV1||O", prb]) + "\r"
+        (d / f"10000001_20260101_PPR-01_D{n}_20261101000000000_01_1").write_bytes(text.encode("utf-8"))
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(b"k" * 32)
+    sep = "&" if "?" in pg_cluster_url else "?"
+    cfg = AdapterConfig(
+        lake_dir=tmp_path / "lake",
+        secrets_dir=sec,
+        mapping_path=mc.MAPPING / "jp_core" / "ssmix2_site.yaml",
+        site_id="T",
+        tz="Asia/Tokyo",
+        rebuild=_Rebuild(),
+        audit_dir=tmp_path / "audit",
+        db_url=f"{pg_cluster_url}{sep}tb_prefix=sdr{os.getpid()}_",
+    )
+    rep = run_ingest(cfg, "ssmix2", str(root), snapshot="2026-11-01", load_fhir=False, validate=False)
+    assert rep.passed
+    nd = snapshot_dir(tmp_path / "lake", "2026-11-01")
+    conds = [json.loads(x) for x in (nd / "Condition.ndjson").read_text(encoding="utf-8").splitlines()]
+    by_who = {
+        next(c["code"] for c in r["code"]["coding"] if c["system"] == "http://hl7.org/fhir/sid/icd-10"): r
+        for r in conds
+    }
+    verify = {"system": BASIS, "code": VERIFY_BASIS}
+
+    def cm(r: dict[str, Any]) -> list[str]:
+        return [c["code"] for c in r["code"]["coding"] if c["system"] == mc.TARGETS["icd-10-cm"]]
+
+    assert cm(by_who["F00.1"]) == ["G30.9"] and verify in by_who["F00.1"]["meta"]["tag"]
+    assert cm(by_who["E11.9"]) == ["E11.9"] and verify not in by_who["E11.9"]["meta"]["tag"]
+    assert cm(by_who["F01.8"]) == []
+    reader = json.loads((nd / "reader.json").read_text(encoding="utf-8"))
+    assert reader["unmapped"]["diagnosis"] == [{"code": "F01.8", "count": 1}]
+
+
+@pytest.mark.parametrize(
+    ("ruleset", "crit_id", "cm_reads"),
+    [("GZQO", "GZQO-EXC-01", False), ("GOUT-COH", "GOUT-COH-INC-07", True)],
+)
+def test_e14_stays_unknown_on_the_shipped_diabetes_criteria_never_false(
+    tmp_path: Path, ruleset: str, crit_id: str, cm_reads: bool
+) -> None:
+    """D-1270's guard (ruling on #639 7103442261): E14.9 has no WHO-to-CM row, so the reader gives it no ICD-10-CM
+    code, and the shipped criterion (its own IR and value sets, compiled) reads it unknown, never false: neither the
+    type 1 exclusion (GZQO-EXC-01) nor the type 2 inclusion (GOUT-COH-INC-07). An E11.9 record decides both."""
+    from datetime import date
+
+    import duckdb
+    from adapter.sources.ssmix2.source import Ssmix2Source
+    from criteria_compiler.compile_sql.generator import SqlGenerator
+    from criteria_compiler.terminology.mapper import Terminology, ValueSets
+    from tb_contracts import CriterionIR
+
+    assert Ssmix2Source(tmp_path, licensed={})._icd_columns("E14.9") == {"icd10": "E14.9", "icd10cm": ""}
+    base = mc.RULESETS / ruleset
+    crit = CriterionIR.model_validate(json.loads((base / "ir" / f"{crit_id}.json").read_text(encoding="utf-8")))
+    by_name = {
+        vs["name"]: vs
+        for vs in (json.loads(f.read_text(encoding="utf-8")) for f in sorted((base / "valuesets").glob("*.json")))
+    }
+    sql = SqlGenerator(ruleset, "1.0.0", ValueSets(ruleset, by_name, Terminology())).render([crit])
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)"
+    )
+    con.execute(
+        "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, system VARCHAR, code VARCHAR, onset DATE, recorded DATE)"
+    )
+    who = "http://hl7.org/fhir/sid/icd-10"
+    pts = {"who_e14": (who, "E14.9"), "cm_e11": (mc.TARGETS["icd-10-cm"], "E11.9")}
+    for i, (pid, (sy, code)) in enumerate(pts.items()):
+        con.execute("INSERT INTO patient VALUES (?, DATE '1960-01-01', 'male', NULL, NULL)", [pid])
+        con.execute("INSERT INTO condition VALUES (?, ?, ?, ?, DATE '2025-01-01', NULL)", [pid, f"c{i}", sy, code])
+    rows = con.execute(sql, [[date(2026, 1, 1).isoformat()], list(pts)]).fetchall()
+    cols = [d[0] for d in con.description]
+    got = {dict(zip(cols, r, strict=True))["pid"]: dict(zip(cols, r, strict=True))[f"C_{crit_id}"] for r in rows}
+    assert got["who_e14"] is None  # unknown, never false
+    assert got["cm_e11"] is cm_reads
