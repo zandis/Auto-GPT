@@ -188,8 +188,11 @@ def test_the_network_sheet_says_where_the_passphrase_never_is() -> None:
 
     for lang in ("en", "ja", "zh-TW"):
         md = ns.render_md(list(ns.FILES), None, lang)
-        kek = next(x for x in md.splitlines() if x.startswith("| TB_KEK_PASSPHRASE |"))
+        kek = next(x for x in md.splitlines() if x.startswith("| KEK passphrase |"))  # H-96: not a variable now
         operator = next(x for x in md.splitlines() if x.startswith("| operator token |"))
         assert kek.rsplit("|", 2)[1] != operator.rsplit("|", 2)[1], (lang, kek)
         if lang == "en":
-            assert kek.rstrip(" |").endswith("never in a container's configuration or in a file"), kek
+            # H-96 (ruling 7094934985): the operator's own root-only file is the one file it may be in
+            assert kek.rstrip(" |").endswith("never in a container's configuration, the environment or a file other "
+                                             "than the operator's root-only one (removed once used)"), kek  # fmt: skip
+            assert "root-only file" in kek and "environment (RUNBOOK" not in kek, kek

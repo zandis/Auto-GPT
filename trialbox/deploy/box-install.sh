@@ -34,7 +34,7 @@
 #   sudo deploy/box-install.sh "$bundle" --answers owner.json --kek-passphrase-file /root/trialbox-kek.pass
 # or it is typed when asked (twice, not shown): ... --kek-passphrase-stdin. The file must be a regular file owned by
 # root with mode 0600; it is removed once the keys are sealed (--keep-kek-passphrase-file keeps it). A passphrase in
-# the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §30, H-96).
+# the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §23, H-96).
 # Knobs for the tests and the rehearsal only: TB_BOX_HARDWARE (a hardware.json instead of detecting), TB_BOX_INSTALL
 # (the install command), TB_BOX_PY (a python command instead of the image), TB_BOX_COMPOSE (the compose command),
 # TB_BOX_HOST_CHECK (the host check command), TB_ISSUE_DIR, TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
@@ -70,11 +70,11 @@ fi
 if [ "$REHEARSAL" = 1 ] && [ "$FIRSTRUN" = 1 ]; then echo "box-install: --rehearsal with --firstrun: the first run finishes the box as it was installed" >&2; exit 2; fi
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'box-install: %s\n' "$*" >&2; exit 1; }
-# KEK-PASSPHRASE (H-96, F-45; the integrator's ruling 7094934985): never from the environment (refused, before
+# KEK-INPUT (H-96, F-45; the integrator's ruling 7094934985): never from the environment (refused, before
 # anything); only with --answers (the wizard's box takes it on the set-up page). A file goes on to install.sh by its
 # name (its seal step removes it); a passphrase read from stdin by a pipe at fd 8. KP_VALUE is never exported
 KP_WHO=box-install
-# ---- KEK-PASSPHRASE functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# ---- KEK-INPUT functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
 # deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
 #   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
 #                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
@@ -87,7 +87,7 @@ kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped
   for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
     eval "kp_set=\${$kp_var:+yes}"
-    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (docs/runbook/30-rotate-the-kek-passphrase.md). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
   done
   unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
 }
@@ -119,7 +119,7 @@ kp_read_stdin() {
   kp_check_value "stdin"
 }
 kp_remove_file() { shred -u -- "$1" 2>/dev/null || rm -f -- "$1"; [ ! -e "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"; }
-# ---- end of KEK-PASSPHRASE functions
+# ---- end of KEK-INPUT functions
 kp_refuse_env
 if [ -n "$PP_FILE" ] || [ "$PP_KEEP" = 1 ] || [ "$PP_STDIN" = 1 ]; then
   [ -n "$OWNER" ] || die "--kek-passphrase-file and --kek-passphrase-stdin go with --answers (the unattended install); otherwise the owner sets the passphrase on the set-up page. Nothing was changed"
@@ -132,7 +132,7 @@ PP_INSTALL=()  # what install.sh is given: the file's name, or the pipe at fd 8
 if [ -n "$PP_FILE" ]; then
   PP_INSTALL=(--kek-passphrase-file "$PP_FILE"); [ "$PP_KEEP" = 0 ] || PP_INSTALL+=(--keep-kek-passphrase-file)
 elif [ -n "$KP_VALUE" ]; then PP_INSTALL=(--kek-passphrase-fd 8); fi
-# ---- end of KEK-PASSPHRASE
+# ---- end of KEK-INPUT
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 FR="${TB_FIRSTRUN_HOST_DIR:-/run/trialbox-firstrun}"
 BOX="$ROOT/deploy/site/box"

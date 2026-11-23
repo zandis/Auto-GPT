@@ -63,7 +63,7 @@ def test_unattended_runbook_and_help_pass_only_the_exported_name() -> None:
         ]
         positions = [text.index(instruction) for instruction in instructions]
         assert positions == sorted(positions) and "--kek-passphrase-stdin" in text
-        assert "preserve-env" not in text and "export TB_KEK_PASSPHRASE" not in text
+        assert "--preserve-env=TB_KEK" not in text and "export TB_KEK_PASSPHRASE" not in text
 
 
 def test_installers_reject_passphrase_file_input() -> None:

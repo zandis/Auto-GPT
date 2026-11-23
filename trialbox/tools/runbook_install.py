@@ -241,6 +241,7 @@ class Step:
     in_block: str = ""  # the quote is in this bold-lead paragraph, not in the step itself
 
 
+KEK_PASS_FILE = "/root/trialbox-kek.pass"  # H-96: the no-tpm lift's throwaway passphrase, root-only (0600)
 ONE_COMMAND = (
     "cd /media/usb && openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh "
     "-sigfile trialbox-bootstrap.sh.sig && sudo bash trialbox-bootstrap.sh trialbox-<version>.tar --pub "
@@ -605,7 +606,8 @@ LIFTS: dict[str, Lift] = {
         "no-tpm",
         "machine",
         "the installer's own message; docs/security/01-the-host.md",
-        "TB_KEK_BACKEND=passphrase with a throwaway TB_KEK_PASSPHRASE: the machine has no TPM",
+        "TB_KEK_BACKEND=passphrase with a throwaway passphrase in a root-only file (--kek-passphrase-file, H-96): "
+        "the machine has no TPM",
     ),
     "sidecar-name": Lift(
         "sidecar-name",
@@ -681,6 +683,7 @@ class Follower:
             lifts,
         )
         self.kek_pass = kek_pass
+        self.kek_args = ""  # H-96: the no-tpm lift's --kek-passphrase-file (never the environment)
         self.sidecar_fix = sidecar_fix  # rewrites the stick's <bundle>.sha256 (the vendor's media, not the box)
         # H-38: each command's own output, unredacted, in root-only files on the machine (the first administrator's
         # password and enrolment code are printed once): never part of the record, gone with the machine
@@ -849,8 +852,17 @@ class Follower:
         return [d / n for n in names if (d / n).is_file()]
 
     def _one_command_text(self, *, stub: bool) -> str:
-        cmd = ONE_COMMAND.replace("trialbox-<version>.tar", self.bundle.name)
+        cmd = ONE_COMMAND.replace("trialbox-<version>.tar", self.bundle.name) + self.kek_args
         return cmd.replace("--tier large", "--mode stub") if stub else cmd
+
+    def _kek_file(self) -> bool:
+        """H-96 (the integrator's ruling 7094934985): the no-tpm lift's throwaway passphrase goes to a root-only file
+        on the machine by stdin (never an argument or the environment of docker exec or sudo); the seal step removes
+        it, so it is written again before each attempt."""
+        phrase = self.kek_pass or secrets.token_hex(12)
+        self.kek_pass = phrase
+        w = self.m.sh(f"mkdir -p /root && umask 077 && cat > {KEK_PASS_FILE}", cwd="/", stdin=phrase + "\n")
+        return w.rc == 0
 
     def _one_command(self) -> None:
         self.rec.reached.append("one-command")
@@ -860,6 +872,9 @@ class Follower:
             self._note("stub-instead", f"{SECTION}:44", "no GPU: `--mode stub` takes the place of `--tier large`")
         stdin = "\n" * 20  # a reader at the terminal presses Enter at a question
         for _attempt in range(6):
+            if self.kek_args and not self._kek_file():
+                self.rec.stop("the one command (§1:32)", "the throwaway passphrase file could not be written")
+                return
             cmd = self._one_command_text(stub=stub)
             r = self._run("one-command", place, cmd, stdin=stdin, as_written=ONE_COMMAND, cwd="/")
             text = r.out + r.err
@@ -894,10 +909,8 @@ class Follower:
                 self.rec.stop("the one command (§1:32)", "the machine has no TPM (step 1 names TPM2)", machine=True)
                 if not self._lift("no-tpm"):
                     return
-                self.env |= {
-                    "TB_KEK_BACKEND": "passphrase",
-                    "TB_KEK_PASSPHRASE": self.kek_pass or secrets.token_hex(12),
-                }
+                self.env |= {"TB_KEK_BACKEND": "passphrase"}
+                self.kek_args = f" --kek-passphrase-file {KEK_PASS_FILE}"
                 continue
             if "lacks what the installer needs" in text or "compose plugin is missing" in text:
                 self.rec.find("host-packages-unnamed", "one-command", _last(text))

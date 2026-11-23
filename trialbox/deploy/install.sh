@@ -13,7 +13,7 @@
 #   sudo TB_KEK_BACKEND=passphrase deploy/install.sh "$bundle" --answers "$answers" --kek-passphrase-file /root/trialbox-kek.pass
 #   or is typed when asked (twice, not shown): ... --kek-passphrase-stdin. The file must be a regular file owned by
 #   root with mode 0600; it is removed once the keys are sealed (--keep-kek-passphrase-file keeps it). A passphrase in
-#   the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §30, H-96).
+#   the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §23, H-96).
 #   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
 #   deploy/install.sh --ctgov-check                # only: which ClinicalTrials.gov mode would be suggested here?
 #
@@ -125,12 +125,12 @@ alive_stop() {
 }
 die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
 indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
-# KEK-PASSPHRASE (H-96, F-45; the integrator's ruling 7094934985): never from the environment (refused, before
+# KEK-INPUT (H-96, F-45; the integrator's ruling 7094934985): never from the environment (refused, before
 # anything); from --kek-passphrase-file FILE (checked here and read again by the seal step, which removes it) or
 # --kek-passphrase-stdin (read here, once). The signed re-run gets a stdin passphrase on a pipe at fd 8
 # (--kek-passphrase-fd 8): never an argument, never the environment, never a file. KP_VALUE is never exported
 KP_WHO=install
-# ---- KEK-PASSPHRASE functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# ---- KEK-INPUT functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
 # deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
 #   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
 #                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
@@ -143,7 +143,7 @@ kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped
   for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
     eval "kp_set=\${$kp_var:+yes}"
-    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (docs/runbook/30-rotate-the-kek-passphrase.md). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
   done
   unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
 }
@@ -175,7 +175,7 @@ kp_read_stdin() {
   kp_check_value "stdin"
 }
 kp_remove_file() { shred -u -- "$1" 2>/dev/null || rm -f -- "$1"; [ ! -e "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"; }
-# ---- end of KEK-PASSPHRASE functions
+# ---- end of KEK-INPUT functions
 kp_refuse_env
 case "$PP_FILE:$PP_STDIN:$PP_FD" in
   :0:|/*:0:|:1:|:0:[3-9]) ;;
@@ -190,7 +190,7 @@ elif [ -n "$PP_FD" ]; then
   eval "exec $PP_FD<&-"
   kp_check_value "the installer's hand-on"
 fi
-# ---- end of KEK-PASSPHRASE
+# ---- end of KEK-INPUT
 # ENV-EARLY (D-1365, re-check of #1175): an environment that is not one of the four stops here, at argument parsing,
 # before anything is loaded, linked, made or copied: --environment, or (neither it nor --rehearsal given) a TB_ENV an
 # existing deploy/.env already holds, read without changing anything. Read as the settings step reads them
@@ -535,7 +535,7 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
   [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
-  # KEK-PASSPHRASE (H-96): a passphrase read from stdin goes on by a pipe at fd 8, its option swapped for the fd's
+  # KEK-INPUT (H-96): a passphrase read from stdin goes on by a pipe at fd 8, its option swapped for the fd's
   if [ "$PP_STDIN" = 1 ] || [ -n "$PP_FD" ]; then
     PP_ARGS=(); skip=0
     for a in ${ARGS[@]+"${ARGS[@]}"}; do
@@ -546,7 +546,7 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
     TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
       8< <(printf '%s\n' "$KP_VALUE")
   fi
-  # ---- end of KEK-PASSPHRASE
+  # ---- end of KEK-INPUT
   TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
@@ -1059,7 +1059,7 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
-  # KEK-PASSPHRASE (H-96): the operator's file goes on by its name (the seal step removes it once sealed), a
+  # KEK-INPUT (H-96): the operator's file goes on by its name (the seal step removes it once sealed), a
   # passphrase read from stdin by a pipe; neither is an argument's value or in an environment
   SEAL_PP=(); [ -z "$PP_FILE" ] || SEAL_PP=(--kek-passphrase-file "$PP_FILE")
   [ "$PP_KEEP" = 0 ] || SEAL_PP+=(--keep-kek-passphrase-file)

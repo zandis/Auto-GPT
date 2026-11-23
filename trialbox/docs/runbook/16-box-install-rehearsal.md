@@ -163,15 +163,21 @@ question, no first-run code and no wait. Use it for the hospital's own unattende
 - A file that does not parse changes nothing.
 - It cannot be combined with `--prepare`, `--rehearsal` or `--firstrun`.
 
-Without a usable TPM, set `bundle` to the signed bundle’s path. In your own Bash shell, type a passphrase
-of at least 12 characters when `read` waits, then press Enter.
-Using `sudo VAR=value command` shows the value in the process list.
+Without a usable TPM, set `bundle` to the signed bundle’s path. The KEK passphrase (12 characters or more, one
+line) goes in a file only root can read: after sudo's own password prompt, type the passphrase, then press Enter
+(nothing is shown). The file must be a regular file owned by root with mode 0600; the install removes it once the
+keys are sealed (`--keep-kek-passphrase-file` keeps it). Instead of the file, `--kek-passphrase-stdin` asks for the
+passphrase twice on the terminal.
 
 ```bash
-IFS= read -rs TB_KEK_PASSPHRASE; export TB_KEK_PASSPHRASE
-sudo --preserve-env=TB_KEK_PASSPHRASE deploy/box-install.sh "$bundle" --answers owner.json
-unset TB_KEK_PASSPHRASE
+sudo bash -c 'umask 077; IFS= read -rs TB_KEK_PASSPHRASE; printf "%s\n" "$TB_KEK_PASSPHRASE" > /root/trialbox-kek.pass'
+sudo deploy/box-install.sh "$bundle" --answers owner.json --kek-passphrase-file /root/trialbox-kek.pass
 ```
+
+A passphrase in the environment (`sudo --preserve-env`, `sudo -E`, a root shell that exported it) is refused by
+`box-install.sh`, `install.sh`, the bootstrap, `seal_keys.sh` and `tools.keys` (H-96): sudo writes a variable it
+keeps, with its value, to the system journal. A box installed that way before H-96 rotates its passphrase (§23,
+"Rotate the KEK passphrase"). This refusal stands on every box, a proof of concept too: it protects a key.
 
 **The box's name (OPS-005):** a box named `<name>.local` answers that name on the clinic's network.
 - `hardening.conf` says `MDNS=on`, and the input firewall then lets mDNS (UDP 5353) in from the box's own network only.

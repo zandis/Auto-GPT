@@ -32,12 +32,37 @@ install_box() (
     # a site's IT makes deploy/site as root; the pin step's container must still write there (I-4, D-835)
     install -d -m 0755 deploy/site && chown -R root:root deploy/site
   fi
-  # The driver passes the same throwaway passphrase through the environment on a reinstall.
-  : "${TB_KEK_PASSPHRASE:?missing rehearsal passphrase}"
-  export TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase
-  TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
-    deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes
+  # H-96 (F-45; the integrator's ruling 7094934985): the driver writes the same throwaway passphrase to a root-only
+  # file before the install and the reinstall; the install keeps it for the reinstall, the reinstall's seal step
+  # removes it. The installer runs under the stand-in sudo, which logs its arguments and environment as sudo does
+  [ -f "$KEK_PASS" ] || { echo "missing the rehearsal passphrase file $KEK_PASS" >&2; exit 1; }
+  local keep=(); [ "$PHASE" = reinstall ] || keep=(--keep-kek-passphrase-file)
+  standin_sudo TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" \
+    TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
+    deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes \
+    --kek-passphrase-file "$KEK_PASS" "${keep[@]}"
 )
+KEK_PASS=/root/rehearsal-kek.pass
+SUDO_LOG="$W/standin-sudo.log"
+# standin_sudo VAR=value... COMMAND ARGS...: what sudo logs (its command line and, for a kept variable, ENV=name=value)
+# to a file of the rehearsal's own, then the command with those variables. H-96: the rehearsal looks there for the
+# passphrase (never printing it)
+standin_sudo() {
+  { printf 'COMMAND='; printf ' %q' "$@"; printf '\n'; env | sed 's/^/ENV=/'; } >> "$SUDO_LOG"
+  env "$@"
+}
+# no_passphrase_left PASSFILE: the passphrase (read from its file by grep -F -f, never printed) is in no sudo log line,
+# no argument the stand-in saw, no deploy/.env and no box container's configuration
+no_passphrase_left() {
+  local f="$1" ids
+  grep -qF -f "$f" "$SUDO_LOG" && fail "the passphrase is in the stand-in sudo's log (arguments or environment)"
+  grep -qF -f "$f" "$BOX/deploy/.env" && fail "the passphrase is in deploy/.env"
+  ids="$(dc ps -aq)"
+  # shellcheck disable=SC2086 # the container ids, one word each
+  [ -z "$ids" ] || ! docker inspect --format '{{json .Config.Env}} {{json .Args}}' $ids | grep -qF -f "$f" \
+    || fail "the passphrase is in a box container's configuration"
+  ok "the passphrase is in no sudo log line, no argument, no deploy/.env, no container configuration"
+}
 
 unpack_release() {  # the release tree from the media into a fresh folder: what the site copies to /opt/trialbox
   local to="$1"
@@ -209,7 +234,18 @@ install)
   # T-632: the site's feed folder on the host (a copy of the synthetic export), never the fixture in the release
   install -d deploy/site && rm -rf deploy/site/feed-a && cp -r tests/fixtures/synthetic_patients/site-a deploy/site/feed-a \
     || fail "cannot stage the feed folder"
+  # H-96: a passphrase in the environment is refused by the real installer before anything (the value given is
+  # synthetic and not the rehearsal's)
+  out="$(TB_KEK_PASSPHRASE=synthetic-env-form-h96 deploy/install.sh "$BUNDLE" --tier large --yes 2>&1)"; rc=$?
+  [ "$rc" = 2 ] && echo "$out" | grep -q "TB_KEK_PASSPHRASE is set in the environment: refused" \
+    && ! echo "$out" | grep -q synthetic-env-form-h96 && [ ! -e current ] && [ ! -e deploy/.env ] \
+    || fail "the environment form was not refused before anything (exit $rc)"
+  ok "the environment form is refused by install.sh (exit 2, nothing loaded or written)"
+  : > "$SUDO_LOG"
   install_box || fail "deploy/install.sh failed"
+  [ -f "$KEK_PASS" ] && [ "$(stat -c %a "$KEK_PASS")" = 600 ] || fail "--keep-kek-passphrase-file did not keep the file"
+  no_passphrase_left "$KEK_PASS"
+  ok "first install through the signed re-run: sealed from --kek-passphrase-file, the file kept as asked"
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
   grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
@@ -239,7 +275,12 @@ reinstall)
   [ -f "$sec/kek.json" ] || fail "the first install sealed no keys (no kek.json in $sec)"
   before="$(sha256sum "$sec/kek.json" | cut -d' ' -f1)"
   ok "first install: keys sealed under the passphrase KEK (kek.json)"
-  install_box || fail "the second install of the same bundle failed"
+  pp_copy="$(mktemp)"; cp "$KEK_PASS" "$pp_copy"   # the patterns for the checks after the file is removed (0600)
+  : > "$SUDO_LOG"
+  install_box || { rm -f "$pp_copy"; fail "the second install of the same bundle failed"; }
+  [ ! -e "$KEK_PASS" ] || { rm -f "$pp_copy"; fail "the seal step did not remove the passphrase file"; }
+  no_passphrase_left "$pp_copy"; rm -f "$pp_copy"
+  ok "second install: the passphrase file removed after sealing"
   [ "$(sha256sum "$sec/kek.json" | cut -d' ' -f1)" = "$before" ] || fail "the second install replaced the KEK"
   [ "$(stat -c %u "$BOX/deploy/site")" = 0 ] || fail "deploy/site is no longer root's"
   grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"

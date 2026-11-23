@@ -24,7 +24,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 . "$HERE/lib.sh"
 KP_WHO="seal_keys.sh"
-# ---- KEK-PASSPHRASE functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# ---- KEK-INPUT functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
 # deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
 #   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
 #                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
@@ -37,7 +37,7 @@ kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped
   for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
     eval "kp_set=\${$kp_var:+yes}"
-    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (docs/runbook/30-rotate-the-kek-passphrase.md). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
   done
   unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
 }
@@ -69,7 +69,7 @@ kp_read_stdin() {
   kp_check_value "stdin"
 }
 kp_remove_file() { shred -u -- "$1" 2>/dev/null || rm -f -- "$1"; [ ! -e "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"; }
-# ---- end of KEK-PASSPHRASE functions
+# ---- end of KEK-INPUT functions
 kp_refuse_env  # H-96: before anything is read or made
 CONF="$ROOT/deploy/site/hardening.conf"; SECRETS=""; PP_FILE=""; PP_STDIN=0; PP_KEEP=0
 while [ $# -gt 0 ]; do

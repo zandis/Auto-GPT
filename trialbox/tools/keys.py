@@ -32,7 +32,7 @@ A passphrase (H-96, F-45; the integrator's ruling 7094934985) comes from a file 
 this, mode 0600; removed once used unless ``--keep-passphrase-files``), from stdin (``--passphrase-stdin``,
 ``--new-passphrase-stdin``: one line each, the old first; on a terminal they are asked, not shown), or is asked on the
 terminal. ``TB_KEK_PASSPHRASE`` or ``TB_KEK_NEW_PASSPHRASE`` in the environment is refused by every command: sudo logs
-the variables it keeps, with their values (``docs/runbook/30-rotate-the-kek-passphrase.md``).
+the variables it keeps, with their values (``RUNBOOK §23, rotate the KEK passphrase``).
 """
 
 from __future__ import annotations
@@ -152,7 +152,7 @@ def _err(msg: str) -> None:
 
 
 PASSPHRASE_VARS = ("TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE")
-ROTATE_PAGE = "docs/runbook/30-rotate-the-kek-passphrase.md"
+ROTATE_PAGE = "RUNBOOK §23, rotate the KEK passphrase"
 
 
 def env_passphrase_refusal(env: Mapping[str, str]) -> str | None:

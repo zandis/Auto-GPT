@@ -52,6 +52,17 @@ criteria that need a note's free text wait for a GPU or a pinned cloud model. Th
 files), and `release check` refuses a site bundle without them. A PRODUCTION install stops when they are missing.
 How fast the CPU embeds a hospital's records is not measured yet.
 
+**A machine without a usable TPM** (H-96). The site keys are then sealed under a passphrase (12 characters or more,
+one line). It goes in a file only root can read, and its name goes after `--`: after sudo's own password prompt, type
+the passphrase, then press Enter (nothing is shown):
+`sudo bash -c 'umask 077; IFS= read -rs p; printf "%s\n" "$p" > /root/trialbox-kek.pass'`, then the one command
+with `-- --tier large --answers /root/site/site.yaml --kek-passphrase-file /root/trialbox-kek.pass`, run with
+`TB_KEK_BACKEND=passphrase` (`sudo TB_KEK_BACKEND=passphrase bash trialbox-bootstrap.sh ...`). The file must be a
+regular file owned by root with mode 0600; the seal step removes it once the keys are sealed. `--kek-passphrase-stdin`
+instead asks for it twice on the terminal. A passphrase in the environment (`sudo --preserve-env`, `sudo -E`) is
+refused before anything, on every box: sudo writes a variable it keeps, with its value, to the system journal. A box
+installed that way rotates its passphrase (§23, "Rotate the KEK passphrase").
+
 **Re-running the installer.** After the release's own checks pass (pre-start) and before the database starts, the installer may run Compose `down --remove-orphans` on its own project. It does so only when every container of the project was started from this `deploy` folder and the stack is not running healthy (a failed earlier run). A healthy stack is kept with its logs. A `COMPOSE_PROJECT_NAME` in the shell that is not this install's project, or a container of the project from another folder, stops the installer and nothing is removed. Volumes and data are always kept.
 重新執行安裝程式時，版本檢查（pre-start）通過後、資料庫啟動前，只有當此專案的所有容器都來自本 `deploy` 資料夾且堆疊並非健康運行（先前執行失敗）時，才會對本專案執行 `down --remove-orphans`。健康運行的堆疊與其日誌會保留。若 shell 的 `COMPOSE_PROJECT_NAME` 不是本安裝的專案，或專案中有來自其他資料夾的容器，安裝程式會停止且不移除任何項目。資料卷與資料一律保留。
 再実行時は、リリースの確認（pre-start）が通った後、データベースの起動前に、プロジェクトの全コンテナがこの `deploy` フォルダーから起動され、かつスタックが正常稼働していない場合（以前の失敗した実行）に限り `down --remove-orphans` を実行します。正常稼働中のスタックはログとともに保持されます。シェルの `COMPOSE_PROJECT_NAME` がこのインストールのプロジェクトでない場合や、別フォルダーから起動されたコンテナがある場合は、何も削除せずに停止します。ボリュームとデータは常に保持されます。

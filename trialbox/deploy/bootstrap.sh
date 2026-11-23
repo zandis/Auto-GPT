@@ -29,7 +29,7 @@ die() { echo "trialbox-bootstrap: $*" >&2; exit 1; }
 # is read or written, with the words of deploy/kek_passphrase.sh (this file runs before that one is on the machine)
 for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
   if [ -n "${!kp_var:-}" ]; then
-    echo "trialbox-bootstrap: $kp_var is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (docs/runbook/30-rotate-the-kek-passphrase.md). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset $kp_var." >&2
+    echo "trialbox-bootstrap: $kp_var is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset $kp_var." >&2
     exit 2
   fi
 done
