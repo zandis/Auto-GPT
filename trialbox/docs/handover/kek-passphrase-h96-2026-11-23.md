@@ -117,6 +117,11 @@ not followed), on a real terminal (a pty: both on stdout, once), and with `enrol
 and that none of its values (read with `grep -F -f`, never printed) is in that output, the stand-in sudo's log or
 deploy/.env, then removes the file. Not run here (no Docker).
 
+**Mutants (the accounts step):** 9 planted, 8 caught by that file: stdout always, no terminal branch, no umask, no
+removal before the write, a failed or a good code echoed to the output, the text printed instead of shown, the terminal
+copy also on stdout. One survived: `set -C` removed. It guards only the moment between the removal and the write (a
+link planted then), which a single-threaded test cannot reach.
+
 **Other one-time values.**
 - The first-run wizard's one-time code (box-install.sh `show_code`) is not in install.log (the tee covers the install
   step only), but under `trialbox-firstrun.service` (`StandardOutput=journal+console`) it is in the system journal,
