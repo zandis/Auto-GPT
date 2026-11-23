@@ -25,8 +25,9 @@
    line vouches for it; for a licensed table, that line names who accepted the licence (D-1114). Such a table takes
    the place of the shipped table of its system. ATC's row is `permission-to-ask`, so the shipped `atc.parquet` is not
    loaded; an ATC index the site loads itself is.
-3. **Install never stops for a code system.** A system that is missing, refused or not allowed gets a warning and one
-   line of `poc-stops.jsonl` (key `fhir_codesystems/<system>`), and the load goes on.
+3. **Install never stops for a code system.** A system that is missing, refused or not allowed gets a warning, and the
+   load goes on. Only a fault (a copy given but refused, or a system given but not stored) is also a line of
+   `poc-stops.jsonl` (key `fhir_codesystems/<system>`).
 4. **One resource per system.** Each system is a single resource, `tb-<key>`. It carries:
    - a name;
    - a version, which is the source's version plus the first 8 hex of its content hash (`FY2026+4e43519a`);
@@ -71,8 +72,10 @@
     loaded under the owner's academic, non-commercial ruling; `snomed_problems` still blocks shipping any. The folder's
     layout: `docs/handover/terminology-folder.md`; its place, `TB_LICENSED_DIR` (default `deploy/site/terminology`).
 12. **What is still needed.** A system not loaded is a line of `deploy/site/needed.jsonl`, which the U-5 page reads
-    (U5-1). The line says why, and that `deploy/terminology-update.sh` loads it. On the installer's run it is also a
-    line of `poc-stops.jsonl`. Nothing stops.
+    (U5-1). The line says why, whether it is a fault, and that `deploy/terminology-update.sh` loads it. A system the
+    box was not given (no folder for it, nothing shipped, or a licence the box may not carry) is expected, not a fault.
+    On the installer's run each fault is also a line of `poc-stops.jsonl`; an expected one is not, so a box given
+    nothing lists nothing (H-94: the rehearsal box's install lists nothing). Nothing stops.
 13. **Backups.** A table built from a licensed copy (its manifest line names who accepted the licence) and the
     hospital's folder `deploy/site/terminology/` never reach a backup target. `manifest.json` is kept, with each
     system's name, version and hash. A restored box reloads the tables from the hospital's folder; until then the

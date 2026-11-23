@@ -58,7 +58,8 @@ and each is listed on the "information still needed" page.
   1. The folder's systems go into the terminology volume, with no network.
   2. The vocabulary and the FHIR store are loaded from that one manifest and the shipped tables.
 - **Missing or refused:** a system that is missing, or whose check fails, never stops the install. It is a line of
-  `deploy/site/needed.jsonl` (the "information still needed" page) and of `poc-stops.jsonl`, with the reason.
+  `deploy/site/needed.jsonl` (the "information still needed" page), with the reason. One whose files are there but
+  whose check fails is also a line of `poc-stops.jsonl`.
 - **Later:** add or replace files in the folder, then run `deploy/terminology-update.sh` again: no reinstall. Each
   system's earlier version stays in the FHIR store's history; `python -m tools.fhir_codesystems rollback <system>`
   puts it back.

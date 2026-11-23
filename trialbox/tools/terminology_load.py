@@ -113,19 +113,22 @@ def run(term_dir: Path, fhir: str, db: Any | None, wait: float = 900.0, by: str 
             report["problems"].append(f"omop: {type(exc).__name__}: {str(exc)[:300]}")
     try:
         outcomes = fc.load(fc.Store(fhir), term_dir, wait=wait)
-        report["fhir"] = [{"key": o.key, "state": o.state, "detail": o.detail, "id": o.id} for o in outcomes]
+        report["fhir"] = [
+            {"key": o.key, "state": o.state, "detail": o.detail, "id": o.id, "absent": o.absent} for o in outcomes
+        ]
     except (*FAILED, httpx_error()) as exc:
         report["problems"].append(f"fhir: {type(exc).__name__}: {str(exc)[:300]}")
     return report
 
 
-def skipped(report: dict[str, Any]) -> list[tuple[str, str]]:
-    """``(key, why)`` of each system or reader the run did not load."""
-    out = [(f"fhir/{r['key']}", r["detail"]) for r in report.get("fhir") or [] if r.get("state") == "skipped"]
-    out += [
-        (f"omop/{r['table']}", r.get("detail", "")) for r in report.get("omop") or [] if r.get("state") == "skipped"
-    ]
-    out += [(p.split(":", 1)[0], p) for p in report.get("problems") or []]
+def skipped(report: dict[str, Any]) -> list[tuple[str, str, bool]]:
+    """``(key, why, fault)`` of each system or reader the run did not load. ``fault`` is false for a system the box
+    was not given, or may not carry: the "information still needed" page lists it, but nothing failed."""
+    out = [(f"fhir/{r['key']}", r["detail"], not r.get("absent")) for r in report.get("fhir") or []
+           if r.get("state") == "skipped"]  # fmt: skip
+    out += [(f"omop/{r['table']}", r.get("detail", ""), True) for r in report.get("omop") or []
+            if r.get("state") == "skipped"]  # fmt: skip
+    out += [(p.split(":", 1)[0], p, True) for p in report.get("problems") or []]
     return out
 
 
@@ -138,7 +141,7 @@ def check(report: dict[str, Any] | None, term_dir: Path) -> list[str]:
     if report.get("release") != now:
         out.append(f"the terminology is release {now}, but the vocabulary and the FHIR store were loaded from "
                    f"{report.get('release')}: run the load step again")  # fmt: skip
-    out += [f"{key}: {why}" for key, why in skipped(report) if not key.startswith("fhir/")]
+    out += [f"{key}: {why}" for key, why, _ in skipped(report) if not key.startswith("fhir/")]
     return out
 
 
@@ -147,20 +150,22 @@ NEEDED = "needed.jsonl"  # in the site folder: what is still needed, for the U-5
 NEXT = "deploy/terminology-update.sh"  # the one command that loads it later
 
 
-def folder_lines(text: str) -> list[tuple[str, str]]:
-    """``(system, why)`` of each system the hospital's folder did not load (``terminology_install folder`` output)."""
+def folder_lines(text: str) -> list[tuple[str, str, bool]]:
+    """``(system, why, fault)`` of each system the hospital's folder did not load (``terminology_install folder``
+    output): a missing one is not a fault, a refused one is (its files are there but did not pass)."""
     out = []
     for line in text.splitlines():
         label, _, rest = line.partition(": ")
         state, _, why = rest.partition(": ")
         if state in ("missing", "refused") and label:
-            out.append((f"folder/{label}", f"{state}: {why}"))
+            out.append((f"folder/{label}", f"{state}: {why}", state == "refused"))
     return out
 
 
-def needed(site: Path, items: list[tuple[str, str]], by: str = BY) -> None:
+def needed(site: Path, items: list[tuple[str, str, bool]], by: str = BY) -> None:
     """Rewrite this step's lines of ``site/needed.jsonl`` (``terminology/...``): one per system still needed, with
-    why and the command that loads it later; the other steps' lines stay. Standard library only (the host runs it)."""
+    why, whether it is a fault, and the command that loads it later; the other steps' lines stay. Standard library
+    only (the host runs it)."""
     from datetime import UTC, datetime
 
     path = site / NEEDED
@@ -168,8 +173,8 @@ def needed(site: Path, items: list[tuple[str, str]], by: str = BY) -> None:
             if ln.strip() and not str(json.loads(ln).get("key", "")).startswith("terminology/")]  # fmt: skip
     at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     new = [json.dumps({"key": f"terminology/{k}", "what": f"code system {k.split('/', 1)[-1]} is not loaded",
-                       "why": why, "next": NEXT, "at": at, "by": by}, ensure_ascii=False)
-           for k, why in items]  # fmt: skip
+                       "why": why, "fault": fault, "next": NEXT, "at": at, "by": by}, ensure_ascii=False)
+           for k, why, fault in items]  # fmt: skip
     site.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(f"{ln}\n" for ln in [*keep, *new]), encoding="utf-8")
 
@@ -185,7 +190,7 @@ def doctor_line(site: Path, term_dir: Path) -> tuple[Literal["PASS", "WARN", "FA
     loaded = [f"{r['key']} {r['detail'].split(' (')[0].split(' ')[-1]}" for r in report.get("fhir") or []
               if r.get("state") != "skipped"]  # fmt: skip
     said = f"release {report.get('release')}; in the FHIR store: {', '.join(loaded) or 'none'}"
-    not_loaded = [k.split("/", 1)[-1] for k, _ in skipped(report) if k.startswith("fhir/")]
+    not_loaded = [k.split("/", 1)[-1] for k, _, _ in skipped(report) if k.startswith("fhir/")]
     said += f"; not loaded: {', '.join(not_loaded)}" if not_loaded else ""
     if not term_dir.is_dir():
         return "WARN", f"{said}; {term_dir} cannot be read here: the release was not compared"
@@ -208,23 +213,24 @@ def main(argv: list[str] | None = None) -> int:
     sk.add_argument("--site", default="", help="also rewrite this step's lines of <site>/needed.jsonl (U-5)")
     sn = sub.add_parser("still-needed", help="this step's lines of <site>/needed.jsonl, one 'key<TAB>why' each")
     sn.add_argument("--site", required=True)
+    sn.add_argument("--faults", action="store_true", help="only the faults: a system given but refused or not loaded")
     ck = sub.add_parser("check", help="compare a report with the terminology as it is now (the doctor)")
     ck.add_argument("--report", required=True)
     ck.add_argument("--terminology", default="")
     a = p.parse_args(argv)
-    if a.cmd == "still-needed":  # the standard library only: the installer lists them in poc-stops.jsonl
+    if a.cmd == "still-needed":  # the standard library only: the installer lists the faults in poc-stops.jsonl
         path = Path(a.site) / NEEDED
         for ln in path.read_text("utf-8").splitlines() if path.is_file() else []:
             rec = json.loads(ln) if ln.strip() else {}
-            if str(rec.get("key", "")).startswith("terminology/"):
+            if str(rec.get("key", "")).startswith("terminology/") and (rec.get("fault", True) or not a.faults):
                 print(f"{rec['key'].split('/', 1)[1]}\t{' '.join(str(rec.get('why', '')).split())}")
         return 0
     if a.cmd == "skipped":  # the standard library only: the installer runs it on the host
         rp = Path(a.report)
-        items = skipped(json.loads(rp.read_text("utf-8"))) if rp.is_file() else [("load", "the step did not run")]
+        items = skipped(json.loads(rp.read_text("utf-8"))) if rp.is_file() else [("load", "the step did not run", True)]
         log = Path(a.folder_log) if a.folder_log else None
         items = (folder_lines(log.read_text("utf-8")) if log and log.is_file() else []) + items
-        for key, why in items:
+        for key, why, _ in items:
             print(f"{key}\t{' '.join(why.split())}")
         if a.site:
             needed(Path(a.site), items)
@@ -252,9 +258,9 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if db is not None:
             db.close()
-    for key, why in skipped(report):
+    for key, why, fault in skipped(report):
         print(f"{BY}: warning: {key} not loaded: {why}", file=sys.stderr)
-        if a.deploy:
+        if a.deploy and fault:
             from tools.trialbox import stops
 
             stops.append(Path(a.deploy), f"{BY}/{key}", f"code system {key} not loaded", why, by=BY)

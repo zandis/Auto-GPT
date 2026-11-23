@@ -1365,13 +1365,14 @@ done
 
 # V-18 (D-1182, DB-C1): the code systems, in one step from one manifest: the hospital's licensed copies from its folder
 # (TB_LICENSED_DIR) into the terminology volume, then the vocabulary and the FHIR store from the volume and the shipped
-# tables. The same command is the manual update. A system not loaded is a line of the list and of the "information
-# still needed" page, never a stop: deploy/terminology-update.sh loads it later, with no reinstall
+# tables. The same command is the manual update. A system not loaded is a line of the "information still needed" page,
+# never a stop: deploy/terminology-update.sh loads it later, with no reinstall. Only a fault (a copy given but refused,
+# or a reader not loaded) is also a line of the list; a system the box was not given is expected, not a fault
 say "code systems: the hospital's folder, the vocabulary and the FHIR store (deploy/terminology-update.sh)"
 deploy/terminology-update.sh 2>&1 | sed 's/^/    /' || true
 while IFS="$(printf '\t')" read -r tl_key tl_why; do
   [ -z "$tl_key" ] || tb_stop_list "terminology/$tl_key" "$tl_why" "code system $tl_key not loaded (deploy/terminology-update.sh loads it later)"
-done < <(PYTHONPATH=. python3 -m tools.terminology_load still-needed --site deploy/site 2>/dev/null)
+done < <(PYTHONPATH=. python3 -m tools.terminology_load still-needed --faults --site deploy/site 2>/dev/null)
 if [ "$CTGOV" = offline ] && ! "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata status 2>/dev/null | grep -q pack_id; then
   echo "install: note: offline ClinicalTrials.gov needs a reference data pack: tools/apply_update.sh <bundle with refdata>" >&2
 fi

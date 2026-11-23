@@ -97,9 +97,10 @@ def test_the_command_reports_and_lists_each_system_not_loaded(
     rc = tl.main(["load", "--terminology", str(term_dir), "--fhir", "http://fhir.invalid/fhir", "--deploy",
                   str(tmp_path), "--report", str(out), "--wait", "0"])  # fmt: skip
     report = json.loads(out.read_text("utf-8"))
-    stops = [json.loads(x) for x in (tmp_path / "site/poc-stops.jsonl").read_text("utf-8").splitlines()]
     assert rc == 0 and report["release"] == tl.manifest(term_dir)["release"]
-    assert [s["key"] for s in stops] == ["terminology_load/fhir/icd10pcs"]
+    # icd10pcs was not given at install: expected, on the U-5 list (skipped), not a line of poc-stops (H-94)
+    assert [(k, f) for k, _, f in tl.skipped(report)] == [("fhir/icd10pcs", False)]
+    assert not (tmp_path / "site/poc-stops.jsonl").exists()
     assert tl.main(["check", "--report", str(out), "--terminology", str(term_dir)]) == 0
     assert tl.main(["check", "--report", str(tmp_path / "missing.json"), "--terminology", str(term_dir)]) == 1
 
@@ -182,9 +183,26 @@ def test_what_is_still_needed_goes_to_the_u5_list_and_replaces_only_this_steps_l
     assert [x["key"] for x in lines] == ["mail/relay", "terminology/folder/UMLS", "terminology/folder/ATC",
                                          "terminology/fhir/icd10pcs"]  # fmt: skip
     assert all(x["next"] == "deploy/terminology-update.sh" for x in lines[1:])
+    assert [x["fault"] for x in lines[1:]] == [False, True, True]  # missing: expected; refused, not loaded: faults
     capsys.readouterr()
     assert tl.main(["still-needed", "--site", str(site)]) == 0
     assert capsys.readouterr().out.splitlines()[0] == "folder/UMLS\tmissing: no umls/ in the hospital's folder"
+    assert tl.main(["still-needed", "--faults", "--site", str(site)]) == 0  # the installer's list: the faults only
+    assert [ln.split("\t")[0] for ln in capsys.readouterr().out.splitlines()] == ["folder/ATC", "fhir/icd10pcs"]
+    report.write_text(
+        json.dumps(
+            {
+                "fhir": [{"key": "snomed", "state": "skipped", "absent": True, "detail": "not loaded at install"}],
+                "omop": [],
+                "problems": [],
+            }
+        ),
+        "utf-8",
+    )
+    tl.main(["skipped", "--report", str(report), "--folder-log", str(log), "--site", str(site)])
+    capsys.readouterr()
+    tl.main(["still-needed", "--faults", "--site", str(site)])
+    assert [ln.split("\t")[0] for ln in capsys.readouterr().out.splitlines()] == ["folder/ATC"]
     report.write_text(json.dumps({"fhir": [], "omop": [], "problems": []}), "utf-8")
     log.write_text("UMLS: loaded: umls_concepts 2 rows\n", "utf-8")
     tl.main(["skipped", "--report", str(report), "--folder-log", str(log), "--site", str(site)])

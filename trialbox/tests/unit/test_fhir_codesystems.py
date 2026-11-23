@@ -139,17 +139,29 @@ def test_a_table_loaded_at_install_takes_the_place_of_the_shipped_one(monkeypatc
     assert origin == "loinc_table, loaded at install"
 
 
-def test_the_command_lists_each_skipped_system_in_the_poc_list_and_goes_on(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_the_command_goes_on_and_lists_only_a_fault_in_the_poc_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """A system the box was not given (icd10pcs) or may not carry (atc) is expected: a warning, not a line of the
+    list (H-94: the rehearsal box's install lists nothing). A system given but not stored is a fault: a line."""
     store = MemoryStore()
     monkeypatch.setattr(fc, "Store", lambda base: store)
     monkeypatch.setattr(fc, "SOURCES", (_src("atc"), _src("department"), _src("icd10pcs")))
     rc = fc.main(["--fhir", "http://fhir.invalid/fhir", "load", "--terminology", str(TERM), "--deploy", str(tmp_path)])
-    lines = [json.loads(x) for x in (tmp_path / "site/poc-stops.jsonl").read_text("utf-8").splitlines()]
-    assert rc == 0 and [x["key"] for x in lines] == ["fhir_codesystems/atc", "fhir_codesystems/icd10pcs"]
-    assert all(x["by"] == "fhir_codesystems" and x["skipped"] for x in lines)
+    assert rc == 0 and not (tmp_path / "site/poc-stops.jsonl").exists()
+    err = capsys.readouterr().err
+    assert "warning: atc not loaded" in err and "warning: icd10pcs not loaded" in err
     assert store.get("CodeSystem", "tb-department") is not None
+
+    def refuse(res: dict[str, Any]) -> None:
+        raise RuntimeError("the store said no")
+
+    monkeypatch.setattr(store, "put", refuse)
+    monkeypatch.setattr(fc, "SOURCES", (_src("department"),))
+    store.versions.clear()
+    fc.main(["--fhir", "http://fhir.invalid/fhir", "load", "--terminology", str(TERM), "--deploy", str(tmp_path)])
+    lines = [json.loads(x) for x in (tmp_path / "site/poc-stops.jsonl").read_text("utf-8").splitlines()]
+    assert [x["key"] for x in lines] == ["fhir_codesystems/department"] and "the store said no" in lines[0]["skipped"]
 
 
 class SlowStore(MemoryStore):

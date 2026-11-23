@@ -24,7 +24,8 @@ It runs two steps:
    and the FHIR store from one manifest: the shipped tables and those loaded at install, their digest the release.
 
 Its report goes to `deploy/site/terminology-load.json`, and the doctor fails when the readers hold another release. A
-system not loaded is a line of `deploy/site/needed.jsonl` (the U-5 page) and of `poc-stops.jsonl`; nothing stops.
+system not loaded is a line of `deploy/site/needed.jsonl` (the U-5 page); a fault (a copy given but refused, a reader
+not loaded) is also a line of `poc-stops.jsonl`. Nothing stops.
 
 Two more changes:
 - **Backups:** the hospital's folder and the tables built from licensed copies are left out of every backup. The
@@ -53,7 +54,8 @@ Two more changes:
 Each system is one resource, `tb-<key>`. It has a name, a version (`FY2026+4e43519a`: the source's version and the
 start of its content hash) and the full sha256 as an identifier. An update writes over it and names the version it
 replaces; the store keeps the earlier one in the resource's history, which is what `rollback` writes back. A system that
-is missing or not allowed is a warning and a line of `poc-stops.jsonl`, and the load goes on.
+is missing or not allowed is a warning, and the load goes on; one given but not stored is also a line of
+`poc-stops.jsonl`.
 
 ## How the store behaved (HAPI as pinned, on Postgres)
 

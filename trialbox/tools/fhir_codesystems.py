@@ -163,6 +163,7 @@ class Outcome:
     state: str  # loaded, unchanged, skipped
     detail: str
     id: str = ""
+    absent: bool = False  # skipped because the box was not given it (or may not carry it): expected, not a fault
 
 
 def register_status(path: str, rows: Iterable[Any] | None = None) -> tuple[str, str]:
@@ -396,7 +397,7 @@ def load(store: Store, terminology: Path, sources: Iterable[Source] | None = Non
         try:
             got = pick(src, terminology, register)
             if isinstance(got, str):
-                out.append(Outcome(src.key, "skipped", got))
+                out.append(Outcome(src.key, "skipped", got, absent=True))
                 continue
             rows, version, origin = got
             if not rows:
@@ -487,7 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     for o in load(store, where, wait=a.wait):
         if o.state == "skipped":
             print(f"{BY}: warning: {o.key} not loaded into the FHIR store: {o.detail}", file=sys.stderr)
-            if a.deploy:
+            if a.deploy and not o.absent:
                 from tools.trialbox import stops
 
                 stops.append(Path(a.deploy), f"{BY}/{o.key}", f"code system {o.key} not loaded into the FHIR store",
