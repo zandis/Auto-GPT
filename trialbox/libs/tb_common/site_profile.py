@@ -87,9 +87,10 @@ SYSTEM_SHAPES = {
     "icd10": re.compile(r"[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?"),  # U codes too (U07.1, U09.9)
     "atc": re.compile(r"[A-Z][0-9]{2}[A-Z]{2}[0-9]{2}"),
     "score": re.compile(r"[A-Z0-9][A-Z0-9-]{0,31}"),
+    "department": re.compile(r"[A-Z][A-Z0-9]{1,9}"),  # TrialBox's department codes (SDR2, lane M)
 }
 #: the system of a table's standard code when the table has no ``system`` column, by where it is read
-SYSTEM_OF_USE = {"ssmix2.diagnosis": "icd10", "ssmix2.drug": "atc"}
+SYSTEM_OF_USE = {"ssmix2.diagnosis": "icd10", "ssmix2.drug": "atc", "mapping.department": "department"}
 REGISTER = Path(__file__).resolve().parents[2] / "docs" / "licences" / "register.csv"
 
 
