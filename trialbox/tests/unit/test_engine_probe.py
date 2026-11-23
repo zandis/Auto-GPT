@@ -467,3 +467,49 @@ def test_the_tools_the_owner_runs_with_the_hosts_python_need_nothing_newer_than_
                 "tools/fetch_weights.py", "tools/security_contact.py", "tools/build_site.py"):  # fmt: skip
         code = "\n".join(ln.split("#", 1)[0] for ln in (ROOT / rel).read_text(encoding="utf-8").splitlines())
         assert "from datetime import UTC" not in code and "datetime.UTC" not in code, rel
+
+
+# ------------------------------------------------------------------------------- the compiled-op modules' two name forms
+FAKE_TORCH = """
+__version__ = "0"
+class version: cuda = "13.0"
+class _T:
+    def __matmul__(self, o): return self
+    def sum(self): return self
+    def item(self): return 262144.0
+class cuda:
+    is_available = staticmethod(lambda: True)
+    get_device_name = staticmethod(lambda i: "stand-in")
+    get_device_capability = staticmethod(lambda i: (10, 0))
+def ones(*a, **k): return _T()
+"""
+
+
+def _run_check(tmp_path: Path, modules: list[str]) -> tuple[str, dict[str, Any] | None, str]:
+    """The check itself (PROBE_PY) in this python3, with a stand-in torch and an engine package holding ``modules``."""
+    (tmp_path / "torch.py").write_text(FAKE_TORCH, encoding="utf-8")
+    pkg = tmp_path / "vllm"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text('__version__ = "0.32.0"\n', encoding="utf-8")
+    for m in modules:
+        (pkg / f"{m}.py").write_text("", encoding="utf-8")
+    r = subprocess.run([sys.executable, "-I", "-c", f"import sys; sys.path.insert(0, {str(tmp_path)!r})\n" + ep.PROBE_PY],
+                       capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
+    return ep.classify(r.returncode, r.stdout, r.stderr)
+
+
+@pytest.mark.parametrize("modules", [["_C", "_moe_C"], ["_C_stable_libtorch", "_moe_C_stable_libtorch"]])
+def test_the_compiled_ops_pass_by_either_name_form(tmp_path: Path, modules: list[str]) -> None:
+    status, probe, _ = _run_check(tmp_path, modules)
+    assert status == "PASS" and probe is not None
+    assert probe["vllm_ops"] == f"vllm.{modules[0]}" and probe["vllm_moe_ops"] == f"vllm.{modules[1]}"
+
+
+@pytest.mark.parametrize("modules", [[], ["_C_stable_libtorch"], ["_moe_C"]])
+def test_the_probe_fails_when_the_compiled_ops_are_missing(tmp_path: Path, modules: list[str]) -> None:
+    status, probe, errors = _run_check(tmp_path, modules)
+    assert status == "PARTIAL" and probe is not None and "No module named" in errors
+
+
+def test_a_result_from_before_the_two_name_forms_still_passes() -> None:
+    assert ep.classify(0, "TBPROBE " + json.dumps(GOOD), "")[0] == "PASS"
