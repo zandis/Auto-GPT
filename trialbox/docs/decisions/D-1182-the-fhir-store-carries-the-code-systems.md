@@ -79,10 +79,17 @@
     doctor names each missing table.
 14. **The mapping check** (`tools/mapping_coverage.py`) reports a mapped code that is missing from a system loaded at
     install (LOINC, ATC, the NHI service codes).
-15. **Not in this card.**
-    - The signed update bundle's `terminology` payload waits for lane H's H-99 (the same file).
-    - The scheduled update is V-19.
-    - The install question is lane U's.
+15. **The update bundle.** A bundle may carry a code system the box may carry, as payload kind `terminology`
+    (`<command>/<file>`: `icd10cm`, `icd10pcs`, `nhi-drugs`, `nhi-services`, and the folder's `VERSION`).
+    `tools/release.py`, `tools/sign_bundle.py` and `tools/verify_update.py` refuse any other: a licensed system never
+    ships. After the release passed its check, the update does three things:
+    1. It keeps the volume's tables aside in `deploy/terminology/previous/<bundle>` (never a licensed one).
+    2. It loads each file with no network.
+    3. It loads the vocabulary and the FHIR store from the one manifest.
+
+    `deploy/terminology-update.sh --rollback <bundle>` puts the kept tables back, takes away what the update added,
+    and reloads both readers. A failure leaves the healthy release, as the reference data's does.
+16. **Not in this card.** The scheduled update is V-19; the install question is lane U's.
 
 ## Why
 

@@ -72,10 +72,15 @@ is missing or not allowed is a warning and a line of `poc-stops.jsonl`, and the 
 - **No effect on the compile's equivalence check.** The check still passes with the systems loaded: #1400's store
   test passed, and the GZQO gout criterion still finds its patient.
 
+## The update bundle
+
+Payload kind `terminology`: a code system the box may carry, as `<command>/<file>`; anything else is refused by the
+bundle builder, the signer and the box's verifier. The update keeps the volume's tables aside, loads the new files
+with no network, then reloads the vocabulary and the FHIR store. `deploy/terminology-update.sh --rollback <bundle>`
+puts the kept tables back and reloads both readers.
+
 ## Not in this card
 
-- **The signed update bundle's `terminology` payload, with its rollback:** waits for lane H's H-99 (the same files,
-  `update.py` and `verify_update.py`).
 - **The scheduled update:** V-19.
 - **The install question that writes `acceptance.json`:** lane U.
 

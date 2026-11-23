@@ -22,8 +22,8 @@
     },
     {
       "id": "V18-03",
-      "severity": "Medium",
-      "claim": "The signed update bundle's terminology payload and its rollback are not built: update.py and verify_update.py wait for lane H's H-99 (the same file); the scheduled update is V-19; the install question that writes acceptance.json is lane U's",
+      "severity": "Low",
+      "claim": "The scheduled code-system update is not built (V-19) and the install question that writes acceptance.json is lane U's: until then the hospital writes acceptance.json by hand, and an update runs only when an operator applies a bundle or runs deploy/terminology-update.sh",
       "lane": "V",
       "basis": "shown",
       "state": "open"

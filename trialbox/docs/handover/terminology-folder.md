@@ -62,6 +62,9 @@ and each is listed on the "information still needed" page.
 - **Later:** add or replace files in the folder, then run `deploy/terminology-update.sh` again: no reinstall. Each
   system's earlier version stays in the FHIR store's history; `python -m tools.fhir_codesystems rollback <system>`
   puts it back.
+- **An update bundle:** a bundle may also bring a new release of a code system the box may carry (ICD-10-CM,
+  ICD-10-PCS, the NHI lists), never one of the licensed ones. `deploy/terminology-update.sh --rollback <bundle>` puts
+  back what it replaced.
 - **The doctor:** `trialbox doctor` shows each system's version and fails when the vocabulary and the FHIR store
   hold another release than the folder's tables.
 
