@@ -471,7 +471,8 @@ def host_facts(run: Runner, index: str | None = None) -> dict[str, Any]:
     """What the result needs to be read, and nothing that names the machine. With ``index`` (``run --gpu-index``,
     H-89): that one card's facts, and the one-way ids of the card and of this host."""
     facts: dict[str, Any] = {"arch": platform.machine()}
-    one = ["-i", index] if index is not None else []
+    card, _, part = (index or "").partition(":")  # H-89b: a slice N:M is probed on its card N's facts
+    one = ["-i", card] if index is not None else []
     rc, out, _ = run(["nvidia-smi", *one, "--query-gpu=name,memory.total,driver_version,compute_cap",
                       "--format=csv,noheader,nounits"], 60)  # fmt: skip
     if rc == 0 and out.strip():
@@ -491,7 +492,17 @@ def host_facts(run: Runner, index: str | None = None) -> dict[str, Any]:
     facts["docker"] = out.strip() if rc == 0 else None
     rc, out, _ = run(["docker", "info", "--format", "{{json .Runtimes}}"], 60)
     facts["nvidia_runtime"] = rc == 0 and "nvidia" in out
-    if index is not None:
+    if index is not None and part:  # H-89b: the slice's own UUID (nvidia-smi -L), its one-way id the card id
+        rc, out, _ = run(["nvidia-smi", "-L"], 60)
+        uuid, on = "", None
+        for line in out.splitlines() if rc == 0 else []:
+            gpu = re.match(r"GPU (\d+):", line)
+            on = gpu.group(1) if gpu else on
+            dev = re.match(r"\s+MIG \S+\s+Device\s+(\d+): \(UUID: (MIG-[0-9A-Fa-f-]+)\)\s*$", line)
+            if dev and on == card and dev.group(1) == part:
+                uuid = dev.group(2)
+        facts.update(gpu_index=index, card_id=card_id(uuid) if uuid else None, host_id=host_id())
+    elif index is not None:
         rc, out, _ = run(["nvidia-smi", "-i", index, "--query-gpu=uuid", "--format=csv,noheader"], 60)
         uuid = out.strip().splitlines()[0].strip() if rc == 0 and out.strip() else ""
         facts.update(gpu_index=int(index), card_id=card_id(uuid) if uuid else None, host_id=host_id())
@@ -655,8 +666,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--keep-images", action="store_true", help="leave the pulled images (needs about 50 GB)")
     r.add_argument("--min-free-gb", type=float, default=MIN_FREE_GB)
     r.add_argument("--gpu-args", default="--gpus all", help="how docker run is given the card (default --gpus all)")
-    r.add_argument("--gpu-index", default=None, help="H-89: probe the one card at this index (--gpus device=N), and "
-                   "record its one-way id and this host's (a rehearsal with real servers needs them)")  # fmt: skip
+    r.add_argument("--gpu-index", default=None, help="H-89: probe the one card at this index (--gpus device=N), or "
+                   "the one slice N:M of a split card (H-89b), and record its one-way id and this host's (a "
+                   "rehearsal with real servers needs them)")  # fmt: skip
     r.add_argument("--dry-run", action="store_true", help="print the commands; run nothing")
     s = sub.add_parser("show", help="print the table of a result file")
     s.add_argument("file", type=Path)
@@ -672,9 +684,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     gpu_args = shlex.split(a.gpu_args)
     if a.gpu_index is not None:
-        if not a.gpu_index.isdigit() or a.gpu_args != "--gpus all":
+        if not re.fullmatch(r"\d{1,3}(:\d{1,2})?", a.gpu_index) or a.gpu_args != "--gpus all":
             print(
-                "engine_probe: --gpu-index N names one card (0, 1, ...) and takes the place of --gpu-args",
+                "engine_probe: --gpu-index N names one card (0, 1, ...), or N:M one slice of a split card, and takes "
+                "the place of --gpu-args",
                 file=sys.stderr,
             )
             return 2
