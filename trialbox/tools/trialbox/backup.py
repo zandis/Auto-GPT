@@ -647,6 +647,7 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
     keep: list[str] = []
     left: dict[str, int] = {}
     ndjson_keep: set[str] | None = None
+    licensed = licensed_tables(root) if name == "terminology" else set()
     if name == "lake":
         cur, nd = root / "CURRENT", root / "ndjson"
         snaps = sorted(p.name for p in nd.iterdir() if p.is_dir()) if nd.is_dir() else []
@@ -671,11 +672,27 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
         elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
                 and parts[1] not in ndjson_keep and rel.endswith(".ndjson"):  # fmt: skip
             why = "lake NDJSON of older snapshots (their Parquet and DuckDB are kept)"
+        elif name == "terminology" and rel in licensed:
+            # V-18 (D-1182; the integrator's ruling on #639): a table built from the hospital's licensed copy never
+            # leaves the box. Its manifest.json line (name, version, sha256) is kept: a restore reloads it from the
+            # hospital's folder (deploy/terminology-update.sh), and the doctor names it until then
+            why = "terminology tables built from a licensed copy (reloaded from the hospital's folder)"
         if why:
             left[why] = left.get(why, 0) + 1
         else:
             keep.append(rel)
     return keep, left
+
+
+def licensed_tables(root: Path) -> set[str]:
+    """V-18: the terminology volume's tables built from a licensed copy: each table whose manifest.json line names
+    who accepted its licence (D-1114). Read from the volume itself: the backup image has no loader. A manifest that
+    cannot be read leaves out every table (never a licensed one by mistake): only manifest.json is then kept."""
+    try:
+        lines = json.loads((root / "manifest.json").read_text("utf-8")).get("tables") or {}
+    except (OSError, ValueError):
+        return {rel for rel in _walk(root) if rel.endswith(".parquet")}
+    return {f"{n}.parquet" for n, line in lines.items() if str((line or {}).get("licence_accepted_by") or "").strip()}
 
 
 READ_TRIES = 3

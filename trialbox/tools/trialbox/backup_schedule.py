@@ -1212,7 +1212,15 @@ class ComposeOps:
             if src.is_file():
                 shutil.copy2(src, dest / name)
                 taken.append(name)
-        skip = shutil.ignore_patterns("backup.lock", ".audit-*", "*.tmp")
+        patterns = shutil.ignore_patterns("backup.lock", ".audit-*", "*.tmp")
+        licensed = self.deploy / "site" / "terminology"
+
+        def skip(folder: str, names: list[str]) -> set[str]:
+            # V-18 (D-1182): the hospital's licensed copies (deploy/site/terminology, the default TB_LICENSED_DIR)
+            # never leave the box; a restore reloads them from the hospital's folder
+            out = set(patterns(folder, names))
+            return out | ({"terminology"} if Path(folder) == licensed.parent else set())
+
         for sub in ("site", "secrets"):
             if (self.deploy / sub).is_dir():
                 shutil.copytree(self.deploy / sub, dest / sub, symlinks=True, ignore=skip, dirs_exist_ok=True)
