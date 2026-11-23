@@ -230,7 +230,9 @@ class CqlGenerator:
                         f"Substring(Cd.code.value, 0, 7) in {{{listed}}})) and"
                     )
             case "procedure":
-                date = "date from (X.performed as FHIR.dateTime)"
+                # SDR2 (lane M), as the lake (D-275's rule): a procedure of unknown status is undated, so it can only
+                # make the answer unknown, never true
+                date = "(if X.status.value = 'unknown' then null as Date else date from (X.performed as FHIR.dateTime))"
                 retrieve = f"[Procedure: {vs}] X"
             case "report":
                 date = "date from (X.effective as FHIR.dateTime)"

@@ -651,3 +651,51 @@ def test_a_procedure_of_unknown_status_reads_unknown_never_true(status: str, wan
     out = con.execute(sql, [[date(2026, 1, 1).isoformat()], ["pt"]]).fetchall()
     cols = [d[0] for d in con.description]
     assert dict(zip(cols, out[0], strict=True))["C_GZQO-EXC-05"] is want
+
+
+def test_the_cql_reads_a_procedure_of_unknown_status_as_unknown_too() -> None:
+    """The CQL side of the same guard (ruling #639 7105784808): GZQO-EXC-05 compiled from the shipped value sets,
+    evaluated by the local CQL engine: a Procedure of status ``unknown`` gives null, a completed one true."""
+    from datetime import date
+
+    from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
+    from criteria_compiler.compile_cql.translator import Translator, available, fhirhelpers_source
+    from criteria_compiler.terminology.mapper import Terminology, ValueSets
+    from tb_common.fhir import FhirEvaluator, library_resource
+    from tb_contracts import CriterionIR
+
+    from tools import cql_eval
+
+    if not (available() and cql_eval.available()):
+        pytest.skip("CQL translator or local CQL engine not available (python -m tools.cql_eval --fetch)")
+    base = mc.RULESETS / "GZQO"
+    crit = CriterionIR.model_validate(json.loads((base / "ir" / "GZQO-EXC-05.json").read_text(encoding="utf-8")))
+    vs_all = [json.loads(f.read_text(encoding="utf-8")) for f in sorted((base / "valuesets").glob("*.json"))]
+    gen = CqlGenerator("SDR", "1.0.0", ValueSets("SDR", {v["name"]: v for v in vs_all}, Terminology()))
+    cql = gen.render([crit])
+    tr = Translator().translate({"FHIRHelpers": fhirhelpers_source(), "TB_Common": render_common(), gen.library: cql})
+    version = next(x for x in cql.splitlines() if x.startswith("library ")).split(" version ")[1].strip().strip("'")
+    libs = [
+        library_resource("TB_Common", "1.0.0", render_common(), tr.elm.get("TB_Common")),
+        library_resource(gen.library, version, cql, tr.elm.get(gen.library)),
+    ]
+    lines: list[str] = []
+    for pid, status in (("pu", "unknown"), ("pc", "completed")):
+        lines.append(json.dumps({"resourceType": "Patient", "id": pid, "gender": "female", "birthDate": "1960-01-01"}))
+        proc = {
+            "resourceType": "Procedure",
+            "id": f"x-{pid}",
+            "status": status,
+            "subject": {"reference": f"Patient/{pid}"},
+            "code": {"coding": [{"system": "https://trialbox.local/fhir/CodeSystem/nhi-order", "code": "75614B"}]},
+            "performedDateTime": "2025-06-01",
+        }
+        lines.append(json.dumps(proc))
+    lines += [json.dumps(v) for v in vs_all] + [json.dumps(x) for x in libs]
+    idx = date(2026, 1, 1)
+    exprs = CqlGenerator.expression_names([crit])
+    got = {}
+    for body in cql_eval.run(lines, gen.library, version, idx, exprs, ["pu", "pc"]):
+        pid = str(body.get("id"))
+        got[pid] = FhirEvaluator.parse(pid, idx, body, exprs).results.get("GZQO-EXC-05")
+    assert got == {"pu": None, "pc": True}
