@@ -69,8 +69,11 @@ def library_resource(name: str, version: str, cql: str, elm: str | None) -> dict
 
 # The one code a ValueSet with no code lists in its FHIR-store copy: of TrialBox's own system, which no record is
 # coded in, so the copy has no member a record can match, as the ValueSet itself
-NO_MEMBER = {"system": "https://trialbox.local/fhir/CodeSystem/no-member", "code": "no-member",
-             "display": "no code: the concept mapped to none"}  # fmt: skip
+NO_MEMBER = {
+    "system": "https://trialbox.local/fhir/CodeSystem/no-member",
+    "code": "no-member",
+    "display": "no code: the concept mapped to none",
+}
 
 
 def store_valueset(vs: dict[str, Any]) -> dict[str, Any]:

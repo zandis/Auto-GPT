@@ -1,6 +1,7 @@
 # V-17: step 3, the FHIR store cannot expand the compiled value sets (2026-11-23)
 
-**Reader:** the integrator, the lanes that load the FHIR store (criteria compiler, orchestrator), the reviewer.
+**Reader:** the people who build TrialBox: the integrator, the lanes that load the FHIR store (criteria compiler,
+orchestrator) and the reviewer.
 
 Card V-17 (lane V): the MVP walk on a fresh box stopped at step 3, protocol import. Every compile, the shipped
 synthetic protocol GZQO too, failed its equivalence check: "the FHIR server refused it (FhirEvalError) ... Failed to

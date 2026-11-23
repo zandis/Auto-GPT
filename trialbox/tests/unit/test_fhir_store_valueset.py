@@ -48,10 +48,17 @@ def test_a_value_set_that_is_not_a_plain_list_is_given_as_it_is() -> None:
     assert store_valueset(whole) is whole  # every code of a system: not "no code"
 
 
+class Recording(FhirEvaluator):
+    def __init__(self) -> None:
+        super().__init__("http://fhir.invalid/fhir")
+        self.sent: list[dict[str, Any]] = []
+
+    def put(self, resource: dict[str, Any]) -> None:
+        self.sent.append(resource)
+
+
 def test_load_puts_the_store_copy() -> None:
-    put: list[dict[str, Any]] = []
-    fh = FhirEvaluator("http://fhir.invalid/fhir")
-    fh.put = put.append  # type: ignore[method-assign]
+    fh = Recording()
     vs = json.loads(GOUT.read_text("utf-8"))
     fh.load([{"resourceType": "Library", "id": "L"}], [vs])
-    assert put[0]["id"] == vs["id"] and put[0]["expansion"]["contains"] and put[1]["id"] == "L"
+    assert fh.sent[0]["id"] == vs["id"] and fh.sent[0]["expansion"]["contains"] and fh.sent[1]["id"] == "L"
