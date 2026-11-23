@@ -9,6 +9,7 @@ import copy
 import csv
 import hashlib
 import json
+from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,16 @@ RUN = date(2026, 10, 5)
 #: it first. The NAV bundles of a fresh box are the same bytes in every test, and the validator is a pure function of
 #: its input, so a hit returns exactly what a new run would.
 _VALIDATED: dict[str, Any] = {}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reimbursement_open() -> Iterator[None]:
+    """Card 9e-9: NAV, TWPAS and SUBMIT run only on a test box with reimbursement switched on; this module's box is."""
+    from orchestrator import reimbursement
+
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(reimbursement, "is_open", lambda *a, **k: True)
+        yield
 
 
 @pytest.fixture(autouse=True)

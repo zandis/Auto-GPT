@@ -15,7 +15,7 @@ from tb_common import derived
 from tb_common.ruleset import Ruleset
 from tb_contracts import NavRow, Precheck
 
-from orchestrator import identifiers
+from orchestrator import identifiers, reimbursement
 from orchestrator.core import Ctx
 from orchestrator.reports import twpas_bundle
 from orchestrator.scenarios.facts import Facts
@@ -45,8 +45,10 @@ def ig_spec(ctx: Ctx) -> str:
 
 
 def enabled(ctx: Ctx, rs: Ruleset) -> bool:
+    """The ruleset and the site enable TWPAS, and reimbursement is open on this box (card 9e-9)."""
     site = ctx.cfg.settings.twpas
-    return bool(rs.manifest.twpas and rs.manifest.twpas.enabled and site and site.enabled)
+    wanted = bool(rs.manifest.twpas and rs.manifest.twpas.enabled and site and site.enabled)
+    return wanted and reimbursement.is_open()
 
 
 def _identity(ctx: Ctx, pid: str) -> dict[str, str]:

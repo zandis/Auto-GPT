@@ -187,12 +187,16 @@ def _say(orch: Orchestrator, night: str, what: str, message: str, detail: dict[s
 def _start_step(orch: Orchestrator, step: str, night: str, day: date) -> list[str | None]:
     """Start the jobs of ``step`` that are due for this night; returns the studies started (none: the step is
     passed over). A job of this type, study and night that exists already is never started again."""
-    from orchestrator import scheduler
+    from orchestrator import reimbursement, scheduler
 
     jtype = STEP_TYPE[step]
     if jtype not in orch.scenarios:
         return []
     weekday = days(orch)[step]
+    if step == "nav" and not reimbursement.is_open():  # card 9e-9: reimbursement is out of 1.0
+        _say(orch, night, step, "nav passed over: reimbursement (NAV) is switched off on this box",
+             {"job": jtype, "state": "reimbursement off"})  # fmt: skip
+        return []
     if step in MODEL_STEPS and not scheduler.night_gate(orch):
         _say(orch, night, step, f"{step} passed over: the night model self-test did not pass",
              {"job": jtype, "state": "self-test failed"})  # fmt: skip
