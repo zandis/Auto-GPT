@@ -146,6 +146,83 @@
    "state": "fixed 60a9c7d4",
    "fix": "test_f7_the_tls_marker_goes_after_every_exit_that_restored",
    "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-14",
+   "severity": "High",
+   "claim": "a second signal while a failed restore put the box back abandoned the put-back (the raising handlers were live and the put-back caught only Exception): a database left empty, no hold, no audit",
+   "severity_basis": "one Ctrl-C under the engine can arrive twice",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "signals ignored for the whole put-back, each step catches BaseException; test_r1_a_second_signal_during_the_put_back_never_abandons_it (four orders), test_r1_whatever_stops_one_put_back_step_the_rest_still_go_back_and_it_is_audited; the rehearsal sends SIGINT then SIGTERM",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-15",
+   "severity": "Medium",
+   "claim": "a second interrupt on the host left the restore's container running, said the restore did not start, and deleted the work folder the put-back read",
+   "severity_basis": "the person is told to start the services while the box is being put back",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "the host passes one signal on, ignores the rest and waits for the container; after the container started it never says 'did not start' and keeps the work folder if it stops; test_r2_ (two tests)",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-16",
+   "severity": "Medium",
+   "claim": "when the put-back failed, the copy of the databases it was made from was deleted, and with --no-copy nothing was left",
+   "severity_basis": "the one exact copy of the box as it was was lost",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "the copy is kept in --keep-to (0700) and named; --no-copy on the host needs --yes-really; test_r3_r5_a_put_back_that_fails_keeps_its_copy_and_says_the_hold_is_unknown, test_r3_no_copy_on_the_host_needs_yes_really",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-17",
+   "severity": "Low",
+   "claim": "an empty folder was put back as root 0755",
+   "severity_basis": "a service could not write its empty volume",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "made again with its own owner and mode (never a set-id bit); test_r4_an_empty_folder_comes_back_with_its_own_owner_and_mode",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-18",
+   "severity": "Low",
+   "claim": "'held' was said after the hold's row went with the emptied database",
+   "severity_basis": "a person trusts a hold that is not there",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "a failed put-back says the hold is unknown; test_r3_r5_a_put_back_that_fails_keeps_its_copy_and_says_the_hold_is_unknown",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-19",
+   "severity": "Low",
+   "claim": "SIGHUP (container and host) and the host's space check had no test (mutants survived)",
+   "severity_basis": "a regression would pass unnoticed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "test_r1_ [SIGHUP cases], test_r6_the_hosts_step_raises_on_sighup_and_sigterm, test_r6_the_hosts_space_check_refuses_before_anything_stops",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-20",
+   "severity": "Low",
+   "claim": "a killed host step left deploy/.restore-* with the decrypted backup; an interrupt while the services started printed no state",
+   "severity_basis": "plaintext left on disk; a silent end",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "one restore at a time under deploy/site/restore.lock, a left folder swept by the next; the start is under the same handlers and says the state; test_r7_ (two tests)",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
   }
  ]
 }

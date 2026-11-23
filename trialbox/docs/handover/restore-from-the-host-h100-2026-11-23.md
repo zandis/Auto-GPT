@@ -101,6 +101,19 @@ restore.
 **The three `test_backup_key_ceremony.py::test_h_5_*` tests** pass here and in CI: all eight unit shards of
 train/151 (f85edbb6, on master 40f23682) passed with no failure. They fail only in the reviewer's container.
 
+## The second review (R1 to R7)
+
+The re-review (7114502241) found that F2 and F3 held for one failure or one signal, not for a second signal during
+the put-back. Now: the raising handlers are taken off and SIGINT, SIGTERM and SIGHUP are ignored for the whole
+put-back, and each put-back step catches whatever stops it (R1); the host passes the first signal on once, ignores the
+rest and waits for the container, never says "did not start" once it started, and keeps the work folder if it stops
+(R2); a put-back that fails keeps the copy of the databases in `--keep-to` and names it, and `--no-copy` on the host
+needs `--yes-really` (R3); an empty folder comes back with its own owner and mode (R4); "unknown" is said for the
+hold after a failed put-back (R5); SIGHUP and the host's space check are tested (R6); one restore at a time under
+`deploy/site/restore.lock`, a killed run's `deploy/.restore-*` swept by the next, and an interrupt while the services
+start says the state (R7). The rehearsal's failing restore now interrupts the restore with SIGINT and sends SIGTERM
+during the put-back.
+
 **Files outside the card.** `services/console/i18n_audit.py` (one label, `backup.restore_failed`, with the lane
 lead's go): the cross-card test requires a label for every event the code writes, and the host step now writes
 this one; it existed (written by `backup.py`) without a label.
