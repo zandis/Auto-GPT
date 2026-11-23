@@ -1,0 +1,73 @@
+{
+ "card": "H89b",
+ "title": "the rehearsal with real servers on the remaining shipped profiles",
+ "date": "2026-11-23",
+ "source": "docs/handover/rehearsal-real-servers-h89b-2026-11-23.md",
+ "note": "nothing ran on a card, under Docker or on a WSL2 host: nvidia-smi, docker, uname and the inner install are stand-ins; 'shown' means shown with them.",
+ "findings": [
+  {
+   "id": "H89b-01",
+   "severity": "Low",
+   "claim": "the slice form reads the slice's UUID from nvidia-smi -L and its memory from nvidia-smi -q -x (mig_device, fb_memory_usage) in nvidia-smi's documented form; neither form has been seen on a split card of the bench's class",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H89b-02",
+   "severity": "Low",
+   "claim": "the slice number M of --gpu-index N:M is taken to be the same in nvidia-smi -L, in the XML's mig_device index and in docker's --gpus device=N:M; the probe and the install agree with each other by the slice's own UUID, but the bench must see the three agree",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H89b-03",
+   "severity": "Low",
+   "claim": "the Windows entry (deploy/windows/box-install.ps1) passes none of the real-servers options: the Windows host path is box-install.sh run inside WSL2 by hand; no WSL2 host has run it",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H89b-04",
+   "severity": "Low",
+   "claim": "the 128 GB class's budget is taken as 131,072 MiB (128 GiB nominal): what a GB10 reports to the engine as its total was not read (no GB10); if it reports less, the stand-in's cap is larger than the class's own",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H89b-05",
+   "severity": "Low",
+   "claim": "gb10 on x86 overrides the platform of every service the gb10 overlay pins to arm64; services of other compose files are not pinned and need nothing. The override's compose merge (platform on each service) was not run under Docker",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H89b-06",
+   "severity": "Medium",
+   "claim": "neither rtx5090 nor gb10 has a shipped serving record (deploy/measured/ holds the rtxpro6000 record only): a real-servers install of either stops at the record step (deploy/install.sh 'has no measurement on its own card') unless TB_ACCEPT_UNMEASURED_GPU=1 is set on the rehearsal box; H-89's rtx5090 command form on the bench does not carry it",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H89b-07",
+   "severity": "Low",
+   "claim": "dgpu48 under the mark pins the 96 GB profile's pair (tools/pin_model.py --install rtxpro6000) because pin_model has no dgpu48 pair; the builds are named for the 96 GB profile on a box labelled P-DGPU48-UNMEASURED. Not run under Docker",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H89b-08",
+   "severity": "Low",
+   "claim": "item 5, a real-servers case in the container rehearsal, is not built: tools/rehearse_box/box.sh installs with TB_COMPOSE_OVERRIDE (the stand-ins) and --tier large, both refused under --rehearsal-real-servers (deploy/install.sh 'no tier install' and the caller's-override refusal, which stays); a stand-in engine needs a second override channel, a design choice",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

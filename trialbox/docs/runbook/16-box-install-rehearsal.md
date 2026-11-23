@@ -213,5 +213,27 @@ The probe file and its folder must be root's and writable by no one else; a prob
 
 Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled into deploy/.env):
 `--gpu rtxpro6000` (96 GB) or `--gpu rtx5090` (32 GB, a whole card), with `--gpu-index N` naming the card the probe was
-taken on. The 32 GB profile on a split card's slice, dgpu48, gb10 and the Windows (WSL2) host are not opened; the
-page says why.
+taken on.
+
+H-89b (docs/handover/rehearsal-real-servers-h89b-2026-11-23.md) opens the other shipped profiles, under the same mark
+only; each row of the bench says what it does not prove. `P` is the probe file above, taken on the same card or slice.
+
+    # the 48 GB draft, held to 48 GB; NOT proved: the 48 GB class's older architecture (no FP8 or FP4 kernels)
+    sudo deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu dgpu48 \
+        --gpu-index N --engine-probe P --yes
+    # the 128 GB unified-memory class on an x86 host, its arm64 pins overridden for the rehearsal;
+    # NOT proved: "x86 stand-in: memory budget only" (its Arm CPU, unified memory, driver and images)
+    sudo env TB_ACCEPT_UNMEASURED_GPU=1 deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers \
+        --gpu gb10 --gpu-index N --engine-probe P --yes
+    # the 32 GB profile on slice M of a split card N (probe it with --gpu-index N:M too);
+    # NOT proved: a 32 GB card's own bandwidth, compute and swap timing
+    sudo env TB_ACCEPT_UNMEASURED_GPU=1 deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers \
+        --gpu rtx5090 --gpu-index N:M --engine-probe P --yes
+    # a Windows host, inside WSL2: the same options handed on to install.sh;
+    # NOT verified until a WSL2 host exists (ring 1)
+    sudo deploy/box-install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu <profile> \
+        --gpu-index N --engine-probe P
+
+`TB_ACCEPT_UNMEASURED_GPU=1` is the unmeasured trial boot's switch (a rehearsal box only): gb10 and rtx5090 have no
+shipped serving record, so the whole-card rtx5090 install needs it too. The host check FAILs gb10 on x86_64 outside
+this rehearsal, and install.sh refuses dgpu48 outside it, as before.

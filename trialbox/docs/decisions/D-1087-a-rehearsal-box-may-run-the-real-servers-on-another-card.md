@@ -18,3 +18,17 @@
     pre-start and db-up, and the boot (deploy/settings_guard.sh) refuse it.
   - Without the mark nothing changes: each refusal is byte-identical to before (the invariant test).
 - **Page:** `docs/handover/rehearsal-real-servers-h89-2026-11-22.md`.
+
+## Amendment (H-89b, 2026-11-23; the owner's ruling 7087828219, the integrator's 7088891993)
+
+- Under the same mark only, every shipped profile: `dgpu48` (the 48 GB draft; outside the mark the refusal of cards
+  24-5 and 24-6 stands byte for byte), `gb10` on an x86_64 host as an "x86 stand-in: memory budget only" (the box's
+  compose override sets the overlay's arm64-pinned services to linux/amd64; the host check FAILs gb10 on x86_64
+  outside the mark), and `rtx5090` on one slice of a split card (`--gpu-index N:M`, for the probe and the install,
+  pinned by the slice's UUID; every check of the probe holds for the slice). Each is held to its own class's memory on
+  the bench's card.
+- deploy/box-install.sh hands the real-servers options on to install.sh under the mark only (the Windows host path,
+  inside WSL2); not verified on a WSL2 host.
+- Unchanged: never on PRODUCTION, never by an environment variable alone, the completion mark, the boot guard and the
+  caller's-override refusal.
+- Page: `docs/handover/rehearsal-real-servers-h89b-2026-11-23.md`.
