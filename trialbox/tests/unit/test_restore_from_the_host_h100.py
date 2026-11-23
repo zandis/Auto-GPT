@@ -18,9 +18,16 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit import test_host_commands_own_environment as h88
 from tests.unit.test_backup_schedule import FakeBox
 from tools.trialbox import backup as bk
 from tools.trialbox import update
+
+# the h88 bare box (a copy of the install folder, the system python, the stand-in runtime, the test cluster's two
+# databases) and its host marks, as fixtures of this module too
+box = h88.box
+system_python = h88.system_python
+_a_host = h88._a_host
 
 
 def _mounts(argv: list[str]) -> list[str]:
@@ -107,8 +114,16 @@ def _box(tmp_path: Path, extra: str = "") -> Path:
     return deploy
 
 
-def _restore(deploy: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rec: Recorder, out: str = "{}",
-             code: int = 0, *more: str, file: bool = True) -> tuple[int, list[tuple[list[str], dict[str, str]]]]:
+def _restore(
+    deploy: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rec: Recorder,
+    out: str = "{}",
+    code: int = 0,
+    *more: str,
+    file: bool = True,
+) -> tuple[int, list[tuple[list[str], dict[str, str]]]]:
     """``trialbox restore`` as installed (``main(..., installed=True)``), with a caller who exported ``CALLER``; the
     box's commands and the restore container stood in for. Returns the exit code and each container call."""
     from tools.trialbox import __main__ as cli
@@ -148,7 +163,9 @@ def test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller(
     assert code == 0 and len(seen) == 1, seen
     argv, values = seen[0]
     assert argv[0] == "docker" and "trialbox-backup:1.0.0" in argv and "caller/evil:1" not in argv
-    assert all(c[0] == "docker" and c[1] == "compose" for c in rec.calls), rec.calls  # the box's runtime, not the caller's
+    assert all(c[0] == "docker" and c[1] == "compose" for c in rec.calls), (
+        rec.calls
+    )  # the box's runtime, not the caller's
     # the job's own URLs (update.ComposeBox._backup_container, from the same file): the same server, user and database
     job: dict[str, str] = {}
     box = update.ComposeBox(deploy, lambda argv, env=None, **kw: job.update(env or {}) or "")
@@ -173,7 +190,7 @@ def test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller(
     vols = tmp_path / "volumes"
     for v in ("audit-data", "lake-data", "tb-secrets"):  # each volume's folder read-write: its _data moves within it
         assert f"{vols / f'trialbox_{v}'}:/var/lib/docker/volumes/trialbox_{v}" in mounts
-    assert f"audit=/var/lib/docker/volumes/trialbox_audit-data/_data" in argv
+    assert "audit=/var/lib/docker/volumes/trialbox_audit-data/_data" in argv
     assert f"{tmp_path / 'usb' / 'backup.key'}:{tmp_path / 'usb' / 'backup.key'}:ro" in mounts
     assert f"{deploy / 'docker/db-init/30-service-roles.sh'}:{box_restore.ROLES_IN}:ro" in mounts
     assert all(os.path.isabs(m.split(":", 1)[0]) for m in mounts), mounts
@@ -190,12 +207,14 @@ def test_the_running_services_refusal_stays_without_restart(tmp_path: Path, monk
     assert not any("stop" in c for c in rec.calls)  # nothing was stopped or changed
     rec = Recorder(running=["db", "console"])
     code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
-    assert code == 0 and seen and ["docker", "compose", "--project-directory", str(deploy), "stop", "console"] in rec.calls
+    assert (
+        code == 0 and seen and ["docker", "compose", "--project-directory", str(deploy), "stop", "console"] in rec.calls
+    )
     assert rec.calls.index(next(c for c in rec.calls if "stop" in c)) < len(rec.calls)
     rec = Recorder(running=None)
     rec.running = []  # compose answers nothing runs: the restore goes on
     assert _restore(deploy, tmp_path, monkeypatch, rec)[0] == 0
-    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0)  # no --yes: refused before anything
+    assert _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0)[0] == 0
     from tools.trialbox import __main__ as cli
 
     assert cli.main(["restore", "f.tbbak", "--key", "k", "--deploy", str(deploy)], installed=True) == 2
@@ -203,8 +222,13 @@ def test_the_running_services_refusal_stays_without_restart(tmp_path: Path, monk
 
 @pytest.mark.parametrize(
     ("code", "hold", "starts"),
-    [(0, "released", True), (4, "held", True), (4, "NOT set: OperationalError", False), (3, "held", False),
-     (1, "", False)],
+    [
+        (0, "released", True),
+        (4, "held", True),
+        (4, "NOT set: OperationalError", False),
+        (3, "held", False),
+        (1, "", False),
+    ],
 )
 def test_restart_starts_the_services_only_after_a_complete_or_held_restore(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], code: int, hold: str,
@@ -215,6 +239,7 @@ def test_restart_starts_the_services_only_after_a_complete_or_held_restore(
     deploy = _box(tmp_path)
     rec = Recorder(running=["db", "console"])
     got, seen = _restore(deploy, tmp_path, monkeypatch, rec, json.dumps({"hold": hold}), code, "--restart")
+    assert len(seen) == 1  # the restore ran once, whatever it then says
     ups = [c for c in rec.calls if "up" in c]
     assert bool(ups) is starts, rec.calls
     if starts:
@@ -324,3 +349,160 @@ def test_the_restore_runs_in_the_box_files_backup_image(tmp_path: Path, monkeypa
     argv = seen[0][0]
     assert code == 0 and "trialbox-backup:1.0.1" in argv and "trialbox-py:1.0.1" not in argv
     assert "caller/evil:1" not in argv  # the caller exported TB_BACKUP_IMAGE too
+
+
+# ------------------------------------------------------------------------------------------------ the real path
+#: The restore container on this test host: the release's backup image is this interpreter with the product's path;
+#: each bind (``-v src:dst``) maps ``dst`` back to ``src`` in the arguments and the values; the URLs the host passed
+#: by name are recorded (to prove they are the box's), then pointed at the test cluster's two databases, as the
+#: database network resolves ``db`` on a box. Anything else goes to the h88 stand-in (compose ps, stop, up ...).
+RESTORE_STANDIN = r"""
+import json, os, subprocess, sys
+argv = sys.argv[1:]
+if not (argv[:1] == ["run"] and "restore" in argv and os.environ["STANDIN_PY_IMAGE"] in argv):
+    os.execv(os.environ["STANDIN_DOCKER"], [os.environ["STANDIN_DOCKER"], *argv])
+img = argv.index(os.environ["STANDIN_PY_IMAGE"])
+opts, rest = argv[1:img], argv[img + 1:]
+maps, names = [], []
+for k, v in zip(opts, opts[1:]):
+    if k == "-v":
+        src, dst = v.split(":")[:2]
+        assert src.startswith("/"), v  # never a relative bind: the engine would read it as a volume name
+        maps.append((dst, src))
+    if k == "-e" and "=" not in v:
+        names.append(v)
+maps.sort(key=lambda m: -len(m[0]))
+def mapped(x):
+    for dst, src in maps:
+        if dst in x:
+            return x.replace(dst, src)
+    return x
+with open(os.environ["STANDIN_RECEIVED"], "w") as fh:  # the test's synthetic settings only
+    json.dump({n: os.environ.get(n) for n in names} | {"argv": argv}, fh)
+env = {"PATH": os.environ["STANDIN_RESTORE_PATH"], "PYTHONPATH": os.environ["STANDIN_RESTORE_PYTHONPATH"]}
+env.update({n: mapped(os.environ[n]) for n in names if n in os.environ})
+env["TB_DB_URL"], env["TB_HAPI_DB_URL"] = os.environ["STANDIN_WF_URL"], os.environ["STANDIN_HAPI_URL"]
+assert rest[:3] == ["python", "-m", "tools.trialbox"], rest
+code = "import sys; from tools.trialbox.__main__ import main; sys.exit(main(sys.argv[1:]))"
+sys.exit(subprocess.run([os.environ["STANDIN_PY"], "-c", code, *[mapped(x) for x in rest[3:]]],
+                        cwd=os.environ["STANDIN_BOX"], env=env).returncode)
+"""
+
+ROLES_STUB = """#!/bin/sh
+# the service-role script's stand-in: what it was given (names and whether set; never a value)
+printf 'user=%s host_set=%s lake_set=%s fhir=%s\\n' "$POSTGRES_USER" "${PGHOST:+yes}" "${TB_DB_PW_LAKE:+yes}" \\
+  "${TB_DB_PW_FHIR_STORE:+set}" >> "$(dirname "$0")/roles-ran.txt"
+"""
+
+
+def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(tmp_path: Path, box: dict) -> None:
+    """THE CARD (H-100): ``sudo trialbox restore --last --key <key> --yes --restart`` typed as RUNBOOK §5 writes it,
+    from sudo's bare environment with the system python: the backup the nightly recorded good is restored over the
+    box's databases in the backup image's container, the URLs it got are the box's, the service-role step ran inside
+    it, the restored rows equal ``backup-verify``'s, and the services start again only as the result allows."""
+    import hashlib
+    import json
+    import shlex
+    import subprocess
+    import sys
+
+    import psycopg
+
+    from tools import pglocal
+    from tools.trialbox import backup_schedule as bs
+
+    wf = box["env"]["STANDIN_DB_URL"]  # the test cluster's two databases, as URLs (the box's form)
+    hapi = wf.replace(f"/{box['dbs']['trialbox_wf']}?", f"/{box['dbs']['hapi']}?")
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    root = tmp_path / "opt" / "trialbox"  # an install folder of its own
+    import shutil
+
+    skip = shutil.ignore_patterns("__pycache__", "*.pyc", "site", ".env")
+    for sub in ("tools", "libs", "deploy"):
+        shutil.copytree(box["root"] / sub, root / sub, ignore=skip, symlinks=True)
+    (root / "services").symlink_to(ROOT / "services")
+    deploy = root / "deploy"
+    (deploy / "docker" / "db-init" / "30-service-roles.sh").write_text(ROLES_STUB, encoding="utf-8")
+    vols = tmp_path / "volumes"
+    for v in ("audit-data", "lake-data"):
+        (vols / f"trialbox_{v}" / "_data").mkdir(parents=True)
+    (deploy / ".env").write_text(
+        f"TB_ENV=TEST\nTB_IMAGE={h88.PY_IMAGE}\nTB_BACKUP_IMAGE={h88.PY_IMAGE}\nTB_BACKUP_TARGETS={nas}\n"
+        f"TB_DB_URL=postgresql://trialbox:wf-synthetic@db:5432/trialbox_wf\nPOSTGRES_PASSWORD=pg@synthetic/1\n"
+        f"TB_DB_PW_LAKE=lake-synthetic\nTB_DOCKER_VOLUMES={vols}\n",
+        encoding="utf-8",
+    )
+    (deploy / ".env").chmod(0o600)
+    made = bk.backup([nas], deploy / "secrets" / "backup.pub", env={"TB_DB_URL": wf, "TB_HAPI_DB_URL": hapi},
+                     dirs={})[0]  # fmt: skip
+    sha = hashlib.sha256(made.read_bytes()).hexdigest()
+    (deploy / "site").mkdir(exist_ok=True)
+    (deploy / "site" / "backup-last.json").write_text(json.dumps(
+        {"good_file": {"name": made.name, "bytes": made.stat().st_size, "sha256": sha}}), encoding="utf-8")  # fmt: skip
+    with psycopg.connect(wf, autocommit=True) as con:  # what the box lost after the backup
+        con.execute("DELETE FROM marks")
+    # sudo, the runtime stand-ins, the installed link: as the drill's own test builds them
+    bindir = tmp_path / "sudo-bin"
+    bindir.mkdir()
+    secure = f"{bindir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    pybin = tmp_path / "py-bin"
+    pybin.mkdir()
+    (pybin / "python").write_text(f'#!/bin/sh\nexec {sys.executable} "$@"\n', encoding="utf-8")
+    (pybin / "python").chmod(0o755)  # the image's python, with the libraries
+    received = tmp_path / "received.json"
+    standin = {**{k: v for k, v in box["env"].items() if k.startswith("STANDIN_")},
+               "STANDIN_DOCKER": str(box["bin"] / "docker"), "STANDIN_RECEIVED": str(received),
+               "STANDIN_WF_URL": wf, "STANDIN_HAPI_URL": hapi,
+               "STANDIN_RESTORE_PATH": f"{pybin}:{pglocal.bindir()}:/usr/bin:/bin",
+               "STANDIN_RESTORE_PYTHONPATH": f"{box['root'] / 'libs'}:{ROOT / 'services'}:{box['root']}"}  # fmt: skip
+    exports = "".join(f"export {k}={shlex.quote(v)}\n" for k, v in standin.items())
+    (bindir / "restore-standin").write_text(f"#!{sys.executable}\n{RESTORE_STANDIN}", encoding="utf-8")
+    (bindir / "docker").write_text(f'#!/bin/sh\n{exports}exec {bindir / "restore-standin"} "$@"\n', encoding="utf-8")
+    (bindir / "sudo").write_text(h88.SUDO.format(path=secure), encoding="utf-8")
+    link = tmp_path / "usr-local-bin" / "trialbox"
+    link.parent.mkdir()
+    link.symlink_to(root / "tools" / "trialbox" / "__main__.py")
+    (bindir / "trialbox").write_text(f'#!/bin/sh\nexec {box["python"]} -I {link} "$@"\n', encoding="utf-8")
+    for name in ("sudo", "docker", "trialbox", "restore-standin"):
+        (bindir / name).chmod(0o755)
+    caller = {"PATH": secure, "TB_DB_URL": "postgresql://x:caller@caller-host:5432/x", "TB_HAPI_DB_URL": "caller",
+              "TB_DB_ROLES_CMD": f"touch {tmp_path / 'caller-ran'}", "PYTHONPATH": str(tmp_path)}  # fmt: skip
+
+    def sudo(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["/bin/sh", "-c", shlex.join(["sudo", "trialbox", *args])], cwd=root, env=caller,
+                              capture_output=True, text=True, timeout=600, check=False)  # fmt: skip
+
+    v = sudo("backup-verify", str(made), "--key", str(box["key"]))
+    h88._no_import_fault(v)
+    assert v.returncode == 0, (v.stdout + v.stderr)[-3000:]
+    verified = json.loads(v.stdout)["databases"]
+    assert verified["trialbox_wf"] == 2  # the synthetic rows the backup holds
+    r = sudo("restore", "--last", "--key", str(box["key"]), "--yes", "--restart")
+    h88._no_import_fault(r)
+    assert r.stdout.startswith("{"), r.stderr[-3000:]
+    out = json.loads(r.stdout)
+    assert out["rows"] == verified, (out["rows"], verified)  # the restored rows equal backup-verify's
+    with psycopg.connect(wf) as con:
+        assert con.execute("SELECT count(*) FROM marks").fetchone() == (2,)
+    got = json.loads(received.read_text(encoding="utf-8"))
+    argv = got.pop("argv")
+    assert got["TB_DB_URL"] == "postgresql://trialbox:wf-synthetic@db:5432/trialbox_wf"  # the box's, not the caller's
+    assert got["TB_HAPI_DB_URL"] == "postgresql://hapi:pg%40synthetic%2F1@db:5432/hapi"
+    assert got["TB_DB_ROLES_CMD"].startswith("python -m tools.trialbox.box_restore roles")
+    assert not (tmp_path / "caller-ran").exists()
+    assert "synthetic" not in " ".join(argv) and str(made) in argv  # --last: the recorded file; no password
+    ran = (deploy / "docker" / "db-init" / "roles-ran.txt").read_text(encoding="utf-8")
+    assert "host_set=yes lake_set=yes fhir=" in ran, ran  # the role step ran inside, with the roles' passwords
+    events = [json.loads(x)["event"] for x in (vols / "trialbox_audit-data" / "_data").rglob("*.jsonl")
+              for x in x.read_text(encoding="utf-8").splitlines() if x.strip()]  # fmt: skip
+    assert "backup.restored" in events, events
+    assert out["kept_copy"] and Path(out["kept_copy"]).is_file()  # the box held data: kept first, as before
+    # a box with no opt-out register to read (a new machine): the restore is not complete (D-493) and holds the
+    # list jobs (D-522), so the services start again, held, and are waited for until healthy
+    assert r.returncode == 4 and out["optouts_after_backup"]["state"] == "unknown", (r.returncode, r.stderr[-2000:])
+    assert out["hold"] == "held" and "NOT complete" in r.stderr, r.stderr[-2000:]
+    assert "the services run again and are healthy" in r.stderr, r.stderr[-2000:]
+    ups = [c["argv"] for c in h88.calls(box) if "compose" in c["argv"] and "up" in c["argv"]]
+    assert ups and ups[-1][-4:] == ["-d", "--wait", "--wait-timeout", "600"], ups
+    assert bs.recorded_good([nas], {"name": made.name, "bytes": made.stat().st_size, "sha256": sha})

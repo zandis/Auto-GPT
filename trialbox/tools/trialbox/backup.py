@@ -81,6 +81,7 @@ from tb_common.crypto import KeyMissingError
 
 # shared with the host-side schedule, which has only the standard library (re-exported: bk.prune, bk.read_sidecar ...)
 from tools.trialbox import backup_schedule as _sched
+from tools.trialbox import box_restore as _box_restore
 from tools.trialbox import restic_repo as _rr
 
 SUFFIX = _sched.SUFFIX
@@ -2041,24 +2042,10 @@ def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: st
     return str(where)
 
 
-#: D-724 (DATA-011): the services a restore leaves running: the database it restores into, nothing that writes
-#: a volume the restore renames aside
-RESTORE_MAY_RUN = frozenset({"db"})
-
-
-def _only_the_database_runs(names: list[str] | None) -> None:
-    if names is None:
-        raise BackupError(
-            "the restore cannot tell which services run (docker compose did not answer): stop every service but db "
-            "(docker compose stop), then run the restore again with --services-stopped"
-        )
-    others = sorted(set(names) - RESTORE_MAY_RUN)
-    if others:
-        raise BackupError(
-            f"these services are running: {', '.join(others)}. A restore moves their folders aside, and what they "
-            f"write meanwhile is lost: stop them first (docker compose stop {' '.join(others)}; keep db running), "
-            "run the restore, then start them. Nothing was changed"
-        )
+#: D-724 (DATA-011): the services a restore leaves running, and its refusal while any other runs. They live in
+#: box_restore.py (H-100): the host's own restore step asks compose before it starts, with the standard library only
+RESTORE_MAY_RUN = _box_restore.RESTORE_MAY_RUN
+_only_the_database_runs = _box_restore.only_the_database_runs
 
 
 def _is_root() -> bool:

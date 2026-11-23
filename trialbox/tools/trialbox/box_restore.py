@@ -53,6 +53,38 @@ FHIR_PASSWORD = "TB_DB_PW_FHIR_STORE"
 WAIT_S = 600  # the services' health wait after the restore (as an update's start waits, update.ComposeBox)
 
 
+#: D-724 (DATA-011): the services a restore leaves running: the database it restores into, nothing that writes
+#: a volume the restore renames aside
+RESTORE_MAY_RUN = frozenset({"db"})
+#: backup.VOLUME_ROOT: where the box's compose volumes are, inside the restore's container as on a host
+VOLUME_ROOT = "/var/lib/docker/volumes/trialbox_{}/_data"
+
+
+def _backup_error() -> type[Exception]:
+    """``backup.BackupError`` where the libraries are (the restore's own refusal, as before); on the host,
+    :class:`RestoreStopped` (backup.py cannot be imported by the host's python)."""
+    try:
+        from tools.trialbox.backup import BackupError
+    except ImportError:
+        return RestoreStopped
+    return BackupError
+
+
+def only_the_database_runs(names: list[str] | None) -> None:
+    if names is None:
+        raise _backup_error()(
+            "the restore cannot tell which services run (docker compose did not answer): stop every service but db "
+            "(docker compose stop), then run the restore again with --services-stopped"
+        )
+    others = sorted(set(names) - RESTORE_MAY_RUN)
+    if others:
+        raise _backup_error()(
+            f"these services are running: {', '.join(others)}. A restore moves their folders aside, and what they "
+            f"write meanwhile is lost: stop them first (docker compose stop {' '.join(others)}; keep db running), "
+            "run the restore, then start them. Nothing was changed"
+        )
+
+
 class RestoreStopped(RuntimeError):
     """The restore did not start (or the services were not started again): said, nothing more was changed."""
 
@@ -127,13 +159,11 @@ class BoxRestore:
         return self.box.running_services()
 
     def stop_all_but_db(self) -> list[str]:
-        from tools.trialbox import backup as bk
-
         names = self.running()
         if names is None:
             raise RestoreStopped("compose cannot say which services run: --restart stops nothing it cannot see. "
                                  "Nothing was changed")  # fmt: skip
-        others = sorted(set(names) - bk.RESTORE_MAY_RUN)
+        others = sorted(set(names) - RESTORE_MAY_RUN)
         if others:
             self.box.run(self.box._c("stop", *others), timeout=900)
         return others
@@ -149,7 +179,6 @@ class BoxRestore:
 
     def container(self, a: Any, file: Path) -> tuple[list[str], dict[str, str]]:
         """The restore's one container and the values its ``-e NAME`` options take (never on its command line)."""
-        from tools.trialbox import backup as bk
         from tools.trialbox.backup_schedule import absolute
         from tools.trialbox.update import BACKUP_VOLUMES
 
@@ -187,13 +216,13 @@ class BoxRestore:
         for name, vol in BACKUP_VOLUMES.items():  # each volume's own folder: its _data is moved aside within it
             folder = root / f"trialbox_{vol}"
             if folder.is_dir():
-                inside = Path(bk.VOLUME_ROOT.format(vol)).parent
+                inside = Path(VOLUME_ROOT.format(vol)).parent
                 bind(folder, inside, False)
                 dirs += ["--dir", f"{name}={inside / '_data'}"]
         if a.restic_from_box:  # D-968: the box's restic.key under its unsealed KEK, read-only
             kek_dir = self.env.get("TB_KEK_HOST_DIR") or "/run/trialbox"
             bind(Path(kek_dir), "/run/trialbox", True)
-            values["TB_SECRETS_DIR"] = str(Path(bk.VOLUME_ROOT.format("tb-secrets")))
+            values["TB_SECRETS_DIR"] = str(Path(VOLUME_ROOT.format("tb-secrets")))
         names = sorted(values)
         argv = [*self.box.docker, "run", "--rm", "-i", "--pull", "never", "--network", "trialbox-net", "--user", "0",
                 "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER", "--cap-add", "DAC_OVERRIDE",
@@ -211,16 +240,14 @@ class BoxRestore:
 
     # ------------------------------------------------------------------------------------------- the command
     def restore(self, a: Any) -> int:
-        from tools.trialbox import backup as bk
-
         file = last_good(self.deploy, self.env) if a.last else Path(a.file)
         if a.restart:
             stopped = self.stop_all_but_db()
             if stopped:
                 print(f"restore: stopped {', '.join(stopped)} (--restart); db keeps running", file=sys.stderr)
         try:  # D-724: asked of compose here, on the host, before anything is read or changed
-            bk._only_the_database_runs(["db"] if a.services_stopped else self.running())
-        except bk.BackupError as e:
+            only_the_database_runs(["db"] if a.services_stopped else self.running())
+        except Exception as e:  # the refusal, as the restore says it: nothing was changed
             raise RestoreStopped(str(e)) from None
         argv, values = self.container(a, file)
         code, out = self.call(argv, values)
