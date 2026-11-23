@@ -46,7 +46,7 @@ FORMS = [  # a line after TB_ENV=VALIDATION: compose's last word is PRODUCTION
     "TB_ENV = PRODUCTION",
     "\tTB_ENV\t=PRODUCTION",
     "export\tTB_ENV='PRODUCTION'",
-    "  export   TB_ENV=\"production\"",
+    '  export   TB_ENV="production"',
     "TB_ENV=PRODUCTION # set by hospital IT",
 ]
 
@@ -224,7 +224,9 @@ def test_l4_the_shell_list_is_made_0640_with_no_window(tmp_path: Path) -> None:
     d = tmp_path / "deploy"
     (d / "site").mkdir(parents=True)
     # no chmod after the write: the mode is the one it was made with, under the widest umask
-    script = stop_prelude(deploy=str(d), environment="TEST") + 'umask 000\nchmod() { :; }\nstop_or_warn k "" "a point"\n'
+    script = (
+        stop_prelude(deploy=str(d), environment="TEST") + 'umask 000\nchmod() { :; }\nstop_or_warn k "" "a point"\n'
+    )
     r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stderr
     assert stat.S_IMODE((d / "site" / "poc-stops.jsonl").stat().st_mode) == 0o640
