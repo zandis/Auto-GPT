@@ -48,7 +48,9 @@ esac
 
 
 def _accounts_step() -> str:
-    start = INSTALL.index("# ------------------------------------------------------------------------------------------------ 5. accounts")
+    start = INSTALL.index(
+        "# ------------------------------------------------------------------------------------------------ 5. accounts"
+    )
     end = INSTALL.index("\n# NEW-STD-2 (D-562)", start) + 1
     return INSTALL[start:end]
 
@@ -66,9 +68,7 @@ def _bench(tmp: Path, enrol_rc: int = 0) -> tuple[Path, dict[str, str]]:
         "set -euo pipefail\n"
         'say() { echo "==> $*"; }\n'
         "FAILS=()\n"
-        f'COMPOSE=("{fake}")\n'
-        + _accounts_step()
-        + 'for f in "${FAILS[@]+"${FAILS[@]}"}"; do echo "FAIL: $f"; done\n',
+        f'COMPOSE=("{fake}")\n' + _accounts_step() + 'for f in "${FAILS[@]+"${FAILS[@]}"}"; do echo "FAIL: $f"; done\n',
         encoding="utf-8",
     )
     env = {"PATH": os.environ["PATH"], "HOME": str(home), "FAKE_PASSWORD": PASSWORD, "FAKE_CODE": CODE,
