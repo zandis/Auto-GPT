@@ -9,10 +9,23 @@
 # page, U-5) and, on the installer's run, of poc-stops.jsonl; running this again loads it, with no reinstall. The
 # hospital's files stay where they are: only the tables built from them go into the volume.
 #
-#   deploy/terminology-update.sh            # after the files changed, or a system was added to the folder
+#   deploy/terminology-update.sh                      # after the files changed, or a system was added to the folder
+#   deploy/terminology-update.sh --rollback BUNDLE    # the tables an update's code systems replaced, put back
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+if [ "${1:-}" = "--rollback" ]; then  # V-18: the tables kept aside by update BUNDLE (tools/trialbox/update.py)
+  KEEP="deploy/terminology/previous/${2:?usage: deploy/terminology-update.sh --rollback BUNDLE}"
+  [ -f "$KEEP/saved.json" ] || { echo "terminology-update: nothing kept for ${2} ($KEEP/saved.json)" >&2; exit 2; }
+  PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' deploy/.env 2>/dev/null | tail -1)"; PROJECT="${PROJECT:-trialbox}"
+  IMAGE="$(sed -n 's/^TB_IMAGE=//p' deploy/.env 2>/dev/null | tail -1)"; IMAGE="${IMAGE:-trialbox-py:1.0.0}"
+  docker run --rm --network none --user 0:0 -e TB_TERMINOLOGY_DIR=/data/terminology \
+    -v "${PROJECT}_tb-terminology:/data/terminology" -v "$ROOT/$KEEP:/keep:ro" "$IMAGE" python -c \
+    "from pathlib import Path; from criteria_compiler.terminology import installed as i; print(i.restore_tables(Path('/data/terminology'), Path('/keep')))" \
+    || { echo "terminology-update: the kept tables were not put back (above); nothing changed" >&2; exit 2; }
+  shift 2
+  set -- "$@"
+fi
 SITE="deploy/site"
 REPORT="$SITE/terminology-load.json"
 LOG="$(mktemp)"

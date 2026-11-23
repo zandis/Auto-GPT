@@ -107,7 +107,8 @@
             "image",
             "refdata",
             "other",
-            "host"
+            "host",
+            "terminology"
           ]
         },
         "size": {

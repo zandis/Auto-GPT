@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
@@ -1344,3 +1345,68 @@ def install_folder(folder: Path, directory: Path, accepted_by: str = "", accepte
             continue
         out[label] = ("loaded", ", ".join(f"{t} {n} rows" for t, n in got.items()))
     return out
+
+
+# V-18 (D-1182): an update's terminology payload can be rolled back. Before it loads, the volume's tables that were
+# not built from a licensed copy are kept aside with their manifest lines (a licensed table never leaves the volume,
+# and an update never carries one); a rollback puts them back and takes away what the update added
+SAVED = "saved.json"
+
+
+def save_tables(directory: Path, dest: Path) -> list[str]:
+    """Copy each table not built from a licensed copy, with its manifest line, into ``dest``; record every table name
+    the volume had. Returns the tables kept."""
+    import fcntl
+
+    dest.mkdir(parents=True, exist_ok=True)
+    kept: dict[str, Any] = {}
+    with (directory / ".manifest.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        tables = manifest(directory).get("tables") or {}
+        for name, line in sorted(tables.items()):
+            if str((line or {}).get("licence_accepted_by") or "").strip() or not _plain_name(name):
+                continue
+            src = directory / f"{name}.parquet"
+            if src.is_file():
+                shutil.copy2(src, dest / src.name)
+                kept[name] = line
+    (dest / SAVED).write_text(json.dumps({"tables": kept, "had": sorted(tables)}, indent=1, sort_keys=True) + "\n",
+                              encoding="utf-8")  # fmt: skip
+    return sorted(kept)
+
+
+def restore_tables(directory: Path, saved: Path) -> list[str]:
+    """Put back what :func:`save_tables` kept, and take away each table the volume did not have then that is not
+    built from a licensed copy (an update's new system). A licensed table is never touched. Returns what changed."""
+    import fcntl
+
+    record = json.loads((saved / SAVED).read_text("utf-8"))
+    kept, had = record.get("tables") or {}, set(record.get("had") or [])
+    changed: list[str] = []
+    with (directory / ".manifest.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = manifest(directory)
+        for name, line in sorted(kept.items()):
+            src = saved / f"{name}.parquet"
+            if not _plain_name(name) or not src.is_file() or _sha(src) != line.get("sha256"):
+                raise ValueError(f"{saved}: {name} is not the table it kept; nothing was restored")
+        for name, line in sorted(kept.items()):
+            tmp = directory / f"{name}.parquet.tmp"
+            shutil.copy2(saved / f"{name}.parquet", tmp)
+            tmp.replace(directory / f"{name}.parquet")
+            data["tables"][name] = line
+            changed.append(name)
+        for name in sorted(set(data["tables"]) - had):
+            line = data["tables"][name] or {}
+            if str(line.get("licence_accepted_by") or "").strip() or not _plain_name(name):
+                continue
+            data["tables"].pop(name)
+            (directory / f"{name}.parquet").unlink(missing_ok=True)
+            changed.append(name)
+        mtmp = directory / f".{MANIFEST}.tmp"
+        with mtmp.open("w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(mtmp, directory / MANIFEST)
+    return changed

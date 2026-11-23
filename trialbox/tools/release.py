@@ -45,7 +45,10 @@ PYPROJECT = ROOT / "pyproject.toml"
 IMAGES_LOCK = ROOT / "deploy" / "images.lock"
 FORMAT = "trialbox-release/1"
 TAG_PREFIX = "trialbox-v"
-KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host", "terminology")
+# V-18 (D-1182): a terminology payload is a code system the box may carry, under the loader command that loads it
+# (``<command>/<file>``); a licensed system (LOINC, WHO ICD-10, ATC, SNOMED CT, the UMLS) never goes in a bundle
+TERMINOLOGY_COMMANDS = ("icd10cm", "icd10pcs", "nhi-drugs", "nhi-services")
 # what the bundle carries next to the image SBOMs (tools/supply_chain release-gates writes them in the SBOM folder)
 SBOM_EXTRAS = ("requirements.lock.cdx.json", "licences.md", "index.json")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -130,7 +133,11 @@ def parse_item(text: str) -> tuple[str, Path, str]:
     src, _, dest = rest.partition("=")
     if kind not in KINDS or not src:
         raise ReleaseError(f"bad bundle item {text!r} (kind:path[=dest], kind one of {', '.join(KINDS)})")
-    return kind, Path(src), dest or Path(src).name
+    out = dest or Path(src).name
+    if kind == "terminology" and (out.split("/", 1)[0] not in TERMINOLOGY_COMMANDS or "/" not in out):
+        raise ReleaseError(f"bad bundle item {text!r}: a terminology file goes in as <command>/<file>, the command one "
+                           f"of {', '.join(TERMINOLOGY_COMMANDS)} (a licensed code system never ships)")  # fmt: skip
+    return kind, Path(src), out
 
 
 def archive_configs(archive: Path) -> dict[str, str]:

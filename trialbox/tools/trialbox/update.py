@@ -281,6 +281,25 @@ def refdata_packs(plan: Plan) -> list[Path]:
     return sorted(p for p in rd.rglob("*.tar") if p.is_file()) if rd.is_dir() else []
 
 
+# V-18 (D-1182): the bundle's code systems (payload kind ``terminology``)
+TERMINOLOGY_VOLUME = "tb-terminology"
+TERMINOLOGY_RUN = "tb-terminology-load"
+TERMINOLOGY_SAVE_PY = ("from pathlib import Path\nfrom criteria_compiler.terminology import installed as i\n"
+                       "print(i.save_tables(Path('/data/terminology'), Path('/keep')))\n")  # fmt: skip
+
+
+def terminology_files(plan: Plan) -> list[Path]:
+    """The code-system files of a bundle, ``<command>/<file>`` (verify_update allows only the commands that load a
+    system the box may carry); each folder's ``VERSION`` is the year or version its command is given."""
+    d = plan.kind("terminology")
+    return sorted(p for p in d.glob("*/*") if p.is_file() and p.name != "VERSION") if d.is_dir() else []
+
+
+def terminology_version(file: Path) -> str:
+    v = file.parent / "VERSION"
+    return v.read_text(encoding="utf-8").strip() if v.is_file() else ""
+
+
 def host_tars(plan: Plan) -> list[Path]:
     """The bundle's host tree (payload kind ``host``; verify_update.py allows at most one)."""
     d = plan.kind("host")
@@ -872,6 +891,15 @@ class Updater:
                 refdata_note = f"{type(exc).__name__}: {exc}"[:500]
                 step("reference data", False, f"{refdata_note}; the release stays; load the pack again "
                                               "(python -m tb_common.refdata load)")  # fmt: skip
+        terminology = getattr(self.box, "terminology", None)
+        if terminology is not None and terminology_files(plan):
+            try:  # V-18: after the check, as the reference data; a failure leaves the healthy release in place
+                loaded = terminology(plan)
+                step("code systems", True, f"{len(loaded)} loaded; back: deploy/terminology-update.sh --rollback "
+                                           f"{plan.bundle_id}")  # fmt: skip
+            except Exception as exc:
+                step("code systems", False, f"{type(exc).__name__}; the release stays; the previous tables are in "
+                                            f"deploy/terminology/previous/{plan.bundle_id}")  # fmt: skip
         enter("finish")
         self._record(plan)
         self.box.audit(
@@ -1761,6 +1789,38 @@ class ComposeBox(_DockerImages):
             kept.mkdir(parents=True, exist_ok=True)
             shutil.copy2(pack, kept / pack.name)
             done.append(pack.name)
+        return done
+
+    def terminology(self, plan: Plan) -> list[str]:
+        """V-18 (D-1182): the bundle's code systems (payload kind ``terminology``, ``<command>/<file>``, a code system
+        the box may carry), after the release passed its check. The terminology volume's tables are kept aside first
+        (``deploy/terminology/previous/<bundle>``: ``deploy/terminology-update.sh --rollback <bundle>`` puts them back);
+        each file is loaded by its command with no network; then the vocabulary and the FHIR store from the one
+        manifest, the report in ``deploy/site/terminology-load.json``."""
+        files = terminology_files(plan)
+        if not files:
+            return []
+        keep = self.deploy / "terminology" / "previous" / plan.bundle_id
+        keep.mkdir(parents=True, exist_ok=True)
+        image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+        vol = f"trialbox_{TERMINOLOGY_VOLUME}:/data/terminology"
+        base = ["docker", "run", "--rm", "--network", "none", "--user", "0:0", "-e",
+                "TB_TERMINOLOGY_DIR=/data/terminology", "-v", vol]  # fmt: skip
+        self.run([*base, "-v", f"{keep.resolve()}:/keep", image, "python", "-c", TERMINOLOGY_SAVE_PY], timeout=1800)
+        done = []
+        for f in files:
+            cmd, version = f.parent.name, terminology_version(f)
+            opt = (["--year" if cmd in ("icd10cm", "icd10pcs") else "--version", version]) if version else []
+            self.run([*base, "-v", f"{f.resolve()}:/in/{f.name}:ro", image, "python", "-m", "tools.terminology_install",
+                      cmd, f"/in/{f.name}", *opt], timeout=3600)  # fmt: skip
+            done.append(f"{cmd}/{f.name}")
+        self._rm_run(TERMINOLOGY_RUN)
+        report = self.run(self._c("run", "--rm", "--no-deps", "-T", "--name", TERMINOLOGY_RUN, "criteria-compiler",
+                                  "python", "-m", "tools.terminology_load", "load", "--report", "-"),
+                          timeout=7200)  # fmt: skip
+        site = self.deploy / "site"
+        site.mkdir(parents=True, exist_ok=True)
+        (site / "terminology-load.json").write_text(report, encoding="utf-8")
         return done
 
     def check(self, plan: Plan) -> str:
