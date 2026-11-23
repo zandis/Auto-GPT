@@ -55,6 +55,7 @@ TARGETS = {
     "clinical-score": "https://trialbox.local/fhir/CodeSystem/clinical-score",
     "atc": "http://www.whocc.no/atc",
     "nhi-order": "https://trialbox.local/fhir/CodeSystem/nhi-order",
+    "jp-k-code": "https://trialbox.local/fhir/CodeSystem/jp-k-code",
     "department": "https://trialbox.local/fhir/CodeSystem/department",
 }
 TARGET_OF_URL = {v: k for k, v in TARGETS.items()}
@@ -64,7 +65,7 @@ DOMAINS = {
     "diagnosis": ("icd-10-cm",),
     "lab": ("loinc", "clinical-score"),
     "medication": ("atc",),
-    "procedure": ("nhi-order",),
+    "procedure": ("nhi-order", "jp-k-code"),
     "department": ("department",),
     "report": ("loinc",),
 }
@@ -101,6 +102,7 @@ SYSTEMS: dict[str, tuple[str, str]] = {
     "local-drug": ("medication", "none"),
     "nhi-order": ("procedure", "direct"),
     "jp-procedure": ("procedure", "none"),
+    "jp-k-code": ("procedure", "direct"),
     "local-order": ("procedure", "none"),
     "department": ("department", "direct"),
     "local-department": ("department", "department-table"),
@@ -298,6 +300,8 @@ def well_formed(target_system: str, code: str, ref: Reference) -> str:
         return "" if _ATC5.match(code) else "not a level-5 ATC code (a substance)"
     if target_system == "nhi-order":
         return "" if _NHI_ORDER.match(code) else "not an NHI order-code shape"
+    if target_system == "jp-k-code":
+        return "" if re.fullmatch(r"K[0-9]{3}(-[0-9]+)?", code) else "not a 診療報酬点数表 K-code shape"
     if target_system == "department":
         if not _DEPT.match(code):
             return "not a department-code shape"
@@ -323,7 +327,7 @@ def check_code(row: dict[str, str], ref: Reference) -> Result:
         return Result(domain, system, code, name, "", "", "", "empty code")
     if route == "direct":
         c = code.upper() if system != "loinc" else code
-        return done("direct", targets[0], c)
+        return done("direct", system if system in targets else targets[0], c)
     hit: tuple[str, str] | None = None
     if route in ("who-icd10", "byomei"):
         found = ref.byomei.get(code.upper()) if route == "byomei" else ("icd-10", code)

@@ -162,7 +162,7 @@ def test_value_sets_no_site_code_reaches_are_named(ref: mc.Reference) -> None:
 
 def test_criteria_table_names_every_value_set() -> None:
     table = mc.criteria_table()
-    assert "| GZQO | VS_BARIATRIC_SURGERY | procedure | nhi-order | 2 | GZQO-EXC-05 |" in table
+    assert "| GZQO | VS_BARIATRIC_SURGERY | procedure | jp-k-code, nhi-order | 3 | GZQO-EXC-05 |" in table
     assert len(table.splitlines()) - 2 == len(list(mc.RULESETS.glob("*/valuesets/*.json")))
 
 
@@ -699,3 +699,21 @@ def test_the_cql_reads_a_procedure_of_unknown_status_as_unknown_too() -> None:
         pid = str(body.get("id"))
         got[pid] = FhirEvaluator.parse(pid, idx, body, exprs).results.get("GZQO-EXC-05")
     assert got == {"pu": None, "pc": True}
+
+
+def test_the_bariatric_value_set_adds_the_k_code_and_keeps_its_nhi_members() -> None:
+    """Ruling #639 7107123442: VS_BARIATRIC_SURGERY gains one include, 診療報酬点数表 K656-2 under TrialBox's local
+    jp-k-code system; its NHI members are exactly the two they were (75613B, 75614B), and no other system is added."""
+    vs = json.loads((mc.RULESETS / "GZQO/valuesets/VS_BARIATRIC_SURGERY.json").read_text(encoding="utf-8"))
+    by_system = {inc["system"]: sorted(c["code"] for c in inc["concept"]) for inc in vs["compose"]["include"]}
+    assert by_system == {
+        "https://trialbox.local/fhir/CodeSystem/nhi-order": ["75613B", "75614B"],
+        "https://trialbox.local/fhir/CodeSystem/jp-k-code": ["K656-2"],
+    }
+    sql = (mc.RULESETS / "GZQO/sql/GZQO.sql").read_text(encoding="utf-8")
+    assert "'https://trialbox.local/fhir/CodeSystem/jp-k-code', 'K656-2'" in sql
+    ref = mc.Reference.load()
+    hit = mc.check_code(_rows(("K656-2", "腹腔鏡下胃縮小術", "jp-k-code"))[0], ref)
+    assert hit.mapped and hit.target_system == "jp-k-code"
+    report = mc.coverage(_rows(("K656-2", "腹腔鏡下胃縮小術", "jp-k-code")), ref)
+    assert "GZQO/VS_BARIATRIC_SURGERY" not in report["valuesets_not_reached"]

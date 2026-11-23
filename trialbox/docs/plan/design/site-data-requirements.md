@@ -262,7 +262,28 @@ Finding SDR1-02. The integrator's go is on #639 (comments 7102870311 and 7104597
 - **Not changed.** An appointment's department (the screening lists) still writes the hospital's code. No criterion
   reads it today.
 
-## 9. What was not verified
+## 9. SDR2 part 3: procedures from SS-MIX2, and the Japanese bariatric code (D-1271)
+
+Finding SDR1-03. The integrator's rulings on #639 are comments 7104711754, 7105496002, 7105784808 and 7107123442.
+
+- **The SS-MIX2 reader reads OMG-11 and OMG-12** (radiology and endoscopy 実施) into `procedure`, but only when ORC-1
+  is `SC` and ZE1-2 says 実施. A site's operations still come from `<root>/extended/procedure.csv`, read beside them.
+- **A Japanese procedure's code is never written as an NHI order code.** The JP mapping takes the system from the
+  new optional column `order_code_system`: JJ1017, a K code (`JP-K`), or else the hospital's own system.
+- **A record with no version in force is read with status `unknown`.** The lake and the CQL keep it undated, so a
+  procedure criterion on it reads unknown, never true. Every shipped SQL is unchanged.
+- **The K code** in `VS_BARIATRIC_SURGERY` is an added include under TrialBox's own URI,
+  `https://trialbox.local/fhir/CodeSystem/jp-k-code`. **It is a local system**: moving to an official OID, once one
+  is found, is its own card. The NHI members (75613B, 75614B) are unchanged.
+
+| Code | Name | Source |
+| --- | --- | --- |
+| K656-2 | 腹腔鏡下胃縮小術 (1 スリーブ状切除によるもの; 2 スリーブ状切除によるもの（バイパス術を併施するもの）) | 診療報酬点数表 (厚生労働省), as the 四国厚生局 notice of its 施設基準 lists it (令和8年度改定, https://kouseikyoku.mhlw.go.jp/shikoku/shinsei/shido_kansa/shitei_kijun/documents/t-65-6-p.pdf) |
+
+K656-2 is used as one code for both subdivisions. The 点数表 writes the subdivisions as "1" and "2" under the
+number, and TrialBox does not invent a notation for them.
+
+## 10. What was not verified
 
 - No real hospital's dictionary was read. The figures are the synthetic hospitals'; the owner's script has run here
   only on synthetic files written by its tests.

@@ -4,6 +4,15 @@
    {
     "concept": [
      {
+      "code": "K656-2",
+      "display": "Laparoscopic gastric volume reduction (腹腔鏡下胃縮小術: 1 sleeve gastrectomy, 2 sleeve gastrectomy with bypass)"
+     }
+    ],
+    "system": "https://trialbox.local/fhir/CodeSystem/jp-k-code"
+   },
+   {
+    "concept": [
+     {
       "code": "75613B",
       "display": "Laparoscopic gastric bypass"
      },
@@ -22,5 +31,5 @@
  "status": "active",
  "title": "bariatric surgery",
  "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-BARIATRIC-SURGERY",
- "version": "1.0.0-v07823d63"
+ "version": "1.0.0-vba14337c"
 }

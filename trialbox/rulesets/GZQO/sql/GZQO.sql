@@ -41,6 +41,7 @@ vs(vs_id, system, code) AS (VALUES
   ('VS_ACUTE_OR_CHRONIC_PANCREATITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'K86.0'),
   ('VS_ACUTE_OR_CHRONIC_PANCREATITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'K86.1'),
   ('VS_ALT', 'http://loinc.org', '1742-6'),
+  ('VS_BARIATRIC_SURGERY', 'https://trialbox.local/fhir/CodeSystem/jp-k-code', 'K656-2'),
   ('VS_BARIATRIC_SURGERY', 'https://trialbox.local/fhir/CodeSystem/nhi-order', '75613B'),
   ('VS_BARIATRIC_SURGERY', 'https://trialbox.local/fhir/CodeSystem/nhi-order', '75614B'),
   ('VS_GLP_1_RECEPTOR_AGONIST', 'http://www.whocc.no/atc', 'A10BJ02'),
