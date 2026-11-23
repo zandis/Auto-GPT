@@ -43,9 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # the corpus host is not reachable from the runner (every fetch ended "Network is unreachable"), and ring 0 runs on
-        # synthetic data: public-e2e, which reads the corpus, is in the matrix on a manual dispatch only
-        run: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["public-e2e","backup-drill","update-drill","perf-5k","pure"]' || '["backup-drill","update-drill","perf-5k","pure"]') }}
+        run: [public-e2e, backup-drill, update-drill, perf-5k, pure]
     name: ${{ matrix.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -75,13 +73,11 @@ jobs:
       - name: PostgreSQL server binaries
         run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
       # ENG-002 (D-560): the public-data site reads the MedTxt corpus (public, CC BY 4.0), which git does not carry
-      # the corpus host is not reachable from the runner (every fetch ended "Network is unreachable"), and ring 0 runs on
-      # synthetic data: the steps that read the corpus run on a manual dispatch only, until the owner mirrors it
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         if: matrix.run == 'public-e2e'
         with:
           path: trialbox/.cache/medtxt
-          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
+          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt.version') }}
       - name: The public corpus (MedTxt), fetched once
         if: matrix.run == 'public-e2e'
         run: make public-data
@@ -288,14 +284,11 @@ jobs:
           echo "NODE_PATH=$RUNNER_TEMP/node-tools/node_modules" >> "$GITHUB_ENV"
       # D-639: the browser walk below reads the MedTxt corpus (public, CC BY 4.0), which git does not carry; the same
       # cache as the public-e2e run. Fetched before the images and the stack: a fetch that fails stops the job early
-      # the corpus host is not reachable from the runner (every fetch ended "Network is unreachable"), and ring 0 runs on
-      # synthetic data: the steps that read the corpus run on a manual dispatch only, until the owner mirrors it
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: trialbox/.cache/medtxt
-          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
+          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt.version') }}
       - name: The public corpus (MedTxt), fetched once
-        continue-on-error: ${{ github.event_name != 'workflow_dispatch' }}  # the scheduled night goes on without it
         run: make public-data
       - name: Images (as `make images`)
         run: make images
@@ -307,7 +300,7 @@ jobs:
           TB_WALK_SHOTS: ${{ runner.temp }}/compose/role-walk
         run: make test-compose COMPOSE_JUNIT="$RUNNER_TEMP/compose/junit-compose.xml"
       - name: The browser walk of the public console (5 roles x 3 languages x desktop and phone)
-        if: always() && github.event_name == 'workflow_dispatch'
+        if: always()
         run: make walk WALK_DIR="$RUNNER_TEMP/compose/walk"
       - name: The stack's log
         if: failure()
