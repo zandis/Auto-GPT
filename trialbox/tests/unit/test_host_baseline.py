@@ -479,7 +479,11 @@ SECRET_PP = "correct-horse-battery-staple-h89"
         ({"TB_KEK_BACKEND": "passphrase"}, "file", "TEST", "WARN"),
         ({"TB_KEK_PASSPHRASE": SECRET_PP}, "file", "PRODUCTION", "FAIL"),  # a passphrase without the back end
         ({"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": SECRET_PP}, "file", "PRODUCTION", "FAIL"),
-        ({}, "passphrase", "PRODUCTION", "WARN"),  # the site keys already sealed under it
+        # H-97 (the integrator's ruling 7104745003): the site keys already sealed under it follow the same rule: a
+        # FAIL on PRODUCTION that names the action (a WARN before), a listed WARN on a PoC box
+        ({}, "passphrase", "PRODUCTION", "FAIL"),
+        ({}, "passphrase", "TEST", "WARN"),
+        ({"TB_ENV": "TEST"}, "passphrase", "PRODUCTION", "FAIL"),  # a caller's variable does not make it a PoC box
     ],
 )
 def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(
@@ -492,12 +496,16 @@ def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(
     line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
     assert line.startswith(status), r.stdout
     if status == "WARN":
-        assert "passphrase back end (TB_KEK_BACKEND=passphrase)" in line
+        assert "passphrase back end" in line
     listed = tmp_path / "site" / "poc-stops.jsonl"
-    if kek == "file" and extra.get("TB_KEK_BACKEND") and env_name != "PRODUCTION":
-        assert [json.loads(x)["key"] for x in listed.read_text(encoding="utf-8").splitlines()] == [
-            "check_host.sh/no-tpm"
-        ]
+    if env_name != "PRODUCTION" and (kek == "passphrase" or extra.get("TB_KEK_BACKEND")):
+        key = "check_host.sh/no-tpm-sealed" if kek == "passphrase" else "check_host.sh/no-tpm"
+        assert [json.loads(x)["key"] for x in listed.read_text(encoding="utf-8").splitlines()] == [key]
     else:
-        assert not listed.exists()  # never listed on PRODUCTION, nor when the keys are sealed under the passphrase
+        assert not listed.exists()  # never listed on PRODUCTION
+    if kek == "passphrase":  # the action: on the FAIL line, or on the doctor's line of the PoC list
+        from tools.trialbox import stops
+
+        said = line if status == "FAIL" else " ".join(d for _, d in stops.doctor_lines(tmp_path))
+        assert "reseal the site keys under a TPM" in said, said
     assert SECRET_PP not in r.stdout + r.stderr
