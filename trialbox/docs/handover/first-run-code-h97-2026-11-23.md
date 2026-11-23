@@ -105,6 +105,18 @@ its docker command runs with hold neither the name nor the value; the restic ste
 and an exported one is refused at the key's load. Mutants: 5 planted, 4 caught; the survivor (a second guard on the mapping
 being the process environment) was equivalent to the refusal above it and was removed from the code.
 
+## Part D: keys already sealed under the passphrase, on a host with no TPM
+
+The integrator's ruling 7104745003 (H-96's L-3). `deploy/check_host.sh` showed a WARN for a host with no TPM whose
+site keys are already sealed under the passphrase (`kek.json`), on every box. Now they follow the rule H-96 gave the
+back end only named: on a PoC box (the box's recorded environment, `deploy/.env` as compose reads it, through H-96's
+`poc_list` and `tools/trialbox/stops.py`; never a caller's variable) a WARN listed in `deploy/site/poc-stops.jsonl` as
+`check_host.sh/no-tpm-sealed`; on any other box a FAIL. Both name the action: reseal the site keys under a TPM (on a
+board with one, rotate the KEK to the TPM back end, SECURITY §10); the doctor's line of the PoC list carries it.
+`tests/unit/test_host_baseline.py::test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen` holds both rows, a
+caller's `TB_ENV=TEST` on a PRODUCTION box (still a FAIL), and the action on the FAIL line and the doctor's line.
+Mutants: 2 planted (always a WARN; no action named), 2 caught.
+
 ## Tests
 
 **Part A, the invariant:**
@@ -153,6 +165,13 @@ passes (its rotate-kek is `--backend file`).
 
 No test asserted that rotate-kek with a passphrase is refused on a PRODUCTION box, so part B changed none.
 
+### Changed assertion (ruling 7104745003, part D)
+
+8. `tests/unit/test_host_baseline.py::test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen`, row
+   `[extra5-passphrase-PRODUCTION-WARN]` (the keys sealed under the passphrase, PRODUCTION): a WARN on master, now
+   `[extra5-passphrase-PRODUCTION-FAIL]`; two rows added (the same on TEST: a listed WARN; a caller's TB_ENV=TEST on
+   PRODUCTION: a FAIL), and the listed key is checked for both the named and the sealed back end.
+
 ### Changed assertions (ruling 7102655419, part C)
 
 6. `tests/unit/test_audit_heads_nightly.py::test_on_a_site_box_the_signer_sees_the_audit_volume_read_only_and_the_event_goes_to_the_journal`
@@ -178,15 +197,17 @@ Bodies only: `deploy/gcp/box-install-run.sh` and `deploy/gcp/box_vm.py` (the clo
 place of the issue file; a docstring), `tests/rehearsal/box-run/standins/boot.sh` and the new
 `tests/rehearsal/box-run/shims/getent`, `libs/tb_common/rc1_refusals.py` (the key ceremonies row's words),
 `tools/keys.py` (rotate-kek), `libs/tb_common/kek.py` (`load_kek`'s body and module text),
-`tools/trialbox/audit_heads.py` (`PASSED`), `tools/trialbox/backup_schedule.py` (one line), the tests named under "Changed assertions", and the hospital pages
+`tools/trialbox/audit_heads.py` (`PASSED`), `tools/trialbox/backup_schedule.py` (one line), `deploy/check_host.sh`
+(part D; H-96's file), the tests named under "Changed assertions", and the hospital pages
 (`docs/handover/hospital-install.en.md`, `.ja.md`, `.zh-TW.md`, step 7).
 
 ## Findings
 
-In `first-run-code-h97-2026-11-23/findings.json` (H97-01 to H97-09): the code in the journal and the issue file
+In `first-run-code-h97-2026-11-23/findings.json` (H97-01 to H97-10): the code in the journal and the issue file
 (fixed), the rehearsal that has no first-run step (not run), the screen of a desktop box and a VM's console, a
 terminal's scrollback and sudo's I/O log, boxes before H-97, rotate-kek on PRODUCTION (fixed, D-1092), the host's
-append to the audit folder beside the audit writer (not run), the WSL2 window (not run), and the environment form outside the installers (fixed, part C).
+append to the audit folder beside the audit writer (not run), the WSL2 window (not run), the environment form outside the installers (fixed, part C), and keys sealed under the passphrase without a TPM
+(fixed, part D).
 
 ## Questions
 

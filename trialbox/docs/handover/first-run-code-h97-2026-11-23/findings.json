@@ -85,6 +85,15 @@
    "basis": "shown",
    "state": "open",
    "place": "libs/tb_common/kek.py load_kek, tools/trialbox/audit_heads.py PASSED, tools/trialbox/backup_schedule.py"
+  },
+  {
+   "id": "H97-10",
+   "severity": "Low",
+   "claim": "on a host with no TPM, site keys already sealed under the passphrase were a WARN on every box, PRODUCTION too (H-96's L-3); fixed by the integrator's ruling 7104745003: a WARN listed in deploy/site/poc-stops.jsonl on a PoC box (the box's recorded environment decides), else a FAIL; both name the action, reseal under a TPM",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/check_host.sh (the TPM lines)"
   }
  ]
 }
