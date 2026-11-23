@@ -456,3 +456,19 @@ def test_the_sheets_line_runs_the_copy_only_after_its_code_is_confirmed(stick: d
         assert "==> plan from the hardware" in got.stdout + got.stderr, got.stderr
     else:
         assert "Vendor key fingerprint" not in got.stdout and not stick["opt"].exists()
+
+
+def test_the_rehearsal_hands_over_every_file_make_bundle_writes_beside_the_bundle() -> None:
+    """The rehearsal moves the vendor's files to the media, then removes the vendor's folder: a file make_bundle.sh
+    writes there and the rehearsal does not move leaves the folder non-empty and the media step fails (CI, HS-1)."""
+    hand_over = re.search(r"hand over, on a USB stick[^:]*: (.*)\"$", _make_bundle_lines('echo "done: hand over'))
+    assert hand_over
+    names = [n.strip() for n in re.split(r",| and ", hand_over.group(1)) if n.strip()]
+    assert {"install", "vendor_ed25519.pub"} <= set(names), names
+    sh = (ROOT / "tools/rehearse_box/rehearse.sh").read_text(encoding="utf-8")
+    move = re.search(r'\n  mv ("\$W/vendor/dist/.*?) "\$MEDIA/linux/" && rmdir "\$W/vendor/dist"', sh, re.S)
+    assert move
+    moved = {m.replace("$BUNDLE_NAME", "BUNDLE") for m in re.findall(r'"\$W/vendor/dist/([^"]+)"', move.group(1))}
+    expected = {re.sub(r"\$\(basename \"\$OUT\"\)", "BUNDLE", n).replace('$(basename "$BOOT")', "trialbox-bootstrap.sh")
+                for n in names}  # fmt: skip
+    assert expected <= moved, expected - moved
