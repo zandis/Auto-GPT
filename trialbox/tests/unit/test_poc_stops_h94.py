@@ -63,7 +63,7 @@ RATCHET = {
     "deploy/bootstrap.sh": 0,
     "deploy/launcher.sh": 0,
     "deploy/check_host.sh": 0,
-    "deploy/settings_guard.sh": 2,
+    "deploy/settings_guard.sh": 0,
 }
 PY_RATCHET = {"tools/rehearsal_real.py": 0, "tools/trialbox/launch.py": 0}  # sys.exit, SystemExit, raise
 

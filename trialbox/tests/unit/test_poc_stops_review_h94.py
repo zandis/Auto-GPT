@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -279,3 +280,34 @@ def test_l3_a_caller_s_variable_never_keeps_the_list(tmp_path: Path) -> None:
     first = box.install("--environment", "TEST", "--mode", "stub", "--yes", force=("memcaps",))
     kept = box.install("--environment", "TEST", "--mode", "stub", "--keep-poc-list", "--yes")
     assert kept.rc == 0 and "install.sh/memcaps" in kept.listed_keys(), kept.text[-3000:]
+
+
+# ------------------------------------------------------------- H94-09 (the integrator's ruling 7102087475, part 2)
+def _settings_guard(tmp_path: Path, environment: str) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """The real deploy/settings_guard.sh on a box whose anchor rule cannot run (no python3 module for it here: the
+    finish check fails) and whose site settings would not be mounted (the example would)."""
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    (deploy / "site" / "compose.anchors.yml").write_text("services: {}\n", encoding="utf-8")
+    (deploy / "settings.yaml").write_text("site: {id: SITE-A}\n", encoding="utf-8")
+    (deploy / ".env").write_text(f"TB_ENV={environment}\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in ("TB_SETTINGS_FILE", "PYTHONPATH")}
+    r = subprocess.run(["sh", str(ROOT / "deploy" / "settings_guard.sh"), str(deploy)], cwd=tmp_path, env=env,
+                       capture_output=True, text=True, check=False, timeout=120)  # fmt: skip
+    return r, deploy
+
+
+def test_h94_09_on_a_poc_box_both_start_checks_warn_and_the_box_starts(tmp_path: Path) -> None:
+    r, deploy = _settings_guard(tmp_path, "TEST")
+    assert r.returncode == 0, r.stderr
+    keys = {json.loads(ln)["key"] for ln in (deploy / "site" / "poc-stops.jsonl").read_text().splitlines() if ln}
+    assert keys == {"settings_guard.sh/anchor-rule", "settings_guard.sh/example-settings"}, r.stderr
+
+
+def test_h94_09_on_production_the_first_stops_with_master_s_words(tmp_path: Path) -> None:
+    r, deploy = _settings_guard(tmp_path, "PRODUCTION")
+    assert r.returncode == 1
+    assert r.stderr.splitlines()[-1].startswith(
+        "TrialBox REFUSED to start: the audit anchor folder it would give the console no longer passes the rule"
+    ), r.stderr
+    assert "PoC box" not in r.stderr and not (deploy / "site" / "poc-stops.jsonl").exists()

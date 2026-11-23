@@ -72,7 +72,7 @@
   {
    "id": "H94-09",
    "severity": "Low",
-   "claim": "two stops of deploy/settings_guard.sh (every start that is not install.sh) are left bare in part 2 and asked: an anchor folder that no longer passes the rule at a start (there is no step to skip there: the anchors' compose file is already in COMPOSE_FILE) and a box whose site settings exist while compose would mount the example's (converting it changes the VALIDATION and TEST cases of test_settings_file_every_start.py, which needs a ruling)",
+   "claim": "two stops of deploy/settings_guard.sh (every start that is not install.sh) are left bare in part 2 and asked: an anchor folder that no longer passes the rule at a start (there is no step to skip there: the anchors' compose file is already in COMPOSE_FILE) and a box whose site settings exist while compose would mount the example's (converting it changes the VALIDATION and TEST cases of test_settings_file_every_start.py, which needs a ruling); ruled by the integrator (7102087475): both warn on a PoC box and stay stops on PRODUCTION, converted in part 2",
    "lane": "H",
    "basis": "not stated",
    "state": "open"
