@@ -266,7 +266,7 @@ def sigir_docs() -> list[Derived]:
 
 
 JMED_DIR = ROOT / "eval" / "medtxt" / "jmed-llm"
-#: the three committed JMED-LLM datasets (CC BY 4.0, from NTCIR-16 Real-MedNLP MedTxt-CR and MedTxt-RR) and their SHA-256
+#: the three committed JMED-LLM datasets (CC BY 4.0, from NTCIR-16 Real-MedNLP MedTxt-CR, MedTxt-RR) and their SHA-256
 JMED_PINS = {
     "mrner_disease.csv": "eb2164166417b719d7975a9feb6464fad605bd84f86105f7cd8cec1307f0bae0",
     "mrner_medicine.csv": "7797c76c8c7ee4557d0e810644ce2b49df3971d572b428a4932e4075c856edfa",
