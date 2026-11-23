@@ -228,6 +228,7 @@ def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluste
                              f"?host={info.get('host')}&port={info.get('port') or '5432'}",
            "STANDIN_AUDIT": str(d / "audit-events.jsonl"), "STANDIN_SPOOL": str(d / "db-container-tmp" / "tb-backup"),
            "STANDIN_CONTAINER_SPOOL": bs.CONTAINER_SPOOL,
+           "TB_SYSTEMD": "0",  # H-92: a root run on a systemd host never enables the host's own backup timers
            **{f"STANDIN_DB_{k}": v for k, v in dbs.items()}}  # fmt: skip
     yield {"root": root, "deploy": root / "deploy", "nas": nas, "env": env, "log": log, "dir": d,
            "key": d / "usb" / "backup.key", "dbs": dbs, "admin": admin, "user": str(info.get("user") or "postgres"),
