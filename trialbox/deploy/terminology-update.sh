@@ -13,7 +13,7 @@
 #   deploy/terminology-update.sh --rollback BUNDLE    # the tables an update's code systems replaced, put back
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 if [ "${1:-}" = "--rollback" ]; then  # V-18: the tables kept aside by update BUNDLE (tools/trialbox/update.py)
   KEEP="deploy/terminology/previous/${2:?usage: deploy/terminology-update.sh --rollback BUNDLE}"
   [ -f "$KEEP/saved.json" ] || { echo "terminology-update: nothing kept for ${2} ($KEEP/saved.json)" >&2; exit 2; }
