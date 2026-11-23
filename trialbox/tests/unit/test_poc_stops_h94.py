@@ -68,12 +68,34 @@ RATCHET = {
 PY_RATCHET = {"tools/rehearsal_real.py": 0, "tools/trialbox/launch.py": 0}  # sys.exit, SystemExit, raise
 
 
+#: a named block whose header names one of the five (H-96's KEK-INPUT: "# KEK-INPUT (H-96, F-45, H-94 (5); ..."):
+#: every stop inside it, to its "# ---- end of <NAME>", is that refusal (its lines are H-96's, held together by its
+#: own test across three files, so no line inside it carries a mark of its own)
+BLOCK = re.compile(r"#\s*(?:---- )?([A-Z][A-Z0-9-]*) \([^)]*?H-94 \(([1-5])\)")
+
+
+def marked_blocks(lines: list[str]) -> dict[int, str]:
+    """Line index -> the number the enclosing marked block names."""
+    out: dict[int, str] = {}
+    name, n = "", ""
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not name and (m := BLOCK.match(s)) and f"# ---- end of {m.group(1)}" in (x.strip() for x in lines[i:]):
+            name, n = m.group(1), m.group(2)  # a block only where it is closed
+        elif name and s == f"# ---- end of {name}":
+            name = ""
+        elif name:
+            out[i] = n
+    return out
+
+
 def bare_stops(text: str) -> list[tuple[int, str]]:
     """Each line that stops (die, exit N) with neither the helper nor ``H-94 (N)``/``H-94 depends`` on it or on the two
     lines above it. The helper's own block is not counted."""
     lines = text.splitlines()
     out: list[tuple[int, str]] = []
     block = False
+    marked = marked_blocks(lines)
     for i, line in enumerate(lines):
         s = line.strip()
         if s.startswith("# ---- STOP-OR-WARN"):
@@ -82,7 +104,7 @@ def bare_stops(text: str) -> list[tuple[int, str]]:
             block = False
             continue
         code = line.split("  # ")[0]
-        if block or s.startswith("#") or re.match(r"\s*\w+\(\) *\{", line) or "stop_or_warn" in code:
+        if block or i in marked or s.startswith("#") or re.match(r"\s*\w+\(\) *\{", line) or "stop_or_warn" in code:
             continue
         if STOP.search(code) and not MARK.search(" ".join(lines[max(0, i - 2) : i + 1])):
             out.append((i + 1, s))
@@ -116,11 +138,15 @@ def mark_of(lines: list[str], i: int) -> re.Match[str] | None:
 def kept_counts(text: str) -> dict[str, int]:
     counts = {n: 0 for n in ("1", "2", "3", "4", "5", "depends")}
     lines = text.splitlines()
+    marked = marked_blocks(lines)
     for i, line in enumerate(lines):
         code = line.split("  # ")[0]
         if line.strip().startswith("#") or not STOP.search(code) or "stop_or_warn" in code:
             continue
         if re.match(r"\s*\w+\(\) *\{", line) or code.strip() == 'exit "$_rc"':  # a definition, the helper's own
+            continue
+        if i in marked:
+            counts[marked[i]] += 1
             continue
         m = mark_of(lines, i)
         if m and "not a stop" not in m.group(0):
@@ -146,7 +172,6 @@ NOT_DRIVEN = {
     "host-baseline-ssh": "root only (deploy/site/hardening.conf as root): the tests run as a user, as CI does",
     "host-baseline": "root only: the tests run as a user, as CI does",
     "systemd-units": "root only (systemd): the tests run as a user, as CI does",
-    "seal-keys": "root only (the step before it is kept refusal 4 for a user)",
     "install-lock-open": "the deploy folder cannot be made unreadable to root, and the bench may run as root",
     "override-owner": "a file owned by another user cannot be made without root",
     "docker-missing": "the next step that runs Docker is kept refusal 1: test_with_no_docker_a_poc_box_warns_then_stops_at_the_load",

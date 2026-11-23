@@ -162,6 +162,11 @@ real="$(/usr/bin/id "$@")" || exit $?
 case "$*:$(/usr/bin/id -u)" in -u:0|-g:0) echo 4242 ;; -un:0) echo installer ;; *) echo "$real" ;; esac
 """
 
+# the user the id stand-in names has a home: the box's own folder (H-96's first sign-in file is written there)
+GETENT = r"""#!/bin/sh
+case "$*" in "passwd 4242") echo "installer:x:4242:4242::$TB_H94_TMP:/bin/sh" ;; *) exec /usr/bin/getent "$@" ;; esac
+"""
+
 SMI = """#!/bin/sh
 echo "GPU 0: stand-in card (UUID: GPU-00000000-0000-0000-0000-000000000000)"
 """
@@ -231,7 +236,7 @@ class Box:
         b.mkdir()
         # id: the installer runs as a user that is not root (as CI does), whoever runs the test: no step of root's
         # (/usr/local/bin, /etc) is reached; chown: the services' group 10001 is not the test user's
-        stand = {"docker": DOCKER, "nvidia-smi": SMI, "chown": "#!/bin/sh\nexit 0\n", "id": ID}
+        stand = {"docker": DOCKER, "nvidia-smi": SMI, "chown": "#!/bin/sh\nexit 0\n", "id": ID, "getent": GETENT}
         if "python3" not in self.no:
             stand["python3"] = PYTHON
         for name, text in stand.items():

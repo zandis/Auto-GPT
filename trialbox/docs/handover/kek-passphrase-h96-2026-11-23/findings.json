@@ -1,0 +1,98 @@
+{
+ "card": "H96",
+ "title": "the KEK passphrase from a root-only file or stdin, never the environment (F-45); one-time values in no log (7097514776)",
+ "date": "2026-11-23",
+ "source": "docs/handover/kek-passphrase-h96-2026-11-23.md",
+ "findings": [
+  {
+   "id": "H96-01",
+   "severity": "High",
+   "claim": "the KEK passphrase given as sudo --preserve-env=TB_KEK_PASSPHRASE (the form install.sh, box-install.sh and RUNBOOK 16 showed) is logged by sudo with its value in the system journal, readable by root and the adm group (F-45); fixed: refused in the environment on every path, read only from a root-only 0600 file (removed once sealed) or stdin",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/install.sh, deploy/box-install.sh, deploy/bootstrap.sh, deploy/hardening/seal_keys.sh, tools/keys.py"
+  },
+  {
+   "id": "H96-02",
+   "severity": "Medium",
+   "claim": "tools/runbook_install.py's no-tpm lift gave the throwaway passphrase as -e TB_KEK_PASSPHRASE=<value> on docker exec's command line (the process list of the machine that runs it) and in the bootstrap's environment; fixed: written to a root-only file by stdin and named with --kek-passphrase-file",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/runbook_install.py (ContainerMachine.sh, the no-tpm lift)"
+  },
+  {
+   "id": "H96-03",
+   "severity": "Medium",
+   "claim": "every box installed with the environment form before H-96 holds its passphrase in its journal and auth.log; the journal cannot drop single lines, so the passphrase is rotated (RUNBOOK 23, Rotate the KEK passphrase) and vacuuming the logs is hospital IT's decision",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "docs/runbook/23-key-inventory-and-the-lost-box-list.md"
+  },
+  {
+   "id": "H96-04",
+   "severity": "Medium",
+   "claim": "rc1 refuses tools.keys rotate-kek on a PRODUCTION box (R22-34, key_ceremonies), so a PRODUCTION box sealed under an exposed passphrase cannot rotate it under rc1; the page sends it to Aimedics",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "libs/tb_common/rc1_refusals.py (key_ceremonies), tools/keys.py cmd_rotate_kek"
+  },
+  {
+   "id": "H96-05",
+   "severity": "Low",
+   "claim": "inside the box the adapter and the orchestrator would take TB_KEK_PASSPHRASE from the stack's environment and the audit signer is handed it by name (tools/trialbox/audit_heads.py PASSED); since H-96 nothing gives it a value and deploy/.env refuses it, but a value set by hand would sit in that container's configuration on disk (docker inspect), not in a log",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/docker-compose.secrets.yml (x-no-kek), tools/trialbox/audit_heads.py:44"
+  },
+  {
+   "id": "H96-06",
+   "severity": "Low",
+   "claim": "the unit invariant cuts the steps between the signed re-run and the site keys (settings, compose, TLS) from its signed copy, so its deploy/.env check is empty there; the rehearsal job's install and reinstall phases run the whole path under the stand-in sudo, not run in this session (no Docker)",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "tests/unit/test_kek_passphrase_file_h96.py, tools/rehearse_box/box.sh"
+  },
+  {
+   "id": "H96-07",
+   "severity": "Low",
+   "claim": "tests/unit/test_install_faults_runbook.py::test_installers_reject_passphrase_file_input is named for refusing a passphrase file; it still passes (it gives --passphrase-file, not --kek-passphrase-file) but its name now reads against the ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_install_faults_runbook.py"
+  },
+  {
+   "id": "H96-08",
+   "severity": "High",
+   "claim": "the first administrator's enrolment code and generated first password, printed by install.sh's accounts step on stdout, were kept by box-install.sh's tee in deploy/site/box/install.log and by the box rehearsal's step log, so anything that read the log held them (7097514776); fixed: shown once on a terminal (stdout only when it is one, else the controlling terminal), with no terminal in a root-only 0600 file under root's home that the output names, never in the output",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/install.sh (5. accounts), deploy/box-install.sh (the install step's tee)"
+  },
+  {
+   "id": "H96-09",
+   "severity": "Medium",
+   "claim": "the first-run wizard's one-time code is written by box-install.sh show_code to stdout, which trialbox-firstrun.service sends to the journal (StandardOutput=journal+console), and outside WSL2 to /etc/issue.d for the screen, a file local users read; single use, voided after five wrong codes; not changed in this card",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/box-install.sh show_code, deploy/systemd/trialbox-firstrun.service"
+  },
+  {
+   "id": "H96-10",
+   "severity": "Low",
+   "claim": "the rehearsal job uploads its step logs as an artifact for 30 days; before this card the install step's log held the throwaway rehearsal box's first password and enrolment code (synthetic, the box is removed after the run); since this card the values go to the box's root-only file",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": ".github/workflows/trialbox-rehearse-box.yml (upload-artifact logs), tools/rehearse_box/rehearse.sh step"
+  }
+ ]
+}

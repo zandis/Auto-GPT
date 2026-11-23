@@ -109,6 +109,26 @@ def _install_to_the_host_step(tmp: Path, *args: str, **env: str) -> subprocess.C
     return out
 
 
+def run_kek_passphrase_file(tmp: Path) -> None:
+    """H-96: the hidden input writes the passphrase, exactly as typed, to a file only its owner reads (0600)."""
+    span = next(c for c in commands() if c.startswith("sudo bash -c 'umask 077;"))
+    inner = span.removeprefix("sudo bash -c ").strip("'").replace("/root/", f"{tmp}/")
+    typed = "  synthetic h96 phrase \t "
+    out = _run(["bash", "-c", inner], stdin=typed + "\n")
+    f = tmp / "trialbox-kek.pass"
+    assert out.returncode == 0 and f.read_text(encoding="utf-8") == typed + "\n", out.stderr
+    assert f.stat().st_mode & 0o777 == 0o600
+
+
+def run_install_kek_passphrase_file(tmp: Path) -> None:
+    """H-96: install.sh takes --kek-passphrase-file (checked, read) and goes on to its host step."""
+    f = tmp / "trialbox-kek.pass"
+    f.write_text("synthetic-h96-phrase-for-a-test\n", encoding="utf-8")
+    f.chmod(0o600)
+    out = _install_to_the_host_step(tmp, "--mode", "stub", "--kek-passphrase-file", str(f), TB_KEK_BACKEND="passphrase")
+    assert "synthetic-h96-phrase" not in out.stdout + out.stderr and f.exists()
+
+
 def run_install_trial_boot(tmp: Path) -> None:
     _install_to_the_host_step(tmp, "--gpu", "rtxpro6000", "--rehearsal", TB_COMPOSE_OVERRIDE="",
                               TB_ACCEPT_UNMEASURED_GPU="1")  # fmt: skip
@@ -449,6 +469,11 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"python -m tools\.gpu_sizing", run_gpu_sizing),
     (r"cd /media/usb && openssl pkeyutl -verify .* -- --tier large --answers /root/site/site\.yaml", run_first_command),
     (r"--mode stub", run_install_stub),
+    (r"sudo bash -c 'umask 077; IFS= read -rs p; .*", run_kek_passphrase_file),
+    (
+        r"-- --tier large --answers /root/site/site\.yaml --kek-passphrase-file /root/trialbox-kek\.pass",
+        run_install_kek_passphrase_file,
+    ),
     (r"tools/make_bundle\.sh", run_make_bundle),
     (r"make release-bundle", run_make_release_bundle),
     (r"tools/apply_update\.sh trialbox-<version>\.tar", run_apply_update),

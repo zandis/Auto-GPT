@@ -473,7 +473,8 @@ SECRET_PP = "correct-horse-battery-staple-h89"
     ("extra", "kek", "status"),
     [
         ({}, "file", "FAIL"),  # no passphrase back end: as before
-        ({"TB_KEK_BACKEND": "passphrase"}, "file", "FAIL"),  # the back end named without a passphrase
+        # H-96 (ruling 7094934985): the back end alone chooses it; the passphrase is never read from the environment
+        ({"TB_KEK_BACKEND": "passphrase"}, "file", "WARN"),  # the back end named: the install's way out
         ({"TB_KEK_PASSPHRASE": SECRET_PP}, "file", "FAIL"),  # a passphrase without the back end
         ({"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": SECRET_PP}, "file", "WARN"),  # the install's way out
         ({}, "passphrase", "WARN"),  # the site keys already sealed under it

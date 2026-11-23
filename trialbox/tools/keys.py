@@ -3,7 +3,7 @@
 Run on the host as root (the secrets volume), from the install folder with ``PYTHONPATH=libs:services:.``::
 
     python -m tools.keys init --backend shamir --threshold 2 --shares 3 --shares-out /media/stewards
-    python -m tools.keys init --backend passphrase          # the passphrase: TB_KEK_PASSPHRASE, else typed twice
+    python -m tools.keys init --backend passphrase --passphrase-file /root/trialbox-kek.pass   # or typed twice
     python -m tools.keys init --backend file --kek-out /media/usb/trialbox.kek   # then seal it to the TPM
     python -m tools.keys init --backend kms --kms-url https://kms.hosp/v1/transit --kms-key trialbox  # a platform
     python -m tools.keys wrap                               # wrap any key still plain (after keys-init)
@@ -12,6 +12,7 @@ Run on the host as root (the secrets volume), from the install folder with ``PYT
     python -m tools.keys check [--for-update]               # exit 1 on a custody problem (apply_update.sh runs it)
     python -m tools.keys inventory [--json]                 # every key of the box: holder, rotation, compromise
     python -m tools.keys rotate-kek --backend ...           # a new KEK; every wrapped key re-wrapped
+    python -m tools.keys rotate-kek --backend passphrase --new-passphrase-file F [--passphrase-file OLD]
     python -m tools.keys rotate pid_map                     # a new pid_map.key; every pid map row re-encrypted
     python -m tools.keys seal-objects [--store DIR]         # T-210c: uploads and outputs sealed under objects.key
     python -m tools.keys seal-objects --check               # exit 1 when the store is not sealed or a file is plain
@@ -25,6 +26,13 @@ Run on the host as root (the secrets volume), from the install folder with ``PYT
 The secrets folder is ``--secrets``, else ``TB_SECRETS_DIR``, else the compose volume on the host. Nothing here prints
 a key, a share or a passphrase: shares go to files (0600) for the stewards to take away, one each. ``init`` refuses a
 folder that already has a KEK; the site key itself is never made here (``adapter.cli keys-init``, T-612).
+
+A passphrase (H-96, F-45; the integrator's ruling 7094934985) comes from a file only root can read
+(``--passphrase-file``, ``--new-passphrase-file``: one line in a regular file, not a link, owned by the user that runs
+this, mode 0600; removed once used unless ``--keep-passphrase-files``), from stdin (``--passphrase-stdin``,
+``--new-passphrase-stdin``: one line each, the old first; on a terminal they are asked, not shown), or is asked on the
+terminal. ``TB_KEK_PASSPHRASE`` or ``TB_KEK_NEW_PASSPHRASE`` in the environment is refused by every command: sudo logs
+the variables it keeps, with their values (``RUNBOOK §23, rotate the KEK passphrase``).
 """
 
 from __future__ import annotations
@@ -33,6 +41,7 @@ import argparse
 import getpass
 import json
 import os
+import stat
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -142,11 +151,90 @@ def _err(msg: str) -> None:
     print(f"keys: {msg}", file=sys.stderr, flush=True)
 
 
+PASSPHRASE_VARS = ("TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE")
+ROTATE_PAGE = "RUNBOOK §23, rotate the KEK passphrase"
+
+
+def env_passphrase_refusal(env: Mapping[str, str]) -> str | None:
+    """H-96, H-94 (5): why a passphrase in the environment is refused (None when there is none). Never the value."""
+    for var in PASSPHRASE_VARS:
+        if env.get(var):
+            return (f"{var} is set in the environment: refused, nothing was changed. A passphrase given by the "
+                    "environment can be in the system journal (sudo logs the variables it keeps, with their values): "
+                    f"treat that passphrase as exposed and rotate it ({ROTATE_PAGE}). Give it in a file only root can "
+                    "read (--passphrase-file FILE: a regular file, owned by root, mode 0600) or on stdin "
+                    f"(--passphrase-stdin). Then unset {var}.")  # fmt: skip
+    return None
+
+
+def _one_line(text: str, where: str) -> str:
+    line = text[:-1] if text.endswith("\n") else text
+    if not line:
+        raise K.KekError(f"the passphrase from {where} is empty")
+    if any(ord(c) < 32 or ord(c) == 127 for c in line):
+        raise K.KekError(f"the passphrase from {where} holds a line break or another control character: one line")
+    return line
+
+
+def read_passphrase_file(path: str) -> str:
+    """One line from a regular file (not a link) owned by the user that runs this (root), mode 0600; else refused."""
+    fix = "a regular file owned by root with mode 0600 (sudo install -m 0600 -o root -g root /dev/null FILE)"
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        raise K.KekError(f"the passphrase file {path} cannot be read ({type(exc).__name__}): {fix}") from None
+    if stat.S_ISLNK(st.st_mode):
+        raise K.KekError(f"the passphrase file {path} is a link: refused; {fix}")
+    if not stat.S_ISREG(st.st_mode):
+        raise K.KekError(f"the passphrase file {path} is not a regular file: refused; {fix}")
+    if st.st_uid != os.geteuid():
+        raise K.KekError(f"the passphrase file {path} is owned by uid {st.st_uid}, not root (the user that runs "
+                         f"this): refused; {fix}")  # fmt: skip
+    if stat.S_IMODE(st.st_mode) != 0o600:
+        raise K.KekError(f"the passphrase file {path} has mode {stat.S_IMODE(st.st_mode):o}, not 0600: refused; {fix}")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, encoding="utf-8") as f:
+        text = f.read()
+    if text.count("\n") > 1 or (text.count("\n") == 1 and not text.endswith("\n")):
+        raise K.KekError(f"the passphrase file {path} holds more than one line: the passphrase is one line")
+    return _one_line(text, f"the file {path}")
+
+
+def given_passphrases(a: argparse.Namespace, env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
+    """The passphrases of ``a``'s files or stdin, in memory only, by the variable the code below reads, and the files
+    to remove once the command has done its work. A terminal on stdin is left to the prompts (``_passphrase``)."""
+    got: dict[str, str] = {}
+    used: list[str] = []
+    for var, file_opt, stdin_opt in (
+        ("TB_KEK_PASSPHRASE", "passphrase_file", "passphrase_stdin"),
+        ("TB_KEK_NEW_PASSPHRASE", "new_passphrase_file", "new_passphrase_stdin"),
+    ):
+        path, from_stdin = getattr(a, file_opt, None), getattr(a, stdin_opt, False)
+        if path and from_stdin:
+            raise K.KekError(f"--{file_opt.replace('_', '-')} and --{stdin_opt.replace('_', '-')}: give one")
+        if path:
+            got[var] = read_passphrase_file(path)
+            used.append(path)
+        elif from_stdin and not sys.stdin.isatty():
+            line = sys.stdin.readline()
+            if not line:
+                raise K.KekError(f"--{stdin_opt.replace('_', '-')}: nothing on stdin")
+            got[var] = _one_line(line, "stdin")
+    if getattr(a, "keep_passphrase_files", False) and not used:
+        raise K.KekError("--keep-passphrase-files goes with --passphrase-file or --new-passphrase-file")
+    return got, used
+
+
 def _passphrase(env: Mapping[str, str], var: str, prompt: str, twice: bool) -> str:
     if env.get(var):
         return env[var]
     if not sys.stdin.isatty():
-        raise K.KekError(f"no passphrase: set {var} or run on a terminal")
+        opt = (
+            "--new-passphrase-file FILE or --new-passphrase-stdin"
+            if var == "TB_KEK_NEW_PASSPHRASE"
+            else "--passphrase-file FILE or --passphrase-stdin"
+        )
+        raise K.KekError(f"no passphrase: give {opt}, or run on a terminal")
     first = getpass.getpass(f"{prompt}: ")
     if twice and getpass.getpass(f"{prompt} again: ") != first:
         raise K.KekError("the two passphrases differ")
@@ -611,7 +699,21 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--kms-key", help="kms: the name of the KMS key that seals the KEK (token: TB_KMS_TOKEN)")
         p.add_argument("--scrypt-n", type=int, help=argparse.SUPPRESS)  # tests: a cheaper scrypt
 
-    with_backend(with_secrets(sub.add_parser("init", help="make the KEK and wrap the site keys")))
+    def with_passphrase(p: argparse.ArgumentParser, new: bool = False) -> None:  # H-96: a file or stdin, never env
+        p.add_argument("--passphrase-file", help="the passphrase: one line of a file only root can read (0600)")
+        p.add_argument("--passphrase-stdin", action="store_true", help="the passphrase: one line on stdin")
+        if new:
+            p.add_argument("--new-passphrase-file", help="the new passphrase: one line of a file only root can read")
+            p.add_argument(
+                "--new-passphrase-stdin",
+                action="store_true",
+                help="the new passphrase: one line on stdin (after the old one's line, when both)",
+            )
+        p.add_argument("--keep-passphrase-files", action="store_true", help="keep the passphrase files once used")
+
+    ini = with_secrets(sub.add_parser("init", help="make the KEK and wrap the site keys"))
+    with_backend(ini)
+    with_passphrase(ini)
     with_secrets(sub.add_parser("wrap", help="wrap every key still plain"))
     u = with_secrets(sub.add_parser("unseal", help="put the KEK in the runtime file"))
     u.add_argument("--share", action="append", help="a share file (repeat); else read from the terminal or stdin")
@@ -620,6 +722,7 @@ def parser() -> argparse.ArgumentParser:
     u.add_argument("--witness", help="file back end, escrow shares: the witness's name (D-894)")
     u.add_argument("--audit-dir", help="escrow shares: the audit folder (TB_AUDIT_DIR)")
     u.add_argument("--deploy", default=DEFAULT_DEPLOY, help="escrow shares: the escrow-use record goes to deploy/site")
+    with_passphrase(u)
     s = with_secrets(sub.add_parser("status", help="wrapped or plain, fingerprints, the KEK"))
     s.add_argument("--json", action="store_true")
     c = with_secrets(sub.add_parser("check", help="exit 1 on a custody problem"))
@@ -634,6 +737,7 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--escrow-shares", type=int, default=3, help="escrow shares made (default 3)")
     r.add_argument("--custodian", action="append", help="an escrow custodian's name (repeat; share order)")
     r.add_argument("--audit-dir", help="the audit folder (TB_AUDIT_DIR)")
+    with_passphrase(r, new=True)
     k = with_secrets(sub.add_parser("rotate", help="rotate one key"))
     k.add_argument("key", choices=("pid_map", "site_hmac", "totp", "backup"))
     k.add_argument("--db-url", help="the trial database (TB_DB_URL)")
@@ -666,11 +770,21 @@ COMMANDS = {"init": cmd_init, "wrap": cmd_wrap, "unseal": cmd_unseal, "status": 
 def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     a = parser().parse_args(argv)
     env = os.environ if env is None else env
+    refused = env_passphrase_refusal(env)
+    if refused:  # H-96: every command, before anything is read or written
+        _err(refused)
+        return 2
     try:
-        return COMMANDS[a.cmd](a, env)
+        got, used = given_passphrases(a, env)
+        rc = COMMANDS[a.cmd](a, {**env, **got} if got else env)
     except K.KekError as exc:
         _err(str(exc))
         return 1
+    if rc == 0 and not getattr(a, "keep_passphrase_files", False):
+        for path in used:  # the operator's files, once used
+            Path(path).unlink(missing_ok=True)
+            _say(f"the passphrase file {path} is removed")
+    return rc
 
 
 if __name__ == "__main__":
