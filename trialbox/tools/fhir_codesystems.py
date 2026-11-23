@@ -266,7 +266,8 @@ class Store:
         if r.status_code in (404, 410):
             return None
         r.raise_for_status()
-        return r.json()
+        body: dict[str, Any] = r.json()
+        return body
 
     def answers(self, system: str, code: str) -> str:
         """The version the store answers ``$lookup`` of ``code`` from; empty while it has not stored the code."""
@@ -281,7 +282,8 @@ class Store:
         if r.status_code in (404, 410):
             return None
         r.raise_for_status()
-        return r.json()
+        body: dict[str, Any] = r.json()
+        return body
 
 
 def digest_of(res: dict[str, Any]) -> str:
