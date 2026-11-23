@@ -660,6 +660,10 @@ def audit_chain_problem(where: Path | None) -> str | None:
     return None
 
 
+def _is_root() -> bool:
+    return os.geteuid() == 0
+
+
 def _audit_owner(where: Path) -> tuple[int, int]:
     st = where.stat()
     return st.st_uid, st.st_gid
@@ -674,6 +678,9 @@ _APPEND_CHILD = (
 
 def _run_append(argv: list[str], data: str, uid: int, gid: int) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k not in PASSPHRASE_VARS}
+    if (uid, gid) == (os.getuid(), os.getgid()):  # already that user: nothing to take on
+        return subprocess.run(argv, input=data, capture_output=True, text=True, env=env, cwd="/", check=False,
+                              timeout=120)  # fmt: skip
     return subprocess.run(argv, input=data, capture_output=True, text=True, env=env, cwd="/", check=False,
                           user=uid, group=gid, extra_groups=[], timeout=120)  # fmt: skip
 
@@ -685,7 +692,7 @@ def append_audit(where: Path, event: str, detail: Mapping[str, Any]) -> None:
     from tools import key_escrow as ke
 
     uid, gid = _audit_owner(where)
-    if os.geteuid() != 0 or uid == 0:
+    if not _is_root() or uid == 0:
         ke.audit(where, event, ROTATE_ACTOR, detail)
         return
     path = [str(Path(p).resolve()) for p in sys.path if p]

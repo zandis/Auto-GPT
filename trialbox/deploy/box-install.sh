@@ -418,6 +418,9 @@ drop_code_file() {  # rm takes a link away, never what it names
   f="$(code_file)" || return 0
   rm -f -- "$f" 2>/dev/null || true
 }
+drop_written_code_file() {  # on a stop: only the file this run wrote (CODE_FILE), never a link planted at the name
+  [ -z "$CODE_FILE" ] || rm -f -- "$CODE_FILE" 2>/dev/null || true
+}
 show_code() {
   local code text addr shown=""
   code="$(python3 -m tools.box code --firstrun "$FR")"
@@ -482,10 +485,10 @@ box_preflight() {  # 10K-3 (D-1361): the live preflight the first-run page shows
 box_preflight
 rm -f /etc/issue.d/trialbox-firstrun.issue 2>/dev/null || true  # H-97: an earlier version's copy, readable by all
 # a run stopped while it waits (the service stopped, a time-out, a reboot, a closed terminal) leaves no code file
-trap 'drop_code_file' EXIT
-trap 'drop_code_file; exit 129' HUP  # H-94 not a stop: the signal's own exit, the code file removed
-trap 'drop_code_file; exit 130' INT  # H-94 not a stop: the signal's own exit, the code file removed
-trap 'drop_code_file; exit 143' TERM  # H-94 not a stop: the signal's own exit, the code file removed
+trap 'drop_written_code_file' EXIT
+trap 'drop_written_code_file; exit 129' HUP  # H-94 not a stop: the signal's own exit, the code file removed
+trap 'drop_written_code_file; exit 130' INT  # H-94 not a stop: the signal's own exit, the code file removed
+trap 'drop_written_code_file; exit 143' TERM  # H-94 not a stop: the signal's own exit, the code file removed
 show_code
 while [ ! -f "$FR/answers.json" ]; do
   [ -f "$FR/code.json" ] || { echo "    the code was voided (five wrong codes): a new one"; show_code; }

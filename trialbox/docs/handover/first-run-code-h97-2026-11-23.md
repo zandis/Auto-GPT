@@ -192,8 +192,10 @@ The review (fix first: B audited but with gaps) and the lead's relay of 71148893
   EIO) and `::test_a_terminal_that_hung_up_never_swallows_the_code` (under nohup, the terminal hung up; there the
   kernel drops the controlling terminal, so `/dev/tty` does not open either: this one does not tell the two forms
   apart, the first does).
-- **F10.** A trap removes the code file on EXIT, HUP, INT and TERM while the run waits, and is cleared once the
-  answers are in. Test: `::test_a_first_run_stopped_while_it_waits_leaves_no_code_file[SIGTERM|SIGHUP|SIGINT]` (exit
+- **F10.** A trap removes the code file this run wrote (never a link planted at its name: the first push of this
+  round removed one, red on CI's non-root shard 3, test_a_link_at_the_files_name_is_refused_and_never_followed; now
+  run here as a non-root user too) on EXIT, HUP, INT and TERM while the run waits, and is cleared once the answers
+  are in. Test: `::test_a_first_run_stopped_while_it_waits_leaves_no_code_file[SIGTERM|SIGHUP|SIGINT]` (exit
   143, 129, 130; no file).
 
 **Master 3945782a (H-94 part 2) merged after the fixes.** H-94 replaced `check_host.sh`'s `poc_list` with the

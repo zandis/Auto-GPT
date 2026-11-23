@@ -264,7 +264,7 @@ def test_as_root_the_append_is_made_by_the_audit_folders_owner(
         asked.append((uid, gid, json.loads(data)["event"]))
         return real(argv, data, os.getuid(), os.getgid())
 
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(keys, "_is_root", lambda: True)  # the append only: the passphrase file is checked as this user
     monkeypatch.setattr(keys, "_audit_owner", lambda where: (10001, 10001))
     monkeypatch.setattr(keys, "_run_append", as_this_user)
     assert keys.main(_argv(b), env=_env(b)) == 0, capsys.readouterr().err
@@ -285,7 +285,7 @@ def test_the_append_as_another_user_that_fails_refuses_the_rotation(
     def refused(argv: list[str], data: str, uid: int, gid: int) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(argv, 1, "", "PermissionError: synthetic\n")
 
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(keys, "_is_root", lambda: True)  # the append only: the passphrase file is checked as this user
     monkeypatch.setattr(keys, "_audit_owner", lambda where: (10001, 10001))
     monkeypatch.setattr(keys, "_run_append", refused)
     assert keys.main(_argv(b), env=_env(b)) == 1
