@@ -365,3 +365,162 @@ def test_e14_stays_unknown_on_the_shipped_diabetes_criteria_never_false(
     got = {dict(zip(cols, r, strict=True))["pid"]: dict(zip(cols, r, strict=True))[f"C_{crit_id}"] for r in rows}
     assert got["who_e14"] is None  # unknown, never false
     assert got["cm_e11"] is cm_reads
+
+
+# --- SDR2 part 2: departments ----------------------------------------------------------------------------------
+
+
+def test_hospital_departments_reach_trialbox_codes_only_through_the_table(tmp_path: Path) -> None:
+    """A hospital's own department code maps through the department table (the shipped one holds TrialBox's codes
+    only; a site's table maps its own); a code with no row is listed with its reason."""
+    shipped = mc.Reference.load()
+    rows = _rows(("RHEU", "風濕免疫科", "local-department"), ("IM01", "內科", "local-department"))
+    res = {r.local_code: r for r in (mc.check_code(x, shipped) for x in rows)}
+    assert res["RHEU"].mapped and res["RHEU"].route == "department-table"
+    assert not res["IM01"].mapped and res["IM01"].reason == "not in the department-table table"
+    shown = mc.render(mc.coverage(rows, shipped))
+    assert "department table: none (TrialBox's own codes only); 1 reach no TrialBox department code" in shown
+    site = tmp_path / "dept.csv"
+    site.write_text("dept_code,code,verified\nIM01,META,verify\n", encoding="utf-8")
+    ref = mc.Reference.load(department_table=site)
+    hit = mc.check_code(rows[1], ref)
+    assert hit.mapped and hit.target_code == "META"
+    report = mc.coverage(rows, ref)
+    assert report["by_domain"]["department"]["unmapped"] == 1  # RHEU is not in the site's own table
+    assert "GZQO/VS_RHEUMATOLOGY_OR_METABOLISM_CLINIC_VISIT" not in report["valuesets_not_reached"]
+
+
+def test_the_mapping_writes_the_tables_trialbox_code_and_keeps_a_code_with_no_row(tmp_path: Path) -> None:
+    """demo_his.yaml (lane B2's file, the go on #639 7102870311): the encounter's department coding is the table's
+    TrialBox code where the site's department table has a row, else the hospital's code as written (as before)."""
+    import shutil
+
+    from adapter.mapping.engine import Mapper, Mapping
+
+    site = tmp_path / "site.yaml"
+    site.write_text(
+        "version: 1\nextends: "
+        + str(mc.MAPPING / "tw_core" / "demo_his.yaml")
+        + "\nname: t\ntables:\n  encounter: {source: encounter, key: enc_no}\n"
+        + "lookups:\n  department: {file: dept.csv, key: dept_code}\n",
+        encoding="utf-8",
+    )
+    shutil.copy(mc.DEPT_TABLE, tmp_path / "dept.csv")
+    with (tmp_path / "dept.csv").open("a", encoding="utf-8") as fh:
+        fh.write("IM01,META,verify\n")
+    mapper = Mapper(Mapping.load(site), b"k" * 32, "T")
+    row = {"mrn": "M1", "visit_datetime": "2026-01-01 09:00", "staff_id": "S1", "enc_type": "OPD"}
+    got = {}
+    for code in ("IM01", "RHEU", "XX99"):
+        res = mapper.map_table("encounter", iter([{**row, "enc_no": f"E-{code}", "dept_code": code}]))
+        enc = next(r for r in res if r["resourceType"] == "Encounter")
+        got[code] = enc["serviceType"]["coding"]
+    dept = mc.TARGETS["department"]
+    assert got["IM01"] == [{"system": dept, "code": "META"}]
+    assert got["RHEU"] == [{"system": dept, "code": "RHEU"}]
+    assert got["XX99"] == [{"system": dept, "code": "XX99"}]  # no row: the hospital's code, as before SDR2
+
+
+def test_a_profile_department_table_maps_the_sites_codes_and_tags_its_verify_rows(tmp_path: Path) -> None:
+    """A site profile's ``used_by: [mapping.department]`` table (libs/tb_common/site_profile.py: the department
+    system, go on #639 7104597751) loads, passes the mapping check, and replaces the mapping's department look-up;
+    a code from a ``verify`` row carries D-135's basis tag."""
+    import yaml
+    from adapter import site_profile as sp
+    from adapter.mapping.engine import BASIS, VERIFY_BASIS, Mapper, Mapping
+    from tb_common.site_profile import load
+
+    folder = tmp_path / "profile"
+    (folder / "codes").mkdir(parents=True)
+    (folder / "codes" / "department.csv").write_text(
+        "dept_code,code,state\nIM01,META,verify\nRA02,RHEU,verified\n", encoding="utf-8"
+    )
+    manifest = {
+        "format": "tb-site-profile/1",
+        "id": "test-site",
+        "site_id": "T",
+        "country": "tw",
+        "version": "1.0.0",
+        "door": "csv",
+        "standards": {"tw_core": "1.0.0"},
+        "data_types": ["encounter"],
+        "tables": {
+            "department": {
+                "file": "codes/department.csv",
+                "key": "dept_code",
+                "target": "code",
+                "state": "state",
+                "source": "a synthetic test table",
+                "used_by": ["mapping.department"],
+            }
+        },
+    }
+    (folder / "profile.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    profile = load(folder)
+    base = mc.MAPPING / "tw_core" / "demo_his.yaml"
+    sp.check_mapping(profile, Mapping.load(base))
+    files = sp.write_tables(profile, tmp_path / "tables")
+    mapping = Mapping.load(base, {"department": files["mapping.department"]})
+    sp.mark_unverified(profile, mapping)
+    mapper = Mapper(mapping, b"k" * 32, "T")
+    row = {"mrn": "M1", "visit_datetime": "2026-01-01 09:00", "staff_id": "S1", "enc_type": "OPD"}
+    verify = {"system": BASIS, "code": VERIFY_BASIS}
+    out = {}
+    for code in ("IM01", "RA02"):
+        res = mapper.map_table("encounter", iter([{**row, "enc_no": f"E-{code}", "dept_code": code}]))
+        out[code] = next(r for r in res if r["resourceType"] == "Encounter")
+    assert out["IM01"]["serviceType"]["coding"][0]["code"] == "META"
+    assert verify in out["IM01"]["meta"]["tag"]
+    assert out["RA02"]["serviceType"]["coding"][0]["code"] == "RHEU"
+    assert verify not in (out["RA02"].get("meta") or {}).get("tag", [])
+
+
+def test_a_site_with_no_department_table_reads_exactly_as_before(tmp_path: Path) -> None:
+    """The go's own test (#639 7104597751): the synthetic Taiwan site's visits and bookings, mapped with the
+    department look-up and with master's mapping before SDR2, give the same resources byte for byte."""
+    import shutil
+
+    from adapter.mapping.engine import Mapper, Mapping
+
+    before = tmp_path / "before"
+    before.mkdir()
+    text = (mc.MAPPING / "tw_core" / "demo_his.yaml").read_text(encoding="utf-8")
+    # master's lines before SDR2: no department look-up, and line 124 as it was
+    lookup = text[text.index("  # SDR2 (lane M): the hospital's department code") : text.index("static:")]
+    new_124 = text[text.index("      # SDR2 (lane M): the department table") : text.index("      # TW Core slice")]
+    assert text.count(lookup) == 1 and new_124.count("serviceType.coding[0]") == 3
+    old_124 = "      serviceType.coding[0]: {builder: coding, column: dept_code, system: department}\n"
+    (before / "demo_his.yaml").write_text(text.replace(lookup, "").replace(new_124, old_124), encoding="utf-8")
+    shutil.copy(mc.MAPPING / "tw_core" / "lab_local_to_loinc.csv", before / "lab_local_to_loinc.csv")
+    site = mc.ROOT / "tests/fixtures/synthetic_patients/site-a"
+    import csv as _csv
+
+    def mapped(path: Path) -> list[str]:
+        mapper = Mapper(Mapping.load(path), b"k" * 32, "T")
+        out: list[str] = []
+        for table in ("encounter", "appointment"):
+            rows = list(_csv.DictReader((site / f"{table}.csv").open(encoding="utf-8")))
+            assert rows, table
+            out += [json.dumps(r, sort_keys=True, ensure_ascii=False) for r in mapper.map_table(table, iter(rows))]
+        return out
+
+    copied = tmp_path / "copied"  # a site that copied the base mapping and its lab table, not the department table
+    copied.mkdir()
+    shutil.copy(mc.MAPPING / "tw_core" / "demo_his.yaml", copied / "demo_his.yaml")
+    shutil.copy(mc.MAPPING / "tw_core" / "lab_local_to_loinc.csv", copied / "lab_local_to_loinc.csv")
+    then = mapped(before / "demo_his.yaml")
+    assert len(then) > 100
+    assert mapped(mc.MAPPING / "tw_core" / "demo_his.yaml") == then
+    assert mapped(copied / "demo_his.yaml") == then  # the optional look-up loads empty: the codes as written
+
+
+def test_a_look_up_that_is_not_optional_still_stops_the_load_when_its_file_is_missing(tmp_path: Path) -> None:
+    """The go's second test (#639 7105055050): only ``optional: true`` loads empty; the lab look-up's file missing
+    still stops the mapping from loading."""
+    import shutil
+
+    from adapter.mapping.engine import Mapping
+
+    shutil.copy(mc.MAPPING / "tw_core" / "demo_his.yaml", tmp_path / "demo_his.yaml")
+    with pytest.raises((FileNotFoundError, OSError)):
+        Mapping.load(tmp_path / "demo_his.yaml")

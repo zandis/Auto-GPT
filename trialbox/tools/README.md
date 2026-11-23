@@ -38,17 +38,18 @@ JSON file:
         {"kind": "lab", "system": "local-lab", "file": "lab_items.tsv", "code": "ITEM", "name": "ITEM_NAME"},
         {"kind": "drug", "system": "nhi-drug", "file": "drugs.csv", "code": "NHI_CODE", "name": "NAME", "target": "ATC"},
         {"kind": "order", "system": "nhi-order", "file": "orders.csv", "code": "CODE", "name": "NAME"},
-        {"kind": "department", "system": "local-department", "file": "dept.csv", "code": "DEPT", "name": "NAME",
-         "target": "TB_DEPT"}
+        {"kind": "department", "system": "local-department", "file": "dept.csv", "code": "DEPT", "name": "NAME"}
       ],
-      "lab_lookup": "lab_local_to_loinc.csv"
+      "lab_lookup": "lab_local_to_loinc.csv",
+      "department_table": "department_to_trialbox.csv"
     }
 
 `kind` is `diagnosis`, `lab`, `drug`, `order` or `department`. `system` is one of the systems listed in
 `tools/mapping_coverage.py` (`SYSTEMS`): `icd-10-cm`, `icd-10`, `medis`, `local-lab`, `jlac10`, `jlac11`, `atc`,
 `nhi-drug`, `yj`, `hot`, `nhi-order`, `jp-procedure`, `department` and the `local-*` ones. `target` is the column
 in which the hospital's own table already gives the standard code (the ATC column of a drug master), if it has one.
-The optional cross-walks (`lab_lookup`, `jlac10`, `byomei`, `yj`, `ingredient_atc`, `nhi_drug`) are the site's own
+The optional cross-walks (`lab_lookup`, `jlac10`, `byomei`, `yj`, `ingredient_atc`, `nhi_drug`, `who_icd10cm`,
+`department_table`) are the site's own
 tables, in the columns of the samples under `services/adapter/mapping/`; without them the shipped samples are used,
 and a real hospital's codes will mostly not be in them. Files are CSV or tab-separated, in UTF-8, Big5 (cp950) or
 Shift_JIS (cp932).

@@ -103,7 +103,7 @@ SYSTEMS: dict[str, tuple[str, str]] = {
     "jp-procedure": ("procedure", "none"),
     "local-order": ("procedure", "none"),
     "department": ("department", "direct"),
-    "local-department": ("department", "none"),
+    "local-department": ("department", "department-table"),
     "local-report": ("report", "report-rule"),
 }
 
@@ -164,6 +164,7 @@ def _csv_map(path: Path, key: str, value: str, system: str | None = None) -> dic
     return out
 
 
+DEPT_TABLE = MAPPING / "tw_core" / "department_to_trialbox.csv"  # the mapping's department look-up (SDR2)
 WHO_CM = MAPPING / "jp_core" / "who_icd10_to_icd10cm.csv"  # the SS-MIX2 reader's table (SDR2)
 
 
@@ -196,6 +197,7 @@ class Reference:
     stems: dict[str, tuple[str, str]]
     who_cm: dict[str, tuple[str, str]]
     who_cm_verified: set[str]
+    departments_table: dict[str, tuple[str, str]]
     icd10cm: set[str]
     departments: set[str]
     sources: dict[str, str]
@@ -210,6 +212,7 @@ class Reference:
         ingredient_atc: Path | None = None,
         nhi_drug: Path | None = None,
         who_icd10cm: Path | None = None,
+        department_table: Path | None = None,
     ) -> Reference:
         from tb_common import refdata_jp
 
@@ -226,6 +229,7 @@ class Reference:
             if (who_icd10cm or WHO_CM).exists()
             else {},
             who_cm_verified=_verified_rows(who_icd10cm or WHO_CM),
+            departments_table=_csv_map(department_table or DEPT_TABLE, "dept_code", "code", "department"),
             stems={
                 k.upper(): ("atc", v["atc"])
                 for k, v in refdata_jp.ingredient_atc(*([ingredient_atc] if ingredient_atc else [])).items()
@@ -244,6 +248,7 @@ class Reference:
                 + (f" and {_rel(ingredient_atc)}" if ingredient_atc else ""),
                 "nhi-drug": _rel(nhi_drug) if nhi_drug else "services/criteria_compiler/terminology/nhi_drug.parquet",
                 "who-icd10": "services/criteria_compiler/terminology/icd10cm_full.parquet (the same code, D-314)",
+                "department-table": _rel(department_table) if department_table else "none",
                 "who-to-cm": _rel(who_icd10cm) if who_icd10cm else (_rel(WHO_CM) if WHO_CM.exists() else "none"),
                 "report-rule": "services/adapter/mapping/tw_core/demo_his.yaml (the report code rule)",
             },
@@ -345,6 +350,8 @@ def check_code(row: dict[str, str], ref: Reference) -> Result:
             hit, route = ref.stems[code[:7].upper()], "yj-stem"  # the reader's ingredient route (T-610, STD-042)
     elif route == "nhi-drug":
         hit = ref.nhi_drug.get(code.upper())
+    elif route == "department-table":
+        hit = ref.departments_table.get(code.upper())
     elif route == "report-rule":
         hit = _REPORT_LOINC.get(code.upper())
     if hit:
@@ -517,6 +524,10 @@ def render(report: dict[str, Any], title: str = "Mapping coverage") -> str:
         pct = "n/a (no list)" if v["percent"] is None else f"{v['percent']:.1f}%"
         routes = ", ".join(f"{k} {n}" for k, n in v["routes"].items()) or "-"
         out.append(f"  {d:<11} {v['mapped']:>5} / {v['codes']:<5} {pct:>14}   routes: {routes}")
+        if d == "department" and v["codes"]:
+            table = report.get("references", {}).get("department-table", "none")
+            shown = table if table != "none" else "none (TrialBox's own codes only)"
+            out.append(f"  {'':<11} department table: {shown}; {v['unmapped']} reach no TrialBox department code")
         if v.get("applied_not_verified"):
             out.append(
                 f"  {'':<11} applied, not verified: {v['applied_not_verified']} (a table row still marked verify)"
@@ -636,6 +647,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--byomei", type=Path, help="標準病名 -> ICD-10 CSV (default: jp_core sample)")
     ap.add_argument("--yj", type=Path, help="YJ -> ATC CSV (default: jp_core sample)")
     ap.add_argument("--nhi-drug", type=Path, help="NHI drug code -> ATC CSV (nhi_code,atc; the NHI open data list)")
+    ap.add_argument(
+        "--department-table", type=Path, help="hospital department -> TrialBox department CSV (dept_code,code)"
+    )
     ap.add_argument("--who-icd10cm", type=Path, help="WHO ICD-10 -> ICD-10-CM CSV (who,icd10cm)")
     ap.add_argument("--ingredient-atc", type=Path, help="the site's YJ stem -> ATC table (beside the shipped one)")
     a = ap.parse_args(argv)
@@ -660,7 +674,9 @@ def main(argv: list[str] | None = None) -> int:
         title = "Mapping coverage"
     else:
         ap.error("give code lists, --synthetic, --write-synthetic or --criteria-table")
-    ref = Reference.load(a.lab_lookup, a.jlac10, a.byomei, a.yj, a.ingredient_atc, a.nhi_drug, a.who_icd10cm)
+    ref = Reference.load(
+        a.lab_lookup, a.jlac10, a.byomei, a.yj, a.ingredient_atc, a.nhi_drug, a.who_icd10cm, a.department_table
+    )
     report = coverage(rows, ref)
     print(render(report, title))
     if a.json:
