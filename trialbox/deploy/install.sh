@@ -1305,13 +1305,13 @@ if [ "$REAL_SERVERS" = 1 ]; then
   echo "  REHEARSAL BOX:      $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["words"])' deploy/site/rehearsal-real-servers.json)"
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+# REHEARSAL-REAL-SERVERS (H-89): a rehearsal box's install is complete (no FAIL line remains): from here on the start
+# check reads a missing TB_ENV as PRODUCTION (tools/rehearsal_real.py COMPLETE). Only this line writes the file
+if [ "$REHEARSAL" = 1 ] && [ "${#FAILS[@]}" -eq 0 ]; then
+  printf '{"rehearsal_install_complete": true}\n' > deploy/site/rehearsal-install-complete.json
+fi
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 if [ "${#FAILS[@]}" -gt 0 ]; then
   printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
   exit 1
 fi
-# REHEARSAL-REAL-SERVERS (H-89): a rehearsal box's install is complete: from here on the start check reads a missing
-# TB_ENV as PRODUCTION (tools/rehearsal_real.py COMPLETE). Only this line writes the file
-if [ "$REHEARSAL" = 1 ]; then
-  printf '{"rehearsal_install_complete": true}\n' > deploy/site/rehearsal-install-complete.json
-fi
-# ---- end of REHEARSAL-REAL-SERVERS (H-89)

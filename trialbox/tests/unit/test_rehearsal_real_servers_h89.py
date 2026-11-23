@@ -968,13 +968,9 @@ def test_the_real_servers_checks_run_without_tb_env(tmp_path: Path, complete: bo
 
 
 def test_the_installer_writes_the_completion_mark_only_after_a_clean_end() -> None:
-    end = INSTALL[INSTALL.index('if [ "${#FAILS[@]}" -gt 0 ]; then') :]
-    assert end.index("exit 1") < end.index(rehearsal_real.COMPLETE)
-    assert (
-        'if [ "$REHEARSAL" = 1 ]; then\n  printf \'{"rehearsal_install_complete": true}\\n\' > deploy/site/'
-        + rehearsal_real.COMPLETE
-        in end
-    )
+    tail = INSTALL[INSTALL.index("# REHEARSAL-REAL-SERVERS (H-89): a rehearsal box's install is complete") :]
+    assert 'if [ "$REHEARSAL" = 1 ] && [ "${#FAILS[@]}" -eq 0 ]; then' in tail
+    assert tail.index(rehearsal_real.COMPLETE) < tail.index('if [ "${#FAILS[@]}" -gt 0 ]; then')
 
 
 # ------------------------------------------------------------------------------- round 5: part 2, every profile
