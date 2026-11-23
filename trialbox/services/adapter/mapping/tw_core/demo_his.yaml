@@ -70,6 +70,10 @@ tables:
   registry: {source: registry, key: mrn}  # research-contact consent; settings.registry_source may point elsewhere
 lookups:
   lab: {file: lab_local_to_loinc.csv, key: local_code}
+  # SDR2 (lane M): the hospital's department code -> TrialBox's department code (the criteria's system). The shipped
+  # file holds TrialBox's own codes only; a site's table is its profile's `used_by: [mapping.department]`. Optional:
+  # a mapping copied without the file loads and writes the hospital's code as before
+  department: {file: department_to_trialbox.csv, key: dept_code, optional: true, columns: [dept_code, code]}
 static:
   - resourceType: Organization
     id: hospital
@@ -121,7 +125,10 @@ resources:
       # default; none at all is out-patient, as before
       class.system: {column: enc_type, map: {OPD: "http://terminology.hl7.org/CodeSystem/v3-ActCode", IPD: "http://terminology.hl7.org/CodeSystem/v3-ActCode", ER: "http://terminology.hl7.org/CodeSystem/v3-ActCode"}, default: "http://terminology.hl7.org/CodeSystem/v3-ActCode", unmapped: "http://terminology.hl7.org/CodeSystem/v3-NullFlavor"}
       class.code: {column: enc_type, map: {OPD: AMB, IPD: IMP, ER: EMER}, default: AMB, unmapped: UNK}
-      serviceType.coding[0]: {builder: coding, column: dept_code, system: department}
+      # SDR2 (lane M): the department table's TrialBox code when it has a row; else the hospital's code as written
+      serviceType.coding[0]: {builder: coding, column: dept_code, system: department, when: {lookup: {name: department, key: dept_code, field: code}, not_empty: false}}
+      serviceType.coding[0].system: {template: "{sys.department}", when: {lookup: {name: department, key: dept_code, field: code}, not_empty: true}}
+      serviceType.coding[0].code: {lookup: {name: department, key: dept_code, field: code}}
       # TW Core slice TWMedicalConsultationDepartment: the NHI 就醫科別 of a local department. TW Core binds this slice
       # to the departments SNOMED CT has no code for (血液腫瘤科 AF among them); the others are SNOMED CT coded there,
       # which TrialBox does not ship (no SNOMED CT licence, D-342), so they keep the local coding only

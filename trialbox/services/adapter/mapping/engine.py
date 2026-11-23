@@ -24,7 +24,8 @@ Site mappings (onboarding kit, D-84) usually ``extends`` a shared profile mappin
 and only declare their ``tables``: each table's ``rename`` (local column → canonical column) and ``values``
 (canonical column → {local code: canonical code}) are applied to every source row before the shared resource
 definitions run; ``key`` / ``delta`` / ``identity`` name canonical columns. Resources of tables the site does not
-declare are dropped; lookups resolve relative to the file that declares them.
+declare are dropped; lookups resolve relative to the file that declares them. A look-up declared ``optional: true``
+(with its ``columns``) loads empty when its file is absent: every find misses (SDR2: the department look-up).
 
 A mapping can also re-profile the shared resources (D-137: the Japan mapping puts JP Core profiles on the TW Core
 resource set): ``profiles`` maps a base profile URL to this mapping's profile (``""`` drops the claim), and
@@ -602,10 +603,15 @@ class Mapping:
         declared = doc.get("lookups") or {}
         for name in sorted(set(lookup_files or {}) - set(declared)):
             raise MappingError(f"{path}: the site profile names look-up {name!r}, which this mapping does not declare")
-        lookups = {
-            name: Lookup.load(name, (lookup_files or {}).get(name) or lookup_dirs[name] / spec["file"], spec["key"])
-            for name, spec in declared.items()
-        }
+        lookups: dict[str, Lookup] = {}
+        for name, spec in declared.items():
+            file = (lookup_files or {}).get(name) or lookup_dirs[name] / spec["file"]
+            if spec.get("optional") is True and name not in (lookup_files or {}) and not file.exists():
+                # SDR2 (lane M): an optional look-up whose file is absent loads empty (every find misses), with its
+                # declared columns as its header, so a site profile's table for it is still held to them
+                lookups[name] = Lookup(name, spec["key"], {}, columns=tuple(spec.get("columns") or (spec["key"],)))
+                continue
+            lookups[name] = Lookup.load(name, file, spec["key"])
         resources = [
             ResourceSpec(
                 type=r["type"],

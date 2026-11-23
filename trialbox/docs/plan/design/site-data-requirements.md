@@ -244,7 +244,25 @@ Finding SDR1-01, closed in part by card SDR2 under the integrator's rulings on #
 - A fact that rests on a `verify` row carries the `verify` basis tag, and the mapping check reports "applied, not
   verified" with a count.
 
-## 8. What was not verified
+## 8. SDR2 part 2: the department cross-walk
+
+Finding SDR1-02. The integrator's go is on #639 (comments 7102870311 and 7104597751).
+
+- **The look-up.** `demo_his.yaml` declares a `department` look-up (`dept_code` → `code`, the criteria's TrialBox
+  department system). The JP mapping and the site templates inherit it. The shipped
+  `tw_core/department_to_trialbox.csv` holds TrialBox's 9 codes, each mapped to itself.
+- **A site's own table.** It is the site profile's `used_by: [mapping.department]` table (`dept_code`, `code`,
+  state), loaded as the lab table is. A row still to verify is applied, and its fact carries the `verify` basis tag.
+- **The visit's department coding.** It is the row's TrialBox code when the table has a row. Otherwise it is the
+  hospital's code as written, exactly as before, so a site without a table reads unchanged (tested byte for byte
+  on the synthetic Taiwan site).
+- **The mapping check.** `local-department` codes go through the same table (`--department-table`, or
+  `department_table` in the owner script's config). Each code with no row is listed, and the department value sets
+  no code reaches are named.
+- **Not changed.** An appointment's department (the screening lists) still writes the hospital's code. No criterion
+  reads it today.
+
+## 9. What was not verified
 
 - No real hospital's dictionary was read. The figures are the synthetic hospitals'; the owner's script has run here
   only on synthetic files written by its tests.

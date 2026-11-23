@@ -24,8 +24,8 @@ A table is ``kind:system:file[:code_column,name_column[,target_column]]``. ``kin
 ``drug``, ``order`` or ``department`` (a check that the system belongs to it); ``system`` one of
 ``tools.mapping_coverage.SYSTEMS``; the columns default to ``local_code`` and ``local_name``. A ``--config`` JSON file
 holds the same as ``{"tables": [{"kind", "system", "file", "code", "name", "target"}], "lab_lookup", "jlac10",
-"byomei", "yj", "ingredient_atc", "nhi_drug", "who_icd10cm"}`` (the seven optional cross-walks of the site, each a
-path). Files are CSV or tab-separated, UTF-8, Big5 (cp950) or Shift_JIS (cp932), detected.
+"byomei", "yj", "ingredient_atc", "nhi_drug", "who_icd10cm", "department_table"}`` (the eight optional cross-walks
+of the site, each a path). Files are CSV or tab-separated, UTF-8, Big5 (cp950) or Shift_JIS (cp932), detected.
 """
 
 from __future__ import annotations
@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     tables = [parse_table(s) for s in a.table]
     xwalk: dict[str, Path | None] = dict.fromkeys(
-        ("lab_lookup", "jlac10", "byomei", "yj", "ingredient_atc", "nhi_drug", "who_icd10cm")
+        ("lab_lookup", "jlac10", "byomei", "yj", "ingredient_atc", "nhi_drug", "who_icd10cm", "department_table")
     )
     if a.config:
         cfg = json.loads(a.config.read_text(encoding="utf-8"))
