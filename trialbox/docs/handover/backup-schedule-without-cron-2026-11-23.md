@@ -70,6 +70,42 @@ daemon are inputs; systemd's own parsing of the units (the quoting of `ExecStart
 not run. The mail path through `sendmail` is shown as text only. The rehearsal host is a container with no
 systemd: there the cron path stays.
 
+## Review round (the independent review of #1388: fix first)
+
+Each finding has a test that fails on `910db4df` (16 failed there, the rest are the first round's tests); all in
+`tests/unit/test_backup_schedule_timer.py`.
+
+- **F1** install.sh's PRODUCTION stop (no `/etc/cron.d`) now applies only where systemd is not the init either;
+  on a systemd host it warns that the retention cron is not installed (H92-02) and goes on to the timers.
+  `test_install_sh_production_on_a_systemd_host_without_cron_goes_on_to_the_timers` runs install.sh's own lines.
+- **F2, F11** any failure of the timer install (enable done and start failed, a failing reload on a timer box,
+  the cron file that cannot go, a quote in the install folder) removes the timers (disable --now, units removed,
+  verified) before the cron file is written; unverifiable: no cron file, exit 1, the action.
+  `test_a_failed_timer_install_leaves_the_cron_file_alone_and_no_timer[4 cases]`,
+  `test_timers_that_cannot_be_removed_stop_the_install_with_one_action`.
+- **F3, R2** without root on a timer host: exit 1, nothing changed; `TB_SYSTEMD=0` as root: the timers go
+  (verified), then the cron file. `test_tb_systemd_0_or_no_root_over_a_timer_box_keeps_one_schedule`.
+- **F4** R1 `test_the_mail_cron_sent_is_sent_by_the_timer_and_systemds_own_characters_are_doubled`; R3, R6 the
+  invariant (the `[Timer]` section is exactly `OnCalendar` and `Persistent`; `After=`); R4
+  `test_doctor_reads_every_timer_and_only_a_running_enabled_one_counts`; R5
+  `test_a_cron_line_the_timer_cannot_carry_exactly_is_refused[45 4 1 * * ...]`.
+- **F5** environment lines other than `SHELL=/bin/sh` and `MAILTO=`, and a minute or hour out of range, are
+  refused (same parametrised test). **F6** a fixed hour of 02 is refused (D-1090 item 4); the shipped 04:45 and
+  `*:17` are shown as calendar expressions: `test_no_fixed_time_falls_in_the_hour_the_spring_forward_day_skips`.
+- **F7** the service runs with cron's `PATH=/usr/bin:/bin`; **F10** after `docker.service trialbox.service` (both
+  in the invariant). **F8** doctor and backup-status read every timer: disabled, stopped (enabled, not active) or
+  either one missing is a problem; `enabled-runtime` fires: `test_doctor_reads_every_timer_...`,
+  `test_a_timer_enabled_but_not_running_reads_as_stopped`. **F9** install.sh passes `TB_SYSTEMD_DIR` as
+  `--systemd-dir`: `test_install_sh_hands_its_systemd_folder_to_backup_install`.
+- Not done: F7's `TimeoutStartSec=infinity` (a hung night blocks the next start; under cron `backup.lock` refused
+  the second run: the same night without a backup either way). F8's cron-to-timer generator host reads as "no cron
+  daemon" (a false FAIL with the action, not a silent pass).
+- Mutants: the review's R1 to R6 and 12 more (the fallback without the removal, the removal not verified,
+  `TB_SYSTEMD=0` keeping the timers, non-root not refused, doctor reading the nightly timer only, a stopped timer
+  firing, environment lines skipped, range unchecked, 02:xx allowed, install.sh's PRODUCTION stop kept, no
+  `--systemd-dir`, cron's PATH dropped): 18 planted, 18 caught (the stopped-timer one after one added test).
+- H92-02 is not the same code path (install.sh writes the retention file itself): the row stays open.
+
 ## Findings
 
 | Id | Severity | Claim | Basis | State |
@@ -93,7 +129,7 @@ enable leaves no schedule.
 ## Files
 
 `tools/trialbox/backup_schedule.py`, `tools/trialbox/doctor.py` (the `backup` check, `DoctorInputs.cron_running`),
-`tools/trialbox/__main__.py` (`--systemd-dir`), `deploy/backup/trialbox-backup.cron` (comment),
-`deploy/install.sh` (one line before the backup step), `tests/unit/test_backup_schedule_timer.py` (new),
-`docs/runbook/05-updates-backup-restore-secrets.md` (one paragraph). No decision number is used; one may be wanted
-for "the timer wins over cron" (the integrator's call).
+`tools/trialbox/__main__.py` (`--systemd-dir`), `deploy/backup/trialbox-backup.cron` (comment), `deploy/install.sh`
+(one line before the backup step), `tests/unit/test_backup_schedule_timer.py` (new),
+`docs/runbook/05-updates-backup-restore-secrets.md` (one paragraph). Decision: D-1090
+(`docs/decisions/D-1090-the-backup-timer-wins-over-cron.md`, row reserved).

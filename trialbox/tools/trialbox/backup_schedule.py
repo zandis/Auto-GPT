@@ -1441,9 +1441,19 @@ def install_cron(cfg: Config, cron_dir: Path, root: Path, has_mta: bool) -> list
 # daemon); the cron file only where there is no systemd. Never both: installing the timers removes the cron file.
 SYSTEMD_RUN = Path("/run/systemd/system")
 SYSTEMD_DIR = Path("/etc/systemd/system")
-TIMER = "trialbox-backup-nightly.timer"  # the nightly backup's timer: what doctor and backup-status read
+TIMERS = ("trialbox-backup-nightly.timer", "trialbox-backup-status.timer")  # one per line of the cron file
+TIMER = TIMERS[0]  # the nightly backup's timer
+FIRES = frozenset({"enabled", "enabled-runtime"})  # ``systemctl is-enabled`` words of a timer that will fire
 CRON_DAEMONS = frozenset({"cron", "crond", "cronie", "fcron", "dcron"})
 _JOB = re.compile(r"^([0-9]{1,2}) ([0-9]{1,2}|\*) \* \* \* root (.+)$")
+CRON_PATH = "/usr/bin:/bin"  # cron's own PATH: the timer's service runs with the same
+# D-1090: a fixed hour in 02:00-02:59 has no time on the spring-forward day of most zones: systemd skips that day
+# (Persistent does not catch it, nothing was missed) where cron runs it after the jump; refused, never guessed
+SKIPPED_HOURS = frozenset({2})
+
+
+class ScheduleError(RuntimeError):
+    """Nothing can be left with one schedule: the message is the one action."""
 
 
 def systemd_init() -> bool:
@@ -1460,30 +1470,52 @@ def cron_daemon(proc: Path = Path("/proc")) -> bool:
     return False
 
 
-def unit_enabled(unit: str) -> str | None:
-    """``systemctl is-enabled``'s word for ``unit``; None where systemd is not the init."""
-    if not systemd_init():
-        return None
+def _ask(*args: str) -> str:
     try:
-        r = subprocess.run(["systemctl", "is-enabled", unit], capture_output=True, text=True, check=False, timeout=60)
+        r = subprocess.run(["systemctl", *args], capture_output=True, text=True, check=False, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         return "unknown"
     return (r.stdout.strip().splitlines() or ["unknown"])[0]
 
 
+def timer_word(unit: str) -> str | None:
+    """``systemctl is-enabled``'s word for a timer, ``stopped`` for one enabled but not running; None where systemd
+    is not the init."""
+    if not systemd_init():
+        return None
+    word = _ask("is-enabled", unit)
+    if word in FIRES and _ask("is-active", unit) != "active":
+        return "stopped"
+    return word
+
+
+unit_enabled = timer_word  # backup-status and older callers
+
+
 def timer_jobs(text: str) -> list[tuple[str, str, str]]:
     """(unit name, ``OnCalendar``, command) for each job line of a rendered cron file: the same command, the same
-    local time. A line a timer cannot carry exactly is a ValueError, never a guess."""
+    local time. A line a timer cannot carry exactly is a ValueError, never a guess: an environment line other than
+    ``SHELL=/bin/sh`` and ``MAILTO=``, a day, month or weekday field, a step, a minute or hour out of range, a fixed
+    hour the spring-forward day skips (D-1090)."""
     jobs = []
     for ln in text.splitlines():
-        if not ln.strip() or ln.lstrip().startswith("#") or re.match(r"^[A-Z_]+=", ln):
+        if not ln.strip() or ln.lstrip().startswith("#"):
             continue
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*=", ln):
+            if ln.strip() == "SHELL=/bin/sh" or ln.startswith("MAILTO="):
+                continue
+            raise ValueError(f"an environment line the timer cannot carry: {ln}")
         m = _JOB.match(ln)
         sub = re.search(r"-m tools\.trialbox ([a-z][a-z-]*)", m.group(3)) if m else None
         if not m or not sub:
             raise ValueError(f"a cron line the timer cannot carry: {ln}")
-        hour = m.group(2) if m.group(2) == "*" else m.group(2).zfill(2)
-        jobs.append((f"trialbox-{sub.group(1)}", f"*-*-* {hour}:{m.group(1).zfill(2)}:00", m.group(3)))
+        minute, hour = int(m.group(1)), None if m.group(2) == "*" else int(m.group(2))
+        if minute > 59 or (hour is not None and hour > 23):
+            raise ValueError(f"a minute or hour out of range: {ln}")
+        if hour in SKIPPED_HOURS:
+            raise ValueError(f"a fixed time in 02:00-02:59 has none on the spring-forward day: move it: {ln}")
+        cal = f"*-*-* {'*' if hour is None else f'{hour:02d}'}:{minute:02d}:00"
+        jobs.append((f"trialbox-{sub.group(1)}", cal, m.group(3)))
     return jobs
 
 
@@ -1506,12 +1538,15 @@ def unit_files(text: str, mailto: str = "") -> dict[str, str]:
                       f'{name}"; echo; echo "$out"; }} | sendmail -t; exit $rc')  # fmt: skip
         head = f"# Written by trialbox backup-install from deploy/backup/{CRON_NAME}.cron (H-92); do not edit.\n"
         out[f"{name}.service"] = (f"{head}[Unit]\nDescription=TrialBox {name} (the backup schedule)\n"
-                                  "After=docker.service\n\n[Service]\nType=oneshot\nTimeoutStartSec=infinity\n"
+                                  "After=docker.service trialbox.service\n\n[Service]\nType=oneshot\n"
+                                  f"TimeoutStartSec=infinity\nEnvironment=PATH={CRON_PATH}\n"
                                   f"ExecStart={_exec_start(script)}\n")  # fmt: skip
         out[f"{name}.timer"] = (
             f"{head}[Unit]\nDescription=TrialBox {name} schedule\n\n[Timer]\n"
             f"OnCalendar={cal}\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n"
         )
+    if sorted(n for n in out if n.endswith(".timer")) != sorted(TIMERS):
+        raise ValueError(f"the cron file's jobs are not the backup's timers ({', '.join(TIMERS)})")
     return out
 
 
@@ -1519,50 +1554,85 @@ def _systemctl(*args: str) -> None:
     subprocess.run(["systemctl", *args], check=True, capture_output=True, text=True, timeout=300)
 
 
-def install_timers(cfg: Config, systemd_dir: Path, cron_dir: Path, root: Path, has_mta: bool,
-                   systemctl: Callable[..., None] | None = None) -> list[str]:  # fmt: skip
-    """The cron file's jobs as systemd timers (enabled and started), then the cron file removed: one schedule."""
-    notes = _route_notes(cfg, has_mta)
+def _units(systemd_dir: Path) -> list[Path]:
+    return [systemd_dir / n for t in TIMERS for n in (t, t.replace(".timer", ".service"))]
+
+
+def timers_live(systemd_dir: Path) -> bool:
+    """Whether this host has the backup's timers (their unit files, or systemd answering for them)."""
+    if not systemd_init():
+        return False
+    return any(p.exists() for p in _units(systemd_dir)) or any(timer_word(t) not in (None, "not-found")
+                                                             for t in TIMERS)  # fmt: skip
+
+
+def remove_timers(systemd_dir: Path) -> None:
+    """Disable and stop the backup's timers, remove their units, and verify that none is left that would fire;
+    else ScheduleError with the one action."""
+    for args in (("disable", "--now", *TIMERS), None, ("daemon-reload",)):
+        if args is None:
+            for p in _units(systemd_dir):
+                with contextlib.suppress(FileNotFoundError, OSError):
+                    p.unlink()
+            continue
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            _systemctl(*args)
+    left = [p.name for p in _units(systemd_dir) if p.exists()]
+    words = {t: timer_word(t) for t in TIMERS}
+    still = [f"{t} ({w})" for t, w in words.items() if w not in (None, "not-found", "disabled", "masked")]
+    if left or still:
+        raise ScheduleError(f"the backup timers could not be removed ({', '.join(left + still)}): as root, "
+                            f"systemctl disable --now {' '.join(TIMERS)}, remove their units from {systemd_dir}, "
+                            "then run this command again; nothing else was changed")  # fmt: skip
+
+
+def install_timers(cfg: Config, systemd_dir: Path, cron_dir: Path, root: Path, has_mta: bool) -> list[str]:
+    """The cron file's jobs as systemd timers (enabled and started), then the cron file removed: one schedule.
+    Any failure raises; the caller then removes the timers before it writes the cron file (D-1090)."""
     template = (cfg.deploy / "backup" / f"{CRON_NAME}.cron").read_text(encoding="utf-8")
     mailto = cfg.mailto if has_mta else ""
     units = unit_files(cron_text(template, root, mailto), mailto)
     for name, text in units.items():
         _write(systemd_dir / name, text)
-    timers = sorted(n for n in units if n.endswith(".timer"))
-    systemctl = systemctl or _systemctl
-    systemctl("daemon-reload")
-    systemctl("enable", "--now", *timers)
+    _systemctl("daemon-reload")
+    _systemctl("enable", "--now", *TIMERS)
     gone = cron_dir / CRON_NAME
     moved = ""
     if gone.is_file():
         gone.unlink()
         moved = f"; {gone} removed (the timer runs it now)"
-    return [f"timer: {', '.join(timers)} in {systemd_dir} (04:45 nightly backup, hourly age check){moved}", *notes]
+    return [f"timer: {', '.join(TIMERS)} in {systemd_dir} (04:45 nightly backup, hourly age check){moved}"]
 
 
-def schedule_state(cron_dir: Path, timer: str | None, cron_running: bool | None) -> dict[str, str]:
+def schedule_state(cron_dir: Path, timers: Mapping[str, str | None], cron_running: bool | None) -> dict[str, str]:
     """Which schedule runs the backup: ``timer`` (systemd), ``cron`` or ``none``, with a problem (one action) and a
-    warning. ``timer``: ``systemctl is-enabled`` of the nightly timer, None where systemd is not the init;
+    warning. ``timers``: each backup timer's :func:`timer_word` (None where systemd is not the init);
     ``cron_running``: whether a cron daemon runs, None when not asked."""
     cron = cron_dir / CRON_NAME
     fix = "python3 -m tools.trialbox backup-install --deploy deploy --no-first-run as root (RUNBOOK §5)"
-    if timer == "enabled":
+    words = {t: timers.get(t) for t in TIMERS}
+    systemd = any(w is not None for w in words.values())
+    if any(w in FIRES or w == "stopped" for w in words.values()):
         if cron.is_file():
-            return {"active": "timer", "warn": "", "problem": f"both {TIMER} and {cron} schedule the backup: {fix} "
-                    "removes the cron file"}  # fmt: skip
+            return {"active": "timer", "warn": "", "problem": f"both the backup timers and {cron} schedule the "
+                    f"backup: {fix} removes the cron file"}  # fmt: skip
+        bad = [f"{t} ({w})" for t, w in words.items() if w not in FIRES]
+        if bad:
+            return {"active": "timer", "warn": "", "problem": f"{', '.join(bad)} will not fire: {fix} enables and "
+                    "starts every timer"}  # fmt: skip
         return {"active": "timer", "warn": "", "problem": ""}
     if not cron.is_file():
-        if timer is not None:
-            return {"active": "none", "warn": "", "problem": f"no {TIMER} and no {cron}: {fix}"}
+        if systemd:
+            return {"active": "none", "warn": "", "problem": f"no backup timer enabled and no {cron}: {fix}"}
         if cron_dir.is_dir():
             return {"active": "none", "warn": "", "problem": f"no {cron}: python3 -m tools.trialbox backup-install "
                     "(RUNBOOK §5)"}  # fmt: skip
         return {"active": "none", "warn": "", "problem": ""}  # no host schedule here (a container, a platform)
     if cron_running is False:
-        action = fix + ": it installs the timer" if timer is not None else "start the host's cron daemon"
-        return {"active": "none", "warn": "", "problem": f"{cron} is there but no cron daemon runs and no {TIMER} "
-                f"is enabled: nothing runs the backup; {action}"}  # fmt: skip
-    warn = f"the backup runs from {cron}; on this systemd host {fix} moves it to {TIMER}" if timer is not None else ""
+        action = fix + ": it installs the timers" if systemd else "start the host's cron daemon"
+        return {"active": "none", "warn": "", "problem": f"{cron} is there but no cron daemon runs and no backup "
+                f"timer is enabled: nothing runs the backup; {action}"}  # fmt: skip
+    warn = f"the backup runs from {cron}; on this systemd host {fix} moves it to the timers" if systemd else ""
     return {"active": "cron", "warn": warn, "problem": ""}
 
 
@@ -1635,22 +1705,34 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
         print(f"backup-install: bad setting: {x}")
     root = deploy.resolve().parent
     use_timer = os.environ.get("TB_SYSTEMD", "1") != "0" and os.geteuid() == 0 and systemd_init()
-    try:
+    nodaemon = (f"backup-install: no cron daemon runs on this host: nothing will run {cron_dir / CRON_NAME}; start "
+                "the host's cron daemon (RUNBOOK §5)")  # fmt: skip
+    try:  # D-1090: never two schedules; the timers go (verified) before a cron file is written
         if use_timer:
+            notes = _route_notes(cfg, has_mta())
             try:
-                notes = install_timers(cfg, systemd_dir, cron_dir, root, has_mta())
-            except (OSError, subprocess.SubprocessError) as e:
-                why = f"note: the timer could not be enabled ({type(e).__name__}: {str(e)[-200:]}): the cron file"
+                notes = install_timers(cfg, systemd_dir, cron_dir, root, has_mta()) + notes
+            except (OSError, subprocess.SubprocessError, ValueError) as e:
+                remove_timers(systemd_dir)
+                why = f"note: the timers could not be installed ({type(e).__name__}: {str(e)[-200:]}): the cron file"
                 notes = [why, *install_cron(cfg, cron_dir, root, has_mta())]
+                if not cron_daemon():
+                    notes.append(nodaemon)
         else:
+            if timers_live(systemd_dir):
+                if os.geteuid() != 0:
+                    raise ScheduleError(f"the backup timers are installed on this host ({', '.join(TIMERS)}): run "
+                                        "this command as root; nothing was changed")  # fmt: skip
+                remove_timers(systemd_dir)  # TB_SYSTEMD=0 on a host that had the timers: switch cleanly
+                print("backup-install: TB_SYSTEMD=0: the backup timers removed; the cron file instead")
             notes = install_cron(cfg, cron_dir, root, has_mta())
             if not cron_daemon():
-                notes.append(
-                    f"backup-install: no cron daemon runs on this host and systemd is not its init: nothing "
-                    f"will run {cron_dir / CRON_NAME}; start the host's cron daemon (RUNBOOK §5)"
-                )
+                notes.append(nodaemon)
         for n in notes:
             print(n)
+    except ScheduleError as e:
+        print(f"backup-install: {e}")
+        return 1
     except (OSError, ValueError) as e:
         print(f"backup-install: {e}")
         return 1
@@ -1765,7 +1847,7 @@ def main_status(deploy: Path, as_json: bool = False, quiet: bool = False, cron_d
     alert(cfg, st, ops.audit, send_cmd(cfg.alert_cmd))
     if quiet and st["level"] == "ok":
         return 0
-    sched = schedule_state(cron_dir, unit_enabled(TIMER), cron_daemon())  # H-92: said; doctor FAILs on it
+    sched = schedule_state(cron_dir, {t: timer_word(t) for t in TIMERS}, cron_daemon())  # H-92: doctor FAILs on it
     if as_json:
         print(json.dumps({**st, "schedule": sched}, indent=1, ensure_ascii=False))
     else:

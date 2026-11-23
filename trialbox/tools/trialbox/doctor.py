@@ -1011,7 +1011,8 @@ def check_backup(inp: DoctorInputs) -> Check:
     fails = list(st["problems"])
     # H-92: the timer where systemd is the init, else the cron file and a cron daemon; one action when none fires
     running = inp.cron_running() if inp.cron_running is not None else None
-    sched = bs.schedule_state(inp.cron_dir, (inp.timer_state or _timer_state)(bs.TIMER), running)
+    word = inp.timer_state or bs.timer_word  # every backup timer, enabled and running (D-1090)
+    sched = bs.schedule_state(inp.cron_dir, {t: word(t) for t in bs.TIMERS}, running)
     if sched["problem"]:
         fails.append(sched["problem"])
     warns = [sched["warn"]] if sched["warn"] else []
