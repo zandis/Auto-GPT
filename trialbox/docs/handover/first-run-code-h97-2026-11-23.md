@@ -176,8 +176,10 @@ No test asserted that rotate-kek with a passphrase is refused on a PRODUCTION bo
 
 9. The box rehearsal (tools/rehearse\_box/box.sh, install and reinstall phases; H-94's check) required an empty PoC
    list. With part D the rehearsal box (no TPM, keys sealed under the passphrase, a VALIDATION box) lists exactly
-   `check_host.sh/no-tpm-sealed`, which the ruling requires: the check now allows that one line and still fails on any
-   other. The rehearse (validation) job of PR #1429 showed the line on the real path, which is part D's real-path check.
+   `check_host.sh/no-tpm-sealed`, which the ruling requires. The check now expects exactly that line on a box with no
+   TPM (it fails when it is missing), fails on any other line, and requires doctor's `poc_stop` line for it, with its
+   action, in that install's own output. Both rehearse jobs of PR #1429 showed the line and doctor's line on the real
+   path (head 15d0d36f, before this check expected them): that is part D's real-path check.
 
 ### Changed assertions (ruling 7102655419, part C)
 
