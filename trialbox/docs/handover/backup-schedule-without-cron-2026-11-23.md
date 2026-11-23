@@ -87,13 +87,13 @@ H92-02 is read from install.sh, not run: install.sh writes it and only on a host
 `test_backup_schedule.py`, `test_trialbox_doctor.py`, `test_backup_alert_on_the_health_page.py`:
 M1 the timer's command loses its `cd`; M2 the timer in UTC; M3 not Persistent; M4 the cron file kept; M5 timers not
 enabled; M6 doctor never asks for the cron daemon; M7 both schedules not flagged; M8 the timer path never taken;
-M9 `TB_SYSTEMD=0` ignored; M10 systemd's `$` not doubled; M11 install.sh's condition back to cron only; M12 a failed
+M9 `TB_SYSTEMD=0` ignored; M10 systemd's `$` not doubled; M11 install.sh without its systemd-host line; M12 a failed
 enable leaves no schedule.
 
 ## Files
 
 `tools/trialbox/backup_schedule.py`, `tools/trialbox/doctor.py` (the `backup` check, `DoctorInputs.cron_running`),
 `tools/trialbox/__main__.py` (`--systemd-dir`), `deploy/backup/trialbox-backup.cron` (comment),
-`deploy/install.sh` (the backup step's condition), `tests/unit/test_backup_schedule_timer.py` (new),
+`deploy/install.sh` (one line before the backup step), `tests/unit/test_backup_schedule_timer.py` (new),
 `docs/runbook/05-updates-backup-restore-secrets.md` (one paragraph). No decision number is used; one may be wanted
 for "the timer wins over cron" (the integrator's call).

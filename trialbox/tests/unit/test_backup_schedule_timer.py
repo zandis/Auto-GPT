@@ -283,5 +283,6 @@ def test_install_sh_runs_the_backup_step_on_a_systemd_host_without_a_cron_folder
     """A systemd host with no cron package has no /etc/cron.d: install.sh still runs backup-install (the timer)."""
     sh = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
     step = sh.index("python3 -m tools.trialbox backup-install --deploy deploy")
-    cond = sh[sh.rindex("\nif ", 0, step) : step]
-    assert '"$CAN_CRON" = 1 ] ||' in cond and "/run/systemd/system" in cond and 'TB_SYSTEMD:-1}" != 0' in cond, cond
+    before = sh[sh.rindex("\n# H-92", 0, step) : step]
+    assert "/run/systemd/system" in before and 'TB_SYSTEMD:-1}" != 0' in before and "&& CAN_CRON=1\n" in before, before
+    assert before.index("&& CAN_CRON=1") < before.index('if [ "$CAN_CRON" = 1 ]; then')

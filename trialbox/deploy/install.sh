@@ -1056,10 +1056,11 @@ fi
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
 # TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page, D-735); `trialbox
 # doctor` then checks the backup's age and its off-box target
-# H-92: on a systemd host the schedule is a timer, so no /etc/cron.d (no cron package) is needed for it
-if [ "$CAN_CRON" = 1 ] || { [ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/systemd/system ] \
-    && command -v systemctl >/dev/null && command -v python3 >/dev/null; }; then
-  say "backups: schedule, WAL archiving, first backup"
+# H-92: on a systemd host backup-install writes the schedule as timers: no /etc/cron.d (no cron package) needed
+[ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/systemd/system ] && command -v systemctl >/dev/null \
+  && command -v python3 >/dev/null && CAN_CRON=1
+if [ "$CAN_CRON" = 1 ]; then
+  say "backups: cron, WAL archiving, first backup"
   set +e
   PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
