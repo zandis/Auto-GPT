@@ -91,6 +91,14 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H76A-12",
+   "severity": "High",
+   "claim": "after round 3, 108 of the never-more corpus's 4,000 lines still left their secret value (an unquoted key, an encoded space, then the quoted value, as in GET /p/%2F{k:%20\"v\"}; 54 + 54 lines): the raw colon rule masked the encoded space alone; fixed: a value that decodes to nothing is no value, and the colon rule takes an encoded space before a quoted value; the corpus now leaves no line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 7642ab504bcfd0e0dd584cea9ac0be8c29377ca3"
   }
  ]
 }
