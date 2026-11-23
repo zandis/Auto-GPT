@@ -65,8 +65,10 @@ def test_no_tier_installs_on_it() -> None:
 
 def test_install_and_the_poc_refuse_it_in_gpu_mode() -> None:
     install = (ROOT / "deploy/install.sh").read_text(encoding="utf-8")
-    assert '  arm64-dgpu) die "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile' in (
-        install
+    # H-94 (ruling 7092087958): the helper; a PoC box goes on as --mode stub
+    assert (
+        '  arm64-dgpu) stop_or_warn gpu-arm64-dgpu "$GPU_STUB" "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile'
+        in (install)
     )
     poc = (ROOT / "deploy/poc.sh").read_text(encoding="utf-8")
     # the PoC's GPU mode serves only these two; anything else stops before a file is written

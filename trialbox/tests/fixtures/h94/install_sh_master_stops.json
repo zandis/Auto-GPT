@@ -1,0 +1,466 @@
+{
+ "source": "deploy/install.sh at master 371c98577a8396227a2e1df8089a114458fbe64f",
+ "how": "every die \"...\" and echo \"install: ...\" >&2; exit N, as written (unexpanded)",
+ "stops": [
+  {
+   "message": "the environment '$EARLY_ENV' ($EARLY_FROM) is not DEV, TEST, VALIDATION or PRODUCTION: nothing was loaded or written",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 (each held to its own card's memory)",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers (docs/handover/rehearsal-real-servers-h89-2026-11-22.md says why)",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers is no tier install: drop --tier",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers needs the GPU: drop --mode $MODE",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers: --engine-probe FILE, the engine probe's result taken on that card (tools/engine_probe.py run), is missing",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal makes a VALIDATION box, not $ENVIRONMENT",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)",
+   "rc": 1
+  },
+  {
+   "message": "--tier and --gpu: give one (a tier names its GPU profile)",
+   "rc": 1
+  },
+  {
+   "message": "--tier needs the GPU: drop --mode $MODE",
+   "rc": 1
+  },
+  {
+   "message": "--tier needs python3 on the host to read the serving records",
+   "rc": 1
+  },
+  {
+   "message": "--tier-check needs --tier small|medium|large",
+   "rc": 1
+  },
+  {
+   "message": "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]",
+   "rc": 1
+  },
+  {
+   "message": "no such bundle: $BUNDLE",
+   "rc": 1
+  },
+  {
+   "message": "the host baseline would cut this SSH session (above): nothing was loaded or written",
+   "rc": 1
+  },
+  {
+   "message": "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)",
+   "rc": 1
+  },
+  {
+   "message": "Docker is not running (sudo systemctl start docker)",
+   "rc": 1
+  },
+  {
+   "message": "the docker compose plugin is missing",
+   "rc": 1
+  },
+  {
+   "message": "the host's python3 lacks what the installer needs:$HOST_PY_MISSING (Debian/Ubuntu: sudo apt-get install -y$HOST_PY_MISSING); install it, then re-run; nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "--mode gpu but nvidia-smi finds no GPU (driver + container toolkit; docs/SECURITY.md)",
+   "rc": 1
+  },
+  {
+   "message": "--mode must be gpu or stub",
+   "rc": 1
+  },
+  {
+   "message": "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)",
+   "rc": 1
+  },
+  {
+   "message": "a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)",
+   "rc": 1
+  },
+  {
+   "message": "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB (its model servers alone are capped at 74 GiB), and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub (structured criteria only; note criteria wait for a GPU), or use a 128 GB Spark or another measured box",
+   "rc": 1
+  },
+  {
+   "message": "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile (unmeasured, root review 24): install with --mode stub, or see RUNBOOK §28",
+   "rc": 1
+  },
+  {
+   "message": "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)",
+   "rc": 1
+  },
+  {
+   "message": "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers: refused (above): nothing was loaded or written",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers: the card at index $GPU_INDEX cannot carry the pair (above): nothing was loaded or written",
+   "rc": 1
+  },
+  {
+   "message": "this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to $PUBKEY",
+   "rc": 1
+  },
+  {
+   "message": "$(basename ",
+   "rc": 1
+  },
+  {
+   "message": "bundle checksum mismatch: $(basename ",
+   "rc": 1
+  },
+  {
+   "message": "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "the deploy folder $INSTALL_LOCK cannot be opened for the install lock; nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "another deploy/install.sh is running on this folder (it holds $INSTALL_LOCK): let it finish, then re-run; nothing was changed or removed",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal: this box is VALIDATION (deploy/.env TB_ENV) with no rehearsal mark: a site box is never made a rehearsal box",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal: this box is $RH_ENV (deploy/.env TB_ENV): a site box is never made a rehearsal box",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal: this box holds a site's install (deploy/$f) from no rehearsal: a rehearsal starts on an empty box",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal: docker cannot list the volumes, so the box's data cannot be checked (is Docker running?)",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal: this box holds data from no rehearsal (volumes: $RH_VOLS): a rehearsal starts on an empty box",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal: no model stand-ins at tools/rehearse_box/standins.yml",
+   "rc": 1
+  },
+  {
+   "message": "this box was a rehearsal box (deploy/site/rehearsal.json or TB_REHEARSAL=1): run with --rehearsal, or empty it first (RUNBOOK §16, \\\"A rehearsal box\\\")",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers: refused (above)",
+   "rc": 1
+  },
+  {
+   "message": "this box ran the real model servers as a rehearsal (deploy/site/rehearsal-real-servers.json): run with --rehearsal --rehearsal-real-servers, or empty it first (RUNBOOK §16, \\\"A rehearsal box\\\")",
+   "rc": 1
+  },
+  {
+   "message": "$said (above: the setting to change in deploy/.env; RUNBOOK §5)",
+   "rc": 1
+  },
+  {
+   "message": "the finish check did not run (exit $rc, above), so nothing about the folders was decided: $said",
+   "rc": 1
+  },
+  {
+   "message": "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder; nothing was loaded or changed (RUNBOOK §5)",
+   "rc": 1
+  },
+  {
+   "message": "the bundle is not a valid signed TrialBox release; nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "loading the bundle failed",
+   "rc": 1
+  },
+  {
+   "message": "the bundle carried no $IMAGE_PY image",
+   "rc": 1
+  },
+  {
+   "message": "the bundle carried no host tree (payload kind host, D-367): build the release with tools/make_bundle.sh of T-631 or later",
+   "rc": 1
+  },
+  {
+   "message": "deploy/install.sh is not the signed release's (tools/host_tree.py status)",
+   "rc": 1
+  },
+  {
+   "message": "the environment '$WIZ_ENV' (--environment, or TB_ENV in deploy/.env) is not DEV, TEST, VALIDATION or PRODUCTION: the settings wizard was not run",
+   "rc": 1
+  },
+  {
+   "message": "no such answers file: $ANSWERS",
+   "rc": 1
+  },
+  {
+   "message": "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)",
+   "rc": 1
+  },
+  {
+   "message": "answer offline or live",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal: the answers make this box VALIDATION with no rehearsal mark: a rehearsal box is made by --rehearsal",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal: the answers make this box $RH_ENV: a rehearsal box is VALIDATION",
+   "rc": 1
+  },
+  {
+   "message": "--rehearsal-real-servers: the record names no caps",
+   "rc": 1
+  },
+  {
+   "message": "--environment must be DEV, TEST, VALIDATION or PRODUCTION, not $ENVIRONMENT",
+   "rc": 1
+  },
+  {
+   "message": "deploy/.env says TB_ENV=$NOW_ENV and --environment says $ENVIRONMENT: a box's environment is not changed by an install",
+   "rc": 1
+  },
+  {
+   "message": "TB_HOST_PROFILE=poc is never a PRODUCTION box: install with --environment VALIDATION (or TEST), or without the profile",
+   "rc": 1
+  },
+  {
+   "message": "TB_HOST_PROFILE must be site or poc, not '$HOST_PROFILE'",
+   "rc": 1
+  },
+  {
+   "message": "$1: only on a rehearsal box (TB_REHEARSAL=1 on TEST, or on VALIDATION with deploy/site/rehearsal.json: deploy/install.sh --rehearsal); this box is $TB_ENV_SITE",
+   "rc": 1
+  },
+  {
+   "message": "no feed folder: set TB_SOURCE_DIR in deploy/.env (the host folder the HIS export lands in; the settings wizard asks for it, RUNBOOK §1 step 3)",
+   "rc": 1
+  },
+  {
+   "message": "the feed folder $SRC_DIR (TB_SOURCE_DIR) is not a folder on this host: mount the HIS export there first",
+   "rc": 1
+  },
+  {
+   "message": "no TLS host name: a PRODUCTION box runs only behind https. Put TB_TLS_HOSTNAME (and TB_TLS_MODE) in deploy/.env or the answers file (tls_hostname), then re-run (RUNBOOK §12)",
+   "rc": 1
+  },
+  {
+   "message": "TB_TLS_OLD_CLIENTS must be off or cbc, not '$TLS_OLD': fix it in deploy/.env (RUNBOOK §12), then re-run",
+   "rc": 1
+  },
+  {
+   "message": "TB_SAE_OFFICE_MAILBOX $SAE_TO is not one mail address (for example trial-office@hospital.tw)",
+   "rc": 1
+  },
+  {
+   "message": "no SAE office mailbox: when a serious adverse event is entered the trial office must be told at once (a sponsor report can be due within 24 h). Put TB_SAE_OFFICE_MAILBOX in deploy/.env or sae_office_mailbox in the answers file, then re-run (RUNBOOK §1)",
+   "rc": 1
+  },
+  {
+   "message": "the memory caps could not be sized (above): set TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH in deploy/.env, then re-run",
+   "rc": 1
+  },
+  {
+   "message": "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run",
+   "rc": 1
+  },
+  {
+   "message": "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again",
+   "rc": 1
+  },
+  {
+   "message": "the embedder is not pinned (see above): a PRODUCTION box without a GPU needs it (D-1066); install from a bundle that carries embedder/, then run install again",
+   "rc": 1
+  },
+  {
+   "message": "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)",
+   "rc": 1
+  },
+  {
+   "message": "$REC is not a measurement of the $GPU profile on its own card (see above)",
+   "rc": 1
+  },
+  {
+   "message": "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run as a rehearsal box (TB_COMPOSE_OVERRIDE= deploy/install.sh <bundle> --gpu $GPU --rehearsal), then capture the record (RUNBOOK §1)",
+   "rc": 1
+  },
+  {
+   "message": "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run",
+   "rc": 1
+  },
+  {
+   "message": "TB_AUDIT_ANCHOR_TARGETS in deploy/.env names a folder that cannot be mounted (above)",
+   "rc": 1
+  },
+  {
+   "message": "TB_AUDIT_ANCHOR_TARGETS: the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then re-run",
+   "rc": 1
+  },
+  {
+   "message": "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE",
+   "rc": 1
+  },
+  {
+   "message": "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)",
+   "rc": 1
+  },
+  {
+   "message": "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)",
+   "rc": 1
+  },
+  {
+   "message": "a compose file names a third-party image that deploy/images.lock does not pin (FAIL above)",
+   "rc": 1
+  },
+  {
+   "message": "no python3 on this host: a PRODUCTION install cannot check its backup target and audit anchor folder (RUNBOOK §5)",
+   "rc": 1
+  },
+  {
+   "message": "stopped before start; re-run with --yes to skip the question",
+   "rc": 1
+  },
+  {
+   "message": "TB_INSTALL_PULL must be never or missing",
+   "rc": 1
+  },
+  {
+   "message": "a pinned image is not on this box (MISSING above): the bundle must carry it (make_bundle.sh without --no-third-party)",
+   "rc": 1
+  },
+  {
+   "message": "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)",
+   "rc": 1
+  },
+  {
+   "message": "a start-up step of this release failed (pre-start above)",
+   "rc": 1
+  },
+  {
+   "message": "the project cleanup was refused (above): nothing was removed",
+   "rc": 1
+  },
+  {
+   "message": "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME in this shell is not this install's project: unset it, then re-run",
+   "rc": 1
+  },
+  {
+   "message": "project cleanup failed / 專案清理失敗 / プロジェクトのクリーンアップに失敗しました",
+   "rc": 1
+  },
+  {
+   "message": "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)",
+   "rc": 1
+  },
+  {
+   "message": "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root",
+   "rc": 1
+  },
+  {
+   "message": "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md",
+   "rc": 1
+  },
+  {
+   "message": "the database did not start (docker compose logs db)",
+   "rc": 1
+  },
+  {
+   "message": "a database step of this release failed (db-up above; docker compose logs db)",
+   "rc": 1
+  },
+  {
+   "message": "the database roles could not be set (docker compose logs db)",
+   "rc": 1
+  },
+  {
+   "message": "the schemas of the trial database could not be made (python -m orchestrator.migrate)",
+   "rc": 1
+  },
+  {
+   "message": "the stack did not become healthy (docker compose logs)",
+   "rc": 1
+  },
+  {
+   "message": "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL), the key (python3 -m tools.trialbox secrets rotate --service model) or re-pin (RUNBOOK §8), then re-run",
+   "rc": 1
+  },
+  {
+   "message": "the host baseline could not be applied (above)",
+   "rc": 1
+  },
+  {
+   "message": "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)",
+   "rc": 1
+  },
+  {
+   "message": "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root",
+   "rc": 1
+  },
+  {
+   "message": "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD, TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page in deploy/.env (RUNBOOK §5), then re-run",
+   "rc": 1
+  },
+  {
+   "message": "unknown option $1",
+   "rc": 2
+  },
+  {
+   "message": "--rehearsal-real-servers is for a rehearsal box only: give --rehearsal too (nothing was checked or written)",
+   "rc": 2
+  },
+  {
+   "message": "--gpu-index is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written",
+   "rc": 2
+  },
+  {
+   "message": "--engine-probe is for a rehearsal with real servers only (--rehearsal --rehearsal-real-servers); nothing was checked or written",
+   "rc": 2
+  },
+  {
+   "message": "--gpu-index and --engine-probe go with --rehearsal-real-servers; nothing was checked or written",
+   "rc": 2
+  },
+  {
+   "message": "--ctgov must be live or offline",
+   "rc": 2
+  }
+ ]
+}

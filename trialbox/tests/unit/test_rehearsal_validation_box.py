@@ -235,9 +235,15 @@ def test_a_production_box_refuses_a_rehearsal_bundle_whatever_marks_it_carries(t
 def test_the_stand_ins_need_the_mark_file_on_a_validation_box(tmp_path: Path) -> None:
     start = INSTALL.index("rehearsal_only() {")
     fn = INSTALL[start : INSTALL.index("\n}\n", start) + 3]
-    body = f'TB_ENV_SITE=VALIDATION\n{fn}\nrehearsal_only "the model stand-ins"\necho through'
+    body = f'TB_ENV_SITE=VALIDATION\n{fn}\nrehearsal_only standins "the model stand-ins"\necho through'
     r = _sh(tmp_path, body, env_lines="TB_ENV=VALIDATION\nTB_REHEARSAL=1\n")
-    assert r.returncode == 1 and "--rehearsal" in r.stderr  # TB_REHEARSAL=1 alone, no mark file
+    # TB_REHEARSAL=1 alone, no mark file. H-94 (the owner's ruling 7092087958): a VALIDATION box is a PoC box, so it
+    # is a warning and a line of the list, and the step goes on; on PRODUCTION it stops (below)
+    assert r.returncode == 0 and "through" in r.stdout and "warning (PoC box, H-94)" in r.stderr
+    assert "--rehearsal" in r.stderr
+    prod = _sh(tmp_path, body.replace("TB_ENV_SITE=VALIDATION", "TB_ENV_SITE=PRODUCTION"),
+               env_lines="TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n")  # fmt: skip
+    assert prod.returncode == 1 and "--rehearsal" in prod.stderr and "through" not in prod.stdout
     _mark(tmp_path / "deploy")
     r = _sh(tmp_path, body, env_lines="TB_ENV=VALIDATION\nTB_REHEARSAL=1\n")
     assert r.returncode == 0 and "through" in r.stdout, r.stderr
