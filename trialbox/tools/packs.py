@@ -8,6 +8,14 @@ loaded. This module only finds and measures.
 
     python3 tools/packs.py find BUNDLE              # the model pack beside BUNDLE that it names (one line, or none)
     python3 tools/packs.py sizes BUNDLE [--model-pack FILE]   # installed size, the peak during the load, the stick
+    python3 tools/packs.py space BUNDLE [--model-pack FILE] --docker-root DIR --models DIR --stage DIR --deploy DIR \
+        [--updates DIR]    # exit 1, with the numbers, when a file system cannot hold what the load writes on it
+                           # (exit 3: a manifest cannot be read; that is the verifier's to refuse)
+
+``space`` sums, per file system, what the load writes there at its peak: the images into Docker's data root, the
+weights into the models folder, the small payloads staged in passing, the host tree and the other files beside
+deploy/. A pack the box already holds (its record in ``--updates``: ``model-pack.json`` or ``installed.json`` names
+its manifest) writes nothing and is not counted, so a run again of the install is not refused for space it used.
 
 ``find`` looks only in the bundle's own folder, at the files named ``trialbox-models-*.pack``, and prints the one
 whose signed manifest has the sha256 the software pack names; the file's name decides nothing.
@@ -23,6 +31,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import shutil
 import sys
 import tarfile
 from pathlib import Path
@@ -80,6 +90,56 @@ def sizes(bundles: list[Path]) -> dict[str, int]:
     }
 
 
+def _held(updates: Path | None) -> set[str]:
+    out: set[str] = set()
+    for name in ("model-pack.json", "installed.json"):
+        f = updates / name if updates else None
+        if f is not None and f.is_file() and not f.is_symlink():
+            try:
+                out.add(str(json.loads(f.read_text(encoding="utf-8")).get("manifest_sha256") or ""))
+            except (OSError, ValueError, AttributeError):
+                continue
+    return out
+
+
+def _existing(p: Path) -> Path:
+    p = p.absolute()
+    while not p.exists():
+        p = p.parent
+    return p
+
+
+def space(bundles: list[Path], where: dict[str, Path], updates: Path | None = None,
+          free_of: Any = None) -> tuple[bool, list[str]]:  # fmt: skip
+    """(fits, one line per file system): what the load writes there against its free space."""
+    held = _held(updates)
+    per: dict[int, dict[str, Any]] = {}
+    for b in bundles:
+        manifest, sha = manifest_of(b)
+        if sha in held:
+            continue
+        for f in manifest.get("files") or []:
+            kind, n = f["kind"], int(f["size"])
+            targets = [("images", where["docker_root"])] if kind == "image" else \
+                [("weights", where["models"])] if kind == "model" else \
+                [("staged in passing", where["stage"]), ("unpacked and kept", where["deploy"])]  # fmt: skip
+            for what, path in targets:
+                ex = _existing(path)
+                d = per.setdefault(os.stat(ex).st_dev, {"path": ex, "need": 0, "what": {}})
+                d["need"] += n
+                d["what"][what] = d["what"].get(what, 0) + n
+    free_of = free_of or (lambda p: shutil.disk_usage(p).free)
+    ok, lines = True, []
+    for d in per.values():
+        free = int(free_of(d["path"]))
+        parts = ", ".join(f"{w} {gb(n)}" for w, n in d["what"].items())
+        short = free < d["need"]
+        ok = ok and not short
+        lines.append(f"{d['path']}: needs {gb(d['need'])} at the peak ({parts}), free {gb(free)}"
+                     + (": NOT ENOUGH" if short else ""))  # fmt: skip
+    return ok, lines
+
+
 def gb(n: int) -> str:
     return f"{n / 1e9:.1f} GB"
 
@@ -93,6 +153,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("bundle", type=Path)
     s.add_argument("--model-pack", type=Path)
     s.add_argument("--json", action="store_true")
+    sp = sub.add_parser("space")
+    sp.add_argument("bundle", type=Path)
+    sp.add_argument("--model-pack", type=Path)
+    for name in ("--docker-root", "--models", "--stage", "--deploy"):
+        sp.add_argument(name, type=Path, required=True)
+    sp.add_argument("--updates", type=Path)
     a = ap.parse_args(argv)
     try:
         if a.cmd == "find":
@@ -100,10 +166,16 @@ def main(argv: list[str] | None = None) -> int:
             if got is not None:
                 print(got)
             return 0
+        if a.cmd == "space":
+            where = {"docker_root": a.docker_root, "models": a.models, "stage": a.stage, "deploy": a.deploy}
+            fits, lines = space([a.bundle] + ([a.model_pack] if a.model_pack else []), where, a.updates)
+            for line in lines:
+                print(line)
+            return 0 if fits else 1
         n = sizes([a.bundle] + ([a.model_pack] if a.model_pack else []))
-    except (OSError, KeyError, ValueError, tarfile.TarError) as exc:
-        print(f"packs: {exc}", file=sys.stderr)
-        return 1
+    except (OSError, KeyError, ValueError, tarfile.TarError) as exc:  # the verifier says why, with stop (1)
+        print(f"packs: cannot read the manifests ({exc})", file=sys.stderr)
+        return 3
     if a.json:
         print(json.dumps(n, sort_keys=True))
         return 0

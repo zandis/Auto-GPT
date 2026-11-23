@@ -579,6 +579,19 @@ say "bundle: verify and load (host tree, images, models, rulesets)"
 if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
   # H-95: every pack is verified (signature, every payload hash, read from the stick: nothing is copied) before any
   # pack is loaded; the software pack as if its model pack were held, which is loaded first
+  # H-95: the three sizes first (from the manifests, before the stick is read whole), then stop (2) before anything
+  # is read or loaded when a file system cannot hold what the load writes on it at its peak, with the numbers
+  # (a manifest that cannot be read is left to the verifier below: stop (1))
+  if command -v python3 >/dev/null && SIZES="$(python3 "$ROOT/tools/packs.py" sizes "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} 2>/dev/null)"; then
+    echo "    disk: $SIZES"
+    DOCKER_ROOT="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || true)"
+    SPACE_RC=0
+    SPACE="$(python3 "$ROOT/tools/packs.py" space "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} \
+      --docker-root "${DOCKER_ROOT:-/var/lib/docker}" --models "$ROOT/deploy/models" --stage "${TMPDIR:-/tmp}" \
+      --deploy "$ROOT" --updates "$ROOT/deploy/updates" 2>&1)" || SPACE_RC=$?
+    [ "$SPACE_RC" != 1 ] || die "the disk cannot hold the install at its peak; nothing was loaded: $SPACE"  # H-94 (2)
+    [ -z "$SPACE" ] || printf '%s\n' "$SPACE" | indent
+  fi
   WITH_MODEL=()
   if [ -n "$MODEL_PACK" ]; then
     echo "    verifying the signature and every file of the model pack $(basename "$MODEL_PACK") (minutes for the weights)"
@@ -593,11 +606,6 @@ if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
   # H-94 (1): the signature and every payload hash
   sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run ${WITH_MODEL[@]+"${WITH_MODEL[@]}"} >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
   alive_stop
-  # H-95: the sizes, from the signed manifests: what the box holds after the install, the most the load needs in
-  # passing, what the stick holds (docs/handover/hospital-install.en.md)
-  if command -v python3 >/dev/null; then
-    echo "    disk: $(python3 "$ROOT/tools/packs.py" sizes "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} 2>&1)"
-  fi
   export PYTHONUNBUFFERED=1
   if [ -n "$MODEL_PACK" ]; then
     echo "    loading the model pack: the engine image and the weights, straight from the stick (10-20 minutes)"

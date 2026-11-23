@@ -54,6 +54,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -286,7 +287,13 @@ def verify(
         manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
         trust_after = _rotate(manifest, trust_rec, manifest_sha)
 
-        held = candidate_identity(model_pack_candidate) if model_pack_candidate else load_model_pack(model_pack_record)
+        held = (
+            candidate_identity(model_pack_candidate)
+            if model_pack_candidate
+            else load_model_pack(
+                model_pack_record, inst if installed_file is not None and installed_file.is_file() else None
+            )
+        )
         pack_problem = pack_problems(manifest, held)
         if pack_problem:  # H-94 (1): the pack does not hold together with what the box holds
             raise Rejected(pack_problem)
@@ -297,8 +304,8 @@ def verify(
                            f"{manifest['min_installed_version']} installed first (min_installed_version)")  # fmt: skip
         # H-95: a model pack's order is the model packs' own (the record of the one the box holds)
         last = held if is_model_pack else inst
-        if is_model_pack:
-            have = int((held or {}).get("release_seq") or 0)
+        if is_model_pack:  # a whole bundle's record does not order model packs
+            have = 0 if (held or {}).get("whole") else int((held or {}).get("release_seq") or 0)
         downgrade = None
         # D-833: the very bundle that is installed (same sequence, same manifest) is a repeat, not a downgrade:
         # install.sh run again continues from where it stopped, and the update answers "already installed". A key
@@ -400,11 +407,23 @@ def verify(
 MODEL_PACK_KINDS = ("image", "model")
 
 
-def load_model_pack(path: Path | None) -> dict[str, Any] | None:
-    """H-95: the model pack the box holds (``deploy/updates/model-pack.json``), None when it holds none. A record
-    that cannot be read is refused, never read as "none"."""
-    if path is None or not path.exists():
+def load_model_pack(path: Path | None, installed: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """H-95: the models the box holds, None when it holds none. ``deploy/updates/model-pack.json`` when it exists:
+    written by the update path only (apply_update.sh, as root), so a link, a file another user owns (when this runs
+    as root) or one others may write is refused, never read. A record that cannot be read is refused, never read as
+    "none". Without the file, a box installed from a whole bundle (no ``pack``: every box installed before H-95)
+    holds that bundle's models: its ``installed.json`` record stands for them (D-1094), ``whole`` set. A box that
+    took a software pack always has the file: its model pack was loaded first."""
+    if path is None or not (path.exists() or path.is_symlink()):
+        if installed and SHA256.match(str(installed.get("manifest_sha256") or "")):
+            return {"bundle_id": installed.get("bundle_id"), "manifest_sha256": installed["manifest_sha256"],
+                    "release_seq": installed.get("release_seq"), "whole": True}  # fmt: skip
         return None
+    if path.is_symlink() or not path.is_file():
+        raise Rejected(f"the box's model pack record {path} is not a plain file; nothing was changed")
+    st = path.stat()
+    if st.st_mode & 0o022 or (os.geteuid() == 0 and st.st_uid != 0):
+        raise Rejected(f"the box's model pack record {path} may be written by others than root; nothing was changed")
     try:
         rec = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -424,14 +443,19 @@ def candidate_identity(path: Path) -> dict[str, Any]:
         manifest = json.loads(body)
     except (OSError, KeyError, ValueError, tarfile.TarError) as exc:
         raise Rejected(f"{path}: not a model pack ({exc})") from exc
-    if not isinstance(manifest, dict) or (manifest.get("pack") or {}).get("kind") != "model":
-        raise Rejected(f"{path}: not a model pack")
+    if not isinstance(manifest, dict) or (manifest.get("pack") or {}).get("kind") not in ("model", None):
+        raise Rejected(f"{path}: not a model pack or a whole bundle")
     return {"bundle_id": manifest.get("bundle_id"), "manifest_sha256": hashlib.sha256(body).hexdigest()}
 
 
 def held_text(held: dict[str, Any] | None) -> str:
     if held is None:
         return "the box holds no model pack"
+    if held.get("whole"):
+        return (
+            f"the box holds the models of the whole bundle {held.get('bundle_id')} "
+            f"(manifest sha256 {held.get('manifest_sha256')})"
+        )
     return f"the box holds model pack {held.get('bundle_id')} (manifest sha256 {held.get('manifest_sha256')})"
 
 

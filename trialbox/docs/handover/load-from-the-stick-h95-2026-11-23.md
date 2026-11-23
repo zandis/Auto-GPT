@@ -7,7 +7,7 @@ Card H-95 (high-risk: it changes what the installer verifies and loads). The rul
 on the install page) and 7092940586 (a software pack and a model pack, each signed on its own; the box refuses a
 software pack whose model pack it does not hold); 7092087958 and 7095256773 (the five stops of a PoC box);
 7092045961 (a guard on the install path rides with a test on the real install path in the rehearsal job);
-7097604232 (`make_bundle.sh` refuses a pinned image given without a digest). Decision number: asked of the lead.
+7097604232 (`make_bundle.sh` refuses a pinned image given without a digest). Decision: D-1094.
 
 ## Pull request body (draft)
 
@@ -54,9 +54,32 @@ dry run with `--with-model-pack`, dry run only), then loads the model pack, then
 `tools/apply_update.sh` takes a software pack alone. The launcher takes only `trialbox-*.tar` as a release, so the
 `.pack` beside it changes nothing there.
 
-**The old single bundle** keeps installing (the rulings do not say; asked of the lead): a manifest without `pack` is
-verified and loaded as before, and also streamed. A software pack applied after it is refused until a model pack is
-loaded.
+**The old single bundle** keeps installing (D-1094): a manifest without `pack` is verified and loaded as before, and
+also streamed. It counts as holding both packs: installed now with weights, it is recorded in `model-pack.json` with
+`whole` set; on a box installed before H-95 (no `model-pack.json`), its `installed.json` record stands for it (a box
+that took a software pack always has the file, its model pack loaded first). A later software pack names that whole
+bundle as its model pack (`make_bundle.sh --model-pack <the whole bundle>`). A whole bundle's record does not order
+model packs: the first model pack after it is compared with none.
+
+**The record is trusted state.** `deploy/updates/model-pack.json` is written only by the update path (apply_update.sh,
+as root), atomically, 0600. The verifier and the update path refuse a link, a file another user owns (running as
+root) or one others may write; its path is set by apply_update.sh from its own folder, never from a caller's
+variable.
+
+**One reader.** What is loaded is exactly what is hashed: each streamed payload is read once, front to back, through
+one open of the bundle, and every chunk is hashed and handed on (the image's tail only after the whole hash). Reading
+a docker archive's own manifest.json to name its tags (before loading, for the pins check) is a separate read; a
+stick that changes between that read and the load fails the load's hash.
+
+**TMPDIR** is a caller's variable: the verifier stages the small payloads in a folder mktemp makes there, 0700 and the
+installer's own (apply_update.sh also sets the mode), removed on exit; no image or weight is written there.
+
+**The sizes first, and stop (2).** Before the stick is read whole, `install.sh` prints the three sizes and runs
+`tools/packs.py space`: per file system, what the load writes there at its peak (images in Docker's data root,
+weights in the models folder, the small payloads staged, the host tree and other files beside deploy/), against its
+free space. Short: the install stops with the numbers, nothing loaded (H-94 (2)). A pack the box already holds is
+not counted, so a run again is not refused for the space it used. A manifest that cannot be read is left to the
+verifier (stop (1)).
 
 **(c) Digest pins.** `make_bundle.sh` refuses, before anything is exported, an image whose repository
 `deploy/images.lock` pins by digest (third_party) given by `--image` without `@sha256:`: such a bundle carried no
@@ -91,7 +114,12 @@ model pack ordered by `installed.json`. All eight caught.
 
 **Not run or not verified here.** No Docker daemon in this session: the rehearsal job (its two-pack media, the
 install from them, the new `media-negative` case) and a real `make_bundle.sh` build of two packs were not run; CI's
-rehearsal runs them. What a real `docker load` writes inside its data root while it loads is not measured (H95-02).
+rehearsal runs them. What a real `docker load` writes inside its data root while it loads is not measured (H95-02; measured on the
+bench host after H-95 merges). After a cut image stream, a real engine may keep what it wrote in flight (the classic
+store's temporary folder, removed when the request aborts; the containerd store's ingest, until its next clean-up):
+the stand-in's in-flight folder stands for that, and the test holds that no tag and no image id of the archive stays.
+`install.sh`'s space stop is held by `tests/unit/test_load_from_the_stick_h95.py` on `tools/packs.py`; a refusing run
+of the real `install.sh` is not in the rehearsal (its host has the space).
 The bench's size breakdown was not found on #639 (H95-05); the per-pack sizes on the install page wait for it.
 
 **Found by this card's own tests, fixed before review.** A model pack's first load wrote `trust.json`, which

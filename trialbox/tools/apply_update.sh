@@ -109,6 +109,7 @@ if [ -d "$SECRETS" ]; then
 fi
 [ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/tb-update.XXXXXX")
+chmod 0700 "$STAGE"  # H-95: a folder of its own, 0700 wherever TMPDIR points (mktemp -d makes it so; said here)
 trap 'rm -rf "$STAGE"' EXIT INT TERM HUP
 BUNDLE_ABS=$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")
 

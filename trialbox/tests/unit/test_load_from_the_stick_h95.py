@@ -284,6 +284,16 @@ def test_the_verify_pass_writes_no_image_and_no_weight(tmp_path: Path) -> None:
         vu.verify(p["model"], p["pub"], tmp_path / "stage2", stream_kinds=("image", "model"))
 
 
+def _archive_manifest(bundle: Path, path: str) -> bytes:
+    with tarfile.open(bundle) as tf:
+        f = tf.extractfile(f"files/{path}")
+        assert f is not None
+        with tarfile.open(fileobj=f) as inner:
+            m = inner.extractfile("manifest.json")
+            assert m is not None
+            return m.read()
+
+
 def _offset(bundle: Path, path: str) -> tuple[int, int]:
     with tarfile.open(bundle) as tf:
         m = tf.getmember(f"files/{path}")
@@ -320,7 +330,14 @@ def test_a_stream_that_fails_its_hash_leaves_nothing_loaded(tmp_path: Path, monk
     tags_f = b["dockerroot"] / "tags.json"
     tags = json.loads(tags_f.read_text()) if tags_f.exists() else {}
     if kind == "image":
+        # no tag, and no image id of the archive left dangling: neither inspectable by its id nor kept as an image.
+        # The stand-in's "loading" folder is a real engine's in-flight space: an engine drops what an aborted load
+        # wrote there (the classic store's temp folder; the containerd store's ingest, at its next clean-up)
         assert ENGINE[0] not in tags and not any(v.startswith("sha256:") for v in tags.values())
+        cfg = json.loads(_archive_manifest(p["model"], path))[0]["Config"].removesuffix(".json")
+        r = subprocess.run(["docker", "image", "inspect", "-f", "{{.Id}}", f"sha256:{cfg}"], capture_output=True,
+                           text=True, env=_env(b), check=False)  # fmt: skip
+        assert r.returncode != 0
         assert not [d for d in (b["dockerroot"] / "images").iterdir() if d.name != "loading"]
     else:
         assert not (deploy / "models" / path).exists()
@@ -433,3 +450,89 @@ def test_the_pack_rules_are_the_same_without_jsonschema(pack: Any) -> None:
 
     m = {**_GOOD_MANIFEST, "pack": pack}
     assert bool(vu._stdlib_schema_errors(m)) == bool(schema_errors("update_manifest", m))
+
+
+def _whole(tmp: Path, keys: tuple[Path, Path]) -> Path:
+    """A whole bundle of before H-95 (no pack): an image and the weights, as every site bundle carries them."""
+    src = tmp / "whole-src"
+    (src / "models/judge").mkdir(parents=True)
+    w = src / "models/judge/model.safetensors"
+    w.write_bytes(_pattern(MB, "whole"))
+    img = src / "engine.tar"
+    release, lock = _release({ENGINE[0]: _archive(img, ENGINE[0], MB)}, 1)
+    out = tmp / "trialbox-whole.tar"
+    build(keys[0], "w1", [("image", img, img.name), ("model", w, "judge/model.safetensors")], out, release_seq=1,
+          release=release, images_lock=lock)  # fmt: skip
+    return out
+
+
+def _software_for(tmp: Path, keys: tuple[Path, Path], models: Path, seq: int = 2) -> Path:
+    src = tmp / f"sw-src-{seq}"
+    src.mkdir(parents=True)
+    a = src / "svc0_1.tar"
+    release, lock = _release({"svc0:1": _archive(a, "svc0:1", MB)}, seq)
+    out = tmp / f"trialbox-sw{seq}.tar"
+    build(keys[0], f"sw{seq}", [("image", a, a.name)], out, release_seq=seq, release=release, images_lock=lock,
+          pack={"kind": "software", "requires_model": model_pack_identity(models)})  # fmt: skip
+    return out
+
+
+def test_a_box_installed_from_a_whole_bundle_holds_its_models(tmp_path: Path) -> None:
+    """D-1094: a whole bundle counts as holding both packs. Installed now, it is recorded in model-pack.json (whole);
+    on a box installed before H-95 (no model-pack.json), its installed.json stands for it. A software pack that names
+    that whole bundle is taken; one that names another model pack is refused."""
+    keys = keygen(tmp_path / "keys")
+    whole = _whole(tmp_path, keys)
+    b = _box(tmp_path, keys[1])
+    assert _apply(b, str(whole)).returncode == 0
+    updates = b["box"] / "deploy/updates"
+    rec = json.loads((updates / up.MODEL_PACK).read_text())
+    assert rec["whole"] is True and rec["manifest_sha256"] == model_pack_identity(whole)["manifest_sha256"]
+    sw = _software_for(tmp_path, keys, whole)
+    assert _apply(b, str(sw), "--dry-run", dry=True).returncode == 0
+    (updates / up.MODEL_PACK).unlink()  # a box installed before H-95
+    r = _apply(b, str(sw), "--dry-run", dry=True)
+    assert r.returncode == 0, r.stderr
+    other = _packs(tmp_path / "o", keys=keys)
+    r = _apply(b, str(_software_for(tmp_path / "o", keys, other["model"], seq=3)), "--dry-run", dry=True)
+    assert r.returncode == 1 and "the box holds the models of the whole bundle w1" in r.stderr
+
+
+@pytest.mark.parametrize("how", ["link", "group-writable"])
+def test_the_model_pack_record_is_read_only_as_the_update_path_wrote_it(tmp_path: Path, how: str) -> None:
+    """deploy/updates/model-pack.json is trusted state: the update path writes it 0600. A link, or a file others
+    may write, is refused, never read (nor its place taken by anything a caller gives)."""
+    p = _packs(tmp_path)
+    b = _box(tmp_path, p["pub"])
+    assert _apply(b, str(p["model"])).returncode == 0
+    rec = b["box"] / "deploy/updates" / up.MODEL_PACK
+    assert stat.S_IMODE(rec.stat().st_mode) == 0o600
+    if how == "link":
+        real = tmp_path / "elsewhere.json"
+        real.write_bytes(rec.read_bytes())
+        rec.unlink()
+        rec.symlink_to(real)
+        said = "is not a plain file"
+    else:
+        rec.chmod(0o664)
+        said = "may be written by others than root"
+    r = _apply(b, str(p["software"]), "--dry-run", dry=True)
+    assert r.returncode == 1 and said in r.stderr
+
+
+def test_the_install_stops_before_loading_when_the_disk_cannot_hold_the_peak(tmp_path: Path) -> None:
+    """Stop (2), with the numbers, before the stick is read whole: per file system, what the load writes there. A
+    pack the box already holds is not counted (a run again of the install is not refused for space it used)."""
+    p = _packs(tmp_path)
+    where = {"docker_root": tmp_path, "models": tmp_path, "stage": tmp_path, "deploy": tmp_path}
+    fits, lines = packs.space([p["software"], p["model"]], where, free_of=lambda _p: 10 * MB)
+    assert not fits and len(lines) == 1 and "NOT ENOUGH" in lines[0] and "free 0.0 GB (" not in lines[0]
+    assert "images" in lines[0] and "weights" in lines[0]
+    fits, _ = packs.space([p["software"], p["model"]], where, free_of=lambda _p: 1 << 40)
+    assert fits
+    updates = tmp_path / "updates"
+    updates.mkdir()
+    for f, name in ((p["model"], up.MODEL_PACK), (p["software"], "installed.json")):
+        (updates / name).write_text(json.dumps({"manifest_sha256": packs.manifest_of(f)[1]}), encoding="utf-8")
+    fits, lines = packs.space([p["software"], p["model"]], where, updates, free_of=lambda _p: 0)
+    assert fits and lines == []

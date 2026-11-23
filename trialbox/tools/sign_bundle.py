@@ -237,8 +237,9 @@ def model_pack_identity(path: Path) -> dict[str, str]:
     except (OSError, KeyError, tarfile.TarError) as exc:
         raise SystemExit(f"{path}: not a signed bundle ({exc})") from exc
     manifest = json.loads(body)
-    if (manifest.get("pack") or {}).get("kind") != "model":
-        raise SystemExit(f"{path}: not a model pack (its manifest has no pack of kind model)")
+    # a whole bundle (no pack) holds its models too (D-1094): a software pack may name it
+    if (manifest.get("pack") or {}).get("kind") not in ("model", None):
+        raise SystemExit(f"{path}: a software pack holds no models: name its model pack or a whole bundle")
     return {"bundle_id": str(manifest["bundle_id"]), "manifest_sha256": hashlib.sha256(body).hexdigest()}
 
 

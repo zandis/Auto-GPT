@@ -888,7 +888,8 @@ class Updater:
                 raise UpdateRefused(f"the box is at release_seq {have}; {plan.bundle_id} needs at least "
                                     f"{plan.min_installed_version} (min_installed_version)")  # fmt: skip
             if plan.is_model_pack:  # H-95: a model pack's order is the model packs' own
-                have = int((held_model_pack(self.dir) or {}).get("release_seq") or 0)
+                rec = held_model_pack(self.dir) or {}
+                have = 0 if rec.get("whole") else int(rec.get("release_seq") or 0)
             if plan.release_seq <= have and not plan.downgrade:
                 raise UpdateRefused(f"release_seq {plan.release_seq} is not above the installed {have}: refused "
                                     "(tools/apply_update.sh --allow-downgrade REASON, audited)")  # fmt: skip
@@ -1122,6 +1123,12 @@ class Updater:
         if isinstance(mode, str) and mode:
             record["vuln_mode"] = mode  # D-884: the release gates' mode, said by `apply_update.sh status` and install
         us.write_atomic(self.dir / us.INSTALLED, record)
+        if plan.pack is None and any(f.get("kind") == "model" for f in plan.files):
+            # H-95 (D-1094): a whole bundle that carries weights holds both halves: a later software pack may name it
+            us.write_atomic(self.dir / MODEL_PACK, {
+                "format": MODEL_PACK_FORMAT, "bundle_id": plan.bundle_id, "manifest_sha256": plan.manifest_sha256,
+                "release_seq": plan.release_seq, "key_id": plan.key_id, "applied_at": _now(),
+                "whole": True})  # fmt: skip
         if plan.trust_after:
             us.write_atomic(self.dir / us.TRUST, plan.trust_after)
 
@@ -2338,12 +2345,14 @@ def first_load_needs(box: Any, plan: Plan, deploy: Path) -> list[tuple[Path, int
 
 
 def held_model_pack(updates: Path) -> dict[str, Any] | None:
-    """H-95: the model pack record (``deploy/updates/model-pack.json``), None when the box holds none."""
-    f = updates / MODEL_PACK
-    if not f.is_file():
-        return None
-    rec = json.loads(f.read_text(encoding="utf-8"))
-    return rec if isinstance(rec, dict) else None
+    """H-95: the model pack record (``deploy/updates/model-pack.json``), None when there is none; the same checks as
+    the verifier's (a link, or a file others may write, is refused: ValueError)."""
+    from tools import verify_update as vu
+
+    try:
+        return vu.load_model_pack(updates / MODEL_PACK)
+    except vu.Rejected as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def box_in_service(deploy: Path, box: Any = None) -> str:
@@ -2471,7 +2480,8 @@ def main_apply(
                 inst = us.installed(updates)
                 have = int(inst["release_seq"])
                 if plan.is_model_pack:  # H-95: a model pack's order is the model packs' own
-                    have = int((held_model_pack(updates) or {}).get("release_seq") or 0)
+                    rec = held_model_pack(updates) or {}
+                    have = 0 if rec.get("whole") else int(rec.get("release_seq") or 0)
                 if plan.release_seq is not None and plan.release_seq <= have and not plan.downgrade:
                     print(f"update REFUSED: release_seq {plan.release_seq} is not above the installed {have}")
                     return 1
