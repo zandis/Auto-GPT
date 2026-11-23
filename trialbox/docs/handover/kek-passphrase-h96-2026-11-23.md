@@ -183,9 +183,9 @@ Each asserted or set up the environment form; each now uses the file or stdin fo
 8. `tests/unit/test_install_faults_runbook.py::test_unattended_runbook_and_help_pass_only_the_exported_name`
 9. `tests/unit/test_kek.py::test_passphrase_init_then_wrap_and_unseal`
 10. `tests/unit/test_key_ceremony.py::test_a_passphrase_box_gets_a_record_marked_not_a_site_ceremony`
-11. `tests/console/test_box_install_rehearsal.py::test_without_a_tpm_the_passphrase_comes_from_the_environment_never_the_file`,
+11. tests/console/test\_box\_install\_rehearsal.py::test\_without\_a\_tpm\_the\_passphrase\_comes\_from\_the\_environment\_never\_the\_file,
     renamed `..._comes_from_a_root_only_file_never_the_environment` (the environment form now refused, exit 2)
-12. `tests/unit/test_host_baseline.py::test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen[extra1-file-FAIL]`,
+12. tests/unit/test\_host\_baseline.py::test\_no\_tpm\_fails\_unless\_the\_passphrase\_back\_end\_is\_chosen\[extra1-file-FAIL],
     now `[extra1-file-WARN]` (the back end alone chooses the WARN; the passphrase is not read there)
 13. `tests/unit/test_rehearsal_workflow.py::test_validation_settings_reach_the_installer`
 14. `tests/unit/test_nightly_restic.py::test_a_passphrase_kek_and_no_kek_are_not_covered` (its set-up)

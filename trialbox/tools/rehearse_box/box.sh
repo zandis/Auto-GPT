@@ -66,14 +66,6 @@ no_passphrase_left() {
 
 # H-96 (7097514776; H-94 (5)): the installer shows the administrator's first password and enrolment code on a terminal
 # once and writes them to no log; with no terminal (docker exec without -t, as here) they are in a root-only file.
-# install_logged OUT: the install, its output (the step log's lines) kept in OUT for the check below
-ONCE_FILE=/root/trialbox-admin-first-sign-in
-install_logged() {
-  local rc=0
-  install_box > "$1" 2>&1 || rc=$?
-  cat "$1"
-  return "$rc"
-}
 # no_once_value_left OUT MIN: the root-only file holds at least MIN one-time values; none of them (read by grep -F -f,
 # never printed) is in the install's output, the stand-in sudo's log or deploy/.env. The file is removed after, as
 # RUNBOOK §1 says
@@ -270,7 +262,8 @@ install)
     || fail "the environment form was not refused before anything (exit $rc)"
   ok "the environment form is refused by install.sh (exit 2, nothing loaded or written)"
   : > "$SUDO_LOG"
-  install_logged "$W/install-output.log" || fail "deploy/install.sh failed"
+  rc=0; install_box > "$W/install-output.log" 2>&1 || rc=$?
+  cat "$W/install-output.log"; [ "$rc" = 0 ] || fail "deploy/install.sh failed"
   no_once_value_left "$W/install-output.log" 2
   [ -f "$KEK_PASS" ] && [ "$(stat -c %a "$KEK_PASS")" = 600 ] || fail "--keep-kek-passphrase-file did not keep the file"
   no_passphrase_left "$KEK_PASS"
@@ -306,7 +299,8 @@ reinstall)
   ok "first install: keys sealed under the passphrase KEK (kek.json)"
   pp_copy="$(mktemp)"; cp "$KEK_PASS" "$pp_copy"   # the patterns for the checks after the file is removed (0600)
   : > "$SUDO_LOG"
-  install_logged "$W/reinstall-output.log" || { rm -f "$pp_copy"; fail "the second install of the same bundle failed"; }
+  rc=0; install_box > "$W/reinstall-output.log" 2>&1 || rc=$?
+  cat "$W/reinstall-output.log"; [ "$rc" = 0 ] || { rm -f "$pp_copy"; fail "the second install of the same bundle failed"; }
   no_once_value_left "$W/reinstall-output.log" 0
   [ ! -e "$KEK_PASS" ] || { rm -f "$pp_copy"; fail "the seal step did not remove the passphrase file"; }
   no_passphrase_left "$pp_copy"; rm -f "$pp_copy"
