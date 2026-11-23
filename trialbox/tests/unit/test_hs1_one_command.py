@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import select
 import json
 import os
 import re
@@ -47,6 +48,22 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _make_bundle_lines(*starts: str) -> str:
+    """The lines of tools/make_bundle.sh that start so, as it runs them (its whole run needs Docker)."""
+    text = (ROOT / "tools" / "make_bundle.sh").read_text(encoding="utf-8")
+    found = [line for line in text.splitlines() if line.startswith(starts)]
+    assert len(found) == len(starts), found
+    return "\n".join(found) + "\n"
+
+
+def _pinned_launcher(pub: Path, out: Path) -> Path:
+    """The stick's ``install`` as make_bundle.sh writes it: the key's fingerprint pinned in the launcher."""
+    script = _make_bundle_lines("fingerprint() {", 'sed "s/@VENDOR_KEY_FINGERPRINT@/', "grep -q '^PIN=")
+    env = {**os.environ, "ROOT": str(ROOT), "STICK_PUB": str(pub), "LAUNCH": str(out)}
+    subprocess.run(["bash", "-euo", "pipefail", "-c", script], env=env, check=True, capture_output=True)
+    return out
+
+
 def _host_tar(path: Path) -> Path:
     """The release's host tree: the real box installer, the code linked to this checkout."""
     with tarfile.open(path, "w:") as tf:
@@ -74,8 +91,7 @@ def stick(tmp_path: Path) -> dict[str, Path]:
     shutil.copy2(BOOT, usb / "trialbox-bootstrap.sh")
     sign_bundle.sign_file(priv, usb / "trialbox-bootstrap.sh")
     shutil.copy2(pub, usb / "vendor_ed25519.pub")
-    shutil.copy2(LAUNCHER, usb / "install")
-    (usb / "install").chmod(0o755)
+    _pinned_launcher(usb / "vendor_ed25519.pub", usb / "install")
     stub = tmp_path / "stubs" / "install.sh"
     stub.parent.mkdir()
     stub.write_text(STOP_INSTALL, encoding="utf-8")
@@ -211,7 +227,7 @@ def test_the_bootstrap_shows_the_same_fingerprint(stick: dict[str, Path]) -> Non
 
 # -------------------------------------------------------------------------------------------- the surface
 def test_the_launcher_takes_no_option(stick: dict[str, Path]) -> None:
-    for args in (["--pub", "x"], ["--"], ["--tier", "large"], ["--answers", "site.yaml"], [str(stick["usb"])]):
+    for args in (["--pub", "x"], ["--"], ["--tier", "large"], ["--answers", "site.yaml"], [str(stick["usb"]), "x"]):
         before = _snapshot(stick["tmp"])
         got = _run(stick, "yes\n", *args)
         assert got.returncode == 1 and "takes no option" in got.stderr, args
@@ -248,6 +264,193 @@ def test_the_launchers_messages_are_plain_with_one_action_each() -> None:
 
 def test_make_bundle_puts_the_launcher_and_the_key_on_the_stick() -> None:
     sh = (ROOT / "tools" / "make_bundle.sh").read_text(encoding="utf-8")
-    assert 'install -m 0755 "$ROOT/deploy/launcher.sh" "$(dirname "$OUT")/install"' in sh
+    assert 'sed "s/@VENDOR_KEY_FINGERPRINT@/$(fingerprint "$STICK_PUB")/" "$ROOT/deploy/launcher.sh" > "$LAUNCH"' in sh
+    assert 'and the launcher\'s code: $(sha256sum "$LAUNCH" | cut -c1-24' in sh
     assert 'openssl pkey -in "$KEY" -pubout -out "$STICK_PUB"' in sh
     assert 'the delivery sheet carries the vendor key\'s fingerprint: $(fingerprint "$STICK_PUB")' in sh
+
+
+# ------------------------------------------------------------------- the review's fixes (M1, M2, L1, L2, HS1-01)
+def _at_the_prompt(s: dict[str, Path], during, answer: bytes = b"yes\n", argv: list[str] | None = None):  # type: ignore[no-untyped-def]
+    """Run the launcher to its question, call ``during()`` while it waits, then answer."""
+    proc = subprocess.Popen(argv or ["bash", str(s["usb"] / "install")], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_env(s), cwd=s["tmp"])  # fmt: skip
+    assert proc.stdout and proc.stdin
+    seen = b""
+    while b"Type yes" not in seen:
+        ready, _, _ = select.select([proc.stdout], [], [], 30)
+        assert ready, f"no question within 30 s: {seen!r}"
+        chunk = os.read(proc.stdout.fileno(), 4096)
+        assert chunk, f"the launcher ended before its question: {seen!r} {proc.stderr.read() if proc.stderr else ''}"
+        seen += chunk
+    during()
+    out, err = proc.communicate(answer, timeout=120)
+    return proc.returncode, (seen + out).decode(), err.decode()
+
+
+def _other_set(s: dict[str, Path]) -> dict[str, Path]:
+    """Another key's bootstrap, .sig and key: the bootstrap only leaves a mark."""
+    other = s["tmp"] / "attacker"
+    priv, pub = sign_bundle.keygen(other)
+    boot = other / "trialbox-bootstrap.sh"
+    boot.write_text(f'#!/usr/bin/env bash\ntouch "{s["tmp"]}/PLANTED"\necho PLANTED-RAN\n', encoding="utf-8")
+    sign_bundle.sign_file(priv, boot)
+    return {"boot": boot, "sig": other / "trialbox-bootstrap.sh.sig", "pub": pub}
+
+
+@pytest.mark.parametrize("how", ["append", "rewrite-in-place"])
+def test_a_line_written_into_install_during_the_prompt_does_not_run(stick: dict[str, Path], how: str) -> None:
+    """M1: bash reads a script as it runs it. The launcher is read whole before it runs (main on the last line)."""
+    install = stick["usb"] / "install"
+    planted = f'\ntouch "{stick["tmp"]}/PLANTED"; echo PLANTED-RAN; exit 0\n'.encode()
+
+    def write() -> None:
+        with open(install, "r+b") as f:  # the same file (inode), as a writable stick allows
+            if how == "append":
+                f.seek(0, os.SEEK_END)
+                f.write(planted)
+            else:
+                data = f.read()
+                at = data.index(b"Type yes")  # from the line of the question on, as the review's experiment did
+                at = data.index(b"\n", at) + 1
+                f.seek(at)
+                f.write(b"\n" * (len(data) - at) + planted)  # blank lines, then the planted line: read at any offset
+
+    rc, out, err = _at_the_prompt(stick, write)
+    assert "PLANTED-RAN" not in out and not (stick["tmp"] / "PLANTED").exists(), out + err
+    assert "==> plan from the hardware" in out + err
+
+
+def test_the_sticks_files_swapped_during_the_prompt_are_not_what_runs(stick: dict[str, Path]) -> None:
+    """M2: the copies taken before the question are what is fingerprinted, checked, run and placed."""
+    other = _other_set(stick)
+    usb = stick["usb"]
+
+    def swap() -> None:
+        shutil.copy2(other["boot"], usb / "trialbox-bootstrap.sh")
+        shutil.copy2(other["sig"], usb / "trialbox-bootstrap.sh.sig")
+        shutil.copy2(other["pub"], usb / "vendor_ed25519.pub")
+
+    rc, out, err = _at_the_prompt(stick, swap)
+    assert "PLANTED-RAN" not in out and not (stick["tmp"] / "PLANTED").exists(), out + err
+    assert "==> plan from the hardware" in out + err, out + err
+    assert (stick["opt"] / "deploy/keys/vendor_ed25519.pub").read_bytes() == stick["pub"].read_bytes()
+    assert f"fingerprint: {_fingerprint(stick['pub'])}" in out  # the bootstrap was handed the confirmed key
+
+
+def test_openssl_reads_only_the_private_copies(stick: dict[str, Path]) -> None:
+    """M2: every file the launcher fingerprints or checks with is a private copy, never a file on the stick."""
+    shim = stick["tmp"] / "shim"
+    shim.mkdir()
+    log = stick["tmp"] / "openssl.log"
+    real = shutil.which("openssl")
+    (shim / "openssl").write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\nexec "{real}" "$@"\n', encoding="utf-8")
+    (shim / "openssl").chmod(0o755)
+    env = {**_env(stick), "PATH": f"{shim}:{_env(stick)['PATH']}"}
+    got = subprocess.run(["bash", str(stick["usb"] / "install")], input="yes\n", capture_output=True, text=True,
+                         env=env, cwd=stick["tmp"], check=False, timeout=120)  # fmt: skip
+    assert "==> plan from the hardware" in got.stdout + got.stderr
+    calls = log.read_text(encoding="utf-8").splitlines()
+    private = str(stick["tmp"] / "tmp") + "/"
+    launcher_calls = [c for c in calls if "-pubin -in" in c or "pkeyutl" in c]
+    assert len(launcher_calls) >= 2, calls
+    for call in launcher_calls:
+        files = re.findall(r"-(?:in|inkey|sigfile) (\S+)", call)
+        assert files and all(f.startswith(private) for f in files), call
+    assert str(stick["usb"]) not in "\n".join(c for c in calls if "pkeyutl" in c)
+
+
+def test_the_private_copies_are_private_and_gone_after(stick: dict[str, Path]) -> None:
+    seen: list[tuple[int, list[str]]] = []
+
+    def look() -> None:
+        (work,) = list((stick["tmp"] / "tmp").iterdir())
+        seen.append((work.stat().st_mode & 0o777, sorted(p.name for p in work.iterdir())))
+
+    _at_the_prompt(stick, look, answer=b"no\n")
+    assert seen == [(0o700, ["trialbox-bootstrap.sh", "trialbox-bootstrap.sh.sig", "vendor_ed25519.pub"])]
+    assert list((stick["tmp"] / "tmp").iterdir()) == []
+
+
+def test_a_key_other_than_the_pinned_one_stops_before_the_question(stick: dict[str, Path]) -> None:
+    """HS1-01, the ruling: a whole other set on the stick (key, bootstrap, .sig) is refused by the pin."""
+    other = _other_set(stick)
+    usb = stick["usb"]
+    shutil.copy2(other["boot"], usb / "trialbox-bootstrap.sh")
+    shutil.copy2(other["sig"], usb / "trialbox-bootstrap.sh.sig")
+    shutil.copy2(other["pub"], usb / "vendor_ed25519.pub")
+    before = _snapshot(stick["tmp"])
+    got = _run(stick, "yes\n")
+    assert got.returncode == 1 and "not the key this installer was made for" in got.stderr
+    assert "Type yes" not in got.stdout
+    assert _snapshot(stick["tmp"]) == before
+
+
+def test_a_launcher_without_its_pin_and_a_key_that_cannot_be_read_stop(stick: dict[str, Path]) -> None:
+    shutil.copy2(LAUNCHER, stick["usb"] / "install")  # the source file, not made for a stick
+    got = _run(stick, "yes\n")
+    assert got.returncode == 1 and "not made for a stick" in got.stderr
+    _pinned_launcher(stick["pub"], stick["usb"] / "install")
+    (stick["usb"] / "vendor_ed25519.pub").write_text("not a key\n", encoding="utf-8")
+    before = _snapshot(stick["tmp"])
+    got = _run(stick, "yes\n")
+    assert got.returncode == 1 and "cannot be read" in got.stderr and "Type yes" not in got.stdout
+    assert _snapshot(stick["tmp"]) == before
+
+
+@pytest.mark.parametrize("name", ["trialbox-bootstrap.sh", "trialbox-bootstrap.sh.sig", "vendor_ed25519.pub"])
+@pytest.mark.parametrize("how", ["link", "large"])
+def test_a_link_or_a_large_file_on_the_stick_stops_with_nothing_changed(
+    stick: dict[str, Path], name: str, how: str
+) -> None:
+    """L1: nothing is copied whole from the stick, and a link is refused."""
+    f = stick["usb"] / name
+    if how == "link":
+        real = stick["tmp"] / "elsewhere" / name
+        real.parent.mkdir()
+        f.rename(real)
+        f.symlink_to(real)
+    else:
+        with open(f, "ab") as h:
+            h.write(b"#" * 262145)
+    before = _snapshot(stick["tmp"])
+    got = _run(stick, "yes\n")
+    assert got.returncode == 1 and "Call the vendor." in got.stderr
+    assert ("not a plain file" if how == "link" else "too large") in got.stderr
+    assert _snapshot(stick["tmp"]) == before and not stick["opt"].exists()
+
+
+def test_a_stick_path_with_a_space_stops_before_anything_changes(stick: dict[str, Path]) -> None:
+    """L2: the update step refuses such a path only after the tree is unpacked; the launcher and the bootstrap
+    refuse it first."""
+    spaced = stick["usb"].parent / "TRIAL BOX"
+    stick["usb"].rename(spaced)
+    stick["usb"] = spaced
+    before = _snapshot(stick["tmp"])
+    got = _run(stick, "yes\n")
+    assert got.returncode == 1 and "Rename the stick TRIALBOX" in got.stderr and "Type yes" not in got.stdout
+    assert _snapshot(stick["tmp"]) == before
+    boot = subprocess.run(["bash", str(BOOT), str(spaced / "trialbox-1.0.0.tar"), "--pub", str(stick["pub"]), "--box"],
+                          capture_output=True, text=True, env=_env(stick), check=False, timeout=60)  # fmt: skip
+    assert boot.returncode == 1 and "Rename the stick TRIALBOX" in boot.stderr
+    assert _snapshot(stick["tmp"]) == before and not stick["opt"].exists()
+
+
+@pytest.mark.parametrize("first", ["yes", "no"])
+def test_the_sheets_line_runs_the_copy_only_after_its_code_is_confirmed(stick: dict[str, Path], first: str) -> None:
+    """HS1-01, the ruling: the sheet's line copies the launcher, prints its code with stock tools, waits, and runs
+    that copy with the stick's folder. Run here with the paths of the test (no sudo, no /root)."""
+    line = re.search(r"the sheet's line: (.*)\"$", _make_bundle_lines('echo "      the sheet\'s line:'))
+    assert line
+    cmd = line.group(1).replace('\\"', '"').replace("\\$", "$").replace("sudo ", "")
+    copy = stick["tmp"] / "trialbox-install"
+    cmd = cmd.replace("/root/trialbox-install", str(copy)).replace("/media/<user>/TRIALBOX", str(stick["usb"]))
+    got = subprocess.run(["bash", "-c", cmd], input=f"{first}\nyes\n", capture_output=True, text=True,
+                         env=_env(stick), cwd=stick["tmp"], check=False, timeout=120)  # fmt: skip
+    code = hashlib.sha256((stick["usb"] / "install").read_bytes()).hexdigest()[:24]
+    assert " ".join(code[i : i + 4] for i in range(0, 24, 4)) in got.stdout
+    assert copy.stat().st_mode & 0o777 == 0o700
+    if first == "yes":
+        assert "==> plan from the hardware" in got.stdout + got.stderr, got.stderr
+    else:
+        assert "Vendor key fingerprint" not in got.stdout and not stick["opt"].exists()

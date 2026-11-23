@@ -50,6 +50,10 @@ for tool in tar base64 openssl sha256sum python3; do
   command -v "$tool" >/dev/null || die "this machine has no $tool (Ubuntu 24.04 has it: RUNBOOK §1 step 1)"
 done
 BUNDLE="$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")"
+# the installer's update step refuses such a path late, after the tree is unpacked: refused here, before anything
+case "$BUNDLE" in
+  *[[:space:]*?\[]*) die "the bundle's path has a space or a glob character: $BUNDLE. Rename the stick TRIALBOX (nothing was changed)" ;;
+esac
 ROOT="${TB_BOOTSTRAP_ROOT:-/opt/trialbox}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

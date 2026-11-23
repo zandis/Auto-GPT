@@ -7,9 +7,9 @@
     {
       "id": "HS1-01",
       "severity": "High",
-      "claim": "The stick's launcher (deploy/launcher.sh, copied as install) is not signed: a swapped stick can carry another launcher, key and bootstrap and show the genuine fingerprint; the paper code protects only an honest launcher, and RUNBOOK section 1's longer form (key out of band) stays the stronger check",
+      "claim": "The stick's launcher (deploy/launcher.sh, copied as install) is code from the stick, so any check it makes protects only an honest launcher; ruled by the integrator: accepted for a supervised PoC on synthetic data, the anchor outside the stick is the delivery sheet (the launcher's sha256, first 24 hex, beside the key's fingerprint, and a line with stock tools that runs a private copy only after the code is confirmed), and the launcher pins the vendor key's fingerprint",
       "lane": "H",
-      "basis": "hypothesis",
+      "basis": "shown",
       "state": "open"
     },
     {
@@ -39,10 +39,42 @@
     {
       "id": "HS1-05",
       "severity": "Low",
-      "claim": "The fingerprint's form (the first 24 hex digits of the sha256 of the key's DER form) was chosen in HS-1 without a decision",
+      "claim": "The fingerprint's form; ruled by the integrator: the first 24 hex digits (96 bits) of the sha256 of the key's DER form, in six groups of four, the same on the sheet and the screen",
       "lane": "H",
-      "basis": "not stated",
-      "state": "open"
+      "basis": "shown",
+      "state": "fixed"
+    },
+    {
+      "id": "HS1-06",
+      "severity": "Medium",
+      "claim": "bash read deploy/launcher.sh from the stick as it ran, so a line written into the stick's install during the fingerprint question ran after the signature check; fixed: the body is a function called on the last line",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed"
+    },
+    {
+      "id": "HS1-07",
+      "severity": "Medium",
+      "claim": "No test held the launcher's copy-then-verify-then-run order: 8 of 8 of the independent review's mutants survived; fixed: a swap of the stick's bootstrap, .sig and key during the question, and a check that openssl reads only the private copies",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed"
+    },
+    {
+      "id": "HS1-08",
+      "severity": "Low",
+      "claim": "The launcher copied the stick's bootstrap, .sig and key whole, following links, before any check; fixed: a link or a file over 256 KiB stops with nothing changed",
+      "lane": "H",
+      "basis": "hypothesis",
+      "state": "fixed"
+    },
+    {
+      "id": "HS1-09",
+      "severity": "Low",
+      "claim": "A stick path with a space was refused by tools/apply_update.sh only after /opt/trialbox was unpacked and the key placed; fixed: the launcher and the bootstrap refuse it before anything is written",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed"
     }
   ]
 }
