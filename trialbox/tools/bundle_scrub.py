@@ -278,10 +278,12 @@ QUOTED = re.compile(
 ESCAPED = re.compile(r"(?P<q>\\+\")(?P<key>[^\"\\\s]{1,80})(?P=q)(?P<sep>\s*:\s*)(?P=q)(?P<val>.*?)(?P=q)")
 #: ``name: value`` inside a line (a header, a log's words), to the end of the line or a quote
 #: round 3: a key after ``/`` (``/token: v``) and a quoted value after an unquoted key (``{password: "S"}``, a JS
-#: object, a YAML mapping) are taken too
+#: object, a YAML mapping) are taken too; round 4: an encoded space before the quote (``key:+"S"``, ``key:%20"S"``)
+#: an encoded space a form or a URL writes before a quoted value
+ENCODED_SPACE = re.compile(r"(?:\+|%20|%09)*")
 COLON = re.compile(
     rf"(?<![A-Za-z0-9_.@\-])(?P<key>{_KEY})(?P<sep>[ \t]*:[ \t]*)(?!//)"
-    r"(?P<val>\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|[^\r\n\"']+)"
+    r"(?P<val>(?:\+|%20|%09)*(?:\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*')|[^\r\n\"']+)"
 )
 HEADER = re.compile(
     r"(?im)(?<![A-Za-z0-9_\-])(?P<key>authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)"
@@ -442,15 +444,22 @@ class Scrubber:
 
     def _value(self, m: re.Match[str], rule: str) -> str:
         val = m.group("val")
-        if not secret_name(m.group("key"), self.decl) or _keeps(val.strip("\"'")) or val.strip() == REDACTED:
+        # #1354 round 4: an encoded space before a quoted value (``key:+"S"``, ``key:%20"S"``) stays before it; a value
+        # that decodes to nothing (the encoded space alone) is no value: masking it left the quoted value after it on
+        # the line, and the decoded view then saw the key already masked
+        lead = ENCODED_SPACE.match(val).group(0) if rule == "colon" else ""
+        rest = val[len(lead) :]
+        core = rest.strip("\"'")
+        if not secret_name(m.group("key"), self.decl) or _keeps(_decode(core)) or core.strip() == REDACTED:
             return m.group(0)
         if rule == "quoted" and _a_count(val):
             return m.group(0)
         self.found[f"secret ({rule})"] += 1
-        q = val[:1] if val[:1] and val[:1] in "\"'" and rule != "escaped" else ""
+        q = rest[:1] if rest[:1] and rest[:1] in "\"'" and rule != "escaped" else ""
         if rule == "quoted" and not q:
             q = '"'  # a bare JSON value becomes a JSON string: the document stays JSON
-        return m.group(0)[: m.start("val") - m.start(0)] + f"{q}{REDACTED}{q}" + m.group(0)[m.end("val") - m.start(0) :]
+        new = f"{lead}{q}{REDACTED}{q}"
+        return m.group(0)[: m.start("val") - m.start(0)] + new + m.group(0)[m.end("val") - m.start(0) :]
 
     def _lines(self, text: str) -> str:
         """Whole-line assignments, with a quoted value that runs over lines and a YAML block value."""
