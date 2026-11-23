@@ -15,22 +15,28 @@
 #      else. A folder that already holds a TrialBox tree is kept: the installer replaces it from the signed bundle;
 #   4. the key goes to /opt/trialbox/deploy/keys/vendor_ed25519.pub, where the installer's first step looks for it
 #      (refused if a different key is already there);
-#   5. deploy/install.sh runs with the bundle and the arguments after `--`.
+#   5. deploy/install.sh runs with the bundle and the arguments after `--`; with --box, deploy/box-install.sh does
+#      (the box form, HS-1: the stick's `install` launcher, deploy/launcher.sh, runs it so).
 # Run it again at any time (an install that stopped is run again by the same command): nothing it did is done twice.
 #
+# The fingerprint it shows is the one the stick's launcher shows and the delivery sheet carries (HS-1).
 # Knobs for the tests only: TB_BOOTSTRAP_NO_ROOT=1, TB_BOOTSTRAP_ROOT (/opt/trialbox).
 set -euo pipefail
 die() { echo "trialbox-bootstrap: $*" >&2; exit 1; }
+# the fingerprint: the first 24 hex digits of the sha256 of the key's DER form, in groups of four
+# (the same line is in the stick's launcher and the bundle builder; a test holds the three together)
+fingerprint() { openssl pkey -pubin -in "$1" -outform DER 2>/dev/null | sha256sum | cut -c1-24 | sed 's/..../& /g; s/ $//'; }
 usage() {
-  echo "usage: sudo bash trialbox-bootstrap.sh trialbox-<version>.tar --pub <vendor key> [-- <install.sh options>]" >&2
+  echo "usage: sudo bash trialbox-bootstrap.sh trialbox-<version>.tar --pub <vendor key> [--box] [-- <install.sh or box-install.sh options>]" >&2
   exit 2
 }
-BUNDLE=""; PUB=""
+BUNDLE=""; PUB=""; BOX=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --pub) [ -n "${2:-}" ] || usage; PUB="$2"; shift ;;
+    --box) BOX=1 ;;
     --) shift; break ;;
-    -h|--help) sed -n 2,20p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,22p "$0"; exit 0 ;;
     -*) echo "trialbox-bootstrap: unknown option $1 (the installer's options go after --)" >&2; usage ;;
     *) [ -z "$BUNDLE" ] || usage; BUNDLE="$1" ;;
   esac
@@ -44,6 +50,10 @@ for tool in tar base64 openssl sha256sum python3; do
   command -v "$tool" >/dev/null || die "this machine has no $tool (Ubuntu 24.04 has it: RUNBOOK §1 step 1)"
 done
 BUNDLE="$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")"
+# the installer's update step refuses such a path late, after the tree is unpacked: refused here, before anything
+case "$BUNDLE" in
+  *[[:space:]*?\[]*) die "the bundle's path has a space or a glob character: $BUNDLE. Rename the stick TRIALBOX (nothing was changed)" ;;
+esac
 ROOT="${TB_BOOTSTRAP_ROOT:-/opt/trialbox}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -54,7 +64,7 @@ tar -xf "$BUNDLE" -C "$WORK" --no-same-owner manifest.json manifest.json.sig 2>/
 base64 -d "$WORK/manifest.json.sig" > "$WORK/sig.raw" 2>/dev/null || die "manifest.json.sig is not base64"
 openssl pkeyutl -verify -pubin -inkey "$PUB" -rawin -in "$WORK/manifest.json" -sigfile "$WORK/sig.raw" >/dev/null 2>&1 \
   || die "the bundle's signature does not check with the vendor key $PUB: the bundle is refused"
-echo "bundle: signed by the vendor key (sha256 of the key: $(sha256sum "$PUB" | cut -c1-16))"
+echo "bundle: signed by the vendor key (fingerprint: $(fingerprint "$PUB"))"
 
 # ----------------------------------------------------------------------------------------------- 2. the host tree
 HOST="$(python3 -I -c '
@@ -99,5 +109,12 @@ fi
 
 # -------------------------------------------------------------------------------------------- 5. the installer
 cd "$ROOT"
+rm -rf "$WORK"   # exec below replaces this shell, so the EXIT trap would never run (HS-1 finding)
+trap - EXIT
+if [ "$BOX" = 1 ]; then
+  [ -f "$ROOT/deploy/box-install.sh" ] || die "the host tree at $ROOT carries no deploy/box-install.sh"
+  echo "running: $ROOT/deploy/box-install.sh $BUNDLE $*"
+  exec bash "$ROOT/deploy/box-install.sh" "$BUNDLE" "$@"
+fi
 echo "running: $ROOT/deploy/install.sh $BUNDLE $*"
 exec bash "$ROOT/deploy/install.sh" "$BUNDLE" "$@"
