@@ -81,19 +81,21 @@ ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE="
 # shows) and the step goes on; on any other box the same stop as before, the same words and exit code. "H-94
 # depends (N)" marks a stop kept because it protects stop N on the input that reaches it (D-1091, H94-03).
 # A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
-# The sources are TB_ENV in deploy/.env (a file that cannot be read, or a value none of the four: PRODUCTION), an
-# installed box with none (PRODUCTION, D-127), the rehearsal mark on a box that records none yet (VALIDATION), and
-# this run's command line (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a caller's
-# environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+# The sources are TB_ENV in deploy/.env read as compose reads it (an "export", blanks, a comment; the last line wins.
+# A file that cannot be read, or a value none of the four: PRODUCTION), an installed box with none (PRODUCTION,
+# D-127), the rehearsal mark on a box that records none yet (VALIDATION), and this run's command line, upper-cased
+# only, as ENV-EARLY reads it (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a
+# caller's environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
 tb_poc_box() {
   _d="$TB_STOP_DEPLOY"; _rec=""
   if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
     [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
-    _rec="$(sed -n 's/^TB_ENV=//p' "$_d/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+    _rec="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$_d/.env" | tail -1 \
+      | sed -E "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
   fi
   if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
   if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
-  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr '[:lower:]' '[:upper:]')"
   [ -n "$_arg" ] || [ "$TB_STOP_REHEARSAL" != 1 ] || _arg=VALIDATION
   for _e in "$_rec" "$_arg"; do case "$_e" in ""|DEV|TEST|VALIDATION) ;; *) return 1 ;; esac; done
   [ -n "$_rec$_arg" ]
@@ -106,8 +108,8 @@ tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or t
   _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
   [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
   if [ ! -L "$_f" ] && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
-      && printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
-        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f" 2>/dev/null; then
+      && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
+        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
     chmod 0640 "$_f" 2>/dev/null || true
   else
     printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
@@ -129,12 +131,19 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
 # ---- end of STOP-OR-WARN
 # H-94: this run's command line is read once before the arguments are, so a stop while they are read knows the box
 TB_STOP_WHO=install; TB_STOP_FILE=install.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""; TB_STOP_REHEARSAL=0
-_prev=""
+_prev=""; _clear=1
 for _a in "$@"; do
   [ "$_prev" != --environment ] || TB_STOP_ARG_ENV="$_a"
   [ "$_a" != --rehearsal ] || TB_STOP_REHEARSAL=1
+  case "$_a" in --check|--tier-check|--ctgov-check) _clear=0 ;; esac
   _prev="$_a"
 done
+# the list is this install's (review L-3 of #1396): emptied when an install starts, kept by the run from the signed
+# tree (the same install, TB_INSTALL_SIGNED naming the release `current` names) and by a run that only checks. rm
+# takes a link away, never what it names
+if [ "$_clear" = 1 ] && { [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; }; then
+  rm -f -- "$TB_STOP_DEPLOY/site/poc-stops.jsonl" 2>/dev/null || true
+fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -229,9 +238,10 @@ else
   [ "$REAL_SERVERS" = 0 ] || case "$GPU_INDEX" in ""|*[!0-9]*) rrs_drop rrs-gpu-index "--rehearsal-real-servers: --gpu-index N names the one whole card (0, 1, ...), never all" ;; esac
   [ "$REAL_SERVERS" = 0 ] || { [ -n "$ENGINE_PROBE" ] && [ -f "$ENGINE_PROBE" ]; } || rrs_drop rrs-engine-probe "--rehearsal-real-servers: --engine-probe FILE, the engine probe's result taken on that card (tools/engine_probe.py run), is missing"
   [ "$REAL_SERVERS" = 0 ] || ENGINE_PROBE="$(readlink -f "$ENGINE_PROBE")"
-  # before the override's check: a run that drops the real servers hands its stand-ins on to the signed re-run,
-  # which drops them again here first
-  [ "$REAL_SERVERS" = 0 ] || command -v python3 >/dev/null || rrs_drop rrs-python3 "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
+  # on a PoC box before the override's check: a run that drops the real servers hands its stand-ins on to the signed
+  # re-run, which drops them again here first. Elsewhere master's order (after the environment's check), so
+  # master's first words (review L-1)
+  [ "$REAL_SERVERS" = 0 ] || command -v python3 >/dev/null || ! tb_poc_box || rrs_drop rrs-python3 "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
   # the script's own override is never handed to the signed re-run (H-89, above the exec); a caller's own stays
   # refused on every box (the lane H lead's list for H-94; H94-07 asks the integrator)
   [ "$REAL_SERVERS" = 0 ] || [ -z "${TB_COMPOSE_OVERRIDE:-}" ] || die "--rehearsal-real-servers writes the box's compose override itself: unset TB_COMPOSE_OVERRIDE"  # H-94 (3): a caller's override on the real servers is a state a site must never get (lane H lead)
@@ -240,6 +250,7 @@ else
     stop_or_warn rrs-environment "--environment $ENVIRONMENT (a rehearsal box is VALIDATION)" "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
     ENVIRONMENT=""; TB_STOP_ARG_ENV=""
   fi
+  [ "$REAL_SERVERS" = 0 ] || command -v python3 >/dev/null || rrs_drop rrs-python3 "--rehearsal-real-servers needs python3 on the host (tools/rehearsal_real.py)"
   [ "$REAL_SERVERS" = 0 ] || MODE=gpu
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
@@ -999,7 +1010,8 @@ fi
 # command prints the file, then each folder; a folder that is not there, or that the console's user cannot read
 # (asked of the console's own image), stops the install: the page would say "no signed heads" on a healthy chain
 NO_ANCHOR="the audit anchor folders' mount into the console (the audit page finds no signed head)"
-if [ "${ANCHOR_OK:-1}" = 1 ] && [ "${ANCHOR_UNSAFE:-0}" = 0 ] && command -v python3 >/dev/null; then
+ANCHOR_OK=1  # set here, never a caller's (review H-2 of #1396)
+if [ "$ANCHOR_OK" = 1 ] && [ "${ANCHOR_UNSAFE:-0}" = 0 ] && command -v python3 >/dev/null; then
   ANCHOR_OUT="$(python3 -m tools.trialbox anchors-compose --deploy "$ROOT/deploy")" \
     || { stop_or_warn anchors-compose "$NO_ANCHOR" "TB_AUDIT_ANCHOR_TARGETS in deploy/.env names a folder that cannot be mounted (above)"; ANCHOR_OUT=""; }
   if [ -n "$ANCHOR_OUT" ]; then
@@ -1010,7 +1022,7 @@ if [ "${ANCHOR_OK:-1}" = 1 ] && [ "${ANCHOR_UNSAFE:-0}" = 0 ] && command -v pyth
         'test -r /anchor && test -x /anchor && for d in heads keys; do [ ! -e "/anchor/$d" ] || { test -r "/anchor/$d" && test -x "/anchor/$d"; } || exit 1; done' </dev/null \
         || { stop_or_warn anchor-read "$NO_ANCHOR" "TB_AUDIT_ANCHOR_TARGETS: the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then re-run"; ANCHOR_OK=0; }
     done <<< "${ANCHOR_OUT#*$'\n'}"
-    [ "${ANCHOR_OK:-1}" = 0 ] || { COMPOSE+=(-f "$ANCHOR_FILE"); FILES="$FILES:$ANCHOR_FILE"; }
+    [ "$ANCHOR_OK" = 0 ] || { COMPOSE+=(-f "$ANCHOR_FILE"); FILES="$FILES:$ANCHOR_FILE"; }
   fi
 elif [ -n "$(envget TB_AUDIT_ANCHOR_TARGETS)" ]; then
   echo "install: note: no python3 on this host: the anchor folders are not mounted into the console, so the audit page will not check the signed heads (D-638)" >&2
@@ -1092,7 +1104,14 @@ if [ "$PULL" = never ]; then
 fi
 # D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
 # update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
+# H-94 (3): pre-start's first check, its rehearsal guard (a box with a rehearsal sign never starts as PRODUCTION,
+# tools/rehearsal_real.py start_refusal), is run on its own first on a PoC box, so the warning below never covers it
+# (review M-2 of #1396). On any other box pre-start refuses it itself, with master's words
 if command -v python3 >/dev/null; then
+  if tb_poc_box; then
+    python3 -m tools.rehearsal_real start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
+      || die "a start-up step of this release failed (pre-start above)"  # H-94 (3)
+  fi
   python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
     || stop_or_warn pre-start "" "a start-up step of this release failed (pre-start above)"
 else
@@ -1444,7 +1463,15 @@ fi
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
 HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"})
-sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
+# H-94 (5): its FAIL lines about a secret's mode (deploy/.env, a key, a token) are kept apart: on a PoC box they stay
+# FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before
+HOST_OUT=""; exec 8>&1
+HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee /dev/fd/8)" \
+  || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
+exec 8>&-
+SECRET_FAILS=()
+while IFS= read -r l; do SECRET_FAILS+=("the host check: $l"); done < <(printf '%s\n' "$HOST_OUT" \
+  | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password' | sed -E 's/^FAIL +//' || true)
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
 if [ "$MODE" = gpu ]; then
@@ -1509,4 +1536,8 @@ fi
 if [ "${#FAILS[@]}" -gt 0 ]; then
   tb_poc_box || printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
   for f in "${FAILS[@]}"; do stop_or_warn --silent "fail: $(printf '%s' "$f" | cut -c1-40)" "" "FAIL: $f"; done
+fi
+if [ "${#SECRET_FAILS[@]}" -gt 0 ]; then  # on any other box the lines above stopped already, with master's words
+  printf 'install: FAIL: %s\n' "${SECRET_FAILS[@]}" >&2
+  exit 1  # H-94 (5): a secret's file or key where others can read it
 fi

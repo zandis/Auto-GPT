@@ -14,7 +14,8 @@ box it stops exactly as before (the same words, the same exit code).
 WHAT A PoC BOX IS (:func:`poc_box`), read only from what a caller cannot forge into a looser state on a PRODUCTION
 box. A caller's environment variable is never read for it:
 
-* the box's recorded environment, ``TB_ENV`` in ``deploy/.env`` (written by the installer, 0600); a file that is there
+* the box's recorded environment, ``TB_ENV`` in ``deploy/.env`` (written by the installer, 0600), read as compose
+  reads it (``export``, blanks around the name, a comment; the last line wins: review H-1); a file that is there
   but cannot be read, or a value that is none of the four, is a box that cannot be told: PRODUCTION;
 * an installed box (``deploy/settings.yaml`` or ``deploy/updates/installed.json``) with no ``TB_ENV`` is PRODUCTION
   (D-127);
@@ -52,6 +53,7 @@ ENVS = (*POC_ENVS, "PRODUCTION")
 ACTION = "fix what it names before this box serves a site, then run the step again"
 _SECRET = re.compile(r"\b([a-z0-9_]*(?:password|passphrase|token|secret|_key))=\S*", re.I)
 _UPLOADS = re.compile(r"\S*/uploads/\S*")
+_TB_ENV = re.compile(r"^\s*(?:export\s+)?TB_ENV\s*=(.*)$")  # compose: an export, blanks around the name
 
 
 def _norm(value: str) -> str:
@@ -69,8 +71,10 @@ def recorded(deploy: Path) -> str | None:
         except (OSError, UnicodeDecodeError):
             return None
         for line in text.splitlines():
-            if line.startswith("TB_ENV="):
-                rec = _norm(line.removeprefix("TB_ENV="))
+            m = _TB_ENV.match(line)
+            if m:  # as compose reads it (tools/rehearsal_real.py env_file): the last line wins
+                value = m.group(1)
+                rec = _norm(value if value.lstrip().startswith(("'", '"')) else re.sub(r"\s+#.*$", "", value))
     if not rec and ((deploy / "settings.yaml").exists() or (deploy / "updates" / "installed.json").exists()):
         rec = "PRODUCTION"  # D-127: an installed box that names none
     if not rec and (deploy / "site" / "rehearsal.json").is_file():
@@ -80,11 +84,12 @@ def recorded(deploy: Path) -> str | None:
 
 def poc_box(deploy: Path, *, environment: str = "", rehearsal: bool = False) -> bool:
     """True on a PoC box (DEV, TEST or VALIDATION by every source that speaks); False on PRODUCTION and on a box
-    whose state cannot be told. ``environment`` and ``rehearsal`` are this run's command line, never a variable."""
+    whose state cannot be told. ``environment`` and ``rehearsal`` are this run's command line, never a variable;
+    ``environment`` is upper-cased only, as the installer's first check reads it (review L-2)."""
     rec = recorded(deploy)
     if rec is None:
         return False
-    arg = _norm(environment) or ("VALIDATION" if rehearsal else "")
+    arg = environment.upper() or ("VALIDATION" if rehearsal else "")
     if any(v not in ("", *POC_ENVS) for v in (rec, arg)):
         return False
     return bool(rec or arg)

@@ -1,6 +1,8 @@
-"""H-94 (the owner's ruling, relayed as 7092087958): on a PoC box the install, start and update paths stop for four
-things only: (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it;
-(3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does not have it.
+"""H-94 (the owner's ruling, relayed as 7092087958; D-1091): on a PoC box the install, start and update paths stop for
+five things only: (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run
+it; (3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does not have it;
+(5) a secret would be read from, or written to, a place others can read (7095256773). The review of #1396 and its
+ruling (7096812411, 7096812799): ``test_poc_stops_review_h94.py``.
 Every other stop, on a PoC box, warns, is written to one list that ``doctor`` shows, and the install goes on; on a
 PRODUCTION box nothing changes.
 
@@ -367,15 +369,15 @@ def test_a_poc_install_goes_through_every_converted_point(tmp_path: Path) -> Non
         r = box.install(*args, force=force, env=env)
         seen |= _check(name, r, keys)
         first = first or box
-    # a second and a third install on the first box: the list survives both and the signed re-runs
+    # a second and a third install on the first box: each list is its own install's, kept through its signed re-run
+    # (review L-3 of #1396, ruled 7096812799: a point fixed before the next install is not shown again)
     assert first is not None
-    before = Run(0, "", "", first.tmp).listed_keys()
     r = first.install("--environment", "DEV", "--mode", "stub", "--yes",
                       force=("project-cleanup-refused", "finish-early"))  # fmt: skip
     seen |= _check("second install", r, {"environment-change", "project-cleanup-refused", "finish-early"})
     r = first.install("--mode", "stub", "--yes", force=("finish-early-did-not-run",))
     seen |= _check("third install", r, {"finish-early-did-not-run"})
-    assert before <= r.listed_keys()
+    assert not {"install.sh/project-cleanup-refused", "install.sh/finish-early"} & r.listed_keys()
     # the questions on a terminal: no answers file, a ClinicalTrials.gov answer that is neither
     tty = Box(tmp_path / "tty", env="TB_ENV=TEST\n")
     r = tty.install("--environment", "TEST", "--mode", "stub", "--answers", str(tmp_path / "none.yaml"),
@@ -402,6 +404,7 @@ def test_a_poc_install_goes_through_every_converted_point(tmp_path: Path) -> Non
 PLANTED = {  # what a caller could set: none of it makes a PRODUCTION box a PoC box
     "TB_ENV": "VALIDATION", "TB_STOP_ARG_ENV": "VALIDATION", "TB_STOP_REHEARSAL": "1", "TB_REHEARSAL": "1",
     "TB_STOP_DEPLOY": "/nonexistent", "TB_STOP_WHO": "x", "ENVIRONMENT": "DEV", "REHEARSAL": "1",
+    "ANCHOR_OK": "0", "ANCHOR_UNSAFE": "1",  # review H-2 of #1396: the script's own
 }  # fmt: skip
 PROD_SITE = "TB_ENV=PRODUCTION\nTB_TLS_HOSTNAME=tb.example.test\nTB_SAE_OFFICE_MAILBOX=office@hospa.test\n"
 

@@ -60,6 +60,14 @@
    "lane": "H",
    "basis": "not stated",
    "state": "open"
+  },
+  {
+   "id": "H94-08",
+   "severity": "Low",
+   "claim": "install.sh's other readers of TB_ENV in deploy/.env (ENV-EARLY, the REHEARSAL step, the environment gate, the settings step) still take only lines that start exactly TB_ENV=, as on master; the PoC rule now reads it as compose does (review H-1 of #1396), so on a .env with an exported or blank-led TB_ENV line those readers and compose can differ; not changed by this card (outside the ruling's two places)",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
   }
  ]
 }
