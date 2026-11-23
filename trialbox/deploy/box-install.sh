@@ -45,7 +45,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""
-PP_FILE=""; PP_KEEP=0; PP_STDIN=0  # H-96: the KEK passphrase's two ways in (deploy/kek_passphrase.sh)
+PP_FILE=""; PP_KEEP=0; PP_STDIN=0  # H-96: the KEK passphrase's two ways in (the KEK-INPUT block)
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;

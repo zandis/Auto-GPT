@@ -13,7 +13,7 @@
 #   shamir      shares to KEK_SHARES_OUT (removable media), then unsealed now from the first shares there;
 #   passphrase  from --kek-passphrase-file FILE (one line; a regular file owned by root, mode 0600; removed once the
 #               keys are sealed unless --keep-kek-passphrase-file) or --kek-passphrase-stdin (one line), unsealed now.
-#               A passphrase in the environment (TB_KEK_PASSPHRASE) is refused: H-96, deploy/kek_passphrase.sh.
+#               A passphrase in the environment (TB_KEK_PASSPHRASE) is refused (H-96, the KEK-INPUT block below).
 # TB_KEK_BACKEND in the environment chooses the back end without a hardening.conf (D-836: a file written only for the
 # KEK also ran hardening/apply.sh all, the firewall and SSH); it wins over the file's KEK_BACKEND.
 # tpm: the KEK is sealed before any key is wrapped under it, so a seal that fails changes nothing (D-836).

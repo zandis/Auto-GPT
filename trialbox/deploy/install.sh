@@ -74,7 +74,7 @@ ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arg
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
 ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
-PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""  # H-96: the KEK passphrase's two ways in (deploy/kek_passphrase.sh)
+PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""  # H-96: the KEK passphrase's two ways in (the KEK-INPUT block)
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -98,7 +98,7 @@ while [ $# -gt 0 ]; do
     --keep-kek-passphrase-file) PP_KEEP=1 ;;
     --kek-passphrase-stdin) PP_STDIN=1 ;;
     --kek-passphrase-fd) PP_FD="${2:-}"; shift ;;  # the installer's own hand-on (the signed re-run, box-install.sh)
-    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,47p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
