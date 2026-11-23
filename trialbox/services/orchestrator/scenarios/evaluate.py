@@ -628,8 +628,10 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
         # exclusion "present" on a quote that does not state its condition is the models' inference: a person looks,
         # as on the cascade, published with the cascade's code for its reason. The quote and its notes stay
         may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence)
-        if may.effect == "review":
+        if may.effect == "review" and not may.reading_stands:
             verdict, why = "unknown", code_of(may.reason, "unknown")
+        # an inclusion "not met" (R22-17) keeps its row: the status rule (``decision.answer_of``) reads the same
+        # function and says review
     return CriterionVerdict(
         id=c.id,
         verdict=verdict,

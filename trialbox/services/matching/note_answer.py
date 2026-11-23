@@ -5,6 +5,9 @@ What it may then do to a patient is said here once, for the cascade (``engine._m
 (``evaluate.note_verdict``) and the status rule's backstop over a stored row (``decision.answer_of``):
 
 * an answer that keeps the patient (an inclusion met, an exclusion's condition absent): ``keeps``;
+* an inclusion's "not met" (R22-17): ``review``, whatever the quote, the policy or the confidence. The models'
+  reading stands (``reading_stands``: the row says "not met, from the notes" and keeps its quote); only what it may
+  do changes: a person looks, the patient is never taken off a list for it;
 * an exclusion's "condition present" on a quote that does not state the condition (a negated, a relative's, a
   rule-out, a suspected condition, a drug or a value for it; :func:`matching.inferred.inferred`): ``review``, a
   person looks (D-985, R22-16);
@@ -26,14 +29,18 @@ Effect = Literal["keeps", "review", "excludes"]
 
 #: the reason of an exclusion "present" on a quote that does not state the condition (the cascade's wording, D-985)
 INFERRED_REASON = "inferred: the quote does not state the condition; review"
+#: the reason of an inclusion "not met" from the notes (R22-17, D-1069)
+INCLUSION_REASON = "not_met (from the notes, an inclusion: review, not exclusion)"
 
 
 @dataclass(frozen=True)
 class NoteEffect:
-    """What one note answer may do, and the reason when it is review."""
+    """What one note answer may do, and the reason when it is review. ``reading_stands``: a review whose reading
+    is not in doubt (an inclusion "not met"): the verdict row keeps it; else a review's row says ``unknown``."""
 
     effect: Effect
     reason: str = ""
+    reading_stands: bool = False
 
 
 def note_answer_may(
@@ -48,9 +55,11 @@ def note_answer_may(
     eligible = condition_present if kind == "inclusion" else not condition_present
     if eligible:
         return NoteEffect("keeps")
+    if kind == "inclusion":
+        return NoteEffect("review", INCLUSION_REASON, reading_stands=True)
     if kind == "exclusion" and inferred(str(quote or ""), str(criterion or ""), sentence):
         return NoteEffect("review", INFERRED_REASON)
     return NoteEffect("excludes")
 
 
-__all__ = ["INFERRED_REASON", "Effect", "NoteEffect", "note_answer_may", "sentence_of"]
+__all__ = ["INCLUSION_REASON", "INFERRED_REASON", "Effect", "NoteEffect", "note_answer_may", "sentence_of"]

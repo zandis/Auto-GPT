@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -234,6 +235,22 @@ class QuotingJudge:
         return JudgeReply("fail", 0.95, str(ex["text"])[:40], str(ex["date"]), "stated")
 
 
+class StatedFlareJudge:
+    """Answers "present" at 0.95 quoting a sentence of the excerpts that states an ongoing flare (急性痛風發作中, the
+    synthetic notes' wording), else ``unknown``: the note exclusion GZQO-EXC-11 on a quote that states its condition.
+    R22-17 (D-1069; ruled on #639 7079180333): the control that excludes at S3, since an inclusion's "not met" from the
+    notes (``QuotingJudge``) no longer does."""
+
+    def judge(self, **kw: Any) -> Any:
+        from matching.cascade.judge import JudgeReply
+
+        for ex in kw["excerpts"]:
+            for s in re.split(r"(?<=[。\n])", str(ex["text"])):
+                if "急性痛風發作中" in s:
+                    return JudgeReply("pass", 0.95, s.strip(), str(ex["date"]), "stated")
+        return JudgeReply("unknown", 0.5, None, None, "not stated")
+
+
 @pytest.mark.req("CAS-1")
 def test_population_given_by_the_caller(env: dict[str, Any]) -> None:
     from matching.cascade.model import STAGES
@@ -248,10 +265,14 @@ def test_population_given_by_the_caller(env: dict[str, Any]) -> None:
 
 @pytest.mark.req("SAFE-13")
 def test_single_model_fail_is_soft_without_note_block(env: dict[str, Any]) -> None:
-    blocking = _run(env, QuotingJudge(), sample_per_stratum=None)
+    blocking = _run(env, StatedFlareJudge(), sample_per_stratum=None)
     s3_exits = [t for t in blocking.traces.values() if t.exit_stage == "S3"]
-    assert s3_exits, "the quoting judge should exclude someone at S3 when note answers may block"
-    soft = _run(env, QuotingJudge(), sample_per_stratum=None, note_block=False)
+    assert s3_exits, "the stated-flare judge should exclude someone at S3 when note answers may block"
+    assert {t.exit_criterion for t in s3_exits} == {"GZQO-EXC-11"}
+    # the inclusion case beside it: every inclusion "not met" from the notes is soft, never an S3 exit (R22-17)
+    inclusions = _run(env, QuotingJudge(), sample_per_stratum=None)
+    assert not any(t.exit_stage in ("S3", "S4") for t in inclusions.traces.values())
+    soft = _run(env, StatedFlareJudge(), sample_per_stratum=None, note_block=False)
     assert not any(t.exit_stage in ("S3", "S4") for t in soft.traces.values())
     softs = [o for t in soft.traces.values() for o in t.outcomes.values() if o.status == "fail" and o.stage == "S3"]
     assert softs and all(not o.hard for o in softs) and all("review" in o.reason for o in softs)

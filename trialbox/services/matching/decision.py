@@ -18,6 +18,12 @@ note "met" below the threshold, or with notes left out of what the models read (
 single model, a cut record or a low confidence can send a patient to review and can never take them off. An
 exclusion's note "present" (its verdict ``fail``) whose quote does not state the condition (D-985) says ``unknown``.
 
+An inclusion's note "not met" says ``unknown``, always, whatever the policy, the basis or the confidence (R22-17,
+D-1069, the owner's ruling of 2026-11-22 for rc1 and the pilot): a note answer never takes a patient off a list for an
+inclusion, the patient goes to review. The verdict row stays ``fail`` (a person reads "not met, from the notes"); only
+its answer for the status changes. Both are the one rule of every path, :func:`matching.note_answer.note_answer_may`.
+The records' answer and a person's are not changed: a coded inclusion "not met" still excludes.
+
 The verdict of a structured criterion is T-652's table (:mod:`matching.verdict`): ``pass`` / ``fail`` / ``unknown``
 by kind and predicate, with a coded ``fail`` the only one that excludes on its own.
 
@@ -96,20 +102,49 @@ def _flagged(verdict: Any) -> bool:
 
 def _reviewed(criterion: Any, verdict: Any) -> bool:
     """The backstop of every builder and of a stored row: what this note answer may do, by the one rule of every path
-    (:func:`matching.note_answer.note_answer_may`; D-1069, D-985, R22-16), is review. A row with no quote (no path
-    decides a note answer without one: SPEC §7.3, CAS-16) and a criterion that does not say its kind (a caller's
-    stand-in) are read as before."""
+    (:func:`matching.note_answer.note_answer_may`; D-1069, D-985, R22-16, R22-17), is review. An exclusion's row with
+    no quote (no path decides a note answer without one: SPEC §7.3, CAS-16) and a criterion that does not say its kind
+    (a caller's stand-in) are read as before; an inclusion's "not met" is review with or without one."""
     kind = getattr(criterion, "kind", None)
     ev = verdict.evidence
     quote = ev.quote if ev is not None else None
-    if kind not in ("inclusion", "exclusion") or quote is None:
+    if kind not in ("inclusion", "exclusion") or (quote is None and kind == "exclusion"):
         return False
     present = (verdict.verdict == "pass") == (kind == "inclusion")
     return note_answer_may(kind, present, quote, str(getattr(criterion, "text", "") or "")).effect == "review"
 
 
+def reviews_inclusion(criterion: Any, verdict: Any) -> bool:
+    """R22-17: a note "not met" on an inclusion (:func:`is_note_answer`), which the one rule sends to review with the
+    reading kept. Never the records' answer, nor a person's (``basis: person``)."""
+    return (
+        verdict.verdict == "fail"
+        and getattr(criterion, "kind", None) == "inclusion"
+        and getattr(verdict, "basis", None) != "person"
+        and is_note_answer(criterion, verdict)
+        and _reviewed(criterion, verdict)
+    )
+
+
+def fail_stands(verdict: Any, policy: Policy) -> bool:
+    """Whether a note "not met" is one the run's policy lets stand: a pair's (or a caller's that states no basis),
+    final, sure enough, on a run whose notes may exclude. For an exclusion that is what excludes; for an inclusion it
+    is only what a sheet prints as "not met" (:func:`reviews_inclusion`: the status is review)."""
+    # ``held_back`` is the one test for an answer that may not exclude (one model's, or not final): the same test
+    # the pages and the sheets use. A fail that states neither basis nor ``final`` is decided by the policy alone:
+    # a caller that states no basis (a tool, a test of the evaluator) and a list published before the field. A
+    # stored pool row never reaches here so: MICROBATCH stamps ``final: false`` on it first (D-476 rule 3).
+    sure = _confidence(verdict) >= policy.threshold
+    basis = getattr(verdict, "basis", None)
+    return bool(policy.note_block and sure and basis in (None, "pair") and held_back(verdict) is None)
+
+
 def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
-    """``yes`` (fine for eligibility), ``no`` (excludes) or ``unknown`` (a person looks) for one verdict."""
+    """``yes`` (fine for eligibility), ``no`` (excludes) or ``unknown`` (a person looks) for one verdict.
+
+    A note answer that the one rule sends to review (:func:`_reviewed`: an inclusion's "not met", R22-17; an
+    exclusion's "present" on a quote that does not state the condition, D-985) is ``unknown`` whatever the policy or
+    the basis; the records' answer and a person's stand as they are."""
     v = verdict.verdict
     if v in ("unknown", "pending_human"):
         return "unknown"
@@ -119,15 +154,10 @@ def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
         return "yes" if v == "pass" else "no"
     if v == "fail" and _reviewed(criterion, verdict):
         return "unknown"
-    sure = _confidence(verdict) >= policy.threshold
     if v == "pass":
+        sure = _confidence(verdict) >= policy.threshold
         return "yes" if sure and not _flagged(verdict) else "unknown"
-    # ``held_back`` is the one test for an answer that may not exclude (one model's, or not final): the same test
-    # the pages and the sheets use. A fail that states neither basis nor ``final`` is decided by the policy alone:
-    # a caller that states no basis (a tool, a test of the evaluator) and a list published before the field. A
-    # stored pool row never reaches here so: MICROBATCH stamps ``final: false`` on it first (D-476 rule 3).
-    may_exclude = policy.note_block and sure and basis in (None, "pair") and held_back(verdict) is None
-    return "no" if may_exclude else "unknown"
+    return "no" if fail_stands(verdict, policy) else "unknown"
 
 
 def status_of(by_id: Mapping[str, Any], verdicts: Iterable[Any], policy: Policy) -> Status:
