@@ -3,6 +3,7 @@
 # operator runs this, from the install folder, as root.
 #
 #   tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON]
+#   tools/apply_update.sh SOFTWARE_PACK.tar --dry-run --with-model-pack MODEL_PACK   # H-95: as if that model pack were held
 #   tools/apply_update.sh status              # the update in progress (or not), the installed release, the keys
 #   tools/apply_update.sh rollback BUNDLE_ID  # roll back an update that was interrupted (power cut, kill -9)
 #   tools/apply_update.sh clean               # remove left-over rollback points of finished updates
@@ -30,7 +31,10 @@
 #    images.lock (a null digest is refused), the free space to stage; then every payload's size and sha256 while it
 #    is copied — in a network-less trialbox-py container running this install's verifier (host python3 +
 #    cryptography is used when available). A refused bundle changes nothing (exit 1);
-# 2. stage the verified payloads (re-hashed while copying); --dry-run stops here;
+#    H-95: the image archives and the weights are hashed on the stick and never staged (--stream image --stream model):
+#    no copy of them is written on the box. A software pack (manifest pack, H-95) is refused unless the model pack it
+#    names by its signed identity is the one in deploy/updates/model-pack.json;
+# 2. stage the verified small payloads (re-hashed while copying); --dry-run stops here;
 # 3. the update path (python3 -m tools.trialbox update; tools/trialbox/update.py): preflight again under the update
 #    lock (compat.json against the schema versions read from the database, release_seq, the backup key and target,
 #    the free space on every file system it writes, with the numbers) — a refused preflight changes nothing; then
@@ -44,6 +48,8 @@
 #    or any other name counts as PRODUCTION, D-633) only with --no-backup-reason REASON, audited as
 #    update.backup_skipped (D-1321); without one it is refused before anything is read (exit 2).
 #    A box that is not running yet (the first install) only loads the payloads; install.sh audits it after start.
+#    H-95: the images and the weights are read from the bundle again as they load, each hashed again on the way in;
+#    one whose second read fails its hash is not loaded (tools/trialbox/update.py stream_image, stream_models).
 #    --target demo: the one-container demo VM (docs/RUNBOOK.md §11), checked by running e2e_simple in the new container.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -112,7 +118,7 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
 # ---- end of STOP-OR-WARN
 # H-94: apply_update.sh has no --environment: its PoC box is the record (deploy/.env, the mark) alone
 TB_STOP_WHO=apply_update; TB_STOP_FILE=apply_update.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""; TB_STOP_REHEARSAL=0
-USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
+USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
   status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
   rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
@@ -123,7 +129,7 @@ OSPATCH=""; OSCONF=""
 if [ "$1" = ospatch ]; then OSPATCH=1; shift; [ $# -gt 0 ] || { echo "$USAGE" >&2; exit 2; }; fi  # H-94 (1): no bundle
 BUNDLE=$1
 shift
-DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; NOBACKUP_REASON=""; DOWNGRADE=""
+DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; NOBACKUP_REASON=""; DOWNGRADE=""; WITH_MODEL=""; FOR_SOFTWARE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=--dry-run ;;
@@ -132,6 +138,11 @@ while [ $# -gt 0 ]; do
     --no-backup) NOBACKUP=--no-backup ;;
     --no-backup-reason) NOBACKUP_REASON=${2:?--no-backup-reason needs a reason}; shift ;;
     --allow-downgrade) DOWNGRADE=${2:?--allow-downgrade needs a reason}; shift ;;
+    # H-95: a dry run of a software pack as if this model pack were held (install.sh checks both before loading);
+    # without --dry-run it changes nothing: the load is checked against the box's own record
+    --with-model-pack) WITH_MODEL=${2:?--with-model-pack needs a model pack}; shift ;;
+    # H-95: a model pack with the software pack loaded straight after it (it must name this model pack)
+    --for-software) FOR_SOFTWARE=${2:?--for-software needs a software pack}; shift ;;
     *) stop_or_warn --rc 2 unknown-option "the option $1 (ignored)" "unknown option $1" ;;
   esac
   shift
@@ -166,11 +177,13 @@ if [ -d "$SECRETS" ]; then
 fi
 [ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }  # H-94 (1)
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/tb-update.XXXXXX")
+chmod 0700 "$STAGE"  # H-95: a folder of its own, 0700 wherever TMPDIR points (mktemp -d makes it so; said here)
 trap 'rm -rf "$STAGE"' EXIT INT TERM HUP
 BUNDLE_ABS=$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")
 
 # the verifier's arguments: the trust and the installed record are read only, and only when they exist
-set -- "$BUNDLE_ABS" --stage "$STAGE"
+# H-95: the images and the weights stay on the stick; the model pack the box holds, for a software pack's check
+set -- "$BUNDLE_ABS" --stage "$STAGE" --stream image --stream model --model-pack-record "$UPDATES/model-pack.json"
 [ -f "$UPDATES/trust.json" ] && set -- "$@" --trust "$UPDATES/trust.json"
 # an OS patch does not move the TrialBox release: its order is the snapshot date's (ospatch.py)
 [ -z "$OSPATCH" ] && [ -f "$UPDATES/installed.json" ] && set -- "$@" --installed "$UPDATES/installed.json"
@@ -181,9 +194,18 @@ if [ ! -f "$UPDATES/trust.json" ]; then
   [ -f "$NEXTKEY" ] && set -- "$@" --pubkey "$NEXTKEY"
 fi
 [ -n "$DOWNGRADE" ] && set -- "$@" --allow-downgrade "$DOWNGRADE"
+[ -n "$DRY" ] || WITH_MODEL=""  # a dry run only: a load checks the box's own record (and mounts nothing for it)
+if [ -n "$WITH_MODEL" ]; then
+  WITH_MODEL=$(cd "$(dirname "$WITH_MODEL")" && pwd)/$(basename "$WITH_MODEL")
+  set -- "$@" --model-pack-candidate "$WITH_MODEL"
+fi
+if [ -n "$FOR_SOFTWARE" ]; then
+  FOR_SOFTWARE=$(cd "$(dirname "$FOR_SOFTWARE")" && pwd)/$(basename "$FOR_SOFTWARE")
+  set -- "$@" --software-candidate "$FOR_SOFTWARE"
+fi
 # the docker fallback passes these paths as mount arguments: no whitespace or glob characters in any of them
-case "$ROOT|$BUNDLE_ABS|$STAGE|$PUBKEY" in
-  *[[:space:]*?\[]*) echo "update REFUSED: a path has a space or a glob character: $ROOT, $BUNDLE_ABS, $STAGE, $PUBKEY" >&2; exit 2 ;;  # H-94 (1): the verifier would check another file
+case "$ROOT|$BUNDLE_ABS|$STAGE|$PUBKEY|$WITH_MODEL|$FOR_SOFTWARE" in
+  *[[:space:]*?\[]*) echo "update REFUSED: a path has a space or a glob character: $ROOT, $BUNDLE_ABS, $STAGE, $PUBKEY $WITH_MODEL $FOR_SOFTWARE" >&2; exit 2 ;;  # H-94 (1): the verifier would check another file
 esac
 
 # host python3 with cryptography (a clean site host has it from the media's debs; tools/verify_update.py checks the
@@ -196,6 +218,8 @@ else
   # the manifest format); every host path keeps its own absolute path inside the container
   MOUNTS="-v $ROOT:$ROOT:ro -v $BUNDLE_ABS:$BUNDLE_ABS:ro -v $STAGE:$STAGE"
   [ -f "$PUBKEY" ] && MOUNTS="$MOUNTS -v $PUBKEY:$PUBKEY:ro"
+  [ -n "$WITH_MODEL" ] && MOUNTS="$MOUNTS -v $WITH_MODEL:$WITH_MODEL:ro"
+  [ -n "$FOR_SOFTWARE" ] && MOUNTS="$MOUNTS -v $FOR_SOFTWARE:$FOR_SOFTWARE:ro"
   # shellcheck disable=SC2086
   SUMMARY=$(docker run --rm --network none --user "$(id -u):$(id -g)" $MOUNTS -e PYTHONPATH="$ROOT/libs:$ROOT" \
       "$IMAGE" python "$ROOT/tools/verify_update.py" "$@") \
@@ -218,6 +242,7 @@ fi
 if [ "$DRY" = "--dry-run" ]; then
   echo "dry run: staged in $STAGE (removed on exit); nothing applied"
   find "$STAGE" -type f ! -name manifest.json | sed "s#^$STAGE/#  would apply #"
+  echo "  would load from the bundle, hashed again as each loads (H-95): its images and weights"
   exit 0
 fi
 
@@ -227,4 +252,4 @@ cd "$ROOT"
 # D-888: the update restarts the stack: never on the example settings while the site's exist
 sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { TB_STOP_WHO="update REFUSED"; stop_or_warn settings-guard "" "nothing was changed"; TB_STOP_WHO=apply_update; }  # D-1091
 python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" --target "$TARGET" \
-  --deploy "$ROOT/deploy" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}
+  --deploy "$ROOT/deploy" --bundle "$BUNDLE_ABS" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}
