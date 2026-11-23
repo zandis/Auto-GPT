@@ -365,6 +365,7 @@ step screen-after-restart 0 in_box screen second
 step restic-restore 0 in_box restic-restore
 step wrong-name 0 in_box wrong-name
 step missing-key 0 in_box missing-key
+step live-restore 0 in_box live-restore
 step no-registry-pull 0 no_registry_pull
 collect
 teardown

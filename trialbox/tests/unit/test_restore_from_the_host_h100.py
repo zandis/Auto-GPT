@@ -508,3 +508,28 @@ def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(tm
     ups = [c["argv"] for c in h88.calls(box) if "compose" in c["argv"] and "up" in c["argv"]]
     assert ups and ups[-1][-4:] == ["-d", "--wait", "--wait-timeout", "600"], ups
     assert bs.recorded_good([nas], {"name": made.name, "bytes": made.stat().st_size, "sha256": sha})
+
+
+# ------------------------------------------------------------------------------------------------ the rehearsal
+def test_the_rehearsal_restores_over_the_live_stack_by_the_documented_command() -> None:
+    """The box rehearsal's ``live-restore`` (the real box, every service, in CI): the nightly with a relative
+    ``--deploy``, ``backup-verify``, then RUNBOOK §5's one command; the rows equal backup-verify's, every service
+    that ran before runs again healthy, and the box's own key, targets and records are put back. It is the last
+    step on the box, so no later step runs on a box a restore left held."""
+    import re
+
+    box_sh = (ROOT / "tools" / "rehearse_box" / "box.sh").read_text(encoding="utf-8")
+    rehearse = (ROOT / "tools" / "rehearse_box" / "rehearse.sh").read_text(encoding="utf-8")
+    body = box_sh[box_sh.index("\nlive-restore)") : box_sh.index("\n  ;;", box_sh.index("\nlive-restore)"))]
+    page = (ROOT / "docs" / "runbook" / "05-updates-backup-restore-secrets.md").read_text(encoding="utf-8")
+    documented = re.search(r"^    sudo (trialbox restore --last --key \S+ --yes --restart)$", page, re.M)
+    assert documented, "RUNBOOK §5 names no one command"
+    assert 'trialbox restore --last --key "$rr/backup.key" --yes --restart' in body
+    assert "python3 -m tools.trialbox backup-nightly --deploy deploy " in body  # gap 1: the relative folder
+    assert "backup-verify" in body and 'out["rows"] == verify["databases"]' in body
+    assert "wait_healthy" in body and '[ "$before" = "$after" ]' in body
+    assert "trap put_back EXIT" in body and "env.before" in body
+    assert "backup-keygen" in body and "never the box's" in body  # a throwaway key pair
+    steps = re.findall(r"^step ([a-z0-9-]+) [01] (\S+)", rehearse, re.M)
+    in_box = [name for name, how in steps if how == "in_box"]
+    assert in_box[-1] == "live-restore", in_box

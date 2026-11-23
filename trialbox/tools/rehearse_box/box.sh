@@ -3,7 +3,7 @@
 # rehearse.sh starts, one phase per call, and exits non-zero when the phase's assertion fails. Every TrialBox file it
 # uses comes from the offline media in $TB_RH_MEDIA (the release tree, the signed bundle, the vendor key).
 #
-#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key
+#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key|live-restore
 #
 # Environment (set by rehearse.sh): TB_RH_DIR (work dir, the same path on the Docker host), TB_RH_MEDIA (the media
 # folder), TB_RH_BUNDLE (the bundle file name), TB_RH_BOX (where the box is installed: the site's /opt/trialbox).
@@ -647,6 +647,59 @@ print(f"ok: restored by the custodians path: {n} lake files from restic snapshot
 ' || fail "the restore did not bring the lake back from restic"
   rm -rf "$rr"
   ok "the live lake was only read; the throwaway keys and the rehearsal's backup removed"
+  ;;
+
+# ------------------------------------------------------------------------------------------------ live-restore
+live-restore)
+  # H-100: the restore over the live stack by the one command RUNBOOK §5 documents, typed on the box's host as root:
+  # the nightly (--deploy deploy, a relative folder) to a rehearsal folder under a throwaway key pair, backup-verify,
+  # then `trialbox restore --last --key <key> --yes --restart`; every service that ran before runs again and is
+  # healthy, and the restored rows equal backup-verify's. The box's own key, targets and records are put back after.
+  # Last of the box's steps: a restore that ends held (D-522) leaves the list jobs held for a person.
+  cd "$BOX" || fail "no box at $BOX"
+  command -v trialbox >/dev/null || fail "no trialbox on PATH (install.sh links it)"
+  rr="$W/live-restore"
+  rm -rf "$rr" && mkdir -p "$rr/nas" && chmod 0700 "$rr" || fail "no work folder"
+  cp -p deploy/.env "$rr/env.before" || fail "cannot keep deploy/.env"
+  for f in backup-last.json backup-verified.json; do
+    if [ -f "deploy/site/$f" ]; then cp -p "deploy/site/$f" "$rr/$f.before"; fi
+  done
+  put_back() {
+    cat "$rr/env.before" > "$BOX/deploy/.env"
+    for f in backup-last.json backup-verified.json; do
+      if [ -f "$rr/$f.before" ]; then cp -p "$rr/$f.before" "$BOX/deploy/site/$f"; else rm -f "$BOX/deploy/site/$f"; fi
+    done
+  }
+  trap put_back EXIT
+  img="$(envget TB_BACKUP_IMAGE)"; img="${img:-trialbox-backup:1.0.0}"
+  docker run --rm --network none --user 0 -e TB_ENV="$(envget TB_ENV)" -v "$rr:$rr" "$img" python -m tools.trialbox backup-keygen \
+    --private "$rr/backup.key" --public "$rr/backup.pub" >/dev/null || fail "cannot make the throwaway backup key pair"
+  : > "$rr/nas/.trialbox-offbox"
+  envset TB_BACKUP_TARGETS "$rr/nas"; envset TB_BACKUP_OFFBOX "$rr/nas"; envset TB_BACKUP_PUBKEY "$rr/backup.pub"
+  ok "a throwaway backup key pair and a rehearsal target: never the box's"
+  before="$(dc ps --services --status running | sort)"
+  python3 -m tools.trialbox backup-nightly --deploy deploy > "$rr/nightly.log" 2>&1 \
+    || { cat "$rr/nightly.log"; fail "backup-nightly --deploy deploy failed"; }
+  file="$(python3 -c 'import json,sys; print(sys.argv[2] + "/" + json.load(open(sys.argv[1]))["good_file"]["name"])' \
+    deploy/site/backup-last.json "$rr/nas")" || fail "the nightly recorded no good backup"
+  ok "backup-nightly --deploy deploy (a relative folder): $(basename "$file")"
+  python3 -m tools.trialbox backup-verify "$file" --key "$rr/backup.key" > "$rr/verify.json" \
+    || { cat "$rr/verify.json"; fail "backup-verify failed"; }
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/restore.json" 2> "$rr/restore.err" || rc=$?
+  cat "$rr/restore.err"
+  python3 - "$rr/verify.json" "$rr/restore.json" "$rc" <<'EOF' || fail "the restore over the live stack did not end complete or held, or its rows differ"
+import json, sys
+verify, out, rc = json.load(open(sys.argv[1])), json.load(open(sys.argv[2])), int(sys.argv[3])
+assert rc == 0 or (rc == 4 and out.get("hold") == "held"), (rc, out.get("hold"), out.get("optouts_after_backup"))
+assert out["rows"] == verify["databases"], (out["rows"], verify["databases"])
+print(f"ok: restored over the live stack (exit {rc}, hold {out.get('hold')}): rows equal backup-verify's {out['rows']}")
+EOF
+  grep -q "the services run again and are healthy" "$rr/restore.err" || fail "the restore did not start the services again"
+  wait_healthy 900
+  after="$(dc ps --services --status running | sort)"
+  [ "$before" = "$after" ] || fail "the services after the restore differ: before [$before] after [$after]"
+  ok "$(printf '%s\n' "$after" | wc -l) services run again after the restore, each healthy, as before it"
   ;;
 
 # ------------------------------------------------------------------------------------------------ negative: name
