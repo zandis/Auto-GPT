@@ -153,7 +153,7 @@ else
   [ "$GPU_SET" = 1 ] || die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 or --gpu gb10 (each held to its own card's memory)"
   case "$GPU" in
     rtxpro6000|rtx5090|dgpu48|gb10) ;;
-    *) die "--rehearsal-real-servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 or --gpu gb10 (each held to its own card's memory)" ;;
+    *) die "--rehearsal-real-servers: the $GPU profile is not opened for a rehearsal with real servers: name the profile: --gpu rtxpro6000 or --gpu rtx5090 or --gpu dgpu48 or --gpu gb10 (each held to its own card's memory)" ;;
   esac
   [ -z "$TIER" ] || die "--rehearsal-real-servers is no tier install: drop --tier"
   [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--rehearsal-real-servers needs the GPU: drop --mode $MODE"

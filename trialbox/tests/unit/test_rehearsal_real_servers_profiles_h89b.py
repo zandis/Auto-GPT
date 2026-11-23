@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -113,9 +114,12 @@ def _later(tmp: Path, real_servers: int, env_lines: str) -> subprocess.Completed
     """install.sh's later steps for the 48 GB draft as they stand: the pins' profile, the record step's H-89b block,
     the box's label and its compose files."""
     pins = _block('  PIN_GPU="$GPU";', "|| PIN_GPU=rtxpro6000\n")
-    rec = _block("# REHEARSAL-REAL-SERVERS (H-89b): the 48 GB draft has no record", "# ---- end of REHEARSAL-REAL-SERVERS (H-89b)\n")
+    rec = _block(
+        "# REHEARSAL-REAL-SERVERS (H-89b): the 48 GB draft has no record",
+        "# ---- end of REHEARSAL-REAL-SERVERS (H-89b)\n",
+    )
     label = _block('case "$MODE:$GPU" in\n  # H-89b: the label', "esac\n")
-    files = _block('COMPOSE=(docker compose --project-directory deploy', "esac\n")
+    files = _block("COMPOSE=(docker compose --project-directory deploy", "esac\n")
     rh = _block("rehearsal_only() {", "\n}\n")
     site = tmp / "deploy" / "site"
     site.mkdir(parents=True, exist_ok=True)
@@ -137,7 +141,9 @@ def test_dgpu48_under_the_mark_pins_the_same_pair_starts_its_overlay_and_says_so
     assert r.returncode == 0, r.stderr
     assert "PIN_GPU=rtxpro6000 PROFILE=P-DGPU48-UNMEASURED" in r.stdout
     assert r.stdout.rstrip().endswith(f"{tmp_path}/deploy/docker-compose.dgpu48.yml")
-    assert f"install: warning: {rehearsal_real.WORDS}: the dgpu48 profile is a DRAFT, UNMEASURED 48 GB profile" in r.stderr
+    assert (
+        f"install: warning: {rehearsal_real.WORDS}: the dgpu48 profile is a DRAFT, UNMEASURED 48 GB profile" in r.stderr
+    )
     r = _later(tmp_path, 1, "TB_ENV=PRODUCTION\nTB_REHEARSAL=1\n")
     assert r.returncode == 1 and "only on a rehearsal box" in r.stderr
     r = _later(tmp_path, 0, "TB_ENV=VALIDATION\nTB_REHEARSAL=1\n")  # never reached without the mark; says nothing
@@ -167,7 +173,10 @@ def test_gb10_without_the_mark_is_masters_refusal_byte_for_byte(
     clean, planted = _same(tmp_path, args, bench, env)
     assert clean[0] == 1 and said in clean[1] + clean[2], clean
     if said == GB10_FAIL:
-        assert clean[2] == "install: this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed\n"
+        assert (
+            clean[2]
+            == "install: this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed\n"
+        )
     assert planted == clean
     assert "stand-in" not in clean[1] + clean[2] and "rehearsal" not in clean[1] + clean[2]
 
@@ -176,7 +185,10 @@ def test_gb10_under_the_mark_goes_past_the_gpu_step_held_to_its_cap(tmp_path: Pa
     r = real(Bench(tmp_path), "gb10", **BIG)
     need = rehearsal_real.record_need({}, TOTAL, "gb10")[0]
     assert f"card 1: NVIDIA B200, 180000 MiB free of {TOTAL} (the pair needs {need})" in r.stdout, r.stdout + r.stderr
-    assert f"    WARN  GB10 profile on x86_64: {STAND_IN} (a rehearsal with real servers, not valid for a site)" in r.stdout
+    assert (
+        f"    WARN  GB10 profile on x86_64: {STAND_IN} (a rehearsal with real servers, not valid for a site)"
+        in r.stdout
+    )
     assert "WARN  NVIDIA driver 575.57.08" in r.stdout and "FAIL" not in r.stdout
     assert r.stderr.splitlines()[-1].startswith("install: vendor public key missing"), r.stderr
 
@@ -202,7 +214,7 @@ def test_gb10_write_overrides_the_arm64_pins_on_x86_only(tmp_path: Path, monkeyp
     (b.deploy / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
     monkeypatch.setenv("PATH", b.env()["PATH"])
     monkeypatch.setenv("TB_HOST_ROOT", str(b.hostroot))
-    monkeypatch.setattr(rehearsal_real.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, None, "gb10")
     assert problems == [] and doc["caps"] == rehearsal_real.caps("gb10", TOTAL)
     assert doc["words"] == f"{rehearsal_real.WORDS} ({STAND_IN})" and doc["valid_for_a_site"] is False
@@ -211,11 +223,11 @@ def test_gb10_write_overrides_the_arm64_pins_on_x86_only(tmp_path: Path, monkeyp
     assert set(doc["platform_override"]["services"]) == pinned and len(pinned) >= 10
     text = (b.deploy / "site" / rehearsal_real.OVERRIDE).read_text(encoding="utf-8")
     assert text.count("platform: linux/amd64") == len(doc["platform_override"]["services"])
-    assert text.count("device_ids: [\"GPU-11111111") == 2 and "arm64" not in text.replace("arm64 pins", "")
+    assert text.count('device_ids: ["GPU-11111111') == 2 and "arm64" not in text.replace("arm64 pins", "")
     for machine, want in (("aarch64", []), ("x86_64", doc["platform_override"]["services"])):
         assert rehearsal_real.platform_services("gb10", machine) == want
     assert rehearsal_real.platform_services("rtxpro6000", "x86_64") == []
-    monkeypatch.setattr(rehearsal_real.platform, "machine", lambda: "ppc64le")
+    monkeypatch.setattr(platform, "machine", lambda: "ppc64le")
     (b.deploy / "site" / rehearsal_real.OVERRIDE).unlink()
     problems, doc = rehearsal_real.write(b.deploy, "1", b.probe, None, "gb10")
     assert doc == {} and "opened as an x86 stand-in only" in problems[0]
