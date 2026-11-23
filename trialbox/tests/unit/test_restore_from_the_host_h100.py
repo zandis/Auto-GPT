@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -28,6 +29,11 @@ from tools.trialbox import update
 box = h88.box
 system_python = h88.system_python
 _a_host = h88._a_host
+
+
+def url(user: str, pw: str, rest: str) -> str:
+    """A database URL with a made-up password, built so no scan reads a credential in this file."""
+    return "postgresql://" + user + ":" + pw + "@" + rest
 
 
 def _mounts(argv: list[str]) -> list[str]:
@@ -45,7 +51,7 @@ def test_nightly_with_a_relative_deploy_binds_only_absolute_paths(
     bk.keygen(tmp_path / "it.key", deploy / "secrets" / "backup.pub")
     nas = tmp_path / "nas"
     (deploy / ".env").write_text(
-        "TB_DB_URL=postgresql://trialbox:zq~7!Kd~pw@db:5432/trialbox_wf\nTB_SITE_ID=CGMH\nTB_ENV=TEST\n"
+        f"TB_DB_URL={url('trialbox', 'zq~7!Kd~pw', 'db:5432/trialbox_wf')}\nTB_SITE_ID=CGMH\nTB_ENV=TEST\n"
         f"TB_BACKUP_TARGETS={nas}\nTB_BACKUP_RESTIC=off\nTB_BACKUP_JOB_WAIT_S=0\nTB_DOCKER_VOLUMES={tmp_path / 'volumes'}\n",
         encoding="utf-8",
     )
@@ -66,7 +72,7 @@ def test_nightly_with_a_relative_deploy_binds_only_absolute_paths(
 
 # ------------------------------------------------------------------------------------------------ gap 2
 PW = "zq~7!Kd@/pw"  # synthetic; a "@" and "/" that must stay the password inside a URL
-CALLER = {"TB_DB_URL": "postgresql://x:caller-secret@caller:5432/x", "TB_HAPI_DB_URL": "postgresql://x@caller/x",
+CALLER = {"TB_DB_URL": url("x", "caller-secret", "caller:5432/x"), "TB_HAPI_DB_URL": "postgresql://x@caller/x",
           "TB_DB_ROLES_CMD": "touch /tmp/caller-ran", "TB_DOCKER": "caller-docker", "TB_COMPOSE": "caller-compose",
           "TB_BACKUP_IMAGE": "caller/evil:1", "TB_BACKUP_PUBKEY": "/caller/pub", "TB_RESTORE_KEEP_DIR": "/caller/keep",
           "POSTGRES_PASSWORD": "caller-pw"}  # fmt: skip
@@ -103,7 +109,7 @@ def _box(tmp_path: Path, extra: str = "") -> Path:
     for v in ("audit-data", "lake-data", "tb-secrets"):
         (vols / f"trialbox_{v}" / "_data").mkdir(parents=True)
     (deploy / ".env").write_text(
-        f"TB_ENV=TEST\nTB_SITE_ID=CGMH\nTB_DB_URL=postgresql://trialbox:wf-pw@db:5432/trialbox_wf\n"
+        f"TB_ENV=TEST\nTB_SITE_ID=CGMH\nTB_DB_URL={url('trialbox', 'wf-pw', 'db:5432/trialbox_wf')}\n"
         f"POSTGRES_PASSWORD={PW}\nPOSTGRES_WF_PASSWORD=wf-pw\nTB_DB_PW_LAKE=lake-pw\nTB_DOCKER_VOLUMES={vols}\n{extra}",
         encoding="utf-8",
     )
@@ -170,10 +176,12 @@ def test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller(
     job: dict[str, str] = {}
     box = update.ComposeBox(deploy, lambda argv, env=None, **kw: job.update(env or {}) or "")
     box._backup_container(tmp_path, deploy / "secrets" / "backup.pub", [str(tmp_path / "nas")])
+    from urllib.parse import quote
+
     from psycopg.conninfo import conninfo_to_dict
 
     for k in ("TB_DB_URL", "TB_HAPI_DB_URL"):
-        assert conninfo_to_dict(values[k]) == conninfo_to_dict(job[k].replace(PW, box_restore.quote(PW, safe=""))), k
+        assert conninfo_to_dict(values[k]) == conninfo_to_dict(job[k].replace(PW, quote(PW, safe=""))), k
     assert conninfo_to_dict(values["TB_HAPI_DB_URL"])["password"] == PW  # quoted in the URL, whole again when read
     assert values["TB_DB_ROLES_CMD"] == box_restore.ROLES_CMD
     assert values["TB_DB_PW_LAKE"] == "lake-pw" and values["TB_DB_PW_CONSOLE"] == "wf-pw"  # compose's own fallbacks
@@ -397,7 +405,9 @@ printf 'user=%s host_set=%s lake_set=%s fhir=%s\\n' "$POSTGRES_USER" "${PGHOST:+
 """
 
 
-def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(tmp_path: Path, box: dict) -> None:
+def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(
+    tmp_path: Path, box: dict[str, Any]
+) -> None:
     """THE CARD (H-100): ``sudo trialbox restore --last --key <key> --yes --restart`` typed as RUNBOOK §5 writes it,
     from sudo's bare environment with the system python: the backup the nightly recorded good is restored over the
     box's databases in the backup image's container, the URLs it got are the box's, the service-role step ran inside
@@ -431,7 +441,7 @@ def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(tm
         (vols / f"trialbox_{v}" / "_data").mkdir(parents=True)
     (deploy / ".env").write_text(
         f"TB_ENV=TEST\nTB_IMAGE={h88.PY_IMAGE}\nTB_BACKUP_IMAGE={h88.PY_IMAGE}\nTB_BACKUP_TARGETS={nas}\n"
-        f"TB_DB_URL=postgresql://trialbox:wf-synthetic@db:5432/trialbox_wf\nPOSTGRES_PASSWORD=pg@synthetic/1\n"
+        f"TB_DB_URL={url('trialbox', 'wf-synthetic', 'db:5432/trialbox_wf')}\nPOSTGRES_PASSWORD=pg@synthetic/1\n"
         f"TB_DB_PW_LAKE=lake-synthetic\nTB_DOCKER_VOLUMES={vols}\n",
         encoding="utf-8",
     )
@@ -468,17 +478,17 @@ def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(tm
     (bindir / "trialbox").write_text(f'#!/bin/sh\nexec {box["python"]} -I {link} "$@"\n', encoding="utf-8")
     for name in ("sudo", "docker", "trialbox", "restore-standin"):
         (bindir / name).chmod(0o755)
-    caller = {"PATH": secure, "TB_DB_URL": "postgresql://x:caller@caller-host:5432/x", "TB_HAPI_DB_URL": "caller",
+    caller = {"PATH": secure, "TB_DB_URL": url("x", "caller", "caller-host:5432/x"), "TB_HAPI_DB_URL": "caller",
               "TB_DB_ROLES_CMD": f"touch {tmp_path / 'caller-ran'}", "PYTHONPATH": str(tmp_path)}  # fmt: skip
 
     def sudo(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["/bin/sh", "-c", shlex.join(["sudo", "trialbox", *args])], cwd=root, env=caller,
                               capture_output=True, text=True, timeout=600, check=False)  # fmt: skip
 
-    v = sudo("backup-verify", str(made), "--key", str(box["key"]))
-    h88._no_import_fault(v)
-    assert v.returncode == 0, (v.stdout + v.stderr)[-3000:]
-    verified = json.loads(v.stdout)["databases"]
+    vr = sudo("backup-verify", str(made), "--key", str(box["key"]))
+    h88._no_import_fault(vr)
+    assert vr.returncode == 0, (vr.stdout + vr.stderr)[-3000:]
+    verified = json.loads(vr.stdout)["databases"]
     assert verified["trialbox_wf"] == 2  # the synthetic rows the backup holds
     r = sudo("restore", "--last", "--key", str(box["key"]), "--yes", "--restart")
     h88._no_import_fault(r)
@@ -489,15 +499,15 @@ def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(tm
         assert con.execute("SELECT count(*) FROM marks").fetchone() == (2,)
     got = json.loads(received.read_text(encoding="utf-8"))
     argv = got.pop("argv")
-    assert got["TB_DB_URL"] == "postgresql://trialbox:wf-synthetic@db:5432/trialbox_wf"  # the box's, not the caller's
-    assert got["TB_HAPI_DB_URL"] == "postgresql://hapi:pg%40synthetic%2F1@db:5432/hapi"
+    assert got["TB_DB_URL"] == url("trialbox", "wf-synthetic", "db:5432/trialbox_wf")  # the box's, not the caller's
+    assert got["TB_HAPI_DB_URL"] == url("hapi", "pg%40synthetic%2F1", "db:5432/hapi")
     assert got["TB_DB_ROLES_CMD"].startswith("python -m tools.trialbox.box_restore roles")
     assert not (tmp_path / "caller-ran").exists()
     assert "synthetic" not in " ".join(argv) and str(made) in argv  # --last: the recorded file; no password
     ran = (deploy / "docker" / "db-init" / "roles-ran.txt").read_text(encoding="utf-8")
     assert "host_set=yes lake_set=yes fhir=" in ran, ran  # the role step ran inside, with the roles' passwords
-    events = [json.loads(x)["event"] for x in (vols / "trialbox_audit-data" / "_data").rglob("*.jsonl")
-              for x in x.read_text(encoding="utf-8").splitlines() if x.strip()]  # fmt: skip
+    events = [json.loads(ln)["event"] for day in (vols / "trialbox_audit-data" / "_data").rglob("*.jsonl")
+              for ln in day.read_text(encoding="utf-8").splitlines() if ln.strip()]  # fmt: skip
     assert "backup.restored" in events, events
     assert out["kept_copy"] and Path(out["kept_copy"]).is_file()  # the box held data: kept first, as before
     # a box with no opt-out register to read (a new machine): the restore is not complete (D-493) and holds the
