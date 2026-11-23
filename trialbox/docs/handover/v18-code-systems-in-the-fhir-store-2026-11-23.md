@@ -1,14 +1,39 @@
-# V-18: the code systems in the FHIR store, loaded at install, updated and rolled back (2026-11-23)
+# V-18: every code system at install, in one step from one manifest, updated and rolled back (2026-11-23)
 
 **Reader:** the people who build TrialBox: the integrator, lane M (its mapping tables), the owners of the install, the
 doctor and the update, and the reviewer.
 
-Card V-18 (lane V; the owner's ruling, the integrator's comment 7103992051 on #639). Decision D-1182. Findings in the
-register's `--add-from` form: `v18-code-systems-in-the-fhir-store-2026-11-23/findings.json`.
+Card V-18 with lane DB's DB-C1 (lane V; the owner's rulings and the integrator's comments 7103992051, 7105754899,
+7105876634 and 7107896921 on #639). Decision D-1182. Findings in the register's `--add-from` form:
+`v18-code-systems-in-the-fhir-store-2026-11-23/findings.json`. The hospital's folder layout, for the owner:
+`terminology-folder.md`.
 
-## What is built
+## The one step (DB-C1)
 
-`tools/fhir_codesystems.py`, one command for the install and the manual update:
+`deploy/terminology-update.sh` is the step at install (`install.sh`, after the reference data) and the manual update.
+It runs two steps:
+
+1. The hospital's folder (`TB_LICENSED_DIR`) goes into the terminology volume, with no network. These loaders are new
+   in `terminology.installed`, and each needs the named person who accepted the licence:
+   - SNOMED CT from an RF2 Snapshot;
+   - the UMLS from a MetamorphoSys RRF subset;
+   - the ATC/DDD index as xlsx, CSV or TSV.
+
+   Each copy is verified by `SHA256SUMS`, `MRFILES.RRF` or a recorded sha256.
+2. `python -m tools.terminology_load load` loads, in one run and from the same rows, the vocabulary (`omop.concept`)
+   and the FHIR store from one manifest: the shipped tables and those loaded at install, their digest the release.
+
+Its report goes to `deploy/site/terminology-load.json`, and the doctor fails when the readers hold another release. A
+system not loaded is a line of `deploy/site/needed.jsonl` (the U-5 page) and of `poc-stops.jsonl`; nothing stops.
+
+Two more changes:
+- **Backups:** the hospital's folder and the tables built from licensed copies are left out of every backup. The
+  terminology manifest, with each system's name, version and hash, is kept, and a restore reloads the tables.
+- **The mapping check:** it reports a mapped code missing from a loaded system.
+
+## The FHIR store
+
+`tools/fhir_codesystems.py` is the FHIR store's part of the step, also runnable alone:
 
     python -m tools.fhir_codesystems load [--deploy DIR] [--wait 900]
     python -m tools.fhir_codesystems status [--json]
@@ -22,6 +47,7 @@ register's `--add-from` form: `v18-code-systems-in-the-fhir-store-2026-11-23/fin
 | NHI order codes | `nhi_order.parquet`, or the site's `nhi_service_list` | always (row `nhi-codes`, cleared) |
 | Departments | `department.parquet` | always (row `trialbox-terminology`, own work) |
 | ICD-10-PCS, WHO ICD-10 | the site's tables | the site loaded them |
+| SNOMED CT, UMLS | the hospital's own copies (`snomed_ct`, `umls_concepts`), with their parents | the hospital's folder holds them |
 | Lane M's maps (lab, JLAC10, MEDIS, YJ) | the mapping CSVs, as `ConceptMap` | always (their rows are cleared or own work) |
 
 Each system is one resource, `tb-<key>`. It has a name, a version (`FY2026+4e43519a`: the source's version and the
@@ -46,17 +72,19 @@ is missing or not allowed is a warning and a line of `poc-stops.jsonl`, and the 
 - **No effect on the compile's equivalence check.** The check still passes with the systems loaded: #1400's store
   test passed, and the GZQO gout criterion still finds its patient.
 
-## Waiting on a go (question on #639)
+## Not in this card
 
-- **`deploy/install.sh`:** one step after `up --wait` that runs `load --deploy`.
-- **`tools/trialbox/doctor.py`:** `check_terminology` gains the `status` lines.
-- **`tools/trialbox/update.py` and `verify_update.py`:** a `terminology` payload kind and its rollback. There is no
-  scheduled updater today ("No auto-update", `apply_update.sh`); the timer is proposed in the question.
-- **`tools/mapping_coverage.py` (lane M):** check a mapped code against the loaded system, not only its shape.
+- **The signed update bundle's `terminology` payload, with its rollback:** waits for lane H's H-99 (the same files,
+  `update.py` and `verify_update.py`).
+- **The scheduled update:** V-19.
+- **The install question that writes `acceptance.json`:** lane U.
 
 ## Run, and not run
 
 - **Run:** the unit tests and the integration test, on a fresh store of the pinned image on Postgres, run on this
   container.
-- **Not run:** the install path, the doctor and the update (they wait on the go), the rehearsal, and a store with a
-  site's licensed tables (none here).
+- **Not run:**
+  - the install path end to end;
+  - the rehearsal;
+  - a real SNOMED CT, UMLS or ATC/DDD release (the loaders ran on synthetic files in the publishers' formats only);
+  - a store holding a full SNOMED CT.

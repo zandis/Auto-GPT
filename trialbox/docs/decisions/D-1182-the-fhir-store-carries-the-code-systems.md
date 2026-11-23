@@ -1,6 +1,7 @@
-# D-1182 The FHIR store carries the code systems the box may carry, and they can be updated and rolled back (V-18)
+# D-1182 Every code system loads at install, in one step from one manifest, into the vocabulary and the FHIR store (V-18)
 
-- **Task:** lane V, card V-18 (the owner's ruling, the integrator's comment 7103992051 on #639) · **Date:** 2026-11-23
+- **Task:** lane V, card V-18 with lane DB's DB-C1 (the owner's rulings and the integrator's comments 7103992051,
+  7105754899, 7105876634 and 7107896921 on #639) · **Date:** 2026-11-23
 - **Status:** reserved for V-18 (the integrator flips the row when merged)
 - **Builds on:** D-1028 (code systems are loaded at install), D-1029 (US public-domain code data may be committed),
   D-1114 (a licensed table names who accepted its licence), D-991 (the services read the loaded code systems)
@@ -48,6 +49,41 @@
    validated, named and placed under its parent; ATC is skipped by its licence; an update names what it replaces; a
    rollback puts it back. `tests/unit/test_fhir_codesystems.py` covers the rules with a store in memory.
 
+10. **One manifest, one step, three readers (DB-C1).** The manifest is the terminology: the tables shipped in the
+    image and the tables loaded at install into `TB_TERMINOLOGY_DIR`. Its digest is the release (`TL-` and 12 hex).
+    `deploy/terminology-update.sh` is the one step, at install (run by `install.sh` after the reference data) and as
+    the manual update:
+    1. The hospital's folder goes into the volume, with no network (`terminology_install folder`).
+    2. `python -m tools.terminology_load load` loads the vocabulary (`omop.concept`: the shipped Parquet, and each
+       loaded table as its system's code list) and the FHIR store from the same rows, in one run.
+
+    The report goes to `deploy/site/terminology-load.json`. The doctor fails when it names another release than the
+    terminology now, or a reader failed.
+11. **The hospital's licensed copies.** SNOMED CT, the UMLS and the ATC/DDD index come from the hospital's own copy,
+    in its publisher's format. The repository and the bundle never carry them.
+    - **SNOMED CT:** an RF2 Snapshot, International or national.
+    - **UMLS:** a MetamorphoSys RRF subset (MRCONSO, MRREL).
+    - **ATC/DDD index:** xlsx, CSV or TSV.
+
+    Each is verified by its own manifest (`MRFILES.RRF`), a `SHA256SUMS` beside it, or the sha256 the person recorded,
+    else by its own headers; the manifest line says which. Each needs the named person who accepted the licence
+    (D-1114): `--accepted-by`, or the folder's `acceptance.json`, which lane U's install question writes. SNOMED CT is
+    loaded under the owner's academic, non-commercial ruling; `snomed_problems` still blocks shipping any. The folder's
+    layout: `docs/handover/terminology-folder.md`; its place, `TB_LICENSED_DIR` (default `deploy/site/terminology`).
+12. **What is still needed.** A system not loaded is a line of `deploy/site/needed.jsonl`, which the U-5 page reads
+    (U5-1). The line says why, and that `deploy/terminology-update.sh` loads it. On the installer's run it is also a
+    line of `poc-stops.jsonl`. Nothing stops.
+13. **Backups.** A table built from a licensed copy (its manifest line names who accepted the licence) and the
+    hospital's folder `deploy/site/terminology/` never reach a backup target. `manifest.json` is kept, with each
+    system's name, version and hash. A restored box reloads the tables from the hospital's folder; until then the
+    doctor names each missing table.
+14. **The mapping check** (`tools/mapping_coverage.py`) reports a mapped code that is missing from a system loaded at
+    install (LOINC, ATC, the NHI service codes).
+15. **Not in this card.**
+    - The signed update bundle's `terminology` payload waits for lane H's H-99 (the same file).
+    - The scheduled update is V-19.
+    - The install question is lane U's.
+
 ## Why
 
 The owner's ruling: the store validates codes and gives their names and hierarchy, and the code systems can be
@@ -61,3 +97,7 @@ says what the box may carry. Reading it means no second list can drift from it.
   answering from an older version.
 - Loading the shipped ATC names: its licence row asks for written permission first.
 - Validating records with the store on write: not asked for. The store validates when it is asked to.
+- A second manifest file beside the loader's: the loader's `manifest.json` and the shipped tables are already the
+  manifest, so a second file could only drift from them.
+- Fetching the licensed copies with the hospital's account: the box never fetches. A person downloads them, and the
+  box reads them from the folder.

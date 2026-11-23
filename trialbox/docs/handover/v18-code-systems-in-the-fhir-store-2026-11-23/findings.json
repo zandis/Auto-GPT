@@ -23,7 +23,7 @@
     {
       "id": "V18-03",
       "severity": "Medium",
-      "claim": "The install, the doctor, the signed update and lane M's mapping check do not yet run the loader: each is another lane's file, asked on #639 (comment 7105850281); there is no scheduled updater at all today ('No auto-update', apply_update.sh)",
+      "claim": "The signed update bundle's terminology payload and its rollback are not built: update.py and verify_update.py wait for lane H's H-99 (the same file); the scheduled update is V-19; the install question that writes acceptance.json is lane U's",
       "lane": "V",
       "basis": "shown",
       "state": "open"
@@ -51,6 +51,30 @@
       "lane": "V",
       "basis": "shown",
       "state": "fixed 1cf8bf887"
+    },
+    {
+      "id": "V18-07",
+      "severity": "Medium",
+      "claim": "The shipped atc.parquet (licence register row atc: permission-to-ask) still feeds the compiler's mapper and omop.concept (vocab_load.load_terminology's TERM_FILES), while the FHIR store leaves it out: the three readers disagree on ATC until that table is taken out of the image or its row is cleared",
+      "lane": "V",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "V18-08",
+      "severity": "Medium",
+      "claim": "SNOMED CT and the UMLS were loaded into the vocabulary and the FHIR store only at synthetic size: a full SNOMED CT International Snapshot (about 360,000 concepts) as one CodeSystem resource is untested on the deployed store; the walk on the owner's box is its first run",
+      "lane": "V",
+      "basis": "not_run",
+      "state": "open"
+    },
+    {
+      "id": "V18-09",
+      "severity": "Low",
+      "claim": "The doctor compares the readers' release only where it can read TB_TERMINOLOGY_DIR; where its container does not mount the terminology volume it says WARN 'cannot be read here' instead of comparing (which deployments mount it was not checked)",
+      "lane": "V",
+      "basis": "hypothesis",
+      "state": "open"
     }
   ]
 }
