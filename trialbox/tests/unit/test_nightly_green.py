@@ -65,7 +65,7 @@ def test_the_box_stack_still_refuses_the_stub_embedder() -> None:
 
 # -------------------------------------------------------------------------------------------------- the public data
 # Rewritten on 2026-11-23 (the integrator's ruling, #639 7116467086): the corpus host is not reachable from the runner,
-# so the public walk reads 100 case reports and 50 radiology reports of JMED-LLM's two CC BY 4.0 datasets, committed
+# so the public walk reads 147 case reports and 50 radiology reports of JMED-LLM's three CC BY 4.0 datasets, committed
 # unchanged under eval/medtxt/jmed-llm and pinned by SHA-256. Nothing is fetched, so the tests that required the fetch
 # step before the walk (and its cache, and the one line for a missing corpus) now say what replaced it.
 def test_the_nightly_fetches_nothing_before_the_public_walk() -> None:
@@ -100,7 +100,7 @@ def test_the_public_walk_reads_the_pinned_committed_datasets() -> None:
         assert (public_site.JMED_DIR.parent / "jmed-llm" / "SHA256SUMS").read_text().count(f"{sha}  {name}") == 1
     docs = public_site.medtxt_docs()
     assert [(k, sum(1 for d in docs if d.source == k)) for k in ("MedTxt-CR", "MedTxt-RR")] == [
-        ("MedTxt-CR", 100),
+        ("MedTxt-CR", 147),
         ("MedTxt-RR", 50),
     ]
     assert len({d.doc for d in docs}) == len(docs) and all(d.text and d.lang == "ja" for d in docs)

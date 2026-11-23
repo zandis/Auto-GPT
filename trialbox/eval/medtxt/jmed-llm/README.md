@@ -1,9 +1,16 @@
 # JMED-LLM datasets used by the public-data walk
 
-These two files are copied unchanged from JMED-LLM (https://github.com/sociocom/JMED-LLM, `datasets/`): `mrner_disease.csv`
-(100 rows: 50 case reports and 50 radiology reports) and `mrner_medicine.csv` (100 rows from case reports; 75 distinct
-reports, 25 of them also in the first file). Together they hold the 100 case reports and the 50 radiology reports that
-`tools/public_site.py` reads (`medtxt_docs`). SHA-256 pins: `SHA256SUMS` here and `JMED_PINS` in `tools/public_site.py`.
+These three files are copied unchanged from JMED-LLM (https://github.com/sociocom/JMED-LLM, `datasets/`):
+`mrner_disease.csv` (100 rows: 50 case reports and 50 radiology reports), `mrner_medicine.csv` (100 rows from case
+reports; 75 distinct reports, 25 of them also in the first file) and `datasets/all/CRNER.csv` (265 rows over all 147
+case reports, the positive findings of each). Together they hold the 147 case reports and the 50 radiology reports
+that `tools/public_site.py` reads (`medtxt_docs`). SHA-256 pins: `SHA256SUMS` here and `JMED_PINS` in
+`tools/public_site.py`.
+
+The first two are named in JMED-LLM's README table below (CC-BY-4.0). `CRNER.csv` is the whole-corpus file of the same
+task as MRNER-disease: the README's table does not list it by name. It is committed on the owner's ruling of
+2026-11-23 (academic development may use the CC BY 4.0 data directly; #639 7116492812), as the register row `medtxt`
+says.
 
 Below, verbatim from JMED-LLM's README of the copy the owner shared: the table row of each dataset used, and its
 License section. See `ATTRIBUTION.md`.
