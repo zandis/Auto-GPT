@@ -239,6 +239,14 @@ Changed assertion 12 is in that form.
 **Also:** a uid with no passwd entry (getent exits 2 under pipefail) no longer stops the install: the one-time values
 are then not kept, and a warning says how to get new ones
 (`test_one_time_values_h96.py::test_with_no_terminal_and_no_passwd_entry_nothing_is_kept_and_the_install_goes_on`).
+**Mutants (the review round):** 26 planted (the shared block's changed in all three copies alike), 25 caught: the
+folder checks (writable, sticky own folder, the walk up, the owner; shell and tools.keys), one name, the
+name-and-descriptor comparison, a read by the name again, shred again, the rest of the file, the opened file's owner,
+O_NOFOLLOW, the mode, the files removed after a failure, control characters, fd 8 left open, fd 0-9, the file kept
+after sealing, box-install's fd 8 and --answers, check_host's FAIL and its list line, and getent's exit. One
+survived and is equivalent: the shell's "is a link" case after the open (the check before the open and the
+name-and-descriptor comparison each refuse a link already).
+
 The review's mutation survivors each have a test now: a mode of 0400 or 0700, the files kept after a failed rotation,
 a carriage return or a tab on stdin and in a file, `--kek-passphrase-fd` 0 to 2, box-install's passphrase options
 without `--answers`, and fd 8 left open (the invariant).

@@ -106,6 +106,28 @@ def test_the_shell_refuses_a_folder_others_can_write_and_a_second_name(tmp_path:
     assert OPERATOR not in r.stdout + r.stderr
 
 
+def test_the_shell_refuses_a_folder_owned_by_another_user(tmp_path: Path) -> None:
+    """The folders must be root's (the user that runs this). Run as root, the file's folder is given to uid 65534;
+    run as a user (as CI does, who cannot chown), a stand-in `id` says the runner is uid 4242, so the test's own
+    folders are another user's. Either way the folder's owner is what refuses it."""
+    h = _harness(tmp_path)
+    f = _pp(_folder(tmp_path / "safe") / "kek.pass")
+    env = dict(os.environ)
+    if os.geteuid() == 0:
+        os.chown(tmp_path / "safe", 65534, 65534)
+    else:
+        b = _folder(tmp_path / "bin", 0o755)
+        (b / "id").write_text(
+            '#!/bin/sh\n[ "$*" = -u ] && { echo 4242; exit 0; }\nexec /usr/bin/id "$@"\n', encoding="utf-8"
+        )
+        (b / "id").chmod(0o755)
+        env["PATH"] = f"{b}:{os.environ['PATH']}"
+    r = subprocess.run(["sh", str(h), str(f), OPERATOR], env=env, capture_output=True, text=True, timeout=30,
+                       check=False)  # fmt: skip
+    assert r.returncode == 1 and "the folder" in r.stderr and "not root: refused" in r.stderr, r.stderr
+    assert "ACCEPTED" not in r.stdout
+
+
 def test_a_sticky_shared_folder_above_the_files_own_folder_is_allowed(tmp_path: Path) -> None:
     """/tmp is 1777: no one else can rename what is root's there, so a root-only folder under it is safe."""
     h = _harness(tmp_path)
@@ -202,6 +224,7 @@ def _keys_read(f: Path) -> str:
     ("layout", "said"),
     [
         ("own-0777", "can be written by others (mode 777)"),
+        ("own-sticky-1777", "can be written by others (mode 1777)"),  # the file's own folder: never a shared one
         ("parent-0777", "can be written by others (mode 777)"),
         ("hard-link", "has 2 names (hard links), not one"),
         ("mode-0400", "has mode 400, not 0600"),
@@ -215,6 +238,8 @@ def test_tools_keys_refuses_an_unsafe_folder_a_second_name_a_mode_and_a_link(
     safe = _folder(tmp_path / "safe")
     if layout == "own-0777":
         f = _pp(_folder(tmp_path / "d", 0o777) / "kek.pass")
+    elif layout == "own-sticky-1777":
+        f = _pp(_folder(tmp_path / "d", 0o1777) / "kek.pass")
     elif layout == "parent-0777":
         f = _pp(_folder(_folder(tmp_path / "open", 0o777) / "safe") / "kek.pass")
     elif layout == "hard-link":
@@ -364,3 +389,20 @@ def test_box_install_opens_fd_8_only_for_a_passphrase_from_stdin(tmp_path: Path,
         assert f"--kek-passphrase-file {f.resolve()}" in seen
     assert OPERATOR not in r.stdout + r.stderr
     _ = _unattended  # the console bench's own runner is the one the other box tests use
+
+
+def test_a_refused_rotation_keeps_both_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The review's survivor: a command that ends with rc 1 without an exception (rc1 refuses rotate-kek on a
+    PRODUCTION box, R22-34) keeps the operator's files: they are removed only after the command did its work."""
+    sec = _folder(tmp_path / "sec")
+    (sec / "site_hmac.key").write_bytes(os.urandom(32))
+    safe = _folder(tmp_path / "safe")
+    assert keys.main(["init", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
+                      "--passphrase-file", str(_pp(safe / "first.pass"))], env={}) == 0  # fmt: skip
+    old_f = _pp(safe / "old.pass")
+    new_f = _pp(safe / "new.pass", "synthetic-h96-the-new-one-for-tests\n")
+    rc = keys.main(["rotate-kek", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
+                    "--passphrase-file", str(old_f), "--new-passphrase-file", str(new_f)],
+                   env={"TB_KEK_FILE": str(tmp_path / "kek.runtime"), "TB_ENV": "PRODUCTION"})  # fmt: skip
+    capsys.readouterr()
+    assert rc == 1 and old_f.exists() and new_f.exists()
