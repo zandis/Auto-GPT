@@ -1,0 +1,96 @@
+{
+ "card": "H76A",
+ "title": "the support bundle's scrub: an encoded pseudonym left in part",
+ "date": "2026-11-22",
+ "source": "docs/handover/support-bundle-encoded-pseudonym-gap-2026-11-22.md",
+ "findings": [
+  {
+   "id": "H76A-01",
+   "severity": "High",
+   "claim": "an encoded neighbour (%2F, %22) joined its hex digit to a pseudonym on the raw line; the phone pattern cut it and the decoded view, run after, saw fragments: 8 to 13 hex digits of a pseudonym left a support bundle (the invariant test failed about once in 60 runs); fixed: the decoded view first",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed a25a5c181c205ec10b8ce46efd4c1a767c3ec3c2"
+  },
+  {
+   "id": "H76A-02",
+   "severity": "High",
+   "claim": "the keep-the-encoded-line shortcut lined the two lines up by one regex of lazy groups, which backtracked without end: 24 masks on a 335-character line took 9.7 s, each 4 more 16 times as long (review of #1354, H1); fixed: a linear mask-for-mask comparison",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed edcfec473e67fad58024efc2119cbb072c9610bc"
+  },
+  {
+   "id": "H76A-03",
+   "severity": "Medium",
+   "claim": "the shortcut kept a raw line whose two raw rules (phone and a chart pattern) cut a pseudonym into pieces under 8 characters, so up to 7 digits of it left (review of #1354, M1); fixed: the raw line is kept only when its masks are the decoded view's one for one",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed edcfec473e67fad58024efc2119cbb072c9610bc"
+  },
+  {
+   "id": "H76A-04",
+   "severity": "Low",
+   "claim": "the shortcut exists to keep two tests that pin the encoded form of a scrubbed line (review of #1354, L1); stated on the page for the integrator's ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H76A-05",
+   "severity": "Low",
+   "claim": "seeded tests no longer explore new pseudonyms (review of #1354, L2); 1,800 more fixed draws with chart patterns of 5 to 10 digits",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed edcfec473e67fad58024efc2119cbb072c9610bc"
+  },
+  {
+   "id": "H76A-06",
+   "severity": "Low",
+   "claim": "the card had no page and no findings.json (review of #1354, L3); added",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed edcfec473e67fad58024efc2119cbb072c9610bc"
+  },
+  {
+   "id": "H76A-07",
+   "severity": "High",
+   "claim": "the decoded view was scrubbed on its own: an encoded separator inside a secret's value (a space, a quote, a line break) cut the value and its rest left a bundle (re-read of #1354, H2; this line's own, not master's); fixed: the secret rule runs on the raw line first",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 6937ec81b808113e3a1bd76efc760278502a9c3d"
+  },
+  {
+   "id": "H76A-08",
+   "severity": "High",
+   "claim": "a secret after an unquoted key ({password: \"S\"}, YAML, a JS object), after a key behind '/', or under a mixed-case name left a support bundle, on master too (the bench's probe); fixed: the colon rule takes a quoted value and a key after '/', and a secret's name is read whole; the invariant: never more secret lines than master's scrub on the same corpus",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 6937ec81b808113e3a1bd76efc760278502a9c3d"
+  },
+  {
+   "id": "H76A-09",
+   "severity": "Low",
+   "claim": "the scrub's timing test added 20 ms of slack to a ratio of small times, so it could pass a quadratic scrub or fail on a slow runner; fixed: bounds from one helper, 1,000 against 4,000 masks, no slack",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 6937ec81b808113e3a1bd76efc760278502a9c3d"
+  },
+  {
+   "id": "H76A-10",
+   "severity": "Low",
+   "claim": "three mutants of the mask comparison died only on its direct test; fixed: two die through the public path, the third (any case) is equivalent",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 6937ec81b808113e3a1bd76efc760278502a9c3d"
+  },
+  {
+   "id": "H76A-11",
+   "severity": "Medium",
+   "claim": "test_a_member_put_in_past_add_is_scrubbed_before_it_is_written fails about 1 run in 100: Bundle.add writes the old log scrubber's pass on the raw text, whose phone pattern takes a run of 10 or more digits inside a pseudonym before the pseudonym rule, so 21 hex digits of it leave; not H2; on H-76 (b3239845) the pass is counted, not written, and 200 seeds pass",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
