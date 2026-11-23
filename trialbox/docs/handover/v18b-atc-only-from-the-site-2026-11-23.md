@@ -1,5 +1,8 @@
 # V-18b: ATC only from the site's own copy, and the FHIR store restarted after a terminology change (2026-11-23)
 
+**Reader:** the people who build TrialBox: the integrator, lane M (its groupers and maps), lane DB (the vocabulary)
+and the owners of the install and the update.
+
 Lane V, card V-18b, on the integrator's rulings 7114273376 and the answer to 7114639597 on #639. Decision: D-1183.
 It closes V18-07 and V18-01 of V-18 (`docs/handover/v18-code-systems-in-the-fhir-store-2026-11-23.md`). Findings:
 `docs/handover/v18b-atc-only-from-the-site-2026-11-23/findings.json`.

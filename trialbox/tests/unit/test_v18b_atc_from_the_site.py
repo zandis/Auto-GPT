@@ -90,7 +90,8 @@ def test_the_sites_copy_names_the_codes_and_answers_its_own_names(site: Terminol
     ]
     one = site.map("medication", "synthetic urate substance three")
     assert one.method == "exact" and [c.code for c in one.concepts] == ["M04AA03"]  # as the shipped table answered
-    assert site.concept(ATC, "M04AA01") is not None and site.concept(ATC, "M04AA01").display.startswith("synthetic")
+    named = site.concept(ATC, "M04AA01")
+    assert named is not None and named.display.startswith("synthetic")
 
 
 def test_the_fhir_store_carries_atc_only_from_the_sites_copy(tmp_path: Path) -> None:

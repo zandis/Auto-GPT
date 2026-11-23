@@ -18,10 +18,10 @@ from tools import terminology_load as tl
 
 ROOT = Path(__file__).resolve().parents[2]
 
-LOADED = {"release": "TL-000000000001", "fhir": [{"key": "icd10cm", "state": "loaded", "detail": "ICD-10-CM 2027"},
+LOADED: dict[str, object] = {"release": "TL-000000000001", "fhir": [{"key": "icd10cm", "state": "loaded", "detail": "ICD-10-CM 2027"},
                                                 {"key": "atc", "state": "skipped", "detail": "absent", "absent": True}],
           "omop": [], "problems": []}  # fmt: skip
-SAME = {**LOADED, "fhir": [{"key": "icd10cm", "state": "unchanged", "detail": "ICD-10-CM 2027"}]}
+SAME: dict[str, object] = {**LOADED, "fhir": [{"key": "icd10cm", "state": "unchanged", "detail": "ICD-10-CM 2027"}]}
 
 
 def _box(tmp_path: Path, report: dict[str, object], health: str) -> tuple[Path, Path, dict[str, str]]:
