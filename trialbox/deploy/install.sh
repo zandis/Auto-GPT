@@ -40,7 +40,7 @@
 #                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
 #                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
 #                 the egress refresh and watchdog timers; D-377)
-#   5. accounts:  first console administrator (password and enrolment code printed once); users page for the rest
+#   5. accounts:  first console administrator (password and enrolment code on a terminal once, in no log); users page
 #   6. check:     deploy/check_host.sh; the https:// console URL must answer; the intake address
 # Host baseline (T-634, D-408): in VALIDATION and PRODUCTION the site keys are sealed under a KEK right after they are
 # made (deploy/hardening/seal_keys.sh), and with deploy/site/hardening.conf the input firewall and SSH are set after
@@ -125,12 +125,12 @@ alive_stop() {
 }
 die() { alive_stop; printf 'install: %s\n' "$*" >&2; exit 1; }
 indent() { while IFS= read -r line || [ -n "$line" ]; do printf '    %s\n' "$line"; done; }
-# KEK-INPUT (H-96, F-45; the integrator's ruling 7094934985): never from the environment (refused, before
+# KEK-INPUT (H-96, F-45, H-94 (5); the integrator's ruling 7094934985): never from the environment (refused, before
 # anything); from --kek-passphrase-file FILE (checked here and read again by the seal step, which removes it) or
 # --kek-passphrase-stdin (read here, once). The signed re-run gets a stdin passphrase on a pipe at fd 8
 # (--kek-passphrase-fd 8): never an argument, never the environment, never a file. KP_VALUE is never exported
 KP_WHO=install
-# ---- KEK-INPUT functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# ---- KEK-INPUT functions (H-96, F-45, H-94 (5); the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
 # deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
 #   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
 #                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
@@ -1324,21 +1324,43 @@ else
 say "first console administrator"
 ADMIN_MAIL="$(sed -n 's/^MAIL_ADMIN_ADDR=//p' deploy/.env | head -1)"
 ADMIN_MAIL="${ADMIN_MAIL:-${TB_ADMIN_EMAIL:-}}"
+# H-96 (7097514776; H-94 (5): a secret where others can read it): the administrator's first password and enrolment
+# code are shown on a terminal once and are never written to a log. On stdout only when stdout is a terminal; else on
+# the controlling terminal (box-install.sh tees stdout to deploy/site/box/install.log, a rehearsal to its step log);
+# with no terminal at all, in a root-only file under root's home, never printed. TB_ONCE_TTY: the tests' terminal
+ONCE_FILE="${HOME:-/root}/trialbox-admin-first-sign-in"
+show_once() {  # stdin: the one-time text
+  local tty="${TB_ONCE_TTY:-/dev/tty}"
+  if [ -t 1 ]; then cat; return 0; fi
+  if { : >> "$tty"; } 2>/dev/null; then
+    cat >> "$tty"
+    echo "    shown on this terminal only: never in this output, which a log may keep"
+    return 0
+  fi
+  rm -f "$ONCE_FILE"
+  (umask 077; set -C; cat > "$ONCE_FILE")
+  echo "    no terminal to show it on: it is in $ONCE_FILE (root only, 0600), not in this output. Read it once" \
+    "(sudo cat $ONCE_FILE), hand it to the administrator in person, then remove it (sudo rm $ONCE_FILE)"
+}
 if [ -n "$ADMIN_MAIL" ]; then
-  "${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin --mailbox "$ADMIN_MAIL"
+  ONCE="$("${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin --mailbox "$ADMIN_MAIL")"
 else
-  "${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin
+  ONCE="$("${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin)"
 fi
-# T-632 (OPS-013, D-192): the first administrator's enrolment code, printed once; without it the account cannot set
-# up its authenticator. An administrator who already has one gets none (exit 2: nothing to print)
+# T-632 (OPS-013, D-192): the first administrator's enrolment code, shown once; without it the account cannot set
+# up its authenticator. An administrator who already has one gets none (exit 2: nothing to show)
 set +e
 ENROL="$("${COMPOSE[@]}" exec -T console python -m console.cli enrol-code admin 2>&1)"; rc=$?
 set -e
 case "$rc" in
-  0) echo "$ENROL" | sed 's/^/    /'; echo "    hand the enrolment code to the administrator in person; it works once, for 24 hours" ;;
+  0) ONCE="$ONCE"$'\n'"$ENROL"$'\n'"hand the enrolment code to the administrator in person; it works once, for 24 hours" ;;
   2) echo "    admin has an authenticator already: no enrolment code (console.cli reset-totp admin for a new one)" ;;
-  *) echo "$ENROL" | sed 's/^/    /' >&2; FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
+  *) ONCE="$ONCE"$'\n'"enrol-code admin failed (rc $rc):"$'\n'"$ENROL"
+     FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
 esac
+ENROL=""
+printf '%s\n' "$ONCE" | sed 's/^/    /' | show_once
+ONCE=""
 echo "    add coordinators and viewers on the console's Users page, or: docker compose exec console python -m console.cli add-user"
 fi
 

@@ -64,6 +64,34 @@ no_passphrase_left() {
   ok "the passphrase is in no sudo log line, no argument, no deploy/.env, no container configuration"
 }
 
+# H-96 (7097514776; H-94 (5)): the installer shows the administrator's first password and enrolment code on a terminal
+# once and writes them to no log; with no terminal (docker exec without -t, as here) they are in a root-only file.
+# install_logged OUT: the install, its output (the step log's lines) kept in OUT for the check below
+ONCE_FILE=/root/trialbox-admin-first-sign-in
+install_logged() {
+  local rc=0
+  install_box > "$1" 2>&1 || rc=$?
+  cat "$1"
+  return "$rc"
+}
+# no_once_value_left OUT MIN: the root-only file holds at least MIN one-time values; none of them (read by grep -F -f,
+# never printed) is in the install's output, the stand-in sudo's log or deploy/.env. The file is removed after, as
+# RUNBOOK §1 says
+no_once_value_left() {
+  local out="$1" min="$2" pat
+  [ -f "$ONCE_FILE" ] && [ "$(stat -c '%a %u' "$ONCE_FILE")" = "600 0" ] \
+    || fail "the administrator's one-time values are not in a root-only file ($ONCE_FILE, 0600)"
+  grep -q "no terminal to show it on: it is in $ONCE_FILE" "$out" || fail "the install's output does not name $ONCE_FILE"
+  pat="$(mktemp)"
+  sed -n 's/.*(shown once[^)]*): *//p' "$ONCE_FILE" | grep . > "$pat"
+  [ "$(wc -l < "$pat")" -ge "$min" ] || { rm -f "$pat"; fail "fewer than $min one-time values in $ONCE_FILE"; }
+  if [ -s "$pat" ] && grep -qF -f "$pat" "$out" "$SUDO_LOG" "$BOX/deploy/.env"; then
+    rm -f "$pat"; fail "a one-time value (the first password or the enrolment code) is in the install's output or a log"
+  fi
+  rm -f "$pat" "$ONCE_FILE"
+  ok "the first password and enrolment code: in a root-only file, in no install output, sudo log or deploy/.env"
+}
+
 unpack_release() {  # the release tree from the media into a fresh folder: what the site copies to /opt/trialbox
   local to="$1"
   rm -rf "$to" && mkdir -p "$to" && tar -xf "$MEDIA/trialbox-release.tar" -C "$to" || fail "cannot unpack the release"
@@ -242,7 +270,8 @@ install)
     || fail "the environment form was not refused before anything (exit $rc)"
   ok "the environment form is refused by install.sh (exit 2, nothing loaded or written)"
   : > "$SUDO_LOG"
-  install_box || fail "deploy/install.sh failed"
+  install_logged "$W/install-output.log" || fail "deploy/install.sh failed"
+  no_once_value_left "$W/install-output.log" 2
   [ -f "$KEK_PASS" ] && [ "$(stat -c %a "$KEK_PASS")" = 600 ] || fail "--keep-kek-passphrase-file did not keep the file"
   no_passphrase_left "$KEK_PASS"
   ok "first install through the signed re-run: sealed from --kek-passphrase-file, the file kept as asked"
@@ -277,7 +306,8 @@ reinstall)
   ok "first install: keys sealed under the passphrase KEK (kek.json)"
   pp_copy="$(mktemp)"; cp "$KEK_PASS" "$pp_copy"   # the patterns for the checks after the file is removed (0600)
   : > "$SUDO_LOG"
-  install_box || { rm -f "$pp_copy"; fail "the second install of the same bundle failed"; }
+  install_logged "$W/reinstall-output.log" || { rm -f "$pp_copy"; fail "the second install of the same bundle failed"; }
+  no_once_value_left "$W/reinstall-output.log" 0
   [ ! -e "$KEK_PASS" ] || { rm -f "$pp_copy"; fail "the seal step did not remove the passphrase file"; }
   no_passphrase_left "$pp_copy"; rm -f "$pp_copy"
   ok "second install: the passphrase file removed after sealing"

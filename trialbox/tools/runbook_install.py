@@ -317,6 +317,14 @@ NOT_ON_PATH: list[tuple[str, str]] = [
     (r"python3 tools/serving_config\.py capture .*", "measuring a new card on a rehearsal box"),
     (r"python -m tools\.gpu_sizing", "an estimate, not an install step"),
     (r"--mode stub", "the one command's option on a machine without a GPU (the follower applies it there)"),
+    (
+        r"sudo bash -c 'umask 077; IFS= read -rs p; .*",
+        "a machine without a usable TPM: the passphrase's root-only file (H-96; the follower's no-tpm lift writes it)",
+    ),
+    (
+        r"-- --tier large --answers /root/site/site\.yaml --kek-passphrase-file /root/trialbox-kek\.pass",
+        "a machine without a usable TPM: the one command's options (H-96; the follower's no-tpm lift adds them)",
+    ),
     (r"python -m tools\.trialbox\.memcaps .*", "re-measuring or re-sizing the memory caps (the installer sizes them)"),
     (r"tools/make_bundle\.sh", "the vendor builds the bundle"),
     (r"make release-bundle", "the vendor builds the bundle"),

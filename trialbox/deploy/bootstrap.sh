@@ -25,7 +25,7 @@
 # Knobs for the tests only: TB_BOOTSTRAP_NO_ROOT=1, TB_BOOTSTRAP_ROOT (/opt/trialbox).
 set -euo pipefail
 die() { echo "trialbox-bootstrap: $*" >&2; exit 1; }
-# H-96 (F-45; the integrator's ruling 7094934985): a KEK passphrase in the environment is refused here, before anything
+# H-96 (F-45, H-94 (5); the integrator's ruling 7094934985): a KEK passphrase in the environment is refused here, before anything
 # is read or written, with the words of the installers' KEK-INPUT block (this file runs before they are on the machine)
 for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
   if [ -n "${!kp_var:-}" ]; then

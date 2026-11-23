@@ -157,7 +157,8 @@ question, no first-run code and no wait. Use it for the hospital's own unattende
   - optionally `chartno_rule`, `mta_authserv_id`, and `environment` (`PRODUCTION`, or `VALIDATION` for public or
     synthetic data).
 - The plan is made from that file. The install then makes the first administrator as the IT form does: the password
-  and enrolment code are printed once.
+  and enrolment code are shown once on the terminal, never in `deploy/site/box/install.log` (H-96); with no terminal
+  they are in `/root/trialbox-admin-first-sign-in` (root only), to read once, hand on and remove.
 - After the install it sets the host's time zone, installs the backup schedule and runs the host check.
 - A password or passphrase in the answers file is refused.
 - A file that does not parse changes nothing.

@@ -39,8 +39,9 @@ the bundle's signature with the same key and the release's host tree against it,
 and runs `/opt/trialbox/deploy/install.sh` with the bundle and the options after `--`. An install that stopped (a
 missing answer, a machine check) is run again by the same command. The installer verifies and loads the bundle,
 runs the settings wizard, makes one token per service, turns TLS on (the identity overlay, after `console.cli
-check-tls` passed), starts the stack, creates the first administrator and prints the password and the enrolment code
-once, writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
+check-tls` passed), starts the stack, creates the first administrator and shows the password and the enrolment code
+once on the terminal (never in its output, which a log may keep: box-install.sh keeps one; with no terminal at all
+they are in `/root/trialbox-admin-first-sign-in`, root only: read it once, hand both on in person, remove it), writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
 IT), installs both cron files (log retention and backups), runs the host check, names the judge (its role, the
 registry's label of the build the profile serves, and the pin) and ends with the `https://` console URL, which it
 checks from the box with the certificate the clinic PCs will see. It exits 1 when a FAIL line remains, and lists them

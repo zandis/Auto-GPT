@@ -70,11 +70,11 @@ fi
 if [ "$REHEARSAL" = 1 ] && [ "$FIRSTRUN" = 1 ]; then echo "box-install: --rehearsal with --firstrun: the first run finishes the box as it was installed" >&2; exit 2; fi
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'box-install: %s\n' "$*" >&2; exit 1; }
-# KEK-INPUT (H-96, F-45; the integrator's ruling 7094934985): never from the environment (refused, before
+# KEK-INPUT (H-96, F-45, H-94 (5); the integrator's ruling 7094934985): never from the environment (refused, before
 # anything); only with --answers (the wizard's box takes it on the set-up page). A file goes on to install.sh by its
 # name (its seal step removes it); a passphrase read from stdin by a pipe at fd 8. KP_VALUE is never exported
 KP_WHO=box-install
-# ---- KEK-INPUT functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# ---- KEK-INPUT functions (H-96, F-45, H-94 (5); the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
 # deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
 #   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
 #                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file

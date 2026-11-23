@@ -156,7 +156,7 @@ ROTATE_PAGE = "RUNBOOK §23, rotate the KEK passphrase"
 
 
 def env_passphrase_refusal(env: Mapping[str, str]) -> str | None:
-    """H-96: why a passphrase in the environment is refused (None when there is none). Never the value."""
+    """H-96, H-94 (5): why a passphrase in the environment is refused (None when there is none). Never the value."""
     for var in PASSPHRASE_VARS:
         if env.get(var):
             return (f"{var} is set in the environment: refused, nothing was changed. A passphrase given by the "

@@ -24,7 +24,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 . "$HERE/lib.sh"
 KP_WHO="seal_keys.sh"
-# ---- KEK-INPUT functions (H-96, F-45; the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# ---- KEK-INPUT functions (H-96, F-45, H-94 (5); the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
 # deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
 #   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
 #                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
