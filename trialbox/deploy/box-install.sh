@@ -228,7 +228,7 @@ EOP
   set +e
   # shellcheck disable=SC2086 # TB_BOX_INSTALL is a command line on purpose (tests)
   TB_BOX="$INBOX" TB_BOX_DEFER_SEAL="$DEFER" ${TB_BOX_INSTALL:-bash "$ROOT/deploy/install.sh"} "$BUNDLE" \
-    --answers "$BOX/answers.json" "${INSTALL_ARGS[@]}" --keep-poc-list --yes 2>&1 | tee "$BOX/install.log"
+    --answers "$BOX/answers.json" "${INSTALL_ARGS[@]}" --yes --keep-poc-list 2>&1 | tee "$BOX/install.log"
   rc="${PIPESTATUS[0]}"
   set -e
   # a FAIL list at the end (backups not yet placed, say) leaves the stack running; a stop half-way does not
