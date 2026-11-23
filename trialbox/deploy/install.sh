@@ -1086,14 +1086,15 @@ if [ "$PULL" = never ]; then
 fi
 # D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
 # update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
-# H-94 (3): pre-start's first check, its rehearsal guard (a box with a rehearsal sign never starts as PRODUCTION,
-# tools/rehearsal_real.py start_refusal), is run on its own first on a PoC box, so the warning below never covers it
-# (review M-2 of #1396). On any other box pre-start refuses it itself, with master's words
 if command -v python3 >/dev/null; then
+  # REHEARSAL-REAL-SERVERS (H-89): pre-start's first check, its rehearsal guard (start_refusal: a box with a
+  # rehearsal sign never starts as PRODUCTION), is run on its own first on a PoC box, so the warning below never
+  # covers it (H-94 kept refusal 3, review M-2 of #1396). On any other box pre-start refuses it itself, master's words
   if tb_poc_box; then
     python3 -m tools.rehearsal_real start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
       || die "a start-up step of this release failed (pre-start above)"  # H-94 (3)
   fi
+  # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
     || stop_or_warn pre-start "" "a start-up step of this release failed (pre-start above)"
 else
@@ -1509,11 +1510,14 @@ fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 # H-94: on a PoC box each FAIL line is a warning and a line of the list, and the install ends 0; elsewhere every
 # FAIL line, then exit 1, as before
+# H-94 (5): on a PoC box a FAIL line of the host check about a secret's mode stays a FAIL: the other FAIL lines warn
+# and are listed, then those lines and exit 1. On any other box the lines below stop, with master's words
+if [ "${#SECRET_FAILS[@]}" -gt 0 ] && tb_poc_box; then
+  for f in "${FAILS[@]}"; do stop_or_warn --silent "fail: $(printf '%s' "$f" | cut -c1-40)" "" "FAIL: $f"; done
+  printf 'install: FAIL: %s\n' "${SECRET_FAILS[@]}" >&2
+  exit 1  # H-94 (5): a secret's file or key where others can read it
+fi
 if [ "${#FAILS[@]}" -gt 0 ]; then
   tb_poc_box || printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
   for f in "${FAILS[@]}"; do stop_or_warn --silent "fail: $(printf '%s' "$f" | cut -c1-40)" "" "FAIL: $f"; done
-fi
-if [ "${#SECRET_FAILS[@]}" -gt 0 ]; then  # on any other box the lines above stopped already, with master's words
-  printf 'install: FAIL: %s\n' "${SECRET_FAILS[@]}" >&2
-  exit 1  # H-94 (5): a secret's file or key where others can read it
 fi

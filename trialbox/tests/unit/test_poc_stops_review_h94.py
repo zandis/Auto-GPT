@@ -218,6 +218,9 @@ def test_l3_an_install_starts_with_an_empty_list(tmp_path: Path) -> None:
     (box.tmp / LISTED).write_text('{"key": "k", "what": "w", "skipped": "", "at": "t", "by": "b"}\n', encoding="utf-8")
     checked = box.install("--check", answers=False)
     assert (box.tmp / LISTED).exists(), checked.text[-2000:]  # a run that only checks keeps it
+    signed = os.readlink(box.tmp / "current")  # the run from the signed tree is the same install: it keeps it
+    rerun = box.install("--environment", "TEST", "--mode", "stub", "--yes", env={"TB_INSTALL_SIGNED": signed})
+    assert "k" in {e["key"] for e in rerun.listed()}, rerun.text[-2000:]
 
 
 def test_l4_the_shell_list_is_made_0640_with_no_window(tmp_path: Path) -> None:
