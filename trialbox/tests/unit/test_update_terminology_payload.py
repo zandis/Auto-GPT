@@ -19,7 +19,9 @@ from tools.trialbox import update as up
 from tools.verify_update import Rejected, verify
 
 PERSON = "Synthetic Person"
-NHI = "診療項目代碼,健保支付點數,生效起日,生效迄日,英文項目名稱,中文項目名稱\n{code},1,20200101,29101231,Synthetic,合成\n"
+NHI = (
+    "診療項目代碼,健保支付點數,生效起日,生效迄日,英文項目名稱,中文項目名稱\n{code},1,20200101,29101231,Synthetic,合成\n"
+)
 
 
 @pytest.fixture(autouse=True)
