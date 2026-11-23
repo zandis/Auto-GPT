@@ -6,6 +6,9 @@ Synthetic data only: the ATC index here is three invented rows in the shape of t
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,7 @@ from tests.unit.test_fhir_codesystems import MemoryStore
 from tools import fhir_codesystems as fc
 from tools import terminology_load as tl
 
+ROOT = Path(__file__).resolve().parents[2]
 SYN_ATC = "ATC code,ATC level name\nV99SY01,synthetic drug one\nV99SY02,synthetic drug two\nV99SY,synthetic group\n"
 PERSON = "Synthetic Person"
 
@@ -207,3 +211,40 @@ def test_what_is_still_needed_goes_to_the_u5_list_and_replaces_only_this_steps_l
     log.write_text("UMLS: loaded: umls_concepts 2 rows\n", "utf-8")
     tl.main(["skipped", "--report", str(report), "--folder-log", str(log), "--site", str(site)])
     assert [json.loads(x)["key"] for x in (site / tl.NEEDED).read_text("utf-8").splitlines()] == ["mail/relay"]
+
+
+def test_a_system_loaded_on_its_own_reloads_the_readers_so_they_never_disagree(tmp_path: Path) -> None:
+    """DB-C1: deploy/terminology.sh, after it loaded a system, loads the vocabulary and the FHIR store again (the
+    update step's second step); not after ``status``, not when the update step runs it, not when the load failed."""
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    shutil.copy(ROOT / "deploy/terminology.sh", deploy / "terminology.sh")
+    calls = tmp_path / "calls"
+    (deploy / "terminology-update.sh").write_text(f'#!/bin/sh\necho "$*" >> {calls}\n', encoding="utf-8")
+    (deploy / "terminology-update.sh").chmod(0o755)
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "docker").write_text(
+        '#!/bin/sh\n[ "$1 ${TB_FAKE_FAIL:-}" != "run 1" ] || exit 3\nexit 0\n', encoding="utf-8"
+    )
+    (bin_ / "docker").chmod(0o755)
+
+    def run(*args: str, **env: str) -> int:
+        e = {"PATH": f"{bin_}:{os.environ['PATH']}", "TB_LICENSED_DIR": str(tmp_path / "stage"), **env}
+        return subprocess.run(["sh", str(deploy / "terminology.sh"), *args], env=e, check=False).returncode
+
+    assert run("site-list", "/stage/x.csv", "--name", "x", "--system", "icd10cm") == 0
+    assert calls.read_text("utf-8").split() == ["--readers-only"]
+    assert run("status") == 0 and run("folder", "/stage", TB_TERMINOLOGY_READERS="0") == 0
+    assert run("site-list", "/stage/x.csv", TB_FAKE_FAIL="1") == 3
+    assert calls.read_text("utf-8").split() == ["--readers-only"]  # none of the three reloaded the readers
+    update = (ROOT / "deploy/terminology-update.sh").read_text("utf-8")
+    assert "TB_TERMINOLOGY_READERS=0 deploy/terminology.sh folder /stage" in update
+
+
+def test_the_readers_alone_keep_the_folders_lines_on_the_u5_list(tmp_path: Path) -> None:
+    site = tmp_path / "site"
+    tl.needed(site, [("folder/UMLS", "missing: no umls/", False), ("fhir/icd10pcs", "not loaded", False)])
+    tl.needed(site, [], folder=False)  # the readers only: the folder was not read, its line stays
+    keys = [json.loads(x)["key"] for x in (site / tl.NEEDED).read_text("utf-8").splitlines()]
+    assert keys == ["terminology/folder/UMLS"]

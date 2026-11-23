@@ -11,6 +11,7 @@
 #
 #   deploy/terminology-update.sh                      # after the files changed, or a system was added to the folder
 #   deploy/terminology-update.sh --rollback BUNDLE    # the tables an update's code systems replaced, put back
+#   deploy/terminology-update.sh --readers-only       # step 2 only (deploy/terminology.sh, after it loaded a system)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
@@ -26,16 +27,22 @@ if [ "${1:-}" = "--rollback" ]; then  # V-18: the tables kept aside by update BU
   shift 2
   set -- "$@"
 fi
+READERS_ONLY=0
+[ "${1:-}" != "--readers-only" ] || READERS_ONLY=1
 SITE="deploy/site"
 REPORT="$SITE/terminology-load.json"
 LOG="$(mktemp)"
 trap 'rm -f "$LOG" "$REPORT.new"' EXIT
 mkdir -p "$SITE"
-echo "code systems: the hospital's folder into the terminology volume"
-if ! deploy/terminology.sh folder /stage >"$LOG" 2>&1; then
-  echo "terminology-update: warning: the hospital's folder was not read (deploy/terminology.sh, below)" >&2
+FOLDER_LOG=()
+if [ "$READERS_ONLY" = 0 ]; then
+  echo "code systems: the hospital's folder into the terminology volume"
+  if ! TB_TERMINOLOGY_READERS=0 deploy/terminology.sh folder /stage >"$LOG" 2>&1; then
+    echo "terminology-update: warning: the hospital's folder was not read (deploy/terminology.sh, below)" >&2
+  fi
+  sed 's/^/    /' "$LOG"
+  FOLDER_LOG=(--folder-log "$LOG")
 fi
-sed 's/^/    /' "$LOG"
 echo "code systems: one manifest into the vocabulary and the FHIR store"
 docker rm -f tb-terminology-load >/dev/null 2>&1 || true
 COMPOSE=(docker compose --project-directory deploy)  # the files and profile of deploy/.env (COMPOSE_FILE), as installed
@@ -47,7 +54,7 @@ else
   rm -f "$REPORT"
 fi
 # what is still needed: the folder's systems not loaded and the readers' (standard library only, on the host)
-PYTHONPATH=. python3 -m tools.terminology_load skipped --report "$REPORT" --folder-log "$LOG" --site "$SITE" \
+PYTHONPATH=. python3 -m tools.terminology_load skipped --report "$REPORT" "${FOLDER_LOG[@]}" --site "$SITE" \
   | while IFS="$(printf '\t')" read -r key why; do
       [ -z "$key" ] || echo "terminology-update: still needed: $key: $why" >&2
     done

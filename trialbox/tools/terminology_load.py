@@ -162,15 +162,20 @@ def folder_lines(text: str) -> list[tuple[str, str, bool]]:
     return out
 
 
-def needed(site: Path, items: list[tuple[str, str, bool]], by: str = BY) -> None:
+def _ours(key: str, folder: bool) -> bool:
+    """A line of ``needed.jsonl`` this run rewrites: this step's, and the folder's only when the folder was read."""
+    return key.startswith("terminology/") and (folder or not key.startswith("terminology/folder/"))
+
+
+def needed(site: Path, items: list[tuple[str, str, bool]], by: str = BY, folder: bool = True) -> None:
     """Rewrite this step's lines of ``site/needed.jsonl`` (``terminology/...``): one per system still needed, with
     why, whether it is a fault, and the command that loads it later; the other steps' lines stay. Standard library
-    only (the host runs it)."""
+    only (the host runs it). ``folder=False``: the hospital's folder was not read this time, so its lines stay."""
     from datetime import UTC, datetime
 
     path = site / NEEDED
     keep = [ln for ln in (path.read_text("utf-8").splitlines() if path.is_file() else [])
-            if ln.strip() and not str(json.loads(ln).get("key", "")).startswith("terminology/")]  # fmt: skip
+            if ln.strip() and not _ours(str(json.loads(ln).get("key", "")), folder)]  # fmt: skip
     at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     new = [json.dumps({"key": f"terminology/{k}", "what": f"code system {k.split('/', 1)[-1]} is not loaded",
                        "why": why, "fault": fault, "next": NEXT, "at": at, "by": by}, ensure_ascii=False)
@@ -233,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         for key, why, _ in items:
             print(f"{key}\t{' '.join(why.split())}")
         if a.site:
-            needed(Path(a.site), items)
+            needed(Path(a.site), items, folder=bool(a.folder_log))
         return 0
     from criteria_compiler.terminology import installed as inst
 
