@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from orchestrator import night, scheduler
+from orchestrator import night, reimbursement, scheduler
 from orchestrator.core import Ctx, Orchestrator, Outcome, Services
 from orchestrator.db import JobDB
 from tb_common.audit import AuditLog
@@ -45,6 +45,7 @@ class Box:
         monkeypatch.setattr(scheduler, "night_gate", lambda orch: self.gate)
         monkeypatch.setattr(scheduler, "nav_rulesets", lambda orch: ["NHI1"])
         monkeypatch.setattr(night, "_said", set())
+        monkeypatch.setattr(reimbursement, "is_open", lambda *a, **k: True)  # card 9e-9: a test box with NAV on
         self.orch = self.start()
 
     def start(self) -> Orchestrator:

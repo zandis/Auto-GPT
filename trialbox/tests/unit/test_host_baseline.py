@@ -463,3 +463,31 @@ def test_an_os_patch_is_refused_under_a_running_job(tmp_path: Path) -> None:
                             "--deploy", str(deploy)], env=env, capture_output=True, text=True, check=False)  # fmt: skip
         assert r.returncode == 1 and said in r.stderr, r.stdout + r.stderr
         assert not log.exists() or "install" not in log.read_text(encoding="utf-8")  # nothing upgraded
+
+
+# ------------------------------------------------------------------------------- a host without a TPM (H-89, item 1)
+SECRET_PP = "correct-horse-battery-staple-h89"
+
+
+@pytest.mark.parametrize(
+    ("extra", "kek", "status"),
+    [
+        ({}, "file", "FAIL"),  # no passphrase back end: as before
+        ({"TB_KEK_BACKEND": "passphrase"}, "file", "FAIL"),  # the back end named without a passphrase
+        ({"TB_KEK_PASSPHRASE": SECRET_PP}, "file", "FAIL"),  # a passphrase without the back end
+        ({"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": SECRET_PP}, "file", "WARN"),  # the install's way out
+        ({}, "passphrase", "WARN"),  # the site keys already sealed under it
+    ],
+)
+def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(
+    tmp_path: Path, extra: dict[str, str], kek: str, status: str
+) -> None:
+    args, env = _box(tmp_path)
+    (tmp_path / "host" / "dev" / "tpmrm0").unlink()
+    (tmp_path / "secrets" / "kek.json").write_text(f'{{"backend": "{kek}"}}', encoding="utf-8")
+    r = _sh(args, {**env, **extra})
+    line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
+    assert line.startswith(status), r.stdout
+    if status == "WARN":
+        assert "passphrase back end (TB_KEK_BACKEND=passphrase)" in line
+    assert SECRET_PP not in r.stdout + r.stderr
