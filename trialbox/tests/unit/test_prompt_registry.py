@@ -569,7 +569,7 @@ def test_pair_never_agrees_across_two_prompt_texts() -> None:
         "criterion_text": "c",
         "note_question": "q",
         "index_date": date(2026, 10, 5),
-        "excerpts": [],
+        "excerpts": [{"did": "d1", "text": "q"}],  # the quote is in the record (round 5, M1, #639 7115208555)
         "study_id": "S",
         "data_class": "D0",
         "step_id": "s",
