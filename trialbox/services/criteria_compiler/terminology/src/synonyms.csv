@@ -120,7 +120,7 @@ medication,ra biologic,atc,L04AC07,exact
 medication,egfr tyrosine kinase inhibitor,atc,L01EB,prefix
 procedure,bariatric surgery,nhi_order,75614B,exact
 procedure,bariatric surgery,nhi_order,75613B,exact
-procedure,bariatric surgery,jp_k_code,K656-2,exact
+procedure,bariatric surgery,k_code,K656-2,exact
 observation,serum urate,loinc,3084-1,exact
 observation,uric acid,loinc,3084-1,exact
 observation,hba1c,loinc,4548-4,exact

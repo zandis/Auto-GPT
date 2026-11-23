@@ -16,7 +16,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 TERM = Path(__file__).resolve().parents[1] / "services" / "criteria_compiler" / "terminology"
-FILES = ["icd10cm_tw", "nhi_drug", "atc", "loinc_tw", "nhi_order", "jp_k_code", "department", "synonyms"]
+FILES = ["icd10cm_tw", "nhi_drug", "atc", "loinc_tw", "nhi_order", "k_code", "department", "synonyms"]
 # full code lists (D-122): gzipped CSV source -> <name>.parquet; the mapper uses them for code lookups and prefix
 # groupers only. ICD-10-CM 2026 (CMS / CDC NCHS order file, public domain), every header and billable code.
 FULL = {"icd10cm_full": "icd10cm_2026.csv.gz"}

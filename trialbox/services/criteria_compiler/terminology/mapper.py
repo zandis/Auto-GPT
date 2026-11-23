@@ -49,7 +49,7 @@ SYSTEMS = {
     "nhi_order": "https://trialbox.local/fhir/CodeSystem/nhi-order",
     # SDR2 (lane M): Japan's 診療報酬点数表 K codes (operations), TrialBox's own URI, a local system until an official
     # one is found (its own card)
-    "jp_k_code": "https://trialbox.local/fhir/CodeSystem/jp-k-code",
+    "k_code": "https://trialbox.local/fhir/CodeSystem/jp-k-code",
     "department": "https://trialbox.local/fhir/CodeSystem/department",
     "loinc": "http://loinc.org",
 }
@@ -65,7 +65,7 @@ DOMAIN_TABLES = {
     "medication": ["atc"],
     "observation": ["loinc"],
     "report": ["loinc"],
-    "procedure": ["nhi_order", "jp_k_code"],
+    "procedure": ["nhi_order", "k_code"],
     "encounter": ["department"],
     "claim": ["nhi_drug"],
 }
@@ -74,7 +74,7 @@ TABLE_FILES = {
     "atc": "atc",
     "nhi_drug": "nhi_drug",
     "nhi_order": "nhi_order",
-    "jp_k_code": "jp_k_code",
+    "k_code": "k_code",
     "department": "department",
     "loinc": "loinc_tw",
 }
