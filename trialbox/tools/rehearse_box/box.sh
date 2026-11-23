@@ -654,7 +654,8 @@ live-restore)
   # H-100: the restore over the live stack by the one command RUNBOOK §5 documents, typed on the box's host as root:
   # the nightly (--deploy deploy, a relative folder) to a rehearsal folder under a throwaway key pair, backup-verify,
   # then `trialbox restore --last --key <key> --yes --restart`; every service that ran before runs again and is
-  # healthy, and the restored rows equal backup-verify's. The box's own key, targets and records are put back after.
+  # healthy, and the restored rows equal backup-verify's. Before it, a restore made to fail after it replaced the
+  # databases must leave every table as it was. The box's own key, targets, records and role script are put back.
   # Last of the box's steps: a restore that ends held (D-522) leaves the list jobs held for a person.
   cd "$BOX" || fail "no box at $BOX"
   command -v trialbox >/dev/null || fail "no trialbox on PATH (install.sh links it)"
@@ -685,6 +686,36 @@ live-restore)
   ok "backup-nightly --deploy deploy (a relative folder): $(basename "$file")"
   python3 -m tools.trialbox backup-verify "$file" --key "$rr/backup.key" > "$rr/verify.json" \
     || { cat "$rr/verify.json"; fail "backup-verify failed"; }
+  # H-100 (review F2): a restore that fails after it replaced the databases leaves the box as it was. The services
+  # are stopped first (the restore is typed without --restart), every table's rows counted, the role step made to
+  # fail (the box's role script, put back on the way out), the restore run, the rows counted again: equal but for
+  # the flags store (the hold the failed restore takes); then the services start again as they were.
+  roles="deploy/docker/db-init/30-service-roles.sh"
+  cp -p "$roles" "$rr/roles.before" || fail "cannot keep the role script"
+  put_back_all() { cat "$rr/roles.before" > "$BOX/$roles"; put_back; }
+  trap put_back_all EXIT
+  rows() {  # every base table's rows in both databases, the flags store (schema app) left out
+    local db q
+    q="SELECT table_schema||'.'||table_name||' '||(xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I.%I', table_schema, table_name), false, true, '')))[1]::text FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema', 'app') ORDER BY 1"
+    for db in trialbox_wf hapi; do dc exec -T db psql -X -At -U hapi -d "$db" -c "$q" | sed "s/^/$db /"; done
+  }
+  mapfile -t stopped < <(dc ps --services --status running | grep -vx db | sort)
+  [ "${#stopped[@]}" -gt 0 ] || fail "no service runs but db before the failing restore"
+  dc stop "${stopped[@]}" >/dev/null 2>&1 || fail "cannot stop the services for the failing restore"
+  rows > "$rr/rows.before" || fail "cannot count the rows before the failing restore"
+  printf '#!/bin/sh\necho "synthetic: the role step fails (rehearsal)" >&2\nexit 1\n' > "$roles"
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes > "$rr/failed.json" 2> "$rr/failed.err" || rc=$?
+  cat "$rr/failed.err"
+  cat "$rr/roles.before" > "$roles"
+  [ "$rc" = 1 ] || fail "the restore with a failing role step ended $rc, not 1"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("state") == "rolled_back", d' "$rr/failed.json" \
+    || fail "the failed restore did not say rolled_back"
+  rows > "$rr/rows.after" || fail "cannot count the rows after the failing restore"
+  diff "$rr/rows.before" "$rr/rows.after" > "$rr/rows.diff" || { cat "$rr/rows.diff"; fail "the failed restore did not leave the box as it was"; }
+  ok "a restore that failed after replacing the databases put them back: $(wc -l < "$rr/rows.before") tables, each the same rows as before"
+  dc start "${stopped[@]}" >/dev/null 2>&1 || fail "cannot start the services again after the failing restore"
+  wait_healthy 900
   rc=0
   trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/restore.json" 2> "$rr/restore.err" || rc=$?
   cat "$rr/restore.err"

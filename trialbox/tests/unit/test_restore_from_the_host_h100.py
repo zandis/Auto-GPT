@@ -550,7 +550,11 @@ def test_the_rehearsal_restores_over_the_live_stack_by_the_documented_command() 
     assert "python3 -m tools.trialbox backup-nightly --deploy deploy " in body  # gap 1: the relative folder
     assert "backup-verify" in body and 'out["rows"] == verify["databases"]' in body
     assert "wait_healthy" in body and '[ "$before" = "$after" ]' in body
-    assert "trap put_back EXIT" in body and "env.before" in body
+    assert "trap put_back_all EXIT" in body and "env.before" in body and "roles.before" in body
+    # review F2: a restore made to fail after it replaced the databases leaves every table as it was
+    assert body.index("rows.before") < body.index('--yes > "$rr/failed.json"') < body.index("rows.after")
+    assert '"rolled_back"' in body and 'diff "$rr/rows.before" "$rr/rows.after"' in body
+    assert body.index("rows.after") < body.index("--yes --restart >")  # the good restore after it
     assert "backup-keygen" in body and "never the box's" in body  # a throwaway key pair
     steps = re.findall(r"^step ([a-z0-9-]+) [01] (\S+)", rehearse, re.M)
     in_box = [name for name, how in steps if how == "in_box"]

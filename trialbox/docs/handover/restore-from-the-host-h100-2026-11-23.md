@@ -65,6 +65,40 @@ back. It runs only in CI's rehearse jobs: this session has no container engine.
 and the bench prove it. The backup image was not built (the pinned versions, the base's package source and key path,
 and the Python base's suite are read, not built). Shellcheck was not run in this session (the `checks` job runs it).
 
+## The review (F1 to F7) and the all-or-nothing design
+
+The independent review (7109588168) said fix first; the integrator's red (7109588664) named F1 to F7.
+
+- **F1.** Compose and the restore's container run with `BoxRestore.engine_env()`: PATH (the process's: sudo's
+  secure_path) and HOME (the user's folder, the engine's client settings), then only `DOCKER_HOST`,
+  `DOCKER_CONTEXT`, `DOCKER_CONFIG`, `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` when `deploy/.env` names them.
+  Compose reads the project's name and files from `deploy/.env` itself (`--project-directory`).
+- **F2, the design: a copy first, put back on failure.** Chosen over restoring into a fresh database and swapping
+  it in: the trial database may be a schema prefix of a shared database (`tb_prefix`), the service roles own
+  schemas inside it, and the cluster's roles would have to be renamed with it; a swap also needs every connection
+  closed and `CREATEDB` the trial role does not have (CR-037). The copy uses the restore's own tools (`pg_dump`, then
+  `restore_db`), so it works wherever the restore works. **Disk:** up to the databases' own size
+  (`pg_database_size`, a custom-format dump is usually much smaller), plus the unpacked backup (about four times
+  the file), in `deploy/.restore-*` on the host; checked on the host before anything stops (exit 2) and again inside
+  before the first change. Everything from the first dropped schema to the last audit event is one guarded region:
+  any exception, Ctrl-C, SIGTERM or SIGHUP puts the folders back (renamed back from aside), then each replaced
+  database from its copy, takes the hold on the old databases and audits `backup.restore_failed` with
+  `state: rolled_back` (or `not_rolled_back` with what did not go back, and the kept copy to restore).
+- **F3.** Every end of the host step prints `restore: the box now: <compose's answer>; the data: ...; next: ...`;
+  a host failure is audited through the orchestrator or kept for the next run.
+- **F4.** The file's sha256 is read on the host before anything stops, compared with its sidecar and the nightly's
+  record, and passed as `--expect-sha256`; `backup.restore` refuses another file before any change.
+- **F5.** `check_key`: `O_NOFOLLOW` open, `fstat`: regular, owner root or the user running it (as
+  `launch.box_file`), mode 0600. A stick's key is copied with `install -m 0600 -o root` first (RUNBOOK §5).
+- **F6.** `up -d --no-deps --wait` with the stopped services only. **F7.** The marker test covers exits 0 to 4.
+
+The rehearsal's `live-restore` now also stops the services, counts every table, makes the role step fail, runs the
+restore, and requires every table's rows unchanged (the flags store, which holds the hold, aside) before the good
+restore.
+
+**The three `test_backup_key_ceremony.py::test_h_5_*` tests** pass here and in CI: all eight unit shards of
+train/151 (f85edbb6, on master 40f23682) passed with no failure. They fail only in the reviewer's container.
+
 ## Findings
 
 **H100-05, on the restore's path.** A caller who exports `TB_BACKUP_PUBKEY`, `TB_BACKUP_TARGETS`, `TB_COMPOSE` or

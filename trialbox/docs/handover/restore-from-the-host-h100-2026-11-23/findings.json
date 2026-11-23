@@ -69,6 +69,83 @@
    "state": "open",
    "fix": "the rehearsal's live-restore step runs it in CI; the bench repeats step 8 with the one documented command",
    "from": "card H-100, 2026-11-23"
+  },
+  {
+   "id": "H100-07",
+   "severity": "Medium",
+   "claim": "compose and the restore's container inherited the caller's whole environment: an exported COMPOSE_PROJECT_NAME, COMPOSE_FILE or DOCKER_HOST pointed the running-services check at another project, so the restore started while the box still ran",
+   "severity_basis": "the D-724 refusal could be skipped by a variable kept through sudo -E or a root shell",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "they run with the engine's own PATH and HOME and the engine variables deploy/.env names (BoxRestore.engine_env); test_f1_a_callers_compose_or_engine_variable_reaches_neither_compose_nor_the_container (one case per variable)",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-08",
+   "severity": "Medium",
+   "claim": "a restore that failed after it replaced a database left the box half restored (the schemas were dropped and committed before the restore), and --restart offered to start the services",
+   "severity_basis": "a box could start on an empty or mixed database",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "all or nothing: each database is dumped first (space checked on the host and inside) and the databases and folders are put back on any failure, interrupt or signal, the list jobs held and backup.restore_failed audited with its state; the host starts the services only after a complete, held or refused restore; test_f2_a_restore_that_fails_after_its_first_change_puts_the_box_back_holds_and_audits and three more test_f2_ tests",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-09",
+   "severity": "Medium",
+   "claim": "a failed compose stop, an interrupt or any other error left the box stopped with no word and no audit event",
+   "severity_basis": "a person meets a stopped box and no record of why",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "one state line with the next command on every end, an audit event kept in deploy/site/backup-audit-pending.jsonl while the orchestrator is down, an interrupt passed to the container and waited for; test_f3_a_stop_that_fails_says_the_state_and_keeps_the_audit_event, test_f3_an_interrupt_while_the_container_runs_is_passed_on_and_waited_for",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-10",
+   "severity": "Low",
+   "claim": "--last checked the sidecar, not the file, and the container was not given the recorded hash",
+   "severity_basis": "a file swapped between the host's check and the restore was found only after the services were stopped",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "the host hashes the file before anything stops (sidecar and the nightly's record) and passes the hash; the container refuses any other file; test_f4_ (two tests). Signing backups: card H-104",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-11",
+   "severity": "Low",
+   "claim": "the private key path was accepted with any owner and mode, and through a link",
+   "severity_basis": "a key readable by others or swapped through a link was used",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "opened with O_NOFOLLOW and checked on the open file: a regular file, owned by root (or the user running it), mode 0600; the runbook copies a stick's key to a root-only file first; test_f5_the_key_is_a_root_only_regular_file_and_not_a_link",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-12",
+   "severity": "Low",
+   "claim": "--restart started every default service, not the ones it stopped",
+   "severity_basis": "a service stopped on purpose came back",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "up -d --no-deps --wait with the stopped services only; test_restart_starts_the_services_only_after_a_complete_or_held_restore",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-13",
+   "severity": "Low",
+   "claim": "no test held the TLS marker's removal on exits 3 and 4 (mutant M12 survived)",
+   "severity_basis": "a regression would pass unnoticed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "test_f7_the_tls_marker_goes_after_every_exit_that_restored",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
   }
  ]
 }

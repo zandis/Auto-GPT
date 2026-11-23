@@ -309,28 +309,46 @@ signing leaves at most one day open. On an installed box the `audit-writer` serv
 there the nightly check is the one that finds a cut below a signed head, within a day.
 
 
-**Restore over the live stack, one command (H-100).** In a root shell on the box, from the install folder, with
-the private key from the envelope:
+**Restore over the live stack, one command (H-100).** In a root shell on the box, from the install folder. The
+private key from the envelope must be a file owned by root and readable by root alone (mode 0600), not a link: a
+key on a removable stick cannot carry that mode, so copy it first and remove the copy afterwards:
 
-    sudo trialbox restore --last --key /media/usb/trialbox-backup.key --yes --restart
+    sudo install -m 0600 -o root -g root /media/usb/trialbox-backup.key /root/trialbox-backup.key
+    sudo trialbox restore --last --key /root/trialbox-backup.key --yes --restart
+    sudo rm /root/trialbox-backup.key
 
-`--last` is the newest backup `backup-nightly` recorded good (`deploy/site/backup-last.json`) that is still on a
-target with the same size and sha256; name a file instead to restore another one. `--restart` stops every service
-but `db` first (the restore still asks compose afterwards and refuses while any other runs), and starts them again
-and waits until every one is healthy (`docker compose up -d --wait`) only when the restore ended complete (exit 0)
-or held (exit 4 with `hold: held`: the list jobs wait for a person, step 4 above); after any other end the services
-stay stopped and the command says the box's state, the `docker compose ... start` line that puts them back as
-they were, and the command to try again. `--last` names the file it picked before anything is stopped; `--restart`
-never stands for `--yes`. Without `--restart` nothing is stopped and step 2's refusal applies. The
-restore runs in one container of the release's backup image (`TB_BACKUP_IMAGE`), which carries the database client
-tools: the database URLs, the database superuser and the service roles' passwords come from the box's own
-`deploy/.env`, as the nightly's job gets them, never from the shell that typed the command, and travel by name only.
-Each data volume's folder is given to it so its contents move aside within the volume, the copy of the box goes to
-`deploy/pre-restore`, and the service-role script runs inside it after the trial database is restored (the
-paragraph "Database roles after a restore", above, is then done). Every guard of the steps above holds: `--yes`, the
-site, the age, the copy of a box that holds data, the rows checked before any folder moves, the hold. Compare the
-`rows` it prints with `databases` of `trialbox backup-verify <file> --key <private key>`: they are equal. The steps
-above are the same restore by hand.
+Before anything is stopped: `--last` names the newest backup `backup-nightly` recorded good
+(`deploy/site/backup-last.json`), or name a file instead; the file itself is read and its sha256 must equal its
+`.sha256` sidecar and the nightly's record (the restore is given that hash and refuses any other file); the key is
+checked; and the space the restore needs is checked in `deploy/` (the backup unpacked, about four times the file,
+and a copy of each database it replaces, up to the databases' own size). Any of these refused: exit 2, nothing
+changed. `--restart` never stands for `--yes`; without `--restart` nothing is stopped and step 2's refusal applies.
+
+`--restart` stops every service but `db` (the restore still asks compose afterwards and refuses while any other
+runs). The restore runs in one container of the release's backup image (`TB_BACKUP_IMAGE`), which carries the
+database client tools: the database URLs, the database superuser and the service roles' passwords come from the box's
+own `deploy/.env`, as the nightly's job gets them, and travel by name only. Compose and the container engine get only
+their own needs (PATH, HOME) and the engine settings `deploy/.env` names: a `COMPOSE_*` or `DOCKER_*` exported in the
+shell never points the restore at another project or engine. Each data volume's folder is given to the restore so its
+contents move aside within the volume, the copy of the box goes to `deploy/pre-restore`, and the service-role script
+runs inside it after the trial database is restored (the paragraph "Database roles after a restore", above, is then
+done). Every guard of the steps above holds: the site, the age, the copy of a box that holds data, the rows checked
+before any folder moves, the hold.
+
+**All or nothing.** The restore first copies each database it replaces. If anything fails, is interrupted (Ctrl-C) or
+is stopped by a signal after the first change, it puts the databases and the folders back as they were, holds the
+list jobs (`screening.after_restore`, step 4) and writes `backup.restore_failed` with `state: rolled_back`. If the
+putting back itself fails, it says `NOT as it was`: do not start the services; restore the kept copy it names.
+
+**What it says.** Every end says the box in one line: `restore: the box now: <what compose says runs>; the data:
+<restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` the services it
+stopped (and only those) start again and are waited for until healthy (`docker compose up -d --no-deps --wait`) when
+the restore ended complete (exit 0), held (exit 4 with `hold: held`), or was refused inside before any change; after a
+put-back the next step is to read the error and start them as they were; otherwise they stay stopped. A stop that
+fails, an interrupt or an error on the host is said the same way and kept as an audit event
+(`deploy/site/backup-audit-pending.jsonl` while the orchestrator is down). Compare the `rows` the restore prints with
+`databases` of `trialbox backup-verify <file> --key <private key>`: they are equal. The steps above are the same
+restore by hand.
 
 ## Secrets (D-128, D-138): the one place to rotate them
 
