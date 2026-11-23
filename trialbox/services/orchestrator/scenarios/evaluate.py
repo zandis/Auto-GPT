@@ -35,7 +35,7 @@ from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.inferred import sentence_of
-from matching.note_answer import note_answer_may
+from matching.note_answer import affirms, note_answer_may
 from matching.proposed import Proposed
 from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
@@ -228,6 +228,9 @@ class NoteResult:
     # R22-16: the record's sentence the quote was verified in, read by the one rule of what a note answer may do
     # (``matching.note_answer``); never published
     sentence: str = ""
+    # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
+    # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
+    affirmed: bool = False
 
 
 def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
@@ -505,6 +508,7 @@ class NoteJudge:
             tokens_out=t_out,
             calls=calls,
             sentence=sentence,
+            affirmed=first.affirmed and (second is None or second.affirmed),  # round 5: both models said it
         )
 
 
@@ -571,6 +575,7 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
         [str(did)] if did else [],
         model_reason=model_reason,
         sentence=sentence,
+        affirmed=verdict in ("pass", "fail") and affirms(d),
     )
 
 
@@ -636,13 +641,15 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
     why = r.reason
+    affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
     if pred is not None:
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
         # exclusion "present" on a quote that does not state its condition is the models' inference: a person looks,
         # as on the cascade, published with the cascade's code for its reason. The quote and its notes stay
-        may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence)
+        may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence, affirmed=r.affirmed)
         if may.effect == "review" and not may.reading_stands:
             verdict, why = "unknown", code_of(may.reason, "unknown")
+        affirmed = True if may.effect == "excludes" and c.kind == "exclusion" else None
         # a "not met" the rule sends to review keeps its row: the status rule (``decision.answer_of``) reads the same
         # function and says review
     return CriterionVerdict(
@@ -658,6 +665,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
         ),
         basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
         prov=note_calls(r),
+        affirmed=affirmed,
     )
 
 

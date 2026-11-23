@@ -30,6 +30,7 @@ from tb_llm import budget
 from tb_llm.budget import estimate_tokens
 
 from matching.inferred import sentence_of
+from matching.note_answer import affirms
 
 JUDGE_PROMPT = "judge"
 
@@ -106,6 +107,9 @@ class JudgeReply:
     # L3 (#639 7107834329): the record's sentences of the pair's other quote, read by the one rule of what a note
     # answer may do (``matching.note_answer``) beside the span's own; never published
     sentence: str = ""
+    # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
+    # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
+    affirmed: bool = False
 
     @property
     def all_calls(self) -> tuple[str, ...]:
@@ -243,6 +247,7 @@ class GatewayJudge:
             prompt_sha=p.sha256,
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
+            affirmed=str(data.get("verdict")) in ("pass", "fail") and affirms(data),
         )
 
 
@@ -286,7 +291,9 @@ class AgreementJudge:
         if d.verdict == first.verdict:
             # L3: the verifier's quote is read too, in its sentence of the excerpts (never published); M1: it was found
             other = next((x for t in texts if found and (x := sentence_of(found, t))), str(found or ""))
-            return replace(first, confidence=d.confidence, calls=calls, sentence=other)
+            # round 5: the exclusion stands only when both models said the quote affirms it
+            return replace(first, confidence=d.confidence, calls=calls, sentence=other,
+                           affirmed=first.affirmed and second.affirmed)  # fmt: skip
         return JudgeReply(
             "unknown",
             0.0,

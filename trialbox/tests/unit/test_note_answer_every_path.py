@@ -1475,3 +1475,140 @@ def test_a_quote_matched_without_its_marks_is_always_in_the_text(quote: str, tex
     t = UNWRAP_NOTE if text == "N" else text
     got = as_in(quote, t)
     assert got is None or quote_in(got, t)
+
+
+# ------------------------------------------------------------------------------------------------ round 5: affirmed
+# Point 1 of the ruling (#639 7115208555, 7115258794): the guard is inverted. A note exclusion stands only when both
+# models say the quote affirms the condition, in this patient, now: judge v6's ``certainty``, ``experiencer`` and
+# ``time`` (schema ``llm_judge_output_v2``, 1.2.0). Any other value, or a missing or null field, is review; so an
+# answer of a judge before v6, which gives none, never excludes. The deterministic guard stays as the second net.
+NOT_AFFIRMED = [
+    ("negated", "patient", "current"),
+    ("possible", "patient", "current"),
+    ("unknown", "patient", "current"),
+    ("affirmed", "other", "current"),
+    ("affirmed", "patient", "past_resolved"),
+    ("affirmed", "patient", "planned"),
+    (None, "patient", "current"),
+    ("affirmed", None, "current"),
+    ("affirmed", "patient", None),
+]
+
+
+def _fields(t: tuple[str | None, ...]) -> dict[str, str | None]:
+    return dict(zip(("certainty", "experiencer", "time"), t, strict=True))
+
+
+def test_only_affirmed_patient_current_affirms() -> None:
+    from matching.note_answer import affirms
+
+    assert affirms(_fields(("affirmed", "patient", "current")))
+    assert not any(affirms(_fields(t)) for t in NOT_AFFIRMED)
+    assert not affirms({"verdict": "pass", "quote": HAS_HIV})  # a judge before v6: nothing said
+
+
+def test_a_stated_exclusion_excludes_only_when_both_models_affirmed_it() -> None:
+    from matching.note_answer import NOT_AFFIRMED_REASON
+
+    assert note_answer_may("exclusion", True, HAS_HIV, BY_ID[HIV].text, HAS_HIV, affirmed=True).effect == "excludes"
+    for affirmed in (None, False):
+        may = note_answer_may("exclusion", True, HAS_HIV, BY_ID[HIV].text, HAS_HIV, affirmed=affirmed)
+        assert (may.effect, may.reason) == ("review", NOT_AFFIRMED_REASON)
+    # the second net: the guard's review stands whatever the models said
+    may = note_answer_may("exclusion", True, GRANDMOTHER, BY_ID[HIV].text, GRANDMOTHER, affirmed=True)
+    assert (may.effect, may.reason) == ("review", INFERRED_REASON)
+    # an answer that keeps the patient needs no affirmation
+    assert note_answer_may("exclusion", False, ABSENT[HIV], BY_ID[HIV].text, affirmed=None).effect == "keeps"
+
+
+@pytest.mark.parametrize("other", NOT_AFFIRMED, ids=[str(t) for t in NOT_AFFIRMED])
+def test_a_v1_pair_excludes_only_when_both_models_affirm(other: tuple[str | None, ...]) -> None:
+    """v1: the judge affirms; the verifier agrees on "present" with the same stated quote but reads it otherwise (or
+    says nothing of it). Review; when both affirm, the patient is excluded."""
+    ex = [{"did": "d1", "date": "2026-09-20", "text": HAS_HIV + " On ART since 2019."}]
+
+    def answer(fields: tuple[str | None, ...]) -> Any:
+        return lambda v: {**says("pass", HAS_HIV)(v), **_fields(fields)}
+
+    for second, want in ((other, "unknown"), (("affirmed", "patient", "current"), "fail")):
+        nj = NoteJudge(lake=None, llm=ScriptedModel("judge-a", answer(("affirmed", "patient", "current"))),  # type: ignore[arg-type]
+                       verifier=ScriptedModel("verifier-b", answer(second)))  # type: ignore[arg-type]  # fmt: skip
+        r = nj.judge_excerpts(BY_ID[HIV].text, "Do the notes document known HIV infection?", RUN, ex)
+        v = note_verdict(BY_ID[HIV], r, pair=True)
+        assert v.verdict == want
+        assert v.affirmed is (True if want == "fail" else None)
+        assert decision.answer_of(BY_ID[HIV], v, POLICY) == ("no" if want == "fail" else "unknown")
+
+
+@pytest.mark.parametrize("other", NOT_AFFIRMED, ids=[str(t) for t in NOT_AFFIRMED])
+def test_a_cascade_pair_excludes_only_when_both_models_affirm(other: tuple[str | None, ...]) -> None:
+    """The cascade: the gateway judge parses each model's fields, ``AgreementJudge`` needs both, ``_map`` reads it,
+    and the stored verdict says it (``verdict_of``)."""
+    from orchestrator.scenarios.screen_cascade import verdict_of
+
+    ex = [{"did": "d1", "date": "2026-09-20", "text": HAS_HIV + " On ART since 2019."}]
+
+    class _Model:
+        def __init__(self, fields: tuple[str | None, ...]) -> None:
+            self.fields = fields
+
+        def judge(self, **kw: Any) -> JudgeReply:
+            return JudgeReply("pass", PAIR, HAS_HIV, "2026-09-20", "scripted", call_id="c-x", prompt="judge@test",
+                              affirmed=_fields(self.fields) == _fields(("affirmed", "patient", "current")))  # fmt: skip
+
+    for second, want in ((other, ("unknown", False)), (("affirmed", "patient", "current"), ("fail", True))):
+        pair = AgreementJudge(_Model(("affirmed", "patient", "current")), _Model(second))
+        reply = pair.judge(role="judge", criterion_text=BY_ID[HIV].text, note_question="Q?", index_date=RUN,
+                           excerpts=ex, study_id="D9", data_class="D3", step_id="t", purpose="screening")  # fmt: skip
+        o = _run_for_map(True)._map(BY_ID[HIV], reply, verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31)),
+                                    "S3")  # fmt: skip
+        assert (o.status, o.hard) == want
+        v = verdict_of(o, pair=True)
+        assert v.affirmed is (True if want[1] else None)
+        assert decision.answer_of(BY_ID[HIV], v, POLICY) == ("no" if want[1] else "unknown")
+
+
+def test_the_gateway_judge_reads_the_three_fields() -> None:
+    """The cascade's parse of one model's answer: affirmed only on the three values, never on a v5 answer."""
+    from matching.note_answer import affirms
+
+    base = {"verdict": "pass", "reason": "r", "quote": HAS_HIV, "quote_date": None, "confidence": 0.9}
+    assert affirms({**base, **_fields(("affirmed", "patient", "current"))})
+    assert not affirms(base)
+
+
+def test_a_stored_row_that_does_not_say_affirmed_never_excludes() -> None:
+    """The status rule over a stored row: a pair's final, sure "present" on a stated quote excludes only when the row
+    says both models affirmed it; a row stored before the field (or by a judge before v6) is review."""
+    v = _stored(CONTROLS[0])
+    assert decision.answer_of(BY_ID[HIV], v.model_copy(update={"affirmed": True}), POLICY) == "no"
+    for flag in (None, False):
+        assert decision.answer_of(BY_ID[HIV], v.model_copy(update={"affirmed": flag}), POLICY) == "unknown"
+
+
+def test_the_stub_answers_the_three_fields_only_when_the_schema_asks() -> None:
+    from llm_stub.handlers import assertion_fields
+    from tb_contracts import inline_schema
+
+    answer = {"verdict": "pass", "quote": HAS_HIV, "quote_date": None, "confidence": 0.9, "reason": "r"}
+    v2 = {"response_format": {"json_schema": {"schema": inline_schema("llm_judge_output_v2")}}}
+    v1 = {"response_format": {"json_schema": {"schema": inline_schema("llm_judge_output")}}}
+    assert assertion_fields(v1, answer) == answer  # 1.1.0 forbids other keys
+    got = assertion_fields(v2, answer)
+    assert (got["certainty"], got["experiencer"], got["time"]) == ("affirmed", "patient", "current")
+    none = assertion_fields(v2, {**answer, "verdict": "unknown", "quote": None})
+    assert (none["certainty"], none["experiencer"], none["time"]) == (None, None, None)
+
+
+def test_judge_v6_asks_for_the_three_fields_and_is_not_qualified() -> None:
+    """Judge v6 is registered on schema 1.2.0 with no qualification: PRODUCTION serves the newest qualified judge,
+    whose answers say nothing of the three fields, so no note exclusion stands there until v6 qualifies."""
+    from tb_llm.prompt_registry import default_registry
+
+    reg = default_registry()
+    v6 = next(e for e in reg.entries() if e.id == "judge" and e.version == 6)
+    assert v6.schema == "llm_judge_output_v2" and v6.qualification is None
+    v5 = next(e for e in reg.entries() if e.id == "judge" and e.version == 5)
+    assert v5.schema == "llm_judge_output"  # the 1.1.0 schema stays for judge 3 to 5 and their pins
+    text = (ROOT / "libs" / "tb_llm" / "prompts" / "judge_v6.md").read_text(encoding="utf-8")
+    assert all(f"`{k}`" in text for k in ("certainty", "experiencer", "time"))

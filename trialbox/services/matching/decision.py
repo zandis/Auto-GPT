@@ -97,8 +97,8 @@ def _flagged(verdict: Any) -> bool:
 def _reviewed(criterion: Any, verdict: Any) -> bool:
     """The backstop of every builder and of a stored row: what this note answer may do, by the one rule of every path
     (:func:`matching.note_answer.note_answer_may`; D-1069, D-985, R22-16), is review. An exclusion's "present" with no
-    quote is review: what is not shown never excludes (#639 7107834329 L1). A criterion that does not say its kind (a
-    caller's stand-in) is read as before."""
+    quote is review: what is not shown never excludes (#639 7107834329 L1); so is one the row does not say both models
+    affirmed (``affirmed``, round 5). A criterion that does not say its kind (a caller's stand-in) is read as before."""
     kind = getattr(criterion, "kind", None)
     if not kind:
         return False
@@ -107,7 +107,11 @@ def _reviewed(criterion: Any, verdict: Any) -> bool:
     if kind == "exclusion" and verdict.verdict == "fail" and not quote:
         return True
     present = (verdict.verdict == "pass") == (kind != "exclusion")
-    return note_answer_may(kind, present, quote, str(getattr(criterion, "text", "") or "")).effect == "review"
+    # round 5 (#639 7115208555): the row says whether both models affirmed the condition, the patient's, now; a row
+    # that does not say (a judge before v6, a row stored before the field) is not affirmed
+    affirmed = getattr(verdict, "affirmed", None) is True
+    text = str(getattr(criterion, "text", "") or "")
+    return note_answer_may(kind, present, quote, text, affirmed=affirmed).effect == "review"
 
 
 def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:

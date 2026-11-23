@@ -958,6 +958,34 @@ class LlmJudgeOutput(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 
+class LlmJudgeOutputV2(BaseModel):
+    """
+    Output of prompt judge from version 6 (SPEC 7.3). Schema version 1.2.0: the 1.1.0 answer (llm_judge_output.schema.json, kept for judge versions 3 to 5) plus three fields on the quote (#639 7115208555): certainty, experiencer and time. A note exclusion stands only when both models give affirmed, patient and current; any other value, or null, sends the patient to review. Every property is required so strict structured output accepts the schema; null means absent. The three fields come before reason, and reason before confidence, the order a guided decoder writes them (1.1.0's note).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    verdict: Literal["pass", "fail", "unknown"]
+    certainty: Literal["affirmed", "negated", "possible", "unknown"] | None
+    """
+    What the quote says of the condition: affirmed (stated present), negated (stated absent), possible (suspected, a question, to rule out), unknown (unknown or pending: a test ordered, a result awaited).
+    """
+    experiencer: Literal["patient", "other"] | None
+    """
+    Whose condition the quote states: the patient's, or another person's (a relative, a partner, a contact).
+    """
+    time: Literal["current", "past_resolved", "planned"] | None
+    """
+    When the quote places the condition: current (now, or ongoing), past_resolved (cured, resolved, treated and gone), planned (a test or a treatment to come, a prevention).
+    """
+    reason: str | None = Field(..., max_length=300)
+    quote: str | None = Field(..., max_length=400)
+    quote_date: date_aliased | None
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
 class ManifestReview(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2676,6 +2704,10 @@ class CriterionVerdict(BaseModel):
     basis: Literal["coded", "pair", "single", "person"] | None = None
     """
     T-709 (D-478): what the answer rests on. coded: the patient's coded records; pair: two different models agreed; single: one model (or two clients of one model); person: a person decides or decided. Absent on an answer nobody gave (unknown) and on rows stored before the field.
+    """
+    affirmed: bool | None = None
+    """
+    Round 5 of R22-16 (#639 7115208555): on a note exclusion's "present" (a verdict of fail), true when both models said the quote affirms the condition, in this patient, now (certainty affirmed, experiencer patient, time current). Only then may the answer exclude. Absent or null: not said (a judge before version 6, one model, or a row stored before the field), and the answer never excludes.
     """
     final: bool | None = None
     """
