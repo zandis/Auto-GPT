@@ -22,6 +22,8 @@ nothing else, under ``sudo`` or cron, which drop the caller's environment. So ev
 
 ``restore-drill`` runs on the host: the installed form's own steps already run the library parts in the box image
 (``box_drill.py``, #1305).
+``restore`` runs on the host too (H-100): its one container is the backup image's, with the database client tools,
+the volumes and the box's database URLs (``box_restore.py``).
 """
 
 from __future__ import annotations
@@ -74,15 +76,7 @@ COMMANDS: dict[str, Need] = {
     "backup": Need(IMAGE, (*CRYPTO, "psycopg"), DB_NETWORK, read=("--public",), write=("--to",), pairs=("--dir",)),
     "backup-check": Need(IMAGE, CRYPTO, read=("0",)),
     "backup-verify": Need(IMAGE, CRYPTO, read=("0", "--key", "--restic-share"), site=True),
-    "restore": Need(
-        IMAGE,
-        (*CRYPTO, "psycopg"),
-        DB_NETWORK,
-        read=("0", "--key", "--public", "--refdata", "--restic-share"),
-        write=("--keep-to",),
-        pairs=("--dir",),
-        site=True,
-    ),
+    "restore": Need(),  # H-100: on the host it runs in the backup image itself, as the nightly's job (box_restore.py)
     "restore-drill": Need(),  # installed: its image steps are box_drill.py's own (#1305)
     "backup-nightly": Need(),
     "backup-status": Need(),

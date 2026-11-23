@@ -81,6 +81,7 @@ from tb_common.crypto import KeyMissingError
 
 # shared with the host-side schedule, which has only the standard library (re-exported: bk.prune, bk.read_sidecar ...)
 from tools.trialbox import backup_schedule as _sched
+from tools.trialbox import box_restore as _box_restore
 from tools.trialbox import restic_repo as _rr
 
 SUFFIX = _sched.SUFFIX
@@ -345,7 +346,7 @@ def _libpq(dsn: str) -> tuple[list[str], dict[str, str]]:
     return ["--dbname", dsn], {}
 
 
-def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> None:
+def dump(src: DbSource, out: Path, env: Mapping[str, str], keep_owners: bool = False) -> None:
     """A full dump of ``src`` to ``out`` (the update path's rollback point; a backup uses :func:`take_snapshot`)."""
     pre = env.get("TB_PG_DUMP_DIR")
     if pre:  # D-138: dumps taken by the db container on a quiet box (tools/trialbox/update.py ComposeBox)
@@ -355,7 +356,9 @@ def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> None:
         shutil.copyfile(f, out)
         return
     args, extra = _libpq(src.dsn)
-    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", "--no-owner", "--no-privileges", *args]
+    # H-100: a restore's own copy of the box keeps the owners and grants (the service roles' own schemas)
+    plain = [] if keep_owners else ["--no-owner", "--no-privileges"]
+    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", *plain, *args]
     for s in src.schemas:
         cmd += ["--schema", s]
     with out.open("wb") as fh:
@@ -406,10 +409,11 @@ def take_snapshot(src: DbSource, work: Path, env: Mapping[str, str]) -> dict[str
         raise BackupError(str(e)) from e
 
 
-def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
+def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str], keep_owners: bool = False) -> None:
     args, extra = _libpq(src.dsn)
-    cmd = [*_cmd(env, "TB_PG_RESTORE_CMD", "pg_restore"), "--clean", "--if-exists", "--no-owner",
-           "--no-privileges", "--single-transaction", "--exit-on-error", *args]  # fmt: skip
+    plain = [] if keep_owners else ["--no-owner", "--no-privileges"]  # H-100: a put-back keeps them
+    cmd = [*_cmd(env, "TB_PG_RESTORE_CMD", "pg_restore"), "--clean", "--if-exists", *plain,
+           "--single-transaction", "--exit-on-error", *args]  # fmt: skip
     # D-274 (CR-056): the database is emptied first, so a box that holds tables the backup does not (a later
     # migration, a newer schema) is not left with them, and the row check after the restore compares like with like
     _drop_schemas(src)
@@ -2058,24 +2062,10 @@ def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: st
     return str(where)
 
 
-#: D-724 (DATA-011): the services a restore leaves running: the database it restores into, nothing that writes
-#: a volume the restore renames aside
-RESTORE_MAY_RUN = frozenset({"db"})
-
-
-def _only_the_database_runs(names: list[str] | None) -> None:
-    if names is None:
-        raise BackupError(
-            "the restore cannot tell which services run (docker compose did not answer): stop every service but db "
-            "(docker compose stop), then run the restore again with --services-stopped"
-        )
-    others = sorted(set(names) - RESTORE_MAY_RUN)
-    if others:
-        raise BackupError(
-            f"these services are running: {', '.join(others)}. A restore moves their folders aside, and what they "
-            f"write meanwhile is lost: stop them first (docker compose stop {' '.join(others)}; keep db running), "
-            "run the restore, then start them. Nothing was changed"
-        )
+#: D-724 (DATA-011): the services a restore leaves running, and its refusal while any other runs. They live in
+#: box_restore.py (H-100): the host's own restore step asks compose before it starts, with the standard library only
+RESTORE_MAY_RUN = _box_restore.RESTORE_MAY_RUN
+_only_the_database_runs = _box_restore.only_the_database_runs
 
 
 def _is_root() -> bool:
@@ -2141,6 +2131,165 @@ def _give_back_owners(
             _chown(p, top[0], top[1])
 
 
+class RestoreInterrupted(BaseException):
+    """H-100 (F3): a signal (SIGTERM, SIGHUP) stopped the restore; it is undone like any failure."""
+
+
+def _signals_raise() -> Callable[[], None]:
+    """While a restore changes the box, SIGTERM and SIGHUP (``docker run`` forwards them; a closed session sends
+    the second) raise :class:`RestoreInterrupted`, so the restore is put back, held and audited like any failure.
+    Returns the function that puts the old handlers back. Only in the main thread (signals are delivered there)."""
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None
+
+    def stop(signum: int, _frame: Any) -> None:
+        raise RestoreInterrupted(f"the restore was stopped by signal {signal.Signals(signum).name}")
+
+    old = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)}
+
+    def back() -> None:
+        for sig, h in old.items():
+            signal.signal(sig, h)
+
+    return back
+
+
+@contextlib.contextmanager
+def _signals_ignored() -> Iterator[None]:
+    """H-100 (review R1): while a failed restore puts the box back, SIGINT, SIGTERM and SIGHUP are ignored: one
+    Ctrl-C under ``docker run`` can arrive twice (the engine passes SIGINT on, then the host's step sends SIGTERM), and
+    a second signal must never abandon the put-back half way. The old handlers come back after it."""
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    old = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        yield
+    finally:
+        for sig, h in old.items():
+            signal.signal(sig, h)
+
+
+def _db_bytes(src: DbSource) -> int:
+    import psycopg
+
+    with psycopg.connect(src.dsn, autocommit=True) as con:
+        row = con.execute("SELECT pg_database_size(current_database())").fetchone()
+    return int(row[0]) if row else 0
+
+
+def _pre_restore_dumps(srcs: Sequence[DbSource], into: Path, env: Mapping[str, str]) -> dict[str, Path]:
+    """H-100 (F2): each database a restore replaces, dumped as it is now (``pg_dump``, as :func:`dump`; never the
+    update path's ``TB_PG_DUMP_DIR``), before anything changes. Refused, nothing changed, when the folder cannot hold
+    them: a dump is at most about the database's own size (``pg_database_size``), which is what is asked for."""
+    into.mkdir(mode=0o700, parents=True, exist_ok=True)
+    need = sum(_db_bytes(s) for s in srcs)
+    free = shutil.disk_usage(into).free
+    if free < need:
+        raise BackupError(
+            f"the databases are first copied aside, to be put back if the restore fails: that needs up to "
+            f"{need / 1e9:.1f} GB in {into.parent}, {free / 1e9:.1f} GB is free. Nothing was changed"
+        )
+    own = {k: v for k, v in env.items() if k != "TB_PG_DUMP_DIR"}
+    out = {}
+    for src in srcs:
+        out[src.name] = into / f"{src.name}.dump"
+        dump(src, out[src.name], own, keep_owners=True)
+    return out
+
+
+def _put_back(
+    srcs: Mapping[str, DbSource],
+    replaced: Sequence[str],
+    pre: Mapping[str, Path],
+    moved: Sequence[tuple[Path, Path | None, bool, tuple[int, int, int] | None]],
+    env: Mapping[str, str],
+) -> tuple[bool, str]:
+    """H-100 (F2): the folders and the databases a failed restore changed, put back as they were. Returns whether
+    all of it went back, and the box's state in words (what went back, what did not)."""
+    bad: list[str] = []
+    for dest, aside, existed, top in reversed(list(moved)):
+        try:  # each step on its own: whatever stops one (BaseException included), the others still go back
+            if dest.exists():
+                shutil.rmtree(dest)
+            if aside is not None and aside.exists():
+                aside.rename(dest)
+            elif existed:  # review R4: an empty folder back with its own owner and mode
+                dest.mkdir(parents=True, exist_ok=True)
+                if top is not None:
+                    dest.chmod(top[2] & 0o777)  # never a set-id bit
+                    if _is_root():
+                        _chown(dest, top[0], top[1])
+        except BaseException as e:
+            bad.append(f"folder {dest.name} ({getattr(e, 'strerror', None) or type(e).__name__})")
+    for name in reversed(list(replaced)):
+        try:
+            restore_db(srcs[name], pre[name], env, keep_owners=True)
+        except BaseException as e:  # named, never a URL
+            bad.append(f"database {name} ({type(e).__name__})")
+    if bad:
+        return False, ("NOT put back as it was: " + ", ".join(bad) + " may be half restored or empty; do not start "
+                       "the services")  # fmt: skip
+    what = ", ".join([*(f"database {n}" for n in replaced), *(f"folder {d.name}" for d, _a, _e, _t in moved)])
+    return True, f"put back as it was before the restore ({what or 'nothing had changed'})"
+
+
+def _keep_dumps(pre: Mapping[str, Path], keep_to: Path | None, stamp: str) -> Path | None:
+    """Review R3: the copy of the databases a put-back could not finish from is the one exact copy of the box as it
+    was: kept (``--keep-to``, else beside the temporary folder), readable by its owner alone, and named."""
+    where = (Path(keep_to) if keep_to is not None else Path(tempfile.gettempdir())) / f"pre-restore-dumps-{stamp}"
+    try:
+        where.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for f in pre.values():
+            if f.is_file():
+                shutil.move(str(f), where / f.name)
+    except BaseException:
+        return None
+    return where
+
+
+def _undo_restore(e: BaseException, srcs: Mapping[str, DbSource], replaced: Sequence[str], pre: Mapping[str, Path],
+                  moved: Sequence[tuple[Path, Path | None, bool, tuple[int, int, int] | None]],
+                  env: Mapping[str, str], targets: Mapping[str, Path], sha: str, base: Mapping[str, Any],
+                  copy: Path | None, hold: str, hold_dir: Path | None, hold_reason: str, wf_restored: bool,
+                  keep: Callable[[], None], keep_to: Path | None = None, stamp: str = "") -> BackupError:  # fmt: skip
+    """H-100 (F2, F3): a restore that failed or was stopped after its first change: put back, held, audited, and the
+    error the command says (with ``state``: ``rolled_back`` or ``not_rolled_back``)."""
+    ok, words = _put_back(srcs, replaced, pre, moved, env)
+    if not ok and wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
+        with contextlib.suppress(Exception):
+            keep()
+    if ok:  # NEW-B-3 (D-522): the box is held, on the databases it has again
+        hold = hold_screening(env, hold_dir, f"{hold_reason}; it failed: {words}")
+    else:  # review R5: the hold is a row of a database that is not whole
+        hold = "unknown (the trial database is not whole)"
+        kept = _keep_dumps(pre, keep_to, stamp)
+        words += (
+            (f"; the copy of the databases taken before the restore is kept in {kept}: pg_restore it to put them back")
+            if kept
+            else "; the copy of the databases taken before the restore could not be kept"
+        )
+    why = str(e) or type(e).__name__
+    with contextlib.suppress(Exception):
+        _audit(targets, env, "backup.restore_failed", sha,
+               {**base, "error": why[-300:], "state": "rolled_back" if ok else "not_rolled_back", "put_back": words,
+                "hold": hold})  # fmt: skip
+    lost = base.get("optouts_after_backup") or {}
+    said = (f"; {lost['events']} opt-out event(s) were recorded on this box after the backup's snapshot"
+            if lost.get("events") else "")  # fmt: skip
+    back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
+    err = BackupError(f"{why}; the box is {words}; list jobs: {hold}{said}{back}")
+    err.dumps_kept = None if ok else words  # type: ignore[attr-defined]
+    err.state = "rolled_back" if ok else "not_rolled_back"  # type: ignore[attr-defined]
+    return err
+
+
 def restore(
     file: Path,
     key: Path,
@@ -2156,6 +2305,7 @@ def restore(
     max_age_days: float | None = RESTORE_MAX_AGE_DAYS,
     running: Callable[[], list[str] | None] | None = None,
     restic_pw: str | None = None,
+    expect_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Restore the databases and directories of ``file``, the hospital's own reference rows and, from the pack files
     in ``refdata_dir``, the vendor packs a layout-2 backup leaves out; return what was restored, with rows checked.
@@ -2188,6 +2338,10 @@ def restore(
         work = Path(tmp)
         manifest = unpack(file, key, work, restic_pw=restic_pw)
         sha = manifest["_sha256"]
+        if expect_sha256 is not None and sha != expect_sha256.strip().lower():
+            # H-100 (F4): the file the host checked and named, byte for byte, before anything is changed
+            raise BackupError(f"{file.name} is not the backup that was named: its sha256 differs from the one recorded "
+                              "for it. Nothing was changed")  # fmt: skip
         targets = dict(dirs if dirs is not None else layout(env))
         missing = set(manifest["dirs"]) - set(targets) - {HOST}
         if missing:
@@ -2272,6 +2426,12 @@ def restore(
             base["optouts_after_backup"] = lost
             kept_done = True
 
+        # H-100 (F2): all or nothing. Each database the backup replaces is first dumped here as it is now; whatever
+        # fails or stops the restore from the first change on (an error, an interrupt, a signal) puts the databases
+        # and the folders back as they were, takes the hold and audits it. Its space is checked before any change
+        pre = _pre_restore_dumps([srcs[n] for n in manifest["databases"]], work / "pre-restore", env)
+        replaced: list[str] = []
+        moved: list[tuple[Path, Path | None, bool, tuple[int, int, int] | None]] = []
         wf_restored = False
         roles: dict[str, str] = {"state": "not_restored"}  # D-573: no trial database in this backup, nothing to move
         jobs_failed: list[dict[str, str]] = []
@@ -2288,8 +2448,10 @@ def restore(
             f"restore of the backup of {manifest['created_at']}: held until the restore ends complete or a person "
             "releases it (audit: backup.restored, backup.restore_reapply)"
         )
+        stop_signals = _signals_raise()
         try:
             for name, want in manifest["databases"].items():
+                replaced.append(name)  # before its first change: its schemas are dropped first
                 restore_db(srcs[name], work / "db" / f"{name}.dump", env)
                 wf_restored = wf_restored or name == "trialbox_wf"
                 for t in _sched.BULK_REFDATA:
@@ -2337,93 +2499,91 @@ def restore(
                 # opt-outs kept (both are rows, written as trialbox): a failure here leaves neither undone. Not
                 # set: said in the result and by the command, see roles_ok
                 roles = reapply_service_roles(env)
-        except BackupError as e:
-            if wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
-                with contextlib.suppress(Exception):
-                    keep()
-                if hold != "held":  # NEW-B-3: the database is replaced and the restore stops: the box is held
-                    hold = hold_screening(env, hold_dir, hold_reason)
-            with contextlib.suppress(Exception):
-                _audit(targets, env, "backup.restore_failed", sha, {**base, "error": str(e)[-300:]})
-            back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
-            said = ""
-            if lost.get("events"):
-                said = (f"; {lost['events']} opt-out event(s) were recorded on this box after the backup's snapshot"
-                        + (f", {lost['kept']} opt-out(s) of them were put back" if kept_done else ""))  # fmt: skip
-            raise BackupError(f"{e}{said}{back}") from e
-        lake: dict[str, Any] = {"snapshots": 0, "problems": [], "unsigned": 0, "checked": False}
-        if (work / "dirs" / "lake").is_dir():  # D-455 (H1): the lake's own check, before any folder moves
-            lake = {**lake_check(work / "dirs" / "lake"), "checked": True}
-            if lake["problems"]:
-                msg = f"the restored lake fails its own check: {lake['problems'][:3]}; no folder was replaced"
-                with contextlib.suppress(Exception):
-                    _audit(targets, env, "backup.restore_failed", sha, {**base, "error": msg[-300:]})
-                back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
-                raise BackupError(f"{msg} (the databases are restored already){back}")
-        asides: dict[str, Path] = {}
-        placed: dict[str, tuple[Path, tuple[int, int, int] | None]] = {}
-        for dname in manifest["dirs"]:
-            if dname == HOST and HOST not in targets:
-                continue
-            dest = targets[dname]
-            top = (dest.stat().st_uid, dest.stat().st_gid, dest.stat().st_mode) if dest.is_dir() else None
-            if dest.exists() and any(dest.iterdir()):
-                aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}"), 1
-                while aside.exists():  # a second restore within the same second: never over the first one's data
-                    aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}-{n}"), n + 1
-                dest.rename(aside)
-                asides[dname] = aside
-            dest.mkdir(parents=True, exist_ok=True)
-            src = work / "dirs" / dname
-            if src.exists():
-                shutil.copytree(src, dest, dirs_exist_ok=True)
-            _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
-            placed[dname] = (dest, top)
-        since, since_from = snapshot_time(manifest)
-        audit_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
-        reapply = events_to_reapply(audit_dir, since)  # D-455 (M3): read from the restored chain, before our events
-        if "audit" in asides:
-            # review M2 (a gap of T-691): the chain the box wrote after the backup's copy of it is in the folder set
-            # aside, not in the restored one. Its events are listed too (an erasure, a break-glass, a signature)
-            seen = {(e["ts"], e["event"]) for e in reapply}
-            for ev in events_to_reapply(asides["audit"], since):
-                if (ev["ts"], ev["event"]) not in seen:
-                    reapply.append({**ev, "where": f"{asides['audit'].name}/{ev['where']}"})
-            reapply.sort(key=lambda r: str(r["ts"]))
-        if lost["state"] == "counted" and kept_done and not lost["not_kept"]:
-            # the register's own events were compared row by row and every opt-out put back: nothing to re-apply
-            # for them (a lift a person typed is counted apart, ``lifts_reverted``)
-            reapply = [r for r in reapply if r["event"] not in KEPT_BY_RESTORE]
-        if reapply:
-            _audit(targets, env, "backup.restore_reapply", sha, {
-                **base, "since": since.isoformat(timespec="milliseconds"), "since_from": since_from,
-                "count": len(reapply), "events": reapply[:200]})  # fmt: skip
-        packs = manifest.get("refdata_packs", [])
-        twf = manifest["databases"].get("trialbox_wf", {})
-        if twf.get("refdata_schema") and packs:
-            refdata = reload_refdata(srcs["trialbox_wf"], packs, refdata_dir)
-        host = (
-            ("restored to " + str(targets[HOST]))
-            if HOST in targets and HOST in manifest["dirs"]
-            else ("in the backup; not restored (--dir host=<folder> writes it)" if HOST in manifest["dirs"] else "none")
-        )
-        # D-573 (lane D): a restore whose service roles were not put back is not complete either (the hold stays)
-        complete = not reapply and optouts_ok(lost) and roles_ok(roles, env)
-        # NEW-B-3 (D-522; D-455's open item): a restore that is not complete leaves the box's list jobs held until
-        # a person releases the hold. The restore takes its own hold off only when it is complete and nothing was
-        # carried (a hold that stood before, an earlier restore's set-aside chain)
-        if hold == "held" and complete and not carried:
-            hold = release_own_hold(
-                env,
-                audit_dir,
-                f"the restore of the backup of {manifest['created_at']} is complete: nothing to re-apply",
+            lake: dict[str, Any] = {"snapshots": 0, "problems": [], "unsigned": 0, "checked": False}
+            if (work / "dirs" / "lake").is_dir():  # D-455 (H1): the lake's own check, before any folder moves
+                lake = {**lake_check(work / "dirs" / "lake"), "checked": True}
+                if lake["problems"]:  # the databases go back with the rest (H-100, F2)
+                    raise BackupError(f"the restored lake fails its own check: {lake['problems'][:3]}")
+            asides: dict[str, Path] = {}
+            placed: dict[str, tuple[Path, tuple[int, int, int] | None]] = {}
+            for dname in manifest["dirs"]:
+                if dname == HOST and HOST not in targets:
+                    continue
+                dest = targets[dname]
+                top = (dest.stat().st_uid, dest.stat().st_gid, dest.stat().st_mode) if dest.is_dir() else None
+                existed = dest.is_dir()
+                if dest.exists() and any(dest.iterdir()):
+                    aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}"), 1
+                    while aside.exists():  # a second restore within the same second: never over the first one's data
+                        aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}-{n}"), n + 1
+                    moved.append((dest, aside, existed, top))  # H-100 (F2): what a failure puts back
+                    dest.rename(aside)
+                    asides[dname] = aside
+                else:
+                    moved.append((dest, None, existed, top))
+                dest.mkdir(parents=True, exist_ok=True)
+                src = work / "dirs" / dname
+                if src.exists():
+                    shutil.copytree(src, dest, dirs_exist_ok=True)
+                _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
+                placed[dname] = (dest, top)
+            since, since_from = snapshot_time(manifest)
+            audit_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
+            reapply = events_to_reapply(audit_dir, since)  # D-455 (M3): read from the restored chain, before our events
+            if "audit" in asides:
+                # review M2 (a gap of T-691): the chain the box wrote after the backup's copy of it is in the folder set
+                # aside, not in the restored one. Its events are listed too (an erasure, a break-glass, a signature)
+                seen = {(e["ts"], e["event"]) for e in reapply}
+                for ev in events_to_reapply(asides["audit"], since):
+                    if (ev["ts"], ev["event"]) not in seen:
+                        reapply.append({**ev, "where": f"{asides['audit'].name}/{ev['where']}"})
+                reapply.sort(key=lambda r: str(r["ts"]))
+            if lost["state"] == "counted" and kept_done and not lost["not_kept"]:
+                # the register's own events were compared row by row and every opt-out put back: nothing to re-apply
+                # for them (a lift a person typed is counted apart, ``lifts_reverted``)
+                reapply = [r for r in reapply if r["event"] not in KEPT_BY_RESTORE]
+            if reapply:
+                _audit(targets, env, "backup.restore_reapply", sha, {
+                    **base, "since": since.isoformat(timespec="milliseconds"), "since_from": since_from,
+                    "count": len(reapply), "events": reapply[:200]})  # fmt: skip
+            packs = manifest.get("refdata_packs", [])
+            twf = manifest["databases"].get("trialbox_wf", {})
+            if twf.get("refdata_schema") and packs:
+                refdata = reload_refdata(srcs["trialbox_wf"], packs, refdata_dir)
+            host = (
+                ("restored to " + str(targets[HOST]))
+                if HOST in targets and HOST in manifest["dirs"]
+                else (
+                    "in the backup; not restored (--dir host=<folder> writes it)"
+                    if HOST in manifest["dirs"]
+                    else "none"
+                )
             )
-        audited = _audit(targets, env, "backup.restored", sha, {
-            **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
-            "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed),
-            "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"]})  # fmt: skip
-        for dname, (dest, top) in placed.items():  # D-724: the restore's own audit events were written as root
-            _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
+            # D-573 (lane D): a restore whose service roles were not put back is not complete either (the hold stays)
+            complete = not reapply and optouts_ok(lost) and roles_ok(roles, env)
+            # NEW-B-3 (D-522; D-455's open item): a restore that is not complete leaves the box's list jobs held until
+            # a person releases the hold. The restore takes its own hold off only when it is complete and nothing was
+            # carried (a hold that stood before, an earlier restore's set-aside chain)
+            if hold == "held" and complete and not carried:
+                hold = release_own_hold(
+                    env,
+                    audit_dir,
+                    f"the restore of the backup of {manifest['created_at']} is complete: nothing to re-apply",
+                )
+            audited = _audit(targets, env, "backup.restored", sha, {
+                **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
+                "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed),
+                "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"]})  # fmt: skip
+            for dname, (dest, top) in placed.items():  # D-724: the restore's own audit events were written as root
+                _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
+        except BaseException as e:
+            stop_signals()  # the raising handlers off first: none is put back when the put-back ends
+            with _signals_ignored():  # review R1: no second signal stops the put-back
+                err = _undo_restore(e, srcs, replaced, pre, moved, env, targets, sha, base, copy, hold, hold_dir,
+                                    hold_reason, wf_restored, keep, keep_to, stamp)  # fmt: skip
+            raise err from e
+        finally:
+            stop_signals()
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
