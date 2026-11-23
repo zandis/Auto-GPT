@@ -319,7 +319,9 @@ target with the same size and sha256; name a file instead to restore another one
 but `db` first (the restore still asks compose afterwards and refuses while any other runs), and starts them again
 and waits until every one is healthy (`docker compose up -d --wait`) only when the restore ended complete (exit 0)
 or held (exit 4 with `hold: held`: the list jobs wait for a person, step 4 above); after any other end the services
-stay stopped and the command says why. Without `--restart` nothing is stopped and step 2's refusal applies. The
+stay stopped and the command says the box's state, the `docker compose ... start` line that puts them back as
+they were, and the command to try again. `--last` names the file it picked before anything is stopped; `--restart`
+never stands for `--yes`. Without `--restart` nothing is stopped and step 2's refusal applies. The
 restore runs in one container of the release's backup image (`TB_BACKUP_IMAGE`), which carries the database client
 tools: the database URLs, the database superuser and the service roles' passwords come from the box's own
 `deploy/.env`, as the nightly's job gets them, never from the shell that typed the command, and travel by name only.

@@ -249,18 +249,39 @@ class BoxRestore:
         return argv, values
 
     # ------------------------------------------------------------------------------------------- the command
+    def _left_stopped(self, stopped: list[str], why: str, again: str) -> None:
+        """H-100: never a box left stopped without saying so: its state and the one command for each way back."""
+        start = shlex.join([*self.box._c("start", *stopped)]) if stopped else ""
+        now = (f"db runs; {', '.join(stopped)} stay stopped (stopped by --restart)" if stopped
+               else "db runs; this command stopped no service")  # fmt: skip
+        print(f"restore: the services stay stopped: {why}. The box now: {now}. To start them as they were: "
+              f"{start or 'nothing to start'}; to try again once that is dealt with: {again} (RUNBOOK §5)",
+              file=sys.stderr)  # fmt: skip
+
     def restore(self, a: Any) -> int:
         file = last_good(self.deploy, self.env) if a.last else Path(a.file)
-        if a.restart:
-            stopped = self.stop_all_but_db()
-            if stopped:
-                print(f"restore: stopped {', '.join(stopped)} (--restart); db keeps running", file=sys.stderr)
-        try:  # D-724: asked of compose here, on the host, before anything is read or changed
-            only_the_database_runs(["db"] if a.services_stopped else self.running())
-        except Exception as e:  # the refusal, as the restore says it: nothing was changed
-            raise RestoreStopped(str(e)) from None
-        argv, values = self.container(a, file)
-        code, out = self.call(argv, values)
+        if a.last:  # said before anything is stopped or changed
+            print(f"restore: --last: {file} (the newest backup backup-nightly recorded good, its size and sha256 "
+                  "checked on the target)", file=sys.stderr)  # fmt: skip
+        key = Path(a.key)
+        if not key.is_file():  # read only inside the container (bound read-only); refused before anything stops
+            raise RestoreStopped(f"--key {key} is not a file: nothing was changed")
+        again = shlex.join(["trialbox", "restore", *([str(file)] if not a.last else ["--last"]), "--key", str(key),
+                            "--yes", *(["--restart"] if a.restart else [])])  # fmt: skip
+        stopped = self.stop_all_but_db() if a.restart else []
+        if stopped:
+            print(f"restore: stopped {', '.join(stopped)} (--restart); db keeps running", file=sys.stderr)
+        try:
+            try:  # D-724: asked of compose here, on the host, before anything is read or changed
+                only_the_database_runs(["db"] if a.services_stopped else self.running())
+            except Exception as e:  # the refusal, as the restore says it: nothing was changed
+                raise RestoreStopped(str(e)) from None
+            argv, values = self.container(a, file)
+            code, out = self.call(argv, values)
+        except RestoreStopped as e:
+            if a.restart:
+                self._left_stopped(stopped, f"the restore did not start ({e})", again)
+            raise
         if out:
             print(out, end="" if out.endswith("\n") else "\n")
         if code in (0, 3, 4):  # restored: H-48's marker goes, as the in-process restore removes it
@@ -280,11 +301,10 @@ class BoxRestore:
             print(f"restore: the services run again and are healthy: {len(up)} ({', '.join(sorted(up))})",
                   file=sys.stderr)  # fmt: skip
             return code
-        why = {3: "a reference pack is missing (put it in --refdata and run the restore again)",
+        why = {3: "a reference pack is missing (put it in --refdata)",
                4: f"the restore is not complete and the hold on the list jobs is {hold or 'unknown'}"}  # fmt: skip
-        print(f"restore: the services stay stopped: {why.get(code, f'the restore failed (exit {code})')}; "
-              "start them with docker compose up -d once the lines above are dealt with (RUNBOOK §5)",
-              file=sys.stderr)  # fmt: skip
+        self._left_stopped(stopped, why.get(code, f"the restore failed (exit {code}; its lines above say where it "
+                                                   "stopped and name the kept copy of the box)"), again)  # fmt: skip
         return code
 
 

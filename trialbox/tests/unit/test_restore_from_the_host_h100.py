@@ -544,3 +544,85 @@ def test_the_rehearsal_restores_over_the_live_stack_by_the_documented_command() 
     steps = re.findall(r"^step ([a-z0-9-]+) [01] (\S+)", rehearse, re.M)
     in_box = [name for name, how in steps if how == "in_box"]
     assert in_box[-1] == "live-restore", in_box
+
+
+# ------------------------------------------------------------------------------------------------ the lead's holds
+REFUSED_RUNNING = "these services are running: console. A restore moves their folders aside"
+NO_YES = "restore replaces the box's databases and data folders (the old folders are kept aside): add --yes"
+
+
+@pytest.mark.parametrize("env", ["TEST", "PRODUCTION"])
+def test_restart_and_yes_never_imply_each_other_and_the_refusals_stay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], env: str
+) -> None:
+    """Twin (a PRODUCTION box and a PoC one): --restart without --yes is refused before anything stops; --yes
+    without --restart meets the running-services refusal word for word; nothing was stopped or run in either."""
+    from tools.trialbox import __main__ as cli
+
+    deploy = _box(tmp_path, f"TB_ENV={env}\n")
+    rec = Recorder(running=["db", "console"])
+    monkeypatch.setattr(update, "run_cmd", rec)
+    key = tmp_path / "usb" / "backup.key"
+    f = tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"
+    assert cli.main(["restore", str(f), "--key", str(key), "--restart", "--deploy", str(deploy)], installed=True) == 2
+    assert NO_YES in capsys.readouterr().out and rec.calls == []
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec)
+    assert code == 2 and not seen and REFUSED_RUNNING in capsys.readouterr().err
+    assert not any("stop" in c for c in rec.calls)
+
+
+def test_a_restore_that_fails_after_the_stop_says_the_state_and_the_way_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    deploy = _box(tmp_path)
+    rec = Recorder(running=["db", "console"])
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "", 1, "--restart")
+    err = capsys.readouterr().err
+    assert code == 1 and seen and not any("up" in c for c in rec.calls)
+    assert "The box now: db runs; console stay stopped (stopped by --restart)" in err, err
+    assert f"docker compose --project-directory {deploy} start console" in err, err
+    assert "to try again once that is dealt with: trialbox restore " in err and "--restart" in err, err
+
+    from tools.trialbox import box_restore
+
+    def no_runtime(argv: list[str], values: dict[str, str]) -> tuple[int, str]:
+        raise box_restore.RestoreStopped("the container runtime cannot be started here: nothing was changed")
+
+    rec = Recorder(running=["db", "console"])
+    monkeypatch.setattr(update, "run_cmd", rec)
+    monkeypatch.setattr(box_restore, "_call", no_runtime)
+    from tools.trialbox import __main__ as cli
+
+    f = tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"
+    argv = ["restore", str(f), "--key", str(tmp_path / "usb" / "backup.key"), "--yes", "--restart", "--deploy",
+            str(deploy)]  # fmt: skip
+    assert cli.main(argv, installed=True) == 2
+    err = capsys.readouterr().err
+    assert "the restore did not start" in err and "console stay stopped" in err and "start console" in err, err
+
+
+def test_the_key_must_be_a_file_and_last_names_its_pick_before_anything_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import hashlib
+    import json
+
+    from tools.trialbox import __main__ as cli
+    from tools.trialbox import backup_schedule as bs
+
+    deploy = _box(tmp_path, f"TB_BACKUP_TARGETS={tmp_path / 'nas'}\n")
+    rec = Recorder(running=["db", "console"])
+    monkeypatch.setattr(update, "run_cmd", rec)
+    f = tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"
+    argv = ["restore", str(f), "--key", str(tmp_path / "usb"), "--yes", "--restart", "--deploy", str(deploy)]
+    assert cli.main(argv, installed=True) == 2  # a folder, not a key file
+    assert "is not a file: nothing was changed" in capsys.readouterr().err and rec.calls == []
+    sha = hashlib.sha256(f.read_bytes()).hexdigest()
+    bs.sidecar(f).write_text(f"{sha}  {f.name}\n", encoding="utf-8")
+    (deploy / "site").mkdir()
+    (deploy / "site" / "backup-last.json").write_text(
+        json.dumps({"good_file": {"name": f.name, "bytes": f.stat().st_size, "sha256": sha}}), encoding="utf-8"
+    )
+    code, seen = _restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--last", "--restart", file=False)
+    err = capsys.readouterr().err
+    assert code == 0 and str(f) in seen[0][0] and err.index(f"--last: {f}") < err.index("stopped console"), err
