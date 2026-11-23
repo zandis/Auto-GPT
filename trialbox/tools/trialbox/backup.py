@@ -346,7 +346,7 @@ def _libpq(dsn: str) -> tuple[list[str], dict[str, str]]:
     return ["--dbname", dsn], {}
 
 
-def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> None:
+def dump(src: DbSource, out: Path, env: Mapping[str, str], keep_owners: bool = False) -> None:
     """A full dump of ``src`` to ``out`` (the update path's rollback point; a backup uses :func:`take_snapshot`)."""
     pre = env.get("TB_PG_DUMP_DIR")
     if pre:  # D-138: dumps taken by the db container on a quiet box (tools/trialbox/update.py ComposeBox)
@@ -356,7 +356,9 @@ def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> None:
         shutil.copyfile(f, out)
         return
     args, extra = _libpq(src.dsn)
-    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", "--no-owner", "--no-privileges", *args]
+    # H-100: a restore's own copy of the box keeps the owners and grants (the service roles' own schemas)
+    plain = [] if keep_owners else ["--no-owner", "--no-privileges"]
+    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", *plain, *args]
     for s in src.schemas:
         cmd += ["--schema", s]
     with out.open("wb") as fh:
@@ -407,10 +409,11 @@ def take_snapshot(src: DbSource, work: Path, env: Mapping[str, str]) -> dict[str
         raise BackupError(str(e)) from e
 
 
-def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
+def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str], keep_owners: bool = False) -> None:
     args, extra = _libpq(src.dsn)
-    cmd = [*_cmd(env, "TB_PG_RESTORE_CMD", "pg_restore"), "--clean", "--if-exists", "--no-owner",
-           "--no-privileges", "--single-transaction", "--exit-on-error", *args]  # fmt: skip
+    plain = [] if keep_owners else ["--no-owner", "--no-privileges"]  # H-100: a put-back keeps them
+    cmd = [*_cmd(env, "TB_PG_RESTORE_CMD", "pg_restore"), "--clean", "--if-exists", *plain,
+           "--single-transaction", "--exit-on-error", *args]  # fmt: skip
     # D-274 (CR-056): the database is emptied first, so a box that holds tables the backup does not (a later
     # migration, a newer schema) is not left with them, and the row check after the restore compares like with like
     _drop_schemas(src)
@@ -2161,7 +2164,7 @@ def _pre_restore_dumps(srcs: Sequence[DbSource], into: Path, env: Mapping[str, s
     out = {}
     for src in srcs:
         out[src.name] = into / f"{src.name}.dump"
-        dump(src, out[src.name], own)
+        dump(src, out[src.name], own, keep_owners=True)
     return out
 
 
@@ -2187,7 +2190,7 @@ def _put_back(
             bad.append(f"folder {dest.name} ({e.strerror})")
     for name in reversed(list(replaced)):
         try:
-            restore_db(srcs[name], pre[name], env)
+            restore_db(srcs[name], pre[name], env, keep_owners=True)
         except Exception as e:  # named, never a URL
             bad.append(f"database {name} ({type(e).__name__})")
     if bad:

@@ -77,7 +77,9 @@ The independent review (7109588168) said fix first; the integrator's red (710958
   it in: the trial database may be a schema prefix of a shared database (`tb_prefix`), the service roles own
   schemas inside it, and the cluster's roles would have to be renamed with it; a swap also needs every connection
   closed and `CREATEDB` the trial role does not have (CR-037). The copy uses the restore's own tools (`pg_dump`, then
-  `restore_db`), so it works wherever the restore works. **Disk:** up to the databases' own size
+  `restore_db`), so it works wherever the restore works; unlike the backup's own restore it keeps the owners and
+  grants (the rehearsal found that a put-back without them left the services' schemas to the restoring role and three
+  services unhealthy). **Disk:** up to the databases' own size
   (`pg_database_size`, a custom-format dump is usually much smaller), plus the unpacked backup (about four times
   the file), in `deploy/.restore-*` on the host; checked on the host before anything stops (exit 2) and again inside
   before the first change. Everything from the first dropped schema to the last audit event is one guarded region:

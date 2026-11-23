@@ -719,10 +719,10 @@ def test_f2_a_put_back_that_fails_says_so_and_never_claims_the_box_is_whole(
     _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
     real = bk.restore_db
 
-    def restore_db(src: Any, dump_file: Path, e: Any) -> None:
+    def restore_db(src: Any, dump_file: Path, e: Any, keep_owners: bool = False) -> None:
         if dump_file.parent.name == "pre-restore":
             raise RuntimeError("synthetic: the put-back fails")
-        real(src, dump_file, e)
+        real(src, dump_file, e, keep_owners)
 
     monkeypatch.setattr(bk, "restore_db", restore_db)
     monkeypatch.setattr(bk, "reapply_service_roles", _boom)
@@ -963,3 +963,35 @@ def test_f7_the_tls_marker_goes_after_every_exit_that_restored(
     marker.write_text("synthetic", encoding="utf-8")
     assert _restore(deploy, tmp_path, monkeypatch, Recorder(), '{"hold": "held"}', code)[0] == code
     assert marker.exists() is not gone
+
+
+def test_f2_the_copy_and_its_put_back_keep_the_owners_and_grants(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rehearsal's find: a put-back restored without owners left the services' schemas owned by the restoring
+    role, and three services came back unhealthy. The copy is dumped and put back with its owners and grants; the
+    backup's own restore stays ``--no-owner`` (D-573: the role script gives them back)."""
+    import subprocess
+
+    _reg, dirs, priv, pub, keep, env, f = _box_db(tmp_path, db_url)
+    src = bk.db_sources(env)[0]
+    before = _counts(src)
+    seen: list[list[str]] = []
+    real = subprocess.run
+
+    def run(cmd: Any, *a: Any, **kw: Any) -> Any:
+        if isinstance(cmd, list) and cmd and str(cmd[0]).endswith(("pg_dump", "pg_restore")):
+            io = [str(getattr(kw.get(k), "name", "")) for k in ("stdin", "stdout")]  # the dump file, by its name
+            seen.append([str(x) for x in cmd] + io)
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(bk, "reapply_service_roles", _boom)
+    with pytest.raises(bk.BackupError) as err:
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert getattr(err.value, "state", None) == "rolled_back" and _counts(src) == before
+    pre = [c for c in seen if any("pre-restore" in x for x in c)]
+    assert {c[0].rsplit("/", 1)[-1] for c in pre} == {"pg_dump", "pg_restore"}, seen
+    assert all("--no-owner" not in c and "--no-privileges" not in c for c in pre), pre
+    restores = [c for c in seen if c[0].endswith("pg_restore") and c not in pre]
+    assert restores and all("--no-owner" in c for c in restores), restores
