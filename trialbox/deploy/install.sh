@@ -74,7 +74,7 @@ ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arg
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
 ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""
-PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""  # H-96: the KEK passphrase's two ways in (the KEK-INPUT block)
+PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""; PP_REMOVE=""  # H-96: the KEK passphrase's two ways in (the KEK-INPUT block)
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -97,7 +97,8 @@ while [ $# -gt 0 ]; do
     --kek-passphrase-file) PP_FILE="${2:-}"; shift ;;
     --keep-kek-passphrase-file) PP_KEEP=1 ;;
     --kek-passphrase-stdin) PP_STDIN=1 ;;
-    --kek-passphrase-fd) PP_FD="${2:-}"; shift ;;  # the installer's own hand-on (the signed re-run, box-install.sh)
+    --kek-passphrase-fd) PP_FD="${2:-}"; shift ;;  # the installer's own hand-on (the signed re-run)
+    --kek-passphrase-remove) PP_REMOVE="${2:-}"; shift ;;  # the signed re-run's: the operator's file, never opened again
     -h|--help) sed -n 2,47p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;  # H-94 depends: a command line not understood is not acted on
     *) BUNDLE="$1" ;;
@@ -138,13 +139,13 @@ KP_WHO=install
 # and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
 # (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
 # exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
-KP_VALUE=""
+KP_VALUE=""; KP_FILE=""
 kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped
   for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
     kp_set=""
     eval "kp_set=\${$kp_var:+yes}"
-    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }  # H-94 (5)
   done
   unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
 }
@@ -152,15 +153,46 @@ kp_check_value() {  # one line, not empty, no control character (the image and t
   [ -n "$KP_VALUE" ] || kp_die "the KEK passphrase from $1 is empty: nothing was changed"
   case "$KP_VALUE" in *[[:cntrl:]]*) KP_VALUE=""; kp_die "the KEK passphrase from $1 holds a line break or another control character: write it again on one line; nothing was sealed" ;; esac
 }
-kp_read_file() {  # refused unless a regular file, not a link, owned by the user that runs this (root), mode 0600, one line
-  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600 (sudo install -m 0600 -o root -g root /dev/null FILE, then write it there); nothing was changed"
-  [ ! -L "$1" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"
-  [ -f "$1" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"
-  [ "$(stat -c %u "$1")" = "$(id -u)" ] || kp_die "--kek-passphrase-file $1 is owned by uid $(stat -c %u "$1"), not root (the user that runs this): refused; $kp_fix"
-  [ "$(stat -c %a "$1")" = 600 ] || kp_die "--kek-passphrase-file $1 has mode $(stat -c %a "$1"), not 0600: refused; $kp_fix"
-  [ "$(tail -c 1 "$1" | wc -l)" = "$(wc -l < "$1")" ] \
-    || kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"
-  KP_VALUE=""; IFS= read -r KP_VALUE < "$1" || [ -n "$KP_VALUE" ] || :
+kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened file is regular, root's, 0600, one name
+  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600, in a folder only root can write (sudo install -m 0600 -o root -g root /dev/null /root/trialbox-kek.pass, then write it there); nothing was changed"
+  # (M-1 of the review of #1398) the folders as their real paths: the file's own folder and every one above it owned
+  # by root (the user that runs this), and writable by no one else; above the file's own folder a shared folder with
+  # the sticky bit (/tmp) is allowed, as no one else can rename what is root's there
+  kp_dir="$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P)" \
+    || kp_die "--kek-passphrase-file $1: its folder cannot be reached: refused; $kp_fix"  # H-94 (5)
+  kp_name="${kp_dir%/}/${1##*/}"; kp_d="$kp_dir"; kp_own=1
+  while :; do
+    kp_st="$(stat -c '%u %a' -- "$kp_d" 2>/dev/null)" || kp_die "--kek-passphrase-file $1: the folder $kp_d cannot be read: refused; $kp_fix"  # H-94 (5)
+    kp_m="${kp_st#* }"
+    case "${kp_st%% *}" in 0|"$(id -u)") ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d is owned by uid ${kp_st%% *}, not root: refused; $kp_fix" ;; esac  # H-94 (5)
+    case "${kp_m#"${kp_m%??}"}" in
+      [0145][0145]) ;;
+      *) case "$kp_own:${#kp_m}:$kp_m" in 0:4:[1357]*) ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d can be written by others (mode $kp_m): refused; $kp_fix" ;; esac ;;  # H-94 (5)
+    esac
+    [ "$kp_d" != / ] || break
+    kp_d="$(dirname -- "$kp_d")"; kp_own=0
+  done
+  # opened once on fd 7 and read from it; what was opened is checked through /dev/fd/7 (the same open file, never the
+  # name again), and the name must still be that very file, not a link (the shell cannot open without following one)
+  [ ! -L "$kp_name" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"  # H-94 (5)
+  [ -f "$kp_name" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"  # H-94 (5): never a fifo opened
+  exec 7< "$kp_name"
+  kp_fd="$(stat -L -c '%F|%u|%a|%h|%d:%i' /dev/fd/7 2>/dev/null)" || kp_fd=""
+  kp_nm="$(stat -c '%F|%d:%i' -- "$kp_name" 2>/dev/null)" || kp_nm=""
+  kp_t="${kp_fd%%|*}"; kp_r="${kp_fd#*|}"; kp_u="${kp_r%%|*}"; kp_r="${kp_r#*|}"; kp_a="${kp_r%%|*}"; kp_r="${kp_r#*|}"
+  kp_h="${kp_r%%|*}"; kp_i="${kp_r#*|}"
+  kp_bad=""
+  case "$kp_nm" in "symbolic link|"*) kp_bad="is a link" ;; esac
+  [ -n "$kp_bad" ] || case "$kp_t" in "regular file"|"regular empty file") ;; *) kp_bad="is not a regular file" ;; esac
+  [ -n "$kp_bad" ] || [ "$kp_nm" = "$kp_t|$kp_i" ] || kp_bad="changed while it was opened"
+  [ -n "$kp_bad" ] || [ "$kp_u" = "$(id -u)" ] || kp_bad="is owned by uid $kp_u, not root (the user that runs this)"
+  [ -n "$kp_bad" ] || [ "$kp_a" = 600 ] || kp_bad="has mode $kp_a, not 0600"
+  [ -n "$kp_bad" ] || [ "$kp_h" = 1 ] || kp_bad="has $kp_h names (hard links), not one"
+  if [ -n "$kp_bad" ]; then exec 7<&-; kp_die "--kek-passphrase-file $1 $kp_bad: refused; $kp_fix"; fi  # H-94 (5)
+  KP_VALUE=""; IFS= read -r KP_VALUE <&7 || [ -n "$KP_VALUE" ] || :
+  kp_rest="$(wc -c <&7)"; exec 7<&-
+  if [ "$kp_rest" != 0 ]; then KP_VALUE=""; kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"; fi  # H-94 (5)
+  KP_FILE="$kp_name"
   kp_check_value "--kek-passphrase-file $1"
 }
 kp_read_stdin() {
@@ -175,21 +207,28 @@ kp_read_stdin() {
   fi
   kp_check_value "stdin"
 }
-kp_remove_file() { shred -u -- "$1" 2>/dev/null || rm -f -- "$1"; [ ! -e "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"; }
+kp_remove_file() {  # unlinked, never written through its name (a link is taken away, never what it names)
+  rm -f -- "$1"; [ ! -e "$1" ] && [ ! -L "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"  # H-94 (5)
+}
 # ---- end of KEK-INPUT functions
 kp_refuse_env
 case "$PP_FILE:$PP_STDIN:$PP_FD" in
   :0:|/*:0:|:1:|:0:[3-9]) ;;
-  ?*:0:) die "--kek-passphrase-file: give the file's full path (/root/...): nothing was changed" ;;
-  *) die "--kek-passphrase-file, --kek-passphrase-stdin, --kek-passphrase-fd 3-9: give one; nothing was changed" ;;
+  ?*:0:) die "--kek-passphrase-file: give the file's full path (/root/...): nothing was changed" ;;  # H-94 (5)
+  *) die "--kek-passphrase-file, --kek-passphrase-stdin, --kek-passphrase-fd 3-9: give one; nothing was changed" ;;  # H-94 (5)
 esac
-[ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE" ] || die "--keep-kek-passphrase-file goes with --kek-passphrase-file"
+case "$PP_REMOVE:$PP_FD" in
+  :*|/*:?*) ;;
+  *) die "--kek-passphrase-remove goes with --kek-passphrase-fd and a full path (the installer's own hand-on)" ;;  # H-94 (5)
+esac
+[ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE$PP_REMOVE" ] || die "--keep-kek-passphrase-file goes with --kek-passphrase-file"  # H-94 (5)
 if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"
 elif [ "$PP_STDIN" = 1 ]; then kp_read_stdin
 elif [ -n "$PP_FD" ]; then
-  IFS= read -r KP_VALUE <&"$PP_FD" || [ -n "$KP_VALUE" ] || die "--kek-passphrase-fd $PP_FD: no passphrase there"
+  IFS= read -r KP_VALUE <&"$PP_FD" || [ -n "$KP_VALUE" ] || die "--kek-passphrase-fd $PP_FD: no passphrase there"  # H-94 (5)
   eval "exec $PP_FD<&-"
   kp_check_value "the installer's hand-on"
+  KP_FILE="$PP_REMOVE"  # the operator's file the first run read: removed once sealed, never opened here
 fi
 # ---- end of KEK-INPUT
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC
@@ -661,14 +700,19 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
   [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
-  # KEK-INPUT (H-96): a passphrase read from stdin goes on by a pipe at fd 8, its option swapped for the fd's
-  if [ "$PP_STDIN" = 1 ] || [ -n "$PP_FD" ]; then
+  # KEK-INPUT (H-96): the passphrase this run read (from the file or stdin) goes on by a pipe at fd 8, its options
+  # swapped for the fd's; the file's name goes with it only to be removed once sealed, never to be opened again
+  if [ -n "$KP_VALUE" ]; then
     PP_ARGS=(); skip=0
     for a in ${ARGS[@]+"${ARGS[@]}"}; do
       if [ "$skip" = 1 ]; then skip=0; continue; fi
-      case "$a" in --kek-passphrase-stdin) continue ;; --kek-passphrase-fd) skip=1; continue ;; esac
+      case "$a" in
+        --kek-passphrase-stdin) continue ;;
+        --kek-passphrase-fd|--kek-passphrase-file|--kek-passphrase-remove) skip=1; continue ;;
+      esac
       PP_ARGS+=("$a")
     done
+    [ -z "$KP_FILE" ] || PP_ARGS+=(--kek-passphrase-remove "$KP_FILE")
     TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
       8< <(printf '%s\n' "$KP_VALUE")
   fi
@@ -1230,18 +1274,24 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"  # H-94 (4)
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
-  # KEK-INPUT (H-96): the operator's file goes on by its name (the seal step removes it once sealed), a
-  # passphrase read from stdin by a pipe; neither is an argument's value or in an environment
-  SEAL_PP=(); [ -z "$PP_FILE" ] || SEAL_PP=(--kek-passphrase-file "$PP_FILE")
-  [ "$PP_KEEP" = 0 ] || SEAL_PP+=(--keep-kek-passphrase-file)
-  [ -n "$PP_FILE" ] || [ -z "$KP_VALUE" ] || SEAL_PP=(--kek-passphrase-stdin)
-  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" ${SEAL_PP[@]+"${SEAL_PP[@]}"}; }
-  if [ "${SEAL_PP[0]:-}" = --kek-passphrase-stdin ]; then printf '%s\n' "$KP_VALUE" | seal; else seal </dev/null; fi \
-    || stop_or_warn seal-keys "the sealing of the site keys (they stay plain files; the host check lists it)" "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the --kek-passphrase-file example in deploy/install.sh --help; docs/security/01-the-host.md"
-  PP_FILE=""
+  # KEK-INPUT (H-96): the passphrase this run read goes to the seal step by a pipe (never an argument's value, an
+  # environment or the file's name again); the operator's file is removed here once the keys are sealed (rm: a link
+  # is taken away, never what it names), kept with --keep-kek-passphrase-file or when the seal failed
+  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" "$@"; }
+  sealed=0
+  if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | seal --kek-passphrase-stdin && sealed=1
+  else seal </dev/null && sealed=1; fi
+  if [ "$sealed" = 1 ] && [ -n "$KP_FILE" ]; then
+    if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
+    else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
+  fi
+  [ "$sealed" = 1 ] \
+    || stop_or_warn seal-keys "the sealing of the site keys (they stay plain files; the host check lists it)" "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
+  PP_FILE=""; KP_FILE=""
 fi
 KP_VALUE=""
-[ -z "$PP_FILE" ] || echo "    the KEK passphrase file $PP_FILE was not used (no seal step on this box): it stays; remove it"
+[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
+KP_FILE=""
 
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 # H-94 depends: every step after this one needs the database
@@ -1518,11 +1568,16 @@ show_once() {  # $1: the one-time text (an argument of a shell function: no proc
     echo "    shown on this terminal only: never in this output, which a log may keep"
     return 0
   fi
-  home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+  home="$(getent passwd "$(id -u)" | cut -d: -f6)" || home=""  # no passwd entry: no file, a warning says so
   ONCE_FILE="${home%/}/trialbox-admin-first-sign-in"
   ONCE_WHERE="as admin: the first password and the enrolment code were not kept (the FAIL lines below say why)"
-  if [ -z "$home" ] || [ ! -d "$home" ] || [ -L "$ONCE_FILE" ] || { [ -e "$ONCE_FILE" ] && [ ! -f "$ONCE_FILE" ]; }; then
-    FAILS+=("no terminal, and $ONCE_FILE is a link or not a regular file (or no home): the first password and enrolment code were not kept; remove it, then console.cli reset-password admin and enrol-code admin on a terminal")
+  if [ -z "$home" ] || [ ! -d "$home" ]; then  # no passwd entry or home for this user (never root's on a box)
+    ONCE_WHERE="as admin: the first password and the enrolment code were not kept (no home for uid $(id -u))"
+    echo "    no terminal and no home for uid $(id -u) in the passwd file: the first password and enrolment code were not kept; run console.cli reset-password admin and enrol-code admin on a terminal" >&2
+    return 0
+  fi
+  if [ -L "$ONCE_FILE" ] || { [ -e "$ONCE_FILE" ] && [ ! -f "$ONCE_FILE" ]; }; then
+    FAILS+=("no terminal, and $ONCE_FILE is a link or not a regular file: the first password and enrolment code were not kept; remove it, then console.cli reset-password admin and enrol-code admin on a terminal")
     return 0
   fi
   rm -f "$ONCE_FILE"
