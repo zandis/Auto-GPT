@@ -13,6 +13,7 @@ point warned, went on and was listed.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import pty
@@ -41,11 +42,11 @@ out_dir() {  # the host folder mounted at $1 in a docker run
 }
 case "$1 $2" in
   "version --format") echo 27.0; exit 0 ;;
-  "info "*|"info") echo "Runtimes: nvidia runc"; exit 0 ;;
+  "info "*|"info") has docker-not-running && exit 1; echo "Runtimes: nvidia runc"; exit 0 ;;
   "image inspect") exit 0 ;;
   "volume ls") exit 0 ;;
   "volume inspect") exit 1 ;;
-  "compose version") echo "Docker Compose version v2.29"; exit 0 ;;
+  "compose version") has compose-missing && exit 1; echo "Docker Compose version v2.29"; exit 0 ;;
   "rm "*) exit 0 ;;
 esac
 case "$*" in
@@ -66,6 +67,8 @@ case "$1" in
   compose)
     case "$*" in
       *"config --images"*) echo trialbox-py:1.0.0; exit 0 ;;
+      *"--wait db"*) has db-start && exit 1; exit 0 ;;
+      *"--wait --wait-timeout"*) has stack-health && exit 1; exit 0 ;;
       *" down "*|*" down") has project-cleanup-failed && exit 1; exit 0 ;;
       *"keys-init"*) has site-keys && { echo "keys: cannot read (stand-in)" >&2; exit 1; }; echo "keys made"; exit 0 ;;
       *"30-service-roles.sh"*) has db-roles && exit 1; exit 0 ;;
@@ -87,6 +90,7 @@ case "$1" in
   */tools/tiers.py)
     has tier-record && { echo "install: refused: tier stand-in: no record" >&2; exit 3; }
     echo "rtxpro6000 deploy/measured/serving_config.rtxpro6000.json"; exit 0 ;;
+  -c) case "${2:-}" in "import "*) has host-python-modules && exit 1 ;; esac; exec "$TB_H94_REAL_PY" "$@" ;;
   *) exec "$TB_H94_REAL_PY" "$@" ;;
 esac
 signed() { [ -n "${TB_INSTALL_SIGNED:-}" ]; }
@@ -262,7 +266,7 @@ class Box:
         return self.tmp / "deploy"
 
     def install(self, *args: str, force: tuple[str, ...] = (), tty: str | None = None, answers: bool = True,
-                env: dict[str, str] | None = None) -> Run:  # fmt: skip
+                env: dict[str, str] | None = None, hold_lock: bool = False) -> Run:  # fmt: skip
         t = self.tmp
         if answers:
             args = (*args, "--answers", str(t / "answers.yaml"))
@@ -275,6 +279,13 @@ class Box:
         )  # fmt: skip
         (t / "cron").mkdir(exist_ok=True)
         argv = ["bash", str(self.deploy / "install.sh"), str(t / "b.tar"), *args]
+        if hold_lock:  # another installer holds the deploy folder's lock for the whole run
+            held = os.open(self.deploy, os.O_RDONLY)
+            try:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                return self.install(*args, force=force, tty=tty, answers=False, env=env)
+            finally:
+                os.close(held)
         if tty is None:
             r = subprocess.run(argv, cwd=t, env=full, capture_output=True, text=True, timeout=300, check=False,
                                stdin=subprocess.DEVNULL)  # fmt: skip
@@ -299,13 +310,14 @@ def test_the_bench_runs_as_a_user_and_writes_nothing_outside(tmp_path: Path) -> 
     assert not shutil.which("trialbox") or "b/tools" not in os.path.realpath(shutil.which("trialbox") or "")
 
 
-def stop_prelude(deploy: str = "/nonexistent/h94-no-box", environment: str = "", rehearsal: str = "0") -> str:
+def stop_prelude(deploy: str = "/nonexistent/h94-no-box", environment: str = "", rehearsal: str = "0",
+                 who: str = "install") -> str:  # fmt: skip
     """install.sh's STOP-OR-WARN block and its inputs, for a test that runs a block of install.sh alone (as the
     installer has them by then). The arguments are shell words: a test may pass ``"$ROOT/deploy"`` or
     ``"$ENVIRONMENT"``. The default box is none: nothing speaks, so it is PRODUCTION and every stop stops."""
     text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
     block = text[text.index("# ---- STOP-OR-WARN") : text.index("# ---- end of STOP-OR-WARN")]
     return (
-        f"{block}\nTB_STOP_WHO=install; TB_STOP_FILE=install.sh; TB_STOP_DEPLOY={deploy}\n"
+        f"{block}\nTB_STOP_WHO={who}; TB_STOP_FILE={who}.sh; TB_STOP_DEPLOY={deploy}\n"
         f"TB_STOP_ARG_ENV={environment or '""'}; TB_STOP_REHEARSAL={rehearsal}\n"
     )

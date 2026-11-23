@@ -40,7 +40,7 @@
   {
    "id": "H94-05",
    "severity": "Medium",
-   "claim": "the files after install.sh are not converted: deploy/box-install.sh, tools/apply_update.sh, deploy/bootstrap.sh, deploy/launcher.sh, deploy/check_host.sh, deploy/settings_guard.sh, tools/rehearsal_real.py and tools/trialbox/launch.py keep their stops (the ratchet holds each to its count); the walk's third failure (a half-done install's link refused at the start path) can still happen there",
+   "claim": "the files after install.sh are not converted: deploy/bootstrap.sh, deploy/launcher.sh, deploy/check_host.sh, deploy/settings_guard.sh, tools/rehearsal_real.py and tools/trialbox/launch.py keep their stops (the ratchet holds each to its count); the walk's third failure (a half-done install's link refused at the start path) can still happen there; part 2 converted deploy/box-install.sh and tools/apply_update.sh",
    "lane": "H",
    "basis": "shown",
    "state": "open"
