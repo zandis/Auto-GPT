@@ -1627,9 +1627,10 @@ fi
 say "host check"
 HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_HOST[@]}"})
 # H-94 (5): its FAIL lines about a secret's mode (deploy/.env, a key, a token) are kept apart: on a PoC box they stay
-# FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before
+# FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before. tee -a: when this output is a
+# file (box-install.sh's install.log, a rehearsal's step log) /dev/fd/8 is opened again, and without -a it is emptied
 HOST_OUT=""; exec 8>&1
-HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee /dev/fd/8)" \
+HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee -a /dev/fd/8)" \
   || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
 exec 8>&-
 SECRET_FAILS=()

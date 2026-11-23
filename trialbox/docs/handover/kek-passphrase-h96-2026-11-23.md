@@ -239,6 +239,21 @@ Changed assertion 12 is in that form.
 **Also:** a uid with no passwd entry (getent exits 2 under pipefail) no longer stops the install: the one-time values
 are then not kept, and a warning says how to get new ones
 (`test_one_time_values_h96.py::test_with_no_terminal_and_no_passwd_entry_nothing_is_kept_and_the_install_goes_on`).
+**Found by the rehearsal after the merge of master (H-94 part 1):** install.sh's host check step tees its output to
+/dev/fd/8; when the install's output is a file (box-install.sh's install.log, the rehearsal's step log) that is the
+same file opened again, and `tee` without `-a` emptied it, so every line before the host check was lost (here the line
+naming the one-time values' file, so the rehearsal's check failed). Now `tee -a`
+(`test_kek_passphrase_review_h96.py::test_the_host_check_step_keeps_what_the_install_wrote_before_it_in_a_log_file`,
+which fails without `-a`). The line is H-94's; it is named under the files outside the card.
+
+**Mutants (the review round):** 26 planted (the shared block's changed in all three copies alike), 25 caught: the
+folder checks (writable, sticky own folder, the walk up, the owner; shell and tools.keys), one name, the
+name-and-descriptor comparison, a read by the name again, shred again, the rest of the file, the opened file's owner,
+O_NOFOLLOW, the mode, the files removed after a failure, control characters, fd 8 left open, fd 0-9, the file kept
+after sealing, box-install's fd 8 and --answers, check_host's FAIL and its list line, and getent's exit. One
+survived and is equivalent: the shell's "is a link" case after the open (the check before the open and the
+name-and-descriptor comparison each refuse a link already).
+
 The review's mutation survivors each have a test now: a mode of 0400 or 0700, the files kept after a failed rotation,
 a carriage return or a tab on stdin and in a file, `--kek-passphrase-fd` 0 to 2, box-install's passphrase options
 without `--answers`, and fd 8 left open (the invariant).
@@ -250,7 +265,8 @@ refusal), `tools/network_sheet.py`. Not named by the ruling: `deploy/check_host.
 `docs/runbook/23-key-inventory-and-the-lost-box-list.md` (the rotation section), `docs/security/10-key-ceremony-and-escrow.md`
 (it showed the environment form for rotation), and the tests of the list above outside lane H's own files. In the
 review round: `docs/handover/poc-stops-h94-2026-11-23.md` (six rows of install.sh's H-96 stops, kept (5): the
-inventory's count must match the marks) and `tests/unit/test_host_baseline.py` (assertion 12, ruled).
+inventory's count must match the marks), `tests/unit/test_host_baseline.py` (assertion 12, ruled), and in install.sh
+H-94's host check line (`tee -a`, above).
 
 ## Findings
 
