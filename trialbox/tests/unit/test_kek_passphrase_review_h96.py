@@ -406,3 +406,28 @@ def test_a_refused_rotation_keeps_both_files(tmp_path: Path, capsys: pytest.Capt
                    env={"TB_KEK_FILE": str(tmp_path / "kek.runtime"), "TB_ENV": "PRODUCTION"})  # fmt: skip
     capsys.readouterr()
     assert rc == 1 and old_f.exists() and new_f.exists()
+
+
+def test_the_host_check_step_keeps_what_the_install_wrote_before_it_in_a_log_file(tmp_path: Path) -> None:
+    """Found by the rehearsal of #1398: the host check's output goes to the screen and to HOST_OUT through
+    /dev/fd/8; when the install's output is a file (box-install.sh's install.log, the rehearsal's step log),
+    /dev/fd/8 is that file opened again, and a tee without -a emptied it: every line before the host check, the line
+    that names the one-time values' file among them, was gone. The real lines of install.sh, run with a stand-in
+    host check and their output to a file."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    start = text.index('HOST_OUT=""; exec 8>&1')
+    step = text[start : text.index("exec 8>&-", start) + len("exec 8>&-")]
+    root = _folder(tmp_path / "root" / "deploy", 0o755).parent
+    (root / "deploy" / "check_host.sh").write_text('echo "PASS  the host check"\n', encoding="utf-8")
+    log = tmp_path / "install.log"
+    script = (
+        f'ROOT="{root}"; HOST_ARGS=(); FAILS=()\necho "a line before the host check"\n{step}\necho "a line after"\n'
+    )
+    r = subprocess.run(["bash", "-c", f'exec >> "{log}" 2>&1\n{script}'], capture_output=True, text=True,
+                       timeout=30, check=False)  # fmt: skip
+    assert r.returncode == 0, r.stderr
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "a line before the host check",
+        "PASS  the host check",
+        "a line after",
+    ]
