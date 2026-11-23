@@ -435,9 +435,11 @@ def load_kek(secrets_dir: Path, env: Mapping[str, str] | None = None) -> bytes:
     if meta["backend"] == "passphrase" and os.environ.get("TB_KEK_PASSPHRASE"):
         # H-97 (the review's L-2, 7102655419; H-94 (5)): a caller's environment may be in a log (sudo keeps it with
         # its value) or a container's configuration; the value is never printed
-        raise KekError("TB_KEK_PASSPHRASE is set in the environment: refused. Unseal with `python -m tools.keys "
-                       "unseal` (the passphrase typed, or --passphrase-file FILE, root only, or --passphrase-stdin); "
-                       "treat the passphrase given in the environment as exposed and rotate it (RUNBOOK §23)")
+        raise KekError(
+            "TB_KEK_PASSPHRASE is set in the environment: refused. Unseal with `python -m tools.keys "
+            "unseal` (the passphrase typed, or --passphrase-file FILE, root only, or --passphrase-stdin); "
+            "treat the passphrase given in the environment as exposed and rotate it (RUNBOOK §23)"
+        )
     if meta["backend"] == "passphrase" and env.get("TB_KEK_PASSPHRASE"):  # a mapping tools.keys built
         kek = derive_from_passphrase(env["TB_KEK_PASSPHRASE"], meta)
         if not hmac.compare_digest(kek_id(kek), str(meta["kek_id"])):

@@ -110,7 +110,12 @@ def test_the_restic_key_step_never_forwards_the_passphrase(
     from tools.trialbox import backup_schedule as bs
 
     got: list[dict[str, str]] = []
-    monkeypatch.setattr(rr, "make_key", lambda sec, env: got.append(dict(env)) or True)
+
+    def make_key(sec: Path, env: dict[str, str]) -> bool:
+        got.append(dict(env))
+        return True
+
+    monkeypatch.setattr(rr, "make_key", make_key)
     monkeypatch.delenv("TB_KEK_PASSPHRASE", raising=False)
     ops = _ops(tmp_path, stewards["sec"], f"TB_KEK_PASSPHRASE={PHRASE}\n")
     use, _ = ops.incremental(bs.config(ops.deploy, ops.env, process_env=False))
