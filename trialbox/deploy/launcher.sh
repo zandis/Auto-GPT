@@ -99,4 +99,4 @@ main() {
   return "$rc"
 }
 
-main "$@"; exit $?
+main "$@"; exit $?  # H-94 not a stop: the bootstrap's own exit code

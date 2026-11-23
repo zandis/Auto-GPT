@@ -237,13 +237,22 @@ media-negative)
   [ "$rc" != 0 ] && echo "$out" | grep -q "not a valid signed TrialBox release" || fail "a forged bundle was not refused"
   [ ! -e deploy/.env ] || fail "the installer wrote settings for a forged bundle"
   ok "forged media: exit $rc, 'not a valid signed TrialBox release; nothing was changed'"
+  # H-95: the software pack alone, without the model pack it names: refused by the verifier (H-94 (1)), by the model
+  # pack's signed identity, before anything is loaded
+  mkdir -p "$W/lone" && { ln "$BUNDLE" "$W/lone/" 2>/dev/null || cp "$BUNDLE" "$W/lone/"; }
+  out="$(deploy/install.sh "$W/lone/$(basename "$BUNDLE")" --tier large --yes 2>&1)"; rc=$?
+  echo "$out" | tail -5
+  [ "$rc" != 0 ] && echo "$out" | grep -q "this software pack needs model pack .* (signed manifest sha256 [0-9a-f]\{64\})" \
+    || fail "a software pack without its model pack was not refused by the model pack's identity"
+  [ ! -e deploy/.env ] && [ ! -e deploy/updates/installed.json ] || fail "the installer wrote or loaded for a software pack without its model pack"
+  ok "software pack without its model pack: exit $rc, refused by the model pack's signed identity, nothing loaded"
   # the vendor key missing from the box (it comes out of band, and on the media)
   rm -f deploy/keys/vendor_ed25519.pub
   out="$(deploy/install.sh "$BUNDLE" --tier large --yes 2>&1)"; rc=$?
   echo "$out" | tail -3
   [ "$rc" != 0 ] && echo "$out" | grep -q "vendor public key missing" || fail "a missing vendor key was not refused"
   ok "missing vendor key: exit $rc, 'vendor public key missing'"
-  cd / && rm -rf "$NEG" "$W/forged" "$W/forged.tar"
+  cd / && rm -rf "$NEG" "$W/forged" "$W/forged.tar" "$W/lone"
   ;;
 
 # ------------------------------------------------------------------------------------------------ install
@@ -270,7 +279,7 @@ install)
   [ -f "$KEK_PASS" ] && [ "$(stat -c %a "$KEK_PASS")" = 600 ] || fail "--keep-kek-passphrase-file did not keep the file"
   no_passphrase_left "$KEK_PASS"
   ok "first install through the signed re-run: sealed from --kek-passphrase-file, the file kept as asked"
-  # H-94: the rehearsal box is a PoC box, where a stop that is not one of the four warns and is listed; the
+  # H-94: the rehearsal box is a PoC box, where a stop that is not one of the five warns and is listed; the
   # rehearsal's own install must list nothing (as before, when each of them stopped it)
   [ ! -s deploy/site/poc-stops.jsonl ] || { cat deploy/site/poc-stops.jsonl; fail "the install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"

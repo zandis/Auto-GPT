@@ -1,0 +1,34 @@
+{
+ "source": "tools/apply_update.sh at master b32e9b6538db9a95971ff61f8df35f797e50a70d",
+ "how": "every echo \"apply_update: ...\" or \"update REFUSED: ...\" >&2; exit N, as written (unexpanded), the prefix taken off",
+ "stops": [
+  {
+   "message": "--conf is for ospatch",
+   "rc": 2
+  },
+  {
+   "message": "unknown option $1",
+   "rc": 2
+  },
+  {
+   "message": "--no-backup-reason goes with --no-backup",
+   "rc": 2
+  },
+  {
+   "message": "--no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); nothing was changed",
+   "rc": 2
+  },
+  {
+   "message": "the site keys (above); nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "a path has a space or a glob character: $ROOT, $BUNDLE_ABS, $STAGE, $PUBKEY",
+   "rc": 2
+  },
+  {
+   "message": "nothing was changed",
+   "rc": 1
+  }
+ ]
+}

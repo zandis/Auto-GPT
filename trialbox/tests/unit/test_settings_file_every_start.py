@@ -42,17 +42,30 @@ def test_the_sites_settings_named_in_the_env_file_start(tmp_path: Path, line: st
     assert _guard(_deploy(tmp_path, "TB_ENV=VALIDATION\n" + line)).returncode == 0
 
 
-@pytest.mark.parametrize("env", [None, "TB_ENV=VALIDATION\n", "TB_SETTINGS_FILE=./settings.example.yaml\n"])
+@pytest.mark.parametrize("env", [None, "TB_SETTINGS_FILE=./settings.example.yaml\n"])
 def test_a_box_that_would_start_on_the_example_settings_is_refused(tmp_path: Path, env: str | None) -> None:
+    """An installed box that names no environment is PRODUCTION (D-127): refused, as before."""
     res = _guard(_deploy(tmp_path, env))
     assert res.returncode == 1
     assert "example settings" in res.stderr and "TB_SETTINGS_FILE=./settings.yaml" in res.stderr
 
 
-def test_the_environment_wins_as_it_does_for_compose(tmp_path: Path) -> None:
-    deploy = _deploy(tmp_path, "TB_ENV=TEST\n")
+@pytest.mark.parametrize("env", ["TB_ENV=VALIDATION\n", "TB_ENV=TEST\n"])
+def test_a_poc_box_on_the_example_settings_warns_and_starts(tmp_path: Path, env: str) -> None:
+    """H-94, the integrator's ruling 7102087475 (H94-09): the example settings are what a PoC box starts from, so
+    there the refusal is a warning and a line of deploy/site/poc-stops.jsonl; the start goes on."""
+    deploy = _deploy(tmp_path, env)
+    res = _guard(deploy)
+    assert res.returncode == 0, res.stderr
+    assert "warning (PoC box, H-94)" in res.stderr and "TB_SETTINGS_FILE=./settings.yaml" in res.stderr
+    assert "settings_guard.sh/example-settings" in (deploy / "site" / "poc-stops.jsonl").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(("environment", "rc"), [("PRODUCTION", 1), ("TEST", 0)])
+def test_the_environment_wins_as_it_does_for_compose(tmp_path: Path, environment: str, rc: int) -> None:
+    deploy = _deploy(tmp_path, f"TB_ENV={environment}\n")
     assert _guard(deploy, TB_SETTINGS_FILE="./settings.yaml").returncode == 0
-    assert _guard(deploy, TB_SETTINGS_FILE="./settings.example.yaml").returncode == 1
+    assert _guard(deploy, TB_SETTINGS_FILE="./settings.example.yaml").returncode == rc  # TEST: a PoC box (7102087475)
 
 
 def test_a_box_without_site_settings_is_not_refused(tmp_path: Path) -> None:

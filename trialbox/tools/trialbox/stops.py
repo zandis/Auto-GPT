@@ -113,6 +113,8 @@ def append(deploy: Path, key: str, what: str, skipped: str = "", *, by: str) -> 
             st = os.fstat(fd)
             if st.st_uid not in (0, os.getuid()):
                 raise PermissionError(f"owned by uid {st.st_uid}, not root or the installer")
+            if st.st_nlink != 1:  # review L-2 of #1430: one name, its own (never a second name of another file)
+                raise PermissionError(f"{st.st_nlink} names (hard links), not one")
             os.write(fd, (json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
         finally:
             os.close(fd)
