@@ -139,7 +139,8 @@ def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
     from orchestrator.scenarios import screen
 
     per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # rc1 (R22-34, go 7081415241): a PRODUCTION box reveals and exports nothing; PRODUCTION again when it is lifted
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "2")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
     events: list[dict[str, Any]] = []
@@ -162,7 +163,8 @@ def test_reveal_audits_the_header_actor_not_the_body(
     from orchestrator.scenarios import screen
 
     per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # rc1 (R22-34, go 7081415241): a PRODUCTION box reveals and exports nothing; PRODUCTION again when it is lifted
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     events: list[dict[str, Any]] = []
     fake = _fake_box(events)
     monkeypatch.setattr(oapp, "orch", lambda: fake)
@@ -208,7 +210,8 @@ def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audi
     from orchestrator.scenarios import screen
 
     per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
-    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    # rc1 (R22-34, go 7081415241): a PRODUCTION box reveals and exports nothing; PRODUCTION again when it is lifted
+    monkeypatch.setenv("TB_ENV", "VALIDATION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
     monkeypatch.setenv("TB_EXPORT_MAX_PER_HOUR", "1")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())

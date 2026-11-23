@@ -22,6 +22,7 @@ from tb_common.subject import job_subject
 from tb_common.verdict_word import shown_of
 from tb_contracts import JobOutput, MissingItem, NavLists, NavRow, dump
 
+from orchestrator import reimbursement
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.decision_context import decision_of
@@ -123,6 +124,7 @@ def _without_opted_out(ctx: Ctx, scoped: list[Any]) -> list[Any]:
 
 def run(ctx: Ctx) -> Outcome:
     require_released()  # NEW-B-3 (D-522): no list while the hold of a restore stands
+    reimbursement.require_open()  # card 9e-9: out of 1.0, a test box with the flag on only
     job = ctx.job
     rs = require_approved(ctx, (job.ruleset or "").upper(), (job.options or {}).get("version"))
     if rs.manifest.kind != "nhi":

@@ -157,14 +157,14 @@ class GatewayJudge:
         from tb_common.llm import load_prompt, render
         from tb_contracts import inline_schema, load_schema, null_absent, schema_errors
         from tb_llm import CallLabels, GatewayDown, GatewayRefused, json_schema_format
-        from tb_llm.outage import MODEL_FAULTS, OutageBudget, wait_and_retry
+        from tb_llm.outage import OutageBudget, refusal_fault, wait_and_retry
 
         if self.outage is None:
             self.outage = OutageBudget()
 
         def fault_of(exc: BaseException) -> tuple[str, float | None] | None:
-            if isinstance(exc, GatewayRefused) and exc.reason in MODEL_FAULTS:
-                return exc.reason, exc.retry_after
+            if isinstance(exc, GatewayRefused) and (fault := refusal_fault(exc.reason, exc.upstream_kinds)):
+                return fault, exc.retry_after  # walk step 5: a timeout of the gateway's is waited for too
             return ("unreachable", None) if isinstance(exc, GatewayDown) else None
 
         p = load_prompt(self.prompt_id)

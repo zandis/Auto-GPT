@@ -211,7 +211,9 @@ def test_a_missing_path_or_nothing_to_check_is_a_problem(tmp_path: Path) -> None
 
 
 def test_a_models_folder_lists_weights_and_reads_the_rest(tmp_path: Path) -> None:
-    m = tmp_path / "models/embedder"
+    # H-90 (the integrator's ruling): a folder a measured record covers (embedder/) is checked by its recorded hashes
+    # (tests/unit/test_vocab_bundle_measured_h90.py); a folder no record covers is read as before
+    m = tmp_path / "models/invented-model"
     _write(m / "config.json", '{"model_type": "invented"}')
     _write(m / "model.safetensors", b"\x00not a model")
     _write(m / "README.md", "an invented embedder\n")

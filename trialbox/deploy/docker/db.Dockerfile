@@ -25,6 +25,9 @@ ARG LIBGROONGA_VERSION=16.1.5-1
 ARG PGBACKREST_VERSION=2.60.0-1.pgdg13+1
 # SC-1b (D-993): the base's zlib1g carries CVE-2026-85091; the fix is in trixie-security, held at it like the rest
 ARG ZLIB1G_VERSION=1:1.3.dfsg+really1.3.1-1+deb13u1
+# H-93: the base's krb5 libraries (1.21.3-5+deb13u1; the server and libpq5 link libgssapi-krb5-2) carry 14 CVEs the
+# release gates fail on (CVE-2026-71199 to CVE-2026-119079, DSA-6650-1); the fix is in trixie-security, held like zlib1g
+ARG KRB5_VERSION=1.21.3-5+deb13u2
 ARG PG_MAJOR_EXPECTED=16
 ARG GROONGA_KEY_FINGERPRINT=2701F317CFCCCB975CADE9C2624CF77434839225
 COPY db.groonga-archive-keyring.asc /usr/share/keyrings/groonga-archive-keyring.asc
@@ -53,9 +56,14 @@ RUN --mount=type=secret,id=extra_ca,required=false,mode=0444 \
       "postgresql-${PG_MAJOR}-pgdg-pgroonga=${PGROONGA_VERSION}" \
       "libgroonga0=${LIBGROONGA_VERSION}" \
       "pgbackrest=${PGBACKREST_VERSION}" \
-      "zlib1g=${ZLIB1G_VERSION}"; \
+      "zlib1g=${ZLIB1G_VERSION}" \
+      "libkrb5-3=${KRB5_VERSION}" "libkrb5support0=${KRB5_VERSION}" "libk5crypto3=${KRB5_VERSION}" \
+      "libgssapi-krb5-2=${KRB5_VERSION}"; \
     apt-mark hold "postgresql-${PG_MAJOR}-pgvector" "postgresql-${PG_MAJOR}-pgdg-pgroonga" libgroonga0 pgbackrest; \
-    apt-mark hold zlib1g; \
+    apt-mark hold zlib1g libkrb5-3 libkrb5support0 libk5crypto3 libgssapi-krb5-2; \
+    for p in libkrb5-3 libkrb5support0 libk5crypto3 libgssapi-krb5-2; do \
+      test "$(dpkg-query -W -f '${Version}' "$p")" = "${KRB5_VERSION}"; \
+    done; \
     test "$(dpkg-query -W -f '${Version}' zlib1g)" = "${ZLIB1G_VERSION}"; \
     test "$(dpkg-query -W -f '${Version}' pgbackrest)" = "${PGBACKREST_VERSION}"; \
     pgbackrest version | grep -q "^pgBackRest ${PGBACKREST_VERSION%%-*}$"; \

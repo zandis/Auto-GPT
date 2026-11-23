@@ -1,0 +1,73 @@
+{
+ "card": "H89",
+ "title": "the install walk with real model servers on the bench host, a rehearsal box only",
+ "date": "2026-11-22",
+ "source": "docs/handover/rehearsal-real-servers-h89-2026-11-22.md",
+ "note": "basis 'shown' for H89-01: the installer was run with stand-ins for docker and nvidia-smi, master's and this branch's, byte-identical; nothing ran on a card or under Docker.",
+ "findings": [
+  {
+   "id": "H89-01",
+   "severity": "Medium",
+   "claim": "an explicit --gpu <profile> is never compared with the card on master: install.sh --gpu rtxpro6000 on a card of another model (a whole B200) with a driver at the minimum passes the profile step, and the record step too (tools/serving_config.py measured compares the record's card with the profile's name, not with this host's card); only the driver and compute-capability checks stand",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H89-02",
+   "severity": "Low",
+   "claim": "the boot start (deploy/systemd/trialbox.service ExecStartPre deploy/settings_guard.sh) does not run the rehearsal start guard: a rehearsal box whose deploy/.env TB_ENV is edited to PRODUCTION by hand starts at the next boot (doctor FAILs it); settings_guard.sh calling python3 -m tools.rehearsal_real start --deploy would close it",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "fixed e8e050452e991b5c946ef9e070e2490f22773ee0"
+  },
+  {
+   "id": "H89-03",
+   "severity": "Low",
+   "claim": "a re-run of the install on a running real-servers rehearsal box is refused by the card's free-memory check (its own model servers hold the card): stop the stack before a re-run",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H89-04",
+   "severity": "Low",
+   "claim": "the console's banner says VALIDATION REHEARSAL on a real-servers rehearsal box, not the words 'rehearsal: driver below the minimum, not this profile's card, not valid for a site': services/console/app.py environment_banner reads TB_REHEARSAL only, and a change there is the console's lane's",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed e8e050452e991b5c946ef9e070e2490f22773ee0"
+  },
+  {
+   "id": "H89-05",
+   "severity": "Low",
+   "claim": "the rehearsal mark deploy/site/rehearsal.json is checked for existing only, not for its content, owner or mode (as on master): forging it needs root on a DEV, TEST or VALIDATION box (with TB_REHEARSAL=1 on VALIDATION); a PRODUCTION box refuses it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H89-06",
+   "severity": "Low",
+   "claim": "with the pinned+libs form the probe's recorded LD_LIBRARY_PATH replaces the image's own value in the model servers instead of being put in front of it (the probe ran it as a shell prefix); to be checked on the bench",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H89-07",
+   "severity": "Low",
+   "claim": "the boot guard and the start check miss a quoted COMPOSE_FILE and the real servers' mark in an equivalent YAML form (a trailing space, a quoted \"true\"), which the stack reads; each needs the mark and the record removed by hand",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H89-08",
+   "severity": "Low",
+   "claim": "the probe file's single read is tested through os.open only, and its folder is checked by path after the open, so a folder swapped in that window is not seen",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

@@ -3,7 +3,9 @@
 # (one-off evaluation script of the 2026-11-07 survey; not imported by the product)
 """Generate fictional clinical notes with planted PHI spans and look-alike decoys (eval/phi_synth/notes.jsonl).
 
-    OPENROUTER_API_KEY=... python tools/phi_synth_gen.py eval/phi_synth/notes.jsonl 40   # 40 notes per language
+    read -rs OPENROUTER_API_KEY; export OPENROUTER_API_KEY
+    python tools/phi_synth_gen.py eval/phi_synth/notes.jsonl 40   # 40 notes per language
+    unset OPENROUTER_API_KEY
 
 Every note is fictional and written by a model; spans and decoys are checked to occur verbatim in the text.
 """

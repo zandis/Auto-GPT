@@ -1,3 +1,4 @@
+#!/usr/bin/python3 -I
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
 ``backup``, ``backup-check`` (D-178), ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``),
 ``restore-drill`` (T-730d, D-892, ``restore_drill.py``);
@@ -32,7 +33,7 @@ import tempfile
 from pathlib import Path
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["platform-day2"]:  # its own options (platform_day2.py); `pg` passes its arguments through
         from tools.trialbox import platform_day2
@@ -342,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify", "restore"):
         return _backup_cmd(a)
     if a.cmd == "restore-drill":
-        return _drill_cmd(a)
+        return _drill_cmd(a, installed)
     if a.cmd in ("platform-images", "platform-egress"):
         return _platform_cmd(a)
     if a.cmd == "doctor" and a.preflight:
@@ -501,19 +502,41 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
         return 1
 
 
-def _drill_cmd(a: argparse.Namespace) -> int:
+def _drill_cmd(a: argparse.Namespace, installed: bool) -> int:
     """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started."""
-    from tools.trialbox import backup as bk
     from tools.trialbox import restore_drill as rd
 
     docker_root = Path("/var/lib/docker")
     db_dir = a.db_dir or (docker_root if docker_root.is_dir() else None)
+    res = None
     try:
-        res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
-    except (rd.DrillError, bk.BackupError, OSError) as e:
-        print(f"restore-drill: {e}", file=sys.stderr)
-        return 2
-    res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+        # The installed command (on PATH) uses the box's settings even if another connection was exported by the
+        # caller. The module form never switches on its own: it uses the caller's connection and --dir.
+        if installed:
+            from tools.trialbox.box_drill import BoxDrill
+
+            box = BoxDrill(a.deploy)
+            res = rd.drill(a.file, a.key, box.env, work=a.work, db_dir=a.db_dir or box.data_dir(), ops=box)
+            # As in tools.trialbox.ops, the box's host Python can read metrics without third-party modules.
+            libs = str(Path(__file__).resolve().parents[2] / "libs")
+            if libs not in sys.path:
+                sys.path.insert(0, libs)
+            from tb_common import metrics
+
+            metrics.record_drill(a.deploy, res)
+            box.audit(rd.EVENT, rd.audit_detail(res))
+        else:
+            from tools.trialbox import backup as bk
+
+            res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
+            res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+    except (RuntimeError, ValueError, OSError) as e:
+        if res is None:
+            print(f"restore-drill: {e}", file=sys.stderr)
+            return 2
+        print(json.dumps(res, indent=1, ensure_ascii=False))
+        print(f"restore-drill: could not record the result: {e}", file=sys.stderr)
+        return 1
     print(json.dumps(res, indent=1, ensure_ascii=False))
     if not res["ok"]:
         print(f"restore-drill: FAILED: {res.get('error')}", file=sys.stderr)
@@ -557,6 +580,13 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
     try:
         if a.cmd == "backup-keygen":
+            from tb_common import rc1_refusals
+
+            try:  # R22-34 (D-1072): rc1 makes no backup key on a PRODUCTION box (the box's deploy/.env)
+                box = rc1_refusals.host_env(Path(__file__).resolve().parents[2] / "deploy")
+                rc1_refusals.check("key_ceremonies", box)
+            except rc1_refusals.Rc1Refused as exc:
+                raise bk.BackupError(exc.say()) from None
             fp = bk.keygen(a.private, a.public)
             print(f"backup key {fp}: give {a.private} to hospital IT in a sealed envelope; the box keeps {a.public}")
             return 0
@@ -661,4 +691,11 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # install.sh links this signed file onto PATH. Keep relative input paths relative to the operator's shell.
+    if not __package__:
+        root = Path(__file__).resolve().parents[2]
+        sys.path[:0] = [str(root), str(root / "libs"), str(root / "services")]
+    from tools.trialbox import launch  # H-88 (D-1089): its own import path, the box's settings, the box image
+
+    _code = launch.enter(sys.argv[1:], installed=not __package__)
+    raise SystemExit(main(installed=not __package__) if _code is None else _code)

@@ -785,6 +785,8 @@ def build(
 
 
 NAME_KEYS = ("TB_BACKUP_ALERT_WATCHER", "TB_TLS_ROOT_CONFIRMED_BY")  # 10K-21: the people a site names in .env
+#: D-898: the KEK passphrase is typed or comes from the command's environment, never a file (deploy/.env included)
+NEVER_IN_ENV_FILE = ("TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE")
 NAME_RULE = (  # 10K-21: tb_common.box_answers.person_name, said
     "letters and digits of any script, single spaces, and . , - ( ) （ ） / ’ ' ・ · 〜 ～ only (' not first or last); "
     "at most 100 characters"
@@ -867,6 +869,9 @@ def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
             name in DECLARED or any(name.startswith(f) for f in DECLARED_FAMILIES)
         ):
             errors.append(f"env_extra: {name} is not a declared TB_* setting")
+        elif name in NEVER_IN_ENV_FILE:
+            errors.append(f"env_extra: {name} is a secret that never goes in a file (D-898): give it in the command's "
+                          "environment at the install")  # fmt: skip
         elif name in NAME_KEYS:  # 10K-21 (review of #1175): a person's name, by the allow-list, whatever the route
             who = person_name(v)
             if who is None:

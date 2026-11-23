@@ -32,10 +32,9 @@ install_box() (
     # a site's IT makes deploy/site as root; the pin step's container must still write there (I-4, D-835)
     install -d -m 0755 deploy/site && chown -R root:root deploy/site
   fi
-  # no TPM on this host: the passphrase back end, a throwaway synthetic passphrase (never printed, kept 0600)
-  [ -s "$W/vendor/kek-pass" ] || (umask 077 && head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$W/vendor/kek-pass")
-  TB_KEK_PASSPHRASE="$(cat "$W/vendor/kek-pass")"
-  export TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase TB_KEK_PASSPHRASE
+  # The driver passes the same throwaway passphrase through the environment on a reinstall.
+  : "${TB_KEK_PASSPHRASE:?missing rehearsal passphrase}"
+  export TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase
   TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
     deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes
 )
@@ -603,7 +602,8 @@ EOF
     >/dev/null || fail "cannot unseal the throwaway KEK with two shares"
   # the host's python3 has no zstandard (the backup's own module): the key pair and the restore run in the job image
   img="$(envget TB_BACKUP_IMAGE)"; img="${img:-trialbox-backup:1.0.0}"   # the bundle's job image, restic inside
-  docker run --rm --network none --user 0 -v "$rr:$rr" "$img" python -m tools.trialbox backup-keygen \
+  # the box's own environment (rc1 refuses a backup key on PRODUCTION, R22-34; the job image has no deploy/.env)
+  docker run --rm --network none --user 0 -e TB_ENV="$(envget TB_ENV)" -v "$rr:$rr" "$img" python -m tools.trialbox backup-keygen \
     --private "$rr/backup.key" --public "$rr/backup.pub" >/dev/null || fail "cannot make the throwaway backup key pair"
   ok "throwaway shamir KEK (2 of 3), unsealed into the work folder, and a backup key pair: never the box's"
   file="$(python3 - "$BOX/deploy" "$rr" <<'EOF'
