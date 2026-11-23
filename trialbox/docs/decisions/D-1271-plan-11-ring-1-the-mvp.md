@@ -37,13 +37,14 @@
 9. **A cloud GPU VM is a demonstration and test box only**, on synthetic or public data, never PRODUCTION and never a
    site; each run goes through the integrator with its estimate.
 
-## Left to the owner's signature (plan 11 section 1.3)
+## The owner's answers to plan 11's choices [#639 7116870102]
 
-- **(a)** 医誠会's machine: decision 32's 32 GB card, proved in S7 before purchase (recommended), or a larger card.
-- **(b)** An outside penetration test: not in ring 1 unless a hospital asks (recommended).
-- **(c)** The small-count threshold: "under 10" for 1 to 9 (recommended).
-- **(d)** "The model read about 10 % ahead of Lind": a 10 % lower disagreement rate under Lind's definition
-  (recommended).
+- **(a)** The machines are evaluated, not fixed: card R1-H1 compares the 32, 48, 96 and 128 GB profiles and Windows
+  and recommends one for each site; a profile passes whatever a smaller one passes.
+- **(b)** An outside penetration test of the installed box before each site's first real-data run, its findings fixed
+  first (R1-P1).
+- **(c)** No small-count suppression: use is internal to the hospital, with IRB approval.
+- **(d)** At least 94.8 % agreement by Lind's definition, per language: ten per cent fewer errors than Lind.
 
 ## What it changes in earlier records
 
@@ -56,7 +57,8 @@
 ## Where the wording comes from
 
 The owner's rulings of 2026-11-23 on #639: 7107908330, 7108012824, 7108087457 and 7108195110, relayed by the
-integrator; the owner's ruling to compare like with like, 7108816601; the owner's data rule, 7099836527.
+integrator; the owner's ruling to compare like with like, 7108816601; the owner's answers to the four choices,
+7116870102; the owner's data rule, 7099836527.
 
 ## Used by
 
