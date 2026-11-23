@@ -1,7 +1,6 @@
 """ENG-002 (D-560): the nightly workflow's three stops of 2026-11-10 and 2026-11-11. The test stack's embed service
-runs as TEST (the stub embedder is refused in PRODUCTION, D-429); the public corpus is fetched by a named step before
-the public-data walk, and a missing corpus is one line that names the command; the random-order run uses the unit
-shards of the pull-request gate (D-475), so it ends inside its limit and names what failed."""
+runs as TEST (the stub embedder is refused in PRODUCTION, D-429); the public-data walk reads the committed, pinned
+JMED-LLM datasets (nothing is fetched; rewritten 2026-11-23); the random-order run uses the unit shards of the pull-request gate (D-475), so it ends inside its limit and names what failed."""
 
 from __future__ import annotations
 
@@ -65,42 +64,56 @@ def test_the_box_stack_still_refuses_the_stub_embedder() -> None:
 
 
 # -------------------------------------------------------------------------------------------------- the public data
-def test_the_nightly_fetches_the_public_corpus_before_the_public_walk() -> None:
-    assert "tools.medtxt_eval" in _target_body("public-data")
-    runs = _runs(_yaml(NIGHTLY)["jobs"]["nightly"])
-    fetch = next(i for i, r in enumerate(runs) if "make public-data" in r)
-    walk = next(i for i, r in enumerate(runs) if "tools.public_e2e" in r)
-    assert fetch < walk
+# Rewritten on 2026-11-23 (the integrator's ruling, #639 7116467086): the corpus host is not reachable from the runner,
+# so the public walk reads 100 case reports and 50 radiology reports of JMED-LLM's two CC BY 4.0 datasets, committed
+# unchanged under eval/medtxt/jmed-llm and pinned by SHA-256. Nothing is fetched, so the tests that required the fetch
+# step before the walk (and its cache, and the one line for a missing corpus) now say what replaced it.
+def test_the_nightly_fetches_nothing_before_the_public_walk() -> None:
     steps = _yaml(NIGHTLY)["jobs"]["nightly"]["steps"]
-    assert steps[fetch].get("if") == steps[walk].get("if") == "matrix.run == 'public-e2e'"
+    runs = _runs(_yaml(NIGHTLY)["jobs"]["nightly"])
+    assert not any("make public-data" in r for r in runs)  # no fetch step
+    assert not any("trialbox/.cache/medtxt" in str((s.get("with") or {}).get("path", "")) for s in steps)  # no cache
+    walk = next(s for s in steps if "tools.public_e2e" in str(s.get("run", "")))
+    assert walk.get("if") == "matrix.run == 'public-e2e'"
+    assert (
+        "public-e2e" in _yaml(NIGHTLY)["jobs"]["nightly"]["strategy"]["matrix"]["run"]
+    )  # and it stays on the schedule
 
 
-def test_the_compose_job_fetches_the_public_corpus_before_its_browser_walk() -> None:
-    """The nightly of 2026-11-13: the compose job's walk of the public console stopped at "the MedTxt corpus is not
-    in .cache/medtxt: fetch it once with `make public-data`". Only the public-e2e run fetched it (D-639)."""
+def test_the_compose_job_fetches_nothing_before_its_browser_walk() -> None:
+    """The nightly of 2026-11-13: the compose job's walk of the public console stopped at a missing corpus (D-639). The
+    walk reads the committed datasets now, as public-e2e does."""
     steps = _yaml(NIGHTLY)["jobs"]["compose"]["steps"]
     runs = [str(s.get("run", "")) for s in steps]
-    fetch = next(i for i, r in enumerate(runs) if "make public-data" in r)
-    walk = next(i for i, r in enumerate(runs) if r.startswith("make walk"))
-    assert (
-        fetch < walk and "if" not in steps[fetch]
-    )  # always, and before the stack is up: a fetch that fails stops early
-    cache = next(s for s in steps if "trialbox/.cache/medtxt" in str((s.get("with") or {}).get("path", "")))
-    public = next(
-        s for s in _yaml(NIGHTLY)["jobs"]["nightly"]["steps"]
-        if "trialbox/.cache/medtxt" in str((s.get("with") or {}).get("path", ""))
-    )  # fmt: skip
-    assert cache["uses"] == public["uses"] and cache["with"]["key"] == public["with"]["key"]  # one cache, both jobs
-    assert steps.index(cache) < fetch < next(i for i, r in enumerate(runs) if "make up-test" in r)
+    assert not any("make public-data" in r for r in runs)
+    assert not any("trialbox/.cache/medtxt" in str((s.get("with") or {}).get("path", "")) for s in steps)
+    assert any(r.startswith("make walk") for r in runs)  # the walk is still there
 
 
-def test_a_missing_corpus_is_one_line_that_names_the_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from tools import medtxt_eval, public_site
+def test_the_public_walk_reads_the_pinned_committed_datasets() -> None:
+    import hashlib
 
-    monkeypatch.setattr(medtxt_eval, "CACHE", tmp_path / "medtxt")
+    from tools import public_site
+
+    for name, sha in public_site.JMED_PINS.items():
+        assert hashlib.sha256((public_site.JMED_DIR / name).read_bytes()).hexdigest() == sha
+        assert (public_site.JMED_DIR.parent / "jmed-llm" / "SHA256SUMS").read_text().count(f"{sha}  {name}") == 1
+    docs = public_site.medtxt_docs()
+    assert [(k, sum(1 for d in docs if d.source == k)) for k in ("MedTxt-CR", "MedTxt-RR")] == [
+        ("MedTxt-CR", 100),
+        ("MedTxt-RR", 50),
+    ]
+    assert len({d.doc for d in docs}) == len(docs) and all(d.text and d.lang == "ja" for d in docs)
+
+
+def test_a_dataset_that_is_not_the_pinned_one_is_refused_by_name(tmp_path: Path) -> None:
+    from tools import public_site
+
+    for name in public_site.JMED_PINS:
+        (tmp_path / name).write_bytes((public_site.JMED_DIR / name).read_bytes() + b"x")
     with pytest.raises(SystemExit) as stop:
-        public_site.medtxt_docs()
-    assert "make public-data" in str(stop.value) and "MedTxt" in str(stop.value)
+        public_site.jmed_reports(tmp_path)
+    assert "mrner_disease.csv" in str(stop.value) and "not the pinned" in str(stop.value)
 
 
 # ------------------------------------------------------------------------------------------------ the random order
