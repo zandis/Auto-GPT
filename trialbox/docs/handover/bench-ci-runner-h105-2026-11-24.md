@@ -157,7 +157,7 @@ The re-review (#639, 7123982226; the integrator's line 7123983927) found no High
 - **1448-20 (Medium):** a signal during `install.sh token` ran the trap, then went on to say the token was kept,
   restarted the slots and ended 0; a signal before the write could leave the copy readable by others. Now every file
   of the step is made under umask 077, a signal removes the copy and ends the step (exit 130), and a failed move is a
-  failure. Held by `tests/unit/test_bench_ci_review_h105.py::test_m1448_20_a_signal_in_the_token_step_ends_it` (a
+  failure. Held by `test_m1448_20_a_signal_in_the_token_step_ends_it` in `tests/unit/test_bench_ci_review_h105.py` (a
   signal after each line of the step, for INT, TERM and HUP: 15 of its cases fail at 0624f4f), with
   `::test_m1448_20_without_a_signal_the_token_is_kept_root_only` and `::test_m1448_20_a_failed_move_is_a_failure_not_a_kept_token`.
   The earlier L-1448-11 test, which read the trap's text, now runs the step (1448-23).
