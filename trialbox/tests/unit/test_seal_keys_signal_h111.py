@@ -20,9 +20,13 @@ from __future__ import annotations
 import json
 import os
 import signal
+import stat
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tb_common import kek as K
@@ -300,3 +304,171 @@ def test_the_passphrase_path_after_a_ctrl_c_during_keys_init(tmp_path: Path) -> 
     assert again.returncode == 0, again.stdout + again.stderr
     for name, want in keys.items():
         assert not (sec / name).exists() and K.unwrap(kek, K.read_wrapped(sec / name), name) == want
+
+
+# review of #1457: a hook that holds a run at a named step until the test lets it go (1457-1)
+WAIT = r"""
+def hook(point):
+    invariant(point)
+    tag = os.environ.get("STANDIN_TAG", "")
+    if os.environ.get("STANDIN_WAIT") == point:
+        (D / f"at-{tag}-{point}").write_text("")
+        while not (D / f"go-{tag}").exists():
+            time.sleep(0.05)
+"""
+
+
+def _until(cond: Callable[[], bool], what: str, timeout: float = 60) -> None:
+    end = time.monotonic() + timeout
+    while not cond():
+        assert time.monotonic() < end, what
+        time.sleep(0.05)
+
+
+def test_two_runs_at_once_never_leave_keys_the_placed_credential_cannot_open(tmp_path: Path) -> None:
+    """Review of #1457 (1457-1): a second run that started while the first had sealed its credential and not placed
+    it shared kek.new: the first wrapped the keys under the second's KEK, placed its own credential and said done;
+    after a reboot nothing opened them. The second run is now refused, and the keys open under the placed credential."""
+    env, keys = _host(tmp_path)
+    d = tmp_path / "standin"
+    (d / "hook.py").write_text(HOOK + WAIT)
+    argv = ["sh", str(SEAL), "--secrets", str(tmp_path / "secrets"), "--conf", str(tmp_path / "no-such.conf")]
+
+    def start(tag: str, at: str) -> subprocess.Popen[str]:
+        return subprocess.Popen(argv, env={**env, "STANDIN_TAG": tag, "STANDIN_WAIT": at}, text=True,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)  # fmt: skip
+
+    first = start("A", "after_seal")
+    _until((d / "at-A-after_seal").exists, "the first run never reached its seal")
+    second = start("B", "before_seal")
+    _until(lambda: (d / "at-B-before_seal").exists() or second.poll() is not None, "the second run hung")
+    (d / "go-A").write_text("")
+    assert first.wait(timeout=120) == 0
+    (d / "go-B").write_text("")
+    second.wait(timeout=120)
+    _keys_open(tmp_path, keys)
+    meta = K.read_meta(tmp_path / "secrets")
+    assert meta is not None and meta["kek_id"] == K.kek_id(_cred(tmp_path).read_bytes())
+    _sealed_and_done(tmp_path, keys)
+
+
+def _root_stand_ins(tmp: Path) -> Path:
+    """`id -u` says root and `chown` records what it is asked; the secrets folder is the services' user's (uid 10001)
+    when the test itself runs as root, as D-887 finds it on a box."""
+    b, log = tmp / "bin", tmp / "chown.log"
+    (b / "id").write_text('#!/bin/sh\n[ "$1" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id "$@"\n')
+    (b / "chown").write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\n')
+    for f in ("id", "chown"):
+        (b / f).chmod(0o755)
+    if os.geteuid() == 0:
+        os.chown(tmp / "secrets", 10001, 10001)
+    return log
+
+
+def test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_user(tmp_path: Path) -> None:
+    """Review of #1457 (1457-2): a re-run after a stop during keys init goes through the kek.json branch, which
+    unseals the KEK from the credential and said done before D-887's hand-over: the runtime KEK and the files the runs
+    made stayed root's, and the services (the secrets folder's owner) could not open them."""
+    env, keys = _host(tmp_path)
+    log = _root_stand_ins(tmp_path)
+    res = _seal(tmp_path, {**env, "STANDIN_AT": "during_init", "STANDIN_SIG": "TERM", "STANDIN_SCOPE": "group"})
+    assert res.returncode == 143, res.stdout + res.stderr
+    log.unlink(missing_ok=True)
+    again = _seal(tmp_path, env)
+    assert again.returncode == 0, again.stdout + again.stderr
+    _sealed_and_done(tmp_path, keys)
+    asked = log.read_text() if log.is_file() else ""
+    assert str(tmp_path / "host" / "run" / "trialbox" / "kek") in asked, "the re-run left the runtime KEK root's"
+    assert K.META_FILE in asked, "the re-run left kek.json root's"
+
+
+def test_a_plain_key_goes_only_once_its_wrapped_copy_is_on_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #1457 (1457-3): wrap_plain renamed the wrapped copy into place (an fsync of the file only) and removed
+    the plain file with no fsync of the folder between: after a power cut the folder could hold neither name. Each
+    plain file goes only after a folder fsync that follows its wrapped copy's rename (the H-111 branch's key too)."""
+    from tools import keys as tk
+
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    kek = os.urandom(K.KEK_LEN)
+    K.write_meta(sec, K.new_meta("file", kek))
+    for name in NAMES:
+        (sec / name).write_bytes(os.urandom(32))
+    # the first key wrap_plain takes was left plain and wrapped by a stopped run: no earlier fsync can stand for its own
+    first = next(n for n in K.PROTECTED if n in NAMES)
+    K.store_key(sec / first, (sec / first).read_bytes(), kek)
+    events: list[str] = []
+    real_fsync, real_replace, real_unlink = os.fsync, os.replace, Path.unlink
+    here = sec.stat()
+
+    def fsync(fd: int) -> None:
+        st = os.fstat(fd)
+        if stat.S_ISDIR(st.st_mode) and os.path.samestat(st, here):
+            events.append("fsync-dir")
+        real_fsync(fd)
+
+    def replace(src: Any, dst: Any, *a: Any, **k: Any) -> None:
+        events.append(f"replace:{Path(dst).name}")
+        real_replace(src, dst, *a, **k)
+
+    def unlink(self: Path, *a: Any, **k: Any) -> None:
+        events.append(f"unlink:{self.name}")
+        real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "replace", replace)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    tk.wrap_plain(sec, kek)
+    for name in NAMES:
+        gone = events.index(f"unlink:{name}")
+        placed = max((i for i, e in enumerate(events[:gone]) if e == f"replace:{name}.wrapped"), default=-1)
+        assert "fsync-dir" in events[placed + 1 : gone], (name, events)
+
+
+def test_the_kek_opened_from_the_credential_is_owner_only(tmp_path: Path) -> None:
+    """Review of #1457 (1457-4): a re-run opens the placed credential to kek.new; the sealing tool writes its output
+    with the caller's umask, so under umask 022 the plain KEK was 0644. The stand-in writes the way the tool does (a
+    plain open of the output) and records the mode."""
+    env, keys = _host(tmp_path)
+    creds = tmp_path / "bin" / "systemd-creds"
+    opened = 'decrypt) cat "$3" > "$4" && stat -c %a "$4" > "$STANDIN_DIR/opened-mode" ;;'
+    creds.write_text(CREDS.replace('decrypt) cp "$3" "$4" ;;', opened))
+    res = _seal(tmp_path, {**env, "STANDIN_AT": "after_place", "STANDIN_SIG": "TERM", "STANDIN_SCOPE": "group"})
+    assert res.returncode == 143, res.stdout + res.stderr
+    again = subprocess.run(
+        ["sh", "-c", 'umask 022; exec sh "$@"', "sh", str(SEAL), "--secrets", str(tmp_path / "secrets"),
+         "--conf", str(tmp_path / "no-such.conf")],
+        capture_output=True, text=True, env=env, check=False, timeout=120,
+    )  # fmt: skip
+    assert again.returncode == 0, again.stdout + again.stderr
+    _sealed_and_done(tmp_path, keys)
+    assert (tmp_path / "standin" / "opened-mode").read_text().strip() == "600"
+
+
+def test_a_second_signal_during_the_clean_up_leaves_no_plain_kek(tmp_path: Path) -> None:
+    """Review of #1457 (1457-5): Ctrl-C twice, or a stop that sends TERM again, while the EXIT trap shreds kek.new: the
+    TERM trap's exit cut the clean-up short and the shred was killed, so the plain KEK stayed in /run (and a re-run,
+    through the kek.json branch, never removes it). A stand-in shred has TERM sent twice to the group as it starts."""
+    env, keys = _host(tmp_path)
+    d = tmp_path / "standin"
+    (d / "sender.py").write_text(
+        "import os, signal, sys, time\n"
+        "for _ in range(2):\n"
+        "    try:\n        os.killpg(int(sys.argv[1]), signal.SIGTERM)\n"
+        "    except ProcessLookupError:\n        break\n"
+        "    time.sleep(0.15)\n"
+    )
+    shred = tmp_path / "bin" / "shred"
+    shred.write_text(
+        "#!/bin/sh\n"
+        '"$STANDIN_PY" -c \'import os, subprocess, sys; subprocess.Popen([sys.executable, sys.argv[1], '
+        'str(os.getpgid(0))], start_new_session=True)\' "$STANDIN_DIR/sender.py"\n'
+        'sleep 1\nexec /usr/bin/shred "$@"\n'
+    )
+    shred.chmod(0o755)
+    _seal(tmp_path, env)
+    time.sleep(1)
+    _keys_open(tmp_path, keys)
+    assert not (tmp_path / "host" / "run" / "trialbox" / "kek.new").exists(), "the plain KEK copy stayed in /run"

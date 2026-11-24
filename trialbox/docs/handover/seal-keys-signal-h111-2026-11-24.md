@@ -47,9 +47,30 @@ fsync and a rename (`tb_common.kek._write_private`), so a key is never half-writ
   removes the plain file when the wrapped copy opens to it under this KEK (`wrap_plain`); a wrapped copy that does not
   open to it is still refused, and both are kept.
 
+## The review of #1457 (7122962689): three Mediums and two Lows fixed
+
+- **1457-1 (Medium), two runs at once.** Both used `kek.new`, so one run could wrap the keys under the other run's
+  KEK and place its own credential. Fix: one run at a time on the secrets folder, with an exclusive `flock` on the
+  folder itself (fd 6). That is the same lock `tools.keys rotate-kek` takes. A second run is refused and nothing is
+  changed. A host without flock stops; on a PoC box the installer's seal step turns that stop into its own
+  stop_or_warn, as it does for every seal failure. The invariant above now holds for any number of runs.
+- **1457-2 (Medium), the re-run's ownership** (was H111-02). D-887's hand-over is now a function, `hand_over`. It is
+  called on both ways out that say done, so the `kek.json` branch (a re-run) calls it too.
+- **1457-3 (Medium), the folder fsync.** `wrap_plain` fsyncs the secrets folder after each wrapped copy's rename and
+  before it removes the plain file. That covers the newly wrapped key and the finished pair, and it also puts
+  `kek.json`'s rename on disk before the first plain key goes.
+- **1457-4 (Low).** `cred_open` opens the credential under `umask 077` and removes any name at `kek.new` first.
+- **1457-5 (Low).** The clean-up ignores HUP, INT and TERM once it starts. Its `shred` inherits that, so a second
+  signal can no longer leave the plain KEK in /run.
+- **1457-6 (Low), not fixed:** D-887 hands the folder of a caller's `TB_KEK_FILE` to the services' user. The
+  root-only test `test_seal_keys_order.py::test_the_sealed_files_belong_to_the_services_user` asserts exactly that
+  hand-over (its `TB_KEK_FILE` folder is not `/run/trialbox`), so changing it changes what a test asserts. It goes to
+  a follow-up card on the `TB_KEK_FILE` seam, as the lead ruled.
+- Not done: `keys check` in the `kek.json` branch (the reviewer's advice, not a finding).
+
 ## Tests
 
-`tests/unit/test_seal_keys_signal_h111.py` (19 cases). A host root of its own (`TB_HOST_ROOT`), a stand-in sealing
+`tests/unit/test_seal_keys_signal_h111.py` (19 cases at 3287e70a, 24 after the review round). A host root of its own (`TB_HOST_ROOT`), a stand-in sealing
 tool on PATH whose "sealed" credential is a copy of the KEK, and a stand-in `python3` on PATH that runs the keys
 commands, sends the signal at a named step, and checks the invariant at every step (after the seal, after the place,
 after each key's wrap, after `keys init`). The script reads none of the stand-ins' variables. The signal goes to the
@@ -64,6 +85,12 @@ script's process group (as Ctrl-C or a service stop does) or to its shell alone.
 - `test_a_credential_beside_wrapped_keys_without_kek_json_is_still_refused`.
 - `test_a_wrap_stopped_before_the_plain_file_went_is_finished_by_keys_wrap`.
 - `test_the_passphrase_path_after_a_ctrl_c_during_keys_init`.
+- The review round, each failing at 3287e70a: `test_two_runs_at_once_never_leave_keys_the_placed_credential_cannot_open`
+  (1457-1), `test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_user` (1457-2),
+  `test_a_plain_key_goes_only_once_its_wrapped_copy_is_on_disk` (1457-3),
+  `test_the_kek_opened_from_the_credential_is_owner_only` (1457-4),
+  `test_a_second_signal_during_the_clean_up_leaves_no_plain_kek` (1457-5). A mutant that removes each fix is
+  caught by its test, for each of the two folder fsyncs too.
 
 On master's `seal_keys.sh` 15 of the 19 fail; on master's `tools/keys.py` 5 fail. Mutants planted, each caught:
 master's order; the place moved after `keys init` in the new code; HUP/INT/TERM not exiting; the trap removing the
@@ -86,8 +113,8 @@ passphrase path's code is unchanged here except for `wrap_plain`, which the rehe
 - **`deploy/box-install.sh`**: its traps remove the first-run code file, not a key or KEK.
 - **The shamir back end** (finding H111-03): the shares are written to the media before `kek.json`, so nothing is
   lost; but a stop between `keys init` and its `keys unseal` leaves a re-run that cannot open the KEK by itself.
-- **A re-run's ownership** (finding H111-02): the "kek.json exists" branch exits before the D-887 `chown`, so a run
-  stopped before it leaves root-owned key files that a re-run does not hand to the services' user.
+- **A re-run's ownership** (finding H111-02, fixed in the review round as 1457-2): the "kek.json exists" branch
+  exited before the D-887 `chown`.
 
 ## Files outside the card
 
@@ -96,5 +123,6 @@ None. `tools/keys.py`: `wrap_plain` only (H-110 is in `rotate`).
 ## Not verified
 
 - A real TPM and `systemd-creds` (none on the review host): the stand-in copies the KEK.
-- A power cut: the `sync` after the place was not tested.
+- A power cut: neither the `sync` after the place nor the folder fsync was tested against a real loss. The order of
+  the calls is shown (1457-3); a mutant that removes the `sync` is not caught.
 - The rehearsal job was not run (no Docker here, and it has no TPM).

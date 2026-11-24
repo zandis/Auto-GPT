@@ -169,7 +169,8 @@ audit_key() {
 # $CRED, its final place: the credential is sealed and placed before any key is wrapped, and nothing here removes it.
 # Only the plain copy in /run ($NEW) and an unplaced $CRED.new are removed, at any exit; a signal exits
 NEW="$RUN_DIR/kek.new"
-new_gone() { shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; rm -f "$CRED.new"; }
+# review of #1457 (1457-5): once the clean-up starts a further signal neither cuts it short nor kills its shred
+new_gone() { trap '' HUP INT TERM; shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; rm -f "$CRED.new"; }
 arm() {
   ( umask 077; mkdir -p "$RUN_DIR" "$(dirname "$CRED")" )
   trap new_gone EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
@@ -177,7 +178,8 @@ arm() {
 # the KEK of the sealed credential, to $NEW (a run that stopped after the credential was placed)
 cred_open() {
   arm
-  systemd-creds decrypt --name=trialbox-kek "$CRED" "$NEW" \
+  # review of #1457 (1457-4): owner only, as the new KEK is made, and never written through a name already there
+  ( umask 077; rm -f -- "$NEW" && systemd-creds decrypt --name=trialbox-kek "$CRED" "$NEW" ) \
     || hb_die "the TPM could not open $CRED (above): nothing was changed; run this script again on the host that sealed it"
 }
 # the boot unit: the same unseal from the sealed credential
@@ -190,6 +192,26 @@ boot_unit() {
   fi
 }
 any_wrapped() { for w in "$SECRETS"/*.wrapped; do [ -e "$w" ] && return 0; done; return 1; }
+# D-887 (found by the box rehearsal): the keys commands run as root and leave kek.json, the wrapped keys and the
+# runtime KEK root's; the services (the secrets folder's owner, uid 10001) must open them. Owner only: modes stay 0600.
+# Review of #1457 (1457-2): on each way out that says done, a re-run's (the kek.json branch) too
+hand_over() {
+  OWNER="$(stat -c %u:%g "$SECRETS")"
+  if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
+    find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
+    if [ -f "$KEK_FILE" ]; then chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"; fi
+  fi
+}
+
+# review of #1457 (1457-1): one run at a time on this secrets folder. Two runs at once shared kek.new: one wrapped the
+# keys under the other's KEK and placed its own credential. An exclusive lock on the folder itself (no file is added,
+# the lock tools.keys rotate-kek takes), held until this run and its children end
+if [ "$DRY" != 1 ]; then
+  command -v flock >/dev/null 2>&1 \
+    || hb_die "flock (util-linux) is missing, so a second run could not be kept out: install util-linux, then run this script again; nothing was changed"
+  exec 6<"$SECRETS"
+  flock -n 6 || hb_die "another run of seal_keys.sh or a key command holds $SECRETS: let it finish, then run this script again; nothing was changed"
+fi
 
 if [ -f "$SECRETS/kek.json" ]; then
   hb_say "the KEK exists ($SECRETS/kek.json): wrapping any key still plain"
@@ -209,6 +231,7 @@ if [ -f "$SECRETS/kek.json" ]; then
   [ "$TPM_BOX" = 0 ] || boot_unit
   audit_key
   pp_done
+  hand_over
   exit 0
 fi
 
@@ -270,10 +293,4 @@ esac
 keys check --secrets "$SECRETS"
 audit_key
 pp_done
-# D-887 (found by the box rehearsal): the keys commands run as root and leave kek.json, the wrapped keys and the
-# runtime KEK root's; the services (the secrets folder's owner, uid 10001) must open them. Owner only: modes stay 0600
-OWNER="$(stat -c %u:%g "$SECRETS")"
-if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
-  find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
-  [ -f "$KEK_FILE" ] && chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"
-fi
+hand_over
