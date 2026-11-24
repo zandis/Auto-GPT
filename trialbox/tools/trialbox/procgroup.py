@@ -22,8 +22,11 @@ def _kill(pgid: int, sig: int) -> None:
         os.killpg(pgid, sig)
 
 
-def run(argv: Sequence[str], timeout: float | None = None, **kw: Any) -> subprocess.CompletedProcess[Any]:
-    """:func:`subprocess.run` (``check=False``) with the command's whole process group killed on ``timeout``."""
+def run(argv: Sequence[str], timeout: float | None = None, grace: float | None = TERM_GRACE_S,
+        **kw: Any) -> subprocess.CompletedProcess[Any]:  # fmt: skip
+    """:func:`subprocess.run` (``check=False``) with the command's whole process group killed on ``timeout``. H-114b:
+    ``grace`` is the group's time between the SIGTERM and the SIGKILL (default :data:`TERM_GRACE_S`, as before; None:
+    no SIGKILL until the command has ended by itself)."""
     stdin = kw.pop("input", None)
     with subprocess.Popen(list(argv), start_new_session=True, **kw) as p:
         try:
@@ -31,7 +34,7 @@ def run(argv: Sequence[str], timeout: float | None = None, **kw: Any) -> subproc
         except subprocess.TimeoutExpired:
             _kill(p.pid, signal.SIGTERM)
             with contextlib.suppress(subprocess.TimeoutExpired):
-                p.wait(TERM_GRACE_S)
+                p.wait(grace)
             _kill(p.pid, signal.SIGKILL)  # what ignored SIGTERM, and every child left in the group
             p.communicate()
             raise subprocess.TimeoutExpired(list(argv), timeout or 0) from None
