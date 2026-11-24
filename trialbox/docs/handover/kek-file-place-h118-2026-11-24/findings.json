@@ -1,0 +1,26 @@
+{
+ "card": "H118",
+ "title": "the unsealed KEK goes to the box's own place, never a caller's TB_KEK_FILE (1457-6)",
+ "date": "2026-11-24",
+ "source": "docs/handover/kek-file-place-h118-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H118-01",
+   "severity": "Low",
+   "claim": "seal_keys.sh wrote the unsealed KEK where a caller's TB_KEK_FILE said (persistent disk with /etc/trialbox.kek) and D-887 then gave that folder to the services' user; fixed: the box's own /run/trialbox/kek always, the variable ignored with one line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/hardening/seal_keys.sh"
+  },
+  {
+   "id": "H118-02",
+   "severity": "Low",
+   "claim": "tools.keys runtime_kek_path (unseal, escrow unseal, rotate-kek's runtime update) still falls back to the caller's TB_KEK_FILE when --out is not given; about 90 tests in 9 files use it as set-up",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py; card H-119"
+  }
+ ]
+}
