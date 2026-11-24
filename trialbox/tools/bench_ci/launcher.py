@@ -7,9 +7,9 @@ the unit is one job's life:
    ``tools/bench_ci/settings.example.env``) and refuse a placeholder, an unknown key or a missing one;
 2. a GPU slot: check the CI cards (``gpu_check.host_check``): never a card of the walk or the bench, none busy;
 3. ask the code host for a just-in-time runner configuration (one job, then the registration is gone), with the
-   minting token from the file the service manager hands the unit (``--token-file``); the token goes to the code host's API
-   address written below and nowhere else (``http.client`` reads no proxy setting from any environment), never in
-   an argument, never in a log;
+   minting token from the file the service manager hands the unit (``--token-file``); the token goes to the code
+   host's API address written below and nowhere else (``http.client`` reads no proxy setting from any
+   environment), never in an argument, never in a log;
 4. start the job's container (``container_args``) with that configuration on its standard input, in a fresh scratch
    folder made for this job; wait for it; remove the registration if it is still there; delete the scratch folder.
 
@@ -170,7 +170,9 @@ def read_settings(path: Path) -> Settings:
 
 
 def read_token(path: Path) -> str:
-    """The minting token, from the file the service manager hands the unit (a copy of a root-only file). Never printed."""
+    """The minting token, from the file the service manager hands the unit (a copy of a root-only file).
+
+    Never printed."""
     st = path.stat()
     if st.st_mode & 0o077:
         raise SettingsError("the token file is readable by others: it must be mode 0600 or 0400")
