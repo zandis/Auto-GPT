@@ -10,3 +10,4 @@ tests/unit/test_pglocal_ensure_lock_h72.py
 tests/unit/test_rehearsal_real_servers_signed_rerun_h89.py
 tests/console/test_firstrun_folders_10k4.py
 tests/console/test_box_install_rehearsal.py
+tests/unit/test_load_from_the_stick_h95.py

@@ -108,6 +108,7 @@ tests/unit/test_tls_old_clients_setting.py
 tests/unit/test_traceability.py
 tests/unit/test_trialbox_selftest.py
 tests/unit/test_update_safety.py
+tests/unit/test_update_signals_h114.py
 tests/unit/test_vocab_bundle_check_22_4.py
 tests/unit/test_windows_box_install.py
 tests/unit/test_windows_handover_docs.py
