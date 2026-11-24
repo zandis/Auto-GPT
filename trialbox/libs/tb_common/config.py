@@ -954,6 +954,13 @@ DECLARED: dict[str, Declared] = {
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
     "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box; doctor says so (D-726, D-887)"),
+    "TB_TEST_BOX": Declared("str", "", "--test-box: the test box's name (H-106)"),
+    "TB_TEST_BOX_PORT_OFFSET": Declared("str", "", "--port-offset: a test box's ports, base + 10 x N (H-106)"),
+    "TB_TEST_BOX_GPUS": Declared("str", "", "--gpus: a test box's cards (H-106)"),
+    "TB_TEST_BOX_GPU_MEM_GB": Declared("str", "", "--gpu-mem-gb: a test box's cap a card (H-106)"),
+    "TB_TEST_BOX_ROOT": Declared("str", "", "a test box's host folder, as installed (H-106)"),
+    "TB_TLS_PORT": Declared("str", "", "TLS proxy host port (443; H-106)"),
+    "TB_PROMETHEUS_PORT": Declared("str", "", "monitoring host port (9090; H-106)"),
     "TB_REHEARSAL_REAL_SERVERS": Declared(
         "str",
         "",

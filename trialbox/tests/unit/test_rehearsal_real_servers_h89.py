@@ -26,6 +26,7 @@ from typing import Any
 
 import pytest
 
+from tests.host_modes import as_root_makes_it
 from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tools import engine_probe, images_lock, rehearsal_real
 from tools.trialbox import doctor, prestart
@@ -97,6 +98,7 @@ class Bench:
         self.probe = tmp / "tb-engine-probe.json"
         self.probe.write_text(json.dumps(probe_doc()), encoding="utf-8")
         (tmp / "b.tar").write_bytes(b"")
+        as_root_makes_it(tmp)  # H-115: the probe and its folder are the installer's alone, whatever the umask
 
     @property
     def deploy(self) -> Path:
@@ -871,6 +873,7 @@ def test_the_pages_own_steps_pass_in_order(tmp_path: Path) -> None:
     folder = tmp_path / "var-lib-trialbox-rehearsal"
     subprocess.run(["install", "-d", "-m", "0700", str(folder)], check=True)  # step 2a, without -o root as a user
     (folder / "engine-probe.json").write_text(json.dumps(probe_doc()), encoding="utf-8")  # step 2b's file (umask)
+    as_root_makes_it(folder)  # H-115: under sudo the umask is at least 022, whatever the runner's own
     args = steps[inst].replace(out, str(folder / "engine-probe.json")).split()[3:]  # past sudo, the script, the bundle
     r = b.install(*args)
     assert "WARN  NVIDIA driver 575.57.08 is below 580.65.06" in r.stdout and "FAIL" not in r.stdout, r.stdout
