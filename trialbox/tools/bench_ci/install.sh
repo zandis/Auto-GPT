@@ -55,7 +55,8 @@ prerequisites() {
   for cmd in systemctl loginctl runuser python3 curl sha256sum useradd usermod userdel newuidmap newgidmap tar; do
     command -v "$cmd" >/dev/null || missing+=("$cmd")
   done
-  [ "${#missing[@]}" = 0 ] || die "missing on this host: ${missing[*]}"
+  # newuidmap and newgidmap come with the distribution's uidmap package, which a fresh host lacks (the walk's red)
+  [ "${#missing[@]}" = 0 ] || die "missing on this host: ${missing[*]} (install them from the distribution first)"
   # L-1448-18: the service manager must be the running init, before anything is changed (users, linger, units)
   [ -d /run/systemd/system ] || die "the service manager is not the running init here: the units cannot run"
   python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "python3 is older than 3.10"
@@ -65,7 +66,7 @@ prerequisites() {
   get BENCH_REPO >/dev/null || die "the settings are not complete (the line above says what)"
   local engine
   engine="$(get BENCH_ENGINE)"
-  [ -x "$engine" ] || die "the container engine $engine is not installed"
+  [ -x "$engine" ] || die "the container engine $engine is not installed (install it from the distribution first)"
   local ver
   ver="$("$engine" --version | grep -oE '[0-9]+\.[0-9]+' | head -n 1)"
   python3 -I -c 'import sys; a, b = map(int, sys.argv[1].split(".")); sys.exit((a, b) < (4, 4))' "$ver" ||
@@ -104,7 +105,7 @@ install_files() {
   chown root:"$USER_NAME" "$SETTINGS" && chmod 0640 "$SETTINGS"
   local scratch
   scratch="$(get BENCH_SCRATCH)"
-  case "$scratch" in /|/home|/home/*|/root|/root/*|/etc|/etc/*|/var/lib/tb-bench*) die "scratch $scratch is not a folder of its own" ;; esac
+  case "$scratch" in /|/home|/home/*|/root|/root/*|/etc|/etc/*|"$HOME_DIR"|"$HOME_DIR"/*) die "scratch $scratch is not a folder of its own" ;; esac
   if [ -e "$scratch" ]; then
     [ "$(stat -c %U "$scratch")" = "$USER_NAME" ] || [ -z "$(ls -A "$scratch")" ] || die "scratch $scratch is in use by another owner"
   fi
@@ -126,7 +127,9 @@ build_image() {
   sha="$(get BENCH_RUNNER_SHA256)"
   engine="$(get BENCH_ENGINE)"
   ctx="$(mktemp -d)"
-  trap 'rm -rf "$ctx"' RETURN
+  # the trap clears itself: a RETURN trap left set fires again when the caller returns, with ctx gone (the walk's
+  # "ctx: unbound variable" after "installed")
+  trap 'rm -rf -- "$ctx"; trap - RETURN' RETURN
   curl -fsSL --proto '=https' -o "$ctx/actions-runner.tar.gz" \
     "https://github.com/actions/runner/releases/download/v$ver/actions-runner-linux-x64-$ver.tar.gz"
   echo "$sha  $ctx/actions-runner.tar.gz" | sha256sum -c --quiet - || die "the runner archive's SHA-256 is not the settings'"
@@ -198,7 +201,7 @@ cmd_token() {
 
 cmd_verify() {
   need_root
-  local fails=0 p unit
+  local fails=0 skipped=0 p unit
   check() {  # check NAME COMMAND...: PASS when the command succeeds
     local name="$1"
     shift
@@ -208,13 +211,24 @@ cmd_verify() {
   token_mode() { [ "$(stat -c '%U %a' "$TOKEN")" = "root 600" ]; }
   no_group() { [ "$(id -nG "$USER_NAME")" = "$USER_NAME" ]; }
   sees() { as_tb test -r "$1" || as_tb test -w "$1"; }
-  check "the token file is root's, mode 0600" token_mode
   check "$USER_NAME is in no other group" no_group
-  check "$USER_NAME cannot read the token file" not as_tb test -r "$TOKEN"
+  # before the token step (the host test's run) there is no token and no runner: said, never passed or failed
+  if [ -e "$TOKEN" ]; then
+    check "the token file is root's, mode 0600" token_mode
+    check "$USER_NAME cannot read the token file" not as_tb test -r "$TOKEN"
+  else
+    echo "NOT RUN the token file's owner and mode, and that $USER_NAME cannot read it (no token given yet)"
+    skipped=$((skipped + 1))
+  fi
   check "at least one folder a job must never see was named" test "$#" -gt 0
   for p in "$@"; do check "$USER_NAME cannot read or write $p" not sees "$p"; done
   check "the egress proxy runs" systemctl is-active --quiet tb-bench-proxy.service
-  while read -r unit; do check "$unit runs" systemctl is-active --quiet "$unit"; done < <(slots)
+  if [ -s "$TOKEN" ]; then
+    while read -r unit; do check "$unit runs" systemctl is-active --quiet "$unit"; done < <(slots)
+  else
+    echo "NOT RUN the runner slots run (no token given yet: none is started)"
+    skipped=$((skipped + 1))
+  fi
   if [ "$(get BENCH_GPU_SLOTS)" -gt 0 ]; then
     check "the CI cards are free" as_tb_launcher check --settings "$SETTINGS"
     check "$USER_NAME cannot write the weights folder" not as_tb test -w "$(get BENCH_WEIGHTS)"
@@ -226,7 +240,7 @@ cmd_verify() {
     echo "the job container probe, $profile profile (each line PASS or FAIL):"
     if as_tb_launcher probe --settings "$SETTINGS" --profile "$profile"; then echo "PASS the $profile probe"; else echo "FAIL the $profile probe"; fails=$((fails + 1)); fi
   done
-  echo "verify: $fails failure(s)"
+  echo "verify: $fails failure(s), $skipped not run"
   [ "$fails" = 0 ]
 }
 
@@ -270,10 +284,13 @@ cmd_remove() {
   [ "$left" = 0 ]
 }
 
-case "${1:-}" in
-  install) cmd_install ;;
-  token) cmd_token ;;
-  verify) shift; cmd_verify "$@" ;;
-  remove) cmd_remove ;;
-  *) echo "usage: sudo $0 install | token | verify FOLDER... | remove" >&2; exit 2 ;;
-esac
+# run as a command; read with "source" (the tests, the host test), it only defines the steps
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  case "${1:-}" in
+    install) cmd_install ;;
+    token) cmd_token ;;
+    verify) shift; cmd_verify "$@" ;;
+    remove) cmd_remove ;;
+    *) echo "usage: sudo $0 install | token | verify FOLDER... | remove" >&2; exit 2 ;;
+  esac
+fi

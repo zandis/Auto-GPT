@@ -450,6 +450,39 @@ def cleanup(s: Settings, slot: str, token_file: Path = TOKEN, state: Path = STAT
     return 0
 
 
+ENGINE_ENV_DROPPED = (
+    "XDG_DATA_HOME",
+    "XDG_CONFIG_HOME",
+    "CONTAINERS_CONF",
+    "CONTAINERS_STORAGE_CONF",
+    "CONTAINER_HOST",
+)
+
+
+def own_engine_env() -> None:
+    """The jobs' user's own rootless engine, whatever the caller's environment says (the walk's red at 1fc6579e).
+
+    A system unit's ``%U`` is 0, so the units name no runtime folder: this sets it from the process's own id, with the
+    home folder from the user database, and drops the variables that would point the engine at another store.
+    """
+    uid = os.getuid()
+    os.environ["XDG_RUNTIME_DIR"] = f"/run/user/{uid}"
+    os.environ["HOME"] = pwd.getpwuid(uid).pw_dir
+    for key in ENGINE_ENV_DROPPED:
+        os.environ.pop(key, None)
+
+
+def egress_net(s: Settings) -> int:
+    """The proxy's way out, made by the proxy's own step if it is missing: in the store its engine reads."""
+    if _engine(s, "network", "exists", EGRESS_NET) == 0:
+        return 0
+    if _engine(s, "network", "create", EGRESS_NET) == 0:
+        print(f"bench CI: proxy: the network {EGRESS_NET} was missing for this user and is made", flush=True)
+        return 0
+    print(f"bench CI: proxy: the network {EGRESS_NET} could not be made for this user", file=sys.stderr)
+    return 1
+
+
 def _engine(s: Settings, *args: str) -> int:
     return subprocess.run([s["BENCH_ENGINE"], *args], check=False, capture_output=True).returncode
 
@@ -573,9 +606,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cmd == "get":
         print(s.values.get(args.key, ""))
         return 0
+    if os.geteuid() != 0:  # the jobs' user's steps run the engine; root's steps (mint, cleanup) never do
+        own_engine_env()
     if args.cmd == "check":
         return check(s)
     if args.cmd == "proxy":
+        if egress_net(s) != 0:
+            return 1
         os.execv(s["BENCH_ENGINE"], proxy_args(s))
     try:
         if args.cmd == "probe":

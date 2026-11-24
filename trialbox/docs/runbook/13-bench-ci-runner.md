@@ -79,8 +79,10 @@ missing host shows it there.
 
 - The distribution release of the job image's base (or newer), with a service manager of version 248 or newer
   (`systemctl --version`), `python3` 3.10 or newer, `curl`, `sha256sum`, `runuser`.
-- The rootless container engine that `tools/bench_ci/runner.Dockerfile` installs in the job image, from the host's
-  own distribution, version 4.4 or newer, with `uidmap` (`newuidmap`, `newgidmap`).
+- Two packages a fresh host lacks, installed first from the host's own distribution (the walk's first install had to
+  add both): the rootless container engine that `tools/bench_ci/runner.Dockerfile` installs in the job image,
+  version 4.4 or newer, and `uidmap` (`newuidmap`, `newgidmap`). `install.sh install` stops before any change if
+  either is missing, and says which.
 - For the GPU slots: the card query tool, and the engine's device description of the cards (written by the card
   vendor's container toolkit). Choose the CI cards (never card 1, the walk's; never a card of the bench) and their
   cap: the most memory and load a CI card may already carry when a GPU job starts. The GPU jobs share the CI cards.
@@ -106,16 +108,30 @@ missing host shows it there.
 2. `sudo trialbox/tools/bench_ci/install.sh install`: checks the prerequisites and the settings, makes the
    `tb-bench` user and its id range, lays out `/opt/tb-bench-ci`, the units and the scratch folder, downloads the
    runner archive and checks its SHA-256, builds the job image as `tb-bench`, makes the proxy's network (each job's
-   own network is made at its start) and starts the egress proxy. It prints each step; it stops at the first problem.
+   own network is made at its start) and starts the egress proxy. The proxy's own start makes its network again if
+   `tb-bench`'s engine does not see it, and every step of `tb-bench` sets the engine's runtime folder from its own
+   user id (a system unit's `%U` is 0, so the units name none). It prints each step; it stops at the first problem.
 3. The token: the owner makes it (above) and gives it to the operator by hand. The operator runs
    `sudo trialbox/tools/bench_ci/install.sh token` and pastes it at the prompt (nothing is shown). Never pass it as an
    argument or a variable, and never paste it into a chat or a file anywhere else. The runner slots start.
+
+## The real-host test (before the token, and after any change to these files)
+
+`sudo trialbox/tools/bench_ci/host_test.sh FOLDER...`, with the settings filled in and no token given: it runs
+install, checks that the egress proxy starts and stays up with no restart in `tb-bench`'s own store and runtime
+folder, runs verify (the token's lines and the slots' say NOT RUN: there is no token), then remove, and checks that
+nothing is left. It ends with one line of counts and exits 1 on any failure. Its report names no folder, path or
+host (each is a stand-in such as `<folder 1>` or `<scratch>`), so the walk posts it on the pull request as it is; the
+whole logs stay on the host in a root-only folder under `/var/tmp`. It refuses to start while a token is installed,
+because its last step removes everything. A change to `install.sh`, the units or the launcher rides only after this
+run is clean on the bench host (the integrator's ruling on 1448-19 (3)).
 
 ## Verify
 
 `sudo trialbox/tools/bench_ci/install.sh verify FOLDER...`, naming each folder a job must never see: the owner's home,
 the keys, the datasets, the integration folder, the bench's and the walk's working folders. The names are typed here
-and go nowhere else. Every line says PASS or FAIL:
+and go nowhere else. Every line says PASS or FAIL (or NOT RUN, before the token step: the token's lines and the
+slots'):
 
 - the token file is root's and 0600, `tb-bench` cannot read it, and no unit holds a copy of it; `tb-bench` is in no
   other group;
@@ -179,7 +195,8 @@ Held by tests in the repository: the gate's decision for a fork's pull request a
 container arguments and network, the CI cards' check with a stand-in for the card query tool, the token's way (read
 by the root mint step only, sent to the code host's API only, whatever a caller's proxy settings say), the one-job
 configuration as a file (`tests/unit/test_bench_ci_unpack_jit_h105.py`), the egress proxy's allow-list on a loopback
-socket, and the install script's token, verify and remove steps as text (`tests/unit/test_bench_ci_workflow_h105.py`,
+socket, the install script's token step and its scratch and image steps as run with stand-ins, its verify and
+remove steps as text (`tests/unit/test_bench_ci_workflow_h105.py`,
 `tests/unit/test_bench_ci_launcher_h105.py`).
 
 Shown only on the bench host: that the runner hands the hook the `GITHUB_*` variables and the payload the gate
@@ -187,5 +204,6 @@ reads; that the one-job configuration has the three-file form `unpack_jit.py` ex
 the rootless engine honours every argument (no name service with `--dns none`, the proxy's fixed address, the
 read-only root); that the nested engine runs with only the set-id pair, plain-folder storage and no tun device, and
 runs the repository's compose, POC and rehearsal paths; that the cards pass through; that the allow-list is enough
-for every job; that the units start and a stop cleans up; and the times. The card page:
+for every job; that the units start and a stop cleans up; and the times. The real-host test (above) shows the install,
+the proxy, verify and remove on the host. The card page:
 `docs/handover/bench-ci-runner-h105-2026-11-24.md`.

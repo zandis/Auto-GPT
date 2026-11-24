@@ -85,6 +85,15 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H105-11",
+   "severity": "Medium",
+   "claim": "the runner did not install on the bench host (the walk's first install at 1fc6579e): a scratch folder beside the user's home was refused, the install ended with an unbound variable after 'installed', the units sent the engine to root's runtime folder (a system unit's %U is 0), the proxy's engine did not see its network, and install.sh had no execute bit; each is fixed and held by a test that runs the step, and none is shown on the host until the walk's real-host test (tools/bench_ci/host_test.sh) is clean",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the walk runs tools/bench_ci/host_test.sh on the bench host and posts its report on the pull request; #1466 rides only after that run is clean"
   }
  ]
 }

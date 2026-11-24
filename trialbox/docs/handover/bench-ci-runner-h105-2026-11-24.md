@@ -83,7 +83,7 @@ Named here as the rule asks (each change is the card's own, or a line a ruling a
 | The CI cards' check | a stand-in for the card query tool | the real tool's output on the bench's cards |
 | The token's way | the code host's API host only, whatever a caller's proxy says; the configuration on stdin | the code host's answer (no call was made) |
 | The egress proxy | the allow-list and a loopback socket (403 for plain HTTP, an unlisted host, a private address) | the allow-list being enough (H105-05) |
-| Install, token, verify, remove | shellcheck and the script's text | every step: the walk runs them first |
+| Install, token, verify, remove | shellcheck; the install's image and scratch steps, the token step and verify before the token, run with stand-ins (`tests/unit/test_bench_ci_host_h105.py`) | every step on the host: the walk's run of `host_test.sh` |
 
 ## Questions
 
@@ -187,12 +187,45 @@ this follow-up, with the GPU box rehearsal (the lead's part b). Each is held by 
   (`test_bench_ci_workflow_h105.py`: the owner's run on a lane branch, on another branch, on a tag).
 - **1448-19 (2):** the schedule test models a cancelled run: only the hosted times table starts
   (`test_after_a_cancel_no_bench_job_starts_and_only_the_times_table_does`). **(3):** the token step and the scratch
-  folders' check now run in tests; the units, verify and remove are still read as text (a question to the lead).
+  folders' check now run in tests; the units, verify and remove are shown on the bench host by the real-host test
+  (the integrator's ruling: below).
 - **1448-26:** a signal after the token was moved into place says the new token is kept and the slots may not all
   be restarted; before the move it says no token was kept (`test_1448_26_a_signal_says_whether_the_token_was_kept`,
   every line of the step, INT, TERM and HUP).
 - **1448-27:** a failed chown or chmod (not only a failed move) ends the step (`test_1448_27_any_failed_step_of_the_keep_is_a_failure`);
   the scratch folders' check is run on a shared sticky folder, a link and root's own folders
   (`test_1448_27_the_scratch_check_*`). The wall-time test counts the bench jobs instead of a fixed five.
-- **1448-14:** the question of whether the CI weights need to be secret is the owner's (a GPU job reads the weights
-  folder, and its code can send what it reads through an allowed host); asked, not answered here.
+- **1448-14:** ruled by the integrator (7129040734): not secret. The CI weights are public and mounted read-only; it
+  rides with a follow-up.
+
+## The walk's red on the bench host (7129020102, 7129040734): the first real install, at 1fc6579e
+
+The walk's first install on the bench host found faults the text tests passed (H105-11). Each is fixed and held by a
+test that runs the step (`tests/unit/test_bench_ci_host_h105.py`); none is shown on the host until the walk's
+real-host test is clean:
+
+- **The scratch folder:** the install refused any folder whose name starts with `/var/lib/tb-bench` (a folder
+  beside the user's home); it now refuses only the home and what is in it.
+- **"ctx: unbound variable" after "installed":** the image step's clean-up trap stayed set after the step and fired
+  again when the install returned, with the step's folder gone; the trap now clears itself.
+- **The runtime folder:** a system unit's `%U` is 0, so the units sent the engine to root's runtime folder. The units
+  name none; each step of the `tb-bench` user sets it from its own user id, with its home from the user database, and
+  drops the variables that would point the engine at another store.
+- **The proxy's network:** the proxy's own step makes `tb-bench-egress` if its engine does not see it, and stops (no
+  engine start) if it cannot. Whether this is the whole cause of the walk's "network not found" is shown only by the
+  real-host test.
+- **The prerequisites:** the runbook names the two packages a fresh host lacks (the rootless engine and `uidmap`),
+  and the install's refusal says to install them from the distribution.
+- **Found here as well:** `install.sh` was committed without its execute bit, though the runbook runs it by path; it
+  now has it, and a test holds every script of the runner executable.
+- **Verify before the token:** the token's lines and the slots' say NOT RUN (no token, no runner), and are counted in
+  verify's last line, instead of failing; with a token they run as before. Before, a missing token file also passed
+  the "cannot read the token file" line.
+
+The integrator's ruling on 1448-19 (3): #1466 rides only after a clean real-host test of install, verify and remove.
+`tools/bench_ci/host_test.sh FOLDER...` is that test, one command for the walk: install, the proxy started and
+holding with no restart in the user's own store and runtime folder, verify, remove, and nothing left; a line of
+counts; exit 1 on any failure. It uses no token and refuses to start while one is installed; its report names no
+folder, path or host, so it can be posted as it is. Its report's own parts are tested here; the run itself is the
+walk's.
+
