@@ -94,7 +94,11 @@ At 7831433: High 0, Medium 1, Low 4. Each is fixed here, with a test:
   `test_a_second_signal_while_a_step_is_said_still_says_the_box_and_the_hold` (6 cases) fails without it.
 - **1470-2 (Low; H126-07).** The start takes `--pull never`, as the update's start (D-176), unless deploy/.env says
   `TB_INSTALL_PULL=missing`; never the caller's. `test_the_start_pulls_as_the_box_file_says_never_by_default`. The
-  two pinned H-100 commands gain `--pull never` (the integrator's word asked on #639).
+  two pinned H-100 commands gain `--pull never` after `-d` (the integrator's go 7133947466):
+  `test_restart_starts_the_services_only_after_a_complete_or_held_restore[0-released-True]`/`[4-held-True]`, old
+  `[..., "up", "-d", "--wait", "--wait-timeout", "600"]`, new `[..., "up", "-d", "--pull", "never", "--wait",
+  "--wait-timeout", "600"]`; `test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo`, the same
+  change. Still exactly one `up`, pinned whole.
 - **1470-3 (Low; H126-08).** A shortfall keeps the restore's own non-zero code (4 stays 4); a complete restore with a
   shortfall ends 1. `test_a_shortfall_keeps_the_restores_own_code`.
 - **1470-4 (Low; H126-09).** The comment over the start says H-126.
