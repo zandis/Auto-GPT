@@ -66,6 +66,9 @@ the stand-in test scans every written file and the output.
 - `tools/trialbox/doctor.py` (the check `bench_serving`, added to `CHECKS`).
 - `tests/unit/test_compose_limits.py`: one stack added to `STACKS` (the bench host's shared-quota stack with the profile),
   so the limits and the hardening tests lint and render the new file. No assertion changed.
+- `tests/unit/test_trialbox_doctor.py`: `bench_serving` added to the set of check names that
+  `test_default_install_passes` enumerates (every new doctor check adds its name there). A question to the
+  integrator, as it changes what the test expects.
 
 **Tests.** `tests/unit/test_serving_engine_h112.py`; the invariant is
 `test_the_switch_off_renders_the_same_bytes_as_compose_reading_the_box`.
