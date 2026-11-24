@@ -618,6 +618,15 @@ def _creds_tool() -> str | None:
     return shutil.which("systemd-creds", path=SYSTEM_PATH)
 
 
+def _tpm_sealed() -> bool:
+    """Whether this box's KEK is sealed to the TPM. A credential folder this account cannot look in counts as sealed:
+    a rotation never leaves a credential behind on the old KEK for want of looking."""
+    try:
+        return CREDENTIAL_FILE.exists()
+    except OSError:
+        return True
+
+
 def _cred_next() -> Path:
     return CREDENTIAL_FILE.with_name(CREDENTIAL_FILE.name + ".next")
 
@@ -949,7 +958,7 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     if problem is not None:  # the integrator's ruling 7114085298; F3: the box's chain, not any folder
         raise K.KekError(f"a KEK rotation is an audit event on every box: {problem}; nothing was changed")
     # LR-6: a box whose KEK is sealed by the TPM (or a new board, --seal-tpm) gets the new KEK sealed there too
-    a.seal_tpm = a.backend == "file" and (bool(getattr(a, "seal_tpm", False)) or CREDENTIAL_FILE.exists())
+    a.seal_tpm = a.backend == "file" and (bool(getattr(a, "seal_tpm", False)) or _tpm_sealed())
     if a.seal_tpm and _creds_tool() is None:
         raise K.KekError(f"{CREDENTIAL_FILE} seals this box's KEK, and systemd-creds is not on this host to seal the "
                          "new one: the boot would open the old KEK only; nothing was changed")  # fmt: skip
