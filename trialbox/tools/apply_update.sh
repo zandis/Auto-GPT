@@ -255,6 +255,7 @@ echo "verified: $SUMMARY"
 
 # T-634 (D-408): an OS patch bundle goes to the host's packages, never to the TrialBox update path, and back
 if [ -n "$OSPATCH" ]; then
+  STARTED=1  # H-114 (review 1461-2): the host's packages change from here; a signal is never "nothing was changed"
   # shellcheck disable=SC2086
   python3 "$ROOT/deploy/hardening/ospatch.py" apply --stage "$STAGE" --deploy "$ROOT/deploy" \
     ${OSCONF:+--conf "$OSCONF"} $DRY

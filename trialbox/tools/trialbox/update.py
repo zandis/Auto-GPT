@@ -55,12 +55,13 @@ import re
 import secrets
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import time
 import urllib.request
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -160,6 +161,8 @@ class Stops:
         if threading.current_thread() is threading.main_thread():
             for name in self.NAMES:
                 sig = getattr(signal, name)
+                if signal.getsignal(sig) is signal.SIG_IGN:  # review 1461-4: the caller's ignore (nohup) stands
+                    continue
                 self._old[sig] = signal.signal(sig, self._on)
         return self
 
@@ -733,8 +736,8 @@ def apply_host(plan: Plan, base: Path, rb: Path, point: Point) -> list[str]:
     point.extra["host"] = {"previous": host_tree.current(base), "release": plan.bundle_id,
                            "fresh": not (base / "releases" / plan.bundle_id).exists()}  # fmt: skip
     save_point(rb, point)
-    try:
-        info = host_tree.install(tars[0], base, plan.bundle_id)
+    try:  # 1461-1: the record fills as files move, so a stop inside the install is put back by restore_host
+        info = host_tree.install(tars[0], base, plan.bundle_id, into=point.extra["host"])
     except host_tree.HostTreeError as exc:
         raise UpdateFailed(f"host tree: {exc}") from exc
     point.extra["host"] = info
@@ -1205,7 +1208,7 @@ class Updater:
 
         self.stops = Stops()
         try:
-            with self.stops, us.locked(self.dir):
+            with self.stops, us.locked(self.dir), _recording(self.dir):
                 if us.marker(self.dir) is not None:
                     m = us.marker(self.dir) or {}
                     who = m.get("bundle_id")
@@ -1513,10 +1516,18 @@ class Updater:
 
         self.stops = Stops(held=True)  # H-114: a recovery is a rollback from its start: no signal stops it
         try:
-            with self.stops, us.locked(self.dir):
+            with self.stops, us.locked(self.dir), _recording(self.dir):
                 m = us.marker(self.dir)
                 if m is None:
                     raise UpdateFailed("no update is in progress (no deploy/updates/IN_PROGRESS.json)")
+                left = alive_commands(self.dir)
+                if left:  # review 1461-3: the cut-short run's command (a put-back) still runs in its own session
+                    said = "; ".join(f"process group {r.get('pgid')}: {' '.join(r.get('argv') or [])}" for r in left)
+                    raise UpdateFailed(
+                        f"a command of the update that was cut short still runs ({said}): wait for it to end, or stop "
+                        f"it (kill -TERM -<group>), then run tools/apply_update.sh rollback {bundle_id} again; nothing "
+                        "was changed"
+                    )
                 if m.get("bundle_id") != bundle_id:
                     raise UpdateFailed(f"the unfinished update is {m.get('bundle_id')}, not {bundle_id}")
                 rb = Path(str(m["rollback_dir"]))
@@ -1559,6 +1570,54 @@ STORE_SERVICES = ("orchestrator", "mail-gateway", "gateway", "criteria-compiler"
 Runner = Callable[..., str]  # (argv, stdin_file=None, stdout_file=None, env=None, timeout=None) -> stdout
 
 
+#: H-114 (review 1461-3): while an update or a rollback runs (``Updater.run``, ``Updater.recover``), each command it
+#: starts is recorded here by its process group (``running/<pgid>.json``) until it ends. A command runs in a session
+#: of its own (``procgroup``), so a SIGKILL to the updater (the console's time limit, ``kill -9``) leaves it running;
+#: ``recover`` refuses while a recorded group is alive, so two put-backs never run at once.
+RUNNING = "running"
+_running_dir: Path | None = None
+
+
+def _record_running(pgid: int, argv: Sequence[str]) -> Path | None:
+    if _running_dir is None:
+        return None
+    with contextlib.suppress(OSError):
+        _running_dir.mkdir(parents=True, exist_ok=True)
+        f = _running_dir / f"{pgid}.json"
+        f.write_text(json.dumps({"pgid": pgid, "argv": [str(a) for a in argv[:6]], "at": _now()}), encoding="utf-8")
+        return f
+    return None
+
+
+@contextlib.contextmanager
+def _recording(updates: Path) -> Iterator[None]:
+    global _running_dir
+    before, _running_dir = _running_dir, updates / RUNNING
+    try:
+        yield
+    finally:
+        _running_dir = before
+
+
+def alive_commands(updates: Path) -> list[dict[str, Any]]:
+    """The commands an update started that still run (their process group is alive); a dead one's record goes."""
+    out: list[dict[str, Any]] = []
+    for f in sorted((updates / RUNNING).glob("*.json")) if (updates / RUNNING).is_dir() else []:
+        try:
+            rec = json.loads(f.read_text(encoding="utf-8"))
+            os.killpg(int(rec["pgid"]), 0)
+        except ProcessLookupError:
+            f.unlink(missing_ok=True)
+            continue
+        except PermissionError:  # alive, another user's group
+            pass
+        except (OSError, ValueError, KeyError, TypeError):
+            f.unlink(missing_ok=True)
+            continue
+        out.append(rec)
+    return out
+
+
 def run_cmd(
     argv: Sequence[str],
     stdin_file: Path | None = None,
@@ -1574,21 +1633,34 @@ def run_cmd(
     try:
         from tools.trialbox import procgroup
 
-        r = procgroup.run(  # T-695: the whole process group is killed on the limit, never an orphan left
-            list(argv),
-            stdin=fin,
-            stdout=fout or subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={**os.environ, **(env or {})},
-            timeout=timeout,
-        )
+        # T-695: the whole process group is killed on the limit, never an orphan left (procgroup's own steps, here so
+        # that the group is recorded while it runs: review 1461-3)
+        with subprocess.Popen(list(argv), start_new_session=True, stdin=fin, stdout=fout or subprocess.PIPE,
+                              stderr=subprocess.PIPE, env={**os.environ, **(env or {})}) as proc:  # fmt: skip
+            rec = _record_running(proc.pid, argv)
+            try:
+                out, err = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                procgroup._kill(proc.pid, signal.SIGTERM)
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    proc.wait(procgroup.TERM_GRACE_S)
+                procgroup._kill(proc.pid, signal.SIGKILL)
+                proc.communicate()
+                raise subprocess.TimeoutExpired(list(argv), timeout or 0) from None
+            except BaseException:
+                procgroup._kill(proc.pid, signal.SIGKILL)
+                raise
+            finally:
+                if rec is not None:
+                    rec.unlink(missing_ok=True)
+        r = subprocess.CompletedProcess(list(argv), proc.returncode, out, err)
     finally:
         for f in (fin, fout):
             if f:
                 f.close()
     if r.returncode != 0:
-        err = (r.stderr or b"").decode(errors="replace").strip()[-600:]
-        raise UpdateFailed(f"{shlex.join(list(argv)[:8])} ... exit {r.returncode}: {err}")
+        said = (r.stderr or b"").decode(errors="replace").strip()[-600:]
+        raise UpdateFailed(f"{shlex.join(list(argv)[:8])} ... exit {r.returncode}: {said}")
     return "" if fout else (r.stdout or b"").decode(errors="replace")
 
 

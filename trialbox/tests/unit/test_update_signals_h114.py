@@ -11,6 +11,7 @@ update path, as tests/unit/test_poc_stops_h94.py does."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -110,6 +111,9 @@ class Box:
         send("rollback")
         if spec.get("rollback_dies"):
             raise SystemExit("the rollback's step was killed")
+        if spec.get("rollback_cmd"):  # a put-back command, in its own session as every command of the update
+            note("rollback cmd")
+            up.run_cmd(["sh", "-c", "sleep 60"])
         note("rollback done")
 
     def audit(self, event, plan, detail):
@@ -129,6 +133,8 @@ def on_step(name):
     send(f"step {name}")
 
 
+if spec.get("ignore_hup"):  # started under nohup
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
 res = {}
 try:
     if spec.get("mode") == "recover":
@@ -149,8 +155,8 @@ out.write_text(json.dumps(res))
 """
 
 
-def _drive(tmp: Path, **spec: Any) -> dict[str, Any]:
-    """The updater in a child process; returns what it ended with, the box's calls and the audit events."""
+def _start(tmp: Path, **spec: Any) -> tuple[list[str], dict[str, str], Path]:
+    """The child's command, environment and result file."""
     tmp.mkdir(parents=True, exist_ok=True)
     driver = tmp / "driver.py"
     driver.write_text(DRIVER, encoding="utf-8")
@@ -161,8 +167,13 @@ def _drive(tmp: Path, **spec: Any) -> dict[str, Any]:
     out.unlink(missing_ok=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
     env.update(PYTHONPATH=f"{ROOT}:{ROOT / 'libs'}", TB_DOCKER="true")
-    r = subprocess.run([sys.executable, str(driver), str(tmp / "spec.json"), str(out)], cwd=ROOT, env=env,
-                       capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
+    return [sys.executable, str(driver), str(tmp / "spec.json"), str(out)], env, out
+
+
+def _drive(tmp: Path, **spec: Any) -> dict[str, Any]:
+    """The updater in a child process; returns what it ended with, the box's calls and the audit events."""
+    argv, env, out = _start(tmp, **spec)
+    r = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, check=False)
     calls = (tmp / "calls.txt").read_text().splitlines() if (tmp / "calls.txt").exists() else []
     audits = [json.loads(x) for x in (tmp / "audits.jsonl").read_text().splitlines()] \
         if (tmp / "audits.jsonl").exists() else []  # fmt: skip
@@ -283,7 +294,15 @@ exec "$TB_H114_REAL_PY" "$@"
 """
 
 
-def _apply_update(tmp: Path, **env: str) -> subprocess.CompletedProcess[str]:
+#: the OS patch tool's stand-in: it changes the host's packages, then the shell gets the signal
+OSPATCH = """import os, signal
+print("ospatch: packages installed (stand-in)", flush=True)
+if os.environ.get("TB_H114_SIG_OSPATCH"):
+    os.kill(os.getppid(), getattr(signal, "SIG" + os.environ["TB_H114_SIG_OSPATCH"]))
+"""
+
+
+def _apply_update(tmp: Path, *first: str, **env: str) -> subprocess.CompletedProcess[str]:
     box = tmp / "box"
     (box / "tools").mkdir(parents=True)
     (box / "deploy" / "keys").mkdir(parents=True)
@@ -303,7 +322,9 @@ def _apply_update(tmp: Path, **env: str) -> subprocess.CompletedProcess[str]:
     full = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
     full.update(PATH=f"{b}:{os.environ['PATH']}", TB_VERIFY_IN_DOCKER="1", TB_H114_REAL_PY=sys.executable,
                 TB_SECRETS_HOST_DIR=str(tmp / "no-secrets"), TMPDIR=str(tmp), **env)  # fmt: skip
-    return subprocess.run(["sh", str(box / "tools" / "apply_update.sh"), str(tmp / "b.tar")], cwd=tmp, env=full,
+    (box / "deploy" / "hardening").mkdir(parents=True)
+    (box / "deploy" / "hardening" / "ospatch.py").write_text(OSPATCH, encoding="utf-8")
+    return subprocess.run(["sh", str(box / "tools" / "apply_update.sh"), *first, str(tmp / "b.tar")], cwd=tmp, env=full,
                           capture_output=True, text=True, check=False, timeout=120)  # fmt: skip
 
 
@@ -396,3 +417,134 @@ def test_1421_3_a_host_restore_and_a_backup_never_run_together(
     assert code == 0 and len(seen) == 1 and during and not any(during), during
     with bs._lock(deploy) as mine:  # and free again once the restore has ended
         assert mine
+
+
+# ------------------------------------------------------------------------------------------ the review of #1461
+@pytest.mark.parametrize("sig", ["SIGINT", "SIGTERM", "SIGHUP"])
+def test_1461_1_a_signal_inside_the_host_tree_switch_is_put_back_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sig: str
+) -> None:
+    """Review 1461-1: the first host tree on a copied install moves each copied file aside and links it; a signal
+    between two moves left the rollback record without them, so the compose file stayed a dangling link while the
+    update said "back on the release before". Real apply_host and restore_host, a real host tar, a real signal."""
+    sys.path.insert(0, str(ROOT))
+    from tools import host_tree as ht
+    from tools import update_status as us
+    from tools.trialbox import update as up
+
+    files = (*ht.REQUIRED, "deploy/install.sh", "libs/x.py", "tools/a.py", "tools/b.py")
+    src, base, stage = tmp_path / "src", tmp_path / "box", tmp_path / "stage"
+    for n in files:
+        for root, text in ((src, "new"), (base, "old")):  # base: a copied install, no host tree yet
+            (root / n).parent.mkdir(parents=True, exist_ok=True)
+            (root / n).write_text(f"{text} {n}\n", encoding="utf-8")
+    (stage / "host").mkdir(parents=True)
+    ht.pack(src, stage / "host" / ht.HOST_TAR)
+    real, moves = ht._aside, []
+
+    def aside(p: Path, to: Path, moved: list[str], rel: str) -> None:
+        real(p, to, moved, rel)
+        moves.append(rel)
+        if len(moves) == 2:  # the signal lands between two moves
+            os.kill(os.getpid(), getattr(signal, sig))
+
+    monkeypatch.setattr(ht, "_aside", aside)
+
+    class Box:
+        name = "stand-in"
+
+        def running(self) -> bool:
+            return True
+
+        def backup(self, plan: Any, rb: Path) -> str:
+            return "nas"
+
+        def snapshot(self, plan: Any, rb: Path, point: Any) -> None:
+            return None
+
+        def apply(self, plan: Any, rb: Path, point: Any) -> list[str]:
+            return list(up.apply_host(plan, base, rb, point))
+
+        def restart(self, plan: Any) -> None:
+            return None
+
+        def post_apply(self, plan: Any) -> list[str]:
+            return []
+
+        def check(self, plan: Any) -> str:
+            return "healthy"
+
+        def rollback(self, plan: Any, rb: Path, point: Any) -> None:
+            up.restore_host(base, point)
+
+        def audit(self, event: str, plan: Any, detail: dict[str, Any]) -> None:
+            return None
+
+    compat = {"format": us.COMPAT_FORMAT, "bundle_id": "B1", "rows": [{}], "provides": {"model_pin": "judge@2"}}
+    plan = up.Plan("B1", "f" * 64, "vendor", [], stage, release_seq=2, compat=compat,
+                   trust_after={"format": us.TRUST_FORMAT, "keys": {"ed25519:" + "1" * 16: {}}})  # fmt: skip
+    with pytest.raises(up.UpdateFailed, match="back on the release before B1"):
+        up.Updater(Box(), base / "deploy" / "updates", say=lambda _m: None).run(plan)
+    assert len(moves) >= 2
+    for n in files:  # every copied file in its place again, none a link
+        assert not (base / n).is_symlink() and (base / n).read_text(encoding="utf-8") == f"old {n}\n", n
+    assert not (base / "current").exists()
+
+
+@pytest.mark.parametrize("sig", ["INT", "TERM", "HUP"])
+def test_1461_2_a_signal_during_the_os_patch_never_says_nothing_was_changed(tmp_path: Path, sig: str) -> None:
+    """Review 1461-2: the OS patch changes the host's packages before the update path's mark was set: a signal
+    then said "nothing was changed" and hid the patch tool's own code."""
+    r = _apply_update(tmp_path, "ospatch", TB_H114_SIG_OSPATCH=sig)
+    assert "packages installed" in r.stdout, r.stdout + r.stderr
+    assert "nothing was changed" not in r.stderr and r.returncode == 0, (r.returncode, r.stderr)
+
+
+def test_1461_3_a_put_back_left_running_by_a_killed_updater_holds_the_recovery(tmp_path: Path) -> None:
+    """Review 1461-3: the console's limit SIGKILLs the updater during the rollback its SIGTERM started; the put-back
+    command runs on in its own session. The recovery used to start a second put-back beside it. Now each command
+    the update starts is recorded by its process group, and ``recover`` refuses while one is alive."""
+    import time
+
+    argv, env, _out = _start(tmp_path / "a", fail="apply", rollback_cmd=True)
+    updates = tmp_path / "a" / "updates"
+    calls = tmp_path / "a" / "calls.txt"
+    proc = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pgid = None
+    try:
+        for _ in range(600):
+            if calls.exists() and "rollback cmd" in calls.read_text() and list((updates / "running").glob("*.json")):
+                break
+            time.sleep(0.05)
+        recs = list((updates / "running").glob("*.json")) if (updates / "running").is_dir() else []
+        assert recs, "the put-back's command was not recorded while it ran"
+        pgid = json.loads(recs[0].read_text())["pgid"]
+        proc.kill()  # the limit's SIGKILL, part way through the rollback
+        proc.wait(10)
+        os.killpg(pgid, 0)  # the put-back's command is still running
+        held = _drive(tmp_path / "b", updates=str(updates), mode="recover")
+        assert held["outcome"] == "failed" and "still runs" in held["message"] and f"group {pgid}" in held["message"]
+        assert "rollback" not in held["calls"] and (held["marker"] or {}).get("step") == "rollback", held
+        os.killpg(pgid, signal.SIGKILL)
+        for _ in range(200):
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        rec = _drive(tmp_path / "c", updates=str(updates), mode="recover")
+        assert rec["outcome"] == "ok" and rec["marker"] is None and "rollback done" in rec["calls"], rec
+        assert not list((updates / "running").glob("*.json"))
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        if pgid is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(pgid, signal.SIGKILL)
+
+
+def test_1461_4_a_hangup_the_caller_ignores_never_stops_the_update(tmp_path: Path) -> None:
+    """Review 1461-4: an update started under nohup keeps going when the session closes."""
+    d = _drive(tmp_path, ignore_hup=True, signals={"apply": ["SIGHUP"]})
+    assert d["outcome"] == "ok" and d["installed"] == 2, d
+    assert [e for e, _ in d["audits"]] == ["update.applied"] and "rollback" not in d["calls"]
