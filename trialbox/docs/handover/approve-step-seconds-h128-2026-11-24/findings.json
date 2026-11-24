@@ -1,0 +1,25 @@
+{
+ "card": "H128",
+ "title": "the approve step seconds on a loaded runner: the FHIR libraries built for the load were in no named step",
+ "date": "2026-11-24",
+ "source": "docs/handover/approve-step-seconds-h128-2026-11-24.md",
+ "note": "basis 'shown' means shown by reading the code, by a clock spy under CPU load in a session container, and by the card's unit test; the CI failure itself was not reproduced.",
+ "findings": [
+  {
+   "id": "H128-01",
+   "severity": "Low",
+   "claim": "Compiler.approve built the FHIR libraries for the load (fhirhelpers_source() opening the translator's jar, the CQL and ELM encoded) after the compiler.files lap and before the mark of compiler.fhir_load, so that time went to compiler.unaccounted; it is the only unnamed span that reads a file, and the only one that grew under CPU load (14 to 19 ms against at most 1 ms)",
+   "lane": "A2",
+   "basis": "shown",
+   "state": "fixed 656c307002b11dbda06d525d86523e944d26a4e7"
+  },
+  {
+   "id": "H128-02",
+   "severity": "Low",
+   "claim": "the 0.79 s of compiler.unaccounted on CI job 138429378648 was a blocked read of the translator's jar or a full garbage collection in a long-lived worker while the libraries were built; not reproduced in a session container (0 of 40 runs under 16 busy processes, a cold page cache, a 3-million-object heap)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}
