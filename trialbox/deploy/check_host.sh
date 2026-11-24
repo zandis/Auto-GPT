@@ -360,11 +360,13 @@ if [ -d "$SECRETS" ]; then
       # H-110 (f): a plain key group or others can read is a secret where others can read it (H-94 (5)): a FAIL on
       # every box and profile, which the install keeps as a refusal (tb_kept_fails)
       case "$m" in *00) ;; *) kept 5 "$f mode $m: a plain site key that group or others can read (want 600, root-owned)" ;; esac
-      # OCR 1455-3: mode 600 protects nothing when another user owns the key. Its owner is root, the user that runs
-      # this, or the services' own uid 10001 (deploy/docker-compose.yml user: "10001:10001"), which must read it from
-      # the secrets volume (an unsealed key there is made by the services: a test box's, H-106)
+      # OCR 1455-3: mode 600 protects nothing when another user owns the key. Who may own one is D-1461's rule,
+      # read from its one place (libs/tb_common/kek.py key_owner_allowed: root, the services' uid, the user that runs
+      # this), never written here again (the integrator's ruling 7141781119)
       u="$(stat -c %u "$SECRETS/$f" 2>/dev/null)"
-      [ "$u" = 0 ] || [ "$u" = "$(id -u)" ] || [ "$u" = 10001 ] || kept 5 "$f is owned by uid $u: a plain site key another user can read (want root-owned, mode 600: chown root:root)"
+      python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from tb_common.kek import key_owner_allowed as ok
+sys.exit(0 if ok(int(sys.argv[2]), int(sys.argv[3])) else 1)' "$ROOT_DIR/libs" "${u:--1}" "$(id -u)" 2>/dev/null \
+        || kept 5 "$f is owned by uid $u: a plain site key another user can read (want root-owned, mode 600: chown root:root)"
       # H-110 (g): this line names no mode: a plain key only its owner reads is not one of the five on a PoC box
       facility strict "$f is a plain file: seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)" "$f sealed"
     elif [ -f "$SECRETS/$f.wrapped" ]; then

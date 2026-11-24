@@ -311,6 +311,17 @@ N), and a stop before the load left N's tree over N-1's images with no marker. F
   `releases/<id>`, and no `current`.
 * Not done here: an end-to-end update from a real N-1 box (LR-19, LR-20: their own cards).
 
+**The key-owner rule, shared with H-133 (the integrator's ruling 7141781119).** The rehearsal's `test-boxes` step
+went red at `a1b4e62c` (job 138679012027): a test box's keys are never sealed (H-106), and the services make them in
+the secrets volume as uid 10001, so 1455-3's owner check (root or the installer only) failed both. The one rule now
+sits in D-1461 (item 6) and once in the code, `tb_common.kek.key_owner_allowed` with `SERVICES_UID`: a key file is
+root's, the services', or the running account's, no one else's, mode 0600. `deploy/check_host.sh` and H-133's
+`services_owner()` read it there. Tests, in `tests/unit/test_ocr1455_key_owner.py`:
+`test_the_services_uid_of_the_rule_is_the_compose_file_s_user` (the constant equals the user of every service that
+mounts the secrets volume; a moved uid fails), `test_the_host_check_and_the_hand_over_read_one_rule` (root, the
+services, another uid: the host check and the hand-over give the same verdict) and
+`test_a_plain_site_key_the_services_own_passes_the_owner_check`. The real path: the rehearsal's `test-boxes` step.
+
 **What is not covered.** A script root runs later from the kept paths (a cron or systemd job, `apply_update.sh`'s
 `ospatch.py`) is covered by the bootstrap's walk at the bootstrap only. Two outside compose files with one base name
 would share one copy's name; the only one that can reach the copy loop is the override whose own copy failed.

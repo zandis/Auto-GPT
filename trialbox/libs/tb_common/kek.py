@@ -114,17 +114,34 @@ def key_present(path: Path) -> bool:
     return path.exists() or wrapped_path(path).exists()
 
 
+# ---- D-1461's key-owner rule: written once, here; deploy/check_host.sh (the host check) and services_owner() (the
+# hand-over) both read it from this place (the integrator's ruling 7141781119)
+#: the account the services run as: the ``user`` of every service in deploy/docker-compose.yml (a test holds the two
+#: equal), never a variable of the caller's
+SERVICES_UID = 10001
+
+
+def key_owner_allowed(uid: int, me: int) -> bool:
+    """D-1461: a key file the services read is root's, the services' (``SERVICES_UID``), or the account's that runs
+    the command (``me``: a developer's or CI's own folder); never anyone else's. Its mode is 0600 for any owner (no
+    group or other bit, which the host check holds apart)."""
+    return uid in (0, SERVICES_UID, me)
+
+
 def services_owner(secrets_dir: Path) -> tuple[int, int] | None:
     """LR-3: the account a key file written for the services must belong to: the secrets folder's owner (uid 10001
     on a box, D-887), when this runs as root and that owner is not root; else None, and the writer keeps the file.
-    Read from the folder itself, never from the environment."""
+    Read from the folder itself, never from the environment. A folder whose owner D-1461 does not allow to own a key
+    (anyone but root, the services or this account) gets no key handed to it: the files stay root's."""
     if os.geteuid() != 0:
         return None
     try:
         st = os.stat(secrets_dir)
     except OSError:
         return None
-    return None if st.st_uid == 0 else (st.st_uid, st.st_gid)
+    if st.st_uid == 0 or not key_owner_allowed(st.st_uid, os.getuid()):
+        return None
+    return st.st_uid, st.st_gid
 
 
 def _write_private(path: Path, data: bytes, owner: tuple[int, int] | None = None) -> None:
