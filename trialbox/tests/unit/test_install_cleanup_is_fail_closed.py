@@ -159,7 +159,7 @@ def test_the_cleanup_waits_for_the_releases_checks() -> None:
     directory CA) have passed, and the cleanup still comes before the network is used."""
     block = INSTALL.index(START)
     assert INSTALL.index('python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy"') < block
-    assert INSTALL.index('finish_check "not finished') < block
+    assert INSTALL.index('finish_check finish-gate "not finished') < block  # H-94 (D-1091): the gate has a key
     assert block < INSTALL.index('"${COMPOSE[@]}" run --rm --no-deps -T adapter')
     assert block < INSTALL.index('"${COMPOSE[@]}" up -d --pull "$PULL" --wait db')
     assert INSTALL.count("down --remove-orphans") == 2  # the help's plan and the one guarded call

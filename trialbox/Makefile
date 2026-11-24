@@ -200,6 +200,7 @@ differential: venv-check
 # the pure tests alone (ENG-028, T-653): the tests marked nodb (tests/conftest.py PURE_MODULES), with no PostgreSQL
 # at all: TB_PG_BIN points nowhere and TB_TEST_DB_URL is unset, so a test that needs a database fails at once
 test-pure: venv-check
+	@mkdir -p "$(TB_TEST_ROOT)"
 	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-n $(PYTEST_N) -m "nodb and not integration and not e2e and not llm and not perf"
 
@@ -316,9 +317,10 @@ test-e2e:
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
 # the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
-# the public corpus the public-data site reads (ENG-002, D-560; tools/public_site.py): NTCIR-16 Real-MedNLP MedTxt
-# (CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and never committed. `tools.public_e2e` and the
-# nightly job `public-e2e` need it.
+# the Real-MedNLP MedTxt test collection (NTCIR-16, CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and
+# never committed. The eval, the medtxt gate and the public-medtxt scenario need it (the negative and suspicious tags).
+# The public-data site and `tools.public_e2e` no longer do: they read the JMED-LLM datasets committed under
+# eval/medtxt/jmed-llm (D-639; #639 7116467086). The corpus host is not reachable from the CI runner.
 public-data:
 	PYTHONPATH=libs:services:. $(PY) -c "import tools.medtxt_eval as m; m.fetch(); print('public-data: MedTxt in', m.CACHE)"
 
@@ -548,9 +550,14 @@ bench:
 # (in the pull request that changes the speed on purpose, with the reason in the commit)
 BENCH_PATIENTS ?= 5000
 BENCH_OUT ?= $(TB_TEST_ROOT)/bench-gate
+# BENCH_REF=<file>: the baseline's reference commit measured on this runner (`make bench-baseline` in a checkout of it,
+# the copy of its tools/bench_baseline.json): the gate is then on the ratio to it. The nightly sets it when the runner's
+# CPU model is not the one the baseline was written on (`tools/bench.py --cpu-differs`)
+BENCH_REF ?=
 bench-gate:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)"
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)" \
+		$(if $(BENCH_REF),--ref "$(BENCH_REF)",)
 
 # D-1245 (10E-13): the console's ten-page timing walk (p95 of the Server-Timing header under 300 ms; marker perf, nightly
 # in trialbox-e2e.yml's perf-5k job). The walk's rules and the planted slow page are tests/console/test_console_timing.py

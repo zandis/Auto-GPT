@@ -22,6 +22,8 @@ nothing else, under ``sudo`` or cron, which drop the caller's environment. So ev
 
 ``restore-drill`` runs on the host: the installed form's own steps already run the library parts in the box image
 (``box_drill.py``, #1305).
+``restore`` runs on the host too (H-100): its one container is the backup image's, with the database client tools,
+the volumes and the box's database URLs (``box_restore.py``).
 """
 
 from __future__ import annotations
@@ -74,15 +76,7 @@ COMMANDS: dict[str, Need] = {
     "backup": Need(IMAGE, (*CRYPTO, "psycopg"), DB_NETWORK, read=("--public",), write=("--to",), pairs=("--dir",)),
     "backup-check": Need(IMAGE, CRYPTO, read=("0",)),
     "backup-verify": Need(IMAGE, CRYPTO, read=("0", "--key", "--restic-share"), site=True),
-    "restore": Need(
-        IMAGE,
-        (*CRYPTO, "psycopg"),
-        DB_NETWORK,
-        read=("0", "--key", "--public", "--refdata", "--restic-share"),
-        write=("--keep-to",),
-        pairs=("--dir",),
-        site=True,
-    ),
+    "restore": Need(),  # H-100: on the host it runs in the backup image itself, as the nightly's job (box_restore.py)
     "restore-drill": Need(),  # installed: its image steps are box_drill.py's own (#1305)
     "backup-nightly": Need(),
     "backup-status": Need(),
@@ -169,17 +163,19 @@ def box_file(deploy: Path = DEPLOY) -> dict[str, str]:
     try:
         st = os.stat(path)
     except OSError as e:
-        raise BoxFileError(f"{path} cannot be read ({e.strerror}): nothing was run") from None
+        raise BoxFileError(f"{path} cannot be read ({e.strerror}): nothing was run") from None  # H-94 (3)
     if not stat.S_ISREG(st.st_mode):
-        raise BoxFileError(f"{path} is not a file: nothing was run")
+        raise BoxFileError(f"{path} is not a file: nothing was run")  # H-94 (3): a box that cannot be told
     if st.st_uid not in (0, os.geteuid()):
-        raise BoxFileError(f"{path} belongs to uid {st.st_uid}, neither root nor this user: nothing was run")
+        raise BoxFileError(  # H-94 (5): the box's secrets in a file another user owns
+            f"{path} belongs to uid {st.st_uid}, neither root nor this user: nothing was run"
+        )
     if st.st_mode & 0o022:
-        raise BoxFileError(f"{path} can be written by group or others (chmod 600 it): nothing was run")
+        raise BoxFileError(f"{path} can be written by group or others (chmod 600 it): nothing was run")  # H-94 (5)
     try:
         path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        raise BoxFileError(f"{path} cannot be read ({type(e).__name__}): nothing was run") from None
+        raise BoxFileError(f"{path} cannot be read ({type(e).__name__}): nothing was run") from None  # H-94 (3)
     return env_file(path)
 
 

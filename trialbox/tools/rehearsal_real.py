@@ -283,10 +283,10 @@ def card_facts(
 def override_text(uuid: str, env: dict[str, str]) -> str:
     """The compose file that pins both model servers to the one card and gives them the probe's environment."""
     if not UUID.match(uuid):
-        raise ValueError(f"not a card UUID: {uuid!r}")
+        raise ValueError(f"not a card UUID: {uuid!r}")  # H-94 (2): the one named card
     bad = [k for k, v in env.items() if not ENV_NAME.match(str(k)) or "\n" in str(v) or "\r" in str(v)]
     if bad:
-        raise ValueError(f"the probe's environment has names or values a compose file cannot carry: {bad}")
+        raise ValueError(f"the probe's environment has names or values a compose file cannot carry: {bad}")  # H-94 (2)
     dev = f"!override [{{driver: nvidia, device_ids: [{json.dumps(uuid)}], capabilities: [gpu]}}]"
     lines = [
         "# Written by deploy/install.sh --rehearsal --rehearsal-real-servers (card H-89): a rehearsal box only, not",
@@ -306,7 +306,7 @@ def override_text(uuid: str, env: dict[str, str]) -> str:
 def _record(path: Path) -> dict[str, Any]:
     doc = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(doc, dict):
-        raise ValueError(f"{path} is not a serving record")
+        raise ValueError(f"{path} is not a serving record")  # H-94 (2)
     return doc
 
 
@@ -468,4 +468,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main())  # H-94 not a stop: main's own answer

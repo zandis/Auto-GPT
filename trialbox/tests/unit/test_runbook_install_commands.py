@@ -85,14 +85,27 @@ def _install_to_the_host_step(tmp: Path, *args: str, **env: str) -> subprocess.C
     _stand_in(bin_dir, "docker", "import sys\nsys.exit(1)\n")
     bundle = tmp / "trialbox-2026.11-1.tar"
     bundle.write_bytes(b"")
-    state = [ROOT / "deploy" / n for n in (".env", "settings.yaml", "updates", "secrets")]
+    # a copy of the installer's folder: a rehearsal box is a PoC box (H-94, D-1091), whose warnings are listed in its
+    # own deploy/site, never the checkout's
+    box = tmp / "box"
+    (box / "deploy").mkdir(parents=True, exist_ok=True)
+    for name in ("install.sh", "gpu_profile.sh", "check_host.sh"):
+        shutil.copy(ROOT / "deploy" / name, box / "deploy" / name)
+    if not (box / "tools").exists():
+        (box / "tools").symlink_to(ROOT / "tools")
+    state = [box / "deploy" / n for n in (".env", "settings.yaml", "updates", "secrets")]
     before = [p.exists() for p in state]
-    out = subprocess.run(["bash", "deploy/install.sh", str(bundle), *args], cwd=ROOT, capture_output=True, text=True,
+    out = subprocess.run(["bash", "deploy/install.sh", str(bundle), *args], cwd=box, capture_output=True, text=True,
                          env=_env(**{**env, "PATH": f"{bin_dir}{os.pathsep}{_env()['PATH']}"}), check=False,
                          timeout=300)  # fmt: skip
     assert out.returncode == 1 and "Docker is not running" in out.stderr, out.stderr
     assert "==> host" in out.stdout
     assert [p.exists() for p in state] == before  # no setting, secret or update state written
+    if "--rehearsal" in args:  # D-1091: a PoC box warns and goes on, to the vendor key here (kept refusal 1)
+        assert "install: warning (PoC box, H-94): Docker is not running" in out.stderr
+        assert out.stderr.splitlines()[-1].startswith("install: vendor public key missing"), out.stderr
+    else:
+        assert out.stderr.splitlines()[-1] == "install: Docker is not running (sudo systemctl start docker)"
     return out
 
 
