@@ -24,6 +24,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -337,10 +338,37 @@ def check_test_root(path: Path) -> Path:
     return p
 
 
+def _close_to_others(folder: Path) -> None:
+    """Take group and others' write from ``folder`` if this user owns it and it is no link (the search bit stays).
+    A shared folder (a sticky one such as /tmp, the home folder, / or a system folder) is never changed."""
+    if folder in {Path("/"), Path.home(), *(Path(d) for d in SYSTEM_DIRS)}:
+        return
+    st = os.lstat(folder)
+    shared = st.st_mode & stat.S_ISVTX or st.st_uid != os.geteuid()
+    if stat.S_ISDIR(st.st_mode) and not shared and st.st_mode & 0o022:
+        folder.chmod(stat.S_IMODE(st.st_mode) & ~0o022)
+
+
 def mark_test_root(path: Path) -> Path:
-    """Check ``path`` as a test root, create it (mode 0700 parents are left as they are) and write its marker."""
+    """Check ``path`` as a test root, create it and write its marker.
+
+    H-115: the folders it creates are 0700 whatever the umask. The test root, and the folders from it up to the
+    per-user scratch root when it lies under that root, lose group and others' write if this user owns them. A folder
+    above the scratch root, or one of another account, is never changed. Under an ordinary user's umask 002 these
+    folders were 0775, and the product's checks that walk the real folders from ``/`` rightly refused every tree
+    a test built below them."""
     p = check_test_root(path)
-    p.mkdir(parents=True, exist_ok=True)
+    for folder in reversed([p, *p.parents]):
+        if not folder.exists():
+            folder.mkdir(mode=0o700)
+            folder.chmod(0o700)
+    scratch = scratch_root()
+    for folder in [p, *p.parents]:
+        if folder != p and not folder.is_relative_to(scratch):
+            break
+        _close_to_others(folder)
+        if folder == scratch:
+            break
     (p / MARKER).touch()
     return p
 
