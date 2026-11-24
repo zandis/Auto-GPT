@@ -202,7 +202,7 @@ The compiler's `Compiler.approve` (`services/criteria_compiler/service.py`):
 | `compiler.equivalence` | the equivalence gate run again, or the compile's report enforced |
 | `compiler.checks` | flags, blocking, terminology stamp and site lists, the manifest |
 | `compiler.files` | the ruleset's files assembled |
-| `compiler.fhir_load` | the load to the FHIR server, the server's handling included |
+| `compiler.fhir_load` | the libraries built for the load (FHIRHelpers read from the translator's jar) and the load to the FHIR server, the server's handling included (card H-128) |
 | `compiler.repo_write` | the draft branch written (the rulesets volume) |
 | `compiler.repo_tag` | the version tagged |
 | `compiler.repo_promote` | the tag promoted to release |

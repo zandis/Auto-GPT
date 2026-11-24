@@ -149,8 +149,22 @@ def environment(env: Mapping[str, str]) -> str:
     return (env.get("TB_ENV") or "PRODUCTION").strip().upper()
 
 
+def own_volume(name: str) -> str:
+    """H-106: the host folder of this box's own compose volume: a test box's record (``deploy/site/test-box.env``
+    beside this release folder) names its project; any other box's is ``trialbox``, as before."""
+    project = "trialbox"
+    for deploy in (Path(__file__).absolute().parents[1] / "deploy", Path(DEFAULT_DEPLOY)):
+        try:
+            lines = (deploy / "site" / "test-box.env").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        project = next((ln.split("=", 1)[1].strip() for ln in lines if ln.startswith("COMPOSE_PROJECT_NAME=")), project)
+        break
+    return f"/var/lib/docker/volumes/{project}_{name}/_data"
+
+
 def secrets_dir(arg: str | None, env: Mapping[str, str]) -> Path:
-    return Path(arg or env.get("TB_SECRETS_DIR") or HOST_SECRETS)
+    return Path(arg or env.get("TB_SECRETS_DIR") or own_volume("tb-secrets"))
 
 
 def runtime_kek_path(arg: str | None, env: Mapping[str, str]) -> Path:
@@ -1037,7 +1051,7 @@ def objects_dir(arg: str | None, env: Mapping[str, str]) -> Path:
     spec = env.get("TB_OBJECT_STORE") or ""
     if spec.startswith("fs:") and spec[3:]:
         return Path(spec[3:])
-    return Path(HOST_OBJECTS)
+    return Path(own_volume("objects-data"))
 
 
 def cmd_seal_objects(a: argparse.Namespace, env: Mapping[str, str]) -> int:
