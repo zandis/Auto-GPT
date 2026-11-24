@@ -633,7 +633,8 @@ def _credential_kek() -> bytes:
     if got.returncode != 0 or len(got.stdout) != K.KEK_LEN:
         last = (got.stderr.decode(errors="replace").strip().splitlines() or ["no output"])[-1]
         raise K.KekError(f"{CREDENTIAL_FILE} cannot be opened on this board (systemd-creds: {last[:300]}): if it "
-                         "is an old board's, move it aside yourself, then run this again; nothing was changed")  # fmt: skip
+                         "is an old board's, move it aside yourself, then run this again; nothing was "
+                         "changed")  # fmt: skip
     return got.stdout
 
 
