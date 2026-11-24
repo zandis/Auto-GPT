@@ -416,6 +416,33 @@ def test_lr6_a_credential_sealing_another_kek_is_never_replaced(
     assert _runtime_opens(b)
 
 
+def test_lr6_a_seal_holding_the_credential_folder_makes_rotate_kek_refuse_with_nothing_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LR-6 with #1457 (1457-1): the TPM credential is the host's. seal_keys.sh, sealing another secrets folder, holds
+    an exclusive flock on the credential's folder (its fd 5); a rotation that would read or swap the credential takes
+    the same lock and is refused while it is held, with nothing changed. Released, the rotation goes through."""
+    import fcntl
+
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    argv = ["rotate-kek", "--backend", "file", "--secrets", str(b["sec"]), "--audit-dir", str(b["audit"]),
+            "--out", str(b["run"] / "kek")]  # fmt: skip
+    env = {**DEV, "TB_KEK_FILE": str(b["run"] / "kek")}
+    before, cred = _state(b["sec"]), b["cred"].read_bytes()
+    fd = os.open(b["cred"].parent, os.O_RDONLY | os.O_DIRECTORY)  # what seal_keys.sh's `exec 5<` and `flock -n 5` take
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert keys.main([*argv, "--kek-out", str(b["media"] / "a.kek")], env=env) == 1
+        assert _state(b["sec"]) == before and b["cred"].read_bytes() == cred
+        assert sorted(f.name for f in b["cred"].parent.iterdir()) == [K.CREDENTIAL]
+        assert not (b["media"] / "a.kek").exists()
+    finally:
+        os.close(fd)
+    assert keys.main([*argv, "--kek-out", str(b["media"] / "b.kek")], env=env) == 0
+    assert _sealed_opens(b) and _runtime_opens(b)
+
+
 def test_lr6_rotate_kek_on_a_tpm_box_without_the_sealing_tool_changes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

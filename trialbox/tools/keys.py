@@ -579,7 +579,7 @@ def cmd_status(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     if (journal and audit_chain_problem(Path(given) if given else None) is None) or (
         not journal and sec.is_dir() and _partial_writes(sec)
     ):
-        with _Locked(sec):
+        with _Locked(sec), _HostLock(_journal_touches_credential(sec)):  # its roll-forward may swap it (LR-6)
             done = resume_rotation(sec, Path(str(given)) if given else None, "status")
         if done is not None:
             _err(done)
@@ -856,6 +856,52 @@ class _Locked:
         os.close(self.fd)  # closing the descriptor releases the lock
 
 
+class _HostLock:
+    """LR-6 (with #1457's 1457-1): the TPM credential is the host's, not one secrets folder's. The lock seal_keys.sh
+    takes (an exclusive flock on the credential's folder) is held while a rotation reads, stages or swaps the
+    credential, so a seal for another secrets folder never writes it at the same time. Taken after the secrets
+    folder's lock, as seal_keys.sh does. An account that cannot open the folder cannot write the credential either:
+    nothing to hold. Taken only by a rotation that touches the credential (``needed``), so no other rotation waits
+    on the host's."""
+
+    def __init__(self, needed: bool) -> None:
+        import fcntl
+
+        self.fd: int | None = None
+        if not needed:
+            return
+        folder = CREDENTIAL_FILE.parent
+        try:
+            fd = os.open(folder, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        except (FileNotFoundError, PermissionError):
+            return
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            os.close(fd)
+            if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):
+                raise K.KekError(f"another run of seal_keys.sh or a rotation holds {folder} (the TPM credential): let "
+                                 "it finish, then run this again; nothing was changed") from None  # fmt: skip
+            raise
+        self.fd = fd
+
+    def __enter__(self) -> _HostLock:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+
+
+def _journal_touches_credential(sec: Path) -> bool:
+    """Whether a rotation cut short staged a new KEK beside the TPM credential (its journal says so)."""
+    try:
+        doc = _read_journal(sec)
+    except K.KekError:
+        return False
+    return bool(doc and doc.get("credential"))
+
+
 def _fsync_dir(sec: Path) -> None:
     fd = os.open(sec, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
@@ -1025,7 +1071,12 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
             raise K.KekError(f"{CREDENTIAL_FILE} is there or asked for, and systemd-creds is not on this host to "
                              "seal the new KEK: the boot would open the old KEK only; nothing was changed")  # fmt: skip
     assert where_audit is not None
-    with _Locked(sec):
+    if getattr(a, "seal_tpm", False):  # a new board: the credential's folder, so its lock can be taken
+        CREDENTIAL_FILE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    touches = (a.backend == "file" and (bool(_credential_present()) or bool(getattr(a, "seal_tpm", False)))) or (
+        _journal_touches_credential(sec)
+    )
+    with _Locked(sec), _HostLock(touches):
         done = resume_rotation(sec, where_audit, "rotate-kek")
         if done is not None:
             _say(done)

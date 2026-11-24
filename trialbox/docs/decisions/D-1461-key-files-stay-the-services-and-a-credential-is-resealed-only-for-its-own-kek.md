@@ -33,6 +33,9 @@ after a restart left the services unable to open any key (LR-3, LR-4). `rotate-k
    commit; the roll-forward swaps the credential first, then the keys, `kek.json` last; the roll-back removes
    `.next`. With no `systemd-creds` where a seal is needed, nothing changes. The credential's place and the folders
    the tool is looked for in are fixed in the code. The boot unit stays `seal_keys.sh`'s (LR-45).
+5. **The credential is the host's.** A rotation that reads, stages or swaps the credential holds the lock
+   `seal_keys.sh` holds while it seals (an exclusive flock on the credential's folder, #1457), taken after the
+   secrets folder's lock; while another holds it the rotation is refused with nothing changed.
 
 ## Consequences
 
