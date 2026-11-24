@@ -147,7 +147,7 @@ def _apply(b: dict[str, Any], bundle: Path, *args: str, wait: bool = True, stdin
 
 
 def _current(b: dict[str, Any]) -> str:
-    return os.readlink(b["base"] / "current")
+    return str(os.readlink(b["base"] / "current"))
 
 
 def _seq(b: dict[str, Any]) -> int:
@@ -396,7 +396,7 @@ def _pass_file(b: dict[str, Any], text: str = PASSPHRASE) -> Path:
     f = d / "trialbox-kek.pass"
     f.write_text(text + "\n")
     f.chmod(0o600)
-    return f
+    return Path(f)
 
 
 def test_h124_a_passphrase_box_without_its_passphrase_is_refused_before_anything(box: dict[str, Any]) -> None:
@@ -511,7 +511,7 @@ def _model_pack(b: dict[str, Any], bid: str, seq: int, extra: list[tuple[str, Pa
     out = b["tmp"] / f"{bid}.pack"
     build(b["priv"], bid, [("model", weights, "judge/model.safetensors"), *(extra or [])], out, release_seq=seq,
           pack={"kind": "model"})  # fmt: skip
-    return out
+    return Path(out)
 
 
 def test_h124_05_a_signed_model_pack_runs_the_installed_code_on_production_and_says_why(box: dict[str, Any]) -> None:
