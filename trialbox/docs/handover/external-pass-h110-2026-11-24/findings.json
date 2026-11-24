@@ -278,6 +278,28 @@
    "state": "open",
    "fix": "the role named instead",
    "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-26",
+   "severity": "Low",
+   "claim": "GP-PL-1: the day-2 spool mapped only --dbname: a connection given by -d, -dVALUE or by position was written to the spool volume with its password",
+   "severity_basis": "no caller on master passes those forms; the next one would leak the database password",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "every form mapped to the job's variable or refused; a test per form",
+   "from": "the whole-repo sweep (7121569370; routing 7121587090), master 8ddecb8d"
+  },
+  {
+   "id": "H110-27",
+   "severity": "Low",
+   "claim": "poc.sh's and install.sh's ticker sleep held the caller's output: a stop that orphaned it (TERM before s=$!, 37 of 3000 pairs) kept a reader waiting up to the ticker's interval",
+   "severity_basis": "test_poc_real_embedder timed out at 120 s under load; a log pipe would wait the same",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the sleep detached from the pipes; the test's bound 30 s with its measurement",
+   "from": "the integrator's 7120213053"
   }
  ]
 }

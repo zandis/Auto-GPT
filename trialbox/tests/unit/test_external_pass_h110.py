@@ -733,3 +733,62 @@ def test_a_prompt_or_a_model_card_is_never_a_documents_only_change(path: str) ->
     assert not only
     _, _, why = ci_tier.decide({"EVENT": "pull_request", "HEAD_REF": "x", "DOCS_ONLY": str(only).lower()}, [path])
     assert "documents only" not in why
+
+
+# ------------------------------------------------------------------------------------------------ GP-PL-1
+PW = "synthetic-" + "pw"  # a made-up password, joined so the secret scan sees no URL with credentials
+DAY2_ENV = {"TB_DB_URL": "postgresql://tb:" + PW + "@db:5432/trialbox_wf",
+            "TB_HAPI_DB_URL": "postgresql://hapi:" + PW + "@db:5432/hapi"}  # fmt: skip
+URL = DAY2_ENV["TB_DB_URL"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["--dbname", URL], [f"--dbname={URL}"], ["-d", URL], [f"-d{URL}"], [URL]],
+    ids=["long", "long=", "-d", "-dVALUE", "positional"],
+)
+def test_the_spool_never_writes_the_jobs_connection_in_any_form(args: list[str]) -> None:
+    """GP-PL-1: the spool mapped only --dbname: a connection given by -d, -dVALUE or by position went to the spool
+    volume with its password."""
+    from tools.trialbox import platform_day2 as d2
+
+    lines = d2.spool_args("psql", [*args, "-c", "select 1"], DAY2_ENV)
+    assert lines == ["psql", "--dbname", "@TB_DB_URL", "-c", "select 1"] and PW not in "".join(lines)
+
+
+@pytest.mark.parametrize(
+    "arg",
+    [
+        "postgresql://x:" + "y@elsewhere/db",
+        "postgres://x@elsewhere/db",
+        "host=elsewhere dbname=x password=" + "y",
+        "dbname=trialbox_wf user=tb",
+    ],
+    ids=["uri", "postgres-uri", "key=value with a password", "key=value"],
+)
+def test_the_spool_refuses_any_other_connection_in_any_form(arg: str) -> None:
+    from tools.trialbox import platform_day2 as d2
+
+    for args in (["-d", arg], [f"-d{arg}"], [arg]):
+        with pytest.raises(d2.Day2Error, match="refused"):
+            d2.spool_args("psql", args, DAY2_ENV)
+
+
+# ------------------------------------------------------------------------------------------------ the ticker
+@pytest.mark.parametrize(("script", "start"), [("deploy/poc.sh", "ALIVE_PID=\"\"\nalive_start() {"),
+                                                ("deploy/install.sh", "alive_start() {")])  # fmt: skip
+def test_a_ticker_a_stop_orphans_never_holds_the_callers_output(tmp_path: Path, script: str, start: str) -> None:
+    """The once-a-minute ticker's sleep inherited the caller's stdout and stderr. A stop whose TERM landed before
+    ``s=$!`` left the sleep running (37 of 3000 start/stop pairs here), and a caller reading the output (a test's
+    subprocess.run, a log pipe) waited for it: test_poc_real_embedder's 120 s timeout under load. Now no orphan holds
+    the output: a thousand start/stop pairs return at once."""
+    text = (ROOT / script).read_text(encoding="utf-8")
+    a = text.index(start)
+    b = text.index("\n}\n", text.index("alive_stop()", a)) + 3
+    body = text[a:b].replace("sleep 60 ", 'sleep "${TB_POC_ALIVE_S:-60}" ')
+    run = tmp_path / "ticker.sh"
+    run.write_text("ALIVE_PID=\"\"\n" + body + "TB_POC_ALIVE_S=600\nfor i in $(seq 1 1000); do alive_start x; alive_stop; done\n",
+                   encoding="utf-8")  # fmt: skip
+    t = time.monotonic()
+    r = subprocess.run(["bash", str(run)], capture_output=True, text=True, check=False, timeout=60)
+    assert r.returncode == 0 and time.monotonic() - t < 30, r.stderr

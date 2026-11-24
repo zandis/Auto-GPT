@@ -72,7 +72,9 @@ alive_start() {
   local what="$1" me=$$
   ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
     while kill -0 "$me" 2>/dev/null; do
-      sleep "${TB_POC_ALIVE_S:-60}" & s=$!; wait "$s"; n=$((n + 1))
+      # H-110: the sleep holds none of the caller's pipes: one a stop orphans (its TERM before s=$!) never keeps a
+      # caller that reads this output waiting
+      sleep "${TB_POC_ALIVE_S:-60}" >/dev/null 2>&1 & s=$!; wait "$s"; n=$((n + 1))
       kill -0 "$me" 2>/dev/null && echo "    ... still $what ($n)" >&2
     done ) & ALIVE_PID=$!
 }

@@ -155,6 +155,21 @@ master's version of its file swapped in.
 | L-CI-1 prompts and model cards taken for documents | fixed in this card | `tools/ci_docs_only.py` `CODE_READS`; `test_a_prompt_or_a_model_card_is_never_a_documents_only_change` |
 | L-RR-1 a product name in a shipped script | fixed in this card | `deploy/gcp/setup-gcp.sh` and `docs/VALIDATION.md` name the role, not the product; no test |
 
+| GP-PL-1 the spool maps only `--dbname` (7121587090) | fixed in this card | `tools/trialbox/platform_day2.py` `spool_args`: `--dbname X`, `--dbname=X`, `-d X`, `-dX` and a positional connection (a URI, a key=value string) are each mapped to the job's variable or refused; `test_the_spool_never_writes_the_jobs_connection_in_any_form`, `test_the_spool_refuses_any_other_connection_in_any_form` |
+
+**The ticker and the embedder test's bound (the integrator's 7120213053).** The 120 s timeout in
+`tests/unit/test_poc_real_embedder.py` dated from #1129. It was a hang guard, not a measurement.
+
+* **Measured.** One `deploy/poc.sh` call takes 0.0-0.1 s alone. Under `-n auto` on the seven poc test files (three runs,
+  111 calls), the median was 0.1 s, p95 0.1 s and the maximum 0.2 s.
+* **The cause of the hang.** `alive_start`'s sleep inherited the caller's stdout and stderr. A stop whose TERM landed
+  before `s=$!` left that sleep running: 37 of 3000 start/stop pairs here. A caller reading the output then waited
+  for it.
+* **The fix.** The sleep holds none of the caller's pipes now, in `deploy/poc.sh` and in `deploy/install.sh` (the
+  same pattern). Test: `test_a_ticker_a_stop_orphans_never_holds_the_callers_output`, 1000 pairs per script, which
+  return at once.
+* **Changed test data.** The bound is 30 s (150 times the measured maximum), with the measurement written beside it.
+
 **Not done, and why.** Three things are not done here.
 
 * M-SC-2 and M-SC-3 on PRODUCTION. A new stop in `deploy/install.sh` is a new message, and
