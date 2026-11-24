@@ -1,0 +1,82 @@
+{
+ "card": "H105",
+ "title": "the bench host's CI runner, made safe for a public repository",
+ "date": "2026-11-24",
+ "source": "docs/handover/bench-ci-runner-h105-2026-11-24.md",
+ "note": "basis 'shown' means shown by the tree or the card's own tests; nothing was installed or run on the bench host: every host-side claim is the walk's to show.",
+ "findings": [
+  {
+   "id": "H105-01",
+   "severity": "Medium",
+   "claim": "a one-job runner needs a fresh registration per job, and a registration token lasts about an hour, so the host holds a fine-grained token of the owner's account (this repository only, Administration: write, 30-day expiry: the owner's choice of 2026-11-24); it can change the repository's settings: since the review of #1448 (F2) only the units' root steps read it (mint before a job, cleanup after) and the jobs' user never can",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "the owner's choice: keep the token's expiry short and revoke it with the remove step (the page says so), or rule another credential"
+  },
+  {
+   "id": "H105-02",
+   "severity": "Medium",
+   "claim": "every profile has a read-only root, every capability dropped and no fuse or tun device (the review of #1448, F5); the engine and GPU profiles keep SETUID and SETGID and cannot set no-new-privileges, because the nested rootless engine maps its user namespace with the set-id helpers; those profiles run on trains and the owner's runs only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H105-03",
+   "severity": "High",
+   "claim": "ruled 2026-11-24: the GPU jobs get the host's weights folder read-only at /weights (the version check uses the pinned hashes; no download); the GPU suites still need a model server started on the CI cards from those weights, which no step does yet, so the gpu-suites and full-set jobs report the gpu stage as not started until that step is built",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H105-04",
+   "severity": "Medium",
+   "claim": "no make target runs the real-model rehearsal (deploy/install.sh --rehearsal-real-servers, H-89) in CI: it needs pinned weights and the engine probe on the job's own card; the bench workflow's rehearse-box job runs the box rehearsal with the stand-ins, and the real-model rehearsal is not wired",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H105-05",
+   "severity": "Medium",
+   "claim": "the egress allow-list names hosts exactly (no storage wildcard, no user-content wildcard, and no upload host the proxy can tell from a download host: it sees the name only, so a host that takes both under one name is reachable for both), and jobs have no name service; whether the list is enough for every job is known only from the first runs (the proxy logs each refused host by name)",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H105-06",
+   "severity": "Low",
+   "claim": "a job can read its own runner's credentials (the one-job configuration, now a file the entry point deletes after unpacking it, the review's F9); they end with that job and its container, and no job sees another's",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H105-07",
+   "severity": "Low",
+   "claim": "the install page is a part of RUNBOOK section 13 (docs/runbook/13-bench-ci-runner.md), as the integrator gives section numbers; a number of its own needs the integrator's row",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H105-08",
+   "severity": "High",
+   "claim": "the host's gate (the review of #1448, F1) rests on the runner handing its job-started hook the GITHUB_* variables and the event payload as the code host sent them; the tests feed the gate stand-ins for both, and that the runner does so is shown only by the walk's first jobs",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H105-09",
+   "severity": "Medium",
+   "claim": "since the review of #1448 (F5) a lane push gets the CPU jobs only (unit shards, integration); the GPU suites, full-set and the box rehearsal need the engine or GPU profile and run on trains and the owner's runs only, which is less than the owner's ruling of 2026-11-24 item 8 (every lane PR gets the GPU suites)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
