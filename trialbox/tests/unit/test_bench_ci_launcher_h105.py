@@ -725,7 +725,7 @@ def test_removal_takes_away_everything_it_made_and_says_what_is_left_to_the_owne
     body = INSTALL[INSTALL.index("cmd_remove() {") : INSTALL.index("\n}\n", INSTALL.index("cmd_remove() {"))]
     for want in ("systemctl disable --now", 'rm -f "$UNITS/tb-bench-runner@.service" "$UNITS/tb-bench-proxy.service"',
                  "rm --all --force", 'network rm --force "$net"', "system reset --force",
-                 'shred -u "$TOKEN"', 'rm -rf "$ETC" "$OPT"', 'loginctl disable-linger "$USER_NAME"',
+                 'shred -u "$TOKEN"', 'rm -rf "$OPT"', 'loginctl disable-linger "$USER_NAME"',
                  'userdel --remove "$USER_NAME"', 'sed -i "/^$USER_NAME:/d" /etc/subuid /etc/subgid',
                  "remove any", "revoke the minting token", "LEFT"):  # fmt: skip
         assert want in body, want
@@ -854,3 +854,18 @@ def test_the_gpu_box_fails_on_a_failed_step(tmp_path: Path, kw: dict[str, Any], 
     why = {"none": "no readable weights folder", "rw": "mounted writable", "plain": "is not a mount of its own"}
     if "weights" in kw:
         assert why[kw["weights"]] in (out / "report.md").read_text()
+
+
+@pytest.mark.parametrize("answer", ['echo "Card Model X, [N/A], 580.1"', "exit 0", 'echo "Card Model X, 183000"'])
+def test_the_gpu_box_fails_when_the_tools_answer_gives_no_record(tmp_path: Path, answer: str) -> None:
+    """OCR 1466-4: a field the tool cannot read, no card at all, or a short row said PASS with an empty note."""
+    tool = tmp_path / "cardquery"
+    tool.write_text(f"#!/bin/sh\n{answer}\n", encoding="utf-8")
+    tool.chmod(0o755)
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps({"profile": "gpu", "tool": str(tool)}), encoding="utf-8")
+    out = tmp_path / "out"
+    args = ["bash", str(GPU_BOX), str(out), str(job), str(tmp_path / "none"), str(tmp_path / "none")]
+    subprocess.run(args, check=False, capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+    assert json.loads((out / "report.json").read_text())["steps"]["gpu"] == "FAIL"
+    assert not (out / "gpu-record.json").exists()

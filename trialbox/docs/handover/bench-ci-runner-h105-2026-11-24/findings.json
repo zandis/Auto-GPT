@@ -94,6 +94,14 @@
    "basis": "shown",
    "state": "open",
    "fix": "the walk runs tools/bench_ci/host_test.sh on the bench host and posts its report on the pull request; #1466 rides only after that run is clean"
+  },
+  {
+   "id": "H105-12",
+   "severity": "High",
+   "claim": "remove deleted, as root, whatever the settings named as scratch, including a folder install had refused as another owner's, and the host test ran remove after a failed install (OCR 1466-2); remove now deletes only what install recorded that it made (a root-only record written before each thing, whole), and the host test never runs remove after a failed install",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
   }
  ]
 }

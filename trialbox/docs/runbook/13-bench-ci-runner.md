@@ -125,11 +125,14 @@ missing host shows it there.
 
 `sudo trialbox/tools/bench_ci/host_test.sh FOLDER...`, with the settings filled in and no token given: it runs
 install, checks that the egress proxy starts and stays up with no restart in `tb-bench`'s own store and runtime
-folder, runs verify (the token's lines and the slots' say NOT RUN: there is no token), then remove, and checks that
-nothing is left. It ends with one line of counts and exits 1 on any failure. Its report names no folder, path or
-host (each is a stand-in such as `<folder 1>` or `<scratch>`), so the walk posts it on the pull request as it is; the
-whole logs stay on the host in a root-only folder under `/var/tmp`. It refuses to start while a token is installed,
-because its last step removes everything. A change to `install.sh`, the units or the launcher rides only after this
+folder, runs verify (the token's lines and the slots' say NOT RUN: there is no token, and they are counted as not
+run), then remove, and checks that nothing install recorded is left and that the settings are kept. It ends with one
+line of counts and exits 1 on any failure. When the install step fails, nothing after it runs, remove least of all:
+read the install's lines first. A signal (Ctrl-C) ends it with the step it stopped in and what to run next. Its
+report names no folder, path, user, address or host (each is a stand-in such as `<folder 1>`, `<scratch>`,
+`<checkout>`, `<user>` or `<address>`), so the walk posts it on the pull request as it is; the whole logs stay on the
+host in a root-only folder under `/var/tmp`. It refuses to start while a token is installed, because its last step
+removes what install made, the token too. A change to `install.sh`, the units or the launcher rides only after this
 run is clean on the bench host (the integrator's ruling on 1448-19 (3)).
 
 ## Verify
@@ -186,9 +189,13 @@ the hosted runners until the owner's ruling says so.
 ## Remove it completely
 
 1. The owner unsets the repository variable `TB_BENCH_CI` first, so that no new job asks for the runners.
-2. `sudo trialbox/tools/bench_ci/install.sh remove`: stops and removes every slot unit and the proxy, every container,
-   network and image of `tb-bench`, the scratch folder, the token (shredded), `/etc/tb-bench-ci`, `/opt/tb-bench-ci`,
-   the user, its home and its id range. It prints a `LEFT` line for anything still there and exits 1 if any is.
+2. `sudo trialbox/tools/bench_ci/install.sh remove`: stops every slot unit and the proxy, then removes only what
+   install recorded that it made (`/etc/tb-bench-ci/made`, root's, written before each thing is made): the units,
+   every container, network and image of `tb-bench`, the scratch folder, the token (shredded), `/opt/tb-bench-ci`,
+   `/var/lib/cni` if it is still empty, the user, its linger, its home and its id range. What was there before stays:
+   the settings file (the operator's), a scratch folder install refused, a user or folder of the same name. With no
+   record (an install from before the record) it stops the units, deletes nothing and exits 1: the owner decides what
+   goes. It prints a `LEFT` line for anything recorded that is still there and exits 1 if any is.
 3. On the code host, by the owner: the repository's Settings, Actions, Runners: remove any runner named
    `tb-bench-*`; and revoke the token where it was made.
 4. If the runner is not to come back, the workflow stays harmless: with the variable unset its jobs are skipped, and

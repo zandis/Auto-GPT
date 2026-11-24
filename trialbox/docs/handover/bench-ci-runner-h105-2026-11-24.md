@@ -238,3 +238,37 @@ counts; exit 1 on any failure. It uses no token and refuses to start while one i
 folder, path or host, so it can be posted as it is. Its report's own parts are tested here; the run itself is the
 walk's.
 
+## The external review of #1466 at d48a56e (fix first): the Highs, the Medium, the Lows
+
+The review (7132109781, verdict 7132117189) and the integrator's ruling (7132140169). Each is held by a test in
+`tests/unit/test_bench_ci_host_h105.py` (the GPU box's in `test_bench_ci_launcher_h105.py`):
+
+- **1466-1 (High):** a step's log was named after the step, and the CNI folder's step name holds a "/": the redirect
+  failed, the step said FAIL with the folder there, and the failed tail ended the test before verify and remove. Each
+  step's log is now named by its number (`test_a_step_whose_name_holds_a_slash_is_run_and_the_test_goes_on`).
+- **1466-2 (High), as ruled:** remove deletes only what install recorded that it made. The record
+  (`/etc/tb-bench-ci/made`, root's, 0600) gets each thing's line before the thing is made, always written whole
+  (a copy, synced, renamed). A scratch folder install refused, the operator's settings, a user or folder of the same
+  name that was there before, all stay; with no record remove deletes nothing and exits 1. The host test never runs
+  remove (or anything else) after a failed install
+  (`test_a_planted_folder_of_another_owner_survives_install_and_remove`,
+  `test_remove_without_a_record_deletes_nothing_and_says_so`,
+  `test_the_host_test_never_runs_remove_after_a_failed_install`).
+- **1466-3 (Medium), H105-11:** stays open until the walk's run of `host_test.sh` at a head the review says rides is
+  clean.
+- **1466-4:** the GPU record is a FAIL when the card tool's answer cannot be read, names no card or has a short row.
+- **1466-5:** the report also stands in for the checkout's path, the operator's user name and home, and every
+  address (a time of day is kept).
+- **1466-6:** the units' check fails when no unit was laid out; "nothing left" reads the record; verify's NOT RUN lines
+  are counted as not run.
+- **1466-7:** a signal ends the host test with the step it stopped in and what to run next; the record line comes
+  before the thing, so a cut install leaves nothing unrecorded.
+- **1466-8:** remove keeps the settings file (and gives it back to root's own group when the user goes).
+- **1466-9:** install no longer takes an existing folder of another owner, even empty, as scratch; an existing one is
+  taken only if install recorded it, or it is `tb-bench`'s and empty (an earlier install's, then not recorded: kept
+  by remove).
+- **1466-10:** the pull request's body is the lead's: the corrected lines are in the report to the lead.
+
+Not shown here: any of it on the bench host. An install made before the record (the walk's first, at 1fc6579) has no
+record, so the new remove deletes none of it: what goes from it is the owner's decision (a question to the lead).
+

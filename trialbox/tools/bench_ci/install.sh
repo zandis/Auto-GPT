@@ -7,7 +7,8 @@
 #   sudo tools/bench_ci/install.sh token            the minting token, typed or pasted on standard input (not shown,
 #                                                   never an argument, never in the environment or the journal)
 #   sudo tools/bench_ci/install.sh verify PATH...   PATH: each folder a job must never see (typed here, never committed)
-#   sudo tools/bench_ci/install.sh remove           everything this script made, and the token
+#   sudo tools/bench_ci/install.sh remove           only what install recorded that it made (the token too); never
+#                                                   the settings, nor anything that was there before
 #
 # The harms (the page names them): a public repository's self-hosted runner runs strangers' code if a fork-reachable
 # trigger reaches it (the workflow's part, tested); a job that escapes its container reaches the owner's data and keys
@@ -30,7 +31,10 @@ ID_RANGE=262144
 # keeps /var/lib in sight.
 CNI_DIR=/var/lib/cni
 HELPER_DIRS=(/usr/lib/podman /usr/libexec/podman)  # where the distributions put the engine's network helpers
-CNI_MARK="$ETC/made-cni-dir"
+# What install made, one "KIND<tab>NAME" line each, recorded before it is made (a cut install leaves a line for a thing
+# that is not there, never a thing with no line): remove takes away only these (OCR 1466-2: never a folder or file that
+# was there before, such as a scratch folder install refused). Root's, 0600, always written whole (copy, sync, rename).
+MADE="$ETC/made"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FILES=(__init__.py launcher.py gpu_check.py)
 IMAGE_FILES=(runner.Dockerfile entrypoint.sh job_started.sh probe.sh gpu_check.py egress_proxy.py gate.py unpack_jit.py)
@@ -38,6 +42,15 @@ IMAGE_FILES=(runner.Dockerfile entrypoint.sh job_started.sh probe.sh gpu_check.p
 die() { echo "bench CI install: $*" >&2; exit 1; }
 say() { echo "bench CI install: $*"; }
 need_root() { [ "$(id -u)" = 0 ] || die "run as root (sudo)"; }
+was_made() { [ -f "$MADE" ] && grep -qxF -- "$1"$'\t'"$2" "$MADE"; }
+record_made() {  # record_made KIND NAME: before the thing is made
+  ! was_made "$1" "$2" || return 0
+  local tmp
+  tmp="$(mktemp "$ETC/.made.XXXXXX")" || die "the record of what install made cannot be written in $ETC"
+  { { [ ! -f "$MADE" ] || cat -- "$MADE"; } && printf '%s\t%s\n' "$1" "$2"; } >"$tmp" &&
+    chown root:root "$tmp" && chmod 0600 "$tmp" && sync -- "$tmp" && mv -f -- "$tmp" "$MADE" && sync -- "$ETC" ||
+    { rm -f -- "$tmp"; die "the record of what install made could not be written: nothing more is made"; }
+}
 launcher() { (cd "$SRC/../.." && python3 -s -E -m tools.bench_ci.launcher "$@"); }  # from the checkout
 get() { launcher get --settings "$SETTINGS" "$1"; }
 uid_of() { id -u "$USER_NAME"; }
@@ -95,15 +108,19 @@ prerequisites() {
 
 make_user() {
   if ! id "$USER_NAME" >/dev/null 2>&1; then
+    record_made user "$USER_NAME"
+    [ -e "$HOME_DIR" ] || record_made dir "$HOME_DIR"
     useradd --system --user-group --create-home --home-dir "$HOME_DIR" --shell /usr/sbin/nologin "$USER_NAME"
   fi
   [ "$(id -nG "$USER_NAME")" = "$USER_NAME" ] || die "$USER_NAME is in another group ($(id -nG "$USER_NAME")): it must not be"
   chmod 0700 "$HOME_DIR"
   if ! grep -q "^$USER_NAME:" /etc/subuid || ! grep -q "^$USER_NAME:" /etc/subgid; then
     local start
+    record_made subid "$USER_NAME"
     start="$(awk -F: 'BEGIN { m = 1000000 } { e = $2 + $3; if (e > m) m = e } END { print m }' /etc/subuid /etc/subgid)"
     usermod --add-subuids "$start-$((start + ID_RANGE - 1))" --add-subgids "$start-$((start + ID_RANGE - 1))" "$USER_NAME"
   fi
+  [ -e "/var/lib/systemd/linger/$USER_NAME" ] || record_made linger "$USER_NAME"
   loginctl enable-linger "$USER_NAME"
   for _ in $(seq 30); do [ -d "/run/user/$(uid_of)" ] && break; sleep 1; done
   [ -d "/run/user/$(uid_of)" ] || die "no runtime folder for $USER_NAME after enabling linger"
@@ -111,6 +128,8 @@ make_user() {
 }
 
 install_files() {
+  [ -e "$OPT" ] || record_made dir "$OPT"
+  [ -e "$UNITS/tb-bench-proxy.service" ] || [ -e "$UNITS/tb-bench-runner@.service" ] || record_made units "$UNITS"
   install -d -m 0755 -o root -g root "$OPT" "$OPT/tools" "$OPT/tools/bench_ci"
   install -m 0644 -o root -g root /dev/null "$OPT/tools/__init__.py"
   for f in "${FILES[@]}"; do install -m 0644 -o root -g root "$SRC/$f" "$OPT/tools/bench_ci/$f"; done
@@ -121,10 +140,12 @@ install_files() {
   local scratch
   scratch="$(get BENCH_SCRATCH)"
   case "$scratch" in /|/home|/home/*|/root|/root/*|/etc|/etc/*|"$HOME_DIR"|"$HOME_DIR"/*) die "scratch $scratch is not a folder of its own" ;; esac
-  if [ -e "$scratch" ]; then
-    [ "$(stat -c %U "$scratch")" = "$USER_NAME" ] || [ -z "$(ls -A "$scratch")" ] || die "scratch $scratch is in use by another owner"
+  # OCR 1466-9: a folder that is already there is taken only if install made it, or it is tb-bench's and empty (an
+  # earlier install's); never another owner's, even empty: install would hand it to the jobs' user
+  if [ -e "$scratch" ] && ! was_made dir "$scratch"; then
+    { [ "$(stat -c %U "$scratch")" = "$USER_NAME" ] && [ -z "$(ls -A "$scratch")" ]; } ||
+      die "scratch $scratch is in use by another owner: name a folder that is not there yet (install makes it)"
   fi
-  install -d -m 0700 -o "$USER_NAME" -g "$USER_NAME" "$scratch"
   # 1448-22: root makes and removes the slots' folders in here: no folder above it may be a link, not root's, or
   # writable by anyone but root, or a link put there sends root elsewhere
   local up="$scratch"
@@ -133,6 +154,8 @@ install_files() {
     { [ ! -L "$up" ] && [ "$(stat -c %u "$up")" = 0 ] && [ $((0$(stat -c %a "$up") & 022)) = 0 ]; } ||
       die "scratch $scratch: $up must be root's, not a link, and writable by root only"
   done
+  [ -e "$scratch" ] || record_made dir "$scratch"
+  install -d -m 0700 -o "$USER_NAME" -g "$USER_NAME" "$scratch"
   say "files in $OPT, units in $UNITS, settings $SETTINGS (root:$USER_NAME 0640), scratch $scratch (0700)"
 }
 
@@ -158,8 +181,8 @@ make_networks() {
   local engine
   engine="$(get BENCH_ENGINE)"
   if [ ! -d "$CNI_DIR" ]; then
+    record_made dir "$CNI_DIR"  # remove takes it away again if it is still empty
     install -d -m 0755 -o root -g root "$CNI_DIR"
-    : >"$CNI_MARK"  # made here: remove takes it away again if it is still empty
   fi
   as_tb "$engine" network exists tb-bench-egress || as_tb "$engine" network create tb-bench-egress >/dev/null
   say "networks: tb-bench-egress (the proxy's way out); each job gets its own internal network at its start"
@@ -180,6 +203,7 @@ start_units() {
 cmd_install() {
   need_root
   prerequisites
+  [ -e "$TOKEN" ] || record_made file "$TOKEN"  # the token step writes it; remove shreds it
   make_user
   install_files
   build_image
@@ -265,40 +289,68 @@ cmd_verify() {
 
 cmd_remove() {
   need_root
-  local engine="" scratch="" unit
+  # OCR 1466-2: only what install recorded that it made goes; what was there before stays (the operator's settings,
+  # a folder of another owner named as scratch by a slip, a user or folder of the same name)
+  local engine="" scratch="" unit kind name
+  if [ ! -f "$MADE" ]; then
+    say "no record of what install made ($MADE): the units are stopped, nothing is deleted"
+  fi
   if [ -f "$SETTINGS" ]; then engine="$(get BENCH_ENGINE || true)"; scratch="$(get BENCH_SCRATCH || true)"; fi
   while read -r unit; do
     if [ -n "$unit" ]; then systemctl disable --now "$unit" || true; fi
   done < <(systemctl list-units --all --plain --no-legend 'tb-bench-runner@*' | awk '{print $1}')
   systemctl disable --now tb-bench-proxy.service 2>/dev/null || true
-  rm -f "$UNITS/tb-bench-runner@.service" "$UNITS/tb-bench-proxy.service"
+  if was_made units "$UNITS"; then rm -f "$UNITS/tb-bench-runner@.service" "$UNITS/tb-bench-proxy.service"; fi
   systemctl daemon-reload
   systemctl reset-failed 2>/dev/null || true
-  if id "$USER_NAME" >/dev/null 2>&1 && [ -n "$engine" ] && [ -x "$engine" ]; then
+  if was_made user "$USER_NAME" && id "$USER_NAME" >/dev/null 2>&1 && [ -n "$engine" ] && [ -x "$engine" ]; then
     as_tb "$engine" rm --all --force >/dev/null 2>&1 || true
-    if [ -n "$scratch" ] && [ -d "$scratch" ]; then as_tb "$engine" unshare rm -rf --one-file-system "$scratch" || true; fi
+    if [ -n "$scratch" ] && was_made dir "$scratch" && [ -d "$scratch" ]; then
+      as_tb "$engine" unshare rm -rf --one-file-system "$scratch" || true
+    fi
     as_tb "$engine" network ls --quiet --filter name=tb-bench | while read -r net; do
       as_tb "$engine" network rm --force "$net" >/dev/null 2>&1 || true
     done
     as_tb "$engine" system reset --force >/dev/null 2>&1 || true
   fi
-  if [ -n "$scratch" ] && [ -d "$scratch" ]; then rm -rf --one-file-system "$scratch"; fi
-  if [ -f "$TOKEN" ]; then shred -u "$TOKEN" 2>/dev/null || rm -f "$TOKEN"; fi
-  if [ -f "$CNI_MARK" ]; then rmdir "$CNI_DIR" 2>/dev/null || say "$CNI_DIR is left: something else has put files in it"; fi
-  rm -rf "$ETC" "$OPT"
-  if id "$USER_NAME" >/dev/null 2>&1; then
-    loginctl disable-linger "$USER_NAME" || true
-    loginctl terminate-user "$USER_NAME" 2>/dev/null || true
-    userdel --remove "$USER_NAME" 2>/dev/null || userdel "$USER_NAME"
+  if [ -n "$scratch" ] && [ -d "$scratch" ]; then
+    if was_made dir "$scratch"; then rm -rf --one-file-system "$scratch"; else say "scratch $scratch is kept: install did not make it"; fi
   fi
-  sed -i "/^$USER_NAME:/d" /etc/subuid /etc/subgid
-  rm -rf "$HOME_DIR"
+  if was_made file "$TOKEN" && [ -f "$TOKEN" ]; then shred -u "$TOKEN" 2>/dev/null || rm -f "$TOKEN"; fi
+  if was_made dir "$CNI_DIR" && [ -d "$CNI_DIR" ]; then
+    rmdir "$CNI_DIR" 2>/dev/null || say "$CNI_DIR is left: something else has put files in it"
+  fi
+  if was_made dir "$OPT"; then rm -rf "$OPT"; fi
+  if was_made user "$USER_NAME" && id "$USER_NAME" >/dev/null 2>&1; then
+    if was_made linger "$USER_NAME"; then loginctl disable-linger "$USER_NAME" || true; fi
+    loginctl terminate-user "$USER_NAME" 2>/dev/null || true
+    if was_made dir "$HOME_DIR"; then userdel --remove "$USER_NAME" 2>/dev/null || userdel "$USER_NAME"; else userdel "$USER_NAME"; fi
+  fi
+  if was_made subid "$USER_NAME"; then sed -i "/^$USER_NAME:/d" /etc/subuid /etc/subgid; fi
+  if was_made dir "$HOME_DIR"; then rm -rf "$HOME_DIR"; fi
+  if ! id "$USER_NAME" >/dev/null 2>&1 && [ -d "$ETC" ]; then  # the settings go back to root's own (no group left)
+    chown root:root "$ETC" && chmod 0750 "$ETC"
+    if [ -f "$SETTINGS" ]; then chown root:root "$SETTINGS" && chmod 0600 "$SETTINGS"; fi
+  fi
   local left=0
-  for p in "$ETC" "$OPT" "$HOME_DIR" "$UNITS/tb-bench-runner@.service" "$UNITS/tb-bench-proxy.service"; do
-    [ ! -e "$p" ] || { echo "LEFT $p"; left=1; }
-  done
-  ! id "$USER_NAME" >/dev/null 2>&1 || { echo "LEFT the user $USER_NAME"; left=1; }
-  ! grep -q "^$USER_NAME:" /etc/subuid /etc/subgid || { echo "LEFT $USER_NAME's id range"; left=1; }
+  if [ ! -f "$MADE" ]; then
+    say "nothing was deleted (no record): stopped only. The owner decides what of an earlier install goes"
+    return 1
+  else
+    while IFS=$'\t' read -r kind name; do
+      case "$kind" in
+        dir | file) [ ! -e "$name" ] || [ "$name" = "$CNI_DIR" ] || { echo "LEFT $name"; left=1; } ;;
+        units) for unit in tb-bench-runner@.service tb-bench-proxy.service; do
+            [ ! -e "$name/$unit" ] || { echo "LEFT $name/$unit"; left=1; }
+          done ;;
+        user) ! id "$name" >/dev/null 2>&1 || { echo "LEFT the user $name"; left=1; } ;;
+        subid) ! grep -q "^$name:" /etc/subuid /etc/subgid 2>/dev/null || { echo "LEFT $name's id range"; left=1; } ;;
+        linger) [ ! -e "/var/lib/systemd/linger/$name" ] || { echo "LEFT $name's linger"; left=1; } ;;
+      esac
+    done <"$MADE"
+    if [ "$left" = 0 ]; then rm -f "$MADE"; fi  # kept while anything is left, so remove can be run again
+  fi
+  say "kept: $SETTINGS (the operator's), and anything install did not make"
   say "removed from this host. Still to do by the owner, on the code host: Settings, Actions, Runners: remove any"
   say "runner named tb-bench-*; and revoke the minting token where it was made."
   [ "$left" = 0 ]

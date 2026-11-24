@@ -35,13 +35,24 @@ if [ -z "$tool" ] || [ ! -x "$tool" ]; then
   record gpu FAIL "no card query tool in the job's card file: not a GPU slot, or the file is missing"
 else
   if "$tool" --query-gpu=name,memory.total,driver_version --format=csv,noheader,nounits > "$OUT/gpu.csv" 2>"$OUT/gpu.err"; then
-    python3 -I - "$OUT/gpu.csv" "$OUT/gpu-record.json" <<'PY'
+    # OCR 1466-4: an answer that cannot be read, or that names no card, is a FAIL, never a PASS with an empty note
+    if summary="$(python3 -I - "$OUT/gpu.csv" "$OUT/gpu-record.json" <<'PY'
 import json, sys
 rows = [[c.strip() for c in line.split(",")] for line in open(sys.argv[1]) if line.strip()]
-cards = [{"model": r[0], "memory_mib": int(float(r[1])), "driver": r[2]} for r in rows if len(r) == 3]
+try:
+    cards = [{"model": r[0], "memory_mib": int(float(r[1])), "driver": r[2]} for r in rows]
+except (ValueError, IndexError):
+    sys.exit(1)
+if not cards or any(len(r) != 3 for r in rows):
+    sys.exit(1)
 json.dump({"count": len(cards), "cards": cards}, open(sys.argv[2], "w"), indent=1)
+print(len(cards), "card(s),", ", ".join(sorted({c["model"] for c in cards})))
 PY
-    record gpu PASS "the GPU record: $(python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print(d["count"], "card(s),", ", ".join(sorted({c["model"] for c in d["cards"]})))' "$OUT/gpu-record.json")"
+)"; then
+      record gpu PASS "the GPU record: $summary"
+    else
+      record gpu FAIL "the card query tool's answer gives no GPU record (no card, or a field it cannot read)"
+    fi
   else
     record gpu FAIL "the card query tool failed: $(tail -c 300 "$OUT/gpu.err")"
   fi
