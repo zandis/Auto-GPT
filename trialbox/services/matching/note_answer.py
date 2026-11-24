@@ -44,8 +44,12 @@ AFFIRMED = ("affirmed", "patient", "current")
 def affirms(answer: object) -> bool:
     """One model's answer (a parsed judge reply: a mapping, or an object with the three attributes) says the quote
     affirms the condition, in this patient, now. A missing or null field is not said: False."""
-    get = answer.get if isinstance(answer, dict) else (lambda k: getattr(answer, k, None))
-    return (get("certainty"), get("experiencer"), get("time")) == AFFIRMED
+    keys = ("certainty", "experiencer", "time")
+    if isinstance(answer, dict):
+        said = tuple(answer.get(k) for k in keys)
+    else:
+        said = tuple(getattr(answer, k, None) for k in keys)
+    return said == AFFIRMED
 
 
 @dataclass(frozen=True)
