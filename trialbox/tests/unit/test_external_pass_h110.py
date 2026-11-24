@@ -448,11 +448,34 @@ def _set_env(env: Path, key: str, value: str) -> None:
     bs.set_env(env, key, value)
 
 
-@pytest.mark.parametrize("write", [_merge_env, _set_env], ids=["M-IB-2 box apply", "ESC-5 backup-install"])
+def _memcaps(env: Path, key: str, value: str) -> None:
+    from tools.trialbox import memcaps
+
+    memcaps.write(env, {key: value}, 1, "synthetic")
+
+
+def _pgsize(env: Path, key: str, value: str) -> None:
+    from tools.trialbox import pgsize
+
+    pgsize.write(env, {key: value})
+
+
+def _image_pins(env: Path, key: str, value: str) -> None:
+    from tools import image_pins
+
+    image_pins.write_env(env, {key: value})
+
+
+@pytest.mark.parametrize(
+    "write",
+    [_merge_env, _set_env, _memcaps, _pgsize, _image_pins],
+    ids=["M-IB-2 box apply", "ESC-5 backup-install", "memcaps", "pgsize", "image_pins"],
+)
 def test_the_box_settings_are_replaced_whole_never_rewritten_in_place(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any
 ) -> None:
-    """Both writers of ``deploy/.env`` (the box's apply, backup-install) rewrote it in place: a cut write left it empty
+    """Every writer of ``deploy/.env`` (the box's apply, backup-install, the memory caps, PostgreSQL's sizes, the image
+    pins) rewrote it in place or by a shared temp name with no sync: a cut write left it empty
     or short (every password gone), and a new file was 0644 until the chmod. Now one helper: a new file beside it,
     0600 from its first byte, on disk, renamed over it."""
     env = tmp_path / ".env"
@@ -469,7 +492,8 @@ def test_the_box_settings_are_replaced_whole_never_rewritten_in_place(
     monkeypatch.setattr(os, "replace", replace)
     write(env, "TB_TZ", "Asia/Tokyo")
     assert env.stat().st_ino != before and modes == [0o600] and env.stat().st_mode & 0o777 == 0o600
-    assert env.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=synthetic-old\nTB_TZ=Asia/Tokyo\n"
+    after = env.read_text(encoding="utf-8")
+    assert "POSTGRES_PASSWORD=synthetic-old\n" in after and "TB_TZ=Asia/Tokyo\n" in after and "TB_TZ=UTC" not in after
 
     def cut(fd: int) -> None:
         raise OSError("synthetic: the power went")
@@ -477,7 +501,7 @@ def test_the_box_settings_are_replaced_whole_never_rewritten_in_place(
     monkeypatch.setattr(os, "fsync", cut)
     with pytest.raises(OSError, match="the power went"):
         write(env, "TB_TZ", "Europe/Paris")
-    assert env.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=synthetic-old\nTB_TZ=Asia/Tokyo\n"
+    assert env.read_text(encoding="utf-8") == after
     assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]  # no temp file left
 
 

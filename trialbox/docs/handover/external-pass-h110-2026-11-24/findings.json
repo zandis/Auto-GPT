@@ -309,7 +309,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "one helper (tools/trialbox/private_file.py replace_private) for both writers; memcaps.py and pgsize.py listed, not changed",
+   "fix": "one helper (tools/trialbox/private_file.py replace_private) for every Python writer: box merge_env, backup_schedule set_env, memcaps, pgsize, image_pins",
    "from": "the external review's ledger 7122384787"
   },
   {
@@ -322,6 +322,17 @@
    "state": "open",
    "fix": "kept with the kind-2 lines: a PoC install ends 1 with the line last",
    "from": "the external review's ledger 7122383360"
+  },
+  {
+   "id": "H110-30",
+   "severity": "Low",
+   "claim": "the shell's sed -i rewrites of deploy/.env (install.sh, poc.sh, the GCP driver) rename a temp file but never fsync it",
+   "severity_basis": "a power cut can leave the new name with unwritten data on some file systems",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card: listed",
+   "from": "H-110, the lead's 7122392004 follow-up"
   }
  ]
 }

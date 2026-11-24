@@ -128,12 +128,9 @@ def write_env(path: Path, changes: dict[str, str | None]) -> None:
         return
     lines = [ln for ln in read_env(path) if ln.partition("=")[0].strip() not in changes]
     lines += [f"{k}={v}" for k, v in sorted(changes.items()) if v]
-    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
-    tmp = path.with_name(f".{path.name}.pins.tmp")
-    tmp.touch(mode=0o600)
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.chmod(mode)
-    tmp.replace(path)
+    from tools.trialbox.private_file import replace_private
+
+    replace_private(path, "\n".join(lines) + "\n")  # H-110: a name of its own, on disk, 0600, owner kept
 
 
 def main(argv: list[str] | None = None) -> int:

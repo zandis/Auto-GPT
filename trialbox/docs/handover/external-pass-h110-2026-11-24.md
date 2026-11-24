@@ -172,12 +172,15 @@ master's version of its file swapped in.
   return at once.
 * **Changed test data.** The bound is 30 s (150 times the measured maximum), with the measurement written beside it.
 
-**Other writers of `deploy/.env` (listed, not changed here).** `tools/trialbox/memcaps.py:196` and
-`tools/trialbox/pgsize.py:107` rewrite it in place (`write_text`). The install runs both with `--write`. They are the
-same fault as ESC-5 and the helper fits them. `tools/image_pins.py` `write_env` renames a temp file, but its name is
-fixed and it has no fsync. `tools/trialbox/finish_check.py` `_write_env` is sound (`mkstemp`, rename). The shell's
-`sed -i` lines in `deploy/install.sh` and `deploy/poc.sh` replace the file by rename, with no fsync. The `>>` lines
-append.
+**Every other Python writer of `deploy/.env` uses the same helper.** `tools/trialbox/memcaps.py` and
+`tools/trialbox/pgsize.py` rewrote it in place; the install runs both with `--write`. `tools/image_pins.py`
+`write_env` used a fixed temp name and no fsync. All three now call `replace_private`, and
+`test_the_box_settings_are_replaced_whole_never_rewritten_in_place` covers all five callers. Each case fails with
+its master file. `tools/trialbox/finish_check.py` `_write_env` was already sound (`mkstemp`, then rename).
+
+**Low, listed and not changed: the shell's `sed -i` lines.** These are in `deploy/install.sh`, `deploy/poc.sh` and
+the GCP driver. GNU `sed -i` writes a temp file and renames it, so a cut leaves the old file or the new one. It does
+not fsync, though, and the temp file takes the old file's mode. The `>>` lines append.
 
 **Not done, and why.** Three things are not done here.
 
