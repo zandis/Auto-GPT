@@ -270,5 +270,8 @@ The review (7132109781, verdict 7132117189) and the integrator's ruling (7132140
 - **1466-10:** the pull request's body is the lead's: the corrected lines are in the report to the lead.
 
 Not shown here: any of it on the bench host. An install made before the record (the walk's first, at 1fc6579) has no
-record, so the new remove deletes none of it: what goes from it is the owner's decision (a question to the lead).
+record, so the new remove deletes none of it. The integrator's ruling (7133000201): by hand, no "adopt" step; runbook
+13 has the section "Removing a runner installed before H-105b" (a read-only listing first, then each piece deleted by
+its own named command, only what the walk's install log ties to that install, both lists posted). The same ruling
+takes the remove test's change (only `$OPT` goes; the settings folder with a planted settings file survives, run).
 

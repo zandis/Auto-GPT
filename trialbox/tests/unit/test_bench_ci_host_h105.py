@@ -525,3 +525,17 @@ def test_the_report_names_no_checkout_operator_or_address(tmp_path: Path) -> Non
     assert "<checkout>/trialbox/tools/bench_ci/install.sh" in out and "11:12:28" in out
     if me.pw_name != "root":
         assert me.pw_dir not in out and f" {me.pw_name} " not in out
+
+
+def test_the_runbook_says_how_to_remove_an_install_from_before_the_record() -> None:
+    """The integrator's ruling 7133000201: by hand, listing first, one named delete per command, no pattern."""
+    page = RUNBOOK.read_text(encoding="utf-8")
+    start = page.index("## Removing a runner installed before H-105b")
+    section = page[start : page.index("\n## ", start + 1)]
+    commands = re.findall(r"^   (sudo .*|getent .*|grep .*|ls .*|systemctl .*)$", section, re.M)
+    first_delete = next(i for i, c in enumerate(commands) if " rm " in f" {c} " or "userdel" in c)
+    assert all("stat" in c or "grep" in c or "list" in c or "getent" in c or "ls " in c for c in commands[:5])
+    assert first_delete > 5  # the read-only listing comes first
+    deletes = [c for c in commands if re.search(r"\brm\b", c)]
+    assert deletes and not any("*" in c or "-f" in c.split() or "-rf" in c for c in deletes), deletes
+    assert "matched against that install's log" in section and "posts the list" in section

@@ -201,6 +201,55 @@ the hosted runners until the owner's ruling says so.
 4. If the runner is not to come back, the workflow stays harmless: with the variable unset its jobs are skipped, and
    nothing else depends on them.
 
+## Removing a runner installed before H-105b
+
+An install made before H-105b (the walk's, at 1fc6579e) left no record of what it made, so `install.sh remove`
+stops its units and deletes none of it (the integrator's ruling 7133000201: by hand, no "adopt" step). The walk, with
+its sudo grant, removes only the pieces its own install made, matched against that install's log, and posts the list
+before and after on the pull request (with the stand-ins of the real-host test: no path, user or host).
+
+1. List, read-only. For each piece: is it there, its owner, and its creation and change times:
+
+   ```
+   getent passwd tb-bench
+   sudo stat -c '%n %U:%G %w %y' /var/lib/tb-bench /opt/tb-bench-ci
+   sudo stat -c '%n %U:%G %w %y' /etc/systemd/system/tb-bench-proxy.service
+   sudo stat -c '%n %U:%G %w %y' /etc/systemd/system/tb-bench-runner@.service
+   grep '^tb-bench:' /etc/subuid /etc/subgid
+   ls -l /var/lib/systemd/linger
+   systemctl list-units --all --plain --no-legend 'tb-bench*'
+   sudo grep '^BENCH_SCRATCH=' /etc/tb-bench-ci/settings.env
+   ```
+
+   Then the scratch folder the settings name (`sudo stat -c '%n %U:%G %w %y' <it>`). Match each piece against the
+   install's log: a piece its log shows it made (useradd, the files' and the units' lines, usermod's id range, the
+   scratch folder made empty) may go. Anything the log does not tie to that install stays, and is named in the post.
+   `/etc/tb-bench-ci` and its settings are the operator's and stay; `/var/lib/cni` was not made by that install.
+2. Stop first, each unit by its own name from the listing (no pattern), then the proxy:
+
+   ```
+   sudo systemctl disable --now tb-bench-runner@cpu-1.service
+   sudo systemctl disable --now tb-bench-proxy.service
+   ```
+
+3. Delete, each piece by its own command, only for the pieces matched in step 1:
+
+   ```
+   sudo rm /etc/systemd/system/tb-bench-proxy.service
+   sudo rm /etc/systemd/system/tb-bench-runner@.service
+   sudo systemctl daemon-reload
+   sudo rm -r /opt/tb-bench-ci
+   sudo loginctl disable-linger tb-bench
+   sudo loginctl terminate-user tb-bench
+   sudo usermod --del-subuids <first>-<last> --del-subgids <first>-<last> tb-bench
+   sudo userdel tb-bench
+   sudo rm -r /var/lib/tb-bench
+   ```
+
+   The id range is the one the listing showed (`<first>-<last>`). The scratch folder goes only if the log shows the
+   install made it, by its own `sudo rm -r <it>`, one folder named in full.
+4. List again (step 1's commands) and post both lists: what went, what stayed and why.
+
 ## What the tests hold, and what only the install can show
 
 Held by tests in the repository: the gate's decision for a fork's pull request and for each condition broken alone

@@ -721,7 +721,7 @@ def test_the_runner_archive_is_checked_and_the_proxy_has_its_way_out() -> None:
     assert "network create tb-bench-egress" in INSTALL and "tb-bench-jobs" not in INSTALL
 
 
-def test_removal_takes_away_everything_it_made_and_says_what_is_left_to_the_owner() -> None:
+def test_removal_takes_away_everything_it_made_and_says_what_is_left_to_the_owner(tmp_path: Path) -> None:
     body = INSTALL[INSTALL.index("cmd_remove() {") : INSTALL.index("\n}\n", INSTALL.index("cmd_remove() {"))]
     for want in ("systemctl disable --now", 'rm -f "$UNITS/tb-bench-runner@.service" "$UNITS/tb-bench-proxy.service"',
                  "rm --all --force", 'network rm --force "$net"', "system reset --force",
@@ -729,6 +729,23 @@ def test_removal_takes_away_everything_it_made_and_says_what_is_left_to_the_owne
                  'userdel --remove "$USER_NAME"', 'sed -i "/^$USER_NAME:/d" /etc/subuid /etc/subgid',
                  "remove any", "revoke the minting token", "LEFT"):  # fmt: skip
         assert want in body, want
+    # the integrator's ruling (7133000201): remove takes $OPT, and the operator's settings folder with its planted
+    # settings file survives, run with stand-ins for root's commands
+    etc, opt = tmp_path / "etc", tmp_path / "opt"
+    etc.mkdir()
+    (etc / "settings.env").write_text("BENCH_REPO=o/r\n", encoding="utf-8")
+    (opt / "tools").mkdir(parents=True)
+    run = (
+        f'set -euo pipefail\nsource "{BENCH_CI / "install.sh"}"\n'
+        f'ETC="{etc}"; SETTINGS="$ETC/settings.env"; TOKEN="$ETC/token"; MADE="$ETC/made"; OPT="{opt}"\n'
+        f'UNITS="{tmp_path}/units"; HOME_DIR="{tmp_path}/home-dir"\n'
+        "need_root() { :; }; systemctl() { :; }; id() { return 1; }; sed() { :; }; get() { :; }; chown() { :; }\n"
+        'record_made dir "$OPT"\ncmd_remove\n'
+    )
+    got = subprocess.run(["bash", "-c", run], check=False, capture_output=True, text=True)
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert not opt.exists() and etc.is_dir()
+    assert (etc / "settings.env").read_text(encoding="utf-8") == "BENCH_REPO=o/r\n"
 
 
 def test_verify_checks_the_named_folders_as_the_runners_user_and_runs_the_probe() -> None:
