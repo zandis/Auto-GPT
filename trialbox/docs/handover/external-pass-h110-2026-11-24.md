@@ -155,6 +155,7 @@ master's version of its file swapped in.
 | L-CI-1 prompts and model cards taken for documents | fixed in this card | `tools/ci_docs_only.py` `CODE_READS`; `test_a_prompt_or_a_model_card_is_never_a_documents_only_change` |
 | L-RR-1 a product name in a shipped script | fixed in this card | `deploy/gcp/setup-gcp.sh` and `docs/VALIDATION.md` name the role, not the product; no test |
 
+| ESC-5 backup-install rewrites `.env` in place (ledger 7122384787) | fixed in this card | `tools/trialbox/backup_schedule.py` `set_env` and the box's `merge_env` use one helper, `tools/trialbox/private_file.py` `replace_private` (0600 from the first byte, on disk, renamed); `test_the_box_settings_are_replaced_whole_never_rewritten_in_place` for each caller |
 | GP-PL-1 the spool maps only `--dbname` (7121587090) | fixed in this card | `tools/trialbox/platform_day2.py` `spool_args`: `--dbname X`, `--dbname=X`, `-d X`, `-dX` and a positional connection (a URI, a key=value string) are each mapped to the job's variable or refused; `test_the_spool_never_writes_the_jobs_connection_in_any_form`, `test_the_spool_refuses_any_other_connection_in_any_form` |
 
 **The ticker and the embedder test's bound (the integrator's 7120213053).** The 120 s timeout in
@@ -169,6 +170,13 @@ master's version of its file swapped in.
   same pattern). Test: `test_a_ticker_a_stop_orphans_never_holds_the_callers_output`, 1000 pairs per script, which
   return at once.
 * **Changed test data.** The bound is 30 s (150 times the measured maximum), with the measurement written beside it.
+
+**Other writers of `deploy/.env` (listed, not changed here).** `tools/trialbox/memcaps.py:196` and
+`tools/trialbox/pgsize.py:107` rewrite it in place (`write_text`). The install runs both with `--write`. They are the
+same fault as ESC-5 and the helper fits them. `tools/image_pins.py` `write_env` renames a temp file, but its name is
+fixed and it has no fsync. `tools/trialbox/finish_check.py` `_write_env` is sound (`mkstemp`, rename). The shell's
+`sed -i` lines in `deploy/install.sh` and `deploy/poc.sh` replace the file by rename, with no fsync. The `>>` lines
+append.
 
 **Not done, and why.** Three things are not done here.
 

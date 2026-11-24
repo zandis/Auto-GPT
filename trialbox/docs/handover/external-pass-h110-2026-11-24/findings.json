@@ -300,6 +300,17 @@
    "state": "open",
    "fix": "the sleep detached from the pipes; the test's bound 30 s with its measurement",
    "from": "the integrator's 7120213053"
+  },
+  {
+   "id": "H110-28",
+   "severity": "Medium",
+   "claim": "ESC-5: backup-install's set_env rewrote deploy/.env in place (truncate, write, no sync): a kill or power cut left it empty, every password lost",
+   "severity_basis": "the same fault as M-IB-2 in a second writer",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "one helper (tools/trialbox/private_file.py replace_private) for both writers; memcaps.py and pgsize.py listed, not changed",
+   "from": "the external review's ledger 7122384787"
   }
  ]
 }
