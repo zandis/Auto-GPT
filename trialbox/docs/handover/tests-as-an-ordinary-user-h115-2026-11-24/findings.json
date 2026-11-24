@@ -108,6 +108,30 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H115-14",
+   "severity": "Medium",
+   "claim": "the re-review's 1462-10: a sticky scratch root another account made first was still accepted, and its owner may rename what is in it; another account's folder in the chain is now refused whatever its sticky bit (root's stays allowed)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 00530c8bb412f9f2b3ba49473f56e4c7eb4ad98b"
+  },
+  {
+   "id": "H115-15",
+   "severity": "Low",
+   "claim": "the re-review's 1462-11: the marker was written through a link, so a root swapped after the checks marked the folder it pointed to; it is now written through the root's own descriptor, opened without following a link",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 00530c8bb412f9f2b3ba49473f56e4c7eb4ad98b"
+  },
+  {
+   "id": "H115-16",
+   "severity": "Low",
+   "claim": "the re-review's 1462-12: two counts named no file list; the exact lists (policy-tests.txt, card-tests.txt, proof-tests.txt) are now beside the page",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 00530c8bb412f9f2b3ba49473f56e4c7eb4ad98b"
   }
  ]
 }

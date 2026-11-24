@@ -6,7 +6,7 @@
   is the whole test set three times in a row on the bench host, as an ordinary user in a clean checkout.
 - **Date:** 2026-11-24
 - **Findings:** [`tests-as-an-ordinary-user-h115-2026-11-24/findings.json`](tests-as-an-ordinary-user-h115-2026-11-24/findings.json)
-  (H115-01 to H115-13)
+  (H115-01 to H115-16)
 - **Files:** the new helper `tests/host_modes.py`, the fixtures of
   `tests/unit/test_install_refuses_unsafe_folders_10k4.py`, `tests/unit/test_rehearsal_real_servers_h89.py`,
   `tests/unit/test_rotate_kek_safety_h97.py` and `tests/unit/test_ops_runner_on.py`, and the new test
@@ -134,11 +134,36 @@ passed. The walk's runner's layout was also run: `--out` at 0775 inside the clon
 `full_set.scratch_test_root` names. `test_backup_key_ceremony.py` and `test_kek_passphrase_review_h96.py` gave 120
 passed as the ordinary user at umask 002, where the review saw 76 failed at `1c5b54a5`.
 
+The fix re-review at `3a887121` (comments 7129897852 and 7129898604) found 1 Medium and 4 Lows. Two of the Lows
+are 1462-7 and 1462-9, still open. Each fix's test fails with `3a887121`'s `tools/pglocal.py` (3 failed, 10 passed,
+as root and as the ordinary user at umask 002).
+
+| Id | Severity | What was wrong | The fix | Its test |
+| --- | --- | --- | --- | --- |
+| 1462-10 | Medium | a sticky scratch root another account made first was still accepted, and the folder's owner can rename what is in it | another account's folder in the chain is refused whatever its sticky bit; root's stays allowed | `test_a_sticky_scratch_root_another_account_made_first_is_refused` (2 modes) |
+| 1462-11 | Low | the marker was written through a link, so a root swapped after the checks marked the folder it pointed to | the marker is written through the root's own descriptor, opened without following a link; a swapped root is refused | `test_a_root_swapped_for_a_link_after_the_checks_leaves_no_marker_elsewhere` |
+| 1462-12 | Low | two counts named no file list | the lists are files beside this page: `policy-tests.txt`, `card-tests.txt` and `proof-tests.txt` | (the commands below) |
+
+The commands, run from `trialbox/` with master 1fc6579e merged. `D` is this page's folder,
+`docs/handover/tests-as-an-ordinary-user-h115-2026-11-24`.
+
+- `PYTHONPATH=libs:services:. .venv/bin/python -m pytest -q -p no:cacheprovider -n 4 $(cat $D/policy-tests.txt)`.
+  These are the 118 unit files that name the workflows, a Dockerfile, the Makefile or a deploy script. The list was
+  made by `grep -lE "\.github/workflows|Dockerfile|\"Makefile\"|/ \"Makefile\"|'Makefile'|deploy/.*\.sh\"|\.rglob\(\"\*\.sh\"\)" tests/unit/*.py`
+  (114 files before master's 4 new bench files). As root: 2906 passed, 0 failed, 8 skipped.
+- `PYTHONPATH=libs:services:. .venv/bin/python -m pytest -q -p no:cacheprovider -n 4 $(cat $D/card-tests.txt)`: the 12
+  files of the card and the files it touches. 582 passed, 0 failed, 0 skipped, as root and as the ordinary user at
+  umask 002.
+- `python -m tools.pglocal mark R`, then `make test-locked TB_TEST_ROOT=R PYTEST_N=4 TESTS="$(cat $D/proof-tests.txt)"`.
+  As the ordinary user at umask 002, with 0775 roots left by an earlier run: 757 passed, 1 skipped, and the roots
+  ended 0755. At umask 022: 757 passed, 1 skipped. As root, with 0775 roots: 758 passed. As root with a fresh scratch
+  root, the database-backed neighbours and the ceremony gave 144 passed.
+
 Left as they are:
 
 - **1462-7.** `tools/engine_probe.py` writes its result with the caller's umask. This is H115-05, a product change
   the card did not make.
-- **1462-9.** `test-pure` and `ci` still make the test root with a plain `mkdir -p`. Nothing fails from it: `ci`
+- **1462-9** (H115-13; the Makefile's lines there are lane N's). `test-pure` and `ci` still make the test root with a plain `mkdir -p`. Nothing fails from it: `ci`
   runs `make test` next, and `test-pure`'s tests use pytest's own base folder. Using `pglocal mark` there would also
   refuse an existing unmarked root that `mkdir -p` accepts today.
 
