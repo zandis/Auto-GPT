@@ -353,12 +353,14 @@ def test_two_runs_at_once_never_leave_keys_the_placed_credential_cannot_open(tmp
 
 
 def _root_stand_ins(tmp: Path) -> Path:
-    """`id -u` says root and `chown` records what it is asked; the secrets folder is the services' user's (uid 10001)
-    when the test itself runs as root, as D-887 finds it on a box."""
+    """`id -u` says root, `chown` records what it is asked, and `find` records its sweep, then runs: run as an ordinary
+    user (CI) no file is root's, so the sweep finds nothing to hand over, and the sweep itself is what is shown. The
+    secrets folder is the services' user's (uid 10001) when the test itself runs as root, as D-887 finds it on a box."""
     b, log = tmp / "bin", tmp / "chown.log"
     (b / "id").write_text('#!/bin/sh\n[ "$1" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id "$@"\n')
     (b / "chown").write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\n')
-    for f in ("id", "chown"):
+    (b / "find").write_text(f'#!/bin/sh\nprintf "find %s\\n" "$*" >> "{log}"\nexec /usr/bin/find "$@"\n')
+    for f in ("id", "chown", "find"):
         (b / f).chmod(0o755)
     if os.geteuid() == 0:
         os.chown(tmp / "secrets", 10001, 10001)
@@ -379,7 +381,10 @@ def test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_us
     _sealed_and_done(tmp_path, keys)
     asked = log.read_text() if log.is_file() else ""
     assert str(tmp_path / "host" / "run" / "trialbox" / "kek") in asked, "the re-run left the runtime KEK root's"
-    assert K.META_FILE in asked, "the re-run left kek.json root's"
+    sweep = f"find {tmp_path / 'secrets'} -maxdepth 1 -type f -user 0 -exec chown"
+    assert sweep in asked, (
+        "the re-run never handed the files it made (kek.json, the wrapped keys) to the services' user"
+    )
 
 
 def test_a_plain_key_goes_only_once_its_wrapped_copy_is_on_disk(
