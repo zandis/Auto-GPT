@@ -109,7 +109,7 @@ def _env(s: dict[str, Path]) -> dict[str, str]:
         "TMPDIR": str(s["tmp"] / "tmp"), "TB_BOOTSTRAP_NO_ROOT": "1", "TB_BOOTSTRAP_ROOT": str(s["opt"]),
         "TB_BOX_NO_ROOT": "1", "TB_BOX_HARDWARE": str(s["hw"]), "TB_BOX_INSTALL": str(s["stub"]),
         "TB_BOX_PY": sys.executable, "TB_FIRSTRUN_HOST_DIR": str(s["tmp"] / "firstrun"),
-        "TB_ISSUE_DIR": str(s["tmp"] / "issue.d"), "TB_SYSTEMD": "0", "TB_BOX_WSL2": "0",
+        "TB_SYSTEMD": "0", "TB_BOX_WSL2": "0",
         "TB_HS1_CALLS": str(s["calls"]),
     }  # fmt: skip
 
