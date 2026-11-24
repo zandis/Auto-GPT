@@ -409,6 +409,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "復元：バックアップ後の操作の再適用が必要",
         "還原：備份之後的操作需重新套用",
     ),
+    "backup.restore_failed": ("Restore failed", "復元の失敗", "還原失敗"),
     # 10K-13 (D-1379): the backup-key ceremony on the host, recorded before backup.pub is made
     "backup.key_ceremony": (
         "Backup key ceremony: the key file and the sheet file on the stick read back; witness named",

@@ -1,0 +1,10 @@
+#!/bin/bash
+# Box-run rehearsal shim for getent on the "VM": a passwd entry names the home of the user that runs it on the VM's
+# disk ($BR_S/vm/root), where box-install.sh keeps the one-time code with no terminal (H-97: a root-only file, never
+# the journal or /etc/issue.d) and box-install-run.sh reads it. Every other question goes to the host's getent.
+if [ "${1:-}" = passwd ]; then
+  mkdir -p "$BR_S/vm/root"
+  echo "root:x:$(id -u):$(id -g)::$BR_S/vm/root:/bin/sh"
+  exit 0
+fi
+exec /usr/bin/getent "$@"

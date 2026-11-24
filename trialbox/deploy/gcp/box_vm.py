@@ -13,8 +13,8 @@ folder and calls one subcommand at a time:
       tools/verify_update.py) and the build's (step b06)
   wizard --issue F --answers F [--connect HOST:PORT] [--cacert F] [--wait S]
       the box's first-run wizard (console.firstrun) as its owner answers it in a browser: the one-time code read off
-      the box's own screen (the issue file deploy/box-install.sh writes), POST /login/first-run, the answers page
-      (its form token and the authenticator key it shows), a code from that key, POST the answers. No shell
+      the box's own screen (the root-only file deploy/box-install.sh writes, H-97), POST /login/first-run, the
+      answers page (its form token and the authenticator key it shows), a code from that key, POST the answers. No shell
       on the box, no file of the console touched: the same HTTP a browser sends
   doctor-verdict DOCTOR_JSON [--expected NAME,NAME]   ``trialbox doctor --json``: FAILs not listed as expected, and
       any rehearsal mark, make it fail (G-2)
@@ -223,7 +223,7 @@ def totp(secret_b32: str, at: float) -> str:
 
 
 def read_screen(issue: Path) -> tuple[str, str]:
-    """The address and the one-time code the installer put on the box's screen (``/etc/issue.d``)."""
+    """The address and the one-time code the installer put in its root-only file (H-97; the screen's text)."""
     text = issue.read_text(encoding="utf-8", errors="replace")
     url = re.search(r"(https?://\S+?)/login/first-run", text)
     code = re.search(r"One-time code:\s+(\S+)", text)
