@@ -143,6 +143,7 @@ SECRET_SETTINGS = (
 #: secret-LOOKING names whose value is not a secret, with why: their line is still redacted by the name rule, but
 #: their value is not replaced in every file (that wrecked JSON, memory limits and host names)
 NOT_SECRETS = {
+    "PINNED_KEY": "the path of the vendor's public key, deploy/keys/vendor_ed25519.pub (install.sh, H-110)",
     "TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)",
     "TB_OIDC_CLIENT_SECRET": "the path of the client secret's file (its value is read from deploy/secrets/authelia)",
     "TB_VENDOR_KEY_SM_NAME": "the name of a Secret Manager secret (box run, R2), not key material",

@@ -205,6 +205,7 @@ not fsync, though, and the temp file takes the old file's mode. The `>>` lines a
 **Changed test data.** Four kinds, none of them an assertion.
 
 * `tests/unit/test_poc_stops_h94.py` `NOT_DRIVEN`: the two new keys (root only).
+* `tools/support_bundle.py` `NOT_SECRETS` (outside the card): `PINNED_KEY`, install.sh's path of the vendor's public key, which holds no secret.
 * `tests/unit/test_poc_stops_bench_h94.py`: the bench's stand-ins gain `pgrep`, a host whose cron daemon runs, as a
   site's does. Without one the new `cron-daemon` stop fires on every bench run. The rehearsal (a container with no
   cron daemon) expects that one line exactly when none runs there.
