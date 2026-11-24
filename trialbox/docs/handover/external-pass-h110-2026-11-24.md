@@ -302,7 +302,7 @@ N), and a stop before the load left N's tree over N-1's images with no marker. F
   `current` checks, the space check and the re-run from the signed tree use the box; `apply_update.sh` gives the
   update `--deploy <box>/deploy`, so its host-tree step records the release the box ran and is the one switch.
   `box-install.sh` goes on from the box once its install step has switched it.
-* Test: `tests/unit/test_bootstrap_upgrade_h110.py::test_a_running_box_stays_on_its_release_until_the_update_step_switches`
+* Test: `tests/unit/test_bootstrap_upgrade_h110.py`, `test_a_running_box_stays_on_its_release_until_the_update_step_switches`
   (a box from N-1 in the host-tree layout; N's installer stops before any load: `current` still names N-1, at its
   start and after). It fails with master's and with `973a87aa`'s `deploy/bootstrap.sh`.
 * Changed assertions of this PR's own tests (none on master): the (a) invariant test, the part-3 test and the
