@@ -147,6 +147,62 @@ Mutants for these fixes, 5, all caught:
 - `nohup` overridden;
 - a command not recorded while it runs.
 
+## The second external review of #1461 (7125647317, at 766ec35)
+
+The verdict was fix first: High 0, Medium 2, Low 5. The reviewer's patches are taken, and I own them. Each new test
+fails at 766ec35 (5 new cases). The card's file now has 85 cases.
+
+- **1461-1 (Medium, the part left): fixed (H114-11).** The switch's moves reached the in-memory record only. A
+  rollback cut short by the console limit's SIGKILL, before the host put-back, left `rollback` a `point.json` without
+  them. Now the rollback saves the rollback point before its put-back (a failed write is ignored). Test:
+  `test_1461_1_a_rollback_killed_after_a_stop_in_the_switch_is_finished_by_recover`, a real TERM inside the switch,
+  then a real SIGKILL during the rollback, then `recover`. Still not covered: a SIGKILL inside the switch itself,
+  before any rollback runs (it needs a `save_point` per move).
+- **1461-3 (Medium, partly fixed): the half left is the ten-second grace.** That is card H-114b (the integrator's
+  ruling 7124945074). It is built on its own branch and is kept out of this pull request.
+- **1461-6 (Low): fixed (H114-12).** A running-command record also names this boot's id and the group leader's start
+  time, and a mismatch drops it. The folder is `deploy/updates/.running`, a dot name that no bundle id can take.
+- **1461-7 (Low): fixed (H114-13).** `sync` sets a site's own link at a release path aside, as it does a file. After
+  a switch back, `restore` also puts back what the new release had displaced.
+- **1461-8 (Low): fixed (H114-14).** `test_1461_1_*` runs its case in a child process, so a regression fails that
+  test and does not end the run.
+- **1461-9 (Low): fixed (H114-15).** The record is written inside the `try` whose handler kills the command's group.
+- **1461-5 (Low): left.** It is in `backup_schedule.py`, which #1455 holds (H114-10).
+- Mutants, 5, all caught:
+  - no `save_point` before the put-back;
+  - the record folder back to `running`;
+  - a record trusted by its group id alone;
+  - `restore` after a switch ignoring `moved`;
+  - the record written before the `try`.
+
+Master 38a06e5 was merged once; it brought one page, with no conflict. The reviewer also noted that `run_cmd` keeps
+its own copy of `procgroup.run`'s steps, so the two must be kept in step by hand. `test_t695_update_stop_boot.py`
+pins the limit behaviour of both.
+- Check (3) of the new process rules (7125828711), on this round's diff:
+  - a running-command record was written in place. A torn record reads as malformed and is dropped, so a put-back
+    still running would no longer hold the recovery. It is now written whole, through `update_status.write_atomic`
+    (temp file, fsync, rename). Test: `test_a_running_record_is_written_whole_never_in_place`; it fails on the
+    in-place write;
+  - the other writes this card adds (the rollback point, the host-tree record) already go through `save_point`;
+  - every signal path is covered by the cases above.
+- The runs before the push, from `trialbox/`:
+  - the set: the policy tests (every unit test that reads the workflows, image files, shell scripts or the
+    Makefile) plus the card's tests and the tests of every touched file, 118 files:
+    `sort -u <(grep -lE 'rglob\("\*\.sh"\)|glob\("\*\*/\*\.sh"\)|glob\("\*\.sh"\)|\.github/workflows|"Makefile"|Dockerfile' tests/unit/*.py) <(grep -lE 'trialbox import update|from tools.trialbox.update|host_tree|procgroup|update_status|apply_update|box_restore|h95_probe' tests/unit/*.py)`;
+  - as root: `.venv/bin/python -m pytest -q -p no:cacheprovider -n 8 <the set>` gave 2614 passed, 8 skipped,
+    0 failed;
+  - as user nobody, with `HOME` and `TMPDIR` a 0700 folder of its own and git's `safe.directory` set:
+    - the first pass, with a 0777 temp folder and no git setting, gave 88 failed, 4 errors and 2519 passed;
+    - rerunning the 20 failing files gave 30 failed and 472 passed;
+    - the same 20 files as nobody on master 38a06e5, in a worktree, gave 24 failed;
+    - the 24 are the same failures on both, and none is in this card's files. Their causes: nobody has no home
+      folder, and it cannot write into the root-owned repository tree;
+    - the 6 more on the branch all read the main checkout's root-owned `trialbox/.cache`, which the master worktree
+      does not have;
+    - the card's own file and every update, host-tree, restore and procgroup test file pass as nobody;
+  - `make lint` clean; `make guard` 1197 passed; `make cross-card` 329 passed; data-scan and security-scan clean;
+    limits and decisions clean; collect-only 24817.
+
 ## H-114b: the console's update limit and the rollback (2026-11-24)
 
 The integrator ruled (7124945074) that lane H takes H114-05 as card H-114b, with bodies only in two other lanes'

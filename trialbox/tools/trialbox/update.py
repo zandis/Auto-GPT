@@ -1445,6 +1445,8 @@ class Updater:
         # said as a failed rollback, the marker kept for ``tools/apply_update.sh rollback`` to finish it
         try:
             us.set_step(self.dir, us.marker(self.dir) or {}, "rollback")
+            with contextlib.suppress(Exception):  # review 1461-1: what the stopped step moved, for a rollback cut short
+                save_point(rb, point)
             self.box.rollback(plan, rb, point)
             self._restore_state(rb)
             put_back = "host tree, images, models, database, rulesets and update state put back"
@@ -1574,17 +1576,33 @@ Runner = Callable[..., str]  # (argv, stdin_file=None, stdout_file=None, env=Non
 #: starts is recorded here by its process group (``running/<pgid>.json``) until it ends. A command runs in a session
 #: of its own (``procgroup``), so a SIGKILL to the updater (the console's time limit, ``kill -9``) leaves it running;
 #: ``recover`` refuses while a recorded group is alive, so two put-backs never run at once.
-RUNNING = "running"
+RUNNING = ".running"  # review 1461-6: a dot name, which no bundle id (and so no bundle's folder) can take
 _running_dir: Path | None = None
 
 
+def _proc_id(pid: int) -> tuple[str | None, str | None]:
+    """This boot's id and the process's start time (from the kernel): with the group id, who the record names
+    (review 1461-6)."""
+    boot = start = None
+    with contextlib.suppress(OSError):
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+    with contextlib.suppress(OSError, IndexError):
+        start = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[19]
+    return boot, start
+
+
 def _record_running(pgid: int, argv: Sequence[str]) -> Path | None:
+    from tools import update_status as us
+
     if _running_dir is None:
         return None
     with contextlib.suppress(OSError):
-        _running_dir.mkdir(parents=True, exist_ok=True)
         f = _running_dir / f"{pgid}.json"
-        f.write_text(json.dumps({"pgid": pgid, "argv": [str(a) for a in argv[:6]], "at": _now()}), encoding="utf-8")
+        boot, start = _proc_id(pgid)
+        # written whole (temp file, fsync, rename): a torn record would read as malformed and be dropped, so a put-back
+        # still running would no longer hold the recovery
+        us.write_atomic(f, {"pgid": pgid, "argv": [str(a) for a in argv[:6]], "at": _now(), "boot": boot,
+                            "start": start})  # fmt: skip
         return f
     return None
 
@@ -1614,6 +1632,10 @@ def alive_commands(updates: Path) -> list[dict[str, Any]]:
         except (OSError, ValueError, KeyError, TypeError):
             f.unlink(missing_ok=True)
             continue
+        boot, start = _proc_id(int(rec["pgid"]))
+        if (rec.get("boot") and boot and rec["boot"] != boot) or (rec.get("start") and start and rec["start"] != start):
+            f.unlink(missing_ok=True)  # review 1461-6: an earlier boot's record, or the group id now another's
+            continue
         out.append(rec)
     return out
 
@@ -1637,8 +1659,9 @@ def run_cmd(
         # that the group is recorded while it runs: review 1461-3)
         with subprocess.Popen(list(argv), start_new_session=True, stdin=fin, stdout=fout or subprocess.PIPE,
                               stderr=subprocess.PIPE, env={**os.environ, **(env or {})}) as proc:  # fmt: skip
-            rec = _record_running(proc.pid, argv)
-            try:
+            rec: Path | None = None
+            try:  # review 1461-9: a stop while the record is written kills the command too
+                rec = _record_running(proc.pid, argv)
                 out, err = proc.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 procgroup._kill(proc.pid, signal.SIGTERM)

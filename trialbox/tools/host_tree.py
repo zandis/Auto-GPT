@@ -368,19 +368,15 @@ def sync(base: Path, into: dict[str, Any] | None = None) -> dict[str, Any]:
                 continue
             p = here / child.name
             if r in ANCESTORS:  # holds site files below it: a real folder
-                if p.is_symlink():
-                    p.unlink()
-                elif p.exists() and not p.is_dir():
+                if p.is_symlink() or (p.exists() and not p.is_dir()):  # a site's own link too (review 1461-7)
                     _aside(p, aside / r, moved, r)
                 p.mkdir(exist_ok=True)
                 walk(PurePosixPath(r))
                 continue
             target = os.path.relpath(cur / r, here)
-            if p.is_symlink():
-                if os.readlink(p) == target:
-                    continue
-                p.unlink()
-            elif p.exists():
+            if p.is_symlink() and os.readlink(p) == target:
+                continue
+            if p.is_symlink() or p.exists():  # a link of the site's own is set aside as a file is (review 1461-7)
                 _aside(p, aside / r, moved, r)
             made.append(r)
             p.symlink_to(target)
@@ -407,6 +403,11 @@ def restore(base: Path, info: dict[str, Any]) -> None:
     prev, rel = info.get("previous"), info.get("release")
     if prev:
         switch(base, prev)
+        for r in info.get("moved") or []:  # review 1461-7: a site file a path of the new release had displaced
+            src, dst = Path(str(info.get("aside"))) / r, base / r
+            if (src.exists() or src.is_symlink()) and not (dst.exists() or dst.is_symlink()):
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                src.rename(dst)
     else:
         cur = base / "current"
         for r in sorted(info.get("linked") or [], reverse=True):

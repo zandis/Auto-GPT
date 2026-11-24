@@ -45,6 +45,7 @@ class Outcome:
     evidence: list[dict[str, Any]] = field(default_factory=list)
     reason: str = ""
     rescue: dict[str, Any] | None = None  # CAS-18: rescuing stage and sentence hash
+    affirmed: bool | None = None  # a note exclusion both models affirmed, the patient's, now (round 5 of R22-16)
 
 
 @dataclass
