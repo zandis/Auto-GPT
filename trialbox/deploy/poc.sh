@@ -72,7 +72,7 @@ alive_start() {
   local what="$1" me=$$
   ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
     while kill -0 "$me" 2>/dev/null; do
-      sleep "${TB_POC_ALIVE_S:-60}" </dev/null >/dev/null 2>&1 & s=$!; wait "$s"; n=$((n + 1))  # no copy of the caller's output (H106-14)
+      sleep "${TB_POC_ALIVE_S:-60}" & s=$!; wait "$s"; n=$((n + 1))
       kill -0 "$me" 2>/dev/null && echo "    ... still $what ($n)" >&2
     done ) & ALIVE_PID=$!
 }

@@ -73,14 +73,24 @@ PLANTED = {"TB_ENV": "TEST", "TB_TEST_BOX": "x", "COMPOSE_PROJECT_NAME": "tbt-x-
            "TEST_BOX": "x", "TB_STOP_REHEARSAL": "1", "TB_REHEARSAL": "1"}  # fmt: skip
 
 
-#: every compose file deploy/install.sh can put in a box's COMPOSE_FILE (the base, the TLS proxy, the monitoring, the
-#: PoC form, the box form, the secrets overlay, each GPU profile): the developers' stacks (test, testbench,
-#: acceptance) and the two-device form are not a box's
+#: every compose file a box's install or start can add (the base, the TLS proxy, the monitoring, the PoC form, the box
+#: form, the secrets overlay, each GPU profile, the second serving profile a test box gets, the stack poc.sh adds)
 BOX_FILES = ("docker-compose.yml", "docker-compose.identity.yml", "docker-compose.monitoring.yml",
              "docker-compose.poc.yml", "docker-compose.box.yml", "docker-compose.secrets.yml",
              "docker-compose.dgpu48.yml", "docker-compose.gb10.yml", "docker-compose.rtx5090.yml",
-             "docker-compose.rtxpro6000.yml", "docker-compose.shared-quota.yml")  # fmt: skip
+             "docker-compose.rtxpro6000.yml", "docker-compose.shared-quota.yml",
+             "docker-compose.serving-second.yml", "docker-compose.test.yml")  # fmt: skip
+#: compose files no box's install or start adds (the acceptance mirrors, the developers' bench): every other
+#: deploy/docker-compose*.yml is in BOX_FILES
+NOT_BOX_FILES = ("docker-compose.acceptance.yml", "docker-compose.testbench.yml")
 PROJECT_VAR = re.compile(r"\$\{COMPOSE_PROJECT_NAME(?::-[^}]*)?\}")
+
+
+def test_the_invariant_reads_every_compose_file_a_box_can_add() -> None:
+    """OCR 1452-14: a compose file added later (master's serving-second.yml came in by a merge) is read by the
+    invariant below, or named here as one no box adds."""
+    every = {p.name for p in (ROOT / "deploy").glob("docker-compose*.yml")}
+    assert every == set(BOX_FILES) | set(NOT_BOX_FILES), sorted(every ^ (set(BOX_FILES) | set(NOT_BOX_FILES)))
 
 
 def _compose_names(project: str) -> tuple[set[str], set[str]]:

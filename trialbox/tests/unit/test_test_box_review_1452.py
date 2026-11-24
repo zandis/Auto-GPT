@@ -108,36 +108,81 @@ def test_1452_2_production_refuses_when_the_boxes_cannot_be_listed(tmp_path: Pat
     assert not (p.tmp / "current").exists()
 
 
-def test_1452_2_two_installs_never_both_pass_the_host_check(tmp_path: Path) -> None:
-    """The host's lock: while another install holds it, a test-box (or PRODUCTION) install waits for it before it
-    looks at the host's boxes, then goes on (a wait, never a stop). The installer runs as root on a host, where the
-    lock file can always be opened; a user who cannot open one another account made installs without it, as before."""
-    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
-    assert text.index("# HOST-LOCK (H-106") < text.index("TB_OTHERS=") < text.index("# ---- end of TEST-BOX: the host")
-    lock = Path("/run/lock/trialbox-boxes.lock")
-    try:
-        fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-    except PermissionError:  # another account's lock file (a root install ran here): the install takes no lock
-        r = H106Box(tmp_path / "t").run("--test-box", "w", "--port-offset", "1", *TEST_ARGS)
-        assert r.rc == 0 and "holds this host's lock" not in r.err, r.text[-1500:]
-        return
+def _hold_then_release(lock: Path, seconds: float) -> tuple[threading.Thread, list[float], int]:
+    """Holds `lock` (an flock) and lets it go after `seconds`: the time it let go is in the list."""
+    fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     fcntl.flock(fd, fcntl.LOCK_EX)
     released: list[float] = []
 
     def release() -> None:
-        time.sleep(3)
+        time.sleep(seconds)
         released.append(time.monotonic())
         fcntl.flock(fd, fcntl.LOCK_UN)
 
     holder = threading.Thread(target=release)
     holder.start()
+    return holder, released, fd
+
+
+def _host_lock_block(folder: Path) -> str:
+    """install.sh's HOST-LOCK block, run as the user the test runs as: its root test (`[ "$TB_ME" = 0 ]`) is the one
+    thing taken out, and its folder is `folder` (both replaced exactly once), then the script says it got past it."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    block = text[
+        text.index("# HOST-LOCK (H-106") : text.index('if [ -n "${TEST_BOX:-}" ]; then\n  [ -z "${TB_SECRETS_HOST_DIR')
+    ]
+    for old, new in (
+        ('[ "$TB_ME" = 0 ]', "true"),
+        ("TB_HOST_LOCK_DIR=/run/trialbox-boxes", f"TB_HOST_LOCK_DIR='{folder}'"),
+    ):
+        assert block.count(old) == 1, old
+        block = block.replace(old, new)
+    return "TEST_BOX=w\n" + block + "echo past\n"
+
+
+def test_1452_2_two_installs_never_both_pass_the_host_check(tmp_path: Path) -> None:
+    """The host's lock: while another install holds it, a test-box (or PRODUCTION) install waits for it before it
+    looks at the host's boxes, then goes on (a wait, never a stop). The lock is in a folder of the installer's own
+    (OCR 1452-13), so the test runs the block on a folder of its own, as any user."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    assert text.index("# HOST-LOCK (H-106") < text.index("TB_OTHERS=") < text.index("# ---- end of TEST-BOX: the host")
+    folder = tmp_path / "locks"
+    folder.mkdir(mode=0o700)
+    holder, released, fd = _hold_then_release(folder / "host.lock", 3)
     try:
-        r = H106Box(tmp_path / "t").run("--test-box", "w", "--port-offset", "1", *TEST_ARGS)
+        r = subprocess.run(
+            ["bash", "-c", _host_lock_block(folder)], capture_output=True, text=True, timeout=60, check=False
+        )
         done = time.monotonic()
     finally:
         holder.join()
         os.close(fd)
-    assert r.rc == 0 and released and done >= released[0], r.text[-1500:]  # it waited for the lock, then went on
+    # it waited for the lock, then went on, and said nothing (no terminal here)
+    assert r.returncode == 0 and r.stdout.strip() == "past" and r.stderr == "" and released and done >= released[0], r
+
+
+def test_1452_13_a_lock_that_cannot_be_taken_is_said_on_the_console(tmp_path: Path) -> None:
+    """OCR 1452-13: a lock folder that is not the installer's own (here a link to another folder, as one another
+    account made would be) is never used, and the install says on the console that it goes on without the lock."""
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "locks").symlink_to(tmp_path / "elsewhere")
+    r = subprocess.run(["bash", "-c", _host_lock_block(tmp_path / "locks")], capture_output=True, text=True, timeout=60,
+                       check=False)  # fmt: skip
+    assert r.returncode == 0 and r.stdout.strip() == "past", r
+    assert "warning: this host's box lock" in r.stderr and "going on without it" in r.stderr, r.stderr
+    assert not (tmp_path / "elsewhere" / "host.lock").exists()
+
+
+def test_1452_13_the_lock_is_in_a_folder_of_root_s_own_and_a_non_root_install_takes_none(tmp_path: Path) -> None:
+    """The real installer: its lock is in /run/trialbox-boxes, a folder root makes for itself (not the shared
+    /run/lock, where any account can make the file first), and only an install run as root takes it. The bench's `id`
+    stand-in names a user other than root, so this install takes no lock and says nothing of one (the root path is
+    the block's own test above)."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    assert "TB_HOST_LOCK_DIR=/run/trialbox-boxes " in text and "TB_HOST_LOCK=/run/lock" not in text
+    assert 'install -d -m 0700 -o "$TB_ME" "$TB_HOST_LOCK_DIR"' in text
+    r = H106Box(tmp_path / "t").run("--test-box", "w", "--port-offset", "1", *TEST_ARGS)
+    assert r.rc == 0 and "box lock" not in r.err and "flock" not in r.err, r.text[-1500:]
     assert "holds this host's lock" not in r.err  # the note is a terminal's only: a captured output never varies
 
 
@@ -230,32 +275,3 @@ def test_1452_8_one_name_and_one_offset_a_host(tmp_path: Path, clash: str) -> No
             "project": "the name 'trialbox' is the project of another box"}[clash]  # fmt: skip
     assert r.rc == 1 and want in r.err, r.text[-1500:]
     assert not (b.deploy / testbox.RECORD).exists() and not (b.tmp / "current").exists()
-
-
-# ------------------------------------------------------------------------------------------------ H106-14
-def test_h106_14_the_heartbeat_s_sleep_never_holds_the_caller_s_output() -> None:
-    """Found by the card's pre-push run (the integrator, 7130040223: an order-dependent failure is a finding): a heartbeat
-    stopped between its `sleep &` and `s=$!` left the sleep running with the caller's output pipe, so whoever reads the
-    install's output waited for it (a test's 120 s, a log's tee). The worst case, the heartbeat killed outright with its
-    sleep running: the install's output still closes at once."""
-    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
-    start = text.index("alive_start() {")
-    end = text.index("\n}\n", text.index("alive_stop() {")) + 3
-    script = text[start:end] + 'alive_start test; sleep 0.5; kill -9 "$ALIVE_PID"; echo done\n'
-    t0 = time.monotonic()
-    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, check=False)
-    # the orphaned sleep ends by itself within 60 s; it holds no pipe of the caller's (what is checked)
-    assert r.stdout.strip() == "done" and time.monotonic() - t0 < 10, r
-
-
-def test_h106_14_the_poc_heartbeat_s_sleep_never_holds_the_caller_s_output() -> None:
-    """The same heartbeat in deploy/poc.sh (lane R's file, a body change under the integrator's go, 7130219155): the
-    heartbeat killed outright with its sleep running, the script's output still closes at once."""
-    text = (ROOT / "deploy" / "poc.sh").read_text(encoding="utf-8")
-    start = text.index("alive_start() {")
-    end = text.index("\n", text.index("alive_stop() {")) + 1
-    script = text[start:end] + 'alive_start test; sleep 0.5; kill -9 "$ALIVE_PID"; echo done\n'
-    t0 = time.monotonic()
-    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, check=False)
-    # the orphaned sleep ends by itself within TB_POC_ALIVE_S (60 s); it holds no pipe of the caller's (what is checked)
-    assert r.stdout.strip() == "done" and time.monotonic() - t0 < 10, r

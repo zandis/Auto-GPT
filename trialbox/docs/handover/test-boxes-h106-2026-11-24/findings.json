@@ -112,7 +112,15 @@
   {
    "id": "H106-14",
    "severity": "Medium",
-   "claim": "the order-dependent failure of tests/unit/test_poc_real_embedder.py::test_a_lake_embedded_by_the_other_embedder_is_refused (the card's pre-push run, a poc.sh run timed out at 120 s) is a race in the heartbeat of deploy/poc.sh (alive_start/alive_stop, lines 71-79), also in deploy/install.sh: a heartbeat stopped between its `sleep &` and `s=$!` leaves the sleep running with the caller's stdout/stderr, so whoever reads the output waits for the sleep (up to TB_POC_ALIVE_S, 600 s in that test); reproduced 5 times in 300 runs of the bare pattern, 0 in 300 with the fix: the sleep gets </dev/null >/dev/null 2>&1. Fixed by this card in deploy/install.sh (test test_h106_14_the_heartbeat_s_sleep_never_holds_the_caller_s_output, which fails without it); and in deploy/poc.sh (lane R's file, a body change under the integrator's go, 7130219155; test test_h106_14_the_poc_heartbeat_s_sleep_never_holds_the_caller_s_output, which fails without it). #1455 (H-110, OCR 1455-4) rewrites the same two lines (one-second sleeps, >/dev/null 2>&1): whichever of #1452 and #1455 lands second merges master first, drops its duplicate and keeps both tests",
+   "claim": "the order-dependent failure of tests/unit/test_poc_real_embedder.py::test_a_lake_embedded_by_the_other_embedder_is_refused (the card's pre-push run, a poc.sh run timed out at 120 s) is a race in the heartbeat of deploy/poc.sh (alive_start/alive_stop, lines 71-79), also in deploy/install.sh: a heartbeat stopped between its `sleep &` and `s=$!` leaves the sleep running with the caller's stdout/stderr, so whoever reads the output waits for the sleep (up to TB_POC_ALIVE_S, 600 s in that test); reproduced 5 times in 300 runs of the bare pattern, 0 in 300 with the sleep's outputs sent to /dev/null (OCR 1452-12, Medium). The integrator's ruling (7131125435, 7131128250): the fix and its test live in #1455 only (H-110, OCR 1455-4: one-second sleeps with the outputs redirected), so #1452 carries neither; #1452's two kill-the-heartbeat tests passed against #1455's lines (be4a0d80). If #1452 needs it to pass its own run, it rides after #1455",
+   "lane": "H",
+   "basis": "shown",
+   "state": "card issued #1455"
+  },
+  {
+   "id": "H106-15",
+   "severity": "Low",
+   "claim": "the external review of affb343 (7131110953): the host lock (HOST-LOCK) was a file in the shared /run/lock, where any account can make it first, and was skipped without a word when it could not be opened or after an hour's wait; its test errored on a host with no /run/lock (1452-13). Fixed: the lock is in /run/trialbox-boxes, a folder root makes for itself (install -d -m 0700, not a link, root's own); a lock that cannot be taken or an hour's wait is said on the console; the block's tests run on a folder of their own as any user. And the invariant read neither master's docker-compose.serving-second.yml nor docker-compose.test.yml (1452-14). Fixed: both read, and a test that every deploy/docker-compose*.yml is read or named as one no box adds",
    "lane": "H",
    "basis": "shown",
    "state": "fixed"

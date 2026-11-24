@@ -215,7 +215,7 @@ alive_start() {
   # it also ends within a minute of the installer's own end (set -e, a signal): it never outlives the install
   ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
     while kill -0 "$installer" 2>/dev/null; do
-      sleep 60 </dev/null >/dev/null 2>&1 & s=$!; wait "$s"; n=$((n + 1))  # no copy of the caller's output (H106-14)
+      sleep 60 & s=$!; wait "$s"; n=$((n + 1))
       kill -0 "$installer" 2>/dev/null && echo "    ... still $what ($n min)" >&2
     done
   ) >&2 & ALIVE_PID=$!
@@ -651,14 +651,23 @@ SECOND_RUN=0
 # its networks); it is exported here so every command of this run, compose's and the script's own, is the box's. No
 # secret of a test box goes where another box's could: no caller's secrets folder, and never the host's KEK folder
 TB_PROJECT=""  # H-106: the script's own (a test box's record), never a caller's
-# HOST-LOCK (H-106, OCR 1452-2): one box's install at a time on this host, from the check of the host's boxes to the
-# install's end (its volumes exist by then), so two installs started together never both pass the check. A lock held
-# by another install is waited for, never a stop; a lock file that cannot be opened (no /run/lock) is not taken
-TB_HOST_LOCK=/run/lock/trialbox-boxes.lock
-if { [ -n "${TEST_BOX:-}" ] || ! tb_poc_box; } && command -v flock >/dev/null \
-    && [ "$(readlink -f "/proc/$$/fd/6" 2>/dev/null)" != "$TB_HOST_LOCK" ] && { exec 6>>"$TB_HOST_LOCK"; } 2>/dev/null; then
-  # the note goes to a terminal only: a captured output is the same whether this run waited or not
-  flock -n 6 || { [ ! -t 2 ] || echo "install: note: another box's install holds this host's lock ($TB_HOST_LOCK): waiting for it" >&2; flock -w 3600 6 || true; }
+# HOST-LOCK (H-106, OCR 1452-2, 1452-13): one box's install at a time on this host, from the check of the host's boxes
+# to the install's end (its volumes exist by then), so two installs started together never both pass the check. A lock
+# held by another install is waited for, never a stop. The lock lives in a folder of root's own under /run (not the
+# shared /run/lock, where any account can make the file first); a lock that cannot be taken, or a wait of an hour,
+# is said on the console and the install goes on. An install not run as root (a developer's) takes no lock
+TB_HOST_LOCK_DIR=/run/trialbox-boxes TB_ME="$(id -u)"
+TB_HOST_LOCK="$TB_HOST_LOCK_DIR/host.lock"
+if { [ -n "${TEST_BOX:-}" ] || ! tb_poc_box; } && [ "$TB_ME" = 0 ] \
+    && [ "$(readlink -f "/proc/$$/fd/6" 2>/dev/null)" != "$TB_HOST_LOCK" ]; then
+  if command -v flock >/dev/null && install -d -m 0700 -o "$TB_ME" "$TB_HOST_LOCK_DIR" 2>/dev/null \
+      && [ ! -L "$TB_HOST_LOCK_DIR" ] && [ "$(stat -c %u "$TB_HOST_LOCK_DIR")" = "$TB_ME" ] && { exec 6>>"$TB_HOST_LOCK"; } 2>/dev/null; then
+    # the note goes to a terminal only: a captured output is the same whether this run waited or not
+    flock -n 6 || { [ ! -t 2 ] || echo "install: note: another box's install holds this host's lock ($TB_HOST_LOCK): waiting for it" >&2
+      flock -w 3600 6 || echo "install: warning: waited an hour for this host's box lock ($TB_HOST_LOCK): going on without it; an install started beside this one is not kept out" >&2; }
+  else
+    echo "install: warning: this host's box lock ($TB_HOST_LOCK) could not be taken (flock, or a folder of root's own there): going on without it; an install started beside this one is not kept out" >&2
+  fi
 fi
 if [ -n "${TEST_BOX:-}" ]; then
   [ -z "${TB_SECRETS_HOST_DIR:-}" ] || die "--test-box: TB_SECRETS_HOST_DIR is set in the environment: a test box keeps its keys in its own project's volume, never in a folder a caller names (another box's could be it). Unset it (nothing was changed)"  # H-94 (5)
