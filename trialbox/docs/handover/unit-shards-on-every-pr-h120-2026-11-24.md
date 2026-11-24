@@ -35,8 +35,8 @@ proved (D-578) still skips them, as before.
 
 ## The policy test
 
-`tests/unit/test_h120_unit_shards_every_pr.py::test_every_pull_request_runs_the_unit_shards` is one of 126 tests in
-the file. The rest:
+`test_every_pull_request_runs_the_unit_shards` in `tests/unit/test_h120_unit_shards_every_pr.py` is one of 126
+tests in the file. The rest:
 
 - `tools/ci_tier.py` is run as the `changes` job runs it, over a table of 13 path sets × draft or not × 4 label states:
   a docs page, a document code reads, a markdown file outside docs, a test file only, a shell script, a tool, a

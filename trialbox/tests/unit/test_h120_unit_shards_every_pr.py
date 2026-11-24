@@ -80,13 +80,15 @@ def _eq(a: Any, b: Any) -> bool:
     return bool(a == b)
 
 
-class _Parser:
-    FUNCS = {
-        "startswith": lambda a, b: str(a).lower().startswith(str(b).lower()),
-        "endswith": lambda a, b: str(a).lower().endswith(str(b).lower()),
-        "contains": lambda a, b: str(b).lower() in str(a).lower(),
-    }
+#: the functions a condition may call, as GitHub defines them (ignoring case)
+FUNCS: dict[str, Any] = {
+    "startswith": lambda a, b: str(a).lower().startswith(str(b).lower()),
+    "endswith": lambda a, b: str(a).lower().endswith(str(b).lower()),
+    "contains": lambda a, b: str(b).lower() in str(a).lower(),
+}
 
+
+class _Parser:
     def __init__(self, text: str, ctx: dict[str, Any], status: dict[str, bool], allowed: set[str] | None) -> None:
         self.toks, self.i, self.ctx, self.status, self.allowed = _tokens(text), 0, ctx, status, allowed
 
@@ -101,7 +103,7 @@ class _Parser:
     def parse(self) -> Any:
         v = self.or_()
         if self.i != len(self.toks):
-            raise Unknown(f"trailing {self.toks[self.i:]}")
+            raise Unknown(f"trailing {self.toks[self.i :]}")
         return v
 
     def or_(self) -> Any:
@@ -164,8 +166,8 @@ class _Parser:
             if name in self.status:
                 assert not args
                 return self.status[name]
-            if name in self.FUNCS:
-                return self.FUNCS[name](*args)
+            if name in FUNCS:
+                return FUNCS[name](*args)
             raise Unknown(f"function {val}()")
         root = val.split(".", 1)[0]
         if root not in ("github", "needs", "env", "vars"):
@@ -343,7 +345,7 @@ def test_the_changes_job_hands_the_tier_codes_unit_on() -> None:
     changes = _jobs()["changes"]
     assert changes["outputs"]["unit"] == "${{ steps.tier.outputs.unit }}"
     tier = next(s for s in changes["steps"] if s.get("id") == "tier")
-    assert "tools/ci_tier.py" in tier["run"] and ">> \"$GITHUB_OUTPUT\"" in tier["run"]
+    assert "tools/ci_tier.py" in tier["run"] and '>> "$GITHUB_OUTPUT"' in tier["run"]
     assert "if" not in tier and not tier.get("continue-on-error")
 
 
