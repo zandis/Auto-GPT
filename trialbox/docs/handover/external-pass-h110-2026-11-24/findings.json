@@ -1,0 +1,162 @@
+{
+ "card": "H110",
+ "title": "the external review pass's findings on lane H",
+ "date": "2026-11-24",
+ "source": "docs/handover/external-pass-h110-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H110-01",
+   "severity": "High",
+   "claim": "with a kept tree in /opt/trialbox the bootstrap ran that tree's installer (box-install.sh or install.sh, and install.sh's tools before the switch), not the signed release's: the vendor key's signature did not cover the code that ran",
+   "severity_basis": "root code that IT's fingerprint check does not cover",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "deploy/bootstrap.sh runs a kept tree only when every file of the checked host tar is there with its bytes and no code beside them; else a kind-1 refusal on every box; the rehearsal's bootstrap step plants a box-install.sh",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-02",
+   "severity": "Low",
+   "claim": "the stick's launcher exited silently when the vendor key's fingerprint failed",
+   "severity_basis": "a stop with no words",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed dcfbf4f8",
+   "fix": "already gone: HS-1's review (PR #1386) stops with 'the vendor key on the stick cannot be read'; held by a test",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-03",
+   "severity": "Medium",
+   "claim": "the log retention and the nightly signed audit head ran from /etc/cron.d only: on a systemd host with no cron daemon they never ran",
+   "severity_basis": "no retention and no signed head on such a box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "install.sh writes trialbox-retention.service and .timer there (never both); check_host takes the timers for the cron files; the PRODUCTION stop on such a host was already gone by H-92 (PR #1388)",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-04",
+   "severity": "Low",
+   "claim": "a failed timer enable left the backup units beside the cron file",
+   "severity_basis": "two schedules",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d869a324",
+   "fix": "already gone: H-92's review removes the timers (verified) before the cron file is written",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-05",
+   "severity": "Medium",
+   "claim": "H-109: a MAILTO such as 'IT <it@site>' raised ValueError and the timer fallback caught only OSError",
+   "severity_basis": "a box with no backup schedule",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d869a324",
+   "fix": "already gone: the fallback catches ValueError; the timer now carries a name and an address too, so such a box keeps its timers",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-06",
+   "severity": "Medium",
+   "claim": "the start path refused a deploy/.env that group or others could write, not one they could read",
+   "severity_basis": "the services' passwords where others read them",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "tools/trialbox/launch.py box_file refuses group or other read bits too (H-94 (5)); the rehearsal's doctor step",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-07",
+   "severity": "Medium",
+   "claim": "the host check never looked at a plain site key's read bits under the poc profile",
+   "severity_basis": "a site key others can read on a PoC box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "deploy/check_host.sh FAILs a plain key with group or other bits on every box; kept by tb_kept_fails",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-08",
+   "severity": "Low",
+   "claim": "tb_kept_fails keeps host check lines by their wording: the unsealed-key line said 'mode 600' and so a 0600 plain key stopped a PoC install as a secret others can read",
+   "severity_basis": "a false stop now; a missed stop after a rewording",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the unsealed-key line names no mode; a kind marker needs the integrator's ruling (it changes the line test_poc_stops_review_h94.py asserts)",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-09",
+   "severity": "Low",
+   "claim": "the install runs with no lock on a PoC box without flock",
+   "severity_basis": "the owner's ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "not a defect",
+   "fix": "D-1091: none of the five; warned and listed (install-lock-flock)",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-10",
+   "severity": "Low",
+   "claim": "stty -echo at the passphrase prompt had no trap: a signal there left the terminal without echo",
+   "severity_basis": "a terminal left without echo",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the KEK-INPUT block traps HUP, INT and TERM around the prompt, turns the echo back on and re-sends the signal",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-11",
+   "severity": "Medium",
+   "claim": "the host restore took no lock",
+   "severity_basis": "two restores over one volume",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "already gone: H-100's re-review R7 (PR #1421), deploy/site/restore.lock under flock",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-12",
+   "severity": "Low",
+   "claim": "the restore's passwords pass to the container as -e NAME",
+   "severity_basis": "no new reader",
+   "lane": "H",
+   "basis": "shown",
+   "state": "not a defect",
+   "fix": "never on a command line; the container's configuration is root's and the docker group's, who read deploy/.env already",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-13",
+   "severity": "Medium",
+   "claim": "the install's peak disk count takes each image archive once against Docker's data root",
+   "severity_basis": "a disk filled mid-load if the engine keeps twice the archive",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "not in this card: H95-02, the bench's measurement first",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-14",
+   "severity": "Medium",
+   "claim": "a KEK rotation to the passphrase the box is sealed under was allowed (a new salt, a new KEK id): the exposed passphrase still opened the box",
+   "severity_basis": "an exposed passphrase rotated to itself",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "tools/keys.py new_kek refuses a new passphrase that derives the old KEK under the old kek.json",
+   "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  }
+ ]
+}

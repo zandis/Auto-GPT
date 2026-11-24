@@ -343,7 +343,11 @@ if [ -d "$SECRETS" ]; then
   for f in site_hmac.key pid_map.key; do  # the pid map rows are in the trial database (schema pidmap)
     if [ -f "$SECRETS/$f" ]; then
       m=$(mode "$SECRETS/$f")
-      facility strict "$f is a plain file (mode $m): seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)" "$f sealed"
+      # H-110 (f): a plain key group or others can read is a secret where others can read it (H-94 (5)): a FAIL on
+      # every box and profile, which the install keeps as a refusal (tb_kept_fails)
+      case "$m" in *00) ;; *) fail "$f mode $m: a plain site key that group or others can read (want 600, root-owned)" ;; esac
+      # H-110 (g): this line names no mode: a plain key only its owner reads is not one of the five on a PoC box
+      facility strict "$f is a plain file: seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)" "$f sealed"
     elif [ -f "$SECRETS/$f.wrapped" ]; then
       pass "$f sealed under the KEK ($f.wrapped)"
     else
@@ -386,8 +390,12 @@ elif [ "$free" -lt 20 ]; then warn "free space on $DOCKER_ROOT: $free% (below 20
 else pass "free space on $DOCKER_ROOT: $free%"; fi
 
 # the two cron files of the install (T-632: log retention, backups)
+# H-110 (c): on a systemd host either job may be a timer instead (the retention's, the backup's of H-92)
 for c in trialbox-retention trialbox-backup; do
-  if [ -f "$HR/etc/cron.d/$c" ]; then pass "cron file /etc/cron.d/$c"; else facility strict "cron file /etc/cron.d/$c missing (re-run install.sh)" "cron $c"; fi
+  t="$c.timer"; [ "$c" = trialbox-backup ] && t=trialbox-backup-nightly.timer
+  if [ -f "$HR/etc/cron.d/$c" ]; then pass "cron file /etc/cron.d/$c"
+  elif [ -f "$HR/etc/systemd/system/$t" ]; then pass "systemd timer /etc/systemd/system/$t (no cron file: the timer runs $c)"
+  else facility strict "cron file /etc/cron.d/$c missing (re-run install.sh)" "cron $c"; fi
 done
 # the host's time zone (doctor compares it with the site's, D-315)
 HOST_TZ_NAME="$(timedatectl show -p Timezone --value 2>/dev/null || cat "$HR/etc/timezone" 2>/dev/null || true)"

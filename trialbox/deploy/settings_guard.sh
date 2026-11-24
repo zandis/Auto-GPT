@@ -100,6 +100,10 @@ if [ -f "$DEPLOY/site/compose.anchors.yml" ]; then
     if [ -f "${TB_CRON_DIR:-/etc/cron.d}/trialbox-retention" ]; then
       sed -i 's/; python3 -m tools.trialbox audit-sign//' "${TB_CRON_DIR:-/etc/cron.d}/trialbox-retention"
     fi
+    if [ -f "${TB_SYSTEMD_DIR:-/etc/systemd/system}/trialbox-retention.service" ]; then  # H-110 (c): the timer's job too
+      sed -i 's/; python3 -m tools.trialbox audit-sign//' "${TB_SYSTEMD_DIR:-/etc/systemd/system}/trialbox-retention.service"
+      systemctl daemon-reload 2>/dev/null || true
+    fi
   fi
 fi
 # H-89: a box that carries a rehearsal sign starts only as a whole rehearsal box, never as PRODUCTION (a hand edit of

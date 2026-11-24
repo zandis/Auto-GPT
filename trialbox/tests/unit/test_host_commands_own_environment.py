@@ -205,6 +205,7 @@ def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluste
     settings = {"TB_ENV": "TEST", "TB_DB_URL": DSN, "TB_HAPI_DB_URL": HAPI, "TB_IMAGE": PY_IMAGE, "TB_BACKUP_TARGETS": str(nas),
                 "TB_BACKUP_OFFBOX": str(nas), "TB_DOCKER_VOLUMES": str(d / "volumes")}  # fmt: skip
     (root / "deploy" / ".env").write_text("".join(f"{k}={v}\n" for k, v in settings.items()), encoding="utf-8")
+    (root / "deploy" / ".env").chmod(0o600)  # H-110 (e): the box file is root's alone, as the install writes it
     (root / "deploy" / "secrets").mkdir(exist_ok=True)
     bk.keygen(d / "usb" / "backup.key", root / "deploy" / "secrets" / "backup.pub")  # this test's own key pair
     pgwrap = d / "pgwrap"
@@ -476,6 +477,7 @@ def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_env
         f"TB_ENV=TEST\nTB_IMAGE={PY_IMAGE}\nTB_DB_URL=postgresql://{box['user']}@db:5432/{box['dbs']['trialbox_wf']}\n"
     )
     (root / "deploy" / ".env").write_text(env_text, encoding="utf-8")
+    (root / "deploy" / ".env").chmod(0o600)  # H-110 (e): the box file is root's alone, as the install writes it
     bindir = tmp_path / "sudo-bin"
     bindir.mkdir()
     secure = f"{bindir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -516,6 +518,7 @@ def test_the_box_file_wins_except_for_the_module_forms_drill(tmp_path: Path, mon
     restore-drill`` keeps the caller's connection (#1305, review item 12); the installed ``trialbox restore-drill``
     takes the box's."""
     (tmp_path / ".env").write_text(f"TB_DB_URL={DSN}\nTB_IMAGE={PY_IMAGE}\n", encoding="utf-8")
+    (tmp_path / ".env").chmod(0o600)  # H-110 (e): the box file is root's alone, as the install writes it
     monkeypatch.setattr(launch, "DEPLOY", tmp_path)
     monkeypatch.setattr(sys, "path", list(sys.path))
     caller = "postgresql://x@caller-host:5432/x"
@@ -527,6 +530,7 @@ def test_the_box_file_wins_except_for_the_module_forms_drill(tmp_path: Path, mon
         assert env["TB_DB_URL"] == want, (args, installed, env)
     env = {"TB_ENV": "DEV"}  # a TB_ENV the box's file does not set is never the caller's (PRODUCTION applies)
     (tmp_path / ".env").write_text(f"TB_DB_URL={DSN}\n", encoding="utf-8")
+    (tmp_path / ".env").chmod(0o600)
     assert launch.enter(["backup-status"], env) is None and "TB_ENV" not in env
     (tmp_path / ".env").unlink()
     env = {"TB_ENV": "DEV"}

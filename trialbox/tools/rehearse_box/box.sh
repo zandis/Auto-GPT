@@ -235,6 +235,19 @@ bootstrap)
   [ -f "$opt/deploy/install.sh" ] && cmp -s "$pub" "$opt/deploy/keys/vendor_ed25519.pub" \
     || fail "the bootstrap left no host tree or no vendor key in $opt"
   echo "$out" | grep -q "^running: $opt/deploy/install.sh $BUNDLE --ctgov-check" || fail "the bootstrap did not run the tree's installer"
+  # H-110 (a): the same command on the tree it left: kept, as this release's tree, and its installer runs
+  out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
+  [ "$rc" = 0 ] && echo "$out" | grep -q "^kept: $opt already holds this release's host tree" \
+    || { echo "$out"; fail "the bootstrap did not keep and run this release's own tree (exit $rc)"; }
+  # H-110 (a): a kept tree whose box-install.sh is not the signed release's is refused before it runs (the harm: the
+  # vendor key's signature would cover an installer other than the one that runs); the planted one never runs
+  printf '#!/bin/sh\ntouch "%s"\n' "$W/bootstrap/planted-installer-ran" > "$opt/deploy/box-install.sh"
+  out="$(TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" --box -- --yes 2>&1)"; rc=$?
+  echo "$out" | tail -2
+  [ "$rc" != 0 ] && echo "$out" | grep -q "is not this signed release's (deploy/box-install.sh: not the signed bytes" \
+    && [ ! -e "$W/bootstrap/planted-installer-ran" ] \
+    || fail "a kept tree with another box-install.sh was not refused before it ran (exit $rc)"
+  ok "a kept tree with another box-install.sh: refused (exit $rc), the planted installer never ran"
   rm -rf "$W/bootstrap"
   ok "RUNBOOK §1's first command: bootstrap signature checked, bundle verified, host tree unpacked, key placed, installer run"
   ;;
@@ -376,6 +389,21 @@ doctor)
   # D-887: the pins are the media's placeholders, and the doctor says so where it shows them
   echo "$out" | grep -q "^PASS  serving.*rehearsal placeholder" || fail "the serving line does not name the rehearsal placeholder"
   ok "trialbox doctor --live: passed"
+  # H-110 (e): the start path refuses a deploy/.env group or others can read (the services' passwords, H-94 (5)): the
+  # real host command on this box, then the file's mode put back
+  m="$(stat -c %a "$BOX/deploy/.env")"; chmod 0644 "$BOX/deploy/.env"
+  out="$(cd "$BOX" && env -i PATH=/usr/bin:/bin python3 -m tools.trialbox backup-status 2>&1)"; rc=$?
+  chmod "$m" "$BOX/deploy/.env"
+  [ "$rc" = 2 ] && echo "$out" | grep -q "deploy/.env can be read by group or others (chmod 600 it): nothing was run" \
+    || { echo "$out" | tail -3; fail "a deploy/.env others can read did not stop the host command (exit $rc)"; }
+  ok "a deploy/.env others can read: the host command refused it (exit 2), nothing run"
+  # H-110 (f): a plain site key that others can read FAILs the real host check on this PoC box (a synthetic key in a
+  # folder of the rehearsal's own, never the box's secrets volume); the install keeps that FAIL (tb_kept_fails)
+  fk="$(mktemp -d)"; head -c 32 /dev/urandom > "$fk/site_hmac.key"; chmod 0644 "$fk/site_hmac.key"
+  out="$(sh "$BOX/deploy/check_host.sh" --env "$BOX/deploy/.env" --secrets "$fk" 2>&1)"; rm -rf "$fk"
+  echo "$out" | grep -q "^FAIL  site_hmac.key mode 644: a plain site key that group or others can read" \
+    || fail "a plain site key others can read did not FAIL the host check"
+  ok "a plain site key others can read: the host check FAILs it on this PoC box"
   ;;
 
 # ------------------------------------------------------------------------------------------------ served names

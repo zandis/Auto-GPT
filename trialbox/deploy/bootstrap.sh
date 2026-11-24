@@ -12,7 +12,8 @@
 #      before it does);
 #   2. files/trialbox-host.tar, the release's host tree, has the sha256 the signed manifest names;
 #   3. the tree goes to /opt/trialbox, unpacked beside it and moved whole, never over a folder that holds anything
-#      else. A folder that already holds a TrialBox tree is kept: the installer replaces it from the signed bundle;
+#      else. A folder that already holds a TrialBox tree is kept only when it is this signed release's tree (H-110):
+#      every file of the checked host tree there with the same bytes, and no code beside them; else nothing is run;
 #   4. the key goes to /opt/trialbox/deploy/keys/vendor_ed25519.pub, where the installer's first step looks for it
 #      (refused if a different key is already there);
 #   5. deploy/install.sh runs with the bundle and the arguments after `--`; with --box, deploy/box-install.sh does
@@ -93,7 +94,43 @@ tar -xf "$BUNDLE" -C "$WORK" --no-same-owner "files/$HOST_NAME" 2>/dev/null || d
 
 # ---------------------------------------------------------------------------------------------- 3. /opt/trialbox
 if [ -f "$ROOT/deploy/install.sh" ]; then
-  echo "kept: $ROOT already holds a TrialBox host tree (the installer replaces it from the signed bundle)"
+  # H-110 (a): the installer that runs is the one the signature covers. A kept tree runs only when it is this release's
+  # host tree: each file of the checked tar there (links followed) with the same bytes, and no file the release does
+  # not hold among its code (the two library folders, a module at the top). Any other tree is never run
+  KEPT_DIFF="$(python3 -I -c '
+import hashlib, os, sys, tarfile
+tar, root = sys.argv[1], sys.argv[2]
+def sha(f):
+    h = hashlib.sha256()
+    for b in iter(lambda: f.read(1 << 20), b""):
+        h.update(b)
+    return h.hexdigest()
+signed = {}
+with tarfile.open(tar, "r:") as tf:
+    for m in tf:
+        if m.isfile() and m.name != "HOST-SHA256SUMS":
+            signed[m.name] = sha(tf.extractfile(m))
+bad = []
+for name, want in sorted(signed.items()):
+    try:
+        with open(os.path.join(root, name), "rb") as f:
+            got = sha(f)
+    except OSError:
+        got = None
+    if got != want:
+        bad.append(name + (": missing" if got is None else ": not the signed bytes"))
+for top in ("tools", "libs"):
+    for d, dirs, files in os.walk(os.path.join(root, top), followlinks=True):
+        dirs[:] = [x for x in dirs if x not in ("__pycache__", ".cache", ".venv")]
+        for f in files:
+            rel = os.path.relpath(os.path.join(d, f), root).replace(os.sep, "/")
+            if rel not in signed and not f.endswith((".pyc", ".pyo")):
+                bad.append(rel + ": not in the release")
+bad += [f + ": not in the release" for f in sorted(os.listdir(root)) if f.endswith((".py", ".pth")) and f not in signed]
+print(", ".join(bad[:5]) + (f" and {len(bad) - 5} more" if len(bad) > 5 else ""))
+' "$WORK/files/$HOST_NAME" "$ROOT")" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
+  [ -z "$KEPT_DIFF" ] || die "the TrialBox tree at $ROOT is not this signed release's ($KEPT_DIFF): its installer is not run, nothing was changed. On a box installed before: sudo trialbox update $BUNDLE (RUNBOOK §5). A tree of no install: move $ROOT aside, then run this command again"  # H-94 (1): the signature covers only the signed tree's installer
+  echo "kept: $ROOT already holds this release's host tree (every file as signed)"
 elif [ -e "$ROOT" ] && [ -n "$(ls -A "$ROOT" 2>/dev/null)" ]; then
   die "$ROOT exists and is not a TrialBox host tree: it is not replaced"  # H-94 depends (1): never merged over another folder's files (the tree is the signed bundle's alone)
 else

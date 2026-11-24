@@ -1544,7 +1544,9 @@ def _exec_start(script: str) -> str:
 def unit_files(text: str, mailto: str = "") -> dict[str, str]:
     """The service and timer of each job of the rendered cron file. ``mailto``: what cron's MAILTO did, mail what
     the command prints (it prints only when something is wrong) through the host's sendmail."""
-    if mailto and not re.fullmatch(r"[A-Za-z0-9._+@, -]+", mailto):
+    # H-110 (H-109): a name and an address ("IT <it@site>") as cron's MAILTO takes it; inside the double quotes of the
+    # mail's To: line the angle brackets are plain text
+    if mailto and not re.fullmatch(r"[A-Za-z0-9._+@, <>-]+", mailto):
         raise ValueError("a MAILTO the timer cannot carry: addresses only")
     out = {}
     for name, cal, cmd in timer_jobs(text):

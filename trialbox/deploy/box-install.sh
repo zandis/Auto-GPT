@@ -227,8 +227,14 @@ kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened
 kp_read_stdin() {
   KP_VALUE=""
   if [ -t 0 ]; then
+    # H-110 (i): a hang-up, ^C or kill during the prompt gives the terminal its echo back (each caller asks before it
+    # sets a trap of its own, so the traps are reset to the default after)
+    for kp_sig in HUP INT TERM; do  # the echo back, then the signal again with its own default: the same end as before
+      trap "stty echo 2>/dev/null; trap - $kp_sig; kill -s $kp_sig \$\$" "$kp_sig"
+    done
     stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
     printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    trap - HUP INT TERM
     [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
     kp_again=""
   else
@@ -560,6 +566,10 @@ if [ -z "$OWNER" ]; then
   fi
   if [ "$ANCHOR_UNSAFE" = 1 ] && [ -f "${TB_CRON_DIR:-/etc/cron.d}/trialbox-retention" ]; then  # no head into a refused folder
     sed -i 's/; python3 -m tools.trialbox audit-sign//' "${TB_CRON_DIR:-/etc/cron.d}/trialbox-retention"
+  fi
+  if [ "$ANCHOR_UNSAFE" = 1 ] && [ -f "${TB_SYSTEMD_DIR:-/etc/systemd/system}/trialbox-retention.service" ]; then  # H-110 (c): the timer's job too
+    sed -i 's/; python3 -m tools.trialbox audit-sign//' "${TB_SYSTEMD_DIR:-/etc/systemd/system}/trialbox-retention.service"
+    systemctl daemon-reload 2>/dev/null || true
   fi
 fi
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose

@@ -293,8 +293,14 @@ kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened
 kp_read_stdin() {
   KP_VALUE=""
   if [ -t 0 ]; then
+    # H-110 (i): a hang-up, ^C or kill during the prompt gives the terminal its echo back (each caller asks before it
+    # sets a trap of its own, so the traps are reset to the default after)
+    for kp_sig in HUP INT TERM; do  # the echo back, then the signal again with its own default: the same end as before
+      trap "stty echo 2>/dev/null; trap - $kp_sig; kill -s $kp_sig \$\$" "$kp_sig"
+    done
     stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
     printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    trap - HUP INT TERM
     [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
     kp_again=""
   else
@@ -1477,7 +1483,11 @@ SYSTEMD_HOST=0; [ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/s
   && command -v systemctl >/dev/null && SYSTEMD_HOST=1
 CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finished install in PRODUCTION
 CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
-if [ "$CAN_CRON" = 1 ]; then
+# H-110 (c): a systemd host whose cron daemon does not run (no cron package, or one stopped) runs the job from a timer
+NO_CRON_DAEMON=0
+if [ "$SYSTEMD_HOST" = 1 ] && ! systemctl is-active --quiet cron.service 2>/dev/null \
+    && ! systemctl is-active --quiet crond.service 2>/dev/null; then NO_CRON_DAEMON=1; fi
+if [ "$CAN_CRON" = 1 ] && [ "$NO_CRON_DAEMON" = 0 ]; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
   # NEW-STD-2 (D-562): then the night's signed head of the audit chain into TB_AUDIT_ANCHOR_TARGETS, whatever the
   # first command returned; `trialbox doctor` (audit_heads) FAILs when no folder is set or the newest head is old
@@ -1487,11 +1497,31 @@ if [ "$CAN_CRON" = 1 ]; then
 elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "$SYSTEMD_HOST" != 1 ]; then
   stop_or_warn cron-production "" "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 elif [ "$SYSTEMD_HOST" = 1 ]; then
-  echo "install: warning: no $CRON_DIR: the backup runs from systemd timers; the log retention cron is not installed (H92-02)" >&2
+  # H-110 (c): a systemd host with no cron folder runs the same nightly job from a timer, as the backup's (H-92): the
+  # retention and the signed audit head never wait for a cron daemon the host does not have
+  RET_UNIT="${SYSTEMD_DIR:+$SYSTEMD_DIR/trialbox-retention}"
+  if [ -n "$RET_UNIT" ] && printf '%s\n' "# Written by deploy/install.sh (H-110): the job of /etc/cron.d/trialbox-retention; do not edit." \
+      "[Unit]" "Description=TrialBox log retention and the signed audit head" "After=docker.service trialbox.service" "" \
+      "[Service]" "Type=oneshot" "Environment=PATH=/usr/bin:/bin" \
+      "ExecStart=/bin/sh -c 'cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1'" \
+      > "$RET_UNIT.service" \
+    && printf '%s\n' "# Written by deploy/install.sh (H-110); do not edit." "[Unit]" "Description=TrialBox log retention schedule" "" \
+      "[Timer]" "OnCalendar=*-*-* 00:20:00" "Persistent=true" "" "[Install]" "WantedBy=timers.target" > "$RET_UNIT.timer" \
+    && chmod 644 "$RET_UNIT.service" "$RET_UNIT.timer" && systemctl daemon-reload \
+    && systemctl enable --now trialbox-retention.timer >/dev/null 2>&1; then
+    rm -f "$CRON_DIR/trialbox-retention"  # one schedule, never both (as the backup's, D-1090)
+    echo "install: note: no cron daemon here: the log retention cron is not installed; trialbox-retention.timer runs its job (00:20 daily, H-110)" >&2
+  else
+    echo "install: warning: no cron daemon here: the log retention cron is not installed, and trialbox-retention.timer could not be installed: the log retention and the signed audit head do not run (systemctl status trialbox-retention.timer)" >&2
+  fi
 fi
 # H-94 (D-1091): a finish check warned on a PoC box: the nightly signed head is not written into the refused folder
 [ "${ANCHOR_UNSAFE:-0}" = 0 ] || [ ! -f "$CRON_DIR/trialbox-retention" ] \
   || sed -i 's/; python3 -m tools.trialbox audit-sign//' "$CRON_DIR/trialbox-retention"
+if [ "${ANCHOR_UNSAFE:-0}" = 1 ] && [ -n "${SYSTEMD_DIR:-}" ] && [ -f "$SYSTEMD_DIR/trialbox-retention.service" ]; then  # H-110 (c): the timer's job too
+  sed -i 's/; python3 -m tools.trialbox audit-sign//' "$SYSTEMD_DIR/trialbox-retention.service"
+  systemctl daemon-reload 2>/dev/null || true
+fi
 if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]; then
   # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
   install -m 644 deploy/logrotate/trialbox /etc/logrotate.d/trialbox && echo "    host logs: /etc/logrotate.d/trialbox"
