@@ -9,8 +9,8 @@ never logged or printed, a test shows it never appears in any output, and the su
 ## What was there
 
 - **The gpu stage** is `tools/full_set.py`'s stage `gpu`: `pytest -m llm tests/llm tests/unit/test_judge_tier.py`
-  with `TB_INTEGRATION=1`. `make full-set` runs it as the last stage of each run; the bench workflow's `gpu-suites`
-  job runs `make full-set FULL_SET_ARGS="--only gpu ..."` and its `full-set` job runs the whole set.
+  with `TB_INTEGRATION=1`. `make full-set` runs it as the last stage of each run. No workflow on master runs it
+  yet; the bench workflow proposed on lane H's card H-105 branch (not merged) runs it through `make full-set`.
 - **The endpoints.** `tests/llm/test_llm_layer.py` reads `TB_LLM_EVAL_URL` and `TB_LLM_EVAL_MODEL`, which
   `--llm-url` and `--llm-model` set. `test_judge_tier.py`'s real-model test reads `TB_JUDGE_LLM_URL` and
   `TB_JUDGE_MODEL`, which the stage never set: it was skipped in every gpu stage (H113-02).
@@ -34,19 +34,27 @@ never logged or printed, a test shows it never appears in any output, and the su
 - `tools/full_set.py`: the gpu stage sets `TB_JUDGE_LLM_URL` and `TB_JUDGE_MODEL` from `--llm-url` and
   `--llm-model` too, so the judge suite's real-model test runs. The key comes from the operator's environment.
 
-## The walk: three lines
+## The walk: the key's lines
 
-Run once on the bench host. `KEYFILE` is a path outside the repository and outside any folder that is backed up or
-logged; no `set -x`. Nothing prints the key, and it is never on a command line.
+Run on the bench host. `KEYFILE` is a path outside the repository and outside any folder that is backed up or
+logged, in a parent folder only the walk user can write (mode 0700); no `set -x`. Nothing prints the key, and it is
+never on a command line.
 
 ```
 sudo install -m 0600 -o "$(id -un)" -g "$(id -gn)" /dev/null "$KEYFILE"     # root makes it: the walk user's, 0600
 sudo cat "<the box's install>/deploy/secrets/model/llm.key" > "$KEYFILE"      # the one copy; the shell writes it
 read -r TB_LLM_EVAL_KEY < "$KEYFILE"; export TB_LLM_EVAL_KEY                 # then: make full-set ... --llm-url <local>
+rm -f -- "$KEYFILE"; unset TB_LLM_EVAL_KEY                                    # after the gpu stage: the box keeps the original
 ```
 
+The first three lines come before the run, the fourth after it. Copy again after a key rotation (an old copy makes
+every call a 401). A key with a stray space, CR or control byte (a key file with CRLF line ends) is refused before
+any call, by a message without the key.
+
 The `--llm-url` must name the endpoint by a local host as defined above (loopback, a private address or the
-service name), or the suites refuse the key.
+service name), or the suites refuse the key. The check is on the name, and the connection goes wherever the name
+resolves: on the bench host name the endpoint by a loopback or private address; use the service names only from
+inside the compose network (review 1460-6).
 
 ## Tests
 
@@ -67,9 +75,29 @@ service name), or the suites refuse the key.
 - `test_the_key_is_a_secret_setting_the_support_bundle_scrubs_and_no_service_holds`: the support bundle's
   secret list and its scrub's declarations name it; the secrets overlay clears it for every service.
 
+## Review round (the external review of #1460 at 967d535e: fix first)
+
+| Review | Severity | What | Test (fails at 967d535e) | State |
+| --- | --- | --- | --- | --- |
+| 1460-1 | High | the two gpu-stage tests failed in the pure run (no database) and after any database test (the child took the parent's cluster) | the reviewer's reproductions: pure selection 2 failed, then 37 passed; `test_judge_tier.py` with this file under a test root 2 failed, then 45 passed; with two workers 2 failed, then 51 passed | fixed: the pure tests alone are `nodb`; the child gets its own test root, without the parent's worker or database settings |
+| 1460-2 | Medium | every stage, not only gpu, got the judge's endpoint, so the unit stage's stub judge test called the real model | `test_only_the_gpu_stage_names_the_judge_endpoint` | fixed |
+| 1460-3 | Medium | a key with a stray space, CR, tab or NUL came back whole in the HTTP layer's error text | `test_a_malformed_key_is_refused_before_any_call_and_never_shown` (5 cases) | fixed: refused before any call |
+| 1460-4 | Low | every stage of the set held the key | `test_only_the_gpu_stage_gets_the_key` | fixed |
+| 1460-5 | Low | the invariant copied the gpu stage's command and environment | the invariant now runs `full_set`'s gpu command with `full_set._env` | fixed |
+| 1460-6 | Low | a local name resolves through the host's resolver | the walk section | page |
+| 1460-7 | Low | the page named a bench workflow not on master | the first section | page |
+| 1460-8 | Low | the key's copy outlived the run; no step after a rotation | the walk section: a fourth line | page |
+
+Also from the lead: `TB_LLM_EVAL_KEY` is a secret setting: `tools/support_bundle.py`'s `SECRET_SETTINGS` and the
+secrets overlay's `x-tokens` block (`test_the_key_is_a_secret_setting_the_support_bundle_scrubs_and_no_service_holds`;
+`tests/unit/test_support_bundle_no_secret.py` and `tests/unit/test_compose_secret_reach.py` failed without it).
+
 ## Mutation pass
 
-Seven mutants, each caught: every host local; any local host gets the key; an empty key still sends a header; the
+Review round, four more, each caught: no check of the key's form; the judge's names in every stage; the key in every
+stage; the child session on the parent's test root and worker.
+
+First round, seven mutants, each caught: every host local; any local host gets the key; an empty key still sends a header; the
 holder's repr shows the key; the client logs the header; the suite keeps its plain client; the refusal names the key.
 
 ## Findings

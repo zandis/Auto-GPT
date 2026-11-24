@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
-import sys
 import threading
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
@@ -26,7 +25,8 @@ from tb_testkit.eval_key import ENV, LocalBearer, eval_client, is_local
 
 from tools import vllm_standin as vs
 
-pytestmark = pytest.mark.nodb
+# the pure tests are `nodb`; the two that start the gpu stage are not: its judge suite needs the test database
+NODB = pytest.mark.nodb
 
 ROOT = Path(__file__).resolve().parents[2]
 PLANTED = "h113-synthetic-eval-key-7f3c9a1e5d"  # made up for this test; recognisable in any output
@@ -46,6 +46,7 @@ def standin() -> Iterator[tuple[vs.Standin, str]]:
         srv.server_close()
 
 
+@NODB
 @pytest.mark.parametrize(
     ("host", "local"),
     [
@@ -90,6 +91,7 @@ def _recording(seen: list[httpx.Request], location: str = "") -> httpx.MockTrans
     return httpx.MockTransport(handler)
 
 
+@NODB
 def test_a_host_that_is_not_local_never_gets_the_key() -> None:
     # the client refuses a set key with a public endpoint, and says so without the key
     with pytest.raises(ValueError) as exc:
@@ -154,6 +156,7 @@ def _raw_requests(make: object) -> list[bytes]:
     return [r.replace(hostport, b"127.0.0.1:PORT") for r in got]  # each call has its own port; the rest is compared
 
 
+@NODB
 def test_unset_or_empty_key_sends_todays_requests_byte_for_byte() -> None:
     plain = _raw_requests(lambda u: LlmClient(u, SERVED))
     assert plain
@@ -166,6 +169,7 @@ def test_unset_or_empty_key_sends_todays_requests_byte_for_byte() -> None:
     assert stripped == plain  # the key is the only difference
 
 
+@NODB
 def test_no_object_shows_the_key() -> None:
     client = eval_client("http://127.0.0.1:9/v1", SERVED, {ENV: PLANTED})
     for obj in (client, client.http, client.http.auth, vars(client.http.auth)):
@@ -177,49 +181,30 @@ def test_no_object_shows_the_key() -> None:
 
 
 def _gpu_stage(url: str, out: Path, key: str | None, *extra: str) -> tuple[int, list[ET.Element]]:
-    """The gpu stage's own pytest command (tools/full_set.py) against ``url``, everything it writes under ``out``."""
-    env = {k: v for k, v in os.environ.items() if k != ENV and not k.startswith(("TB_LLM_EVAL", "TB_JUDGE"))}
-    env.update(
-        TB_INTEGRATION="1",
-        TB_LLM_EVAL_URL=url,
-        TB_LLM_EVAL_MODEL=SERVED,
-        TB_JUDGE_LLM_URL=url,
-        TB_JUDGE_MODEL=SERVED,
-        PYTHONPATH=os.pathsep.join(["libs", "services", "."]),
-    )
+    """The gpu stage's own command and environment (``tools.full_set``) against ``url``, all it writes under ``out``.
+
+    The child session starts its own test database under ``out``: never the cluster of this session or of its xdist
+    worker (review 1460-1)."""
+    import argparse
+    from unittest import mock
+
+    from tools import full_set
+
+    gpu = next(st for st in full_set.STAGES if st.name == "gpu")
+    base = {k: v for k, v in os.environ.items() if k != ENV and not k.startswith(("TB_LLM_EVAL", "TB_JUDGE"))}
+    for k in ("PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT", "TB_TEST_PG_DIR", "TB_TEST_DB_URL"):
+        base.pop(k, None)
     if key is not None:
-        env[ENV] = key
+        base[ENV] = key
+    with mock.patch.dict(os.environ, base, clear=True):
+        env = full_set._env(gpu, argparse.Namespace(llm_url=url, llm_model=SERVED, out=str(out)))
+    env["PYTHONPATH"] = os.pathsep.join(["libs", "services", "."])
     junit = out / "junit.xml"
+    report = ["-rA", "-l", "--tb=long", "-p", "no:xdist", f"--junitxml={junit}", f"--log-file={out / 'pytest.log'}",
+              "--log-file-level=DEBUG", "--log-level=DEBUG"]  # fmt: skip
     with (out / "stdout.txt").open("wb") as so, (out / "stderr.txt").open("wb") as se:
         rc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "-p",
-                "no:randomly",
-                "-m",
-                "llm",
-                "-rA",
-                "-l",
-                "--tb=long",
-                "-p",
-                "no:xdist",
-                f"--junitxml={junit}",
-                f"--log-file={out / 'pytest.log'}",
-                "--log-file-level=DEBUG",
-                "--log-level=DEBUG",
-                "tests/llm",
-                "tests/unit/test_judge_tier.py",
-                *extra,
-            ],
-            cwd=ROOT,
-            env=env,
-            stdout=so,
-            stderr=se,
-            check=False,
-            timeout=900,
+            [*gpu.commands[0], *report, *extra], cwd=ROOT, env=env, stdout=so, stderr=se, check=False, timeout=900
         ).returncode
     return rc, list(ET.parse(junit).getroot().iter("testcase"))
 
@@ -253,6 +238,7 @@ def test_gpu_stage_without_the_key_is_refused_by_the_stand_in(standin: tuple[vs.
     assert counts.get("401", 0) > 0 and "200" not in counts, counts
 
 
+@NODB
 def test_full_set_gpu_stage_passes_the_key_through_and_names_both_endpoints(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -270,6 +256,7 @@ def test_full_set_gpu_stage_passes_the_key_through_and_names_both_endpoints(
     assert all(PLANTED not in a for argv in (*gpu.commands, *gpu.always) for a in argv)
 
 
+@NODB
 def test_the_key_is_a_secret_setting_the_support_bundle_scrubs_and_no_service_holds() -> None:
     from tools import bundle_scrub, support_bundle
 
@@ -278,3 +265,55 @@ def test_the_key_is_a_secret_setting_the_support_bundle_scrubs_and_no_service_ho
     overlay = (ROOT / "deploy/docker-compose.secrets.yml").read_text(encoding="utf-8")
     tokens = overlay.split("x-tokens: &tokens", 1)[1].split("\n\n", 1)[0]
     assert f'  {ENV}: ""' in tokens.splitlines()  # cleared in every service that takes the tokens block
+
+
+@NODB
+def test_only_the_gpu_stage_names_the_judge_endpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Review 1460-2: the unit stage runs test_judge_set_agreement_stub (not marked llm), which takes the real
+    endpoint whenever TB_JUDGE_LLM_URL is set: no stage but the gpu stage may set it."""
+    import argparse
+
+    from tools import full_set
+
+    monkeypatch.delenv("TB_JUDGE_LLM_URL", raising=False)
+    monkeypatch.delenv("TB_JUDGE_MODEL", raising=False)
+    opts = argparse.Namespace(llm_url="http://localhost:8000/v1", llm_model=SERVED, out=str(tmp_path))
+    for st in full_set.STAGES:
+        env = full_set._env(st, opts)
+        named = "TB_JUDGE_LLM_URL" in env or "TB_JUDGE_MODEL" in env
+        assert named is (st.name == "gpu"), st.name
+
+
+@NODB
+def test_only_the_gpu_stage_gets_the_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Review 1460-4: the other stages (images, compose, poc, perf, ...) never need the key, so they never hold it."""
+    import argparse
+
+    from tools import full_set
+
+    monkeypatch.setenv(ENV, PLANTED)
+    opts = argparse.Namespace(llm_url="http://localhost:8000/v1", llm_model=SERVED, out=str(tmp_path))
+    for st in full_set.STAGES:
+        assert (ENV in full_set._env(st, opts)) is (st.name == "gpu"), st.name
+
+
+@NODB
+@pytest.mark.parametrize(
+    "bad",
+    [PLANTED + "\r", PLANTED + " ", " " + PLANTED, PLANTED + "\x00", PLANTED + "\t"],
+    ids=["cr", "space", "lead", "nul", "tab"],
+)
+def test_a_malformed_key_is_refused_before_any_call_and_never_shown(standin: tuple[vs.Standin, str], bad: str) -> None:
+    """Review 1460-3: the HTTP layer refuses such a header value with an error that quotes it, key and all, and
+    LlmClient puts that text in its LlmModelFault: the key must be refused before a request, by a message without it."""
+    s, url = standin
+    try:
+        eval_client(url, SERVED, {ENV: bad}).chat_json("ir_extract", VARIABLES, job_id="H113")
+    except ValueError as exc:
+        shown = f"{exc!s} {exc!r}"
+    except Exception as exc:  # the fault before the fix: report its type only, never its text (it holds the key)
+        pytest.fail(f"not refused before the call: {type(exc).__name__}")
+    else:
+        pytest.fail("not refused")
+    assert PLANTED not in shown
+    assert s.stats()["counts"] == {}

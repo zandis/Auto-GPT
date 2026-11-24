@@ -12,7 +12,8 @@ as the gateway sends it. The suites marked ``llm`` call the endpoint directly, s
   ``::1``); one of the box's model service names on its compose networks (:data:`SERVICE_NAMES`); a private or
   link-local IP address written as such (``10/8``, ``172.16/12``, ``192.168/16``, ``169.254/16``, ``fc00::/7``,
   ``fe80::/10``). Any other name, dotted or not, and any public address is not local.
-* The key is never in a URL, a log line, an exception text or a repr: it lives only in the request header.
+* The key must be one printable ASCII token: one with a space, CR, tab or control byte is refused before any call
+  (the HTTP layer's own refusal would quote it). It is never in a URL, a log line, an exception text or a repr.
 """
 
 from __future__ import annotations
@@ -103,5 +104,8 @@ def eval_client(url: str, model: str, env: Mapping[str, str] | None = None) -> L
             f"{ENV} is set but the endpoint host {host!r} is not local (loopback, a model service name or a private "
             "address): the key goes nowhere else"
         )
-    client.http.auth = LocalBearer(host, e[ENV])
+    key = e[ENV]
+    if not all("!" <= ch <= "~" for ch in key):  # a space, CR or NUL: the HTTP layer's refusal would quote the key
+        raise ValueError(f"{ENV} is set but is not one printable ASCII token (a stray space, CR or control byte?)")
+    client.http.auth = LocalBearer(host, key)
     return client
