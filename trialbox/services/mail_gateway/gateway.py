@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import imaplib
 import logging
+import os
 import smtplib
 import socket
 import threading
@@ -19,9 +20,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from tb_common import patient_files, rc1_refusals
+from tb_common import patient_files, rc1_refusals, site_needs
 from tb_common.audit import AuditLog, mask_ids
-from tb_common.config import Config
+from tb_common.config import Config, environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError, trace_of
 from tb_common.objstore import ObjectStore
@@ -219,7 +220,23 @@ class Gateway:
         except Exception as exc:
             return f"{NO_ANSWER}: {type(exc).__name__}"
 
+    def _site_needs(self) -> str:
+        """U-5 (D-1280): the mail-out gate. On a PRODUCTION box no mail leaves while the hospital's name or the mail
+        relay is still needed (missing, not usable, or a stand-in); "" to send, else the gate's line, which names the
+        page "Information still needed". A PoC box sends with the stand-ins."""
+        g = site_needs.gate(
+            "mail_out",
+            production=environment_name(os.environ) not in ("DEV", "TEST", "VALIDATION"),
+            env=os.environ,
+            settings=self.cfg.settings.model_dump(),
+            stand_ins=site_needs.read_mounted_stand_ins(),
+        )
+        return g.message("en") if g.refused else ""
+
     def _attempt(self, req: SendRequest, key: str, message_id: str | None, attempts: int, from_outbox: bool) -> Outcome:
+        needed = self._site_needs()
+        if needed:  # U-5: the mail waits, the try not counted, and goes once the page is filled in (D-1280)
+            return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S)
         why = self._still_current(req)
         if why in (OPTED_OUT, NO_JOB) or (why and rc1_refusals.refused("patient_mail_and_downloads")):  # held at once
             return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
