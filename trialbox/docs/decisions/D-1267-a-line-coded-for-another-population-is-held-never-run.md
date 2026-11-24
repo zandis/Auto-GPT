@@ -60,4 +60,4 @@
   - What any role may do or read.
 - **Test:** `tests/unit/test_compiler_never_runs_the_wrong_population.py`, the invariant: every line above in the
   languages given, siblings, and the controls ("Female patients aged 18 or older", "History of hypertension", "HIV
-  infection" run unflagged; "Receiving off-label methotrexate" is not a cessation). On master 42 of its 48 cases fail.
+  infection" run unflagged; "Receiving off-label methotrexate" is not a cessation). On master 61 of its 69 cases fail.
