@@ -59,3 +59,25 @@ def test_the_heartbeat_holds_no_lock_fd_of_the_caller(tmp_path: Path, script: st
     )
     r = subprocess.run(["bash", str(run)], capture_output=True, text=True, check=False, timeout=60)
     assert "done" in r.stdout and "HELD" not in r.stdout, (r.stdout, r.stderr)
+
+
+# H106-14 / 1452-12: #1452's two heartbeat tests, by the integrator's rulings 7131125435 and 7131128250 (the heartbeat
+# fix lives in #1455 only); their text as #1452's worker wrote them
+def test_h106_14_the_heartbeat_s_sleep_never_holds_the_caller_s_output() -> None:
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    start = text.index("alive_start() {")
+    end = text.index("\n}\n", text.index("alive_stop() {")) + 3
+    script = text[start:end] + 'alive_start test; sleep 0.5; kill -9 "$ALIVE_PID"; echo done\n'
+    t0 = time.monotonic()
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, check=False)
+    assert r.stdout.strip() == "done" and time.monotonic() - t0 < 10, r
+
+
+def test_h106_14_the_poc_heartbeat_s_sleep_never_holds_the_caller_s_output() -> None:
+    text = (ROOT / "deploy" / "poc.sh").read_text(encoding="utf-8")
+    start = text.index("alive_start() {")
+    end = text.index("\n", text.index("alive_stop() {")) + 1
+    script = text[start:end] + 'alive_start test; sleep 0.5; kill -9 "$ALIVE_PID"; echo done\n'
+    t0 = time.monotonic()
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, check=False)
+    assert r.stdout.strip() == "done" and time.monotonic() - t0 < 10, r
