@@ -205,6 +205,9 @@ not fsync, though, and the temp file takes the old file's mode. The `>>` lines a
 **Changed test data.** Four kinds, none of them an assertion.
 
 * `tests/unit/test_poc_stops_h94.py` `NOT_DRIVEN`: the two new keys (root only).
+* `tests/unit/test_poc_stops_bench_h94.py`: the bench's stand-ins gain `pgrep`, a host whose cron daemon runs, as a
+  site's does. Without one the new `cron-daemon` stop fires on every bench run. The rehearsal (a container with no
+  cron daemon) expects that one line exactly when none runs there.
 * The H-94 stand-in host checks print the `[H-94 (N)]` marker, as in (g).
 * Fixture modes: 0600 in `tests/unit/test_host_commands_own_environment.py` and `tests/unit/test_host_baseline.py`.
 * `tests/unit/test_poc_real_embedder.py`: the timeout 120 s becomes 30 s, with the measurement beside it.

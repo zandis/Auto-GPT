@@ -84,6 +84,10 @@ only_the_expected_poc_stops() {
     # above the box's own tree; one inside it is a stop the rehearsal must not have
     other="$(printf '%s\n' "$other" | while IFS= read -r line; do
       case "$line" in
+        # H-110 (M-SC-3, the integrator's ruling 7122559749): a box with no cron daemon running warns and lists it;
+        # this container runs none, so the line is expected exactly when no cron daemon runs here
+        *'"key": "install.sh/cron-daemon"'*)
+          if ! pgrep -x cron >/dev/null 2>&1 && ! pgrep -x crond >/dev/null 2>&1; then continue; fi ;;
         *'"key": "settings_guard.sh/compose-file-owner"'*)
           dir="$(printf '%s' "$line" | sed -n 's/.*\.yml: \(\/[^ ]*\) \(is owned by\|can be written\).*/\1/p')"
           case "$BOX" in "$dir"/*) [ -n "$dir" ] && continue ;; esac ;;
