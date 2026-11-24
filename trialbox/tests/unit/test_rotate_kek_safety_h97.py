@@ -24,6 +24,7 @@ import pytest
 from tb_common import kek as K
 from tb_common.audit import AuditLog
 
+from tests.host_modes import as_root_makes_it
 from tools import keys
 
 pytestmark = pytest.mark.nodb
@@ -47,6 +48,7 @@ def _box(tmp: Path) -> dict[str, Path]:
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(os.urandom(32))
     (sec / "objects.key").write_bytes(os.urandom(32))
+    as_root_makes_it(tmp)  # H-115: the box's folders are root's alone, whatever the runner's umask
     rc = keys.main(["init", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
                     "--passphrase-file", str(_pp(tmp / "init.pass", OLD))], env={})  # fmt: skip
     assert rc == 0
