@@ -3,7 +3,8 @@ pin read leaves nothing loaded, even when the engine registers it after the load
 
 The rehearsal job (tools/rehearse_box/rehearse.sh, step swapped-stream) runs it on the CI runner's Docker engine,
 whichever image store it has. Synthetic images only: one layer of random bytes, made with ``docker import`` (no
-registry, no network). Two cases, each through ``tools/trialbox/update.py``'s real ``stream_image``:
+registry, no network). First, H-114 (1409-2): a payload that is a link on the update path's second read of the stick is
+refused (no engine needed). Then two cases, each through ``tools/trialbox/update.py``'s real ``stream_image``:
 
 * new name: the archive the pins were read from names ``h95probe-engine:1``; the stick then holds a complete
   archive of another image named ``h95probe-db:16`` that ends well before the held-back last MiB (zeros after it);
@@ -104,8 +105,30 @@ def case(work: Path, name: str, swap_tag: str, preload: bool) -> bool:
     return True
 
 
+def link_on_the_second_read(work: Path) -> bool:
+    """H-114 (1409-2): the stick changed between the verify and the load, a signed payload is now a link. The
+    update path's second read (``streamed_payloads``) refuses it; before, it dropped the payload in silence, and the
+    update went on without loading or checking it. No engine is needed; it runs here, in the update path's step."""
+    work.mkdir(parents=True, exist_ok=True)
+    stick = work / "linked.tar"
+    with tarfile.open(stick, "w:") as tf:
+        link = tarfile.TarInfo("files/engine.tar")
+        link.type, link.linkname = tarfile.SYMTYPE, "/etc/hostname"
+        tf.addfile(link)
+    files = [{"path": "engine.tar", "kind": "image", "sha256": "0" * 64, "size": MB}]
+    try:
+        got = up.streamed_payloads(stick, {"files": files}, ["image"])
+    except up.UpdateFailed as exc:
+        print(f"ok: a payload that is a link on the second read: refused ({str(exc)[:200]})")
+        return True
+    print(f"FAIL: a payload that is a link on the second read was dropped in silence: {[g.path for g in got]}")
+    return False
+
+
 def main(argv: list[str]) -> int:
     work = Path(argv[1] if len(argv) > 1 else "h95-probe").absolute()
+    if not link_on_the_second_read(work / "link"):
+        return 1
     store = docker("info", "-f", "{{.Driver}}").strip()
     print(f"    engine {docker('version', '-f', '{{.Server.Version}}').strip()}, store {store}")
     results = [case(work / "new-name", "a complete archive of another image (h95probe-db:16) that ends early",

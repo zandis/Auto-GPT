@@ -28,7 +28,8 @@ class Fixed:
         return JudgeReply(self.verdict, 0.9, "q", None, "r", call_id="c", build_sha=self.build, refused=self.refused)
 
 
-KW: dict[str, Any] = {"criterion_text": "x", "note_question": "x?", "excerpts": []}
+#: the answers' quote "q" is in the record: a verifier's quote must be (round 5, M1, #639 7115208555)
+KW: dict[str, Any] = {"criterion_text": "x", "note_question": "x?", "excerpts": [{"did": "d1", "text": "q"}]}
 
 
 @pytest.mark.req("S1-14", "SAFE-13")

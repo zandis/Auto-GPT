@@ -202,7 +202,22 @@ fi
 [ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }  # H-94 (1)
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/tb-update.XXXXXX")
 chmod 0700 "$STAGE"  # H-95: a folder of its own, 0700 wherever TMPDIR points (mktemp -d makes it so; said here)
-trap 'rm -rf "$STAGE"' EXIT INT TERM HUP
+# H-114 (ESC-4): INT, TERM and HUP alike. Before the update path starts, a signal ends the script here and nothing
+# was changed (before, the trap only removed the stage and the script went on, the update path included). Once the
+# update path runs, the shell waits for it: it took the same signal from the terminal, and it rolls back or finishes
+# and says which; a signal sent to the shell alone leaves it to end by itself
+STARTED=""
+tb_signalled() {  # NAME CODE
+  rm -rf "$STAGE"
+  [ -z "$STARTED" ] || return 0
+  trap - EXIT
+  echo "apply_update: stopped by $1 before the update started; nothing was changed" >&2
+  exit "$2"  # H-94 not a stop: a signal the person sent, not a guard
+}
+trap 'rm -rf "$STAGE"' EXIT
+trap 'tb_signalled SIGINT 130' INT
+trap 'tb_signalled SIGTERM 143' TERM
+trap 'tb_signalled SIGHUP 129' HUP
 BUNDLE_ABS=$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")
 
 # the verifier's arguments: the trust and the installed record are read only, and only when they exist
@@ -253,6 +268,7 @@ echo "verified: $SUMMARY"
 
 # T-634 (D-408): an OS patch bundle goes to the host's packages, never to the TrialBox update path, and back
 if [ -n "$OSPATCH" ]; then
+  STARTED=1  # H-114 (review 1461-2): the host's packages change from here; a signal is never "nothing was changed"
   # shellcheck disable=SC2086
   python3 "$ROOT/deploy/hardening/ospatch.py" apply --stage "$STAGE" --deploy "$ROOT/deploy" \
     ${OSCONF:+--conf "$OSCONF"} $DRY
@@ -299,6 +315,7 @@ cd "$ROOT"
 # refuses there is its kept refusal (3), a rehearsal box never starting as PRODUCTION (review M-1 of #1430)
 sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }  # H-94 (3)
 cd "$CODE"
+STARTED=1
 PYTHONPATH="$CODE/libs:$CODE" python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" \
   --target "$TARGET" --deploy "$ROOT/deploy" --bundle "$BUNDLE_ABS" $NOBACKUP \
   ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}
