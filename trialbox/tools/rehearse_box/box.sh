@@ -837,18 +837,25 @@ EOF
   rc=0
   trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/interrupted.json" 2> "$rr/interrupted.err" &
   pid=$!
+  stop_bg() { kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; }
   seen=0
-  for _ in $(seq 1 1800); do
+  for _ in $(seq 1 9000); do  # every 0.2 s, up to 30 minutes
     if docker ps --no-trunc --format '{{.Command}}' | grep -q 'tools.trialbox restore'; then seen=1
     elif [ "$seen" = 1 ]; then break; fi
     kill -0 "$pid" 2>/dev/null || break
-    sleep 1
+    sleep 0.2
   done
-  [ "$seen" = 1 ] || fail "the restore's container was never seen running"
-  kill -TERM "$pid" 2>/dev/null || true; sleep 1; kill -TERM "$pid" 2>/dev/null || true
+  [ "$seen" = 1 ] || { stop_bg; fail "the restore's container was never seen running"; }
+  kill -0 "$pid" 2>/dev/null || fail "the restore had ended before it could be signalled after its data part"
+  kill -TERM "$pid" 2>/dev/null || true; sleep 0.2; kill -TERM "$pid" 2>/dev/null || true  # the walk's two
   wait "$pid" || rc=$?
   cat "$rr/interrupted.err"
-  echo "the restore signalled after its data part ended $rc"
+  case "$rc" in
+    1|130) echo "the restore signalled after its data part ended $rc" ;;
+    *) fail "the restore signalled after its data part ended $rc, not 130 or 1 (the signal came too late?)" ;;
+  esac
+  if grep -q "are healthy" "$rr/interrupted.err"; then fail "the interrupted restore said healthy"; fi
+  grep -q "restore: the box now:" "$rr/interrupted.err" || fail "the interrupted restore did not say the box's state"
   mapfile -t left < <(dc ps --services --status running | grep -xE 'caddy|console|llm-verifier')
   if [ "${#left[@]}" -gt 0 ]; then dc stop "${left[@]}" > "$rr/left.log" 2>&1 || { cat "$rr/left.log"; fail "cannot stop ${left[*]}"; }; fi
   [ "$(dc ps --services --status running | sort)" != "$before" ] || fail "no service was left stopped for the re-run"

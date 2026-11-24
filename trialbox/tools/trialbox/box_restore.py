@@ -373,6 +373,25 @@ class BoxRestore:
         print(f"restore: the box now: {self.state()}{stop}; the data: {data}; next: {nxt} (RUNBOOK §5)",
               file=sys.stderr)  # fmt: skip
 
+    def _say(self, stopped: Sequence[str], data: str, nxt: str, detail: dict[str, Any] | None = None) -> bool:
+        """The audit event (``detail``) and the state line, said whatever signal comes next (OCR 1470-1, the walk's
+        double Ctrl-C): a second signal while compose is asked ends the asking, never the line. False: not asked."""
+        try:
+            if detail is not None:
+                self.audit(detail)
+            self._state_line(stopped, data, nxt)
+            return True
+        except (KeyboardInterrupt, HostInterrupted):
+            old = _ignore_signals()
+            try:
+                stop = f"; stopped by --restart: {', '.join(stopped)}" if stopped else ""
+                kept = "" if detail is None else " (interrupted again: the audit event may not be kept)"
+                print(f"restore: the box now: not asked (interrupted again){stop}; the data: {data}; next: {nxt} "
+                      f"(RUNBOOK §5){kept}", file=sys.stderr)  # fmt: skip
+            finally:
+                _put_back_signals(old)
+            return False
+
     def _start_line(self, stopped: Sequence[str]) -> str:
         return shlex.join(self.box._c("up", "-d", "--no-deps", *stopped)) if stopped else "nothing to start"
 
@@ -442,17 +461,17 @@ class BoxRestore:
                 why = str(e) or type(e).__name__
                 if started and not isinstance(e, RestoreStopped):
                     keep_work = True  # the container may still be putting the box back from it
-                    self.audit({"error": why[-300:], "stopped": stopped, "file": file.name, "state": "unknown"})
-                    self._state_line(stopped, f"unknown: the restore's container was started and this step stopped "
-                                     f"({type(e).__name__}); its work folder {work} is kept",
-                                     "docker ps: wait until no restore container runs, then trialbox doctor; do not "
-                                     "start the services before")  # fmt: skip
+                    self._say(stopped, f"unknown: the restore's container was started and this step stopped "
+                              f"({type(e).__name__}); its work folder {work} is kept",
+                              "docker ps: wait until no restore container runs, then trialbox doctor; do not start "
+                              "the services before",
+                              {"error": why[-300:], "stopped": stopped, "file": file.name,
+                               "state": "unknown"})  # fmt: skip
                     return 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
                 if stopped or not isinstance(e, RestoreStopped):
-                    self.audit({"error": why[-300:], "stopped": stopped, "file": file.name})
-                    self._state_line(stopped, "not changed by this command (the restore did not start)",
-                                     f"start them as they were: {self._start_line(stopped)}; or try again: "
-                                     f"{again}")  # fmt: skip
+                    self._say(stopped, "not changed by this command (the restore did not start)",
+                              f"start them as they were: {self._start_line(stopped)}; or try again: {again}",
+                              {"error": why[-300:], "stopped": stopped, "file": file.name})  # fmt: skip
                 if isinstance(e, RestoreStopped):
                     raise
                 if isinstance(e, (KeyboardInterrupt, HostInterrupted)):
@@ -462,7 +481,13 @@ class BoxRestore:
             finally:
                 if not keep_work:
                     shutil.rmtree(work, ignore_errors=True)
-            return self._after(a, code, out, stopped, again)
+            try:
+                return self._after(a, code, out, stopped, again)
+            except (KeyboardInterrupt, HostInterrupted) as e:  # H-126: between the container's end and the start
+                self._say(stopped, f"the restore's container ended {code} (its lines above say the data); this step "
+                          f"was interrupted after it ({type(e).__name__})",
+                          f"look at docker compose ps; run this command again: {again}")  # fmt: skip
+                return 130
         finally:
             stop_signals()
 
@@ -480,43 +505,50 @@ class BoxRestore:
         hold = str(said.get("hold") or "")
         state = str(said.get("state") or ("restored" if code in (0, 3, 4) else "unknown"))
         if code == 0 or (code == 4 and hold == "held") or (code != 0 and state == "unchanged"):
-            # complete, or held (D-522), or refused before any change (the data is as it was): F6, the services
-            # this command stopped, and only those
+            # complete, or held (D-522), or refused before any change (the data is as it was). H-126: every service
+            # the box defines is started, and the full expected set checked
             data = "restored" if code in (0, 4) else "not changed"
             start = shlex.join(self._up_all())
             try:
                 ok, short, err = self.start_and_wait(stopped)
             except BaseException as e:  # review R7: an interrupt here is said too, never a silent end
-                self._state_line(stopped, data, f"look at docker compose ps; then {start}, or run this command "
-                                 f"again: {again}")  # fmt: skip
-                print(f"restore: the services did not all come back healthy: {str(e)[-400:] or type(e).__name__}",
-                      file=sys.stderr)  # fmt: skip
-                self._hold_line(hold, state)
-                return 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
+                rc = 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
+                if not self._say(stopped, data, f"look at docker compose ps; then {start}, or run this command "
+                                 f"again: {again}"):  # fmt: skip
+                    rc = 130
+                old = _ignore_signals()  # OCR 1470-1: lines only from here; no further signal cuts them short
+                try:
+                    print(f"restore: the services did not all come back healthy: {str(e)[-400:] or type(e).__name__}",
+                          file=sys.stderr)  # fmt: skip
+                    self._hold_line(hold, state)
+                finally:
+                    _put_back_signals(old)
+                return rc
             n = f"{len(ok)} of {len(ok) + len(short)}"
-            if short:  # H-126: a shortfall is never "healthy"
-                self._state_line(stopped, data, f"look at docker compose ps and the services' logs; then {start}")
+            if short:  # H-126: a shortfall is never "healthy"; OCR 1470-3: a restore's own non-zero code (4: NOT
+                # complete, held) stays the exit code, a complete one ends 1
+                self._say(stopped, data, f"look at docker compose ps and the services' logs; then {start}")
                 print(f"restore: the services did not all come back healthy: {n}; not running or not healthy: "
                       f"{', '.join(sorted(short))}" + (f" ({err})" if err else ""), file=sys.stderr)  # fmt: skip
                 self._hold_line(hold, state)
-                return 1
+                return code or 1
             what = "not changed (the restore was refused before any change)" if state == "unchanged" else "restored"
             print(f"restore: the data {what}; the services run again and are healthy: {n} "
                   f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
             self._hold_line(hold, state)
             return code
         if code == 3:
-            self._state_line(stopped, "the databases and folders are restored; a reference pack is missing",
+            self._say(stopped, "the databases and folders are restored; a reference pack is missing",
                              f"put the pack named above in --refdata and run {again}")  # fmt: skip
         elif code == 4:
-            self._state_line(stopped, f"restored, NOT complete; the hold on the list jobs is {hold or 'unknown'}",
+            self._say(stopped, f"restored, NOT complete; the hold on the list jobs is {hold or 'unknown'}",
                              "keep the services stopped until the lines above are dealt with")  # fmt: skip
         elif state == "rolled_back":  # F2: the restore put the box back as it was and holds its list jobs
-            self._state_line(stopped, "put back as it was before the restore (the restore failed); list jobs held",
+            self._say(stopped, "put back as it was before the restore (the restore failed); list jobs held",
                              f"read the error above; start them as they were: {self._start_line(stopped)}; "
                              f"or try again: {again}")  # fmt: skip
         else:  # F2: half restored or unknown: never a start line
-            self._state_line(stopped, "NOT as it was: the restore failed and could not put everything back "
+            self._say(stopped, "NOT as it was: the restore failed and could not put everything back "
                              "(the lines above say what, and where the copy of the databases taken first is kept)",
                              "do not start the services; put the databases back from that copy, or restore the "
                              "kept copy of the box (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
@@ -647,8 +679,18 @@ def _said(out: str) -> dict[str, Any]:
 
 def _ignore_signals() -> dict[int, Any]:
     import signal
+    import threading
 
+    if threading.current_thread() is not threading.main_thread():
+        return {}
     return {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+
+
+def _put_back_signals(old: Mapping[int, Any]) -> None:
+    import signal
+
+    for sig, h in old.items():
+        signal.signal(sig, h)
 
 
 def _call(argv: list[str], values: dict[str, str], base: Mapping[str, str] | None = None) -> tuple[int, str]:

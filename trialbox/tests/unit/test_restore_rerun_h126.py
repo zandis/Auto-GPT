@@ -17,6 +17,7 @@ import json
 import re
 import signal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -28,9 +29,11 @@ from tools.trialbox import box_restore, update
 SERVICES = ("db", "fhir-store", "lake", "embed-service", "doc-parser", "criteria-compiler", "adapter", "audit-writer",
             "orchestrator", "mail-gateway", "gateway", "console", "caddy", "llm-service", "llm-verifier", "model-guard")  # fmt: skip
 ONE_SHOT = "judge-sleep-init"
+_SAID = box_restore._said  # the host's own reading of the container's result
 SITE = ("caddy", "console")  # the site answers when both run and are healthy
 
-STEPS = ("stop", "restore-before-data", "restore-after-data", "restore-after-data-exit", "start", "health")
+STEPS = ("stop", "restore-before-data", "restore-after-data", "restore-after-data-exit", "after-container", "start",
+         "health")  # fmt: skip
 
 
 class Interrupt:
@@ -113,6 +116,12 @@ def _run(deploy: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, box: Box
 
     monkeypatch.setattr(box_restore.BoxRestore, "_run", lambda self, argv, **kw: box(argv, **kw))
     monkeypatch.setattr(box_restore, "_call", box.container)
+
+    def read(out: str) -> dict[str, Any]:  # the host reads the container's result: a signal may come here too
+        box.signal.fire("after-container")
+        return _SAID(out)
+
+    monkeypatch.setattr(box_restore, "_said", read)
     monkeypatch.chdir(tmp_path)
     f = tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"
     argv = ["restore", str(f), "--key", "usb/backup.key", "--yes", "--restart", "--deploy", str(deploy)]
@@ -130,9 +139,12 @@ def test_a_rerun_after_a_signal_at_every_step_serves_the_site_or_says_it_does_no
     deploy = _box(tmp_path)
     box = Box()
     box.signal = Interrupt(step, kind)
-    first = _run(deploy, tmp_path, monkeypatch, box)
+    try:
+        first: object = _run(deploy, tmp_path, monkeypatch, box)
+    except (KeyboardInterrupt, box_restore.HostInterrupted) as e:  # escaped the command: nothing said
+        first = e
     err = capsys.readouterr().err
-    assert first != 0 and "are healthy" not in err, (first, err[-1500:])
+    assert first in (1, 130) and "are healthy" not in err, (first, err[-1500:])
     assert "restore: the box now:" in err, err[-1500:]  # the state, said
     assert box.signal.step is None, "the signal was not sent at this step"
     again = _run(deploy, tmp_path, monkeypatch, box)
@@ -232,6 +244,11 @@ def test_the_rehearsal_reruns_an_interrupted_restore_and_the_site_answers() -> N
     assert r"are healthy: ([0-9]+) of \1 \(" in h126  # N of N, never a shortfall
     assert "/healthz" in h126 and '[ "$before" = "$after" ]' in h126 and "caddy-root.crt" in h126
     assert h126.index("kill -TERM") < h126.index("dc stop") < h126.rindex("--yes --restart")
+    # OCR 1470-5: the interrupted run itself is checked, and a run left in the background is stopped on a fail path
+    interrupted = h126[h126.index("kill -TERM") : h126.index("dc stop")]
+    assert 'grep -q "are healthy" "$rr/interrupted.err"; then fail' in interrupted
+    assert 'grep -q "restore: the box now:" "$rr/interrupted.err" || fail' in interrupted
+    assert "1|130)" in interrupted and "stop_bg; fail" in h126
 
 
 def test_a_signal_handler_is_put_back_after_each_run(
@@ -244,3 +261,62 @@ def test_a_signal_handler_is_put_back_after_each_run(
     _run(deploy, tmp_path, monkeypatch, box)
     capsys.readouterr()
     assert {s: signal.getsignal(s) for s in before} == before
+
+
+@pytest.mark.parametrize("kind", ["int", "term"])
+@pytest.mark.parametrize("step", ["stop", "start", "health"])
+def test_a_second_signal_while_a_step_is_said_still_says_the_box_and_the_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], step: str, kind: str
+) -> None:
+    """OCR 1470-1: the walk pressed Ctrl-C twice. A first signal part-way through the stop, the start or the health
+    check goes to the handler; a second one while the handler asks compose (the audit, what runs) escaped it, and
+    neither the box's state nor the hold was said. A signal is modelled as a real one is delivered: never while it
+    is ignored."""
+    sig = signal.SIGINT if kind == "int" else signal.SIGTERM
+
+    class Twice(Box):
+        armed = False
+
+        def __call__(self, argv: list[str], **kw: object) -> str:
+            if self.armed and signal.getsignal(sig) is not signal.SIG_IGN:  # the handler's next call to compose
+                self.armed = False  # the second signal, while the first is being said
+                raise KeyboardInterrupt if kind == "int" else box_restore.HostInterrupted("signal SIGTERM")
+            first = {"stop": "stop" in argv, "start": "up" in argv}.get(step, "ps" in argv and "--format" in argv)
+            if self.signal.step == step and first:
+                self.armed = True  # the first signal comes in this call
+            return super().__call__(argv, **kw)
+
+    deploy = _box(tmp_path)
+    box = Twice()
+    box.signal = Interrupt(step, kind)
+    before = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        got: object = _run(deploy, tmp_path, monkeypatch, box)
+    except (KeyboardInterrupt, box_restore.HostInterrupted) as e:  # escaped the command: no state, no hold said
+        got = e
+    err = capsys.readouterr().err
+    assert got == 130, (got, err[-1500:])
+    assert "restore: the box now:" in err and "are healthy" not in err and box.signal.step is None, err[-1500:]
+    assert step == "stop" or "the hold screening.after_restore stays held" in err, err[-1500:]
+    assert {s: signal.getsignal(s) for s in before} == before  # every handler put back
+
+
+@pytest.mark.parametrize(("code", "hold", "want"), [(0, "released", 1), (4, "held", 4)])
+def test_a_shortfall_keeps_the_restores_own_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], code: int, hold: str,
+    want: int,
+) -> None:  # fmt: skip
+    """OCR 1470-3: a held, NOT complete restore (exit 4) whose start leaves a service stopped still ends 4, so a
+    script that reads 4 as "restored, held" keeps it; a complete one ends 1. Neither says "healthy"."""
+
+    class Ends(Box):
+        def container(self, argv: list[str], values: dict[str, str], base: object = None) -> tuple[int, str]:
+            super().container(argv, values, base)
+            return code, json.dumps({"complete": code == 0, "hold": hold, "state": "restored"})
+
+    deploy = _box(tmp_path)
+    box = Ends(never_starts=("caddy",))
+    got = _run(deploy, tmp_path, monkeypatch, box)
+    err = capsys.readouterr().err
+    assert got == want, (got, err[-1500:])
+    assert "are healthy" not in err and "did not all come back healthy: 15 of 16" in err, err[-1500:]
