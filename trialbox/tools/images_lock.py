@@ -38,6 +38,13 @@ IMAGE_LINE = re.compile(r"^\s*image:\s*(\S.*?)\s*(?:#.*)?$")
 VAR_DEFAULT = re.compile(r"^\$\{([A-Z][A-Z0-9_]*):-([^}\s]+)\}$")
 ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
 VLLM = "vllm"
+# H-112 (the rulings on #1459, 7122790579): the second serving profile's image is bench only. Only the file that
+# carries BENCH_MARK may name it, by digest only and never by a tag; the lock refuses an entry for it, so it can
+# never be a third-party image of a release (make_bundle's engine images are the lock's gpu entries).
+BENCH_MARK = "x-trialbox-bench-serving: true"
+BENCH_MARK_LINE = re.compile(r"^x-trialbox-bench-serving:\s*true\s*(?:#.*)?$", re.M)  # blanks and a comment too
+BENCH_VARS = frozenset({"SERVING2_IMAGE"})
+BENCH_REF = re.compile(r"\A(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
 
 
 def load(path: Path = LOCK) -> dict[str, Any]:
@@ -64,6 +71,8 @@ def lock_problems(lock: dict[str, Any]) -> list[str]:
         if not isinstance(variables, list) or not variables:
             out.append(f"{name}: no compose variables")
             continue
+        for v in sorted(set(variables) & BENCH_VARS):
+            out.append(f"{name}: {v} is the bench-only second serving profile's image (H-112): never in the lock")
         for v in variables:
             if v in owner:
                 out.append(f"variable {v}: named by {owner[v]} and {name}")
@@ -102,10 +111,19 @@ def check_compose(lock: dict[str, Any], files: list[Path]) -> tuple[list[str], s
     used: set[str] = set()
     owners = by_variable(lock)
     for f in files:
+        bench = bool(BENCH_MARK_LINE.search(f.read_text(encoding="utf-8")))
         for n, value in image_lines(f):
             where = f"{f.name}:{n}"
             m = VAR_DEFAULT.match(value)
             ref = m.group(2) if m else value
+            if m and m.group(1) in BENCH_VARS:
+                if not bench:
+                    problems.append(f"{where}: {m.group(1)} is the bench-only second serving profile's image (H-112): "
+                                    "only the file marked as the bench profile may name it")  # fmt: skip
+                elif not BENCH_REF.match(ref):
+                    problems.append(f"{where}: {m.group(1)} is {ref}: the bench image is named by digest only, "
+                                    "<repository>@sha256:<64 hex>, never by a tag (H-112)")  # fmt: skip
+                continue
             if ref.startswith(OWN_PREFIX):
                 continue
             if not m:
