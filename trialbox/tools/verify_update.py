@@ -415,6 +415,13 @@ def verify(
 
 
 MODEL_PACK_KINDS = ("image", "model")
+# H-124 (the integrator's ruling 7132081597): a model pack runs the installed update code, so it may carry nothing that
+# runs: its weights are never code, pickle or a script. pin_model's refused types (SEC-63; a test keeps this a
+# superset of tools/pin_model.py REFUSED_SUFFIXES) and every script or binary a host or a loader could run
+MODEL_PACK_REFUSED_SUFFIXES = (".bin", ".pt", ".pth", ".pkl", ".pickle", ".ckpt", ".py", ".pyc", ".pyo", ".pyz",
+                               ".sh", ".bash", ".zsh", ".ksh", ".csh", ".fish", ".ps1", ".psm1", ".bat", ".cmd",
+                               ".exe", ".dll", ".so", ".dylib", ".js", ".mjs", ".pl", ".rb", ".lua", ".jar",
+                               ".whl", ".egg", ".deb", ".rpm", ".service", ".timer", ".desktop")  # fmt: skip
 
 
 def load_model_pack(path: Path | None, installed: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -540,6 +547,11 @@ def pack_problems(manifest: dict[str, Any], held: dict[str, Any] | None) -> str:
         stray = [k for k in kinds if k not in MODEL_PACK_KINDS]
         if stray:
             return f"a model pack carries only the engine image and the weights, not {', '.join(stray)}"
+        code = [str(f["path"]) for f in manifest["files"] if f["kind"] == "model"
+                and PurePosixPath(str(f["path"]).lower()).suffix in MODEL_PACK_REFUSED_SUFFIXES]  # fmt: skip
+        if code:  # H-124: it runs the installed update code; it may carry nothing that runs
+            return (f"a model pack carries images and weights only, never code, a script or pickle weights: "
+                    f"{', '.join(code[:5])}")  # fmt: skip
         return ""
     if "model" in kinds:
         return "a software pack carries no weights (payload kind model): they ride in its model pack"

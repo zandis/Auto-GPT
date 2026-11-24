@@ -391,16 +391,51 @@ def test_h124_a_checkout_box_verifies_with_its_own_key_file(tmp_path: Path) -> N
     assert r.returncode == 0 and "verified:" in r.stdout, r.stdout + r.stderr
 
 
-def test_h124_05_a_signed_model_pack_runs_the_installed_code_on_production_and_says_so(box: dict[str, Any]) -> None:
-    """H-95: a model pack carries images and weights, no code (pack.kind model, signed): no newer update code exists
-    to run, so even PRODUCTION runs the installed release's and says so (H124-05, for the integrator to confirm)."""
+def _model_pack(b: dict[str, Any], bid: str, seq: int, extra: list[tuple[str, Path, str]] | None = None) -> Path:
+    weights = b["tmp"] / f"{bid}-weights.safetensors"
+    weights.write_bytes(b"synthetic weights\n")
+    out = b["tmp"] / f"{bid}.pack"
+    build(b["priv"], bid, [("model", weights, "judge/model.safetensors"), *(extra or [])], out, release_seq=seq,
+          pack={"kind": "model"})  # fmt: skip
+    return out
+
+
+def test_h124_05_a_signed_model_pack_runs_the_installed_code_on_production_and_says_why(box: dict[str, Any]) -> None:
+    """H-95: a model pack carries images and weights, no code (pack.kind model, signed, checked against the installed
+    key): no newer update code exists to run, so PRODUCTION too runs the installed release's and says why."""
     b = box
     (b["deploy"] / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     _install(b, _release(b["tmp"], "R1-fixed"))
-    weights = b["tmp"] / "weights.bin"
-    weights.write_bytes(b"synthetic weights\n")
-    out = b["tmp"] / "M2.pack"
-    build(b["priv"], "M2", [("model", weights, "judge/weights.bin")], out, release_seq=2, pack={"kind": "model"})
-    r = _apply(b, out, "--no-backup-reason", "synthetic test box")
+    r = _apply(b, _model_pack(b, "M2", 2), "--no-backup-reason", "synthetic test box")
     assert "update code: the installed release's (a model pack carries images and weights, no code)" in r.stdout, _said(r)
     assert "carries no host tree" not in r.stderr
+
+
+@pytest.mark.parametrize("planted", ["judge/start.sh", "judge/modeling_custom.py", "judge/pytorch_model.bin"])
+def test_h124_05_a_model_pack_holding_anything_that_runs_is_refused(box: dict[str, Any], planted: str) -> None:
+    """The integrator's ruling 7132081597: a script (or code, or pickle weights) planted in a signed model pack: the
+    installed verifier refuses the pack before anything is staged or run."""
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    script = b["tmp"] / "planted"
+    script.write_text("#!/bin/sh\necho planted\n", encoding="utf-8")
+    r = _apply(b, _model_pack(b, "M2", 2, [("model", script, planted)]))
+    assert r.returncode == 1 and "update REJECTED" in _said(r), _said(r)
+    assert "never code, a script or pickle weights" in _said(r) and planted in _said(r)
+    assert "update code:" not in r.stdout and _current(b) == "releases/R1"
+
+
+def test_h124_05_a_model_pack_holding_a_host_tree_is_refused(box: dict[str, Any]) -> None:
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    r = _apply(b, _model_pack(b, "M2", 2, [("host", _release(b["tmp"], "R2-fixed"), ht.HOST_TAR)]))
+    assert r.returncode == 1 and "a model pack carries only the engine image and the weights, not host" in _said(r)
+    assert "update code:" not in r.stdout and _current(b) == "releases/R1"
+
+
+def test_h124_05_the_refused_types_cover_pin_models() -> None:
+    from tools import pin_model
+    from tools.verify_update import MODEL_PACK_REFUSED_SUFFIXES
+
+    assert set(pin_model.REFUSED_SUFFIXES) <= set(MODEL_PACK_REFUSED_SUFFIXES)
+    assert not set(pin_model.WEIGHT_SUFFIXES) & set(MODEL_PACK_REFUSED_SUFFIXES)

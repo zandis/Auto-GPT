@@ -31,9 +31,11 @@ unpacks the same checked tar under `releases/<id>` as before.
 - On PRODUCTION it is refused before anything runs, saying why and what to do: "Ask the vendor for the release's
   full bundle, or install it with the bootstrap (RUNBOOK §5)".
 - On a PoC box it is warned and listed in `deploy/site/poc-stops.jsonl`, and the installed code runs.
-- **One exception, built here, for the integrator to confirm:** a signed model pack (H-95, `pack.kind: model`)
-  carries images and weights and no code by design, so it runs the installed code on every box and says so.
-  Refusing it would refuse every model-pack update on PRODUCTION.
+- **A signed model pack** (H-95, `pack.kind: model`; the integrator's ruling 7132081597) runs the installed code on
+  every box and says why: it carries images and weights, no code. The installed verifier checks it against the
+  installed key and refuses it if it carries a host tree or anything else but images and weights
+  (`pack_problems`). It also refuses any weight file that is code, a script or pickle weights
+  (`MODEL_PACK_REFUSED_SUFFIXES`, a superset of `tools/pin_model.py`'s refused types).
 - The output names the code that ran (`update code: ...`), and so do the audit events `update.applied` and
   `update.rolled_back` (`update_code`: `bundle` or `installed`). The update decides that from where its own file is,
   never from the environment.
@@ -76,9 +78,10 @@ The second check is defence in depth.
 - **Other files.** Tests that set these variables now set them in their box's `deploy/.env`, or run the script of a
   `checkout_box` that holds its own key file. Their assertions are unchanged: `test_update_signals_h114.py`,
   `test_poc_stops_h94.py`, `test_load_from_the_stick_h95.py` (f7), `test_update_bundle.py`, `test_host_baseline.py`,
-  the runbook commands test file, `test_update_safety.py`.
-- **Not changed:** `deploy/gcp/demo-vm-update.sh` exports `TB_PY_IMAGE` and `TB_VERIFY_IN_DOCKER`. The demo VM needs
-  both in its `deploy/.env`. `deploy/install.sh` still reads `TB_VENDOR_PUBKEY` for its own first check (line 406).
+  the runbook commands test file, `test_update_safety.py`. The H-95 software packs and whole bundles
+  (`test_load_from_the_stick_h95.py`) now carry this checkout's host tree, as `tools/make_bundle.sh` builds them.
+- **Not changed:** `deploy/gcp/demo-vm-update.sh` (lane D's) exports `TB_PY_IMAGE` and `TB_VERIFY_IN_DOCKER`; lane D
+  writes them into the demo VM's own `deploy/.env`. `deploy/install.sh` still reads `TB_VENDOR_PUBKEY` for its own first check (line 406).
 
 ## 4. The four recurring finding types
 

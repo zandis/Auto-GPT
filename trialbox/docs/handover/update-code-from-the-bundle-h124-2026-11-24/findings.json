@@ -44,11 +44,20 @@
   {
    "id": "H124-05",
    "severity": "Medium",
-   "claim": "the ruling's PRODUCTION refusal of a bundle without a host tree would also refuse every signed model pack (H-95: images and weights only, no code by design); built as an exception that runs the installed code and says so, for the integrator to confirm",
+   "claim": "a signed model pack (H-95) carries no host tree by design; the PRODUCTION refusal of a host-less bundle would refuse every model-pack update. Ruled (7132081597): it runs the installed code and says why, checked against the installed key, and is refused if it carries a host tree, a script, code or pickle weights",
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "the integrator's word on #639"
+   "fix": "H-124: verify_update.pack_problems with MODEL_PACK_REFUSED_SUFFIXES; tests plant a script, code, pickle weights and a host tree"
+  },
+  {
+   "id": "H124-06",
+   "severity": "Low",
+   "claim": "the new release's code staged for its own update is one more unpacked copy of the host tree in the update's stage (TMPDIR), which the update's space check (space_needs) does not count; about 13 MB today",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "not in this card: a need line in space_needs for the stage (question)"
   }
  ]
 }
