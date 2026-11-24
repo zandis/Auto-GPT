@@ -26,6 +26,7 @@ from orchestrator.scenarios.terms import keywords
 from tb_common.llm import LlmClient
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionVerdict, Evidence
+from tb_testkit.eval_key import eval_client
 
 from tools.judge_eval import evaluate
 
@@ -43,8 +44,19 @@ def test_postprocess_requires_verbatim_quote() -> None:
     assert postprocess({"verdict": "unknown", "confidence": 0.2}, ex).predicate == "unknown"
 
 
-def _v(cid: str, verdict: str, conf: float | None = None) -> CriterionVerdict:
-    return CriterionVerdict(id=cid, verdict=verdict, evidence=Evidence(resource_refs=[], confidence=conf))  # type: ignore[arg-type]
+def _v(
+    cid: str, verdict: str, conf: float | None = None, quote: str | None = None, affirmed: bool | None = None
+) -> CriterionVerdict:
+    """``affirmed``: R22-16 round 5 (#639 7115208555, 7115258794), both models of judge v6 affirmed the note
+    exclusion's "present"; a row that does not say never excludes (pinned beside each control)."""
+    ev = Evidence(resource_refs=[], confidence=conf, quote=quote)
+    return CriterionVerdict(id=cid, verdict=verdict, evidence=ev, affirmed=affirmed)  # type: ignore[arg-type]
+
+
+# R22-17 (D-1069; ruled on #639 7079180333): a note inclusion's "not met" (GZQO-INC-05) no longer excludes, so the
+# controls "a sure note fail excludes" are the note exclusion GZQO-EXC-11 on a quote that states its condition, with
+# the inclusion case beside each asserting review
+FLARE_ZH = "目前右側第一蹠趾關節急性紅腫熱痛，診斷為急性痛風發作中。"
 
 
 def test_tiers() -> None:
@@ -61,7 +73,9 @@ def test_tiers() -> None:
         tier(GZQO, [*base, _v("GZQO-INC-05", "unknown"), _v("GZQO-EXC-11", "pass", 0.9)], 0.75, note_block=True)[0]
         == "review"
     )
-    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.9)], 0.75, note_block=True)[0] == "excluded"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.9, FLARE_ZH, True)], 0.75, note_block=True)[0] == "excluded"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.9, FLARE_ZH)], 0.75, note_block=True)[0] == "review"  # unsaid
+    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.9)], 0.75, note_block=True)[0] == "review"
     assert (
         tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.5)], 0.75, note_block=True)[0] == "review"
     )  # weak note fail is reviewed
@@ -74,7 +88,7 @@ def test_tiers() -> None:
 def _llm() -> LlmClient:
     url = os.environ.get("TB_JUDGE_LLM_URL")
     if url:
-        return LlmClient(url, os.environ.get("TB_JUDGE_MODEL", "trialbox"))
+        return eval_client(url, os.environ.get("TB_JUDGE_MODEL", "trialbox"))
     llm = LlmClient("http://stub/v1", "stub")
     llm.http = TestClient(stub)
     return llm
@@ -120,7 +134,10 @@ def test_note_block_never(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("TB_NOTE_BLOCK", "never")
     may = effective_note_block(pair)[0]
     assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=may)[0] == "review"
-    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=True)[0] == "excluded"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH)], 0.75, note_block=may)[0] == "review"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH, True)], 0.75, note_block=True)[0] == "excluded"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH)], 0.75, note_block=True)[0] == "review"
+    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=True)[0] == "review"
     bad = [_v(v.id, "fail") if v.id == "GZQO-INC-03" else v for v in base]
     assert tier(GZQO, bad, 0.75, note_block=may)[0] == "excluded"  # a structured fail still excludes
     monkeypatch.setenv("TB_NOTE_BLOCK", "sometimes")
@@ -168,6 +185,19 @@ def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:
     # passes note_block=True (before, the parameter alone decided and this was "excluded")
     res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), lone, 0.75, note_block=True, **kw)  # type: ignore[arg-type]
     assert res["p1"].tier == "review"
-    two = LoneJudge(SimpleNamespace(), j, "judge", verifier=v)  # control: a pair of two models does exclude
+    two = LoneJudge(SimpleNamespace(), j, "judge", verifier=v)  # a pair's "not met" on the inclusion: review (R22-17)
     res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), two, 0.75, note_block=True, **kw)  # type: ignore[arg-type]
+    assert res["p1"].tier == "review"
+
+    class PresentJudge(NoteJudge):
+        def judge_patient(self, pid, c, index_date, full=False):  # type: ignore[no-untyped-def]
+            # R22-16 round 5: both models of judge v6 affirmed it (the pair below); one model's never excludes
+            return NoteResult("pass", 0.99, quote=FLARE_ZH, reason="note says so", affirmed=True)
+
+    kx = dict(only={"GZQO-EXC-11"}, workers=1, full_record_fallback=False)
+    lone_x = PresentJudge(SimpleNamespace(), SimpleNamespace(model="j", served_root="j"), "judge", verifier=None)  # type: ignore[arg-type]
+    res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), lone_x, 0.75, note_block=True, **kx)  # type: ignore[arg-type]
+    assert res["p1"].tier == "review"  # one model's "present" on the exclusion never excludes
+    two_x = PresentJudge(SimpleNamespace(), j, "judge", verifier=v)  # control: a pair of two models does exclude
+    res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), two_x, 0.75, note_block=True, **kx)  # type: ignore[arg-type]
     assert res["p1"].tier == "excluded"

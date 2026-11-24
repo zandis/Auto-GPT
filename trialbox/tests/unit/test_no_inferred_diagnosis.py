@@ -107,11 +107,13 @@ def test_a_criterion_that_is_a_value_or_a_drug_is_out_of_scope(criterion: str, q
     assert not inferred(quote, criterion)
 
 
-def _map(kind: str, criterion: str, question: str, quote: str) -> object:
+def _map(kind: str, criterion: str, question: str, quote: str, affirmed: bool = True) -> object:
     c = _ir("N-EXC-09" if kind == "exclusion" else "N-INC-09", kind, "note", {"domain": "condition",
             "valueset": "VS_X"}, text=criterion, note_question=question)  # fmt: skip
     run = _run_for_map(True)
-    return run._map(c, JudgeReply("pass", 0.95, quote, None, "from the notes"), {**SPAN, "quote": quote}, "S3")
+    # a pair of judge v6 that affirmed the quote (round 5, #639 7115208555): the guard is what these tests read
+    reply = JudgeReply("pass", 0.95, quote, None, "from the notes", affirmed=affirmed)
+    return run._map(c, reply, {**SPAN, "quote": quote}, "S3")
 
 
 def test_an_exclusion_present_on_an_inference_goes_to_review_never_out() -> None:
@@ -122,6 +124,8 @@ def test_an_exclusion_present_on_an_inference_goes_to_review_never_out() -> None
 def test_an_exclusion_present_on_a_stated_condition_still_excludes() -> None:
     o = _map("exclusion", HT, HT_Q, STATED[0][1])
     assert o.status == "fail" and o.hard  # type: ignore[attr-defined]
+    unsaid = _map("exclusion", HT, HT_Q, STATED[0][1], affirmed=False)  # round 5: not affirmed by both models
+    assert unsaid.status == "unknown" and not unsaid.hard  # type: ignore[attr-defined]
 
 
 def test_the_note_question_is_not_the_condition() -> None:

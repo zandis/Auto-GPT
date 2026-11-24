@@ -197,9 +197,21 @@ def test_mixed_verdict_from_the_notes_follows_the_note_rules(monkeypatch: pytest
     # notes never block on this box (the run's decision, D-276: the tier no longer reads the policy itself)
     assert tier(rs, [*base, from_notes], 0.75, note_block=False)[0] == "review"  # weak, and notes never block
     assert tier(rs, [*base, from_codes], 0.75, note_block=False)[0] == "excluded"  # coded evidence is deterministic
-    strong = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=[], confidence=0.95))
+    # L1 (#639 7107834329, D-1069: what is not shown never excludes): the sure note answer rests on a quote that
+    # states the condition; the old input, with no quote, is pinned below as review
+    flare = "Acute gout flare of the right first toe since yesterday."
+    strong = CriterionVerdict(  # round 5 (#639 7115208555): both models affirmed it (judge v6)
+        id="GZQO-EXC-11",
+        verdict="fail",
+        evidence=Evidence(resource_refs=[], confidence=0.95, quote=flare),
+        affirmed=True,
+    )
     assert tier(rs, [*base, strong], 0.75, note_block=True)[0] == "excluded"
     assert tier(rs, [*base, strong], 0.75, note_block=False)[0] == "review"
+    bare = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=[], confidence=0.95))
+    assert tier(rs, [*base, bare], 0.75, note_block=True)[0] == "review"  # L1: no quote
+    unsaid = strong.model_copy(update={"affirmed": None})
+    assert tier(rs, [*base, unsaid], 0.75, note_block=True)[0] == "review"  # round 5: not affirmed by both models
 
 
 def test_check_split_counts_mixed_criteria() -> None:
