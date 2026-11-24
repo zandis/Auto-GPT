@@ -19,6 +19,7 @@ Costs nothing by itself: no cloud call, no model but the one the endpoint serves
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -109,8 +110,19 @@ def _env(stage: Stage, opts: argparse.Namespace) -> dict[str, str]:
         env["TB_LLM_EVAL_URL"] = opts.llm_url
     if opts.llm_model:
         env["TB_LLM_EVAL_MODEL"] = opts.llm_model
-    env["TB_TEST_ROOT"] = str(Path(opts.out) / "test-root")
+    env["TB_TEST_ROOT"] = str(scratch_test_root(Path(opts.out)))
     return env
+
+
+def scratch_test_root(out: Path) -> Path:
+    """H-115: the run's test root lies under the per-user scratch root, one per ``--out``, never under ``--out``.
+    That folder and the clone above it carry the runner's umask (0775 under 002), and the product's checks that walk
+    the real folders from ``/`` refuse every tree a test builds below them; ``pglocal.mark_test_root`` closes the
+    folders up to the scratch root."""
+    from tools import pglocal
+
+    digest = hashlib.sha256(str(out.resolve()).encode()).hexdigest()[:10]
+    return pglocal.scratch_root() / f"tb-tests-full-set-{digest}"
 
 
 def run_stage(stage: Stage, opts: argparse.Namespace, log_dir: Path, runner: Runner = run_command) -> dict[str, object]:
