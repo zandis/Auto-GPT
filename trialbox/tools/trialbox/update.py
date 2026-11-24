@@ -1408,6 +1408,8 @@ class Updater:
             "applied_at": _now(),
             "state": state,
         }
+        if not live:  # H-124 (LR-17): install.sh's first load; the box has not run this release (never_started)
+            record["loaded_only"] = True
         source = (plan.release or {}).get("source")
         if isinstance(source, dict) and isinstance(source.get("dirty"), bool):
             record["dirty"] = source["dirty"]  # D-633: built from a working tree (a DEV or TEST box took it)
@@ -2849,6 +2851,17 @@ def box_in_service(deploy: Path, box: Any = None) -> str:
     return f"volumes {', '.join(found[:3])}" if found else ""
 
 
+def never_started(deploy: Path, box: Any, inst: dict[str, Any]) -> bool:
+    """H-124 (lane LR's LR-17): install.sh's first load wrote this box's record (``loaded_only``) and the stack never
+    ran: no update history and no data volumes of the compose project (a box that ran has them; a Docker that cannot
+    answer counts as data, ``data_volumes``). A record without the mark (a box installed before H-124, or one an update
+    wrote) is never taken for one."""
+    if inst.get("loaded_only") is not True or (deploy / "updates" / "history.jsonl").exists():
+        return False
+    volumes = getattr(box, "data_volumes", None)
+    return volumes is not None and not volumes()
+
+
 def no_backup_refused(target: str, deploy: Path) -> bool:
     """D-1321: ``--no-backup`` with no reason is refused on a PRODUCTION box (the box's own environment, as the
     update path reads it: ``deploy/.env``; unset or any other name counts as PRODUCTION, D-633). DEV, TEST and
@@ -2949,6 +2962,10 @@ def main_apply(
         print(f"update {plan.bundle_id}: already installed ({what}); nothing to do")
         return 0
     in_service = box_in_service(deploy, box)
+    if os.environ.get("TB_SKIP_AUDIT") and in_service and not box.running() and never_started(deploy, box, inst):
+        print(f"update: release {inst.get('bundle_id')} was loaded and the box never started (no history, no data "
+              f"volumes): install.sh's load takes {plan.bundle_id} in its place (H-124, LR-17)")  # fmt: skip
+        in_service = ""
     if not box.running():
         if in_service:
             print(f"update REFUSED: the box is installed ({in_service}) but not running (crashed, restarting, or its "
