@@ -1088,5 +1088,5 @@ def test_a_v1_outcome_is_written_as_before() -> None:
     t = PatientTrace(pid="P", index_date=RUN, outcomes={"X-INC-01": Outcome("X-INC-01", "pass", "S1")})
     assert t.to_dict()["outcomes"]["X-INC-01"] == {
         "criterion_id": "X-INC-01", "status": "pass", "stage": "S1", "hard": False, "unknown_kind": None,
-        "stratum": None, "evidence": [], "reason": "", "rescue": None,
+        "stratum": None, "evidence": [], "reason": "", "rescue": None, "affirmed": None,
     }  # fmt: skip
