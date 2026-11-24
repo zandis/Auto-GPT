@@ -20,6 +20,13 @@
 # host loads the image itself, and tools/serving_profile.py check-image checks that the local image has the digest
 # its settings file pins. tools/images_lock.py refuses this file's image in any other form, and refuses it in
 # deploy/images.lock, so it can never ride in a signed bundle.
+#
+# Like for like with the current command line (OCR 1459-4): the judge renders the same pinned chat template (the
+# switch refuses another), the verifier a template that renders with thinking off (its current flag is a default
+# chat-template argument the second engine has no counterpart for); sequence length, batch, memory share and the
+# structured output backend are in each server's options file. The model servers' key file is not handed to this
+# engine (env_file reset): it checks no key of its own on /v1, model-guard keys every call, and the switch allows
+# test boxes only.
 x-trialbox-bench-serving: true
 
 x-serving2-env: &serving2env
@@ -38,6 +45,8 @@ services:
       - --port=8000
       - --log_level=warning   # no request or prompt lines in the log (as the current engine, T-605)
       - --config=/models/${SERVING2_JUDGE_CONFIG:-serving2-judge-unset.yaml}
+      - --chat_template=/models/${SERVING2_JUDGE_CHAT_TEMPLATE:-serving2-judge-unset.jinja}
+    env_file: !reset []   # the model servers' key file is the current engine's: never handed to this one
     environment: *serving2env
 
   llm-verifier:
@@ -52,4 +61,6 @@ services:
       - --port=8000
       - --log_level=warning
       - --config=/models/${SERVING2_VERIFIER_CONFIG:-serving2-verifier-unset.yaml}
+      - --chat_template=/models/${SERVING2_VERIFIER_CHAT_TEMPLATE:-serving2-verifier-unset.jinja}
+    env_file: !reset []   # the model servers' key file is the current engine's: never handed to this one
     environment: *serving2env

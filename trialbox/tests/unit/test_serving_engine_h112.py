@@ -3,7 +3,7 @@ harness, proved with stand-ins (no engine, no GPU, no model).
 
 * The switch off changes nothing: the file list is the box's own, and ``docker compose config`` renders the same
   bytes as compose reading the box's ``COMPOSE_FILE`` itself, for every GPU stack.
-* The switch on selects the second profile, and only on a TEST or VALIDATION box with a filled settings file and a
+* The switch on selects the second profile, and only on a TEST box with a filled settings file and a
   GPU overlay; it changes nothing but what runs inside llm-service and llm-verifier. A caller's variable decides
   nothing. A PRODUCTION box is refused, and doctor FAILs the profile's file there.
 * The harness's numbers on fixed rows are exact; repeat agreement counts the differing (patient, criterion) answers
@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.unit.test_compose_limits import BASE, DEPLOY, DUMMY_ENV, STACKS, _compose, _merge
+from tests.unit.test_compose_limits import BASE, DEPLOY, DUMMY_ENV, STACKS, _compose, _load, _merge
 from tools import engine_compare as ec
 from tools import images_lock as il
 from tools import judge_bakeoff as jb
@@ -38,8 +38,14 @@ OVERLAY = sp.OVERLAY
 GPU_STACKS = [
     s for s, p in STACKS if "gpu" in p and OVERLAY not in s and any("llm-verifier" in _merge((f,)) for f in s)
 ]
+# the judge's pinned chat template every GPU overlay names (read from the file: no name is written here)
+_T = sp.CURRENT_TEMPLATE.search((DEPLOY / "docker-compose.gb10.yml").read_text(encoding="utf-8"))
+assert _T is not None
+CURRENT_T = _T.group(1)
 FILLED = {
     "SERVING2_IMAGE": "registry.invalid/engine@sha256:" + "ab" * 32,
+    "SERVING2_JUDGE_CHAT_TEMPLATE": CURRENT_T,
+    "SERVING2_VERIFIER_CHAT_TEMPLATE": "templates/cand-a-verifier-no-thinking.jinja",
     "SERVING2_SERVER": "engine-server",
     "SERVING2_JUDGE_DIR": "cand-a-judge",
     "SERVING2_JUDGE_NAME": "local/cand-a-judge",
@@ -135,7 +141,7 @@ def test_a_callers_variable_decides_nothing(tmp_path: Path, monkeypatch: pytest.
 
 
 # --------------------------------------------------------------------------------------- the switch on: the profile
-@pytest.mark.parametrize("box", ["TEST", "VALIDATION", "test"])
+@pytest.mark.parametrize("box", ["TEST", "test"])
 def test_the_switch_on_adds_the_second_profile_last(tmp_path: Path, box: str) -> None:
     stack = GPU_STACKS[0]
     deploy = _box(tmp_path, stack, f"TB_ENV={box}\n", settings=ON)
@@ -165,6 +171,9 @@ def test_the_switch_on_renders_the_second_engine_in_the_two_servers_only(
         assert body["command"][:2] == ["serve", f"/models/{FILLED[f'SERVING2_{who}_DIR']}"]
         assert f"--served_model_name={FILLED[f'SERVING2_{who}_NAME']}" in body["command"]
         assert "--port=8000" in body["command"] and "--log_level=warning" in body["command"]
+        # OCR 1459-4: the chat template; 1459-5: the model servers' key file is not handed to the second engine
+        assert f"--chat_template=/models/{FILLED[f'SERVING2_{who}_CHAT_TEMPLATE']}" in body["command"]
+        assert not body.get("env_file"), svc  # the overlay resets it (the test box has no key file to render)
         # the card, the caps, the networks, the controls and the health check stay the GPU overlay's
         for key in ("deploy", "mem_limit", "pids_limit", "networks", "security_opt", "healthcheck", "volumes",
                     "labels", "restart", "logging"):  # fmt: skip
@@ -174,10 +183,12 @@ def test_the_switch_on_renders_the_second_engine_in_the_two_servers_only(
 def test_the_profile_file_changes_only_what_runs_and_is_never_pulled() -> None:
     text = (DEPLOY / OVERLAY).read_text(encoding="utf-8")
     assert sp.MARK in text.splitlines() and doctor.BENCH_SERVING_MARK == sp.MARK
-    doc = yaml.safe_load(text)
+    doc = _load(OVERLAY)  # compose's !reset read as plain YAML (test_compose_limits's loader)
+    assert "env_file: !reset []" in text
     assert set(doc["services"]) == set(sp.SERVICES)
     for body in doc["services"].values():
-        assert set(body) == {"image", "pull_policy", "entrypoint", "command", "environment"}
+        assert set(body) == {"image", "pull_policy", "entrypoint", "command", "environment", "env_file"}
+        assert body["env_file"] == []  # !reset: the current engine's key file is not this engine's
         assert body["pull_policy"] == "never"
         assert body["image"] == "${SERVING2_IMAGE:-serving2-unset@sha256:" + "0" * 64 + "}"  # by digest, no tag
     # the bench image is named nowhere else: no other compose file can run the second engine
@@ -200,6 +211,8 @@ def test_the_profile_file_changes_only_what_runs_and_is_never_pulled() -> None:
         ("", ON, "PRODUCTION box"),
         ("TB_ENV=PRODUCTION\n", ON, "PRODUCTION box"),
         ("TB_ENV=DEV\n", ON, "DEV box"),
+        ("TB_ENV=VALIDATION\n", ON, "VALIDATION box"),  # OCR 1459-5: no key check of its own
+        ("TB_ENV=TEST\n", {**ON, "SERVING2_JUDGE_CHAT_TEMPLATE": "templates/other.jinja"}, "chat template"),
         ("TB_ENV=TEST\n", {**ON, "SERVING2_JUDGE_NAME": "<served name>"}, "SERVING2_JUDGE_NAME is not filled"),
         ("TB_ENV=TEST\n", {k: v for k, v in ON.items() if k != "SERVING2_SERVER"}, "SERVING2_SERVER is not filled"),
         ("TB_ENV=TEST\n", {**ON, "SERVING2_IMAGE": "registry.invalid/engine:1.0"}, "not pinned by digest"),
@@ -227,9 +240,15 @@ def test_the_switch_on_is_refused_without_a_gpu_overlay_or_with_a_loose_settings
     with pytest.raises(sp.Refused, match="define no llm-verifier"):
         sp.files(deploy)
     deploy = _box(tmp_path / "b", GPU_STACKS[0], "TB_ENV=TEST\n", settings=ON)
-    (deploy / sp.SETTINGS).chmod(0o666)
-    with pytest.raises(sp.Refused, match="writable by group or others"):
+    for mode in (0o666, 0o640, 0o604):  # OCR 1459-8: a readable copy refused too
+        (deploy / sp.SETTINGS).chmod(mode)
+        with pytest.raises(sp.Refused, match="readable or writable by group or others"):
+            sp.files(deploy)
+    (deploy / sp.SETTINGS).chmod(0o600)
+    (deploy / "site").chmod(0o777)
+    with pytest.raises(sp.Refused, match="alone"):  # a folder others may write: a file could be swapped in
         sp.files(deploy)
+    (deploy / "site").chmod(0o755)
     deploy = _box(tmp_path / "c", (*GPU_STACKS[0], OVERLAY), "TB_ENV=TEST\n", settings=ON)
     with pytest.raises(sp.Refused, match="already names"):
         sp.files(deploy)
@@ -312,7 +331,7 @@ def test_the_lock_refuses_the_bench_image_and_only_the_bench_file_names_it(tmp_p
 
 # ------------------------------------------------------------------------------------------ doctor: never PRODUCTION
 @pytest.mark.parametrize(("env", "status"), [({}, "FAIL"), ({"TB_ENV": "PRODUCTION"}, "FAIL"),
-                                             ({"TB_ENV": "TEST"}, "WARN"), ({"TB_ENV": "VALIDATION"}, "WARN")])  # fmt: skip
+                                             ({"TB_ENV": "TEST"}, "WARN"), ({"TB_ENV": "VALIDATION"}, "FAIL")])  # fmt: skip
 def test_doctor_fails_the_profile_on_a_production_box(tmp_path: Path, env: dict[str, str], status: str) -> None:
     files = ":".join([str(DEPLOY / f) for f in GPU_STACKS[0]] + [str(DEPLOY / OVERLAY)])
     c = doctor.check_bench_serving(doctor.DoctorInputs(env={**env, "COMPOSE_FILE": files}, deploy=DEPLOY))
@@ -495,3 +514,135 @@ def test_the_committed_files_hold_placeholders_only_and_are_not_writable_by_othe
         assert not p.stat().st_mode & (stat.S_IWGRP | stat.S_IWOTH)
     values = {k: v for k, v in sp.env_file(DEPLOY / sp.EXAMPLE).items() if k != sp.SWITCH}
     assert all("<" in v for v in values.values())
+
+
+# ----------------------------------------------------------------------------- the external review of bae68bbd
+def test_ocr_1459_1_compose_runs_the_checked_digest_and_never_a_tag(tmp_path: Path) -> None:
+    """1459-1 / 1459-9: with the switch on, `compose` checks the local image against the pin and hands compose the
+    values it checked, in a private copy, by digest: no tag is made, nothing is pulled, and a settings file swapped
+    after the check is never used."""
+    deploy = _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\n", settings=ON)
+    ref = FILLED["SERVING2_IMAGE"]
+    seen: list[list[str]] = []
+    handed: dict[str, str] = {}
+
+    def run(argv: Any, **_: Any) -> subprocess.CompletedProcess[str]:
+        argv = list(argv)
+        seen.append(argv)
+        if argv[1:3] == ["image", "inspect"]:  # after the check: someone swaps the settings file
+            (deploy / sp.SETTINGS).write_text("".join(f"{k}={v}\n" for k, v in {**ON, "SERVING2_SERVER": "other"}.items()),
+                                              encoding="utf-8")  # fmt: skip
+            return subprocess.CompletedProcess(argv, 0, json.dumps([ref]), "")
+        env_files = [argv[i + 1] for i, x in enumerate(argv) if x == "--env-file"]
+        private = Path(env_files[-1])
+        assert private.parent != deploy / "site" and stat.S_IMODE(private.stat().st_mode) == 0o600
+        handed.update(sp.parse_env(private.read_text(encoding="utf-8")))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    assert sp.compose(deploy, ["up", "-d"], run=run) == 0
+    assert [c[1] for c in seen] == ["image", "compose"]  # no tag, no pull
+    assert handed == ON  # the values it checked, not the swapped file
+    files = [seen[-1][i + 1] for i, x in enumerate(seen[-1]) if x == "-f"]
+    assert seen[-1][-2:] == ["up", "-d"] and Path(files[-1]).name == OVERLAY and len(files) == len(GPU_STACKS[0]) + 1
+
+
+@pytest.mark.parametrize("form", ["bom", "export", "not-utf8", "a-folder"])
+def test_ocr_1459_2_a_switch_written_on_is_never_read_as_off(tmp_path: Path, form: str) -> None:
+    deploy = _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\n", settings=ON)
+    p = deploy / sp.SETTINGS
+    rest = "".join(f"{k}={v}\n" for k, v in FILLED.items())
+    if form == "bom":
+        p.write_text(f"\ufeff{sp.SWITCH}=second\n" + rest, encoding="utf-8")
+    elif form == "export":
+        p.write_text(f"export {sp.SWITCH}=second\n" + rest, encoding="utf-8")
+    elif form == "not-utf8":
+        p.write_bytes(f"{sp.SWITCH}=second\n".encode() + b"\xff\xfe\n" + rest.encode())
+    else:
+        p.unlink()
+        p.mkdir()
+    if form in ("bom", "export"):
+        assert sp.switch(deploy) == "second"
+        assert sp.files(deploy)[-1].endswith(OVERLAY)
+        return
+    with pytest.raises(sp.Refused, match="cannot be read"):
+        sp.switch(deploy)
+    assert sp.main(["files", "--deploy", str(deploy)]) == 1
+    c = doctor.check_bench_serving(doctor.DoctorInputs(env={"TB_ENV": "PRODUCTION"}, deploy=deploy))
+    assert c.status == "FAIL"  # and doctor never takes it for off
+
+
+@pytest.mark.parametrize(("env", "status"), [("TB_ENV=TEST\n", "WARN"), ("", "FAIL"), ("TB_ENV=VALIDATION\n", "FAIL")])
+def test_ocr_1459_3_doctor_sees_the_switch_not_only_compose_file(tmp_path: Path, env: str, status: str) -> None:
+    deploy = _box(tmp_path, GPU_STACKS[0], env, settings=ON)
+    c = doctor.check_bench_serving(doctor.DoctorInputs(env=sp.env_file(deploy / ".env"), deploy=deploy))
+    assert c.status == status and "the switch in" in c.detail, c
+    off = _box(tmp_path / "off", GPU_STACKS[0], env, settings={**FILLED, "SERVING_ENGINE": "current"})
+    assert doctor.check_bench_serving(doctor.DoctorInputs(env=sp.env_file(off / ".env"), deploy=off)).status == "PASS"
+
+
+def test_ocr_1459_4_the_judge_renders_the_current_engines_chat_template(tmp_path: Path) -> None:
+    """The switch refuses a judge template other than the one the current engine renders on this box: the GPU
+    overlay's default, or the box's own JUDGE_CHAT_TEMPLATE when it sets one."""
+    deploy = _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\n", settings=ON)
+    assert sp.files(deploy)[-1].endswith(OVERLAY)
+    for stack in GPU_STACKS:
+        assert sp.current_template(deploy, {}, [str(DEPLOY / f) for f in stack]) == CURRENT_T, stack
+    _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\nJUDGE_CHAT_TEMPLATE=templates/site.jinja\n", settings=ON)
+    with pytest.raises(sp.Refused, match="chat template"):
+        sp.files(deploy)
+    _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\nJUDGE_CHAT_TEMPLATE=templates/site.jinja\n",
+         settings={**ON, "SERVING2_JUDGE_CHAT_TEMPLATE": "templates/site.jinja"})  # fmt: skip
+    assert sp.files(deploy)[-1].endswith(OVERLAY)
+    assert "SERVING2_VERIFIER_CHAT_TEMPLATE" in sp.required_keys(DEPLOY)
+
+
+@pytest.mark.parametrize("line", ["x-trialbox-bench-serving: true", "x-trialbox-bench-serving: true  ",
+                                  "x-trialbox-bench-serving:   true  # bench"])  # fmt: skip
+def test_ocr_1459_7_the_mark_is_found_as_compose_reads_it(tmp_path: Path, line: str) -> None:
+    copy = tmp_path / "docker-compose.copy.yml"
+    copy.write_text((DEPLOY / OVERLAY).read_text(encoding="utf-8").replace(sp.MARK, line), encoding="utf-8")
+    assert yaml.safe_load(sp.COMPOSE_TAG.sub("", copy.read_text(encoding="utf-8")))["x-trialbox-bench-serving"] is True
+    files = ":".join([str(DEPLOY / f) for f in GPU_STACKS[0]] + [str(copy)])
+    c = doctor.check_bench_serving(doctor.DoctorInputs(env={"COMPOSE_FILE": files}, deploy=tmp_path))
+    assert c.status == "FAIL"
+    assert il.check_compose(il.load(), [copy]) == ([], set())  # the bench file's own rules apply to the copy too
+    assert sp.MARK_LINE.search(copy.read_text(encoding="utf-8"))
+
+
+def test_ocr_1459_8_the_key_file_is_its_owners_alone(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    key = tmp_path / "key"
+    key.write_text("not-a-real-key\n", encoding="utf-8")
+    items = _items()[:2]
+    set_file = tmp_path / "set.jsonl"
+    sha = jb.write_set(items, set_file)
+    argv = ["run", "--engine", "current", "--candidate", "A", "--quant", "q4", "--image-digest", IMAGE["current"],
+            "--base-url", "http://127.0.0.1:9/v1", "--served-name", "x", "--key-file", str(key), "--set",
+            str(set_file), "--expect-set-sha", sha, "--out", str(tmp_path / "o")]  # fmt: skip
+    for mode in (0o644, 0o640, 0o604):
+        key.chmod(mode)
+        assert ec.main(argv) == 2
+        assert "the key file is refused" in capsys.readouterr().err
+    key.chmod(0o600)
+    assert ec.read_key(key) == "not-a-real-key"
+
+
+def test_ocr_1459_10_a_run_leaves_no_old_or_half_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                         capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
+    out = tmp_path / "o"
+    out.mkdir()
+    (out / ec.SUMMARY).write_text(json.dumps({"engine": "current", "candidate": "A", "quant": "old"}), "utf-8")
+
+    def interrupted(*_: Any, **__: Any) -> list[jb.Row]:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(jb, "run", interrupted)  # the module engine_compare calls
+    with jb.stub_server() as url, pytest.raises(KeyboardInterrupt):
+        ec.run(url, jb.STUB_NAME, _items()[:2], {"engine": "current", "candidate": "A", "quant": "q4"}, out,
+               gpu_cmd=[])  # fmt: skip
+    assert not (out / ec.SUMMARY).exists()  # the earlier run's row is not left for `table`
+    assert ec.main(["table", str(out)]) == 2 and "no whole summary.json" in capsys.readouterr().err
+    (out / ec.SUMMARY).write_text('{"engine": "cur', encoding="utf-8")  # a half-written file
+    assert ec.main(["table", str(out)]) == 2
+    ec.write_summary(out, {"engine": "current"})
+    assert json.loads((out / ec.SUMMARY).read_text(encoding="utf-8")) == {"engine": "current"}
+    assert not (out / (ec.SUMMARY + ".tmp")).exists()

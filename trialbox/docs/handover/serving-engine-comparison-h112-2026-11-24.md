@@ -48,15 +48,39 @@ tools.serving_profile files` prints the compose file list:
 - **Off:** the box's own `COMPOSE_FILE`, unchanged. Tested: on every GPU stack, `docker compose config` from the
   switch's list renders byte for byte what compose renders reading the box's `.env` itself.
 - **On:** that list with the profile added last, only when all of these hold:
-  - the box is a TEST or VALIDATION box (`TB_ENV` of `deploy/.env`; absent is PRODUCTION);
-  - the settings file is root's or the user's, not writable by group or others, and fills every key;
+  - the box is a TEST box (`TB_ENV` of `deploy/.env`; absent is PRODUCTION). Not VALIDATION: the second engine
+    checks no key of its own on `/v1` (read in its source), and a model server without its own key check is a FAIL
+    on a VALIDATION box (D-177, D-450). Model-guard still keys every call;
+  - the settings file is root's or the user's, mode 600 (neither readable nor writable by group or others), in a
+    `deploy/site` only root or the user may write, and fills every key;
   - the image is pinned by digest, with no tag;
+  - the judge's chat template is the one the current engine renders on this box (below);
   - the box's files define both servers.
 
   Otherwise the switch is refused with the reason. A caller's environment variable decides nothing (tested).
-  `compose` runs `docker compose` with the two env files, after clearing every `COMPOSE_*` and `SERVING2_*` variable.
-  `trialbox doctor` has a new check, `bench_serving`: the profile's file in `COMPOSE_FILE` FAILs on a box that is
-  not TEST or VALIDATION, and is a standing WARN on one that is.
+  The settings file is read once per command. A byte order mark is dropped, `export KEY=` is read as compose reads
+  it, and a file that is there but cannot be read is refused, never read as the switch off. `compose` checks the
+  local image against its pin, then hands `docker compose` the values it checked in a private copy (mode 600,
+  removed after), never the settings file again, after clearing every `COMPOSE_*` and `SERVING2_*` variable.
+  `trialbox doctor` has a new check, `bench_serving`: the second profile is on when its file is in `COMPOSE_FILE`
+  or when the switch says `second` (a switch that cannot be read counts as on); it FAILs on any box but a TEST box,
+  and is a standing WARN on a TEST box.
+
+**Like for like** (the external review's 1459-4). The second profile replaces each server's command line whole, so
+each current flag has a counterpart or a stated reason:
+
+| The current engine's flag | In the second profile |
+| --- | --- |
+| the judge's pinned chat template (DEP-007, D-392) | `--chat_template`, the same file: the switch refuses another |
+| the verifier's thinking off (a default chat-template argument) | `--chat_template`, a verifier template that renders with thinking off: the engine has no default-argument flag (read in its source) |
+| the chat template's content as strings (D-880) | none found in its options; unproven |
+| sequence length, sequences in flight, memory share | the server's options file (`--config`) |
+| eager mode (no compiled graphs) | the options file; unproven |
+| no image, audio or video inputs | none: the text checkpoints load no media encoder; unproven |
+| the structured output backend | the options file; unproven |
+
+The model servers' key file (`secrets/model/`) is the current engine's: the second profile resets `env_file` on both
+servers, so the key is never handed to the second engine (the external review's 1459-5).
 
 **The harness.** `python -m tools.engine_compare run` puts the frozen synthetic set to one served model, by default
 three times. The set is `python -m tools.judge_bakeoff --write-set`: the synthetic hospital's note criteria. Each item
@@ -101,7 +125,9 @@ Run from the repository checkout, as root, with the walk's own copies (never com
 1. Load the second engine's image from the file whose licence was read (`docker load -i <file>`). Copy
    `deploy/serving-second.example.env` to `deploy/site/serving-second.env` (`chmod 600`) and fill it: the image's
    `<repository>@sha256:<digest>`, its server program, and per server the candidate's folder, the served name the
-   gateway's registry expects and the engine's options file. Keep `SERVING_ENGINE=current` for now.
+   gateway's registry expects, the engine's options file and the chat template (the judge's: the file the current
+   engine renders; the verifier's: one that renders with thinking off). Keep `SERVING_ENGINE=current` for now. The
+   bench box is a TEST box (`TB_ENV=TEST`): the switch refuses any other.
 2. Freeze the set once: `python -m tools.judge_bakeoff --write-set <results>/h112-set.jsonl`. Note its sha256.
 3. The current engine, for each candidate X (A to D) and its quantization label Q:
 
@@ -136,8 +162,8 @@ These are untested: no engine, GPU or model ran in this card.
 - **Structured output:** that it honours the judge's JSON schema.
 - **Weights:** that the candidates' 4-bit formats load in it with the same quantization as the current engine.
 - **Memory and size:** that its memory share and sequence length fit the card or its partition.
-- **Chat template and decoding:** that its chat template matches the current engine's, and that its sampling
-  defaults give the same deterministic decoding.
+- **Chat template and decoding:** that the second engine renders the same template file the same way (the content
+  as strings, the verifier's thinking off), and that its sampling defaults give the same deterministic decoding.
 - **The digest on the host:** that the loaded image keeps its repository digest, which `check-image` and compose
   look for. An image store that keeps no digests for a loaded file would refuse it (finding H112-08).
 - **Timing:** any time, throughput or memory figure.

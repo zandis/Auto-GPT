@@ -1470,13 +1470,19 @@ def _standins_in_compose(inp: DoctorInputs) -> str:
 
 
 BENCH_SERVING_MARK = "x-trialbox-bench-serving: true"
+# the mark as compose still reads it: blanks and a trailing comment allowed (OCR 1459-7)
+_BENCH_MARK_LINE = re.compile(r"^x-trialbox-bench-serving:\s*true\s*(?:#.*)?$", re.M)
 
 
 def check_bench_serving(inp: DoctorInputs) -> Check:
     """H-112: the second serving profile (deploy/docker-compose.serving-second.yml, marked BENCH_SERVING_MARK) runs
-    the models with an engine that is in no signed bundle and not in deploy/images.lock: in COMPOSE_FILE of a TEST or
-    VALIDATION box it is a standing WARN, on a box of any other class (PRODUCTION when unset) a FAIL.
-    tools/serving_profile.py adds it only on the bench host and never writes COMPOSE_FILE; this catches a hand edit."""
+    the models with an engine that is in no signed bundle, not in deploy/images.lock and with no key check of its
+    own: on a TEST box it is a standing WARN, on a box of any other class (PRODUCTION when unset) a FAIL. It is on
+    when its file is in COMPOSE_FILE (a hand edit) or when the switch in deploy/site/serving-second.env says
+    ``second`` (tools/serving_profile.py adds the file on the command line, never to COMPOSE_FILE); a switch that
+    cannot be read counts as on (OCR 1459-3)."""
+    from tools import serving_profile
+
     base = inp.deploy or ROOT / "deploy"
     found = ""
     for entry in (inp.env.get("COMPOSE_FILE") or "").split(":"):
@@ -1484,20 +1490,27 @@ def check_bench_serving(inp: DoctorInputs) -> Check:
             continue
         path = _compose_file(base, entry.strip())
         try:
-            if BENCH_SERVING_MARK in path.read_text(encoding="utf-8").splitlines():
-                found = str(path)
+            if _BENCH_MARK_LINE.search(path.read_text(encoding="utf-8")):
+                found = f"{path}, deploy/.env COMPOSE_FILE"
                 break
         except (OSError, UnicodeDecodeError):
             continue
     if not found:
+        try:
+            on = serving_profile.switch(base) == "second"
+        except serving_profile.Refused:
+            on = True  # a switch that cannot be read, or says something else, is never taken for off
+        if on:
+            found = f"the switch in {base / serving_profile.SETTINGS}"
+    if not found:
         return Check("bench_serving", "PASS", "the models are served by the current serving engine")
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
-    if env in ("TEST", "VALIDATION"):
+    if env == "TEST":
         return Check("bench_serving", "WARN", f"BENCH SERVING: the second serving engine serves the models ({found}): "
                                               "for the engine comparison only, not a pinned image (H-112)")  # fmt: skip
-    return Check("bench_serving", "FAIL", f"the second serving profile is in the compose files of a {env} box "
-                                          f"({found}, deploy/.env COMPOSE_FILE): its engine is in no signed bundle. "
-                                          "Take it out of COMPOSE_FILE (H-112)")  # fmt: skip
+    return Check("bench_serving", "FAIL", f"the second serving profile is on for a {env} box ({found}): its engine "
+                                          "is in no signed bundle and checks no key of its own. Set SERVING_ENGINE "
+                                          "to current and take the file out of COMPOSE_FILE (H-112)")  # fmt: skip
 
 
 def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:

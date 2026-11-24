@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -208,10 +209,42 @@ def _run_line(x: dict[str, Any]) -> str:
 
 
 # ------------------------------------------------------------------------------------------------------ the run
+class KeyFileRefused(RuntimeError):
+    pass
+
+
 def read_key(path: Path | None) -> str:
+    """The key, from a file only its owner may read (root's or this user's, no group or other bits: OCR 1459-8)."""
     if path is None:
         return ""
+    st = path.stat()
+    if st.st_uid not in (0, os.getuid()) or st.st_mode & 0o077:
+        raise KeyFileRefused(f"{path} must be root's or this user's, mode 600 or 400")
     return path.read_text(encoding="utf-8").strip()
+
+
+def write_summary(out: Path, summary: dict[str, Any]) -> None:
+    """``summary.json`` written whole or not at all: a temporary file, synced, then moved into place (OCR 1459-10)."""
+    tmp = out / (SUMMARY + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        fh.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, out / SUMMARY)
+
+
+def read_summaries(runs: Sequence[Path]) -> list[dict[str, Any]]:
+    """Each run folder's summary; a folder without a whole one is refused (ValueError), never skipped."""
+    out = []
+    for d in runs:
+        try:
+            got = json.loads((d / SUMMARY).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise ValueError(f"{d}: no whole {SUMMARY} (the run did not finish)") from None
+        if not isinstance(got, dict):
+            raise ValueError(f"{d}: {SUMMARY} is not a run's summary")
+        out.append(got)
+    return out
 
 
 def run(
@@ -233,6 +266,7 @@ def run(
     client = jb.BakeoffClient(base_url, served_name, key=key)
     jb.models_entry(client.http, base_url, served_name)  # the served name must be listed (PinRefused otherwise)
     out.mkdir(parents=True, exist_ok=True)
+    (out / SUMMARY).unlink(missing_ok=True)  # an interrupted run never leaves an earlier run's row behind
     mon = Monitor(out / "card", servers=None, key="", every=sample_every, gpu_cmd=gpu_cmd).start()
     all_rows: list[list[jb.Row]] = []
     walls: list[float] = []
@@ -245,7 +279,7 @@ def run(
         card = mon.stop()
     gpu = card.get("gpu") if card.get("sampled") else None
     summary = summarize(all_rows, walls, meta, gpu)
-    (out / SUMMARY).write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_summary(out, summary)
     return summary
 
 
@@ -279,7 +313,11 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--out", type=Path)
     a = ap.parse_args(argv)
     if a.cmd == "table":
-        summaries = [json.loads((d / SUMMARY).read_text(encoding="utf-8")) for d in a.runs]
+        try:
+            summaries = read_summaries(a.runs)
+        except ValueError as e:
+            print(f"engine_compare: {e}", file=sys.stderr)
+            return 2
         text = render_table(summaries)
         if a.out:
             a.out.write_text(text, encoding="utf-8")
@@ -307,6 +345,9 @@ def main(argv: list[str] | None = None) -> int:
         key = read_key(a.key_file)
     except OSError:
         print("engine_compare: the key file cannot be read", file=sys.stderr)
+        return 2
+    except KeyFileRefused as e:
+        print(f"engine_compare: the key file is refused: {e}", file=sys.stderr)
         return 2
     try:
         s = run(a.base_url, a.served_name, items, meta, a.out, key=key, repeats=a.repeats, workers=a.workers,
