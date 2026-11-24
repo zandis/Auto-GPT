@@ -53,18 +53,20 @@ def allowed(host: str, exact: frozenset[str], suffixes: Sequence[str]) -> bool:
 
 
 NAT64 = ipaddress.ip_network("64:ff9b::/96")
+TRANSLATED = ipaddress.ip_network("::ffff:0:0:0/96")  # IPv4-translated: an IPv4 address inside (1448-21)
 V4_COMPATIBLE = ipaddress.ip_network("::/96")
 SITE_LOCAL = ipaddress.ip_network("fec0::/10")
 
 
 def public(addr: str) -> bool:
     """A global unicast address. An IPv4 address carried in IPv6 is judged by its IPv4 address (the review of #1448,
-    L-1448-8): NAT64 (64:ff9b::/96) and IPv4-mapped; IPv4-compatible (::/96) and site-local (fec0::/10) are refused."""
+    L-1448-8, 1448-21): NAT64 (64:ff9b::/96), IPv4-translated and IPv4-mapped; IPv4-compatible (::/96) and
+    site-local (fec0::/10) are refused."""
     ip = ipaddress.ip_address(addr.split("%", 1)[0])
     if isinstance(ip, ipaddress.IPv6Address):
         if ip.ipv4_mapped is not None:
             ip = ip.ipv4_mapped
-        elif ip in NAT64:
+        elif ip in NAT64 or ip in TRANSLATED:
             ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
         elif ip in V4_COMPATIBLE or ip in SITE_LOCAL:
             return False

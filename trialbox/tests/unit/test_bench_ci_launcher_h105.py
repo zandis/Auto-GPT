@@ -9,6 +9,7 @@ Nothing here starts a container or calls the code host."""
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import pwd
@@ -55,6 +56,9 @@ FILLED = {
     "BENCH_WEIGHTS": "/srv/weights",
 }
 CI_CARDS = [4, 5]
+# global addresses built in code, so no real host's address is written here (the repository rule; review 1448-25)
+PUBLIC_V4 = next(a for a in (ipaddress.IPv4Address(n << 24 | 1) for n in range(1, 224)) if a.is_global)
+PUBLIC_V6 = ipaddress.IPv6Address(0x2A00 << 112 | 1)
 RESERVED = [1, 2, 3]
 
 
@@ -618,9 +622,9 @@ def test_only_connect_to_443_on_an_allowed_host() -> None:
 
 @pytest.mark.parametrize(
     ("addr", "ok"),
-    [("140.82.112.3", True), ("10.1.2.3", False), ("192.168.1.1", False), ("172.16.0.1", False),
+    [(str(PUBLIC_V4), True), ("10.1.2.3", False), ("192.168.1.1", False), ("172.16.0.1", False),
      ("127.0.0.1", False), ("169.254.169.254", False), ("100.64.0.1", False), ("::1", False), ("fd00::1", False),
-     ("fe80::1%eth0", False), ("2606:4700::1", True)],
+     ("fe80::1%eth0", False), (str(PUBLIC_V6), True), ("2001:db8::1", False)],
 )  # fmt: skip
 def test_only_a_public_address_is_reached(addr: str, ok: bool) -> None:
     assert egress_proxy.public(addr) is ok

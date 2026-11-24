@@ -379,7 +379,7 @@ def fresh_scratch(s: Settings, slot: str, uid: int, gid: int, files: dict[str, s
     if path.exists():
         shutil.rmtree(path)
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)  # 1448-22: the root itself no link
     try:
         os.mkdir(path.name, 0o700, dir_fd=parent)
         top = os.open(path.name, flags, dir_fd=parent)
@@ -523,7 +523,8 @@ def _wait(s: Settings, slot: str, proc: subprocess.Popen[bytes], name: str, scra
             if now - (began if accepted is None else accepted) > limit:
                 _engine(s, "rm", "--force", name)
                 print(f"bench CI: {name} passed {s['BENCH_JOB_HOURS']} h and was stopped", file=sys.stderr)
-                return proc.wait(), accepted is not None
+                rc = proc.wait()
+                return (rc if accepted is not None else 0), accepted is not None  # 1448-24: an idle recycle is no fault
             if now - rejoined >= REATTACH_SECONDS:
                 _engine(s, "network", "connect", "--ip", proxy_ip, job_net(slot), PROXY_NAME)
                 rejoined = now

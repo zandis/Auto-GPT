@@ -15,11 +15,13 @@ failing at a5297c6, from the review's own reproductions; and the cheap Lows. The
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import json
 import os
 import pwd
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -49,6 +51,8 @@ FILL = {
     "BENCH_RUNNER_SHA256": "a" * 64,
     "BENCH_JOB_HOURS": "6",
 }
+# a global address built in code (the first host of the first global /8), so no real host's address is written here
+PUBLIC_V4 = next(a for a in (ipaddress.IPv4Address(n << 24 | 1) for n in range(1, 224)) if a.is_global)
 GPU_ONLY = (
     "BENCH_CI_GPUS",
     "BENCH_RESERVED_GPUS",
@@ -128,7 +132,7 @@ def test_m1448_1_a_link_planted_inside_the_new_folder_is_not_followed(
 
     def mkdir_then_plant(path: Any, mode: int = 0o777, *, dir_fd: int | None = None) -> None:
         real_mkdir(path, mode, dir_fd=dir_fd)
-        if str(path) == "home":  # the next name root will make: the jobs' user puts a link there first
+        if Path(str(path)).name == "home":  # the next name root makes (by name or by path): a link is put there first
             os.symlink(victim, ".tb-bench", dir_fd=dir_fd)
 
     monkeypatch.setattr("os.mkdir", mkdir_then_plant)
@@ -148,7 +152,7 @@ def test_m1448_1_a_subfolder_swapped_for_a_link_after_it_was_made_is_not_followe
 
     def mkdir_then_swap(path: Any, mode: int = 0o777, *, dir_fd: int | None = None) -> None:
         real_mkdir(path, mode, dir_fd=dir_fd)
-        if str(path) == ".tb-bench":
+        if Path(str(path)).name == ".tb-bench":  # by name or by path, as a5297c6 called it
             os.rmdir(".tb-bench", dir_fd=dir_fd)
             os.symlink(victim, ".tb-bench", dir_fd=dir_fd)
 
@@ -396,7 +400,7 @@ def test_m1448_7_the_rulings_the_page_cites_are_the_threads() -> None:
     ("addr", "ok"),
     [
         ("64:ff9b::a00:1", False),  # NAT64 of 10.0.0.1
-        ("64:ff9b::8c52:7003", True),  # NAT64 of a public address
+        (str(ipaddress.IPv6Address(int(ipaddress.ip_address("64:ff9b::")) | int(PUBLIC_V4))), True),  # NAT64, public
         ("::a00:1", False),  # IPv4-compatible 10.0.0.1
         ("::ffff:10.0.0.1", False),  # IPv4-mapped
         ("fec0::1", False),  # site-local
@@ -413,13 +417,13 @@ def test_l1448_9_the_proxy_tries_the_next_address(monkeypatch: pytest.MonkeyPatc
 
     async def opener(host: str, port: int, **_kw: Any) -> Any:
         tried.append(host)
-        if host.startswith("2606"):
+        if host.startswith("2001:db8"):
             raise OSError("no route")
         return ("reader", "writer")
 
     monkeypatch.setattr("asyncio.open_connection", opener)
-    got: Any = asyncio.run(egress_proxy.connect_any(["2606:4700::1", "140.82.112.3"]))
-    assert got == ("reader", "writer") and tried == ["2606:4700::1", "140.82.112.3"]
+    got: Any = asyncio.run(egress_proxy.connect_any(["2001:db8::1", "192.0.2.10"]))  # documentation addresses
+    assert got == ("reader", "writer") and tried == ["2001:db8::1", "192.0.2.10"]
 
 
 @pytest.mark.parametrize(
@@ -443,11 +447,11 @@ def test_l1448_10_settings_the_launcher_cannot_work_with_are_refused(over: dict[
 INSTALL = (ROOT / "tools" / "bench_ci" / "install.sh").read_text(encoding="utf-8")
 
 
-def test_l1448_11_an_interrupted_token_step_leaves_no_copy() -> None:
-    body = INSTALL[INSTALL.index("cmd_token() {") : INSTALL.index("\n}\n", INSTALL.index("cmd_token() {"))]
-    trap = body.index("trap ")
-    assert trap < body.index('printf \'%s\\n\' "$tok" > "$tmp"')
-    assert re.search(r"trap '[^']*rm -f[^']*\"\$tmp\"[^']*' EXIT INT TERM HUP", body), body
+def test_l1448_11_an_interrupted_token_step_leaves_no_copy(tmp_path: Path) -> None:
+    """Run, not read (1448-23): a signal right after the copy is written leaves no copy and ends the step."""
+    at = next(i for i, line in enumerate(TOKEN_LINES) if 'printf \'%s\\n\' "$tok" > "$tmp"' in line)
+    got, etc = _token_step(tmp_path, [*TOKEN_LINES[: at + 1], "  kill -s TERM $$", *TOKEN_LINES[at + 1 :]])
+    assert got.returncode != 0 and [p.name for p in etc.iterdir()] == []
 
 
 def test_l1448_12_the_page_says_when_to_change_the_token() -> None:
@@ -502,3 +506,128 @@ def test_l1448_19_the_switch_compares_without_case_as_the_code_host_does() -> No
     job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["unit-shard"]
     ctx = {"github.event_name": "push", "github.ref": "refs/heads/train/1", "vars.TB_BENCH_CI": "ON"}
     assert wf._evaluate(wf._norm(job["if"]), ctx) is True
+
+
+# --- the re-review of #1448 at 0624f4f: 1448-20 (Medium) and the Lows ------------------------------------------
+
+TOKEN_BODY = re.search(r"^cmd_token\(\) \{\n(.*?)^\}\n", INSTALL, re.M | re.S)
+assert TOKEN_BODY is not None
+TOKEN_LINES = TOKEN_BODY.group(1).splitlines()
+TOKEN_FIRST = next(i for i, line in enumerate(TOKEN_LINES) if '[ -n "$tok" ]' in line) + 1
+TOKEN_LAST = next(i for i, line in enumerate(TOKEN_LINES) if line.lstrip().startswith("say "))
+TOKEN_PRELUDE = """set -euo pipefail
+umask 022
+ETC="$1"; TOKEN="$ETC/token"
+die() { echo "die: $*" >&2; exit 1; }
+say() { echo "SAY: $*"; }
+need_root() { :; }
+chown() { [ -e "${@: -1}" ]; }
+start_units() { echo START_UNITS; }
+slots() { echo tb-bench-runner@cpu-1.service; }
+systemctl() { echo "SYSTEMCTL $*"; }
+"""
+
+
+def _token_step(tmp_path: Path, lines: list[str]) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """The real cmd_token body, run with stand-ins for root's commands (the review's harness)."""
+    etc = tmp_path / "etc"
+    etc.mkdir()
+    etc.chmod(0o750)
+    script = tmp_path / "run.sh"
+    script.write_text(TOKEN_PRELUDE + "cmd_token() {\n" + "\n".join(lines) + "\n}\ncmd_token\n", encoding="utf-8")
+    args = ["bash", str(script), str(etc)]
+    got = subprocess.run(args, check=False, input="tok-for-a-test\n", text=True, capture_output=True)
+    return got, etc
+
+
+@pytest.mark.parametrize("sig", ["INT", "TERM", "HUP"])
+@pytest.mark.parametrize("at", range(TOKEN_FIRST, TOKEN_LAST))
+def test_m1448_20_a_signal_in_the_token_step_ends_it(tmp_path: Path, sig: str, at: int) -> None:
+    """A signal after any line of the token step ends it: it never says the token is kept, never restarts the slots,
+    leaves no temporary copy, and no copy of the token is ever readable by others."""
+    lines = [*TOKEN_LINES[: at + 1], f"  kill -s {sig} $$", *TOKEN_LINES[at + 1 :]]
+    got, etc = _token_step(tmp_path, lines)
+    assert got.returncode != 0, f"a {sig} after {TOKEN_LINES[at].strip()!r} let the step go on:\n{got.stdout}"
+    assert "kept" not in got.stdout and "START_UNITS" not in got.stdout, got.stdout
+    assert [p.name for p in etc.iterdir() if p.name.startswith(".token.")] == []
+    token = etc / "token"
+    if token.exists():
+        assert stat.S_IMODE(token.stat().st_mode) == 0o600
+
+
+def test_m1448_20_without_a_signal_the_token_is_kept_root_only(tmp_path: Path) -> None:
+    got, etc = _token_step(tmp_path, TOKEN_LINES)
+    assert got.returncode == 0 and "kept" in got.stdout, got.stdout + got.stderr
+    assert (etc / "token").read_text(encoding="utf-8") == "tok-for-a-test\n"
+    assert stat.S_IMODE((etc / "token").stat().st_mode) == 0o600
+
+
+def test_m1448_20_a_failed_move_is_a_failure_not_a_kept_token(tmp_path: Path) -> None:
+    lines = [ln.replace('mv -f "$tmp" "$TOKEN"', "false") for ln in TOKEN_LINES]
+    got, _ = _token_step(tmp_path, lines)
+    assert got.returncode != 0 and "kept" not in got.stdout and "START_UNITS" not in got.stdout
+
+
+def test_m1448_21_a_translated_private_address_is_not_public() -> None:
+    """1448-21: the IPv4-translated form (::ffff:0:0:0/96) is judged by the IPv4 address inside, as NAT64 is."""
+    prefix = int(ipaddress.ip_address("::ffff:0:0:0"))
+    private = next(a for a in (ipaddress.IPv4Address(n << 24 | 1) for n in range(1, 224)) if a.is_private)
+    assert egress_proxy.public(str(ipaddress.IPv6Address(prefix | int(private)))) is False
+    assert egress_proxy.public(str(ipaddress.IPv6Address(prefix | int(PUBLIC_V4)))) is True
+
+
+def test_m1448_22_the_install_refuses_a_scratch_folder_under_a_folder_others_can_change() -> None:
+    """1448-22: no folder above the scratch folder may be a link, not root's, or writable by others."""
+    body = INSTALL[INSTALL.index("install_files() {") : INSTALL.index("\n}\n", INSTALL.index("install_files() {"))]
+    assert 'while [ "$up" != / ]; do' in body and '[ ! -L "$up" ]' in body
+    assert '[ "$(stat -c %u "$up")" = 0 ]' in body and "& 022" in body
+    flags = (ROOT / "tools" / "bench_ci" / "launcher.py").read_text(encoding="utf-8")
+    assert "os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)" in flags
+
+
+def test_m1448_22_the_scratch_root_as_a_link_is_refused(tmp_path: Path, minting: Any) -> None:
+    s, token, state = minting
+    real = Path(s["BENCH_SCRATCH"])
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    real.rmdir()
+    real.symlink_to(elsewhere, target_is_directory=True)
+    with contextlib.suppress(OSError, RuntimeError):
+        launcher.mint(s, "cpu-1", token_file=token, state=state)
+    assert list(elsewhere.iterdir()) == [], "root made the slot's folder through a scratch root that is a link"
+
+
+def test_m1448_24_an_idle_runner_recycled_at_the_limit_is_no_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    codes: list[int] = []
+    real = launcher.run_slot
+
+    def run_slot(s: launcher.Settings, slot: str) -> int:
+        codes.append(real(s, slot))
+        return codes[-1]
+
+    monkeypatch.setattr(launcher, "run_slot", run_slot)
+    stopped, _ = _run_slot(tmp_path, monkeypatch, accepted_at=99 * HOUR, ends_at=99 * HOUR)
+    assert stopped is True and codes == [0]
+
+
+def test_m1448_25_no_real_address_in_the_bench_tests() -> None:
+    """The repository rule: no host's address in a committed file; the tests use documentation ranges, wrap a private
+    one, or build a public one in code (an address the proxy would reach is a real host's)."""
+    for f in sorted((ROOT / "tests" / "unit").glob("test_bench_ci_*_h105.py")):
+        text = f.read_text(encoding="utf-8")
+        for addr in re.findall(r"(?<![\w.:])(\d{1,3}(?:\.\d{1,3}){3})(?![\w.])", text):
+            ip = ipaddress.ip_address(addr)
+            assert not egress_proxy.public(addr) or ip in ipaddress.ip_network("192.0.2.0/24"), (f.name, addr)
+        for addr in re.findall(r"(?<![\w:])([0-9a-f]{1,4}(?::[0-9a-f]{0,4}){2,7})(?![\w:])", text):
+            try:
+                ip = ipaddress.ip_address(addr)
+            except ValueError:
+                continue
+            assert not egress_proxy.public(addr) or ip in ipaddress.ip_network("2001:db8::/32"), (f.name, addr)
+
+
+def test_l1448_14_the_example_says_no_upload_host_only_as_the_proxy_can_tell() -> None:
+    assert "no upload host, no user-content wildcard" not in EXAMPLE
+    assert "no upload host the proxy can tell from a download host" in EXAMPLE

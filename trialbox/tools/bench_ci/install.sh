@@ -109,6 +109,14 @@ install_files() {
     [ "$(stat -c %U "$scratch")" = "$USER_NAME" ] || [ -z "$(ls -A "$scratch")" ] || die "scratch $scratch is in use by another owner"
   fi
   install -d -m 0700 -o "$USER_NAME" -g "$USER_NAME" "$scratch"
+  # 1448-22: root makes and removes the slots' folders in here: no folder above it may be a link, not root's, or
+  # writable by anyone but root, or a link put there sends root elsewhere
+  local up="$scratch"
+  while [ "$up" != / ]; do
+    up="$(dirname "$up")"
+    { [ ! -L "$up" ] && [ "$(stat -c %u "$up")" = 0 ] && [ $((0$(stat -c %a "$up") & 022)) = 0 ]; } ||
+      die "scratch $scratch: $up must be root's, not a link, and writable by root only"
+  done
   say "files in $OPT, units in $UNITS, settings $SETTINGS (root:$USER_NAME 0640), scratch $scratch (0700)"
 }
 
@@ -170,12 +178,17 @@ cmd_token() {
     IFS= read -r tok || true
   fi
   [ -n "$tok" ] || die "no token was given"
-  # the temporary copy goes whatever happens (L-1448-11); global, so the trap still sees it after the function ends
-  tmp="$(umask 077 && mktemp "$ETC/.token.XXXXXX")"
-  trap 'rm -f -- "$tmp"' EXIT INT TERM HUP
+  # the temporary copy goes whatever happens (L-1448-11); global, so the trap still sees it after the function ends.
+  # A signal ends the step (1448-20): it never goes on to say the token is kept or restart the slots, and every file
+  # of the step is made under umask 077, so no copy of the token is ever readable by others
+  umask 077
+  tmp=""
+  trap '[ -z "$tmp" ] || rm -f -- "$tmp"' EXIT
+  trap '[ -z "$tmp" ] || rm -f -- "$tmp"; trap - EXIT; echo "bench CI install: interrupted: no token was kept" >&2; exit 130' INT TERM HUP
+  tmp="$(mktemp "$ETC/.token.XXXXXX")"
   printf '%s\n' "$tok" > "$tmp"
   tok=""
-  chown root:root "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$TOKEN"
+  { chown root:root "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$TOKEN"; } || die "the token could not be kept"
   say "token kept in a root-only file (0600); it is never printed"
   start_units
   local unit

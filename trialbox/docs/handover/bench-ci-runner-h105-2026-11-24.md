@@ -130,7 +130,7 @@ there before the fix: 29 of its tests failed):
 
 | Finding | The fix | Held by |
 | --- | --- | --- |
-| M-1448-1 | root makes the slot's folder and its subfolders new, each step relative to an open folder, never following a link; the job's files are written into the open folder; each part is handed to the jobs' user by descriptor, the top last; the registration is on record before the folder step | `::test_m1448_1_a_link_planted_at_the_slots_name_after_the_removal_is_not_followed`, `::test_m1448_1_a_link_planted_inside_the_new_folder_is_not_followed` |
+| M-1448-1 | root makes the slot's folder and its subfolders new, each step relative to an open folder, never following a link; the job's files are written into the open folder; each part is handed to the jobs' user by descriptor, the top last; the registration is on record before the folder step | `::test_m1448_1_a_link_planted_at_the_slots_name_after_the_removal_is_not_followed` (fails at a5297c6); the two race variants guard the new code (they passed at a5297c6, re-review 1448-23) |
 | M-1448-2 | the gate leaves a `started` mark when it accepts a job; the run step counts BENCH_JOB_HOURS from it (until then it is the longest a runner waits: an idle runner is recycled) | `::test_m1448_2_a_job_accepted_late_in_the_runners_wait_gets_its_whole_limit`, `::test_m1448_2_the_gate_marks_an_accepted_job_and_only_that` |
 | M-1448-3 | the example's BENCH_JOB_HOURS is 11 (full-set's 600 minutes); the test holds it to the bench workflow's longest timeout | `::test_m1448_3_the_example_job_hours_cover_the_longest_bench_job` |
 | M-1448-4 | full-set is `${{ !cancelled() && (...) }}`; no job on the bench may use `always()` (the schedule test refuses it); the times table keeps `always()` | `::test_m1448_4_no_job_on_the_bench_starts_after_a_cancel`, `test_bench_ci_workflow_h105.py::test_planted_trigger_mutants_are_caught[full-set after a cancel]` |
@@ -149,3 +149,24 @@ Left for a named follow-up: L-1448-15 (a GPU job refused for busy cards ends red
 owner's run by hand on a branch the gate refuses is scheduled first; the job `if` could hold the gate's ref rule),
 L-1448-19 (3) (install.sh and the units are tested as text). The review's note on `pytest -n auto` under a CPU quota
 (each shard may start more workers than its share) is not acted on: the first bench runs show it.
+
+## The re-review of #1448 at 0624f4f (fix first): 1448-20 and the Lows
+
+The re-review (#639, 7123982226; the integrator's line 7123983927) found no High, one Medium and ten Lows.
+
+- **1448-20 (Medium):** a signal during `install.sh token` ran the trap, then went on to say the token was kept,
+  restarted the slots and ended 0; a signal before the write could leave the copy readable by others. Now every file
+  of the step is made under umask 077, a signal removes the copy and ends the step (exit 130), and a failed move is a
+  failure. Held by `tests/unit/test_bench_ci_review_h105.py::test_m1448_20_a_signal_in_the_token_step_ends_it` (a
+  signal after each line of the step, for INT, TERM and HUP: 15 of its cases fail at 0624f4f), with
+  `::test_m1448_20_without_a_signal_the_token_is_kept_root_only` and `::test_m1448_20_a_failed_move_is_a_failure_not_a_kept_token`.
+  The earlier L-1448-11 test, which read the trap's text, now runs the step (1448-23).
+- **Lows fixed:** 1448-21 (an IPv4-translated address judged by its IPv4 address); 1448-22 (the install refuses a
+  scratch folder under a link, a folder not root's, or one others can write, and the scratch root is opened without
+  following a link); 1448-23 (the subfolder race tests match by the name's last part; the token test runs the step);
+  1448-24 (an idle runner recycled at the limit ends its unit as no failure); 1448-25 (no real address in the bench
+  tests: documentation ranges, or one built in code; a test holds it); 1448-14's rest (the settings example's
+  comment says "no upload host the proxy can tell from a download host").
+- **Left for the follow-up card H-105b:** L-1448-15, L-1448-16, L-1448-19 (2: the evaluator models no cancel; a
+  structural rule refuses `always()` instead) and (3), and the question 1448-14 raised: do the CI weights need to be
+  secret (a GPU job reads the weights folder, and its code can send what it reads through an allowed host)?
