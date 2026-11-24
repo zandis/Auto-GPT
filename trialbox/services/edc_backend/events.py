@@ -48,6 +48,8 @@ def signature_ok(secret: str, body: bytes, header: str) -> bool:
     if not keys or not header.lower().startswith("sha256="):
         return False
     given = header.split("=", 1)[1].strip().lower()
+    if len(given) != 64 or given.strip("0123456789abcdef"):  # non-hex text would make compare_digest raise
+        return False
     ok = False
     for key in keys:  # every key is tried, so the time taken does not say which one matched
         ok |= hmac.compare_digest(hmac.new(key.encode(), body, hashlib.sha256).hexdigest(), given)

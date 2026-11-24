@@ -131,6 +131,10 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 length = -1
+            # one Content-Length only: .get() reads the first, the forwarded headers keep the last, and the upstream
+            # would then read a different body than the guard did (request smuggling past the key check)
+            if len(self.headers.get_all("Content-Length") or []) > 1:
+                length = -1
             if not 0 <= length <= MAX_BODY or self.headers.get("Transfer-Encoding"):
                 self.close_connection = True
                 self._reply(400, {"error": "bad request body"})

@@ -60,8 +60,13 @@ def save(folder: str, doc: dict[str, Any]) -> None:
         }
     kept["subjects"] = subjects
     with _LOCK:
-        path.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.chmod(path, 0o600)
+        # written whole to a 0600 temp file and renamed: a reader never sees a half-written or world-readable map
+        tmp = path.with_name(path.name + ".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(kept, ensure_ascii=False, indent=2))
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
 
 
 def study_for_project(folder: str, project_id: str) -> str:

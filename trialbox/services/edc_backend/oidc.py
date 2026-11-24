@@ -85,6 +85,8 @@ def _b64(raw: bytes) -> str:
 
 
 def sign_id_token(username: str, environ: dict[str, str] | None = None) -> str:
+    if not client_secret(environ):  # an empty HMAC key would let anyone mint a token (Qwen4 review F-EDC-1)
+        raise ValueError("TB_EDC_OIDC_CLIENT_SECRET is not set")
     header = _b64(b'{"alg":"HS256","typ":"JWT"}')
     payload = _b64(
         json.dumps(
@@ -101,8 +103,11 @@ def subject_of(token: str, environ: dict[str, str] | None = None) -> str | None:
     parts = token.split(".")
     if len(parts) != 3:
         return None
+    secret = client_secret(environ)
+    if not secret:  # never verify under an empty key: a forged token would pass
+        return None
     signing = f"{parts[0]}.{parts[1]}".encode()
-    sig = hmac.new(client_secret(environ).encode(), signing, hashlib.sha256).digest()
+    sig = hmac.new(secret.encode(), signing, hashlib.sha256).digest()
     pad = "=" * (-len(parts[2]) % 4)
     try:
         given = base64.urlsafe_b64decode(parts[2] + pad)

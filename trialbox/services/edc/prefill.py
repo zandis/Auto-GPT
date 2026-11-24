@@ -371,7 +371,10 @@ QUOTE_MIN = 6  # characters; a shorter quote cannot show where a value comes fro
 def _value_in_quote(f: Field, value: str, quote: str) -> bool:
     """A number or a date drafted from a note must appear in its quote (digits compared, separators ignored)."""
     if f.kind in ("integer", "decimal"):
-        return value in quote or value.rstrip("0").rstrip(".") in quote
+        if value in quote:
+            return True
+        # trailing zeros are dropped only from a decimal (7.0 -> 7); an integer 70 is not shown by a quote saying 7
+        return "." in value and value.rstrip("0").rstrip(".") in quote
     if f.kind in ("date", "dateTime"):
         # NEW-EDC-13: the quote must write the date itself; digits gathered from across the quote (a phone, a lot
         # number, two numbers side by side) never show one

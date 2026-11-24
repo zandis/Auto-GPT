@@ -257,16 +257,17 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         if not _REC.match(record):
             raise HTTPException(status_code=400, detail={"code": "DATA-RECORD", "message": "not a record key"})
         try:
-            before = svc.dc.record(rid, record.upper(), body.event)
-            n = sync.enter(svc.dc, rid, record.upper(), body.event, body.values, who.name, svc.stamp(),
+            rec = record_key(record)  # a pseudonym is stored in lower case, as every other route keys it
+            before = svc.dc.record(rid, rec, body.event)
+            n = sync.enter(svc.dc, rid, rec, body.event, body.values, who.name, svc.stamp(),
                            reason=body.reason)  # fmt: skip
         except DataError as exc:
             raise _fail(exc) from exc
         old = {f: before.get(f, "") for f, v in body.values.items() if before.get(f, "") != str(v)}
         why = body.reason or (NO_REASON if any(old.values()) else "")  # D-778: a change's reason, or marked missing
-        svc.audit.append("data.entry", ruleset=rid, actor=who.name, detail={"record": record.upper(),
+        svc.audit.append("data.entry", ruleset=rid, actor=who.name, detail={"record": rec,
                          "fields": sorted(body.values), **_changes(old, body.values, why)})  # fmt: skip
-        return {"changed": n, "record": svc.dc.record(rid, record.upper(), body.event)}
+        return {"changed": n, "record": svc.dc.record(rid, rec, body.event)}
 
     @r.get("/studies/{rs}/sources")
     def get_sources(rs: str) -> dict[str, Any]:

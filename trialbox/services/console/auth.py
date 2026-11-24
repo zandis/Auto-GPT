@@ -1298,7 +1298,8 @@ class UserStore:
 
 
 def csrf_ok(session: Session, submitted: str | None) -> bool:
-    return bool(submitted) and hmac.compare_digest(session.csrf, submitted or "")
+    # bytes: compare_digest raises TypeError on a str with non-ASCII text (a 500 instead of a refusal)
+    return bool(submitted) and hmac.compare_digest(session.csrf.encode("utf-8"), (submitted or "").encode("utf-8"))
 
 
 REVEAL_REASONS = ("contact", "eligibility", "consent", "other")

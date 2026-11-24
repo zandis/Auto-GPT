@@ -264,6 +264,12 @@ def latest_run() -> dict[str, Any]:
     return {"state": "none"}
 
 
+def _safe_snapshot(snap: str) -> None:
+    """A snapshot is a plain folder name under the lake: never a path that leaves it."""
+    if snap and (snap in (".", "..") or "/" in snap or "\\" in snap or "\x00" in snap):
+        raise HTTPException(status_code=400, detail="snapshot must be a plain folder name")
+
+
 class PublishBody(BaseModel):
     snapshot: str
     source: str = ""
@@ -284,6 +290,7 @@ def publish(body: PublishBody) -> JSONResponse:
 
     from adapter.publish import NothingToPublish, held_folder, publish_held, published
 
+    _safe_snapshot(body.snapshot)
     if not _running.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
     _accepting.set()  # second review (L1): from here a night's run waits, also while the accept is still checked
@@ -382,6 +389,7 @@ def validate(body: ValidateBody) -> dict[str, Any]:
         rep = v.validate(sample_per_type(body.resources, body.per_type))
     else:
         lake = Path(os.environ.get("TB_LAKE_DIR") or build_config()[0].lake_dir)
+        _safe_snapshot(body.snapshot)
         snap = body.snapshot or (list_snapshots(lake) or [""])[-1]
         if not snap or not snapshot_dir(lake, snap).is_dir():
             raise HTTPException(status_code=404, detail=f"no snapshot {snap or '(none written yet)'}")
