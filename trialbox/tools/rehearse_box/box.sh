@@ -856,8 +856,8 @@ EOF
   esac
   if grep -q "are healthy" "$rr/interrupted.err"; then fail "the interrupted restore said healthy"; fi
   grep -q "restore: the box now:" "$rr/interrupted.err" || fail "the interrupted restore did not say the box's state"
-  mapfile -t left < <(dc ps --services --status running | grep -xE 'caddy|console|llm-verifier')
-  if [ "${#left[@]}" -gt 0 ]; then dc stop "${left[@]}" > "$rr/left.log" 2>&1 || { cat "$rr/left.log"; fail "cannot stop ${left[*]}"; }; fi
+  mapfile -t stopped_again < <(dc ps --services --status running | grep -xE 'caddy|console|llm-verifier')
+  if [ "${#stopped_again[@]}" -gt 0 ]; then dc stop "${stopped_again[@]}" > "$rr/left.log" 2>&1 || { cat "$rr/left.log"; fail "cannot stop ${stopped_again[*]}"; }; fi
   [ "$(dc ps --services --status running | sort)" != "$before" ] || fail "no service was left stopped for the re-run"
   rc=0
   trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/rerun.json" 2> "$rr/rerun.err" || rc=$?
