@@ -17,6 +17,7 @@ The passphrases and keys here are synthetic.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -65,6 +66,31 @@ class Owners:
 
         monkeypatch.setattr(os, "fchown", fchown)
         monkeypatch.setattr(os, "chown", chown)
+        # review of #1478 (1478-4): a freed inode forgets the owner it was given, or a folder made again (or a new
+        # file) that takes the same inode would read as the services' with no chown at all
+        real_rmdir, real_unlink, real_replace = os.rmdir, os.unlink, os.replace
+
+        def forget(path: Any, dir_fd: int | None = None) -> None:
+            with contextlib.suppress(OSError):
+                st = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+                self.given.pop((st.st_dev, st.st_ino), None)
+
+        def rmdir(path: Any, *, dir_fd: int | None = None) -> None:
+            forget(path, dir_fd)
+            real_rmdir(path, dir_fd=dir_fd)
+
+        def unlink(path: Any, *, dir_fd: int | None = None) -> None:
+            forget(path, dir_fd)
+            real_unlink(path, dir_fd=dir_fd)
+
+        def replace(src: Any, dst: Any, **kw: Any) -> None:
+            forget(dst)
+            real_replace(src, dst, **kw)
+
+        monkeypatch.setattr(os, "rmdir", rmdir)
+        monkeypatch.setattr(os, "unlink", unlink)
+        monkeypatch.setattr(os, "remove", unlink)
+        monkeypatch.setattr(os, "replace", replace)
         # the secrets folder of this test belongs to the services: what the box's own folder is (D-887)
         monkeypatch.setattr(K, "services_owner", lambda _sec: (SERVICES, SERVICES), raising=False)
 
@@ -563,3 +589,29 @@ def test_lr3_lr4_the_owner_comes_from_the_secrets_folder_never_from_a_caller_var
         assert K.services_owner(root_owned) is None
     else:  # not root: never a hand-over
         assert K.services_owner(sec) is None
+
+
+def test_no_unit_test_reaches_the_hosts_tpm_credential() -> None:
+    """Review of #1478 (1478-1): the credential's fixed place is a stand-in under the test root in every unit test."""
+    assert not keys.CREDENTIAL_FILE.is_relative_to("/etc"), keys.CREDENTIAL_FILE
+    assert not keys.CREDENTIAL_FILE.parent.exists()
+
+
+def test_lr6_seal_tpm_on_a_new_board_without_the_sealing_tool_is_refused_before_any_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #1478 (1478-5): a new board (no credential yet) asked for --seal-tpm with no systemd-creds is refused
+    before the journal, the started event or the credential's folder: nothing at all is written."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    b["cred"].unlink()
+    b["cred"].parent.rmdir()
+    monkeypatch.setattr(keys, "_creds_tool", lambda: None)
+    before = _state(b["sec"])
+    audit = {f.relative_to(b["audit"]).as_posix(): f.read_bytes() for f in b["audit"].rglob("*") if f.is_file()}
+    rc = keys.main(["rotate-kek", "--backend", "file", "--secrets", str(b["sec"]), "--seal-tpm", "--kek-out",
+                    str(b["media"] / "kek.new"), "--audit-dir", str(b["audit"])],
+                   env={**DEV, "TB_KEK_FILE": str(b["run"] / "kek")})  # fmt: skip
+    assert rc == 1
+    assert _state(b["sec"]) == before and not b["cred"].parent.exists()
+    assert {f.relative_to(b["audit"]).as_posix(): f.read_bytes() for f in b["audit"].rglob("*") if f.is_file()} == audit

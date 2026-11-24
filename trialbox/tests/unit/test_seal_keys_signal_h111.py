@@ -447,9 +447,12 @@ def test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_us
         left = sorted(f for f in sec.iterdir() if f.is_file() and os.lstat(f).st_uid == 0)
         unreached = [f.name for f in left if str(f) not in asked]
         assert unreached == [], f"files left root's that the hand-over never reached: {unreached}"
-        modes = {f.name: stat.S_IMODE(os.lstat(f).st_mode) for f in sec.iterdir() if f.is_file()}
-        want = {name: 0o644 if name.endswith(".pub") else 0o600 for name in modes}
-        assert modes == want, f"the hand-over changed a file's mode: { {k: oct(v) for k, v in modes.items()} }"
+    # integrator 7140264985 (review of #1478, 1478-3): modes as written on every run, not only as root; the public key
+    # is there and exactly 0644, never group- or world-writable
+    sec = tmp_path / "secrets"
+    modes = {f.name: stat.S_IMODE(os.lstat(f).st_mode) for f in sec.iterdir() if f.is_file()}
+    want = {name: 0o644 if name.endswith(".pub") else 0o600 for name in modes}
+    assert "audit_sign.pub" in modes and modes == want, f"a file's mode: { {k: oct(v) for k, v in modes.items()} }"
 
 
 def test_a_plain_key_goes_only_once_its_wrapped_copy_is_on_disk(
