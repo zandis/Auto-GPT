@@ -77,19 +77,48 @@ sudo bash -c 'umask 077; IFS= read -rs p; printf "%s\n" "$p" > /root/trialbox-ke
 
 **3. Rotate.** Every wrapped key is re-wrapped under the new KEK, and the open KEK in `/run/trialbox/kek` is replaced.
 The file is removed when the rotation succeeds (`--keep-passphrase-files` keeps it). On a terminal,
-`--new-passphrase-stdin` asks for it twice instead of the file.
+`--new-passphrase-stdin` asks for it twice instead of the file. Every rotation, on every box, is an audit event (who,
+when, the box, its environment, the old and the new KEK's ids; never a passphrase; the integrator's ruling
+7114085298): `keys.rotate_kek_started` before any key file changes, and `keys.rotate_kek` once `kek.json` names the
+new KEK. Name the box's audit folder, the one that holds its chain (`HEAD.json`): without it, or when the started
+event cannot be written there, nothing is changed. Run as root, the tool makes each append as the folder's owner (the
+console's user), so the console keeps writing to the day's file. One key command runs at a time on the secrets
+folder: a second rotation started meanwhile is refused and changes nothing.
 
 ```sh
-sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"
 sudo systemctl restart trialbox
 ```
 
-rc1 refuses `rotate-kek` on a PRODUCTION box (R22-34): there, call Aimedics. A passphrase KEK is not a PRODUCTION
-site's back end; such a box is made again with the TPM or steward shares (SECURITY §10).
+**On a PRODUCTION box** the box rotates itself (D-1092; the integrator's ruling 7101844662). rc1 refuses the key
+ceremonies there (R22-34), but rotating an exposed passphrase is a safety action: `rotate-kek --backend passphrase`
+with the new passphrase from the file or from stdin goes through, with the same audit event and the same command:
+
+```sh
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"
+sudo systemctl restart trialbox
+```
+
+Every other `rotate-kek` (to the TPM, to steward shares, with an escrow set, or with the new passphrase typed at the
+prompt without `--new-passphrase-stdin`) and the other key ceremonies stay refused there. A passphrase KEK is still
+not a PRODUCTION site's back end: plan the move to the TPM or steward shares (SECURITY §10).
+
+**A rotation cut short** (a kill, a power cut, the done event not written). The rotation keeps a journal in the
+secrets folder (`kek-rotation.json`: the step and the two KEK ids, no key), and `status` names it as a problem. Run
+`sudo env PYTHONPATH=libs:services:. python3 -m tools.keys status --audit-dir "$(sudo docker volume inspect -f
+'{{.Mountpoint}}' trialbox_audit-data)"`: a rotation stopped before its commit is rolled back (the old passphrase
+stands, `keys.rotate_kek_rolled_back`); one stopped after it is finished (the new passphrase stands,
+`keys.rotate_kek`). Then unseal with the passphrase that stands and restart. The next `rotate-kek` does the same first.
 
 **4. Keep the new passphrase** where the old one was kept (the sealed envelope); destroy the old copy. Then make a
 backup (`trialbox backup`, §5): backups made before the rotation hold the old `kek.json`, so they open with the old
 passphrase **and** the backup private key together; a backup made now does not need the old passphrase.
+
+**A rotation re-wraps; it does not re-key.** The site, pid-map, objects and restic keys are the same keys under the
+new KEK. So the old passphrase and any copy of the wrapped files from before the rotation (a backup once opened, a
+disk image, a copied secrets folder) still open the keys in use today. When such a copy may be exposed too, rotate
+the keys themselves: `python -m tools.keys rotate pid_map` for the pid map's key, and each other key by the rotation
+rule `python -m tools.keys inventory` gives it.
 
 **5. Look for passphrase lines in the logs, without printing one.** Each command prints a count only:
 
@@ -107,11 +136,11 @@ rotation those lines open the box's keys only together with a backup made before
 in a shell variable that is never exported and hand it on by a pipe (to the seal step, to the keys commands in the
 trialbox-py image by the container's stdin), and the operator's file is removed. The open KEK in `/run/trialbox/kek`
 (tmpfs) is derived from it, not the passphrase. A box set up on its first-run page keeps the owner's passphrase in the
-first-run folder (`/run/trialbox-firstrun`, tmpfs) until the apply step has sealed the keys. Inside the box, the
-adapter and the orchestrator would take `TB_KEK_PASSPHRASE` from the stack's environment and the nightly audit signer
-is handed it by name (`tools/trialbox/audit_heads.py`), but neither the installers nor `deploy/.env` (refused there)
-give it a value; a value someone puts there by hand would sit in that container's configuration on disk (`docker
-inspect`, root only), which is not a log.
+first-run folder (`/run/trialbox-firstrun`, tmpfs) until the apply step has sealed the keys. Nothing takes it from an
+environment (H-97): every service, the nightly audit signer and the backup open the KEK from `/run/trialbox/kek`, which
+`tools.keys unseal` writes after each restart; a `TB_KEK_PASSPHRASE` with a value in a caller's environment is refused
+by the key library too, and the signer's container is never given it. Never export it: unseal with the passphrase typed,
+or from a root-only file (`--passphrase-file`) or stdin (`--passphrase-stdin`).
 
 ## Alliance site keys
 
