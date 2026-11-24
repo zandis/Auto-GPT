@@ -769,6 +769,13 @@ def _num(e: Mapping[str, str], key: str, default: float, errors: list[str], hi: 
     return v
 
 
+def absolute(path: Path) -> Path:
+    """H-100: ``path`` made absolute against the working folder, links kept (``--deploy deploy`` from the install
+    folder). The container engine reads a bind source that is not absolute (``deploy/secrets/backup.pub``) as the
+    name of a volume, so every folder and file the backup container binds goes through here first."""
+    return Path(os.path.abspath(path))
+
+
 def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Config:
     """The schedule's settings from ``deploy/.env`` (``env``, quotes removed), with the process environment winning
     (``process_env``; doctor passes its own merged settings and False)."""
@@ -778,7 +785,7 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
     return Config(
         deploy=deploy,
         targets=[Path(t) for t in _split(e.get("TB_BACKUP_TARGETS", ""))],
-        public_key=Path(e.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub"),
+        public_key=absolute(Path(e.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub")),
         production=(e.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION",
         keep=int(e.get("TB_BACKUP_KEEP") or 14),
         max_age_hours=float(e.get("TB_BACKUP_MAX_AGE_HOURS") or MAX_AGE_HOURS),
@@ -1066,6 +1073,7 @@ class ComposeOps:
     def __init__(self, deploy: Path, run: Callable[..., str] | None = None) -> None:
         from tools.trialbox import update
 
+        deploy = absolute(deploy)  # H-100: every folder the backup container binds is an absolute path
         self.deploy = deploy
         self.box = update.ComposeBox(deploy, run or update.run_cmd)
         self.env = self.box.env
@@ -1708,6 +1716,7 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
     PRODUCTION: no alert route)."""
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     cfg = config(deploy, update._env_file(deploy / ".env"))
     for x in cfg.setting_errors:  # D-735 (review): a bad setting is said where the backup is installed
         print(f"backup-install: bad setting: {x}")
@@ -1815,6 +1824,7 @@ def run_backup(deploy: Path, ops: ComposeOps | None = None, quiesce: str | None 
     ``off``, no pgBackRest). Raises :class:`BackupBusy` when another run holds the lock."""
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     with _lock(deploy) as mine:
         if not mine:
             raise BackupBusy("another backup run holds deploy/site/backup.lock")
@@ -1849,6 +1859,7 @@ def main_nightly(deploy: Path) -> int:
 def main_status(deploy: Path, as_json: bool = False, quiet: bool = False, cron_dir: Path = Path("/etc/cron.d")) -> int:
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     cfg = config(deploy, update._env_file(deploy / ".env"))
     ops = ComposeOps(deploy)
     st = status(cfg, archiver=_try(ops.archiver) if cfg.archive_on else None)
