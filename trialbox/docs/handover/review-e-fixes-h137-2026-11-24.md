@@ -1,0 +1,98 @@
+# H-137: the outside review's fixes, checked and written anew
+
+**Reader:** the people who build TrialBox: the lane H lead, the owning lanes (C2, D, E, J, K, U) and the integrator.
+Findings for builders, so in one language.
+
+- **Card:** H-137 (lane H, the integrator's comments 7146717829 and 7146812094 on #639; the go for every file
+  outside the card, bodies only: 7147065106)
+- **Date:** 2026-11-24
+- **Base:** master a3739fca9f7cc9ede71a59347f068eefeb705822
+- **Findings:** [`review-e-fixes-h137-2026-11-24/findings.json`](review-e-fixes-h137-2026-11-24/findings.json)
+  (H137-01 to H137-16)
+- **Tests:** `tests/unit/test_review_e_patches.py` (13 tests, 17 cases), in the unit job; no new CI job
+
+## What this card is
+
+An outside review model, called "model E" here, suggested ten small fixes; the owner's helper applied them on a draft
+(#1476, closed). Nothing of that draft is taken over. Each fix was checked on master on its own, the fault reproduced
+first, and only then written again, each with a test that fails on master. All ten faults are real.
+
+## The ten fixes
+
+| Id | Place (owning lane) | The fault on master | The fix |
+|---|---|---|---|
+| H137-01 | `services/model_guard/__init__.py:131` (D) | Two `Content-Length` headers: the guard reads the first, the forwarded headers keep the last. An unkeyed `GET /health` with a body that holds a second request: the model server parsed both, the second with no key | More than one `Content-Length` is a bad request (400), the connection closed, the refusal logged with its reason and never the body |
+| H137-02 | `services/edc_backend/oidc.py:87,100` (E) | `TB_EDC_OIDC=1` with an empty client secret: tokens are signed under an empty HMAC key and any token so signed is accepted (`userinfo` answers it) | No token is signed or accepted under an empty secret |
+| H137-03 | `services/edc_backend/events.py:50` (E) | A signature header with non-ASCII text raises in `hmac.compare_digest` (a 500, not a refusal) | Anything but 64 hex characters is refused before the compare |
+| H137-04 | `services/edc_backend/config.py:125` (E) | `REDCAP_TOKEN_<ref>` overrode `TB_REDCAP_TOKEN_<ref>` and `TB_REDCAP_PROJECT_TOKENS`; `docs/data/13-redcap-and-the-edc-backend.md` says the shorter name works only when the `TB_` one is empty | The short name fills only a ref no `TB_` setting names |
+| H137-05 | `services/edc_backend/linkmap.py:63` (E) | The map was created 0644 under umask 022 and chmodded after, and rewritten in place: a failed write (a lone surrogate from a JSON `\ud800` escape) left the saved map torn, which `load` reads as empty | A 0600 temporary file (`mkstemp`) beside the map, written, synced, renamed over it, and the folder synced; the temporary file removed on failure |
+| H137-06 | `services/edc/prefill.py:374` (J) | An integer lost its trailing zeros: 70 was "shown" by a quote saying 7, 100 by "1", 0 by any quote | Only a decimal's fraction loses trailing zeros (7.50 to 7.5, 7.0 to 7, 0.0 to 0) |
+| H137-07 | `services/adapter/app.py:295,385` (J) | The snapshot name was joined to the lake unchecked: `..`, `../outside`, `a/b` validated a folder outside `ndjson/` | A snapshot is a plain folder name, else 400 before anything is touched |
+| H137-08 | `services/orchestrator/datacore_api.py:260` (C2) | `PUT /studies/{rs}/data/{record}` keyed a pseudonym in upper case; every other route keys it in lower case, so the values were under another record | `record_key()`, as the other routes |
+| H137-09 | `services/console/audit_page.py:600` (C2) | The report file skipped the page's rule (D-380; D-771's review: a disclosure lookup's own lines never show the pseudonym) | The file's rows go through the same rule |
+| H137-10 | `services/console/auth.py:1301` (K) | A CSRF value with non-ASCII text raised in `hmac.compare_digest` (a 500, not the refusal) | The compare is on UTF-8 bytes |
+
+Each fix touches the body of one function in another lane's file; no interface changes. #813 (merged) made the four
+`edc_backend` files; H137-02 to H137-05 fix its code and change nothing D-915 or D-916 decided.
+
+## How each fix was shown
+
+On master 15 of the 17 cases of `tests/unit/test_review_e_patches.py` fail, each on the fault named. The other two
+hold what master already does right and must stay so: one `Content-Length` is forwarded, and `Transfer-Encoding`
+beside `Content-Length` is refused with the connection closed. With the fixes all 17 pass.
+
+Mutants: each fixed file put back to master's alone fails exactly that fix's test and no other. Single lines taken
+out fail their test too: the guard's second-length check and its log line, the folder sync and the temporary file's
+removal in the link map, the signing check and the verifying check in OIDC, the empty-value check and the decimal
+point condition in prefill, the adapter's check on `/publish`, the alias's fill-only rule, the CSV's disclosure rule.
+
+**RFC 9112 and the guard.** Section 6.3: two different `Content-Length` values are an unrecoverable error; the guard
+answers 400 and closes the connection. Section 6.1: a request with both `Transfer-Encoding` and `Content-Length` may be
+refused, or read by `Transfer-Encoding` alone, and the connection must be closed after the answer. The guard refuses
+it (it refuses any `Transfer-Encoding`: it reads bodies by length only, as before this card) and closes.
+
+The guard's test speaks HTTP/1.1 with keep-alive to its stand-in model server, as the real one does; on HTTP/1.0 the
+hidden request would be dropped and the fault would not show. It uses `/v1/models`, not a model API path, so
+`test_no_direct_model_calls` needs no exception.
+
+## The highs not applied: triage
+
+Model E's own text was not available (the draft's body was replaced); these are triaged from the integrator's
+descriptions. None is built here.
+
+- **H137-11, SMTP and IMAP do not verify TLS (real).** `services/mail_gateway/outbound.py:75,83` and
+  `services/mail_gateway/gateway.py:452` pass no TLS context, so the standard library uses one with
+  `verify_mode` CERT_NONE and no host check. Anyone on the path can show any certificate and read the relay's password
+  and the mail. The owner chooses: verify on with a CA pinned per relay (a setting and a doctor check per site; a relay
+  with a self-signed certificate stops mail until pinned), off and said so (no set-up; password and mail open on the
+  path), or on by default with an audited per-relay switch to off.
+- **H137-12, the trusted proxy for `X-Forwarded-For` (real).** `deploy/platform/base/apps.yaml:449` trusts every
+  sender's header (`--forwarded-allow-ips "*"`): a client changes it on each try and passes the per-address lock
+  (D-279), and writes the audit's source address. Compose trusts only 127.0.0.1, so behind Caddy every browser is one
+  address (the known open ASVS row V3-01). The owner chooses: trust exactly the proxy's address (a fixed address and an
+  install step), trust all and rely on a network rule that only the proxy reaches the console (cheap; one wrong route
+  reopens it), or trust none (V3-01 stays).
+- **H137-13, an opted-out count for one record (hypothesis).** `services/edc/service.py:505` writes `opted_out: n`
+  beside `record: <one record>` when one record is sent; n = 1 says that patient opted out (D-147). Not run.
+- **Consent release permission (no defect found).** The console route (`need_requester`) and the matrix row
+  `command.RELEASE` agree: administrator and coordinator. Whether the administrator should release a patient page
+  (D-280) is a policy question.
+- **H137-14, the twelve-digit pattern (real).** `libs/tb_common/phi_guard.py:228`: `1234  5678  9012` (two spaces)
+  and `1234_5678_9012` are not matched; one space, a dash, a dot, a slash and full-width digits are.
+- **H137-15, the administrator's mailbox as a fallback (real as routing).** `services/console/app.py:1024`:
+  a job of an account with no mailbox is mailed to the administrator's mailbox. What that mail holds per job type is
+  not verified.
+
+One more, seen while checking H137-06 and filed on the integrator's ruling: **H137-16**, the converse of the prefill
+check: an integer 7 is still "shown" by a quote saying 70 (a substring). Not built.
+
+## Files outside the card
+
+`services/model_guard/__init__.py` (lane D); `services/edc_backend/oidc.py`, `events.py`, `config.py`, `linkmap.py`
+(lane E); `services/edc/prefill.py`, `services/adapter/app.py` (lane J); `services/orchestrator/datacore_api.py`,
+`services/console/audit_page.py` (lane C2); `services/console/auth.py` (lane K). Owners from the OCR ledger on #639.
+
+## Not done here
+
+The register is not edited (its keeper adds this card's `findings.json`). The highs above are not built. The whole
+unit and integration run was not run.
