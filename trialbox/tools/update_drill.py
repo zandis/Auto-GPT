@@ -246,7 +246,7 @@ def kill_case(
         # forward, never rolled back over what it wrote
         out.append((f"kill -9 at '{step}': rollback <bundle> finishes the checked release, the marker is gone, the "
                     "box starts",
-                    recovered and us.marker(updates) is None and after[1] != before[1] and after[2] != before[2]
+                    recovered and us.marker(updates) is None and after[1] != before[1] and after[1].split()[:1] == [bid]
                     and not (updates / bid / "rollback").exists() and not plaintext_dumps([updates, work], t0),
                     "; ".join(lines[-3:])[:300]))  # fmt: skip
         return out
@@ -339,7 +339,7 @@ def run(base: Path) -> dict[str, Any]:
     from tools import e2e_simple, pglocal
     from tools import update_status as us
     from tools.sign_bundle import keygen
-    from tools.trialbox.update import STEPS, InProcessBox, UpdateFailed, Updater, UpdateRefused
+    from tools.trialbox.update import AFTER_CHECK, STEPS, InProcessBox, UpdateFailed, Updater, UpdateRefused
     from tools.verify_update import Rejected
 
     t0 = time.perf_counter()
@@ -472,7 +472,7 @@ def run(base: Path) -> dict[str, Any]:
         events += [json.loads(x)["event"] for x in f.read_text(encoding="utf-8").splitlines() if x.strip()]
     upd = [e for e in events if e.startswith("update.")]
     want = ["update.applied", "update.downgrade", "update.applied", "update.rolled_back", "update.rolled_back",
-            *["update.rolled_back"] * len(STEPS)]  # fmt: skip
+            *["update.applied" if s in AFTER_CHECK else "update.rolled_back" for s in STEPS]]  # fmt: skip
     checks.append(("the audit chain verifies, with every update event in order",
                    audit_verify(audit_dir).ok and upd == want, ", ".join(upd)))  # fmt: skip
     history = (updates / "history.jsonl").read_text(encoding="utf-8")
