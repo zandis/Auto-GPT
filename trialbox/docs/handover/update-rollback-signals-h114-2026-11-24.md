@@ -225,3 +225,30 @@ files. Files outside the card: `tools/trialbox/procgroup.py` (lane B2) and `tool
     the default grace): it runs to its end and is audited `rolled_back: true`;
   - the console passes its limit as both the timeout and the grace.
 - Mutants, 3, all caught: the default moved to 20 s; `procgroup` ignoring the grace; the console passing no grace.
+
+## H-114c: a SIGKILL inside the host-tree switch (2026-11-24)
+
+The integrator ruled (7129325585) that the half of 1461-1 left open is card H-114c, High-class. The fault: on a
+copied install, the first host tree's switch moves each copied file aside and links it. The record of those moves
+reached `point.json` only when the install returned. A SIGKILL between two moves (a power cut, or the console
+limit's SIGKILL) left the record of before the switch, and `tools/apply_update.sh rollback` then said "previous
+release" with the compose file still set aside (H114-16).
+
+- `host_tree.install`, `switch` and `sync` take `on_record`. `_aside` calls it after a file's name is recorded and
+  before the file moves. `apply_host` passes a save of the rollback point (`save_point`, written whole with fsync).
+- Undoing the first host tree of a copied install also removes the links through `current` that a cut-short switch
+  made but never recorded. Only the release's own paths are looked at. Links are not saved one by one, which would
+  cost one fsync per release path.
+- Test: `tests/unit/test_host_tree_switch_kill_h114c.py`, 4 cases (copied install, killed after the 1st, 2nd and 4th
+  move; a box already on a host tree, killed in its next switch). A real SIGKILL ends the first child process, and a
+  second child runs `recover`. All 4 fail at 27e8f0d8: `recover` said ok with the files still set aside and links
+  left through `current`.
+- Mutants, 3, all caught:
+  - no save before a move;
+  - no removal of the unrecorded links;
+  - `apply_host` passing no save.
+  A fourth, the save of the aside folder before the first move, was not caught: the first move's save already
+  carries it. That code is removed.
+- Not covered: a SIGKILL between a move and the save after it cannot happen, because the save comes first. A kill
+  between the save and the move leaves a name whose file was never moved; `restore` skips it, since the file is
+  still in its place.

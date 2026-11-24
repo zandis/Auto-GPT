@@ -153,6 +153,16 @@
    "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
    "fix": "the record is written inside the try whose handler kills the group; test_1461_9",
    "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-16",
+   "severity": "High",
+   "claim": "a SIGKILL inside the host-tree switch itself, before any rollback, left point.json with the record of before the switch: tools/apply_update.sh rollback said the previous release with the copied files still set aside (the half of review 1461-1 ruled to H-114c, High-class)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 88eb59f04ad5afd735d3bcc3bcd3351e2be64c19",
+   "fix": "the switch saves the rollback point before each move; undoing a copied install's first host tree removes the links through current a cut-short switch never recorded; tests/unit/test_host_tree_switch_kill_h114c.py",
+   "from": "the integrator's ruling 7129325585 on the second review of #1461, 2026-11-24"
   }
  ]
 }
