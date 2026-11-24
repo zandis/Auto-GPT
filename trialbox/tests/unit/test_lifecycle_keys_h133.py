@@ -24,6 +24,7 @@ import os
 import stat
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tb_common import kek as K
@@ -55,11 +56,11 @@ class Owners:
             st = os.fstat(fd)
             self.given[(st.st_dev, st.st_ino)] = (uid, gid)
 
-        def chown(path: object, uid: int, gid: int, *, dir_fd: int | None = None, follow_symlinks: bool = True) -> None:
+        def chown(path: Any, uid: int, gid: int, *, dir_fd: int | None = None, follow_symlinks: bool = True) -> None:
             if uid != SERVICES:
-                real_chown(path, uid, gid, dir_fd=dir_fd, follow_symlinks=follow_symlinks)  # type: ignore[arg-type]
+                real_chown(path, uid, gid, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
                 return
-            st = os.stat(path, dir_fd=dir_fd, follow_symlinks=follow_symlinks)  # type: ignore[arg-type]
+            st = os.stat(path, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
             self.given[(st.st_dev, st.st_ino)] = (uid, gid)
 
         monkeypatch.setattr(os, "fchown", fchown)
@@ -115,7 +116,7 @@ def _child_reads(folder: Path, names: list[str]) -> dict[str, bool]:
                 except OSError:
                     got[n] = False
             os.write(w, json.dumps(got).encode())
-        except BaseException:  # noqa: BLE001 (a child of a fork never returns into pytest)
+        except BaseException:  # a child of a fork never returns into pytest
             code = 1
         finally:
             os._exit(code)
@@ -127,7 +128,8 @@ def _child_reads(folder: Path, names: list[str]) -> dict[str, bool]:
     os.close(r)
     _, status = os.waitpid(pid, 0)
     assert os.waitstatus_to_exitcode(status) == 0, "the services' child could not run"
-    return json.loads(data)
+    seen: dict[str, bool] = json.loads(data)
+    return seen
 
 
 def _state(folder: Path) -> dict[str, str]:
@@ -198,12 +200,12 @@ def test_lr3_after_rotate_kek_as_root_the_services_still_open_kek_json_every_key
     late: list[str] = []
     real_replace = os.replace
 
-    def replace(src: object, dst: object, **kw: object) -> None:
+    def replace(src: Any, dst: Any) -> None:
         d = Path(str(dst))
         served = d.parent == b["sec"] and (d.name == K.META_FILE or d.name.endswith(K.WRAPPED_SUFFIX))
         if (served or d == b["run"] / "kek") and own.owner(Path(str(src))) != SERVICES:
             late.append(d.name)
-        real_replace(src, dst, **kw)  # type: ignore[arg-type]
+        real_replace(src, dst)
 
     monkeypatch.setattr(os, "replace", replace)
     assert keys.main(_rotate_argv(b), env=DEV) == 0
@@ -311,7 +313,7 @@ def _tpm_box(tmp: Path, own: Owners, monkeypatch: pytest.MonkeyPatch) -> dict[st
 def _unsealed_from(cred: Path) -> bytes:
     data = cred.read_bytes()
     assert data.startswith(b"STANDIN-SEALED:")
-    return data[len(b"STANDIN-SEALED:"):]
+    return data[len(b"STANDIN-SEALED:") :]
 
 
 def _sealed_opens(b: dict[str, Path]) -> bool:
@@ -346,24 +348,24 @@ def test_lr6_a_rotation_on_a_tpm_box_cut_short_keeps_every_key_opening_with_the_
     """LR-6, the card's invariant: a kill at each rename of the roll-forward; at that instant every key is either as
     it was or opens with the KEK sealed in the credential, and ``status --audit-dir`` finishes the rotation."""
     own = Owners(monkeypatch)
+    real_replace = os.replace
+
+    class Killed(BaseException):
+        pass
+
     for stop_at in range(1, 5):  # the credential, two keys, kek.json
         tmp = tmp_path / str(stop_at)
         tmp.mkdir()
         b = _tpm_box(tmp, own, monkeypatch)
         before = {f.name: f.read_bytes() for f in b["sec"].glob("*.wrapped")}
-        seen = 0
-        real_replace = os.replace
+        seen = [0]
 
-        class Killed(BaseException):
-            pass
-
-        def replace(src: object, dst: object, _stop: int = stop_at, **kw: object) -> None:
-            nonlocal seen
+        def replace(src: Any, dst: Any, _stop: int = stop_at, _seen: list[int] = seen) -> None:
             if str(src).endswith(".next"):
-                seen += 1
-                if seen == _stop:
+                _seen[0] += 1
+                if _seen[0] == _stop:
                     raise Killed
-            real_replace(src, dst, **kw)  # type: ignore[arg-type]
+            real_replace(src, dst)
 
         monkeypatch.setattr(os, "replace", replace)
         with pytest.raises(Killed):
