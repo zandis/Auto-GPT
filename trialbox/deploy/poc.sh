@@ -70,12 +70,17 @@ docker compose version >/dev/null 2>&1 || die "the docker compose plugin is miss
 ALIVE_PID=""
 alive_start() {
   local what="$1" me=$$
-  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
-    while kill -0 "$me" 2>/dev/null; do
+  ( s=""; self=$BASHPID; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
+    # OCR 1455-4: alive while the script is this ticker's parent. kill -0 is not enough: a script a signal ended is a
+    # zombie that kill -0 still finds until its caller reaps it, and a caller that reads the output first never does
+    up() { if [ -r "/proc/$self/stat" ]; then read -r _ _ _ pp _ < "/proc/$self/stat" && [ "$pp" = "$me" ]; else kill -0 "$me" 2>/dev/null; fi; }
+    while up; do
       # H-110: the sleep holds none of the caller's pipes: one a stop orphans (its TERM before s=$!) never keeps a
       # caller that reads this output waiting
-      sleep "${TB_POC_ALIVE_S:-60}" >/dev/null 2>&1 & s=$!; wait "$s"; n=$((n + 1))
-      kill -0 "$me" 2>/dev/null && echo "    ... still $what ($n)" >&2
+      # one-second sleeps, each followed by a look at the script: a signal that ends it frees the caller in a second
+      i=0; while [ "$i" -lt "${TB_POC_ALIVE_S:-60}" ] && up; do
+        sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; i=$((i + 1)); done; n=$((n + 1))
+      up && echo "    ... still $what ($n)" >&2
     done ) & ALIVE_PID=$!
 }
 alive_stop() { [ -n "$ALIVE_PID" ] || return 0; kill "$ALIVE_PID" 2>/dev/null || true; wait "$ALIVE_PID" 2>/dev/null || true; ALIVE_PID=""; }

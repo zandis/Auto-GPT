@@ -205,12 +205,17 @@ ALIVE_PID=""
 alive_start() {
   local what="$1" installer=$$
   # it also ends within a minute of the installer's own end (set -e, a signal): it never outlives the install
-  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
-    while kill -0 "$installer" 2>/dev/null; do
+  ( s=""; self=$BASHPID; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
+    # OCR 1455-4: alive while the installer is this ticker's parent. kill -0 is not enough: an installer a signal ended is a
+    # zombie that kill -0 still finds until its caller reaps it, and a caller that reads the output first never does
+    up() { if [ -r "/proc/$self/stat" ]; then read -r _ _ _ pp _ < "/proc/$self/stat" && [ "$pp" = "$installer" ]; else kill -0 "$installer" 2>/dev/null; fi; }
+    while up; do
       # H-110: the sleep holds none of the caller's pipes: one a stop orphans (its TERM before s=$!) never keeps a
       # caller that reads this output waiting
-      sleep 60 >/dev/null 2>&1 & s=$!; wait "$s"; n=$((n + 1))
-      kill -0 "$installer" 2>/dev/null && echo "    ... still $what ($n min)" >&2
+      # one-second sleeps, each followed by a look at the installer: a signal that ends it frees the caller in a second
+      i=0; while [ "$i" -lt 60 ] && up; do
+        sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; i=$((i + 1)); done; n=$((n + 1))
+      up && echo "    ... still $what ($n min)" >&2
     done
   ) >&2 & ALIVE_PID=$!
 }
@@ -1253,9 +1258,13 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
   OVR="$(cd "$(dirname "$TB_COMPOSE_OVERRIDE")" && pwd)/$(basename "$TB_COMPOSE_OVERRIDE")"
   # every later compose command (as root: update, secrets rotate) reads it: only its owner (root or the installer)
   # may change it, and it must stay where it is
+  # OCR 1455-2 (B): the file is opened once (fd 6); its owner and mode are those of the open file, and the copy below
+  # is read from that same descriptor, so a file swapped in under its name after the check is never the one copied
   OVR_OK=1
-  [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || { stop_or_warn override-owner "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"; OVR_OK=0; }
-  [ "$OVR_OK" = 0 ] || [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || { stop_or_warn override-mode "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"; OVR_OK=0; }
+  exec 6< "$OVR" || :
+  OVR_ST="$(stat -L -c '%u %a' /dev/fd/6 2>/dev/null)" || OVR_ST="- 777"
+  [ "${OVR_ST%% *}" = 0 ] || [ "${OVR_ST%% *}" = "$(id -u)" ] || { stop_or_warn override-owner "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"; OVR_OK=0; }
+  [ "$OVR_OK" = 0 ] || [ $((0${OVR_ST#* } & 022)) = 0 ] || { stop_or_warn override-mode "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"; OVR_OK=0; }
   # H-110 (M-LH-2): root's later compose commands (the start at boot, update, secrets rotate) read a copy in deploy/site
   # (root's, 0644), never the caller's file where it lies: a folder above it that another user can write would let that
   # user replace it between this check and any later start
@@ -1263,8 +1272,10 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
     "$ROOT"/deploy/site/*) ;;
     *) if [ "$OVR_OK" = 1 ]; then
          OVR_COPY="$ROOT/deploy/site/compose-override.yml"
-         if mkdir -p "$ROOT/deploy/site" && cp -- "$OVR" "$OVR_COPY.new" && chmod 0644 "$OVR_COPY.new" \
-             && mv -f -- "$OVR_COPY.new" "$OVR_COPY"; then
+         # written whole beside it, synced, then renamed over it (never written in place)
+         if mkdir -p "$ROOT/deploy/site" && rm -f -- "$OVR_COPY.new" && (umask 077; cat <&6 > "$OVR_COPY.new") \
+             && chmod 0644 "$OVR_COPY.new" && sync -- "$OVR_COPY.new" && mv -f -- "$OVR_COPY.new" "$OVR_COPY" \
+             && sync -- "$ROOT/deploy/site"; then
            echo "install: note: the compose override $OVR copied to $OVR_COPY (the copy is the one used)" >&2
            OVR="$OVR_COPY"
          else
@@ -1272,6 +1283,7 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
          fi
        fi ;;
   esac
+  exec 6<&-
   if [ "$OVR_OK" = 1 ]; then
     is_standins "$OVR" && rehearsal_only standins "the model stand-ins ($OVR says x-trialbox-rehearsal-standins)"
     echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2

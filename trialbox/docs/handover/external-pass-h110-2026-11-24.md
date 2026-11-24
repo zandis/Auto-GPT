@@ -34,7 +34,11 @@ changed after an install was not covered by the signature that IT had confirmed.
 **Now (the integrator's ruling 7119913331).** The installer that runs is always the signed release's own. A kept tree
 is the site's data, never its code. The bootstrap compares the kept tree with the checked host tar: each signed file
 must be there with its bytes, links followed, and no code may sit beside them (under the two library folders, or a
-module or `.pth` file at the top that a `python3` started there would import).
+module, a package folder or a `.pth` file at the top that a `python3` started there would import). Since the review of
+#1455 (1455-1) the bytes checked are also the bytes used: each signed file, read through any link, is inside the tree,
+and it and every folder down to it are owned by root alone (no group or other write); the folders above the tree are
+root's, or shared only with the sticky bit. The bytecode caches in the two library folders are removed before the
+compare, never through a link: `python3` would run a cache in place of its signed source.
 
 * When the kept tree is exactly this release, it runs as before ("kept").
 * When it is not, none of its code runs. The bootstrap first brings the signed release in. It does so with the
@@ -43,7 +47,8 @@ module or `.pth` file at the top that a `python3` started there would import).
   through `current`, and moves each changed file of the kept tree to `releases/.replaced-<time>/`, never deleting it.
   The site's own files in `deploy/` (`.env`, settings, keys, the site folder) are not touched. The tree is then
   compared again. Only when it matches does the now-signed installer run.
-* A module planted at the top is no release path, so it stays. Then nothing runs (H-94 (1): only the signed files run).
+* A module or package planted at the top is no release path, so it stays. Then nothing runs (H-94 (1): only the signed
+  files run).
 * A bundle older than the release the box records (`deploy/updates/installed.json`, `release_seq`) is never brought
   in. The box keeps its code. This is the update path's own rule.
 
@@ -59,9 +64,19 @@ tree and runs its installer. Then it plants a `box-install.sh` and an `install.s
 bootstrap brings the signed release in and the signed installer runs. The planted files are set aside and the mark is
 never made.
 
-**How the test reads the module.** `tests/unit/test_install_bootstrap.py` asserts that the bootstrap names no host
-tree path. The module's member name is built from its two parts, so that assertion holds unchanged. The bootstrap
-still needs only what Ubuntu 24.04 has, because the module is in the verified bundle.
+**How the test reads the module.** `tests/unit/test_install_bootstrap.py` asserted that the bootstrap names no host
+tree path. By the integrator's ruling 7122559749 the module's path is written plainly, and the assertion allows exactly
+that one read from the verified tar (see "Changed assertions" below). The bootstrap still needs only what Ubuntu 24.04
+has, because the module is in the verified bundle.
+
+**An older box reinstalled by a newer bootstrap (the integrator's line 7126867935).** On master the bootstrap ran a
+kept tree's own installer, so a box installed from a release before H-96 answered the new bundle's
+`--kek-passphrase-file` with `install: unknown option --kek-passphrase-file` (exit 2) and could not be reinstalled.
+With (a) the older tree is brought up to the signed release first and the signed installer runs.
+`tests/unit/test_bootstrap_upgrade_h110.py` installs release N-1 (its installer is the real option parser of
+`83e444bb~1`, `tests/fixtures/h110/install_n1_options.txt`) and reinstalls it with release N's bootstrap and
+`--kek-passphrase-file`, with and without `--box`; it fails with master's `deploy/bootstrap.sh` on exactly that
+message. The rehearsal from a real release N-1 is its own card.
 
 ## (c) The retention job on a systemd host with no cron daemon
 
@@ -70,7 +85,8 @@ writes `trialbox-retention.service` and `.timer` (00:20 daily, `Persistent=true`
 own command. It enables the timer and removes a cron file left there: one schedule, never both, as H-92's backup. The
 host check takes either timer in place of its cron file. A warned anchor folder takes the signed head out of the
 timer's service too, in `deploy/install.sh`, `deploy/box-install.sh` and `deploy/settings_guard.sh`. A timer that
-cannot be enabled is a warning, as the cron line was on such a host. No new stop was added.
+cannot be enabled is a warning, as the cron line was on such a host. Elsewhere a cron file with no running cron
+daemon is a new `stop_or_warn cron-daemon` (M-SC-3, below): PRODUCTION stops, a PoC box warns.
 
 ## (e), (f) A secret where others can read it
 
@@ -155,7 +171,7 @@ master's version of its file swapped in.
 | L-CI-1 prompts and model cards taken for documents | fixed in this card | `tools/ci_docs_only.py` `CODE_READS`; `test_a_prompt_or_a_model_card_is_never_a_documents_only_change` |
 | L-RR-1 a product name in a shipped script | fixed in this card | `deploy/gcp/setup-gcp.sh` and `docs/VALIDATION.md` name the role, not the product; no test |
 
-| 1396-1 (High, second half) a model pair that cannot be put back only warned on a PoC box | fixed in this card | `deploy/install.sh`: the line is kept with the host check's kept lines (H-94 (2)): a PoC box ends 1 with it last, as PRODUCTION did; `test_a_model_pair_that_cannot_be_put_back_never_ends_an_install_as_ready` (PoC: exit 0 and "ready" on master) |
+| 1396-1 (High, second half) a model pair that cannot be put back only warned on a PoC box | fixed in this card | `deploy/install.sh`: the line is kept with the host check's kept lines (H-94 (2)): a PoC box ends 1 with it last, as PRODUCTION did; `test_a_model_pair_that_cannot_be_put_back_ends_the_install_1_with_its_line_last` (PoC: exit 0 on master; it proves the exit code and the last line, not the summary before them) |
 | ESC-5 backup-install rewrites `.env` in place (ledger 7122384787) | fixed in this card | `tools/trialbox/backup_schedule.py` `set_env` and the box's `merge_env` use one helper, `tools/trialbox/private_file.py` `replace_private` (0600 from the first byte, on disk, renamed); `test_the_box_settings_are_replaced_whole_never_rewritten_in_place` for each caller |
 | GP-PL-1 the spool maps only `--dbname` (7121587090) | fixed in this card | `tools/trialbox/platform_day2.py` `spool_args`: `--dbname X`, `--dbname=X`, `-d X`, `-dX` and a positional connection (a URI, a key=value string) are each mapped to the job's variable or refused; `test_the_spool_never_writes_the_jobs_connection_in_any_form`, `test_the_spool_refuses_any_other_connection_in_any_form` |
 
@@ -196,13 +212,17 @@ not fsync, though, and the temp file takes the old file's mode. The `>>` lines a
 * H-BK-1 stays with its own card. `deploy/hardening/seal_keys.sh` changed here only in its KEK-INPUT lines, for (i),
   because a test holds the three copies identical.
 
-**Changed assertions (each by the integrator's ruling 7122559749).** Two assertions changed.
+**Changed assertions (each by the integrator's ruling 7122559749).** Two assertions changed, and one test asserts less
+text than it claimed (1455-7).
 
 * `tests/fixtures/h94/install_sh_master_stops.json`: two new messages, M-SC-2's and M-SC-3's.
 * `test_it_needs_only_what_a_bare_ubuntu_has` (in `tests/unit/test_install_bootstrap.py`): "no `tools/` in the script"
-  becomes "no `tools/` but the one read of the release's host-tree module from the verified tar, and its comment".
+  becomes "no `tools/` but the one read of the release's host-tree module from the verified tar". The comment
+  allowance the review of #1455 found (1455-7) is gone: the bootstrap's comment no longer names the path.
+* The 1396-1 test appended its own "TrialBox is ready" line and asserted it absent; install.sh never prints that
+  line. The line and its assertion are gone, and the test is named for what it holds: the exit code and the last line.
 
-**Changed test data.** Four kinds, none of them an assertion.
+**Changed test data.** Six kinds, none of them an assertion.
 
 * `tests/unit/test_poc_stops_h94.py` `NOT_DRIVEN`: the two new keys (root only).
 * `tools/support_bundle.py` `NOT_SECRETS` (outside the card): `PINNED_KEY`, install.sh's path of the vendor's public key, which holds no secret.
@@ -218,6 +238,32 @@ not fsync, though, and the temp file takes the old file's mode. The `>>` lines a
 * L-IB-2 on a box with no key in deploy/keys. The bootstrap always places that key; a box with none still takes the
   caller's key, as before.
 * 1421-3 and 1409-2 are with the H-114 worker. ESC-4 is not this card's.
+
+## The review of #1455 at `26ab7d4a` (verdict 7125919328)
+
+High 1, Medium 1, Low 6, all of lane H. Each fix has a test that fails with the `26ab7d4a` version of its file and
+passes now. The reviewer's patches for the Lows are applied as given, with two test fixes: run as root, a file is
+already root's, so the key-owner and owner-hand-off tests give the file a third uid first.
+
+| | Finding | Verdict | The fix, and the test |
+| --- | --- | --- | --- |
+| 1455-1 | a kept tree's package at the top, or a bytecode cache, ran as root; the bytes checked were not the bytes used (High) | fixed | `deploy/bootstrap.sh` `kept_diff`, see (a); `tests/unit/test_ocr1455_kept_code.py`: `test_no_code_a_kept_tree_holds_runs_under_the_signed_installer` (2), `test_a_cache_folder_that_is_a_link_out_of_the_tree_never_runs`, `test_a_signed_file_another_user_could_change_is_never_what_runs` (3) |
+| 1455-2 (A) | a PoC start warns, then runs a compose file in a folder others can write (Medium) | open, asked | a stop on every box is a new kept stop, a changed assertion and a new rehearsal layout: asked of the integrator through the lead (7128325096); not built |
+| 1455-2 (B) | the install checked the override by name, then copied it by name (Medium) | fixed | `deploy/install.sh`: opened once, checked through the open file, copied from it, written whole and renamed; `test_the_override_copied_is_the_file_that_was_checked`, `test_the_override_s_owner_and_mode_are_those_of_the_file_copied` |
+| 1455-3 | a plain key another user owns passed at 0600 (Low) | fixed | `deploy/check_host.sh` `kept 5`; `tests/unit/test_ocr1455_key_owner.py` |
+| 1455-4 | a signal that ends the script left the ticker holding the caller's pipe (Low) | fixed | `deploy/poc.sh`, `deploy/install.sh`; `tests/unit/test_ocr1455_ticker_signals.py` (6) |
+| 1455-5 | the secrets rotation wrote `.env` without the helper; the helper handed a non-root owner on (Low) | fixed | `tools/trialbox/svc_secrets.py`, `tools/trialbox/private_file.py`; `tests/unit/test_ocr1455_env_writers.py` (2) |
+| 1455-6 | the vendor keygen's check and its replace were two steps (Low) | fixed | `tools/sign_bundle.py`; `tests/unit/test_ocr1455_vendor_keygen_race.py` |
+| 1455-7 | claims and tests that said more than they held (Low) | fixed | this page, the 1396-1 test, the bootstrap test's allowance; the PR body's L-RR-1 row has no test |
+| 1455-8 | the timer that cannot be enabled only warns on PRODUCTION; no `pgrep` is silent (Low) | open, asked | both add install messages (the H-94 fixture grows): asked of the integrator through the lead (7128325096) |
+| 7126867935 | an older box could not be reinstalled by a newer bootstrap (`--kek-passphrase-file`) | fixed by (a) | see (a); `tests/unit/test_bootstrap_upgrade_h110.py` |
+
+**What 1455-1's fix does not cover.** A folder at the top with no `__init__` file is a namespace package. It cannot
+shadow a module that exists elsewhere, but it can supply one that does not. No TrialBox tool imports a name that is
+missing on a box, so this is noted, not fixed. The folders above the tree accept a shared folder with the sticky bit
+(`/tmp`), as `kp_read_file` does.
+
+**Files outside the card.** `tools/trialbox/svc_secrets.py` (1455-5, the reviewer's patch, its body only).
 
 ## Tests, mutants and what was not run
 

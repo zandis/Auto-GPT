@@ -134,11 +134,8 @@ def test_it_needs_only_what_a_bare_ubuntu_has() -> None:
     sh = BOOT.read_text(encoding="utf-8")
     assert "python3 -I" in sh and not re.search(r"\bimport (yaml|cryptography)\b", sh)
     # H-110 (a; the integrator's ruling 7122559749): the one read under tools/ is the release's own host-tree module,
-    # read from the verified tar (never from the kept tree); its comment names it; nothing else under tools/
-    allowed = ('tf.extractfile("tools/host_tree.py")', "(tools/host_tree.py install:")
-    rest = sh.replace("$ROOT/deploy/install.sh", "")
-    for a in allowed:
-        rest = rest.replace(a, "")
+    # read from the verified tar (never from the kept tree); nothing else under tools/
+    rest = sh.replace("$ROOT/deploy/install.sh", "").replace('tf.extractfile("tools/host_tree.py")', "", 1)
     assert "tools/" not in rest
 
 

@@ -53,7 +53,7 @@ def refuse_existing(out: Path) -> None:
         )
 
 
-def keygen(out: Path) -> tuple[Path, Path]:
+def keygen(out: Path, *, replace: bool = True) -> tuple[Path, Path]:
     """A new vendor key pair in ``out``; the private key is made 0600 from its first byte (``O_EXCL``, a name of its
     own, then renamed into place). The command line refuses a folder that already holds a pair
     (:func:`refuse_existing`)."""
@@ -75,10 +75,17 @@ def keygen(out: Path) -> tuple[Path, Path]:
             fh.write(body)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, priv)
+        if replace:
+            os.replace(tmp, priv)
+        else:  # OCR 1455-6: put in place only if no key has that name now (a second keygen at the same moment)
+            try:
+                os.link(tmp, priv)
+            except FileExistsError:
+                raise KeyExists(f"{priv} appeared while the key was made: it is kept, nothing was written") from None
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    tmp.unlink(missing_ok=True)
     pub.write_bytes(
         key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
     )
@@ -310,7 +317,11 @@ def main(argv: list[str] | None = None) -> int:
         except KeyExists as exc:
             print(f"keygen: {exc}", file=sys.stderr)
             return 1
-        priv, pub = keygen(args.out)
+        try:
+            priv, pub = keygen(args.out, replace=args.force)
+        except KeyExists as exc:
+            print(f"keygen: {exc}", file=sys.stderr)
+            return 1
         print(f"wrote {priv} (keep offline) and {pub} (install on boxes as deploy/keys/vendor_ed25519.pub)")
         return 0
     if args.cmd == "sign-file":

@@ -309,7 +309,9 @@ def _set_env(env_file: Path, updates: dict[str, str | None]) -> None:
             continue
         out.append(line)
     out += [f"{k}={v}" for k, v in updates.items() if v is not None and k not in seen]
-    _write_private(env_file, "\n".join(out) + "\n", None)
+    from tools.trialbox.private_file import replace_private  # OCR 1455-5: the one writer of deploy/.env
+
+    replace_private(env_file, "\n".join(out) + "\n")
 
 
 def legacy_token(env_file: Path) -> str:

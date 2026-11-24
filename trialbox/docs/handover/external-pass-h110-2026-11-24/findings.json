@@ -333,6 +333,116 @@
    "state": "open",
    "fix": "not in this card: listed",
    "from": "H-110, the lead's 7122392004 follow-up"
+  },
+  {
+   "id": "H110-31",
+   "severity": "High",
+   "claim": "a kept tree's code outside what the bootstrap compared ran as root under the signed installer: a package folder at the top (shadowing a standard module) or a bytecode cache under the library folders; and the bytes checked were not the bytes used (no owner, mode or link-containment check on the signed files and their folders)",
+   "severity_basis": "root code the signature does not cover",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the bootstrap counts any importable thing at the top that the release does not hold, removes the library folders' caches (never through a link; a linked cache folder counts), and counts a signed file that leaves the tree through a link or that it or a folder down to it is not owned by root alone; the folders above the tree must be root's or sticky",
+   "from": "1455-1: the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-32",
+   "severity": "Medium",
+   "claim": "a PoC box's start warns, then runs a COMPOSE_FILE in a folder another user can write (settings_guard.sh compose-file-owner)",
+   "severity_basis": "root code from a file another user can change",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "open: a stop on every box is a new kept stop, a changed assertion and a rehearsal layout change; asked of the integrator (the lead's 7128325096)",
+   "from": "1455-2 (A): the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-33",
+   "severity": "Medium",
+   "claim": "the install checked the override by name, then copied it by name",
+   "severity_basis": "a file swapped in after the check becomes root's copy",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the override is opened once; its owner and mode are read from the open file and the copy is made from that descriptor, written whole beside it, synced and renamed",
+   "from": "1455-2 (B): the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-34",
+   "severity": "Low",
+   "claim": "a plain site key another user owns passed the host check at mode 0600",
+   "severity_basis": "a secret another user can read",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the host check FAILs a plain key not owned by root or the installer, [H-94 (5)]",
+   "from": "1455-3: the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-35",
+   "severity": "Low",
+   "claim": "a signal that ended poc.sh or install.sh while the ticker ran left the caller's pipe held",
+   "severity_basis": "a caller waiting on output never returns",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the reviewer's patch: the ticker is stopped on the script's own end",
+   "from": "1455-4: the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-36",
+   "severity": "Low",
+   "claim": "the secrets rotation (svc_secrets._set_env) rewrote deploy/.env without the one helper, and the helper handed a non-root owner on as root",
+   "severity_basis": "a password file left with another user's owner, or cut",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "_set_env uses replace_private; as root the new file is root's",
+   "from": "1455-5: the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-37",
+   "severity": "Low",
+   "claim": "sign_bundle keygen's check for an existing key and its final replace were separate steps",
+   "severity_basis": "a key made between them is replaced",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "without --force the key is placed by a link that fails if a file is there",
+   "from": "1455-6: the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-38",
+   "severity": "Low",
+   "claim": "claims and tests that said more than they held: the 1396-1 test's own 'ready' line; the page's 'two parts', 'No new stop', 'Four kinds'; the bootstrap test's comment allowance; the PR body's L-RR-1 pairing",
+   "severity_basis": "a reader trusts a claim no test holds",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the test asserts the exit code and the last line; the page corrected; the allowance narrowed to the one read; the PR body to be corrected with the push",
+   "from": "1455-7: the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-39",
+   "severity": "Low",
+   "claim": "the retention timer that cannot be enabled only warns on PRODUCTION; a host without pgrep is told nothing about its cron daemon",
+   "severity_basis": "the retention and the signed audit head are not scheduled, said late",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "open: both add install messages (the H-94 fixture grows); asked of the integrator (the lead's 7128325096)",
+   "from": "1455-8: the review of #1455 at 26ab7d4a (verdict 7125919328)"
+  },
+  {
+   "id": "H110-40",
+   "severity": "Medium",
+   "claim": "a box installed from an older release could not be reinstalled by a newer bootstrap: the kept tree's old installer answered --kek-passphrase-file with 'unknown option', rc 2",
+   "severity_basis": "an existing box cannot take a new bundle",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "(a): the signed release's installer runs; tests/unit/test_bootstrap_upgrade_h110.py (release N-1 to N, with and without --box) fails with master's bootstrap",
+   "from": "the integrator's 7126867935, the lead's relay"
   }
  ]
 }

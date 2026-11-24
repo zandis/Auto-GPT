@@ -98,8 +98,15 @@ tar -xf "$BUNDLE" -C "$WORK" --no-same-owner "files/$HOST_NAME" 2>/dev/null || d
 # python3 started there would import). Prints the differences, nothing when the tree is exactly the signed release
 kept_diff() {
   python3 -I -c '
-import hashlib, os, sys, tarfile
+import hashlib, importlib.machinery, os, shutil, stat, sys, tarfile
 tar, root = sys.argv[1], sys.argv[2]
+rroot = os.path.realpath(root)
+uids = (0, os.getuid())
+def inside(p):
+    return p == rroot or p.startswith(rroot + os.sep)
+def loose(p, sticky_ok=False):  # another user could change what is read there: not owned by root (or this user) alone
+    st = os.lstat(p)
+    return st.st_uid not in uids or (st.st_mode & 0o022 and not (sticky_ok and st.st_mode & stat.S_ISVTX))
 def sha(f):
     h = hashlib.sha256()
     for b in iter(lambda: f.read(1 << 20), b""):
@@ -119,6 +126,37 @@ for name, want in sorted(signed.items()):
         got = None
     if got != want:
         bad.append(name + (": missing" if got is None else ": not the signed bytes"))
+        continue
+    # OCR 1455-1 (part 3): the bytes checked must stay the bytes used. The file, read through any link, is inside the
+    # tree, and it and every folder from the tree down to it are owned by root alone (no group or other write)
+    real = os.path.realpath(os.path.join(root, name))
+    if not inside(real):
+        bad.append(name + ": a link out of the tree")
+        continue
+    parts, d = os.path.relpath(real, rroot).split(os.sep), rroot
+    for x in [None] + parts:
+        d = d if x is None else os.path.join(d, x)
+        if loose(d):
+            bad.append(name + ": " + ("" if d == real else os.path.relpath(d, rroot) + "/ ") + "not owned by root alone")
+            break
+# OCR 1455-1: bytecode caches are never compared, and python3 runs a cache whose header names the mtime and size of
+# its source in place of that source: the caches in the two library folders go (made again from the signed files). Only a
+# real folder inside the tree is removed, never one reached through a link that leaves it
+seen = set()
+for top in ("tools", "libs"):
+    for d, dirs, _ in os.walk(os.path.join(root, top), followlinks=True):
+        rd = os.path.realpath(d)
+        if not inside(rd) or rd in seen:
+            dirs[:] = []
+            continue
+        seen.add(rd)
+        for x in [x for x in dirs if x == "__pycache__"]:
+            c = os.path.join(d, x)
+            if not os.path.islink(c) and inside(os.path.realpath(c)):
+                shutil.rmtree(c)
+            else:
+                bad.append(os.path.relpath(c, root) + ": a link where a cache folder is")
+        dirs[:] = [x for x in dirs if x != "__pycache__"]
 for top in ("tools", "libs"):
     for d, dirs, files in os.walk(os.path.join(root, top), followlinks=True):
         dirs[:] = [x for x in dirs if x not in ("__pycache__", ".cache", ".venv")]
@@ -126,14 +164,30 @@ for top in ("tools", "libs"):
             rel = os.path.relpath(os.path.join(d, f), root).replace(os.sep, "/")
             if rel not in signed and not f.endswith((".pyc", ".pyo")):
                 bad.append(rel + ": not in the release")
-bad += [f + ": not in the release" for f in sorted(os.listdir(root)) if f.endswith((".py", ".pth")) and f not in signed]
+# OCR 1455-1: anything at the top that a python3 started there would import (a module of any suffix, a package
+# folder, a .pth, a cache folder) and the release does not hold is code of the kept tree
+tops = {n.split("/", 1)[0] for n in signed}
+sfx = tuple(importlib.machinery.all_suffixes()) + (".pth",)
+for f in sorted(os.listdir(root)):
+    p = os.path.join(root, f)
+    pkg = any(os.path.exists(os.path.join(p, "__init__" + x)) for x in sfx)
+    if f not in tops and (f.endswith(sfx) or f == "__pycache__" or pkg):
+        bad.append(f + ": not in the release")
+# the folders above the tree: owned by root alone, or shared only with the sticky bit (as /tmp is)
+up = os.path.dirname(rroot)
+while True:
+    if loose(up, sticky_ok=True):
+        bad.append(up + "/: not owned by root alone")
+    if up == os.path.dirname(up):
+        break
+    up = os.path.dirname(up)
 print(", ".join(bad[:5]) + (f" and {len(bad) - 5} more" if len(bad) > 5 else ""))
 ' "$WORK/files/$HOST_NAME" "$ROOT"
 }
 if [ -f "$ROOT/deploy/install.sh" ]; then
   # H-110 (a): the installer that runs is always the signed release's; a kept tree is the site's data, never its code.
   # A tree that is not exactly this release gets the release brought in first, by the release's own host-tree module
-  # read from the checked tar (tools/host_tree.py install: releases/<bundle id>, `current` switched, the release
+  # read from the checked tar (its install: releases/<bundle id>, `current` switched, the release
   # files linked through it, a copied file of the kept tree moved to releases/.replaced-<time>/, never deleted; the
   # site's own files in deploy/ untouched). A bundle older than the one the box records is never brought in
   KEPT_DIFF="$(kept_diff)" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)

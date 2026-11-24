@@ -1,0 +1,28 @@
+# install.sh option parser of the release before H-96 (commit 83e444bb~1, deploy/install.sh lines 75-99), verbatim:
+# the options an older installed tree answers. The upgrade test runs it as that tree's installer.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --tier) TIER="$2"; shift ;;
+    --tier-check) TIER_CHECK=1 ;;
+    --answers) ANSWERS="$2"; shift ;;
+    --mode) MODE="$2"; MODE_SET=1; shift ;;
+    --gpu) GPU="$2"; GPU_SET=1; shift ;;
+    --yes) YES=1 ;;
+    --ctgov) CTGOV="$2"; shift ;;
+    --ctgov-check) CTGOV_CHECK=1 ;;
+    --check) CHECK=1 ;;
+    --rehearsal) REHEARSAL=1 ;;
+    --environment) ENVIRONMENT="$2"; shift ;;
+    --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
+    # REHEARSAL-REAL-SERVERS (H-89): a rehearsal's only (refused below without --rehearsal)
+    --rehearsal-real-servers) REAL_SERVERS=1 ;;
+    --gpu-index) GPU_INDEX="$2"; shift ;;
+    --engine-probe) ENGINE_PROBE="$2"; shift ;;
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
+    -*) echo "install: unknown option $1" >&2; exit 2 ;;
+    *) BUNDLE="$1" ;;
+  esac
+  shift
+done
+echo "release N-1 installer ran"

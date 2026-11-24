@@ -355,6 +355,9 @@ if [ -d "$SECRETS" ]; then
       # H-110 (f): a plain key group or others can read is a secret where others can read it (H-94 (5)): a FAIL on
       # every box and profile, which the install keeps as a refusal (tb_kept_fails)
       case "$m" in *00) ;; *) kept 5 "$f mode $m: a plain site key that group or others can read (want 600, root-owned)" ;; esac
+      # OCR 1455-3: mode 600 protects nothing when another user owns the key
+      u="$(stat -c %u "$SECRETS/$f" 2>/dev/null)"
+      [ "$u" = 0 ] || [ "$u" = "$(id -u)" ] || kept 5 "$f is owned by uid $u: a plain site key another user can read (want root-owned, mode 600: chown root:root)"
       # H-110 (g): this line names no mode: a plain key only its owner reads is not one of the five on a PoC box
       facility strict "$f is a plain file: seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)" "$f sealed"
     elif [ -f "$SECRETS/$f.wrapped" ]; then

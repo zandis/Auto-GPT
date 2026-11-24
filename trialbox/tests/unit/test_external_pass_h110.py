@@ -533,15 +533,15 @@ def test_the_install_makes_the_box_file_roots() -> None:
 
 
 # ------------------------------------------------------------------------------------------------ M-LH-2
-def _override_part(tmp: Path, ovr: Path) -> subprocess.CompletedProcess[str]:
-    """install.sh's own override lines, run on a box folder of the test's own."""
+def _override_part(tmp: Path, ovr: Path, pre: str = "") -> subprocess.CompletedProcess[str]:
+    """install.sh's own override lines, run on a box folder of the test's own (``pre``: shell run before them)."""
     a = INSTALL.index('NO_OVR="the compose override (not used)"')
     b = INSTALL.index('COMPOSE+=(--profile "$MODE")', a)
     root = tmp / "box"
     (root / "deploy" / "site").mkdir(parents=True, exist_ok=True)
     script = ("set -euo pipefail\nstop_or_warn() { echo \"STOP $*\"; exit 1; }\nis_standins() { return 1; }\n"
               f"ROOT={root}\nCOMPOSE=(docker compose); FILES=base.yml; MODE=stub\nTB_COMPOSE_OVERRIDE={ovr}\n"
-              + INSTALL[a:b] + 'echo "FILES=$FILES"\n')  # fmt: skip
+              + pre + INSTALL[a:b] + 'echo "FILES=$FILES"\n')  # fmt: skip
     return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=60)
 
 
@@ -559,6 +559,48 @@ def test_the_override_root_reads_later_is_a_copy_in_deploy_site(tmp_path: Path) 
     assert copy.read_text(encoding="utf-8") == "services: {}\n" and copy.stat().st_mode & 0o777 == 0o644
     ovr.write_text("services: {evil: {image: x}}\n", encoding="utf-8")  # a later change to the caller's file
     assert copy.read_text(encoding="utf-8") == "services: {}\n"
+
+
+def test_the_override_copied_is_the_file_that_was_checked(tmp_path: Path) -> None:
+    """OCR 1455-2 (B): the override was checked by name, then copied by name: a file swapped in under that name after
+    the check became root's copy. It is now opened once, checked and copied through that one descriptor. The swap is
+    made by a stand-in for stat, right after the first look at the file's owner and mode."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    ovr = shared / "override.yml"
+    ovr.write_text("services: {}\n", encoding="utf-8")
+    ovr.chmod(0o644)
+    evil = shared / "swap.yml"
+    evil.write_text("services: {evil: {image: x, volumes: ['/:/host']}}\n", encoding="utf-8")
+    evil.chmod(0o644)
+    flag = tmp_path / "swap-once"
+    flag.touch()
+    pre = f'stat() {{ command stat "$@"; r=$?; if [ -e {flag} ]; then rm -f {flag}; mv -f {evil} {ovr}; fi; return $r; }}\n'
+    r = _override_part(tmp_path, ovr, pre)
+    copy = tmp_path / "box" / "deploy" / "site" / "compose-override.yml"
+    assert not flag.exists(), "the stand-in never ran: " + r.stderr
+    assert r.returncode == 0 and f"FILES=base.yml:{copy}" in r.stdout, (r.stdout, r.stderr)
+    assert copy.read_text(encoding="utf-8") == "services: {}\n"
+
+
+def test_the_override_s_owner_and_mode_are_those_of_the_file_copied(tmp_path: Path) -> None:
+    """OCR 1455-2 (B), the other order: the file opened is group-writable and a sound file is put under its name before
+    the look at owner and mode. The look is at the open file, so the override is refused (not used)."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    ovr = shared / "override.yml"
+    ovr.write_text("services: {evil: {image: x}}\n", encoding="utf-8")
+    ovr.chmod(0o664)
+    good = shared / "good.yml"
+    good.write_text("services: {}\n", encoding="utf-8")
+    good.chmod(0o644)
+    flag = tmp_path / "swap-once"
+    flag.touch()
+    pre = f'stat() {{ if [ -e {flag} ]; then rm -f {flag}; mv -f {good} {ovr}; fi; command stat "$@"; }}\n'
+    r = _override_part(tmp_path, ovr, pre)
+    assert not flag.exists(), "the stand-in never ran: " + r.stderr
+    assert r.returncode == 1 and "STOP override-mode" in r.stdout, (r.stdout, r.stderr)
+    assert not (tmp_path / "box" / "deploy" / "site" / "compose-override.yml").exists()
 
 
 def _guard(tmp: Path, env_name: str, compose: Path) -> subprocess.CompletedProcess[str]:
@@ -859,20 +901,21 @@ def _pair_run(tmp: Path, poc: bool) -> subprocess.CompletedProcess[str]:
         'pin_tool() { case "$1" in --promote-shipped) return 0 ;; *) return 1 ;; esac; }\n'
         f"tb_poc_box() {{ return {0 if poc else 1}; }}\n"
         'stop_or_warn() { shift 3 2>/dev/null; tb_poc_box && { echo "warning (PoC box, H-94): $*" >&2; return 0; }; exit 1; }\n'
-        "set +e\n" + INSTALL[a:b] + "set -e\n" + INSTALL[c:] + 'echo "TrialBox is ready (the end of the run)"\n'
+        "set +e\n" + INSTALL[a:b] + "set -e\n" + INSTALL[c:]
     )
     return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=60,
                           env={"PATH": f"{stub}:/usr/bin:/bin"})  # fmt: skip
 
 
 @pytest.mark.parametrize("poc", [True, False], ids=["PoC box (TEST)", "PRODUCTION"])
-def test_a_model_pair_that_cannot_be_put_back_never_ends_an_install_as_ready(tmp_path: Path, poc: bool) -> None:
+def test_a_model_pair_that_cannot_be_put_back_ends_the_install_1_with_its_line_last(tmp_path: Path, poc: bool) -> None:
     """1396-1: a pair promoted on its shipped record that failed this box's canary and could not be demoted stays
-    promoted: the box cannot run it (H-94 (2)). On a PoC box that FAIL only warned and the install ended 0, as if
-    ready; now it ends 1 with the line last, as on PRODUCTION."""
+    promoted: the box cannot run it (H-94 (2)). On a PoC box that FAIL only warned and the install ended 0; now the
+    install's closing lines end it 1 with that FAIL line last, as on PRODUCTION (OCR 1455-7: the exit code and the
+    last line are what this proves; the summary printed before them is not run here)."""
     r = _pair_run(tmp_path, poc)
     last = r.stderr.strip().splitlines()[-1]
-    assert r.returncode == 1 and "TrialBox is ready" not in r.stdout, (r.stdout, r.stderr)
+    assert r.returncode == 1, (r.stdout, r.stderr)
     assert (
         last.startswith("install: FAIL: the model pair was promoted on its shipped record")
         and "could NOT be put back" in last
