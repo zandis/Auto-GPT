@@ -146,3 +146,26 @@ Mutants for these fixes, 5, all caught:
 - `recover` not waiting for a running put-back;
 - `nohup` overridden;
 - a command not recorded while it runs.
+
+## H-114b: the console's update limit and the rollback (2026-11-24)
+
+The integrator ruled (7124945074) that lane H takes H114-05 as card H-114b, with bodies only in two other lanes'
+files. Files outside the card: `tools/trialbox/procgroup.py` (lane B2) and `tools/trialbox/ops.py` (lane R).
+
+- `procgroup.run` takes an optional `grace`: the group's time between the SIGTERM and the SIGKILL. Its default is
+  `TERM_GRACE_S`, ten seconds, as before, so every other caller is unchanged. `None` means no SIGKILL until the
+  command has ended by itself.
+- `ops.do_update_apply` passes the update's own limit (`apply_limit`) as the grace. A stand-in runner (the console's
+  tests) is called as before.
+- How the figure was chosen: no rollback time was measured, in the rehearsal or anywhere in the tree. A rollback
+  redoes at most what the update did (the same database restores, models, host tree and restart), and each of its
+  commands carries its own limit. The update's limit counts those steps and the restore of the dumps, so a rollback
+  started by the limit's SIGTERM gets that much again before the SIGKILL. When the sizes cannot be read, the update
+  has no limit, so there is no SIGTERM either.
+- Tests, in `tests/unit/test_update_grace_h114b.py`; all 3 fail on the tip's files:
+  - the default path: the limit, then ten seconds (measured: from 10 s up to 14 s), then the SIGKILL, with the TERM
+    seen once, and the default named `TERM_GRACE_S` = 10;
+  - the real updater under `procgroup.run` with a limit that lands in its apply and a rollback of 12 s (longer than
+    the default grace): it runs to its end and is audited `rolled_back: true`;
+  - the console passes its limit as both the timeout and the grace.
+- Mutants, 3, all caught: the default moved to 20 s; `procgroup` ignoring the grace; the console passing no grace.

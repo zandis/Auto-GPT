@@ -50,9 +50,9 @@
    "claim": "an update run on the console's time limit (procgroup) gets SIGTERM, then SIGKILL 10 s later: a rollback the SIGTERM starts is killed part way and the box is between releases until tools/apply_update.sh rollback is run (review 1461-3)",
    "lane": "H",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed 12dc8611f6c5a3771ae113c4a5d6cee9fe5ddec9",
    "from": "card H-114, reproduced by the external review of #1461 (7124127048), 2026-11-24",
-   "fix": "half: recover refuses while the killed run's put-back still runs (update.py running/<pgid>.json, test_1461_3); the grace itself needs procgroup.py (lane B2) and ops.py (lane R)"
+   "fix": "card H-114b (the integrator's ruling 7124945074): procgroup.run takes an optional grace (default ten seconds, as before); ops.do_update_apply passes the update's own limit; tests/unit/test_update_grace_h114b.py. The put-back left by a killed updater holds the recovery (H114-08)"
   },
   {
    "id": "H114-06",
