@@ -451,9 +451,12 @@ def _host_run(tmp_path: Path, install_rc: int, extra: str = "") -> tuple[subproc
     fake.mkdir()
     marks = tmp_path / "marks"
     (tmp_path / "settings.env").write_text("x\n", encoding="utf-8")
+    (tmp_path / "os-release").write_text('ID=stand-in-os\nVERSION_ID="0"\n', encoding="utf-8")
+    (tmp_path / "cni").mkdir(exist_ok=True)
     (fake / "install.sh").write_text(
         f'source "{INSTALL}"  # the real steps (unrecorded_pieces among them), then the test paths\n'
         f'SRC="{fake}"; LINGER_DIR="{tmp_path}/linger"; SUBID_FILES=("{tmp_path}/subuid" "{tmp_path}/subgid")\n'
+        f'CNI_DIR="{tmp_path}/cni"\n'
         f'TOKEN="{tmp_path}/token"; SETTINGS="{tmp_path}/settings.env"; MADE="{tmp_path}/made"; UNITS="{tmp_path}"\n'
         f'OPT="{tmp_path}/opt"; HOME_DIR="{tmp_path}/home-dir"; USER_NAME=tb-bench-none-here\n'
         "get() { return 1; }; as_tb() { :; }\n"
@@ -470,6 +473,7 @@ def _host_run(tmp_path: Path, install_rc: int, extra: str = "") -> tuple[subproc
         'id() { if [ "$*" = -u ]; then echo 0; else command id "$@"; fi; }\n'
         "proxy_holds() { :; }; proxy_runtime_is_its_users() { :; }; proxy_container_runs() { :; }\n"
         "units_name_no_runtime_folder() { :; }; nothing_left() { :; }\n"
+        f'OS_RELEASE="{tmp_path}/os-release"; manager_version() {{ echo 255; }}\n'
         f'mktemp() {{ command mktemp -d "{tmp_path}/logs.XXXXXX"; }}\n'
         f'main "{tmp_path}/a-folder"\n'
     )
@@ -670,3 +674,51 @@ def test_ocr_1466_15_remove_shreds_the_token_and_any_copy_recorded_or_not(tmp_pa
     got = _bash(INSTALL, REMOVE_STAND_INS.format(root=tmp_path) + f'record_made dir "{tmp_path}/opt"\ncmd_remove\n')
     assert got.returncode == 0, got.stdout + got.stderr
     assert sorted(p.name for p in etc.iterdir()) == ["settings.env"]
+
+
+def test_ocr_1466_17_the_host_tests_tests_reach_no_path_of_the_host(tmp_path: Path) -> None:
+    """OCR 1466-17 (escape check (i)): the CNI folder, the system's name and the service manager's version are the
+    stand-ins' in the tests: the report names the stand-in's folder, system and version, never the host's."""
+    got, marks = _host_run(tmp_path, install_rc=0)
+    assert marks == "install\nverify\nremove\n", got.stdout + got.stderr
+    out = got.stdout
+    assert re.search(rf"^PASS the folder \S*{re.escape(tmp_path.name)}/cni is there", out, re.M), out
+    assert "/var/lib/cni" not in out and "stand-in-os 0; service manager 255" in out
+
+
+_PIECES = {  # piece: (how it is planted, its line in the record)
+    "user": ('id() { [ "$1" = "$USER_NAME" ]; }', 'user "$USER_NAME"'),
+    "home": ('mkdir "$HOME_DIR"', 'dir "$HOME_DIR"'),
+    "code folder": ('mkdir "$OPT"', 'dir "$OPT"'),
+    "proxy unit": (': > "$UNITS/tb-bench-proxy.service"', 'units "$UNITS"'),
+    "runner unit": (': > "$UNITS/tb-bench-runner@.service"', 'units "$UNITS"'),
+    "linger": (': > "$LINGER_DIR/$USER_NAME"', 'linger "$USER_NAME"'),
+    "id range": ('echo "$USER_NAME:300000:65536" > "${SUBID_FILES[1]}"', 'subid "$USER_NAME"'),
+}
+
+
+@pytest.mark.parametrize("piece", sorted(_PIECES))
+def test_ocr_1466_16_each_piece_is_named_unless_the_record_names_it(tmp_path: Path, piece: str) -> None:
+    """OCR 1466-16: each of the six pieces unrecorded_pieces looks at is named when it is here and not recorded, and
+    not named once the record has its line."""
+    plant, line = _PIECES[piece]
+    where = (
+        f'OPT="{tmp_path}/opt"; HOME_DIR="{tmp_path}/home"; UNITS="{tmp_path}/units"; LINGER_DIR="{tmp_path}/linger"\n'
+        f'SUBID_FILES=("{tmp_path}/subuid" "{tmp_path}/subgid"); USER_NAME=tb-bench-none-here\n'
+        f'mkdir -p "$UNITS" "$LINGER_DIR"\n{plant}\n'
+    )
+    named = _bash(INSTALL, where + "unrecorded_pieces")
+    assert named.returncode == 0 and len(named.stdout.splitlines()) == 1, named.stdout + named.stderr
+    assert _bash(INSTALL, where + f"record_made {line}\nunrecorded_pieces").stdout == ""
+
+
+def test_ocr_1466_18_remove_never_takes_the_cni_folder_as_scratch(tmp_path: Path) -> None:
+    """OCR 1466-18 (lane LR's LR-66): the settings, set by a slip after install to name the CNI folder, made remove
+    delete it with another tool's files in it; it goes only when it is empty."""
+    cni = tmp_path / "cni"
+    cni.mkdir()
+    (cni / "other.conflist").write_text("{}\n", encoding="utf-8")
+    pick = f'CNI_DIR="{cni}"; get() {{ case "$1" in BENCH_SCRATCH) echo "{cni}" ;; *) echo 0 ;; esac; }}\n'
+    got = _remove(tmp_path, pick + f'record_made dir "{cni}"\n')
+    assert (cni / "other.conflist").exists(), got.stdout + got.stderr
+    assert "is left: something else has put files in it" in got.stdout

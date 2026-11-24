@@ -326,6 +326,9 @@ cmd_remove() {
     say "no record of what install made ($MADE): the units are stopped; only the token and its copies go"
   fi
   if [ -f "$SETTINGS" ]; then engine="$(get BENCH_ENGINE || true)"; scratch="$(get BENCH_SCRATCH || true)"; fi
+  # OCR 1466-18 (lane LR's LR-66): today's settings may name the CNI folder by a slip made after install; it is
+  # never a scratch folder (install refuses it), so it goes only by its own rule below: when it is empty
+  if [ -n "$scratch" ] && [ "$scratch" = "$CNI_DIR" ]; then say "scratch $scratch is the CNI folder: not taken as scratch"; scratch=""; fi
   while read -r unit; do
     if [ -n "$unit" ]; then systemctl disable --now "$unit" || true; fi
   done < <(systemctl list-units --all --plain --no-legend 'tb-bench-runner@*' | awk '{print $1}')

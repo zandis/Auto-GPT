@@ -307,3 +307,20 @@ The re-review (7138769020, verdict 7138774947), with lane LR's LR-46, LR-47 and 
 My own earlier test `test_remove_without_a_record_deletes_nothing_and_says_so` now asserts that the token goes (it
 kept it before): the change 1466-15 asks for.
 
+## The re-review of #1466 at 5eb1937 (fix first): 1466-16 to 1466-20
+
+The re-review (7141356976); each is held by a test in `tests/unit/test_bench_ci_host_h105.py`:
+
+- **1466-16:** the review's table test, as given: each of the six pieces is named once when it is here and not
+  recorded, and not named once the record has its line (`test_ocr_1466_16_each_piece_is_named_unless_the_record_names_it`).
+- **1466-17:** the host test reads the CNI folder from `$CNI_DIR`, the system's name from `OS_RELEASE`, and the service
+  manager's version through `manager_version`; the tests point all three at stand-ins, and one asserts the report names
+  the stand-in's folder, system and version (`test_ocr_1466_17_the_host_tests_tests_reach_no_path_of_the_host`).
+- **1466-18:** remove never takes the CNI folder as scratch (a slip in today's settings); it goes only by its own
+  empty-only rule, so another tool's file in it stays (the review's patch and test).
+- **1466-19:** runbook 13's section for an older install says that install and the host test refuse while a kept
+  piece is there, and that the owner rules on each kept piece before the next install; the pull request's body is the
+  lead's.
+- **1466-20:** the report to the lead names the policy and card files the counts come from, and the ordinary user's
+  failing test by its full id with its run on master.
+

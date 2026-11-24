@@ -16,6 +16,7 @@ umask 077
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_WAIT=90   # seconds the proxy may take to start (the first start makes its network)
 PROXY_HOLD=30   # seconds it must then stay up with no restart
+OS_RELEASE=/etc/os-release  # the system's name and version, for the report's first lines
 passes=0
 fails=0
 skipped=0
@@ -75,6 +76,14 @@ interrupted() {  # INT, TERM or HUP: nothing more runs; the report says where it
   echo "host test: installed: run 'sudo trialbox/tools/bench_ci/install.sh remove' (it takes only what install made)"
   echo "host test: $passes passed, $fails failed, $skipped not run (interrupted)"
   exit 130
+}
+
+os_name() {  # the system's name and version, read (not run) from its release file
+  awk -F= '$1 == "ID" || $1 == "VERSION_ID" { gsub(/"/, "", $2); v[$1] = $2 } END { print v["ID"], v["VERSION_ID"] }' "$OS_RELEASE"
+}
+
+manager_version() {  # the service manager's version, for the report's first lines
+  systemctl --version | awk 'NR==1{print $2}'
 }
 
 proxy_holds() {  # the proxy starts within PROXY_WAIT and then runs PROXY_HOLD seconds with no restart
@@ -175,7 +184,7 @@ main() {
   add_redactions "$@"
   trap interrupted INT TERM HUP
   echo "host test: the bench CI runner, on this host, $(date -u +%Y-%m-%dT%H:%MZ); commit $(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
-  echo "host test: $(. /etc/os-release && echo "$ID $VERSION_ID"); service manager $(systemctl --version | awk 'NR==1{print $2}')"
+  echo "host test: $(os_name); service manager $(manager_version)"
   local before=$fails
   step "install" "$SRC/install.sh" install
   if [ "$fails" != "$before" ]; then
@@ -192,7 +201,7 @@ main() {
   ENGINE="$(get BENCH_ENGINE 2>/dev/null || echo /usr/bin/podman)"
   echo "host test: engine $("$ENGINE" --version 2>/dev/null | head -n 1)"
   step "no unit names a runtime folder (a system unit's %U is 0)" units_name_no_runtime_folder
-  step "the folder /var/lib/cni is there (without it the engine hides /var/lib from a user's network)" test -d /var/lib/cni
+  step "the folder $CNI_DIR is there (without it the engine hides its parent from a user's network)" test -d "$CNI_DIR"
   NOW="the egress proxy"
   if proxy_holds >"$LOG/proxy.log" 2>&1; then
     result PASS "the egress proxy starts and runs ${PROXY_HOLD}s with no restart"

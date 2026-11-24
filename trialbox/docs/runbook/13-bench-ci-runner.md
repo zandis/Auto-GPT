@@ -253,6 +253,10 @@ before and after on the pull request (with the stand-ins of the real-host test: 
    install made it, by its own `sudo rm -r <it>`, one folder named in full.
 4. List again (step 1's commands) and post both lists: what went, what stayed and why.
 
+Install and the real-host test refuse to start while any kept piece is there (the user, its home,
+`/opt/tb-bench-ci`, a unit, its linger or its id range, not in a record): the owner rules on each kept piece, either
+delete it or keep the runner off this host, before the next install.
+
 ## What the tests hold, and what only the install can show
 
 Held by tests in the repository: the gate's decision for a fork's pull request and for each condition broken alone
