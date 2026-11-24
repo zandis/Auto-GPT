@@ -56,11 +56,11 @@ How to read the table:
 | ENGLISH | Patient must speak English | logistics | class `note`; demographic atom (preferred language) where a record states it; else `note_question` | person | 0.46 |
 | MAKES-DECISIONS | Patient must make their own medical decisions | judgement | class `human` in clinical use; for this benchmark class `note` with `note_question` (choice C2) | person, never a model | 0.31 |
 | ABDOMINAL | History of intra-abdominal surgery, small or large intestine resection, or small bowel obstruction | procedure_device | class `mixed`: procedure atom (intra-abdominal surgery, bowel resection value sets) OR condition atom (small bowel obstruction), quantifier `any`, no window | rules, then notes | 0.73 |
-| MAJOR-DIABETES | Major diabetes-related complication: amputation, kidney damage, skin conditions, retinopathy, nephropathy, neuropathy, as a result of uncontrolled diabetes | diagnosis | class `mixed`: OR of condition atoms (one value set per listed complication), `diagnosis_role` diabetes-related; `note_question` for "result of diabetes" | rules, then notes | 0.62 |
-| ADVANCED-CAD | Two or more of: two or more medicines for CAD; history of MI; angina now; ischemia, past or present | diagnosis | class `mixed`: count>= 2 over four atoms (medication atom with count>= 2 over a CAD-treatment value set; MI condition; angina condition, `clinical_status` active; ischemia condition) | rules, then notes | 0.37 |
-| MI-6MOS | MI in the past 6 months | temporal | condition atom (MI value set), window -180..0 from the most recent record | rules, then notes | 0.63 |
+| MAJOR-DIABETES | Major diabetes-related complication: amputation, kidney damage, skin conditions, retinopathy, nephropathy, neuropathy, as a result of uncontrolled diabetes | diagnosis | class `mixed`: OR of condition atoms (one value set per listed complication), the link to diabetes by condition codes that name it (a `diagnosis_role` value cannot carry it: its values are primary, principal, admitting, discharge, secondary and any); `note_question` for "result of diabetes" | rules, then notes | 0.62 |
+| ADVANCED-CAD | Two or more of: two or more medicines for CAD; history of MI; angina now; ischemia, past or present | diagnosis | class `mixed`: four parts (two or more distinct CAD medicines; MI condition; angina condition, `clinical_status` active; ischemia condition), "two or more" written as an `or` over the six `and` pairs, since `BoolNode` has only `and`, `or` and `not`. A medication atom's `count>=` counts records, not distinct medicines, so the medicine part is one atom per CAD drug class with an `or` over pairs of classes, or a `note_question` | rules, then notes | 0.37 |
+| MI-6MOS | MI in the past 6 months | temporal | condition atom (MI value set), window -183..0 from the most recent record (6 calendar months reach 181 to 184 days; the IR counts days, so the edge is a choice: state it in the report) | rules, then notes | 0.63 |
 | KETO-1YR | Diagnosis of ketoacidosis in the past year | temporal | condition atom (diabetic ketoacidosis value set), window -365..0 | rules, then notes | -0.1 |
-| DIETSUPP-2MOS | Taken a dietary supplement (excluding vitamin D) in the past 2 months | medication | medication atom (dietary supplements value set minus vitamin D), window -60..0 | rules, then notes | 0.66 |
+| DIETSUPP-2MOS | Taken a dietary supplement (excluding vitamin D) in the past 2 months | medication | medication atom (dietary supplements value set minus vitamin D), window -62..0 (2 calendar months reach 59 to 62 days; state the edge in the report) | rules, then notes | 0.66 |
 | ASP-FOR-MI | Use of aspirin to prevent MI | medication | class `mixed`: medication atom (aspirin), `latest` in the most recent record; `note_question` for "to prevent MI" | rules, then notes | 0.62 |
 | HBA1C | Any hemoglobin A1c value between 6.5 % and 9.5 % | lab | observation atom on `VS_HBA1C` (`rulesets/GZQO`), quantifier `any`, value `between` 6.5 and 9.5 %, no window | rules | n.c. |
 | CREATININE | Serum creatinine > upper limit of normal | lab | observation atom (serum creatinine), quantifier `any`, value with `ref` uln multiple 1 (`RefRange`: the result's own range, else the site table) | rules | n.c. |
@@ -69,7 +69,7 @@ Notes on the table:
 
 - **The value sets** for the conditions, procedures and medicines named above are not in the tree, except
   `VS_HBA1C` (`rulesets/GZQO/valuesets/VS_HBA1C.json`). N-COHORT writes them as a ruleset of its own, in the
-  ruleset layout (`ir/`, `valuesets/`, `labels.yaml`, `manifest.yaml`).
+  ruleset layout (`ir/`, `valuesets/`, `cql/`, `sql/`, `tests/`, `labels.yaml`, `manifest.yaml`).
 - **The `between` value.** The tree has no example of a `between` value in a ruleset's IR. HBA1C will be its first.
 - **ADVANCED-CAD and MAJOR-DIABETES** are compound. [P] defines both with the lists above, and N-COHORT encodes those
   lists, not a wider clinical reading.
