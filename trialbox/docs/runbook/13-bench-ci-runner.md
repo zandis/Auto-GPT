@@ -2,9 +2,10 @@
 
 **Reader:** the people who build TrialBox.
 
-*Card H-105, the owner's ruling (the integrator's comment of 2026-11-24 on #639): the bench host runs the slow CI
-jobs beside the hosted runners, to make CI faster and to cut the lanes' work. The hosted runners keep the gate: an
-outage of the bench blocks nothing.*
+*Card H-105, the owner's rulings (the integrator's comments of 2026-11-24 on #639, and item 8 of the next): the
+bench host runs the slow CI jobs beside the hosted runners, for every train and every lane branch of this
+repository, to make CI faster and to cut the lanes' work. The hosted runners keep the gate: an outage of the bench
+blocks nothing.*
 
 **Status: never installed.** The scripts and the workflow were tested in the repository only, with stand-ins for the
 container engine, the card query tool and the code host. The first install is the walk's (while its temporary sudo
@@ -16,9 +17,12 @@ the end.
 ## The three harms, and what stands in each one's way
 
 1. **A public repository's self-hosted runner runs strangers' code** if any trigger a fork or a pull request can
-   fire reaches it. The bench jobs live in `.github/workflows/trialbox-bench-ci.yml`, reachable from a push to a
-   `train/*` branch and from a run by hand by the repository's owner only (each job checks it again); no other
-   workflow names the label `tb-bench`, and no other job can run on a self-hosted runner.
+   fire reaches it. The bench jobs live in `.github/workflows/trialbox-bench-ci.yml`, reachable from a push to this
+   repository's train and lane branches (`train/*`, `agent/*`, `claude/*`, `lane-*`: a push needs write access here,
+   a fork's pull request does not) and from a run by hand by the repository's owner only (each job checks it again);
+   never a pull request, `pull_request_target`, `issue_comment`, `workflow_run` or anything a fork can start. No other
+   workflow names the label `tb-bench`, and no other job can run on a self-hosted runner. A newer push to a lane
+   branch cancels that branch's older run; a train's run is never cancelled.
    `tests/unit/test_bench_ci_workflow_h105.py` reads every workflow file and fails otherwise.
 2. **A job that escapes its container reaches the owner's data and keys.** Each job runs in a fresh single-use
    container started by `tools/bench_ci/launcher.py`: a rootless engine run by the `tb-bench` user (no login, no
@@ -44,8 +48,9 @@ it when the runner is removed.
 - Ubuntu 24.04 or newer with systemd 248 or newer, `python3` 3.10 or newer, `curl`, `sha256sum`, `runuser`.
 - The rootless container engine that `tools/bench_ci/runner.Dockerfile` installs in the job image, from the host's
   own distribution, version 4.4 or newer, with `uidmap` (`newuidmap`, `newgidmap`).
-- For the GPU slot: the card query tool, and the engine's device description of the cards (written by the card
-  vendor's container toolkit). Choose the CI cards: never card 1 (the walk's), never a card of the bench.
+- For the GPU slots: the card query tool, and the engine's device description of the cards (written by the card
+  vendor's container toolkit). Choose the CI cards (never card 1, the walk's; never a card of the bench) and their
+  cap: the most memory and load a CI card may already carry when a GPU job starts. The GPU jobs share the CI cards.
 - A folder for CI scratch only, on a disk with room for the jobs (venvs, the JVM and fonts caches, images of the
   nested engine). Never a folder of the bench, the walk, the datasets, the integration folder or a home.
 - A checkout of `master` of this repository, readable by root.
@@ -73,7 +78,7 @@ and go nowhere else. Every line says PASS or FAIL:
 
 - the token file is root's and 0600, and `tb-bench` cannot read it; `tb-bench` is in no other group;
 - `tb-bench` can neither read nor write any named folder;
-- the proxy and every slot unit run; the CI cards are free (GPU slot);
+- the proxy and every slot unit run; the CI cards are within their cap (GPU slots);
 - the probe: a container with the CPU jobs' arguments exactly runs as a user that is not root, sees no engine
   socket, has no host folder but `/scratch` and a read-only root, cannot go out but through the proxy, reaches the
   code host and the package registry through it, and is refused a host off the list and an address written as a
@@ -86,9 +91,10 @@ run of "TrialBox bench CI" by hand (Actions, the workflow, Run workflow, on `mas
 ## The jobs it takes
 
 Unit shards (eight, CPU), the integration run (CPU), the GPU suites (`make full-set` stage `gpu`, on the CI cards),
-`make full-set` (the GPU slot with its nested engine) and the box rehearsal (an engine slot). A GPU job does not
-start when its cards are busy: the launcher registers no GPU runner while they are, and the job itself checks them
-again before its first step (the runner's job-started hook), with a message naming the card and why. The workflow is
+`make full-set` (a GPU slot with its nested engine) and the box rehearsal (an engine slot). The GPU slots share the
+CI cards. A GPU job does not start when a CI card is busy beyond its cap (more memory or load than the settings
+allow, or a reading the tool cannot give): the launcher registers no GPU runner while one is, and the job itself
+checks again before its first step (the runner's job-started hook), with a message naming the card and why. The workflow is
 separate and no branch rule requires it, so its jobs show red when they fail and block nothing; nothing moves off
 the hosted runners until the owner's ruling says so.
 

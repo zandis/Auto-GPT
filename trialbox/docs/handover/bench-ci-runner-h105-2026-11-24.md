@@ -3,8 +3,9 @@
 **Reader:** the people who build TrialBox: the lane H lead and the integrator. Findings for builders, so in one
 language.
 
-- **Card:** H-105 (the owner's ruling, the integrator's comment 7117447272 on #639): the bench host runs CI jobs
-  beside the hosted runners, made safe for a public repository
+- **Card:** H-105 (the owner's ruling, the integrator's comment 7117447272 on #639, widened by 7117870645 item 8):
+  the bench host runs CI jobs beside the hosted runners, for trains and this repository's lane branches, made safe
+  for a public repository
 - **Date:** 2026-11-24
 - **Install page:** [RUNBOOK §13 part: the bench host's CI runner](../runbook/13-bench-ci-runner.md)
 - **Findings:** [`bench-ci-runner-h105-2026-11-24/findings.json`](bench-ci-runner-h105-2026-11-24/findings.json)
@@ -12,17 +13,23 @@ language.
 - **Files:** `.github/workflows/trialbox-bench-ci.yml` (new), `tools/bench_ci/` (new: the launcher, the cards' check,
   the egress proxy, the job image, the units, the install script, the example settings),
   `tests/unit/test_bench_ci_workflow_h105.py`, `tests/unit/test_bench_ci_launcher_h105.py`, the install page, this
-  page and its findings, and `docs/RUNBOOK.md` (the generated index line of §13 only). No existing workflow changes.
+  page and its findings, and `docs/RUNBOOK.md` (the generated index line of §13 only). Outside `trialbox/`: the
+  new workflow and a new `.github/actionlint.yaml`, which declares the four bench labels so that the `checks` job's
+  actionlint knows them (a test holds it to the launcher's labels; question 5). No existing workflow changes.
 
 ## What was built
 
-1. **Triggers.** A workflow of its own, `TrialBox bench CI`. Its triggers are a push to `train/*` and
-   `workflow_dispatch`; every job's `if` repeats the guard: a push to a `train/` ref, or a run by hand whose actor and
-   triggering actor are the repository's owner (`github.repository_owner`, no name written). `permissions:
+1. **Triggers.** A workflow of its own, `TrialBox bench CI`. Its triggers are exactly a push to `train/*`, `agent/*`,
+   `claude/*` or `lane-*` (a push needs write access to this repository; a fork's pull request does not) and
+   `workflow_dispatch`; every job's `if` repeats the guard: a push to one of those refs, or a run by hand whose actor
+   and triggering actor are the repository's owner (`github.repository_owner`, no name written). Concurrency: one
+   group per lane branch, whose newer push cancels the older run; a train's run has a group of its own and is never
+   cancelled or replaced. `permissions:
    contents: read`, no secret named, every action pinned by its full commit id, every checkout without a kept
    credential. The test reads every workflow file in `.github/workflows` and fails when a job that can run on a
    self-hosted runner is in any other workflow, when another workflow names the label `tb-bench` or waits for this
-   one, or when this one gains any trigger, branch, tag, input, permission, secret, unpinned action or job guard.
+   one, or when this one gains any trigger (`pull_request`, `pull_request_target`, `issue_comment`, `workflow_run`,
+   ...), branch, tag, input, permission, secret, unpinned action, job guard or concurrency change.
    A `runs-on` it cannot prove (a runner group, an expression that is not a matrix of literals, a reusable workflow
    of another repository) counts as the bench.
 2. **Isolation.** `tools/bench_ci/launcher.py`, run by one systemd unit per slot as the `tb-bench` user (no login,
@@ -31,9 +38,10 @@ language.
    engine socket, the internal jobs network (no route out) and the egress proxy as the only way out (CONNECT to 443,
    the allow-listed names, never an address that is not public). CPU slots: read-only root, every capability
    dropped, no new privileges. Engine and GPU slots: a nested rootless engine of the job's own (H105-02).
-3. **GPUs.** The CI cards and the reserved cards (card 1, the walk's, which the settings must hold, and the bench's)
-   are in the host's settings file; the repository has an example with placeholders. A CI card that is reserved,
-   missing or busy (a compute process, memory above the threshold, load above it, or a reading the tool cannot give)
+3. **GPUs.** The CI cards, their cap and the reserved cards (card 1, the walk's, which the settings must hold, and the
+   bench's) are in the host's settings file; the repository has an example with placeholders. The GPU slots share
+   the CI cards (the lead's relay of the ruling: several jobs at once, under caps). A CI card that is reserved,
+   missing or busy beyond its cap (more memory or load than the settings allow, or a reading the tool cannot give)
    stops the GPU slot before any registration, with a message naming the card; the job checks the same cards again,
    by UUID, as the runner's job-started hook. Tested with a stand-in for the card query tool.
 4. **Jobs.** Unit shards (8) and the integration run on CPU slots, the GPU suites and `make full-set` on the GPU slot,
@@ -51,7 +59,7 @@ language.
 
 | Part | Held by | Not shown |
 | --- | --- | --- |
-| No trigger but a train push or the owner reaches the bench label | `test_no_other_trigger_reaches_the_bench_label` and 23 planted mutants | the code host honouring the guard |
+| No trigger but a push to a train or lane branch, or the owner's run by hand, reaches the bench label | `test_no_other_trigger_reaches_the_bench_label` and 30 planted mutants | the code host honouring the guard |
 | The job container's arguments, per profile | the launcher tests (26 planted mutants caught) | the engine honouring them; the image building |
 | The CI cards' check | a stand-in for the card query tool | the real tool's output on the bench's cards |
 | The token's way | the code host's API host only, whatever a caller's proxy says; the configuration on stdin | the code host's answer (no call was made) |
@@ -67,3 +75,6 @@ language.
    later card?
 3. The minting token (H105-01): the owner's choice of credential and expiry.
 4. A RUNBOOK number of its own for the install page (H105-07)?
+5. `.github/actionlint.yaml` declares the bench labels (actionlint names an unknown runner label an error). It
+   suppresses no finding, but it is a list in a lint's configuration: does the rule against allow-list entries
+   cover it? actionlint was not run in the card's container; CI's `checks` job runs it.

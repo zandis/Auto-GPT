@@ -45,7 +45,7 @@ as_tb_launcher() {  # the installed launcher, as tb-bench
 slots() {  # every slot unit the settings ask for
   local n
   for kind in cpu engine gpu; do
-    n="$(get "TB_BENCH_${kind^^}_SLOTS")"
+    n="$(get "BENCH_${kind^^}_SLOTS")"
     for ((i = 1; i <= n; i++)); do echo "tb-bench-runner@$kind-$i.service"; done
   done
 }
@@ -60,16 +60,16 @@ prerequisites() {
   [ "$(systemctl --version | awk 'NR==1{print $2}')" -ge 248 ] || die "systemd is older than 248 (credentials)"
   [ -f "$SETTINGS" ] || die "no $SETTINGS: copy tools/bench_ci/settings.example.env there and fill it in"
   chown root:root "$SETTINGS" && chmod 0600 "$SETTINGS"
-  get TB_BENCH_REPO >/dev/null || die "the settings are not complete (the line above says what)"
+  get BENCH_REPO >/dev/null || die "the settings are not complete (the line above says what)"
   local engine
-  engine="$(get TB_BENCH_ENGINE)"
+  engine="$(get BENCH_ENGINE)"
   [ -x "$engine" ] || die "the container engine $engine is not installed"
   local ver
   ver="$("$engine" --version | grep -oE '[0-9]+\.[0-9]+' | head -n 1)"
   python3 -I -c 'import sys; a, b = map(int, sys.argv[1].split(".")); sys.exit((a, b) < (4, 4))' "$ver" ||
     die "the container engine is $ver: 4.4 or newer is needed (keep-id with a user)"
-  if [ "$(get TB_BENCH_GPU_SLOTS)" = 1 ]; then
-    [ -x "$(get TB_BENCH_GPU_QUERY)" ] || die "the card query tool $(get TB_BENCH_GPU_QUERY) is not there"
+  if [ "$(get BENCH_GPU_SLOTS)" -gt 0 ]; then
+    [ -x "$(get BENCH_GPU_QUERY)" ] || die "the card query tool $(get BENCH_GPU_QUERY) is not there"
   fi
   say "prerequisites: present"
 }
@@ -100,7 +100,7 @@ install_files() {
   install -d -m 0750 -o root -g "$USER_NAME" "$ETC"
   chown root:"$USER_NAME" "$SETTINGS" && chmod 0640 "$SETTINGS"
   local scratch
-  scratch="$(get TB_BENCH_SCRATCH)"
+  scratch="$(get BENCH_SCRATCH)"
   case "$scratch" in /|/home|/home/*|/root|/root/*|/etc|/etc/*|/var/lib/tb-bench*) die "scratch $scratch is not a folder of its own" ;; esac
   if [ -e "$scratch" ]; then
     [ "$(stat -c %U "$scratch")" = "$USER_NAME" ] || [ -z "$(ls -A "$scratch")" ] || die "scratch $scratch is in use by another owner"
@@ -111,9 +111,9 @@ install_files() {
 
 build_image() {
   local ver sha ctx engine
-  ver="$(get TB_BENCH_RUNNER_VERSION)"
-  sha="$(get TB_BENCH_RUNNER_SHA256)"
-  engine="$(get TB_BENCH_ENGINE)"
+  ver="$(get BENCH_RUNNER_VERSION)"
+  sha="$(get BENCH_RUNNER_SHA256)"
+  engine="$(get BENCH_ENGINE)"
   ctx="$(mktemp -d)"
   trap 'rm -rf "$ctx"' RETURN
   curl -fsSL --proto '=https' -o "$ctx/actions-runner.tar.gz" \
@@ -121,13 +121,13 @@ build_image() {
   echo "$sha  $ctx/actions-runner.tar.gz" | sha256sum -c --quiet - || die "the runner archive's SHA-256 is not the settings'"
   for f in "${IMAGE_FILES[@]}"; do cp "$SRC/$f" "$ctx/$f"; done
   chown -R "$USER_NAME:$USER_NAME" "$ctx"
-  as_tb "$engine" build --pull=always -f "$ctx/runner.Dockerfile" -t "$(get TB_BENCH_IMAGE)" "$ctx"
-  say "image $(get TB_BENCH_IMAGE) built (runner $ver, SHA-256 checked)"
+  as_tb "$engine" build --pull=always -f "$ctx/runner.Dockerfile" -t "$(get BENCH_IMAGE)" "$ctx"
+  say "image $(get BENCH_IMAGE) built (runner $ver, SHA-256 checked)"
 }
 
 make_networks() {
   local engine
-  engine="$(get TB_BENCH_ENGINE)"
+  engine="$(get BENCH_ENGINE)"
   as_tb "$engine" network exists tb-bench-jobs || as_tb "$engine" network create --internal tb-bench-jobs >/dev/null
   as_tb "$engine" network exists tb-bench-egress || as_tb "$engine" network create tb-bench-egress >/dev/null
   [ "$(as_tb "$engine" network inspect tb-bench-jobs --format '{{.Internal}}')" = true ] ||
@@ -200,7 +200,7 @@ cmd_verify() {
   for p in "$@"; do check "$USER_NAME cannot read or write $p" not sees "$p"; done
   check "the egress proxy runs" systemctl is-active --quiet tb-bench-proxy.service
   while read -r unit; do check "$unit runs" systemctl is-active --quiet "$unit"; done < <(slots)
-  if [ "$(get TB_BENCH_GPU_SLOTS)" = 1 ]; then
+  if [ "$(get BENCH_GPU_SLOTS)" -gt 0 ]; then
     check "the CI cards are free" as_tb_launcher check --settings "$SETTINGS"
   fi
   echo "the job container probe (each line PASS or FAIL):"
@@ -212,7 +212,7 @@ cmd_verify() {
 cmd_remove() {
   need_root
   local engine="" scratch="" unit
-  if [ -f "$SETTINGS" ]; then engine="$(get TB_BENCH_ENGINE || true)"; scratch="$(get TB_BENCH_SCRATCH || true)"; fi
+  if [ -f "$SETTINGS" ]; then engine="$(get BENCH_ENGINE || true)"; scratch="$(get BENCH_SCRATCH || true)"; fi
   while read -r unit; do
     if [ -n "$unit" ]; then systemctl disable --now "$unit" || true; fi
   done < <(systemctl list-units --all --plain --no-legend 'tb-bench-runner@*' | awk '{print $1}')

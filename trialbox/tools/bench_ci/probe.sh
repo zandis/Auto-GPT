@@ -14,7 +14,7 @@ for sock in /var/run/docker.sock /run/docker.sock /run/podman/podman.sock /run/c
 done
 check "no engine socket anywhere under /run" not sh -c 'find /run /var/run -type s 2>/dev/null | grep -q .'
 # every mount is the container's own, except this job's scratch folder
-own='^(/|/proc(/.*)?|/sys(/.*)?|/dev(/.*)?|/tmp|/scratch|/etc/(hosts|hostname|resolv\.conf)|/run/\.containerenv|/run/secrets)$'
+own='^(/|/proc(/.*)?|/sys(/.*)?|/dev(/.*)?|/tmp|/var/tmp|/run|/scratch|/etc/(hosts|hostname|resolv\.conf)|/run/\.containerenv|/run/secrets)$'
 check "no host folder but /scratch" not sh -c "awk '{print \$2}' /proc/self/mounts | grep -Ev '$own' | grep -q ."
 check "the root is read-only" not touch /probe-write
 check "no direct way out (the proxy is the only one)" not curl --noproxy '*' -sS -m 8 -o /dev/null https://github.com

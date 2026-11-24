@@ -8,7 +8,7 @@ umask 077
 if [ "$(id -u)" = 0 ]; then echo "bench CI: the job container runs as its own user, never as root" >&2; exit 1; fi
 IFS= read -r config || true
 if [ -z "${config:-}" ]; then echo "bench CI: no runner configuration on standard input" >&2; exit 2; fi
-mkdir -p /scratch/home /scratch/runner
+mkdir -p /scratch/home /scratch/runner /scratch/tmp
 cp -a /opt/runner/. /scratch/runner/
 # the build tool that reads no proxy variable is told the proxy in its own settings (the launcher set the variables)
 mkdir -p /scratch/home/.m2

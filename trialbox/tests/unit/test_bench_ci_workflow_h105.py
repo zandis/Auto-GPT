@@ -1,7 +1,9 @@
-"""H-105 (the owner's ruling, the integrator's comment of 2026-11-24 on #639): what code can reach the bench host's
-self-hosted runner. The repository is public: a self-hosted runner runs strangers' code if any trigger a fork or a
-pull request can fire reaches it. So the jobs that can run on the bench label are reachable from a push to a
-``train/*`` branch and from a run by hand by the repository's owner only, and no other workflow names the label.
+"""H-105 (the owner's rulings, the integrator's comments 7117447272 and 7117870645 item 8 on #639): what code can
+reach the bench host's self-hosted runner. The repository is public: a self-hosted runner runs strangers' code if any
+trigger a fork or a pull request can fire reaches it. So the jobs that can run on the bench label are reachable from
+a push to this repository's train and lane branches (``train/*``, ``agent/*``, ``claude/*``, ``lane-*``: a push
+needs write access here; a fork's pull request does not) and from a run by hand by the repository's owner only, and
+no other workflow names the label. A lane branch's older run is cancelled by its newer push; a train's never.
 
 The check reads EVERY workflow file in .github/workflows. A job "can run on the bench" when its ``runs-on`` is not a
 hosted image label it can prove (a self-hosted label, the bench label, a runner group, an expression it cannot
@@ -25,11 +27,18 @@ WORKFLOWS = ROOT.parent / ".github" / "workflows"
 BENCH = "trialbox-bench-ci.yml"
 LABEL = "tb-bench"
 BENCH_NAME = "TrialBox bench CI"
+BRANCHES = ["train/*", "agent/*", "claude/*", "lane-*"]  # the allow-list: exactly these, in this order
 GUARD = (
-    "(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || "
-    "(github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && "
+    "(github.event_name == 'push' && ("
+    + " || ".join(f"startsWith(github.ref, 'refs/heads/{b.removesuffix('*')}')" for b in BRANCHES)
+    + ")) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && "
     "github.triggering_actor == github.repository_owner)"
 )
+CONCURRENCY = {
+    "group": "trialbox-bench-ci-${{ github.ref }}-${{ startsWith(github.ref, 'refs/heads/train/') && github.run_id "
+    "|| 'latest' }}",
+    "cancel-in-progress": "${{ !startsWith(github.ref, 'refs/heads/train/') }}",
+}
 HOSTED = re.compile(r"^(ubuntu|windows|macos)-(latest|[0-9][0-9a-z.]*)(-arm)?$")
 PINNED = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 MATRIX_REF = re.compile(r"^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$")
@@ -113,9 +122,13 @@ def _bench_problems(text: str, doc: dict[Any, Any]) -> list[str]:
     out: list[str] = []
     on = _on(doc)
     if set(on) != {"push", "workflow_dispatch"}:
-        out.append(f"{BENCH}: triggers {sorted(on)}: only push to train/* and workflow_dispatch may reach the bench")
-    if on.get("push") != {"branches": ["train/*"]}:
-        out.append(f"{BENCH}: the push trigger is {on.get('push')!r}, not branches [train/*] alone")
+        out.append(f"{BENCH}: triggers {sorted(on)}: only push to the train and lane branches and workflow_dispatch")
+    if on.get("push") != {"branches": BRANCHES}:
+        out.append(f"{BENCH}: the push trigger is {on.get('push')!r}, not branches {BRANCHES} alone")
+    if doc.get("concurrency") != CONCURRENCY:
+        out.append(
+            f"{BENCH}: concurrency is {doc.get('concurrency')!r}: a lane's older run is cancelled, a train's never"
+        )
     if on.get("workflow_dispatch") not in (None, {}):
         out.append(f"{BENCH}: workflow_dispatch carries settings ({on.get('workflow_dispatch')!r})")
     if doc.get("permissions") != {"contents": "read"}:
@@ -128,7 +141,7 @@ def _bench_problems(text: str, doc: dict[Any, Any]) -> list[str]:
     for name, job in (doc.get("jobs") or {}).items():
         cond = _norm(job.get("if", ""))
         if cond not in (GUARD, f"always() && ({GUARD})"):
-            out.append(f"{BENCH}: job {name}'s if is not the train-or-owner guard: {cond!r}")
+            out.append(f"{BENCH}: job {name}'s if is not the branch-or-owner guard: {cond!r}")
         if "permissions" in job:
             out.append(f"{BENCH}: job {name} sets its own permissions")
         if "uses" in job or "container" in job or "services" in job:
@@ -174,7 +187,8 @@ def _files() -> dict[str, str]:
 
 
 def test_no_other_trigger_reaches_the_bench_label() -> None:
-    """The invariant: no trigger but a train push or the owner's run by hand reaches a job on the bench label."""
+    """The invariant: no trigger but a push to a train or lane branch of this repository, or the owner's run by hand,
+    reaches a job on the bench label."""
     files = _files()
     assert len(files) >= 10  # every workflow file of the folder is read
     assert problems(files) == []
@@ -189,6 +203,7 @@ def _sub(old: str, new: str, count: int = 1) -> Callable[[str], str]:
 
 
 DISPATCH = "  workflow_dispatch:\n\npermissions:"
+BRANCH_LINE = 'branches: ["train/*", "agent/*", "claude/*", "lane-*"]'
 CHECKOUT_PIN = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 
 # (the case, the file it changes, the change, words of the problem it must raise)
@@ -199,9 +214,21 @@ PLANTED = [
     ("schedule", BENCH, _sub(DISPATCH, "  workflow_dispatch:\n  schedule:\n    - cron: '0 1 * * *'\n\npermissions:"),
      "triggers"),
     ("workflow_call", BENCH, _sub(DISPATCH, "  workflow_dispatch:\n  workflow_call:\n\npermissions:"), "triggers"),
-    ("any branch", BENCH, _sub('branches: ["train/*"]', 'branches: ["**"]'), "push trigger"),
-    ("a lane branch too", BENCH, _sub('branches: ["train/*"]', 'branches: ["train/*", "claude/**"]'), "push trigger"),
-    ("tags", BENCH, _sub('branches: ["train/*"]', 'branches: ["train/*"]\n    tags: ["*"]'), "push trigger"),
+    ("any branch", BENCH, _sub(BRANCH_LINE, 'branches: ["**"]'), "push trigger"),
+    ("another branch too", BENCH, _sub(BRANCH_LINE, BRANCH_LINE.replace('"lane-*"]', '"lane-*", "feature/*"]')),
+     "push trigger"),
+    ("a deeper lane branch", BENCH, _sub(BRANCH_LINE, BRANCH_LINE.replace('"claude/*"', '"claude/**"')), "push trigger"),
+    ("tags", BENCH, _sub(BRANCH_LINE, BRANCH_LINE + '\n    tags: ["*"]'), "push trigger"),
+    ("branches-ignore", BENCH, _sub(BRANCH_LINE, 'branches-ignore: ["master"]'), "push trigger"),
+    ("issue_comment", BENCH, _sub(DISPATCH, "  workflow_dispatch:\n  issue_comment:\n\npermissions:"), "triggers"),
+    ("workflow_run", BENCH, _sub(DISPATCH, '  workflow_dispatch:\n  workflow_run:\n    workflows: ["TrialBox CI"]\n\n'
+                                           "permissions:"), "triggers"),
+    ("a guard for any branch", BENCH, _sub("startsWith(github.ref, 'refs/heads/lane-')", "startsWith(github.ref, 'refs/')"),
+     "guard"),
+    ("a train's run cancelled", BENCH, _sub("cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/train/') }}",
+                                            "cancel-in-progress: true"), "concurrency"),
+    ("a train's run replaced", BENCH, _sub("&& github.run_id || 'latest' }}", "&& 'train' || 'latest' }}"),
+     "concurrency"),
     ("dispatch inputs", BENCH, _sub(DISPATCH, "  workflow_dispatch:\n    inputs:\n      x:\n        type: string\n\n"
                                               "permissions:"), "workflow_dispatch carries"),
     ("no owner check", BENCH, _sub(" && github.actor == github.repository_owner", ""), "guard"),
@@ -271,9 +298,16 @@ def test_the_hosted_gate_does_not_wait_for_the_bench() -> None:
 
 
 def test_the_bench_jobs_ask_for_the_labels_the_launcher_registers() -> None:
-    s = launcher.Settings({"TB_BENCH_LABEL": LABEL})
+    s = launcher.Settings({"BENCH_LABEL": LABEL})
     doc = yaml.safe_load((WORKFLOWS / BENCH).read_text(encoding="utf-8"))
     for name, job in doc["jobs"].items():
         got = runner_labels(job)
         if can_run_on_bench(job):
             assert got is not None and got[1:] == launcher.labels(s, got[2].removeprefix(f"{LABEL}-")), name
+
+
+def test_actionlint_knows_the_bench_labels_and_no_other() -> None:
+    """actionlint (the `checks` job) refuses a label it does not know; its config declares the bench's labels, the
+    ones the launcher registers, and nothing more."""
+    config = yaml.safe_load((ROOT.parent / ".github" / "actionlint.yaml").read_text(encoding="utf-8"))
+    assert config == {"self-hosted-runner": {"labels": [LABEL] + [f"{LABEL}-{p}" for p in launcher.PROFILES]}}

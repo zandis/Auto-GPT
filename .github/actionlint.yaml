@@ -1,0 +1,9 @@
+# The labels of the bench host's self-hosted runner (card H-105; .github/workflows/trialbox-bench-ci.yml), declared
+# so that actionlint knows them. Which jobs may ask for them, and from which triggers, is held by
+# trialbox/tests/unit/test_bench_ci_workflow_h105.py (it also holds this list to the launcher's labels).
+self-hosted-runner:
+  labels:
+    - tb-bench
+    - tb-bench-cpu
+    - tb-bench-engine
+    - tb-bench-gpu

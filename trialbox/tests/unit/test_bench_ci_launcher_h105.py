@@ -32,20 +32,22 @@ ENTRYPOINT = (BENCH_CI / "entrypoint.sh").read_text(encoding="utf-8")
 pytestmark = pytest.mark.nodb
 
 FILLED = {
-    "TB_BENCH_REPO": "example-owner/example-repo",
-    "TB_BENCH_ENGINE": "/usr/bin/engine",
-    "TB_BENCH_SCRATCH": "/srv/ci-scratch",
-    "TB_BENCH_CPU_SLOTS": "4",
-    "TB_BENCH_ENGINE_SLOTS": "1",
-    "TB_BENCH_GPU_SLOTS": "1",
-    "TB_BENCH_CPUS": "16",
-    "TB_BENCH_MEMORY": "64g",
-    "TB_BENCH_RUNNER_VERSION": "9.9.9",
-    "TB_BENCH_RUNNER_SHA256": "a" * 64,
-    "TB_BENCH_CI_GPUS": "4,5",
-    "TB_BENCH_RESERVED_GPUS": "1,2,3",
-    "TB_BENCH_GPU_QUERY": "/usr/bin/cardquery",
-    "TB_BENCH_GPU_DEVICE": "vendor.example/gpu",
+    "BENCH_REPO": "example-owner/example-repo",
+    "BENCH_ENGINE": "/usr/bin/engine",
+    "BENCH_SCRATCH": "/srv/ci-scratch",
+    "BENCH_CPU_SLOTS": "4",
+    "BENCH_ENGINE_SLOTS": "1",
+    "BENCH_GPU_SLOTS": "1",
+    "BENCH_CPUS": "16",
+    "BENCH_MEMORY": "64g",
+    "BENCH_RUNNER_VERSION": "9.9.9",
+    "BENCH_RUNNER_SHA256": "a" * 64,
+    "BENCH_CI_GPUS": "4,5",
+    "BENCH_RESERVED_GPUS": "1,2,3",
+    "BENCH_GPU_QUERY": "/usr/bin/cardquery",
+    "BENCH_GPU_DEVICE": "vendor.example/gpu",
+    "BENCH_GPU_CAP_MIB": "1024",
+    "BENCH_GPU_CAP_UTIL": "5",
 }
 CI_CARDS = [4, 5]
 RESERVED = [1, 2, 3]
@@ -85,28 +87,30 @@ def test_the_example_holds_placeholders_only_and_is_refused_as_it_is() -> None:
     # no host detail of the bench host: no address, no home folder, no user's name; the repository is a placeholder
     assert not re.search(r"\b\d{1,3}(\.\d{1,3}){3}\b", EXAMPLE)
     assert "/home/" not in EXAMPLE and "~" not in EXAMPLE
-    assert "TB_BENCH_REPO=<owner>/<repository>" in EXAMPLE
-    assert "TB_BENCH_RESERVED_GPUS=1," in EXAMPLE  # the walk's card is kept from the first line on
-    assert set(re.findall(r"^(TB_BENCH_[A-Z_0-9]+)=", EXAMPLE, re.M)) == launcher.KEYS
+    assert "BENCH_REPO=<owner>/<repository>" in EXAMPLE
+    assert "BENCH_RESERVED_GPUS=1," in EXAMPLE  # the walk's card is kept from the first line on
+    assert set(re.findall(r"^(BENCH_[A-Z_0-9]+)=", EXAMPLE, re.M)) == launcher.KEYS
 
 
 def test_filled_settings_are_read() -> None:
     s = _settings()
-    assert s["TB_BENCH_LABEL"] == "tb-bench" and s.num("TB_BENCH_GPU_SLOTS") == 1
+    assert s["BENCH_LABEL"] == "tb-bench" and s.num("BENCH_GPU_SLOTS") == 1
+    # the CI cards are shared by several GPU jobs at once (the owner's ruling of 2026-11-24, item 3)
+    assert _settings(BENCH_GPU_SLOTS="3").num("BENCH_GPU_SLOTS") == 3
 
 
 @pytest.mark.parametrize(
     ("over", "words"),
     [
-        ({"TB_BENCH_CI_GPUS": "1,4"}, "keeps"),  # the walk's card
-        ({"TB_BENCH_CI_GPUS": "3,4"}, "keeps"),  # a card of the bench
-        ({"TB_BENCH_CI_GPUS": ""}, "a GPU slot needs"),
-        ({"TB_BENCH_RESERVED_GPUS": "2,3"}, "card 1"),
-        ({"TB_BENCH_GPU_SLOTS": "2"}, "0 or 1"),
-        ({"TB_BENCH_ENGINE": "engine"}, "absolute"),
-        ({"TB_BENCH_GPU_QUERY": "cardquery"}, "absolute"),
-        ({"TB_BENCH_RUNNER_SHA256": "abc"}, "64 hex"),
-        ({"TB_BENCH_CPUS": "many"}, "whole number"),
+        ({"BENCH_CI_GPUS": "1,4"}, "keeps"),  # the walk's card
+        ({"BENCH_CI_GPUS": "3,4"}, "keeps"),  # a card of the bench
+        ({"BENCH_CI_GPUS": ""}, "a GPU slot needs"),
+        ({"BENCH_RESERVED_GPUS": "2,3"}, "card 1"),
+        ({"BENCH_GPU_CAP_MIB": "lots"}, "whole number"),
+        ({"BENCH_ENGINE": "engine"}, "absolute"),
+        ({"BENCH_GPU_QUERY": "cardquery"}, "absolute"),
+        ({"BENCH_RUNNER_SHA256": "abc"}, "64 hex"),
+        ({"BENCH_CPUS": "many"}, "whole number"),
     ],
 )
 def test_settings_that_would_share_a_card_or_guess_a_path_are_refused(over: dict[str, str], words: str) -> None:
@@ -116,9 +120,9 @@ def test_settings_that_would_share_a_card_or_guess_a_path_are_refused(over: dict
 
 def test_an_unknown_or_repeated_key_is_refused() -> None:
     with pytest.raises(launcher.SettingsError, match="not a known"):
-        launcher.parse_settings(_filled() + "TB_BENCH_HOST_NETWORK=1\n")
+        launcher.parse_settings(_filled() + "BENCH_HOST_NETWORK=1\n")
     with pytest.raises(launcher.SettingsError, match="twice"):
-        launcher.parse_settings(_filled() + "TB_BENCH_CPUS=2\n")
+        launcher.parse_settings(_filled() + "BENCH_CPUS=2\n")
 
 
 def test_the_settings_file_must_be_roots(tmp_path: Path) -> None:
@@ -181,8 +185,9 @@ def test_no_profile_sees_a_socket_a_home_the_host_network_or_any_folder_but_its_
 
 def test_a_cpu_job_is_read_only_with_no_capability_and_no_new_privilege() -> None:
     args = launcher.container_args(_settings(), "cpu", "tb-bench-x", SCRATCH)
-    assert "--read-only" in args and "--cap-drop=all" in args
+    assert "--read-only" in args and "--read-only-tmpfs=true" in args and "--cap-drop=all" in args
     assert _values(args, "--security-opt") == ["no-new-privileges"]
+    assert "TMPDIR=/scratch/tmp" in _values(args, "--env") and "--tmpfs" not in args
     assert "--device" not in args
 
 
@@ -214,7 +219,7 @@ def test_the_proxy_container_is_the_only_one_on_the_way_out() -> None:
     assert _values(args, "--network") == [launcher.JOBS_NET, launcher.EGRESS_NET]
     assert "--read-only" in args and "--cap-drop=all" in args and _values(args, "--user") == ["1001:1001"]
     assert "--volume" not in args and "-v" not in args
-    assert _values(args, "--allow") == [_settings()["TB_BENCH_ALLOW_HOSTS"]]
+    assert _values(args, "--allow") == [_settings()["BENCH_ALLOW_HOSTS"]]
     for profile in launcher.PROFILES:
         assert launcher.EGRESS_NET not in launcher.container_args(_settings(), profile, "x", SCRATCH)
 
@@ -268,7 +273,7 @@ def test_one_job_life_the_config_on_stdin_never_an_argument_then_gone(
 ) -> None:
     scratch_root = tmp_path / "scratch"
     scratch_root.mkdir()
-    s = _settings(TB_BENCH_SCRATCH=str(scratch_root))
+    s = _settings(BENCH_SCRATCH=str(scratch_root))
     token = tmp_path / "token"
     token.write_text("tok-for-a-test\n", encoding="utf-8")
     token.chmod(0o600)
@@ -336,7 +341,7 @@ esac
 
 @pytest.fixture
 def card_tool(tmp_path: Path) -> Any:
-    def make(cards: str, apps: str = "") -> tuple[str, Path]:
+    def make(cards: str, apps: str = "") -> tuple[str, Path]:  # apps: the tool's process list, which is not read
         (tmp_path / "cards.csv").write_text(cards, encoding="utf-8")
         (tmp_path / "apps.csv").write_text(apps, encoding="utf-8")
         log = tmp_path / "calls.log"
@@ -360,20 +365,28 @@ def test_free_ci_cards_pass_and_give_their_uuids(card_tool: Any) -> None:
 
 
 @pytest.mark.parametrize(
-    ("cards", "apps", "words"),
+    ("cards", "words"),
     [
-        (SIX.replace("4, GPU-4, 3, 0", "4, GPU-4, 70000, 0"), "", "70000 MiB used"),
-        (SIX.replace("5, GPU-5, 3, 0", "5, GPU-5, 3, 99"), "", "99% busy"),
-        (SIX, "GPU-5, 512\n", "a compute process"),
-        (SIX.replace("4, GPU-4, 3, 0", "4, GPU-4, [N/A], 0"), "", "busy"),  # a reading the tool cannot give
+        (SIX.replace("4, GPU-4, 3, 0", "4, GPU-4, 1025, 0"), "1025 MiB in use (the cap is 1024)"),
+        (SIX.replace("5, GPU-5, 3, 0", "5, GPU-5, 3, 6"), "6% load (the cap is 5%)"),
+        (SIX.replace("4, GPU-4, 3, 0", "4, GPU-4, [N/A], 0"), "an unreadable MiB in use"),  # fails closed
+        (SIX.replace("5, GPU-5, 3, 0", "5, GPU-5, 3, [N/A]"), "an unreadable% load"),
     ],
 )
-def test_a_busy_ci_card_stops_the_runner_with_a_clear_message(
-    card_tool: Any, cards: str, apps: str, words: str
+def test_a_ci_card_busy_beyond_its_cap_stops_the_runner_with_a_clear_message(
+    card_tool: Any, cards: str, words: str
 ) -> None:
-    tool, _ = card_tool(cards, apps)
+    tool, _ = card_tool(cards)
     problems, _ = gpu_check.host_check(tool, CI_CARDS, RESERVED, 1024, 5)
-    assert problems and "CI card" in problems[0] and "busy" in problems[0] and words in problems[0]
+    assert problems and problems[0].startswith("CI card ") and "busy beyond its cap" in problems[0]
+    assert words in problems[0]
+
+
+def test_a_shared_ci_card_within_its_cap_is_used(card_tool: Any) -> None:
+    """Another job on a CI card does not stop a GPU job by itself: only what it holds beyond the cap does."""
+    tool, log = card_tool(SIX.replace("4, GPU-4, 3, 0", "4, GPU-4, 1024, 5"))
+    assert gpu_check.host_check(tool, CI_CARDS, RESERVED, 1024, 5) == ([], ["GPU-4", "GPU-5"])
+    assert "--query-compute-apps" not in log.read_text()
 
 
 def test_a_missing_ci_card_is_named(card_tool: Any) -> None:
@@ -392,9 +405,9 @@ def test_a_reserved_card_is_refused_before_any_query(card_tool: Any) -> None:
 
 
 def test_a_gpu_slot_with_busy_cards_registers_nothing(card_tool: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    tool, _ = card_tool(SIX, "GPU-4, 100\n")
+    tool, _ = card_tool(SIX.replace("4, GPU-4, 3, 0", "4, GPU-4, 9000, 0"))
     monkeypatch.setattr(launcher, "jit_config", lambda *_a: pytest.fail("a runner was registered"))
-    assert launcher.run_slot(_settings(TB_BENCH_GPU_QUERY=tool), Path("/nonexistent"), "gpu-1") == 3
+    assert launcher.run_slot(_settings(BENCH_GPU_QUERY=tool), Path("/nonexistent"), "gpu-1") == 3
 
 
 def test_the_jobs_own_check_refuses_busy_or_other_cards(
@@ -403,13 +416,13 @@ def test_the_jobs_own_check_refuses_busy_or_other_cards(
     # in the container the cards are numbered from 0: the check goes by UUID
     tool, _ = card_tool("0, GPU-4, 3, 0\n1, GPU-5, 3, 0\n")
     spec = tmp_path / "job.json"
-    spec.write_text(json.dumps({"profile": "gpu", "tool": tool, "uuids": ["GPU-4", "GPU-5"], "busy_mib": 1024,
-                                "busy_util": 5}), encoding="utf-8")  # fmt: skip
+    spec.write_text(json.dumps({"profile": "gpu", "tool": tool, "uuids": ["GPU-4", "GPU-5"], "cap_mib": 1024,
+                                "cap_util": 5}), encoding="utf-8")  # fmt: skip
     assert gpu_check.main(["--in-job", str(spec)]) == 0
     tool, _ = card_tool("0, GPU-4, 3, 0\n1, GPU-5, 40000, 0\n")
     assert gpu_check.main(["--in-job", str(spec)]) == 1
     err = capsys.readouterr().err
-    assert "busy" in err and "this job does not start" in err
+    assert "busy beyond its cap" in err and "this job does not start" in err
     tool, _ = card_tool("0, GPU-4, 3, 0\n1, GPU-2, 3, 0\n")
     assert gpu_check.main(["--in-job", str(spec)]) == 1
     spec.write_text(json.dumps({"profile": "cpu"}), encoding="utf-8")
@@ -543,7 +556,7 @@ def test_the_units_run_as_the_unprivileged_user_from_roots_files() -> None:
 
 
 def test_the_runner_archive_is_checked_and_the_networks_made_internal() -> None:
-    assert "sha256sum -c --quiet -" in INSTALL and "TB_BENCH_RUNNER_SHA256" in INSTALL
+    assert "sha256sum -c --quiet -" in INSTALL and "BENCH_RUNNER_SHA256" in INSTALL
     assert "network create --internal tb-bench-jobs" in INSTALL
     assert "{{.Internal}}" in INSTALL
 

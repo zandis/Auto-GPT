@@ -60,39 +60,38 @@ PLACEHOLDER = re.compile(r"<[^>]*>")
 WALK_CARD = "1"
 
 REQUIRED = (
-    "TB_BENCH_REPO",
-    "TB_BENCH_LABEL",
-    "TB_BENCH_IMAGE",
-    "TB_BENCH_ENGINE",
-    "TB_BENCH_SCRATCH",
-    "TB_BENCH_CPU_SLOTS",
-    "TB_BENCH_ENGINE_SLOTS",
-    "TB_BENCH_GPU_SLOTS",
-    "TB_BENCH_CPUS",
-    "TB_BENCH_MEMORY",
-    "TB_BENCH_PIDS",
-    "TB_BENCH_TMP_SIZE",
-    "TB_BENCH_JOB_HOURS",
-    "TB_BENCH_ALLOW_HOSTS",
-    "TB_BENCH_RUNNER_VERSION",
-    "TB_BENCH_RUNNER_SHA256",
+    "BENCH_REPO",
+    "BENCH_LABEL",
+    "BENCH_IMAGE",
+    "BENCH_ENGINE",
+    "BENCH_SCRATCH",
+    "BENCH_CPU_SLOTS",
+    "BENCH_ENGINE_SLOTS",
+    "BENCH_GPU_SLOTS",
+    "BENCH_CPUS",
+    "BENCH_MEMORY",
+    "BENCH_PIDS",
+    "BENCH_JOB_HOURS",
+    "BENCH_ALLOW_HOSTS",
+    "BENCH_RUNNER_VERSION",
+    "BENCH_RUNNER_SHA256",
 )
 GPU_KEYS = (
-    "TB_BENCH_CI_GPUS",
-    "TB_BENCH_RESERVED_GPUS",
-    "TB_BENCH_GPU_QUERY",
-    "TB_BENCH_GPU_DEVICE",
-    "TB_BENCH_GPU_BUSY_MIB",
-    "TB_BENCH_GPU_BUSY_UTIL",
+    "BENCH_CI_GPUS",
+    "BENCH_RESERVED_GPUS",
+    "BENCH_GPU_QUERY",
+    "BENCH_GPU_DEVICE",
+    "BENCH_GPU_CAP_MIB",
+    "BENCH_GPU_CAP_UTIL",
 )
 KEYS = frozenset(REQUIRED + GPU_KEYS)
 WHOLE_NUMBERS = (
-    "TB_BENCH_CPU_SLOTS",
-    "TB_BENCH_ENGINE_SLOTS",
-    "TB_BENCH_GPU_SLOTS",
-    "TB_BENCH_CPUS",
-    "TB_BENCH_PIDS",
-    "TB_BENCH_JOB_HOURS",
+    "BENCH_CPU_SLOTS",
+    "BENCH_ENGINE_SLOTS",
+    "BENCH_GPU_SLOTS",
+    "BENCH_CPUS",
+    "BENCH_PIDS",
+    "BENCH_JOB_HOURS",
 )
 
 
@@ -134,17 +133,15 @@ def parse_settings(text: str) -> Settings:
     for key in WHOLE_NUMBERS:
         if not values[key].isdigit():
             raise SettingsError(f"{key} must be a whole number")
-    if s.num("TB_BENCH_GPU_SLOTS") > 1:
-        raise SettingsError("TB_BENCH_GPU_SLOTS is 0 or 1: the CI cards are one set, for one job at a time")
-    if s.num("TB_BENCH_GPU_SLOTS"):
+    if s.num("BENCH_GPU_SLOTS"):
         _gpu_settings(values)
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", values["TB_BENCH_REPO"]):
-        raise SettingsError("TB_BENCH_REPO is owner/name")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,30}", values["TB_BENCH_LABEL"]):
-        raise SettingsError("TB_BENCH_LABEL is a short lower-case label")
-    if not re.fullmatch(r"[0-9a-f]{64}", values["TB_BENCH_RUNNER_SHA256"]):
-        raise SettingsError("TB_BENCH_RUNNER_SHA256 is the 64 hex digits the runner's release page gives")
-    for key in ("TB_BENCH_ENGINE", "TB_BENCH_SCRATCH", "TB_BENCH_GPU_QUERY"):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", values["BENCH_REPO"]):
+        raise SettingsError("BENCH_REPO is owner/name")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,30}", values["BENCH_LABEL"]):
+        raise SettingsError("BENCH_LABEL is a short lower-case label")
+    if not re.fullmatch(r"[0-9a-f]{64}", values["BENCH_RUNNER_SHA256"]):
+        raise SettingsError("BENCH_RUNNER_SHA256 is the 64 hex digits the runner's release page gives")
+    for key in ("BENCH_ENGINE", "BENCH_SCRATCH", "BENCH_GPU_QUERY"):
         if values.get(key) and not values[key].startswith("/"):
             raise SettingsError(f"{key} is an absolute path")
     return s
@@ -154,15 +151,15 @@ def _gpu_settings(values: dict[str, str]) -> None:
     missing = [k for k in GPU_KEYS if not values.get(k)]
     if missing:
         raise SettingsError(f"a GPU slot needs: {', '.join(missing)}")
-    for key in ("TB_BENCH_GPU_BUSY_MIB", "TB_BENCH_GPU_BUSY_UTIL"):
+    for key in ("BENCH_GPU_CAP_MIB", "BENCH_GPU_CAP_UTIL"):
         if not values[key].isdigit():
             raise SettingsError(f"{key} must be a whole number")
-    reserved = gpu_check.parse_ids(values["TB_BENCH_RESERVED_GPUS"])
-    problems = gpu_check.set_problems(gpu_check.parse_ids(values["TB_BENCH_CI_GPUS"]), reserved)
+    reserved = gpu_check.parse_ids(values["BENCH_RESERVED_GPUS"])
+    problems = gpu_check.set_problems(gpu_check.parse_ids(values["BENCH_CI_GPUS"]), reserved)
     if problems:
         raise SettingsError("; ".join(problems))
     if int(WALK_CARD) not in reserved:
-        raise SettingsError(f"TB_BENCH_RESERVED_GPUS must keep card {WALK_CARD} (the walk's)")
+        raise SettingsError(f"BENCH_RESERVED_GPUS must keep card {WALK_CARD} (the walk's)")
 
 
 def read_settings(path: Path) -> Settings:
@@ -184,7 +181,7 @@ def read_token(path: Path) -> str:
 
 
 def labels(s: Settings, profile: str) -> list[str]:
-    return [s["TB_BENCH_LABEL"], f"{s['TB_BENCH_LABEL']}-{profile}"]
+    return [s["BENCH_LABEL"], f"{s['BENCH_LABEL']}-{profile}"]
 
 
 def proxy_env() -> list[str]:
@@ -203,44 +200,45 @@ def container_args(s: Settings, profile: str, name: str, scratch: Path) -> list[
     * the image's own non-root user, the host's ``tb-bench`` user mapped onto it (rootless: root in no namespace);
     * one host folder: this job's scratch folder, at /scratch; no engine socket, no home, no other folder;
     * the internal jobs network only (the proxy is the one way out); never the host's network;
-    * cpu: read-only root, every capability dropped, no new privileges;
+    * cpu: read-only root (the engine's own tmpfs on its temporary folders), every capability dropped, no new
+      privileges; every job's TMPDIR is in its scratch folder, on disk, deleted with it;
     * engine and gpu: a nested rootless engine of the job's own (it needs the fuse and tun devices, the default
       capabilities and set-uid id mapping, so the root is writable and new privileges are not blocked);
-    * gpu: the CI cards by index, nothing else.
+    * gpu: the CI cards by index, nothing else (shared by the GPU slots, each job checked against the set's cap).
     """
     if profile not in PROFILES:
         raise ValueError(f"no such profile: {profile}")
-    args = [s["TB_BENCH_ENGINE"], "run", "--rm", "--interactive", "--pull=never"]
+    args = [s["BENCH_ENGINE"], "run", "--rm", "--interactive", "--pull=never"]
     args += ["--name", name, "--hostname", name, "--label", CONTAINER_LABEL]
     args += [f"--userns=keep-id:uid={JOB_UID},gid={JOB_UID}", "--user", f"{JOB_UID}:{JOB_UID}"]
     args += ["--network", JOBS_NET]
-    args += ["--cpus", s["TB_BENCH_CPUS"], "--memory", s["TB_BENCH_MEMORY"], "--pids-limit", s["TB_BENCH_PIDS"]]
-    args += ["--tmpfs", f"/tmp:rw,nosuid,nodev,size={s['TB_BENCH_TMP_SIZE']}"]
+    args += ["--cpus", s["BENCH_CPUS"], "--memory", s["BENCH_MEMORY"], "--pids-limit", s["BENCH_PIDS"]]
     args += ["--volume", f"{scratch}:/scratch:rw", "--workdir", "/scratch"]
-    args += ["--env", "HOME=/scratch/home", "--env", f"TB_BENCH_PROFILE={profile}", *proxy_env()]
+    args += ["--env", "HOME=/scratch/home", "--env", "TMPDIR=/scratch/tmp", "--env", f"BENCH_PROFILE={profile}"]
+    args += proxy_env()
     if profile == "cpu":
-        args += ["--read-only", "--cap-drop=all", "--security-opt", "no-new-privileges"]
+        args += ["--read-only", "--read-only-tmpfs=true", "--cap-drop=all", "--security-opt", "no-new-privileges"]
     else:
         args += ["--device", "/dev/fuse", "--device", "/dev/net/tun", "--security-opt", "label=disable"]
     if profile == "gpu":
-        for i in gpu_check.parse_ids(s["TB_BENCH_CI_GPUS"]):
-            args += ["--device", f"{s['TB_BENCH_GPU_DEVICE']}={i}"]
-    return [*args, s["TB_BENCH_IMAGE"]]
+        for i in gpu_check.parse_ids(s["BENCH_CI_GPUS"]):
+            args += ["--device", f"{s['BENCH_GPU_DEVICE']}={i}"]
+    return [*args, s["BENCH_IMAGE"]]
 
 
 def proxy_args(s: Settings) -> list[str]:
     """The egress proxy's container: on both networks, read-only, no capability, the allow-list on its line."""
-    args = [s["TB_BENCH_ENGINE"], "run", "--rm", "--pull=never", "--replace"]
+    args = [s["BENCH_ENGINE"], "run", "--rm", "--pull=never", "--replace"]
     args += ["--name", PROXY_NAME, "--label", CONTAINER_LABEL, "--network", JOBS_NET, "--network", EGRESS_NET]
     args += ["--user", f"{JOB_UID}:{JOB_UID}", "--read-only", "--cap-drop=all", "--security-opt", "no-new-privileges"]
-    args += ["--memory", "1g", "--pids-limit", "256", "--entrypoint", "python3", s["TB_BENCH_IMAGE"]]
+    args += ["--memory", "1g", "--pids-limit", "256", "--entrypoint", "python3", s["BENCH_IMAGE"]]
     return [
         *args,
         "/opt/tb-bench/egress_proxy.py",
         "--listen",
         f"0.0.0.0:{PROXY_PORT}",
         "--allow",
-        s["TB_BENCH_ALLOW_HOSTS"],
+        s["BENCH_ALLOW_HOSTS"],
     ]
 
 
@@ -273,7 +271,7 @@ def api(method: str, path: str, token: str, body: dict[str, object] | None = Non
 
 def jit_config(s: Settings, token: str, name: str, profile: str) -> tuple[str, int]:
     body: dict[str, object] = {"name": name, "runner_group_id": 1, "labels": labels(s, profile), "work_folder": "_work"}
-    status, got = api("POST", f"/repos/{s['TB_BENCH_REPO']}/actions/runners/generate-jitconfig", token, body)
+    status, got = api("POST", f"/repos/{s['BENCH_REPO']}/actions/runners/generate-jitconfig", token, body)
     runner = got.get("runner")
     config = got.get("encoded_jit_config")
     if status != 201 or not isinstance(config, str) or not isinstance(runner, dict):
@@ -285,41 +283,42 @@ def jit_config(s: Settings, token: str, name: str, profile: str) -> tuple[str, i
 
 
 def remove_runner(s: Settings, token: str, runner_id: int) -> None:
-    status, _ = api("DELETE", f"/repos/{s['TB_BENCH_REPO']}/actions/runners/{runner_id}", token)
+    status, _ = api("DELETE", f"/repos/{s['BENCH_REPO']}/actions/runners/{runner_id}", token)
     if status not in (204, 404):  # 404: the single-use runner already removed itself
         print(f"bench CI: the runner registration {runner_id} could not be removed (HTTP {status})", file=sys.stderr)
 
 
 def new_scratch(s: Settings, name: str) -> Path:
-    path = Path(s["TB_BENCH_SCRATCH"]) / name
+    path = Path(s["BENCH_SCRATCH"]) / name
     path.mkdir(mode=0o700)
     (path / "home").mkdir(mode=0o700)
+    (path / "tmp").mkdir(mode=0o700)
     (path / ".tb-bench").mkdir(mode=0o700)
     return path
 
 
 def drop_scratch(s: Settings, path: Path) -> None:
     """The job's files belong to ids of the rootless namespace: remove them from inside it."""
-    if path.parent != Path(s["TB_BENCH_SCRATCH"]) or not path.name.startswith("tb-bench-"):
+    if path.parent != Path(s["BENCH_SCRATCH"]) or not path.name.startswith("tb-bench-"):
         raise ValueError(f"not a job scratch folder: {path}")
-    subprocess.run([s["TB_BENCH_ENGINE"], "unshare", "rm", "-rf", "--one-file-system", str(path)], check=False)
+    subprocess.run([s["BENCH_ENGINE"], "unshare", "rm", "-rf", "--one-file-system", str(path)], check=False)
 
 
 def gpu_spec(s: Settings) -> tuple[list[str], dict[str, object]]:
     """The host's check of the CI cards, and what the job's own check reads (job.json)."""
     problems, uuids = gpu_check.host_check(
-        s["TB_BENCH_GPU_QUERY"],
-        gpu_check.parse_ids(s["TB_BENCH_CI_GPUS"]),
-        gpu_check.parse_ids(s["TB_BENCH_RESERVED_GPUS"]),
-        s.num("TB_BENCH_GPU_BUSY_MIB"),
-        s.num("TB_BENCH_GPU_BUSY_UTIL"),
+        s["BENCH_GPU_QUERY"],
+        gpu_check.parse_ids(s["BENCH_CI_GPUS"]),
+        gpu_check.parse_ids(s["BENCH_RESERVED_GPUS"]),
+        s.num("BENCH_GPU_CAP_MIB"),
+        s.num("BENCH_GPU_CAP_UTIL"),
     )
     spec: dict[str, object] = {
         "profile": "gpu",
-        "tool": s["TB_BENCH_GPU_QUERY"],
+        "tool": s["BENCH_GPU_QUERY"],
         "uuids": uuids,
-        "busy_mib": s.num("TB_BENCH_GPU_BUSY_MIB"),
-        "busy_util": s.num("TB_BENCH_GPU_BUSY_UTIL"),
+        "cap_mib": s.num("BENCH_GPU_CAP_MIB"),
+        "cap_util": s.num("BENCH_GPU_CAP_UTIL"),
     }
     return problems, spec
 
@@ -336,7 +335,7 @@ def run_slot(s: Settings, token_file: Path, slot: str) -> int:
         if problems:
             for p in problems:
                 print(f"bench CI: {p}", file=sys.stderr)
-            print("bench CI: no GPU runner is registered until the CI cards are free", file=sys.stderr)
+            print("bench CI: no GPU runner is registered while a CI card is busy beyond its cap", file=sys.stderr)
             return 3
     token = read_token(token_file)
     name = f"tb-bench-{slot}-{secrets.token_hex(4)}"
@@ -363,10 +362,10 @@ def run_container(s: Settings, args: list[str], config: str, name: str) -> int:
     proc.stdin.write(config + "\n")
     proc.stdin.close()
     try:
-        return proc.wait(timeout=s.num("TB_BENCH_JOB_HOURS") * 3600)
+        return proc.wait(timeout=s.num("BENCH_JOB_HOURS") * 3600)
     except subprocess.TimeoutExpired:
-        subprocess.run([s["TB_BENCH_ENGINE"], "rm", "--force", name], check=False)
-        print(f"bench CI: {name} passed {s['TB_BENCH_JOB_HOURS']} h and was stopped", file=sys.stderr)
+        subprocess.run([s["BENCH_ENGINE"], "rm", "--force", name], check=False)
+        print(f"bench CI: {name} passed {s['BENCH_JOB_HOURS']} h and was stopped", file=sys.stderr)
         return proc.wait()
 
 
@@ -397,9 +396,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(s.values.get(args.key, ""))
         return 0
     if args.cmd == "check":
-        slots = {p: s.num(f"TB_BENCH_{p.upper()}_SLOTS") for p in PROFILES}
-        print(f"bench CI: settings complete; slots {slots}; label {s['TB_BENCH_LABEL']}")
-        if not s.num("TB_BENCH_GPU_SLOTS"):
+        slots = {p: s.num(f"BENCH_{p.upper()}_SLOTS") for p in PROFILES}
+        print(f"bench CI: settings complete; slots {slots}; label {s['BENCH_LABEL']}")
+        if not s.num("BENCH_GPU_SLOTS"):
             return 0
         try:
             problems, _ = gpu_spec(s)
@@ -407,10 +406,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             problems = [f"the CI cards could not be checked: {exc}"]
         for problem in problems:
             print(f"bench CI: {problem}", file=sys.stderr)
-        print("bench CI: the CI cards are free" if not problems else "bench CI: the CI cards are NOT free now")
+        print(
+            "bench CI: the CI cards are within their cap"
+            if not problems
+            else "bench CI: the CI cards are busy beyond their cap"
+        )
         return 0 if not problems else 3
     if args.cmd == "proxy":
-        os.execv(s["TB_BENCH_ENGINE"], proxy_args(s))
+        os.execv(s["BENCH_ENGINE"], proxy_args(s))
     if args.cmd == "probe":
         scratch = new_scratch(s, f"tb-bench-probe-{secrets.token_hex(4)}")
         try:

@@ -4,9 +4,11 @@
 # depend on this file), so an outage of the bench blocks nothing; a red job here is shown red, because its time and
 # result are the measure. Nothing moves off the hosted runners in this card.
 # The repository is public. A self-hosted runner runs whatever code reaches it, so the bench jobs are reachable from a
-# push to a train/* branch and from a run by hand by the repository's owner only: never a pull request, never
-# pull_request_target, never a lane branch, never a fork. Every job repeats that guard in its `if`. No other workflow
-# names the bench label. trialbox/tests/unit/test_bench_ci_workflow_h105.py reads every workflow and holds all of it.
+# push to this repository's train and lane branches (train/*, agent/*, claude/*, lane-*: a push needs write access to
+# this repository; the owner's ruling of 2026-11-24, item 8) and from a run by hand by the repository's owner only:
+# never a pull request, pull_request_target, issue_comment, workflow_run or anything else a fork can start. Every job
+# repeats that guard in its `if`. No other workflow names the bench label.
+# trialbox/tests/unit/test_bench_ci_workflow_h105.py reads every workflow and holds all of it.
 # Each bench job runs in a fresh single-use container on the bench host (tools/bench_ci/launcher.py): its own non-root
 # user, one scratch folder, no engine socket, an allow-listed way out. Nothing here passes a secret to a job; the
 # checkout keeps no credential. Every action is pinned to a commit (tag in the comment).
@@ -16,15 +18,17 @@ name: TrialBox bench CI
 
 on:
   push:
-    branches: ["train/*"]
+    branches: ["train/*", "agent/*", "claude/*", "lane-*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: trialbox-bench-ci-${{ github.ref }}
-  cancel-in-progress: true
+  # a lane branch: one run per branch, a new push cancels the older run; a train: a group of its own per run, so a
+  # train's run is never cancelled or replaced
+  group: trialbox-bench-ci-${{ github.ref }}-${{ startsWith(github.ref, 'refs/heads/train/') && github.run_id || 'latest' }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/train/') }}
 
 defaults:
   run:
@@ -38,7 +42,7 @@ jobs:
   # the unit suite in the hosted run's eight shards (trialbox-ci.yml unit-shard), on the bench's CPU slots
   unit-shard:
     name: bench unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
-    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)
+    if: (github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)
     runs-on: [self-hosted, tb-bench, tb-bench-cpu]
     timeout-minutes: 60
     strategy:
@@ -99,7 +103,7 @@ jobs:
   # the integration run (CPU)
   integration:
     name: bench integration
-    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)
+    if: (github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)
     runs-on: [self-hosted, tb-bench, tb-bench-cpu]
     timeout-minutes: 60
     steps:
@@ -148,7 +152,7 @@ jobs:
   # the GPU suites (tools/full_set.py stage gpu), on the CI cards; the runner's job-started hook refuses busy cards
   gpu-suites:
     name: bench gpu-suites
-    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)
+    if: (github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)
     runs-on: [self-hosted, tb-bench, tb-bench-gpu]
     timeout-minutes: 180
     steps:
@@ -189,7 +193,7 @@ jobs:
   full-set:
     name: bench full-set
     needs: gpu-suites
-    if: always() && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
+    if: always() && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-gpu]
     timeout-minutes: 600
     steps:
@@ -238,7 +242,7 @@ jobs:
   # the box rehearsal (tools/rehearse_box/rehearse.sh) with the job's own nested engine
   rehearse-box:
     name: bench rehearse-box
-    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)
+    if: (github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)
     runs-on: [self-hosted, tb-bench, tb-bench-engine]
     timeout-minutes: 120
     steps:
@@ -287,7 +291,7 @@ jobs:
   bench-times:
     name: bench times
     needs: [unit-shard, integration, gpu-suites, full-set, rehearse-box]
-    if: always() && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
+    if: always() && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
