@@ -450,7 +450,8 @@ def main(argv: list[str] | None = None) -> int:
         except up.UpdateFailed as exc:
             print(f"close REFUSED: {exc}", file=sys.stderr)
             return 1
-        print(f"update {a.bundle} closed after the restore (audited update.closed_after_restore); the marker is removed")
+        print(f"update {a.bundle} closed after the restore (audited update.closed_after_restore); "
+              "the marker is removed")  # fmt: skip
         return 0
     target = a.target or (m or {}).get("target") or "compose"
     box: up.ComposeBox | up.DemoBox = up.DemoBox(a.deploy) if target == "demo" else up.ComposeBox(a.deploy)

@@ -420,6 +420,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.backup_skipped": ("Update without a backup", "バックアップなしの更新", "未備份即更新"),
     "update.rolled_back": ("Update rolled back", "更新の差し戻し", "更新已還原"),
+    "update.closed_after_restore": ("Update closed after a restore", "復元後に閉じた更新", "還原後結案的更新"),
     "case.opt_out_refused": (
         "Case run refused: the patient opted out",
         "症例処理の拒否：利用拒否の患者",
