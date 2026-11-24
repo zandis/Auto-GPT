@@ -2,7 +2,7 @@
  "card": "H124",
  "title": "the update's code comes from the signed new bundle",
  "date": "2026-11-24",
- "source": "docs/handover/update-code-from-the-bundle-h124-2026-11-24.md",
+ "source": "docs/handover/h124-update-code-from-the-bundle-2026-11-24.md",
  "note": "basis 'shown' means shown by the card's local runs (the real apply_update.sh and signer, a stand-in docker); the bench host, Docker and the box rehearsal were not run.",
  "findings": [
   {

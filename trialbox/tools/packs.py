@@ -198,7 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print(f"installed size {gb(n['installed'])} (images {gb(n['images'])}, weights {gb(n['weights'])}, "
           f"the rest {gb(n['rest'])}); peak during the load {gb(n['peak'])}, at most {gb(n['bound'])} "
-          f"(installed + 10 % + twice the host tree, H-124), and the engine's own working space up to {gb(n['engine'])} while an image loads; "
+          f"(installed + 10 % + twice the host tree, H-124), and the engine's own working space up to "
+          f"{gb(n['engine'])} while an image loads; "
           f"the stick holds {gb(n['stick'])}")  # fmt: skip
     return 0
 
