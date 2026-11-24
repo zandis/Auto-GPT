@@ -24,6 +24,7 @@ from orchestrator.scenarios.evaluate import (
 )
 from orchestrator.scenarios.terms import keywords
 from tb_common.llm import LlmClient
+from tb_testkit.eval_key import eval_client
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionVerdict, Evidence
 
@@ -74,7 +75,7 @@ def test_tiers() -> None:
 def _llm() -> LlmClient:
     url = os.environ.get("TB_JUDGE_LLM_URL")
     if url:
-        return LlmClient(url, os.environ.get("TB_JUDGE_MODEL", "trialbox"))
+        return eval_client(url, os.environ.get("TB_JUDGE_MODEL", "trialbox"))
     llm = LlmClient("http://stub/v1", "stub")
     llm.http = TestClient(stub)
     return llm

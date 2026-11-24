@@ -105,10 +105,10 @@ def run_command(argv: Sequence[str], log: Path, env: dict[str, str]) -> int:
 
 def _env(stage: Stage, opts: argparse.Namespace) -> dict[str, str]:
     env = {**os.environ, **stage.env}
-    if opts.llm_url:
-        env["TB_LLM_EVAL_URL"] = opts.llm_url
+    if opts.llm_url:  # the judge suite (tests/unit/test_judge_tier.py) reads its own names for the same endpoint
+        env["TB_LLM_EVAL_URL"] = env["TB_JUDGE_LLM_URL"] = opts.llm_url
     if opts.llm_model:
-        env["TB_LLM_EVAL_MODEL"] = opts.llm_model
+        env["TB_LLM_EVAL_MODEL"] = env["TB_JUDGE_MODEL"] = opts.llm_model
     env["TB_TEST_ROOT"] = str(Path(opts.out) / "test-root")
     return env
 
