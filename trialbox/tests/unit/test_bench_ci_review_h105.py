@@ -137,6 +137,27 @@ def test_m1448_1_a_link_planted_inside_the_new_folder_is_not_followed(
     assert list(victim.iterdir()) == [], "root made or wrote something through a planted link"
 
 
+def test_m1448_1_a_subfolder_swapped_for_a_link_after_it_was_made_is_not_followed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, minting: Any
+) -> None:
+    """The race between making a subfolder and opening it: the jobs' user replaces it with a link."""
+    s, token, state = minting
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    real_mkdir = os.mkdir
+
+    def mkdir_then_swap(path: Any, mode: int = 0o777, *, dir_fd: int | None = None) -> None:
+        real_mkdir(path, mode, dir_fd=dir_fd)
+        if str(path) == ".tb-bench":
+            os.rmdir(".tb-bench", dir_fd=dir_fd)
+            os.symlink(victim, ".tb-bench", dir_fd=dir_fd)
+
+    monkeypatch.setattr("os.mkdir", mkdir_then_swap)
+    with contextlib.suppress(OSError, RuntimeError):
+        launcher.mint(s, "cpu-1", token_file=token, state=state)
+    assert list(victim.iterdir()) == [], "root wrote the job's files through a swapped link"
+
+
 # --- M-1448-2 and M-1448-5: the run step's wait -----------------------------------------------------------------
 
 
@@ -320,8 +341,8 @@ def test_m1448_6_masters_commit_is_read_from_the_code_hosts_refs(monkeypatch: py
     pkt = (
         b"001e# service=git-upload-pack\n0000"
         b"0099" + b"c" * 40 + b" HEAD\x00multi_ack symref=HEAD:refs/heads/master agent=x\n"
-        b"003f" + b"d" * 40 + b" refs/heads/master\n"
-        b"0043" + b"e" * 40 + b" refs/heads/master-old\n0000"
+        b"0043" + b"e" * 40 + b" refs/heads/master-old\n"  # a name that starts as master's: not master
+        b"003f" + b"d" * 40 + b" refs/heads/master\n0000"
     )
     assert gate.master_from_refs(pkt) == "d" * 40
     with pytest.raises(RuntimeError, match="no master"):
