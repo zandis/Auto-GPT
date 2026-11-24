@@ -1,0 +1,64 @@
+{
+ "card": "H112",
+ "title": "the serving engine comparison, ready for the bench host",
+ "date": "2026-11-24",
+ "source": "docs/handover/serving-engine-comparison-h112-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H112-01",
+   "severity": "Medium",
+   "claim": "the second serving engine's image is in no signed bundle and not in deploy/images.lock: the profile is bench and test boxes only, its image a local tag the bench host makes after checking the pinned digest (images_lock skips trialbox-* names)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-02",
+   "severity": "Medium",
+   "claim": "nothing of the second engine's real behaviour is proven: its start with this command line, the served name, structured output, the candidates' 4-bit formats, memory sizing, chat template parity and every timing wait for the walk on the bench host",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H112-03",
+   "severity": "Low",
+   "claim": "E2-9 has no code on master or in any pull request, only the ruling 7107834329: the harness counts differing (patient, criterion) answers by tools.run_metrics.lists_compare's rule (a missing pair counts as an answer); a ruling is wanted that this is E2-9's count",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-04",
+   "severity": "Low",
+   "claim": "R1-P2's instrumentation (tools/chart_times.py) is PR #1451, not on master: the per-chart time here has R1-P2's definition (the sum of a chart's own calls) but is measured at the client calling the engine, not through the gateway's audit",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-05",
+   "severity": "Low",
+   "claim": "the vendor's release container licence was not read (its registry asked for a sign-in); the engine's source is Apache-2.0 and its wheel names a vendor licence agreement and a proprietary runtime library: the walk reads the container's licence before loading it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-06",
+   "severity": "Low",
+   "claim": "the second engine's /metrics is not in the metrics text form the current engine's is (per its source): R1-P2's queue, prefill and decode split would be not reported for it",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H112-07",
+   "severity": "Low",
+   "claim": "the GPU memory peak is the whole card's used memory as the GPU monitor reports it, both servers and anything else on it; on a card split into partitions what it reports per partition is not known here",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}

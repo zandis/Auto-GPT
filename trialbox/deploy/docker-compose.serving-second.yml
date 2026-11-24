@@ -1,0 +1,54 @@
+# H-112: the second serving profile, for the serving engine comparison on the bench host only (the owner's go,
+# #639 7121371183). Bench and test boxes only: the second serving engine is not in a signed bundle and not in
+# deploy/images.lock, so a PRODUCTION box refuses it (tools/serving_profile.py refuses the switch, `trialbox doctor`
+# check bench_serving FAILs this file in COMPOSE_FILE).
+#
+# The switch (SERVING_ENGINE in the bench host's deploy/site/serving-second.env, `current` when absent) is read by
+# tools/serving_profile.py, which prints the file list: with the switch off the list is the box's own, unchanged; on, this file is added last,
+# after the GPU overlay, so the card, the memory caps, the networks and the controls stay the GPU overlay's.
+#
+#   python3 -m tools.serving_profile files --deploy deploy
+#
+# This file changes only what runs inside llm-service and llm-verifier: the image, the program and its arguments.
+# Both keep their names, port 8000 and their backend aliases behind model-guard, and the second serving engine
+# answers the same /v1 chat routes and /health as the current one, so the gateway, model-guard
+# and the services change nothing. Every value comes from the bench host's settings file,
+# deploy/site/serving-second.env (not in the repository; deploy/serving-second.example.env lists the keys): the
+# defaults below are placeholders that start nothing.
+#
+# Never pulled: pull_policy never. The bench host loads the image itself, checks its digest against the pin in its
+# settings file and tags it trialbox-serving2:bench (tools/serving_profile.py check-image); compose then only uses
+# the local image.
+x-trialbox-bench-serving: true
+
+x-serving2-env: &serving2env
+  DO_NOT_TRACK: "1"   # no usage report (the networks are internal too)
+
+services:
+  llm-service:
+    image: ${SERVING2_IMAGE:-trialbox-serving2:bench}
+    pull_policy: never
+    entrypoint: ["${SERVING2_SERVER:-serving2-server-unset}"]
+    command:
+      - serve
+      - /models/${SERVING2_JUDGE_DIR:-serving2-judge-unset}
+      - --served_model_name=${SERVING2_JUDGE_NAME:-serving2-judge-unset}
+      - --host=0.0.0.0
+      - --port=8000
+      - --log_level=warning   # no request or prompt lines in the log (as the current engine, T-605)
+      - --config=/models/${SERVING2_JUDGE_CONFIG:-serving2-judge-unset.yaml}
+    environment: *serving2env
+
+  llm-verifier:
+    image: ${SERVING2_IMAGE:-trialbox-serving2:bench}
+    pull_policy: never
+    entrypoint: ["${SERVING2_SERVER:-serving2-server-unset}"]
+    command:
+      - serve
+      - /models/${SERVING2_VERIFIER_DIR:-serving2-verifier-unset}
+      - --served_model_name=${SERVING2_VERIFIER_NAME:-serving2-verifier-unset}
+      - --host=0.0.0.0
+      - --port=8000
+      - --log_level=warning
+      - --config=/models/${SERVING2_VERIFIER_CONFIG:-serving2-verifier-unset.yaml}
+    environment: *serving2env

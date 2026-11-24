@@ -1469,6 +1469,37 @@ def _standins_in_compose(inp: DoctorInputs) -> str:
     return ""
 
 
+BENCH_SERVING_MARK = "x-trialbox-bench-serving: true"
+
+
+def check_bench_serving(inp: DoctorInputs) -> Check:
+    """H-112: the second serving profile (deploy/docker-compose.serving-second.yml, marked BENCH_SERVING_MARK) runs
+    the models with an engine that is in no signed bundle and not in deploy/images.lock: in COMPOSE_FILE of a TEST or
+    VALIDATION box it is a standing WARN, on a box of any other class (PRODUCTION when unset) a FAIL.
+    tools/serving_profile.py adds it only on the bench host and never writes COMPOSE_FILE; this catches a hand edit."""
+    base = inp.deploy or ROOT / "deploy"
+    found = ""
+    for entry in (inp.env.get("COMPOSE_FILE") or "").split(":"):
+        if not entry.strip():
+            continue
+        path = _compose_file(base, entry.strip())
+        try:
+            if BENCH_SERVING_MARK in path.read_text(encoding="utf-8").splitlines():
+                found = str(path)
+                break
+        except (OSError, UnicodeDecodeError):
+            continue
+    if not found:
+        return Check("bench_serving", "PASS", "the models are served by the current serving engine")
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    if env in ("TEST", "VALIDATION"):
+        return Check("bench_serving", "WARN", f"BENCH SERVING: the second serving engine serves the models ({found}): "
+                                              "for the engine comparison only, not a pinned image (H-112)")  # fmt: skip
+    return Check("bench_serving", "FAIL", f"the second serving profile is in the compose files of a {env} box "
+                                          f"({found}, deploy/.env COMPOSE_FILE): its engine is in no signed bundle. "
+                                          "Take it out of COMPOSE_FILE (H-112)")  # fmt: skip
+
+
 def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:
     """H-89: (where, what the box says) when this box ran the real model servers as a rehearsal, else None."""
     from tools import rehearsal_real
@@ -2172,6 +2203,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_audit_heads,
     check_anchor_mount,
     check_rehearsal,
+    check_bench_serving,
     check_memory_caps,
     check_postgres_memory,
     check_db_passwords,
