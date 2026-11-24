@@ -345,43 +345,55 @@ def test_lr6_rotate_kek_on_a_tpm_box_seals_the_new_kek_to_the_credential_the_boo
 def test_lr6_a_rotation_on_a_tpm_box_cut_short_keeps_every_key_opening_with_the_sealed_kek_or_as_it_was(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """LR-6, the card's invariant: a kill at each rename of the roll-forward; at that instant every key is either as
-    it was or opens with the KEK sealed in the credential, and ``status --audit-dir`` finishes the rotation."""
+    """LR-6, the card's invariant: a kill at every rename of the rotation (the journal's writes, the sealed new KEK
+    beside the credential, the staged keys, the commit, the credential, each key, kek.json, the done event). At each
+    stop every key is either as it was (it opens with the KEK sealed before) or opens with the KEK sealed in the
+    credential now, so some credential always opens it; ``status --audit-dir`` then finishes or rolls back, and
+    every key opens with the credential in place."""
     own = Owners(monkeypatch)
     real_replace = os.replace
 
     class Killed(BaseException):
         pass
 
-    for stop_at in range(1, 5):  # the credential, two keys, kek.json
+    stops = 0
+    for stop_at in range(1, 60):
         tmp = tmp_path / str(stop_at)
         tmp.mkdir()
         b = _tpm_box(tmp, own, monkeypatch)
+        old = _unsealed_from(b["cred"])
         before = {f.name: f.read_bytes() for f in b["sec"].glob("*.wrapped")}
         seen = [0]
 
         def replace(src: Any, dst: Any, _stop: int = stop_at, _seen: list[int] = seen) -> None:
-            if str(src).endswith(".next"):
-                _seen[0] += 1
-                if _seen[0] == _stop:
-                    raise Killed
+            _seen[0] += 1
+            if _seen[0] == _stop:
+                raise Killed
             real_replace(src, dst)
 
         monkeypatch.setattr(os, "replace", replace)
-        with pytest.raises(Killed):
+        try:
             keys.main(["rotate-kek", "--backend", "file", "--secrets", str(b["sec"]), "--kek-out",
                        str(b["media"] / "kek.new"), "--audit-dir", str(b["audit"])],
                       env={**DEV, "TB_KEK_FILE": str(b["run"] / "kek")})  # fmt: skip
+            killed = False
+        except Killed:
+            killed = True
         monkeypatch.setattr(os, "replace", real_replace)
         sealed = _unsealed_from(b["cred"])
         for f in b["sec"].glob("*.wrapped"):
             name = f.name[: -len(K.WRAPPED_SUFFIX)]
-            as_was = f.read_bytes() == before[f.name]
-            opens = K.kek_id(sealed) == K.read_wrapped(b["sec"] / name).get("kek_id")
+            doc = K.read_wrapped(b["sec"] / name)
+            as_was = f.read_bytes() == before[f.name] and doc.get("kek_id") == K.kek_id(old)
+            opens = K.kek_id(sealed) == doc.get("kek_id")
             assert as_was or opens, (stop_at, f.name)
         assert keys.main(["status", "--secrets", str(b["sec"]), "--audit-dir", str(b["audit"])],
                          env={"TB_KEK_FILE": str(tmp / "none")}) in (0, 1)  # fmt: skip
         assert _sealed_opens(b), stop_at
+        if not killed:  # every rename of the rotation was a stop
+            break
+        stops += 1
+    assert stops >= 8  # the journal twice, the sealed KEK, two staged keys, kek.json.next, the credential, the keys
 
 
 def test_lr6_rotate_kek_on_a_tpm_box_without_the_sealing_tool_changes_nothing(
@@ -446,3 +458,50 @@ def test_lr7_rotate_pid_map_waits_for_a_kek_rotation_cut_short_and_for_the_folde
         before = _state(b["sec"])
         assert keys.main(argv, env=env) == 1
         assert _state(b["sec"]) == before
+
+
+#: variables a caller could set to steer who gets the key files; none may change it (the card's rule)
+STEER = {"SUDO_UID": "0", "SUDO_GID": "0", "SUDO_USER": "root", "TB_SERVICES_UID": "4242", "TB_SECRETS_OWNER": "0:0",
+         "TB_UID": "0", "TB_GID": "0", "USER": "root", "LOGNAME": "root"}  # fmt: skip
+
+
+def test_lr3_lr4_the_owner_comes_from_the_secrets_folder_never_from_a_caller_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LR-3, LR-4: who gets the files is the secrets folder's owner, read from the folder; a variable in the process
+    environment or in the mapping a command is given changes nothing. As an ordinary user the effective uid is taken
+    to be root for the seam (``os.geteuid``), so the real ``services_owner`` and the real unseal run; the owner is
+    then this user, the folder's own."""
+    sec = tmp_path / "sec"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(os.urandom(32))
+    rc = keys.main(["init", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
+                    "--passphrase-file", str(_pp(tmp_path / "init.pass", OLD))], env={})  # fmt: skip
+    assert rc == 0
+    if ROOT:
+        for f in (sec, *sec.iterdir()):
+            os.chown(f, SERVICES, SERVICES)
+    else:
+        monkeypatch.setattr(os, "geteuid", lambda: 0)
+    st = os.stat(sec)
+    want = (st.st_uid, st.st_gid)
+    assert want[0] != 0
+    assert K.services_owner(sec) == want
+    for k, v in STEER.items():
+        monkeypatch.setenv(k, v)
+    assert K.services_owner(sec) == want
+    run = tmp_path / "run" / "trialbox"
+    rc = keys.main(["unseal", "--secrets", str(sec), "--out", str(run / "kek"),
+                    "--passphrase-file", str(_pp(tmp_path / "unseal.pass", OLD))], env=dict(STEER))  # fmt: skip
+    assert rc == 0
+    for p in (run, run / "kek"):
+        got = os.stat(p)
+        assert (got.st_uid, got.st_gid) == want, p
+    assert stat.S_IMODE(os.stat(run).st_mode) == 0o700 and stat.S_IMODE(os.stat(run / "kek").st_mode) == 0o600
+    monkeypatch.setattr(os, "geteuid", lambda: 1 if not ROOT else 0)
+    root_owned = tmp_path / "root-owned"
+    root_owned.mkdir()
+    if ROOT:  # a folder root owns: the writer keeps the files, whatever the variables say
+        assert K.services_owner(root_owned) is None
+    else:  # not root: never a hand-over
+        assert K.services_owner(sec) is None
