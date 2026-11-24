@@ -172,7 +172,17 @@ if [ -z "$OSPATCH" ] && [ -n "$NOBACKUP" ] && [ -z "$NOBACKUP_REASON" ]; then
     *) TB_STOP_WHO="update REFUSED"; stop_or_warn --rc 2 no-backup-production "" "--no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); nothing was changed"; TB_STOP_WHO=apply_update ;;
   esac
 fi
-PUBKEY=${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}
+# H-124 (H124-01): an installed box trusts its own vendor key (deploy/keys, or deploy/updates/trust.json once it
+# exists): a caller's TB_VENDOR_PUBKEY names the key only where no release is installed yet (a checkout, the vendor's
+# own test runs). The box's own record decides, never the caller's environment
+PUBKEY="$ROOT/deploy/keys/vendor_ed25519.pub"
+if [ -n "${TB_VENDOR_PUBKEY:-}" ]; then
+  if [ -e "$UPDATES/installed.json" ] || [ -e "$UPDATES/trust.json" ]; then
+    echo "apply_update: TB_VENDOR_PUBKEY is not read on an installed box; its own vendor key is the trust" >&2
+  else
+    PUBKEY=$TB_VENDOR_PUBKEY
+  fi
+fi
 NEXTKEY="$ROOT/deploy/keys/vendor_ed25519.next.pub"
 IMAGE=${TB_PY_IMAGE:-trialbox-py:1.0.0}
 

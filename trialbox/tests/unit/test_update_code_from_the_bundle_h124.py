@@ -315,3 +315,17 @@ def test_h124_03_an_unpacked_tree_is_on_disk_before_it_is_named(box: dict[str, A
     assert sum(1 for c in before if "/.code.partial/" in c) >= n  # each file, and each folder inside
     assert f"fsync {dest.parent / '.code.partial'}" in before
     assert after == [f"fsync {dest.parent}"]
+
+
+def test_h124_01_an_installed_box_does_not_take_its_vendor_key_from_the_caller(box: dict[str, Any]) -> None:
+    """A bundle signed by a key of the caller's own, named by TB_VENDOR_PUBKEY: an installed box verifies with its
+    own vendor key, so the bundle is rejected and nothing of it runs."""
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    other_priv, other_pub = keygen(b["tmp"] / "not-the-vendor")
+    bundle = _bundle(b["tmp"], other_priv, "R2", 2, _release(b["tmp"], "R2-fixed"))
+    b["env"]["TB_VENDOR_PUBKEY"] = str(other_pub)
+    r = _apply(b, bundle)
+    assert r.returncode == 1 and "update REJECTED" in _said(r), _said(r)
+    assert "TB_VENDOR_PUBKEY is not read on an installed box" in r.stderr
+    assert "update code:" not in r.stdout and _current(b) == "releases/R1" and _seq(b) == 1

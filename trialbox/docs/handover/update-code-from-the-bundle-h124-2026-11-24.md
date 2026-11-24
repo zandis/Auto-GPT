@@ -56,7 +56,15 @@ the installed `PYTHONPATH` with `cd "$ROOT"`. Each fails the invariant, the cont
 SIGTERM case. A mutant that drops `stage_code`'s own `check_tar` is not caught: the installed verifier refuses first.
 The second check is defence in depth.
 
-## 3. The four recurring finding types
+## 3. The caller's key (H124-01, a commit of its own)
+
+On an installed box (`deploy/updates/installed.json` or `trust.json` there) `apply_update.sh` verifies with the box's
+own vendor key. It says `TB_VENDOR_PUBKEY is not read on an installed box`. Where no release is installed yet (a
+checkout, the vendor's own test runs) the variable still names the key, as those tests use it. `TB_VERIFY_IN_DOCKER`
+and `TB_PY_IMAGE`, which let a caller choose the image the verifier runs in, are left as they are:
+`deploy/gcp/demo-vm-update.sh` sets both. That is a question for the integrator.
+
+## 4. The four recurring finding types
 
 - **Ctrl-C or SIGTERM:** tested above. Bash runs the trap that removes the stage only after the foreground update
   exits.
