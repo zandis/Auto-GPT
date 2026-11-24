@@ -81,7 +81,7 @@ alive_start() {
       i=0; while [ "$i" -lt "${TB_POC_ALIVE_S:-60}" ] && up; do
         sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; i=$((i + 1)); done; n=$((n + 1))
       up && echo "    ... still $what ($n)" >&2
-    done ) & ALIVE_PID=$!
+    done ) 9>&- 6>&- & ALIVE_PID=$!  # 1452-12: the ticker and its sleep hold no lock fd of the caller (9, 6)
 }
 alive_stop() { [ -n "$ALIVE_PID" ] || return 0; kill "$ALIVE_PID" 2>/dev/null || true; wait "$ALIVE_PID" 2>/dev/null || true; ALIVE_PID=""; }
 ok() { printf '    ok    %s\n' "$*"; }

@@ -217,7 +217,7 @@ alive_start() {
         sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; i=$((i + 1)); done; n=$((n + 1))
       up && echo "    ... still $what ($n min)" >&2
     done
-  ) >&2 & ALIVE_PID=$!
+  ) >&2 9>&- 6>&- & ALIVE_PID=$!  # 1452-12: the ticker and its sleep hold neither lock (INSTALL-LOCK fd 9, the host lock fd 6)
 }
 alive_stop() {
   [ -n "$ALIVE_PID" ] || return 0

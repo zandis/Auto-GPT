@@ -39,3 +39,23 @@ def test_a_signal_that_ends_the_script_frees_the_callers_output(tmp_path: Path, 
     finally:
         with contextlib.suppress(ProcessLookupError):
             os.killpg(p.pid, signal.SIGKILL)
+
+
+@pytest.mark.parametrize("script", ["deploy/install.sh", "deploy/poc.sh"])
+def test_the_heartbeat_holds_no_lock_fd_of_the_caller(tmp_path: Path, script: str) -> None:
+    """1452-12 (the review 7131110953): the heartbeat's subshell and its sleep inherited fd 9 (INSTALL-LOCK) and fd 6
+    (the host lock): a ticker left running held the install's lock. Neither holds them now."""
+    text = (ROOT / script).read_text(encoding="utf-8")
+    a = text.index("alive_start() {")
+    body = text[a : text.index("\n}\n", a) + 3]
+    run = tmp_path / "hb.sh"
+    run.write_text(
+        'ALIVE_PID=""\nTB_POC_ALIVE_S=60\n' + body + f'exec 9>"{tmp_path}/lock9" 6>"{tmp_path}/lock6"\n'
+        "alive_start x\nsleep 0.5\n"
+        'for p in "$ALIVE_PID" $(cat /proc/"$ALIVE_PID"/task/*/children 2>/dev/null); do\n'
+        '  for f in 9 6; do [ -e "/proc/$p/fd/$f" ] && echo "HELD $p $f"; done\ndone\n'
+        'kill "$ALIVE_PID"; wait "$ALIVE_PID" 2>/dev/null; echo done\n',
+        encoding="utf-8",
+    )
+    r = subprocess.run(["bash", str(run)], capture_output=True, text=True, check=False, timeout=60)
+    assert "done" in r.stdout and "HELD" not in r.stdout, (r.stdout, r.stderr)
