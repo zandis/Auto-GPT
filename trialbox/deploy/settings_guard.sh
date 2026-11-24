@@ -110,7 +110,13 @@ for f in $cf_all; do
   IFS="$old_ifs"
   case "$f" in /*) ;; *) f="$DEPLOY/$f" ;; esac
   why="$(owned_path "$f")"
-  [ -z "$why" ] || stop_or_warn compose-file-owner "" "the compose file $f: $why. Another user could change what this start runs as root: make it root's (chown root:root, chmod go-w, its folders too), or run deploy/install.sh again"
+  # OCR 1455-2 (A), the integrator's ruling 7128436810: a compose file another user could change is code that is not
+  # the signed release's, run as root: a stop on every box (deploy/install.sh copies every compose file from outside
+  # the release into deploy/site, root's, so an installed box's start never meets one)
+  if [ -n "$why" ]; then
+    echo "TrialBox REFUSED to start: the compose file $f: $why. Another user could change what this start runs as root: make it root's (chown root:root, chmod go-w, its folders too), or run deploy/install.sh again" >&2
+    exit 1  # H-94 (1): what root runs is not held to the signed release
+  fi
   IFS=:
 done
 IFS="$old_ifs"

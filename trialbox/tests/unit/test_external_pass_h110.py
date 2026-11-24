@@ -603,6 +603,32 @@ def test_the_override_s_owner_and_mode_are_those_of_the_file_copied(tmp_path: Pa
     assert not (tmp_path / "box" / "deploy" / "site" / "compose-override.yml").exists()
 
 
+def test_the_install_starts_only_from_compose_files_in_its_tree(tmp_path: Path) -> None:
+    """OCR 1455-2 (A), the integrator's ruling 7128436810 (the copy layout): a compose file of the set that resolves
+    outside the tree is copied into deploy/site (root's, 0644) and the copy is what COMPOSE_FILE and compose name;
+    a file of the tree, a link into the tree included, is used where it is."""
+    a = INSTALL.index("# OCR 1455-2 (A), the integrator's ruling 7128436810: root's later starts")
+    b = INSTALL.index("# the same file set for every later", a)
+    root = tmp_path / "box"
+    (root / "deploy" / "site").mkdir(parents=True)
+    (root / "releases" / "r1").mkdir(parents=True)
+    (root / "releases" / "r1" / "base.yml").write_text("services: {}\n", encoding="utf-8")
+    (root / "deploy" / "docker-compose.yml").symlink_to(root / "releases" / "r1" / "base.yml")
+    out = tmp_path / "elsewhere" / "extra.yml"
+    out.parent.mkdir()
+    out.write_text("services: {extra: {}}\n", encoding="utf-8")
+    inside = root / "deploy" / "docker-compose.yml"
+    script = (f"set -euo pipefail\nROOT={root}\nFILES={inside}:{out}\nCOMPOSE=(docker compose -f {inside} -f {out})\n"
+              + INSTALL[a:b] + 'echo "FILES=$FILES"; echo "COMPOSE=${COMPOSE[*]}"\n')  # fmt: skip
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=60)
+    copy = root / "deploy" / "site" / "compose-extra.yml"
+    assert r.returncode == 0, r.stderr
+    assert f"FILES={inside}:{copy}\n" in r.stdout and f"-f {inside} -f {copy}" in r.stdout, r.stdout
+    assert copy.read_text(encoding="utf-8") == "services: {extra: {}}\n" and copy.stat().st_mode & 0o777 == 0o644
+    out.write_text("services: {evil: {}}\n", encoding="utf-8")  # a later change where it lay changes nothing
+    assert copy.read_text(encoding="utf-8") == "services: {extra: {}}\n"
+
+
 def _guard(tmp: Path, env_name: str, compose: Path) -> subprocess.CompletedProcess[str]:
     deploy = tmp / "deploy"
     deploy.mkdir(exist_ok=True)
@@ -615,7 +641,8 @@ def _guard(tmp: Path, env_name: str, compose: Path) -> subprocess.CompletedProce
 @pytest.mark.parametrize("env_name", ["PRODUCTION", "TEST"])
 def test_every_start_refuses_a_compose_file_in_a_folder_others_can_write(tmp_path: Path, env_name: str) -> None:
     """settings_guard.sh (the unit's ExecStartPre) checked the compose files only for the rehearsal mark: a file in a
-    folder others can write was read by root's start as it was. On PRODUCTION the start is refused; a PoC box warns."""
+    folder others can write was read by root's start as it was. The start is refused on every box (H-94 (1); the
+    TEST case was rc 0 with a warning until the integrator's ruling 7128436810 on OCR 1455-2 (A))."""
     open_dir = tmp_path / "open"
     open_dir.mkdir()
     f = open_dir / "extra.yml"
@@ -623,10 +650,7 @@ def test_every_start_refuses_a_compose_file_in_a_folder_others_can_write(tmp_pat
     open_dir.chmod(0o777)
     r = _guard(tmp_path, env_name, f)
     why = f"the compose file {f}: {open_dir} can be written by group or others (mode 777)"
-    if env_name == "PRODUCTION":
-        assert r.returncode == 1 and f"TrialBox REFUSED to start: {why}" in r.stderr, r.stderr
-    else:
-        assert r.returncode == 0 and "warning (PoC box, H-94): " in r.stderr and why in r.stderr, r.stderr
+    assert r.returncode == 1 and f"TrialBox REFUSED to start: {why}" in r.stderr, r.stderr
     open_dir.chmod(0o755)
     r = _guard(tmp_path, env_name, f)
     assert r.returncode == 0 and "compose file" not in r.stderr, r.stderr
@@ -791,6 +815,50 @@ def test_a_cron_folder_with_no_cron_daemon_is_said(tmp_path: Path) -> None:
                             "TB_CRON_DIR": str(tmp_path / "cron.d")})  # fmt: skip
     assert r.returncode == 1 and (tmp_path / "cron.d" / "trialbox-retention").is_file(), r.stderr  # PRODUCTION stops
     assert "install: no cron daemon runs on this host: nothing runs" in r.stderr
+
+
+def _retention_said(tmp: Path, poc: bool, stubs: dict[str, str], systemd: bool, path: str) -> subprocess.CompletedProcess[str]:
+    """install.sh's own retention lines with the stop helper (a PoC box warns, PRODUCTION stops)."""
+    a = INSTALL.index("# H-92 (D-1090): a systemd host")
+    b = INSTALL.index('if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]', a)
+    stub, run = tmp / "bin", tmp / ("run-systemd" if systemd else "no-systemd")
+    stub.mkdir(exist_ok=True)
+    if systemd:
+        run.mkdir()
+        (tmp / "units").mkdir()
+    for name, body in stubs.items():
+        (stub / name).write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+        (stub / name).chmod(0o755)
+    (tmp / "cron.d").mkdir(exist_ok=True)
+    script = HELPER.format(poc=int(poc)) + f"ROOT=/opt/trialbox\nANCHOR_UNSAFE=0\nSYSTEMD_DIR={tmp / 'units'}\n" + INSTALL[a:b]
+    return subprocess.run(["bash", "-c", script.replace("/run/systemd/system", str(run))], capture_output=True,
+                          text=True, check=False, timeout=60,
+                          env={"PATH": f"{stub}:{path}", "TB_ENV_SITE": "PRODUCTION", "TB_CRON_DIR": str(tmp / "cron.d")})  # fmt: skip
+
+
+@pytest.mark.parametrize("poc", [False, True], ids=["PRODUCTION stops", "PoC box warns"])
+def test_a_retention_timer_that_cannot_be_installed_is_a_stop_on_production(tmp_path: Path, poc: bool) -> None:
+    """OCR 1455-8 (the integrator's ruling 7128436810): a systemd host with no cron daemon whose timer cannot be
+    enabled only warned, PRODUCTION too: the retention and the signed audit head never ran."""
+    systemctl = 'case "$1" in is-active) exit 3 ;; enable) exit 1 ;; esac\nexit 0'
+    r = _retention_said(tmp_path, poc, {"id": "echo 0", "python3": "exit 0", "systemctl": systemctl}, True,
+                        "/usr/bin:/bin")  # fmt: skip
+    assert r.returncode == (0 if poc else 1), r.stderr
+    assert "trialbox-retention.timer could not be installed" in r.stderr and ("warning (PoC box" in r.stderr) is poc
+
+
+@pytest.mark.parametrize("poc", [False, True], ids=["PRODUCTION stops", "PoC box warns"])
+def test_a_host_without_pgrep_is_told_its_cron_daemon_cannot_be_checked(tmp_path: Path, poc: bool) -> None:
+    """OCR 1455-8: on a host without pgrep the cron-daemon check was skipped in silence."""
+    tools = tmp_path / "tools"  # every tool of /usr/bin and /bin but pgrep
+    tools.mkdir()
+    for d in ("/usr/bin", "/bin"):
+        for t in Path(d).iterdir():
+            if t.name != "pgrep" and not (tools / t.name).exists():
+                (tools / t.name).symlink_to(t)
+    r = _retention_said(tmp_path, poc, {"id": "echo 0", "python3": "exit 0"}, False, str(tools))
+    assert r.returncode == (0 if poc else 1), r.stderr
+    assert "this host has no pgrep" in r.stderr and ("warning (PoC box" in r.stderr) is poc
 
 
 # ------------------------------------------------------------------------------------------------ L-IB-2

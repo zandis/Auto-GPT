@@ -353,7 +353,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "open: a stop on every box is a new kept stop, a changed assertion and a rehearsal layout change; asked of the integrator (the lead's 7128325096)",
+   "fix": "a stop on every box, H-94 (1) (the integrator's ruling 7128436810); the install copies a compose file from outside the tree into deploy/site and starts only from there; the rehearsal's work dir is root's while the box runs",
    "from": "1455-2 (A): the review of #1455 at 26ab7d4a (verdict 7125919328)"
   },
   {
@@ -430,7 +430,7 @@
    "lane": "H",
    "basis": "not_run",
    "state": "open",
-   "fix": "open: both add install messages (the H-94 fixture grows); asked of the integrator (the lead's 7128325096)",
+   "fix": "stop_or_warn retention-timer and cron-daemon-unknown (PRODUCTION stops, a PoC box warns); the H-94 fixture gains the two messages (the integrator's ruling 7128436810)",
    "from": "1455-8: the review of #1455 at 26ab7d4a (verdict 7125919328)"
   },
   {

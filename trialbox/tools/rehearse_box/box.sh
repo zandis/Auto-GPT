@@ -76,21 +76,17 @@ ONCE_FILE=/root/trialbox-admin-first-sign-in  # root's home, as the passwd entry
 # (check_host.sh/no-tpm-sealed), and doctor shows it in the install's own output; any other line of the PoC list is
 # a stop the rehearsal's own install must not have. $1: the list, $2: which install, $3: that install's output
 only_the_expected_poc_stops() {
-  local other key='"key": "check_host.sh/no-tpm-sealed"' line dir
+  local other key='"key": "check_host.sh/no-tpm-sealed"' line
   if [ -s "$1" ]; then
     other="$(grep -v -F "$key" "$1" || true)"
-    # H-110 (M-LH-2): every start checks each compose file and the folders above it. On CI this box lies under the
-    # runner's own work folder (not root's), so the start lists that folder: expected here, and only for a folder
-    # above the box's own tree; one inside it is a stop the rehearsal must not have
+    # H-110 (M-LH-2, OCR 1455-2 (A)): a compose file in a folder that is not root's alone is a stop on every box now,
+    # never a listed warning: the work dir is root's while the box runs (rehearse.sh host_up)
     other="$(printf '%s\n' "$other" | while IFS= read -r line; do
       case "$line" in
         # H-110 (M-SC-3, the integrator's ruling 7122559749): a box with no cron daemon running warns and lists it;
         # this container runs none, so the line is expected exactly when no cron daemon runs here
         *'"key": "install.sh/cron-daemon"'*)
           if ! pgrep -x cron >/dev/null 2>&1 && ! pgrep -x crond >/dev/null 2>&1; then continue; fi ;;
-        *'"key": "settings_guard.sh/compose-file-owner"'*)
-          dir="$(printf '%s' "$line" | sed -n 's/.*\.yml: \(\/[^ ]*\) \(is owned by\|can be written\).*/\1/p')"
-          case "$BOX" in "$dir"/*) [ -n "$dir" ] && continue ;; esac ;;
       esac
       [ -z "$line" ] || printf '%s\n' "$line"
     done)"

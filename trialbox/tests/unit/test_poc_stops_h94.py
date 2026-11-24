@@ -175,6 +175,8 @@ NOT_DRIVEN = {
     "systemd-units": "root only (systemd): the tests run as a user, as CI does",
     "egress-at-boot": "root only (the egress rules applied, no systemd): the tests run as a user, as CI does",  # H-110
     "cron-daemon": "root only (the cron file written by root, no cron daemon): the tests run as a user",  # H-110
+    "retention-timer": "root only (systemd, the timer not installable): the tests run as a user",  # OCR 1455-8
+    "cron-daemon-unknown": "root only (the cron file written by root, a host without pgrep)",  # OCR 1455-8
     "install-lock-open": "the deploy folder cannot be made unreadable to root, and the bench may run as root",
     "override-owner": "a file owned by another user cannot be made without root",
     "docker-missing": "the next step that runs Docker is kept refusal 1: test_with_no_docker_a_poc_box_warns_then_stops_at_the_load",

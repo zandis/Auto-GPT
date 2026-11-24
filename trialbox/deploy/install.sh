@@ -1299,6 +1299,32 @@ if command -v python3 >/dev/null; then
   python3 -m tools.images_lock check-compose --files "$LOCK_FILES" 2>&1 | sed 's/^/    /' \
     || die "a compose file names a third-party image that deploy/images.lock does not pin (FAIL above)"  # H-94 (1): an image with no digest pin
 fi
+# OCR 1455-2 (A), the integrator's ruling 7128436810: root's later starts read only compose files in this tree. A file
+# of the set that resolves outside it is copied into deploy/site (root's, 0644; opened once, written whole, renamed)
+# and the copy is the one used. A copy that cannot be made is said here; every start then refuses the file (H-94 (1))
+CF_ROOT="$(cd -P -- "$ROOT" && pwd -P)"; CF_NEW=""; CF_IFS="$IFS"; IFS=:
+for cf in $FILES; do
+  IFS="$CF_IFS"
+  cf_real="$(readlink -f -- "$cf" 2>/dev/null)" || cf_real=""
+  case "$cf_real" in
+    "$CF_ROOT"/*) ;;
+    *) cf_copy="$ROOT/deploy/site/compose-$(basename -- "$cf")"
+       if mkdir -p "$ROOT/deploy/site" && exec 6< "$cf" && rm -f -- "$cf_copy.new" && (umask 077; cat <&6 > "$cf_copy.new") \
+           && chmod 0644 "$cf_copy.new" && sync -- "$cf_copy.new" && mv -f -- "$cf_copy.new" "$cf_copy" \
+           && sync -- "$ROOT/deploy/site"; then
+         echo "install: note: the compose file $cf is outside $ROOT: copied to $cf_copy (the copy is the one used)" >&2
+         for i in "${!COMPOSE[@]}"; do [ "${COMPOSE[$i]}" != "$cf" ] || COMPOSE[i]="$cf_copy"; done
+         cf="$cf_copy"
+       else
+         rm -f -- "$cf_copy.new"
+         echo "install: warning: the compose file $cf is outside $ROOT and could not be copied to $cf_copy: every start refuses it" >&2
+       fi
+       exec 6<&- ;;
+  esac
+  CF_NEW="${CF_NEW:+$CF_NEW:}$cf"
+  IFS=:
+done
+IFS="$CF_IFS"; FILES="$CF_NEW"
 # the same file set for every later `docker compose --project-directory deploy ...` (secrets rotate, update, logs)
 sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.env
 # D-138 log retention: where collected service logs and the audit archive go (RUNBOOK §2 "Logs"); the days are in
@@ -1553,10 +1579,15 @@ elif [ "$SYSTEMD_HOST" = 1 ]; then
     rm -f "$CRON_DIR/trialbox-retention"  # one schedule, never both (as the backup's, D-1090)
     echo "install: note: no cron daemon here: the log retention cron is not installed; trialbox-retention.timer runs its job (00:20 daily, H-110)" >&2
   else
-    echo "install: warning: no cron daemon here: the log retention cron is not installed, and trialbox-retention.timer could not be installed: the log retention and the signed audit head do not run (systemctl status trialbox-retention.timer)" >&2
+    # OCR 1455-8 (the integrator's ruling 7128436810): PRODUCTION stops; a PoC box warns and lists it
+    stop_or_warn retention-timer "the nightly log retention and signed audit head (until the timer is installed)" "no cron daemon here, and trialbox-retention.timer could not be installed: the log retention and the signed audit head do not run. See systemctl status trialbox-retention.timer, then re-run"
   fi
 fi
 # H-110 (M-SC-3): a cron folder is not a cron daemon (a systemd host without one got the timer above)
+if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" != 1 ] && ! command -v pgrep >/dev/null; then
+  # OCR 1455-8: a host without pgrep is told, never passed in silence
+  stop_or_warn cron-daemon-unknown "the check for a running cron daemon" "this host has no pgrep, so whether a cron daemon runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) cannot be told; install procps (pgrep) or check the host's cron daemon, then re-run"
+fi
 if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" != 1 ] && command -v pgrep >/dev/null \
     && ! pgrep -x cron >/dev/null && ! pgrep -x crond >/dev/null; then
   stop_or_warn cron-daemon "the nightly log retention and signed audit head (until a cron daemon runs)" "no cron daemon runs on this host: nothing runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) until one does; start the host's cron daemon, then re-run"

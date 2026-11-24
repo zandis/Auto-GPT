@@ -241,27 +241,31 @@ text than it claimed (1455-7).
 
 ## The review of #1455 at `26ab7d4a` (verdict 7125919328)
 
-High 1, Medium 1, Low 6, all of lane H. Each fix has a test that fails with the `26ab7d4a` version of its file and
+High 1, Medium 1, Low 6, all of lane H. All are fixed. Each fix has a test that fails with the `26ab7d4a` version of its file and
 passes now. The reviewer's patches for the Lows are applied as given, with two test fixes: run as root, a file is
 already root's, so the key-owner and owner-hand-off tests give the file a third uid first.
 
 | | Finding | Verdict | The fix, and the test |
 | --- | --- | --- | --- |
 | 1455-1 | a kept tree's package at the top, or a bytecode cache, ran as root; the bytes checked were not the bytes used (High) | fixed | `deploy/bootstrap.sh` `kept_diff`, see (a); `tests/unit/test_ocr1455_kept_code.py`: `test_no_code_a_kept_tree_holds_runs_under_the_signed_installer` (2), `test_a_cache_folder_that_is_a_link_out_of_the_tree_never_runs`, `test_a_signed_file_another_user_could_change_is_never_what_runs` (3) |
-| 1455-2 (A) | a PoC start warns, then runs a compose file in a folder others can write (Medium) | open, asked | a stop on every box is a new kept stop, a changed assertion and a new rehearsal layout: asked of the integrator through the lead (7128325096); not built |
+| 1455-2 (A) | a PoC start warns, then runs a compose file in a folder others can write (Medium) | fixed (the integrator's ruling 7128436810) | `deploy/settings_guard.sh`: a stop on every box, H-94 (1); `deploy/install.sh` copies a compose file from outside the tree into `deploy/site` and starts only from there; the rehearsal's work dir is root's while the box runs (`tools/rehearse_box/rehearse.sh`) and its filter no longer accepts the line (`tools/rehearse_box/box.sh`); `test_every_start_refuses_a_compose_file_in_a_folder_others_can_write[TEST]` (rc 0 becomes rc 1, as ruled), `test_the_install_starts_only_from_compose_files_in_its_tree` |
 | 1455-2 (B) | the install checked the override by name, then copied it by name (Medium) | fixed | `deploy/install.sh`: opened once, checked through the open file, copied from it, written whole and renamed; `test_the_override_copied_is_the_file_that_was_checked`, `test_the_override_s_owner_and_mode_are_those_of_the_file_copied` |
 | 1455-3 | a plain key another user owns passed at 0600 (Low) | fixed | `deploy/check_host.sh` `kept 5`; `tests/unit/test_ocr1455_key_owner.py` |
 | 1455-4 | a signal that ends the script left the ticker holding the caller's pipe (Low) | fixed | `deploy/poc.sh`, `deploy/install.sh`; `tests/unit/test_ocr1455_ticker_signals.py` (6) |
 | 1455-5 | the secrets rotation wrote `.env` without the helper; the helper handed a non-root owner on (Low) | fixed | `tools/trialbox/svc_secrets.py`, `tools/trialbox/private_file.py`; `tests/unit/test_ocr1455_env_writers.py` (2) |
 | 1455-6 | the vendor keygen's check and its replace were two steps (Low) | fixed | `tools/sign_bundle.py`; `tests/unit/test_ocr1455_vendor_keygen_race.py` |
 | 1455-7 | claims and tests that said more than they held (Low) | fixed | this page, the 1396-1 test, the bootstrap test's allowance; the PR body's L-RR-1 row has no test |
-| 1455-8 | the timer that cannot be enabled only warns on PRODUCTION; no `pgrep` is silent (Low) | open, asked | both add install messages (the H-94 fixture grows): asked of the integrator through the lead (7128325096) |
+| 1455-8 | the timer that cannot be enabled only warns on PRODUCTION; no `pgrep` is silent (Low) | fixed (the integrator's ruling 7128436810) | `stop_or_warn retention-timer` and `stop_or_warn cron-daemon-unknown` (PRODUCTION stops, a PoC box warns); the H-94 fixture gains their two messages, `NOT_DRIVEN` the two keys (root only); `test_a_retention_timer_that_cannot_be_installed_is_a_stop_on_production` (2), `test_a_host_without_pgrep_is_told_its_cron_daemon_cannot_be_checked` (2) |
 | 7126867935 | an older box could not be reinstalled by a newer bootstrap (`--kek-passphrase-file`) | fixed by (a) | see (a); `tests/unit/test_bootstrap_upgrade_h110.py` |
 
 **What 1455-1's fix does not cover.** A folder at the top with no `__init__` file is a namespace package. It cannot
 shadow a module that exists elsewhere, but it can supply one that does not. No TrialBox tool imports a name that is
 missing on a box, so this is noted, not fixed. The folders above the tree accept a shared folder with the sticky bit
 (`/tmp`), as `kp_read_file` does.
+
+**Changed assertions (the integrator's ruling 7128436810).** `test_every_start_refuses_a_compose_file_in_a_folder_others_can_write[TEST]`: rc 0 with a warning becomes rc 1 with the refusal. `tests/fixtures/h94/install_sh_master_stops.json` gains 1455-8's two messages; `NOT_DRIVEN` gains `retention-timer` and `cron-daemon-unknown`.
+
+**What the rehearsal changes.** The work dir is the box host's bind mount, owned by the runner; every folder above it in the box host is the container's own. `host_up` makes it root's (0755) while the box runs, and teardown gives it back before the report is written. A run killed before teardown leaves it root's: remove it as root.
 
 **Files outside the card.** `tools/trialbox/svc_secrets.py` (1455-5, the reviewer's patch, its body only).
 
