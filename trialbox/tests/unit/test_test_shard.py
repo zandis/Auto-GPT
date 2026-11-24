@@ -213,8 +213,8 @@ def test_the_shards_run_every_shard_with_fail_fast_off() -> None:
     shards = strategy["matrix"]["shard"]
     assert shards == list(range(1, len(shards) + 1)) and len(shards) >= 2
     assert "unit" not in {str(job.get("name"))} and "unit-shard (" in str(job["name"])
-    # CI-TIERS (D-564): the shards are full tier: not on a draft pull request (tests/unit/test_ci_tiers.py)
-    assert job["if"] == "needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'"
+    # H-120 (D-1357): the shards run on every pull request (tests/unit/test_h120_unit_shards_every_pr.py)
+    assert job["if"] == "${{ !cancelled() && needs.changes.outputs.unit != 'false' }}"
     runs = _runs(job)
     assert "SHARD=${{ matrix.shard }}/${{ strategy.job-total }}" in runs and "SHARD_RECORD=" in runs
     assert "tools/ci_postgres.sh" in runs and "make data-scan" in runs
@@ -226,7 +226,7 @@ def test_unit_is_the_gate_over_every_shard_and_the_combined_coverage() -> None:
     assert "name" not in unit or unit["name"] == "unit"
     assert set(unit["needs"]) >= {"changes", "unit-shard"}
     cond = str(unit["if"])
-    assert "!cancelled()" in cond and "needs.changes.outputs.trialbox == 'true'" in cond
+    assert "!cancelled()" in cond and "needs.changes.outputs.unit != 'false'" in cond
     runs = _runs(unit)
     assert "needs.unit-shard.result" in runs and '!= "success"' in runs
     assert "python -m tools.test_shard check" in runs

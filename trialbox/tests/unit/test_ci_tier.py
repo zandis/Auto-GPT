@@ -82,7 +82,7 @@ def test_the_command_line(tmp_path: Path) -> None:
     env = {**os.environ, **_env(), "LABELS": ""}
     res = subprocess.run([sys.executable, str(ROOT / "tools/ci_tier.py")], input="trialbox/services/edc/a.py\n",
                          env=env, capture_output=True, text=True, check=True)  # fmt: skip
-    assert res.stdout.split() == ["full=true", "scenarios=true"]
+    assert res.stdout.split() == ["full=true", "scenarios=true", "unit=true"]  # H-120 (D-1357): unit on every PR
     assert "full-tier list" in res.stderr
     assert "guard tests" in res.stderr  # D-1119: the log names the guard step every tier runs
 

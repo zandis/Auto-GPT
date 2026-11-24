@@ -5,7 +5,7 @@
 Card H-120 implements the owner's process change (integrator 7125828711, item 1, on #639). The CI workflow never
 skips the unit shards (`unit-shard`, eight jobs) or their aggregate `unit` on a pull request. A policy test fails if
 any pull request can skip them. The same day #1460's two tests failed only on its train, because its own shards
-had been skipped (the integrator's 7127377925). Decision: `docs/decisions/D-1324-the-unit-shards-run-on-every-pull-request.md`.
+had been skipped (the integrator's 7127377925). Decision: `docs/decisions/D-1357-the-unit-shards-run-on-every-pull-request.md`.
 Findings: `unit-shards-on-every-pr-h120-2026-11-24/findings.json` (H120-01 to H120-03).
 
 ## The ways a pull request skipped the shards, and how each is closed

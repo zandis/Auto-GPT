@@ -1,4 +1,4 @@
-"""H-120 (D-1324): the unit shards run on every pull request. The policy fails when any pull request can skip them.
+"""H-120 (D-1357): the unit shards run on every pull request. The policy fails when any pull request can skip them.
 
 The owner's rule (integrator 7125828711, item 1): whatever a pull request touches, its draft state, its labels or the
 tier it gets, the matrix `unit-shard` and its aggregate `unit` run. Before H-120 a card's pull request on no

@@ -65,7 +65,7 @@ A push starts one of two tiers. `tests/unit/test_ci_tiers.py` holds the lists; a
 | --- | --- | --- |
 | fast tier | on every push to a pull request, draft or not | `changes`, `checks`, `data-scan`, `cross-card`, `powershell`, `differential` (and `lock` of the supply-chain workflow) |
 | full tier | when the pull request is not a draft (marking it ready for review starts it), on a branch named `train/*`, on a push to `master`, and by hand | `unit-shard`, `unit`, `property`, `goldens`, `e2e-simple`, `demo-boot`, `security`, `standards`, `images` |
-| the unit shards (H-120, D-1324) | on every pull request, whatever its tier: draft, docs-only, unlabelled or touching nothing under `trialbox/`; elsewhere with the full tier | `unit-shard`, `unit` |
+| the unit shards (H-120, D-1357) | on every pull request, whatever its tier: draft, docs-only, unlabelled or touching nothing under `trialbox/`; elsewhere with the full tier | `unit-shard`, `unit` |
 
 Three rules keep the billed runner minutes down (D-578):
 
@@ -81,7 +81,7 @@ Three rules keep the billed runner minutes down (D-578):
 
 * A card's pull request stays a draft while it is built. It needs the fast tier green on its head, its targeted
   tests and, where the plan asks, its adversarial review. Its unit shards and `unit` run on every push, draft or
-  not (D-1324; `tests/unit/test_h120_unit_shards_every_pr.py` fails if any pull request could skip them).
+  not (D-1357; `tests/unit/test_h120_unit_shards_every_pr.py` fails if any pull request could skip them).
 * A new push cancels the older run of the same pull request.
 * A pull request that touches the console (`services/console/`), `tools/visual_regression.py`,
   `tests/console/visual_accepted.txt` or its own workflow also runs the visual regression

@@ -26,7 +26,7 @@
   {
    "id": "H120-03",
    "severity": "Low",
-   "claim": "docs/plan/43-ci-and-train-etiquette.md 'Draft first' still says a push to a draft runs the fast tier only; true for every job but the unit shards since D-1324; the page is outside the card and was not edited",
+   "claim": "docs/plan/43-ci-and-train-etiquette.md 'Draft first' still says a push to a draft runs the fast tier only; true for every job but the unit shards since D-1357; the page is outside the card and was not edited",
    "lane": "H",
    "basis": "shown",
    "state": "open",
