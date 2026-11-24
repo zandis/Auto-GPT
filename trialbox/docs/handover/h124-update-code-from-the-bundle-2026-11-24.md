@@ -5,6 +5,7 @@
 - **Card:** H-124, the integrator's ruling 7128338428, after H-121's finding H121-06. Before this, the update's checks
   and applying code always came from the installed tree, so a fault in them could be mended only by a reinstall.
 - **Date:** 2026-11-24
+- **Decision:** [D-1462](../decisions/D-1462-an-update-runs-the-new-bundles-own-code.md)
 - **Findings:** [`h124-update-code-from-the-bundle-2026-11-24/findings.json`](h124-update-code-from-the-bundle-2026-11-24/findings.json)
 - **Files:** `tools/apply_update.sh` (the hand-off and the one constant), `tools/host_tree.py` (`stage_code`, the
   `stage-code` command), the new test `tests/unit/test_update_code_from_the_bundle_h124.py`, three rows in the H-94 page's
