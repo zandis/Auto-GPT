@@ -12,7 +12,7 @@
 # The harms (the page names them): a public repository's self-hosted runner runs strangers' code if a fork-reachable
 # trigger reaches it (the workflow's part, tested); a job that escapes its container reaches the owner's data and keys
 # (so: the tb-bench user with no group, a rootless engine, one scratch folder); a leaked token lets another machine
-# join as a runner (so: a root-only file, handed to the units as a credential of the service manager).
+# join as a runner, and more (so: a root-only file that only the units' root steps read; the jobs' user never can).
 set -euo pipefail
 umask 022
 
@@ -26,7 +26,7 @@ HOME_DIR=/var/lib/tb-bench
 ID_RANGE=262144
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FILES=(__init__.py launcher.py gpu_check.py)
-IMAGE_FILES=(runner.Dockerfile entrypoint.sh job_started.sh probe.sh gpu_check.py egress_proxy.py)
+IMAGE_FILES=(runner.Dockerfile entrypoint.sh job_started.sh probe.sh gpu_check.py egress_proxy.py gate.py unpack_jit.py)
 
 die() { echo "bench CI install: $*" >&2; exit 1; }
 say() { echo "bench CI install: $*"; }
@@ -57,7 +57,7 @@ prerequisites() {
   done
   [ "${#missing[@]}" = 0 ] || die "missing on this host: ${missing[*]}"
   python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "python3 is older than 3.10"
-  [ "$(systemctl --version | awk 'NR==1{print $2}')" -ge 248 ] || die "the service manager is older than 248 (credentials)"
+  [ "$(systemctl --version | awk 'NR==1{print $2}')" -ge 248 ] || die "the service manager is older than 248"
   [ -f "$SETTINGS" ] || die "no $SETTINGS: copy tools/bench_ci/settings.example.env there and fill it in"
   chown root:root "$SETTINGS" && chmod 0600 "$SETTINGS"
   get BENCH_REPO >/dev/null || die "the settings are not complete (the line above says what)"
@@ -70,6 +70,7 @@ prerequisites() {
     die "the container engine is $ver: 4.4 or newer is needed (keep-id with a user)"
   if [ "$(get BENCH_GPU_SLOTS)" -gt 0 ]; then
     [ -x "$(get BENCH_GPU_QUERY)" ] || die "the card query tool $(get BENCH_GPU_QUERY) is not there"
+    [ -d "$(get BENCH_WEIGHTS)" ] || die "the weights folder $(get BENCH_WEIGHTS) is not there"
   fi
   say "prerequisites: present"
 }
@@ -128,11 +129,8 @@ build_image() {
 make_networks() {
   local engine
   engine="$(get BENCH_ENGINE)"
-  as_tb "$engine" network exists tb-bench-jobs || as_tb "$engine" network create --internal tb-bench-jobs >/dev/null
   as_tb "$engine" network exists tb-bench-egress || as_tb "$engine" network create tb-bench-egress >/dev/null
-  [ "$(as_tb "$engine" network inspect tb-bench-jobs --format '{{.Internal}}')" = true ] ||
-    die "the network tb-bench-jobs exists and is not internal: remove it and run install again"
-  say "networks: tb-bench-jobs (internal, no route out), tb-bench-egress (the proxy's only)"
+  say "networks: tb-bench-egress (the proxy's way out); each job gets its own internal network at its start"
 }
 
 start_units() {
@@ -202,9 +200,15 @@ cmd_verify() {
   while read -r unit; do check "$unit runs" systemctl is-active --quiet "$unit"; done < <(slots)
   if [ "$(get BENCH_GPU_SLOTS)" -gt 0 ]; then
     check "the CI cards are free" as_tb_launcher check --settings "$SETTINGS"
+    check "$USER_NAME cannot write the weights folder" not as_tb test -w "$(get BENCH_WEIGHTS)"
   fi
-  echo "the job container probe (each line PASS or FAIL):"
-  if as_tb_launcher probe --settings "$SETTINGS"; then echo "PASS the probe"; else echo "FAIL the probe"; fails=$((fails + 1)); fi
+  check "no unit holds a copy of the token (no credential of the service manager)" not grep -q LoadCredential "$UNITS/tb-bench-runner@.service"
+  local profile
+  for profile in cpu engine gpu; do
+    [ "$(get "BENCH_${profile^^}_SLOTS")" -gt 0 ] || continue
+    echo "the job container probe, $profile profile (each line PASS or FAIL):"
+    if as_tb_launcher probe --settings "$SETTINGS" --profile "$profile"; then echo "PASS the $profile probe"; else echo "FAIL the $profile probe"; fails=$((fails + 1)); fi
+  done
   echo "verify: $fails failure(s)"
   [ "$fails" = 0 ]
 }
@@ -223,7 +227,9 @@ cmd_remove() {
   if id "$USER_NAME" >/dev/null 2>&1 && [ -n "$engine" ] && [ -x "$engine" ]; then
     as_tb "$engine" rm --all --force >/dev/null 2>&1 || true
     if [ -n "$scratch" ] && [ -d "$scratch" ]; then as_tb "$engine" unshare rm -rf --one-file-system "$scratch" || true; fi
-    as_tb "$engine" network rm --force tb-bench-jobs tb-bench-egress >/dev/null 2>&1 || true
+    as_tb "$engine" network ls --quiet --filter name=tb-bench | while read -r net; do
+      as_tb "$engine" network rm --force "$net" >/dev/null 2>&1 || true
+    done
     as_tb "$engine" system reset --force >/dev/null 2>&1 || true
   fi
   if [ -n "$scratch" ] && [ -d "$scratch" ]; then rm -rf --one-file-system "$scratch"; fi

@@ -1,7 +1,9 @@
 # One bench CI runner slot (card H-105; docs/runbook/13-bench-ci-runner.md): %i is cpu-N, engine-N or gpu-N.
-# Each start is one job's life (register for one job, run it in a fresh container, remove it); the service manager starts the next.
-# The minting token reaches the launcher as a credential of the service manager: a copy of the root-only file, readable by this unit
-# only, named on the command line by its folder (%d), never in an argument's value or the environment.
+# Each start is one job's life; the service manager starts the next. Three steps, two users (the review's F2):
+#   ExecStartPre (root, "+"): mint: the long-lived token (root's file, 0600) asks the code host for one job's runner
+#                configuration; only that one-job configuration reaches the jobs' user, in the slot's scratch folder
+#   ExecStart    (tb-bench):  run: the slot's network and the job's container; a stop stops both (TERM)
+#   ExecStopPost (root, "+"): cleanup: the registration and the scratch folder go, after a job, a failure or a stop
 [Unit]
 Description=TrialBox bench CI runner %i
 After=network-online.target tb-bench-proxy.service
@@ -14,8 +16,11 @@ User=tb-bench
 Group=tb-bench
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 WorkingDirectory=/opt/tb-bench-ci
-LoadCredential=token:/etc/tb-bench-ci/token
-ExecStart=/usr/bin/python3 -s -E -m tools.bench_ci.launcher run --settings /etc/tb-bench-ci/settings.env --token-file %d/token --slot %i
+ExecStartPre=+/usr/bin/python3 -s -E -m tools.bench_ci.launcher mint --settings /etc/tb-bench-ci/settings.env --slot %i
+ExecStart=/usr/bin/python3 -s -E -m tools.bench_ci.launcher run --settings /etc/tb-bench-ci/settings.env --slot %i
+ExecStopPost=+/usr/bin/python3 -s -E -m tools.bench_ci.launcher cleanup --settings /etc/tb-bench-ci/settings.env --slot %i
+KillMode=mixed
+TimeoutStopSec=60
 Restart=always
 RestartSec=30
 ProtectSystem=full

@@ -11,8 +11,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import pwd
 import re
+import signal
 import stat
+import subprocess
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -35,6 +38,7 @@ FILLED = {
     "BENCH_REPO": "example-owner/example-repo",
     "BENCH_ENGINE": "/usr/bin/engine",
     "BENCH_SCRATCH": "/srv/ci-scratch",
+    "BENCH_SUBNET_PREFIX": "10.213",
     "BENCH_CPU_SLOTS": "4",
     "BENCH_ENGINE_SLOTS": "1",
     "BENCH_GPU_SLOTS": "1",
@@ -48,6 +52,7 @@ FILLED = {
     "BENCH_GPU_DEVICE": "vendor.example/gpu",
     "BENCH_GPU_CAP_MIB": "1024",
     "BENCH_GPU_CAP_UTIL": "5",
+    "BENCH_WEIGHTS": "/srv/weights",
 }
 CI_CARDS = [4, 5]
 RESERVED = [1, 2, 3]
@@ -66,16 +71,26 @@ def _settings(**over: str) -> launcher.Settings:
     return launcher.parse_settings(_filled(**over))
 
 
-SCRATCH = Path("/srv/ci-scratch/tb-bench-cpu-1-0000")
+SCRATCH = Path("/srv/ci-scratch/tb-bench-cpu-1")
 HOST_HOME = re.compile(r"(?<![\w.-])/(home|root)\b")  # a host's home folder (the job's own is /scratch/home)
 
 
-def _flags(args: list[str]) -> list[str]:
-    return [a for a in args if a.startswith("-")]
+def _fake_run(ran: list[list[str]]) -> Any:
+    """A stand-in for subprocess.run that records each command and answers 0."""
+
+    def run(args: list[str], **_kw: Any) -> subprocess.CompletedProcess[bytes]:
+        ran.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+    return run
 
 
 def _values(args: list[str], flag: str) -> list[str]:
     return [args[i + 1] for i, a in enumerate(args[:-1]) if a == flag]
+
+
+def _args(profile: str, slot: str = "cpu-1") -> list[str]:
+    return launcher.container_args(_settings(), profile, f"tb-bench-{slot}", SCRATCH, slot)
 
 
 # --- the settings file ------------------------------------------------------------------------------------------
@@ -92,6 +107,16 @@ def test_the_example_holds_placeholders_only_and_is_refused_as_it_is() -> None:
     assert set(re.findall(r"^(BENCH_[A-Z_0-9]+)=", EXAMPLE, re.M)) == launcher.KEYS
 
 
+def test_the_allow_list_names_hosts_not_wildcards_and_no_upload_host() -> None:
+    """F4: no storage wildcard, no user-content wildcard, no upload host; the one suffix is the job service's."""
+    allow = next(ln for ln in EXAMPLE.splitlines() if ln.startswith("BENCH_ALLOW_HOSTS=")).split("=", 1)[1]
+    exact, suffixes = egress_proxy.parse_allow(allow)
+    assert suffixes == (".actions.githubusercontent.com",)
+    assert not any(h.endswith(".blob.core.windows.net") and not h.startswith("productionresultssa") for h in exact)
+    assert "uploads.github.com" not in exact and "githubusercontent.com" not in exact
+    assert not any(s in (".githubusercontent.com", ".github.com", ".blob.core.windows.net") for s in suffixes)
+
+
 def test_filled_settings_are_read() -> None:
     s = _settings()
     assert s["BENCH_LABEL"] == "tb-bench" and s.num("BENCH_GPU_SLOTS") == 1
@@ -105,12 +130,16 @@ def test_filled_settings_are_read() -> None:
         ({"BENCH_CI_GPUS": "1,4"}, "keeps"),  # the walk's card
         ({"BENCH_CI_GPUS": "3,4"}, "keeps"),  # a card of the bench
         ({"BENCH_CI_GPUS": ""}, "a GPU slot needs"),
+        ({"BENCH_WEIGHTS": ""}, "a GPU slot needs"),
+        ({"BENCH_WEIGHTS": "weights"}, "absolute"),
         ({"BENCH_RESERVED_GPUS": "2,3"}, "card 1"),
         ({"BENCH_GPU_CAP_MIB": "lots"}, "whole number"),
         ({"BENCH_ENGINE": "engine"}, "absolute"),
         ({"BENCH_GPU_QUERY": "cardquery"}, "absolute"),
         ({"BENCH_RUNNER_SHA256": "abc"}, "64 hex"),
         ({"BENCH_CPUS": "many"}, "whole number"),
+        ({"BENCH_SUBNET_PREFIX": "10.213.0"}, "a.b"),
+        ({"BENCH_ENGINE_SLOTS": "50"}, "at most 49"),
     ],
 )
 def test_settings_that_would_share_a_card_or_guess_a_path_are_refused(over: dict[str, str], words: str) -> None:
@@ -136,14 +165,18 @@ def test_the_settings_file_must_be_roots(tmp_path: Path) -> None:
         launcher.read_settings(f)
 
 
-def test_the_token_file_must_be_private(tmp_path: Path) -> None:
+def test_the_token_file_must_be_the_root_steps_own_and_private(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     f = tmp_path / "token"
     f.write_text("tok-for-a-test\n", encoding="utf-8")
     f.chmod(0o640)
-    with pytest.raises(launcher.SettingsError, match="readable by others"):
+    with pytest.raises(launcher.SettingsError, match="mode 0600"):
         launcher.read_token(f)
     f.chmod(0o600)
     assert launcher.read_token(f) == "tok-for-a-test"
+    monkeypatch.setattr("os.geteuid", lambda: f.stat().st_uid + 1)  # another user's file: refused
+    with pytest.raises(launcher.SettingsError, match="reading user's"):
+        launcher.read_token(f)
+    monkeypatch.undo()
     f.write_text("two tokens\n", encoding="utf-8")
     with pytest.raises(launcher.SettingsError, match="more than one"):
         launcher.read_token(f)
@@ -153,75 +186,108 @@ def test_the_token_file_must_be_private(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("profile", launcher.PROFILES)
-def test_no_profile_sees_a_socket_a_home_the_host_network_or_any_folder_but_its_scratch(profile: str) -> None:
-    args = launcher.container_args(_settings(), profile, "tb-bench-x", SCRATCH)
+def test_no_profile_sees_a_socket_a_home_the_host_network_or_any_folder_but_its_own(profile: str) -> None:
+    args = _args(profile)
     text = " ".join(args)
     assert args[0] == "/usr/bin/engine" and args[1] == "run" and args[-1] == "localhost/tb-bench-runner:1"
     assert "--rm" in args and "--pull=never" in args
-    # the one host folder: this job's scratch folder
+    # host folders: this job's scratch folder; a GPU job also the weights, read-only
     mounts = [a for a in args if a in ("--volume", "-v", "--mount")]
-    assert mounts == ["--volume"] and _values(args, "--volume") == [f"{SCRATCH}:/scratch:rw"]
-    assert not any(a.startswith(("--volume=", "-v=", "--mount=", "--volumes-from")) for a in args)
+    want = [f"{SCRATCH}:/scratch:rw"] + (["/srv/weights:/weights:ro"] if profile == "gpu" else [])
+    assert mounts == ["--volume"] * len(want) and _values(args, "--volume") == want
+    assert not any(a.startswith(("--volume=", "-v=", "--mount=", "--volumes-from", "--tmpfs")) for a in args)
     # no engine socket, no home, no host namespace, no privilege, no file of the host's environment
     assert ".sock" not in text and "/run/user" not in text and "/var/run" not in text
     assert not HOST_HOME.search(text) and "~" not in text and "/etc/" not in text
     for bad in ("--privileged", "--pid", "--ipc", "--uts", "--env-file", "--env-host", "--http-proxy",
-                "--add-host", "--cap-add", "--group-add", "--security-opt=seccomp=unconfined", "--systemd"):  # fmt: skip
+                "--add-host", "--group-add", "--security-opt=seccomp=unconfined", "--systemd", "--interactive"):  # fmt: skip
         assert not any(a == bad or a.startswith(bad + "=") for a in args), bad
-    assert "seccomp=unconfined" not in text and "apparmor=unconfined" not in text
+    assert "seccomp=unconfined" not in text and "apparmor=unconfined" not in text and "label=disable" not in text
+    # F5: every profile read-only, every capability dropped, no fuse or tun device
+    assert "--read-only" in args and "--read-only-tmpfs=true" in args and "--cap-drop=all" in args
+    assert "/dev/fuse" not in text and "/dev/net/tun" not in text
+    assert "TMPDIR=/scratch/tmp" in _values(args, "--env")
     # the job's own non-root user, the host's tb-bench user mapped onto it
     assert _values(args, "--user") == ["1001:1001"] and "--userns=keep-id:uid=1001,gid=1001" in args
     assert not any(a.startswith("--userns=host") for a in args)
-    # the internal network only: the proxy is the way out
-    assert _values(args, "--network") == [launcher.JOBS_NET] and not any(a.startswith("--network=") for a in args)
+    # F7: the slot's own internal network; F4: no name service; the proxy by its fixed address
+    assert _values(args, "--network") == ["tb-bench-job-cpu-1"] and not any(a.startswith("--network=") for a in args)
+    assert _values(args, "--dns") == ["none"]
     assert not any(a.startswith(("--net=", "--net ")) or a == "--net" for a in args)
-    assert f"HTTPS_PROXY=http://{launcher.PROXY_NAME}:{launcher.PROXY_PORT}" in _values(args, "--env")
+    assert "HTTPS_PROXY=http://10.213.1.2:3128" in _values(args, "--env")
     # a share of the host, not all of it
     assert _values(args, "--cpus") == ["16"] and _values(args, "--memory") == ["64g"]
     assert _values(args, "--pids-limit") == ["8192"]
-    # nothing of a token in the job's command line
-    assert not any("TOKEN" in a.upper() for a in _values(args, "--env"))
+    # nothing of a token or a configuration in the job's command line (F9: it is a file)
+    assert not any("TOKEN" in a.upper() or "JIT" in a.upper() for a in args)
 
 
-def test_a_cpu_job_is_read_only_with_no_capability_and_no_new_privilege() -> None:
-    args = launcher.container_args(_settings(), "cpu", "tb-bench-x", SCRATCH)
-    assert "--read-only" in args and "--read-only-tmpfs=true" in args and "--cap-drop=all" in args
-    assert _values(args, "--security-opt") == ["no-new-privileges"]
-    assert "TMPDIR=/scratch/tmp" in _values(args, "--env") and "--tmpfs" not in args
+def test_a_cpu_job_keeps_no_capability_and_gets_no_new_privilege() -> None:
+    args = _args("cpu")
+    assert _values(args, "--security-opt") == ["no-new-privileges"] and "--cap-add" not in args
     assert "--device" not in args
 
 
-def test_an_engine_job_has_its_own_nested_engine_and_no_host_one() -> None:
-    args = launcher.container_args(_settings(), "engine", "tb-bench-x", SCRATCH)
-    assert _values(args, "--device") == ["/dev/fuse", "/dev/net/tun"]
-    assert _values(args, "--security-opt") == ["label=disable"]
-    # no card for an engine job
-    assert not any(v.startswith("vendor.example/gpu") for v in _values(args, "--device"))
+@pytest.mark.parametrize("profile", ["engine", "gpu"])
+def test_an_engine_or_gpu_job_keeps_only_the_set_id_pair_for_its_nested_engine(profile: str) -> None:
+    """F5: the nested rootless engine maps its user namespace with the set-id helpers: SETUID and SETGID, and so no
+    no-new-privileges; nothing else (the workflow keeps these profiles off lane pushes)."""
+    args = _args(profile)
+    assert _values(args, "--cap-add") == ["SETUID", "SETGID"] == list(launcher.ENGINE_CAPS)
+    assert "--security-opt" not in args
 
 
-def test_a_gpu_job_gets_the_ci_cards_and_never_the_walks_or_the_benchs() -> None:
-    args = launcher.container_args(_settings(), "gpu", "tb-bench-x", SCRATCH)
+def test_only_a_gpu_job_gets_the_ci_cards_and_the_weights_read_only() -> None:
+    args = _args("gpu")
     cards = [v for v in _values(args, "--device") if v.startswith("vendor.example/gpu=")]
-    assert cards == [f"vendor.example/gpu={i}" for i in CI_CARDS]
+    assert cards == [f"vendor.example/gpu={i}" for i in CI_CARDS] == _values(args, "--device")
     assert not any(v.endswith(f"={r}") for v in cards for r in RESERVED)
+    assert "/srv/weights:/weights:ro" in _values(args, "--volume")
+    for other in ("cpu", "engine"):
+        assert "--device" not in _args(other) and not any("weights" in a for a in _args(other))
 
 
-def test_the_verify_probe_runs_with_the_cpu_jobs_arguments_exactly() -> None:
+def test_each_slot_has_its_own_network_and_address() -> None:
     s = _settings()
-    scratch = Path("/srv/ci-scratch/tb-bench-probe-0000")
-    probe = launcher.probe_args(s, scratch)
-    job = launcher.container_args(s, "cpu", scratch.name, scratch)
+    seen = {launcher.subnet(s, slot) for slot in ("cpu-1", "cpu-2", "engine-1", "gpu-1", "probe-cpu", "probe-gpu")}
+    assert len(seen) == 6
+    assert launcher.subnet(s, "cpu-99") == ("10.213.99.0/24", "10.213.99.2")
+    assert launcher.subnet(s, "engine-49") == ("10.213.149.0/24", "10.213.149.2")
+    assert launcher.subnet(s, "gpu-1") == ("10.213.151.0/24", "10.213.151.2")
+    assert launcher.job_net("gpu-1") != launcher.job_net("cpu-1")
+
+
+def test_the_job_network_is_internal_without_a_name_service_and_the_proxy_joins_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran: list[list[str]] = []
+    monkeypatch.setattr("subprocess.run", _fake_run(ran))
+    launcher.net_up(_settings(), "cpu-3")
+    create = next(a for a in ran if a[1:3] == ["network", "create"])
+    assert create == ["/usr/bin/engine", "network", "create", "--internal", "--disable-dns", "--subnet",
+                      "10.213.3.0/24", "tb-bench-job-cpu-3"]  # fmt: skip
+    connect = next(a for a in ran if a[1:3] == ["network", "connect"])
+    assert connect == ["/usr/bin/engine", "network", "connect", "--ip", "10.213.3.2", "tb-bench-job-cpu-3",
+                       "tb-bench-proxy"]  # fmt: skip
+
+
+@pytest.mark.parametrize("profile", launcher.PROFILES)
+def test_the_verify_probe_runs_with_each_profiles_arguments_exactly(profile: str) -> None:
+    s = _settings()
+    scratch = Path("/srv/ci-scratch/tb-bench-probe-x")
+    probe = launcher.probe_args(s, profile, scratch)
+    job = launcher.container_args(s, profile, scratch.name, scratch, f"probe-{profile}")
     assert probe[:-3] == job[:-1] and probe[-3:] == ["--entrypoint", "/opt/tb-bench/probe.sh", job[-1]]
 
 
-def test_the_proxy_container_is_the_only_one_on_the_way_out() -> None:
+def test_the_proxy_container_sits_on_its_way_out_only() -> None:
     args = launcher.proxy_args(_settings())
-    assert _values(args, "--network") == [launcher.JOBS_NET, launcher.EGRESS_NET]
+    assert _values(args, "--network") == [launcher.EGRESS_NET]
     assert "--read-only" in args and "--cap-drop=all" in args and _values(args, "--user") == ["1001:1001"]
     assert "--volume" not in args and "-v" not in args
     assert _values(args, "--allow") == [_settings()["BENCH_ALLOW_HOSTS"]]
     for profile in launcher.PROFILES:
-        assert launcher.EGRESS_NET not in launcher.container_args(_settings(), profile, "x", SCRATCH)
+        assert launcher.EGRESS_NET not in _args(profile)
 
 
 # --- the token and the code host --------------------------------------------------------------------------------
@@ -229,6 +295,7 @@ def test_the_proxy_container_is_the_only_one_on_the_way_out() -> None:
 
 class _Conn:
     seen: ClassVar[list[dict[str, Any]]] = []
+    answer: ClassVar[tuple[int, dict[str, Any]]] = (201, {"runner": {"id": 7}, "encoded_jit_config": "CONFIG-X"})
 
     def __init__(self, host: str, timeout: float = 0) -> None:
         self.host = host
@@ -237,11 +304,14 @@ class _Conn:
         _Conn.seen.append({"host": self.host, "method": method, "path": path, "headers": headers or {}, "body": body})
 
     def getresponse(self) -> Any:
+        status, body = _Conn.answer
+
         class R:
-            status = 201
+            def __init__(self) -> None:
+                self.status = status
 
             def read(self) -> bytes:
-                return json.dumps({"runner": {"id": 7}, "encoded_jit_config": "CONFIG-FOR-A-TEST"}).encode()
+                return json.dumps(body).encode()
 
         return R()
 
@@ -257,7 +327,7 @@ def test_the_token_goes_to_the_code_hosts_api_only_whatever_a_callers_proxy_says
     for var in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY"):
         monkeypatch.setenv(var, "http://elsewhere.invalid:8080")
     config, rid = launcher.jit_config(_settings(), "tok-for-a-test", "tb-bench-cpu-1-x", "cpu")
-    assert (config, rid) == ("CONFIG-FOR-A-TEST", 7)
+    assert (config, rid) == ("CONFIG-X", 7)
     (call,) = _Conn.seen
     assert call["host"] == "api.github.com" and call["method"] == "POST"
     assert call["path"] == "/repos/example-owner/example-repo/actions/runners/generate-jitconfig"
@@ -266,64 +336,151 @@ def test_the_token_goes_to_the_code_hosts_api_only_whatever_a_callers_proxy_says
     assert b"tok-for-a-test" not in call["body"]
     with pytest.raises(ValueError, match="runner endpoints"):
         launcher.api("GET", "/user", "tok-for-a-test")
+    with pytest.raises(ValueError, match="runner endpoints"):  # a read of master's workflow only, never a write
+        launcher.api("PUT", f"/repos/example-owner/example-repo/contents/{launcher.WORKFLOW}?ref=master", "t")
 
 
-def test_one_job_life_the_config_on_stdin_never_an_argument_then_gone(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_masters_workflow_blob_is_read_by_the_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    _Conn.seen = []
+    monkeypatch.setattr("http.client.HTTPSConnection", _Conn)
+    monkeypatch.setattr(_Conn, "answer", (200, {"sha": "b" * 40}))
+    assert launcher.master_blob(_settings(), "tok-for-a-test") == "b" * 40
+    assert _Conn.seen[0]["path"] == (
+        "/repos/example-owner/example-repo/contents/.github/workflows/trialbox-bench-ci.yml?ref=master"
+    )
+    monkeypatch.setattr(_Conn, "answer", (404, {}))
+    with pytest.raises(RuntimeError, match="could not be read"):
+        launcher.master_blob(_settings(), "tok-for-a-test")
+
+
+@pytest.fixture
+def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """A bench host in a folder: the scratch root, the root state folder, the token; the root steps run as root."""
     scratch_root = tmp_path / "scratch"
     scratch_root.mkdir()
-    s = _settings(BENCH_SCRATCH=str(scratch_root))
+    state = tmp_path / "state"
     token = tmp_path / "token"
     token.write_text("tok-for-a-test\n", encoding="utf-8")
     token.chmod(0o600)
     calls: list[tuple[str, str]] = []
 
-    def mint(*_a: Any) -> tuple[str, int]:
-        calls.append(("mint", ""))
-        return "CONFIG-FOR-A-TEST", 7
+    def jit(*_a: Any) -> tuple[str, int]:
+        calls.append(("jit", ""))
+        return "CONFIG-X", 7
 
-    monkeypatch.setattr(launcher, "jit_config", mint)
+    monkeypatch.setattr(launcher, "jit_config", jit)
+    monkeypatch.setattr(launcher, "master_blob", lambda *_a: "c" * 40)
     monkeypatch.setattr(launcher, "remove_runner", lambda _s, _t, rid: calls.append(("remove", str(rid))))
+    me = pwd.getpwuid(os.getuid())
+    monkeypatch.setattr("pwd.getpwnam", lambda _n: me)
+    monkeypatch.setattr("os.geteuid", lambda: 0)
+
+    def read_token(path: Path) -> str:
+        calls.append(("token", str(path)))
+        return "tok"
+
+    monkeypatch.setattr(launcher, "read_token", read_token)
+    s = _settings(BENCH_SCRATCH=str(scratch_root))
+    return s, token, state, calls
+
+
+def test_the_root_mint_step_gives_the_jobs_user_one_jobs_configuration_and_never_the_token(host: Any) -> None:
+    """F2: the long-lived token is read by the root mint step only; the jobs' user gets runner.jit (one job) and the
+    gate's facts, in the slot's fresh scratch folder; the runner's id stays in root's state."""
+    s, token, state, calls = host
+    assert launcher.mint(s, "cpu-2", token_file=token, state=state) == 0
+    folder = launcher.scratch_of(s, "cpu-2") / ".tb-bench"
+    assert (folder / "runner.jit").read_text() == "CONFIG-X\n"
+    assert stat.S_IMODE((folder / "runner.jit").stat().st_mode) == 0o600
+    facts = json.loads((folder / "job.json").read_text())
+    assert facts == {"profile": "cpu", "repo": "example-owner/example-repo", "workflow": launcher.WORKFLOW,
+                     "workflow_blob": "c" * 40, "proxy": "10.213.2.2:3128"}  # fmt: skip
+    assert "tok" not in json.dumps(facts) and "tok" not in (folder / "runner.jit").read_text()
+    assert json.loads((state / "cpu-2.json").read_text())["runner_id"] == 7
+    assert calls[0] == ("token", str(token)) and ("jit", "") in calls
+
+
+def test_the_mint_step_refuses_to_run_as_another_user(host: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    s, token, state, calls = host
+    monkeypatch.setattr("os.geteuid", lambda: 1001)
+    assert launcher.mint(s, "cpu-1", token_file=token, state=state) == 2
+    assert calls == []
+
+
+def test_the_jobs_users_step_never_reads_the_token(host: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """F2: run (the tb-bench user) reads no token; its container gets no configuration in its arguments (F9)."""
+    s, token, state, calls = host
+    launcher.mint(s, "cpu-1", token_file=token, state=state)
+    calls.clear()
     seen: dict[str, Any] = {}
 
     class Proc:
         def __init__(self, args: list[str], **kw: Any) -> None:
             seen["args"], seen["kw"] = args, kw
-            spec = json.loads(
-                (Path(args[args.index("--volume") + 1].split(":")[0]) / ".tb-bench" / "job.json").read_text()
-            )
-            seen["spec"] = spec
-
-            class In:
-                def write(self, text: str) -> None:
-                    seen["stdin"] = text
-
-                def close(self) -> None:
-                    pass
-
-            self.stdin = In()
 
         def wait(self, timeout: float | None = None) -> int:
             return 0
 
     ran: list[list[str]] = []
     monkeypatch.setattr("subprocess.Popen", Proc)
-    monkeypatch.setattr("subprocess.run", lambda args, **kw: ran.append(args))
-    assert launcher.run_slot(s, token, "cpu-1") == 0
-    assert seen["stdin"] == "CONFIG-FOR-A-TEST\n"
-    assert not any("CONFIG-FOR-A-TEST" in a or "tok-for-a-test" in a for a in seen["args"])
-    assert "env" not in seen["kw"]  # the container gets no copy of the launcher's environment
-    assert seen["spec"] == {"profile": "cpu"}
-    assert calls == [("mint", ""), ("remove", "7")]
-    (drop,) = ran
-    assert drop[:4] == ["/usr/bin/engine", "unshare", "rm", "-rf"] and drop[-1].startswith(str(scratch_root))
+    monkeypatch.setattr("subprocess.run", _fake_run(ran))
+    assert launcher.run_slot(s, "cpu-1") == 0
+    assert calls == []  # no token read, no registration made or removed here
+    assert not any("CONFIG-X" in a or "tok" in a for a in seen["args"])
+    assert "env" not in seen["kw"] and seen["kw"].get("stdin") == subprocess.DEVNULL
+    assert ["/usr/bin/engine", "network", "rm", "--force", "tb-bench-job-cpu-1"] in ran  # the network goes after
 
 
-def test_a_slot_name_is_checked() -> None:
-    assert launcher.run_slot(_settings(), Path("/nonexistent"), "host-1") == 2
-    with pytest.raises(ValueError, match="not a job scratch"):
-        launcher.drop_scratch(_settings(), Path("/srv/ci-scratch/../etc"))
+def test_a_stop_or_a_failure_takes_the_registration_and_the_scratch_folder_away(host: Any) -> None:
+    """F8: cleanup (root, after a job, a failure or a stop) removes the registration and the folder."""
+    s, token, state, calls = host
+    launcher.mint(s, "cpu-1", token_file=token, state=state)
+    calls.clear()
+    assert launcher.cleanup(s, "cpu-1", token_file=token, state=state) == 0
+    assert ("remove", "7") in calls
+    assert not launcher.scratch_of(s, "cpu-1").exists() and not (state / "cpu-1.json").exists()
+
+
+def test_a_new_job_never_finds_an_earlier_jobs_files(host: Any) -> None:
+    s, token, state, _ = host
+    launcher.mint(s, "cpu-1", token_file=token, state=state)
+    left = launcher.scratch_of(s, "cpu-1") / "home" / "left-behind"
+    left.write_text("x")
+    (launcher.scratch_of(s, "cpu-1") / ".tb-bench" / "runner.jit").unlink()
+    (launcher.scratch_of(s, "cpu-1") / ".tb-bench" / "job.json").unlink()
+    assert launcher.mint(s, "cpu-1", token_file=token, state=state) == 0
+    assert not left.exists()
+
+
+def test_a_unit_stop_stops_the_container(host: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """F8: the run step answers the service manager's TERM by stopping the job's container."""
+    s, token, state, _ = host
+    launcher.mint(s, "cpu-1", token_file=token, state=state)
+    ran: list[list[str]] = []
+    handlers: dict[int, Any] = {}
+
+    class Proc:
+        def __init__(self, args: list[str], **kw: Any) -> None:
+            pass
+
+        def wait(self, timeout: float | None = None) -> int:
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return 143
+
+    monkeypatch.setattr("subprocess.Popen", Proc)
+    monkeypatch.setattr("subprocess.run", _fake_run(ran))
+    monkeypatch.setattr("signal.signal", handlers.__setitem__)
+    launcher.run_slot(s, "cpu-1")
+    assert ["/usr/bin/engine", "stop", "--time", "10", "tb-bench-cpu-1"] in ran
+
+
+def test_a_slot_name_is_checked(host: Any) -> None:
+    s, token, state, _ = host
+    with pytest.raises(ValueError, match="not a slot"):
+        launcher.run_slot(s, "host-1")
+    with pytest.raises(ValueError, match="not a slot"):
+        launcher.mint(s, "host-1", token, state)
+    assert launcher.run_slot(s, "cpu-7") == 2  # no one-job configuration: nothing starts
 
 
 # --- the CI cards, with a stand-in for the card query tool ------------------------------------------------------
@@ -407,7 +564,9 @@ def test_a_reserved_card_is_refused_before_any_query(card_tool: Any) -> None:
 def test_a_gpu_slot_with_busy_cards_registers_nothing(card_tool: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     tool, _ = card_tool(SIX.replace("4, GPU-4, 3, 0", "4, GPU-4, 9000, 0"))
     monkeypatch.setattr(launcher, "jit_config", lambda *_a: pytest.fail("a runner was registered"))
-    assert launcher.run_slot(_settings(BENCH_GPU_QUERY=tool), Path("/nonexistent"), "gpu-1") == 3
+    monkeypatch.setattr(launcher, "read_token", lambda *_a: pytest.fail("the token was read"))
+    monkeypatch.setattr("os.geteuid", lambda: 0)
+    assert launcher.mint(_settings(BENCH_GPU_QUERY=tool), "gpu-1", Path("/nonexistent"), Path("/nonexistent")) == 3
 
 
 def test_the_jobs_own_check_refuses_busy_or_other_cards(
@@ -536,10 +695,22 @@ def test_the_token_is_typed_into_a_root_only_file_and_never_shown() -> None:
     assert 'tok=""' in body
     assert not re.search(r"echo[^\n]*\$tok", INSTALL) and "set -x" not in INSTALL
     assert "$1" not in body  # never an argument
-    # the units get it as a credential of the service manager, by its folder, never by value
-    assert "LoadCredential=token:/etc/tb-bench-ci/token" in RUNNER_UNIT and "--token-file %d/token" in RUNNER_UNIT
+    # F2: no unit hands the jobs' user a copy (no credential of the service manager); only the root steps read it
+    assert "LoadCredential" not in RUNNER_UNIT and "LoadCredential" not in PROXY_UNIT
+    assert "token" not in RUNNER_UNIT.split("[Service]", 1)[1].lower()
     assert not [ln for ln in RUNNER_UNIT.splitlines() if ln.startswith("Environment") and "TOKEN" in ln.upper()]
-    assert "LoadCredential" not in PROXY_UNIT  # the proxy never holds it
+    assert Path("/etc/tb-bench-ci/token") == launcher.TOKEN
+
+
+def test_only_the_units_root_steps_read_the_token_and_the_jobs_user_runs_the_job() -> None:
+    """F2: ExecStartPre and ExecStopPost run with full privileges ("+": root); ExecStart runs as tb-bench."""
+    lines = {ln.split("=", 1)[0]: ln.split("=", 1)[1] for ln in RUNNER_UNIT.splitlines() if ln.startswith("Exec")}
+    assert lines["ExecStartPre"].startswith("+/usr/bin/python3 -s -E -m tools.bench_ci.launcher mint ")
+    assert lines["ExecStopPost"].startswith("+/usr/bin/python3 -s -E -m tools.bench_ci.launcher cleanup ")
+    assert lines["ExecStart"].startswith("/usr/bin/python3 -s -E -m tools.bench_ci.launcher run ")
+    assert "KillMode=mixed" in RUNNER_UNIT and "TimeoutStopSec=" in RUNNER_UNIT  # F8: TERM to the run step first
+    body = INSTALL[INSTALL.index("cmd_verify() {") : INSTALL.index("\n}\n", INSTALL.index("cmd_verify() {"))]
+    assert 'check "$USER_NAME cannot read the token file" not as_tb test -r "$TOKEN"' in body
 
 
 def test_the_units_run_as_the_unprivileged_user_from_roots_files() -> None:
@@ -555,16 +726,15 @@ def test_the_units_run_as_the_unprivileged_user_from_roots_files() -> None:
     assert 'install -m 0644 -o root -g root "$SRC/$f" "$OPT/tools/bench_ci/$f"' in INSTALL
 
 
-def test_the_runner_archive_is_checked_and_the_networks_made_internal() -> None:
+def test_the_runner_archive_is_checked_and_the_proxy_has_its_way_out() -> None:
     assert "sha256sum -c --quiet -" in INSTALL and "BENCH_RUNNER_SHA256" in INSTALL
-    assert "network create --internal tb-bench-jobs" in INSTALL
-    assert "{{.Internal}}" in INSTALL
+    assert "network create tb-bench-egress" in INSTALL and "tb-bench-jobs" not in INSTALL
 
 
 def test_removal_takes_away_everything_it_made_and_says_what_is_left_to_the_owner() -> None:
     body = INSTALL[INSTALL.index("cmd_remove() {") : INSTALL.index("\n}\n", INSTALL.index("cmd_remove() {"))]
     for want in ("systemctl disable --now", 'rm -f "$UNITS/tb-bench-runner@.service" "$UNITS/tb-bench-proxy.service"',
-                 "rm --all --force", "network rm --force tb-bench-jobs tb-bench-egress", "system reset --force",
+                 "rm --all --force", 'network rm --force "$net"', "system reset --force",
                  'shred -u "$TOKEN"', 'rm -rf "$ETC" "$OPT"', 'loginctl disable-linger "$USER_NAME"',
                  'userdel --remove "$USER_NAME"', 'sed -i "/^$USER_NAME:/d" /etc/subuid /etc/subgid',
                  "remove any", "revoke the minting token", "LEFT"):  # fmt: skip
@@ -574,22 +744,34 @@ def test_removal_takes_away_everything_it_made_and_says_what_is_left_to_the_owne
 def test_verify_checks_the_named_folders_as_the_runners_user_and_runs_the_probe() -> None:
     body = INSTALL[INSTALL.index("cmd_verify() {") : INSTALL.index("\n}\n", INSTALL.index("cmd_verify() {"))]
     assert 'for p in "$@"; do check "$USER_NAME cannot read or write $p" not sees "$p"; done' in body
-    assert "at least one folder" in body and "as_tb_launcher probe" in body
+    assert "at least one folder" in body
+    # F5: every profile with slots is probed with its own arguments
+    assert "for profile in cpu engine gpu; do" in body
+    assert 'as_tb_launcher probe --settings "$SETTINGS" --profile "$profile"' in body
     probe = (BENCH_CI / "probe.sh").read_text(encoding="utf-8")
-    for want in ("not root", "engine socket", "no host folder but /scratch", "read-only", "no direct way out",
-                 "off the allow-list", "written as a number"):  # fmt: skip
+    for want in ("not root", "engine socket", "no host folder but /scratch", "the root is read-only",
+                 "no direct way out", "off the allow-list", "written as a number", "no fuse or tun device",
+                 "no name service", "getent hosts", "upload host", "the weights are read-only",
+                 "test \"$caps\" = 0000000000000000", "test \"$caps\" = 00000000000000c0"):  # fmt: skip
         assert want in probe, want
 
 
-def test_the_image_runs_as_its_own_user_and_reads_its_config_from_stdin() -> None:
+def test_the_image_runs_as_its_own_user_and_takes_its_config_from_a_file() -> None:
+    """F9: the one-job configuration is a file, read, deleted and unpacked; the runner starts with no argument."""
     assert re.search(r"^FROM [^\s]+@sha256:[0-9a-f]{64}$", DOCKERFILE, re.M)
     assert DOCKERFILE.rstrip().splitlines()[-3] == "USER 1001:1001"
     assert "useradd --uid 1001" in DOCKERFILE
-    assert 'if [ "$(id -u)" = 0 ]' in ENTRYPOINT and "IFS= read -r config" in ENTRYPOINT
-    assert 'exec ./run.sh --jitconfig "$config"' in ENTRYPOINT
+    assert "gate.py" in DOCKERFILE and "unpack_jit.py" in DOCKERFILE
+    assert not re.search(r"\b(fuse-overlayfs|slirp4netns|passt)\b", DOCKERFILE)  # F5: no fuse or tun helper
+    assert 'if [ "$(id -u)" = 0 ]' in ENTRYPOINT
+    assert 'python3 -I /opt/tb-bench/unpack_jit.py "$JIT" /scratch/runner' in ENTRYPOINT
+    assert 'rm -f "$JIT"' in ENTRYPOINT and ENTRYPOINT.rstrip().endswith("exec ./run.sh")
+    assert "--jitconfig" not in ENTRYPOINT and "read -r config" not in ENTRYPOINT
     assert "ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/tb-bench/job_started.sh" in ENTRYPOINT
-    hook = (BENCH_CI / "job_started.sh").read_text(encoding="utf-8")
-    assert "gpu_check.py --in-job /scratch/.tb-bench/job.json" in hook
+    hook = (BENCH_CI / "job_started.sh").read_text(encoding="utf-8").splitlines()
+    gate = hook.index("python3 -I /opt/tb-bench/gate.py --job /scratch/.tb-bench/job.json")
+    cards = hook.index("exec python3 -I /opt/tb-bench/gpu_check.py --in-job /scratch/.tb-bench/job.json")
+    assert "set -euo pipefail" in hook and gate < cards  # the gate first, and a refusal stops the hook
 
 
 def test_no_bench_host_detail_in_the_committed_files() -> None:

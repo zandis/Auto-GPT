@@ -3,16 +3,17 @@
 # workflow that no branch rule requires: the hosted runners keep the gate (trialbox-ci.yml is unchanged and does not
 # depend on this file), so an outage of the bench blocks nothing; a red job here is shown red, because its time and
 # result are the measure. Nothing moves off the hosted runners in this card.
-# The repository is public. A self-hosted runner runs whatever code reaches it, so the bench jobs are reachable from a
-# push to this repository's train and lane branches (train/*, agent/*, claude/*, lane-*: a push needs write access to
-# this repository; the owner's ruling of 2026-11-24, item 8) and from a run by hand by the repository's owner only:
-# never a pull request, pull_request_target, issue_comment, workflow_run or anything else a fork can start. Every job
-# repeats that guard in its `if`, after the owner's switch: the repository variable TB_BENCH_CI must be 'on' (only a
-# repository admin sets it; unset, every job here is skipped: before the install, and while the bench is down).
-# Weight: a lane push gets the unit shards, the integration run, the GPU suites and the box rehearsal; `make
-# full-set` (and, once wired, the real-model rehearsal) runs only for a train and the owner's run by hand.
-# No other workflow names the bench label.
-# trialbox/tests/unit/test_bench_ci_workflow_h105.py reads every workflow and holds all of it.
+# The repository is public. A self-hosted runner runs whatever code reaches it, and a fork's pull request brings its
+# own workflow files: this file and its test schedule the bench's jobs, they are no boundary. The boundary is on the
+# host: the runner's job-started hook (trialbox/tools/bench_ci/gate.py) runs a job only for a push to this
+# repository's train and lane branches (train/*, agent/*, claude/*, lane-*) or the owner's run by hand, of this
+# workflow file exactly as it is on master (the review of #1448, F1). The repository variable TB_BENCH_CI ('on', set
+# by an admin) and the guard in each job's `if` are scheduling only: unset, every job is skipped, so nothing waits
+# for a runner that is not there; a pushed branch could drop both, and the gate would refuse its jobs (F3).
+# Weight: a lane push gets the unit shards and the integration run (the CPU profile, the hardest); the GPU suites,
+# `make full-set` and the box rehearsal (the engine and GPU profiles, which keep the set-id pair for a nested engine)
+# run only for a train and the owner's run by hand.
+# trialbox/tests/unit/test_bench_ci_workflow_h105.py reads every workflow and holds the schedule.
 # Each bench job runs in a fresh single-use container on the bench host (tools/bench_ci/launcher.py): its own non-root
 # user, one scratch folder, no engine socket, an allow-listed way out. Nothing here passes a secret to a job; the
 # checkout keeps no credential. Every action is pinned to a commit (tag in the comment).
@@ -156,7 +157,7 @@ jobs:
   # the GPU suites (tools/full_set.py stage gpu), on the CI cards; the runner's job-started hook refuses busy cards
   gpu-suites:
     name: bench gpu-suites
-    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
+    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-gpu]
     timeout-minutes: 180
     steps:
@@ -246,7 +247,7 @@ jobs:
   # the box rehearsal (tools/rehearse_box/rehearse.sh) with the job's own nested engine
   rehearse-box:
     name: bench rehearse-box
-    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
+    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-engine]
     timeout-minutes: 120
     steps:

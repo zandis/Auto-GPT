@@ -41,7 +41,7 @@ PUSH_ANY = (
 PUSH_TRAIN = "(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/'))"
 GUARD = f"{SWITCH} && ({PUSH_ANY} || {OWNER})"  # a lane push, a train push, the owner's run by hand
 HEAVY_GUARD = f"{SWITCH} && ({PUSH_TRAIN} || {OWNER})"  # a train push, the owner's run by hand: never a lane push
-HEAVY = {"full-set"}  # the jobs a lane push never gets (600 minutes; the real-model rehearsal joins them when wired)
+HEAVY = {"gpu-suites", "full-set", "rehearse-box"}  # never a lane push: the engine and GPU profiles (F5), 600 min
 CONCURRENCY = {
     "group": "trialbox-bench-ci-${{ github.ref }}-${{ startsWith(github.ref, 'refs/heads/train/') && github.run_id "
     "|| 'latest' }}",
@@ -143,6 +143,8 @@ def _bench_problems(text: str, doc: dict[Any, Any]) -> list[str]:
         out.append(f"{BENCH}: permissions are {doc.get('permissions')!r}, not contents: read")
     if re.search(r"\bsecrets\b", text):
         out.append(f"{BENCH}: names secrets: no secret is passed to a bench job")
+    if re.search(r"github\.token|toJSON\(\s*github\s*\)", text):  # F6: the job's token, or the context holding it
+        out.append(f"{BENCH}: hands a job the workflow token (github.token or toJSON(github))")
     for ref in re.findall(r"^\s*-?\s*uses:\s*(\S+)", text, re.M):
         if not PINNED.match(ref):
             out.append(f"{BENCH}: action {ref} is not pinned by its full commit id")
@@ -160,6 +162,8 @@ def _bench_problems(text: str, doc: dict[Any, Any]) -> list[str]:
             if checkout and (step.get("with") or {}).get("persist-credentials") is not False:
                 out.append(f"{BENCH}: job {name}'s checkout keeps a credential (persist-credentials: false)")
         got = runner_labels(job)
+        if can_run_on_bench(job) and name not in HEAVY and (got is None or got[2:] != [f"{LABEL}-cpu"]):
+            out.append(f"{BENCH}: job {name} reaches a lane push on {got!r}: a lane push gets the CPU profile only")
         if can_run_on_bench(job):
             profiles = {f"{LABEL}-{p}" for p in launcher.PROFILES}
             if got is None or len(got) != 3 or got[:2] != ["self-hosted", LABEL] or got[2] not in profiles:
@@ -243,6 +247,18 @@ PLANTED = [
      _sub("(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) ||",
           "(github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || "
           "startsWith(github.ref, 'refs/heads/claude/'))) ||"), "guard"),
+    ("the workflow token", BENCH, _sub("TB_DATA_DIR: ${{ runner.temp }}/tb-data", "TB_DATA_DIR: ${{ github.token }}"),
+     "workflow token"),
+    ("the whole context", BENCH, _sub("TB_DATA_DIR: ${{ runner.temp }}/tb-data", "TB_DATA_DIR: ${{ toJSON(github) }}"),
+     "workflow token"),
+    ("a lane job on the engine profile", BENCH,
+     _sub("runs-on: [self-hosted, tb-bench, tb-bench-cpu]", "runs-on: [self-hosted, tb-bench, tb-bench-engine]"),
+     "CPU profile only"),
+    ("the GPU suites on a lane push", BENCH,
+     _sub("name: bench gpu-suites\n    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && "
+          "startsWith(github.ref, 'refs/heads/train/'))",
+          "name: bench gpu-suites\n    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && "
+          "(startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/lane-')))"), "guard"),
     ("a train's run cancelled", BENCH, _sub("cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/train/') }}",
                                             "cancel-in-progress: true"), "concurrency"),
     ("a train's run replaced", BENCH, _sub("&& github.run_id || 'latest' }}", "&& 'train' || 'latest' }}"),

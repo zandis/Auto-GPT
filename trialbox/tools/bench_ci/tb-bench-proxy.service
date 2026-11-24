@@ -1,4 +1,5 @@
-# The bench CI jobs' egress proxy (card H-105; docs/runbook/13-bench-ci-runner.md). Installed by install.sh.
+# The bench CI jobs' egress proxy (card H-105; docs/runbook/13-bench-ci-runner.md). Installed by install.sh. It sits on
+# its way out only; each job's network joins it at a fixed address for that job's life.
 [Unit]
 Description=TrialBox bench CI egress proxy
 After=network-online.target
