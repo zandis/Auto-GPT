@@ -940,17 +940,17 @@ def check_restore_hold(inp: DoctorInputs) -> Check:
     the box file's runtime and project, never the host's own Python, a host database address or a caller's
     variable). In the box image (the host check, the rehearsal), what the host read that way and handed in
     (``TB_DOCTOR_RESTORE_HOLD``); without it, the image's own database address, as the console reads it (a hospital
-    platform's doctor job). A host with no box (no ``deploy/.env``) has no hold to read."""
+    platform's doctor job). A process with no box at all (no ``deploy/.env``: a developer's tree, the test cluster)
+    reads its own ``TB_DB_URL`` the same way; where there is a box, its compose project decides, never that."""
     from tools.trialbox import box_hold, launch
 
     name = "restore_hold"
-    in_image = launch.in_box_image() if inp.in_image is None else inp.in_image
-    box = inp.box or inp.deploy
-    if not in_image:  # the host: through the box, whatever TB_DB_URL or TB_DOCTOR_RESTORE_HOLD the caller set
-        if box is None:
-            return Check(name, "PASS", "no box here (no deploy/.env; --env-file names one): there is no hold to read")
+    asked = getattr(inp, "in_image", None)
+    in_image = launch.in_box_image() if asked is None else asked
+    box = getattr(inp, "box", None) or getattr(inp, "deploy", None)
+    if not in_image and box is not None:  # a box's host: through the box, whatever TB_DB_URL or a hand-in says
         got = box_hold.read(box)
-    elif inp.env.get("TB_DOCTOR_RESTORE_HOLD", "").strip():  # the host check's reading, through the box
+    elif in_image and inp.env.get("TB_DOCTOR_RESTORE_HOLD", "").strip():  # the host check's reading, through the box
         try:
             handed = json.loads(inp.env["TB_DOCTOR_RESTORE_HOLD"])
         except ValueError:
