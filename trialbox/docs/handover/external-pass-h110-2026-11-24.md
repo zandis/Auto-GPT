@@ -314,7 +314,7 @@ N), and a stop before the load left N's tree over N-1's images with no marker. F
 **The key-owner rule, shared with H-133 (the integrator's ruling 7141781119).** The rehearsal's `test-boxes` step
 went red at `a1b4e62c` (job 138679012027): a test box's keys are never sealed (H-106), and the services make them in
 the secrets volume as uid 10001, so 1455-3's owner check (root or the installer only) failed both. The one rule now
-sits in D-1461 (item 6) and once in the code, `tb_common.kek.key_owner_allowed` with `SERVICES_UID`: a key file is
+sits in D-1461 (item 7) and once in the code, `tb_common.kek.key_owner_allowed` with `SERVICES_UID`: a key file is
 root's, the services', or the running account's, no one else's, mode 0600. `deploy/check_host.sh` and H-133's
 `services_owner()` read it there. Tests, in `tests/unit/test_ocr1455_key_owner.py`:
 `test_the_services_uid_of_the_rule_is_the_compose_file_s_user` (the constant equals the user of every service that
