@@ -128,8 +128,13 @@ doctor() {  # the model key as the gateway reads it: the key file only (D-437, D
     case "$cf" in "$BOX/deploy/"*) ;; /*) [ -f "$cf" ] && more+=(-v "$cf:$cf:ro") ;; esac
   done
   unset IFS
+  # H-136: the hold after a restore as the host check hands it in: read through the box (compose exec db), on the host
+  local hold
+  hold="$(cd "$BOX" && python3 -m tools.trialbox.box_hold "$BOX/deploy")" || hold=""
+  [ -n "$hold" ] || hold='{"state": "unread", "cause": "the rehearsal could not run python3 -m tools.trialbox.box_hold"}'
   docker run --rm --network trialbox-model-net --env-file "$BOX/deploy/.env" -v "$BOX/deploy:/app/deploy:ro" \
     ${more[@]+"${more[@]}"} -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
+    -e TB_DOCTOR_RESTORE_HOLD="$hold" \
     --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml \
     --env-file /app/deploy/.env "$@"   # D-887: as the host check gives it (db_passwords, chartno_rule read the box)
 }
@@ -372,6 +377,9 @@ doctor)
   echo "$out" | grep -q "^WARN  rehearsal .*REHEARSAL BOX: placeholder models, synthetic data only" \
     || fail "the doctor does not carry the standing REHEARSAL BOX line"
   echo "$out" | grep -q "^PASS  serving" || fail "the live serving check did not PASS"
+  # H-136: the image's doctor is handed the hold the host read through the box; a fresh box is not held
+  echo "$out" | grep -qE "^PASS  restore_hold +released" \
+    || fail "doctor did not read the hold after a restore through the box (H-136): an operator would be told nothing is held while the screening hold is on"
   echo "$out" | grep -q "^PASS  registry_pins" || fail "registry_pins did not PASS"
   # D-887: the pins are the media's placeholders, and the doctor says so where it shows them
   echo "$out" | grep -q "^PASS  serving.*rehearsal placeholder" || fail "the serving line does not name the rehearsal placeholder"
@@ -872,6 +880,24 @@ EOF
   curl -fsS -m 10 --cacert "$BOX/deploy/secrets/tls/caddy-root.crt" --resolve "$host:443:${TB_RH_TLS_ADDR:-127.0.0.1}" \
     "https://$host/healthz" > /dev/null || fail "the site does not answer after the re-run"
   ok "a restore signalled after its data part, then run again: every service runs healthy and the site answers"
+  # H-136: the walk's check right after a restore, typed on the box's host as RUNBOOK §5 says (the installed command,
+  # the host's python3): the doctor reads the hold through the box and says what the flag on the box says (held: a
+  # WARN with the reason; released: a PASS), never "cannot read". The harm it guards: an operator told nothing is
+  # held while the screening hold is on
+  flag="$(dc exec -T db psql -X -At -U trialbox -d trialbox_wf -c "SELECT value FROM app.flag WHERE name = 'screening.after_restore'")" \
+    || fail "cannot read the hold on the box's database"
+  trialbox doctor --env-file deploy/.env > "$rr/doctor.out" 2>&1 || true
+  line="$(grep -E '^(PASS|WARN|FAIL) +restore_hold ' "$rr/doctor.out")" \
+    || { cat "$rr/doctor.out"; fail "the installed trialbox doctor printed no restore_hold line"; }
+  echo "$line"
+  case "${flag:-released}" in
+    held) echo "$line" | grep -qE '^WARN +restore_hold +HELD ' \
+      || fail "the hold is held on the box; the installed trialbox doctor said: $line" ;;
+    released) echo "$line" | grep -qE '^PASS +restore_hold +released' \
+      || fail "the hold is released on the box; the installed trialbox doctor said: $line" ;;
+    *) fail "the hold holds a value the box does not declare: $flag" ;;
+  esac
+  ok "the installed trialbox doctor on the host shows the hold after the restore as the box holds it (${flag:-released})"
   ;;
 
 # ------------------------------------------------------------------------------------------------ negative: name
