@@ -112,6 +112,7 @@ class Box:
     offset: int
     gpus: str = ""
     gpu_mem_gb: int = 0
+    root: str = ""  # the host folder, as the installer saw it (a container sees the tree elsewhere, at /app)
 
     def lines(self) -> list[str]:
         return [
@@ -120,6 +121,7 @@ class Box:
             f"TB_TEST_BOX_PORT_OFFSET={self.offset}",
             f"TB_TEST_BOX_GPUS={self.gpus}",
             f"TB_TEST_BOX_GPU_MEM_GB={self.gpu_mem_gb or ''}",
+            f"TB_TEST_BOX_ROOT={self.root}",
         ]
 
     def words(self) -> str:
@@ -137,7 +139,12 @@ def load(deploy: Path) -> Box | None:
     if not rec:
         return None
     name, project = rec.get("TB_TEST_BOX", ""), rec.get("COMPOSE_PROJECT_NAME", "")
-    if project != project_for(name, deploy.parent) or not PROJECT.fullmatch(project):
+    root = rec.get("TB_TEST_BOX_ROOT", "")
+    # the project is the recorded host folder's; a copy is a record whose recorded folder is on this machine and is
+    # not this one (inside the box's own container the tree is mounted elsewhere and the host folder is not there)
+    folder = Path(root) if root else deploy.parent
+    copied = bool(root) and folder.exists() and folder.resolve() != deploy.parent.resolve()
+    if copied or project != project_for(name, folder) or not PROJECT.fullmatch(project):
         raise Refused(
             f"{deploy / RECORD} names {name!r} and project {project!r}, which are not this folder's: a "
             "test box record is never copied between folders; remove the box and install it again"
@@ -146,7 +153,7 @@ def load(deploy: Path) -> Box | None:
     gpus, cap = rec.get("TB_TEST_BOX_GPUS", ""), rec.get("TB_TEST_BOX_GPU_MEM_GB", "")
     if not offset.isdigit() or (gpus and not GPUS.fullmatch(gpus)) or (cap and not cap.isdigit()):
         raise Refused(f"{deploy / RECORD} cannot be read (offset {offset!r}, cards {gpus!r}, cap {cap!r})")
-    return Box(name, project, int(offset), gpus, int(cap or 0))
+    return Box(name, project, int(offset), gpus, int(cap or 0), root)
 
 
 def check_values(offset: str, gpus: str, cap: str) -> tuple[int, str, int]:
@@ -171,7 +178,7 @@ def record(deploy: Path, name: str, offset: str, gpus: str = "", cap: str = "") 
     if old is not None and old.name != name:
         raise Refused(f"this folder is test box {old.name!r} (deploy/{RECORD}): a box keeps its name; remove it and "
                       f"install {name!r} in a folder of its own")  # fmt: skip
-    box = Box(name, project, off, gpus, gb)
+    box = Box(name, project, off, gpus, gb, str(deploy.parent.resolve()))
     path = deploy / RECORD
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".new")

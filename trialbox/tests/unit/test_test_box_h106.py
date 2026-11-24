@@ -73,11 +73,33 @@ PLANTED = {"TB_ENV": "TEST", "TB_TEST_BOX": "x", "COMPOSE_PROJECT_NAME": "tbt-x-
            "TEST_BOX": "x", "TB_STOP_REHEARSAL": "1", "TB_REHEARSAL": "1"}  # fmt: skip
 
 
+#: every compose file deploy/install.sh can put in a box's COMPOSE_FILE (the base, the TLS proxy, the monitoring, the
+#: PoC form, the box form, the secrets overlay, each GPU profile): the developers' stacks (test, testbench,
+#: acceptance) and the two-device form are not a box's
+BOX_FILES = ("docker-compose.yml", "docker-compose.identity.yml", "docker-compose.monitoring.yml",
+             "docker-compose.poc.yml", "docker-compose.box.yml", "docker-compose.secrets.yml",
+             "docker-compose.dgpu48.yml", "docker-compose.gb10.yml", "docker-compose.rtx5090.yml",
+             "docker-compose.rtxpro6000.yml", "docker-compose.shared-quota.yml")  # fmt: skip
+PROJECT_VAR = re.compile(r"\$\{COMPOSE_PROJECT_NAME(?::-[^}]*)?\}")
+
+
 def _compose_names(project: str) -> tuple[set[str], set[str]]:
-    """The volumes and networks deploy/docker-compose.yml gives a project (compose's own naming)."""
-    doc = yaml.safe_load((ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8"))
-    vols = {f"{project}_{v}" for v in doc["volumes"]}
-    nets = {str(n["name"]).replace("${COMPOSE_PROJECT_NAME:-trialbox}", project) for n in doc["networks"].values()}
+    """Every volume, network and container name the box's compose files give a project, as compose names them: an
+    explicit `name:` interpolated (only COMPOSE_PROJECT_NAME), else `<project>_<key>`; a container_name as written.
+    Each must follow the project: a fixed name is one two boxes would share (the rehearsal found trialbox-edge)."""
+    vols: set[str] = set()
+    nets: set[str] = set()
+    for f in BOX_FILES:
+        doc = yaml.safe_load(testbox._TAG.sub("", (ROOT / "deploy" / f).read_text(encoding="utf-8"))) or {}
+        for kind, out in (("volumes", vols), ("networks", nets)):
+            for key, spec in (doc.get(kind) or {}).items():
+                name = (spec or {}).get("name") if isinstance(spec, dict) else None
+                out.add(PROJECT_VAR.sub(project, str(name)) if name else f"{project}_{key}")
+        for spec in (doc.get("services") or {}).values():
+            if isinstance(spec, dict) and spec.get("container_name"):
+                nets.add(PROJECT_VAR.sub(project, str(spec["container_name"])))  # a name the engine holds once
+    fixed = sorted(n for n in vols | nets if project not in n)
+    assert not fixed, f"names that do not follow the project {project}: {fixed}"
     return vols, nets
 
 
@@ -495,3 +517,25 @@ def test_the_first_load_of_a_test_box_reads_it_as_test_before_deploy_env_says(tm
     assert box.environment() == "TEST"
     (d / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     assert box.environment() == "PRODUCTION"
+
+
+def test_the_record_is_read_inside_the_box_s_container_and_a_copy_is_refused(tmp_path: Path) -> None:
+    """The box's own container sees its tree at another path (/app): the record carries the host folder it was
+    installed in, so the doctor there reads it; a record copied to another folder on the same machine is refused."""
+    host = tmp_path / "host" / "box"
+    (host / "deploy" / "site").mkdir(parents=True)
+    box = testbox.record(host / "deploy", "m", "1")
+    assert box.root == str(host.resolve()) and f"TB_TEST_BOX_ROOT={host.resolve()}" in box.lines()
+    mounted = tmp_path / "container" / "app"  # the same tree at another path, the host folder not there
+    mounted.parent.mkdir()
+    host.rename(mounted)
+    assert testbox.load(mounted / "deploy") == box
+    env = {"TB_ENV": "TEST", "TB_TEST_BOX": "m", "COMPOSE_PROJECT_NAME": box.project}
+    c = doctor.check_test_box(doctor.DoctorInputs(deploy=mounted / "deploy", env=env))
+    assert c.status == "WARN" and c.detail.startswith("TEST BOX m"), c.detail
+    mounted.rename(host)  # back on the host; then a copy beside it
+    copy = tmp_path / "copy"
+    (copy / "deploy" / "site").mkdir(parents=True)
+    (copy / "deploy" / testbox.RECORD).write_bytes((host / "deploy" / testbox.RECORD).read_bytes())
+    with pytest.raises(testbox.Refused, match="never copied between folders"):
+        testbox.load(copy / "deploy")

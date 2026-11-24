@@ -84,6 +84,22 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H106-11",
+   "severity": "High",
+   "claim": "found by the rehearsal's test-boxes step (CI job 138221062810): the record's folder check hashed the folder it was read from, so inside the box's own container (the tree at /app) the doctor FAILed an untouched test box; the record now carries the host folder written at install, and a record is refused as a copy only where that folder is on this machine and is not this one",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-12",
+   "severity": "High",
+   "claim": "found by the rehearsal's test-boxes step (CI job 138221062810): deploy/docker-compose.identity.yml named its network with a fixed name (trialbox-edge), so a test box's TLS proxy joined the ordinary box's network; it now follows the project (unchanged for the ordinary box). The unit invariant missed it because it read only docker-compose.yml's networks and volumes, not the overlays, and the bench's engine stand-in records commands, not what compose creates; it now reads every compose file an install can add and fails on any volume, network or container name that does not follow the project",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }
