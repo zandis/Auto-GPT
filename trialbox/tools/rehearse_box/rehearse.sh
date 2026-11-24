@@ -278,8 +278,8 @@ clear_images() {  # only the media may bring them back: by id, so every tag and 
 }
 
 swapped_stream() {  # H-95 (the re-review of #1409, F1): the update path's streamed load on the real engine
-  PYTHONPATH="$ROOT/libs:$ROOT" "$PY" -m tools.rehearse_box.h95_probe "$W/h95-probe"; local rc=$?
-  rm -rf "$W/h95-probe"
+  PYTHONPATH="$ROOT/libs:$ROOT" "$PY" -m tools.rehearse_box.h95_probe "$W/run/h95-probe"; local rc=$?
+  rm -rf "$W/run/h95-probe"
   return "$rc"
 }
 
