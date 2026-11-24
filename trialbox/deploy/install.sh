@@ -646,6 +646,7 @@ SECOND_RUN=0
 # TEST-BOX (H-106): the host. A test box's record names its own project (its volumes, the site keys among them, and
 # its networks); it is exported here so every command of this run, compose's and the script's own, is the box's. No
 # secret of a test box goes where another box's could: no caller's secrets folder, and never the host's KEK folder
+TB_PROJECT=""  # H-106: the script's own (a test box's record), never a caller's
 if [ -n "${TEST_BOX:-}" ]; then
   [ -z "${TB_SECRETS_HOST_DIR:-}" ] || die "--test-box: TB_SECRETS_HOST_DIR is set in the environment: a test box keeps its keys in its own project's volume, never in a folder a caller names (another box's could be it). Unset it (nothing was changed)"  # H-94 (5)
   [ -z "${TB_KEK_BACKEND:-}" ] && [ -z "$KP_VALUE" ] && [ ! -e "$ROOT/deploy/site/hardening.conf" ] \
@@ -1488,7 +1489,7 @@ if [ "$MODE" = gpu ]; then
   say "model servers: pinned served names and key (trialbox doctor --serving)"
   set +e
   tree_args
-  docker run --rm --network "${COMPOSE_PROJECT_NAME:-trialbox}-model-net" --env-file deploy/.env -v "$ROOT/deploy:/app/deploy:ro" ${TREE_APP[@]+"${TREE_APP[@]}"} \
+  docker run --rm --network "${TB_PROJECT:-trialbox}-model-net" --env-file deploy/.env -v "$ROOT/deploy:/app/deploy:ro" ${TREE_APP[@]+"${TREE_APP[@]}"} \
     -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.trialbox doctor --serving | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
