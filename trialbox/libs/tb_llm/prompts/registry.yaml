@@ -276,6 +276,15 @@ prompts:
     approved_by: T-606 (D-359; no named reviewer, D-311)
     date: 2026-11-11
     qualification: null
+  - id: judge  # R22-16 round 5 (#639 7115208555): certainty, experiencer and time on the quote (schema 1.2.0)
+    version: 6
+    file: judge_v6.md
+    sha256: eb478a6367d9f09ec8e9e7b0e3b7fcce9b8e46c934c2ba76605da7195dbbb6cb
+    schema: llm_judge_output_v2
+    schema_sha256: 45828559951dae384eefb45ca0dac1e35c716ac82803a70e82cb351555cede5b
+    approved_by: integrator (#639 7115258794; no named reviewer, D-311)
+    date: 2026-11-23
+    qualification: null  # its canary: 54 cases x 2 models x en, ja, zh-TW on the owner's B200 (#639 7115258794)
   - id: profile_summary
     version: 2
     file: profile_summary_v2.md

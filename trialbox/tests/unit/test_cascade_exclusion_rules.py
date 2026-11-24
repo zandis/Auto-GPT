@@ -44,7 +44,11 @@ FLARE = "Acute gout flare of the right toe"
 FILLER = "Routine follow-up, vitals stable, no change in plan.\n" * 75  # about 1,000 tokens
 INC = note_criterion("T-INC-02", "inclusion", "Gout flare in the past year", "Did the patient have a gout flare?")
 EXC = note_criterion("T-EXC-01", "exclusion", "Known HIV infection", "Does the patient have HIV infection?")
-LEXICON = {INC.id: ["flare"], EXC.id: ["hiv"], "T-INC-09": ["gout"]}
+# R22-17 (D-1069; ruled on #639 7079180333): an inclusion "not met" from the notes no longer excludes, so the controls
+# "a clean, sure not met excludes" are this note exclusion whose quote states its condition, with the inclusion case
+# beside each asserting review
+EXC_FLARE = note_criterion("T-EXC-03", "exclusion", "Gout flare in the past year", "Did the patient have a gout flare?")
+LEXICON = {INC.id: ["flare"], EXC.id: ["hiv"], "T-INC-09": ["gout"], EXC_FLARE.id: ["flare"]}
 PATIENTS: dict[str, list[tuple[date, str]]] = {
     "P-HIT": [(date(2026, 9, 20), f"{FLARE}\nColchicine started")],
     "P-NONE": [],
@@ -98,6 +102,19 @@ def _kept_for_review(res: CascadeResult, pid: str, cid: str) -> bool:
     return t.exit_stage is None and t.tier == "potential:uncertain" and o.status == "unknown" and not o.hard
 
 
+def _excludes_on_a_stated_flare(lake: Any, **kw: Any) -> bool:
+    """The control: a clean, sure note answer that excludes (an exclusion whose quote states its condition)."""
+    res = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], ScriptedJudge(quoting("pass", FLARE)), **kw)
+    return _excluded_at_s3(res, "P-HIT", EXC_FLARE.id)
+
+
+def _inclusion_not_met_reviewed(res: CascadeResult, rs: Ruleset, pid: str = "P-HIT") -> bool:
+    """The inclusion case beside it: the same clean, sure "not met" on the note inclusion is a soft fail and review."""
+    t = res.traces[pid]
+    o = t.outcomes[INC.id]
+    return (o.status, o.hard) == ("fail", False) and t.exit_stage is None and verdicts_of(rs, t).tier == "review"
+
+
 class Orthogonal:
     """An embedder for which no sentence is near the question (cosine 0)."""
 
@@ -111,8 +128,9 @@ class Orthogonal:
 # ------------------------------------------------------------------------------------------------ _map
 def test_a_not_met_below_the_confidence_floor_is_unknown(lake: LakeLocal) -> None:
     rs = ruleset([INC])
+    assert _excludes_on_a_stated_flare(lake, confidence_floor=0.75)  # control: a clean, confident answer does exclude
     sure = _run(lake, rs, ["P-HIT"], ScriptedJudge(quoting("fail", FLARE, 0.95)), confidence_floor=0.75)
-    assert _excluded_at_s3(sure, "P-HIT", INC.id)  # control: a clean, confident "not met" does exclude
+    assert _inclusion_not_met_reviewed(sure, rs)
     unsure = _run(lake, rs, ["P-HIT"], ScriptedJudge(quoting("fail", FLARE, 0.74)), confidence_floor=0.75)
     assert _kept_for_review(unsure, "P-HIT", INC.id)
     assert unsure.traces["P-HIT"].outcomes[INC.id].reason == "abstained"
@@ -129,7 +147,8 @@ def test_a_not_met_below_the_confidence_floor_is_unknown(lake: LakeLocal) -> Non
 )
 def test_a_not_met_whose_quote_does_not_verify_is_unknown(lake: LakeLocal, quote: str | None, quote_date: str | None) -> None:  # fmt: skip
     rs = ruleset([INC])
-    assert _excluded_at_s3(_run(lake, rs, ["P-HIT"], ScriptedJudge(quoting("fail", FLARE))), "P-HIT", INC.id)
+    assert _excludes_on_a_stated_flare(lake)  # control
+    assert _inclusion_not_met_reviewed(_run(lake, rs, ["P-HIT"], ScriptedJudge(quoting("fail", FLARE))), rs)
     res = _run(lake, rs, ["P-HIT"], ScriptedJudge(lambda role, kw: reply("fail", 0.95, quote, quote_date)))
     assert _kept_for_review(res, "P-HIT", INC.id)
     assert res.traces["P-HIT"].outcomes[INC.id].reason == "insufficient"
@@ -157,7 +176,8 @@ def test_no_note_in_the_window_is_a_data_gap_never_an_exclusion(lake: LakeLocal)
     rs = ruleset([INC])
     judge = ScriptedJudge(quoting("fail", FLARE))
     res = _run(lake, rs, ["P-HIT", "P-NONE"], judge)
-    assert _excluded_at_s3(res, "P-HIT", INC.id)  # control
+    assert _excludes_on_a_stated_flare(lake)  # control
+    assert _inclusion_not_met_reviewed(res, rs)
     t = res.traces["P-NONE"]
     o = t.outcomes[INC.id]
     assert (o.status, o.stage, o.unknown_kind, o.hard) == ("unknown", "S2", "data_gap", False)
@@ -309,7 +329,8 @@ def test_not_met_is_not_final_when_the_budget_left_evidence_out(lake: LakeLocal)
         return quoting("fail", FLARE)(role, kw)
 
     res = _run(lake, rs, ["P-HIT", "P-MANY"], ScriptedJudge(fail))
-    assert _excluded_at_s3(res, "P-HIT", INC.id)  # control: every evidence note was shown
+    assert _excludes_on_a_stated_flare(lake)  # control: every evidence note was shown
+    assert _inclusion_not_met_reviewed(res, rs)
     assert sorted(seen) == [1, 2]  # P-MANY: two of six notes
     assert _kept_for_review(res, "P-MANY", INC.id)
     why = res.traces["P-MANY"].outcomes[INC.id].reason
