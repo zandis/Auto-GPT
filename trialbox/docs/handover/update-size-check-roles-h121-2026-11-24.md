@@ -6,9 +6,13 @@
   `trialbox update` failed twice in the same way, at 108 s with exit 1: `ERROR: permission denied for database hapi`.
 - **Date:** 2026-11-24
 - **Findings:** [`update-size-check-roles-h121-2026-11-24/findings.json`](update-size-check-roles-h121-2026-11-24/findings.json)
-  (H121-01 to H121-06)
+  (H121-01 to H121-08)
 - **Files:** `tools/trialbox/update.py` (`DB_SIZE_ROLES`, `ComposeBox.db_size`, `db_bytes`, `space_needs`),
-  `tools/rehearse_box/box.sh` (the `doctor` phase), the new test `tests/unit/test_update_size_roles_h121.py`.
+  `tools/rehearse_box/box.sh` (the `doctor` phase), the new tests `tests/unit/test_update_size_roles_h121.py` and
+  `tests/unit/test_host_paths_unreadable_esc_i.py`.
+- **Files outside the card** (bodies only, for the reviews' 1469-7, 1469-8 and esc-i-1): `tools/fetch_weights.py`
+  (lane K's: the body of `_existing` and a new `_there`), `tools/packs.py`, `tools/trialbox/backup_schedule.py`, and
+  the stand-ins of `tests/unit/test_update_path.py`, `test_update_safety.py` and `test_update_poc_box_h99.py`.
 
 ## 1. What failed, and why on that box
 
@@ -83,12 +87,24 @@ reads against the box's real database container (H121-03):
   with the plain line and `db_bytes` is None.
 - `test_h121_an_answer_that_is_not_a_size_stops_the_update_never_counted_zero`.
 
-**Mutants.** Two were planted, and both were caught by the invariant test and by
-`test_update_poc_box_h99.py::test_h99_the_size_reads_work_on_the_real_roles`:
-- the old role (`hapi` read as `trialbox`);
-- the walk box's read (every size asked as `trialbox` on `trialbox_wf`).
+**Mutants.** Six were planted, and each was caught:
+- the old role (`hapi` read as `trialbox`): by the invariant test and by
+  `test_update_poc_box_h99.py::test_h99_the_size_reads_work_on_the_real_roles`;
+- the walk box's read (every size asked as `trialbox` on `trialbox_wf`): by the same two;
+- an answer that is not a size counted 0 (`n = n or 0`): by
+  `test_h121_an_answer_that_is_not_a_size_stops_the_update_never_counted_zero`;
+- the fix of the red 7134736821 reverted (`_existing` back to `Path.exists()`): by
+  `test_h121_the_update_path_runs_as_a_non_root_user_without_docker_s_folder`;
+- `tools/packs.py`, `tools/trialbox/backup_schedule.py` and `tools/fetch_weights.py` each back to master's `_existing`
+  (three, one at a time): each by `test_1469_8_every_existing_measures_an_unreadable_folder_on_its_readable_parent`.
+  All four walks back to master's together: `tests/unit/test_host_paths_unreadable_esc_i.py` fails 6 of its 7
+  (the seventh checks the stand-in itself).
 
-The rehearsal's check fails on both by construction; this was not run.
+The rehearsal's check fails on the first two by construction; this was not run.
+
+**The test set** of the pre-push runs is named by rule in
+[`update-size-check-roles-h121-2026-11-24/test-set.sh`](update-size-check-roles-h121-2026-11-24/test-set.sh)
+(OCR 1469-5): it prints the files, and its comment gives the command.
 
 ## 4. The four recurring finding types
 
@@ -96,3 +112,37 @@ The rehearsal's check fails on both by construction; this was not run.
   there changes nothing. The update's signal handling is #1461's, and its lines were not touched.
 - **Files written in place.** None: the change writes no file.
 - **Value sets and date windows.** Not in this card's code.
+
+## 5. The two reviews of #1469 (7134151892, 7138768548)
+
+- **1469-6 (Medium), the red of train 167** (7134736821). With the stand-ins now answering the size query, the space
+  check measured the rollback script's need on Docker's data root. `Path.exists()` of the runner's
+  `/var/lib/docker/volumes` (0710 root) raised PermissionError for its non-root user. `_existing` now walks up past a
+  folder it may not look at, as past a missing one. Test:
+  `test_h121_the_update_path_runs_as_a_non_root_user_without_docker_s_folder`.
+- **1469-7 (Medium): the unit tests measured the host's own engine folder.** The update tests' stand-ins answer
+  `docker info` with a folder of the test's own (`FakeRun`, the runner in `test_update_safety.py`, and the helpers
+  in this card's test and in H-99's), never the host's `/var/lib/docker`. Tests:
+  `test_ocr_1469_7_the_update_paths_stand_ins_never_measure_the_hosts_docker_root`, and the invariant test asserts
+  it too. Follow-up named by the review: `volume_bytes` and `_audit_waits` read the box's settings (present on
+  master; they catch OSError). Their tests' box `.env` should name a `TB_DOCKER_VOLUMES` of their own: a lane H card.
+- **1469-1 (Low):** the rehearsal's size check fails unless both sizes are positive integers.
+  `test_1469_1_the_rehearsals_size_check_fails_when_a_size_is_not_read` runs the program from `box.sh`.
+- **1469-2 (Low):** `isdecimal()`, not `isdigit()` (which takes `²`, refused by `int()`).
+  `test_1469_2_an_answer_of_digit_like_characters_is_no_size_never_a_crash`.
+- **1469-3 (Low):** a size that cannot be read is a preflight refusal (`UpdateRefused`: nothing was changed).
+  `test_1469_3_a_size_that_cannot_be_read_is_a_preflight_refusal`.
+- **1469-4 (Low):** `DB_SIZE_ROLES` is now the one list for the update's dumps and the nightly's reads and dumps.
+  The restore's read (`tools/trialbox/box_restore.py`) is #1470's file in those lines: it moves after #1470 (H-129).
+  `test_1469_4_the_role_pairs_are_written_once` names it until then.
+- **1469-5 (Low):** the test set is named (`test-set.sh`, above), and the mutants are listed (above).
+- **1469-8 (Low), with the escape pass's esc-i-1 (Medium, 7139436851) folded in (the integrator's 7139522203):**
+  the other copies of `_existing` (`tools/packs.py`, `tools/trialbox/backup_schedule.py` and its `_resolve`,
+  `tools/fetch_weights.py`) walk up the same way. The four walks now take the escape pass's patch: `_there` answers
+  False where `Path.exists()` raises PermissionError, and `packs.py` gains the stop at the root the others have.
+  The patch's test is taken with one change: no skip as root. The unreadable folder is a stand-in whose paths below
+  it answer PermissionError to `os.stat`, so its cases run alike as root and as an ordinary user
+  (`tests/unit/test_host_paths_unreadable_esc_i.py`). The real mode-000 folder sits beside it:
+  `test_1469_8_every_existing_measures_an_unreadable_folder_on_its_readable_parent` (four modules) and the 1469-6
+  test above. H-124 takes these walks when it merges #1469's head.
+

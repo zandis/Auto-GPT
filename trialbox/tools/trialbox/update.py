@@ -955,17 +955,20 @@ def _gb(n: float) -> str:
     return f"{n / 1e9:.2f} GB"
 
 
+def _there(p: Path) -> bool:
+    """Whether ``p`` is there; below a folder this user may not search (the container engine's 0710 root, a 0700
+    parent) it is taken as not there, so a walk up stops at the last folder it can see (escape check (i): never
+    PermissionError)."""
+    try:
+        return p.exists()
+    except PermissionError:
+        return False
+
+
 def _existing(p: Path) -> Path:
-    """The nearest folder of ``p`` (``p`` itself, or a parent) that exists and this user may look at: a folder the
-    update may not read (Docker's data root, to a user who is not root) is measured on its readable parent, as a
-    missing one is (H-121, the integrator's red 7134736821), never a crash of the space check."""
     p = p.absolute()
-    while p != p.parent:
-        try:
-            os.stat(p)
-            return p
-        except (FileNotFoundError, NotADirectoryError, PermissionError):
-            p = p.parent
+    while not _there(p) and p != p.parent:
+        p = p.parent
     return p
 
 
@@ -1856,6 +1859,8 @@ class ComposeBox(_DockerImages):
         named = _env_file(self.deploy / ".env").get("TB_ENV")
         if not named and (self.deploy / "site" / "rehearsal.json").is_file():
             return "TEST"
+        if not named and (self.deploy / "site" / "test-box.env").is_file():
+            return "TEST"  # H-106: a test box's record (install.sh --test-box writes it before the load), as the mark
         return (named or "PRODUCTION").strip().upper()
 
     def rehearsal_mark(self) -> bool:
@@ -1885,11 +1890,15 @@ class ComposeBox(_DockerImages):
         except (UpdateFailed, OSError):  # no compose here: not running
             return False
 
+    def project(self) -> str:
+        """The compose project: the run's (install.sh exports a test box's record), else deploy/.env's (H-75, H-106)."""
+        return os.environ.get("COMPOSE_PROJECT_NAME") or self.env.get("COMPOSE_PROJECT_NAME") or "trialbox"
+
     def data_volumes(self) -> list[str]:
         """The compose project's volumes, by Docker's own label (no compose file is read): a box that has run has
         them. Fails closed: when Docker cannot answer, the box counts as holding data (refused while stopped),
         unless it has no deploy at all (no ``docker-compose.yml``: nothing was ever installed here)."""
-        project = os.environ.get("COMPOSE_PROJECT_NAME") or self.env.get("COMPOSE_PROJECT_NAME") or "trialbox"
+        project = self.project()
         try:
             return self.run([*self.docker, "volume", "ls", "-q", "--filter",
                              f"label=com.docker.compose.project={project}"]).split()  # fmt: skip
@@ -1928,7 +1937,7 @@ class ComposeBox(_DockerImages):
         except Exception as exc:  # the command's own error (no secret is on its command line)
             said = str(exc)[-400:]
             raise UpdateFailed(f"the size of database {db} could not be read as role {user}: {said}") from exc
-        return int(out) if out.isdigit() else None
+        return int(out) if out.isdecimal() else None  # OCR 1469-2: isdigit() also takes '²', which int() refuses
 
     def db_bytes(self, db: str, user: str) -> int | None:
         """``pg_database_size`` of ``db`` (D-455: a backup step's limit comes from it), or None when not known."""
@@ -2000,7 +2009,7 @@ class ComposeBox(_DockerImages):
         # a quiet box: the services stop (the database stays up), so the dump, the files and the row counts agree
         self.run(self._c("stop", *PY_SERVICES), timeout=600)
         try:
-            for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
+            for db, user in DB_SIZE_ROLES:  # OCR 1469-4: each database dumped as the role that reads its size
                 self._dump(db, user, rb / f"{db}.dump", timeout=cfg.timeout(sizes[db]))
             # D-455: the container reads the dumps and the volumes; without a size for the volumes, no limit
             vols = bsch.volume_bytes(self.env, None)
@@ -2032,12 +2041,13 @@ class ComposeBox(_DockerImages):
             else (self.env.get("TB_IMAGE") or "trialbox-py:1.0.0")
         )
         site = f"TB_SITE_ID={self.env.get('TB_SITE_ID', '')}"
-        argv = ["docker", "run", "--rm", "--network", "trialbox-net", "--user", "0", "-e", "TB_DB_URL",
+        project = self.project()  # H-106: this box's own network and volumes, never the ordinary box's
+        argv = ["docker", "run", "--rm", "--network", f"{project}-net", "--user", "0", "-e", "TB_DB_URL",
                 "-e", "TB_HAPI_DB_URL", "-e", "TB_PG_DUMP_DIR=/dumps", "-e", site,
                 "-v", f"{rb}:/dumps:ro", "-v", f"{pub}:/in/backup.pub:ro"]  # fmt: skip
         dirs = []
         for name, vol in from_backup.items():
-            argv += ["-v", f"trialbox_{vol}:/v/{name}:ro"]
+            argv += ["-v", f"{project}_{vol}:/v/{name}:ro"]
             dirs += ["--dir", f"{name}=/v/{name}"]
         tos = []
         for i, t in enumerate(targets):
@@ -2049,7 +2059,7 @@ class ComposeBox(_DockerImages):
 
             kek_dir = self.env.get("TB_KEK_HOST_DIR") or "/run/trialbox"
             own = secrets is None or Path(secrets) == Path(keys_cli.HOST_SECRETS)
-            sec = "trialbox_tb-secrets" if own else str(secrets)
+            sec = f"{project}_tb-secrets" if own else str(secrets)
             argv += ["-v", f"{sec}:/run/secrets/trialbox:ro", "-v", f"{kek_dir}:/run/trialbox:ro"]
         argv += [image, "python", "-m", "tools.trialbox", "backup", *tos, "--public", "/in/backup.pub", *dirs]
         argv += ["--keep", str(keep)] if keep is not None else []  # D-188: the schedule's TB_BACKUP_KEEP
@@ -2086,10 +2096,10 @@ class ComposeBox(_DockerImages):
             try:
                 n = self.db_size(db, user)
                 if n is None:  # psql answered, but not a size: never counted 0
-                    raise UpdateFailed(f"the size of database {db} could not be read as role {user}: no size in "
-                                       "the answer")  # fmt: skip
-            except UpdateFailed as exc:
-                raise UpdateFailed(f"{exc}; the space check needs it, nothing was changed") from exc
+                    raise UpdateRefused(f"the size of database {db} could not be read as role {user}: no size in "
+                                        "the answer")  # fmt: skip
+            except UpdateFailed as exc:  # OCR 1469-3: a preflight refusal, nothing on the box was changed
+                raise UpdateRefused(f"{exc}; the space check needs it, nothing was changed") from exc
             sizes, largest = sizes + n, max(largest, n)
         try:
             root = Path(self.run(["docker", "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
@@ -2366,7 +2376,8 @@ class ComposeBox(_DockerImages):
             return ""
         image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
         # D-450: doctor reads the key file, as the gateway does
-        argv = ["docker", "run", "--rm", "--network", "trialbox-model-net", "--env-file", str(self.deploy / ".env"),
+        net = f"{self.project()}-model-net"  # H-106 (OCR 1452-1): this box's own model network
+        argv = ["docker", "run", "--rm", "--network", net, "--env-file", str(self.deploy / ".env"),
                 "-v", f"{self.deploy}:/app/deploy:ro", "-e", "TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key",
                 image, "python", "-m", "tools.trialbox", "doctor", "--serving"]  # fmt: skip
         self.run(argv, timeout=300)
@@ -2466,7 +2477,7 @@ class ComposeBox(_DockerImages):
         keep = self.deploy / "terminology" / "previous" / plan.bundle_id
         keep.mkdir(parents=True, exist_ok=True)
         image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
-        vol = f"trialbox_{TERMINOLOGY_VOLUME}:/data/terminology"
+        vol = f"{self.project()}_{TERMINOLOGY_VOLUME}:/data/terminology"  # H-106 (OCR 1452-1): this box's own
         base = ["docker", "run", "--rm", "--network", "none", "--user", "0:0", "-e",
                 "TB_TERMINOLOGY_DIR=/data/terminology", "-v", vol]  # fmt: skip
         self.run([*base, "-v", f"{keep.resolve()}:/keep", image, "python", "-c", TERMINOLOGY_SAVE_PY], timeout=1800)

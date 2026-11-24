@@ -287,7 +287,13 @@ if [ -f "$UPDATES/IN_PROGRESS.json" ]; then
   # over a release that is not shown whole
   exit 1
 fi
-SECRETS=${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}
+# H-106: the secrets volume of this box's own project (deploy/.env, or a test box's record), never another box's
+OWN_PROJECT=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$ROOT/deploy/.env" "$ROOT/deploy/site/test-box.env" 2>/dev/null | tail -1)
+if [ -f "$ROOT/deploy/site/test-box.env" ]; then
+  [ -z "${TB_SECRETS_HOST_DIR:-}" ] || { echo "update REFUSED: TB_SECRETS_HOST_DIR is set on a test box: its keys are its own project's volume, never a folder a caller names (nothing was changed)" >&2; exit 1; }  # H-94 (5)
+  export COMPOSE_PROJECT_NAME="$OWN_PROJECT"  # the update path's compose and docker commands are this box's
+fi
+SECRETS=${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/${OWN_PROJECT:-trialbox}_tb-secrets/_data}
 # H-124: the passphrase read once (a file only root can read, or stdin), then the KEK of a passphrase-backed box
 # unsealed from it before the key check; the file is removed once used (--keep-kek-passphrase-file keeps it)
 [ -z "$PP_FILE" ] || [ "$PP_STDIN" = 0 ] || kp_die "--kek-passphrase-file and --kek-passphrase-stdin: one of the two; nothing was changed"

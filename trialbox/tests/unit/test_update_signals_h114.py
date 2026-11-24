@@ -93,6 +93,7 @@ class Box:
 
     def apply(self, plan, rb, point):
         self._step("apply")
+        time.sleep(spec.get("apply_sleep", 0))  # a long apply: the console's limit lands in it
         return []
 
     def restart(self, plan):
@@ -111,6 +112,7 @@ class Box:
         send("rollback")
         if spec.get("rollback_dies"):
             raise SystemExit("the rollback's step was killed")
+        time.sleep(spec.get("rollback_sleep", 0))  # a long put-back
         if spec.get("rollback_cmd"):  # a put-back command, in its own session as every command of the update
             note("rollback cmd")
             up.run_cmd(["sh", "-c", "sleep 60"])

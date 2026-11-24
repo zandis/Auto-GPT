@@ -31,6 +31,7 @@ from typing import Any
 
 import pytest
 
+from tests.host_modes import as_root_makes_it
 from tools import host_tree as ht
 from tools import packs
 from tools import verify_update as vu
@@ -442,6 +443,7 @@ def test_software_pack_without_its_model_pack_is_refused_by_its_signed_identity(
     o = model_pack_identity(other["model"])
     assert o["bundle_id"] == ident["bundle_id"] and o["manifest_sha256"] != ident["manifest_sha256"]
     (updates / up.MODEL_PACK).write_text(json.dumps({**o, "release_seq": 1}), encoding="utf-8")
+    as_root_makes_it(updates)  # H-115 (1462-14): the record is root's alone, as the box writes it, whatever the umask
     r = _apply(b, str(p["software"]))
     assert (
         r.returncode == 1

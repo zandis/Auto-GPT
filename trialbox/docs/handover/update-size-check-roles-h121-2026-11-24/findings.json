@@ -58,6 +58,24 @@
    "basis": "shown",
    "state": "open",
    "fix": "card H-124 (the update's code from the signed bundle, verified with the installed vendor key)"
+  },
+  {
+   "id": "H121-07",
+   "severity": "Low",
+   "claim": "OCR 1469-7's follow-up: backup_schedule.volume_bytes and Updater._audit_waits still read the host's default engine folders in the update tests (present on master; both catch OSError); their tests' box .env should name a TB_DOCKER_VOLUMES of their own",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a lane H card"
+  },
+  {
+   "id": "H121-08",
+   "severity": "Low",
+   "claim": "OCR 1469-4's follow-up: tools/trialbox/box_restore.py still writes the size roles out instead of using DB_SIZE_ROLES; its lines are #1470's (H-126)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "H-129, after #1470 merges (test_1469_4_the_role_pairs_are_written_once names it until then)"
   }
  ]
 }
