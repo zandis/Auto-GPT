@@ -765,7 +765,7 @@ def test_the_image_runs_as_its_own_user_and_takes_its_config_from_a_file() -> No
     assert not re.search(r"\b(fuse-overlayfs|slirp4netns|passt)\b", DOCKERFILE)  # F5: no fuse or tun helper
     assert 'if [ "$(id -u)" = 0 ]' in ENTRYPOINT
     assert 'python3 -I /opt/tb-bench/unpack_jit.py "$JIT" /scratch/runner' in ENTRYPOINT
-    assert 'rm -f "$JIT"' in ENTRYPOINT and ENTRYPOINT.rstrip().endswith("exec ./run.sh")
+    assert 'rm -f "$JIT"' in ENTRYPOINT.splitlines() and ENTRYPOINT.rstrip().endswith("exec ./run.sh")
     assert "--jitconfig" not in ENTRYPOINT and "read -r config" not in ENTRYPOINT
     assert "ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/tb-bench/job_started.sh" in ENTRYPOINT
     hook = (BENCH_CI / "job_started.sh").read_text(encoding="utf-8").splitlines()

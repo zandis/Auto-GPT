@@ -161,10 +161,11 @@ def test_a_branch_on_an_older_master_with_the_same_file_runs() -> None:
 
 def test_an_unreadable_file_refuses_and_a_missing_fact_refuses() -> None:
     assert "could not be read" in _decide(_env(), fetch=Fetch(fail=True))[0]
+    missing = ["the host's job file does not name the repository, the workflow and master's blob of it"]
     for key in ("repo", "workflow", "workflow_blob"):
         facts = {k: v for k, v in FACTS.items() if k != key}
-        assert gate.decide(_env(), EVENT, facts, Fetch()) != [], key
-    assert gate.decide(_env(), EVENT, {**FACTS, "workflow_blob": "not-a-sha"}, Fetch()) != []
+        assert gate.decide(_env(), EVENT, facts, Fetch()) == missing, key
+    assert gate.decide(_env(), EVENT, {**FACTS, "workflow_blob": "not-a-sha"}, Fetch()) == missing
 
 
 def test_the_blob_is_gits() -> None:
