@@ -113,3 +113,26 @@ def test_an_update_restarts_the_store_after_its_code_systems(tmp_path: Path) -> 
     up.ComposeBox(deploy, run=run)._restart_fhir_store(path)
     assert [c[-2:] for c in seen] == [["restart", "fhir-store"], ["900", "fhir-store"]]
     assert json.loads(path.read_text("utf-8"))["store_restart"]["answered"] is False
+    assert [p.name for p in path.parent.iterdir()] == [tl.REPORT]  # written through a renamed temporary file
+
+
+def test_the_report_is_written_whole_or_not_at_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR pass (#639 7119659794): the restart's report is not rewritten in place. A write that fails before the
+    rename leaves the earlier report as it was, and no temporary file beside it."""
+    import os
+
+    path = tmp_path / tl.REPORT
+    tl.write_report(path, LOADED)
+    before = path.read_bytes()
+
+    def broken(src: object, dst: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", broken)
+    with pytest.raises(OSError, match="disk full"):
+        tl.write_report(path, tl.restarted(LOADED, True, 38, "2026-11-24T00:00:00+00:00"))
+    assert path.read_bytes() == before and [p.name for p in tmp_path.iterdir()] == [tl.REPORT]
+    monkeypatch.undo()
+    tl.write_report(path, tl.restarted(LOADED, True, 38, "2026-11-24T00:00:00+00:00"))
+    assert json.loads(path.read_text("utf-8"))["store_restart"]["seconds"] == 38
+    assert [p.name for p in tmp_path.iterdir()] == [tl.REPORT]

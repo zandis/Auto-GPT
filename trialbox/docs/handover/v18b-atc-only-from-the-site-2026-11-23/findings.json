@@ -27,6 +27,14 @@
    "lane": "V",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "V18b-04",
+   "severity": "Medium",
+   "claim": "RA-JAK-EXC-01 (any prior biologic DMARD or JAK inhibitor) and RA-COH-INC-06 (a biologic within a year) read biologics from TrialBox's groupers 'ra biologic' and 'biologic dmard or jak inhibitor': the TNF inhibitors (L04AB), tocilizumab (L04AC07) and, for RA-JAK, the JAK inhibitors (L04AF). Abatacept, sarilumab, rituximab and the other interleukin inhibitors are in none of them, so a patient on one is not excluded (RA-JAK) or not counted (RA-COH), silently, without even an unknown; found while checking the OCR pass's tocilizumab item (pre-existing on master, not changed by V-18b)",
+   "lane": "V",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }

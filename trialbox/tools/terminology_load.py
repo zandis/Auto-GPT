@@ -158,6 +158,19 @@ def restarted(report: dict[str, Any], answered: bool, seconds: int, at: str) -> 
                                         "systems": changed(report)}}  # fmt: skip
 
 
+def write_report(path: Path, report: dict[str, Any]) -> None:
+    """The report written whole or not at all (a temporary file beside it, then renamed): the doctor never reads a
+    half-written one, and a failed write leaves the earlier report."""
+    import os
+
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def restart_line(report: dict[str, Any]) -> tuple[Literal["PASS", "WARN"], str]:
     """The doctor's word on the store's restart after a load that changed a system: WARN when it was not restarted
     (it may answer from the earlier version for minutes) or did not answer again; nothing when nothing changed."""
@@ -289,8 +302,7 @@ def main(argv: list[str] | None = None) -> int:
         from datetime import UTC, datetime
 
         at = datetime.now(UTC).isoformat(timespec="seconds")
-        rp.write_text(json.dumps(restarted(rep, a.answered == "yes", a.seconds, at), indent=1, ensure_ascii=False)
-                      + "\n", encoding="utf-8")  # fmt: skip
+        write_report(rp, restarted(rep, a.answered == "yes", a.seconds, at))
         return 0
     if a.cmd == "skipped":  # the standard library only: the installer runs it on the host
         rp = Path(a.report)

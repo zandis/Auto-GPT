@@ -2175,8 +2175,7 @@ class ComposeBox(_DockerImages):
         except (UpdateFailed, subprocess.TimeoutExpired):  # said in the report and by the doctor, never a stop
             answered = False
         at = datetime.now(UTC).isoformat(timespec="seconds")
-        out = tl.restarted(rep, answered, int(time.monotonic() - start), at)
-        path.write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        tl.write_report(path, tl.restarted(rep, answered, int(time.monotonic() - start), at))  # whole or not at all
 
     def check(self, plan: Plan) -> str:
         weights = self.check_weights()  # first: a flag it writes makes the gateway unhealthy for the wait below

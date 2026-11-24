@@ -111,6 +111,20 @@ So:
   (was `furosemide`, `metformin`, `valsartan and sacubitril`).
 - `test_refdata_jp.py::test_site_setup_suggests_atc_for_a_yj_code`: the display is `B01AF02` (was `apixaban`).
 
+## The OCR pass (#639 7119659794), checked on master `8ddecb8d1`
+
+- **AD-MAB's anticoagulant set lists five substances: not a fault.** AD-MAB-EXC-01 reads "anticoagulants (warfarin,
+  direct oral anticoagulants) within 90 days". The five codes are warfarin and the four direct oral anticoagulants;
+  a code under one of the families B01AA, B01AE or B01AF that is not listed answers unknown, for review (SCR-01),
+  never a silent miss. Heparins (B01AB) are outside the protocol's stated scope. V-18b keeps the codes and families
+  as they were; only the displays change.
+- **Tocilizumab as a biologic: not a fault.** It is an interleukin-6 receptor antibody, a biologic DMARD, which is
+  what RA-COH-INC-06 and RA-JAK-EXC-01 ask. Checking it showed the nearby gap V18b-04 (abatacept, sarilumab,
+  rituximab and the other interleukin inhibitors are in no grouper), pre-existing and not changed here.
+- **The restart's report was rewritten in place: fixed in this PR.** `tools.terminology_load.write_report` writes a
+  temporary file beside it and renames it; `update.py` and the `restarted` command use it. Test:
+  `test_v18b_store_restart.py::test_the_report_is_written_whole_or_not_at_all`.
+
 ## Not in this card
 
 - The ATC concepts an existing box loaded from the shipped table stay in `omop.concept` (V18b-01).
