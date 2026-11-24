@@ -269,6 +269,8 @@ way. With H-114b the grace is the update's own limit, so that could be hours. Th
     left holding the pipes would then keep the SIGKILL waiting for the whole grace, where `wait` did not.
 - `procgroup.run` and `update.run_cmd` both call `_stop`. Neither signature changes; the default grace is still
   ten seconds.
+- Interruption case covered (the MVP walk's step 8): the update's time limit, or a signal, reached partway
+  through an update. The put-back is not killed for its output, and the SIGKILL still lands.
 - Tests:
   - the reviewer's test, kept as written in `tests/unit/test_update_grace_h114b.py`;
   - `tests/unit/test_update_grace_output_h114d.py`, 5 cases:
@@ -283,3 +285,38 @@ way. With H-114b the grace is the update's own limit, so that could be hours. Th
   - a grace whose time never ends: the never-exiting case fails at its 30 s bound. H-114b's ten-second test then
     never ends, as any grace with no end would;
   - no SIGKILL after a leader that ended by itself: the signals case fails.
+
+## H-114e: the console's result says what the stopped update said (2026-11-24)
+
+The review of #1472 (1472-2, Low) found that after the console's time limit, the result was
+`TimeoutExpired: ... timed out after N seconds` with no lines. The update's own outcome was dropped: whether the
+rollback the limit's SIGTERM started had put the box back ("rolled back") or not ("ROLLBACK FAILED"). Only
+`tools/apply_update.sh status` on the host told (H114-18). The integrator ruled the form on #639 (7139911468).
+
+Interruption case covered (the MVP walk's step 8): the update's time limit, or a signal, reached partway through
+an update. After the grace the output is put back into the result, the SIGKILL still lands (H-114d), and the
+outcome line, "rolled back" or "ROLLBACK FAILED", survives into the console's result.
+
+- `procgroup.run` keeps what `_stop` read and raises `TimeoutExpired` with that output and stderr.
+- `ops.do_update_apply` turns it into `_LimitReached`, a private subclass of `OpsFailed`. Its summary is "the
+  update's time limit (N s) was reached; it was stopped. Its last output:".
+- `run_one` takes `_LimitReached`'s lines as the result's lines. `OpsFailed` and every other failure are unchanged.
+- The lines are the last 20, each through `tb_common.logging.redact`:
+  - stderr (the updater's progress) comes first and stdout (its last word, "update FAILED: ...") last, so a long
+    rollback's progress does not push the outcome out of the 20;
+  - a line over 290 characters keeps its first 110 and last 170, because a result's line is cut at 300 and the
+    outcome ends the updater's line.
+- Test: `tests/unit/test_update_limit_output_h114e.py`, 6 cases, through `run_one` and the real `procgroup`, on a
+  stand-in `apply_update.sh` that rolls back on the TERM:
+  - "rolled back" and "ROLLBACK FAILED", each with a short reason and with a last line far over 300 characters;
+  - a planted `TB_DB_PASSWORD` value is not in the result's file;
+  - a failure inside the limit is as before.
+  At 4dcdf18f (H-114d only) 5 fail; the "as before" case passes, as it should.
+- Mutants, 5, all caught:
+  - no redaction;
+  - stdout before stderr;
+  - no cut in the middle of a long line;
+  - `run_one` dropping the lines;
+  - `procgroup.run` raising without the output.
+- Files outside the card: `tools/trialbox/ops.py` (lane R's; body only, ruled 7139911468) and
+  `tools/trialbox/procgroup.py` (lane B2's; body only, under the same ruling as H-114b's `grace`).

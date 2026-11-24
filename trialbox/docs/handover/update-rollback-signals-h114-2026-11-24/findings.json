@@ -173,6 +173,16 @@
    "state": "fixed 4096baee5e796fafb843ff2e6903da3cfa8506ab",
    "fix": "procgroup._stop reads the pipes through the grace and ends it with the leader's exit or its time; procgroup.run and update.run_cmd use it; tests/unit/test_update_grace_output_h114d.py and the reviewer's test in test_update_grace_h114b.py",
    "from": "the external review of #1472 (7136336525), 2026-11-24"
+  },
+  {
+   "id": "H114-18",
+   "severity": "Low",
+   "claim": "after the console's time limit the result was TimeoutExpired with no lines: the update's own outcome (rolled back, or ROLLBACK FAILED) was dropped and only tools/apply_update.sh status on the host told (review 1472-2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "procgroup.run raises TimeoutExpired with the output it read; ops.do_update_apply raises _LimitReached (a private OpsFailed) whose last 20 lines, each through tb_common.logging.redact, are the result's lines; tests/unit/test_update_limit_output_h114e.py",
+   "from": "the external review of #1472 (7136336525); the integrator's ruling 7139911468, 2026-11-24"
   }
  ]
 }

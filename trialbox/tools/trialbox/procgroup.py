@@ -54,8 +54,8 @@ def run(argv: Sequence[str], timeout: float | None = None, grace: float | None =
         try:
             out, err = p.communicate(stdin, timeout=timeout)
         except subprocess.TimeoutExpired:
-            _stop(p, grace)
-            raise subprocess.TimeoutExpired(list(argv), timeout or 0) from None
+            out, err = _stop(p, grace)  # H-114e (review 1472-2): what it said, the rollback's outcome too, kept
+            raise subprocess.TimeoutExpired(list(argv), timeout or 0, output=out, stderr=err) from None
         except BaseException:
             _kill(p.pid, signal.SIGKILL)
             raise
