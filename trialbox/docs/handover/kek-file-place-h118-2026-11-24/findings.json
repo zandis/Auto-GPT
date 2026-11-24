@@ -10,7 +10,7 @@
    "claim": "seal_keys.sh wrote the unsealed KEK where a caller's TB_KEK_FILE said (persistent disk with /etc/trialbox.kek) and D-887 then gave that folder to the services' user; fixed: the box's own /run/trialbox/kek always, the variable ignored with one line",
    "lane": "H",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed",
    "place": "deploy/hardening/seal_keys.sh"
   },
   {
@@ -21,6 +21,24 @@
    "basis": "shown",
    "state": "open",
    "place": "tools/keys.py; card H-119"
+  },
+  {
+   "id": "H118-03",
+   "severity": "Medium",
+   "claim": "review of #1482, 1482-1: through the image (a host python3 without cryptography) the container was not given /run/trialbox-seal, so keys init --kek-in .../kek.new failed on every TPM seal and every re-run; fixed: the seal folder is mounted once arm has made it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "deploy/hardening/seal_keys.sh"
+  },
+  {
+   "id": "H118-04",
+   "severity": "Low",
+   "claim": "review of #1482, 1482-2: no test pinned the folder check before the clean-up trap; with the traps first, a refused link's target kek.new would be shredded; fixed: a test that fails under that order",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "tests/unit/test_seal_keys_kek_place_h118.py"
   }
  ]
 }

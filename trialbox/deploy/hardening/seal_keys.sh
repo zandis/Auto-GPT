@@ -141,13 +141,17 @@ CRED="$HR/etc/credstore.encrypted/trialbox-kek"
 
 tool() {  # tool MODULE ARGS...: the host's python3 when it can, else the image's own copy of the module; stdin goes on
   mod="$1"; shift
+  # review of #1482 (1482-1): the image is given the plain KEK's own folder too, once arm made it (never made by the
+  # engine: a missing folder given to -v is made root's 0755, which the next arm refuses)
+  seal_v=""; [ ! -d "$SEAL_DIR" ] || seal_v="$SEAL_DIR:$SEAL_DIR"
   if python3 -c "import cryptography" 2>/dev/null; then
     (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m "$mod" "$@")
   else
     # the folders keep their host paths inside the container. The passphrase goes through the container's stdin (a
     # pipe), never -e: Docker keeps a container's environment in its config on disk
     docker run --rm -i --network none --user 0:0 -e TB_KEK_FILE -e TB_ENV \
-      -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} \
+      -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" ${seal_v:+-v "$seal_v"} \
+      ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} \
       "${TB_IMAGE:-trialbox-py:1.0.0}" python -m "$mod" "$@"
   fi
 }

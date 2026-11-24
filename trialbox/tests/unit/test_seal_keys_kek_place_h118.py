@@ -199,3 +199,19 @@ def test_a_link_at_the_old_place_is_never_written_through(tmp_path: Path) -> Non
     assert target.read_bytes() == b"kept\n", "the plain KEK was written or shredded through the old name"
     assert (old / "kek.new").is_symlink()  # untouched: the seal no longer uses that name
     _opens(tmp_path, keys, _the_box_place(tmp_path).read_bytes())
+
+
+def test_a_refused_seal_folder_removes_nothing_through_it(tmp_path: Path) -> None:
+    """Review of #1482 (1482-2): the folder check runs before the clean-up trap is set, so a refused folder (here a
+    link to another folder that holds a file of that name) has nothing removed or shredded through it."""
+    env, _, _ = _host(tmp_path, "tpm")
+    folder = tmp_path / "host" / "run" / "trialbox-seal"
+    folder.parent.mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir(mode=0o700)
+    (elsewhere / "kek.new").write_bytes(b"someone else's file\n")
+    folder.symlink_to(elsewhere)
+    res = _seal(tmp_path, env)
+    assert res.returncode == 1 and "is not a folder only this user can open" in res.stderr, res.stdout + res.stderr
+    kept = elsewhere / "kek.new"
+    assert kept.is_file() and kept.read_bytes() == b"someone else's file\n", "the clean-up reached through the link"

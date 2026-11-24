@@ -20,7 +20,9 @@ persistent disk, beside the TPM-sealed one, and D-887's hand-over (`chown "$OWNE
 the place the boot unit `trialbox-unseal.service` writes and the services read. In tests `TB_HOST_ROOT` puts the
 host's root under a temporary folder, as it does for every path in the script. A caller's `TB_KEK_FILE` is not used,
 and one line says so when it names another place. The box's own value is still exported to the keys commands and
-passed to the image (`-e TB_KEK_FILE`). D-887's hand-over therefore only ever gives the box's own `/run/trialbox` to
+passed to the image (`-e TB_KEK_FILE`). When the keys commands run in the image (a host whose python3 has no
+`cryptography`), the image is given `/run/trialbox-seal` too, once the run has made it (review of #1482, 1482-1, below).
+D-887's hand-over therefore only ever gives the box's own `/run/trialbox` to
 the services' user.
 
 Out of this card (ruling 7125341668): `tools.keys` keeps its explicit `--out`. Its fallback to the environment in
@@ -60,6 +62,8 @@ The old place keeps its own case (`test_a_link_at_the_old_place_is_never_written
 Mutants, each caught: `kek.new` back in `/run/trialbox` (4 tests); the mode check removed; the owner check removed;
 the caller's `TB_KEK_FILE` put back. The link test alone (`[ -L ]`) is not caught when removed: `stat` without `-L`
 reports a link's own mode, 0777, so the mode check refuses a link as well. It stays as the plain statement of intent.
+The review of #1482 found two more not caught by those tests: `! -d` removed (equivalent: `mkdir -p` on a non-folder
+fails first under `set -e`), and the traps set before the folder check (not equivalent: 1482-2, below; now caught).
 
 ## Who reads TB_KEK_FILE
 
@@ -92,8 +96,10 @@ changes.
 
 ## Tests
 
-`tests/unit/test_seal_keys_kek_place_h118.py` has 4 tests. Each fails on the script before this card and on the
-mutant that puts the variable back (`KEK_FILE="${TB_KEK_FILE:-$RUN_DIR/kek}"`):
+`tests/unit/test_seal_keys_kek_place_h118.py` collects 10 tests: the 4 below, the 5 of the plain KEK's own folder
+(above) and the 1482-2 test (below). `tests/unit/test_seal_keys_image_mounts_ocr1482.py` has 1 (1482-1, below). The 4
+below each fail on the script before this card and on the mutant that puts the variable back
+(`KEK_FILE="${TB_KEK_FILE:-$RUN_DIR/kek}"`):
 
 - `test_a_callers_kek_file_never_decides_where_the_unsealed_kek_goes[tpm]` and `[passphrase]`: nothing at the
   caller's place; the KEK at the box's place, owner only, opening the keys; the line says the variable is not used.
@@ -101,7 +107,26 @@ mutant that puts the variable back (`KEK_FILE="${TB_KEK_FILE:-$RUN_DIR/kek}"`):
 - `test_no_callers_folder_is_handed_to_the_services_user`: with stand-ins for `id -u` (root) and `chown`, D-887 asks
   for the box's `/run/trialbox` and its `kek`, and never for anything under the caller's folder.
 
+## Review of #1482 (OCR, comment 7143739346, at 2e5d5ad)
+
+- **1482-1 (Medium, fixed).** On a host whose python3 has no `cryptography`, the keys commands run in the image, which
+  was given `$SECRETS` and `$RUN_DIR` but not `/run/trialbox-seal`. `keys init --kek-in .../kek.new` then failed on
+  every TPM seal, and every re-run failed the same way (the keys stayed plain, the credential placed). Master was not
+  affected (`kek.new` sat in the mounted `$RUN_DIR`). Fixed with the review's patch: `tool` mounts the seal folder only
+  once `arm` has made it, because an engine makes a missing `-v` source as root's 0755, which the next `arm` refuses.
+  Test (the review's): `test_seal_keys_image_mounts_ocr1482.py::test_the_tpm_path_seals_wraps_and_unseals_through_the_image`,
+  with an engine stand-in that hides every path no `-v` covers. It fails without the mount and passes with it.
+- **1482-2 (Low, fixed).** The folder check runs before the clean-up trap is set; nothing pinned that order. With the
+  traps set first, a refused link to another folder would have its `kek.new` shredded through it. Test (the review's):
+  `test_seal_keys_kek_place_h118.py::test_a_refused_seal_folder_removes_nothing_through_it`. It fails under that mutant.
+- **1482-3 (Low, fixed).** This page gave the test count as 4 and did not name the seal folder among the image's
+  mounts; H118-01 was `open` in the findings file though fixed here. All three are corrected.
+- For D-1461's one owner rule: `/run/trialbox-seal` is root's only (0700). Neither D-887's hand-over nor H-133's owner
+  rule reaches it.
+
 ## Not verified
 
 - A real TPM, and a real box's `/run`.
+- A real container engine: that it makes a missing `-v` source as root's 0755 (why the seal folder is mounted only
+  once it exists) is from the engine's documented behaviour; the stand-in cannot show it.
 - `tools.keys`' environment fallback (H-119).
