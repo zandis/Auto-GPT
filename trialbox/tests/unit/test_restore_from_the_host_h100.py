@@ -263,11 +263,33 @@ def test_restart_starts_the_services_only_after_a_complete_or_held_restore(
     assert bool(ups) is starts, rec.calls
     if starts:
         # H-126: every service the box defines, waited for until healthy; both counts said
-        assert got == code and ups[0][-5:] == ["up", "-d", "--wait", "--wait-timeout", "600"]
+        whole = ["docker", "compose", "--project-directory", str(deploy), "up", "-d", "--wait", "--wait-timeout", "600"]
+        assert got == code and ups == [whole], ups  # exactly one start, the whole command pinned
         assert "healthy: 2 of 2" in capsys.readouterr().err
     else:
         err = capsys.readouterr().err
         assert got == code and "restore: the box now: running: db; stopped by --restart: console" in err, err
+
+
+def test_h126_a_service_the_start_leaves_stopped_is_a_shortfall_with_exit_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """H-126: a complete restore whose start leaves an expected service stopped ends 1, never "healthy"."""
+
+    class LeavesConsole(Recorder):
+        def __call__(self, argv: list[str], **kw: object) -> str:
+            out = super().__call__(argv, **kw)
+            if "up" in argv:
+                self.running = ["db", "orchestrator"]  # console stays stopped
+            return out
+
+    deploy = _box(tmp_path)
+    rec = LeavesConsole(running=["db", "console"])
+    got, _ = _restore(deploy, tmp_path, monkeypatch, rec, '{"hold": "released"}', 0, "--restart")
+    err = capsys.readouterr().err
+    assert got == 1 and len([c for c in rec.calls if "up" in c]) == 1, (got, rec.calls)
+    assert "did not all come back healthy: 1 of 2; not running or not healthy: console" in err, err
+    assert "are healthy" not in err
 
 
 def test_a_service_that_does_not_come_back_healthy_fails_the_command(
@@ -532,7 +554,7 @@ def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(
     # H-126: the stand-in's compose says only db runs, so nothing was stopped; the whole project is started and
     # the full expected set (db) is checked
     ups = [c["argv"] for c in h88.calls(box) if "compose" in c["argv"] and "up" in c["argv"]]
-    assert len(ups) == 1 and ups[0][-5:] == ["up", "-d", "--wait", "--wait-timeout", "600"], ups
+    assert ups == [["compose", "--project-directory", str(deploy), "up", "-d", "--wait", "--wait-timeout", "600"]], ups
     assert "the services run again and are healthy: 1 of 1" in r.stderr, r.stderr[-1500:]
     assert bs.recorded_good([nas], {"name": made.name, "bytes": made.stat().st_size, "sha256": sha})
 

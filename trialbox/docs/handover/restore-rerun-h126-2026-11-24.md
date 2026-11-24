@@ -45,16 +45,20 @@ that, now said.
 **Mutants.** The old "only what ran before" start (and the expected set as what ran) planted: 16 of 20 tests fail,
 all 12 invariant cases among them. The old health line planted: 16 of 20 fail.
 
-**Changed assertions** (the integrator's ruling 7129093062), in `tests/unit/test_restore_from_the_host_h100.py`:
+**Changed assertions** (the integrator's rulings 7129093062 and 7129949024), in
+`tests/unit/test_restore_from_the_host_h100.py`:
 
 - `test_restart_starts_the_services_only_after_a_complete_or_held_restore[0-released-True]` and `[4-held-True]`: old
-  `ups[0][-6:] == ["-d", "--no-deps", "--wait", "--wait-timeout", "600", "console"]`; new
-  `ups[0][-5:] == ["up", "-d", "--wait", "--wait-timeout", "600"]` and `"healthy: 2 of 2"` in the output. Its cases
-  where the restore is neither complete nor held (`3-held`, `4-NOT set`, `1`) still assert that no `up` runs.
+  `ups[0][-6:] == ["-d", "--no-deps", "--wait", "--wait-timeout", "600", "console"]`; new: exactly one `up`, the whole
+  command pinned, `ups == [["docker", "compose", "--project-directory", <deploy>, "up", "-d", "--wait",
+  "--wait-timeout", "600"]]`, and `"healthy: 2 of 2"` in the output. Its cases where the restore is neither complete
+  nor held (`3-held`, `4-NOT set`, `1`) still assert that no `up` runs.
 - `test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo`: old
-  `not ups and "the services run again and are healthy: 0"`; new: one `up -d --wait --wait-timeout 600` for the whole
-  project and `"healthy: 1 of 1"`. Its stand-in compose now answers `config --services` and `ps --status running`
-  with `db`; `returncode == 4` is unchanged.
+  `not ups and "the services run again and are healthy: 0"`; new: exactly one `up`, pinned
+  (`["compose", "--project-directory", <deploy>, "up", "-d", "--wait", "--wait-timeout", "600"]`), and
+  `"healthy: 1 of 1"`. Its stand-in compose now answers `config --services` and `ps --status running` with `db`;
+  `returncode == 4` is unchanged.
+- Added: `test_h126_a_service_the_start_leaves_stopped_is_a_shortfall_with_exit_1` (exit 1, "1 of 2", the name).
 
 **The rehearsal** (`tools/rehearse_box/box.sh`, step `live-restore`) adds the walk's case after the good restore: the
 same command signalled (SIGTERM twice) once its container has ended, caddy, console and llm-verifier stopped as the
