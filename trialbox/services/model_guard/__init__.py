@@ -131,7 +131,13 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 length = -1
-            if not 0 <= length <= MAX_BODY or self.headers.get("Transfer-Encoding"):
+            # H-137: one Content-Length only. The guard reads the first, the forwarded headers keep the last: with two,
+            # the body it forwards would carry a second request the key check never saw. RFC 9112 6.3: Transfer-Encoding
+            # beside Content-Length may be refused, and the connection is closed after the answer either way
+            many = len(self.headers.get_all("Content-Length") or []) > 1
+            if many or not 0 <= length <= MAX_BODY or self.headers.get("Transfer-Encoding"):
+                why = "more than one Content-Length" if many else "a body length it cannot use"
+                self.log_message("refused %s: %s", self.command, why)  # the reason only, never the body
                 self.close_connection = True
                 self._reply(400, {"error": "bad request body"})
                 return

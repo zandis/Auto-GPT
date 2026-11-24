@@ -85,6 +85,9 @@ def _b64(raw: bytes) -> str:
 
 
 def sign_id_token(username: str, environ: dict[str, str] | None = None) -> str:
+    secret = client_secret(environ)
+    if not secret:  # H-137: under an empty key anyone could compute the signature
+        raise ValueError("the EDC OIDC client secret is not set")
     header = _b64(b'{"alg":"HS256","typ":"JWT"}')
     payload = _b64(
         json.dumps(
@@ -93,16 +96,17 @@ def sign_id_token(username: str, environ: dict[str, str] | None = None) -> str:
         ).encode()
     )
     signing = f"{header}.{payload}".encode()
-    sig = hmac.new(client_secret(environ).encode(), signing, hashlib.sha256).digest()
+    sig = hmac.new(secret.encode(), signing, hashlib.sha256).digest()
     return f"{header}.{payload}.{_b64(sig)}"
 
 
 def subject_of(token: str, environ: dict[str, str] | None = None) -> str | None:
     parts = token.split(".")
-    if len(parts) != 3:
+    secret = client_secret(environ)
+    if len(parts) != 3 or not secret:  # H-137: nothing is verified under an empty key
         return None
     signing = f"{parts[0]}.{parts[1]}".encode()
-    sig = hmac.new(client_secret(environ).encode(), signing, hashlib.sha256).digest()
+    sig = hmac.new(secret.encode(), signing, hashlib.sha256).digest()
     pad = "=" * (-len(parts[2]) % 4)
     try:
         given = base64.urlsafe_b64decode(parts[2] + pad)
