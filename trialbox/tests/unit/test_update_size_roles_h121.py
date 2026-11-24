@@ -103,8 +103,9 @@ def test_h121_the_size_check_reads_both_databases_on_a_sites_roles(
 ) -> None:
     """The invariant: the update's space check and the backup's limit read each database's size on a site's roles."""
     box = _box(site_roles, tmp_path / "deploy", monkeypatch)
-    sizes = {db: box.db_size(db, user) for db, user in up.DB_SIZE_ROLES}
-    assert set(sizes) == {"trialbox_wf", "hapi"} and all(n > 0 for n in sizes.values()), sizes
+    read = {db: box.db_size(db, user) for db, user in up.DB_SIZE_ROLES}
+    sizes = {db: n for db, n in read.items() if n}
+    assert set(sizes) == {"trialbox_wf", "hapi"} == set(read), read
     plan = up.Plan("B1", "f" * 64, "v", [], tmp_path / "stage")
     needs = {what: n for _p, n, what in box.space_needs(plan, tmp_path / "deploy" / "updates")}
     assert needs["database dumps"] == 2 * sum(sizes.values())
