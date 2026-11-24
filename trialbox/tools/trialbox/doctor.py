@@ -1469,6 +1469,50 @@ def _standins_in_compose(inp: DoctorInputs) -> str:
     return ""
 
 
+BENCH_SERVING_MARK = "x-trialbox-bench-serving: true"
+# the mark as compose still reads it: blanks and a trailing comment allowed (OCR 1459-7)
+_BENCH_MARK_LINE = re.compile(r"^x-trialbox-bench-serving:\s*true\s*(?:#.*)?$", re.M)
+
+
+def check_bench_serving(inp: DoctorInputs) -> Check:
+    """H-112: the second serving profile (deploy/docker-compose.serving-second.yml, marked BENCH_SERVING_MARK) runs
+    the models with an engine that is in no signed bundle, not in deploy/images.lock and with no key check of its
+    own: on a TEST box it is a standing WARN, on a box of any other class (PRODUCTION when unset) a FAIL. It is on
+    when its file is in COMPOSE_FILE (a hand edit) or when the switch in deploy/site/serving-second.env says
+    ``second`` (tools/serving_profile.py adds the file on the command line, never to COMPOSE_FILE); a switch that
+    cannot be read counts as on (OCR 1459-3)."""
+    from tools import serving_profile
+
+    base = inp.deploy or ROOT / "deploy"
+    found = ""
+    for entry in (inp.env.get("COMPOSE_FILE") or "").split(":"):
+        if not entry.strip():
+            continue
+        path = _compose_file(base, entry.strip())
+        try:
+            if _BENCH_MARK_LINE.search(path.read_text(encoding="utf-8")):
+                found = f"{path}, deploy/.env COMPOSE_FILE"
+                break
+        except (OSError, UnicodeDecodeError):
+            continue
+    if not found:
+        try:
+            on = serving_profile.switch(base) == "second"
+        except serving_profile.Refused:
+            on = True  # a switch that cannot be read, or says something else, is never taken for off
+        if on:
+            found = f"the switch in {base / serving_profile.SETTINGS}"
+    if not found:
+        return Check("bench_serving", "PASS", "the models are served by the current serving engine")
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    if env == "TEST":
+        return Check("bench_serving", "WARN", f"BENCH SERVING: the second serving engine serves the models ({found}): "
+                                              "for the engine comparison only, not a pinned image (H-112)")  # fmt: skip
+    return Check("bench_serving", "FAIL", f"the second serving profile is on for a {env} box ({found}): its engine "
+                                          "is in no signed bundle and checks no key of its own. Set SERVING_ENGINE "
+                                          "to current and take the file out of COMPOSE_FILE (H-112)")  # fmt: skip
+
+
 def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:
     """H-89: (where, what the box says) when this box ran the real model servers as a rehearsal, else None."""
     from tools import rehearsal_real
@@ -1491,6 +1535,9 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
     line is a standing WARN no setting turns off: "REHEARSAL BOX: placeholder models, synthetic data only". A
     VALIDATION box needs both marks (TB_REHEARSAL=1 alone, or the file alone, is a site box touched by hand); a mark
     on a box of any other environment FAILs (someone changed TB_ENV of a rehearsal box by hand)."""
+    test = check_test_box(inp)  # H-106: a test box (never a rehearsal box) says so on this line
+    if test.status != "PASS":
+        return test
     flag = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
     mark = _site_dir(inp) / "rehearsal.json"
     has_mark = mark.is_file()
@@ -1534,6 +1581,37 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
         "an unmeasured card are allowed; never a site's patients; nothing is qualified or promoted on it; D-726, "
         "D-887)",
     )
+
+
+def check_test_box(inp: DoctorInputs) -> Check:
+    """TEST BOX (H-106): one of several test boxes on a host says so, on every run, as a standing WARN no setting
+    turns off. Its record (``deploy/site/test-box.env``, written by ``deploy/install.sh --test-box``) and deploy/.env
+    must agree on its project, and the box must be TEST or DEV: anything else FAILs (a record copied between folders,
+    edited by hand, or a test box turned into another kind)."""
+    from tools.trialbox import testbox
+
+    deploy = _site_dir(inp).parent
+    try:
+        box = testbox.load(deploy)
+    except testbox.Refused as exc:
+        return Check("rehearsal", "FAIL", str(exc))
+    named = (inp.env.get("TB_TEST_BOX") or "").strip()
+    if box is None:
+        if named:
+            return Check("rehearsal", "FAIL", f"TB_TEST_BOX={named} in deploy/.env with no record (deploy/"
+                                             f"{testbox.RECORD}): a test box is made by deploy/install.sh "
+                                             "--test-box only")  # fmt: skip
+        return Check("rehearsal", "PASS", "not a test box")
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    project = (inp.env.get("COMPOSE_PROJECT_NAME") or "").strip()
+    if named != box.name or project != box.project:
+        return Check("rehearsal", "FAIL", f"deploy/.env (TB_TEST_BOX={named or '-'}, COMPOSE_PROJECT_NAME="
+                                         f"{project or '-'}) is not test box {box.name}'s record (project "
+                                         f"{box.project}): its commands would reach another box; run its "
+                                         "install again")  # fmt: skip
+    if env not in ("DEV", "TEST"):
+        return Check("rehearsal", "FAIL", f"test box {box.name} says TB_ENV={env}: a test box is TEST or DEV only")
+    return Check("rehearsal", "WARN", box.words())
 
 
 def check_postgres_memory(inp: DoctorInputs) -> Check:
@@ -2172,6 +2250,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_audit_heads,
     check_anchor_mount,
     check_rehearsal,
+    check_bench_serving,
     check_memory_caps,
     check_postgres_memory,
     check_db_passwords,
@@ -2268,9 +2347,9 @@ HOST_FACILITY_ONLY: dict[str, str] = {"audit_heads": "no anchor folder"}  # ease
 def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     if (inp.env.get("TB_HOST_PROFILE") or "").strip() != "poc":
         return out
-    from tb_common.config import environment_name
-
-    if environment_name(inp.env) == "PRODUCTION":
+    # tb_common.config's rule, without its import (it needs pydantic, which the host's python3 has not): this runs after
+    # the checks, where an ImportError ends the whole doctor (H-106: `trialbox --box NAME doctor` on the host)
+    if (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper() == "PRODUCTION":
         return [*out, Check("host_profile", "FAIL", "TB_HOST_PROFILE=poc on a PRODUCTION box: never relaxed there")]
     eased = [
         c.name

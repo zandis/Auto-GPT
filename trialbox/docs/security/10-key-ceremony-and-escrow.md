@@ -53,7 +53,7 @@ its value, to the system journal. RUNBOOK §23 ("Rotate the KEK passphrase") is 
 
 ```bash
 sudo bash -c 'umask 077; IFS= read -rs TB_KEK_NEW_PASSPHRASE; printf "%s\n" "$TB_KEK_NEW_PASSPHRASE" > /root/trialbox-kek-new.pass'
-sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"
 ```
 
 ## 4. The ceremony, in order

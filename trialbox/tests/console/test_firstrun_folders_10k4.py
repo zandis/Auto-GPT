@@ -149,7 +149,8 @@ def test_a_production_box_does_not_finish_its_set_up_until_its_folders_are_right
     probe.chmod(0o755)
     env = {**t["env"], **knobs(h), "TB_BOX_DOCKER": str(probe)}
     proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
-                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
+                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            start_new_session=True)  # fmt: skip  # H-97: no terminal: the code in the root-only file
     try:
         _owner_answers(t, tmp_path, proc, backup_dir="/mnt/syspart/b", anchor_dir="/mnt/audit2")
         out, _ = proc.communicate(timeout=120)

@@ -25,12 +25,18 @@ class FakeModel:
 
     made = 0
 
-    def __init__(self, verdict: str, conf: float = 0.9, quote: str | None = QUOTE, error: bool = False) -> None:
+    def __init__(
+        self, verdict: str, conf: float = 0.9, quote: str | None = QUOTE, error: bool = False, affirmed: bool = True
+    ) -> None:
         # each fake is its own model: two answers under one model name are one model's answer (D-276), and the
         # name used to be the verdict, so an agreeing pair was one name asked twice
         FakeModel.made += 1
         self.model = f"fake-{FakeModel.made}-{verdict}"
         self.reply = {"verdict": verdict, "reason": "r", "confidence": conf, "quote": quote, "quote_date": "2026-01-10"}
+        if (
+            affirmed
+        ):  # judge v6 (round 5 of R22-16, #639 7115208555): the quote affirms the condition, the patient's, now
+            self.reply.update(certainty="affirmed", experiencer="patient", time="current")
         self.error = error
         self.calls = 0
 
@@ -79,6 +85,10 @@ def test_v1_agreement_excludes_with_the_lower_confidence() -> None:
         c.text, c.note_question or c.text, IDX, EXCERPTS
     )
     assert tier(_ruleset(c), [note_verdict(c, low)], 0.75, note_block=True)[0] == "review"
+    # round 5: the same agreement from a judge before v6, which says nothing of the quote, sends to review
+    v5 = _judge(FakeModel("pass", 0.95, affirmed=False), FakeModel("pass", 0.8, affirmed=False))
+    r5 = v5.judge_excerpts(c.text, c.note_question or c.text, IDX, EXCERPTS)
+    assert tier(_ruleset(c), [note_verdict(c, r5)], 0.75, note_block=True)[0] == "review"
 
 
 def test_v1_verifier_down_is_a_failure_not_an_exclusion() -> None:

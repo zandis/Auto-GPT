@@ -731,6 +731,8 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JUDGE_LLM_URL": Declared("str", "", "tests: the model endpoint the judge suite's real-model test calls"),
+    "TB_JUDGE_MODEL": Declared("str", "", "tests: the served model name the judge suite's real-model test calls"),
     "TB_JUDGED_STORE": Declared(
         "str", "on", "SCREEN: the judged-pair store, on or off; off asks every note question live (D-908, D-519)"
     ),
@@ -788,6 +790,9 @@ DECLARED: dict[str, Declared] = {
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
+    "TB_LLM_EVAL_KEY": Declared(
+        "str", "", "tests: the local model servers' key the model-quality suites send to a local endpoint only (secret)"
+    ),
     "TB_LLM_EVAL_MODEL": Declared("str", "", "tests: the served model name the model-quality suites (marker llm) call"),
     "TB_LLM_EVAL_URL": Declared("str", "", "tests: the model endpoint the model-quality suites (marker llm) call"),
     "TB_LLM_MODE": Declared("str", "vllm", "model client (vllm, llamacpp, openai, stub)"),
@@ -949,6 +954,13 @@ DECLARED: dict[str, Declared] = {
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
     "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box; doctor says so (D-726, D-887)"),
+    "TB_TEST_BOX": Declared("str", "", "--test-box: the test box's name (H-106)"),
+    "TB_TEST_BOX_PORT_OFFSET": Declared("str", "", "--port-offset: a test box's ports, base + 10 x N (H-106)"),
+    "TB_TEST_BOX_GPUS": Declared("str", "", "--gpus: a test box's cards (H-106)"),
+    "TB_TEST_BOX_GPU_MEM_GB": Declared("str", "", "--gpu-mem-gb: a test box's cap a card (H-106)"),
+    "TB_TEST_BOX_ROOT": Declared("str", "", "a test box's host folder, as installed (H-106)"),
+    "TB_TLS_PORT": Declared("str", "", "TLS proxy host port (443; H-106)"),
+    "TB_PROMETHEUS_PORT": Declared("str", "", "monitoring host port (9090; H-106)"),
     "TB_REHEARSAL_REAL_SERVERS": Declared(
         "str",
         "",

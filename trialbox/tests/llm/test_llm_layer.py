@@ -31,9 +31,9 @@ def llm() -> Any:
     url = os.environ.get("TB_LLM_EVAL_URL")
     if not url:
         pytest.skip("TB_LLM_EVAL_URL not set (real model required)")
-    from tb_common.llm import LlmClient
+    from tb_testkit.eval_key import eval_client
 
-    return LlmClient(url, os.environ.get("TB_LLM_EVAL_MODEL", "trialbox"))
+    return eval_client(url, os.environ.get("TB_LLM_EVAL_MODEL", "trialbox"))
 
 
 def _atoms(logic: dict[str, Any]) -> list[dict[str, Any]]:

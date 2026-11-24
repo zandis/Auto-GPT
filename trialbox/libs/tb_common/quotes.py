@@ -37,27 +37,33 @@ def runs(text: str) -> list[str]:
     return ["\n".join(r) for r in out if r]
 
 
-#: the pairs a model wraps a whole quote in (D-1266): corner brackets, straight and curly double quotes
-_WRAPS = (("「", "」"), ('"', '"'), ("\u201c", "\u201d"))
+def quote_in(quote: str, text: str) -> bool:
+    """Whether ``quote`` is a contiguous part of ``text``. In an excerpt with cuts (D-641) it must lie inside one
+    unbroken piece: text on both sides of a cut is not next to each other in the note, and the mark is not in it."""
+    q = quote_key(quote)
+    return bool(q) and any(q in quote_key(r) for r in runs(text))
 
 
-def unwrapped(quote: str) -> str:
-    """``quote`` without ONE pair of :data:`_WRAPS` around the whole of it; unchanged when it has none, or when the
-    pair's marks also stand inside it (「高血圧」と「糖尿病」 is two quoted words, not one wrapped quote)."""
-    q = quote.strip()
-    for o, c in _WRAPS:
-        inner = q[len(o) : len(q) - len(c)]
-        if len(q) > len(o) + len(c) and q.startswith(o) and q.endswith(c) and o not in inner and c not in inner:
-            return inner
+#: one pair of marks a model may wrap its whole quote in (#639 7113069462, #1327 7094287787)
+_WRAP = {"「": "」", '"': '"', "“": "”"}
+
+
+def unwrap(quote: str) -> str:
+    """``quote`` without one pair of 「」 or "" around the whole of it; unchanged when there is none, or when the mark
+    also occurs inside (「A」と「B」 is not one quote in marks)."""
+    s = quote.strip()
+    if len(s) > 2 and s[0] in _WRAP and s[-1] == _WRAP[s[0]] and s[0] not in s[1:-1] and s[-1] not in s[1:-1]:
+        return s[1:-1].strip()
     return quote
 
 
-def quote_in(quote: str, text: str) -> bool:
-    """Whether ``quote`` is a contiguous part of ``text``. In an excerpt with cuts (D-641) it must lie inside one
-    unbroken piece: text on both sides of a cut is not next to each other in the note, and the mark is not in it.
-    A quote the model wrapped in one pair of quotation marks (:func:`unwrapped`) is read without them too."""
-    keys = [k for k in dict.fromkeys((quote_key(quote), quote_key(unwrapped(quote)))) if k]
-    return any(k in quote_key(r) for r in runs(text) for k in keys)
+def as_in(quote: str, text: str) -> str | None:
+    """The quote as ``text`` holds it: ``quote`` itself when :func:`quote_in`, else the quote without its enclosing
+    marks (:func:`unwrap`) when that is in it, else None. A Japanese answer often wraps its quote in 「」."""
+    if quote_in(quote, text):
+        return quote
+    bare = unwrap(quote)
+    return bare if bare != quote and quote_in(bare, text) else None
 
 
-__all__ = ["CUT", "quote_in", "quote_key", "runs", "unwrapped"]
+__all__ = ["CUT", "as_in", "quote_in", "quote_key", "runs", "unwrap"]

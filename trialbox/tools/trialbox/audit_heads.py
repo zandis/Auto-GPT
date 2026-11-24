@@ -40,8 +40,9 @@ ACTOR = "trialbox:audit-sign"
 PROJECT = "trialbox"
 VOLUMES = "/var/lib/docker/volumes"
 KEK_FILE = "/run/trialbox/kek"  # tb_common.kek.DEFAULT_KEK_FILE (the host wrapper imports no library)
-#: the environment the signer's container is given, by name: a value never goes on a command line
-PASSED = ("TB_ENV", "TB_KEK_FILE", "TB_KEK_PASSPHRASE", "TB_KMS_TOKEN", "TB_TZ")
+#: the environment the signer's container is given, by name: a value never goes on a command line. Never the KEK
+#: passphrase (H-97, the review's L-2): a passphrase box's signer opens the KEK from the unsealed KEK file it mounts
+PASSED = ("TB_ENV", "TB_KEK_FILE", "TB_KMS_TOKEN", "TB_TZ")
 
 Recorder = Callable[[str, str, dict[str, Any]], None]
 Run = Callable[..., str]

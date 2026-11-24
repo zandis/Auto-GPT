@@ -77,7 +77,7 @@ File: [runbook/12-identity-and-tls.md](runbook/12-identity-and-tls.md). Parts: [
 
 ## 13. Working in parallel on one machine (D-201)
 
-File: [runbook/13-parallel-work-on-one-machine.md](runbook/13-parallel-work-on-one-machine.md).
+File: [runbook/13-parallel-work-on-one-machine.md](runbook/13-parallel-work-on-one-machine.md). Parts: [RUNBOOK §13 part: the bench host's CI runner](runbook/13-bench-ci-runner.md).
 
 ## 14. Judge bake-off: the current judge against Gemma 4 31B (D-181)
 
@@ -89,7 +89,7 @@ File: [runbook/15-operations-screens.md](runbook/15-operations-screens.md). In i
 
 ## 16. Box-install rehearsal: the gate before a site's IQ
 
-File: [runbook/16-box-install-rehearsal.md](runbook/16-box-install-rehearsal.md). In it: [A rehearsal with the real model servers (H-89, D-1087)](runbook/16-box-install-rehearsal.md#a-rehearsal-with-the-real-model-servers-h-89-d-1087).
+File: [runbook/16-box-install-rehearsal.md](runbook/16-box-install-rehearsal.md). In it: [A rehearsal with the real model servers (H-89, D-1087)](runbook/16-box-install-rehearsal.md#a-rehearsal-with-the-real-model-servers-h-89-d-1087), [Several test boxes on one host (H-106)](runbook/16-box-install-rehearsal.md#several-test-boxes-on-one-host-h-106).
 
 ## 17. On a hospital platform
 
@@ -143,6 +143,10 @@ File: [runbook/28-igx-orin-a6000-without-a-model.md](runbook/28-igx-orin-a6000-w
 
 File: [runbook/29-igx-orin-a6000-real-models.md](runbook/29-igx-orin-a6000-real-models.md). In it: [What we do not know yet](runbook/29-igx-orin-a6000-real-models.md#what-we-do-not-know-yet), [Two limits to know first](runbook/29-igx-orin-a6000-real-models.md#two-limits-to-know-first), [The page](runbook/29-igx-orin-a6000-real-models.md#the-page), [The weights (step 5)](runbook/29-igx-orin-a6000-real-models.md#the-weights-step-5), [Freeing the disk (step 1)](runbook/29-igx-orin-a6000-real-models.md#freeing-the-disk-step-1), [Reading the probe (step 2)](runbook/29-igx-orin-a6000-real-models.md#reading-the-probe-step-2), [The measuring run (steps 6 and 7)](runbook/29-igx-orin-a6000-real-models.md#the-measuring-run-steps-6-and-7), [What this page does not verify](runbook/29-igx-orin-a6000-real-models.md#what-this-page-does-not-verify).
 
+## 30. Several test boxes on one host
+
+File: [runbook/30-several-test-boxes-on-one-host.md](runbook/30-several-test-boxes-on-one-host.md).
+
 <!-- end of the generated index -->
 
 ## Section numbers
@@ -186,3 +190,4 @@ build TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 27 | Installing on a workstation with an RTX PRO 6000-class card | on master | owner (other install form) |
 | 28 | An IGX Orin developer kit with an RTX A6000: the product without a model | on master | owner (other install form) |
 | 29 | An IGX Orin developer kit with an RTX A6000: do the real models run? | on master | owner (other install form) |
+| 30 | Several test boxes on one host | on master | team |

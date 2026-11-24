@@ -26,6 +26,7 @@ import pytest
 from tb_common import host_folders as hf
 from tb_common.box_answers import host_dir, parse
 
+from tests.host_modes import as_root_makes_it
 from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tools import pglocal
 from tools.box import plan as bp
@@ -117,6 +118,7 @@ def fake_host(tmp: Path, extra_folders: tuple[str, ...] = ()) -> dict[str, Path]
         (root / folder.lstrip("/")).mkdir(parents=True, exist_ok=True)
     for marked in (GOOD["backup"], "/mnt/syspart/b", "/mnt/data2/b"):  # the nightly rule's mark (one real disk here)
         (root / marked.lstrip("/") / ".trialbox-offbox").write_text("", encoding="utf-8")
+    as_root_makes_it(root)  # H-115: the stand-in for / is root's and closed to others, whatever the runner's umask
     return {"mountinfo": info, "sys": sysr, "root": root, "base": tmp}
 
 
@@ -238,8 +240,8 @@ def _run_box_firstrun(tmp: Path, box: Path, h: dict[str, Path],
     env = {
         **_base_env(tmp, h), "TB_BOX_NO_ROOT": "1", "TB_BOX_PY": sys.executable,
         "TB_BOX_COMPOSE": str(stubs / "compose"), "TB_BOX_HOST_CHECK": str(stubs / "hostcheck"),
-        "TB_BOX_DOCKER": str(stubs / "probe"), "TB_ISSUE_DIR": str(tmp / "issue.d"),
-        "TB_FIRSTRUN_HOST_DIR": str(tmp / "firstrun"), "TB_SYSTEMD": "0", "TB_BOX_WSL2": "0",
+        "TB_BOX_DOCKER": str(stubs / "probe"), "TB_FIRSTRUN_HOST_DIR": str(tmp / "firstrun"), "TB_SYSTEMD": "0",
+        "TB_BOX_WSL2": "0",
     }  # fmt: skip
     return subprocess.run(["bash", str(box / "deploy" / "box-install.sh"), "--firstrun"], cwd=tmp, env=env,
                           stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)  # fmt: skip

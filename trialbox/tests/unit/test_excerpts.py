@@ -22,7 +22,7 @@ from orchestrator.scenarios.evaluate import NoteJudge, evaluate_patients
 
 from tests.judge_kit import ScriptedModel, ruleset, says
 from tests.unit.test_context_budgets import GOOD, INDEX, LINE, PROFILES, _box, _client, _Lake
-from tests.unit.test_screen_exclusion_pair import FLARE, IDX, INC, _chunk, _Chunks, _NoStructured
+from tests.unit.test_screen_exclusion_pair import EXC_FLARE, FLARE, IDX, INC, _chunk, _Chunks, _NoStructured
 
 FILLER = "Routine follow-up, vitals stable, no change in plan.\n"  # a note's sentences are its lines
 
@@ -487,6 +487,12 @@ def test_the_v1_read_counts_a_window_note_the_retrieval_did_not_return() -> None
     )  # control: with room for the window the pair's answer is final
     assert roomy.window("P", INC, IDX).left_out == 0
     out = evaluate_patients(ruleset([INC]), ["P"], IDX, _NoStructured(), roomy, 0.75, only={INC.id},
+                            all_candidates=True)  # fmt: skip
+    final = next(v for v in out["P"].verdicts if v.id == INC.id)
+    # R22-17 (D-1069; ruled on #639 7079180333): the final "not met" of a note inclusion is review, the row kept
+    assert out["P"].tier == "review" and (final.verdict, final.final) == ("fail", True)
+    present = _judge(lake, "pass", 20_000, 20_000)  # the control: a pair's final answer on a stated exclusion
+    out = evaluate_patients(ruleset([EXC_FLARE]), ["P"], IDX, _NoStructured(), present, 0.75, only={EXC_FLARE.id},
                             all_candidates=True)  # fmt: skip
     assert out["P"].tier == "excluded"
 

@@ -3,7 +3,7 @@
 # rehearse.sh starts, one phase per call, and exits non-zero when the phase's assertion fails. Every TrialBox file it
 # uses comes from the offline media in $TB_RH_MEDIA (the release tree, the signed bundle, the vendor key).
 #
-#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key|live-restore
+#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key|test-boxes|live-restore
 #
 # Environment (set by rehearse.sh): TB_RH_DIR (work dir, the same path on the Docker host), TB_RH_MEDIA (the media
 # folder), TB_RH_BUNDLE (the bundle file name), TB_RH_BOX (where the box is installed: the site's /opt/trialbox).
@@ -71,6 +71,25 @@ ONCE_FILE=/root/trialbox-admin-first-sign-in  # root's home, as the passwd entry
 # no_once_value_left OUT MIN: the root-only file holds at least MIN one-time values; none of them (read by grep -F -f,
 # never printed) is in the install's output, the stand-in sudo's log or deploy/.env. The file is removed after, as
 # RUNBOOK §1 says
+# H-94, H-97 part D (the integrator's ruling 7104745003): the rehearsal box is a PoC box whose keys are sealed under
+# the passphrase. With no TPM device here (the host check reads the same /dev) it lists exactly that stop
+# (check_host.sh/no-tpm-sealed), and doctor shows it in the install's own output; any other line of the PoC list is
+# a stop the rehearsal's own install must not have. $1: the list, $2: which install, $3: that install's output
+only_the_expected_poc_stops() {
+  local other key='"key": "check_host.sh/no-tpm-sealed"'
+  if [ -s "$1" ]; then
+    other="$(grep -v -F "$key" "$1" || true)"
+    [ -z "$other" ] || { printf '%s\n' "$other"; fail "the $2 warned and listed the stops above ($1)"; }
+  fi
+  if [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ]; then
+    return 0  # a TPM here: nothing of part D's is due (the list was checked above)
+  fi
+  grep -q -F "$key" "$1" 2>/dev/null \
+    || fail "the $2 on a box with no TPM did not list check_host.sh/no-tpm-sealed in $1 (H-97 part D)"
+  grep -q 'poc_stop .*check_host.sh/no-tpm-sealed.*reseal the site keys under a TPM' "$3" \
+    || fail "doctor did not show the PoC stop check_host.sh/no-tpm-sealed with its action in the $2's output ($3)"
+  ok "the $2 listed only the expected PoC stop, and doctor showed it: keys sealed under the passphrase with no TPM (H-97 part D)"
+}
 no_once_value_left() {
   local out="$1" min="$2" pat
   [ -f "$ONCE_FILE" ] && [ "$(stat -c '%a %u' "$ONCE_FILE")" = "600 0" ] \
@@ -280,8 +299,8 @@ install)
   no_passphrase_left "$KEK_PASS"
   ok "first install through the signed re-run: sealed from --kek-passphrase-file, the file kept as asked"
   # H-94: the rehearsal box is a PoC box, where a stop that is not one of the five warns and is listed; the
-  # rehearsal's own install must list nothing (as before, when each of them stopped it)
-  [ ! -s deploy/site/poc-stops.jsonl ] || { cat deploy/site/poc-stops.jsonl; fail "the install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
+  # rehearsal's own install lists only the expected one (as before, when each of them stopped it)
+  only_the_expected_poc_stops deploy/site/poc-stops.jsonl install "$W/install-output.log"
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
   grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
@@ -319,7 +338,7 @@ reinstall)
   [ ! -e "$KEK_PASS" ] || { rm -f "$pp_copy"; fail "the seal step did not remove the passphrase file"; }
   no_passphrase_left "$pp_copy"; rm -f "$pp_copy"
   ok "second install: the passphrase file removed after sealing"
-  [ ! -s "$BOX/deploy/site/poc-stops.jsonl" ] || { cat "$BOX/deploy/site/poc-stops.jsonl"; fail "the second install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
+  only_the_expected_poc_stops "$BOX/deploy/site/poc-stops.jsonl" "second install" "$W/reinstall-output.log"
   [ "$(sha256sum "$sec/kek.json" | cut -d' ' -f1)" = "$before" ] || fail "the second install replaced the KEK"
   [ "$(stat -c %u "$BOX/deploy/site")" = 0 ] || fail "deploy/site is no longer root's"
   grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"
@@ -811,6 +830,48 @@ EOF
   after="$(dc ps --services --status running | sort)"
   [ "$before" = "$after" ] || fail "the services after the restore differ: before [$before] after [$after]"
   ok "$(printf '%s\n' "$after" | wc -l) services run again after the restore, each healthy, as before it"
+  # H-126: the walk's case. The same command signalled after its data part (the restore's container has ended; the
+  # host's step is starting the services), the site's services left stopped as the walk's interrupted run left them,
+  # then the same command again: every service that ran before runs again healthy, the line says "N of N" (never a
+  # shortfall called healthy) and the site answers through caddy.
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/interrupted.json" 2> "$rr/interrupted.err" &
+  pid=$!
+  stop_bg() { kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; }
+  seen=0
+  for _ in $(seq 1 9000); do  # every 0.2 s, up to 30 minutes
+    if docker ps --no-trunc --format '{{.Command}}' | grep -q 'tools.trialbox restore'; then seen=1
+    elif [ "$seen" = 1 ]; then break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  [ "$seen" = 1 ] || { stop_bg; fail "the restore's container was never seen running"; }
+  kill -0 "$pid" 2>/dev/null || fail "the restore had ended before it could be signalled after its data part"
+  kill -TERM "$pid" 2>/dev/null || true; sleep 0.2; kill -TERM "$pid" 2>/dev/null || true  # the walk's two
+  wait "$pid" || rc=$?
+  cat "$rr/interrupted.err"
+  case "$rc" in
+    1|130) echo "the restore signalled after its data part ended $rc" ;;
+    *) fail "the restore signalled after its data part ended $rc, not 130 or 1 (the signal came too late?)" ;;
+  esac
+  if grep -q "are healthy" "$rr/interrupted.err"; then fail "the interrupted restore said healthy"; fi
+  grep -q "restore: the box now:" "$rr/interrupted.err" || fail "the interrupted restore did not say the box's state"
+  mapfile -t stopped_again < <(dc ps --services --status running | grep -xE 'caddy|console|llm-verifier')
+  if [ "${#stopped_again[@]}" -gt 0 ]; then dc stop "${stopped_again[@]}" > "$rr/left.log" 2>&1 || { cat "$rr/left.log"; fail "cannot stop ${stopped_again[*]}"; }; fi
+  [ "$(dc ps --services --status running | sort)" != "$before" ] || fail "no service was left stopped for the re-run"
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/rerun.json" 2> "$rr/rerun.err" || rc=$?
+  cat "$rr/rerun.err"
+  [ "$rc" = 0 ] || [ "$rc" = 4 ] || fail "the re-run after the interrupted restore ended $rc"
+  grep -Eq 'the services run again and are healthy: ([0-9]+) of \1 \(' "$rr/rerun.err" \
+    || fail "the re-run did not say every expected service healthy (N of N)"
+  wait_healthy 900
+  after="$(dc ps --services --status running | sort)"
+  [ "$before" = "$after" ] || fail "the services after the re-run differ: before [$before] after [$after]"
+  host="$(envget TB_TLS_HOSTNAME)"
+  curl -fsS -m 10 --cacert "$BOX/deploy/secrets/tls/caddy-root.crt" --resolve "$host:443:${TB_RH_TLS_ADDR:-127.0.0.1}" \
+    "https://$host/healthz" > /dev/null || fail "the site does not answer after the re-run"
+  ok "a restore signalled after its data part, then run again: every service runs healthy and the site answers"
   ;;
 
 # ------------------------------------------------------------------------------------------------ negative: name
@@ -869,6 +930,107 @@ missing-key)
   doctor --serving >/dev/null || fail "the box did not recover with the key back"
   gateway_probe ok || fail "the gateway does not answer with the key back"
   ok "key restored: doctor --serving passes, both builds answer through the gateway"
+  ;;
+
+# ------------------------------------------------------------------------------------------------ test boxes
+test-boxes)
+  # H-106 (the owner's ruling 7117794599): a second box, a TEST box, installed by the real installer beside the first
+  # (CPU only: the stub models), from the same media. Read from the container engine, not from the configuration: the
+  # two share no volume, network, published port or secrets volume; both are healthy; a PRODUCTION install beside
+  # them refuses, before anything is loaded; removing the test box leaves the first whole. Harms: a test box taken
+  # for the real one (data typed into it, a restore or update aimed at it), two boxes sharing a key, a volume or an
+  # audit chain, and a test-mode switch that weakens PRODUCTION's one-box rule
+  t0=$SECONDS
+  B2="$W/box-rh2"; B3="$W/box-prod2"; P1=trialbox
+  dc2() { (cd "$B2" && docker compose --project-directory deploy "$@"); }
+  gone2() {  # the test box removed whole on any way out of this phase, so no later phase meets it
+    (cd "$BOX" && python3 -m tools.trialbox.testbox remove --name rh2 --yes) >/dev/null 2>&1 || true
+    rm -rf "$B3"
+  }
+  trap gone2 EXIT
+  before1="$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  unpack_release "$B2"
+  cp "$MEDIA/linux/vendor_ed25519.pub" "$B2/deploy/keys/"
+  install -d "$B2/deploy/site" && cp -r "$BOX/tests/fixtures/synthetic_patients/site-a" "$B2/deploy/site/feed-a" \
+    || fail "cannot stage the second box's feed folder"
+  # a CPU-only box answers so: the stub models and the embedder's hash stub (the media carries no embedder weights)
+  # in a folder of its own with the site mapping (mapping/, which the settings step copies in from beside the answers
+  # file): the box's tools/ becomes links into the signed release at the load, so nothing is written there
+  rm -rf "$W/test-box-site" && mkdir -p "$W/test-box-site" && cp -r "$B2/tools/rehearse_box/mapping" "$W/test-box-site/" \
+    || fail "cannot stage the test box's answers"
+  ANS2="$W/test-box-site/answers.yaml"
+  sed 's/^llm_mode: gpu$/llm_mode: stub/' "$B2/tools/rehearse_box/site_answers.yaml" > "$ANS2"
+  grep -q '^llm_mode: stub$' "$ANS2" || fail "the test box's answers do not say llm_mode: stub"
+  rc=0
+  (cd "$B2" && TB_HOST_PROFILE=poc TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_INSTALL_UP_TIMEOUT=900 \
+    deploy/install.sh "$BUNDLE" --test-box rh2 --port-offset 3 --mode stub --environment TEST --ctgov offline --yes \
+    --answers "$ANS2") > "$W/test-box-install.log" 2>&1 || rc=$?
+  tail -n 40 "$W/test-box-install.log"
+  [ "$rc" = 0 ] || fail "the test box's install failed (exit $rc; $W/test-box-install.log)"
+  grep -q "TEST BOX rh2: one of several boxes on this host" "$W/test-box-install.log" \
+    || fail "the test box's install does not say what it is in its last lines"
+  P2="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$B2/deploy/.env" | tail -1)"
+  case "$P2" in tbt-rh2-??????) ok "the test box's project: $P2" ;; *) fail "the test box's project is '$P2'" ;; esac
+  wait_healthy 600
+  n2="$(dc2 ps -q | wc -l)"; bad2="$(dc2 ps --format '{{.Service}} {{.State}} {{.Health}}' | awk '$2 != "running" || ($3 != "" && $3 != "healthy")')"
+  if [ "$n2" -lt 10 ] || [ -n "$bad2" ]; then
+    dc2 ps
+    for svc in $(echo "$bad2" | awk '{print $1}'); do dc2 logs --tail 40 "$svc"; done
+    fail "the test box is not healthy: $bad2"
+  fi
+  ok "both boxes healthy: the first's containers and the test box's $n2"
+  # the engine's own answer: volumes, networks, ports, mounts, each container's networks
+  v1="$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  v2="$(docker volume ls -q --filter label=com.docker.compose.project="$P2" | sort)"
+  [ -n "$v2" ] && [ -z "$(comm -12 <(echo "$v1") <(echo "$v2"))" ] || fail "a volume is in both projects"
+  m1="$(for v in $v1; do docker volume inspect -f '{{.Mountpoint}}' "$v"; done | sort)"
+  m2="$(for v in $v2; do docker volume inspect -f '{{.Mountpoint}}' "$v"; done | sort)"
+  [ -z "$(comm -12 <(echo "$m1") <(echo "$m2"))" ] || fail "a volume folder is shared"
+  echo "$v2" | grep -qx "${P2}_tb-secrets" || fail "the test box has no secrets volume of its own"
+  n1="$(docker network ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  n2n="$(docker network ls -q --filter label=com.docker.compose.project="$P2" | sort)"
+  [ -n "$n2n" ] && [ -z "$(comm -12 <(echo "$n1") <(echo "$n2n"))" ] || fail "a network is in both projects"
+  for c in $(dc2 ps -q); do
+    nets="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c")"
+    for k in $nets; do case "$k" in "$P2"-*) ;; *) fail "test box container $c is on network $k" ;; esac; done
+    srcs="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{else}}{{.Source}} {{end}}{{end}}' "$c")"
+    for x in $srcs; do
+      case "$x" in "${P2}"_*|"$B2"/*|/etc/localtime|/etc/timezone|/run/trialbox-firstrun*) ;;
+        "$P1"_*|"$BOX"/*) fail "test box container $c mounts the first box's $x" ;; esac
+    done
+  done
+  for c in $(dc ps -q); do
+    srcs="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{end}}{{end}}' "$c")"
+    for x in $srcs; do case "$x" in "$P2"_*) fail "first box container $c mounts the test box's $x" ;; esac; done
+  done
+  ports() { docker ps --filter label=com.docker.compose.project="$1" --format '{{.Ports}}' | tr ',' '\n' \
+    | sed -n 's/.*:\([0-9][0-9]*\)->.*/\1/p' | sort -u; }
+  p1="$(ports $P1)"; p2="$(ports "$P2")"
+  [ -n "$p2" ] && [ -z "$(comm -12 <(echo "$p1") <(echo "$p2"))" ] || fail "a published port is in both ($p1 / $p2)"
+  ok "no shared volume ($(echo "$v2" | wc -l) of the test box's own), network, published port ($(echo $p2)) or secrets volume (engine)"
+  out="$(trialbox doctor 2>&1)"; rc=$?
+  [ "$rc" = 2 ] && echo "$out" | grep -q "boxes .*name one" || fail "trialbox without --box guessed (exit $rc): $out"
+  trialbox --box rh2 doctor > "$W/test-box-doctor.txt" 2>&1
+  grep -q "TEST BOX rh2" "$W/test-box-doctor.txt" || { tail -n 40 "$W/test-box-doctor.txt"; fail "trialbox --box rh2 doctor does not say TEST BOX rh2"; }
+  ok "trialbox refuses to guess between two boxes; --box rh2 runs the test box's own doctor, which says TEST BOX rh2"
+  # PRODUCTION: refuses the option, and refuses a host where a test box runs; nothing is loaded either way
+  unpack_release "$B3"; cp "$MEDIA/linux/vendor_ed25519.pub" "$B3/deploy/keys/"
+  out="$(cd "$B3" && deploy/install.sh "$BUNDLE" --environment PRODUCTION --test-box p3 --port-offset 4 --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "test-box makes a TEST box, not PRODUCTION" && [ ! -e "$B3/current" ] \
+    || fail "a PRODUCTION install took --test-box (exit $rc): $out"
+  out="$(cd "$B3" && COMPOSE_PROJECT_NAME=trialbox TB_ENV=TEST deploy/install.sh "$BUNDLE" --environment PRODUCTION --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "this host runs test boxes ($P2)" && [ ! -e "$B3/current" ] && [ ! -e "$B3/deploy/.env" ] \
+    || fail "a PRODUCTION install went on beside a test box (exit $rc): $out"
+  ok "PRODUCTION refuses --test-box and refuses a host where a test box runs (variables planted), nothing loaded"
+  # remove the test box: its own objects and folder only; the first box whole
+  (cd "$BOX" && python3 -m tools.trialbox.testbox remove --name rh2 --yes) || fail "the test box could not be removed"
+  left="$(docker ps -aq --filter label=com.docker.compose.project="$P2"; docker volume ls -q --filter label=com.docker.compose.project="$P2"; docker network ls -q --filter label=com.docker.compose.project="$P2")"
+  [ -z "$left" ] && [ ! -e "$B2" ] || fail "the test box's objects or folder are left: $left"
+  [ "$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)" = "$before1" ] || fail "the first box's volumes changed"
+  wait_healthy 300
+  ok "removed: the test box's containers, networks, volumes and folder; the first box's $(echo "$before1" | wc -l) volumes and containers whole"
+  trap - EXIT; rm -rf "$B3"
+  ok "test boxes: $((SECONDS - t0)) s"
   ;;
 
 *) echo "box.sh: unknown phase $PHASE" >&2; exit 2 ;;
