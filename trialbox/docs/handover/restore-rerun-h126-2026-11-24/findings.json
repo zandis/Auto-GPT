@@ -135,6 +135,28 @@
    "state": "fixed 9b5e0388",
    "fix": "after a restore refused before any change, --restart starts only what this run stopped (up --no-deps), checks those and db, and names the services it found stopped without starting them; test_lr14_a_rerun_refused_before_any_change_starts_only_what_it_stopped (fails at bb9a77b7)",
    "from": "Lane LR's lifecycle deep review (docs/reviews/lifecycle-deep-review-2026-11-24.md, LR-14) and the integrator's 7136293245, 2026-11-24"
+  },
+  {
+   "id": "H126-13",
+   "severity": "Medium",
+   "claim": "OCR 1470-6: after a re-run refused before any change that stopped nothing, the start line it printed was up --no-deps with no service named, which compose reads as every service of the project: the one command the person was told to type started the services an earlier run said not to start",
+   "severity_basis": "an instruction, not an automatic start, of the harm LR-14 names",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f91e8f3b",
+   "fix": "a refused run's start line always names its services (db when it stopped nothing; the review's patch), and the services found stopped are named on the shortfall and interrupt paths too; test_lr14_a_refused_rerun_never_prints_a_start_of_the_whole_project (3 cases), test_lr14_a_refused_rerun_names_what_it_found_stopped_on_every_path (3 cases); both fail at df78145",
+   "from": "the external review of #1470 at df78145 (7138438607, verdict 7138439567), 2026-11-24"
+  },
+  {
+   "id": "H126-14",
+   "severity": "Low",
+   "claim": "OCR 1470-7: the module text and RUNBOOK §5 still described the whole-project start and check on the refused path, and a refused run that stopped nothing said the services this run stopped run again: 1 of 1 (db)",
+   "severity_basis": "the words, not the runtime result",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f91e8f3b",
+   "fix": "point 5 of the module text and RUNBOOK §5 name the refused path; a run that stopped nothing says this run stopped nothing and started nothing; test_lr14_a_refused_rerun_names_what_it_found_stopped_on_every_path[nothing-stopped]",
+   "from": "the external review of #1470 at df78145 (7138438607, verdict 7138439567), 2026-11-24"
   }
  ]
 }

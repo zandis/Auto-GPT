@@ -118,3 +118,15 @@ stopped (`up -d --pull never --wait --no-deps <stopped>`), checks those and db (
 again and are healthy: N of N") and names the services it found stopped without starting them. After a restore that
 ran (complete, or held), the whole project starts as before. `test_lr14_a_rerun_refused_before_any_change_starts_only_what_it_stopped`
 fails at bb9a77b (caddy, console and llm-verifier started) and passes here.
+
+## The external review of #1470 at df78145 (7138438607)
+
+High 0, Medium 1, Low 1; each fixed in f91e8f3b, with a test that fails at df78145:
+
+- **1470-6 (Medium; H126-13).** After a re-run refused before any change that stopped nothing, the start line it
+  printed was `up --no-deps` with no service, which compose reads as the whole project. The line now names db (the
+  review's patch); the services found stopped are named on the shortfall and interrupt paths too.
+  `test_lr14_a_refused_rerun_never_prints_a_start_of_the_whole_project` (3 cases) and
+  `test_lr14_a_refused_rerun_names_what_it_found_stopped_on_every_path` (3 cases).
+- **1470-7 (Low; H126-14).** Point 5 of the module text and RUNBOOK §5 name the refused path; a run that stopped
+  nothing says "this run stopped nothing and started nothing; db runs and is healthy".
