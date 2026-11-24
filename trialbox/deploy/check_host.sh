@@ -80,10 +80,7 @@ gpu_image_check() {
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   out=$(cd "$ROOT_DIR" && python3 -m tools.images_lock host --arch "$(uname -m)" --driver "$drv" \
     --compute-cap "$cap" --image "$img" "$@" 2>&1)
-  # H-110 (g): tools/images_lock.py's driver FAILs (no driver, one below what the image needs) are what the machine
-  # cannot run: their kind marker is added here, where they become the host check's lines
-  echo "$out" | grep -E '^(PASS|WARN|FAIL) ' | sed -E '/^FAIL .*NVIDIA driver/s/$/ [H-94 (2)]/' \
-    || echo "FAIL  tools.images_lock: $out"
+  echo "$out" | grep -E '^(PASS|WARN|FAIL) ' || echo "FAIL  tools.images_lock: $out"
   n=$(echo "$out" | grep -c '^FAIL ')
   [ "$n" -gt 0 ] && FAILS=$((FAILS + n))
   echo "$out" | grep -qE '^(PASS|WARN|FAIL) ' || FAILS=$((FAILS + 1))

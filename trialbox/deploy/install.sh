@@ -1479,12 +1479,12 @@ fi
 # H-92 (D-1090): a systemd host schedules the backup with timers, so it needs no /etc/cron.d for that
 SYSTEMD_HOST=0; [ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/systemd/system ] \
   && command -v systemctl >/dev/null && SYSTEMD_HOST=1
-CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finished install in PRODUCTION
-CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
 # H-110 (c): a systemd host whose cron daemon does not run (no cron package, or one stopped) runs the job from a timer
 NO_CRON_DAEMON=0
 if [ "$SYSTEMD_HOST" = 1 ] && ! systemctl is-active --quiet cron.service 2>/dev/null \
     && ! systemctl is-active --quiet crond.service 2>/dev/null; then NO_CRON_DAEMON=1; fi
+CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finished install in PRODUCTION
+CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
 if [ "$CAN_CRON" = 1 ] && [ "$NO_CRON_DAEMON" = 0 ]; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
   # NEW-STD-2 (D-562): then the night's signed head of the audit chain into TB_AUDIT_ANCHOR_TARGETS, whatever the

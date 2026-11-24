@@ -91,7 +91,9 @@ way and been dropped.
 
 * (5): `.env` mode, and a plain key's mode (f);
 * (2): the 64 GB class, the GB10 profile on another architecture, the GB10 driver, the container toolkit, no
-  `nvidia-smi`, free space below 10 %, and the image lock's driver FAILs (marked where the host check passes them on);
+  `nvidia-smi`, and free space below 10 %. The image lock's driver FAILs (`tools/images_lock.py`) carry no marker:
+  `deploy/install.sh` already stops on them, before anything, with its GPU check (H-94 (2)), and H-89's test holds
+  their bytes;
 * (3): the poc profile on a PRODUCTION box.
 
 `tb_kept_fails`, the same lines in the five scripts that carry the helper, keeps a FAIL line by that marker alone. The
