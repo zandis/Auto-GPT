@@ -76,9 +76,20 @@ ONCE_FILE=/root/trialbox-admin-first-sign-in  # root's home, as the passwd entry
 # (check_host.sh/no-tpm-sealed), and doctor shows it in the install's own output; any other line of the PoC list is
 # a stop the rehearsal's own install must not have. $1: the list, $2: which install, $3: that install's output
 only_the_expected_poc_stops() {
-  local other key='"key": "check_host.sh/no-tpm-sealed"'
+  local other key='"key": "check_host.sh/no-tpm-sealed"' line dir
   if [ -s "$1" ]; then
     other="$(grep -v -F "$key" "$1" || true)"
+    # H-110 (M-LH-2): every start checks each compose file and the folders above it. On CI this box lies under the
+    # runner's own work folder (not root's), so the start lists that folder: expected here, and only for a folder
+    # above the box's own tree; one inside it is a stop the rehearsal must not have
+    other="$(printf '%s\n' "$other" | while IFS= read -r line; do
+      case "$line" in
+        *'"key": "settings_guard.sh/compose-file-owner"'*)
+          dir="$(printf '%s' "$line" | sed -n 's/.*\.yml: \(\/[^ ]*\) \(is owned by\|can be written\).*/\1/p')"
+          case "$BOX" in "$dir"/*) [ -n "$dir" ] && continue ;; esac ;;
+      esac
+      [ -z "$line" ] || printf '%s\n' "$line"
+    done)"
     [ -z "$other" ] || { printf '%s\n' "$other"; fail "the $2 warned and listed the stops above ($1)"; }
   fi
   if [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ]; then
