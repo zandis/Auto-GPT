@@ -6,7 +6,7 @@
   is the whole test set three times in a row on the bench host, as an ordinary user in a clean checkout.
 - **Date:** 2026-11-24
 - **Findings:** [`tests-as-an-ordinary-user-h115-2026-11-24/findings.json`](tests-as-an-ordinary-user-h115-2026-11-24/findings.json)
-  (H115-01 to H115-16)
+  (H115-01 to H115-18)
 - **Files:** the new helper `tests/host_modes.py`, the fixtures of
   `tests/unit/test_install_refuses_unsafe_folders_10k4.py`, `tests/unit/test_rehearsal_real_servers_h89.py`,
   `tests/unit/test_rotate_kek_safety_h97.py` and `tests/unit/test_ops_runner_on.py`, and the new test
@@ -158,6 +158,41 @@ The commands, run from `trialbox/` with master 1fc6579e merged. `D` is this page
   As the ordinary user at umask 002, with 0775 roots left by an earlier run: 757 passed, 1 skipped, and the roots
   ended 0755. At umask 022: 757 passed, 1 skipped. As root, with 0775 roots: 758 passed. As root with a fresh scratch
   root, the database-backed neighbours and the ceremony gave 144 passed.
+
+The review of `a79925c2` (comments 7132532964 and 7132536840) said ride, with four Lows. Two are 1462-7 and 1462-9,
+still open.
+
+- **1462-13**, the merge with master 00bababf. `tools/full_set.py` conflicted with H-113's model-stage change. The
+  merge keeps master's lines (the `gpu` flag, the judge's names, the key popped outside the model stage) and this
+  card's test root.
+- **1462-14**, two more lane H files that fail as the ordinary user under umask 002.
+  - `test_load_from_the_stick_h95.py::test_software_pack_without_its_model_pack_is_refused_by_its_signed_identity`
+    wrote the model-pack record with the umask. `verify_update` rightly refused it before the check the test
+    asserts, so the fixture now closes it with `as_root_makes_it`. That test failed before the change and passes
+    after, as the ordinary user under umask 002 (H115-17).
+  - `test_refdata.py::test_the_tar_is_deterministic_and_safe` is left (H115-18). `pack_tar` keeps each file's mode
+    on disk, so a pack built under umask 002 differs from one built under 022. The fix is in
+    `libs/tb_common/refdata.py`, lane K's, so it waits for that lane.
+
+The runs below use CI's unit-shard conditions: `--cov --cov-report= --durations=30`, `-n auto --dist worksteal` with
+4 workers, `TMPDIR` and basetemp under a test root of 118 characters, and `pglocal mark` first. They ran on master
+00bababf with this branch merged.
+
+| Files | As root | As the ordinary user, umask 002 |
+| --- | --- | --- |
+| `test_eval_key_h113.py` and `test_full_set.py` | 45 passed | 45 passed |
+| `card-tests.txt` (13) | 625 passed | 625 passed |
+| `proof-tests.txt` (21) | 758 passed | 757 passed, 1 skipped (needs root) |
+| `policy-tests.txt` (119) | 2992 passed, 8 skipped | 2985 passed, 12 skipped, 3 failed |
+
+The ordinary user's 3 failures in the policy list:
+
+- `test_refdata.py::test_the_tar_is_deterministic_and_safe`: H115-18, above.
+- `test_restore_from_the_host_h100.py::test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo`:
+  H115-04, left to #1455.
+- `test_cloud_run.py::test_a_part_records_its_run_and_a_new_run_runs_it_again`: this fails for the ordinary user
+  at umask 022 too ("0/1 screenshots"), and passes as root. It is the container's browser for that account, not a
+  mode, and no file of this card touches it.
 
 Left as they are:
 

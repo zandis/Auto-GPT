@@ -132,6 +132,22 @@
    "lane": "H",
    "basis": "shown",
    "state": "fixed 00530c8bb412f9f2b3ba49473f56e4c7eb4ad98b"
+  },
+  {
+   "id": "H115-17",
+   "severity": "Low",
+   "claim": "the review's 1462-14 (first part): test_load_from_the_stick_h95's model-pack record was written with the umask (0664 under 002), and verify_update rightly refused it before the check the test asserts; the fixture now closes it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed dde0d147b7ed9e434068ee6fada83a1d682cdffa"
+  },
+  {
+   "id": "H115-18",
+   "severity": "Low",
+   "claim": "the review's 1462-14 (second part): pack_tar keeps each file's mode on disk, so a refdata pack built under umask 002 differs from one built under 022 and test_refdata's determinism test fails as an ordinary user at umask 002; the fix (fixed member modes in libs/tb_common/refdata.py) is lane K's",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }
