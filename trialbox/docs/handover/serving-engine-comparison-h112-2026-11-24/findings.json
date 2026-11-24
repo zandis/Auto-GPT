@@ -162,7 +162,7 @@
    "claim": "the re-review's 1459-12: repeat agreement's per-criterion keys were the rest of the item id, which for the non-synthetic sources carries a patient, report or item id into summary.json and the table: those sources are now counted under their source name, and the walk freezes the synthetic set only",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 85324492"
   },
   {
    "id": "H112-21",
@@ -170,7 +170,7 @@
    "claim": "1459-13: the current engine's recorded digest came from the first lock variable deploy/.env set, not the one the stack's llm-service uses: now resolved from the box's own llm-service line",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 85324492"
   },
   {
    "id": "H112-22",
@@ -186,7 +186,7 @@
    "claim": "1459-15: the end-to-end test's card monitor stand-in made the last sample the largest, so it no longer told the peak from the last sample: the largest now comes first",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 85324492"
   },
   {
    "id": "H112-24",
@@ -194,7 +194,7 @@
    "claim": "1459-16: the digest patterns ended in a line-end anchor, which also matches before a final newline: now anchored at the very end of the value",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 85324492"
   }
  ]
 }
