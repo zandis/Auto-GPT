@@ -61,5 +61,5 @@ The second check is defence in depth.
 - **Ctrl-C or SIGTERM:** tested above. Bash runs the trap that removes the stage only after the foreground update
   exits.
 - **Files written whole:** the stage's code is unpacked to `.code.partial` and renamed (`host_tree._unpack`).
-  `_unpack` does not fsync; that is a separate commit (H124-03).
+  A separate commit (H124-03) fsyncs each file and each folder before the rename, and the parent after it.
 - **Value sets and date windows:** not in this code.

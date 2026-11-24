@@ -28,9 +28,9 @@
    "severity": "Low",
    "claim": "host_tree._unpack writes a release folder (and the update's staged code) to .partial and renames it, without fsync of the files or the folder; a power cut after the rename may leave short files in releases/<id>",
    "lane": "H",
-   "basis": "hypothesis",
+   "basis": "shown",
    "state": "open",
-   "fix": "a separate commit of H-124"
+   "fix": "the third commit of H-124: fsync of each file, each folder and the parent after the rename (test_h124_03_an_unpacked_tree_is_on_disk_before_it_is_named)"
   },
   {
    "id": "H124-04",

@@ -290,3 +290,28 @@ def test_h124_the_staged_code_reads_the_boxs_own_deploy_folder(box: dict[str, An
     assert (dest / "deploy").is_symlink() and (dest / "deploy").resolve() == b["deploy"].resolve()
     with pytest.raises(ht.HostTreeError, match="exists"):
         ht.stage_code(_release(b["tmp"], "R3"), dest, b["base"])
+
+
+def test_h124_03_an_unpacked_tree_is_on_disk_before_it_is_named(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every file and every folder of the unpacked tree is fsynced before the rename, and the parent after it."""
+    calls: list[str] = []
+    real_fsync, real_rename = os.fsync, Path.rename
+
+    def fsync(fd: int) -> None:
+        calls.append(f"fsync {os.readlink(f'/proc/self/fd/{fd}')}")
+        real_fsync(fd)
+
+    def rename(self: Path, target: Any) -> Any:
+        calls.append(f"rename {self} -> {target}")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(Path, "rename", rename)
+    dest = box["tmp"] / "stage" / "code"
+    dest.parent.mkdir()
+    n = ht.stage_code(_release(box["tmp"], "R2"), dest, box["base"])
+    at = next(i for i, c in enumerate(calls) if c.startswith("rename "))
+    before, after = calls[:at], calls[at + 1 :]
+    assert sum(1 for c in before if "/.code.partial/" in c) >= n  # each file, and each folder inside
+    assert f"fsync {dest.parent / '.code.partial'}" in before
+    assert after == [f"fsync {dest.parent}"]

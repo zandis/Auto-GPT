@@ -297,8 +297,21 @@ def _unpack(tar: Path, dest: Path) -> None:
             assert f is not None
             with target.open("xb") as out:
                 shutil.copyfileobj(f, out, 1 << 20)
+                out.flush()
+                os.fsync(out.fileno())  # H-124 (H124-03): each file on disk before the folder is named
             target.chmod(0o755 if m.mode & 0o100 else 0o644)
+    for d in sorted({p for p in tmp.rglob("*") if p.is_dir()} | {tmp}, key=lambda p: -len(p.parts)):
+        _fsync_dir(d)  # the names inside each folder, deepest first
     tmp.rename(dest)
+    _fsync_dir(dest.parent)  # the rename itself
+
+
+def _fsync_dir(d: Path) -> None:
+    fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _back_links(release: Path, base: Path) -> None:
