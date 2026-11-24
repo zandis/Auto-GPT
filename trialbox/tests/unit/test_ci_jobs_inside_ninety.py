@@ -26,6 +26,11 @@ ABOVE_CEILING = {
     ("trialbox-e2e.yml", "scale-50k"): "the 50k night: measured at 74 min on 2026-11-16, its limit not yet ruled",
     ("trialbox-images.yml", "multiarch"): "a release tag or by hand only; no measured run",
     ("trialbox-p0-media.yml", "media"): "by hand only, builds the owner's P-0 media (hours, stage b); no measured run",
+    # the integrator's ruling 7119929149 (#639, 2026-11-24, card H-105): named with its reason and its figure's source
+    ("trialbox-bench-ci.yml", "full-set"): "a whole-set run on the bench host (three runs of every stage, a train or the "
+    "owner's run by hand only); 600 min from the hosted runners' measured stages, not a bench run: about 110 min a "
+    "run (the one-runner unit suite 35 to 43 min, 2026-11-12; compose 37.5 + 10.5 min, 2026-11-17; the rest a few "
+    "minutes each), three runs 330, the GPU stage and a margin of 1.5 on top; to be re-set after the first bench run",
 }
 
 

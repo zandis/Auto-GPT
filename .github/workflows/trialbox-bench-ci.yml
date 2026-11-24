@@ -160,7 +160,7 @@ jobs:
     name: bench gpu-suites
     if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-gpu]
-    timeout-minutes: 180
+    timeout-minutes: 90  # D-537; no bench measurement yet
     steps:
       - name: Start the clock
         working-directory: .
@@ -201,7 +201,7 @@ jobs:
     needs: gpu-suites
     if: always() && (vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)))
     runs-on: [self-hosted, tb-bench, tb-bench-gpu]
-    timeout-minutes: 600
+    timeout-minutes: 600  # named under D-537 (ruling 7119929149): tests/unit/test_ci_jobs_inside_ninety.py
     steps:
       - name: Start the clock
         working-directory: .
@@ -251,7 +251,7 @@ jobs:
     name: bench rehearse-box
     if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-engine]
-    timeout-minutes: 120
+    timeout-minutes: 60  # D-537; the hosted rehearse job's limit (about 20 min measured, D-995)
     steps:
       - name: Start the clock
         working-directory: .
