@@ -9,7 +9,7 @@ language.
 - **Date:** 2026-11-24
 - **Install page:** [RUNBOOK §13 part: the bench host's CI runner](../runbook/13-bench-ci-runner.md)
 - **Findings:** [`bench-ci-runner-h105-2026-11-24/findings.json`](bench-ci-runner-h105-2026-11-24/findings.json)
-  (H105-01 to H105-07)
+  (H105-01 to H105-09)
 - **Files:** `.github/workflows/trialbox-bench-ci.yml` (new), `tools/bench_ci/` (new: the launcher, the cards' check,
   the egress proxy, the job image, the units, the install script, the example settings),
   `tests/unit/test_bench_ci_workflow_h105.py`, `tests/unit/test_bench_ci_launcher_h105.py`, the install page, this
@@ -83,3 +83,27 @@ language.
 Answered by the lead: `.github/actionlint.yaml` (the four bench labels, so that the workflow linter knows them) is
 configuration, not a scan allow-list entry; it stays, named under the files outside `trialbox/`. The linter was not
 run in the card's container; CI's `checks` job runs it.
+
+## The security review of #1448 (fix first): what changed, and the test of each
+
+The review (the newest comment on #1448, 2026-11-24) found that the workflow and its test schedule the bench but do
+not guard it: a fork's pull request brings its own workflow files. Each fix, and what holds it (every test id under
+`tests/unit/`; each fix also has planted mutants, all caught):
+
+| Finding | The fix | Held by |
+| --- | --- | --- |
+| F1 (critical) | the host's gate, `tools/bench_ci/gate.py`, run by the runner's job-started hook before any step: push or the owner's run by hand; this repository, not a fork; an allowed branch; the bench workflow at that ref; its file the same blob as master's (read by the host) | `test_bench_ci_gate_h105.py::test_a_forks_pull_request_is_refused_before_anything_is_read`, `::test_each_condition_broken_alone_refuses_the_job` (18 cases), `::test_the_event_payload_must_be_this_repository`, `::test_a_branch_whose_workflow_file_differs_from_masters_is_refused`, `::test_a_branch_on_an_older_master_with_the_same_file_runs`, `::test_an_unreadable_file_refuses_and_a_missing_fact_refuses`, `test_bench_ci_launcher_h105.py::test_the_image_runs_as_its_own_user_and_takes_its_config_from_a_file` (the hook runs the gate first) |
+| F2 (high) | the long-lived token is read by the units' root steps only (mint, cleanup); no unit hands a copy; the jobs' user gets one job's configuration | `test_bench_ci_launcher_h105.py::test_the_root_mint_step_gives_the_jobs_user_one_jobs_configuration_and_never_the_token`, `::test_the_jobs_users_step_never_reads_the_token`, `::test_only_the_units_root_steps_read_the_token_and_the_jobs_user_runs_the_job`, `::test_the_token_file_must_be_the_root_steps_own_and_private`, `::test_the_mint_step_refuses_to_run_as_another_user` |
+| F3 | the page and the workflow's header say it: the gate is the control; the switch and the guards only schedule; who is trusted; what to do in an incident | the page (harm 1), the workflow's header comment |
+| F4 | exact host names (no storage or user-content wildcard, no upload host); no name service in jobs (`--dns none`, networks with names off); the probe checks it | `test_bench_ci_launcher_h105.py::test_the_allow_list_names_hosts_not_wildcards_and_no_upload_host`, `::test_the_job_network_is_internal_without_a_name_service_and_the_proxy_joins_it`, `::test_no_profile_sees_a_socket_a_home_the_host_network_or_any_folder_but_its_own`, `::test_verify_checks_the_named_folders_as_the_runners_user_and_runs_the_probe` |
+| F5 | every profile read-only, all capabilities dropped, no fuse or tun; engine and GPU keep SETUID and SETGID only (the nested engine's id mapping) and run on trains and the owner's runs only; each profile probed | `test_bench_ci_launcher_h105.py::test_no_profile_sees_a_socket_a_home_the_host_network_or_any_folder_but_its_own`, `::test_an_engine_or_gpu_job_keeps_only_the_set_id_pair_for_its_nested_engine`, `::test_the_verify_probe_runs_with_each_profiles_arguments_exactly`, `test_bench_ci_workflow_h105.py::test_which_jobs_each_event_runs_with_the_switch_on_or_not` |
+| F6 | the schedule test refuses `github.token` and `toJSON(github)` | `test_bench_ci_workflow_h105.py::test_planted_trigger_mutants_are_caught[the workflow token]`, `[the whole context]` |
+| F7 | one internal network per slot (a /24 of its own), the proxy joined to it at a fixed address for the job's life | `test_bench_ci_launcher_h105.py::test_each_slot_has_its_own_network_and_address`, `::test_the_proxy_container_sits_on_its_way_out_only` |
+| F8 | a unit stop sends TERM to the run step, which stops the container and removes the network; the root cleanup (also after a failure or a stop) removes the registration and the folder; a new job starts from an empty folder | `test_bench_ci_launcher_h105.py::test_a_unit_stop_stops_the_container`, `::test_a_stop_or_a_failure_takes_the_registration_and_the_scratch_folder_away`, `::test_a_new_job_never_finds_an_earlier_jobs_files` |
+| F9 | the one-job configuration is a file (0600) the entry point reads, deletes and unpacks into the runner's files | `test_bench_ci_unpack_jit_h105.py::test_the_configuration_becomes_the_runners_three_files`, `::test_any_other_form_is_refused_and_nothing_is_written`, `test_bench_ci_launcher_h105.py::test_the_image_runs_as_its_own_user_and_takes_its_config_from_a_file` |
+| H105-03 (ruled) | the weights folder, read-only at `/weights`, for the GPU profile only | `test_bench_ci_launcher_h105.py::test_only_a_gpu_job_gets_the_ci_cards_and_the_weights_read_only` |
+
+Unproven until the walk's install (H105-08 and the page's last section): that the runner hands the hook the
+`GITHUB_*` variables and the payload; the three-file form of the one-job configuration; that the rootless engine
+honours `--dns none`, the per-slot networks and the proxy's fixed address; that the nested engine runs with the set-id
+pair alone, plain-folder storage and no tun device; that a unit stop cleans up.
