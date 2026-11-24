@@ -170,7 +170,13 @@ audit_key() {
 # Only the plain copy in /run ($NEW) and an unplaced $CRED.new are removed, at any exit; a signal exits
 NEW="$RUN_DIR/kek.new"
 # review of #1457 (1457-5): once the clean-up starts a further signal neither cuts it short nor kills its shred
-new_gone() { trap '' HUP INT TERM; shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; rm -f "$CRED.new"; }
+# review of #1457 (1457-9): /run/trialbox is handed to the services' user, so a name there is never followed: a link is
+# removed, not shredded through
+new_gone() {
+  trap '' HUP INT TERM
+  if [ -L "$NEW" ]; then rm -f "$NEW"; else shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; fi
+  rm -f "$CRED.new"
+}
 arm() {
   ( umask 077; mkdir -p "$RUN_DIR" "$(dirname "$CRED")" )
   # review of #1457 (1457-1, the rest): kek.new and the credential are the host's, not one secrets folder's: one TPM
@@ -178,6 +184,9 @@ arm() {
   # taken before the trap is set, so a refused run removes nothing of the other run's
   exec 5<"$(dirname "$CRED")"
   flock -n 5 || hb_die "another run of seal_keys.sh on this host holds $(dirname "$CRED"): let it finish, then run this script again; nothing was changed"
+  # review of #1457 (1457-9): with the host lock held no other seal runs, so a name at kek.new is a stopped run's (its KEK
+  # is in the placed credential, or no key was wrapped under it) or a link: removed before the new KEK is written
+  rm -f -- "$NEW"
   trap new_gone EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 }
 # the KEK of the sealed credential, to $NEW (a run that stopped after the credential was placed)
@@ -266,6 +275,10 @@ case "$KEK_BACKEND" in
       cred_open
     else
       arm
+      # review of #1457 (1457-11): the credential was looked for before the host lock was held; a run that finished in
+      # between placed its own, and a second seal would move a new one over it (the other folder's keys then open
+      # under no credential). Looked for again under the lock
+      [ ! -e "$CRED" ] || hb_die "$CRED was placed by another run while this one started: run this script again; nothing was changed"
       # D-836: make the KEK, seal it, and only then wrap the keys under it: a failed seal leaves every key as it was
       ( umask 077; head -c 32 /dev/urandom > "$NEW" )
       systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek "$NEW" "$CRED.new" \

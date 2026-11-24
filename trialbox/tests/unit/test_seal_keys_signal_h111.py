@@ -378,8 +378,30 @@ def test_two_secrets_folders_on_one_host_never_leave_keys_the_credential_cannot_
     (d / "go-A").write_text("")
     assert first.wait(timeout=120) == 0
     (d / "go-B").write_text("")
-    second.wait(timeout=120)
+    # review of #1457 (1457-10): the second is refused by the host lock and changes nothing of its own folder
+    assert second.wait(timeout=120) == 1
+    assert second.stderr is not None and "on this host holds" in second.stderr.read()
+    assert not (other / K.META_FILE).exists() and all((other / n).is_file() for n in NAMES)
     _sealed_and_done(tmp_path, keys)
+
+
+def test_a_seal_while_another_process_holds_the_secrets_folder_is_refused_and_changes_nothing(tmp_path: Path) -> None:
+    """Review of #1457 (1457-10): the per-folder lock (a key command, or a seal by another back end) had no test once the
+    host lock covered the TPM path: a seal while the folder is held is refused before anything is made."""
+    import fcntl
+
+    env, keys = _host(tmp_path)
+    fd = os.open(tmp_path / "secrets", os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # as tools.keys rotate-kek holds it
+        res = _seal(tmp_path, env)
+    finally:
+        os.close(fd)
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert "or a key command holds" in res.stderr
+    for name, want in keys.items():
+        assert (tmp_path / "secrets" / name).read_bytes() == want
+    assert not (tmp_path / "secrets" / K.META_FILE).exists() and not _cred(tmp_path).exists()
 
 
 def _root_stand_ins(tmp: Path) -> Path:
@@ -531,3 +553,67 @@ def test_the_kek_opened_from_the_credential_is_never_written_through_a_link(tmp_
     _sealed_and_done(tmp_path, keys)
     assert not (tmp_path / "standin" / "through-a-link").exists(), "the credential was opened through the link"
     assert target.read_bytes() == b""
+
+
+def test_a_seal_held_before_the_host_lock_never_moves_a_new_credential_over_a_placed_one(tmp_path: Path) -> None:
+    """Review of #1457 (1457-11): the credential is looked for before the host lock is taken. A seal for a second
+    folder held there (stopped, or slow) while the first seal ran to its end then took the lock, sealed a KEK of its
+    own and moved it over the first's credential: the first folder's keys opened under no credential, and both runs
+    said done. The second is now refused under the lock, and the first's credential stays."""
+    env, keys = _host(tmp_path)
+    d = tmp_path / "standin"
+    other = tmp_path / "secrets2"
+    other.mkdir()
+    for name in NAMES:
+        (other / name).write_bytes(os.urandom(32))
+        (other / name).chmod(0o600)
+    held = tmp_path / "bin-held"
+    held.mkdir()
+    # the second run's mkdir (in arm, after the credential was looked for, before the lock) waits for a go
+    (held / "mkdir").write_text(
+        '#!/bin/sh\n: > "$STANDIN_DIR/held"\nwhile [ ! -e "$STANDIN_DIR/go-held" ]; do sleep 0.05; done\n'
+        'exec /bin/mkdir "$@"\n'
+    )
+    (held / "mkdir").chmod(0o755)
+    argv = ["sh", str(SEAL), "--secrets", str(other), "--conf", str(tmp_path / "no-such.conf")]
+    second = subprocess.Popen(argv, env={**env, "PATH": f"{held}:{env['PATH']}"}, text=True,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)  # fmt: skip
+    _until((d / "held").exists, "the second run never reached its lock")
+    first = _seal(tmp_path, env)
+    assert first.returncode == 0, first.stdout + first.stderr
+    kek = _cred(tmp_path).read_bytes()
+    (d / "go-held").write_text("")
+    assert second.wait(timeout=120) == 1
+    assert _cred(tmp_path).read_bytes() == kek, "a new credential was moved over the placed one"
+    _sealed_and_done(tmp_path, keys)
+    assert not (other / K.META_FILE).exists() and all((other / n).is_file() for n in NAMES)
+
+
+def test_a_fresh_seal_never_writes_or_shreds_the_kek_through_a_link(tmp_path: Path) -> None:
+    """Review of #1457 (1457-9): /run/trialbox is handed to the services' user. A link at kek.new before a fresh seal
+    had the plain KEK written through it, and a link put there during the run had the clean-up's shred empty the file
+    it points to. A name there is now removed first, and a link is never shredded through."""
+    env, keys = _host(tmp_path)
+    creds = tmp_path / "bin" / "systemd-creds"
+    seen = 'encrypt)\n    [ -L "$4" ] && : > "$STANDIN_DIR/through-a-link";'
+    creds.write_text(CREDS.replace("encrypt)", seen, 1))
+    run = tmp_path / "host" / "run" / "trialbox"
+    run.mkdir(parents=True)
+    before, during = tmp_path / "before", tmp_path / "during"
+    for f in (before, during):
+        f.write_bytes(b"kept\n")
+    (run / "kek.new").symlink_to(before)
+    # during the run: the stand-in python3 puts a link at kek.new when the keys are checked (after the unseal)
+    py = tmp_path / "standin" / "py_standin.py"
+    swap = (
+        'if args[:3] == ["-m", "tools.keys", "check"]:\n'
+        f"    n = Path({str(run / 'kek.new')!r})\n"
+        "    n.unlink(missing_ok=True)\n"
+        f"    n.symlink_to({str(during)!r})\n"
+    )
+    py.write_text(PY.replace("os.execv(real", "from pathlib import Path\n" + swap + "os.execv(real", 1))
+    res = _seal(tmp_path, env)
+    assert res.returncode == 0, res.stdout + res.stderr
+    _sealed_and_done(tmp_path, keys)
+    assert not (tmp_path / "standin" / "through-a-link").exists(), "the new KEK was written through a link"
+    assert before.read_bytes() == b"kept\n" and during.read_bytes() == b"kept\n", "a file was shredded through a link"
