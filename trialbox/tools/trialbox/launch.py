@@ -379,6 +379,15 @@ def pick_box(args: Sequence[str], installed: bool, boxes: Boxes = _engine_boxes)
     return hits[0], rest, ""
 
 
+def hand_on(rest: Sequence[str], root: Path) -> list[str]:
+    """The arguments a box named by ``--box`` gets: its doctor reads that box's own settings (``--env-file``, and with
+    it the box's deploy folder and its records); without it the doctor would read the release tree's folder."""
+    out = list(rest)
+    if out[:1] == ["doctor"] and not any(a == "--env-file" or a.startswith("--env-file=") for a in out):
+        out[1:1] = ["--env-file", str(root / "deploy" / ".env")]
+    return out
+
+
 def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None = None, *,
           installed: bool = False) -> int | None:  # fmt: skip
     """The entry of ``trialbox`` (installed on PATH) and ``python3 -m tools.trialbox``: its own import path and the
@@ -398,7 +407,7 @@ def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None
         return 2  # H-94 (3): a command aimed at the wrong box (a restore, an update) is never guessed
     if root is not None:  # H-106: that box's own command, from its own folder (its module form: no guess again)
         os.chdir(root)
-        os.execv(sys.executable, [sys.executable, "-m", "tools.trialbox", *rest])
+        os.execv(sys.executable, [sys.executable, "-m", "tools.trialbox", *hand_on(rest, root)])
     cmd = command_of(args)
     try:
         box = box_file(DEPLOY)

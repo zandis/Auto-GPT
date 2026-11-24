@@ -260,7 +260,7 @@ sudo tools/testboxes.sh remove p48 --yes
 
 Each box goes to `/opt/trialbox-test/NAME` (`--parent` moves it); its output is `/opt/trialbox-test/NAME.install.log`.
 A box's own commands: `sudo trialbox --box NAME doctor` (with more than one box on a host, `trialbox` without
-`--box` refuses to guess), or `cd /opt/trialbox-test/NAME && sudo python3 -m tools.trialbox doctor`.
+`--box` refuses to guess), or `cd /opt/trialbox-test/NAME && sudo python3 -m tools.trialbox doctor --env-file deploy/.env`.
 
 What a test box is, and is not:
 

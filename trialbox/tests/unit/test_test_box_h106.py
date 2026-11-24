@@ -539,3 +539,20 @@ def test_the_record_is_read_inside_the_box_s_container_and_a_copy_is_refused(tmp
     (copy / "deploy" / testbox.RECORD).write_bytes((host / "deploy" / testbox.RECORD).read_bytes())
     with pytest.raises(testbox.Refused, match="never copied between folders"):
         testbox.load(copy / "deploy")
+
+
+def test_a_box_named_by_box_gets_its_own_settings_and_says_test_box(tmp_path: Path) -> None:
+    """Found by the rehearsal (CI job 138236334739): `trialbox --box rh2 doctor` ran the doctor with no --env-file,
+    which then read the release tree's folder and said "not a rehearsal box". The hand-on gives it the box's own
+    deploy/.env; run as handed on, the doctor's line says TEST BOX."""
+    assert launch.hand_on(["doctor"], Path("/b")) == ["doctor", "--env-file", "/b/deploy/.env"]
+    assert launch.hand_on(["doctor", "--env-file", "x"], Path("/b")) == ["doctor", "--env-file", "x"]
+    assert launch.hand_on(["secrets", "status"], Path("/b")) == ["secrets", "status"]
+    b = H106Box(tmp_path / "b")
+    assert b.run("--test-box", "rh2", "--port-offset", "3", *TEST_ARGS).rc == 0
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON", "COMPOSE_"))}
+    r = subprocess.run([sys.executable, "-m", "tools.trialbox", *launch.hand_on(["doctor"], b.tmp)], cwd=b.tmp,
+                       env=env, capture_output=True, text=True, timeout=300, check=False)  # fmt: skip
+    assert re.search(r"^WARN  rehearsal +TEST BOX rh2: one of several boxes on this host", r.stdout, re.M), r.stdout[
+        -3000:
+    ]

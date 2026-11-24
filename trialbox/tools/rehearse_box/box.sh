@@ -969,7 +969,7 @@ test-boxes)
   out="$(trialbox doctor 2>&1)"; rc=$?
   [ "$rc" = 2 ] && echo "$out" | grep -q "boxes .*name one" || fail "trialbox without --box guessed (exit $rc): $out"
   trialbox --box rh2 doctor > "$W/test-box-doctor.txt" 2>&1
-  grep -q "TEST BOX rh2" "$W/test-box-doctor.txt" || fail "trialbox --box rh2 doctor does not say TEST BOX rh2"
+  grep -q "TEST BOX rh2" "$W/test-box-doctor.txt" || { tail -n 40 "$W/test-box-doctor.txt"; fail "trialbox --box rh2 doctor does not say TEST BOX rh2"; }
   ok "trialbox refuses to guess between two boxes; --box rh2 runs the test box's own doctor, which says TEST BOX rh2"
   # PRODUCTION: refuses the option, and refuses a host where a test box runs; nothing is loaded either way
   unpack_release "$B3"; cp "$MEDIA/linux/vendor_ed25519.pub" "$B3/deploy/keys/"
