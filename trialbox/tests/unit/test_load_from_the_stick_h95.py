@@ -30,6 +30,7 @@ from typing import Any
 
 import pytest
 
+from tools import host_tree as ht
 from tools import packs
 from tools import verify_update as vu
 from tools.sign_bundle import build, keygen, model_pack_identity
@@ -164,6 +165,15 @@ def _release(images: dict[str, str], seq: int) -> tuple[dict[str, Any], dict[str
     return {"release_seq": seq, "images": rel, "source": {"dirty": False, "commit": "1" * 40}}, {"images": rel}
 
 
+def _host_tree(folder: Path) -> Path:
+    """H-124: a software pack or whole bundle carries the release's host tree, as tools/make_bundle.sh builds it, and
+    the update runs that tree's own code: this checkout's tree, packed once per folder."""
+    host = folder / "host-tree.tar"
+    if not host.is_file():
+        ht.pack(ROOT, host)
+    return host
+
+
 def _packs(tmp: Path, seq: int = 1, tag_suffix: str = "", keys: tuple[Path, Path] | None = None) -> dict[str, Path]:
     priv, pub = keys or keygen(tmp / "keys")
     src = tmp / "src"
@@ -192,6 +202,7 @@ def _packs(tmp: Path, seq: int = 1, tag_suffix: str = "", keys: tuple[Path, Path
         f = src / name
         f.write_bytes(_pattern(n, name))
         s_items.append(("other", f, name))
+    s_items.append(("host", _host_tree(src), ht.HOST_TAR))  # H-124: the update runs the pack's own code
     release, lock = _release(s_images, seq)
     software = stick / f"trialbox-r{seq}.tar"
     build(priv, f"r{seq}", s_items, software, release_seq=seq, release=release, images_lock=lock,
@@ -497,7 +508,8 @@ def _whole(tmp: Path, keys: tuple[Path, Path]) -> Path:
     img = src / "engine.tar"
     release, lock = _release({ENGINE[0]: _archive(img, ENGINE[0], MB)}, 1)
     out = tmp / "trialbox-whole.tar"
-    build(keys[0], "w1", [("image", img, img.name), ("model", w, "judge/model.safetensors")], out, release_seq=1,
+    build(keys[0], "w1", [("image", img, img.name), ("model", w, "judge/model.safetensors"),
+                          ("host", _host_tree(src), ht.HOST_TAR)], out, release_seq=1,
           release=release, images_lock=lock)  # fmt: skip
     return out
 
@@ -508,7 +520,8 @@ def _software_for(tmp: Path, keys: tuple[Path, Path], models: Path, seq: int = 2
     a = src / "svc0_1.tar"
     release, lock = _release({"svc0:1": _archive(a, "svc0:1", MB)}, seq)
     out = tmp / f"trialbox-sw{seq}.tar"
-    build(keys[0], f"sw{seq}", [("image", a, a.name)], out, release_seq=seq, release=release, images_lock=lock,
+    build(keys[0], f"sw{seq}", [("image", a, a.name), ("host", _host_tree(src), ht.HOST_TAR)], out, release_seq=seq,
+          release=release, images_lock=lock,
           pack={"kind": "software", "requires_model": model_pack_identity(models)})  # fmt: skip
     return out
 
