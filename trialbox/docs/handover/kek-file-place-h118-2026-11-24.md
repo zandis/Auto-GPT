@@ -40,8 +40,26 @@ Tests (each fails on master's script, eeb1e4f):
   the KEK it seals: `/run/trialbox-seal`, this user's, 0700; nothing is left there; the hand-over never names it.
 - `test_a_seal_folder_that_is_not_this_runs_own_is_refused_and_nothing_changes[a link|open to others]`.
 
-Mutants, each caught: `kek.new` back in `/run/trialbox`; the folder check removed; its link test removed; its mode
-test removed; the caller's `TB_KEK_FILE` put back.
+- `test_a_seal_folder_that_is_not_this_runs_own_is_refused_and_nothing_changes[another user's]`: mode 0700 but
+  another owner (a stand-in `stat` says so, as an ordinary user cannot make one).
+- `test_a_link_at_the_old_place_is_never_written_through`: a link left at `/run/trialbox/kek.new` is neither written
+  nor shredded through, and stays as it was.
+
+The tests that named the old place, under the integrator's ruling 7138516776 ("keep and add twins, do not move"):
+
+| Test | Old | New |
+| --- | --- | --- |
+| `test_host_baseline.py::test_seal_keys_wraps_the_plain_keys_under_a_tpm_sealed_kek` | no `run/trialbox/kek.new` | kept, and a twin: no `run/trialbox-seal/kek.new` |
+| `test_seal_keys_signal_h111.py` `_sealed_and_done` (every test that finishes a seal) | no `run/trialbox/kek.new` | kept, and a twin for `run/trialbox-seal/kek.new` |
+| `test_seal_keys_signal_h111.py::test_a_second_signal_during_the_clean_up_leaves_no_plain_kek` | no `run/trialbox/kek.new` | kept, and a twin for `run/trialbox-seal/kek.new` |
+| `test_seal_keys_signal_h111.py::test_the_kek_opened_from_the_credential_is_never_written_through_a_link` | the link planted at `run/trialbox/kek.new` | planted at `run/trialbox-seal/kek.new` (setup moved); asserts unchanged |
+| `test_seal_keys_signal_h111.py::test_a_fresh_seal_never_writes_or_shreds_the_kek_through_a_link` | links planted in `run/trialbox` | planted in `run/trialbox-seal`, made 0700 as the run makes it (setup moved); asserts unchanged |
+
+The old place keeps its own case (`test_a_link_at_the_old_place_is_never_written_through`, above).
+
+Mutants, each caught: `kek.new` back in `/run/trialbox` (4 tests); the mode check removed; the owner check removed;
+the caller's `TB_KEK_FILE` put back. The link test alone (`[ -L ]`) is not caught when removed: `stat` without `-L`
+reports a link's own mode, 0777, so the mode check refuses a link as well. It stays as the plain statement of intent.
 
 ## Who reads TB_KEK_FILE
 

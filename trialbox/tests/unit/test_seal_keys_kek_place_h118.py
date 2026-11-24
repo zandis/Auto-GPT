@@ -153,7 +153,7 @@ def test_the_plain_kek_is_made_in_a_folder_of_its_own_never_handed_over(tmp_path
     _opens(tmp_path, keys, _the_box_place(tmp_path).read_bytes())
 
 
-@pytest.mark.parametrize("what", ["a link", "open to others"])
+@pytest.mark.parametrize("what", ["a link", "open to others", "another user's"])
 def test_a_seal_folder_that_is_not_this_runs_own_is_refused_and_nothing_changes(tmp_path: Path, what: str) -> None:
     env, keys, _ = _host(tmp_path, "tpm")
     folder = tmp_path / "host" / "run" / "trialbox-seal"
@@ -162,9 +162,20 @@ def test_a_seal_folder_that_is_not_this_runs_own_is_refused_and_nothing_changes(
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir(mode=0o700)
         folder.symlink_to(elsewhere)
-    else:
+    elif what == "open to others":
         folder.mkdir()
         folder.chmod(0o755)
+    else:
+        # mode 0700 but another user's: a stand-in stat says so (an ordinary user cannot make one)
+        folder.mkdir(mode=0o700)
+        folder.chmod(0o700)
+        stat = tmp_path / "bin" / "stat"
+        stat.write_text(
+            f'#!/bin/sh\nif [ "$3" = "{folder}" ]; then\n'
+            '  case "$2" in %u:%a) echo 4242:700 ;; %u) echo 4242 ;; %a) echo 700 ;; *) exec /usr/bin/stat "$@" ;; esac\n'
+            '  exit 0\nfi\nexec /usr/bin/stat "$@"\n'
+        )
+        stat.chmod(0o755)
     res = _seal(tmp_path, env)
     assert res.returncode == 1 and "is not a folder only this user can open" in res.stderr, res.stdout + res.stderr
     sec = tmp_path / "secrets"
@@ -172,3 +183,19 @@ def test_a_seal_folder_that_is_not_this_runs_own_is_refused_and_nothing_changes(
         assert (sec / name).read_bytes() == want and not K.wrapped_path(sec / name).exists()
     assert not (sec / K.META_FILE).exists() and not list((tmp_path / "host").rglob("trialbox-kek*"))
     assert not list(tmp_path.rglob("kek.new"))
+
+
+def test_a_link_at_the_old_place_is_never_written_through(tmp_path: Path) -> None:
+    """H-118 (ruling 7138516776): kek.new used to be made in /run/trialbox, the folder handed to the services' user. A
+    link left at that old name is neither written nor shredded through by a seal."""
+    env, keys, _ = _host(tmp_path, "tpm")
+    old = tmp_path / "host" / "run" / "trialbox"
+    old.mkdir(parents=True)
+    target = tmp_path / "elsewhere"
+    target.write_bytes(b"kept\n")
+    (old / "kek.new").symlink_to(target)
+    res = _seal(tmp_path, env)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert target.read_bytes() == b"kept\n", "the plain KEK was written or shredded through the old name"
+    assert (old / "kek.new").is_symlink()  # untouched: the seal no longer uses that name
+    _opens(tmp_path, keys, _the_box_place(tmp_path).read_bytes())

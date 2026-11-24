@@ -191,6 +191,8 @@ def _sealed_and_done(tmp: Path, keys: dict[str, bytes]) -> None:
         assert K.unwrap(kek, K.read_wrapped(sec / name), name) == want
     assert (tmp / "host" / "run" / "trialbox" / "kek").read_bytes() == kek
     assert not (tmp / "host" / "run" / "trialbox" / "kek.new").exists()
+    # H-118 (ruling 7138516776): the twin, kek.new's own folder
+    assert not (tmp / "host" / "run" / "trialbox-seal" / "kek.new").exists()
     assert not cred.with_name("trialbox-kek.new").exists()
     assert (tmp / "units" / "trialbox-unseal.service").is_file()
 
@@ -532,6 +534,8 @@ def test_a_second_signal_during_the_clean_up_leaves_no_plain_kek(tmp_path: Path)
     time.sleep(1)
     _keys_open(tmp_path, keys)
     assert not (tmp_path / "host" / "run" / "trialbox" / "kek.new").exists(), "the plain KEK copy stayed in /run"
+    # H-118 (ruling 7138516776): the twin, kek.new's own folder
+    assert not (tmp_path / "host" / "run" / "trialbox-seal" / "kek.new").exists(), "the plain KEK copy stayed in /run"
 
 
 def test_the_kek_opened_from_the_credential_is_never_written_through_a_link(tmp_path: Path) -> None:
@@ -547,7 +551,8 @@ def test_the_kek_opened_from_the_credential_is_never_written_through_a_link(tmp_
     assert res.returncode == 143, res.stdout + res.stderr
     target = tmp_path / "elsewhere"
     target.write_bytes(b"")
-    (tmp_path / "host" / "run" / "trialbox" / "kek.new").symlink_to(target)
+    # H-118 (ruling 7138516776): kek.new's own folder, which the stopped run made (0700)
+    (tmp_path / "host" / "run" / "trialbox-seal" / "kek.new").symlink_to(target)
     again = _seal(tmp_path, env)
     assert again.returncode == 0, again.stdout + again.stderr
     _sealed_and_done(tmp_path, keys)
@@ -597,8 +602,10 @@ def test_a_fresh_seal_never_writes_or_shreds_the_kek_through_a_link(tmp_path: Pa
     creds = tmp_path / "bin" / "systemd-creds"
     seen = 'encrypt)\n    [ -L "$4" ] && : > "$STANDIN_DIR/through-a-link";'
     creds.write_text(CREDS.replace("encrypt)", seen, 1))
-    run = tmp_path / "host" / "run" / "trialbox"
+    # H-118 (ruling 7138516776): kek.new's own folder, made as the run makes it (0700)
+    run = tmp_path / "host" / "run" / "trialbox-seal"
     run.mkdir(parents=True)
+    run.chmod(0o700)
     before, during = tmp_path / "before", tmp_path / "during"
     for f in (before, during):
         f.write_bytes(b"kept\n")
