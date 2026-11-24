@@ -23,3 +23,14 @@ def test_a_plain_site_key_another_user_owns_fails_the_host_check(tmp_path: Path)
     kept = _kept(r.stdout).strip().splitlines()
     want = "FAIL  site_hmac.key is owned by uid "
     assert any(k.startswith(want) and k.endswith("[H-94 (5)]") for k in kept), r.stdout
+
+
+def test_a_plain_site_key_the_services_own_passes_the_owner_check(tmp_path: Path) -> None:
+    """The services (uid 10001, deploy/docker-compose.yml) read the keys from the secrets volume, so an unsealed key
+    made there is theirs, 0600 (a test box's keys are never sealed, H-106): that owner is not another user. The red
+    of the rehearsal's test-boxes step at a1b4e62c (job 138679012027): both keys failed the owner check."""
+    args, env = hb._box(tmp_path, plain=True, env_name="PRODUCTION")
+    hb._stubs(tmp_path, {"stat": 'case "$*" in *%u*.key) echo 10001 ;; *) /usr/bin/stat "$@" ;; esac\n'})
+    r = hb._sh(args, env)
+    assert "is owned by uid" not in r.stdout, r.stdout
+    assert "site_hmac.key is a plain file" in r.stdout  # the key is still checked: plain, so the facility line
