@@ -55,12 +55,13 @@ import re
 import secrets
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import time
 import urllib.request
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -108,6 +109,126 @@ STRICT_ENVS = ("PRODUCTION", "VALIDATION")
 
 class UpdateRefused(UpdateFailed):
     """A preflight refusal: nothing on the box was changed (no marker, no backup, no service stopped)."""
+
+
+class UpdateInterrupted(KeyboardInterrupt):
+    """H-114 (ESC-4): SIGINT, SIGTERM or SIGHUP stopped the update; it is rolled back as a Ctrl-C is."""
+
+
+class _Tolerant:
+    """A terminal stream that a closed session cannot break: a write or a flush that fails is dropped, so a rollback
+    that a SIGHUP started is never ended by its own progress line (the history file keeps every line)."""
+
+    def __init__(self, stream: Any) -> None:
+        self._s = stream
+
+    def write(self, text: str) -> int:
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
+            return int(self._s.write(text) or 0)
+        return len(text)
+
+    def flush(self) -> None:
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
+            self._s.flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._s, name)
+
+
+class Stops:
+    """H-114 (ESC-4): the update's signals. SIGINT, SIGTERM and SIGHUP are handled alike. The first one stops the
+    update: at once inside a step the updater marks as stoppable (:meth:`stoppable`), else at the start of the next
+    one, so it always lands where a failure is caught and rolled back. It is raised once, never again: from then on,
+    and for the whole of a rollback, every signal is said and ignored, so the box ends either fully on the new release
+    or fully back on the old one, never between (a second Ctrl-C, or the SIGTERM a closed session sends after the
+    SIGHUP). Commands run in a session of their own (``procgroup``): the terminal's signals never reach them. Only in
+    the main thread (signals are delivered there); elsewhere it changes nothing."""
+
+    NAMES = ("SIGINT", "SIGTERM", "SIGHUP")
+
+    def __init__(self, held: bool = False) -> None:
+        self.first: str | None = None  # the signal that stopped the update
+        self.ignored: list[str] = []  # every signal after it, or during a rollback
+        self._raised = held  # held: nothing is ever raised (a rollback from the start: ``recover``)
+        self._live = False
+        self._old: dict[int, Any] = {}
+        self._streams: tuple[Any, Any] | None = None
+
+    def __enter__(self) -> Stops:
+        import signal
+        import threading
+
+        if threading.current_thread() is threading.main_thread():
+            for name in self.NAMES:
+                sig = getattr(signal, name)
+                if signal.getsignal(sig) is signal.SIG_IGN:  # review 1461-4: the caller's ignore (nohup) stands
+                    continue
+                self._old[sig] = signal.signal(sig, self._on)
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        import signal
+
+        for sig, h in self._old.items():
+            signal.signal(sig, h)
+        self._old = {}
+        if self._streams is not None:
+            sys.stdout, sys.stderr = self._streams
+            self._streams = None
+
+    def _say(self, text: str) -> None:
+        with contextlib.suppress(BaseException):  # a closed terminal, or a write already under way
+            print(f"update: {text}", file=sys.stderr, flush=True)
+
+    def _on(self, signum: int, _frame: Any) -> None:
+        import signal
+
+        name = signal.Signals(signum).name
+        if self._streams is None:
+            self._streams = (sys.stdout, sys.stderr)
+            sys.stdout, sys.stderr = _Tolerant(sys.stdout), _Tolerant(sys.stderr)
+        if self.first is None and not self._raised:
+            self.first = name
+            if self._live:
+                self._live = False
+                self._raised = True
+                self._say(f"{name}: the update stops here and is put back as it was; further signals are ignored")
+                raise UpdateInterrupted(f"stopped by {name}")
+            self._say(f"{name}: the update stops at the start of its next step; further signals are ignored")
+            return
+        self.ignored.append(name)
+        self._say(f"{name} ignored: the update is being put back, or finished, as one whole; it is not left half way")
+
+    def hold(self) -> None:
+        """From here the update is put back or finished: no signal stops anything; each is said and ignored."""
+        self._raised = True
+        self._live = False
+
+    @property
+    def pending(self) -> bool:
+        """A first signal arrived and has not stopped anything yet."""
+        return self.first is not None and not self._raised
+
+    @contextlib.contextmanager
+    def stoppable(self) -> Any:
+        """A step a first signal may stop at once; a signal that came between two steps stops it at its start."""
+        if self.pending:
+            self._raised = True
+            raise UpdateInterrupted(f"stopped by {self.first}")
+        self._live = not self._raised
+        try:
+            yield
+        finally:
+            self._live = False
+
+    def note(self) -> dict[str, Any]:
+        """For the history and the audit event: the signals the update had (none: empty)."""
+        out: dict[str, Any] = {}
+        if self.first:
+            out["signal"] = self.first
+        if self.ignored:
+            out["signals_ignored"] = list(self.ignored)
+        return out
 
 
 # The steps, in order, as the marker (deploy/updates/IN_PROGRESS.json) names them (D-210).
@@ -196,7 +317,9 @@ def streamed_payloads(bundle: Path, manifest: dict[str, Any], kinds: Sequence[st
         with tarfile.open(bundle, "r:") as tf:
             for m in tf.getmembers():
                 f = want.pop(m.name, None)
-                if f is not None and m.isfile():
+                if f is not None and not m.isfile():  # H-114 (1409-2): never dropped in silence on the second read
+                    raise UpdateFailed(f"the bundle {bundle} holds {m.name} as something other than a file now")
+                if f is not None:
                     out.append(Streamed(bundle, str(f["path"]), str(f["kind"]), str(f["sha256"]), int(f["size"]),
                                         m.offset_data))  # fmt: skip
     except (OSError, tarfile.TarError) as exc:
@@ -613,8 +736,8 @@ def apply_host(plan: Plan, base: Path, rb: Path, point: Point) -> list[str]:
     point.extra["host"] = {"previous": host_tree.current(base), "release": plan.bundle_id,
                            "fresh": not (base / "releases" / plan.bundle_id).exists()}  # fmt: skip
     save_point(rb, point)
-    try:
-        info = host_tree.install(tars[0], base, plan.bundle_id)
+    try:  # 1461-1: the record fills as files move, so a stop inside the install is put back by restore_host
+        info = host_tree.install(tars[0], base, plan.bundle_id, into=point.extra["host"])
     except host_tree.HostTreeError as exc:
         raise UpdateFailed(f"host tree: {exc}") from exc
     point.extra["host"] = info
@@ -875,13 +998,15 @@ class Updater:
         self.say = say
         self.disk_free = disk_free or (lambda p: shutil.disk_usage(p).free)
         self.on_step = on_step  # called after the marker names a step, before the step runs (the kill -9 drill)
+        self.stops = Stops()  # H-114: the signals of the run under way (``run`` and ``recover`` install them)
 
     def _history(self, plan: Plan, step: str, ok: bool, detail: str = "") -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         line = {"at": _now(), "bundle": plan.bundle_id, "box": self.box.name, "step": step, "ok": ok, "detail": detail}
         with (self.dir / "history.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(line, ensure_ascii=False) + "\n")
-        self.say(f"{'ok  ' if ok else 'FAIL'}  {step}" + (f": {detail}" if detail else ""))
+        with contextlib.suppress(OSError, ValueError):  # H-114: a closed terminal never fails a step (the file has it)
+            self.say(f"{'ok  ' if ok else 'FAIL'}  {step}" + (f": {detail}" if detail else ""))
 
     # -------------------------------------------------------------------------------------------- preflight
     def state(self) -> dict[str, Any]:
@@ -1081,8 +1206,9 @@ class Updater:
     def run(self, plan: Plan, backup: bool = True) -> dict[str, Any]:
         from tools import update_status as us
 
+        self.stops = Stops()
         try:
-            with us.locked(self.dir):
+            with self.stops, us.locked(self.dir), _recording(self.dir):
                 if us.marker(self.dir) is not None:
                     m = us.marker(self.dir) or {}
                     who = m.get("bundle_id")
@@ -1090,12 +1216,15 @@ class Updater:
                         f"update {who} is unfinished (step {m.get('step')!r}): "
                         f"tools/apply_update.sh status, then rollback {who}"
                     )
-                notes = self.preflight(plan, backup)
+                with self.stops.stoppable():
+                    notes = self.preflight(plan, backup)
                 for n in notes:
                     self.say(f"      preflight: {n}")
                 return self._run(plan, backup)
         except us.Busy as exc:
             raise UpdateRefused(str(exc)) from exc
+        except UpdateInterrupted as exc:  # before the marker: the preflight changes nothing
+            raise UpdateRefused(f"{exc} before anything was changed; nothing was changed") from exc
 
     def _run(self, plan: Plan, backup: bool) -> dict[str, Any]:
         from tools import update_status as us
@@ -1130,9 +1259,11 @@ class Updater:
             step("backup skipped (PoC box, H-99: deploy/site/poc-stops.jsonl)", True, plan.poc_no_backup)
         elif backup:
             try:
-                where = self.box.backup(plan, rb)
-            except Exception as exc:
-                step("backup (D-126)", False, f"{exc}; nothing was changed")
+                with self.stops.stoppable():
+                    where = self.box.backup(plan, rb)
+            except (Exception, KeyboardInterrupt) as exc:  # H-114: a signal too; nothing else had changed
+                self.stops.hold()
+                step("backup (D-126)", False, f"{type(exc).__name__}: {exc}; nothing was changed")
                 self._abandon(plan, rb)
                 raise UpdateFailed(f"backup failed, nothing was changed: {exc}") from exc
             step("backup (D-126)", True, where)
@@ -1145,59 +1276,78 @@ class Updater:
         enter("rollback point")
         point = Point()
         try:
-            self.box.snapshot(plan, rb, point)
-            save_point(rb, point)
-        except Exception as exc:
-            step("rollback point", False, f"{exc}; nothing was changed")
+            with self.stops.stoppable():
+                self.box.snapshot(plan, rb, point)
+                save_point(rb, point)
+        except (Exception, KeyboardInterrupt) as exc:  # H-114: a signal too
+            self.stops.hold()
+            step("rollback point", False, f"{type(exc).__name__}: {exc}; nothing was changed")
             self._abandon(plan, rb)
             raise UpdateFailed(f"could not take the rollback point, nothing was changed: {exc}") from exc
         step("rollback point", True, f"{len(point.images)} images, {len(point.dumps)} databases")
         failed: str | None = None
+        live = self.stops.stoppable  # H-114: a first signal stops the step under way, or the next one at its start
         try:
             enter("apply")
-            applied = self.box.apply(plan, rb, point)
-            save_point(rb, point)
+            with live():
+                applied = self.box.apply(plan, rb, point)
+                save_point(rb, point)
             step("apply", True, f"{len(applied)} payloads")
             enter("migrate and restart")
-            self.box.restart(plan)
+            with live():
+                self.box.restart(plan)
             step("migrate and restart", True)
             enter("rulesets")
             rulesets = getattr(self.box, "rulesets", None)
-            done = rulesets(plan) if rulesets is not None else self.box.post_apply(plan)
+            with live():
+                done = rulesets(plan) if rulesets is not None else self.box.post_apply(plan)
             step("rulesets", True, f"{len(done)} imported")
             enter("check")
-            step("check", True, self.box.check(plan))
-        except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C rolls back too; kill -9 leaves the marker
+            with live():
+                checked = self.box.check(plan)
+            step("check", True, checked)
+        except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C, SIGTERM, SIGHUP roll back; kill -9 leaves the marker
+            self.stops.hold()
             failed = f"{type(exc).__name__}: {exc}"
             step("update", False, failed)
-        if failed is not None:
+        if failed is not None:  # H-114: from here no signal stops anything (Stops raises once): said and ignored
             rolled = self._rollback(plan, rb, point)
+            state = (f"the box is back on the release before {plan.bundle_id}" if rolled else
+                     "the box may be between the two releases: do not use it")  # fmt: skip
             self.box.audit("update.rolled_back", plan,
-                           {"bundle_id": plan.bundle_id, "error": failed[:500], "rolled_back": rolled})  # fmt: skip
+                           {"bundle_id": plan.bundle_id, "error": failed[:500], "rolled_back": rolled,
+                            "state": "previous release" if rolled else "between releases (rollback failed)",
+                            **self.stops.note()})  # fmt: skip
             if rolled:
                 self._done(plan, rb)
             raise UpdateFailed(
                 f"update {plan.bundle_id} failed ({failed}); "
                 + ("rolled back" if rolled else "ROLLBACK FAILED (the marker stays: tools/apply_update.sh status)")
+                + f"; {state}"
             )
         enter("refdata")
         refdata_note = ""
         refdata = getattr(self.box, "refdata", None)
         if refdata is not None:
             try:  # its own step: one transaction; a failure leaves the healthy release in place (D-17)
-                loaded = refdata(plan)
+                with live():  # H-114: a signal here stops the load only; the checked release is finished
+                    loaded = refdata(plan)
                 step("reference data", True, f"{len(loaded)} packs loaded")
-            except Exception as exc:
+            except (Exception, KeyboardInterrupt) as exc:
                 refdata_note = f"{type(exc).__name__}: {exc}"[:500]
                 step("reference data", False, f"{refdata_note}; the release stays; load the pack again "
                                               "(python -m tb_common.refdata load)")  # fmt: skip
         terminology = getattr(self.box, "terminology", None)
-        if terminology is not None and terminology_files(plan):
+        if terminology is not None and terminology_files(plan) and self.stops.first:
+            step("code systems", False, f"not loaded: stopped by {self.stops.first} after the check; the release "
+                                        "stays; load them again (deploy/terminology-update.sh)")  # fmt: skip
+        elif terminology is not None and terminology_files(plan):
             try:  # V-18: after the check, as the reference data; a failure leaves the healthy release in place
-                loaded = terminology(plan)
+                with live():
+                    loaded = terminology(plan)
                 step("code systems", True, f"{len(loaded)} loaded; back: deploy/terminology-update.sh --rollback "
                                            f"{plan.bundle_id}")  # fmt: skip
-            except Exception as exc:
+            except (Exception, KeyboardInterrupt) as exc:
                 step("code systems", False, f"{type(exc).__name__}; the release stays; the previous tables are in "
                                             f"deploy/terminology/previous/{plan.bundle_id}")  # fmt: skip
         enter("finish")
@@ -1208,11 +1358,14 @@ class Updater:
             {"bundle_id": plan.bundle_id, "signer": plan.signer, "files": plan.files, "backup": backup,
              "release_seq": plan.release_seq, "key_id": plan.key_id,
              "rotation": plan.manifest_sha256 in (plan.trust_after or {}).get("rotations", []),
-             "refdata_failed": refdata_note or None, "rollback_point_removed": True},
+             "refdata_failed": refdata_note or None, "rollback_point_removed": True, **self.stops.note()},
         )  # fmt: skip
         step("audited update.applied", True)
+        if self.stops.first:  # H-114: it came after the check: the checked release is finished, never half left
+            step(f"{self.stops.first} after the check", True, f"the box is on {plan.bundle_id}, finished as one whole")
         self._done(plan, rb)
-        return {"ok": True, "bundle_id": plan.bundle_id, "steps": steps, "refdata_failed": refdata_note or None}
+        return {"ok": True, "bundle_id": plan.bundle_id, "steps": steps, "refdata_failed": refdata_note or None,
+                **self.stops.note()}  # fmt: skip
 
     def _record(self, plan: Plan, live: bool = True) -> None:
         """installed.json and trust.json for the release just checked (atomic writes, under the marker). H-95: a
@@ -1287,17 +1440,29 @@ class Updater:
     def _rollback(self, plan: Plan, rb: Path, point: Point) -> bool:
         from tools import update_status as us
 
-        us.set_step(self.dir, us.marker(self.dir) or {}, "rollback")
+        # H-114 (ESC-4): it runs to its end whatever arrives: the Stops in force raise nothing from here (a signal is
+        # said, ignored and named in the audit event), and whatever still stops a step (BaseException) is caught and
+        # said as a failed rollback, the marker kept for ``tools/apply_update.sh rollback`` to finish it
         try:
+            us.set_step(self.dir, us.marker(self.dir) or {}, "rollback")
+            with contextlib.suppress(Exception):  # review 1461-1: what the stopped step moved, for a rollback cut short
+                save_point(rb, point)
             self.box.rollback(plan, rb, point)
             self._restore_state(rb)
             put_back = "host tree, images, models, database, rulesets and update state put back"
             self._history(plan, "rollback", True, put_back)
             self._history(plan, "check after rollback", True, self.box.check(plan))
+            if self.stops.ignored:
+                self._history(plan, "signals during the rollback", True,
+                              f"{', '.join(self.stops.ignored)} ignored: the rollback finished")  # fmt: skip
             return True
-        except Exception as exc:
-            us.set_step(self.dir, us.marker(self.dir) or {}, "rollback failed")
-            self._history(plan, "rollback", False, f"{type(exc).__name__}: {exc} (restore from the backup: RUNBOOK §5)")
+        except BaseException as exc:
+            with contextlib.suppress(BaseException):
+                us.set_step(self.dir, us.marker(self.dir) or {}, "rollback failed")
+            with contextlib.suppress(BaseException):
+                self._history(plan, "rollback", False,
+                              f"{type(exc).__name__}: {exc} (tools/apply_update.sh rollback {plan.bundle_id} again, "
+                              "else restore from the backup: RUNBOOK §5)")  # fmt: skip
             return False
 
     def _restore_state(self, rb: Path) -> None:
@@ -1325,7 +1490,7 @@ class Updater:
             if resume is not None:
                 resume(plan)
             self._history(plan, "services started again", True)
-        except Exception as exc:
+        except BaseException as exc:  # H-114: whatever stops it is said; the marker stays for `rollback`
             self._history(plan, "services started again", False, f"{exc} (the marker stays)")
             return
         self._done(plan, rb)
@@ -1351,11 +1516,20 @@ class Updater:
         started again. Audited ``update.rolled_back``; the marker is removed only when the rollback completed."""
         from tools import update_status as us
 
+        self.stops = Stops(held=True)  # H-114: a recovery is a rollback from its start: no signal stops it
         try:
-            with us.locked(self.dir):
+            with self.stops, us.locked(self.dir), _recording(self.dir):
                 m = us.marker(self.dir)
                 if m is None:
                     raise UpdateFailed("no update is in progress (no deploy/updates/IN_PROGRESS.json)")
+                left = alive_commands(self.dir)
+                if left:  # review 1461-3: the cut-short run's command (a put-back) still runs in its own session
+                    said = "; ".join(f"process group {r.get('pgid')}: {' '.join(r.get('argv') or [])}" for r in left)
+                    raise UpdateFailed(
+                        f"a command of the update that was cut short still runs ({said}): wait for it to end, or stop "
+                        f"it (kill -TERM -<group>), then run tools/apply_update.sh rollback {bundle_id} again; nothing "
+                        "was changed"
+                    )
                 if m.get("bundle_id") != bundle_id:
                     raise UpdateFailed(f"the unfinished update is {m.get('bundle_id')}, not {bundle_id}")
                 rb = Path(str(m["rollback_dir"]))
@@ -1377,7 +1551,10 @@ class Updater:
                     rolled = self._rollback(plan, rb, Point.read(rb))
                 self.box.audit("update.rolled_back", plan, {"bundle_id": bundle_id, "rolled_back": rolled,
                                                             "error": f"interrupted at step {step!r}",
-                                                            "recovered": True})  # fmt: skip
+                                                            "recovered": True,
+                                                            "state": "previous release" if rolled else
+                                                            "between releases (rollback failed)",
+                                                            **self.stops.note()})  # fmt: skip
                 if not rolled:
                     raise UpdateFailed(f"the rollback of {bundle_id} failed; the marker stays (RUNBOOK §5)")
                 self._done(plan, rb)
@@ -1395,6 +1572,74 @@ STORE_SERVICES = ("orchestrator", "mail-gateway", "gateway", "criteria-compiler"
 Runner = Callable[..., str]  # (argv, stdin_file=None, stdout_file=None, env=None, timeout=None) -> stdout
 
 
+#: H-114 (review 1461-3): while an update or a rollback runs (``Updater.run``, ``Updater.recover``), each command it
+#: starts is recorded here by its process group (``running/<pgid>.json``) until it ends. A command runs in a session
+#: of its own (``procgroup``), so a SIGKILL to the updater (the console's time limit, ``kill -9``) leaves it running;
+#: ``recover`` refuses while a recorded group is alive, so two put-backs never run at once.
+RUNNING = ".running"  # review 1461-6: a dot name, which no bundle id (and so no bundle's folder) can take
+_running_dir: Path | None = None
+
+
+def _proc_id(pid: int) -> tuple[str | None, str | None]:
+    """This boot's id and the process's start time (from the kernel): with the group id, who the record names
+    (review 1461-6)."""
+    boot = start = None
+    with contextlib.suppress(OSError):
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+    with contextlib.suppress(OSError, IndexError):
+        start = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[19]
+    return boot, start
+
+
+def _record_running(pgid: int, argv: Sequence[str]) -> Path | None:
+    from tools import update_status as us
+
+    if _running_dir is None:
+        return None
+    with contextlib.suppress(OSError):
+        f = _running_dir / f"{pgid}.json"
+        boot, start = _proc_id(pgid)
+        # written whole (temp file, fsync, rename): a torn record would read as malformed and be dropped, so a put-back
+        # still running would no longer hold the recovery
+        us.write_atomic(f, {"pgid": pgid, "argv": [str(a) for a in argv[:6]], "at": _now(), "boot": boot,
+                            "start": start})  # fmt: skip
+        return f
+    return None
+
+
+@contextlib.contextmanager
+def _recording(updates: Path) -> Iterator[None]:
+    global _running_dir
+    before, _running_dir = _running_dir, updates / RUNNING
+    try:
+        yield
+    finally:
+        _running_dir = before
+
+
+def alive_commands(updates: Path) -> list[dict[str, Any]]:
+    """The commands an update started that still run (their process group is alive); a dead one's record goes."""
+    out: list[dict[str, Any]] = []
+    for f in sorted((updates / RUNNING).glob("*.json")) if (updates / RUNNING).is_dir() else []:
+        try:
+            rec = json.loads(f.read_text(encoding="utf-8"))
+            os.killpg(int(rec["pgid"]), 0)
+        except ProcessLookupError:
+            f.unlink(missing_ok=True)
+            continue
+        except PermissionError:  # alive, another user's group
+            pass
+        except (OSError, ValueError, KeyError, TypeError):
+            f.unlink(missing_ok=True)
+            continue
+        boot, start = _proc_id(int(rec["pgid"]))
+        if (rec.get("boot") and boot and rec["boot"] != boot) or (rec.get("start") and start and rec["start"] != start):
+            f.unlink(missing_ok=True)  # review 1461-6: an earlier boot's record, or the group id now another's
+            continue
+        out.append(rec)
+    return out
+
+
 def run_cmd(
     argv: Sequence[str],
     stdin_file: Path | None = None,
@@ -1410,21 +1655,35 @@ def run_cmd(
     try:
         from tools.trialbox import procgroup
 
-        r = procgroup.run(  # T-695: the whole process group is killed on the limit, never an orphan left
-            list(argv),
-            stdin=fin,
-            stdout=fout or subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={**os.environ, **(env or {})},
-            timeout=timeout,
-        )
+        # T-695: the whole process group is killed on the limit, never an orphan left (procgroup's own steps, here so
+        # that the group is recorded while it runs: review 1461-3)
+        with subprocess.Popen(list(argv), start_new_session=True, stdin=fin, stdout=fout or subprocess.PIPE,
+                              stderr=subprocess.PIPE, env={**os.environ, **(env or {})}) as proc:  # fmt: skip
+            rec: Path | None = None
+            try:  # review 1461-9: a stop while the record is written kills the command too
+                rec = _record_running(proc.pid, argv)
+                out, err = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                procgroup._kill(proc.pid, signal.SIGTERM)
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    proc.wait(procgroup.TERM_GRACE_S)
+                procgroup._kill(proc.pid, signal.SIGKILL)
+                proc.communicate()
+                raise subprocess.TimeoutExpired(list(argv), timeout or 0) from None
+            except BaseException:
+                procgroup._kill(proc.pid, signal.SIGKILL)
+                raise
+            finally:
+                if rec is not None:
+                    rec.unlink(missing_ok=True)
+        r = subprocess.CompletedProcess(list(argv), proc.returncode, out, err)
     finally:
         for f in (fin, fout):
             if f:
                 f.close()
     if r.returncode != 0:
-        err = (r.stderr or b"").decode(errors="replace").strip()[-600:]
-        raise UpdateFailed(f"{shlex.join(list(argv)[:8])} ... exit {r.returncode}: {err}")
+        said = (r.stderr or b"").decode(errors="replace").strip()[-600:]
+        raise UpdateFailed(f"{shlex.join(list(argv)[:8])} ... exit {r.returncode}: {said}")
     return "" if fout else (r.stdout or b"").decode(errors="replace")
 
 
@@ -1536,6 +1795,8 @@ class ComposeBox(_DockerImages):
         named = _env_file(self.deploy / ".env").get("TB_ENV")
         if not named and (self.deploy / "site" / "rehearsal.json").is_file():
             return "TEST"
+        if not named and (self.deploy / "site" / "test-box.env").is_file():
+            return "TEST"  # H-106: a test box's record (install.sh --test-box writes it before the load), as the mark
         return (named or "PRODUCTION").strip().upper()
 
     def rehearsal_mark(self) -> bool:
@@ -1565,11 +1826,15 @@ class ComposeBox(_DockerImages):
         except (UpdateFailed, OSError):  # no compose here: not running
             return False
 
+    def project(self) -> str:
+        """The compose project: the run's (install.sh exports a test box's record), else deploy/.env's (H-75, H-106)."""
+        return os.environ.get("COMPOSE_PROJECT_NAME") or self.env.get("COMPOSE_PROJECT_NAME") or "trialbox"
+
     def data_volumes(self) -> list[str]:
         """The compose project's volumes, by Docker's own label (no compose file is read): a box that has run has
         them. Fails closed: when Docker cannot answer, the box counts as holding data (refused while stopped),
         unless it has no deploy at all (no ``docker-compose.yml``: nothing was ever installed here)."""
-        project = os.environ.get("COMPOSE_PROJECT_NAME") or self.env.get("COMPOSE_PROJECT_NAME") or "trialbox"
+        project = self.project()
         try:
             return self.run([*self.docker, "volume", "ls", "-q", "--filter",
                              f"label=com.docker.compose.project={project}"]).split()  # fmt: skip
@@ -1702,12 +1967,13 @@ class ComposeBox(_DockerImages):
             else (self.env.get("TB_IMAGE") or "trialbox-py:1.0.0")
         )
         site = f"TB_SITE_ID={self.env.get('TB_SITE_ID', '')}"
-        argv = ["docker", "run", "--rm", "--network", "trialbox-net", "--user", "0", "-e", "TB_DB_URL",
+        project = self.project()  # H-106: this box's own network and volumes, never the ordinary box's
+        argv = ["docker", "run", "--rm", "--network", f"{project}-net", "--user", "0", "-e", "TB_DB_URL",
                 "-e", "TB_HAPI_DB_URL", "-e", "TB_PG_DUMP_DIR=/dumps", "-e", site,
                 "-v", f"{rb}:/dumps:ro", "-v", f"{pub}:/in/backup.pub:ro"]  # fmt: skip
         dirs = []
         for name, vol in from_backup.items():
-            argv += ["-v", f"trialbox_{vol}:/v/{name}:ro"]
+            argv += ["-v", f"{project}_{vol}:/v/{name}:ro"]
             dirs += ["--dir", f"{name}=/v/{name}"]
         tos = []
         for i, t in enumerate(targets):
@@ -1719,7 +1985,7 @@ class ComposeBox(_DockerImages):
 
             kek_dir = self.env.get("TB_KEK_HOST_DIR") or "/run/trialbox"
             own = secrets is None or Path(secrets) == Path(keys_cli.HOST_SECRETS)
-            sec = "trialbox_tb-secrets" if own else str(secrets)
+            sec = f"{project}_tb-secrets" if own else str(secrets)
             argv += ["-v", f"{sec}:/run/secrets/trialbox:ro", "-v", f"{kek_dir}:/run/trialbox:ro"]
         argv += [image, "python", "-m", "tools.trialbox", "backup", *tos, "--public", "/in/backup.pub", *dirs]
         argv += ["--keep", str(keep)] if keep is not None else []  # D-188: the schedule's TB_BACKUP_KEEP
@@ -2031,7 +2297,8 @@ class ComposeBox(_DockerImages):
             return ""
         image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
         # D-450: doctor reads the key file, as the gateway does
-        argv = ["docker", "run", "--rm", "--network", "trialbox-model-net", "--env-file", str(self.deploy / ".env"),
+        net = f"{self.project()}-model-net"  # H-106 (OCR 1452-1): this box's own model network
+        argv = ["docker", "run", "--rm", "--network", net, "--env-file", str(self.deploy / ".env"),
                 "-v", f"{self.deploy}:/app/deploy:ro", "-e", "TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key",
                 image, "python", "-m", "tools.trialbox", "doctor", "--serving"]  # fmt: skip
         self.run(argv, timeout=300)
@@ -2131,7 +2398,7 @@ class ComposeBox(_DockerImages):
         keep = self.deploy / "terminology" / "previous" / plan.bundle_id
         keep.mkdir(parents=True, exist_ok=True)
         image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
-        vol = f"trialbox_{TERMINOLOGY_VOLUME}:/data/terminology"
+        vol = f"{self.project()}_{TERMINOLOGY_VOLUME}:/data/terminology"  # H-106 (OCR 1452-1): this box's own
         base = ["docker", "run", "--rm", "--network", "none", "--user", "0:0", "-e",
                 "TB_TERMINOLOGY_DIR=/data/terminology", "-v", vol]  # fmt: skip
         self.run([*base, "-v", f"{keep.resolve()}:/keep", image, "python", "-c", TERMINOLOGY_SAVE_PY], timeout=1800)

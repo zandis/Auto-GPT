@@ -43,7 +43,7 @@ from fastapi.responses import JSONResponse
 from tb_common.http import make_app
 from tb_llm.budget import estimate_messages, estimate_tokens
 
-from llm_stub.handlers import HANDLERS, MESSAGE_HANDLERS, OBEYING, PERSONAS, obey
+from llm_stub.handlers import HANDLERS, MESSAGE_HANDLERS, OBEYING, PERSONAS, assertion_fields, obey
 
 app = make_app("llm-stub", service_token=False)  # the stub stands in for vLLM, which has no box token
 _BLOCK = re.compile(r"```json\s*(.*?)```", re.S)
@@ -195,6 +195,8 @@ async def completions(request: Request) -> Any:
             answer = obey(prompt_id, inp, answer)
         elif prompt_id == "judge" and model in PERSONAS:
             answer = PERSONAS[model](answer)
+        if prompt_id == "judge":
+            answer = assertion_fields(body, answer)
         content = json.dumps(answer, ensure_ascii=False)
     return _completion(body, {"role": "assistant", "content": content}, "stop")
 

@@ -286,6 +286,7 @@ _D3 = {
     "CodedValue",  # a coded record's value, unit, date and code behind an answer (T-514, D-362): as Evidence
     "LakeQuery",
     "LlmJudgeOutput",
+    "LlmJudgeOutputV2",  # judge v6's answer, with the three fields on the quote (R22-16 round 5): as LlmJudgeOutput
     "LlmDraftDocOutput",
     "NavLists",
     "NavListSet",

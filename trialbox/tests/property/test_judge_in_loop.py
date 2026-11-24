@@ -574,7 +574,13 @@ def test_the_control_excludes_the_ineligible(lake: LakeLocal, path: str, monkeyp
     statuses = PATHS[path](_run(lake, OPS["shown"], monkeypatch), monkeypatch)
     excluded = {p for p, s in statuses.items() if s == "excluded"}
     assert excluded <= {c.pid for c in CHARTS if c.ineligible}
-    assert {"N-NONE", "N-EXC"} <= excluded and "N-KEEP" not in excluded
+    assert "N-EXC" in excluded and "N-KEEP" not in excluded
+    # R22-17 (D-1069; ruled on #639 7079180333): the planted patient whose note inclusion is not met (N-NONE) is in
+    # review on every list (NAV: a row to confirm); the CASE sheet, which has no status, prints the notes' "not met",
+    # which ``case_run`` reads as off
+    assert statuses["N-NONE"] == {"screen_v1": "review", "screen_cascade": "review", "nav": "confirm"}.get(
+        path, "excluded"
+    )
     assert statuses["N-KEEP"] in ("high", "listed", "kept")
 
 

@@ -285,6 +285,18 @@ def judge(inp: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def assertion_fields(body: dict[str, Any], answer: dict[str, Any]) -> dict[str, Any]:
+    """Judge v6 (``llm_judge_output_v2``, 1.2.0; #639 7115208555): when the caller's schema asks for them, the three
+    fields on the quote. The stub's "yes" reads its quote as the condition stated, the patient's, now; its "no" as
+    stated absent; an abstention gives none. A caller on 1.1.0 gets the answer as before (no extra keys)."""
+    schema = ((body.get("response_format") or {}).get("json_schema") or {}).get("schema") or {}
+    if "certainty" not in (schema.get("properties") or {}):
+        return answer
+    fields = {"pass": ("affirmed", "patient", "current"), "fail": ("negated", "patient", "current")}
+    c, e, t = fields.get(str(answer.get("verdict")), (None, None, None))
+    return {**answer, "certainty": c, "experiencer": e, "time": t}
+
+
 # ----------------------------------------------------------------------------- draft_doc, ie_locate
 _FACT_LABELS = [
     ("diagnosis", "診斷為{}"),

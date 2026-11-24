@@ -134,7 +134,7 @@ test-random: venv-check $(FONTS) $(JVM_DEPS)
 	if [ $$rc = 75 ]; then echo "test-random: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
 
 test-random-locked:
-	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -m 0700 -p "$(TB_TEST_ROOT)/tmp"
 	TB_TEST_RANDOM=1 TMPDIR="$(TB_TEST_ROOT)/tmp" uv run --frozen --no-sync --with "$(RANDOMLY)" $(NO_NETWORK) \
 		python -m pytest -p randomly $(if $(RANDOM_SEED),--randomly-seed=$(RANDOM_SEED),) $(NO_NETWORK_ARGS) \
 		-n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf" \
@@ -143,7 +143,7 @@ test-random-locked:
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
 
 test-locked:
-	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -m 0700 -p "$(TB_TEST_ROOT)/tmp"
 	TMPDIR="$(TB_TEST_ROOT)/tmp" $(if $(TRACE),TB_TRACE_OUT="$(TRACE)",) $(PY) -m pytest -q -n $(PYTEST_N) $(XDIST_DIST) \
 		--basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf" $(SHARD_ARGS) \
 		$(TESTS); rc=$$?; \
@@ -764,7 +764,7 @@ vocab-bundle-check:
 # and the tree as one set. No hadolint ignore is added for them (no scan allow-list entry).
 HADOLINT_GATING := deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile
 HADOLINT_REPORT := deploy/docker/backup.Dockerfile deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile \
-	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile
+	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile tools/bench_ci/runner.Dockerfile
 HADOLINT_IMAGE := hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e
 # each image of SC_OWN_IMAGES and the Dockerfile it is built from
 IMAGE_SCAN_IMAGES ?= trialbox-py:1.0.0=deploy/docker/python.Dockerfile trialbox-backup:1.0.0=deploy/docker/backup.Dockerfile \

@@ -68,9 +68,39 @@ fsync and a rename (`tb_common.kek._write_private`), so a key is never half-writ
   a follow-up card on the `TB_KEK_FILE` seam, as the lead ruled.
 - Not done: `keys check` in the `kek.json` branch (the reviewer's advice, not a finding).
 
+## The second review of #1457 (7125647598): the Medium and two Lows fixed
+
+- **1457-1, the rest (Medium): two secrets folders on one host.** `kek.new` and the credential belong to the host,
+  but the first lock covered one secrets folder. A seal for a second folder could take the first's `kek.new`. Fix: `arm`
+  also takes an exclusive `flock` on the credential's folder (fd 5; root's, 0700), before the trap is set, so a refused
+  run removes nothing of the other's. One TPM seal at a time per host. The folder lock (fd 6) stays for the
+  `kek.json` branch and the other back ends. For the TPM path the host lock now covers it, so a mutant that removes
+  the folder lock alone is not caught by the TPM tests.
+- **1457-7 (Low): `chown -h`.** The hand-over never follows a link; the secrets folder is the services' user's.
+- **1457-8 (Low): the re-run test's root case.** Run as root, the test also asserts that the sweep reached `kek.json`.
+- **1457-4's untested half:** a link at `kek.new` is removed before the credential is opened. The stand-in records
+  a link at its output, because the clean-up's `shred -u` would empty the link's target and hide the write.
+- **1457-6 (Low): not here.** It is card H-118, a separate pull request after this one (ruling 7125341668).
+
+## The third review of #1457 (7132112708): the Medium and both Lows fixed
+
+- **1457-11 (Medium): the credential was looked for before the host lock was held.** A seal for a second secrets
+  folder that passed that check, and took the lock only after the first seal had ended, moved a new credential over
+  the placed one. The first folder's keys then opened under nothing, and both runs said done. Fix: on the fresh-seal
+  path the credential is looked for again under the lock. Only this script writes it, and only under the lock, so
+  the check cannot go stale. A run that finds one is refused and changes nothing.
+- **1457-9 (Low): `/run/trialbox` is handed to the services' user.** With the host lock held, `arm` removes any
+  name at `kek.new` before the new KEK is written. On the fresh path no credential exists, so no key was wrapped under
+  it; on the re-run path `cred_open` opens the same KEK from the credential again. The clean-up never shreds through
+  a link: a link there is removed. The full fix, a root-only folder for `kek.new` that is never handed over, moves
+  paths and goes with H-118.
+- **1457-10 (Low): the lock tests.** The two-folder test asserts that the second run is refused (exit 1, the host
+  lock's message) and that its folder is untouched. A new test holds the secrets folder's lock as `rotate-kek` does,
+  and a seal is refused before anything is made. Removing the per-folder lock is now caught.
+
 ## Tests
 
-`tests/unit/test_seal_keys_signal_h111.py` (19 cases at 3287e70a, 24 after the review round). A host root of its own (`TB_HOST_ROOT`), a stand-in sealing
+`tests/unit/test_seal_keys_signal_h111.py` (19 cases at 3287e70a, 24 after the first review round, 26 after the second, 29 after the third). A host root of its own (`TB_HOST_ROOT`), a stand-in sealing
 tool on PATH whose "sealed" credential is a copy of the KEK, and a stand-in `python3` on PATH that runs the keys
 commands, sends the signal at a named step, and checks the invariant at every step (after the seal, after the place,
 after each key's wrap, after `keys init`). The script reads none of the stand-ins' variables. The signal goes to the
@@ -85,6 +115,15 @@ script's process group (as Ctrl-C or a service stop does) or to its shell alone.
 - `test_a_credential_beside_wrapped_keys_without_kek_json_is_still_refused`.
 - `test_a_wrap_stopped_before_the_plain_file_went_is_finished_by_keys_wrap`.
 - `test_the_passphrase_path_after_a_ctrl_c_during_keys_init`.
+- The third review round: `test_a_seal_held_before_the_host_lock_never_moves_a_new_credential_over_a_placed_one`
+  (1457-11, fails at 77e413c8), `test_a_fresh_seal_never_writes_or_shreds_the_kek_through_a_link` (1457-9, fails at
+  77e413c8), and `test_a_seal_while_another_process_holds_the_secrets_folder_is_refused_and_changes_nothing` (1457-10;
+  it catches the mutant without the per-folder lock).
+- The second review round: `test_two_secrets_folders_on_one_host_never_leave_keys_the_credential_cannot_open`
+  (1457-1, fails at 730f267f), the `-h` and root assertions in
+  `test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_user` (1457-7, 1457-8), and
+  `test_the_kek_opened_from_the_credential_is_never_written_through_a_link` (1457-4's `rm -f`; it passes at 730f267f,
+  which had the `rm -f`, and catches the mutant without it).
 - The review round, each failing at 3287e70a: `test_two_runs_at_once_never_leave_keys_the_placed_credential_cannot_open`
   (1457-1), `test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_user` (1457-2),
   `test_a_plain_key_goes_only_once_its_wrapped_copy_is_on_disk` (1457-3),
