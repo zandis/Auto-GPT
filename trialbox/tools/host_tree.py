@@ -310,9 +310,10 @@ def _back_links(release: Path, base: Path) -> None:
         p.symlink_to(os.path.relpath(base / s, p.parent))
 
 
-def install(tar: Path, base: Path, release_id: str) -> dict[str, Any]:
+def install(tar: Path, base: Path, release_id: str, into: dict[str, Any] | None = None) -> dict[str, Any]:
     """Unpack a checked host tree to ``base/releases/<release_id>`` (kept when it is already there exactly as
-    signed), switch ``current`` to it and refresh the links. Returns what :func:`restore` needs."""
+    signed), switch ``current`` to it and refresh the links. Returns what :func:`restore` needs; ``into`` (the
+    caller's rollback record) is filled as each file moves, so an install stopped part way is still undone."""
     if PurePosixPath(release_id).name != release_id or release_id.startswith("."):
         raise HostTreeError(f"bad release id {release_id!r}")
     check_tar(tar)
@@ -327,12 +328,13 @@ def install(tar: Path, base: Path, release_id: str) -> dict[str, Any]:
         _unpack(tar, dest)
         fresh = True
     _back_links(dest, base)
-    info: dict[str, Any] = {"previous": previous, "release": release_id, "fresh": fresh}
-    info.update(switch(base, release_id))
+    info: dict[str, Any] = into if into is not None else {}
+    info.update(previous=previous, release=release_id, fresh=fresh)
+    switch(base, release_id, into=info)
     return info
 
 
-def switch(base: Path, release_id: str) -> dict[str, Any]:
+def switch(base: Path, release_id: str, into: dict[str, Any] | None = None) -> dict[str, Any]:
     """``current`` -> ``releases/<release_id>`` in one rename, then the links refreshed."""
     if not (base / "releases" / release_id).is_dir():
         raise HostTreeError(f"no release {release_id} in {base / 'releases'}")
@@ -341,19 +343,21 @@ def switch(base: Path, release_id: str) -> dict[str, Any]:
         tmp.unlink()
     tmp.symlink_to(f"releases/{release_id}")
     os.replace(tmp, base / "current")
-    return sync(base)
+    return sync(base, into)
 
 
-def sync(base: Path) -> dict[str, Any]:
+def sync(base: Path, into: dict[str, Any] | None = None) -> dict[str, Any]:
     """Make every release path under ``base`` a link through ``current``: a real file or folder of a copied install
     in its place is moved to ``releases/.replaced-<time>/``; a link to a path the release no longer has is removed.
     STATE paths are never touched; their parent folders stay real folders."""
     cur = base / "current"
     if not cur.is_dir():
         raise HostTreeError(f"{cur} names no release")
-    moved: list[str] = []
-    made: list[str] = []
+    out: dict[str, Any] = into if into is not None else {}
     aside = base / "releases" / f".replaced-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
+    out.update(moved=[], linked=[], aside=str(aside))  # recorded before anything moves: a stop part way is undone
+    moved: list[str] = out["moved"]
+    made: list[str] = out["linked"]
 
     def walk(rel: PurePosixPath) -> None:
         here = base / rel
@@ -364,35 +368,33 @@ def sync(base: Path) -> dict[str, Any]:
                 continue
             p = here / child.name
             if r in ANCESTORS:  # holds site files below it: a real folder
-                if p.is_symlink():
-                    p.unlink()
-                elif p.exists() and not p.is_dir():
+                if p.is_symlink() or (p.exists() and not p.is_dir()):  # a site's own link too (review 1461-7)
                     _aside(p, aside / r, moved, r)
                 p.mkdir(exist_ok=True)
                 walk(PurePosixPath(r))
                 continue
             target = os.path.relpath(cur / r, here)
-            if p.is_symlink():
-                if os.readlink(p) == target:
-                    continue
-                p.unlink()
-            elif p.exists():
+            if p.is_symlink() and os.readlink(p) == target:
+                continue
+            if p.is_symlink() or p.exists():  # a link of the site's own is set aside as a file is (review 1461-7)
                 _aside(p, aside / r, moved, r)
-            p.symlink_to(target)
             made.append(r)
+            p.symlink_to(target)
         for p in sorted(here.iterdir()):  # links into current whose target the release dropped
             r = (rel / p.name).as_posix() if str(rel) != "." else p.name
             if p.is_symlink() and not p.exists() and os.readlink(p) == os.path.relpath(cur / r, here):
                 p.unlink()
 
     walk(PurePosixPath("."))
-    return {"moved": moved, "aside": str(aside) if moved else None, "linked": made}
+    if not moved:
+        out["aside"] = None
+    return out
 
 
 def _aside(p: Path, to: Path, moved: list[str], rel: str) -> None:
     to.parent.mkdir(parents=True, exist_ok=True)
+    moved.append(rel)  # first: restore puts back only what is in the aside folder
     p.rename(to)
-    moved.append(rel)
 
 
 def restore(base: Path, info: dict[str, Any]) -> None:
@@ -401,6 +403,11 @@ def restore(base: Path, info: dict[str, Any]) -> None:
     prev, rel = info.get("previous"), info.get("release")
     if prev:
         switch(base, prev)
+        for r in info.get("moved") or []:  # review 1461-7: a site file a path of the new release had displaced
+            src, dst = Path(str(info.get("aside"))) / r, base / r
+            if (src.exists() or src.is_symlink()) and not (dst.exists() or dst.is_symlink()):
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                src.rename(dst)
     else:
         cur = base / "current"
         for r in sorted(info.get("linked") or [], reverse=True):
@@ -414,6 +421,8 @@ def restore(base: Path, info: dict[str, Any]) -> None:
             src = Path(str(aside)) / r
             if src.exists() or src.is_symlink():
                 (base / r).parent.mkdir(parents=True, exist_ok=True)
+                if (base / r).is_symlink():  # a link made before the stop
+                    (base / r).unlink()
                 src.rename(base / r)
     if info.get("fresh") and rel and rel != prev:
         shutil.rmtree(base / "releases" / str(rel), ignore_errors=True)
