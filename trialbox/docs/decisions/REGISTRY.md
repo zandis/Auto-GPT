@@ -29,7 +29,7 @@ master stay); reservations D-208 to D-262 stay valid.
 
 The owner's rulings are numbered by the integrator: D-502 to D-519, D-526, D-1020 to D-1039 and D-1060 to
 D-1071 (rows at the end of
-the last table); the next is D-1072 (lane E holds D-1040 to D-1059; lane H holds D-1100 to D-1139, D-1320 to D-1359 and D-1460 to D-1499; lane R holds D-1140 to D-1149; lane C2 holds D-1150 to D-1179; lane V holds D-1180 to D-1219; lane J holds D-1220 to D-1319). The rulings of 2026-11-16 were relayed to the lanes as D-520 to D-537. Those
+the last table); the next is D-1072 (lane E holds D-1040 to D-1059; lane H holds D-1100 to D-1139 and D-1320 to D-1359; lane R holds D-1140 to D-1149; lane C2 holds D-1150 to D-1179; lane V holds D-1180 to D-1219; lane J holds D-1220 to D-1319). The rulings of 2026-11-16 were relayed to the lanes as D-520 to D-537. Those
 numbers, except D-526, were already held by decisions on master, so the rulings were renumbered D-1020 to D-1037
 (the same last two digits). The rows D-520 to D-537 stay with their holders. The mapping, and the citations on
 master that still use the relayed numbers, are in `docs/decisions/OWNER-RULINGS-2026-11-16.md`.

@@ -54,7 +54,7 @@ host binds the repository read-only.
 **LR-2** (the integrator's ruling 7136669077, item 1). `deploy/poc.sh` refuses every action on a host that holds
 `deploy/updates/installed.json`, before it makes a folder or runs a command: exit 1, "Nothing was done".
 
-**LR-10** (ruling 7136669077, item 2; decision D-1460, lane H's block D-1460 to D-1499 added to the registry's held line). The checked release is recorded before `refdata`. An update interrupted in
+**LR-10** (ruling 7136669077, item 2; decision D-1460, from lane H's block D-1460 to D-1499). The checked release is recorded before `refdata`. An update interrupted in
 `refdata` or `finish` is finished forward by `tools/apply_update.sh rollback <bundle>`: the full health check
 (`check`, then every service compose defines, "N of M"), one audit `update.applied` with `recovered`, the clean-up;
 nothing is rolled back over the rows written since. Each of these steps may run again (a kill inside the first
