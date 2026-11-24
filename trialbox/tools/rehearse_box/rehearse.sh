@@ -43,6 +43,8 @@
 # The rehearsal box is VALIDATION (D-887, the integrator's (i)), run as a validation run on a plain VM: no TPM and the
 # passphrase KEK (TB_KEK_BACKEND=passphrase, a throwaway synthetic passphrase), TB_HOST_PROFILE=poc.
 # TB_REHEARSE_VARIANT=validation adds a root-owned deploy/site and a second install of the same bundle.
+# TB_REHEARSE_TEST_BOXES=0 reports the test-boxes step SKIPPED (the workflow sets it for a pull request outside the
+# step's paths, H-106); unset or 1 runs it.
 # Knobs: TB_REHEARSE_DIR (default a fresh mktemp dir; the same path is mounted in the box container, docker-outside-of-
 # docker), TB_REHEARSE_SKIP_BUILD=1 (use the trialbox-py and trialbox-jvm images already built), TB_REHEARSE_KEEP=1
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
@@ -387,7 +389,8 @@ step screen-after-restart 0 in_box screen second
 step restic-restore 0 in_box restic-restore
 step wrong-name 0 in_box wrong-name
 step missing-key 0 in_box missing-key
-step test-boxes 0 in_box test-boxes
+if [ "${TB_REHEARSE_TEST_BOXES:-1}" = 1 ]; then step test-boxes 0 in_box test-boxes
+else N=$((N + 1)); record test-boxes SKIPPED "not run: no second-box path in this pull request (H-106; trains run it)"; fi
 step live-restore 0 in_box live-restore
 step no-registry-pull 0 no_registry_pull
 step swapped-stream 0 swapped_stream
@@ -395,7 +398,7 @@ collect
 teardown
 
 VERDICT=PASS
-for s in "${STATES[@]}"; do [ "$s" = PASS ] || VERDICT=FAIL; done
+for s in "${STATES[@]}"; do case "$s" in PASS|SKIPPED) ;; *) VERDICT=FAIL ;; esac; done  # SKIPPED: H-106 only
 {
   echo "# TrialBox box-install rehearsal ($VARIANT): $VERDICT"
   echo

@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       installer: ${{ steps.files.outputs.installer }}
+      test_boxes: ${{ steps.boxes.outputs.test_boxes }}
     steps:
       - id: files
         env:
@@ -70,6 +71,30 @@ jobs:
             done <<< "$INSTALLER_PATHS"
           done <<< "$files"
           echo "installer=$hit" >> "$GITHUB_OUTPUT"
+
+      - id: boxes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          # H-106 (the integrator's ruling 7124599679): the second-box step (test-boxes) runs on a train, by hand, and
+          # on a pull request that touches one of these; on any other the rehearsal reports it skipped
+          TEST_BOX_PATHS: |
+            trialbox/deploy/docker-compose*.yml
+            trialbox/deploy/docker-compose.identity.yml
+            trialbox/deploy/install.sh
+            trialbox/tools/trialbox/update.py
+            trialbox/tools/trialbox/doctor.py
+            .github/workflows/trialbox-rehearse-box.yml
+        run: |
+          if [ "$EVENT" != pull_request ]; then echo "test_boxes=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          files="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename')"
+          boxes=false
+          case "$HEAD_REF" in train/*) boxes=true; echo "a merge train: the second-box step runs" ;; esac
+          hits="$(printf '%s\n' "$files" | python3 -c 'import fnmatch, os, sys; pats = os.environ["TEST_BOX_PATHS"].split(); print("\n".join(f for f in sys.stdin.read().split() if any(fnmatch.fnmatch(f, p) for p in pats)))')"
+          [ -z "$hits" ] || { boxes=true; printf '%s\n' "$hits" | sed 's/^/second-box path: /'; }
+          echo "test_boxes=$boxes" >> "$GITHUB_OUTPUT"
 
   rehearse:
     needs: changes
@@ -132,6 +157,7 @@ jobs:
         env:
           TB_REHEARSE_VARIANT: ${{ matrix.variant }}
           TB_REHEARSE_HOST_CACHE: ${{ github.workspace }}/trialbox/.cache/rehearsal-host
+          TB_REHEARSE_TEST_BOXES: ${{ needs.changes.outputs.test_boxes == 'true' && '1' || '0' }}
         run: TB_REHEARSE_DIR="$RUNNER_TEMP/tb/rehearse-box" make rehearse-box
 
       # saved even when a later step of the rehearsal failed: the host image it built is good for the next run

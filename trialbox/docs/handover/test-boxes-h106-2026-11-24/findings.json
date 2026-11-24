@@ -8,7 +8,7 @@
   {
    "id": "H106-01",
    "severity": "High",
-   "claim": "on master the backup, the restore, the restore drill, the logs command, the key tool and the pre-update backup name the ordinary box's volumes and network (trialbox_*, trialbox-net, /var/lib/docker/volumes/trialbox_tb-secrets): on a second box they would read or write the first box's data and keys; the pre-update backup, the launcher's networks, the update's key check and the host check now follow the box's project, and backup, restore, restore-drill, logs and the platform commands are refused on a test box until each is made per box",
+   "claim": "on master the backup, the restore, the restore drill, the logs command, the key tool and the pre-update backup name the ordinary box's volumes and network (trialbox_*, trialbox-net, /var/lib/docker/volumes/trialbox_tb-secrets): on a second box they would read or write the first box's data and keys; the pre-update backup, the launcher's networks, the update's key check and the host check now follow the box's project, and backup, restore, restore-drill, logs and the platform commands are refused on a test box until each is made per box; follow-up card H-117 (backup, restore and logs for a named test box); it does not hold H-106 (the integrator, 7124599679)",
    "lane": "H",
    "basis": "shown",
    "state": "open"

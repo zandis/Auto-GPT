@@ -566,3 +566,54 @@ def test_the_doctor_s_host_profile_needs_no_library_the_host_lacks(monkeypatch: 
     assert [c.name for c in out] == ["host_profile"] and out[0].status == "WARN"
     prod = doctor.host_profile(doctor.DoctorInputs(env={"TB_HOST_PROFILE": "poc"}), [])
     assert prod[-1].status == "FAIL" and "PRODUCTION" in prod[-1].detail
+
+
+WORKFLOW = ROOT.parent / ".github" / "workflows" / "trialbox-rehearse-box.yml"
+#: the integrator's ruling 7124599679: the second-box step runs on trains and on a pull request touching these
+STEP_PATHS = {
+    "trialbox/deploy/docker-compose*.yml",
+    "trialbox/deploy/docker-compose.identity.yml",
+    "trialbox/deploy/install.sh",
+    "trialbox/tools/trialbox/update.py",
+    "trialbox/tools/trialbox/doctor.py",
+    ".github/workflows/trialbox-rehearse-box.yml",
+}
+
+
+def _boxes_step(tmp: Path, files: list[str], *, event: str = "pull_request", head: str = "claude/x") -> str:
+    """The changes job's second-box step, run as the workflow runs it, with a stand-in `gh` for the PR's files."""
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(s for s in wf["jobs"]["changes"]["steps"] if s.get("id") == "boxes")
+    b = tmp / f"bin-{len(list(tmp.iterdir()))}"
+    b.mkdir()
+    (b / "gh").write_text("#!/bin/sh\nprintf '%s\\n' " + " ".join(f"'{f}'" for f in files) + "\n", encoding="utf-8")
+    (b / "gh").chmod(0o755)
+    out = b / "out"
+    env = {**os.environ, **{k: str(v) for k, v in step["env"].items() if not str(v).startswith("${{")},
+           "PATH": f"{b}:{os.environ['PATH']}", "EVENT": event, "PR": "1", "HEAD_REF": head,
+           "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(out)}  # fmt: skip
+    r = subprocess.run(["bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    return out.read_text(encoding="utf-8").strip()
+
+
+def test_the_second_box_step_runs_on_trains_and_its_paths_only_and_is_skipped_elsewhere(tmp_path: Path) -> None:
+    """The integrator's ruling 7124599679: the filter names exactly the ruling's paths; a train and a run by hand run
+    the step; a pull request outside the paths reports it SKIPPED (never PASS), and the verdict stays PASS."""
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(s for s in wf["jobs"]["changes"]["steps"] if s.get("id") == "boxes")
+    assert set(step["env"]["TEST_BOX_PATHS"].split()) == STEP_PATHS
+    assert wf["jobs"]["changes"]["outputs"]["test_boxes"] == "${{ steps.boxes.outputs.test_boxes }}"
+    box = next(s for s in wf["jobs"]["rehearse"]["steps"] if s.get("name", "").startswith("Box rehearsal"))
+    assert box["env"]["TB_REHEARSE_TEST_BOXES"] == "${{ needs.changes.outputs.test_boxes == 'true' && '1' || '0' }}"
+    assert _boxes_step(tmp_path, ["trialbox/deploy/docker-compose.rtx5090.yml", "README.md"]) == "test_boxes=true"
+    for f in sorted(STEP_PATHS):
+        assert _boxes_step(tmp_path, [f.replace("*", ".gb10")]) == "test_boxes=true", f
+    outside = ["trialbox/tools/trialbox/backup.py", "trialbox/deploy/box-install.sh", "trialbox/tools/keys.py"]
+    assert _boxes_step(tmp_path, outside) == "test_boxes=false"
+    assert _boxes_step(tmp_path, outside, head="train/171") == "test_boxes=true"
+    assert _boxes_step(tmp_path, [], event="workflow_dispatch") == "test_boxes=true"
+    sh = (ROOT / "tools" / "rehearse_box" / "rehearse.sh").read_text(encoding="utf-8")
+    assert 'if [ "${TB_REHEARSE_TEST_BOXES:-1}" = 1 ]; then step test-boxes 0 in_box test-boxes' in sh
+    assert 'record test-boxes SKIPPED "not run: no second-box path' in sh
+    assert 'case "$s" in PASS|SKIPPED) ;; *) VERDICT=FAIL ;; esac' in sh

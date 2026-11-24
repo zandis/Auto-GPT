@@ -143,6 +143,10 @@ File: [runbook/28-igx-orin-a6000-without-a-model.md](runbook/28-igx-orin-a6000-w
 
 File: [runbook/29-igx-orin-a6000-real-models.md](runbook/29-igx-orin-a6000-real-models.md). In it: [What we do not know yet](runbook/29-igx-orin-a6000-real-models.md#what-we-do-not-know-yet), [Two limits to know first](runbook/29-igx-orin-a6000-real-models.md#two-limits-to-know-first), [The page](runbook/29-igx-orin-a6000-real-models.md#the-page), [The weights (step 5)](runbook/29-igx-orin-a6000-real-models.md#the-weights-step-5), [Freeing the disk (step 1)](runbook/29-igx-orin-a6000-real-models.md#freeing-the-disk-step-1), [Reading the probe (step 2)](runbook/29-igx-orin-a6000-real-models.md#reading-the-probe-step-2), [The measuring run (steps 6 and 7)](runbook/29-igx-orin-a6000-real-models.md#the-measuring-run-steps-6-and-7), [What this page does not verify](runbook/29-igx-orin-a6000-real-models.md#what-this-page-does-not-verify).
 
+## 30. Several test boxes on one host
+
+File: [runbook/30-several-test-boxes-on-one-host.md](runbook/30-several-test-boxes-on-one-host.md).
+
 <!-- end of the generated index -->
 
 ## Section numbers
@@ -186,3 +190,4 @@ build TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 27 | Installing on a workstation with an RTX PRO 6000-class card | on master | owner (other install form) |
 | 28 | An IGX Orin developer kit with an RTX A6000: the product without a model | on master | owner (other install form) |
 | 29 | An IGX Orin developer kit with an RTX A6000: do the real models run? | on master | owner (other install form) |
+| 30 | Several test boxes on one host | on master | team |
