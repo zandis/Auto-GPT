@@ -72,15 +72,8 @@ jobs:
       # D-126: tools/pglocal.py starts a throwaway cluster from the server binaries (installed here only if missing)
       - name: PostgreSQL server binaries
         run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
-      # ENG-002 (D-560): the public-data site reads the MedTxt corpus (public, CC BY 4.0), which git does not carry
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        if: matrix.run == 'public-e2e'
-        with:
-          path: trialbox/.cache/medtxt
-          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
-      - name: The public corpus (MedTxt), fetched once
-        if: matrix.run == 'public-e2e'
-        run: make public-data
+      # ENG-002 (D-560): the public-data site reads the 100 case reports and 50 radiology reports of JMED-LLM's two
+      # CC BY 4.0 datasets, committed under eval/medtxt/jmed-llm (pinned by SHA-256): nothing is fetched
       - name: public_e2e (stub model, the public-data site)
         if: matrix.run == 'public-e2e'
         run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.public_e2e --dir "$RUNNER_TEMP/public" --lang en
@@ -299,14 +292,7 @@ jobs:
           npm ci --prefix "$RUNNER_TEMP/node-tools" --no-fund --no-audit
           (cd "$RUNNER_TEMP/node-tools" && npx playwright install --with-deps chromium)
           echo "NODE_PATH=$RUNNER_TEMP/node-tools/node_modules" >> "$GITHUB_ENV"
-      # D-639: the browser walk below reads the MedTxt corpus (public, CC BY 4.0), which git does not carry; the same
-      # cache as the public-e2e run. Fetched before the images and the stack: a fetch that fails stops the job early
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: trialbox/.cache/medtxt
-          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
-      - name: The public corpus (MedTxt), fetched once
-        run: make public-data
+      # D-639: the browser walk below reads the same committed JMED-LLM datasets as public-e2e (eval/medtxt/jmed-llm)
       - name: Images (as `make images`)
         run: make images
       - name: The compose test stack (stub model)
