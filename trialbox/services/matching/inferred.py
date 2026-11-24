@@ -117,6 +117,8 @@ _NEGATED = (
     r"\bnon(?!-?(?:hodgkin|small|st\b|st-|q\b|q-|alcoholic|insulin|ischem|invasive|obstructive|specific|steroidal|"
     r"valvular))|"
     r"\(\s*[-−ー―‐–—]+\s*\)|\s[-−ー―‐–—]+(?=\s*(?:$|[.,;:)]))|"
+    # a field coded absent: "Hypertension: N", "HTN - N", "DM: nil", "HCV = 0" (#639 7119659794)
+    r"[:=\-–]\s*(?:n|nil|neg|0(?![\d.,]))(?![a-z0-9])|"
     r"なし|無し|なく|ない|無い|なかっ|ません|否|陰性|阴性|ず|認めな|認められな|未|沒有|没有|没|無|无|不是|非(?!ホジキン|小細胞|結核|典型|常)"
 )
 _OTHER_PERSON = (

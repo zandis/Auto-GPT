@@ -1350,6 +1350,23 @@ ROUND5_FORMS: list[tuple[str, str, str]] = [
     ("Known hypertension", "? hypertension", ""),
     ("高血圧症の既往", "高血圧症？", ""),
     (DM_ZH, "糖尿病?", ""),
+    # the OCR deeper pass (#639 7119659794), with variants: a "non-" form, another person by abbreviation, a field
+    # coded absent, a question mark before or after
+    (DM_EN, "Non-diabetic", ""),
+    ("Known hypertension", "Non-hypertensive", ""),
+    ("Pregnancy", "Non-pregnant", ""),
+    ("Current smoker", "Non-smoker", ""),
+    ("Current smoker", "Nonsmoker", ""),
+    (DM_EN, "FHx: diabetes", ""),
+    (DM_EN, "FH diabetes", ""),
+    ("Known hypertension", "Hypertension: N", ""),
+    ("Known hypertension", "HTN: N", ""),
+    ("Known hypertension", "Hypertension - N", ""),
+    (DM_EN, "DM: nil", ""),
+    (R5_HCV, "HCV = 0", ""),
+    (DM_EN, "?Diabetes", ""),
+    (DM_EN, "Diabetes (?)", ""),
+    (DM_EN, "DM (?)", ""),
 ]
 #: stated quotes the widened families must not catch: a prefix "non-" that names the condition, a past procedure
 ROUND5_CONTROLS: list[tuple[str, str]] = [
@@ -1362,6 +1379,10 @@ ROUND5_CONTROLS: list[tuple[str, str]] = [
     ("Known metastatic disease", "Metastatic disease to the liver."),  # the OCR forms' controls
     ("Known hypertension", "Hypertension on amlodipine."),
     ("Known hypertension", "HTN, but no diabetes."),  # a contrast between two clauses still splits
+    ("Known hypertension", "Hypertension: Y"),  # the deeper pass's controls: a field coded present, a number
+    ("Current smoker", "Current smoker, 20 pack-years."),
+    ("Pregnancy", "Pregnant, 12 weeks."),
+    (R5_HIV, "HIV-1 infection, viral load 0 copies/mL."),
 ]
 #: the re-review's probe of round 4, as posted on #1334 (7115258420): its 96 forms (expected review) and 6 controls
 #: (expected to exclude), verbatim. 27 of the 96 excluded on round 4's guard.
