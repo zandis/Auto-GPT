@@ -1295,7 +1295,6 @@ class Compiler:
                 library_resource("TB_Common", "1.0.0", art.cql["TB_Common"], art.elm.get("TB_Common")),
                 library_resource(art.library, art.library_version, art.cql[art.library], art.elm[art.library]),
             ]
-            clock.mark()
             try:
                 self.d.fhir.load(libs, valuesets.values())
                 clock.lap("compiler.fhir_load")
