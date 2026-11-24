@@ -27,6 +27,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# H-132 (LR-2): on a host where a box is installed (the update path's record) every action of this script would act on
+# that box's compose project (reset: down -v, its volumes). Refused before anything is made, run or removed
+if [ -e deploy/updates/installed.json ]; then
+  printf 'poc: this host has an installed box (deploy/updates/installed.json): "deploy/poc.sh %s" would act on' \
+    "${1:-up}" >&2
+  printf ' its compose project and data. Nothing was done; the box is run by its own commands (RUNBOOK §5).\n' >&2
+  exit 1
+fi
 export TB_HOST_OBJECTS_DIR="${TB_HOST_OBJECTS_DIR:-$ROOT/deploy/.objects}"; mkdir -p "$TB_HOST_OBJECTS_DIR"  # test-stack object store (D-121)
 MODE="${TB_LLM_MODE:-stub}"
 ACTION="${1:-up}"

@@ -203,7 +203,7 @@ def kill_case(
     base: Path, work: Path, url: str, pub: Path, priv: Path, step: str, seq: int
 ) -> list[tuple[str, bool, str]]:
     from tools import update_status as us
-    from tools.trialbox.update import STEPS, InProcessBox, UpdateFailed, Updater
+    from tools.trialbox.update import AFTER_CHECK, STEPS, InProcessBox, UpdateFailed, Updater
 
     updates = base / "updates"
     bid = f"2026.11-kill-{STEPS.index(step)}"
@@ -242,6 +242,14 @@ def kill_case(
     box2 = InProcessBox(work, url, base / "backups")
     box2._open_stores()  # the box starts: every store opens and runs its own migrations
     after = (box2.state(), (work / "RELEASE").read_text(encoding="utf-8"), _tables(url), box2.schema_version())
+    if step in AFTER_CHECK:  # H-132 (LR-10, ruling 7136669077 item 2): the checked release was in service: finished
+        # forward, never rolled back over what it wrote
+        out.append((f"kill -9 at '{step}': rollback <bundle> finishes the checked release, the marker is gone, the "
+                    "box starts",
+                    recovered and us.marker(updates) is None and after[1] != before[1] and after[2] != before[2]
+                    and not (updates / bid / "rollback").exists() and not plaintext_dumps([updates, work], t0),
+                    "; ".join(lines[-3:])[:300]))  # fmt: skip
+        return out
     out.append((f"kill -9 at '{step}': rollback <bundle> puts the box back, the marker is gone, the box starts",
                 recovered and us.marker(updates) is None and after == before
                 and not (updates / bid / "rollback").exists() and not plaintext_dumps([updates, work], t0),

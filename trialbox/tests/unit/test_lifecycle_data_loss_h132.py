@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from tests.unit import test_restore_from_the_host_h100 as h100
+from tests.unit import test_update_safety as us_t
 from tools.trialbox import backup as bk
 from tools.trialbox.update import UpdateFailed
 
@@ -332,3 +333,179 @@ def test_lr16_the_runbook_names_how_a_restic_backup_is_opened() -> None:
                  "docs/runbook/22-disaster-recovery-with-measured-rpo-and-rto.md"):  # fmt: skip
         text = (root / page).read_text(encoding="utf-8")
         assert "--restic-from-box" in text and "--restic-share" in text, page
+
+
+# ----------------------------------------------------------------------------------------------------------- LR-10
+# Matrix: "update, after the check | N | KILL".
+@pytest.mark.parametrize("step", ["refdata", "finish"])
+def test_lr10_a_kill_after_the_check_is_finished_forward_never_rolled_back(tmp_path: Path, step: str) -> None:
+    """After the check the new release is in service and writes rows; a kill in "refdata" or "finish" is finished
+    by ``rollback <bundle>`` forward: no rollback (the pre-update dump never goes over the live databases), the
+    release recorded, the marker gone, audited ``update.applied`` with ``recovered``."""
+    from tools import update_status as us
+    from tools.trialbox import update as up
+
+    updates = tmp_path / "updates"
+    us.write_atomic(updates / us.INSTALLED, {"format": us.INSTALLED_FORMAT, "release_seq": 1, "bundle_id": "B0",
+                                             "state": {}})  # fmt: skip
+
+    class Killed(BaseException):
+        pass
+
+    def kill(at: str) -> None:
+        if at == step:
+            raise Killed
+
+    plan = us_t._plan(tmp_path)
+    with pytest.raises(Killed):
+        up.Updater(us_t.Recorder(), updates, say=lambda _m: None, on_step=kill).run(plan)
+    assert (us.marker(updates) or {}).get("step") == step
+    box = us_t.Recorder()
+    got = up.Updater(box, updates, say=lambda _m: None).recover("B1")
+    assert got["ok"] and "rollback" not in box.calls, box.calls
+    assert us.marker(updates) is None and not (updates / "B1" / "rollback").exists()
+    assert us.installed(updates)["release_seq"] == 2 and us.installed(updates)["bundle_id"] == "B1"
+    ((event, detail),) = box.audits
+    assert event == "update.applied" and detail["recovered"] is True
+
+
+def _killed_after_the_check(tmp_path: Path, step: str) -> Path:
+    from tools import update_status as us
+    from tools.trialbox import update as up
+
+    updates = tmp_path / "updates"
+    us.write_atomic(updates / us.INSTALLED, {"format": us.INSTALLED_FORMAT, "release_seq": 1, "bundle_id": "B0",
+                                             "state": {}})  # fmt: skip
+
+    class Killed(BaseException):
+        pass
+
+    def kill(at: str) -> None:
+        if at == step:
+            raise Killed
+
+    with pytest.raises(Killed):
+        up.Updater(us_t.Recorder(), updates, say=lambda _m: None, on_step=kill).run(us_t._plan(tmp_path))
+    return updates
+
+
+@pytest.mark.parametrize("step", ["refdata", "finish"])
+def test_lr10_finishing_forward_twice_ends_the_same(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str) -> None:
+    """Ruling (a): every step of finishing forward may run again. A kill inside the first finish (after its health
+    check and audit, before the clean-up) and a second ``rollback <bundle>`` end as one finish did: the release
+    recorded once, the marker gone, never a rollback."""
+    from tools import update_status as us
+    from tools.trialbox import update as up
+
+    updates = _killed_after_the_check(tmp_path, step)
+    recorded = (updates / us.INSTALLED).read_text(encoding="utf-8")
+
+    class Killed(BaseException):
+        pass
+
+    real = up.Updater._done
+
+    def killed(self: Any, *a: Any) -> None:
+        raise Killed
+
+    monkeypatch.setattr(up.Updater, "_done", killed)
+    first = us_t.Recorder()
+    with pytest.raises(Killed):
+        up.Updater(first, updates, say=lambda _m: None).recover("B1")
+    monkeypatch.setattr(up.Updater, "_done", real)
+    second = us_t.Recorder()
+    assert up.Updater(second, updates, say=lambda _m: None).recover("B1")["finished_forward"]
+    assert first.calls == second.calls == ["check"]  # the health check each time, never a rollback
+    assert (updates / us.INSTALLED).read_text(encoding="utf-8") == recorded
+    assert us.marker(updates) is None and not (updates / "B1" / "rollback").exists()
+
+
+def test_lr10_finishing_forward_counts_every_service_and_a_shortfall_stops_in_a_named_state(tmp_path: Path) -> None:
+    """Ruling (b), (c): the full health check after finishing forward, N of M; a shortfall (or a check that fails)
+    rolls nothing back: the marker stays in ``finish forward failed``, audited, with the command that tries again;
+    that command then finishes it."""
+    from tools import update_status as us
+    from tools.trialbox import update as up
+
+    updates = _killed_after_the_check(tmp_path, "refdata")
+
+    class Short(us_t.Recorder):
+        missing: tuple[str, ...] = ("console",)
+
+        def health(self) -> tuple[list[str], list[str]]:
+            return ["db", "orchestrator"], list(self.missing)
+
+    box = Short()
+    with pytest.raises(up.UpdateFailed) as err:
+        up.Updater(box, updates, say=lambda _m: None).recover("B1")
+    msg = str(err.value)
+    assert "console" in msg and "2 of 3" in msg and "nothing was rolled back" in msg
+    assert "tools/apply_update.sh rollback B1" in msg and "rollback" not in box.calls
+    assert (us.marker(updates) or {}).get("step") == up.FORWARD_FAILED
+    assert us.installed(updates)["bundle_id"] == "B1"  # the checked release stays recorded
+    ((event, detail),) = box.audits
+    assert event == "update.finish_failed" and detail["next"] == "tools/apply_update.sh rollback B1"
+    healthy = Short()
+    healthy.missing = ()
+    got = up.Updater(healthy, updates, say=lambda _m: None).recover("B1")
+    assert got["finished_forward"] and got["health"] == "2 of 2" and us.marker(updates) is None
+
+
+def test_lr10_a_failed_check_while_finishing_forward_rolls_nothing_back(tmp_path: Path) -> None:
+    from tools import update_status as us
+    from tools.trialbox import update as up
+
+    updates = _killed_after_the_check(tmp_path, "finish")
+    box = us_t.Recorder(fail="check")
+    with pytest.raises(up.UpdateFailed, match="nothing was rolled back"):
+        up.Updater(box, updates, say=lambda _m: None).recover("B1")
+    assert "rollback" not in box.calls and (us.marker(updates) or {}).get("step") == up.FORWARD_FAILED
+
+
+def test_lr10_a_kill_before_the_check_keeps_the_full_rollback(tmp_path: Path) -> None:
+    from tools.trialbox import update as up
+
+    updates = _killed_after_the_check(tmp_path, "rulesets")
+    box = us_t.Recorder()
+    got = up.Updater(box, updates, say=lambda _m: None).recover("B1")
+    assert got["ok"] and "rollback" in box.calls and "finished_forward" not in got
+
+
+def test_lr10_the_compose_box_counts_every_service_it_defines() -> None:
+    from tools.trialbox import update as up
+
+    answers = {"config": "db\nconsole\nmigrate-once\norchestrator\n",
+               "ps": "db running healthy 0\nconsole running starting 0\nmigrate-once exited  0\n"}  # fmt: skip
+    box = up.ComposeBox(Path("/nonexistent/deploy"), lambda argv, **kw: answers["config" if "config" in argv else "ps"])
+    assert box.health() == (["db", "migrate-once"], ["console", "orchestrator"])
+
+
+# ------------------------------------------------------------------------------------------------------------ LR-2
+# Matrix: "poc.sh up / reset / down | installed site box | none".
+@pytest.mark.parametrize("action", ["reset", "down", "up", "status", "report", "logs"])
+def test_lr2_poc_sh_does_nothing_on_an_installed_box(tmp_path: Path, action: str) -> None:
+    """``deploy/poc.sh`` is in every box's host tree. On a host that records an install, every action is refused
+    before anything runs: no engine command (``reset`` ran ``compose down -v`` on the site's project), no folder."""
+    import os
+    import shutil
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[2]
+    root = tmp_path / "root"
+    (root / "deploy" / "updates").mkdir(parents=True)
+    shutil.copy2(repo / "deploy/poc.sh", root / "deploy/poc.sh")
+    shutil.copy2(repo / ".env.example", root / ".env.example")
+    (root / "deploy/updates/installed.json").write_text('{"bundle_id": "synthetic"}', encoding="utf-8")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    log = tmp_path / "docker.log"
+    (bindir / "docker").write_text(f'#!/bin/sh\necho "$*" >> {log}\nexit 0\n', encoding="utf-8")
+    (bindir / "docker").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "COMPOSE_"))}
+    env["PATH"] = f"{bindir}:/usr/bin:/bin"
+    before = sorted(p.relative_to(root) for p in root.rglob("*"))
+    res = subprocess.run(["bash", str(root / "deploy/poc.sh"), action], capture_output=True, text=True, env=env,
+                         timeout=60, check=False)  # fmt: skip
+    assert res.returncode == 1 and "installed box" in res.stderr and "Nothing was done" in res.stderr, res.stderr
+    assert not log.exists()  # no engine command at all
+    assert sorted(p.relative_to(root) for p in root.rglob("*")) == before

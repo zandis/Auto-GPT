@@ -50,6 +50,24 @@
    "place": "tools/trialbox/restic_repo.py, tools/trialbox/launch.py, docs/runbook/05, docs/runbook/22"
   },
   {
+   "id": "H132-07",
+   "severity": "High",
+   "claim": "LR-2: deploy/poc.sh, in every box's host tree, ran compose down -v on the installed site's project at reset (and acted on it at every other action); fixed: every action is refused before anything runs when deploy/updates/installed.json exists",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/poc.sh"
+  },
+  {
+   "id": "H132-08",
+   "severity": "High",
+   "claim": "LR-10: rollback after a kill in refdata or finish restored the pre-update databases over a checked release in service, losing every row written since; fixed: those two steps are finished forward with the full health check, and a failure stops in a named state without a rollback",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/update.py (Updater._finish_forward, Updater.run), tools/update_drill.py (kill_case)"
+  },
+  {
    "id": "H132-06",
    "severity": "Low",
    "claim": "LR-16 (c): the restore with --no-lock against a real restic binary on a read-only bind is not run here (no restic in this container); shown only against a stand-in that models the lock rule",

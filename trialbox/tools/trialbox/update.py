@@ -233,6 +233,10 @@ class Stops:
 
 # The steps, in order, as the marker (deploy/updates/IN_PROGRESS.json) names them (D-210).
 STEPS = ("backup", "rollback point", "apply", "migrate and restart", "rulesets", "check", "refdata", "finish")
+#: H-132 (LR-10): the steps after the check, when the new release is in service: an interrupted one is finished forward
+AFTER_CHECK = ("refdata", "finish")
+#: H-132 (LR-10): the marker's step when finishing forward did not end: the next ``rollback <bundle>`` tries it again
+FORWARD_FAILED = "finish forward failed"
 SPACE_MARGIN = 1.10
 #: H-95: the model pack the box holds (verify_update.py --model-pack-record reads it)
 MODEL_PACK = "model-pack.json"
@@ -1442,6 +1446,10 @@ class Updater:
                 + ("rolled back" if rolled else "ROLLBACK FAILED (the marker stays: tools/apply_update.sh status)")
                 + f"; {state}"
             )
+        # H-132 (LR-10): the checked release is in service from here on: recorded before the reference data, so a
+        # kill or a power cut in "refdata" or "finish" is finished forward by recover(), never rolled back over the
+        # rows the box has written since the restart
+        self._record(plan)
         enter("refdata")
         refdata_note = ""
         refdata = getattr(self.box, "refdata", None)
@@ -1468,7 +1476,6 @@ class Updater:
                 step("code systems", False, f"{type(exc).__name__}; the release stays; the previous tables are in "
                                             f"deploy/terminology/previous/{plan.bundle_id}")  # fmt: skip
         enter("finish")
-        self._record(plan)
         self.box.audit(
             "update.applied",
             plan,
@@ -1627,10 +1634,53 @@ class Updater:
             shutil.rmtree(old, ignore_errors=True)
 
     # -------------------------------------------------------------------------------------------- recovery
+    def _finish_forward(self, plan: Plan, rb: Path, m: dict[str, Any], step: str) -> dict[str, Any]:
+        """H-132 (LR-10, the integrator's ruling 7136669077 item 2): an update interrupted after its check (``refdata``,
+        ``finish``) is finished forward. Its release was recorded before ``refdata`` and has served since; nothing
+        is rolled back over the rows written since. Every step here may run any number of times: the full health
+        check (``check``, then ``health``: every service the box defines, ``N of M``), one audit, the clean-up. A
+        shortfall or any failure stops in the named state ``finish forward failed`` (the marker stays, audited
+        ``update.finish_failed``) with the command that tries again; still nothing is rolled back."""
+        from tools import update_status as us
+
+        bid = plan.bundle_id
+        again = f"tools/apply_update.sh rollback {bid}"
+        try:
+            self.box.check(plan)
+            health = getattr(self.box, "health", None)
+            ok, short = health() if health is not None else ([], [])
+            if short:
+                raise UpdateFailed(f"not running or not healthy: {', '.join(short)} ({len(ok)} of "
+                                   f"{len(ok) + len(short)})")  # fmt: skip
+        except (Exception, KeyboardInterrupt) as exc:
+            why = f"{type(exc).__name__}: {exc}"[:500]
+            us.set_step(self.dir, us.marker(self.dir) or m, FORWARD_FAILED)
+            self.box.audit("update.finish_failed", plan, {
+                "bundle_id": bid, "recovered": True, "error": why, "interrupted_at": step,
+                "state": "new release in service, not finished; nothing rolled back", "next": again})  # fmt: skip
+            self._history(plan, FORWARD_FAILED, False, f"{why}; nothing rolled back; then: {again}")
+            raise UpdateFailed(
+                f"update {bid} was interrupted after its check ({step!r}) and could not be finished: {why}. The "
+                f"checked release stays and nothing was rolled back over the rows written since; the marker stays "
+                f"(step {FORWARD_FAILED!r}). Make the services named healthy, then run: {again}"
+            ) from exc
+        counted = f"{len(ok)} of {len(ok)}" if ok else "every service healthy"
+        self.box.audit("update.applied", plan, {
+            "bundle_id": bid, "recovered": True, "error": f"interrupted at step {step!r}", "health": counted,
+            "refdata_failed": "interrupted: load the pack again (python -m tb_common.refdata load)"
+            if "refdata" in (step, *(m.get("steps_done") or [])) and step != "finish" else None,
+            **self.stops.note()})  # fmt: skip
+        self._history(plan, "finished forward", True, f"interrupted at {step!r}, after the check: the checked "
+                      f"release stays, {counted}; nothing rolled back")  # fmt: skip
+        self._done(plan, rb)
+        return {"ok": True, "bundle_id": bid, "from_step": step, "finished_forward": True, "health": counted}
+
     def recover(self, bundle_id: str) -> dict[str, Any]:
         """``tools/apply_update.sh rollback <bundle>``: an update interrupted (power cut, ``kill -9``) at any step is
         rolled back from its marker and ``point.json``; before the rollback point existed only the services are
-        started again. Audited ``update.rolled_back``; the marker is removed only when the rollback completed."""
+        started again. Audited ``update.rolled_back``; the marker is removed only when the rollback completed.
+        H-132 (LR-10): after the check (``AFTER_CHECK``) the new release was in service and recorded: it is finished
+        forward (audited ``update.applied`` with ``recovered``), never rolled back over what the box wrote since."""
         from tools import update_status as us
 
         self.stops = Stops(held=True)  # H-114: a recovery is a rollback from its start: no signal stops it
@@ -1657,6 +1707,8 @@ class Updater:
                     self._done(plan, rb)
                     self._history(plan, "clean-up finished", True, "the update had completed; nothing rolled back")
                     return {"ok": True, "bundle_id": bundle_id, "from_step": step}
+                if step in (*AFTER_CHECK, FORWARD_FAILED):  # H-132 (LR-10): the checked release is in service
+                    return self._finish_forward(plan, rb, m, step)
                 if step in ("None", "backup", "rollback point") or not (rb / "point.json").is_file():
                     resume = getattr(self.box, "resume", None)
                     if resume is not None:
@@ -1925,6 +1977,22 @@ class ComposeBox(_DockerImages):
             return False
         env = _env_file(self.deploy / ".env")
         return env.get("TB_REHEARSAL", "").strip() == "1" or not env.get("TB_ENV")
+
+    def health(self) -> tuple[list[str], list[str]]:
+        """H-132 (LR-10): of every service the box's compose defines (``config --services``), those that run and are
+        healthy (or have no health check), or ran to the end with exit 0 (a one-shot service); and the rest."""
+        want = self.run(self._c("config", "--services")).split()
+        fmt = "{{.Service}} {{.State}} {{.Health}} {{.ExitCode}}"
+        good: set[str] = set()
+        for line in self.run(self._c("ps", "-a", "--format", fmt)).splitlines():
+            f = line.split()
+            if len(f) < 2:
+                continue
+            health = f[2] if len(f) > 3 else ""
+            code = f[-1] if len(f) > 2 else ""
+            if (f[1] == "running" and health in ("", "healthy")) or (f[1] == "exited" and code == "0"):
+                good.add(f[0])
+        return sorted(s for s in want if s in good), sorted(s for s in want if s not in good)
 
     def running_services(self) -> list[str] | None:
         """D-724: the compose services that run now; None when compose cannot answer."""
