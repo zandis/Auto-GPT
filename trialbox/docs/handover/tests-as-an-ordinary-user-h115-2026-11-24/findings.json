@@ -40,9 +40,73 @@
   {
    "id": "H115-05",
    "severity": "Low",
-   "claim": "tools/engine_probe.py writes --out with the caller's umask; the runbook's step runs it under sudo (umask at least 022), but a run without sudo under umask 002 gives a file the rehearsal install refuses ('chmod go-w'), with the fix named in the refusal",
+   "claim": "tools/engine_probe.py writes --out with the caller's umask; the runbook's step runs it under sudo (umask at least 022), but a run without sudo under umask 002 gives a file the rehearsal install refuses ('chmod go-w'), with the fix named in the refusal; the review's 1462-7 says the same",
    "lane": "H",
    "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H115-06",
+   "severity": "High",
+   "claim": "the review's 1462-1: tools.full_set (rc1 line 1) put the test root under --out, which with the clone above it carries the runner's umask, so the walk's run would refuse the ceremony and passphrase trees again; the test root now lies under the per-user scratch root, one per --out",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d73f6008cb09c4ca9096c743ba6e6d979d14745f"
+  },
+  {
+   "id": "H115-07",
+   "severity": "Medium",
+   "claim": "the review's 1462-2: mark_test_root checked exists() then mkdir(), so two runs starting at once on a fresh host stopped with FileExistsError; a folder another run made a moment ago is now no error",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d73f6008cb09c4ca9096c743ba6e6d979d14745f"
+  },
+  {
+   "id": "H115-08",
+   "severity": "Medium",
+   "claim": "the review's 1462-3: a scratch root another account made first was used silently, and its owner could swap the test root; a folder in the chain that another account owns (not root, not sticky) is now refused",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d73f6008cb09c4ca9096c743ba6e6d979d14745f"
+  },
+  {
+   "id": "H115-09",
+   "severity": "Low",
+   "claim": "the review's 1462-4: a group's setgid folder lost group write, and TB_SCRATCH=/ closed every folder up to /; setgid now counts as shared and nothing is climbed for / or a top-level scratch root",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d73f6008cb09c4ca9096c743ba6e6d979d14745f"
+  },
+  {
+   "id": "H115-10",
+   "severity": "Low",
+   "claim": "the review's 1462-5: a scratch root named through a link was never closed; it is now compared as a real path",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d73f6008cb09c4ca9096c743ba6e6d979d14745f"
+  },
+  {
+   "id": "H115-11",
+   "severity": "Low",
+   "claim": "the review's 1462-6: _close_to_others looked with lstat and changed with a chmod that follows links; it now opens the folder once without following a link and uses fstat and fchmod",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d73f6008cb09c4ca9096c743ba6e6d979d14745f"
+  },
+  {
+   "id": "H115-12",
+   "severity": "Low",
+   "claim": "the review's 1462-8: two more doctor checks in test_ops_runner_on asked the machine's own systemd; the file's _check now gives every check a host of its own",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d73f6008cb09c4ca9096c743ba6e6d979d14745f"
+  },
+  {
+   "id": "H115-13",
+   "severity": "Low",
+   "claim": "the review's 1462-9: test-pure and ci still make the test root with a plain mkdir -p, 0775 and unmarked under umask 002; nothing fails from it (ci runs make test next, test-pure's tests use pytest's own base folder)",
+   "lane": "H",
+   "basis": "shown",
    "state": "open"
   }
  ]
