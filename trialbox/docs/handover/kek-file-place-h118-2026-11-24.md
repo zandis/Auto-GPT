@@ -26,6 +26,23 @@ the services' user.
 Out of this card (ruling 7125341668): `tools.keys` keeps its explicit `--out`. Its fallback to the environment in
 `runtime_kek_path` (unseal, escrow unseal, rotate-kek's runtime update) is card H-119.
 
+## The plain KEK's own folder (#1457's last review, 1457-9)
+
+`seal_keys.sh` made the plain KEK (`kek.new`, the copy that exists only while a TPM seal runs) in `/run/trialbox`.
+D-887's hand-over gives that folder to the services' user, so a host process of that user could put a link at the
+name. #1457 removed any name there under the host lock and stopped shredding through a link; what remained was a race
+between that check and the write. `kek.new` is now made in `/run/trialbox-seal`, which the run makes under the host
+lock with mode 0700 and never hands over. If the name is a link, another user's folder, or a folder open to others, the
+run is refused and nothing changes. The owner is compared with the shell's own (`/proc/$$`), not `id`.
+
+Tests (each fails on master's script, eeb1e4f):
+- `test_the_plain_kek_is_made_in_a_folder_of_its_own_never_handed_over`: the sealing stand-in records the folder of
+  the KEK it seals: `/run/trialbox-seal`, this user's, 0700; nothing is left there; the hand-over never names it.
+- `test_a_seal_folder_that_is_not_this_runs_own_is_refused_and_nothing_changes[a link|open to others]`.
+
+Mutants, each caught: `kek.new` back in `/run/trialbox`; the folder check removed; its link test removed; its mode
+test removed; the caller's `TB_KEK_FILE` put back.
+
 ## Who reads TB_KEK_FILE
 
 | Where | What it is | Changed |
