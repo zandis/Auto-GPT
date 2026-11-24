@@ -124,7 +124,32 @@ not be updated in place (the walk, 7135110331).
   not unsealed), then updated to N with `--kek-passphrase-file`, and again with `--kek-passphrase-stdin`. Until
   H-124 is in the installed release, N-1's own `apply_update.sh` has neither option.
 
-## 6. The four recurring finding types
+## 6. The lifecycle review's Highs (lane LR, the integrator's 7136231344 item 3)
+
+Each is reproduced at master by a test in `tests/unit/test_lifecycle_lr_h124.py` and fills its cell of the review's
+matrix (`docs/reviews/lifecycle-deep-review-2026-11-24.md`).
+
+- **LR-9, no boot guard** (cell: update, any step, N, power cut then boot). The boot unit's start guard,
+  `deploy/settings_guard.sh` (its ExecStartPre), refuses while `deploy/updates/IN_PROGRESS.json` stands. It names
+  `tools/apply_update.sh status` and `rollback <bundle>` on every box: a box between two releases is not shown whole
+  (H-94 depends (1), as `apply_update.sh` refuses an update over it). At master the guard exited 0. The box
+  rehearsal's doctor phase plants a marker on its installed box and runs the guard as the unit does: the real path.
+- **LR-12, a failed rollback has no way out** (cell: update, prior failed rollback then restore). The new command is
+  `tools/apply_update.sh close <bundle> --restored REASON`.
+  - It is taken only for a marker whose last step is the rollback, so an update cut short elsewhere is never hidden.
+  - It removes the marker, audits `update.closed_after_restore` with the reason, and writes the history.
+  - `status` names it, and so does the runbook's update section.
+  - At master no such command existed.
+  - Not done here: the restore naming the marker. `tools/trialbox/box_restore.py` is #1470's (H-126) in those lines.
+- **LR-17, a loaded, never-started install refuses a corrected release** (cell: install.sh re-run, newer bundle,
+  loaded and never started).
+  - A first load marks its record (`installed.json`: `loaded_only`).
+  - install.sh's load takes the next release on a box with that mark, no update history and no data volumes.
+  - A box that has run, a plain update, and a record without the mark (every box installed before H-124) keep the
+    refusal word for word.
+  - At master it was refused: "installed ... but not running; start it".
+
+## 7. The four recurring finding types
 
 - **Ctrl-C or SIGTERM:** tested above. Bash runs the trap that removes the stage only after the foreground update
   exits.

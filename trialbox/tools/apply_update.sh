@@ -216,10 +216,12 @@ kp_remove_file() {  # unlinked, never written through its name (a link is taken 
 # ---- end of KEK-INPUT functions
 kp_refuse_env  # H-96: before anything is read or made
 PP_FILE=""; PP_STDIN=0; PP_KEEP=0
-USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--kek-passphrase-file FILE [--keep-kek-passphrase-file] | --kek-passphrase-stdin] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
+USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--kek-passphrase-file FILE [--keep-kek-passphrase-file] | --kek-passphrase-stdin] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | close BUNDLE_ID --restored REASON | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
   status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
   rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
+  # H-124 (LR-12): an update whose rollback failed, closed once the box is restored from its backup (audited)
+  close) cd "$ROOT"; shift; exec python3 -m tools.update_status --deploy "$ROOT/deploy" close "$@" ;;
   ospatch-check) cd "$ROOT"; shift; exec python3 "$ROOT/deploy/hardening/ospatch.py" check --deploy "$ROOT/deploy" "$@" ;;
   ""|-h|--help) echo "$USAGE" >&2; exit 2 ;;  # H-94 not a stop: the usage, asked for or with nothing to do
 esac

@@ -7,6 +7,10 @@
   release ("installed ... but not running"). A first load now marks its record (``loaded_only``), and install.sh's
   load takes the next release on a box that has that mark, no update history and no data volumes. A box that has run
   keeps its refusal word for word.
+* LR-12: a failed rollback had no way out: the marker stays, every later update is refused, and the only command
+  that removes it runs the failing rollback again (over a box restored from its backup since). ``tools/apply_update.sh
+  close <bundle> --restored REASON`` closes such an update once the box was restored: only a marker whose rollback did
+  not finish, the reason audited (``update.closed_after_restore``) and written in the history.
 """
 
 from __future__ import annotations
@@ -151,3 +155,61 @@ def test_lr17_a_record_without_the_first_load_s_mark_keeps_its_refusal(first_loa
     us.write_atomic(first_load / "updates" / us.INSTALLED, rec)
     stage, summary = _stage(tmp_path, "B2", 2, "corrected")
     assert up.main_apply(stage, summary, "compose", first_load) == 1
+
+
+# ------------------------------------------------------------------------------------------------ LR-12
+def _failed_rollback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str = "rollback") -> Path:
+    """An update of R2 whose rollback failed (its marker at step "rollback"), then the box restored from its backup
+    (RUNBOOK §5): the marker still stands."""
+    deploy = tmp_path / "deploy"
+    updates = deploy / "updates"
+    rb = updates / "R2" / "rollback"
+    rb.mkdir(parents=True)
+    us.write_atomic(updates / us.INSTALLED, {"format": us.INSTALLED_FORMAT, "release_seq": 1, "bundle_id": "R1",
+                                             "state": {}})  # fmt: skip
+    us.create_marker(updates, {"bundle_id": "R2", "manifest_sha256": "f" * 64, "release_seq": 2, "target": "compose",
+                               "rollback_dir": str(rb), "stage": str(tmp_path / "stage"), "step": step})  # fmt: skip
+    monkeypatch.setenv("TB_COMPOSE", "false")  # the orchestrator cannot take the audit event: it waits on the host
+    return deploy
+
+
+def test_lr12_a_restored_box_closes_the_update_whose_rollback_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reproduced at master: no such command (argparse refuses `close`), so the marker stood for ever."""
+    deploy = _failed_rollback(tmp_path, monkeypatch)
+    assert us.main(["--deploy", str(deploy), "close", "R2", "--restored", "restored from the 03:00 backup"]) == 0
+    updates = deploy / "updates"
+    assert us.marker(updates) is None
+    event = json.loads((updates / "pending_audit" / "R2.update.closed_after_restore.json").read_text())
+    assert event["event"] == "update.closed_after_restore"
+    assert event["detail"]["reason"] == "restored from the 03:00 backup" and event["detail"]["step"] == "rollback"
+    hist = (updates / "history.jsonl").read_text()
+    assert "closed after a restore" in hist and "restored from the 03:00 backup" in hist
+    assert us.installed(updates)["bundle_id"] == "R1"  # the record the restore put back is left as it is
+
+
+@pytest.mark.parametrize("step", ["migrate and restart", "check", "apply"])
+def test_lr12_a_live_update_is_never_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str) -> None:
+    """Only a rollback that did not finish: an update cut short elsewhere is rolled back (or finished), never hidden."""
+    deploy = _failed_rollback(tmp_path, monkeypatch, step)
+    assert us.main(["--deploy", str(deploy), "close", "R2", "--restored", "restored"]) == 1
+    assert us.marker(deploy / "updates") is not None
+
+
+def test_lr12_close_needs_the_bundle_and_a_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    deploy = _failed_rollback(tmp_path, monkeypatch)
+    assert us.main(["--deploy", str(deploy), "close", "R3", "--restored", "restored"]) == 1
+    with pytest.raises(SystemExit):
+        us.main(["--deploy", str(deploy), "close", "R2"])
+    assert us.main(["--deploy", str(deploy), "close", "R2", "--restored", "  "]) == 1
+    assert us.marker(deploy / "updates") is not None
+
+
+def test_lr12_status_and_the_shell_entry_name_the_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                         capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
+    deploy = _failed_rollback(tmp_path, monkeypatch)
+    us.main(["--deploy", str(deploy), "status"])
+    assert "tools/apply_update.sh close R2 --restored" in capsys.readouterr().out
+    script = (ROOT / "tools" / "apply_update.sh").read_text(encoding="utf-8")
+    assert 'close) cd "$ROOT"; shift; exec python3 -m tools.update_status --deploy "$ROOT/deploy" close "$@"' in script

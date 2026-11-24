@@ -67,6 +67,33 @@
    "basis": "shown",
    "state": "open",
    "fix": "H-124 (ruled 7135119782): --kek-passphrase-file / --kek-passphrase-stdin with the installers' KEK-INPUT functions, the KEK unsealed by a pipe before the key check; a box on an older release still needs the bootstrap once (H124-02)"
+  },
+  {
+   "id": "H124-08",
+   "severity": "High",
+   "claim": "LR-9: after a power cut inside an update the boot unit started the stack on a box between two releases: nothing at boot read the update's marker",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "H-124: deploy/settings_guard.sh (the unit's ExecStartPre) refuses while the marker stands; a test at master and the box rehearsal's doctor phase on its real box"
+  },
+  {
+   "id": "H124-09",
+   "severity": "High",
+   "claim": "LR-12: a failed rollback had no way out: the marker stayed, every later update was refused, and the only command that removed it ran the failing rollback again over a restored box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "H-124: tools/apply_update.sh close <bundle> --restored REASON, for a marker whose rollback did not finish only, audited update.closed_after_restore; the restore naming the marker is left to #1470 (H-126)"
+  },
+  {
+   "id": "H124-10",
+   "severity": "High",
+   "claim": "LR-17: a first install that loaded its bundle and stopped before the stack ran refused the corrected release (installed ... but not running)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "H-124: a first load marks installed.json (loaded_only); install.sh's load takes the next release on a box with the mark, no history and no data volumes; a box installed before H-124 keeps the refusal (the bootstrap reinstall)"
   }
  ]
 }

@@ -1520,6 +1520,42 @@ class Updater:
             shutil.rmtree(old, ignore_errors=True)
 
     # -------------------------------------------------------------------------------------------- recovery
+    def close_after_restore(self, bundle_id: str, reason: str) -> dict[str, Any]:
+        """H-124 (lane LR's LR-12): ``tools/apply_update.sh close <bundle> --restored REASON``. An update whose
+        rollback failed keeps its marker (RUNBOOK §5: restore the box from its backup), and every later update is
+        refused while it stands; ``rollback`` would run the failing rollback again, over the restored box. Once the box
+        is restored, this closes it: only a marker whose last step is the rollback, never an update cut short
+        elsewhere (that one is rolled back or finished). The marker goes; the reason is audited
+        (``update.closed_after_restore``) and written in the history; the rollback point stays for ``clean``."""
+        from tools import update_status as us
+
+        why = " ".join(reason.split())[:500]
+        if not why:
+            raise UpdateRefused("--restored needs the reason (which restore, when): it is audited; nothing was changed")
+        try:
+            with us.locked(self.dir), _recording(self.dir):
+                m = us.marker(self.dir)
+                if m is None:
+                    raise UpdateRefused("no update is in progress (no deploy/updates/IN_PROGRESS.json)")
+                if m.get("bundle_id") != bundle_id:
+                    raise UpdateRefused(f"the unfinished update is {m.get('bundle_id')}, not {bundle_id}")
+                step = str(m.get("step"))
+                if step != "rollback":
+                    raise UpdateRefused(
+                        f"the update {bundle_id} stopped at step {step!r}, not in a rollback that failed: "
+                        f"tools/apply_update.sh rollback {bundle_id} puts the box back; nothing was changed"
+                    )
+                plan = Plan(bundle_id, str(m.get("manifest_sha256") or ""), "", [],
+                            Path(str(m.get("stage") or m.get("rollback_dir") or self.dir)))  # fmt: skip
+                self.box.audit("update.closed_after_restore", plan,
+                               {"bundle_id": bundle_id, "step": step, "reason": why,
+                                "rollback_dir": str(m.get("rollback_dir") or "")})  # fmt: skip
+                self._history(plan, "closed after a restore", True, why)
+                us.remove_marker(self.dir)
+                return {"ok": True, "bundle_id": bundle_id, "from_step": step}
+        except us.Busy as exc:
+            raise UpdateFailed(str(exc)) from exc
+
     def recover(self, bundle_id: str) -> dict[str, Any]:
         """``tools/apply_update.sh rollback <bundle>``: an update interrupted (power cut, ``kill -9``) at any step is
         rolled back from its marker and ``point.json``; before the rollback point existed only the services are

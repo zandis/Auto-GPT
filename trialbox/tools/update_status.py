@@ -387,6 +387,9 @@ def _print_status(s: Mapping[str, Any]) -> None:
               f"{', the host rebooted since' if u['rebooted_since'] else ''})")  # fmt: skip
         print(f"  steps done: {', '.join(u['steps_done'] or []) or '(none)'}")
         print(f"  next: {s['next']}")
+        if u["step"] == "rollback":  # H-124 (LR-12): a rollback that did not finish
+            print(f"  if its rollback fails again: restore the box from its backup (RUNBOOK §5), then "
+                  f"tools/apply_update.sh close {u['bundle_id']} --restored REASON (audited)")  # fmt: skip
     else:
         print("no update in progress")
     print(f"trusted vendor keys: {', '.join(s['trusted_keys']) or '(trust.json not written yet: deploy/keys)'}")
@@ -407,6 +410,9 @@ def main(argv: list[str] | None = None) -> int:
     rb.add_argument("bundle")
     rb.add_argument("--target", choices=("compose", "demo"), help="default: the one the marker records")
     sub.add_parser("clean", help="remove left-over rollback points of finished updates")
+    cl = sub.add_parser("close", help="H-124 (LR-12): close an update whose rollback failed, once the box is restored")
+    cl.add_argument("bundle")
+    cl.add_argument("--restored", required=True, metavar="REASON", help="which restore, when (audited)")
     a = ap.parse_args(argv)
     updates = a.deploy / "updates"
     cmd = a.cmd or "status"
@@ -436,6 +442,16 @@ def main(argv: list[str] | None = None) -> int:
     from tools.trialbox import update as up
 
     m = marker(updates)
+    if cmd == "close":
+        target = (m or {}).get("target") or "compose"
+        box_c: up.ComposeBox | up.DemoBox = up.DemoBox(a.deploy) if target == "demo" else up.ComposeBox(a.deploy)
+        try:
+            up.Updater(box_c, updates).close_after_restore(a.bundle, a.restored)
+        except up.UpdateFailed as exc:
+            print(f"close REFUSED: {exc}", file=sys.stderr)
+            return 1
+        print(f"update {a.bundle} closed after the restore (audited update.closed_after_restore); the marker is removed")
+        return 0
     target = a.target or (m or {}).get("target") or "compose"
     box: up.ComposeBox | up.DemoBox = up.DemoBox(a.deploy) if target == "demo" else up.ComposeBox(a.deploy)
     try:

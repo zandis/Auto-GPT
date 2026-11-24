@@ -69,7 +69,8 @@ by a trusted key, applied like any update and accepted once; a retired key is ne
 Every step is in `deploy/updates/history.jsonl`; `deploy/updates/installed.json` records what is installed.
 `--no-backup` is for a test box only and is audited; a PRODUCTION box refuses it without `--no-backup-reason REASON`
 (D-1321). If the rollback itself fails, the marker stays: restore from the
-backup. Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
+backup, then close it: `tools/apply_update.sh close <bundle> --restored REASON` (audited, H-124). While a marker
+stands the box does not start, at boot either (`deploy/settings_guard.sh`, H-124). Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
 `tests/unit/test_update_safety.py` and `tools/update_drill.py`.
 
 **Backup** (D-126, D-187, D-188). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
