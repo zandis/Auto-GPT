@@ -431,3 +431,305 @@ def test_a_rotation_to_the_passphrase_the_box_is_sealed_under_is_refused(tmp_pat
     assert keys.main(["rotate-kek", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
                       "--passphrase-file", str(old_f), "--new-passphrase-file", str(new_f)], env=env) == 0  # fmt: skip
     assert PHRASE not in capsys.readouterr().out
+
+
+# ================================================================================ the sweep's items (7120987904)
+# ------------------------------------------------------------------------------------------------ M-IB-2
+def test_the_box_settings_are_replaced_whole_never_rewritten_in_place(tmp_path: Path,
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """``merge_env`` wrote ``deploy/.env`` in place: a cut write left it empty or short (every password gone), and a
+    new file was 0644 until the chmod. Now a new file beside it, 0600 from its first byte, renamed over it."""
+    from tools.box import __main__ as boxmain
+
+    env = tmp_path / ".env"
+    env.write_text("POSTGRES_PASSWORD=synthetic-old\nTB_TZ=UTC\n", encoding="utf-8")
+    env.chmod(0o600)
+    before = env.stat().st_ino
+    modes: list[int] = []
+    real_replace = os.replace
+
+    def replace(src: str | Path, dst: str | Path) -> None:
+        modes.append(os.stat(src).st_mode & 0o777)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace)
+    boxmain.merge_env(env, {"TB_TZ": "Asia/Tokyo"})
+    assert env.stat().st_ino != before and modes == [0o600] and env.stat().st_mode & 0o777 == 0o600
+    assert env.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=synthetic-old\nTB_TZ=Asia/Tokyo\n"
+
+    def cut(fd: int) -> None:
+        raise OSError("synthetic: the power went")
+
+    monkeypatch.setattr(os, "fsync", cut)
+    with pytest.raises(OSError, match="the power went"):
+        boxmain.merge_env(env, {"TB_TZ": "Europe/Paris"})
+    assert env.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=synthetic-old\nTB_TZ=Asia/Tokyo\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]  # no temp file left
+
+
+# ------------------------------------------------------------------------------------------------ M-LH-1
+@pytest.mark.parametrize("case", ["another user's", "a link", "two names"])
+def test_a_box_file_not_roots_alone_fails_the_host_check_whatever_its_mode(tmp_path: Path, case: str) -> None:
+    args, env = hb._box(tmp_path)
+    envf = Path(args[args.index("--env") + 1])
+    if case == "another user's" and os.geteuid() == 0:  # as root: the file given to another uid
+        os.chown(envf, 4242, 4242)
+    elif case == "another user's":  # as a user (CI): the check runs as uid 4242 (a stand-in id), the file is ours
+        hb._stubs(tmp_path, {"id": 'case "$1" in -u) echo 4242 ;; *) /usr/bin/id "$@" ;; esac\n'})
+    elif case == "a link":
+        real = tmp_path / "real.env"
+        envf.rename(real)
+        envf.symlink_to(real)
+    else:
+        os.link(envf, tmp_path / "second-name")
+    r = hb._sh(args, env)
+    kept = _kept(r.stdout).strip().splitlines()
+    want = {"another user's": ".env is owned by uid ", "a link": ".env is a link", "two names": ".env has 2 names"}
+    assert r.returncode == 1 and [k for k in kept if k.startswith(f"FAIL  {want[case]}")], r.stdout
+    assert all(k.endswith("[H-94 (5)]") for k in kept)
+
+
+def test_the_install_makes_the_box_file_roots() -> None:
+    i = INSTALL.index("\nchmod 600 deploy/.env\n")
+    assert INSTALL[i : i + 120].splitlines()[2].startswith('[ "$(id -u)" != 0 ] || chown 0:0 deploy/.env')
+
+
+# ------------------------------------------------------------------------------------------------ M-LH-2
+def _override_part(tmp: Path, ovr: Path) -> subprocess.CompletedProcess[str]:
+    """install.sh's own override lines, run on a box folder of the test's own."""
+    a = INSTALL.index('NO_OVR="the compose override (not used)"')
+    b = INSTALL.index('COMPOSE+=(--profile "$MODE")', a)
+    root = tmp / "box"
+    (root / "deploy" / "site").mkdir(parents=True, exist_ok=True)
+    script = ("set -euo pipefail\nstop_or_warn() { echo \"STOP $*\"; exit 1; }\nis_standins() { return 1; }\n"
+              f"ROOT={root}\nCOMPOSE=(docker compose); FILES=base.yml; MODE=stub\nTB_COMPOSE_OVERRIDE={ovr}\n"
+              + INSTALL[a:b] + 'echo "FILES=$FILES"\n')  # fmt: skip
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=60)
+
+
+def test_the_override_root_reads_later_is_a_copy_in_deploy_site(tmp_path: Path) -> None:
+    """The override was used where the caller kept it: a user who can write a folder above it could replace it before
+    any later root start. Root's compose commands now read a copy in deploy/site, 0644."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    ovr = shared / "override.yml"
+    ovr.write_text("services: {}\n", encoding="utf-8")
+    ovr.chmod(0o644)
+    r = _override_part(tmp_path, ovr)
+    copy = tmp_path / "box" / "deploy" / "site" / "compose-override.yml"
+    assert r.returncode == 0 and f"FILES=base.yml:{copy}" in r.stdout, (r.stdout, r.stderr)
+    assert copy.read_text(encoding="utf-8") == "services: {}\n" and copy.stat().st_mode & 0o777 == 0o644
+    ovr.write_text("services: {evil: {image: x}}\n", encoding="utf-8")  # a later change to the caller's file
+    assert copy.read_text(encoding="utf-8") == "services: {}\n"
+
+
+def _guard(tmp: Path, env_name: str, compose: Path) -> subprocess.CompletedProcess[str]:
+    deploy = tmp / "deploy"
+    deploy.mkdir(exist_ok=True)
+    (deploy / ".env").write_text(f"TB_ENV={env_name}\nCOMPOSE_FILE={compose}\n", encoding="utf-8")
+    (deploy / ".env").chmod(0o600)
+    return subprocess.run(["sh", str(ROOT / "deploy" / "settings_guard.sh"), str(deploy)], capture_output=True,
+                          text=True, check=False, timeout=60, env={"PATH": "/usr/bin:/bin"})  # fmt: skip
+
+
+@pytest.mark.parametrize("env_name", ["PRODUCTION", "TEST"])
+def test_every_start_refuses_a_compose_file_in_a_folder_others_can_write(tmp_path: Path, env_name: str) -> None:
+    """settings_guard.sh (the unit's ExecStartPre) checked the compose files only for the rehearsal mark: a file in a
+    folder others can write was read by root's start as it was. On PRODUCTION the start is refused; a PoC box warns."""
+    open_dir = tmp_path / "open"
+    open_dir.mkdir()
+    f = open_dir / "extra.yml"
+    f.write_text("services: {}\n", encoding="utf-8")
+    open_dir.chmod(0o777)
+    r = _guard(tmp_path, env_name, f)
+    why = f"the compose file {f}: {open_dir} can be written by group or others (mode 777)"
+    if env_name == "PRODUCTION":
+        assert r.returncode == 1 and f"TrialBox REFUSED to start: {why}" in r.stderr, r.stderr
+    else:
+        assert r.returncode == 0 and "warning (PoC box, H-94): " in r.stderr and why in r.stderr, r.stderr
+    open_dir.chmod(0o755)
+    r = _guard(tmp_path, env_name, f)
+    assert r.returncode == 0 and "compose file" not in r.stderr, r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ M-BK-1, L-BK-1
+def _opens(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, int]]:
+    seen: list[tuple[str, int, int]] = []
+    real = os.open
+
+    def spy(path: str | Path, flags: int, mode: int = 0o777, **kw: object) -> int:
+        seen.append((str(path), flags, mode))
+        return real(path, flags, mode, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "open", spy)
+    return seen
+
+
+def test_a_vendor_key_is_never_replaced_and_is_private_from_its_first_byte(tmp_path: Path,
+                                                                           monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    seen = _opens(monkeypatch)
+    priv, pub = sign_bundle.keygen(tmp_path / "keys")
+    made = [(p, fl, m) for p, fl, m in seen if Path(p).name.startswith(".vendor_ed25519.key.")]
+    assert made and all(fl & os.O_EXCL and m == 0o600 for _, fl, m in made)
+    assert priv.stat().st_mode & 0o777 == 0o600
+    before = (priv.read_bytes(), pub.read_bytes())
+    for _ in range(2):  # the command a person re-runs: refused, nothing written
+        assert sign_bundle.main(["keygen", "--out", str(tmp_path / "keys")]) == 1
+    assert (priv.read_bytes(), pub.read_bytes()) == before
+    assert sign_bundle.main(["keygen", "--out", str(tmp_path / "keys"), "--force"]) == 0
+    assert priv.read_bytes() != before[0] and priv.stat().st_mode & 0o777 == 0o600
+
+
+def test_the_backup_private_key_is_made_0600_and_only_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.trialbox import backup as bk
+
+    seen = _opens(monkeypatch)
+    bk.keygen(tmp_path / "it.key", tmp_path / "box.pub")
+    mine = [(fl, m) for p, fl, m in seen if p == str(tmp_path / "it.key")]
+    assert mine and all(fl & os.O_EXCL and m == 0o600 for fl, m in mine), seen
+    assert (tmp_path / "it.key").stat().st_mode & 0o777 == 0o600
+
+
+# ------------------------------------------------------------------------------------------------ M-SC-1
+def _egress() -> object:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("tb_egress_h110", ROOT / "deploy" / "egress.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod  # its dataclasses look the module up by name
+    spec.loader.exec_module(mod)
+    return mod
+
+
+SAVER = """
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("e", sys.argv[1]); e = importlib.util.module_from_spec(spec)
+sys.modules["e"] = e; spec.loader.exec_module(e)
+from pathlib import Path
+bad = 0
+for i in range(300):
+    try:
+        e.save_state(Path(sys.argv[2]), e.Box(subnets={"172.30.%d.0/24" % (i % 200)}), "# synthetic\\n" * 50)
+    except OSError:
+        bad += 1
+print(bad)
+"""
+
+
+def test_two_applies_at_once_never_break_the_state_file(tmp_path: Path) -> None:
+    """Two runs (the 2-minute timer, the watch on a container start) shared one temp file: renames failed, and a
+    reader (the boot's restore) could find no usable state. Each run's temp file is its own and on disk first."""
+    state = tmp_path / "egress-state.json"
+    eg = _egress()
+    eg.save_state(state, eg.Box(subnets={"172.30.0.0/24"}), "# synthetic\n")  # type: ignore[attr-defined]
+    procs = [subprocess.Popen([sys.executable, "-c", SAVER, str(ROOT / "deploy" / "egress.py"), str(state)],
+                              stdout=subprocess.PIPE, text=True) for _ in range(2)]  # fmt: skip
+    unreadable = 0
+    while any(p.poll() is None for p in procs):
+        try:
+            eg.load_state(state)  # type: ignore[attr-defined]
+        except (OSError, ValueError):
+            unreadable += 1
+    errors = [int((p.communicate()[0] or "0").strip()) for p in procs]
+    assert errors == [0, 0] and unreadable == 0
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_apply_and_save_take_the_one_lock_before_anything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    eg = _egress()
+
+    class Taken(Exception):
+        pass
+
+    def lock(state: Path) -> int:
+        raise Taken(str(state))
+
+    monkeypatch.setattr(eg, "state_lock", lock)
+    monkeypatch.setattr(eg, "allowlist", lambda *a, **k: pytest.fail("read before the lock"))
+    for action in ("apply", "save"):
+        with pytest.raises(Taken):
+            eg.main([action, "--state", str(tmp_path / "s.json"), "--env", str(tmp_path / ".env")])  # type: ignore[attr-defined]
+
+
+def test_a_second_apply_waits_for_the_first(tmp_path: Path) -> None:
+    eg = _egress()
+    state = tmp_path / "egress-state.json"
+    code = (f"import importlib.util; s = importlib.util.spec_from_file_location('e', {str(ROOT / 'deploy' / 'egress.py')!r}); "
+            f"e = importlib.util.module_from_spec(s); import sys; sys.modules['e'] = e; s.loader.exec_module(e); "
+        f"from pathlib import Path; "
+            f"e.state_lock(Path({str(state)!r})); print('got it')")  # fmt: skip
+    fd = eg.state_lock(state)  # type: ignore[attr-defined]
+    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    with pytest.raises(subprocess.TimeoutExpired):
+        p.wait(timeout=1.5)
+    os.close(fd)
+    assert p.communicate(timeout=30)[0].strip() == "got it"
+
+
+# ------------------------------------------------------------------------------------------------ M-SC-2, M-SC-3
+def _units_part(tmp: Path, *, egress_ok: bool) -> subprocess.CompletedProcess[str]:
+    a = INSTALL.index('SYSTEMD_DIR="${TB_SYSTEMD_DIR:-/etc/systemd/system}"')
+    b = INSTALL.index("# H-92 (D-1090): a systemd host", a)
+    script = (f"ROOT=/opt/trialbox\nEGRESS_OK={int(egress_ok)}\nsay() {{ :; }}\nstop_or_warn() {{ echo \"STOP $*\"; exit 1; }}\n"
+              + INSTALL[a:b])  # fmt: skip
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=60,
+                          env={"PATH": "/usr/bin:/bin", "TB_SYSTEMD": "0"})  # fmt: skip
+
+
+def test_a_host_without_systemd_is_told_nothing_restores_egress_at_boot(tmp_path: Path) -> None:
+    r = _units_part(tmp_path, egress_ok=True)
+    assert r.returncode == 0 and "nothing restores the egress rules after a reboot" in r.stderr, r.stderr
+    assert "deploy/network.sh restore" in r.stderr
+    assert "nothing restores" not in _units_part(tmp_path, egress_ok=False).stderr
+
+
+def test_a_cron_folder_with_no_cron_daemon_is_said(tmp_path: Path) -> None:
+    a = INSTALL.index("# H-92 (D-1090): a systemd host")
+    b = INSTALL.index('if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]', a)
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    for name, body in (("id", "echo 0"), ("python3", "exit 0"), ("pgrep", "exit 1")):
+        (stub / name).write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+        (stub / name).chmod(0o755)
+    (tmp_path / "cron.d").mkdir()
+    script = 'stop_or_warn() { echo "STOP $*"; exit 1; }\nROOT=/opt/trialbox\nANCHOR_UNSAFE=0\n' + INSTALL[a:b]
+    r = subprocess.run(["bash", "-c", script.replace("/run/systemd/system", str(tmp_path / "no-systemd"))],
+                       capture_output=True, text=True, check=False, timeout=60,
+                       env={"PATH": f"{stub}:/usr/bin:/bin", "TB_ENV_SITE": "PRODUCTION",
+                            "TB_CRON_DIR": str(tmp_path / "cron.d")})  # fmt: skip
+    assert r.returncode == 0 and (tmp_path / "cron.d" / "trialbox-retention").is_file(), r.stderr
+    assert "no cron daemon runs on this host: nothing runs" in r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ L-IB-2
+def test_a_callers_vendor_key_never_stands_in_for_the_boxs(tmp_path: Path) -> None:
+    """Before trust.json, TB_VENDOR_PUBKEY (through sudo -E or env_keep) chose the key the bundle was checked with."""
+    root = tmp_path / "box"
+    (root / "tools").mkdir(parents=True)
+    (root / "deploy" / "keys").mkdir(parents=True)
+    shutil.copy(ROOT / "tools" / "apply_update.sh", root / "tools" / "apply_update.sh")
+    _, pinned = sign_bundle.keygen(tmp_path / "vendor")
+    _, other = sign_bundle.keygen(tmp_path / "other")
+    shutil.copy(pinned, root / "deploy" / "keys" / "vendor_ed25519.pub")
+    bundle = tmp_path / "trialbox-1.tar"
+    bundle.write_bytes(b"synthetic")
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "TB_VENDOR_PUBKEY": str(other)}
+    r = subprocess.run(["sh", str(root / "tools" / "apply_update.sh"), str(bundle), "--dry-run"], capture_output=True,
+                       text=True, check=False, timeout=60, env=env)  # fmt: skip
+    assert r.returncode == 1 and f"TB_VENDOR_PUBKEY ({other}) is not the box's vendor key" in r.stderr, r.stderr
+    env["TB_VENDOR_PUBKEY"] = str(pinned)  # the same key: as before (the signature check goes on, here to its refusal)
+    r = subprocess.run(["sh", str(root / "tools" / "apply_update.sh"), str(bundle), "--dry-run"], capture_output=True,
+                       text=True, check=False, timeout=60, env=env)  # fmt: skip
+    assert "is not the box's vendor key" not in r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ L-CI-1
+@pytest.mark.parametrize("path", ["trialbox/libs/tb_llm/prompts/assist_v2.md", "trialbox/models/cards/x.md"])
+def test_a_prompt_or_a_model_card_is_never_a_documents_only_change(path: str) -> None:
+    from tools import ci_docs_only, ci_tier
+
+    only = ci_docs_only.docs_only([path])  # what the `changes` job hands the tier as DOCS_ONLY
+    assert not only
+    _, _, why = ci_tier.decide({"EVENT": "pull_request", "HEAD_REF": "x", "DOCS_ONLY": str(only).lower()}, [path])
+    assert "documents only" not in why

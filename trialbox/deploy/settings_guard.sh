@@ -85,6 +85,35 @@ tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a k
 # H-94: its PoC box is the record (deploy/.env, the mark) alone: it has no command line of its own
 TB_STOP_WHO="TrialBox REFUSED to start"; TB_STOP_FILE=settings_guard.sh; TB_STOP_DEPLOY="$DEPLOY"; TB_STOP_ARG_ENV=""
 TB_STOP_REHEARSAL=0
+# H-110 (M-LH-2): every file COMPOSE_FILE names is read by root's compose at this start: the file and each folder above
+# it owned by root (or the user that runs this) and writable by no one else (a shared folder with the sticky bit above
+# the file's own folder is allowed, as the installer's passphrase file rule allows it). Prints the problem, or nothing
+owned_path() {
+  [ -e "$1" ] || return 0  # a file not there is compose's own error
+  _p="$(readlink -f -- "$1" 2>/dev/null)" || { echo "$1 cannot be resolved"; return 0; }
+  _d="$_p"; _lvl=2
+  while :; do
+    _st="$(stat -c '%u %a' -- "$_d" 2>/dev/null)" || { echo "$_d cannot be read"; return 0; }
+    _u="${_st%% *}"; _m="${_st#* }"
+    case "$_u" in 0|"$(id -u)") ;; *) echo "$_d is owned by uid $_u, not root"; return 0 ;; esac
+    case "${_m#"${_m%??}"}" in
+      [0145][0145]) ;;
+      *) case "$_lvl:${#_m}:$_m" in 0:4:[1357]*) ;; *) echo "$_d can be written by group or others (mode $_m)"; return 0 ;; esac ;;
+    esac
+    [ "$_d" != / ] || return 0
+    _d="$(dirname -- "$_d")"; [ "$_lvl" = 0 ] || _lvl=$((_lvl - 1))
+  done
+}
+cf_all="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}COMPOSE_FILE=//p' "$DEPLOY/.env" 2>/dev/null | tail -1)"
+old_ifs="$IFS"; IFS=:
+for f in $cf_all; do
+  IFS="$old_ifs"
+  case "$f" in /*) ;; *) f="$DEPLOY/$f" ;; esac
+  why="$(owned_path "$f")"
+  [ -z "$why" ] || stop_or_warn compose-file-owner "" "the compose file $f: $why. Another user could change what this start runs as root: make it root's (chown root:root, chmod go-w, its folders too), or run deploy/install.sh again"
+  IFS=:
+done
+IFS="$old_ifs"
 # 10K-4 (D-1390): the audit anchor folder is bind-mounted into the console, and docker resolves its path again at
 # every start: when the box mounts one (deploy/site/compose.anchors.yml), the rule for a folder the console may be
 # given is checked again here (no link in its path, parents only root may write, no system folder; finish-check

@@ -408,6 +408,13 @@ tree_args() {
     TREE_D=(-v "$tree:/current:ro"); TREE_APP=(-v "$tree:/app/current:ro")
   fi
 }
+# H-110 (L-IB-2): a caller's TB_VENDOR_PUBKEY never stands in for the key the box was given out of band (placed by the
+# bootstrap after the fingerprint was confirmed): one that is not the same key is refused
+PINNED_KEY="$ROOT/deploy/keys/vendor_ed25519.pub"
+if [ -n "${TB_VENDOR_PUBKEY:-}" ] && [ -f "$PINNED_KEY" ] && ! cmp -s -- "$TB_VENDOR_PUBKEY" "$PINNED_KEY"; then
+  echo "${TB_STOP_WHO:-install}: TB_VENDOR_PUBKEY ($TB_VENDOR_PUBKEY) is not the box's vendor key $PINNED_KEY: refused, nothing was changed (unset it)" >&2
+  exit 1  # H-94 (1): the signature is checked only with the key the box was given
+fi
 PUBKEY="${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}"
 
 if [ "$CHECK" = 1 ]; then exec sh "$ROOT/deploy/check_host.sh" "$@"; fi
@@ -1080,6 +1087,7 @@ if command -v python3 >/dev/null; then
   python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | indent || stop_or_warn pgsize "PostgreSQL's sizes (the compose defaults)" "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
 fi
 chmod 600 deploy/.env
+[ "$(id -u)" != 0 ] || chown 0:0 deploy/.env  # H-110 (M-LH-1): root's alone, not only its mode
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
 # 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
 [ ! -f deploy/settings.yaml ] || { chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml; }
@@ -1246,6 +1254,22 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
   OVR_OK=1
   [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || { stop_or_warn override-owner "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"; OVR_OK=0; }
   [ "$OVR_OK" = 0 ] || [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || { stop_or_warn override-mode "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"; OVR_OK=0; }
+  # H-110 (M-LH-2): root's later compose commands (the start at boot, update, secrets rotate) read a copy in deploy/site
+  # (root's, 0644), never the caller's file where it lies: a folder above it that another user can write would let that
+  # user replace it between this check and any later start
+  case "$OVR" in
+    "$ROOT"/deploy/site/*) ;;
+    *) if [ "$OVR_OK" = 1 ]; then
+         OVR_COPY="$ROOT/deploy/site/compose-override.yml"
+         if mkdir -p "$ROOT/deploy/site" && cp -- "$OVR" "$OVR_COPY.new" && chmod 0644 "$OVR_COPY.new" \
+             && mv -f -- "$OVR_COPY.new" "$OVR_COPY"; then
+           echo "install: note: the compose override $OVR copied to $OVR_COPY (the copy is the one used)" >&2
+           OVR="$OVR_COPY"
+         else
+           rm -f -- "$OVR_COPY.new"; echo "install: warning: the compose override could not be copied to $OVR_COPY: not used" >&2; OVR_OK=0
+         fi
+       fi ;;
+  esac
   if [ "$OVR_OK" = 1 ]; then
     is_standins "$OVR" && rehearsal_only standins "the model stand-ins ($OVR says x-trialbox-rehearsal-standins)"
     echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
@@ -1476,6 +1500,10 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
   fi
+elif [ "$EGRESS_OK" = 1 ]; then
+  # H-110 (M-SC-2): no systemd here (or TB_SYSTEMD=0): no unit loads the closed egress table at boot, and nftables keeps
+  # no rule across a reboot, while Docker brings every service back: said, every time
+  echo "install: warning: no systemd units here: nothing restores the egress rules after a reboot, and the services start again without them. After every boot run: sudo $ROOT/deploy/network.sh restore && sudo $ROOT/deploy/network.sh apply (the host check FAILs the missing table)" >&2
 fi
 # H-92 (D-1090): a systemd host schedules the backup with timers, so it needs no /etc/cron.d for that
 SYSTEMD_HOST=0; [ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/systemd/system ] \
@@ -1493,6 +1521,10 @@ if [ "$CAN_CRON" = 1 ] && [ "$NO_CRON_DAEMON" = 0 ]; then
   printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1" \
     > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
   echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
+  # H-110 (M-SC-3): a cron folder is not a cron daemon (a systemd host without one gets the timer above)
+  if [ "$SYSTEMD_HOST" != 1 ] && command -v pgrep >/dev/null && ! pgrep -x cron >/dev/null && ! pgrep -x crond >/dev/null; then
+    echo "install: warning: no cron daemon runs on this host: nothing runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) until one does; start the host's cron daemon" >&2
+  fi
 elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "$SYSTEMD_HOST" != 1 ]; then
   stop_or_warn cron-production "" "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 elif [ "$SYSTEMD_HOST" = 1 ]; then

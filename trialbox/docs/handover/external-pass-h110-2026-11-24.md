@@ -134,6 +134,37 @@ The KEK-INPUT block (the same lines in `deploy/install.sh`, `deploy/box-install.
 sends the signal again with its default, so the script ends as before. The traps are reset after the prompt. Every
 caller asks before it sets traps of its own.
 
+## The whole-repo sweep's items (the integrator's routing 7120987904)
+
+Checked on the branch, from master `8ddecb8d`. Every new test is in the same file as the card's tests and fails with
+master's version of its file swapped in.
+
+| Item | Verdict | The fix, and the test |
+| --- | --- | --- |
+| M-IB-1 | fixed in this card | (a) above |
+| M-IB-2 `.env` rewritten in place | fixed in this card | `tools/box/__main__.py` `write_private`: a new file 0600 from its first byte, on disk, renamed over the old one, its owner kept; `test_the_box_settings_are_replaced_whole_never_rewritten_in_place` |
+| M-LH-1 `.env` mode checked, not its owner | fixed in this card | `deploy/check_host.sh`: another user's `.env`, a link or a second hard link FAILs `[H-94 (5)]`; the install `chown`s it to root; `test_a_box_file_not_roots_alone_fails_the_host_check_whatever_its_mode` |
+| M-LH-2 the override's folders | fixed in this card | the install uses a copy in `deploy/site` (0644), never the caller's file; `deploy/settings_guard.sh` checks every `COMPOSE_FILE` file and each folder above it before each start (PRODUCTION refuses, a PoC box warns); `test_the_override_root_reads_later_is_a_copy_in_deploy_site`, `test_every_start_refuses_a_compose_file_in_a_folder_others_can_write` |
+| M-BK-1 `sign_bundle keygen` overwrites | fixed in this card | the command refuses a folder that holds a pair, unless `--force` (the library call stays as the tests use it); the private key `O_EXCL` 0600; `test_a_vendor_key_is_never_replaced_and_is_private_from_its_first_byte` |
+| M-SC-1 egress `apply` races | fixed in this card | `deploy/egress.py`: a temp file of the run's own, on disk before the rename, and one lock around `apply` and `save`; `test_two_applies_at_once_never_break_the_state_file`, `test_apply_and_save_take_the_one_lock_before_anything`, `test_a_second_apply_waits_for_the_first` |
+| M-SC-2 no systemd: nothing restores egress at boot | warned in this card; a stop is a question | a warning every time, naming what to run after each boot; `test_a_host_without_systemd_is_told_nothing_restores_egress_at_boot` |
+| M-SC-3 retention needs a running cron | fixed in this card ((c)); the rest warned | the timer on a systemd host; elsewhere a cron folder with no cron daemon is said; `test_a_cron_folder_with_no_cron_daemon_is_said` |
+| L-IB-1 | fixed in this card | (i) above |
+| L-IB-2 a caller's `TB_VENDOR_PUBKEY` | fixed in this card | `deploy/install.sh` and `tools/apply_update.sh` refuse one that is not the key in deploy/keys (H-94 (1)); `test_a_callers_vendor_key_never_stands_in_for_the_boxs` |
+| L-BK-1 the backup private key made 0644 | fixed in this card | `tools/trialbox/backup.py`: `O_EXCL` 0600; `test_the_backup_private_key_is_made_0600_and_only_once` |
+| L-CI-1 prompts and model cards taken for documents | fixed in this card | `tools/ci_docs_only.py` `CODE_READS`; `test_a_prompt_or_a_model_card_is_never_a_documents_only_change` |
+| L-RR-1 a product name in a shipped script | fixed in this card | `deploy/gcp/setup-gcp.sh` and `docs/VALIDATION.md` name the role, not the product; no test |
+
+**Not done, and why.** Three things are not done here.
+
+* M-SC-2 and M-SC-3 on PRODUCTION. A new stop in `deploy/install.sh` is a new message, and
+  `test_every_converted_message_is_master_s` (in `tests/unit/test_poc_stops_h94.py`) holds every message to master's. They
+  warn on every box. Whether PRODUCTION should stop is the integrator's question.
+* L-IB-2 on a box with no key in deploy/keys. The bootstrap always places that key. A box with none still takes the
+  caller's key, as before: the update tests run so.
+* H-BK-1 is another card's. `deploy/hardening/seal_keys.sh` changed here only in its KEK-INPUT lines, for (i), because
+  a test holds the three copies identical.
+
 ## Tests, mutants and what was not run
 
 Each new test fails with master's version of its file swapped in, and passes now. (b)'s test passes on master. Test

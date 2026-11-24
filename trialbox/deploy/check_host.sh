@@ -338,6 +338,13 @@ else facility strict "no TPM device: the disk unlock and the KEK cannot be bound
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then
   m=$(mode "$ENV_FILE"); [ "$m" = "600" ] || [ "$m" = "400" ] && pass ".env mode $m" || kept 5 ".env mode $m (want 600, root-owned)"
+  # H-110 (M-LH-1): the mode alone is not "root-owned": a .env another user owns (or a link, or a second name of the
+  # file) lets that user read every password and set COMPOSE_FILE for root's next start
+  u="$(stat -c %u "$ENV_FILE" 2>/dev/null)"; h="$(stat -c %h "$ENV_FILE" 2>/dev/null)"
+  if [ -L "$ENV_FILE" ]; then kept 5 ".env is a link (want a file of its own, root-owned, mode 600)"
+  elif [ "$u" != 0 ] && [ "$u" != "$(id -u)" ]; then kept 5 ".env is owned by uid $u (want root-owned, mode 600: chown root:root)"
+  elif [ "$h" != 1 ]; then kept 5 ".env has $h names (hard links; want one, root-owned, mode 600)"
+  fi
 else
   fail ".env not found at $ENV_FILE"
 fi

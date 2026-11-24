@@ -102,9 +102,36 @@ def merge_env(env_file: Path, new: dict[str, str]) -> list[str]:
         else:
             lines.append(line)
             changed.append(k)
-    env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    env_file.chmod(0o600)
+    write_private(env_file, "\n".join(lines) + "\n")
     return changed
+
+
+def write_private(path: Path, text: str) -> None:
+    """H-110 (M-IB-2): ``path`` replaced whole, never rewritten in place: a new file beside it made 0600 from its first
+    byte (``O_EXCL``, a name of its own), flushed to disk, then renamed over it. A cut-off write leaves the old file
+    whole; the services' passwords are never in a file others can read, even for a moment. The old file's owner is
+    kept when this runs as root."""
+    import secrets
+
+    old = os.stat(path) if path.exists() else None
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if old is not None and os.geteuid() == 0:
+            os.chown(tmp, old.st_uid, old.st_gid)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    dfd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
 
 
 def apply(folder: Path, hw: Hardware, deploy: Path) -> list[str]:

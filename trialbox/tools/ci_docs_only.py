@@ -9,9 +9,10 @@ the tests that read those documents run in the `cross-card` job; a merge train (
 everything, so nothing reaches master untested.
 
 A document is a file under ``trialbox/docs/`` or any ``.md`` file, except the documents code reads (``CODE_READS``:
-the licence register, which the licence check reads and the image carries, and the model change protocol, which the
-image carries for ``qualify``). A test reads a document when its text names the document's path below ``trialbox/``,
-its file name, or its folder (``docs/runbook``; not ``docs`` alone, which every document test names). The folder is
+the licence register, which the licence check reads and the image carries; the model change protocol, which the
+image carries for ``qualify``; the prompts of ``libs/tb_llm/prompts/`` and the cards of ``models/``, H-110).
+A test reads a document when its text names the document's path below ``trialbox/``, its file name, or its folder
+(``docs/runbook``; not ``docs`` alone, which every document test names). The folder is
 named by the folder itself (``"docs/runbook"``, ``"docs/runbook/*.md"``, ``f"docs/runbook/{page}"``), not by the path
 of another document in it (H-81): ``docs/reviews/2026-11-12-architecture/decision.md`` in a property test's docstring
 does not make it a test of every page under ``docs/reviews/``, and the `cross-card` job has no fonts or JVM to run it.
@@ -26,7 +27,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 #: documents that code reads (a check, or an image that carries it): their change runs the full tier
-CODE_READS = ("trialbox/docs/licences/", "trialbox/docs/validation/model-change-protocol.md")
+CODE_READS = (
+    "trialbox/docs/licences/",
+    "trialbox/docs/validation/model-change-protocol.md",
+    # H-110 (L-CI-1): the prompts the model is given at run time, and the model cards (models/ is on
+    # the full tier): a change to what the models are told is never a document-only change
+    "trialbox/libs/tb_llm/prompts/",
+    "trialbox/models/",
+)
 
 
 def docs_only(paths: Iterable[str]) -> bool:

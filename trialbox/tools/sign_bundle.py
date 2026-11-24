@@ -29,6 +29,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import tarfile
 from datetime import UTC, datetime, timedelta
@@ -38,18 +39,46 @@ from typing import Any
 KINDS = ("model", "ruleset", "image", "refdata", "other", "host", "terminology")  # V-18 (D-1182)
 
 
+class KeyExists(Exception):
+    """H-110 (M-BK-1): a vendor key is already in the folder: ``keygen`` on the command line never replaces it without
+    ``--force``."""
+
+
+def refuse_existing(out: Path) -> None:
+    there = [n for n in ("vendor_ed25519.key", "vendor_ed25519.pub") if (out / n).exists() or (out / n).is_symlink()]
+    if there:
+        raise KeyExists(
+            f"{out} already holds {', '.join(there)}: a vendor key is never replaced (boxes trust it, and only it can "
+            "sign a rotation away from it). Nothing was written. Give another --out, or --force"
+        )
+
+
 def keygen(out: Path) -> tuple[Path, Path]:
+    """A new vendor key pair in ``out``; the private key is made 0600 from its first byte (``O_EXCL``, a name of its
+    own, then renamed into place). The command line refuses a folder that already holds a pair
+    (:func:`refuse_existing`)."""
+    import secrets
+
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    out.mkdir(parents=True, exist_ok=True)
-    key = Ed25519PrivateKey.generate()
     priv = out / "vendor_ed25519.key"
     pub = out / "vendor_ed25519.pub"
-    priv.write_bytes(
-        key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-    )
-    priv.chmod(0o600)
+    out.mkdir(parents=True, exist_ok=True)
+    key = Ed25519PrivateKey.generate()
+    pem, pkcs8 = serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8
+    body = key.private_bytes(pem, pkcs8, serialization.NoEncryption())
+    tmp = out / f".{priv.name}.{secrets.token_hex(6)}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(body)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, priv)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     pub.write_bytes(
         key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
     )
@@ -252,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     kg = sub.add_parser("keygen")
     kg.add_argument("--out", type=Path, required=True)
+    kg.add_argument("--force", action="store_true", help="replace a key pair already in --out (the old one is lost)")
     sf = sub.add_parser("sign-file", help="<file>.sig: a raw Ed25519 signature openssl checks (D-996)")
     sf.add_argument("--key", type=Path, required=True)
     sf.add_argument("file", type=Path)
@@ -274,6 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("items", nargs="+", help="kind:path[=bundle/path]")
     args = ap.parse_args(argv)
     if args.cmd == "keygen":
+        try:
+            if not args.force:
+                refuse_existing(args.out)
+        except KeyExists as exc:
+            print(f"keygen: {exc}", file=sys.stderr)
+            return 1
         priv, pub = keygen(args.out)
         print(f"wrote {priv} (keep offline) and {pub} (install on boxes as deploy/keys/vendor_ed25519.pub)")
         return 0

@@ -167,6 +167,13 @@ if [ -z "$OSPATCH" ] && [ -n "$NOBACKUP" ] && [ -z "$NOBACKUP_REASON" ]; then
     *) TB_STOP_WHO="update REFUSED"; stop_or_warn --rc 2 no-backup-production "" "--no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); nothing was changed"; TB_STOP_WHO=apply_update ;;
   esac
 fi
+# H-110 (L-IB-2): a caller's TB_VENDOR_PUBKEY never stands in for the key the box was given out of band (placed by the
+# bootstrap after the fingerprint was confirmed): one that is not the same key is refused
+PINNED_KEY="$ROOT/deploy/keys/vendor_ed25519.pub"
+if [ -n "${TB_VENDOR_PUBKEY:-}" ] && [ -f "$PINNED_KEY" ] && ! cmp -s -- "$TB_VENDOR_PUBKEY" "$PINNED_KEY"; then
+  echo "${TB_STOP_WHO:-install}: TB_VENDOR_PUBKEY ($TB_VENDOR_PUBKEY) is not the box's vendor key $PINNED_KEY: refused, nothing was changed (unset it)" >&2
+  exit 1  # H-94 (1): the signature is checked only with the key the box was given
+fi
 PUBKEY=${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}
 NEXTKEY="$ROOT/deploy/keys/vendor_ed25519.next.pub"
 IMAGE=${TB_PY_IMAGE:-trialbox-py:1.0.0}

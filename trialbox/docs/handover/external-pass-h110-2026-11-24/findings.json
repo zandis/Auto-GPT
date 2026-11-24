@@ -157,6 +157,127 @@
    "state": "open",
    "fix": "tools/keys.py new_kek refuses a new passphrase that derives the old KEK under the old kek.json",
    "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
+  },
+  {
+   "id": "H110-15",
+   "severity": "Medium",
+   "claim": "M-IB-2: merge_env rewrote deploy/.env in place: a cut write left it empty, and a new file was 0644 until the chmod",
+   "severity_basis": "every service password in one file",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "write_private: O_EXCL 0600 temp, fsync, rename, owner kept",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-16",
+   "severity": "Medium",
+   "claim": "M-LH-1: the host check took a .env of mode 600 as root's whatever its owner, a link or a second name",
+   "severity_basis": "another user reads every password and sets COMPOSE_FILE",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "FAIL [H-94 (5)] for another owner, a link, a second hard link; the install chowns it to root",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-17",
+   "severity": "Medium",
+   "claim": "M-LH-2: the compose override was checked once, its folders never: a user who could write a folder above it could replace it before root's next start",
+   "severity_basis": "root runs another user's compose file",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the install uses a copy in deploy/site; settings_guard checks every COMPOSE_FILE file and its folders before each start",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-18",
+   "severity": "Medium",
+   "claim": "M-BK-1: sign_bundle keygen replaced an existing vendor key without a word, and wrote it 0644 first",
+   "severity_basis": "the key every box trusts lost",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "refused without --force; O_EXCL 0600",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-19",
+   "severity": "Medium",
+   "claim": "M-SC-1: concurrent egress apply runs shared one temp file and no lock: failed renames, a state file read half-written",
+   "severity_basis": "a boot with no usable state keeps Docker down",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "mkstemp + fsync + one flock around apply and save",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-20",
+   "severity": "Medium",
+   "claim": "M-SC-2: a host without systemd: nothing restores the egress table at boot, and the install said nothing",
+   "severity_basis": "services reach any address after a reboot",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a warning naming what to run after each boot; whether PRODUCTION stops is a question (a new install.sh message)",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-21",
+   "severity": "Medium",
+   "claim": "M-SC-3: the retention job needs a running cron daemon and nothing checked one runs",
+   "severity_basis": "no retention, no signed head",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the timer on a systemd host (H110-03); a cron folder with no daemon is said elsewhere",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-22",
+   "severity": "Low",
+   "claim": "L-IB-2: before trust.json a caller's TB_VENDOR_PUBKEY chose the key the bundle was checked with",
+   "severity_basis": "a bundle checked with another key",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "refused unless it is the key in deploy/keys; a box with no such key still takes it (the update tests run so)",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-23",
+   "severity": "Low",
+   "claim": "L-BK-1: the backup private key was created 0644 and chmodded after; the exists check raced",
+   "severity_basis": "hospital IT's key readable for a moment",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "O_EXCL 0600",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-24",
+   "severity": "Low",
+   "claim": "L-CI-1: a pull request of prompt or model-card .md files took the documents-only fast tier",
+   "severity_basis": "a change to what the models are told ran no eval before review",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "CODE_READS names libs/tb_llm/prompts/ and models/",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
+  },
+  {
+   "id": "H110-25",
+   "severity": "Low",
+   "claim": "L-RR-1: a shipped script and VALIDATION.md named a commercial product",
+   "severity_basis": "the repository's rule",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the role named instead",
+   "from": "the whole-repo sweep (7120475158, 7120476442, 7120476840, 7120477729; routing 7120987904), master 8ddecb8d"
   }
  ]
 }
