@@ -851,3 +851,6 @@ def test_the_gpu_box_fails_on_a_failed_step(tmp_path: Path, kw: dict[str, Any], 
     assert json.loads((out / "report.json").read_text())["steps"][step] == "FAIL"
     if not kw.get("tool_in_file", True):
         assert "no card query tool in the job's card file" in (out / "report.md").read_text()
+    why = {"none": "no readable weights folder", "rw": "mounted writable", "plain": "is not a mount of its own"}
+    if "weights" in kw:
+        assert why[kw["weights"]] in (out / "report.md").read_text()
