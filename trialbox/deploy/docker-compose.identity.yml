@@ -54,7 +54,7 @@ services:
       - ${TB_TLS_KEY_FILE:-/dev/null}:/etc/caddy/certs/site.key:ro
       - caddy-data:/data
       - caddy-config:/config
-    ports: ["${TB_TLS_BIND:-0.0.0.0}:443:443"]
+    ports: ["${TB_TLS_BIND:-0.0.0.0}:${TB_TLS_PORT:-443}:443"]   # H-106: a test box's own port (its offset)
     networks:
       edge-net: {}
       trialbox-net:

@@ -1565,11 +1565,15 @@ class ComposeBox(_DockerImages):
         except (UpdateFailed, OSError):  # no compose here: not running
             return False
 
+    def project(self) -> str:
+        """The compose project: the run's (install.sh exports a test box's record), else deploy/.env's (H-75, H-106)."""
+        return os.environ.get("COMPOSE_PROJECT_NAME") or self.env.get("COMPOSE_PROJECT_NAME") or "trialbox"
+
     def data_volumes(self) -> list[str]:
         """The compose project's volumes, by Docker's own label (no compose file is read): a box that has run has
         them. Fails closed: when Docker cannot answer, the box counts as holding data (refused while stopped),
         unless it has no deploy at all (no ``docker-compose.yml``: nothing was ever installed here)."""
-        project = os.environ.get("COMPOSE_PROJECT_NAME") or self.env.get("COMPOSE_PROJECT_NAME") or "trialbox"
+        project = self.project()
         try:
             return self.run([*self.docker, "volume", "ls", "-q", "--filter",
                              f"label=com.docker.compose.project={project}"]).split()  # fmt: skip
@@ -1702,12 +1706,13 @@ class ComposeBox(_DockerImages):
             else (self.env.get("TB_IMAGE") or "trialbox-py:1.0.0")
         )
         site = f"TB_SITE_ID={self.env.get('TB_SITE_ID', '')}"
-        argv = ["docker", "run", "--rm", "--network", "trialbox-net", "--user", "0", "-e", "TB_DB_URL",
+        project = self.project()  # H-106: this box's own network and volumes, never the ordinary box's
+        argv = ["docker", "run", "--rm", "--network", f"{project}-net", "--user", "0", "-e", "TB_DB_URL",
                 "-e", "TB_HAPI_DB_URL", "-e", "TB_PG_DUMP_DIR=/dumps", "-e", site,
                 "-v", f"{rb}:/dumps:ro", "-v", f"{pub}:/in/backup.pub:ro"]  # fmt: skip
         dirs = []
         for name, vol in from_backup.items():
-            argv += ["-v", f"trialbox_{vol}:/v/{name}:ro"]
+            argv += ["-v", f"{project}_{vol}:/v/{name}:ro"]
             dirs += ["--dir", f"{name}=/v/{name}"]
         tos = []
         for i, t in enumerate(targets):
@@ -1719,7 +1724,7 @@ class ComposeBox(_DockerImages):
 
             kek_dir = self.env.get("TB_KEK_HOST_DIR") or "/run/trialbox"
             own = secrets is None or Path(secrets) == Path(keys_cli.HOST_SECRETS)
-            sec = "trialbox_tb-secrets" if own else str(secrets)
+            sec = f"{project}_tb-secrets" if own else str(secrets)
             argv += ["-v", f"{sec}:/run/secrets/trialbox:ro", "-v", f"{kek_dir}:/run/trialbox:ro"]
         argv += [image, "python", "-m", "tools.trialbox", "backup", *tos, "--public", "/in/backup.pub", *dirs]
         argv += ["--keep", str(keep)] if keep is not None else []  # D-188: the schedule's TB_BACKUP_KEEP

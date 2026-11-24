@@ -1,0 +1,81 @@
+{
+ "card": "H106",
+ "title": "several test boxes on one host",
+ "date": "2026-11-24",
+ "source": "docs/handover/test-boxes-h106-2026-11-24.md",
+ "note": "basis 'shown' means shown by the card's local runs (the real installer on H-94's bench, stand-ins for the container engine and the card); the container rehearsal and the bench host were not run.",
+ "findings": [
+  {
+   "id": "H106-01",
+   "severity": "High",
+   "claim": "on master the backup, the restore, the restore drill, the logs command, the key tool and the pre-update backup name the ordinary box's volumes and network (trialbox_*, trialbox-net, /var/lib/docker/volumes/trialbox_tb-secrets): on a second box they would read or write the first box's data and keys; the pre-update backup, the launcher's networks, the update's key check and the host check now follow the box's project, and backup, restore, restore-drill, logs and the platform commands are refused on a test box until each is made per box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-02",
+   "severity": "Medium",
+   "claim": "the ruling says a PRODUCTION install still refuses a second box word for word as today: on master no step refuses a second ordinary box by name; a second one in another folder is stopped late, after the bundle loads, by the project check (the same project name, containers from another folder) or by the console's port; that is kept word for word, and a PRODUCTION install now also refuses, before anything, a host where a test box runs",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-03",
+   "severity": "Medium",
+   "claim": "the ruling's item 3 puts a separate real-data box on the bench host; this card refuses a test box beside a PRODUCTION box and a PRODUCTION box beside a test box, so the real-data box (if PRODUCTION) and the test boxes cannot share the host: a ruling is wanted",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H106-04",
+   "severity": "Medium",
+   "claim": "the memory cap a card is enforced by the serving engine's utilisation setting only (each server asks for its profile's share of a card of the cap); the container engine has no card memory limit; the scaling is tested with a stand-in for the card's memory figure, the real cap only on the bench host",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H106-05",
+   "severity": "Medium",
+   "claim": "the rehearsal's test-boxes step (a second box by the real installer, the engine inspected, the PRODUCTION refusal, the removal) was not run by the card (no Docker in its container); its added time is not measured",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H106-06",
+   "severity": "Low",
+   "claim": "a test box has no systemd unit, timer or cron file (the host's are the ordinary box's), so it does not come back after a reboot and has no backup; the runbook says how to start it again",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-07",
+   "severity": "Low",
+   "claim": "the runbook's three commands are a section of 16 (box-install rehearsal), not a page of their own: a page needs a section number from the integrator",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H106-08",
+   "severity": "Low",
+   "claim": "the installed trialbox command asks the container engine for the host's boxes on every call; when the engine cannot be asked, a command without --box runs on its own folder as before (it cannot tell whether other boxes exist)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-09",
+   "severity": "Low",
+   "claim": "the ruling names a root-folder variable and the card-list variable; the design rule (no caller's variable decides a guard or where a secret goes) wins: the folder is the installer's own and the cards are an install option, recorded in the box's settings",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  }
+ ]
+}

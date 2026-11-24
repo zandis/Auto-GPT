@@ -32,6 +32,9 @@
 #                   the gateway refuses the call
 #   missing-key     the gateway without the key: the doctor FAILs "refused the key (HTTP 401)", calls are refused
 #   no-registry-pull  the Docker daemon's image events from the clearing of the images to the end: loads, no pull
+#   test-boxes      H-106: a second, TEST box (--test-box, CPU only) beside the first: both healthy; the engine shows no
+#                   shared volume, network, published port or secrets volume; `trialbox` refuses to guess; PRODUCTION
+#                   refuses --test-box and a host where a test box runs; removing it leaves the first whole
 #   swapped-stream  H-95 on this real engine (tools/rehearse_box/h95_probe.py): an image archive swapped on the stick
 #                   after the pin read is refused, and 30 s later no image, no tag, the pinned name unmoved
 #
@@ -384,6 +387,7 @@ step screen-after-restart 0 in_box screen second
 step restic-restore 0 in_box restic-restore
 step wrong-name 0 in_box wrong-name
 step missing-key 0 in_box missing-key
+step test-boxes 0 in_box test-boxes
 step live-restore 0 in_box live-restore
 step no-registry-pull 0 no_registry_pull
 step swapped-stream 0 swapped_stream

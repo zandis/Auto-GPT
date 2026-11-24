@@ -1536,6 +1536,37 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
     )
 
 
+def check_test_box(inp: DoctorInputs) -> Check:
+    """TEST BOX (H-106): one of several test boxes on a host says so, on every run, as a standing WARN no setting
+    turns off. Its record (``deploy/site/test-box.env``, written by ``deploy/install.sh --test-box``) and deploy/.env
+    must agree on its project, and the box must be TEST or DEV: anything else FAILs (a record copied between folders,
+    edited by hand, or a test box turned into another kind)."""
+    from tools.trialbox import testbox
+
+    deploy = _site_dir(inp).parent
+    try:
+        box = testbox.load(deploy)
+    except testbox.Refused as exc:
+        return Check("test_box", "FAIL", str(exc))
+    named = (inp.env.get("TB_TEST_BOX") or "").strip()
+    if box is None:
+        if named:
+            return Check("test_box", "FAIL", f"TB_TEST_BOX={named} in deploy/.env with no record (deploy/"
+                                             f"{testbox.RECORD}): a test box is made by deploy/install.sh "
+                                             "--test-box only")  # fmt: skip
+        return Check("test_box", "PASS", "not a test box")
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    project = (inp.env.get("COMPOSE_PROJECT_NAME") or "").strip()
+    if named != box.name or project != box.project:
+        return Check("test_box", "FAIL", f"deploy/.env (TB_TEST_BOX={named or '-'}, COMPOSE_PROJECT_NAME="
+                                         f"{project or '-'}) is not test box {box.name}'s record (project "
+                                         f"{box.project}): its commands would reach another box; run its "
+                                         "install again")  # fmt: skip
+    if env not in ("DEV", "TEST"):
+        return Check("test_box", "FAIL", f"test box {box.name} says TB_ENV={env}: a test box is TEST or DEV only")
+    return Check("test_box", "WARN", box.words())
+
+
 def check_postgres_memory(inp: DoctorInputs) -> Check:
     """T-703 (D-751, scale review F-19): PostgreSQL's buffers against the host (``tools.trialbox.pgsize``)."""
     from tools.trialbox import pgsize
@@ -2172,6 +2203,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_audit_heads,
     check_anchor_mount,
     check_rehearsal,
+    check_test_box,
     check_memory_caps,
     check_postgres_memory,
     check_db_passwords,

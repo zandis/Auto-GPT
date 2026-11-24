@@ -89,7 +89,7 @@ File: [runbook/15-operations-screens.md](runbook/15-operations-screens.md). In i
 
 ## 16. Box-install rehearsal: the gate before a site's IQ
 
-File: [runbook/16-box-install-rehearsal.md](runbook/16-box-install-rehearsal.md). In it: [A rehearsal with the real model servers (H-89, D-1087)](runbook/16-box-install-rehearsal.md#a-rehearsal-with-the-real-model-servers-h-89-d-1087).
+File: [runbook/16-box-install-rehearsal.md](runbook/16-box-install-rehearsal.md). In it: [A rehearsal with the real model servers (H-89, D-1087)](runbook/16-box-install-rehearsal.md#a-rehearsal-with-the-real-model-servers-h-89-d-1087), [Several test boxes on one host (H-106)](runbook/16-box-install-rehearsal.md#several-test-boxes-on-one-host-h-106).
 
 ## 17. On a hospital platform
 

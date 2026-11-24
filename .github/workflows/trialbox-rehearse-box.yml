@@ -51,6 +51,7 @@ jobs:
             trialbox/tools/supply_chain/**
             trialbox/tools/trialbox/**
             trialbox/tools/rehearse_box/**
+            trialbox/tools/testboxes.sh
             trialbox/tools/qualify.py
             trialbox/tools/pin_model.py
             trialbox/tools/fetch_jvm_deps.sh

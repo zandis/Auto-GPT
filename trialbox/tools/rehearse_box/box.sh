@@ -3,7 +3,7 @@
 # rehearse.sh starts, one phase per call, and exits non-zero when the phase's assertion fails. Every TrialBox file it
 # uses comes from the offline media in $TB_RH_MEDIA (the release tree, the signed bundle, the vendor key).
 #
-#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key|live-restore
+#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key|test-boxes|live-restore
 #
 # Environment (set by rehearse.sh): TB_RH_DIR (work dir, the same path on the Docker host), TB_RH_MEDIA (the media
 # folder), TB_RH_BUNDLE (the bundle file name), TB_RH_BOX (where the box is installed: the site's /opt/trialbox).
@@ -869,6 +869,95 @@ missing-key)
   doctor --serving >/dev/null || fail "the box did not recover with the key back"
   gateway_probe ok || fail "the gateway does not answer with the key back"
   ok "key restored: doctor --serving passes, both builds answer through the gateway"
+  ;;
+
+# ------------------------------------------------------------------------------------------------ test boxes
+test-boxes)
+  # H-106 (the owner's ruling 7117794599): a second box, a TEST box, installed by the real installer beside the first
+  # (CPU only: the stub models), from the same media. Read from the container engine, not from the configuration: the
+  # two share no volume, network, published port or secrets volume; both are healthy; a PRODUCTION install beside
+  # them refuses, before anything is loaded; removing the test box leaves the first whole. Harms: a test box taken
+  # for the real one (data typed into it, a restore or update aimed at it), two boxes sharing a key, a volume or an
+  # audit chain, and a test-mode switch that weakens PRODUCTION's one-box rule
+  t0=$SECONDS
+  B2="$W/box-rh2"; B3="$W/box-prod2"; P1=trialbox
+  dc2() { (cd "$B2" && docker compose --project-directory deploy "$@"); }
+  gone2() {  # the test box removed whole on any way out of this phase, so no later phase meets it
+    (cd "$BOX" && python3 -m tools.trialbox.testbox remove --name rh2 --yes) >/dev/null 2>&1 || true
+    rm -rf "$B3"
+  }
+  trap gone2 EXIT
+  before1="$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  unpack_release "$B2"
+  cp "$MEDIA/linux/vendor_ed25519.pub" "$B2/deploy/keys/"
+  install -d "$B2/deploy/site" && cp -r "$BOX/tests/fixtures/synthetic_patients/site-a" "$B2/deploy/site/feed-a" \
+    || fail "cannot stage the second box's feed folder"
+  rc=0
+  (cd "$B2" && TB_HOST_PROFILE=poc TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_INSTALL_UP_TIMEOUT=900 \
+    deploy/install.sh "$BUNDLE" --test-box rh2 --port-offset 3 --mode stub --environment TEST --ctgov offline --yes \
+    --answers "$BOX/tools/rehearse_box/site_answers.yaml") > "$W/test-box-install.log" 2>&1 || rc=$?
+  tail -n 30 "$W/test-box-install.log"
+  [ "$rc" = 0 ] || fail "the test box's install failed (exit $rc; $W/test-box-install.log)"
+  grep -q "TEST BOX rh2: one of several boxes on this host" "$W/test-box-install.log" \
+    || fail "the test box's install does not say what it is in its last lines"
+  P2="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$B2/deploy/.env" | tail -1)"
+  case "$P2" in tbt-rh2-??????) ok "the test box's project: $P2" ;; *) fail "the test box's project is '$P2'" ;; esac
+  wait_healthy 600
+  n2="$(dc2 ps -q | wc -l)"; bad2="$(dc2 ps --format '{{.Service}} {{.State}} {{.Health}}' | awk '$2 != "running" || ($3 != "" && $3 != "healthy")')"
+  [ "$n2" -ge 10 ] && [ -z "$bad2" ] || { dc2 ps; fail "the test box is not healthy: $bad2"; }
+  ok "both boxes healthy: the first's containers and the test box's $n2"
+  # the engine's own answer: volumes, networks, ports, mounts, each container's networks
+  v1="$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  v2="$(docker volume ls -q --filter label=com.docker.compose.project="$P2" | sort)"
+  [ -n "$v2" ] && [ -z "$(comm -12 <(echo "$v1") <(echo "$v2"))" ] || fail "a volume is in both projects"
+  m1="$(for v in $v1; do docker volume inspect -f '{{.Mountpoint}}' "$v"; done | sort)"
+  m2="$(for v in $v2; do docker volume inspect -f '{{.Mountpoint}}' "$v"; done | sort)"
+  [ -z "$(comm -12 <(echo "$m1") <(echo "$m2"))" ] || fail "a volume folder is shared"
+  echo "$v2" | grep -qx "${P2}_tb-secrets" || fail "the test box has no secrets volume of its own"
+  n1="$(docker network ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  n2n="$(docker network ls -q --filter label=com.docker.compose.project="$P2" | sort)"
+  [ -n "$n2n" ] && [ -z "$(comm -12 <(echo "$n1") <(echo "$n2n"))" ] || fail "a network is in both projects"
+  for c in $(dc2 ps -q); do
+    nets="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c")"
+    for k in $nets; do case "$k" in "$P2"-*) ;; *) fail "test box container $c is on network $k" ;; esac; done
+    srcs="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{else}}{{.Source}} {{end}}{{end}}' "$c")"
+    for x in $srcs; do
+      case "$x" in "${P2}"_*|"$B2"/*|/etc/localtime|/etc/timezone|/run/trialbox-firstrun*) ;;
+        "$P1"_*|"$BOX"/*) fail "test box container $c mounts the first box's $x" ;; esac
+    done
+  done
+  for c in $(dc ps -q); do
+    srcs="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{end}}{{end}}' "$c")"
+    for x in $srcs; do case "$x" in "$P2"_*) fail "first box container $c mounts the test box's $x" ;; esac; done
+  done
+  ports() { docker ps --filter label=com.docker.compose.project="$1" --format '{{.Ports}}' | tr ',' '\n' \
+    | sed -n 's/.*:\([0-9][0-9]*\)->.*/\1/p' | sort -u; }
+  p1="$(ports $P1)"; p2="$(ports "$P2")"
+  [ -n "$p2" ] && [ -z "$(comm -12 <(echo "$p1") <(echo "$p2"))" ] || fail "a published port is in both ($p1 / $p2)"
+  ok "no shared volume ($(echo "$v2" | wc -l) of the test box's own), network, published port ($(echo $p2)) or secrets volume (engine)"
+  out="$(trialbox doctor 2>&1)"; rc=$?
+  [ "$rc" = 2 ] && echo "$out" | grep -q "boxes .*name one" || fail "trialbox without --box guessed (exit $rc): $out"
+  trialbox --box rh2 doctor > "$W/test-box-doctor.txt" 2>&1
+  grep -q "TEST BOX rh2" "$W/test-box-doctor.txt" || fail "trialbox --box rh2 doctor does not say TEST BOX rh2"
+  ok "trialbox refuses to guess between two boxes; --box rh2 runs the test box's own doctor, which says TEST BOX rh2"
+  # PRODUCTION: refuses the option, and refuses a host where a test box runs; nothing is loaded either way
+  unpack_release "$B3"; cp "$MEDIA/linux/vendor_ed25519.pub" "$B3/deploy/keys/"
+  out="$(cd "$B3" && deploy/install.sh "$BUNDLE" --environment PRODUCTION --test-box p3 --port-offset 4 --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "test-box makes a TEST box, not PRODUCTION" && [ ! -e "$B3/current" ] \
+    || fail "a PRODUCTION install took --test-box (exit $rc): $out"
+  out="$(cd "$B3" && COMPOSE_PROJECT_NAME=trialbox TB_ENV=TEST deploy/install.sh "$BUNDLE" --environment PRODUCTION --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "this host runs test boxes ($P2)" && [ ! -e "$B3/current" ] && [ ! -e "$B3/deploy/.env" ] \
+    || fail "a PRODUCTION install went on beside a test box (exit $rc): $out"
+  ok "PRODUCTION refuses --test-box and refuses a host where a test box runs (variables planted), nothing loaded"
+  # remove the test box: its own objects and folder only; the first box whole
+  (cd "$BOX" && python3 -m tools.trialbox.testbox remove --name rh2 --yes) || fail "the test box could not be removed"
+  left="$(docker ps -aq --filter label=com.docker.compose.project="$P2"; docker volume ls -q --filter label=com.docker.compose.project="$P2"; docker network ls -q --filter label=com.docker.compose.project="$P2")"
+  [ -z "$left" ] && [ ! -e "$B2" ] || fail "the test box's objects or folder are left: $left"
+  [ "$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)" = "$before1" ] || fail "the first box's volumes changed"
+  wait_healthy 300
+  ok "removed: the test box's containers, networks, volumes and folder; the first box's $(echo "$before1" | wc -l) volumes and containers whole"
+  trap - EXIT; rm -rf "$B3"
+  ok "test boxes: $((SECONDS - t0)) s"
   ;;
 
 *) echo "box.sh: unknown phase $PHASE" >&2; exit 2 ;;

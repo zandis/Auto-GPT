@@ -22,7 +22,7 @@
 set -u
 GB10=0; GPU_PROFILE=""; GPU_ONLY=0; BASELINE=0; ENV_FILE="$(dirname "$0")/.env"
 WSL2=0; WSL2_DISTRO="${WSL_DISTRO_NAME:-}"; ESCROW=""; RRS=0; RRS_PROBE=""; RRS_INDEX=""
-SECRETS="${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}"
+SECRETS="${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets/_data}"  # H-106: the box's own
 HR="${TB_HOST_ROOT:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
