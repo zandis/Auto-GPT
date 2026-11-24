@@ -77,7 +77,7 @@ File: [runbook/12-identity-and-tls.md](runbook/12-identity-and-tls.md). Parts: [
 
 ## 13. Working in parallel on one machine (D-201)
 
-File: [runbook/13-parallel-work-on-one-machine.md](runbook/13-parallel-work-on-one-machine.md).
+File: [runbook/13-parallel-work-on-one-machine.md](runbook/13-parallel-work-on-one-machine.md). Parts: [RUNBOOK §13 part: the bench host's CI runner](runbook/13-bench-ci-runner.md).
 
 ## 14. Judge bake-off: the current judge against Gemma 4 31B (D-181)
 
