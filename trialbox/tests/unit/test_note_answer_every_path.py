@@ -1028,6 +1028,23 @@ ROUND5_FORMS: list[tuple[str, str, str]] = [
     (DM_EN, "prediabetic", ""),
     # a drug criterion reads the quote's sentence too (the re-review's surviving mutant at ``inferred.inferred``)
     ("Known allergy to study drug", "drug allergies", "No known drug allergies."),
+    # the external OCR run's forms (#639 7118897121), with variants: a stated mention elsewhere in the sentence, a
+    # contrast set off by commas (an aside, not a split), a split on an abbreviation, and a question
+    ("History of heart failure", "No heart failure, but renal failure.", ""),
+    ("History of heart failure", "No heart failure; however, renal failure.", ""),
+    ("Known metastatic disease", "No evidence, however, of metastasis.", ""),
+    ("Known metastatic disease", "No sign, however, of metastatic disease.", ""),
+    ("Known metastatic disease", "Metastasis, though, is not seen.", ""),
+    ("Known metastatic disease", "転移は、しかし、認めない。", ""),
+    (DM_EN, "Family hx. diabetes.", ""),
+    (DM_EN, "Fam. hx. diabetes", ""),
+    (DM_EN, "Fam hx: diabetes", ""),
+    (DM_EN, "FHx. DM.", ""),
+    ("Known hypertension", "Hypertension?", ""),
+    ("Known hypertension", "HTN ?", ""),
+    ("Known hypertension", "? hypertension", ""),
+    ("高血圧症の既往", "高血圧症？", ""),
+    (DM_ZH, "糖尿病?", ""),
 ]
 #: stated quotes the widened families must not catch: a prefix "non-" that names the condition, a past procedure
 ROUND5_CONTROLS: list[tuple[str, str]] = [
@@ -1037,6 +1054,9 @@ ROUND5_CONTROLS: list[tuple[str, str]] = [
     ("History of myocardial infarction", "NSTEMI (non-ST elevation myocardial infarction) in 2020."),
     ("Lymphoma", "Non-Hodgkin lymphoma, stage II."),
     ("Prior stem cell transplant", "s/p allogeneic HSCT 2019"),
+    ("Known metastatic disease", "Metastatic disease to the liver."),  # the OCR forms' controls
+    ("Known hypertension", "Hypertension on amlodipine."),
+    ("Known hypertension", "HTN, but no diabetes."),  # a contrast between two clauses still splits
 ]
 #: the re-review's probe of round 4, as posted on #1334 (7115258420): its 96 forms (expected review) and 6 controls
 #: (expected to exclude), verbatim. 27 of the 96 excluded on round 4's guard.
