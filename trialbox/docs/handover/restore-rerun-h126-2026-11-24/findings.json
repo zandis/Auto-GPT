@@ -45,7 +45,7 @@
    "lane": "H",
    "basis": "hypothesis",
    "state": "open",
-   "fix": "not in this card: D-522's rule as written (review H1); whether a set-aside chain whose events were re-applied stops counting needs a ruling. The host now says the hold and what releases it",
+   "fix": "not in this card: card H-129 (7132081597) takes it. D-522's rule as written (review H1). The host now says the hold and what releases it",
    "from": "the integrator's red 7128848504 (the MVP walk's step 8 on a 16-service box, 7128827356), 2026-11-24"
   },
   {
@@ -58,6 +58,72 @@
    "state": "open",
    "fix": "not in this card",
    "from": "the integrator's red 7128848504 (the MVP walk's step 8 on a 16-service box, 7128827356), 2026-11-24"
+  },
+  {
+   "id": "H126-06",
+   "severity": "Medium",
+   "claim": "OCR 1470-1: a second Ctrl-C or SIGTERM while the stop or the start was being reported escaped the handler: no state line, no hold line, no audit event, a traceback",
+   "severity_basis": "the walk's own action is two Ctrl-C; the re-run still brought the box back",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed bfdb163",
+   "fix": "the audit event and the state line are said through BoxRestore._say: a second signal ends the asking, never the line (\"not asked (interrupted again)\"), the lines after it are said with signals ignored and put back; every state line of _after goes through it; test_a_second_signal_while_a_step_is_said_still_says_the_box_and_the_hold (6 cases)",
+   "from": "the external review of #1470 (7133889770, verdict 7133891085), 2026-11-24"
+  },
+  {
+   "id": "H126-07",
+   "severity": "Low",
+   "claim": "OCR 1470-2: the whole-project start runs with compose's default pull policy, not --pull never as the update's start does (D-176)",
+   "severity_basis": "a service of an active profile whose image is not loaded makes the restore reach for a registry",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "fixed f48aa77",
+   "fix": "the whole-project start takes --pull never, as the update's start (D-176), unless deploy/.env says TB_INSTALL_PULL=missing; never the caller's; test_the_start_pulls_as_the_box_file_says_never_by_default (4 cases)",
+   "from": "the external review of #1470 (7133889770, verdict 7133891085), 2026-11-24"
+  },
+  {
+   "id": "H126-08",
+   "severity": "Low",
+   "claim": "OCR 1470-3: a shortfall after a held, NOT complete restore ended 1, not 4",
+   "severity_basis": "a script that reads 4 as restored and held loses NOT complete",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed bfdb163",
+   "fix": "a shortfall keeps the restore's own non-zero code (4 stays 4); a complete one ends 1; RUNBOOK §5 says so; test_a_shortfall_keeps_the_restores_own_code",
+   "from": "the external review of #1470 (7133889770, verdict 7133891085), 2026-11-24"
+  },
+  {
+   "id": "H126-09",
+   "severity": "Low",
+   "claim": "OCR 1470-4: the comment over the start still said F6, the services this command stopped, and only those",
+   "severity_basis": "a reader is told the opposite of what the code does",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed bfdb163",
+   "fix": "the comment says H-126: every service the box defines, the full expected set checked",
+   "from": "the external review of #1470 (7133889770, verdict 7133891085), 2026-11-24"
+  },
+  {
+   "id": "H126-10",
+   "severity": "Low",
+   "claim": "OCR 1470-5: the rehearsal's interrupted run was only echoed, not checked; a late signal still passed; a fail path left the background restore running",
+   "severity_basis": "the rehearsal could pass without having interrupted anything",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed bfdb163",
+   "fix": "live-restore polls every 0.2 s, fails when the run ended before the signal or ended other than 130 or 1, when it said healthy or did not say the box's state, and stops the background run on its fail path; test_the_rehearsal_reruns_an_interrupted_restore_and_the_site_answers",
+   "from": "the external review of #1470 (7133889770, verdict 7133891085), 2026-11-24"
+  },
+  {
+   "id": "H126-11",
+   "severity": "Low",
+   "claim": "a signal between the restore container's end and the services' start (the host printing and reading its result) escaped as a traceback with no state line",
+   "severity_basis": "the rehearsal's signal lands at that moment; nothing said after a finished restore",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed bfdb163",
+   "fix": "BoxRestore._restore says the state through _say and ends 130; the invariant's step after-container (2 cases); found while fixing H126-10",
+   "from": "lane H, while fixing OCR 1470-5, 2026-11-24"
   }
  ]
 }

@@ -78,8 +78,29 @@ In `restore-rerun-h126-2026-11-24/findings.json` (the register's `--add-from` fo
 - **H126-03, Medium, fixed (said).** After a held re-run nothing said the hold stood or what releases it.
 - **H126-04, Low, open (hypothesis).** Every restore after the first on a box stays held: the earlier restore's
   set-aside audit chain (`_data.pre-restore-*` in the audit volume) is never removed, and `backup.restore` counts it
-  as carried. That is D-522's rule as written; whether a set-aside chain whose events were re-applied should stop
-  counting is a ruling, not this card.
+  as carried. That is D-522's rule as written. Card H-129 takes it (7132081597).
 - **H126-05, Low, open (hypothesis).** When the restore's container itself ends 130 after its data part (the walk's
   first run, `complete: true`), the host's line takes the end as unknown and says "NOT as it was ... do not start the
   services". The re-run is the way back and now works; the first line overstates the damage.
+
+## The external review of #1470 (7133889770)
+
+At 7831433: High 0, Medium 1, Low 4. Each is fixed here, with a test:
+
+- **1470-1 (Medium; H126-06).** A second Ctrl-C or SIGTERM while the stop or the start was being reported escaped the
+  handler. The audit event and the state line now go through `BoxRestore._say` (the review's patch): a second signal
+  ends the asking, never the line (`the box now: not asked (interrupted again)`); the lines after it are said with
+  signals ignored, then put back. Every state line after the restore goes the same way.
+  `test_a_second_signal_while_a_step_is_said_still_says_the_box_and_the_hold` (6 cases) fails without it.
+- **1470-2 (Low; H126-07).** The start takes `--pull never`, as the update's start (D-176), unless deploy/.env says
+  `TB_INSTALL_PULL=missing`; never the caller's. `test_the_start_pulls_as_the_box_file_says_never_by_default`. The
+  two pinned H-100 commands gain `--pull never` (the integrator's word asked on #639).
+- **1470-3 (Low; H126-08).** A shortfall keeps the restore's own non-zero code (4 stays 4); a complete restore with a
+  shortfall ends 1. `test_a_shortfall_keeps_the_restores_own_code`.
+- **1470-4 (Low; H126-09).** The comment over the start says H-126.
+- **1470-5 (Low; H126-10).** The rehearsal polls every 0.2 s and checks the interrupted run itself: it fails when the
+  run ended before the signal, ended other than 130 or 1, said "healthy" or did not say the box's state. It stops
+  the background run on its fail path.
+- **H126-11 (Low), found while fixing 1470-5.** A signal between the restore container's end and the start (while the
+  host prints and reads its result) escaped as a traceback. `_restore` now says the state and ends 130. The
+  invariant gains the step `after-container` (14 cases) and catches an escaped interrupt as a failure.
