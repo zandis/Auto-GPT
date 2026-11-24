@@ -173,6 +173,18 @@ for f in sorted(os.listdir(root)):
     pkg = any(os.path.exists(os.path.join(p, "__init__" + x)) for x in sfx)
     if f not in tops and (f.endswith(sfx) or f == "__pycache__" or pkg):
         bad.append(f + ": not in the release")
+# OCR 1455-1 (residual): a release folder outside the two library folders that holds a signed script python3 runs
+# by path (deploy/hardening/*.py, from check_host.sh) comes first on the path of that script: an unsigned module,
+# package or cache folder there is code of the kept tree (the release brought in links the folder through current)
+for d in sorted({os.path.dirname(n) for n in signed if n.endswith(".py") and n.split("/", 1)[0] not in ("tools", "libs")}):
+    full = os.path.join(root, d)
+    if not os.path.isdir(full):
+        continue
+    for f in sorted(os.listdir(full)):
+        p, rel = os.path.join(full, f), (d + "/" + f) if d else f
+        pkg = any(os.path.exists(os.path.join(p, "__init__" + x)) for x in sfx)
+        if rel not in signed and (f.endswith(sfx) or f == "__pycache__" or pkg):
+            bad.append(rel + ": not in the release")
 # the folders above the tree: owned by root alone, or shared only with the sticky bit (as /tmp is)
 up = os.path.dirname(rroot)
 while True:

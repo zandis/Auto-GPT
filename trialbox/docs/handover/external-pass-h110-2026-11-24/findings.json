@@ -443,6 +443,39 @@
    "state": "open",
    "fix": "(a): the signed release's installer runs; tests/unit/test_bootstrap_upgrade_h110.py (release N-1 to N, with and without --box) fails with master's bootstrap",
    "from": "the integrator's 7126867935, the lead's relay"
+  },
+  {
+   "id": "H110-41",
+   "severity": "High",
+   "claim": "code on the installers' python path that the bootstrap never compared still ran as root: a services/ folder at the top (on the box preflight's PYTHONPATH) or a module in deploy/hardening/ (host_tier.py run by path)",
+   "severity_basis": "root code the signature does not cover",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "kept_diff looks in every release folder outside tools/ and libs/ that holds a signed script; the box preflight drops services/ from root's path",
+   "from": "1455-1 (residual): the re-review of #1455 at 973a87aa (verdict 7135580046)"
+  },
+  {
+   "id": "H110-42",
+   "severity": "Medium",
+   "claim": "the compose copies reused fd 6, the fd #1452's host lock is held on; the first exec 6< dropped the lock",
+   "severity_basis": "two boxes' installs could pass the host check together",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the copies open their file on a descriptor bash picks (10 or above), never 6 or 9",
+   "from": "1455-9: the re-review of #1455 at 973a87aa (verdict 7135580046)"
+  },
+  {
+   "id": "H110-43",
+   "severity": "Low",
+   "claim": "the page and the body said less than the push changed",
+   "severity_basis": "a reader misses a changed assertion or test data",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the page's lists completed; the copy loop's warning made exact; the PR body is the lead's",
+   "from": "1455-10: the re-review of #1455 at 973a87aa (verdict 7135580046)"
   }
  ]
 }

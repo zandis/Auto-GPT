@@ -480,8 +480,10 @@ box_preflight() {  # 10K-3 (D-1361): the live preflight the first-run page shows
   local settings=()
   [ ! -f "$ROOT/deploy/settings.yaml" ] || settings=(--settings "$ROOT/deploy/settings.yaml")
   # one check is bounded in the tool (a hung share, a resolver); the whole run here, killed 5 s after its limit
+  # OCR 1455-1 (residual): the release holds no services/ (tools/host_tree.py TOP_DIRS); one at the top of a kept tree
+  # is never compared, and a path entry comes before the standard library: it is never on root's path here
   # shellcheck disable=SC2086 # a command line on purpose (tests)
-  PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" timeout -k 5 "${TB_BOX_PREFLIGHT_S:-90}" ${py:-python3} -m tools.trialbox \
+  PYTHONPATH="$ROOT/libs:$ROOT" timeout -k 5 "${TB_BOX_PREFLIGHT_S:-90}" ${py:-python3} -m tools.trialbox \
     doctor --preflight --env-file "$ROOT/deploy/.env" ${settings[@]+"${settings[@]}"} --out "$FR/preflight.json" \
     >/dev/null 2>&1 || true
   [ -f "$FR/preflight.json" ] || echo "    the preflight did not finish in ${TB_BOX_PREFLIGHT_S:-90} s: the set-up page says it has not run"

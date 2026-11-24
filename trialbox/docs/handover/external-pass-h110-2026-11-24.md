@@ -212,23 +212,30 @@ not fsync, though, and the temp file takes the old file's mode. The `>>` lines a
 * H-BK-1 stays with its own card. `deploy/hardening/seal_keys.sh` changed here only in its KEK-INPUT lines, for (i),
   because a test holds the three copies identical.
 
-**Changed assertions (each by the integrator's ruling 7122559749).** Two assertions changed, and one test asserts less
-text than it claimed (1455-7).
+**Changed assertions, every one in this card.** Four assertions changed (by the integrator's rulings 7122559749 and
+7128436810), and one test asserts less text than it claimed (1455-7).
 
-* `tests/fixtures/h94/install_sh_master_stops.json`: two new messages, M-SC-2's and M-SC-3's.
+* `tests/fixtures/h94/install_sh_master_stops.json`: four new messages: M-SC-2's and M-SC-3's (7122559749), and
+  1455-8's two, `retention-timer` and `cron-daemon-unknown` (7128436810), each its PRODUCTION row (rc 1).
+* `test_every_start_refuses_a_compose_file_in_a_folder_others_can_write[TEST]` (7128436810): rc 0 with a warning
+  becomes rc 1 with the refusal's words.
 * `test_it_needs_only_what_a_bare_ubuntu_has` (in `tests/unit/test_install_bootstrap.py`): "no `tools/` in the script"
   becomes "no `tools/` but the one read of the release's host-tree module from the verified tar". The comment
   allowance the review of #1455 found (1455-7) is gone: the bootstrap's comment no longer names the path.
 * The 1396-1 test appended its own "TrialBox is ready" line and asserted it absent; install.sh never prints that
   line. The line and its assertion are gone, and the test is named for what it holds: the exit code and the last line.
 
-**Changed test data.** Six kinds, none of them an assertion.
+**Changed test data.** Seven kinds, none of them an assertion.
 
-* `tests/unit/test_poc_stops_h94.py` `NOT_DRIVEN`: the two new keys (root only).
+* `tests/unit/test_poc_stops_h94.py` `NOT_DRIVEN`: four new keys, `egress-at-boot`, `cron-daemon`, `retention-timer`
+  and `cron-daemon-unknown` (root only).
+* `tests/unit/test_backup_schedule_timer.py`: its install.sh harness gets a units folder (`SYSTEMD_DIR`), as a
+  systemd host has; without one, 1455-8's `retention-timer` stop fires there. Its assertions are unchanged.
 * `tools/support_bundle.py` `NOT_SECRETS` (outside the card): `PINNED_KEY`, install.sh's path of the vendor's public key, which holds no secret.
 * `tests/unit/test_poc_stops_bench_h94.py`: the bench's stand-ins gain `pgrep`, a host whose cron daemon runs, as a
   site's does. Without one the new `cron-daemon` stop fires on every bench run. The rehearsal (a container with no
-  cron daemon) expects that one line exactly when none runs there.
+  cron daemon) expects that one line exactly when none runs there. It no longer accepts a `compose-file-owner` line
+  at all (1455-2 (A)): its work dir is root's while the box runs.
 * The H-94 stand-in host checks print the `[H-94 (N)]` marker, as in (g).
 * Fixture modes: 0600 in `tests/unit/test_host_commands_own_environment.py` and `tests/unit/test_host_baseline.py`.
 * `tests/unit/test_poc_real_embedder.py`: the timeout 120 s becomes 30 s, with the measurement beside it.
@@ -270,6 +277,20 @@ missing on a box, so this is noted, not fixed. The folders above the tree accept
 **What the rehearsal changes.** The work dir is the box host's bind mount, owned by the runner; every folder above it in the box host is the container's own. `host_up` makes it root's (0755) while the box runs, and teardown gives it back before the report is written. A run killed before teardown leaves it root's: remove it as root.
 
 **Files outside the card.** `tools/trialbox/svc_secrets.py` (1455-5, the reviewer's patch, its body only).
+
+## The re-review of #1455 at `973a87aa` (verdict 7135580046)
+
+High 1, Medium 1, Low 1. Each fix has a test that fails with the `973a87aa` version of its file.
+
+| | Finding | Verdict | The fix, and the test |
+| --- | --- | --- | --- |
+| 1455-1 (residual) | code on the installers' python path that the bootstrap never compared still ran as root: a `services/` folder at the top (the box preflight's PYTHONPATH), or a module in `deploy/hardening/` (`host_tier.py` run by path) (High) | fixed (the reviewer's patch) | `deploy/bootstrap.sh` `kept_diff` also looks in every release folder outside the two library folders that holds a signed script: an unsigned module, package or cache folder there is a difference; `deploy/box-install.sh`'s preflight no longer puts `services/` on root's path (the release holds none); `tests/unit/test_ocr1455_services_path.py` (2) |
+| 1455-9 | the compose copies reused fd 6, the fd #1452's host lock is held on: the first `exec 6<` dropped the lock (Medium) | fixed | `deploy/install.sh`: the override and the copy loop open their file on a descriptor bash picks (10 or above), never 6 or 9; `tests/unit/test_ocr1455_host_lock_fd.py` (the reviewer's test, with a case for fd 9 too: 2) |
+| 1455-10 | the page and the body said less than the push changed (Low) | fixed on the page; the body is the lead's | this page's lists of changed assertions and test data; the copy loop's warning says what happens (a file it could not copy is used where it lies, and refused at the start unless root's alone) |
+
+**What is not covered.** A script root runs later from the kept paths (a cron or systemd job, `apply_update.sh`'s
+`ospatch.py`) is covered by the bootstrap's walk at the bootstrap only. Two outside compose files with one base name
+would share one copy's name; the only one that can reach the copy loop is the override whose own copy failed.
 
 ## Tests, mutants and what was not run
 
