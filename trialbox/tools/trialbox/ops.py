@@ -650,7 +650,22 @@ class OpsRunner:
 
     def do_update_apply(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
         p = self._bundle(args)
-        out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p)], self.apply_limit())
+        argv = ["sh", str(ROOT / "tools" / "apply_update.sh"), str(p)]
+        limit = self.apply_limit()
+        if self.box.run is not run_cmd:  # a stand-in runner (the console's tests): as before
+            out = self.box.run(argv, limit)
+            return f"{p.name}: applied", out.strip().splitlines()
+        from tools.trialbox import procgroup
+
+        # H-114b (the review of #1461, 1461-3): on the limit the update's SIGTERM starts its rollback, which must not
+        # be killed part way. The rollback redoes at most what the update did (the same restores, models, host tree
+        # and restart, each command under its own limit), so it gets the update's own limit again before the SIGKILL;
+        # no limit (sizes not readable): no SIGKILL at all, the updater ends by itself
+        r = procgroup.run(argv, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=limit,
+                          grace=limit)  # fmt: skip
+        out = (r.stdout or "") + (r.stderr or "")
+        if r.returncode != 0:
+            raise OpsFailed(f"exit {r.returncode}: {out.strip()[-600:]}")
         return f"{p.name}: applied", out.strip().splitlines()
 
     def do_logs_collect(self, args: Mapping[str, str]) -> tuple[str, list[str]]:

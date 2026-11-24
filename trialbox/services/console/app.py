@@ -170,6 +170,9 @@ def environment_banner(env: Mapping[str, str]) -> str:
     deploy/install.sh --rehearsal only, on TEST or VALIDATION) says REHEARSAL, so it is never taken for a validation
     box."""
     name = environment_name(env)
+    box = (env.get("TB_TEST_BOX") or "").strip()  # H-106: one of several test boxes on a host says which, every page
+    if box and name in ("DEV", "TEST"):
+        return f"{name} TEST BOX {box}: one of several boxes on this host; synthetic data only"
     rehearsal = (env.get("TB_REHEARSAL") or "").strip() == "1" and name in ("TEST", "VALIDATION")
     if rehearsal and (env.get("TB_REHEARSAL_REAL_SERVERS") or "").strip() == "1":  # H-89: the real model servers
         return f"{name} REHEARSAL: rehearsal: driver below the minimum, not this profile's card, not valid for a site"

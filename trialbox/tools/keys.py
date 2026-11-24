@@ -151,8 +151,22 @@ def environment(env: Mapping[str, str]) -> str:
     return (env.get("TB_ENV") or "PRODUCTION").strip().upper()
 
 
+def own_volume(name: str) -> str:
+    """H-106: the host folder of this box's own compose volume: a test box's record (``deploy/site/test-box.env``
+    beside this release folder) names its project; any other box's is ``trialbox``, as before."""
+    project = "trialbox"
+    for deploy in (Path(__file__).absolute().parents[1] / "deploy", Path(DEFAULT_DEPLOY)):
+        try:
+            lines = (deploy / "site" / "test-box.env").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        project = next((ln.split("=", 1)[1].strip() for ln in lines if ln.startswith("COMPOSE_PROJECT_NAME=")), project)
+        break
+    return f"/var/lib/docker/volumes/{project}_{name}/_data"
+
+
 def secrets_dir(arg: str | None, env: Mapping[str, str]) -> Path:
-    return Path(arg or env.get("TB_SECRETS_DIR") or HOST_SECRETS)
+    return Path(arg or env.get("TB_SECRETS_DIR") or own_volume("tb-secrets"))
 
 
 def runtime_kek_path(arg: str | None, env: Mapping[str, str]) -> Path:
@@ -372,15 +386,26 @@ def wrap_plain(sec: Path, kek: bytes) -> list[str]:
         p = sec / name
         if not p.exists():
             continue
-        if K.wrapped_path(p).exists():
-            raise K.KekError(f"{name} is there plain and wrapped: compare fingerprints (status) and remove one")
         key = p.read_bytes()
+        if K.wrapped_path(p).exists():
+            # H-111: a run stopped between the wrap and the plain file's removal; the wrapped key opens to this one
+            try:
+                same = bool(key) and K.unwrap(kek, K.read_wrapped(p), name) == key
+            except K.KekError:
+                same = False
+            if not same:
+                raise K.KekError(f"{name} is there plain and wrapped: compare fingerprints (status) and remove one")
+            _fsync_dir(sec)  # review of #1457 (1457-3): the wrapped copy's name is on disk before the plain one goes
+            p.unlink()
+            done.append(f"{name} (fingerprint {K.fingerprint(key)}; its wrap was already done)")
+            continue
         if not key:
             raise K.KekError(f"{p} is empty: put the key back from the backup first")
         K.store_key(p, key, kek)
         if K.unwrap(kek, K.read_wrapped(p), name) != key:
             K.wrapped_path(p).unlink()
             raise K.KekError(f"{name}: the wrapped key does not open to the same key; left plain")
+        _fsync_dir(sec)  # review of #1457 (1457-3): the wrapped copy's name is on disk before the plain one goes
         p.unlink()
         done.append(f"{name} (fingerprint {K.fingerprint(key)})")
     return done
@@ -1183,7 +1208,7 @@ def objects_dir(arg: str | None, env: Mapping[str, str]) -> Path:
     spec = env.get("TB_OBJECT_STORE") or ""
     if spec.startswith("fs:") and spec[3:]:
         return Path(spec[3:])
-    return Path(HOST_OBJECTS)
+    return Path(own_volume("objects-data"))
 
 
 def cmd_seal_objects(a: argparse.Namespace, env: Mapping[str, str]) -> int:
