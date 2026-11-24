@@ -12,7 +12,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "one reinstall with the bootstrap on such a box (the walk did it); the walk's next update is the proof"
+   "fix": "one reinstall with the bootstrap on such a box (the walk did it); the walk's next update is the proof; H-124 for the class (H121-06)"
   },
   {
    "id": "H121-02",
@@ -21,7 +21,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "a rehearsal case that installs the previous master's bundle and updates to the pull request's: a card of its own (question to the integrator)"
+   "fix": "card H-123 (the rehearsal updates from release N-1)"
   },
   {
    "id": "H121-03",
@@ -35,11 +35,11 @@
   {
    "id": "H121-04",
    "severity": "Low",
-   "claim": "space_needs still counts 0 for a size answer that is not a number (psql succeeded but printed none); making it a stop changes the fakes of nine update tests in three other test files, so it is left as before",
+   "claim": "space_needs counted 0 for a size answer that was not a number (psql succeeded but printed none), so the space check went on without that database; now it stops the update with the same plain line; the fakes of the update tests (test_update_path.py FakeRun, test_host_tree.py STAND_IN_DOCKER, one runner in test_update_safety.py) now answer the size query, no assertion changed",
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "not in this card (question to the integrator)"
+   "fix": "H-121 (this card)"
   },
   {
    "id": "H121-05",
@@ -49,6 +49,15 @@
    "basis": "not_run",
    "state": "open",
    "fix": "the rehearsal job on the pull request, and the walk's next update on the bench host"
+  },
+  {
+   "id": "H121-06",
+   "severity": "High",
+   "claim": "the update's checks and its applying code run from the INSTALLED tree, never from the signed new bundle: tools/apply_update.sh sets ROOT from its own folder (line 55), cd \"$ROOT\" (line 262) and runs python3 -m tools.trialbox update (line 267), which imports tools/trialbox/update.py from that tree (tools/trialbox/__main__.py line 341; install.sh line 810 links /usr/local/bin/trialbox to the installed __main__.py); so a fault in an installed release's update code cannot be fixed by a new bundle, only by a reinstall",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "card H-124 (the update's code from the signed bundle, verified with the installed vendor key)"
   }
  ]
 }

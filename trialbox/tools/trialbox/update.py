@@ -1764,11 +1764,14 @@ class ComposeBox(_DockerImages):
         decrypted copy during a rollback) under deploy/updates, and the backup on each target (at least the
         databases)."""
         sizes = largest = 0
-        # H-99, H-121: each size on its own database as the role that may read it (``DB_SIZE_ROLES``); a read that
-        # fails stops the update before anything is changed, naming the database and the role
+        # H-99, H-121: each size on its own database as the role that may read it (``DB_SIZE_ROLES``); a size that
+        # cannot be read stops the update before anything is changed, naming the database and the role (never 0)
         for db, user in DB_SIZE_ROLES:
             try:
-                n = self.db_size(db, user) or 0  # an answer that is not a size: 0, as before H-121
+                n = self.db_size(db, user)
+                if n is None:  # psql answered, but not a size: never counted 0
+                    raise UpdateFailed(f"the size of database {db} could not be read as role {user}: no size in "
+                                       "the answer")  # fmt: skip
             except UpdateFailed as exc:
                 raise UpdateFailed(f"{exc}; the space check needs it, nothing was changed") from exc
             sizes, largest = sizes + n, max(largest, n)

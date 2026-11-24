@@ -133,3 +133,16 @@ def test_h121_a_size_that_cannot_be_read_stops_the_update_plainly(
     assert said.startswith("the size of database hapi could not be read as role trialbox: "), said
     assert "permission denied for database" in said and said.endswith("the space check needs it, nothing was changed")
     assert box.db_bytes("hapi", "trialbox") is None
+
+
+def test_h121_an_answer_that_is_not_a_size_stops_the_update_never_counted_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    (tmp_path / "deploy").mkdir()
+    box = up.ComposeBox(tmp_path / "deploy", run=lambda argv, **kw: "")
+    plan = up.Plan("B1", "f" * 64, "v", [], tmp_path / "stage")
+    with pytest.raises(up.UpdateFailed, match=r"^the size of database trialbox_wf could not be read as role trialbox: "
+                                              r"no size in the answer; the space check needs it"):  # fmt: skip
+        box.space_needs(plan, tmp_path / "deploy" / "updates")
+    assert box.db_bytes("trialbox_wf", "trialbox") is None  # the backup's limit: unknown, no limit (D-455)

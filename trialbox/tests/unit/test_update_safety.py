@@ -420,6 +420,8 @@ def test_compose_box_starts_the_services_again_when_the_rollback_point_fails(tmp
             raise up.UpdateFailed("docker broke")
         if "FROM orch.jobs" in line:  # T-695: no job running
             return "0\n"
+        if "pg_database_size" in line:  # H-121: the size check reads a size (an empty answer stops the update)
+            return "1000\n"
         return ""
 
     stage = tmp_path / "stage"
