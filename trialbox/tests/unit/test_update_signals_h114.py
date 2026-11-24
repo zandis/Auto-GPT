@@ -483,8 +483,17 @@ def test_1461_1_a_signal_inside_the_host_tree_switch_is_put_back_whole(
     compat = {"format": us.COMPAT_FORMAT, "bundle_id": "B1", "rows": [{}], "provides": {"model_pin": "judge@2"}}
     plan = up.Plan("B1", "f" * 64, "vendor", [], stage, release_seq=2, compat=compat,
                    trust_after={"format": us.TRUST_FORMAT, "keys": {"ed25519:" + "1" * 16: {}}})  # fmt: skip
-    with pytest.raises(up.UpdateFailed, match="back on the release before B1"):
-        up.Updater(Box(), base / "deploy" / "updates", say=lambda _m: None).run(plan)
+
+    def no_stops(signum: int, _frame: Any) -> None:  # review 1461-8: without Stops the signal fails this test only
+        raise AssertionError(f"{signal.Signals(signum).name} reached the test run: the updater did not take it")
+
+    kept = {s: signal.signal(s, no_stops) for s in (signal.SIGTERM, signal.SIGHUP)}
+    try:
+        with pytest.raises(up.UpdateFailed, match="back on the release before B1"):
+            up.Updater(Box(), base / "deploy" / "updates", say=lambda _m: None).run(plan)
+    finally:
+        for s, h in kept.items():
+            signal.signal(s, h)
     assert len(moves) >= 2
     for n in files:  # every copied file in its place again, none a link
         assert not (base / n).is_symlink() and (base / n).read_text(encoding="utf-8") == f"old {n}\n", n
@@ -513,10 +522,10 @@ def test_1461_3_a_put_back_left_running_by_a_killed_updater_holds_the_recovery(t
     pgid = None
     try:
         for _ in range(600):
-            if calls.exists() and "rollback cmd" in calls.read_text() and list((updates / "running").glob("*.json")):
+            if calls.exists() and "rollback cmd" in calls.read_text() and list((updates / ".running").glob("*.json")):
                 break
             time.sleep(0.05)
-        recs = list((updates / "running").glob("*.json")) if (updates / "running").is_dir() else []
+        recs = list((updates / ".running").glob("*.json")) if (updates / ".running").is_dir() else []
         assert recs, "the put-back's command was not recorded while it ran"
         pgid = json.loads(recs[0].read_text())["pgid"]
         proc.kill()  # the limit's SIGKILL, part way through the rollback
@@ -534,7 +543,7 @@ def test_1461_3_a_put_back_left_running_by_a_killed_updater_holds_the_recovery(t
             time.sleep(0.05)
         rec = _drive(tmp_path / "c", updates=str(updates), mode="recover")
         assert rec["outcome"] == "ok" and rec["marker"] is None and "rollback done" in rec["calls"], rec
-        assert not list((updates / "running").glob("*.json"))
+        assert not list((updates / ".running").glob("*.json"))
     finally:
         if proc.poll() is None:
             proc.kill()
@@ -548,3 +557,176 @@ def test_1461_4_a_hangup_the_caller_ignores_never_stops_the_update(tmp_path: Pat
     d = _drive(tmp_path, ignore_hup=True, signals={"apply": ["SIGHUP"]})
     assert d["outcome"] == "ok" and d["installed"] == 2, d
     assert [e for e, _ in d["audits"]] == ["update.applied"] and "rollback" not in d["calls"]
+
+
+def test_1461_6_a_record_holds_the_recovery_only_for_the_command_it_names(tmp_path: Path) -> None:
+    """Review 1461-6: a record left by a power cut (an earlier boot), or whose group id another session leader now
+    has, held the recovery and told the operator to kill that unrelated group; and a bundle named "running" had its
+    folder's event files taken for records and deleted."""
+    sys.path.insert(0, str(ROOT))
+    from tools.trialbox import update as up
+
+    updates = tmp_path / "updates"
+    other = subprocess.Popen(["sleep", "30"], start_new_session=True)  # an unrelated session leader
+    try:
+        running = updates / up.RUNNING
+        running.mkdir(parents=True)
+        for name, rec in (("boot", {"boot": "an-earlier-boot"}), ("start", {"start": "1"})):
+            (running / f"{other.pid}.json").write_text(json.dumps({"pgid": other.pid, "argv": ["x"], **rec}))
+            assert up.alive_commands(updates) == [], name
+        with up._recording(updates):  # a command the update started: held while it runs
+            seen: list[Any] = []
+            orig = up._record_running
+
+            def spy(pgid: int, argv: Any) -> Any:
+                f = orig(pgid, argv)
+                seen.extend(r["pgid"] for r in up.alive_commands(updates))
+                return f
+
+            up._record_running = spy
+            try:
+                up.run_cmd(["sh", "-c", "true"])
+            finally:
+                up._record_running = orig
+        assert seen, "the update's own command was not held"
+        bundle = updates / "running"  # a bundle may be named so (verify_update.BUNDLE_ID)
+        bundle.mkdir()
+        (bundle / "update.rolled_back.json").write_text("{}")
+        up.alive_commands(updates)
+        assert (bundle / "update.rolled_back.json").exists()
+    finally:
+        other.kill()
+        other.wait()
+
+
+#: review 1461-1 (the part left): a stop inside the host-tree switch, the rollback killed before the host put-back
+CUT = r"""
+import os, signal, sys
+from pathlib import Path
+from tools import host_tree as ht
+from tools import update_status as us
+from tools.trialbox import update as up
+
+t, phase = Path(sys.argv[1]), sys.argv[2]
+files = (*ht.REQUIRED, "deploy/install.sh", "libs/x.py", "tools/a.py", "tools/b.py")
+src, base, stage = t / "src", t / "box", t / "stage"
+if phase == "run":
+    for n in files:
+        for root, text in ((src, "new"), (base, "old")):
+            (root / n).parent.mkdir(parents=True, exist_ok=True)
+            (root / n).write_text(f"{text} {n}\n")
+    (stage / "host").mkdir(parents=True)
+    ht.pack(src, stage / "host" / ht.HOST_TAR)
+    real, moves = ht._aside, []
+
+    def aside(p, to, moved, rel):
+        real(p, to, moved, rel)
+        moves.append(rel)
+        if len(moves) == 2:
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    ht._aside = aside
+
+
+class Box:
+    name = "stand-in"
+    def running(self): return True
+    def backup(self, plan, rb): return "nas"
+    def snapshot(self, plan, rb, point): return None
+    def apply(self, plan, rb, point): return list(up.apply_host(plan, base, rb, point))
+    def restart(self, plan): return None
+    def post_apply(self, plan): return []
+    def check(self, plan): return "healthy"
+    def audit(self, event, plan, detail): return None
+    def rollback(self, plan, rb, point):
+        if phase == "run":  # the services' stop is under way when the console limit's SIGKILL lands
+            os.kill(os.getpid(), signal.SIGKILL)
+        up.restore_host(base, point)
+
+
+compat = {"format": us.COMPAT_FORMAT, "bundle_id": "B1", "rows": [{}], "provides": {"model_pin": "judge@2"}}
+plan = up.Plan("B1", "f" * 64, "vendor", [], stage, release_seq=2, compat=compat,
+               trust_after={"format": us.TRUST_FORMAT, "keys": {"ed25519:" + "1" * 16: {}}})
+u = up.Updater(Box(), base / "deploy" / "updates", say=lambda _m: None)
+if phase == "run":
+    u.run(plan)
+else:
+    assert u.recover("B1")["ok"]
+    bad = [n for n in files if (base / n).is_symlink() or not (base / n).is_file()
+           or (base / n).read_text() != f"old {n}\n"]
+    print("NOT BACK:", bad)
+"""
+
+
+def test_1461_1_a_rollback_killed_after_a_stop_in_the_switch_is_finished_by_recover(tmp_path: Path) -> None:
+    """Review 1461-1 (the part left): the switch's moves were in memory only; a rollback cut short by SIGKILL
+    (the console's limit, 10 s after its SIGTERM) left recover a point.json without them: "back on the release
+    before" with the compose file and deploy/install.sh still set aside."""
+    script = tmp_path / "cut.py"
+    script.write_text(CUT, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
+    env.update(PYTHONPATH=f"{ROOT}:{ROOT / 'libs'}")
+    t = tmp_path / "t"
+    first = subprocess.run([sys.executable, str(script), str(t), "run"], cwd=ROOT, env=env, capture_output=True,
+                           text=True, timeout=120, check=False)  # fmt: skip
+    assert first.returncode == -signal.SIGKILL, first.stderr
+    second = subprocess.run([sys.executable, str(script), str(t), "recover"], cwd=ROOT, env=env, capture_output=True,
+                            text=True, timeout=120, check=False)  # fmt: skip
+    assert second.returncode == 0 and "NOT BACK: []" in second.stdout, second.stdout + second.stderr
+
+
+@pytest.mark.parametrize("case", ["own-link-on-a-copied-install", "own-file-on-a-host-tree-box"])
+def test_1461_7_the_host_tree_rollback_puts_back_every_site_file_the_switch_displaced(
+    tmp_path: Path, case: str
+) -> None:
+    """Review 1461-7: a link of the site's own at a release path was deleted, not set aside; and on a box already on a
+    host tree, a real file at a path the new release adds was set aside and never put back by the rollback."""
+    sys.path.insert(0, str(ROOT))
+    from tools import host_tree as ht
+
+    files = (*ht.REQUIRED, "deploy/install.sh", "tools/a.py")
+    src, base = tmp_path / "src", tmp_path / "box"
+    for n in files:
+        for root, text in ((src, "new"), (base, "old")):
+            (root / n).parent.mkdir(parents=True, exist_ok=True)
+            (root / n).write_text(f"{text} {n}\n", encoding="utf-8")
+    if case == "own-link-on-a-copied-install":
+        (tmp_path / "mine.sh").write_text("the site's own\n", encoding="utf-8")
+        (base / "deploy" / "install.sh").unlink()
+        (base / "deploy" / "install.sh").symlink_to(tmp_path / "mine.sh")
+        ht.pack(src, tmp_path / "h.tar")
+        info = ht.install(tmp_path / "h.tar", base, "R1")
+        ht.restore(base, info)
+        p = base / "deploy" / "install.sh"
+        assert p.is_symlink() and p.read_text(encoding="utf-8") == "the site's own\n"
+    else:
+        ht.pack(src, tmp_path / "h1.tar")
+        ht.install(tmp_path / "h1.tar", base, "R1")
+        (src / "deploy" / "extra.sh").write_text("new extra\n", encoding="utf-8")
+        ht.pack(src, tmp_path / "h2.tar")
+        (base / "deploy" / "extra.sh").write_text("the site's own\n", encoding="utf-8")
+        info = ht.install(tmp_path / "h2.tar", base, "R2")
+        ht.restore(base, info)
+        p = base / "deploy" / "extra.sh"
+        assert not p.is_symlink() and p.read_text(encoding="utf-8") == "the site's own\n"
+        assert ht.current(base) == "R1"
+
+
+def test_1461_9_a_stop_while_the_command_is_recorded_still_kills_the_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review 1461-9: the record was written before the command's kill-on-stop was in place: a first signal raised
+    there left the step's command running, and the rollback waited for it to end."""
+    import time
+
+    sys.path.insert(0, str(ROOT))
+    from tools.trialbox import update as up
+
+    def stop(_pgid: int, _argv: Any) -> None:
+        raise up.UpdateInterrupted("stopped by SIGTERM")
+
+    monkeypatch.setattr(up, "_record_running", stop)
+    ran, t = tmp_path / "ran", time.monotonic()
+    with pytest.raises(up.UpdateInterrupted):
+        up.run_cmd(["sh", "-c", f"sleep 3; echo done > {ran}"])
+    assert time.monotonic() - t < 2 and not ran.exists()
