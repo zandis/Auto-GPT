@@ -213,7 +213,7 @@ def test_the_shards_run_every_shard_with_fail_fast_off() -> None:
     shards = strategy["matrix"]["shard"]
     assert shards == list(range(1, len(shards) + 1)) and len(shards) >= 2
     assert "unit" not in {str(job.get("name"))} and "unit-shard (" in str(job["name"])
-    # H-120 (D-1357): the shards run on every pull request (tests/unit/test_h120_unit_shards_every_pr.py)
+    # H-120 (D-1324): the shards run on every pull request (tests/unit/test_h120_unit_shards_every_pr.py)
     assert job["if"] == "${{ !cancelled() && needs.changes.outputs.unit != 'false' }}"
     runs = _runs(job)
     assert "SHARD=${{ matrix.shard }}/${{ strategy.job-total }}" in runs and "SHARD_RECORD=" in runs
