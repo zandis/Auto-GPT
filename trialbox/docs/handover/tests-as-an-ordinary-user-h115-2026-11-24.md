@@ -7,9 +7,13 @@
 - **Date:** 2026-11-24
 - **Findings:** [`tests-as-an-ordinary-user-h115-2026-11-24/findings.json`](tests-as-an-ordinary-user-h115-2026-11-24/findings.json)
   (H115-01 to H115-05)
-- **Files:** the new helper `tests/host_modes.py`, and the fixtures of `tests/unit/test_install_refuses_unsafe_folders_10k4.py`,
-  `tests/unit/test_rehearsal_real_servers_h89.py`, `tests/unit/test_rotate_kek_safety_h97.py` and
-  `tests/unit/test_ops_runner_on.py`. No product file changes, and no assertion changes.
+- **Files:** the new helper `tests/host_modes.py`, the fixtures of
+  `tests/unit/test_install_refuses_unsafe_folders_10k4.py`, `tests/unit/test_rehearsal_real_servers_h89.py`,
+  `tests/unit/test_rotate_kek_safety_h97.py` and `tests/unit/test_ops_runner_on.py`, and the new test
+  `tests/unit/test_test_root_modes_h115.py`. No product file changes, and no assertion changes.
+- **Files outside the card** (the lane H lead's go): `tools/pglocal.py` (the body of `mark_test_root`, with a new
+  private helper) and the `Makefile` (the `mkdir` of `TMPDIR` in `test-locked` and `test-random-locked`). Both are
+  shared test infrastructure, with no interface change (section 4).
 
 ## 1. How it was reproduced
 
@@ -62,7 +66,7 @@ so the card ran all 85, not only the files it could tie to lane H. The run was a
   run on master as the ordinary user, gives 137 passed for the three files, so this card leaves the file to #1455
   (H115-04).
 
-## 4. Open: the test root above `tmp_path`
+## 4. The test root above `tmp_path`
 
 `make test` puts `TMPDIR` and pytest's basetemp under `TB_TEST_ROOT`, by default `/var/tmp/trialbox-<uid>/tb-tests-<branch>`.
 The Makefile's `mkdir -p` and `tools/pglocal.py mark_test_root` make those folders with the runner's umask, so
@@ -75,7 +79,34 @@ With the parents at 0775, these fail: `test_backup_key_ceremony.py` 59, `test_ke
 `test_kek_passphrase_file_h96.py` 22, `test_rotate_exposed_passphrase_h97.py` 15, `test_rotate_kek_safety_h97.py`
 9, `test_poc_stops_review_h94.py` 3, `test_restic_password.py` 1, the runbook install commands file 1 and
 `test_seal_keys_order.py` 1. All of them pass when the parents are 0755. The walk's run 1 counts (ceremony 45,
-kek review 7) fit this cause. The fix belongs to the test tooling, outside the card, and waits for a ruling (H115-03).
+kek review 7) fit this cause (H115-03).
+
+**The fix (the lane H lead's go).** `mark_test_root` makes the folders it creates 0700, whatever the umask. It takes
+group and others' write from the test root, and from the folders up to the per-user scratch root when the test root
+lies under it. That includes a 0775 root left by an earlier run, as the bench host has. It changes only folders
+this user owns. It never changes a sticky folder, `/`, the home folder, a system folder or anything above the
+scratch root, and the search bit that `_grant_traverse` gives a database server's account stays. `test-locked` and
+`test-random-locked` make `TMPDIR` with `mkdir -m 0700 -p`. A conftest umask was not used, because it would hide
+the product's behaviour under the operator's real umask. `tests/unit/test_test_root_modes_h115.py` covers the three
+cases.
+
+**Proof**, by `make test`'s own steps (`pglocal mark`, then `make test-locked` with `PYTEST_N=4`). The run took
+the six files, the nine files above, the new test and seven database-backed neighbours that start a pglocal
+cluster: `test_pglocal_ensure_lock_h72.py`, `test_audit_writer.py`, `test_db_roles.py`, `test_db_reconnect.py`,
+`test_e2e_targets_mark_their_root.py`, `test_dev_loop.py` and `test_db_connections_given_back.py`.
+
+| As | umask | Test root before | Result | Folders after |
+| --- | --- | --- | --- | --- |
+| the ordinary user | 002 | `trialbox-1000` and the root 0775, from an earlier run | 740 passed, 1 skipped | 0755 and 0755 |
+| the ordinary user | 022 | new | 740 passed, 1 skipped | |
+| root (the server runs as another account) | 022 | `trialbox-0` and the root 0775 | 741 passed | 0755 and 0755 |
+
+A fresh run as root, with no `/var/tmp/trialbox-0` before it, created the scratch root and the test root at 0700.
+`_grant_traverse` then added the search bit only (0701), so the database server's own account reached its data
+folder: the database-backed neighbours and `test_backup_key_ceremony.py` gave 144 passed.
+
+The one skip is `test_seal_keys_order.py:162` ("changing a file's owner needs root"), which skips on master too.
+
 
 ## 5. Not verified
 

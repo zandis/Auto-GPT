@@ -11,7 +11,7 @@
    "claim": "run as an ordinary user with umask 002, the 10K-4, H-89 and H-97 rotate-kek fixtures built their stand-in trees writable by the group, and the product's unchanged checks rightly refused them (10K-4 43, H-89 10, H-97 3, the walk's counts); the fixtures now close the trees they build (tests/host_modes.py), with no assertion changed",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed b6917eee8a792e0a75198a1d2b2b1ec63f3a767f"
   },
   {
    "id": "H115-02",
@@ -19,15 +19,15 @@
    "claim": "test_doctor_fails_a_runner_that_never_ran (4 parameters) asked the machine's own systemd; on a box with trialbox-ops.timer enabled doctor rightly gives the enabled hint, not 'enable --now'; the test now gives doctor a host whose systemd cannot be asked",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed b6917eee8a792e0a75198a1d2b2b1ec63f3a767f"
   },
   {
    "id": "H115-03",
    "severity": "Medium",
-   "claim": "make test makes /var/tmp/trialbox-<uid>, TB_TEST_ROOT and its tmp/ with the runner's umask (0775 under umask 002); the product's checks that walk the real folders from / then refuse every tree under them (backup_key_ceremony 59, kek_passphrase_review_h96 17, kek_passphrase_file_h96 22, rotate_exposed_passphrase_h97 15, rotate_kek_safety_h97 9, poc_stops_review_h94 3, restic_password 1, runbook_install_commands 1, seal_keys_order 1); the fix is the test tooling's, outside the card, and waits for a ruling",
+   "claim": "make test makes /var/tmp/trialbox-<uid>, TB_TEST_ROOT and its tmp/ with the runner's umask (0775 under umask 002); the product's checks that walk the real folders from / then refuse every tree under them (backup_key_ceremony 59, kek_passphrase_review_h96 17, kek_passphrase_file_h96 22, rotate_exposed_passphrase_h97 15, rotate_kek_safety_h97 9, poc_stops_review_h94 3, restic_password 1, runbook_install_commands 1, seal_keys_order 1); tools/pglocal.py mark_test_root now makes the folders it creates 0700 and closes the test root and the folders up to the per-user scratch root it owns (an earlier run's 0775 root included), and the Makefile makes TMPDIR 0700",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 24866fd8d256d8d6d45aae61b073b2ba2de43e4b"
   },
   {
    "id": "H115-04",
