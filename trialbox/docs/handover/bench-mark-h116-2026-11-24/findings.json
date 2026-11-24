@@ -1,0 +1,33 @@
+{
+ "card": "H116",
+ "title": "the bench mark",
+ "date": "2026-11-24",
+ "source": "docs/handover/bench-mark-h116-2026-11-24.md",
+ "note": "basis 'shown' means shown by the card's local runs (the real installer on H-94's bench, stand-ins for the container engine); the container rehearsal and the bench host were not run.",
+ "findings": [
+  {
+   "id": "H116-01",
+   "severity": "Low",
+   "claim": "the rehearsal's test-boxes step runs on a pull request only when it touches a path in TEST_BOX_PATHS (the integrator's ruling 7124599679 and 7130040223); tools/trialbox/benchbox.py and deploy/settings_guard.sh are not on the list, so a change to the bench mark alone would not run the step that drives its real install path. Adding them changes what tests/unit/test_test_box_h106.py's STEP_PATHS asserts, which needs the integrator's ruling: a question on the line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H116-02",
+   "severity": "Low",
+   "claim": "a sending identity the site's settings bring (the wizard's SMTP_HOST, on a first install) is known only once deploy/.env is written, after the bundle is loaded: the install refuses there, before the stack starts, but the record is already written; every start and doctor refuse the box until the relay is taken out or the box is emptied. A relay already in deploy/.env is refused before anything is written",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H116-03",
+   "severity": "Low",
+   "claim": "tools/trialbox/update.py starts the stack again after an update through tools/apply_update.sh, which runs deploy/settings_guard.sh first, so the mark is checked there; a start by hand (docker compose up) is not checked, as for every other start check of settings_guard.sh",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}

@@ -980,6 +980,28 @@ test-boxes)
   [ "$rc" = 1 ] && echo "$out" | grep -q "this host runs test boxes ($P2)" && [ ! -e "$B3/current" ] && [ ! -e "$B3/deploy/.env" ] \
     || fail "a PRODUCTION install went on beside a test box (exit $rc): $out"
   ok "PRODUCTION refuses --test-box and refuses a host where a test box runs (variables planted), nothing loaded"
+  # H-116 (D-1357): a PRODUCTION box carrying the bench mark goes on beside the test box, and the mark comes from the
+  # install option only. Harm: a switch that puts a real-data box beside a test box without the owner's install
+  # option (a caller's variable, a hand-written mark, a mark on a box that is not PRODUCTION). The bundle here is a
+  # stand-in file, so each install stops by the signature check at the latest, after the host check, nothing loaded
+  NB="$W/not-a-bundle.tar"; printf 'not a bundle\n' > "$NB"
+  out="$(cd "$B3" && TB_BENCH=1 deploy/install.sh "$NB" --environment PRODUCTION --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "TB_BENCH is set in this run's environment" && [ ! -e "$B3/deploy/site/bench-box.env" ] \
+    || fail "a caller's TB_BENCH was taken (exit $rc): $out"
+  out="$(cd "$B3" && deploy/install.sh "$NB" --bench --environment TEST --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q -- "--bench marks a PRODUCTION box, not TEST" && [ ! -e "$B3/deploy/site/bench-box.env" ] \
+    || fail "--bench was taken on a TEST box (exit $rc): $out"
+  install -d "$B3/deploy/site" && printf 'TB_BENCH=1\n' > "$B3/deploy/site/bench-box.env"
+  out="$(cd "$B3" && deploy/install.sh "$NB" --environment PRODUCTION --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "does not carry the install's trace" && [ ! -e "$B3/current" ] \
+    || fail "a hand-written bench mark was taken (exit $rc): $out"
+  rm -f "$B3/deploy/site/bench-box.env"
+  out="$(cd "$B3" && deploy/install.sh "$NB" --bench --environment PRODUCTION --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "a bench box (PRODUCTION · BENCH); test boxes beside it on this host: $P2" \
+    && echo "$out" | grep -q "the bundle is not a valid signed TrialBox release" && [ ! -e "$B3/current" ] \
+    && [ "$(stat -c '%u %a' "$B3/deploy/site/bench-box.env")" = "0 644" ] \
+    || fail "a bench install did not go past the host check beside the test box (exit $rc): $out"
+  ok "BENCH: a caller's TB_BENCH, --bench on TEST and a hand-written mark refused; --bench on PRODUCTION goes on beside the test box (its mark root's, 0644), nothing loaded"
   # remove the test box: its own objects and folder only; the first box whole
   (cd "$BOX" && python3 -m tools.trialbox.testbox remove --name rh2 --yes) || fail "the test box could not be removed"
   left="$(docker ps -aq --filter label=com.docker.compose.project="$P2"; docker volume ls -q --filter label=com.docker.compose.project="$P2"; docker network ls -q --filter label=com.docker.compose.project="$P2")"

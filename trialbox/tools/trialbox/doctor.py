@@ -1538,6 +1538,9 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
     test = check_test_box(inp)  # H-106: a test box (never a rehearsal box) says so on this line
     if test.status != "PASS":
         return test
+    bench = check_bench_box(inp)  # H-116: a bench box (PRODUCTION, never a rehearsal box) says so on this line
+    if bench.status != "PASS":
+        return bench
     flag = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
     mark = _site_dir(inp) / "rehearsal.json"
     has_mark = mark.is_file()
@@ -1581,6 +1584,26 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
         "an unmeasured card are allowed; never a site's patients; nothing is qualified or promoted on it; D-726, "
         "D-887)",
     )
+
+
+def check_bench_box(inp: DoctorInputs) -> Check:
+    """BENCH (H-116, D-1357): a PRODUCTION box on the bench host says so, on every run, as a standing WARN no setting
+    turns off: "PRODUCTION · BENCH (real data, bench host)". Its mark (``deploy/site/bench-box.env``, written by
+    ``deploy/install.sh --bench``) must be the install's (root's, its trace, this folder's), on a PRODUCTION box with
+    no sending identity, and deploy/.env's TB_BENCH must agree: anything else FAILs."""
+    from tools.trialbox import benchbox
+
+    try:
+        mark = benchbox.check(_site_dir(inp).parent, dict(inp.env))
+    except benchbox.Refused as exc:
+        return Check("rehearsal", "FAIL", str(exc))
+    if mark is None:
+        return Check("rehearsal", "PASS", "not a bench box")
+    if (inp.env.get("TB_BENCH") or "").strip() != "1":
+        return Check("rehearsal", "FAIL", f"deploy/{benchbox.RECORD} marks a bench box but deploy/.env has no "
+                                         "TB_BENCH=1 (its pages would not say so): run deploy/install.sh --bench "
+                                         "again")  # fmt: skip
+    return Check("rehearsal", "WARN", mark.words())
 
 
 def check_test_box(inp: DoctorInputs) -> Check:
