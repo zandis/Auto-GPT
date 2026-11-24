@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 import pytest
-from criteria_compiler import service
+from tb_common.fhir import library_resource
 
 from tests.unit.test_compiler_service import _approve, _compile, _decisions, env  # noqa: F401 - env is a fixture
 
@@ -29,7 +29,7 @@ def test_the_fhir_libraries_built_for_the_load_are_under_fhir_load(
 ) -> None:
     res = _compile(env)
     env["deps"].fhir = Fhir()
-    real = service.library_resource
+    real = library_resource
     built: list[str] = []
 
     def slow_library(name: str, *a: Any) -> dict[str, Any]:  # the test's sleep where a loaded runner waited
@@ -38,7 +38,7 @@ def test_the_fhir_libraries_built_for_the_load_are_under_fhir_load(
             time.sleep(SLOW)
         return real(name, *a)
 
-    monkeypatch.setattr(service, "library_resource", slow_library)
+    monkeypatch.setattr("criteria_compiler.service.library_resource", slow_library)
     out = _approve(env, _decisions(env["store"], res.review_xlsx_key))
     assert out.status == "approved" and built.count("FHIRHelpers") == 1
     steps = out.step_seconds or {}
