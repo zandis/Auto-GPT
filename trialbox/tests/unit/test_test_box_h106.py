@@ -556,3 +556,13 @@ def test_a_box_named_by_box_gets_its_own_settings_and_says_test_box(tmp_path: Pa
     assert re.search(r"^WARN  rehearsal +TEST BOX rh2: one of several boxes on this host", r.stdout, re.M), r.stdout[
         -3000:
     ]
+
+
+def test_the_doctor_s_host_profile_needs_no_library_the_host_lacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Found by the rehearsal (CI job 138252867916): on the host's python3 (no pydantic), `trialbox --box NAME doctor`
+    ended in a traceback at host_profile, which imported tb_common.config after the checks. It reads TB_ENV itself."""
+    monkeypatch.setitem(sys.modules, "tb_common.config", None)  # as on a host: the import fails
+    out = doctor.host_profile(doctor.DoctorInputs(env={"TB_HOST_PROFILE": "poc", "TB_ENV": "TEST"}), [])
+    assert [c.name for c in out] == ["host_profile"] and out[0].status == "WARN"
+    prod = doctor.host_profile(doctor.DoctorInputs(env={"TB_HOST_PROFILE": "poc"}), [])
+    assert prod[-1].status == "FAIL" and "PRODUCTION" in prod[-1].detail

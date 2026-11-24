@@ -2302,9 +2302,9 @@ HOST_FACILITY_ONLY: dict[str, str] = {"audit_heads": "no anchor folder"}  # ease
 def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     if (inp.env.get("TB_HOST_PROFILE") or "").strip() != "poc":
         return out
-    from tb_common.config import environment_name
-
-    if environment_name(inp.env) == "PRODUCTION":
+    # tb_common.config's rule, without its import (it needs pydantic, which the host's python3 has not): this runs after
+    # the checks, where an ImportError ends the whole doctor (H-106: `trialbox --box NAME doctor` on the host)
+    if (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper() == "PRODUCTION":
         return [*out, Check("host_profile", "FAIL", "TB_HOST_PROFILE=poc on a PRODUCTION box: never relaxed there")]
     eased = [
         c.name
