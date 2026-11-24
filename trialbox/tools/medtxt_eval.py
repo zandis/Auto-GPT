@@ -74,8 +74,15 @@ def fetch() -> None:
     if dest.exists():
         return
     CACHE.mkdir(parents=True, exist_ok=True)
-    r = httpx.get(URL, timeout=120, follow_redirects=True)
-    r.raise_for_status()
+    try:
+        r = httpx.get(URL, timeout=120, follow_redirects=True)
+        r.raise_for_status()
+    except httpx.HTTPError as exc:  # one line with the cause, not a traceback of the transport layers
+        raise SystemExit(
+            f"the MedTxt corpus could not be fetched from the URL in tools/medtxt_eval.py "
+            f"({type(exc).__name__}: {exc}); "
+            "the cache (key: tools/medtxt.version) did not hold it either"
+        ) from exc
     tmp = CACHE / "Test collection.part"  # renamed once complete: a cut download never looks like the corpus
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         for n in z.namelist():

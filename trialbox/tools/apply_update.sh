@@ -54,22 +54,97 @@
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 UPDATES="$ROOT/deploy/updates"
+# ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
+# the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
+# (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk,
+# memory, card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does
+# not have it; (5) a secret would be read from, or written to, a place others can read. Every other stop calls
+# stop_or_warn: on a PoC box a warning, a line of the one list (deploy/site/poc-stops.jsonl, which trialbox doctor
+# shows) and the step goes on; on any other box the same stop as before, the same words and exit code. "H-94
+# depends (N)" marks a stop kept because it protects stop N on the input that reaches it (D-1091, H94-03).
+# A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
+# The sources are TB_ENV in deploy/.env read as compose reads it (an "export", blanks, a comment; the last line wins.
+# A file that cannot be read, or a value none of the four: PRODUCTION), an installed box with none (PRODUCTION,
+# D-127), the rehearsal mark on a box that records none yet (VALIDATION), and this run's command line, upper-cased
+# only, as ENV-EARLY reads it (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a
+# caller's environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+tb_env_raw() {  # FILE: TB_ENV's value as compose reads it (an "export", blanks around the name and the value, a comment
+  # after an unquoted value; the last line wins), quotes kept; nothing when the file names none or cannot be read
+  { sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$1" 2>/dev/null || true; } | tail -1 \
+    | sed -E -e "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//'
+}
+tb_env_of() { tb_env_raw "$1" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]'; }  # FILE: no quotes, no blanks, upper case
+tb_poc_box() {
+  _d="$TB_STOP_DEPLOY"; _rec=""
+  if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
+    [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
+    _rec="$(tb_env_of "$_d/.env")"
+  fi
+  if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
+  if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
+  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr '[:lower:]' '[:upper:]')"
+  [ -n "$_arg" ] || [ "$TB_STOP_REHEARSAL" != 1 ] || _arg=VALIDATION
+  for _e in "$_rec" "$_arg"; do case "$_e" in ""|DEV|TEST|VALIDATION) ;; *) return 1 ;; esac; done
+  [ -n "$_rec$_arg" ]
+}
+tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped for a JSON string
+  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's#[^ ]*/uploads/[^ ]*#<a path under uploads/>#g' \
+    -e 's/\([a-z0-9_]*\(password\|passphrase\|token\|secret\|_key\)\)=[^ ]*/\1=<hidden>/gI' -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
+  _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
+  [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
+  # a link is never followed, nor a second name of another file (review L-2 of #1430: one name, its own)
+  if [ ! -L "$_f" ] && { [ ! -e "$_f" ] || [ "$(stat -c %h "$_f" 2>/dev/null)" = 1 ]; } \
+      && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+      && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
+        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
+    chmod 0640 "$_f" 2>/dev/null || true
+  else
+    printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
+  fi
+}
+stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning, a line of the list, 0; else the stop
+  _rc=1; _silent=0
+  while :; do case "$1" in --rc) _rc="$2"; shift 2 ;; --silent) _silent=1; shift ;; *) break ;; esac; done
+  _key="$1"; _skipped="$2"; shift 2
+  if ! tb_poc_box; then
+    if command -v alive_stop >/dev/null 2>&1; then alive_stop; fi
+    [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
+    exit "$_rc"
+  fi
+  # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
+  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  tb_stop_list "$_key" "$_skipped" "$*"
+  return 0
+}
+tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
+  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
+  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
+  _in="$(cat)"
+  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
+    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
+  } | sort -u || true
+}
+# ---- end of STOP-OR-WARN
+# H-94: apply_update.sh has no --environment: its PoC box is the record (deploy/.env, the mark) alone
+TB_STOP_WHO=apply_update; TB_STOP_FILE=apply_update.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""; TB_STOP_REHEARSAL=0
 USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
   status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
   rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
   ospatch-check) cd "$ROOT"; shift; exec python3 "$ROOT/deploy/hardening/ospatch.py" check --deploy "$ROOT/deploy" "$@" ;;
-  ""|-h|--help) echo "$USAGE" >&2; exit 2 ;;
+  ""|-h|--help) echo "$USAGE" >&2; exit 2 ;;  # H-94 not a stop: the usage, asked for or with nothing to do
 esac
 OSPATCH=""; OSCONF=""
-if [ "$1" = ospatch ]; then OSPATCH=1; shift; [ $# -gt 0 ] || { echo "$USAGE" >&2; exit 2; }; fi
+if [ "$1" = ospatch ]; then OSPATCH=1; shift; [ $# -gt 0 ] || { echo "$USAGE" >&2; exit 2; }; fi  # H-94 (1): no bundle
 BUNDLE=$1
 shift
 DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; NOBACKUP_REASON=""; DOWNGRADE=""; WITH_MODEL=""; FOR_SOFTWARE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=--dry-run ;;
-    --conf) [ -n "$OSPATCH" ] || { echo "apply_update: --conf is for ospatch" >&2; exit 2; }; OSCONF=$2; shift ;;
+    --conf) if [ -n "$OSPATCH" ]; then OSCONF=$2; else stop_or_warn --rc 2 conf-without-ospatch "--conf $2 (ignored)" "--conf is for ospatch"; fi; shift ;;
     --target) TARGET=$2; shift ;;
     --no-backup) NOBACKUP=--no-backup ;;
     --no-backup-reason) NOBACKUP_REASON=${2:?--no-backup-reason needs a reason}; shift ;;
@@ -79,37 +154,39 @@ while [ $# -gt 0 ]; do
     --with-model-pack) WITH_MODEL=${2:?--with-model-pack needs a model pack}; shift ;;
     # H-95: a model pack with the software pack loaded straight after it (it must name this model pack)
     --for-software) FOR_SOFTWARE=${2:?--for-software needs a software pack}; shift ;;
-    *) echo "apply_update: unknown option $1" >&2; exit 2 ;;
+    *) echo "apply_update: unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: a usage error, refused by name on every box (review L-5 of #1430): an option not understood is never acted on, nor its value taken for the bundle
   esac
   shift
 done
-[ -z "$NOBACKUP_REASON" ] || [ -n "$NOBACKUP" ] || { echo "apply_update: --no-backup-reason goes with --no-backup" >&2; exit 2; }
+[ -z "$NOBACKUP_REASON" ] || [ -n "$NOBACKUP" ] || { stop_or_warn --rc 2 reason-without-no-backup "--no-backup-reason (ignored: the backup is made)" "--no-backup-reason goes with --no-backup"; NOBACKUP_REASON=""; }
 # D-1321: the box's environment as the update path reads it (deploy/.env's last TB_ENV line, the rehearsal mark
 # when it names none; tools/trialbox/update.py ComposeBox.environment)
 if [ -z "$OSPATCH" ] && [ -n "$NOBACKUP" ] && [ -z "$NOBACKUP_REASON" ]; then
-  BOX_ENV=""; [ -f "$ROOT/deploy/.env" ] && BOX_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  BOX_ENV=""; [ -f "$ROOT/deploy/.env" ] && BOX_ENV="$(tb_env_of "$ROOT/deploy/.env")"
   [ -z "$BOX_ENV" ] && [ -f "$ROOT/deploy/site/rehearsal.json" ] && BOX_ENV=TEST
   case "$BOX_ENV" in
     DEV|TEST|VALIDATION) ;;
-    *) echo "update REFUSED: --no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); nothing was changed" >&2; exit 2 ;;
+    *) TB_STOP_WHO="update REFUSED"; stop_or_warn --rc 2 no-backup-production "" "--no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); nothing was changed"; TB_STOP_WHO=apply_update ;;
   esac
 fi
 PUBKEY=${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}
 NEXTKEY="$ROOT/deploy/keys/vendor_ed25519.next.pub"
 IMAGE=${TB_PY_IMAGE:-trialbox-py:1.0.0}
 
-[ -f "$BUNDLE" ] || { echo "no such bundle: $BUNDLE" >&2; exit 2; }
+[ -f "$BUNDLE" ] || { echo "no such bundle: $BUNDLE" >&2; exit 2; }  # H-94 (1): no bundle, no signature
 if [ -f "$UPDATES/IN_PROGRESS.json" ]; then
   echo "update REFUSED: an update is unfinished ($UPDATES/IN_PROGRESS.json)." >&2
   echo "  tools/apply_update.sh status, then tools/apply_update.sh rollback <bundle> (nothing was changed)" >&2
+  # H-94 depends (1): the box is between two releases (its rollback point holds the signed one): nothing is applied
+  # over a release that is not shown whole
   exit 1
 fi
 SECRETS=${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}
 if [ -d "$SECRETS" ]; then
   ( cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.keys check --for-update --secrets "$SECRETS" ) \
-    || { echo "update REFUSED: the site keys (above); nothing was changed" >&2; exit 1; }
+    || { echo "update REFUSED: the site keys (above); nothing was changed" >&2; exit 1; }  # H-94 (5): a KEK beside the keys it seals, keys plain and wrapped
 fi
-[ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }
+[ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }  # H-94 (1)
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/tb-update.XXXXXX")
 chmod 0700 "$STAGE"  # H-95: a folder of its own, 0700 wherever TMPDIR points (mktemp -d makes it so; said here)
 trap 'rm -rf "$STAGE"' EXIT INT TERM HUP
@@ -139,14 +216,14 @@ if [ -n "$FOR_SOFTWARE" ]; then
 fi
 # the docker fallback passes these paths as mount arguments: no whitespace or glob characters in any of them
 case "$ROOT|$BUNDLE_ABS|$STAGE|$PUBKEY|$WITH_MODEL|$FOR_SOFTWARE" in
-  *[[:space:]*?\[]*) echo "update REFUSED: a path has a space or a glob character: $ROOT, $BUNDLE_ABS, $STAGE, $PUBKEY $WITH_MODEL $FOR_SOFTWARE" >&2; exit 2 ;;
+  *[[:space:]*?\[]*) echo "update REFUSED: a path has a space or a glob character: $ROOT, $BUNDLE_ABS, $STAGE, $PUBKEY $WITH_MODEL $FOR_SOFTWARE" >&2; exit 2 ;;  # H-94 (1): the verifier would check another file
 esac
 
 # host python3 with cryptography (a clean site host has it from the media's debs; tools/verify_update.py checks the
 # manifest schema without jsonschema there, D-176): on a first install the trialbox-py image is still inside the bundle
 if [ -z "${TB_VERIFY_IN_DOCKER:-}" ] && python3 -c "import cryptography" 2>/dev/null; then
   SUMMARY=$(PYTHONPATH="$ROOT/libs:$ROOT" python3 "$ROOT/tools/verify_update.py" "$@") \
-    || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }
+    || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }  # H-94 (1)
 else
   # this install's verifier (mounted read-only), not the one inside the image (the image may be a release older than
   # the manifest format); every host path keeps its own absolute path inside the container
@@ -157,7 +234,7 @@ else
   # shellcheck disable=SC2086
   SUMMARY=$(docker run --rm --network none --user "$(id -u):$(id -g)" $MOUNTS -e PYTHONPATH="$ROOT/libs:$ROOT" \
       "$IMAGE" python "$ROOT/tools/verify_update.py" "$@") \
-    || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }
+    || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }  # H-94 (1)
 fi
 echo "verified: $SUMMARY"
 
@@ -166,11 +243,11 @@ if [ -n "$OSPATCH" ]; then
   # shellcheck disable=SC2086
   python3 "$ROOT/deploy/hardening/ospatch.py" apply --stage "$STAGE" --deploy "$ROOT/deploy" \
     ${OSCONF:+--conf "$OSCONF"} $DRY
-  exit $?
+  exit $?  # H-94 not a stop: ospatch.py's own answer
 fi
 if [ -d "$STAGE/other/ospatch" ]; then
   echo "update REFUSED: $BUNDLE is an OS patch bundle: tools/apply_update.sh ospatch $BUNDLE (nothing was changed)" >&2
-  exit 1
+  exit 1  # H-94 (1): the signed bundle is not of the kind this command applies
 fi
 
 if [ "$DRY" = "--dry-run" ]; then
@@ -184,6 +261,8 @@ fi
 ( umask 077; printf '%s' "$SUMMARY" > "$STAGE/summary.json" )
 cd "$ROOT"
 # D-888: the update restarts the stack: never on the example settings while the site's exist
-sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }
+# H-94 (3): the start guard warns by itself on a PoC box for what is not one of the five (7102087475); what it still
+# refuses there is its kept refusal (3), a rehearsal box never starting as PRODUCTION (review M-1 of #1430)
+sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }  # H-94 (3)
 python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" --target "$TARGET" \
   --deploy "$ROOT/deploy" --bundle "$BUNDLE_ABS" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}

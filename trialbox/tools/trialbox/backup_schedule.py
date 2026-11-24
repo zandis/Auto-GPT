@@ -769,6 +769,13 @@ def _num(e: Mapping[str, str], key: str, default: float, errors: list[str], hi: 
     return v
 
 
+def absolute(path: Path) -> Path:
+    """H-100: ``path`` made absolute against the working folder, links kept (``--deploy deploy`` from the install
+    folder). The container engine reads a bind source that is not absolute (``deploy/secrets/backup.pub``) as the
+    name of a volume, so every folder and file the backup container binds goes through here first."""
+    return Path(os.path.abspath(path))
+
+
 def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Config:
     """The schedule's settings from ``deploy/.env`` (``env``, quotes removed), with the process environment winning
     (``process_env``; doctor passes its own merged settings and False)."""
@@ -778,7 +785,7 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
     return Config(
         deploy=deploy,
         targets=[Path(t) for t in _split(e.get("TB_BACKUP_TARGETS", ""))],
-        public_key=Path(e.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub"),
+        public_key=absolute(Path(e.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub")),
         production=(e.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION",
         keep=int(e.get("TB_BACKUP_KEEP") or 14),
         max_age_hours=float(e.get("TB_BACKUP_MAX_AGE_HOURS") or MAX_AGE_HOURS),
@@ -1066,6 +1073,7 @@ class ComposeOps:
     def __init__(self, deploy: Path, run: Callable[..., str] | None = None) -> None:
         from tools.trialbox import update
 
+        deploy = absolute(deploy)  # H-100: every folder the backup container binds is an absolute path
         self.deploy = deploy
         self.box = update.ComposeBox(deploy, run or update.run_cmd)
         self.env = self.box.env
@@ -1116,7 +1124,7 @@ class ComposeOps:
         if why:
             return False, why
         env: dict[str, str] = dict(os.environ)
-        env.update({k: self.env[k] for k in ("TB_KEK_FILE", "TB_KEK_PASSPHRASE") if k in self.env})
+        env.update({k: self.env[k] for k in ("TB_KEK_FILE",) if k in self.env})  # H-97: never the passphrase
         try:
             made = rr.make_key(sec, env)
         except Exception as e:  # a locked KEK, a plain key left there: named, never with a key in it
@@ -1204,7 +1212,15 @@ class ComposeOps:
             if src.is_file():
                 shutil.copy2(src, dest / name)
                 taken.append(name)
-        skip = shutil.ignore_patterns("backup.lock", ".audit-*", "*.tmp")
+        patterns = shutil.ignore_patterns("backup.lock", ".audit-*", "*.tmp")
+        licensed = self.deploy / "site" / "terminology"
+
+        def skip(folder: str, names: list[str]) -> set[str]:
+            # V-18 (D-1182): the hospital's licensed copies (deploy/site/terminology, the default TB_LICENSED_DIR)
+            # never leave the box; a restore reloads them from the hospital's folder
+            out = set(patterns(folder, names))
+            return out | ({"terminology"} if Path(folder) == licensed.parent else set())
+
         for sub in ("site", "secrets"):
             if (self.deploy / sub).is_dir():
                 shutil.copytree(self.deploy / sub, dest / sub, symlinks=True, ignore=skip, dirs_exist_ok=True)
@@ -1700,6 +1716,7 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
     PRODUCTION: no alert route)."""
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     cfg = config(deploy, update._env_file(deploy / ".env"))
     for x in cfg.setting_errors:  # D-735 (review): a bad setting is said where the backup is installed
         print(f"backup-install: bad setting: {x}")
@@ -1807,6 +1824,7 @@ def run_backup(deploy: Path, ops: ComposeOps | None = None, quiesce: str | None 
     ``off``, no pgBackRest). Raises :class:`BackupBusy` when another run holds the lock."""
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     with _lock(deploy) as mine:
         if not mine:
             raise BackupBusy("another backup run holds deploy/site/backup.lock")
@@ -1841,6 +1859,7 @@ def main_nightly(deploy: Path) -> int:
 def main_status(deploy: Path, as_json: bool = False, quiet: bool = False, cron_dir: Path = Path("/etc/cron.d")) -> int:
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     cfg = config(deploy, update._env_file(deploy / ".env"))
     ops = ComposeOps(deploy)
     st = status(cfg, archiver=_try(ops.archiver) if cfg.archive_on else None)

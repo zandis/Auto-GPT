@@ -1,6 +1,8 @@
-# The prepared box's first boot at the site (T-729, D-466): shows the first-run wizard's address and one-time code on
-# the box's screen (and /etc/issue.d), waits for the owner to finish the wizard, then applies the answers. Enabled
-# only by `deploy/box-install.sh --prepare`; runs while the box is still a prepared one (deploy/site/box/prepared).
+# The prepared box's first boot at the site (T-729, D-466): shows the first-run wizard's address and one-time code,
+# waits for the owner to finish the wizard, then applies the answers. Enabled only by `deploy/box-install.sh
+# --prepare`; runs while the box is still a prepared one (deploy/site/box/prepared). Its output goes to the journal
+# and the console; the one-time code never does (H-97): box-install.sh writes it to the box's screen directly and to
+# a root-only file it names (sudo cat /root/trialbox-firstrun-code), never to a file others can read.
 [Unit]
 Description=TrialBox first run: the owner's set-up wizard
 After=trialbox.service network-online.target

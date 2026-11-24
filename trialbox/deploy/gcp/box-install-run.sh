@@ -129,8 +129,7 @@
 # Nothing prints a key: no `set -x`. Knobs for the rehearsal only (tests/rehearsal/box-run; never set on the VM):
 # TB_BOXRUN_ROOT, TB_BOXRUN_LOGDIR, TB_BOXRUN_SBIN, TB_BOXRUN_TLS, TB_BOXRUN_SERIAL, TB_BOXRUN_BOOT_ID, TB_BOXRUN_PY,
 # TB_BOXRUN_MINUTE_S, TB_BOXRUN_POLL_S, TB_BOXRUN_DOOR_HOST, TB_BOXRUN_SHM (the tmpfs of the key), TB_BOXRUN_CGROUP
-# (the cgroup root), TB_ISSUE_DIR (deploy/box-install.sh's own knob: where the box's screen text goes),
-# TB_BOXRUN_INSTALL (the validation install command), TB_BOXRUN_MOUNT (the bind mount of the weights), TB_BOXRUN_TODAY,
+# (the cgroup root), TB_BOXRUN_INSTALL (the validation install command), TB_BOXRUN_MOUNT (the bind mount of the weights), TB_BOXRUN_TODAY,
 # TB_BOXRUN_ACC_PY (the python that runs lane G's accuracy tools on the VM), TB_BOXRUN_SYS and TB_BOXRUN_ROOT_MAJMIN (a
 # stand-in sysfs and root device for grow_root).
 TB=${TB_BOXRUN_ROOT:-/var/lib/tb}
@@ -643,7 +642,9 @@ session_runs_closed() {  # $1 why: CLOSED for each run listed, while no session 
   rm -f "$SES/closed.txt"
   if [ -n "$left" ]; then printf '%s' "$left" > "$SES/unclosed"; else rm -f "$SES/unclosed"; fi
 }
-ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
+# H-97: with no terminal (this script's background run), box-install.sh keeps the one-time code in a root-only file
+# in the home the passwd entry names (never the journal, never /etc/issue.d); the wizard step reads it there
+ISSUE="$(getent passwd "$(id -u)" | cut -d: -f6)/trialbox-firstrun-code"
 BUNDLE="$TB/bundle/$RUN_ID.tar"
 ANSWERS="$TB/wizard-answers"
 REC="$RUN/records"
@@ -1577,7 +1578,7 @@ step_wizard() {
   echo "+ box-install.sh --firstrun (background) $(date -u +%T)" >> "$STEP_LOG"
   d_firstrun >> "$RUN/logs/firstrun.log" 2>&1 < /dev/null &
   pid=$!
-  # the code is on the box's screen once the installer shows it; a box whose answers were applied before shows none
+  # the code is in the root-only file once the installer shows it; a box whose answers were applied before shows none
   watched vm wizard --issue "$ISSUE" --answers "$ANSWERS" --connect "$CONNECT" --cacert "$CACERT" \
     --wait $((HEALTHM * MIN_S)) --notes "$NOTES" &
   local wpid=$! wrc=""

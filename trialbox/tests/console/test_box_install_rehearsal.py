@@ -2,7 +2,8 @@
 with stand-ins only where a Docker daemon would be (the inner ``install.sh``, ``docker compose up``, the host check)
 and the image's Python run in place. The console's first-run wizard runs in process on the same first-run folder.
 So the path "install with only the wizard's answers" is exercised: the hardware is confirmed, the plan is made, the
-install is called with the plan's flags in box mode, the code reaches the box's screen (the issue file), the owner
+install is called with the plan's flags in box mode, the code reaches the root-only file (H-97: with no terminal, as
+the boot's service runs it; never the output, which the journal keeps), the owner
 answers in the browser, and the apply step rewrites the settings and ``.env`` from those answers alone (keeping the
 install's passwords) and restarts the stack. What only a real box proves is listed in D-466 for T-213b."""
 
@@ -18,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 from console.app import create_app
 from console.auth import UserStore
@@ -27,6 +29,7 @@ from tb_common.audit import AuditLog
 from tests.console.test_console_app import PILOT_ENV, FakeBackend
 from tests.console.test_firstrun import HW, _answers
 from tests.unit.test_install_refuses_unsafe_folders_10k4 import GOOD, fake_host, knobs
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 
 ROOT = Path(__file__).resolve().parents[2]
 PRO6000 = "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
@@ -57,6 +60,12 @@ def _tree(tmp_path: Path) -> dict[str, Path]:
     )
     for name in ("compose", "hostcheck"):
         (stubs / name).write_text(f'#!/bin/sh\necho "{name} $*" >> {calls}\n', encoding="utf-8")
+    # H-97: the passwd entry names the home of the root-only code file (a stand-in getent: never the tester's own home)
+    pw_home = tmp_path / "pwhome"
+    pw_home.mkdir()
+    (stubs / "getent").write_text(
+        f'#!/bin/sh\necho "tester:x:$(id -u):$(id -g)::{pw_home}:/bin/sh"\n', encoding="utf-8"
+    )
     for f in stubs.iterdir():
         f.chmod(0o755)
     hw = tmp_path / "hardware.json"
@@ -65,13 +74,13 @@ def _tree(tmp_path: Path) -> dict[str, Path]:
     env = {
         **os.environ, "TB_BOX_NO_ROOT": "1", "TB_BOX_HARDWARE": str(hw), "TB_BOX_INSTALL": str(install),
         "TB_BOX_PY": sys.executable, "TB_BOX_COMPOSE": str(stubs / "compose"),
-        "TB_BOX_HOST_CHECK": str(stubs / "hostcheck"), "TB_ISSUE_DIR": str(tmp_path / "issue.d"),
+        "TB_BOX_HOST_CHECK": str(stubs / "hostcheck"), "PATH": f"{stubs}{os.pathsep}{os.environ.get('PATH', '')}",
         "TB_FIRSTRUN_HOST_DIR": str(fr), "TB_BOX_POLL_S": "0.2", "TB_SYSTEMD": "0",
     }  # fmt: skip
     bundle = tmp_path / "trialbox-1.0.0.tar"
     bundle.write_bytes(b"stand-in bundle")
     return {"box": box, "deploy": deploy, "calls": calls, "fr": fr, "bundle": bundle, "env": env,  # type: ignore[dict-item]
-            "issue": tmp_path / "issue.d" / "trialbox-firstrun.issue"}  # fmt: skip
+            "issue": pw_home / "trialbox-firstrun-code"}  # fmt: skip  # H-97: the root-only file, no terminal
 
 
 def _wait(path: Path, proc: subprocess.Popen[str], seconds: float = 60) -> str:
@@ -91,7 +100,8 @@ def test_a_box_installs_from_the_installer_with_only_the_wizards_answers(tmp_pat
     (tmp_path / "stubs" / "probe").chmod(0o755)
     t["env"] = {**t["env"], **knobs(h), "TB_BOX_DOCKER": str(tmp_path / "stubs" / "probe")}
     proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
-                            env=t["env"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
+                            env=t["env"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            start_new_session=True)  # fmt: skip
     try:
         screen = _wait(t["issue"], proc)
         code = re.search(r"One-time code:\s+(\S+)", screen)
@@ -172,7 +182,7 @@ def test_a_stopped_install_stops_the_box_installer(tmp_path: Path) -> None:
 
 # ------------------------------------------------------------------------------------------------ BOX-WSL2 (D-571)
 def _until_code(proc: subprocess.Popen[str], seconds: float = 60) -> str:
-    """The script's output up to the line that holds the one-time code."""
+    """The script's output up to the line that says where the one-time code is (H-97: never the code itself)."""
     assert proc.stdout is not None
     seen = ""
     end = time.monotonic() + seconds
@@ -181,38 +191,30 @@ def _until_code(proc: subprocess.Popen[str], seconds: float = 60) -> str:
         if not line:
             break
         seen += line
-        if "One-time code:" in line:
+        if "the one-time code is" in line:
             return seen
-    raise AssertionError(f"no code on the output:\n{seen[-2000:]}")
+    raise AssertionError(f"no line about the code on the output:\n{seen[-2000:]}")
 
 
-def test_under_wsl2_the_code_is_on_the_output_and_no_issue_file_is_written(tmp_path: Path) -> None:
-    """No screen shows /etc/issue.d under WSL2; the Windows installer's window shows the script's output."""
+@pytest.mark.parametrize("wsl2", ["1", "0"])
+def test_on_or_off_wsl2_the_code_is_never_on_the_output_and_no_issue_file_is_written(tmp_path: Path, wsl2: str) -> None:
+    """H-97 (ruling 7101844662): with no terminal (the boot's service; a run whose output a log keeps) the code is in
+    the root-only file the output names, on or off WSL2; never on the output and never in /etc/issue.d. (Under WSL2
+    the Windows installer's window is the controlling terminal: tests/unit/test_first_run_code_h97.py.)"""
     t: dict[str, Any] = _tree(tmp_path)
     proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
-                            env={**t["env"], "TB_BOX_WSL2": "1"}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)  # fmt: skip
-    try:
-        out = _until_code(proc)
-        assert "TrialBox set-up:  https://box1.local/login/first-run" in out
-        assert re.search(r"One-time code:\s+\S+", out)
-        assert (t["fr"] / "code.json").is_file()  # the wizard is waiting for that code
-        assert not t["issue"].exists() and not t["issue"].parent.exists()
-    finally:
-        proc.kill()
-        proc.communicate()
-
-
-def test_off_wsl2_the_code_is_on_the_output_and_on_the_boxs_screen(tmp_path: Path) -> None:
-    t: dict[str, Any] = _tree(tmp_path)
-    proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
-                            env={**t["env"], "TB_BOX_WSL2": "0"}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)  # fmt: skip
+                            env={**t["env"], "TB_BOX_WSL2": wsl2}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, start_new_session=True)  # fmt: skip
     try:
         out = _until_code(proc)
         screen = _wait(t["issue"], proc)
-        code = re.search(r"One-time code:\s+(\S+)", out)
-        assert code and code.group(1) in screen and "https://box1.local/login/first-run" in screen
+        code = re.search(r"One-time code:\s+(\S+)", screen)
+        assert code and "https://box1.local/login/first-run" in screen
+        assert code.group(1) not in out and "One-time code" not in out
+        assert f"in {t['issue']} (root only, 0600)" in out and f"sudo cat {t['issue']}" in out
+        assert oct(t["issue"].stat().st_mode & 0o777) == "0o600"
+        assert (t["fr"] / "code.json").is_file()  # the wizard is waiting for that code
+        assert not (tmp_path / "issue.d").exists()
     finally:
         proc.kill()
         proc.communicate()
@@ -226,7 +228,8 @@ def test_the_wsl2_switch_reads_the_kernel_and_its_knob_takes_two_values(tmp_path
     def wsl2(release: str, knob: str | None) -> subprocess.CompletedProcess[str]:
         script = (
             f'set -euo pipefail\ndie() {{ echo "box-install: $*" >&2; exit 1; }}\nuname() {{ echo "{release}"; }}\n'
-            f'{block}\necho "WSL2=$WSL2"\n'
+            + stop_prelude(who="box-install")
+            + f'{block}\necho "WSL2=$WSL2"\n'
         )
         env = {"PATH": os.environ["PATH"], **({} if knob is None else {"TB_BOX_WSL2": knob})}
         return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=False)
@@ -362,7 +365,8 @@ def test_the_installer_writes_the_preflight_for_the_first_run_page(tmp_path: Pat
     f = _stale(t)
     proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
                             env={**t["env"], "TB_BOX_WSL2": "1", "TB_BOX_PREFLIGHT": sys.executable},
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            start_new_session=True)  # fmt: skip
     try:
         _until_code(proc, 150)
         doc = json.loads(f.read_text(encoding="utf-8"))
@@ -384,7 +388,8 @@ def test_a_preflight_that_hangs_never_holds_the_code_back(tmp_path: Path) -> Non
     hangs.chmod(0o755)
     env = {**t["env"], "TB_BOX_WSL2": "1", "TB_BOX_PREFLIGHT": str(hangs), "TB_BOX_PREFLIGHT_S": "1"}
     proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
-                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
+                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            start_new_session=True)  # fmt: skip
     t0 = time.monotonic()
     try:
         out = _until_code(proc)
