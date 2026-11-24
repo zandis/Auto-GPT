@@ -2,8 +2,8 @@
 
 - **Task:** lane R1, plan 11 (`docs/plan/48-plan-11-2026-11.md`); the number is from lane M's block, given for this
 - **Date:** 2026-11-23
-- **Status:** **accepted.** The owner signed it after this revision: "Sign after the revision" (relayed by the
-  integrator to lane R1, 2026-11-23 23:26 UTC). Its merge freezes ring 1 under D-1070's rule of the rings.
+- **Status:** **accepted.** The owner signed it after this revision: "Sign after the revision" [#639 7116958500].
+  Its merge freezes ring 1 under D-1070's rule of the rings.
 
 ## Ruling
 
@@ -58,7 +58,7 @@
 
 The owner's rulings of 2026-11-23 on #639: 7107908330, 7108012824, 7108087457 and 7108195110, relayed by the
 integrator; the owner's ruling to compare like with like, 7108816601; the owner's answers to the four choices,
-7116870102; the owner's data rule, 7099836527.
+7116870102; the owner's signing, 7116958500; the owner's data rule, 7099836527.
 
 ## Used by
 
