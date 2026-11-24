@@ -239,3 +239,10 @@ Each opened profile is held to its own card's memory on the bench's card (its ut
 `--gpu rtxpro6000` (96 GB) or `--gpu rtx5090` (32 GB, a whole card), with `--gpu-index N` naming the card the probe was
 taken on. The 32 GB profile on a split card's slice, dgpu48, gb10 and the Windows (WSL2) host are not opened; the
 page says why.
+
+## Several test boxes on one host (H-106)
+
+Several TEST boxes side by side on one host (the bench host), their three commands and what a test box is and is
+not: [part 30](30-several-test-boxes-on-one-host.md). The rehearsal's `test-boxes` step installs one beside the
+rehearsal box (on a train, and on a pull request that touches the compose files, `install.sh`, `update.py`, the
+doctor or this workflow; elsewhere it is reported skipped).
