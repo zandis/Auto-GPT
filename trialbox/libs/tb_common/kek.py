@@ -114,8 +114,22 @@ def key_present(path: Path) -> bool:
     return path.exists() or wrapped_path(path).exists()
 
 
-def _write_private(path: Path, data: bytes) -> None:
-    """Write ``data`` to ``path`` (mode 0600) through a temporary file and a rename."""
+def services_owner(secrets_dir: Path) -> tuple[int, int] | None:
+    """LR-3: the account a key file written for the services must belong to: the secrets folder's owner (uid 10001
+    on a box, D-887), when this runs as root and that owner is not root; else None, and the writer keeps the file.
+    Read from the folder itself, never from the environment."""
+    if os.geteuid() != 0:
+        return None
+    try:
+        st = os.stat(secrets_dir)
+    except OSError:
+        return None
+    return None if st.st_uid == 0 else (st.st_uid, st.st_gid)
+
+
+def _write_private(path: Path, data: bytes, owner: tuple[int, int] | None = None) -> None:
+    """Write ``data`` to ``path`` (mode 0600) through a temporary file and a rename. With ``owner`` the file is that
+    account's before it takes its name (LR-3): no reader of ``path`` ever finds it root's."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -123,6 +137,8 @@ def _write_private(path: Path, data: bytes) -> None:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
             fh.flush()
+            if owner is not None:
+                os.fchown(fh.fileno(), *owner)
             os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
@@ -151,7 +167,8 @@ def read_meta(secrets_dir: Path) -> dict[str, Any] | None:
 
 def write_meta(secrets_dir: Path, meta: Mapping[str, Any], *, suffix: str = "") -> Path:
     path = secrets_dir / (META_FILE + suffix)
-    _write_private(path, (json.dumps(dict(meta), indent=1, sort_keys=True) + "\n").encode())
+    _write_private(path, (json.dumps(dict(meta), indent=1, sort_keys=True) + "\n").encode(),
+                   services_owner(secrets_dir))  # fmt: skip
     return path
 
 
@@ -423,12 +440,17 @@ def load_kek(secrets_dir: Path, env: Mapping[str, str] | None = None) -> bytes:
     if meta is None:
         raise KekError(f"{secrets_dir} has wrapped keys but no {META_FILE}: the KEK cannot be checked")
     for src in kek_sources(secrets_dir, env):
-        if not src.is_file():
-            continue
-        why = kek_file_problem(src, secrets_dir)
-        if why:
-            raise KekError(why)
-        kek = src.read_bytes()
+        try:
+            if not src.is_file():
+                continue
+            why = kek_file_problem(src, secrets_dir)
+            if why:
+                raise KekError(why)
+            kek = src.read_bytes()
+        except OSError as exc:  # LR-4: a KEK this account cannot read is a custody problem, said as one
+            raise KekError(f"the KEK file {src} cannot be read by this account ({type(exc).__name__}): it must belong "
+                           "to the secrets folder's owner (python -m tools.keys unseal, run as root, gives it "
+                           "to that owner)") from None  # fmt: skip
         if len(kek) != KEK_LEN or not hmac.compare_digest(kek_id(kek), str(meta["kek_id"])):
             raise KekError(f"{src} is not this box's KEK (kek.json names {meta['kek_id']})")
         return kek
@@ -506,11 +528,12 @@ def read_wrapped(path: Path) -> dict[str, Any]:
 
 def store_key(path: Path, key: bytes, kek: bytes | None) -> Path:
     """Write ``key`` for ``path``: wrapped under ``kek`` (``<path>.wrapped``), or plain when ``kek`` is None."""
+    owner = services_owner(path.parent)  # LR-3: the services read it
     if kek is None:
-        _write_private(path, key)
+        _write_private(path, key, owner)
         return path
     w = wrapped_path(path)
-    _write_private(w, (json.dumps(wrap(kek, key, path.name), indent=1, sort_keys=True) + "\n").encode())
+    _write_private(w, (json.dumps(wrap(kek, key, path.name), indent=1, sort_keys=True) + "\n").encode(), owner)
     return w
 
 
