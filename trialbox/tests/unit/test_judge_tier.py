@@ -43,8 +43,13 @@ def test_postprocess_requires_verbatim_quote() -> None:
     assert postprocess({"verdict": "unknown", "confidence": 0.2}, ex).predicate == "unknown"
 
 
-def _v(cid: str, verdict: str, conf: float | None = None, quote: str | None = None) -> CriterionVerdict:
-    return CriterionVerdict(id=cid, verdict=verdict, evidence=Evidence(resource_refs=[], confidence=conf, quote=quote))  # type: ignore[arg-type]
+def _v(
+    cid: str, verdict: str, conf: float | None = None, quote: str | None = None, affirmed: bool | None = None
+) -> CriterionVerdict:
+    """``affirmed``: R22-16 round 5 (#639 7115208555, 7115258794), both models of judge v6 affirmed the note
+    exclusion's "present"; a row that does not say never excludes (pinned beside each control)."""
+    ev = Evidence(resource_refs=[], confidence=conf, quote=quote)
+    return CriterionVerdict(id=cid, verdict=verdict, evidence=ev, affirmed=affirmed)  # type: ignore[arg-type]
 
 
 # R22-17 (D-1069; ruled on #639 7079180333): a note inclusion's "not met" (GZQO-INC-05) no longer excludes, so the
@@ -67,7 +72,8 @@ def test_tiers() -> None:
         tier(GZQO, [*base, _v("GZQO-INC-05", "unknown"), _v("GZQO-EXC-11", "pass", 0.9)], 0.75, note_block=True)[0]
         == "review"
     )
-    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.9, FLARE_ZH)], 0.75, note_block=True)[0] == "excluded"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.9, FLARE_ZH, True)], 0.75, note_block=True)[0] == "excluded"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.9, FLARE_ZH)], 0.75, note_block=True)[0] == "review"  # unsaid
     assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.9)], 0.75, note_block=True)[0] == "review"
     assert (
         tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.5)], 0.75, note_block=True)[0] == "review"
@@ -128,7 +134,8 @@ def test_note_block_never(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     may = effective_note_block(pair)[0]
     assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=may)[0] == "review"
     assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH)], 0.75, note_block=may)[0] == "review"
-    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH)], 0.75, note_block=True)[0] == "excluded"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH, True)], 0.75, note_block=True)[0] == "excluded"
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH)], 0.75, note_block=True)[0] == "review"
     assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=True)[0] == "review"
     bad = [_v(v.id, "fail") if v.id == "GZQO-INC-03" else v for v in base]
     assert tier(GZQO, bad, 0.75, note_block=may)[0] == "excluded"  # a structured fail still excludes
@@ -183,7 +190,8 @@ def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:
 
     class PresentJudge(NoteJudge):
         def judge_patient(self, pid, c, index_date, full=False):  # type: ignore[no-untyped-def]
-            return NoteResult("pass", 0.99, quote=FLARE_ZH, reason="note says so")
+            # R22-16 round 5: both models of judge v6 affirmed it (the pair below); one model's never excludes
+            return NoteResult("pass", 0.99, quote=FLARE_ZH, reason="note says so", affirmed=True)
 
     kx = dict(only={"GZQO-EXC-11"}, workers=1, full_record_fallback=False)
     lone_x = PresentJudge(SimpleNamespace(), SimpleNamespace(model="j", served_root="j"), "judge", verifier=None)  # type: ignore[arg-type]

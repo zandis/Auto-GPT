@@ -247,7 +247,8 @@ class StatedFlareJudge:
         for ex in kw["excerpts"]:
             for s in re.split(r"(?<=[。\n])", str(ex["text"])):
                 if "急性痛風發作中" in s:
-                    return JudgeReply("pass", 0.95, s.strip(), str(ex["date"]), "stated")
+                    # R22-16 round 5 (#639 7115208555): a pair of judge v6 that affirmed it
+                    return JudgeReply("pass", 0.95, s.strip(), str(ex["date"]), "stated", affirmed=True)
         return JudgeReply("unknown", 0.5, None, None, "not stated")
 
 
