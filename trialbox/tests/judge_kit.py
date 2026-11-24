@@ -46,9 +46,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # ------------------------------------------------------------------------------------------------ cascade judge
 def reply(
-    verdict: str, confidence: float = 0.95, quote: str | None = None, quote_date: str | None = None
+    verdict: str,
+    confidence: float = 0.95,
+    quote: str | None = None,
+    quote_date: str | None = None,
+    affirmed: bool | None = None,
 ) -> JudgeReply:
-    return JudgeReply(verdict, confidence, quote, quote_date, "scripted", call_id="c1", prompt="judge@test")
+    """A pair's reply. ``affirmed``: both models said the quote affirms the condition, the patient's, now (judge v6,
+    #639 7115208555); by default a decided answer is affirmed, as a careful reader of a stated condition says it."""
+    yes = verdict in ("pass", "fail") if affirmed is None else affirmed
+    return JudgeReply(verdict, confidence, quote, quote_date, "scripted", call_id="c1", prompt="judge@test",
+                      affirmed=yes)  # fmt: skip
 
 
 class ScriptedJudge:
@@ -100,8 +108,22 @@ class ScriptedModel:
 
     def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> LlmResult:
         self.calls += 1
-        data = self.answer(variables)
+        data = with_assertion(self.answer(variables))
         return LlmResult(data, prompt_id, 4, self.served, "local", "i" * 64, "o" * 64, 100, 20, 1)
+
+
+#: judge v6's three fields on the quote (#639 7115208555) a scripted model gives when its answer leaves them out: a
+#: careful reader's "yes" states the condition, the patient's, now; its "no" states it absent; an abstention none
+ASSERTION = {"pass": ("affirmed", "patient", "current"), "fail": ("negated", "patient", "current")}
+
+
+def with_assertion(data: dict[str, Any]) -> dict[str, Any]:
+    """``data`` with ``certainty``, ``experiencer`` and ``time`` filled in by :data:`ASSERTION` where it says none: a
+    script that gives them (another person's condition, a missing field as None) keeps its own."""
+    if not isinstance(data, dict) or any(k in data for k in ("certainty", "experiencer", "time")):
+        return data
+    c, e, t = ASSERTION.get(str(data.get("verdict")), (None, None, None))
+    return {**data, "certainty": c, "experiencer": e, "time": t}
 
 
 def says(verdict: str, quote: str | None, confidence: float = 0.9, quote_date: str | None = None) -> Callable[..., dict[str, Any]]:  # fmt: skip
