@@ -275,3 +275,19 @@ record, so the new remove deletes none of it. The integrator's ruling (713300020
 its own named command, only what the walk's install log ties to that install, both lists posted). The same ruling
 takes the remove test's change (only `$OPT` goes; the settings folder with a planted settings file survives, run).
 
+## The re-review of #1466 at ee78d84 (fix first): 1466-11, 1466-12, 1466-13
+
+The re-review (7135144815, verdict 7135149037); each is held by a test in `tests/unit/test_bench_ci_host_h105.py`:
+
+- **1466-11 (Medium):** on a host with an install from before the record, install recorded almost nothing, remove
+  took almost nothing, and "nothing left" passed. The host test now refuses to start when there is no record and the
+  user, `/opt/tb-bench-ci`, its home or a unit is there, and points at runbook 13's section for such an install
+  (`test_the_host_test_refuses_a_host_with_an_install_that_left_no_record`).
+- **1466-12:** an id range in only one of the two id files (a by-hand line) stops the install before any change;
+  install records and adds the ranges only when neither file has one
+  (`test_an_id_range_in_only_one_file_stops_the_install`).
+- **1466-13:** a user or host name is replaced only as a word of its own; paths still wherever they stand
+  (`test_a_short_user_or_host_name_is_redacted_only_as_a_word`).
+- **1466-3 (Medium), H105-11:** open; the walk confirms (7135160993) it never ran the host test and its only install
+  is the one at 1fc6579e, which runbook 13's section removes first.
+

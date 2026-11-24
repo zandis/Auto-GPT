@@ -452,6 +452,7 @@ def _host_run(tmp_path: Path, install_rc: int, extra: str = "") -> tuple[subproc
     (tmp_path / "settings.env").write_text("x\n", encoding="utf-8")
     (fake / "install.sh").write_text(
         f'TOKEN="{tmp_path}/token"; SETTINGS="{tmp_path}/settings.env"; MADE="{tmp_path}/made"; UNITS="{tmp_path}"\n'
+        f'OPT="{tmp_path}/opt"; HOME_DIR="{tmp_path}/home-dir"; USER_NAME=tb-bench-none-here\n'
         "get() { return 1; }; as_tb() { :; }\n"
         'if [ "${BASH_SOURCE[0]}" = "$0" ]; then\n'
         f'  echo "$1" >> "{marks}"\n'
@@ -539,3 +540,39 @@ def test_the_runbook_says_how_to_remove_an_install_from_before_the_record() -> N
     deletes = [c for c in commands if re.search(r"\brm\b", c)]
     assert deletes and not any("*" in c or "-f" in c.split() or "-rf" in c for c in deletes), deletes
     assert "matched against that install's log" in section and "posts the list" in section
+
+
+def test_the_host_test_refuses_a_host_with_an_install_that_left_no_record(tmp_path: Path) -> None:
+    """OCR 1466-11: over an install from before the record, install records almost nothing, remove deletes almost
+    nothing and nothing_left passes: the test must not start there."""
+    (tmp_path / "opt").mkdir()
+    got, marks = _host_run(tmp_path, install_rc=0)
+    assert got.returncode == 2 and marks == "", got.stdout + got.stderr
+    assert "an install with no record is here" in got.stderr and "before H-105b" in got.stderr
+
+
+def test_a_short_user_or_host_name_is_redacted_only_as_a_word(tmp_path: Path) -> None:
+    """OCR 1466-13: a user "ox" or a host "bench" turned "trialbox" and "tb-bench" into stand-ins mid-word."""
+    body = (
+        f'hostname() {{ echo bench; }}\ngetent() {{ echo "x:x:1:1::{tmp_path}/h:/bin/sh"; }}\nSUDO_USER=ox\n'
+        f'add_redactions "{tmp_path}/f"\necho "trialbox tb-bench ox bench {tmp_path}/h/x" | redact'
+    )
+    got = _bash(HOST_TEST, body)
+    assert got.stdout.strip() == "trialbox tb-bench <user> <host> <home>/x", got.stdout + got.stderr
+
+
+@pytest.mark.parametrize(
+    ("uid_line", "gid_line", "whole"),
+    [(True, True, True), (False, False, True), (True, False, False), (False, True, False)],
+)
+def test_an_id_range_in_only_one_file_stops_the_install(
+    tmp_path: Path, uid_line: bool, gid_line: bool, whole: bool
+) -> None:
+    """OCR 1466-12: install added the missing range and remove then deleted both, the by-hand line too."""
+    files = []
+    for name, has in (("subuid", uid_line), ("subgid", gid_line)):
+        f = tmp_path / name
+        f.write_text("someone:100000:65536\n" + ("tb-bench:300000:65536\n" if has else ""), encoding="utf-8")
+        files.append(f'"{f}"')
+    got = _bash(INSTALL, f"SUBID_FILES=({' '.join(files)})\nid_ranges_whole")
+    assert (got.returncode == 0) is whole

@@ -43,8 +43,10 @@ def address(m):  # an IPv6 form has "::" or at least four colons (a time of day 
 
 for line in sys.stdin:
     for real, word in pairs:
-        if real:
+        if real and "/" in real:  # a path: wherever it stands
             line = line.replace(real, word)
+        elif real:  # a user or host name: only as a word of its own (OCR 1466-13: "ox" in "trialbox" stays)
+            line = re.sub(r"(?<![\w-])" + re.escape(real) + r"(?![\w-])", word, line)
     sys.stdout.write(addr.sub(address, line))
 ' "${REDACT[@]}"
 }
@@ -158,6 +160,20 @@ main() {
     echo "host test: a token is installed; this test ends by removing what install made, the token too. Run it" >&2
     echo "host test: before the token step, or run 'sudo $SRC/install.sh remove' first" >&2
     exit 2
+  fi
+  # OCR 1466-11: an install with no record (from before H-105b) is not removed by remove, and nothing_left reads only
+  # the record: on such a host the test would pass with the earlier user, files and units still there
+  if [ ! -f "$MADE" ]; then
+    local p earlier=""
+    ! id "$USER_NAME" >/dev/null 2>&1 || earlier+=" the user $USER_NAME;"
+    for p in "$OPT" "$HOME_DIR" "$UNITS/tb-bench-proxy.service" "$UNITS/tb-bench-runner@.service"; do
+      [ ! -e "$p" ] || earlier+=" $p;"
+    done
+    if [ -n "$earlier" ]; then
+      echo "host test: an install with no record is here:$earlier remove it first (runbook 13, 'Removing a" >&2
+      echo "host test: runner installed before H-105b'): remove at the end would leave it, and the test would pass" >&2
+      exit 2
+    fi
   fi
   LOG="$(mktemp -d /var/tmp/tb-bench-host-test.XXXXXX)"
   add_redactions "$@"

@@ -35,6 +35,7 @@ HELPER_DIRS=(/usr/lib/podman /usr/libexec/podman)  # where the distributions put
 # that is not there, never a thing with no line): remove takes away only these (OCR 1466-2: never a folder or file that
 # was there before, such as a scratch folder install refused). Root's, 0600, always written whole (copy, sync, rename).
 MADE="$ETC/made"
+SUBID_FILES=(/etc/subuid /etc/subgid)
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FILES=(__init__.py launcher.py gpu_check.py)
 IMAGE_FILES=(runner.Dockerfile entrypoint.sh job_started.sh probe.sh gpu_check.py egress_proxy.py gate.py unpack_jit.py)
@@ -42,6 +43,11 @@ IMAGE_FILES=(runner.Dockerfile entrypoint.sh job_started.sh probe.sh gpu_check.p
 die() { echo "bench CI install: $*" >&2; exit 1; }
 say() { echo "bench CI install: $*"; }
 need_root() { [ "$(id -u)" = 0 ] || die "run as root (sudo)"; }
+id_ranges_whole() {  # the user has an id range in both files, or in neither
+  local f n=0
+  for f in "${SUBID_FILES[@]}"; do ! grep -q "^$USER_NAME:" "$f" 2>/dev/null || n=$((n + 1)); done
+  [ "$n" != 1 ]
+}
 was_made() { [ -f "$MADE" ] && grep -qxF -- "$1"$'\t'"$2" "$MADE"; }
 record_made() {  # record_made KIND NAME: before the thing is made
   ! was_made "$1" "$2" || return 0
@@ -87,6 +93,9 @@ prerequisites() {
   [ "${#missing[@]}" = 0 ] || die "missing on this host: ${missing[*]} (install them from the distribution first)"
   # L-1448-18: the service manager must be the running init, before anything is changed (users, linger, units)
   [ -d /run/systemd/system ] || die "the service manager is not the running init here: the units cannot run"
+  # OCR 1466-12: an id range in only one of the two files is someone's by-hand line: install would add a second one,
+  # and remove would take both; stop before any change and let it be set right by hand
+  id_ranges_whole || die "$USER_NAME has an id range in only one of ${SUBID_FILES[*]}: set it right by hand first"
   python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "python3 is older than 3.10"
   [ "$(systemctl --version | awk 'NR==1{print $2}')" -ge 248 ] || die "the service manager is older than 248"
   [ -f "$SETTINGS" ] || die "no $SETTINGS: copy tools/bench_ci/settings.example.env there and fill it in"
