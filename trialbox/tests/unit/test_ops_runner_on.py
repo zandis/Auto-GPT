@@ -102,7 +102,9 @@ def test_doctor_passes_a_runner_that_wrote_its_record_this_hour(tmp_path: Path) 
 
 @pytest.mark.parametrize(("env", "status"), [("PRODUCTION", "FAIL"), ("VALIDATION", "FAIL"), ("DEV", "WARN"), ("TEST", "WARN")])  # fmt: skip
 def test_doctor_fails_a_runner_that_never_ran(tmp_path: Path, env: str, status: str) -> None:
-    c = _check(_deploy(tmp_path, None), env)
+    # H-115: a host of the test's own whose systemd cannot be asked, not the machine's (a box running the tests has
+    # the timer enabled, and doctor rightly says so instead)
+    c = _check(_deploy(tmp_path, None), env, timer_state=lambda unit: None)
     assert c.status == status and "systemctl enable --now trialbox-ops.timer" in c.detail
 
 
