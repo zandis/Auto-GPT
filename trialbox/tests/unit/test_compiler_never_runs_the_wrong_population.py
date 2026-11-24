@@ -9,9 +9,10 @@ wrong population:
 3. a cessation coded as presence ("Must be off corticosteroids for 2 weeks", "refrained from smoking"): the opposite
    patients met it. (2) and (3) are held as the English "HIV-negative patients" already was
    (``negated_inclusion_presence``);
-4. a mixed line whose text qualifies its coded concept ("Uncontrolled hypertension despite three antihypertensive
-   drugs" coded as ``any hypertension``): as an exclusion its code alone excluded every hypertension at S1. It is
-   flagged ``coded_part_qualified`` and its code never settles it (``semantics.codes_settle``).
+4. a line whose text qualifies its coded concept ("Uncontrolled hypertension despite three antihypertensive drugs"
+   coded as ``any hypertension``): as a mixed exclusion its code alone excluded every hypertension at S1. It is
+   flagged ``coded_part_qualified``: mixed, its code never settles it (``semantics.codes_settle``); structured, a
+   person checks it ("Hypertension not controlled by two agents", the integrator's ruling on #639, 7127329652).
 
 Plain lines still run unflagged. The extractions are written by hand, as the extractor would emit them (no model).
 Synthetic and public protocol text; no patients.
@@ -123,6 +124,10 @@ QUALIFIED_LINES = [
     "Refractory hypertension",
     "3剤以上の降圧薬にもかかわらずコントロール不良の高血圧",
     "使用三種降壓藥仍控制不佳的高血壓",
+    "Hypertension not controlled by two agents",  # row 154 of the 10A-1 table (the integrator's ruling 7127329652)
+    "高血壓且未受控制",  # row 164, the zh row of the same class
+    "高血压未控制",
+    "血圧のコントロールが不良な高血圧",
 ]
 
 
@@ -131,8 +136,19 @@ QUALIFIED_LINES = [
 def test_a_qualified_mixed_line_is_never_settled_by_its_code(text: str, kind: str) -> None:
     c = _one(text, _presence("hypertension", "condition"), kind=kind, cls="mixed", concepts=HYPERTENSION,
              question="Is the patient's hypertension uncontrolled despite treatment?")  # fmt: skip
+    if c.class_ == "human":  # 高血压未控制 as an inclusion: the negation rule (未) holds it first, which is held too
+        _held(c, "negated_inclusion_presence")
+        return
     assert c.class_ == "mixed" and QUALIFIED in (c.flags or []), (text, c.flags)
     assert codes_settle(c) is False  # the cascade's S1 leaves it to the notes (engine: mixed and not codes_settle)
+
+
+@pytest.mark.parametrize("text", QUALIFIED_LINES)
+@pytest.mark.parametrize("kind", ["exclusion", "inclusion"])
+def test_a_qualified_structured_line_is_held(text: str, kind: str) -> None:
+    # a structured line has no notes to decide it: its code alone would run it on every hypertension
+    c = _one(text, _presence("hypertension", "condition"), kind=kind, concepts=HYPERTENSION)
+    _held(c, "negated_inclusion_presence" if "negated_inclusion_presence" in (c.flags or []) else QUALIFIED)
 
 
 # ------------------------------------------------------------------------------------------------------ controls

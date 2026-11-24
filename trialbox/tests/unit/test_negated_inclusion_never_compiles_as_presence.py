@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 import tb_contracts as c
 from criteria_compiler.ir_extract import postprocess as pp
-from criteria_compiler.semantics import FILTERED, JUDGED
+from criteria_compiler.semantics import FILTERED, JUDGED, QUALIFIED, codes_settle
 from criteria_compiler.terminology.mapper import Terminology
 from doc_parser.parser import parse
 from tb_contracts import Atom, LlmExtractOutput
@@ -101,13 +101,22 @@ ALL = [*ROWS, *UNSEEN, *CARD, *REVIEW]
 @pytest.mark.parametrize("row", ALL, ids=[f"{r['source']}-{r['lang']}-{i}" for i, r in enumerate(ALL)])
 def test_property_each_line_of_the_tables_is_held_or_runs_as_expected(row: dict[str, Any], cls: str) -> None:
     """A negated line is always held (never a miss). A line that should run runs, unless the table marks it
-    ``over_held``: the fail-safe holds it today, which costs a person's look and is counted below."""
+    ``over_held``: the fail-safe holds it today, which costs a person's look and is counted below. A row marked
+    ``qualified_held`` (D-1267) qualifies its coded concept ("Hypertension not controlled by two agents"): pinned on
+    its own, structured it goes to a person, mixed its code never settles it."""
     q = "Does the patient meet it?" if cls == "mixed" else None
     x = _one(row["text"], _logic(row), cls=cls, concepts=_cand(row), question=q)
     if row["expect"] == "held" or row.get("over_held"):
         _held(x)
     else:
         assert FLAG not in (x.flags or []), (row["text"], x.class_, x.flags)
+    if row.get("qualified_held"):
+        assert QUALIFIED in (x.flags or []), (row["text"], x.class_, x.flags)
+        if cls == "structured":
+            assert x.class_ == "human" and x.human_question, (row["text"], x.class_)
+            assert getattr(x.logic, "valueset", None) == "NONE"  # the presence logic is never run
+        else:
+            assert x.class_ == "mixed" and codes_settle(x) is False, (row["text"], x.class_)
 
 
 def _score(rows: list[dict[str, Any]]) -> tuple[int, int, int, int]:
@@ -123,8 +132,10 @@ def test_the_counts_the_pull_request_reports() -> None:
     (a cue over a list) and the coordinator's 34 that ran (cue words such as "forbidden", 不可, 禁止, 不允許, "other
     than X"; a synonym of the coded concept). The lines that should run and are held: card 10A-1's table 8 of 69, the
     lines unseen at design 20 of 23 (the same as before card 10A-1b), card 10A-1b's own 17 of 40 (18 before), the
-    coordinator's 0 of 8."""
-    assert _score(ROWS) == (116, 116, 8, 69)
+    coordinator's 0 of 8. D-1267 (the integrator's ruling 7127329652): card 10A-1's table holds 10 of 69, not 8; the
+    two added are rows 154 and 164, which qualify their coded concept and are pinned on their own (``qualified_held``).
+    """
+    assert _score(ROWS) == (116, 116, 10, 69)
     assert _score(UNSEEN) == (21, 21, 20, 23)
     assert _score(CARD) == (40, 40, 17, 40)
     assert _score(REVIEW) == (36, 36, 0, 8)

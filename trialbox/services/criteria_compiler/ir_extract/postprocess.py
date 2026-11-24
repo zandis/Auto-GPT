@@ -356,8 +356,8 @@ _CONDITIONAL_PART = re.compile(
 # the concept's code alone ("any hypertension") selects more patients than the line, so it never settles the line
 _QUALIFIES = re.compile(
     r"\b(?:uncontrolled|(?:poorly|inadequately|insufficiently)[- ]controlled|not\s+(?:adequately\s+|well\s+)?"
-    r"controlled|despite|refractory)\b|コントロール不良|コントロール不十分|コントロールされていない|にもかかわらず|"
-    r"にも関わらず|難治性|控制不佳|控制不良|控制不當|控制不当|儘管|尽管|難治|难治",
+    r"controlled|despite|refractory)\b|コントロール不良|コントロールが不良|コントロール不十分|コントロールされていない|"
+    r"にもかかわらず|にも関わらず|難治性|未受控制|未控制|控制不佳|控制不良|控制不當|控制不当|儘管|尽管|難治|难治",
     re.I,
 )
 _LACK = re.compile(r"\b(?:lack|lacks|lacking)\b", re.I)
@@ -675,13 +675,21 @@ def postprocess(
                                            "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
                 warnings.append(f"{cid}: its coded part keeps only an age or sex of {', '.join(named)}; kept for a "
                                 "person to check")  # fmt: skip
-        said = _QUALIFIES.search(ir.text or "") if ir.class_ == "mixed" and ir.logic is not None else None
+        said = _QUALIFIES.search(ir.text or "") if ir.class_ in FILTERED and ir.logic is not None else None
         if said and presence_atoms(ir.logic):
             # D-1267: "Uncontrolled hypertension despite three antihypertensive drugs" (mixed exclusion) coded as "any
-            # hypertension" was excluded at S1 on any hypertension code, no model asked. Its code is a pre-check only:
-            # it never settles the line (codes_settle reads this flag), the notes decide it
+            # hypertension" was excluded at S1 on any hypertension code, no model asked. A mixed line keeps its code as
+            # a pre-check only: it never settles the line (codes_settle reads this flag), the notes decide it. A
+            # structured line has no notes to decide it ("Hypertension not controlled by two agents" ran as any
+            # hypertension; the integrator's ruling on #639, 7127329652): a person checks it
             flags.append(QUALIFIED)
-            warnings.append(f"{cid}: '{said.group(0)}' qualifies its coded concept; its code alone never settles it")
+            if ir.class_ == "mixed":
+                warnings.append(f"{cid}: '{said.group(0)}' qualifies its coded concept; its code alone never settles "
+                                "it")  # fmt: skip
+            else:
+                ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                           "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+                warnings.append(f"{cid}: '{said.group(0)}' qualifies its coded concept; kept for a person to check")
         moved = sorted({str(c.name) for c in ec.concept_candidates if c.name.strip().lower() in refiled})
         if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
             flags.append("domain_refiled")
