@@ -67,6 +67,94 @@
    "lane": "H",
    "basis": "hypothesis",
    "state": "open"
+  },
+  {
+   "id": "H112-09",
+   "severity": "Medium",
+   "claim": "the external review's 1459-1: the second engine ran from a local tag and no run output recorded the digest; now by digest only, never tagged or pulled, and every run records --image-digest",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 9e203706"
+  },
+  {
+   "id": "H112-10",
+   "severity": "Medium",
+   "claim": "1459-2: a settings file saying second was read as off when unreadable, saved with a byte order mark or written with export: now refused or read as compose reads it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-11",
+   "severity": "Medium",
+   "claim": "1459-3: doctor's bench_serving said PASS while the switch ran the second engine (it read only COMPOSE_FILE): it now reads the switch, and an unreadable switch counts as on",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-12",
+   "severity": "Medium",
+   "claim": "1459-4: the second profile dropped the judge's pinned chat template and the verifier's thinking off: the switch now refuses a judge template other than the current engine's, the verifier takes a thinking-off template, and the page maps each current flag",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-13",
+   "severity": "Medium",
+   "claim": "1459-5: the model servers' key file was handed to the second engine, which checks no key of its own, and VALIDATION boxes were allowed: env_file is reset on both servers and the switch is for TEST boxes only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-14",
+   "severity": "Medium",
+   "claim": "1459-6: repeat agreement was not in the walk's form of 7117120038: now differences from run 1 per run and per criterion",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 9e203706"
+  },
+  {
+   "id": "H112-15",
+   "severity": "Low",
+   "claim": "1459-7: the bench mark was found only as an exact line: now as compose reads it, in doctor and images_lock",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-16",
+   "severity": "Low",
+   "claim": "1459-8: a group- or world-readable settings file or key file was accepted: both must be mode 600",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-17",
+   "severity": "Low",
+   "claim": "1459-9: the settings file was checked, then read again by compose: now read once, compose gets a private copy of the checked values, and deploy/site must be root's or the user's alone",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-18",
+   "severity": "Low",
+   "claim": "1459-10: summary.json was written in place and a reused --out kept an earlier run's summary: now written whole, removed at a run's start, and table refuses a folder without a whole summary",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-19",
+   "severity": "Low",
+   "claim": "1459-11: with --key-file the key goes over plain http to a non-loopback endpoint: left open, the bench reaches model-guard over the internal model network in plain http, as R1-P2's harness does",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }
