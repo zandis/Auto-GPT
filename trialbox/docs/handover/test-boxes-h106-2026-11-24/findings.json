@@ -40,9 +40,9 @@
   {
    "id": "H106-05",
    "severity": "Medium",
-   "claim": "the rehearsal's test-boxes step (a second box by the real installer, the engine inspected, the PRODUCTION refusal, the removal) was not run by the card (no Docker in its container); its added time is not measured",
+   "claim": "the rehearsal's test-boxes step first ran in CI on the pushed branch and stopped at the second box's bundle load (H106-10); its added time is measured only once it passes",
    "lane": "H",
-   "basis": "not_run",
+   "basis": "shown",
    "state": "open"
   },
   {
@@ -75,6 +75,14 @@
    "claim": "the ruling names a root-folder variable and the card-list variable; the design rule (no caller's variable decides a guard or where a secret goes) wins: the folder is the installer's own and the cards are an install option, recorded in the box's settings",
    "lane": "H",
    "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H106-10",
+   "severity": "High",
+   "claim": "found by the rehearsal's test-boxes step (CI job 138170206562): the bundle loads before deploy/.env exists, and the update path read a fresh test box as PRODUCTION and refused the rehearsal bundle; the test box's record now says TEST until deploy/.env does, as the rehearsal mark does",
+   "lane": "H",
+   "basis": "shown",
    "state": "open"
   }
  ]

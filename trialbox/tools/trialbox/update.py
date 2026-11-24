@@ -1536,6 +1536,8 @@ class ComposeBox(_DockerImages):
         named = _env_file(self.deploy / ".env").get("TB_ENV")
         if not named and (self.deploy / "site" / "rehearsal.json").is_file():
             return "TEST"
+        if not named and (self.deploy / "site" / "test-box.env").is_file():
+            return "TEST"  # H-106: a test box's record (install.sh --test-box writes it before the load), as the mark
         return (named or "PRODUCTION").strip().upper()
 
     def rehearsal_mark(self) -> bool:

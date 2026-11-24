@@ -479,3 +479,19 @@ def test_the_key_tool_s_folders_are_the_test_box_s_own(tmp_path: Path) -> None:
                        text=True, check=False)  # fmt: skip
     assert r.stdout.strip() == f"/var/lib/docker/volumes/{box.project}_tb-secrets/_data", r.stderr
     assert keys.secrets_dir(None, {}) == Path(keys.HOST_SECRETS)  # the ordinary box: as before
+
+
+def test_the_first_load_of_a_test_box_reads_it_as_test_before_deploy_env_says(tmp_path: Path) -> None:
+    """Found by the rehearsal's test-boxes step: the bundle loads before deploy/.env exists, and the update path read
+    a fresh test box as PRODUCTION (and refused the rehearsal bundle). Its record says TEST, as the rehearsal mark
+    does; deploy/.env wins once written, and a folder with neither is PRODUCTION as before."""
+    from tools.trialbox import update
+
+    d = tmp_path / "deploy"
+    (d / "site").mkdir(parents=True)
+    box = update.ComposeBox(d)
+    assert box.environment() == "PRODUCTION"
+    testbox.record(d, "f", "1")
+    assert box.environment() == "TEST"
+    (d / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
+    assert box.environment() == "PRODUCTION"
