@@ -250,17 +250,23 @@ class BoxRestore:
         ok = (expected & runs) - sick
         return ok, expected - ok
 
-    def start_and_wait(self, stopped: Sequence[str]) -> tuple[set[str], set[str], str]:
-        """H-126 (in place of H-100's F6): every service the box defines, started and waited for until healthy, as
-        an update starts the box (``up -d --wait``); then the full expected set checked, whatever the wait said:
-        (healthy, not healthy, the wait's error). An interrupt is raised to the caller."""
-        try:
-            want: set[str] | None = self.expected(stopped)
-        except Exception as e:  # started all the same; never said healthy
-            want, why = None, str(e)[-300:] or type(e).__name__
+    def start_and_wait(self, stopped: Sequence[str], whole: bool = True) -> tuple[set[str], set[str], str]:
+        """H-126 (in place of H-100's F6): after a restore that ran (``whole``), every service the box defines,
+        started and waited for until healthy, as an update starts the box (``up -d --wait``); then the full expected
+        set checked, whatever the wait said: (healthy, not healthy, the wait's error). LR-14: after a restore refused
+        before any change, only what this run stopped (and db): an earlier run may have left the rest stopped on
+        data that is not as it was. An interrupt is raised to the caller."""
+        if not whole:
+            want: set[str] | None = set(stopped) | RESTORE_MAY_RUN
+        else:
+            try:
+                want = self.expected(stopped)
+            except Exception as e:  # started all the same; never said healthy
+                want, why = None, str(e)[-300:] or type(e).__name__
         err = ""
         try:
-            self.box.run(self._up_all(), timeout=WAIT_S + 120)
+            if whole or stopped:
+                self.box.run(self._up(stopped, whole), timeout=WAIT_S + 120)
         except Exception as e:  # a service that did not come up: counted below, and said
             err = str(e)[-400:] or type(e).__name__
         if want is None:
@@ -269,8 +275,10 @@ class BoxRestore:
         ok, short = self.healthy(want)
         return ok, short, err
 
-    def _up_all(self) -> list[str]:
-        return self.box._c("up", "-d", "--pull", self.pull(), "--wait", "--wait-timeout", str(WAIT_S))
+    def _up(self, stopped: Sequence[str], whole: bool) -> list[str]:
+        """The start: the whole project, or (LR-14) only the services named, without their dependencies."""
+        names = [] if whole else ["--no-deps", *stopped]
+        return self.box._c("up", "-d", "--pull", self.pull(), "--wait", "--wait-timeout", str(WAIT_S), *names)
 
     def pull(self) -> str:
         """OCR 1470-2 (D-176): the start pulls as the update's start does (``update.ComposeBox._pull``): every image
@@ -511,12 +519,14 @@ class BoxRestore:
         hold = str(said.get("hold") or "")
         state = str(said.get("state") or ("restored" if code in (0, 3, 4) else "unknown"))
         if code == 0 or (code == 4 and hold == "held") or (code != 0 and state == "unchanged"):
-            # complete, or held (D-522), or refused before any change (the data is as it was). H-126: every service
-            # the box defines is started, and the full expected set checked
+            # complete, or held (D-522): H-126, every service the box defines is started and the full expected set
+            # checked. Refused before any change (the data is as this run found it): LR-14, only what this run
+            # stopped, never what an earlier run left stopped
             data = "restored" if code in (0, 4) else "not changed"
-            start = shlex.join(self._up_all())
+            whole = state != "unchanged"
+            start = shlex.join(self._up(stopped, whole))
             try:
-                ok, short, err = self.start_and_wait(stopped)
+                ok, short, err = self.start_and_wait(stopped, whole)
             except BaseException as e:  # review R7: an interrupt here is said too, never a silent end
                 rc = 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
                 if not self._say(stopped, data, f"look at docker compose ps; then {start}, or run this command "
@@ -539,26 +549,45 @@ class BoxRestore:
                 self._hold_line(hold, state)
                 return code or 1
             what = "not changed (the restore was refused before any change)" if state == "unchanged" else "restored"
-            print(f"restore: the data {what}; the services run again and are healthy: {n} "
-                  f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
+            if not whole:  # LR-14: what this run stopped, and only that
+                print(f"restore: the data {what}; the services this run stopped run again and are healthy: {n} "
+                      f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
+                self._left_stopped(ok)
+            else:
+                print(f"restore: the data {what}; the services run again and are healthy: {n} "
+                      f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
             self._hold_line(hold, state)
             return code
         if code == 3:
             self._say(stopped, "the databases and folders are restored; a reference pack is missing",
-                             f"put the pack named above in --refdata and run {again}")  # fmt: skip
+                      f"put the pack named above in --refdata and run {again}")  # fmt: skip
         elif code == 4:
             self._say(stopped, f"restored, NOT complete; the hold on the list jobs is {hold or 'unknown'}",
-                             "keep the services stopped until the lines above are dealt with")  # fmt: skip
+                      "keep the services stopped until the lines above are dealt with")  # fmt: skip
         elif state == "rolled_back":  # F2: the restore put the box back as it was and holds its list jobs
             self._say(stopped, "put back as it was before the restore (the restore failed); list jobs held",
-                             f"read the error above; start them as they were: {self._start_line(stopped)}; "
-                             f"or try again: {again}")  # fmt: skip
+                      f"read the error above; start them as they were: {self._start_line(stopped)}; "
+                      f"or try again: {again}")  # fmt: skip
         else:  # F2: half restored or unknown: never a start line
             self._say(stopped, "NOT as it was: the restore failed and could not put everything back "
-                             "(the lines above say what, and where the copy of the databases taken first is kept)",
-                             "do not start the services; put the databases back from that copy, or restore the "
-                             "kept copy of the box (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
+                      "(the lines above say what, and where the copy of the databases taken first is kept)",
+                      "do not start the services; put the databases back from that copy, or restore the "
+                      "kept copy of the box (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
         return code
+
+    def _left_stopped(self, ok: set[str]) -> None:
+        """LR-14: after a refused restore, the services the box defines that this run did not start, named: an
+        earlier run may have left them stopped on data that is not as it was. Never started here."""
+        try:
+            rest = sorted(self.expected([]) - ok)
+        except Exception:
+            print("restore: compose cannot say which other services the box defines: trialbox doctor says what "
+                  "runs", file=sys.stderr)  # fmt: skip
+            return
+        if rest:
+            print(f"restore: not started by this run, as it found them stopped: {', '.join(rest)}. An earlier run may "
+                  "have left them stopped on purpose: read what it said (or the audit's backup.restore_failed) and "
+                  "trialbox doctor before starting them (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
 
     @staticmethod
     def _hold_line(hold: str, state: str) -> None:

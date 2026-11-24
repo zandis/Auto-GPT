@@ -350,9 +350,10 @@ fails leaves nothing to go back to. One restore runs at a time (`deploy/site/res
 <restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` every service
 the box's compose defines starts again and is waited for until healthy (`docker compose up -d --pull never --wait`:
 every image from the bundle, as an update starts the box, unless deploy/.env says `TB_INSTALL_PULL=missing`), whatever an
-earlier run left stopped, when the restore ended complete (exit 0), held (exit 4 with `hold: held`), or was refused
-inside before any change; after a put-back the next step is to read the error and start them as they were; otherwise
-they stay stopped. After the start the whole expected set is checked (the services compose defines, less the
+earlier run left stopped, when the restore ended complete (exit 0) or held (exit 4 with `hold: held`). A restore
+refused inside before any change starts again only the services this run stopped (`--no-deps`), and names the ones
+it found stopped without starting them: an earlier run may have left them stopped on data that is not as it was.
+After a put-back the next step is to read the error and start them as they were; otherwise they stay stopped. After the start the whole expected set is checked (the services compose defines, less the
 one-shot ones): `the services run again and are healthy: 16 of 16`, or `did not all come back healthy: 13 of 16`
 with the names and exit 1 (a restore that ended 4, NOT complete, keeps 4). A second Ctrl-C while the command says
 the box's state ends the asking, not the line: it then says `the box now: not asked (interrupted again)`. Then the hold is said: released by the restore, or held until a person releases it (step

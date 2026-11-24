@@ -341,3 +341,34 @@ def test_the_start_pulls_as_the_box_file_says_never_by_default(
     assert _run(deploy, tmp_path, monkeypatch, box) == 0, capsys.readouterr().err[-1500:]
     (up,) = [c for c in box.calls if "up" in c]
     assert up[up.index("up") :] == ["up", "-d", "--pull", want, "--wait", "--wait-timeout", "600"], up
+
+
+def test_lr14_a_rerun_refused_before_any_change_starts_only_what_it_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """LR-14 (the lifecycle review): an earlier restore ended NOT as it was and left services stopped ("do not
+    start the services"); the re-run is refused inside before any change (an old backup, another site). It starts
+    again only what this run stopped, never what the earlier run left stopped, says those, and never says the box
+    is healthy as a whole."""
+
+    class Refused(Box):
+        def container(self, argv: list[str], values: dict[str, str], base: object = None) -> tuple[int, str]:
+            assert self.running <= box_restore.RESTORE_MAY_RUN, self.running
+            return 1, json.dumps({"ok": False, "state": "unchanged"})
+
+    deploy = _box(tmp_path)
+    box = Refused()
+    left = {"caddy", "console", "llm-verifier"}  # left stopped by the earlier run, on data not as it was
+    box.running -= left
+    ran_before = set(box.running)
+    got = _run(deploy, tmp_path, monkeypatch, box)
+    err = capsys.readouterr().err
+    assert got == 1, (got, err[-1500:])
+    assert box.running == ran_before and not (box.running & left), box.running  # nothing the earlier run left
+    (up,) = [c for c in box.calls if "up" in c]
+    named = [a for a in up[up.index("--wait-timeout") + 2 :] if a != "--no-deps"]
+    assert "--no-deps" in up and set(named) == ran_before - {"db"}, up  # only what this run stopped
+    n = len(ran_before)
+    assert f"the services this run stopped run again and are healthy: {n} of {n} (" in err, err[-1500:]
+    assert "the services run again and are healthy" not in err, err[-1500:]
+    assert "not started by this run, as it found them stopped: caddy, console, llm-verifier" in err, err[-1500:]
