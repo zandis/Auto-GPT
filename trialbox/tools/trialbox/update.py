@@ -2038,7 +2038,8 @@ class ComposeBox(_DockerImages):
             return ""
         image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
         # D-450: doctor reads the key file, as the gateway does
-        argv = ["docker", "run", "--rm", "--network", "trialbox-model-net", "--env-file", str(self.deploy / ".env"),
+        net = f"{self.project()}-model-net"  # H-106 (OCR 1452-1): this box's own model network
+        argv = ["docker", "run", "--rm", "--network", net, "--env-file", str(self.deploy / ".env"),
                 "-v", f"{self.deploy}:/app/deploy:ro", "-e", "TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key",
                 image, "python", "-m", "tools.trialbox", "doctor", "--serving"]  # fmt: skip
         self.run(argv, timeout=300)
@@ -2138,7 +2139,7 @@ class ComposeBox(_DockerImages):
         keep = self.deploy / "terminology" / "previous" / plan.bundle_id
         keep.mkdir(parents=True, exist_ok=True)
         image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
-        vol = f"trialbox_{TERMINOLOGY_VOLUME}:/data/terminology"
+        vol = f"{self.project()}_{TERMINOLOGY_VOLUME}:/data/terminology"  # H-106 (OCR 1452-1): this box's own
         base = ["docker", "run", "--rm", "--network", "none", "--user", "0:0", "-e",
                 "TB_TERMINOLOGY_DIR=/data/terminology", "-v", vol]  # fmt: skip
         self.run([*base, "-v", f"{keep.resolve()}:/keep", image, "python", "-c", TERMINOLOGY_SAVE_PY], timeout=1800)

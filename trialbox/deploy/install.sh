@@ -77,7 +77,7 @@ ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arg
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
 ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
-TEST_BOX=""; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
+TEST_BOX=""; TEST_BOX_SET=0; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
 # (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk,
@@ -185,7 +185,7 @@ while [ $# -gt 0 ]; do
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
     --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
     --model-pack) MODEL_PACK="$2"; shift ;;  # H-95: the model pack the software pack needs (else found beside it)
-    --test-box) TEST_BOX="${2:-}"; shift ;;  # H-106: a test box, one of several on this host (TEST-BOX below)
+    --test-box) TEST_BOX="${2:-}"; TEST_BOX_SET=1; shift ;;  # H-106: a test box, one of several on this host (TEST-BOX below)
     --port-offset) PORT_OFFSET="${2:-}"; shift ;;
     --gpus) TEST_GPUS="${2:-}"; shift ;;
     --gpu-mem-gb) TEST_GPU_MEM="${2:-}"; shift ;;
@@ -233,8 +233,12 @@ TB_STOP_ARG_ENV="$ENVIRONMENT"; TB_STOP_REHEARSAL="$REHEARSAL"
 # deploy/site/test-box.env: a later run, update or command reads the record, never a caller's variable. A test box is
 # TEST (or DEV); PRODUCTION refuses the option, and refuses a host where a test box runs (TEST-BOX: the host, below)
 TEST_BOX_REC=""
+[ "$TEST_BOX_SET" = 0 ] || [ -n "$TEST_BOX" ] || die "--test-box needs a NAME: an empty one is never taken for no test box (nothing was changed)"  # H-94 not a stop: a usage error, refused by name on every box
 [ ! -f "$ROOT/deploy/site/test-box.env" ] || TEST_BOX_REC="$(sed -n 's/^TB_TEST_BOX=//p' "$ROOT/deploy/site/test-box.env" | tail -1)"
 [ -n "$TEST_BOX" ] || TEST_BOX="$TEST_BOX_REC"  # the folder's own record speaks for a run without the option
+if [ -z "$TEST_BOX_REC" ] && [ -f "$ROOT/deploy/.env" ] && grep -Eq '^(TB_TEST_BOX=[^[:space:]]|COMPOSE_PROJECT_NAME=tbt-)' "$ROOT/deploy/.env"; then
+  die "deploy/.env names a test box but its record (deploy/site/test-box.env) is missing or empty: this folder is never run as the ordinary box (the host's command, units and cron files). Remove the box (tools/testboxes.sh remove NAME) and install it again (nothing was changed)"  # H-94 (3): a test box never takes the ordinary box's host files
+fi
 if [ -z "$TEST_BOX" ]; then
   [ -z "$PORT_OFFSET$TEST_GPUS$TEST_GPU_MEM" ] || die "--port-offset, --gpus and --gpu-mem-gb go with --test-box NAME"  # H-94 not a stop: a usage error, refused by name on every box
 else
@@ -647,6 +651,14 @@ SECOND_RUN=0
 # its networks); it is exported here so every command of this run, compose's and the script's own, is the box's. No
 # secret of a test box goes where another box's could: no caller's secrets folder, and never the host's KEK folder
 TB_PROJECT=""  # H-106: the script's own (a test box's record), never a caller's
+# HOST-LOCK (H-106, OCR 1452-2): one box's install at a time on this host, from the check of the host's boxes to the
+# install's end (its volumes exist by then), so two installs started together never both pass the check. A lock held
+# by another install is waited for, never a stop; a lock file that cannot be opened (no /run/lock) is not taken
+TB_HOST_LOCK=/run/lock/trialbox-boxes.lock
+if { [ -n "${TEST_BOX:-}" ] || ! tb_poc_box; } && command -v flock >/dev/null \
+    && [ "$(readlink -f "/proc/$$/fd/6" 2>/dev/null)" != "$TB_HOST_LOCK" ] && { exec 6>>"$TB_HOST_LOCK"; } 2>/dev/null; then
+  flock -n 6 || { echo "install: note: another box's install holds this host's lock ($TB_HOST_LOCK): waiting for it" >&2; flock -w 3600 6 || true; }
+fi
 if [ -n "${TEST_BOX:-}" ]; then
   [ -z "${TB_SECRETS_HOST_DIR:-}" ] || die "--test-box: TB_SECRETS_HOST_DIR is set in the environment: a test box keeps its keys in its own project's volume, never in a folder a caller names (another box's could be it). Unset it (nothing was changed)"  # H-94 (5)
   [ -z "${TB_KEK_BACKEND:-}" ] && [ -z "$KP_VALUE" ] && [ ! -e "$ROOT/deploy/site/hardening.conf" ] \
@@ -663,8 +675,12 @@ if [ -n "${TEST_BOX:-}" ]; then
 elif ! tb_poc_box && command -v python3 >/dev/null; then
   # PRODUCTION, as before, but never beside a test box (whatever any variable says: read from the engine). An engine
   # that cannot be asked leaves the install as before: its next Docker step stops it
-  if TB_OTHERS="$(python3 -m tools.trialbox.testbox others --deploy "$ROOT/deploy" 2>/dev/null)"; then
-    TB_TESTS="$(printf '%s\n' "$TB_OTHERS" | awk -F'\t' '$2 == "test" {print $1}' | tr '\n' ' ')"
+  # OCR 1452-2: only an engine that cannot be asked at all (exit 3) leaves the install as before; any other failure of
+  # the listing refuses, and a test box's project counts whatever its folder says (gone, unreadable, a broken record)
+  TB_RC=0; TB_OTHERS="$(python3 -m tools.trialbox.testbox others --deploy "$ROOT/deploy" 2>/dev/null)" || TB_RC=$?
+  [ "$TB_RC" = 0 ] || [ "$TB_RC" = 3 ] || die "the boxes on this host could not be listed (tools/trialbox/testbox.py others, exit $TB_RC): a PRODUCTION box is never installed beside a test box it could not see; nothing was changed"  # H-94 (3)
+  if [ "$TB_RC" = 0 ]; then
+    TB_TESTS="$(printf '%s\n' "$TB_OTHERS" | awk -F'\t' '$2 == "test" || $1 ~ /^tbt-/ {print $1}' | tr '\n' ' ')"
     [ -z "${TB_TESTS// /}" ] || die "this host runs test boxes (${TB_TESTS% }): a PRODUCTION box is installed on a host of its own; remove them first (tools/testboxes.sh remove NAME); nothing was changed"  # H-94 (3): a test box beside the real one takes the real one's patients
   fi
 fi

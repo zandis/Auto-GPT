@@ -48,6 +48,11 @@ done
 [ -f "$BUNDLE" ] || { echo "testboxes: no such bundle: $BUNDLE" >&2; exit 2; }
 [ "${#SPECS[@]}" -gt 0 ] || usage
 case "$PARENT" in /*) ;; *) echo "testboxes: --parent must be a full path" >&2; exit 2 ;; esac
+for spec in "${SPECS[@]}"; do  # OCR 1452-4: every name before anything is made (it becomes a folder and a log file)
+  IFS=: read -r name offset _ <<< "$spec"
+  [[ "$name" =~ ^[a-z][a-z0-9]{0,11}$ ]] && [[ "$offset" =~ ^[0-9]{1,2}$ ]] \
+    || { echo "testboxes: $spec: NAME is a lower-case letter, then up to 11 letters or digits; OFFSET 1-49" >&2; exit 2; }
+done
 mkdir -p "$PARENT" || exit 2
 failed=0
 for spec in "${SPECS[@]}"; do

@@ -8,7 +8,7 @@
   {
    "id": "H106-01",
    "severity": "High",
-   "claim": "on master the backup, the restore, the restore drill, the logs command, the key tool and the pre-update backup name the ordinary box's volumes and network (trialbox_*, trialbox-net, /var/lib/docker/volumes/trialbox_tb-secrets): on a second box they would read or write the first box's data and keys; the pre-update backup, the launcher's networks, the update's key check and the host check now follow the box's project, and backup, restore, restore-drill, logs and the platform commands are refused on a test box until each is made per box; follow-up card H-117 (backup, restore and logs for a named test box); it does not hold H-106 (the integrator, 7124599679)",
+   "claim": "on master the backup, the restore, the restore drill and the logs command name the ordinary box's volumes and network (trialbox_*, trialbox-net): on a second box they would read or write the first box's data and keys; they are refused on a test box until each is made per box. The pre-update backup, the update's serving check and terminology volume, the decommission plan, the launcher's networks, the update's key check and the host check follow the box's project (the last four also outside install.sh's own run, review 1452-1); follow-up card H-117 (backup, restore and logs for a named test box); it does not hold H-106 (the integrator, 7124599679)",
    "lane": "H",
    "basis": "shown",
    "state": "open"
@@ -40,10 +40,10 @@
   {
    "id": "H106-05",
    "severity": "Medium",
-   "claim": "the rehearsal's test-boxes step ran in CI: first it stopped at the second box's bundle load (H106-10); then the second box installed (its TLS proxy on its own port, 8473) but its embed service did not start: the rehearsal's answers say llm_mode: gpu (the model embedder) on a CPU box with no embedder weights; the step now answers llm_mode: stub for that box. Its added time is measured once it passes",
+   "claim": "the rehearsal's test-boxes step ran in CI and found H106-10, H106-11, H106-12 and the host doctor's import; it passes at f724fbf in 231 s (test) and 238 s (validation); it runs on trains and on pull requests touching its paths, and is reported skipped elsewhere (7124599679)",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed"
   },
   {
    "id": "H106-06",
@@ -56,10 +56,10 @@
   {
    "id": "H106-07",
    "severity": "Low",
-   "claim": "the runbook's three commands are a section of 16 (box-install rehearsal), not a page of their own: a page needs a section number from the integrator",
+   "claim": "the runbook's three commands were a section of part 16; they are part 30 of their own, linked from part 16 (the integrator, 7124599679)",
    "lane": "H",
    "basis": "not stated",
-   "state": "open"
+   "state": "fixed"
   },
   {
    "id": "H106-08",
@@ -83,7 +83,7 @@
    "claim": "found by the rehearsal's test-boxes step (CI job 138170206562): the bundle loads before deploy/.env exists, and the update path read a fresh test box as PRODUCTION and refused the rehearsal bundle; the test box's record now says TEST until deploy/.env does, as the rehearsal mark does",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed"
   },
   {
    "id": "H106-11",
@@ -91,7 +91,7 @@
    "claim": "found by the rehearsal's test-boxes step (CI job 138221062810): the record's folder check hashed the folder it was read from, so inside the box's own container (the tree at /app) the doctor FAILed an untouched test box; the record now carries the host folder written at install, and a record is refused as a copy only where that folder is on this machine and is not this one",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed"
   },
   {
    "id": "H106-12",
@@ -99,7 +99,15 @@
    "claim": "found by the rehearsal's test-boxes step (CI job 138221062810): deploy/docker-compose.identity.yml named its network with a fixed name (trialbox-edge), so a test box's TLS proxy joined the ordinary box's network; it now follows the project (unchanged for the ordinary box). The unit invariant missed it because it read only docker-compose.yml's networks and volumes, not the overlays, and the bench's engine stand-in records commands, not what compose creates; it now reads every compose file an install can add and fails on any volume, network or container name that does not follow the project",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed"
+  },
+  {
+   "id": "H106-13",
+   "severity": "High",
+   "claim": "the external review of f724fbf (7126707961) found a test box's update (serving check, terminology volume), decommission plan and host check (install.sh --check) still naming the ordinary box's objects (1452-1, High), PRODUCTION's refusal of a host with a test box failing open (1452-2, Medium: a test box whose folder is gone, a listing that fails, two installs together), and a test box with a lost record re-run as the ordinary box (1452-3, Medium); each is fixed with a test in tests/unit/test_test_box_review_1452.py, as are the Lows 1452-4 to 1452-8",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
   }
  ]
 }

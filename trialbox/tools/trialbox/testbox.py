@@ -52,7 +52,8 @@ OVERRIDE = Path("site") / "test-box.yml"
 OVERRIDE_MARK = "x-trialbox-test-box: true"
 NAME = re.compile(r"[a-z][a-z0-9]{0,11}")
 PROJECT = re.compile(r"tbt-[a-z][a-z0-9]{0,11}-[0-9a-f]{6}")
-GPUS = re.compile(r"\d{1,2}(?:,\d{1,2}){0,7}")
+GPUS = re.compile(r"[0-9]{1,2}(?:,[0-9]{1,2}){0,7}")
+DIGITS = re.compile(r"[0-9]{1,4}")  # ASCII only (OCR 1452-7): str.isdigit takes "²" and other scripts' digits
 #: each published port of a box: its variable in deploy/.env and its base (the one ordinary box's is offset 0)
 PORTS = {"TB_HOST_CONSOLE_PORT": 8090, "TB_TLS_PORT": 8443, "TB_PROMETHEUS_PORT": 9090}
 STEP = 10
@@ -151,23 +152,49 @@ def load(deploy: Path) -> Box | None:
         )
     offset = rec.get("TB_TEST_BOX_PORT_OFFSET", "")
     gpus, cap = rec.get("TB_TEST_BOX_GPUS", ""), rec.get("TB_TEST_BOX_GPU_MEM_GB", "")
-    if not offset.isdigit() or (gpus and not GPUS.fullmatch(gpus)) or (cap and not cap.isdigit()):
+    if not DIGITS.fullmatch(offset) or (gpus and not GPUS.fullmatch(gpus)) or (cap and not DIGITS.fullmatch(cap)):
         raise Refused(f"{deploy / RECORD} cannot be read (offset {offset!r}, cards {gpus!r}, cap {cap!r})")
     return Box(name, project, int(offset), gpus, int(cap or 0), root)
 
 
 def check_values(offset: str, gpus: str, cap: str) -> tuple[int, str, int]:
-    if not offset.isdigit() or not 1 <= int(offset) <= MAX_OFFSET:
+    if not DIGITS.fullmatch(offset) or not 1 <= int(offset) <= MAX_OFFSET:
         raise Refused(f"--port-offset {offset!r}: a number from 1 to {MAX_OFFSET} (0 is the ordinary box's ports)")
     if gpus and not GPUS.fullmatch(gpus):
         raise Refused(f"--gpus {gpus!r}: card indexes, comma-separated (3, or 2,3)")
     if gpus and len(set(gpus.split(","))) != len(gpus.split(",")):
         raise Refused(f"--gpus {gpus!r} names a card twice")
-    if cap and (not cap.isdigit() or not 1 <= int(cap) <= 1024):
+    if cap and (not DIGITS.fullmatch(cap) or not 1 <= int(cap) <= 1024):
         raise Refused(f"--gpu-mem-gb {cap!r}: whole GB, from 1 to 1024")
     if cap and not gpus:
         raise Refused("--gpu-mem-gb goes with --gpus: a cap is per card the box is given")
     return int(offset), gpus, int(cap or 0)
+
+
+def clashes(deploy: Path, name: str, offset: int, run: Runner = _run) -> list[str]:
+    """OCR 1452-8: what another box on this host already holds of this one: its name (a test box's, or another box's
+    project), or its port offset. Read from the engine; an engine that cannot be asked holds nothing here (the host
+    step's own listing refuses that case)."""
+    own = project_for(name, deploy.parent)  # this box's own project, also before its first record
+    try:
+        seen = [s for s in boxes(run) if s.project != own]
+    except NoEngine:
+        return []
+    out = []
+    for s in seen:
+        if s.project == name:
+            out.append(f"the name {name!r} is the project of another box ({s.root or 'folder unknown'})")
+        if s.kind != "test" or not s.root:
+            continue
+        try:
+            b = load(Path(s.root) / "deploy")
+        except Refused:
+            continue
+        if b is not None and b.name == name:
+            out.append(f"test box {name!r} is already at {s.root}")
+        if b is not None and b.offset == offset:
+            out.append(f"port offset {offset} is test box {b.name!r}'s ({s.root})")
+    return out
 
 
 def record(deploy: Path, name: str, offset: str, gpus: str = "", cap: str = "") -> Box:
@@ -182,10 +209,18 @@ def record(deploy: Path, name: str, offset: str, gpus: str = "", cap: str = "") 
     path = deploy / RECORD
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".new")
-    tmp.write_text("# deploy/install.sh --test-box (H-106): this folder's test box; never copied, never edited\n"
-                   + "\n".join(box.lines()) + "\n", encoding="utf-8")  # fmt: skip
+    with tmp.open("w", encoding="utf-8") as fh:  # on the disk, then renamed (OCR 1452-3): a power cut never empties it
+        fh.write("# deploy/install.sh --test-box (H-106): this folder's test box; never copied, never edited\n"
+                 + "\n".join(box.lines()) + "\n")  # fmt: skip
+        fh.flush()
+        os.fsync(fh.fileno())
     tmp.chmod(0o644)
     tmp.replace(path)
+    fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
     return box
 
 
@@ -349,7 +384,8 @@ def remove(name: str, run: Runner = _run, *, yes: bool = False, say: Callable[[s
     Refused for any box that is not a test box of that name, so another box is never touched."""
     if not NAME.fullmatch(name):
         raise Refused(f"{name!r} is not a test box name")
-    found = [s for s in boxes(run) if s.kind == "test" and s.root]
+    every = boxes(run)
+    found = [s for s in every if s.kind == "test" and s.root]
     hits = []
     for s in found:
         b = load(Path(s.root) / "deploy")
@@ -362,6 +398,10 @@ def remove(name: str, run: Runner = _run, *, yes: bool = False, say: Callable[[s
     root = Path(seen.root)
     if not PROJECT.fullmatch(box.project) or box.project != project_for(name, root):
         raise Refused(f"{root} is not test box {name!r}'s own folder")
+    inside = [s.root for s in every if s.project != box.project and s.root
+              and Path(s.root).resolve().is_relative_to(root.resolve())]  # fmt: skip
+    if inside:  # OCR 1452-5: never another box's folder with this one
+        raise Refused(f"{root} holds another box's folder ({', '.join(inside)}): it is never removed with this one")
     if not yes:
         say(f"would remove test box {name}: project {box.project} (its containers, networks, volumes) and {root}; "
             "give --yes")  # fmt: skip
@@ -418,6 +458,9 @@ def main(argv: list[str] | None = None) -> int:
             cap = a.gpu_mem_gb if a.port_offset or a.gpus or a.gpu_mem_gb or not old else str(old.gpu_mem_gb or "")
             if not offset:
                 raise Refused("--test-box needs --port-offset N (1-49) on its first install")
+            clash = clashes(a.deploy, a.name, check_values(offset, gpus, cap)[0])
+            if clash:
+                raise Refused("; ".join(clash) + ": a test box has a name and a port offset of its own on this host")
             print(record(a.deploy, a.name, offset, gpus, cap).project)
         elif a.cmd == "env":
             print("\n".join(env_lines(a.deploy, a.profile)))

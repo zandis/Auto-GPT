@@ -135,7 +135,8 @@ def test_two_test_boxes_share_no_volume_network_port_or_key(tmp_path: Path) -> N
             for c in box.calls()
             if (" compose " in f" {c} " or c.split(" ", 2)[1] in ("run", "volume"))
             and not c.endswith(" compose version")
-        ]  # the engine's version: asked before the box is known
+            and "label=com.docker.compose.volume=tb-secrets" not in c
+        ]  # the engine's version, and the list of the host's boxes: asked before the box is known (read only)
         assert engine and all(c.startswith(f"project={own} ") for c in engine), [c for c in engine if own not in c]
         listing = f"label=com.docker.compose.project={other} "  # asking the engine which boxes are there
         assert not any(
