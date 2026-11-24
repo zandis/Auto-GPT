@@ -238,8 +238,8 @@ def _run_box_firstrun(tmp: Path, box: Path, h: dict[str, Path],
     env = {
         **_base_env(tmp, h), "TB_BOX_NO_ROOT": "1", "TB_BOX_PY": sys.executable,
         "TB_BOX_COMPOSE": str(stubs / "compose"), "TB_BOX_HOST_CHECK": str(stubs / "hostcheck"),
-        "TB_BOX_DOCKER": str(stubs / "probe"), "TB_ISSUE_DIR": str(tmp / "issue.d"),
-        "TB_FIRSTRUN_HOST_DIR": str(tmp / "firstrun"), "TB_SYSTEMD": "0", "TB_BOX_WSL2": "0",
+        "TB_BOX_DOCKER": str(stubs / "probe"), "TB_FIRSTRUN_HOST_DIR": str(tmp / "firstrun"), "TB_SYSTEMD": "0",
+        "TB_BOX_WSL2": "0",
     }  # fmt: skip
     return subprocess.run(["bash", str(box / "deploy" / "box-install.sh"), "--firstrun"], cwd=tmp, env=env,
                           stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)  # fmt: skip
@@ -591,13 +591,20 @@ def test_the_box_s_own_install_before_its_set_up_is_not_checked(tmp_path: Path) 
     assert _run_install_first(tmp_path, box, h, TB_BOX="0").returncode == 1  # the unattended install is checked
 
 
-def test_the_anchor_is_judged_before_anything_mounts_it_whatever_tb_box_says(tmp_path: Path) -> None:
-    """L3: ANCHOR-GATE comes before ANCHOR-MOUNT (the read probe, the console) and does not look at TB_BOX."""
+@pytest.mark.parametrize("environment", ["PRODUCTION", "VALIDATION"])
+def test_the_anchor_is_judged_before_anything_mounts_it_whatever_tb_box_says(tmp_path: Path, environment: str) -> None:
+    """L3: ANCHOR-GATE comes before ANCHOR-MOUNT (the read probe, the console) and does not look at TB_BOX. D-1091
+    (H94-03): on a VALIDATION box (a PoC box) it warns, is listed, and sets ANCHOR_UNSAFE (nothing is mounted,
+    first-headed or signed into the folder); on PRODUCTION it stops as before."""
     h = fake_host(tmp_path / "host")
-    box = _box(tmp_path, _env_text("good", "VALIDATION").replace(GOOD["anchor"], "/mnt/bindetc"))
+    box = _box(tmp_path, _env_text("good", environment).replace(GOOD["anchor"], "/mnt/bindetc"))
     for tb_box in ("1", "0"):
         r = _run_block(tmp_path, box, h, "# ANCHOR-GATE (10K-4", "# ---- end of ANCHOR-GATE", TB_BOX=tb_box)
-        assert r.returncode == 1 and "bind mount of /etc" in r.stderr and "nothing was mounted" in r.stderr
+        assert "bind mount of /etc" in r.stderr and "nothing was mounted" in r.stderr
+        if environment == "PRODUCTION":
+            assert r.returncode == 1
+        else:
+            assert r.returncode == 0 and "warning (PoC box, H-94)" in r.stderr and "no nightly signed head" in r.stderr
     gate = INSTALL.index("# ANCHOR-GATE (10K-4")
     assert gate < INSTALL.index("# ANCHOR-MOUNT (D-638)") < INSTALL.index("# FINISH-GATE (10K-4")
     assert "TB_BOX" not in _block(INSTALL, "# ANCHOR-GATE (10K-4", "# ---- end of ANCHOR-GATE").split("\nif ", 1)[1]
@@ -623,13 +630,19 @@ def test_a_check_that_did_not_run_is_not_called_a_refusal(tmp_path: Path, monkey
 
 
 def test_a_validation_install_is_refused_only_for_its_anchor(tmp_path: Path) -> None:
+    """D-1091 (H94-03): on a VALIDATION box (a PoC box) the anchor's refusal warns and is listed, and the anchor is
+    then never written into (ANCHOR_UNSAFE); the same folder stops a PRODUCTION install (below)."""
     h = fake_host(tmp_path / "host")
     box = _box(tmp_path, _env_text("on_box_backups", environment="VALIDATION"))
     assert _run_install_first(tmp_path, box, h).returncode == 0
     (box / "deploy" / ".env").write_text(_env_text("good", "VALIDATION").replace(GOOD["anchor"], "/etc"),
                                          encoding="utf-8")  # fmt: skip
     r = _run_install_first(tmp_path, box, h)
-    assert r.returncode == 1 and "system folder /etc" in r.stderr
+    assert r.returncode == 0 and "system folder /etc" in r.stderr and "warning (PoC box, H-94)" in r.stderr
+    (box / "deploy" / ".env").write_text(_env_text("good", "PRODUCTION").replace(GOOD["anchor"], "/etc"),
+                                         encoding="utf-8")  # fmt: skip
+    r = _run_install_first(tmp_path, box, h)
+    assert r.returncode == 1 and "system folder /etc" in r.stderr and "PoC box" not in r.stderr
 
 
 def test_the_re_run_check_comes_before_the_bundle_step_and_changes_nothing(tmp_path: Path) -> None:

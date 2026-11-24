@@ -218,7 +218,8 @@ def test_on_a_site_box_the_signer_sees_the_audit_volume_read_only_and_the_event_
     joined = " ".join(signer)
     assert f"{box['audit']}:{box['audit']}:ro" in joined and "--network none" in joined
     assert f"{box['share']}:{box['share']}" in joined and f"{box['secrets']}:{box['secrets']}:ro" in joined
-    assert "never-passed" not in joined and "TB_KEK_PASSPHRASE" in signer  # by name only, never on the command line
+    # H-97 (ruling 7102655419): the passphrase is never handed to the signer, by value or by name
+    assert "never-passed" not in joined and "TB_KEK_PASSPHRASE" not in signer
     assert record[record.index("exec") :][:3] == ["exec", "-T", "orchestrator"]
     assert audit.SIGNED_EVENT in " ".join(record) and '"lines": 7' in record[-1]
 

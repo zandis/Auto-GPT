@@ -18,6 +18,11 @@
 # test), and without internal/selfupdate: it imports x/crypto/openpgp, which v0.59.0 removed (the GO-2026-5932 fix,
 # D-1039), and only the build-tagged self-update command uses it, which this binary leaves out. A failure prints the
 # failing tests and any compiler line.
+# H-100: the database client tools of the server's major (the restore and the copy before it, run on the host by
+# `trialbox restore`, restore and dump in this image). Their package source and its signing key are the db image's
+# own base (the stage below, pinned by the same index digest as deploy/images.lock's db base); each package is
+# installed at its exact version, held, and checked; the build stops on another major or on a base that is not
+# Debian 13 (the source's suite). tests/unit/test_restore_from_the_host_h100.py holds the pins.
 # Optional build secret "extra_ca" (PEM): trusted for the downloads only (corporate TLS proxies).
 ARG GO_IMAGE=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
 ARG BASE_IMAGE=trialbox-py:1.0.0
@@ -48,7 +53,39 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     go build -ldflags "-s -w" -o /out/restic ./cmd/restic; \
     /out/restic version
 
+FROM postgres:16-trixie@sha256:dd2bf3ce2dc83a81674cf7f217fcfd8a5009a4b325dda5b843bfee82a06cff6f AS pgdg
+RUN test -s /etc/apt/sources.list.d/pgdg.list && test -s /usr/local/share/keyrings/postgres.gpg.asc
+
 # hadolint ignore=DL3006
 FROM ${BASE_IMAGE}
+ARG PG_CLIENT_MAJOR=16
+ARG PG_CLIENT_VERSION=16.16-1.pgdg13+1
+ARG LIBPQ_VERSION=19.0-2.pgdg13+1
+ARG PG_CLIENT_COMMON_VERSION=297.pgdg13+1
 COPY --from=restic /out/restic /usr/local/bin/restic
+COPY --from=pgdg /etc/apt/sources.list.d/pgdg.list /etc/apt/sources.list.d/pgdg.list
+COPY --from=pgdg /usr/local/share/keyrings/postgres.gpg.asc /usr/local/share/keyrings/postgres.gpg.asc
+USER root
+RUN --mount=type=secret,id=extra_ca,required=false,mode=0444 \
+    set -eux; \
+    . /etc/os-release; test "$VERSION_CODENAME" = trixie; \
+    CA=/etc/ssl/certs/ca-certificates.crt; \
+    if [ -s /run/secrets/extra_ca ]; then \
+      sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/pgdg.list; \
+      CA=/run/secrets/extra_ca; \
+    fi; \
+    apt-get -o Acquire::https::CAInfo="$CA" -o Dpkg::Use-Pty=0 update; \
+    apt-get -o Acquire::https::CAInfo="$CA" -o Dpkg::Use-Pty=0 install -y --no-install-recommends \
+      "postgresql-client-${PG_CLIENT_MAJOR}=${PG_CLIENT_VERSION}" \
+      "libpq5=${LIBPQ_VERSION}" \
+      "postgresql-client-common=${PG_CLIENT_COMMON_VERSION}"; \
+    apt-mark hold "postgresql-client-${PG_CLIENT_MAJOR}" libpq5 postgresql-client-common; \
+    test "$(dpkg-query -W -f '${Version}' "postgresql-client-${PG_CLIENT_MAJOR}")" = "${PG_CLIENT_VERSION}"; \
+    test "$(dpkg-query -W -f '${Version}' libpq5)" = "${LIBPQ_VERSION}"; \
+    test "$(dpkg-query -W -f '${Version}' postgresql-client-common)" = "${PG_CLIENT_COMMON_VERSION}"; \
+    for tool in pg_restore pg_dump psql; do \
+      case "$("$tool" --version)" in "$tool (PostgreSQL) ${PG_CLIENT_MAJOR}."*) ;; *) exit 1 ;; esac; \
+    done; \
+    rm -rf /var/lib/apt/lists/*
+USER tb
 RUN restic version

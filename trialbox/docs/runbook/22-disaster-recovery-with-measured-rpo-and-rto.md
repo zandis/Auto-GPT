@@ -52,8 +52,9 @@ Start the clock when the site decides to restore. Write the time at each step on
 1. Decide: software fault (same hardware) or hardware loss (go to "Replacing hardware" first).
 2. Reinstall from the release media (§1). Unseal the KEK (`python -m tools.keys unseal`, §23).
 3. `trialbox backup-verify <file> --key <private key>`: note the `refdata_packs` it names.
-4. Stop every service but `db`, then `trialbox restore <file> --key <private key> --yes --refdata <folder>` (§5; the
-   restore refuses while another service runs). Add `--dir host=<folder>` to get the
+4. `sudo trialbox restore --last --key <root-only copy of the private key> --yes --restart` (§5, "Restore over the
+   live stack, one command"), or by hand: stop every service but `db`, then `trialbox restore <file> --key <private key> --yes
+   --refdata <folder>` (§5; the restore refuses while another service runs). Add `--dir host=<folder>` to get the
    host part back (`deploy/.env`, settings, the site folder, the Caddy and Authelia volumes).
 5. With WAL archiving: restore to the last second the archive holds (§5, step 5 of point-in-time restore).
 6. `trialbox doctor --env-file deploy/.env`: no FAIL. Run the pair canary (`trialbox selftest` on the box).

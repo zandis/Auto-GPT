@@ -72,15 +72,8 @@ jobs:
       # D-126: tools/pglocal.py starts a throwaway cluster from the server binaries (installed here only if missing)
       - name: PostgreSQL server binaries
         run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
-      # ENG-002 (D-560): the public-data site reads the MedTxt corpus (public, CC BY 4.0), which git does not carry
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        if: matrix.run == 'public-e2e'
-        with:
-          path: trialbox/.cache/medtxt
-          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
-      - name: The public corpus (MedTxt), fetched once
-        if: matrix.run == 'public-e2e'
-        run: make public-data
+      # ENG-002 (D-560): the public-data site reads the 100 case reports and 50 radiology reports of JMED-LLM's two
+      # CC BY 4.0 datasets, committed under eval/medtxt/jmed-llm (pinned by SHA-256): nothing is fetched
       - name: public_e2e (stub model, the public-data site)
         if: matrix.run == 'public-e2e'
         run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.public_e2e --dir "$RUNNER_TEMP/public" --lang en
@@ -95,11 +88,28 @@ jobs:
       - name: Pure tests with no PostgreSQL
         if: matrix.run == 'pure'
         run: make test-pure PYTEST_N=auto
+      # A runner of another CPU model than the baseline's runs the same code at another speed (an AMD runner against
+      # the Intel baseline: +41 % on one night, no commit to blame). Then the baseline's reference commit is measured
+      # here too, and the gate is on the ratio to it; the 20 % tolerance stays, and nothing is re-baselined.
+      - name: Reference commit on this runner (only when the runner's CPU is not the baseline's)
+        if: matrix.run == 'perf-5k'
+        run: |
+          if ref=$(.venv/bin/python tools/bench.py --cpu-differs); then
+            git fetch --depth=1 origin "$ref"
+            git worktree add "$RUNNER_TEMP/tb-ref" "$ref"
+            ln -s "$PWD/.venv" "$RUNNER_TEMP/tb-ref/trialbox/.venv"
+            ln -s "$PWD/.cache" "$RUNNER_TEMP/tb-ref/trialbox/.cache"
+            (cd "$RUNNER_TEMP/tb-ref/trialbox" && make bench-baseline BENCH_OUT="$RUNNER_TEMP/bench-ref")
+            cp "$RUNNER_TEMP/tb-ref/trialbox/tools/bench_baseline.json" "$RUNNER_TEMP/bench-ref.json"
+            echo "BENCH_REF=$RUNNER_TEMP/bench-ref.json" >> "$GITHUB_ENV"
+          else
+            echo "the runner's CPU is the baseline's (or unnamed): the gate is on the baseline's own numbers"
+          fi
       - name: Performance gate (the stub at 5,000 patients against tools/bench_baseline.json)
         if: matrix.run == 'perf-5k'
         run: |
           rc=0
-          make bench-gate BENCH_OUT="$RUNNER_TEMP/bench-gate" || rc=$?
+          make bench-gate BENCH_OUT="$RUNNER_TEMP/bench-gate" BENCH_REF="${BENCH_REF:-}" || rc=$?
           cat "$RUNNER_TEMP/bench-gate/bench_gate.md" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$rc"
       # D-1245 (10E-13): the console's ten pages, p95 of the console's own time (Server-Timing) under 300 ms; held here
@@ -282,14 +292,7 @@ jobs:
           npm ci --prefix "$RUNNER_TEMP/node-tools" --no-fund --no-audit
           (cd "$RUNNER_TEMP/node-tools" && npx playwright install --with-deps chromium)
           echo "NODE_PATH=$RUNNER_TEMP/node-tools/node_modules" >> "$GITHUB_ENV"
-      # D-639: the browser walk below reads the MedTxt corpus (public, CC BY 4.0), which git does not carry; the same
-      # cache as the public-e2e run. Fetched before the images and the stack: a fetch that fails stops the job early
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: trialbox/.cache/medtxt
-          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
-      - name: The public corpus (MedTxt), fetched once
-        run: make public-data
+      # D-639: the browser walk below reads the same committed JMED-LLM datasets as public-e2e (eval/medtxt/jmed-llm)
       - name: Images (as `make images`)
         run: make images
       - name: The compose test stack (stub model)
