@@ -1,0 +1,49 @@
+{
+ "card": "H115",
+ "title": "lane H's tests as an ordinary user",
+ "date": "2026-11-24",
+ "source": "docs/handover/tests-as-an-ordinary-user-h115-2026-11-24.md",
+ "note": "basis 'shown' means shown in the card's container, by an ordinary account (uid 1000) with its own clone and virtualenv, run with umask 002 and with umask 022, and as root; the bench host was not run (the walk's next run is the proof).",
+ "findings": [
+  {
+   "id": "H115-01",
+   "severity": "Medium",
+   "claim": "run as an ordinary user with umask 002, the 10K-4, H-89 and H-97 rotate-kek fixtures built their stand-in trees writable by the group, and the product's unchanged checks rightly refused them (10K-4 43, H-89 10, H-97 3, the walk's counts); the fixtures now close the trees they build (tests/host_modes.py), with no assertion changed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H115-02",
+   "severity": "Low",
+   "claim": "test_doctor_fails_a_runner_that_never_ran (4 parameters) asked the machine's own systemd; on a box with trialbox-ops.timer enabled doctor rightly gives the enabled hint, not 'enable --now'; the test now gives doctor a host whose systemd cannot be asked",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H115-03",
+   "severity": "Medium",
+   "claim": "make test makes /var/tmp/trialbox-<uid>, TB_TEST_ROOT and its tmp/ with the runner's umask (0775 under umask 002); the product's checks that walk the real folders from / then refuse every tree under them (backup_key_ceremony 59, kek_passphrase_review_h96 17, kek_passphrase_file_h96 22, rotate_exposed_passphrase_h97 15, rotate_kek_safety_h97 9, poc_stops_review_h94 3, restic_password 1, runbook_install_commands 1, seal_keys_order 1); the fix is the test tooling's, outside the card, and waits for a ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H115-04",
+   "severity": "Low",
+   "claim": "the box fixture of test_host_commands_own_environment writes deploy/.env with the umask, and the launcher rightly refuses a box file that group or others can write (that file 39, backup_schedule_timer 1, restore_from_the_host_h100 1 under umask 002); #1455's chmod 0o600 there clears all three on master",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H115-05",
+   "severity": "Low",
+   "claim": "tools/engine_probe.py writes --out with the caller's umask; the runbook's step runs it under sudo (umask at least 022), but a run without sudo under umask 002 gives a file the rehearsal install refuses ('chmod go-w'), with the fix named in the refusal",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}
