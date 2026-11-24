@@ -229,9 +229,9 @@ def test_no_host_level_file_of_the_ordinary_box_is_a_test_box_s(tmp_path: Path) 
     """The host's trialbox command, units, cron files, logrotate, egress table and the first sign-in file: a test
     box writes none of them (H-106's list on the card page); its first sign-in file is its own name's."""
     text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
-    assert 'if [ "$(id -u)" = 0 ] && [ -z "$TEST_BOX" ]; then\n  install -d /usr/local/bin' in text
-    assert '[ -z "$TEST_BOX" ] || CAN_CRON=0' in text and "TB_SYSTEMD=0; export TB_SYSTEMD" in text
-    assert '[ -d /etc/logrotate.d ] && [ -z "$TEST_BOX" ]' in text
+    assert 'if [ "$(id -u)" = 0 ] && [ -z "${TEST_BOX:-}" ]; then\n  install -d /usr/local/bin' in text
+    assert 'CAN_CRON=0; [ -z "${TEST_BOX:-}" ] && {' in text and "TB_SYSTEMD=0; export TB_SYSTEMD" in text
+    assert '[ -d /etc/logrotate.d ] && [ -z "${TEST_BOX:-}" ]' in text
     assert "trialbox-admin-first-sign-in${TEST_BOX:+-$TEST_BOX}" in text
     t = H106Box(tmp_path / "h")
     r = t.run("--test-box", "h", "--port-offset", "1", *TEST_ARGS)
@@ -271,7 +271,10 @@ def test_the_cards_override_names_every_server_that_reserves_a_card(tmp_path: Pa
     assert want and set(doc["services"]) == want
     for spec in doc["services"].values():
         assert spec["deploy"]["resources"]["reservations"]["devices"][0]["device_ids"] == ["2", "3"]
-    testbox.record(d, "g", "1")  # no cards: no file
+    # the TLS proxy publishes the box's own port (the identity file's 443 is the ordinary box's)
+    tls = testbox.override(d, [*files, ROOT / "deploy" / "docker-compose.identity.yml"])
+    assert tls is not None and '  caddy:\n    ports: !override ["${TB_TLS_BIND:-0.0.0.0}:8453:443"]' in tls.read_text()
+    testbox.record(d, "g", "1")  # no cards, no TLS: no file
     assert testbox.override(d, files) is None and not path.exists()
 
 

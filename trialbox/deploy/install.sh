@@ -646,19 +646,19 @@ SECOND_RUN=0
 # TEST-BOX (H-106): the host. A test box's record names its own project (its volumes, the site keys among them, and
 # its networks); it is exported here so every command of this run, compose's and the script's own, is the box's. No
 # secret of a test box goes where another box's could: no caller's secrets folder, and never the host's KEK folder
-if [ -n "$TEST_BOX" ]; then
+if [ -n "${TEST_BOX:-}" ]; then
   [ -z "${TB_SECRETS_HOST_DIR:-}" ] || die "--test-box: TB_SECRETS_HOST_DIR is set in the environment: a test box keeps its keys in its own project's volume, never in a folder a caller names (another box's could be it). Unset it (nothing was changed)"  # H-94 (5)
   [ -z "${TB_KEK_BACKEND:-}" ] && [ -z "$KP_VALUE" ] && [ ! -e "$ROOT/deploy/site/hardening.conf" ] \
     || die "--test-box: a test box's site keys are never sealed: the KEK folder (/run/trialbox) and the host baseline are the host's, one for every box. Drop TB_KEK_BACKEND, the KEK passphrase options and deploy/site/hardening.conf (nothing was changed)"  # H-94 (5)
   command -v python3 >/dev/null || die "--test-box needs python3 on the host (tools/trialbox/testbox.py keeps the box's record)"  # H-94 depends (5): the record names the project that keeps this box's keys apart
-  TB_PROJECT="$(python3 -m tools.trialbox.testbox record --deploy "$ROOT/deploy" --name "$TEST_BOX" ${PORT_OFFSET:+--port-offset "$PORT_OFFSET"} ${TEST_GPUS:+--gpus "$TEST_GPUS"} ${TEST_GPU_MEM:+--gpu-mem-gb "$TEST_GPU_MEM"})" \
+  TB_PROJECT="$(python3 -m tools.trialbox.testbox record --deploy "$ROOT/deploy" --name "${TEST_BOX:-}" ${PORT_OFFSET:+--port-offset "$PORT_OFFSET"} ${TEST_GPUS:+--gpus "$TEST_GPUS"} ${TEST_GPU_MEM:+--gpu-mem-gb "$TEST_GPU_MEM"})" \
     || die "--test-box: refused (above)"  # H-94 depends (5): no record, no project of the box's own
   export COMPOSE_PROJECT_NAME="$TB_PROJECT"
   TB_OTHERS="$(python3 -m tools.trialbox.testbox others --deploy "$ROOT/deploy")" \
     || die "--test-box: the container engine cannot list the boxes on this host, so a PRODUCTION box beside this one cannot be ruled out (is Docker running?)"  # H-94 (3)
   TB_PROD="$(printf '%s\n' "$TB_OTHERS" | awk -F'\t' '$2 == "production" {print $1}' | tr '\n' ' ')"
   [ -z "${TB_PROD// /}" ] || die "--test-box: this host holds a PRODUCTION box (project ${TB_PROD% }): a test box is never installed beside it (data would be typed into the wrong box); nothing was changed"  # H-94 (3)
-  echo "install: note: test box $TEST_BOX (project $TB_PROJECT); other boxes on this host: $(printf '%s\n' "$TB_OTHERS" | awk -F'\t' 'NF {printf "%s%s (%s)", s, $1, $2; s=", "}' | grep . || echo none)" >&2
+  echo "install: note: test box ${TEST_BOX:-} (project $TB_PROJECT); other boxes on this host: $(printf '%s\n' "$TB_OTHERS" | awk -F'\t' 'NF {printf "%s%s (%s)", s, $1, $2; s=", "}' | grep . || echo none)" >&2
 elif ! tb_poc_box && command -v python3 >/dev/null; then
   # PRODUCTION, as before, but never beside a test box (whatever any variable says: read from the engine). An engine
   # that cannot be asked leaves the install as before: its next Docker step stops it
@@ -860,7 +860,7 @@ fi
 # Expose the signed host CLI on PATH. The link follows the release selected by an update or rollback.
 # H-106: a test box never takes the host's `trialbox` (the ordinary box's): its own is its folder's, and
 # `trialbox --box NAME ...` reaches it (tools/trialbox/launch.py)
-if [ "$(id -u)" = 0 ] && [ -z "$TEST_BOX" ]; then
+if [ "$(id -u)" = 0 ] && [ -z "${TEST_BOX:-}" ]; then
   install -d /usr/local/bin
   ln -sfnT "$ROOT/tools/trialbox/__main__.py" /usr/local/bin/trialbox
 fi
@@ -1014,7 +1014,7 @@ envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
 # and `trialbox` command reads them there. No unit, timer or cron file of the host's is a test box's (TB_SYSTEMD=0)
-if [ -n "$TEST_BOX" ]; then
+if [ -n "${TEST_BOX:-}" ]; then
   TB_LINES="$(python3 -m tools.trialbox.testbox env --deploy "$ROOT/deploy")" || die "--test-box: the box's record cannot be read (above)"  # H-94 depends (5): no record, no project of the box's own
   while IFS='=' read -r k v; do [ -z "$k" ] || envset "$k" "$v"; done <<< "$TB_LINES"
   TB_SYSTEMD=0; export TB_SYSTEMD
@@ -1313,7 +1313,7 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
 fi
 # TEST-BOX (H-106): the box's cards (deploy/site/test-box.yml, every service that reserves a card) and its memory cap
 # (the servers' utilisations in deploy/.env, scaled to the cap: the serving engine holds them to it, not Docker)
-if [ -n "$TEST_BOX" ]; then
+if [ -n "${TEST_BOX:-}" ]; then
   TB_CARDS="$(python3 -m tools.trialbox.testbox override --deploy "$ROOT/deploy" --files "$FILES")" \
     || die "--test-box: the box's cards could not be written (above)"  # H-94 (2): without it its servers take another box's card, which cannot hold both
   [ -z "$TB_CARDS" ] || { COMPOSE+=(-f "$TB_CARDS"); FILES="$FILES:$TB_CARDS"; }
@@ -1495,7 +1495,7 @@ if [ "$MODE" = gpu ]; then
   [ "$rc" = 0 ] || stop_or_warn serving "" "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL), the key (python3 -m tools.trialbox secrets rotate --service model) or re-pin (RUNBOOK §8), then re-run"
 fi
 EGRESS_OK=0
-if [ -n "$TEST_BOX" ]; then  # H-106: the host's egress table is the ordinary box's alone
+if [ -n "${TEST_BOX:-}" ]; then  # H-106: the host's egress table is the ordinary box's alone
   echo "    test box: the host's egress table is not changed (the box's internal networks stay closed)"
 elif [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then
   say "egress rules"
@@ -1551,8 +1551,7 @@ fi
 SYSTEMD_HOST=0; [ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/systemd/system ] \
   && command -v systemctl >/dev/null && SYSTEMD_HOST=1
 CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finished install in PRODUCTION
-CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
-[ -z "$TEST_BOX" ] || CAN_CRON=0  # H-106: the host's cron files are the ordinary box's; a test box has no schedule
+CAN_CRON=0; [ -z "${TEST_BOX:-}" ] && { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1  # H-106
 if [ "$CAN_CRON" = 1 ]; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
   # NEW-STD-2 (D-562): then the night's signed head of the audit chain into TB_AUDIT_ANCHOR_TARGETS, whatever the
@@ -1568,7 +1567,7 @@ fi
 # H-94 (D-1091): a finish check warned on a PoC box: the nightly signed head is not written into the refused folder
 [ "${ANCHOR_UNSAFE:-0}" = 0 ] || [ ! -f "$CRON_DIR/trialbox-retention" ] \
   || sed -i 's/; python3 -m tools.trialbox audit-sign//' "$CRON_DIR/trialbox-retention"
-if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ] && [ -z "$TEST_BOX" ]; then
+if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ] && [ -z "${TEST_BOX:-}" ]; then
   # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
   install -m 644 deploy/logrotate/trialbox /etc/logrotate.d/trialbox && echo "    host logs: /etc/logrotate.d/trialbox"
 fi
@@ -1640,9 +1639,8 @@ fi
 # doctor` then checks the backup's age and its off-box target
 # H-92: on a systemd host backup-install writes the schedule as timers: no /etc/cron.d (no cron package) needed
 [ "${SYSTEMD_HOST:-0}" = 1 ] && command -v python3 >/dev/null && CAN_CRON=1
-if [ -n "$TEST_BOX" ]; then
-  echo "    test box: no backup schedule, no log retention cron (the host's are the ordinary box's; H-106)"
-elif [ "$CAN_CRON" = 1 ]; then
+[ -z "${TEST_BOX:-}" ] || echo "    test box: no backup schedule, no log retention cron (the host's are the ordinary box's; H-106)"
+if [ "$CAN_CRON" = 1 ]; then
   say "backups: cron, WAL archiving, first backup"
   set +e
   PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} ${TB_SYSTEMD_DIR:+--systemd-dir "$TB_SYSTEMD_DIR"} 2>&1 | sed 's/^/    /'
@@ -1834,7 +1832,7 @@ echo "    $JUDGE"
 URL="http://127.0.0.1:$(envget TB_HOST_CONSOLE_PORT | grep . || echo 8090)"
 if [ -n "$TLS_HOST" ]; then
   URL="https://$TLS_HOST"; TLS_PORT=443
-  [ -z "$TEST_BOX" ] || { TLS_PORT="$(envget TB_TLS_PORT)"; URL="https://$TLS_HOST:$TLS_PORT"; }  # H-106
+  [ -z "${TEST_BOX:-}" ] || { TLS_PORT="$(envget TB_TLS_PORT)"; URL="https://$TLS_HOST:$TLS_PORT"; }  # H-106
   CA=()
   if [ "$(envget TB_TLS_MODE)" = internal ]; then  # Caddy's root: hospital IT installs it on the staff PCs (RUNBOOK §12)
     mkdir -p deploy/secrets/tls
@@ -1870,9 +1868,9 @@ cat <<EOT
                       TB_MEM_ORCH; lower on the two-device workstation): CHANGELOG.md, "Known limits"
 EOT
 # TEST-BOX (H-106): the summary says what the box is, and how its own command is reached
-if [ -n "$TEST_BOX" ]; then
+if [ -n "${TEST_BOX:-}" ]; then
   echo "  $(python3 -m tools.trialbox.testbox words --deploy "$ROOT/deploy")"
-  echo "  Its commands:       sudo trialbox --box $TEST_BOX doctor   (or tools/testboxes.sh list; remove: tools/testboxes.sh remove $TEST_BOX)"
+  echo "  Its commands:       sudo trialbox --box ${TEST_BOX:-} doctor   (or tools/testboxes.sh list; remove: tools/testboxes.sh remove ${TEST_BOX:-})"
 fi
 # REHEARSAL-REAL-SERVERS (H-89): the summary says what the box is
 if [ "$REAL_SERVERS" = 1 ]; then

@@ -239,17 +239,22 @@ def gpu_services(files: Sequence[Path]) -> list[str]:
 
 
 def override(deploy: Path, files: Sequence[Path]) -> Path | None:
-    """deploy/site/test-box.yml: every service that reserves a card gets the box's cards, by index. None (and no
-    file) on a box with no cards, or whose files reserve none."""
+    """deploy/site/test-box.yml: every service that reserves a card gets the box's cards, by index, and the TLS proxy
+    (when the box has one) publishes the box's own TLS port. None (and no file) when there is neither."""
     box = load(deploy)
     path = deploy / OVERRIDE
-    services = gpu_services([f for f in files if f.is_file() and f.resolve() != path.resolve()]) if box else []
-    if box is None or not box.gpus or not services:
+    given = [f for f in files if f.is_file() and f.resolve() != path.resolve()]
+    services = gpu_services(given) if box and box.gpus else []
+    tls = box is not None and any(f.name == "docker-compose.identity.yml" for f in given)
+    if box is None or not (services or tls):
         path.unlink(missing_ok=True)
         return None
-    ids = ", ".join(json.dumps(i) for i in box.gpus.split(","))
-    lines = ["# Written by deploy/install.sh --test-box (H-106): the cards of this test box, by index; never edited",
+    lines = ["# Written by deploy/install.sh --test-box (H-106): this test box's cards and TLS port; never edited",
              OVERRIDE_MARK, "services:"]  # fmt: skip
+    if tls:
+        port = ports(box.offset)["TB_TLS_PORT"]
+        lines += ["  caddy:", f'    ports: !override ["${{TB_TLS_BIND:-0.0.0.0}}:{port}:443"]']
+    ids = ", ".join(json.dumps(i) for i in box.gpus.split(","))
     devices = f"!override [{{driver: nvidia, device_ids: [{ids}], capabilities: [gpu]}}]"
     for svc in services:
         lines += [f"  {svc}:", "    deploy:", "      resources:", "        reservations:"]

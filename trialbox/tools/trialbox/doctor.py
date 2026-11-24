@@ -1491,6 +1491,9 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
     line is a standing WARN no setting turns off: "REHEARSAL BOX: placeholder models, synthetic data only". A
     VALIDATION box needs both marks (TB_REHEARSAL=1 alone, or the file alone, is a site box touched by hand); a mark
     on a box of any other environment FAILs (someone changed TB_ENV of a rehearsal box by hand)."""
+    test = check_test_box(inp)  # H-106: a test box (never a rehearsal box) says so on this line
+    if test.status != "PASS":
+        return test
     flag = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
     mark = _site_dir(inp) / "rehearsal.json"
     has_mark = mark.is_file()
@@ -1547,24 +1550,24 @@ def check_test_box(inp: DoctorInputs) -> Check:
     try:
         box = testbox.load(deploy)
     except testbox.Refused as exc:
-        return Check("test_box", "FAIL", str(exc))
+        return Check("rehearsal", "FAIL", str(exc))
     named = (inp.env.get("TB_TEST_BOX") or "").strip()
     if box is None:
         if named:
-            return Check("test_box", "FAIL", f"TB_TEST_BOX={named} in deploy/.env with no record (deploy/"
+            return Check("rehearsal", "FAIL", f"TB_TEST_BOX={named} in deploy/.env with no record (deploy/"
                                              f"{testbox.RECORD}): a test box is made by deploy/install.sh "
                                              "--test-box only")  # fmt: skip
-        return Check("test_box", "PASS", "not a test box")
+        return Check("rehearsal", "PASS", "not a test box")
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
     project = (inp.env.get("COMPOSE_PROJECT_NAME") or "").strip()
     if named != box.name or project != box.project:
-        return Check("test_box", "FAIL", f"deploy/.env (TB_TEST_BOX={named or '-'}, COMPOSE_PROJECT_NAME="
+        return Check("rehearsal", "FAIL", f"deploy/.env (TB_TEST_BOX={named or '-'}, COMPOSE_PROJECT_NAME="
                                          f"{project or '-'}) is not test box {box.name}'s record (project "
                                          f"{box.project}): its commands would reach another box; run its "
                                          "install again")  # fmt: skip
     if env not in ("DEV", "TEST"):
-        return Check("test_box", "FAIL", f"test box {box.name} says TB_ENV={env}: a test box is TEST or DEV only")
-    return Check("test_box", "WARN", box.words())
+        return Check("rehearsal", "FAIL", f"test box {box.name} says TB_ENV={env}: a test box is TEST or DEV only")
+    return Check("rehearsal", "WARN", box.words())
 
 
 def check_postgres_memory(inp: DoctorInputs) -> Check:
@@ -2203,7 +2206,6 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_audit_heads,
     check_anchor_mount,
     check_rehearsal,
-    check_test_box,
     check_memory_caps,
     check_postgres_memory,
     check_db_passwords,
