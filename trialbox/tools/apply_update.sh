@@ -129,7 +129,94 @@ tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a k
 # ---- end of STOP-OR-WARN
 # H-94: apply_update.sh has no --environment: its PoC box is the record (deploy/.env, the mark) alone
 TB_STOP_WHO=apply_update; TB_STOP_FILE=apply_update.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""; TB_STOP_REHEARSAL=0
-USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
+# H-124 (the integrator's ruling 7135119782): a passphrase-backed box is updated in place. Its KEK passphrase comes as
+# the bootstrap and the installers take it (the KEK-INPUT functions below, the same bytes as theirs; a test holds them
+# together): --kek-passphrase-file FILE or --kek-passphrase-stdin, never the environment; it unseals the KEK before the
+# update's key check, through a pipe, and is never an argument, echoed or written to a log
+KP_WHO=apply_update
+# ---- KEK-INPUT functions (H-96, F-45, H-94 (5); the integrator's ruling 7094934985). The same lines are in deploy/install.sh,
+# deploy/box-install.sh and deploy/hardening/seal_keys.sh; a test holds the three together. The passphrase comes from
+#   --kek-passphrase-file FILE  one line of a regular file (not a link) owned by root (the user that runs this), mode
+#                               0600; removed once the keys are sealed, unless --keep-kek-passphrase-file
+#   --kek-passphrase-stdin      one line on stdin; on a terminal it is asked twice, not shown
+# and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
+# (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
+# exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+KP_VALUE=""; KP_FILE=""
+kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
+kp_refuse_env() {  # an empty variable is dropped
+  for kp_var in TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE; do
+    kp_set=""
+    eval "kp_set=\${$kp_var:+yes}"
+    [ "$kp_set" != yes ] || { printf '%s: %s is set in the environment: refused, nothing was changed. A passphrase given by the environment can be in the system journal (sudo logs the variables it keeps, with their values): treat that passphrase as exposed and rotate it (RUNBOOK §23, rotate the KEK passphrase). Give it in a file only root can read: --kek-passphrase-file FILE (a regular file, owned by root, mode 0600), or on stdin: --kek-passphrase-stdin. Then unset %s.\n' "$KP_WHO" "$kp_var" "$kp_var" >&2; exit 2; }  # H-94 (5)
+  done
+  unset TB_KEK_PASSPHRASE TB_KEK_NEW_PASSPHRASE kp_set kp_var
+}
+kp_check_value() {  # one line, not empty, no control character (the image and the host read it alike)
+  [ -n "$KP_VALUE" ] || kp_die "the KEK passphrase from $1 is empty: nothing was changed"
+  case "$KP_VALUE" in *[[:cntrl:]]*) KP_VALUE=""; kp_die "the KEK passphrase from $1 holds a line break or another control character: write it again on one line; nothing was sealed" ;; esac
+}
+kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened file is regular, root's, 0600, one name
+  kp_fix="write the passphrase on one line of a regular file owned by root with mode 0600, in a folder only root can write (sudo install -m 0600 -o root -g root /dev/null /root/trialbox-kek.pass, then write it there); nothing was changed"
+  # (M-1 of the review of #1398) the folders as their real paths: the file's own folder and every one above it owned
+  # by root (the user that runs this), and writable by no one else; above the file's own folder a shared folder with
+  # the sticky bit (/tmp) is allowed, as no one else can rename what is root's there
+  kp_dir="$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P)" \
+    || kp_die "--kek-passphrase-file $1: its folder cannot be reached: refused; $kp_fix"  # H-94 (5)
+  kp_name="${kp_dir%/}/${1##*/}"; kp_d="$kp_dir"; kp_own=1
+  while :; do
+    kp_st="$(stat -c '%u %a' -- "$kp_d" 2>/dev/null)" || kp_die "--kek-passphrase-file $1: the folder $kp_d cannot be read: refused; $kp_fix"  # H-94 (5)
+    kp_m="${kp_st#* }"
+    case "${kp_st%% *}" in 0|"$(id -u)") ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d is owned by uid ${kp_st%% *}, not root: refused; $kp_fix" ;; esac  # H-94 (5)
+    case "${kp_m#"${kp_m%??}"}" in
+      [0145][0145]) ;;
+      *) case "$kp_own:${#kp_m}:$kp_m" in 0:4:[1357]*) ;; *) kp_die "--kek-passphrase-file $1: the folder $kp_d can be written by others (mode $kp_m): refused; $kp_fix" ;; esac ;;  # H-94 (5)
+    esac
+    [ "$kp_d" != / ] || break
+    kp_d="$(dirname -- "$kp_d")"; kp_own=0
+  done
+  # opened once on fd 7 and read from it; what was opened is checked through /dev/fd/7 (the same open file, never the
+  # name again), and the name must still be that very file, not a link (the shell cannot open without following one)
+  [ ! -L "$kp_name" ] || kp_die "--kek-passphrase-file $1 is a link: refused; $kp_fix"  # H-94 (5)
+  [ -f "$kp_name" ] || kp_die "--kek-passphrase-file $1 is not a regular file: refused; $kp_fix"  # H-94 (5): never a fifo opened
+  exec 7< "$kp_name"
+  kp_fd="$(stat -L -c '%F|%u|%a|%h|%d:%i' /dev/fd/7 2>/dev/null)" || kp_fd=""
+  kp_nm="$(stat -c '%F|%d:%i' -- "$kp_name" 2>/dev/null)" || kp_nm=""
+  kp_t="${kp_fd%%|*}"; kp_r="${kp_fd#*|}"; kp_u="${kp_r%%|*}"; kp_r="${kp_r#*|}"; kp_a="${kp_r%%|*}"; kp_r="${kp_r#*|}"
+  kp_h="${kp_r%%|*}"; kp_i="${kp_r#*|}"
+  kp_bad=""
+  case "$kp_nm" in "symbolic link|"*) kp_bad="is a link" ;; esac
+  [ -n "$kp_bad" ] || case "$kp_t" in "regular file"|"regular empty file") ;; *) kp_bad="is not a regular file" ;; esac
+  [ -n "$kp_bad" ] || [ "$kp_nm" = "$kp_t|$kp_i" ] || kp_bad="changed while it was opened"
+  [ -n "$kp_bad" ] || [ "$kp_u" = "$(id -u)" ] || kp_bad="is owned by uid $kp_u, not root (the user that runs this)"
+  [ -n "$kp_bad" ] || [ "$kp_a" = 600 ] || kp_bad="has mode $kp_a, not 0600"
+  [ -n "$kp_bad" ] || [ "$kp_h" = 1 ] || kp_bad="has $kp_h names (hard links), not one"
+  if [ -n "$kp_bad" ]; then exec 7<&-; kp_die "--kek-passphrase-file $1 $kp_bad: refused; $kp_fix"; fi  # H-94 (5)
+  KP_VALUE=""; IFS= read -r KP_VALUE <&7 || [ -n "$KP_VALUE" ] || :
+  kp_rest="$(wc -c <&7)"; exec 7<&-
+  if [ "$kp_rest" != 0 ]; then KP_VALUE=""; kp_die "--kek-passphrase-file $1 holds a line break or another control character: write it again on one line; nothing was sealed"; fi  # H-94 (5)
+  KP_FILE="$kp_name"
+  kp_check_value "--kek-passphrase-file $1"
+}
+kp_read_stdin() {
+  KP_VALUE=""
+  if [ -t 0 ]; then
+    stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
+    printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
+    kp_again=""
+  else
+    IFS= read -r KP_VALUE || [ -n "$KP_VALUE" ] || kp_die "--kek-passphrase-stdin: nothing on stdin; nothing was changed"
+  fi
+  kp_check_value "stdin"
+}
+kp_remove_file() {  # unlinked, never written through its name (a link is taken away, never what it names)
+  rm -f -- "$1"; [ ! -e "$1" ] && [ ! -L "$1" ] || kp_die "the passphrase file $1 could not be removed: remove it yourself"  # H-94 (5)
+}
+# ---- end of KEK-INPUT functions
+kp_refuse_env  # H-96: before anything is read or made
+PP_FILE=""; PP_STDIN=0; PP_KEEP=0
+USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--kek-passphrase-file FILE [--keep-kek-passphrase-file] | --kek-passphrase-stdin] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
   status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
   rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
@@ -154,6 +241,10 @@ while [ $# -gt 0 ]; do
     --with-model-pack) WITH_MODEL=${2:?--with-model-pack needs a model pack}; shift ;;
     # H-95: a model pack with the software pack loaded straight after it (it must name this model pack)
     --for-software) FOR_SOFTWARE=${2:?--for-software needs a software pack}; shift ;;
+    # H-124: the KEK passphrase of a passphrase-backed box (the KEK-INPUT block above)
+    --kek-passphrase-file) PP_FILE=${2:?--kek-passphrase-file needs a FILE}; shift ;;
+    --keep-kek-passphrase-file) PP_KEEP=1 ;;
+    --kek-passphrase-stdin) PP_STDIN=1 ;;
     *) echo "apply_update: unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: a usage error, refused by name on every box (review L-5 of #1430): an option not understood is never acted on, nor its value taken for the bundle
   esac
   shift
@@ -195,6 +286,22 @@ if [ -f "$UPDATES/IN_PROGRESS.json" ]; then
   exit 1
 fi
 SECRETS=${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}
+# H-124: the passphrase read once (a file only root can read, or stdin), then the KEK of a passphrase-backed box
+# unsealed from it before the key check; the file is removed once used (--keep-kek-passphrase-file keeps it)
+[ -z "$PP_FILE" ] || [ "$PP_STDIN" = 0 ] || kp_die "--kek-passphrase-file and --kek-passphrase-stdin: one of the two; nothing was changed"
+[ "$PP_KEEP" = 0 ] || [ -n "$PP_FILE" ] || kp_die "--keep-kek-passphrase-file goes with --kek-passphrase-file; nothing was changed"
+if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"; elif [ "$PP_STDIN" = 1 ]; then kp_read_stdin; fi
+if [ -n "$KP_VALUE" ]; then
+  if [ -f "$SECRETS/kek.json" ] && grep -q '"backend": *"passphrase"' "$SECRETS/kek.json"; then
+    printf '%s\n' "$KP_VALUE" | ( cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.keys unseal \
+      --secrets "$SECRETS" --passphrase-stdin ) \
+      || { KP_VALUE=""; echo "update REFUSED: the KEK could not be unsealed from that passphrase (above); nothing was changed" >&2; exit 1; }  # H-94 (5): the keys stay sealed
+  else
+    echo "apply_update: a KEK passphrase was given, but this box's KEK is not passphrase-backed: not used" >&2
+  fi
+  KP_VALUE=""
+  if [ -n "$KP_FILE" ] && [ "$PP_KEEP" = 0 ]; then kp_remove_file "$KP_FILE"; fi
+fi
 if [ -d "$SECRETS" ]; then
   ( cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.keys check --for-update --secrets "$SECRETS" ) \
     || { echo "update REFUSED: the site keys (above); nothing was changed" >&2; exit 1; }  # H-94 (5): a KEK beside the keys it seals, keys plain and wrapped

@@ -58,6 +58,15 @@
    "basis": "shown",
    "state": "open",
    "fix": "H-124 (ruled 7132484063): verify_update counts the host tree twice in the space to stage (test: a disk short by exactly that amount is refused); tools/packs.py counts it in the peak and allows 2 x the manifest's host tree in the bound"
+  },
+  {
+   "id": "H124-07",
+   "severity": "High",
+   "claim": "a passphrase-backed box could not be updated in place: apply_update.sh refused the passphrase from the environment and had no file or stdin option, and after a restart the update's key check refused the sealed keys (the walk, 7135110331)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "H-124 (ruled 7135119782): --kek-passphrase-file / --kek-passphrase-stdin with the installers' KEK-INPUT functions, the KEK unsealed by a pipe before the key check; a box on an older release still needs the bootstrap once (H124-02)"
   }
  ]
 }

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -136,12 +137,13 @@ def _install(b: dict[str, Any], host: Path, rid: str = "R1") -> None:
     ht.install(host, b["base"], rid)
 
 
-def _apply(b: dict[str, Any], bundle: Path, *args: str, wait: bool = True) -> Any:
+def _apply(b: dict[str, Any], bundle: Path, *args: str, wait: bool = True, stdin: str | None = None) -> Any:
     argv = ["bash", str(b["base"] / "tools" / "apply_update.sh"), str(bundle), "--no-backup", *args]
     if not wait:
         return subprocess.Popen(argv, env=b["env"], cwd=b["tmp"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, start_new_session=True)  # fmt: skip
-    return subprocess.run(argv, env=b["env"], cwd=b["tmp"], capture_output=True, text=True, check=False, timeout=600)
+    return subprocess.run(argv, env=b["env"], cwd=b["tmp"], capture_output=True, text=True, check=False, timeout=600,
+                          input=stdin if stdin is not None else "")  # fmt: skip
 
 
 def _current(b: dict[str, Any]) -> str:
@@ -359,6 +361,117 @@ def test_h124_01_a_vendor_key_that_is_a_link_is_refused(box: dict[str, Any]) -> 
     r = _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed")))
     assert r.returncode == 2 and "is a link or belongs to neither root nor this user" in r.stderr, _said(r)
     assert _current(b) == "releases/R1"
+
+
+# ------------------------------------------------------------------------------------------------ a passphrase box
+PASSPHRASE = "synthetic-test-passphrase-1"  # a throwaway test value, never a box's
+
+
+def _passphrase_box(b: dict[str, Any]) -> dict[str, Path]:
+    """The box's site keys wrapped under a passphrase KEK (tools.keys init, as the installer seals them), and the KEK
+    not unsealed: a restart since, as on the walk's box (7135110331). Synthetic random keys."""
+    sec, run = b["tmp"] / "secrets", b["tmp"] / "run-trialbox"
+    for d in (sec, run):
+        d.mkdir(mode=0o700)
+    for name in ("site_hmac.key", "pid_map.key"):
+        (sec / name).write_text(os.urandom(32).hex())
+        (sec / name).chmod(0o600)
+    pp = b["tmp"] / "init.pass"
+    pp.write_text(PASSPHRASE + "\n")
+    pp.chmod(0o600)
+    env = {**b["env"], "PYTHONPATH": f"{ROOT / 'libs'}:{ROOT}", "TB_KEK_FILE": str(run / "kek")}
+    r = subprocess.run([sys.executable, "-m", "tools.keys", "init", "--secrets", str(sec), "--backend", "passphrase",
+                        "--passphrase-file", str(pp)], env=env, cwd=ROOT, capture_output=True, text=True,
+                       check=False, timeout=300)  # fmt: skip
+    assert r.returncode == 0, r.stdout + r.stderr
+    (run / "kek").unlink(missing_ok=True)  # a restart since: the KEK is not unsealed
+    assert sorted(x.name for x in sec.iterdir()) == ["kek.json", "pid_map.key.wrapped", "site_hmac.key.wrapped"]
+    b["env"].update(TB_SECRETS_HOST_DIR=str(sec), TB_KEK_FILE=str(run / "kek"))
+    return {"sec": sec, "kek": run / "kek"}
+
+
+def _pass_file(b: dict[str, Any], text: str = PASSPHRASE) -> Path:
+    d = b["tmp"] / "root-only"
+    d.mkdir(mode=0o700, exist_ok=True)
+    f = d / "trialbox-kek.pass"
+    f.write_text(text + "\n")
+    f.chmod(0o600)
+    return f
+
+
+def test_h124_a_passphrase_box_without_its_passphrase_is_refused_before_anything(box: dict[str, Any]) -> None:
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    k = _passphrase_box(b)
+    r = _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed")))
+    assert r.returncode == 1 and "update REFUSED: the site keys" in r.stderr, _said(r)
+    assert "the KEK is not unsealed" in r.stderr and not k["kek"].exists()
+    assert _current(b) == "releases/R1" and _seq(b) == 1
+
+
+@pytest.mark.parametrize("way", ["file", "stdin"])
+def test_h124_a_passphrase_box_updates_in_place_with_its_passphrase(box: dict[str, Any], way: str) -> None:
+    """The integrator's ruling 7135119782: --kek-passphrase-file FILE or --kek-passphrase-stdin, as the bootstrap
+    takes them: the KEK is unsealed before the key check and the update goes through; the passphrase is in no output,
+    and the file is removed once used."""
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    k = _passphrase_box(b)
+    bundle = _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed"))
+    if way == "file":
+        f = _pass_file(b)
+        r = _apply(b, bundle, "--kek-passphrase-file", str(f))
+        assert not f.exists()  # removed once used
+    else:
+        r = _apply(b, bundle, "--kek-passphrase-stdin", stdin=PASSPHRASE + "\n")
+    assert r.returncode == 0, _said(r)
+    assert k["kek"].is_file() and oct(k["kek"].stat().st_mode & 0o777) == "0o600"
+    assert PASSPHRASE not in r.stdout + r.stderr
+    assert _current(b) == "releases/R2" and _seq(b) == 2
+
+
+def test_h124_a_kept_passphrase_file_stays_and_a_wrong_passphrase_changes_nothing(box: dict[str, Any]) -> None:
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    k = _passphrase_box(b)
+    bundle = _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed"))
+    wrong = _pass_file(b, "not-the-boxs-passphrase")
+    r = _apply(b, bundle, "--kek-passphrase-file", str(wrong), "--keep-kek-passphrase-file")
+    assert r.returncode == 1 and "the KEK could not be unsealed from that passphrase" in r.stderr, _said(r)
+    assert wrong.exists() and not k["kek"].exists() and _current(b) == "releases/R1"
+    assert "not-the-boxs-passphrase" not in r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("bad", ["link", "group-readable", "environment"])
+def test_h124_the_passphrase_never_from_a_link_a_readable_file_or_the_environment(
+    box: dict[str, Any], bad: str
+) -> None:
+    """H-94 (5): the KEK-INPUT block's refusals, as the bootstrap's: before anything is read or made."""
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    k = _passphrase_box(b)
+    bundle = _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed"))
+    f = _pass_file(b)
+    args: tuple[str, ...] = ("--kek-passphrase-file", str(f))
+    if bad == "link":
+        link = f.with_name("link.pass")
+        link.symlink_to(f)
+        args = ("--kek-passphrase-file", str(link))
+    elif bad == "group-readable":
+        f.chmod(0o640)
+    else:
+        b["env"]["TB_KEK_PASSPHRASE"] = PASSPHRASE
+        args = ()
+    r = _apply(b, bundle, *args)
+    assert r.returncode in (1, 2) and "refused" in r.stderr, _said(r)
+    assert PASSPHRASE not in r.stdout + r.stderr and not k["kek"].exists() and _current(b) == "releases/R1"
+
+
+def test_h124_the_kek_input_functions_are_the_installers_own_bytes() -> None:
+    block = re.compile(r"# ---- KEK-INPUT functions.*?# ---- end of KEK-INPUT functions\n", re.S)
+    mine = block.findall((ROOT / "tools" / "apply_update.sh").read_text(encoding="utf-8"))
+    theirs = block.findall((ROOT / "deploy" / "hardening" / "seal_keys.sh").read_text(encoding="utf-8"))
+    assert len(mine) == 1 and mine == theirs
 
 
 # ------------------------------------------------------------------------------------------------ for other tests

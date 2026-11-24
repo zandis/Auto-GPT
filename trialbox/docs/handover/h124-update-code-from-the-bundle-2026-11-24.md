@@ -104,7 +104,27 @@ host tree, as `make_bundle.sh` builds them.
 - Measured on the session machine: peak 104,869,888 bytes against installed 79,515,648 bytes.
 - The install page of the runbook names the new bound.
 
-## 5. The four recurring finding types
+## 5. A passphrase-backed box is updated in place (the integrator's ruling 7135119782)
+
+On master, `apply_update.sh` refused the passphrase from the environment (H-97) and had no other way to take it.
+After a restart a passphrase box's KEK is not unsealed, so the update's key check refused it, and such a box could
+not be updated in place (the walk, 7135110331).
+- `apply_update.sh` takes `--kek-passphrase-file FILE` (with `--keep-kek-passphrase-file`) or
+  `--kek-passphrase-stdin`, as the bootstrap and the installers do.
+- It uses their KEK-INPUT functions, byte for byte (a test holds them to `deploy/hardening/seal_keys.sh`'s): a
+  regular file, not a link, owned by root (the user running it), mode 0600, in folders only root can write; never
+  from the environment.
+- The value goes by a pipe to `tools.keys unseal --passphrase-stdin` before the key check. It is never an argument
+  and never printed; the file is removed once used unless kept.
+- A wrong passphrase stops the update before anything changes. A passphrase given to a box whose KEK is not
+  passphrase-backed is not used, and the script says so.
+- Tests update a passphrase box both ways; they also check that the box without its passphrase is refused, that a
+  wrong one changes nothing, and that a link, a group-readable file or the environment are refused.
+- **For H-123's N-1 rehearsal:** the case is a passphrase-backed box installed from release N-1, restarted (its KEK
+  not unsealed), then updated to N with `--kek-passphrase-file`, and again with `--kek-passphrase-stdin`. Until
+  H-124 is in the installed release, N-1's own `apply_update.sh` has neither option.
+
+## 6. The four recurring finding types
 
 - **Ctrl-C or SIGTERM:** tested above. Bash runs the trap that removes the stage only after the foreground update
   exits.
