@@ -1566,6 +1566,7 @@ if [ -n "${OVR:-}" ]; then  # the override is outside deploy/: mount it where th
   SHEET_MOUNT=(-v "$OVR:/app/deploy/compose-override.yml:ro"); SHEET_FILES="${SHEET_FILES//$OVR/deploy/compose-override.yml}"
 fi
 FAILS=()   # T-632: a FAIL here does not stop the install half-way; the install ends with exit 1 and the list
+KEPT_FAILS=()  # H-110 (1396-1): FAIL lines of a kept refusal made by this run itself (a PoC box ends 1 on them too)
 # HW-003 (D-569): the shipped qualification record. The pair was pinned as candidate, and PRODUCTION routes a
 # champion only. When a record in deploy/qualification/<profile>/ qualified exactly these weights, this model
 # server image and this chat template, the pair is promoted; the promotion is kept only when the canary passes on
@@ -1604,6 +1605,9 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
       FAILS+=("the model pair was promoted on its shipped record but the canary on this box did not pass (above): it is back to candidate and routes nothing; check the card, the driver and the model servers' logs, then re-run (RUNBOOK §11)")
     else
       FAILS+=("the model pair was promoted on its shipped record, the canary on this box did not pass (above), and the pair could NOT be put back: run python3 -m tools.pin_model --demote-pair $GPU, then restart the gateway, before anything is screened (RUNBOOK §11)")
+      # H-110 (1396-1): a promoted pair that failed this box's canary and stays promoted is a pair the machine cannot
+      # run (H-94 (2)): kept as a FAIL on every box, so a PoC install never ends as if the box were ready
+      KEPT_FAILS+=("${FAILS[-1]}")
     fi
   elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
     echo "    rehearsal box: the pair is the media's placeholder pins (candidate, never promoted); nothing to qualify"
@@ -1870,6 +1874,7 @@ fi
 # H-94 (5): on a PoC box a FAIL line of the host check of a kept refusal (tb_kept_fails: a secret's mode, and (2),
 # (3)) stays a FAIL: the other FAIL lines warn
 # and are listed, then those lines and exit 1. On any other box the lines below stop, with master's words
+SECRET_FAILS+=(${KEPT_FAILS[@]+"${KEPT_FAILS[@]}"})  # H-110 (1396-1): this run's own kept FAIL lines with the host check's
 if [ "${#SECRET_FAILS[@]}" -gt 0 ] && tb_poc_box; then
   for f in "${FAILS[@]}"; do stop_or_warn --silent "fail: $(printf '%s' "$f" | cut -c1-40)" "" "FAIL: $f"; done
   printf 'install: FAIL: %s\n' "${SECRET_FAILS[@]}" >&2

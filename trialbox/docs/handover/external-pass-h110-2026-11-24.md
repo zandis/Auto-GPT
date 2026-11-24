@@ -155,6 +155,7 @@ master's version of its file swapped in.
 | L-CI-1 prompts and model cards taken for documents | fixed in this card | `tools/ci_docs_only.py` `CODE_READS`; `test_a_prompt_or_a_model_card_is_never_a_documents_only_change` |
 | L-RR-1 a product name in a shipped script | fixed in this card | `deploy/gcp/setup-gcp.sh` and `docs/VALIDATION.md` name the role, not the product; no test |
 
+| 1396-1 (High, second half) a model pair that cannot be put back only warned on a PoC box | fixed in this card | `deploy/install.sh`: the line is kept with the host check's kept lines (H-94 (2)): a PoC box ends 1 with it last, as PRODUCTION did; `test_a_model_pair_that_cannot_be_put_back_never_ends_an_install_as_ready` (PoC: exit 0 and "ready" on master) |
 | ESC-5 backup-install rewrites `.env` in place (ledger 7122384787) | fixed in this card | `tools/trialbox/backup_schedule.py` `set_env` and the box's `merge_env` use one helper, `tools/trialbox/private_file.py` `replace_private` (0600 from the first byte, on disk, renamed); `test_the_box_settings_are_replaced_whole_never_rewritten_in_place` for each caller |
 | GP-PL-1 the spool maps only `--dbname` (7121587090) | fixed in this card | `tools/trialbox/platform_day2.py` `spool_args`: `--dbname X`, `--dbname=X`, `-d X`, `-dX` and a positional connection (a URI, a key=value string) are each mapped to the job's variable or refused; `test_the_spool_never_writes_the_jobs_connection_in_any_form`, `test_the_spool_refuses_any_other_connection_in_any_form` |
 

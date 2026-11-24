@@ -311,6 +311,17 @@
    "state": "open",
    "fix": "one helper (tools/trialbox/private_file.py replace_private) for both writers; memcaps.py and pgsize.py listed, not changed",
    "from": "the external review's ledger 7122384787"
+  },
+  {
+   "id": "H110-29",
+   "severity": "High",
+   "claim": "1396-1 (second half): on a PoC box a model pair promoted on its shipped record that failed this box's canary and could not be put back was a warning: the install ended 0 as if ready",
+   "severity_basis": "the box screens on a pair that failed its canary",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "kept with the kind-2 lines: a PoC install ends 1 with the line last",
+   "from": "the external review's ledger 7122383360"
   }
  ]
 }

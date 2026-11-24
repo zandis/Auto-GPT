@@ -806,3 +806,39 @@ def test_a_ticker_a_stop_orphans_never_holds_the_callers_output(tmp_path: Path, 
     t = time.monotonic()
     r = subprocess.run(["bash", str(run)], capture_output=True, text=True, check=False, timeout=60)
     assert r.returncode == 0 and time.monotonic() - t < 30, r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ 1396-1 (High)
+def _pair_run(tmp: Path, poc: bool) -> subprocess.CompletedProcess[str]:
+    """install.sh's own model-pair lines (promoted on its shipped record, this box's canary failing, the put-back
+    failing too) and its own closing lines, with stand-ins for the tools: a PoC box or PRODUCTION."""
+    a = INSTALL.index('  pin_tool --promote-shipped "$GPU" --records /q --images-lock /images.lock\n')
+    b = INSTALL.index("  set -e\nfi\n", a)
+    c = INSTALL.index("# H-94: on a PoC box each FAIL line is a warning and a line of the list")
+    stub = tmp / "bin"
+    stub.mkdir(exist_ok=True)
+    (stub / "python3").write_text("#!/bin/sh\necho 'selftest: the canary did not pass'\nexit 1\n", encoding="utf-8")
+    (stub / "python3").chmod(0o755)
+    script = (
+        "set -euo pipefail\nGPU=rtxpro6000\nFAILS=()\nKEPT_FAILS=()\nSECRET_FAILS=()\nCOMPOSE=(true)\nsay() { :; }\n"
+        'pin_tool() { case "$1" in --promote-shipped) return 0 ;; *) return 1 ;; esac; }\n'
+        f"tb_poc_box() {{ return {0 if poc else 1}; }}\n"
+        'stop_or_warn() { shift 3 2>/dev/null; tb_poc_box && { echo "warning (PoC box, H-94): $*" >&2; return 0; }; exit 1; }\n'
+        "set +e\n" + INSTALL[a:b] + "set -e\n" + INSTALL[c:] + 'echo "TrialBox is ready (the end of the run)"\n'
+    )
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=60,
+                          env={"PATH": f"{stub}:/usr/bin:/bin"})  # fmt: skip
+
+
+@pytest.mark.parametrize("poc", [True, False], ids=["PoC box (TEST)", "PRODUCTION"])
+def test_a_model_pair_that_cannot_be_put_back_never_ends_an_install_as_ready(tmp_path: Path, poc: bool) -> None:
+    """1396-1: a pair promoted on its shipped record that failed this box's canary and could not be demoted stays
+    promoted: the box cannot run it (H-94 (2)). On a PoC box that FAIL only warned and the install ended 0, as if
+    ready; now it ends 1 with the line last, as on PRODUCTION."""
+    r = _pair_run(tmp_path, poc)
+    last = r.stderr.strip().splitlines()[-1]
+    assert r.returncode == 1 and "TrialBox is ready" not in r.stdout, (r.stdout, r.stderr)
+    assert (
+        last.startswith("install: FAIL: the model pair was promoted on its shipped record")
+        and "could NOT be put back" in last
+    )
