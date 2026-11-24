@@ -736,8 +736,11 @@ def apply_host(plan: Plan, base: Path, rb: Path, point: Point) -> list[str]:
     point.extra["host"] = {"previous": host_tree.current(base), "release": plan.bundle_id,
                            "fresh": not (base / "releases" / plan.bundle_id).exists()}  # fmt: skip
     save_point(rb, point)
-    try:  # 1461-1: the record fills as files move, so a stop inside the install is put back by restore_host
-        info = host_tree.install(tars[0], base, plan.bundle_id, into=point.extra["host"])
+    try:  # 1461-1: the record fills as files move, so a stop inside the install is put back by restore_host;
+        # H-114c: and it is saved before each move, so a SIGKILL inside the switch leaves point.json knowing every
+        # file set aside (the next `tools/apply_update.sh rollback` puts them back)
+        info = host_tree.install(tars[0], base, plan.bundle_id, into=point.extra["host"],
+                                 on_record=lambda: save_point(rb, point))  # fmt: skip
     except host_tree.HostTreeError as exc:
         raise UpdateFailed(f"host tree: {exc}") from exc
     point.extra["host"] = info
