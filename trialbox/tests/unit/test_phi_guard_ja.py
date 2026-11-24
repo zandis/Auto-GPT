@@ -21,6 +21,8 @@ from guard.guard import Guard
 from tb_common import phi_guard as pg
 from tb_common.phi_guard import MASK_CHAR, mask_note, scan
 
+from tools.timing_bound import bound
+
 pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: no database, in `make guard` and `make test-pure`
 
 SYNTH = Path(__file__).resolve().parents[2] / "eval" / "phi_synth"
@@ -172,7 +174,7 @@ def test_the_japanese_rules_keep_a_long_line_fast() -> None:
         for f in (mask_note, G.redact, scan):
             start = time.monotonic()
             f(text)
-            assert time.monotonic() - start < 2.0, (f, text[:6])
+            assert time.monotonic() - start < bound(2.0), (f, text[:6])
     # lane J: 400 kB of one anchor repeated (様 took 7.5 s, twice master's time: each anchor looked for its line's end
     # again; the guard's v1 names ran out of memory on 山田様 repeated): linear now, about 2 s at most on this box
     for unit in ("様", "山田様", "ア様", "さん", "氏名：", "記号１"):
@@ -180,4 +182,4 @@ def test_the_japanese_rules_keep_a_long_line_fast() -> None:
         for f in (mask_note, G.redact, scan):
             start = time.monotonic()
             f(text)
-            assert time.monotonic() - start < 5.0, (f, unit)
+            assert time.monotonic() - start < bound(5.0), (f, unit)

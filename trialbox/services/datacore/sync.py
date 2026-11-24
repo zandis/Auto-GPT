@@ -147,6 +147,14 @@ def sync(dc: DataCore, study: str, source: Source, by: str, at: str, push: bool 
 
 
 def _push(dc: DataCore, study: str, source: Source, res: SyncResult) -> None:
+    from tb_common import rc1_refusals
+
+    from datacore.rc1_refused import EdcWriteRefused
+
+    try:  # R22-34 (D-1072): rc1 writes nothing from screening to an EDC on a PRODUCTION box; nothing is pushed
+        rc1_refusals.check("edc_writes_from_screening")
+    except rc1_refusals.Rc1Refused as exc:
+        raise EdcWriteRefused(exc) from None
     owners = dc.owners(study)
     mine = [f for f in source.fields() if owners.get(f, TRIALBOX) == TRIALBOX]
     open_c = {(c["record"], c["event"], c["field"]) for c in dc.conflicts(study) if c["source"] == source.name}

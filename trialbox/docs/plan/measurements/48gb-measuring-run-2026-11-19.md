@@ -627,7 +627,9 @@ with its numbers (`card-too-small`, `card-is-the-target`).
   `note`, and it ends `passed` (exit 0) or with the count of problems (exit 2).
 - `run` makes the same preflight, then the steps. `--pull` lets s06 pull the engine image when it is not there
   (without it, a missing image is refused). `--no-o` leaves stage O out. `--run-id` names the run (default
-  `m48h-<UTC time>`).
+  `m48h-<UTC time>`). `--project NAME` and `--image-tag TAG` (H-75) are the run's own compose project and the tag of
+  the images the stub builds (default: both from the run id, lower-cased); `trialbox` (any `trialbox*`), `1.0.0` and
+  `16-1` are the installed box's and refused.
 - **The records:** `<run folder>/out` holds what to send back: the VM form's allow-list and redaction
   (`tools/measure48_vm.py pack`), plus `host.log`, `preflight.txt` and `records/docker-objects.json`.
   `<run folder>/run` holds everything (the stub's output with the administrator's password in `raw/`, the card's UUID
@@ -641,12 +643,14 @@ with its numbers (`card-too-small`, `card-is-the-target`).
 | --- | --- |
 | card N, with no other process on it | `nvidia-smi -i N`; other processes are counted, with their memory, never named |
 | the driver, at or above what the engine image needs | `python3 tools/images_lock.py host --driver <read>`: refused below `deploy/images.lock`'s `gpu.driver_min` (580.65.06: the engine image is CUDA 13), the found and the needed driver named (H-72); a note when it is not the rented run's branch (580) |
+| the bench host only: a driver below that, under the bench exception | `--bench-driver-exception forward-compat --engine-probe FILE` (an option only; H-74): passes only when `tools/engine_probe.py`'s result passed with `pinned+compat` or `pinned+libs` of the pinned image, its compatibility libraries seen, on this card's model and this driver (`tools/measure48_vm.py bench-exception`); s08 serves with that form and the probe's environment; the records and `out/BENCH-EXCEPTION.txt` say "bench exception: driver <found> with the forward-compatibility path; not valid for an install", with the minimum. Never in `deploy/check_host.sh`, `deploy/install.sh` or `tools/images_lock.py` |
 | a card that can offer the target | `python3 -m tools.ballast plan --gpu-index N` (allocates nothing) |
 | Docker, usable by this user | `docker info` answers |
 | the NVIDIA runtime registered with Docker | `docker info`'s `Runtimes` lists `nvidia` (what `nvidia-ctk runtime configure --runtime=docker` adds; the owner's step: this script never does it) |
 | docker compose 2.24.4 or newer | `docker compose version` (the servers' pin uses `!override`) |
-| no TrialBox objects on the host | no container of compose project `trialbox`, no `trialbox-*` network, no `trialbox_*` volume, no `tb-ballast-<run id>` |
-| no TrialBox images on the host | no image named `trialbox-*`: the stub (s05) builds and tags images of those names and would replace an installed box's (H-72); a host with an installed box is refused, not shared |
+| no objects of the run's own names | no container of compose project `<project>`, no `<project>-*` network, no `<project>_*` volume, no `tb-ballast-<run id>` (H-75; a project of the box's, `trialbox*`, is refused before this) |
+| no images of the run's own tag | none of `trialbox-py:<tag>`, `trialbox-jvm:<tag>`, `trialbox-postgres:<tag>`: the stub builds, tags and at the end removes them (H-75). An installed box's objects and images (project `trialbox`, `trialbox-*:1.0.0`, `trialbox-postgres:16-1`) may be there: a note, and the run never builds over, tags, stops or removes them (H-72's refusal of any `trialbox-*` image is replaced by this stronger rule, tested as an invariant) |
+| the stub's host ports free | each `TB_HOST_*_PORT` of the checkout's compose files (default or as set) must not answer on 127.0.0.1; a taken one is named with its variable: set it to a free port for the run (e.g. `TB_HOST_CONSOLE_PORT=18090` before the command) |
 | the engine image, by digest | `docker image inspect` of `tools/engine_probe.py`'s `pinned_ref()`; never pulled without `--pull` (9.2 GB compressed, 23.4 GB unpacked) |
 | the weights, as pinned | `python3 -m tools.fetch_weights --profile rtxpro6000 --models-dir <weights folder> --verify-only` (27.9 GB; hashed, nothing fetched) |
 | Docker's data root: **14 GB** free (**44 GB** with `--pull`) | the stub's images (14 GB, `NEED_GB` "stub"), plus the engine (30 GB) when pulled |
@@ -654,20 +658,50 @@ with its numbers (`card-too-small`, `card-is-the-target`).
 | python3 3.10 or newer with PyYAML; git | imported and asked |
 | for the screen (s09, s10) only | PostgreSQL's server binaries, tesseract with `jpn`, `chi_tra` and `eng`, curl, xz: a note when missing (the screen's steps then fail and the rest goes on); Chromium's system libraries are not checked (Playwright is installed without `--with-deps`) |
 
-Also needed, not checked: the network for the stub's base images (s05), uv and the venv, node, Playwright's Chromium,
-the fonts and the hospital's data (s09); ports 8090 and 8025 on 127.0.0.1 free for the stub's start (or
-`TB_HOST_CONSOLE_PORT` and `TB_HOST_MAILHOG_PORT` set).
+**Caution under the bench exception (H-74).** Reported by the server's session (2026-11-22), not measured here: the
+forward-compatibility path on driver 575 leaks driver memory per CUDA context; after many starts the card refuses new
+contexts, and a driver reload fixes it. The run starts the ballast's context and two servers for each ladder option
+tried, stage O's verifier and s13's option (about 6 to 10 server starts): reload the driver just before the run, and
+read a later option against the first's free figure (`free_at_peak_mib`). s08 and s13 start the servers with the
+probe's own container environment (`ballast48 measure --engine FORM --probe FILE`, H74-02). The run's own
+project and image tag are built by H-75 (H74-03): a host with an installed box runs the measurement beside it.
+
+**On the bench host (an existing host with an installed box, driver 575; card N; H-75 with H-74's exception):**
+
+    cd <clean checkout>/trialbox
+    python3 tools/engine_probe.py run --only pinned,pinned+compat,pinned+libs --gpu-args '--gpus "device=N"' \
+        --out ~/tb-engine-probe.json                       # once; the engine image already there is left in place
+    # reload the driver (or reboot) just before the run: the caution above
+    tools/measure48-host.sh preflight --gpu-index N --run-dir <run folder> --weights-dir <weights folder> \
+        --run-id m48h-bench1 --project m48h-bench1 --image-tag m48h-bench1 \
+        --bench-driver-exception forward-compat --engine-probe ~/tb-engine-probe.json
+    tools/measure48-host.sh run --gpu-index N --run-dir <run folder> --weights-dir <weights folder> \
+        --run-id m48h-bench1 --project m48h-bench1 --image-tag m48h-bench1 \
+        --bench-driver-exception forward-compat --engine-probe ~/tb-engine-probe.json
+
+If the preflight names a taken port (the box's console on 8090, for one), put the variable it names before both
+commands, e.g. `TB_HOST_CONSOLE_PORT=18090 tools/measure48-host.sh ...`.
+
+Also needed, not checked: the network for the stub's base images and its build inputs (s05: Maven, curl and a
+python with fontTools on the host, else the builder image `maven:3.9.9-eclipse-temurin-17`, pulled and kept), uv and
+the venv, node, Playwright's Chromium, the fonts and the hospital's data (s09).
 
 ### 10.3 What it does, and never does
 
 - **Writes:** in the run folder only: the run's copy of the checkout (`src/trialbox`), the steps' records, the venv,
   node, Playwright's Chromium, uv's and pip's and npm's caches and the temporary files (each tool's cache and temp
   variables point there).
-- **Docker:** it makes objects of the box's own names (compose project `trialbox`, fixed by
-  `deploy/docker-compose.yml`) and the ballast's container `tb-ballast-<run id>`; the preflight refuses a host where
-  any of them exists. At the end (complete, failed, Ctrl-C, SIGTERM, the cap) it removes every container, network and
-  volume of those names and lists them in `records/docker-objects.json`. The box's images it builds are listed there
-  and kept; Docker's build cache is kept (it cannot be told apart by run).
+- **Docker:** it makes objects of its own names only (H-75): the compose project `<project>` (its containers,
+  `<project>-*` networks, `<project>_*` volumes: compose's own `-p`, `COMPOSE_PROJECT_NAME`, which
+  `deploy/docker-compose.yml`, `deploy/docker-compose.test.yml`, `deploy/poc.sh`, `tools/dgpu48.py` and
+  `tools/measure48-vm.sh` follow), the images `trialbox-py`, `trialbox-jvm` and `trialbox-postgres` under `<tag>`
+  (`TRIALBOX_IMAGE_TAG`; built by `deploy/poc.sh`'s own build path and `deploy/build_db_image.sh`, never
+  `make images`), and the ballast's container `tb-ballast-<run id>`; the preflight
+  refuses a host where any of them exists. At the end (complete, failed, Ctrl-C, SIGTERM, the cap) it removes every
+  container, network and volume of those names and the three images of its tag (`docker image rm`, never `-f`), and
+  lists them in `records/docker-objects.json` (with `project` and `image_tag`). Other images it caused (a builder
+  image) are listed there and kept; Docker's build cache is kept (it cannot be told apart by run). An installed box's
+  objects and images are never built over, tagged, stopped or removed.
 - **The stop line and the cap** are the VM form's: 204 minutes with stage O (`measure48_vm.py stop-line-min`), 240
   minutes. They are counted from the start of the steps and kept by the script: each stage starts only when its high
   ends before the line; at the line the running tool gets SIGINT; at the cap a watchdog ends the steps, and the end
@@ -689,3 +723,10 @@ that changes, and the servers' pin. No card, no Docker daemon and no compose wer
 `!override` and `device_ids` and Docker's device request are taken from their documented shapes; the first run on the
 host is the first to show them. If compose's form differs, the measure is refused before any server starts; if
 the device request differs, the servers are stopped and the measure refused.
+`tests/unit/test_measure48_host_own_names_h75.py` (H-75): the invariant
+`test_the_boxs_objects_and_images_are_never_touched_by_a_run` (the box's lists identical before and after a full
+pass, a failure at s07, SIGTERM and the cap; the box's project and tags refused), a full run beside an installed box,
+the refusals of the box's project and tags, the run's own names already present, a taken port; the compose files
+rendered by `docker compose config` with nothing set, byte-identical to their literal `trialbox` form; `deploy/poc.sh`,
+`deploy/build_db_image.sh`, `tools/dgpu48.py` and `tools/measure48-vm.sh` with nothing set (master's names) and under
+an own project and tag (no build, tag or removal names a box tag).

@@ -41,6 +41,7 @@ import pyarrow as pa
 import pytest
 from lake.client import LakeLocal
 from matching.cascade import engine as cascade_engine
+from orchestrator import reimbursement
 from orchestrator.clients import StepFailed
 from orchestrator.scenarios import case as case_mod
 from orchestrator.scenarios import microbatch, nav
@@ -462,6 +463,7 @@ def nav_run(r: Run, mp: pytest.MonkeyPatch) -> dict[str, str]:
     mp.setattr(nav, "require_approved", lambda ctx, rid, v: rs)
     mp.setattr(nav, "classify", spy)
     mp.setattr(nav, "opted_out_now", stop)
+    mp.setattr(reimbursement, "is_open", lambda *a, **k: True)  # card 9e-9: a test box with NAV on
     try:
         with pytest.raises(_Stop):
             nav.run(_ctx(r.lake, r.llm, r.verifier, options={"dept": "RHEUM"}))
@@ -572,7 +574,13 @@ def test_the_control_excludes_the_ineligible(lake: LakeLocal, path: str, monkeyp
     statuses = PATHS[path](_run(lake, OPS["shown"], monkeypatch), monkeypatch)
     excluded = {p for p, s in statuses.items() if s == "excluded"}
     assert excluded <= {c.pid for c in CHARTS if c.ineligible}
-    assert {"N-NONE", "N-EXC"} <= excluded and "N-KEEP" not in excluded
+    assert "N-EXC" in excluded and "N-KEEP" not in excluded
+    # R22-17 (D-1069; ruled on #639 7079180333): the planted patient whose note inclusion is not met (N-NONE) is in
+    # review on every list (NAV: a row to confirm); the CASE sheet, which has no status, prints the notes' "not met",
+    # which ``case_run`` reads as off
+    assert statuses["N-NONE"] == {"screen_v1": "review", "screen_cascade": "review", "nav": "confirm"}.get(
+        path, "excluded"
+    )
     assert statuses["N-KEEP"] in ("high", "listed", "kept")
 
 

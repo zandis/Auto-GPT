@@ -2,8 +2,10 @@
 # The 48 GB measuring run on an existing host (lane H, card H-67): steps s05 to s14 of tools/measure48-vm.sh against
 # a checkout, on ONE card chosen by its index, with no VM and nothing of the cloud.
 #
-#   tools/measure48-host.sh preflight --gpu-index N --run-dir DIR [--weights-dir DIR] [--pull]
-#   tools/measure48-host.sh run       --gpu-index N --run-dir DIR [--weights-dir DIR] [--pull] [--no-o] [--run-id ID]
+#   tools/measure48-host.sh preflight --gpu-index N --run-dir DIR [--weights-dir DIR] [--pull] [NAMES] [BENCH]
+#   tools/measure48-host.sh run       --gpu-index N --run-dir DIR [--weights-dir DIR] [--pull] [--no-o] [NAMES] [BENCH]
+#   NAMES: [--run-id ID] [--project NAME] [--image-tag TAG]   (the run's own; never the box's trialbox, 1.0.0, 16-1)
+#   BENCH: --bench-driver-exception forward-compat --engine-probe FILE   (the bench host only; never an install)
 #
 # preflight  changes nothing: it prints what the run needs and what the host has, and exits 2 on any problem.
 # run        the same preflight, then the steps; the packed records in DIR/out (the VM form's allow-list and
@@ -18,13 +20,25 @@
 # What it never does: install a driver or anything with apt, reboot, power off or shut down, call gcloud, a bucket or
 # the cloud's metadata, `docker system prune`, `docker builder prune` or `docker image prune`, pull the engine image
 # without --pull, touch a Docker object it did not make, read or use another card than --gpu-index. It writes in the
-# run folder only, and makes Docker objects of the box's own names (compose project trialbox: its containers, networks
-# trialbox-*, volumes trialbox_*) and the ballast's container tb-ballast-<run id>; it refuses to start when any of them
-# exists already, and removes them at the end (on success, on failure, on SIGINT and SIGTERM, at the cap). The box's
-# images it builds are listed in records/docker-objects.json and kept (the build cache too: Docker cannot tell this
-# run's cache from another user's); it refuses to start when any image of the box's names (trialbox-*) exists already,
-# since the stub would build over it (card H-72: a host with an installed box is refused, not shared).
+# run folder only. Card H-75: every Docker object of the run carries its own names, never the box's, so a host with an
+# installed TrialBox runs it beside the box: the compose project --project NAME (default: from the run id; its
+# containers NAME-*, networks NAME-*, volumes NAME_*: compose's own COMPOSE_PROJECT_NAME, as -p sets it), the images
+# trialbox-py, -jvm and -postgres under --image-tag TAG (default: the project's name; TRIALBOX_IMAGE_TAG, and compose's
+# existing image variables set to them) and the ballast's container tb-ballast-<run id>. No box setting (TB_*) is
+# read or declared for it. The project trialbox (or any trialbox*)
+# and the box's tags (1.0.0, 16-1) are refused. The preflight refuses when any object of the run's names or an image of
+# its tag exists already; the box's own objects and images may be there and are never built over, tagged or removed.
+# At the end (on success, on failure, on SIGINT and SIGTERM, at the cap) the run's objects and the images of its own
+# tag are removed (records/docker-objects.json); other images it caused (a builder image) are listed and kept, and
+# the build cache is kept (Docker cannot tell this run's cache from another user's).
 # The preflight also refuses a driver below what the engine image's CUDA needs (deploy/images.lock gpu.driver_min).
+# Card H-74, the bench host's exception: with --bench-driver-exception forward-compat (an option only: no default, no
+# environment variable) and --engine-probe FILE (tools/engine_probe.py's result), a driver below the minimum passes
+# only when that probe passed with a forward-compatibility form of the pinned image (pinned+compat or pinned+libs) on
+# this card's model and this driver (tools/measure48_vm.py bench-exception); s08 then serves with that form
+# (ballast48 measure --engine FORM --probe FILE: the probe's own container environment), and the preflight, records/head.json, records/bench-exception.json, host.log and
+# out/BENCH-EXCEPTION.txt say "bench exception: driver <found> with the forward-compatibility path; not valid for an
+# install". deploy/check_host.sh, deploy/install.sh and tools/images_lock.py have no such exception.
 #
 # The stop line and the cap are the VM form's (measure48_vm.py stop-line-min: 204 min with stage O; the cap 240 min),
 # counted from the start of the steps and kept by this script itself: at the stop line the running tool gets SIGINT
@@ -44,12 +58,12 @@ TB_M48_FUNCTIONS_ONLY=1
 unset TB_M48_FUNCTIONS_ONLY
 
 usage() {
-  sed -n '4,6p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2
+  sed -n '4,7p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2
   [ -z "${1:-}" ] || echo "measure48-host: $1" >&2
   exit 2
 }
 CMD=${1:-}; [ $# -gt 0 ] && shift
-GPU_INDEX=""; RUN_DIR=""; WEIGHTS=""; CHECKOUT=$HERE; PULL=0; TAKE_O=1; RUN_ID=""
+GPU_INDEX=""; RUN_DIR=""; WEIGHTS=""; CHECKOUT=$HERE; PULL=0; TAKE_O=1; RUN_ID=""; BENCH=""; PROBE=""; PROJECT=""; TAG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --gpu-index) GPU_INDEX=${2:-}; shift 2 || usage "--gpu-index needs a number" ;;
@@ -57,6 +71,10 @@ while [ $# -gt 0 ]; do
     --weights-dir) WEIGHTS=${2:-}; shift 2 || usage "--weights-dir needs a folder" ;;
     --checkout) CHECKOUT=${2:-}; shift 2 || usage "--checkout needs a folder" ;;
     --run-id) RUN_ID=${2:-}; shift 2 || usage "--run-id needs a name" ;;
+    --project) PROJECT=${2:-}; shift 2 || usage "--project needs a name" ;;
+    --image-tag) TAG=${2:-}; shift 2 || usage "--image-tag needs a tag" ;;
+    --bench-driver-exception) BENCH=${2:-}; shift 2 || usage "--bench-driver-exception needs its kind: forward-compat" ;;
+    --engine-probe) PROBE=${2:-}; shift 2 || usage "--engine-probe needs the engine probe's result file" ;;
     --pull) PULL=1; shift ;;
     --no-o) TAKE_O=0; shift ;;
     *) usage "unknown argument: $1" ;;
@@ -66,10 +84,32 @@ case "$CMD" in preflight|run) ;; *) usage "preflight or run first" ;; esac
 [[ "$GPU_INDEX" =~ ^[0-9]+$ ]] || usage "--gpu-index N is required (the card's nvidia-smi index)"
 [ -n "$RUN_DIR" ] || usage "--run-dir DIR is required (the one folder the run writes in)"
 case "$RUN_DIR" in /*) ;; *) RUN_DIR="$PWD/$RUN_DIR" ;; esac
+case "$BENCH" in
+  "") [ -z "$PROBE" ] || usage "--engine-probe is read only with --bench-driver-exception forward-compat" ;;
+  forward-compat) [ -n "$PROBE" ] || usage "--bench-driver-exception forward-compat needs --engine-probe FILE (tools/engine_probe.py run --out FILE)"
+                  case "$PROBE" in /*) ;; *) PROBE="$PWD/$PROBE" ;; esac ;;
+  *) usage "--bench-driver-exception: the one kind is forward-compat" ;;
+esac
 CHECKOUT=$(cd "$CHECKOUT" 2> /dev/null && pwd) || usage "--checkout: no such folder"
 WEIGHTS=${WEIGHTS:-$CHECKOUT/deploy/models}
 case "$WEIGHTS" in /*) ;; *) WEIGHTS="$PWD/$WEIGHTS" ;; esac
 RUN_ID=$(printf '%s' "${RUN_ID:-m48h-$(date -u +%Y%m%dT%H%M%SZ)}" | tr -c 'A-Za-z0-9._-' '_')
+# H-75: the run's own compose project and image tag (compose: lower case, digits, - and _, a letter or digit first)
+if [ -z "$PROJECT" ]; then
+  PROJECT=$(printf '%s' "$RUN_ID" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_-' '-')
+  [[ "$PROJECT" =~ ^[a-z0-9] ]] || PROJECT="m48h-$PROJECT"
+  [[ "$PROJECT" != trialbox* ]] || PROJECT="m48h-$PROJECT"
+fi
+TAG=${TAG:-$PROJECT}
+[[ "$PROJECT" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || usage "--project $PROJECT: lower-case letters, digits, - and _, a letter or digit first"
+[[ "$PROJECT" != trialbox* ]] || usage "--project $PROJECT is refused: trialbox is the installed box's project (and its networks trialbox-*); the run takes its own"
+[[ "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || usage "--image-tag $TAG: letters, digits, _ . -, not . or - first"
+case "$TAG" in 1.0.0|16-1) usage "--image-tag $TAG is refused: it is a tag of the installed box's images (trialbox-py:1.0.0, trialbox-postgres:16-1); the run takes its own" ;; esac
+OWN_IMAGES=("trialbox-py:$TAG" "trialbox-jvm:$TAG" "trialbox-postgres:$TAG")   # the run's own: built, used, removed
+# compose's project (-p) and the run's tag, read by compose, deploy/poc.sh, deploy/build_db_image.sh, tools/dgpu48.py and
+# tools/measure48-vm.sh; the services' images through compose's existing image variables (nothing new declared)
+export COMPOSE_PROJECT_NAME=$PROJECT TRIALBOX_IMAGE_TAG=$TAG TB_IMAGE="trialbox-py:$TAG" TB_JVM_IMAGE="trialbox-jvm:$TAG" \
+  TB_EMBED_IMAGE="trialbox-py:$TAG" TB_DOCPARSER_IMAGE="trialbox-py:$TAG" POSTGRES_IMAGE="trialbox-postgres:$TAG"
 
 SI=${TB_M48_STANDIN:-}
 POLL=${TB_M48_POLL_S:-10}
@@ -85,7 +125,7 @@ tick() { :; }
 say() { echo "TB-M48 $(stamp) $*" | if [ -d "$RUN" ]; then tee -a "$RUN/host.log"; else cat; fi; }
 
 # ------------------------------------------------------------------ the preflight: reads only, changes nothing
-PRE=""; PROBLEMS=0; GPU_UUID=""; DOCKER_ROOT=""
+PRE=""; PROBLEMS=0; GPU_UUID=""; DOCKER_ROOT=""; BENCH_REC=""; ENGINE=()
 pf() {  # pf ok|NO|note <text>
   local line="preflight: $1: $2"
   PRE="$PRE$line"$'\n'; echo "$line"
@@ -99,6 +139,22 @@ screen_missing() {  # what the screen's steps (s09, s10) need of the host and do
   for l in jpn chi_tra eng; do grep -qx "$l" <<< "$langs" || miss="$miss tesseract $l,"; done
   for t in curl xz git; do command -v "$t" > /dev/null || miss="$miss $t,"; done
   printf '%s' "${miss%,}"
+}
+bench_check() {  # bench_check <driver> <images_lock's FAIL text>: the bench host's exception (H-74), or the refusal
+  local drv=$1 why=$2 card ref res line
+  card=$(nvidia-smi -i "$GPU_INDEX" --query-gpu=name --format=csv,noheader 2> /dev/null | head -n 1 | sed 's/^ *//; s/ *$//')
+  ref=$(tool pinned_ref 2> /dev/null)
+  if res=$(h bench-exception --probe "$PROBE" --driver "$drv" --card "$card" --pinned "$ref" --lock "$HERE/deploy/images.lock"); then
+    BENCH_REC=${res#OK$'\t'}
+    ENGINE=(--engine "$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["engine_form"])' "$BENCH_REC")" --probe "$PROBE")
+    pf note "card $GPU_INDEX: $why (deploy/images.lock gpu.driver_min)"
+    pf note "card $GPU_INDEX: $(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["words"])' "$BENCH_REC"); s08 serves with the engine probe's form ${ENGINE[1]}"
+    pf note "s08 and s13 start the servers with the probe's own container environment ($(python3 -c 'import json, sys; print(" ".join(f"{k}={v}" for k, v in sorted(json.loads(sys.argv[1])["engine_env"].items())))' "$BENCH_REC")): ballast48 measure --engine ${ENGINE[1]} --probe (H74-02)"
+    pf note "caution: $(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["caution"])' "$BENCH_REC")"
+  else
+    pf NO "card $GPU_INDEX: $why (deploy/images.lock gpu.driver_min); the bench exception is not granted:"
+    while IFS=$'\t' read -r _ line; do [ -z "$line" ] || pf NO "  $line"; done <<< "$res"
+  fi
 }
 preflight() {
   local docker_gb run_gb out ref n mib drv rt ver rented what
@@ -121,9 +177,11 @@ preflight() {
     out=$(python3 "$HERE/tools/images_lock.py" host --arch "$(uname -m)" --driver "$drv" 2> /dev/null | grep -m1 'NVIDIA driver')
     case "$out" in
       PASS*) pf ok "card $GPU_INDEX: $(sed 's/^PASS *//' <<< "$out") (deploy/images.lock)" ;;
-      FAIL*) pf NO "card $GPU_INDEX: $(sed 's/^FAIL *//' <<< "$out") (deploy/images.lock gpu.driver_min); this script never installs a driver" ;;
+      FAIL*) if [ -n "$BENCH" ]; then bench_check "$drv" "$(printf '%s' "$out" | sed 's/^FAIL *//')"
+             else pf NO "card $GPU_INDEX: $(sed 's/^FAIL *//' <<< "$out") (deploy/images.lock gpu.driver_min); this script never installs a driver"; fi ;;
       *) pf NO "card $GPU_INDEX: driver $drv could not be checked against deploy/images.lock (tools/images_lock.py host)" ;;
     esac
+    case "$out" in PASS*) [ -z "$BENCH" ] || pf NO "--bench-driver-exception: driver $drv meets deploy/images.lock gpu.driver_min, no exception is needed: run without it" ;; esac
     rented=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import measure48_vm as m; print(m.RENTED_DRIVER_BRANCH)' "$HERE/tools")
     [ "${drv%%.*}" = "$rented" ] \
       || pf note "driver $drv is not the rented run's branch ($rented): recorded; the run goes on if it meets the engine image's minimum (above)"
@@ -151,13 +209,17 @@ preflight() {
     if [ -n "$ver" ] && [ "$(printf '%s\n2.24.4\n' "$ver" | sort -V | head -n 1)" = 2.24.4 ]; then pf ok "docker compose $ver"
     else pf NO "docker compose ${ver:-missing}: 2.24.4 or newer is needed (the servers' card pin uses !override)"; fi
     out=$(objs); n=$(printf '%s' "$out" | grep -c .)
-    if [ "$n" = 0 ]; then pf ok "no TrialBox objects on this host (compose project trialbox, trialbox-* networks, trialbox_* volumes, $BALLAST_NAME)"
-    else pf NO "this host has $n Docker object(s) of the box's names already ($(cut -f1 <<< "$out" | sort | uniq -c | awk '{printf "%s%s %s", (NR > 1 ? ", " : ""), $1, $2}')): the run makes and removes objects of those names and shares none"; fi
-    # the box's images: the stub (s05, deploy/poc.sh) builds and tags trialbox-* images; an installed box's would be
-    # built over, so any image of those names already here refuses the run
-    out=$(images | grep '^trialbox-'); n=$(printf '%s' "$out" | grep -c .)
-    if [ "$n" = 0 ]; then pf ok "no images of the box's names on this host (trialbox-*: the stub builds and tags them)"
-    else pf NO "this host has $n image(s) of the box's names already ($(tr '\n' ' ' <<< "$out" | sed 's/ $//; s/ /, /g')): the stub (s05) builds and tags images of those names and would replace them; the run shares none"; fi
+    if [ "$n" = 0 ]; then pf ok "no objects of the run's names on this host (compose project $PROJECT, $PROJECT-* networks, ${PROJECT}_* volumes, $BALLAST_NAME)"
+    else pf NO "this host has $n Docker object(s) of the run's names already ($(cut -f1 <<< "$out" | sort | uniq -c | awk '{printf "%s%s %s", (NR > 1 ? ", " : ""), $1, $2}')): the run makes and removes objects of those names and shares none (another --project)"; fi
+    # H-75 (was H-72's refusal of any trialbox-* image): the stub builds and tags the run's own tag only; an image of
+    # that tag already here refuses the run, the box's images are left as they are
+    out=$(own_images_here); n=$(printf '%s' "$out" | grep -c .)
+    if [ "$n" = 0 ]; then pf ok "no images of the run's tag on this host (${OWN_IMAGES[*]}: the stub builds and tags them)"
+    else pf NO "this host has $n image(s) of the run's tag already ($(tr '\n' ' ' <<< "$out" | sed 's/ $//; s/ /, /g')): the run builds, tags and removes images of that tag and shares none (another --image-tag)"; fi
+    out=$(ports_taken); out=${out%,}
+    [ -z "$out" ] || pf NO "the stub (s05) publishes host ports that answer already:$out (on 127.0.0.1; give the variable a free port for the run, e.g. TB_HOST_CONSOLE_PORT=18090 tools/measure48-host.sh ...)"
+    out=$(box_here); n=$(printf '%s' "$out" | grep -c .)
+    [ "$n" = 0 ] || pf note "an installed box's $n object(s) and image(s) are on this host (project trialbox, trialbox-*:1.0.0, trialbox-postgres:16-1): the run never builds over, tags, stops or removes them (H-75: this replaces H-72's refusal of any trialbox-* image with that stronger rule)"
     ref=$(tool pinned_ref 2> /dev/null)
     if [ -z "$ref" ]; then pf NO "no pinned engine image (tools/engine_probe.py pinned_ref)"
     elif docker image inspect --format '{{.Id}}' "$ref" > /dev/null 2>&1; then pf ok "the engine image is here by digest: $ref"
@@ -193,14 +255,27 @@ preflight() {
   pf NO "$PROBLEMS problem(s): nothing was changed"; return 2
 }
 
-# ------------------------------------------------------------------ the run's Docker objects (the box's names only)
-objs() {  # kind<TAB>name, one a line: what exists now of the names this run makes
-  docker ps -a --filter "label=com.docker.compose.project=trialbox" --format $'container\t{{.Names}}' 2> /dev/null
+# ------------------------------------------------------------------ the run's Docker objects (its own names only)
+objs() {  # kind<TAB>name, one a line: what exists now of the names this run makes (H-75: its own project's)
+  docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --format $'container\t{{.Names}}' 2> /dev/null
   docker ps -a --filter "name=^${BALLAST_NAME}\$" --format $'container\t{{.Names}}' 2> /dev/null
-  docker network ls --filter "name=^trialbox-" --format $'network\t{{.Name}}' 2> /dev/null
-  docker volume ls --filter "name=^trialbox_" --format $'volume\t{{.Name}}' 2> /dev/null
+  docker network ls --filter "name=^$PROJECT-" --format $'network\t{{.Name}}' 2> /dev/null
+  docker volume ls --filter "name=^${PROJECT}_" --format $'volume\t{{.Name}}' 2> /dev/null
 }
 images() { docker image ls --format '{{.Repository}}:{{.Tag}}' 2> /dev/null | sort -u; }
+own_images_here() { images | grep -Fx -f <(printf '%s\n' "${OWN_IMAGES[@]}"); }
+ports_taken() {  # the stub's published host ports (TB_HOST_*_PORT in the checkout's compose files) that answer now
+  local var def port
+  while IFS=: read -r var def; do
+    port=${!var:-${def#-}}
+    if timeout 2 bash -c "exec 3<> /dev/tcp/127.0.0.1/$port" 2> /dev/null; then printf ' %s %s,' "$var" "$port"; fi
+  done < <(cat "$CHECKOUT"/deploy/docker-compose.yml "$CHECKOUT"/deploy/docker-compose.test.yml "$CHECKOUT"/deploy/docker-compose.poc.yml 2> /dev/null \
+           | grep -o 'TB_HOST_[A-Z_]*_PORT:-[0-9]*' | sort -u)
+}
+box_here() {  # read only: the installed box's objects and images, counted for the preflight's note
+  docker ps -a --filter "label=com.docker.compose.project=trialbox" --format '{{.Names}}' 2> /dev/null
+  images | grep -E '^trialbox-[a-z]+:(1\.0\.0|16-1)$'
+}
 remove_objects() {  # every object of the run's names, removed; records/docker-objects.json says what and how it went
   local kind name left=0 list="$RUN/kv/objects"
   objs | sort -u > "$list"
@@ -214,33 +289,39 @@ remove_objects() {  # every object of the run's names, removed; records/docker-o
     esac
     printf '%s\t%s\t%s\n' "$kind" "$name" "$?" >> "$list.done"
   done < <(sort -t$'\t' -k1,1 "$list")   # containers before the networks and volumes they use
-  objs | sort -u > "$list.after"
+  for name in "${OWN_IMAGES[@]}"; do   # the run's own tag only (H-75); never -f, never a box tag, never a prune
+    docker image inspect "$name" > /dev/null 2>&1 || continue
+    timeout -k 10 300 docker image rm "$name" > /dev/null 2>&1
+    printf 'image\t%s\t%s\n' "$name" "$?" >> "$list.done"
+  done
+  { objs; own_images_here | sed 's/^/image\t/'; } | sort -u > "$list.after"
   [ ! -s "$list.after" ] || left=1
   images | comm -13 "$RUN/kv/images-before" - > "$RUN/kv/images-made" 2> /dev/null
-  python3 - "$RUN" "$RUN_ID" "$BALLAST_NAME" <<'PY'
+  python3 - "$RUN" "$RUN_ID" "$BALLAST_NAME" "$PROJECT" "$TAG" <<'PY'
 import json, sys
 from pathlib import Path
-run, rid, ballast = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+run, rid, ballast, project, tag = Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 def rows(name):
     p = run / "kv" / name
     return [x.split("\t") for x in p.read_text().splitlines() if x.strip()] if p.is_file() else []
 after = {(r[0], r[1]) for r in rows("objects.after")}
 seen = sorted({(r[0], r[1]) for r in rows("objects-seen") + rows("objects.done") if len(r) >= 2})
 objs = [{"kind": k, "name": n, "removed": (k, n) not in after} for k, n in seen]
-doc = {"schema": "tb-measure48-host-objects/1", "run_id": rid, "ballast_container": ballast,
+doc = {"schema": "tb-measure48-host-objects/1", "run_id": rid, "ballast_container": ballast, "project": project,
+       "image_tag": tag,
        "objects": objs, "left": sorted(f"{k} {n}" for k, n in after),
        "images_made_and_kept": [r[0] for r in rows("images-made")],
        "build_cache": "kept: Docker's build cache cannot be told apart by run (a prune would take other users' too)",
-       "never": "docker system prune, builder prune, image prune; an object not of the run's names"}
+       "never": "docker system prune, builder prune, image prune; an object or image not of the run's names"}
 (run / "records" / "docker-objects.json").write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n")
 PY
   return "$left"
 }
 
 # ------------------------------------------------------------------ what differs from the VM's steps
-stub_free() {  # s05's end: the stub's volumes only (the run's: the preflight found none); nothing pruned
+stub_free() {  # s05's end: the stub's volumes only (the run's project's: the preflight found none); nothing pruned
   objs >> "$RUN/kv/objects-seen"   # listed in records/docker-objects.json, though gone before the end
-  docker volume ls -q --filter "name=^trialbox_" 2> /dev/null | xargs -r docker volume rm >> "$STEP_LOG" 2>&1
+  docker volume ls -q --filter "name=^${PROJECT}_" 2> /dev/null | xargs -r docker volume rm >> "$STEP_LOG" 2>&1
   return 0
 }
 engine_room() { [ "$PULL" = 1 ] || return 0; room engine; }
@@ -290,8 +371,9 @@ printf '%s' "$PRE" > "$RUN/preflight.txt"
 kv gpu-uuid "$GPU_UUID"   # kv/ is never packed: the UUID stays on the host
 images > "$RUN/kv/images-before"
 git -C "$CHECKOUT" archive --format=tar HEAD . | tar -x -C "$W/src/trialbox" || { say "the checkout could not be copied"; exit 2; }
-python3 -c 'import json, sys; print(json.dumps({"head": sys.argv[1], "form": "an existing host (H-67)", "run_id": sys.argv[2]}))' \
-  "$(git -C "$CHECKOUT" rev-parse HEAD)" "$RUN_ID" > "$RUN/records/head.json"
+python3 -c 'import json, sys; b = json.loads(sys.argv[3] or "{}"); print(json.dumps({"head": sys.argv[1], "form": "an existing host (H-67)", "run_id": sys.argv[2], "project": sys.argv[4], "image_tag": sys.argv[5], **({"bench_exception": b["words"], "driver_found": b["driver_found"], "driver_min": b["driver_min"], "engine_form": b["engine_form"]} if b else {})}))' \
+  "$(git -C "$CHECKOUT" rev-parse HEAD)" "$RUN_ID" "$BENCH_REC" "$PROJECT" "$TAG" > "$RUN/records/head.json"
+[ -z "$BENCH_REC" ] || printf '%s\n' "$BENCH_REC" > "$RUN/records/bench-exception.json"
 CK="$W/src/trialbox"
 GPU=(--gpu-index "$GPU_INDEX" --gpu-uuid "$GPU_UUID")
 DISK_PATH=$W; DOCKER_DISK_PATH=$(nearest_dir "${DOCKER_ROOT:-/}")
@@ -306,7 +388,8 @@ CAP_MIN=${TB_M48_CAP_MIN:-240}   # the VM form's cap (measure48_vm.py CAP_HOURS;
 LINE_S=$((LINE_MIN * 60)); CAP_S=$((CAP_MIN * 60))
 T0=$(date +%s); USED0=${TB_M48_USED0_S:-0}
 used() { echo $(( USED0 + ($(date +%s) - T0) * SCALE )); }
-say "run $RUN_ID on card $GPU_INDEX: stop line $LINE_MIN min, cap $CAP_MIN min, optional stage O: $([ "$TAKE_O" = 1 ] && echo taken if time allows || echo not taken)"
+[ -z "$BENCH_REC" ] || say "UNDER THE BENCH EXCEPTION: $(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["words"])' "$BENCH_REC"); its measurements are not a supported configuration"
+say "run $RUN_ID on card $GPU_INDEX (compose project $PROJECT, image tag $TAG): stop line $LINE_MIN min, cap $CAP_MIN min, optional stage O: $([ "$TAKE_O" = 1 ] && echo taken if time allows || echo not taken)"
 
 # the cap's watchdog: the script's own (nothing is powered off): at the cap it ends the steps; the end below runs
 ( trap - TERM INT
@@ -354,6 +437,10 @@ remove_objects; LEFT=$?
 [ "$LEFT" = 0 ] || say "LEFT BEHIND: $(tr '\t\n' ' ;' < "$RUN/kv/objects.after") (records/docker-objects.json)"
 h records --run "$RUN" --used-s "$(used)" --ended "$WHY" > /dev/null 2>&1
 pack
+if [ -n "$BENCH_REC" ]; then  # after the last pack (pack empties out/): every reader of out/ meets it first
+  python3 -c 'import json, sys; b = json.loads(sys.argv[1]); print(b["words"] + "."); print("driver found " + b["driver_found"] + ", deploy/images.lock gpu.driver_min " + b["driver_min"] + "; engine form " + b["engine_form"] + " (tools/engine_probe.py)."); print("Every measurement in this folder was taken under this exception: it is not a supported configuration and no profile follows from it."); print("Caution: " + b["caution"])' "$BENCH_REC" > "$W/out/BENCH-EXCEPTION.txt"
+  say "UNDER THE BENCH EXCEPTION: out/BENCH-EXCEPTION.txt"
+fi
 say "the run ended: $WHY; the records are in the run folder's out/"
 case "$STOPPED" in
   "") case "$WHY" in complete*) RC=0 ;; *) RC=1 ;; esac ;;

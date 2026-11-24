@@ -200,6 +200,7 @@ differential: venv-check
 # the pure tests alone (ENG-028, T-653): the tests marked nodb (tests/conftest.py PURE_MODULES), with no PostgreSQL
 # at all: TB_PG_BIN points nowhere and TB_TEST_DB_URL is unset, so a test that needs a database fails at once
 test-pure: venv-check
+	@mkdir -p "$(TB_TEST_ROOT)"
 	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-n $(PYTEST_N) -m "nodb and not integration and not e2e and not llm and not perf"
 
@@ -316,22 +317,36 @@ test-e2e:
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
 # the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
-# the public corpus the public-data site reads (ENG-002, D-560; tools/public_site.py): NTCIR-16 Real-MedNLP MedTxt
-# (CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and never committed. `tools.public_e2e` and the
-# nightly job `public-e2e` need it.
+# the Real-MedNLP MedTxt test collection (NTCIR-16, CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and
+# never committed. The eval, the medtxt gate and the public-medtxt scenario need it (the negative and suspicious tags).
+# The public-data site and `tools.public_e2e` no longer do: they read the JMED-LLM datasets committed under
+# eval/medtxt/jmed-llm (D-639; #639 7116467086). The corpus host is not reachable from the CI runner.
 public-data:
 	PYTHONPATH=libs:services:. $(PY) -c "import tools.medtxt_eval as m; m.fetch(); print('public-data: MedTxt in', m.CACHE)"
 
 # integration or e2e (HAPI CQL and the equivalence gate against HAPI, the compose data, the database image, mail
 # through GreenMail and Mailpit, the role walk) except the egress test (root and nftables: `make test-egress`) and the
-# console POC (`make poc`, `make test-console-e2e`). TB_STRICT_SKIPS=1: a skipped test fails, so a missing stack,
-# browser or jar never passes for green. COMPOSE_JUNIT names the junit file.
+# console POC (`make poc`, `make test-console-e2e`) and the steps-mode walks (`make test-walks`). TB_STRICT_SKIPS=1: a
+# skipped test fails, so a missing stack, browser or jar never passes for green. COMPOSE_JUNIT names the junit file.
 COMPOSE_JUNIT ?= $(TB_TEST_ROOT)/compose-junit.xml
 test-compose:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	$(HL7_ENV) TB_INTEGRATION=1 TB_STRICT_SKIPS=1 PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-m "(integration or e2e) and not egress" --junitxml "$(COMPOSE_JUNIT)" \
-		--ignore tests/e2e/test_console_poc.py tests/integration tests/e2e
+		--ignore tests/e2e/test_console_poc.py $(addprefix --ignore ,$(WALK_TESTS)) tests/integration tests/e2e
+
+# 9i-1: the five steps-mode walks. Each module starts its own local box (tools.demo on pglocal; no compose stack) and
+# took 8 to 19 minutes on 2026-11-19, 63 in all: in the compose job they ran it past its 90 minutes. The nightly runs
+# them in its `walks` job, one module per runner (WALK_TEST); nothing may skip. WALKS_JUNIT names the junit file.
+WALK_TESTS := tests/e2e/test_new_study_walk.py tests/e2e/test_life_cycle_walk.py tests/e2e/test_life_cycle_walk_390.py \
+	tests/e2e/test_phone_walk.py tests/e2e/test_module_walks.py
+WALK_TEST ?= $(WALK_TESTS)
+WALKS_JUNIT ?= $(TB_TEST_ROOT)/walks-junit.xml
+.PHONY: test-walks
+test-walks:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	$(HL7_ENV) TB_INTEGRATION=1 TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e \
+		--junitxml "$(WALKS_JUNIT)" $(WALK_TEST)
 
 # the browser walk of the public console (tools/public_walk.js: 5 roles x 3 languages x desktop and phone, axe-core,
 # 44 px targets, tap counts) on the stub, as the complete run's walk part; needs Node Playwright with Chromium
@@ -535,9 +550,14 @@ bench:
 # (in the pull request that changes the speed on purpose, with the reason in the commit)
 BENCH_PATIENTS ?= 5000
 BENCH_OUT ?= $(TB_TEST_ROOT)/bench-gate
+# BENCH_REF=<file>: the baseline's reference commit measured on this runner (`make bench-baseline` in a checkout of it,
+# the copy of its tools/bench_baseline.json): the gate is then on the ratio to it. The nightly sets it when the runner's
+# CPU model is not the one the baseline was written on (`tools/bench.py --cpu-differs`)
+BENCH_REF ?=
 bench-gate:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)"
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)" \
+		$(if $(BENCH_REF),--ref "$(BENCH_REF)",)
 
 # D-1245 (10E-13): the console's ten-page timing walk (p95 of the Server-Timing header under 300 ms; marker perf, nightly
 # in trialbox-e2e.yml's perf-5k job). The walk's rules and the planted slow page are tests/console/test_console_timing.py
@@ -744,7 +764,7 @@ vocab-bundle-check:
 # and the tree as one set. No hadolint ignore is added for them (no scan allow-list entry).
 HADOLINT_GATING := deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile
 HADOLINT_REPORT := deploy/docker/backup.Dockerfile deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile \
-	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile
+	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile tools/bench_ci/runner.Dockerfile
 HADOLINT_IMAGE := hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e
 # each image of SC_OWN_IMAGES and the Dockerfile it is built from
 IMAGE_SCAN_IMAGES ?= trialbox-py:1.0.0=deploy/docker/python.Dockerfile trialbox-backup:1.0.0=deploy/docker/backup.Dockerfile \
@@ -802,3 +822,10 @@ rehearse:
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build *.egg-info
+
+# rc1 line 1: the whole test set (unit, integration, e2e, goldens, the GPU suites) three runs in a row, a log per stage
+# per run, a summary (tools/full_set.py). FULL_SET_ARGS: --out DIR --llm-url URL --llm-model NAME, --only, --list
+FULL_SET_ARGS ?=
+.PHONY: full-set
+full-set: venv-check
+	PYTHONPATH=libs:services:. $(PY) -m tools.full_set $(FULL_SET_ARGS)

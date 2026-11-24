@@ -1,0 +1,41 @@
+{
+ "card": "H92",
+ "title": "the backup schedule depended on a cron daemon the box may lack",
+ "date": "2026-11-23",
+ "source": "docs/handover/backup-schedule-without-cron-2026-11-23.md",
+ "findings": [
+  {
+   "id": "H92-01",
+   "severity": "High",
+   "claim": "the backup schedule was a cron file only: on a host with no cron daemon the nightly backup never ran and doctor's backup check passed",
+   "severity_basis": "no backup is taken on such a box and nothing says so until the age alert, which also never runs from cron",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8789a789",
+   "fix": "backup-install writes each cron line as a systemd timer where systemd is the init and removes the cron file; doctor and backup-status name the schedule and the action; tests/unit/test_backup_schedule_timer.py",
+   "from": "the integrator's card H-92 (comment 7088635278) and the bench's rehearsal host, 2026-11-23"
+  },
+  {
+   "id": "H92-02",
+   "severity": "Medium",
+   "claim": "/etc/cron.d/trialbox-retention (log retention and the signed audit head) has the same dependence on a cron daemon, and install.sh writes it only where /etc/cron.d exists",
+   "severity_basis": "logs are not pruned and no audit head is signed; doctor's audit_heads FAILs on the age without naming the cause",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card",
+   "from": "reading deploy/install.sh for card H-92, 2026-11-23"
+  },
+  {
+   "id": "H92-03",
+   "severity": "Low",
+   "claim": "backup-status's exit code does not carry a missing schedule; only doctor FAILs on it",
+   "severity_basis": "the hourly check cannot run without a schedule anyway; a person running it by hand reads the schedule line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "changing the exit code changes what test_cli_status_exit_codes asserts on a host with /etc/cron.d: needs a ruling",
+   "from": "card H-92, 2026-11-23"
+  }
+ ]
+}

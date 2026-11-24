@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Iterator
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,16 @@ from tests.inproc_box import Box, ingest_site, make_box, unzip_phi
 
 KEY = b"trialbox-test-site-key-0123456789abcdef"
 RUN = date(2026, 10, 5)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reimbursement_open() -> Iterator[None]:
+    """Card 9e-9: NAV, TWPAS and SUBMIT run only on a test box with reimbursement switched on; this module's box is."""
+    from orchestrator import reimbursement
+
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(reimbursement, "is_open", lambda *a, **k: True)
+        yield
 
 
 @pytest.fixture(scope="module")

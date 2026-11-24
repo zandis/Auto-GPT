@@ -89,7 +89,8 @@ With no site settings the box reaches nothing outside. ClinicalTrials.gov is off
 | POSTGRES_WF_PASSWORD, TB_DB_URL (role trialbox) | deploy/.env (0600, root) | db; adapter, console, criteria-compiler, gateway, lake, mail-gateway, orchestrator |
 | TB_DB_PW_<SERVICE> (one role per service) | deploy/.env (0600, root) | db; each service its own only |
 | IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |
-| TB_KEK_PASSPHRASE, TB_KMS_TOKEN (if the KEK back end uses them) | deploy/.env (0600, root) | adapter, orchestrator |
+| KEK passphrase | a root-only file (--kek-passphrase-file, 0600) or stdin (RUNBOOK §16) | the host only; never in a container's configuration, the environment or a file other than the operator's root-only one (removed once used) |
+| TB_KMS_TOKEN | KMS token (RUNBOOK §17) | adapter, orchestrator |
 | CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |
 | site_hmac.key, pid_map.key, REDCap API tokens | volume tb-secrets (/run/secrets/trialbox) | adapter, orchestrator |
 | Caddy's internal CA keys (TB_TLS_MODE=internal) | volume caddy-data | caddy only; never copied out |

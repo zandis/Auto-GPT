@@ -25,9 +25,12 @@ from typing import Any, Protocol
 
 from tb_common.llm import no_sentinel_date
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
-from tb_common.quotes import quote_in, quote_key
+from tb_common.quotes import as_in, quote_key
 from tb_llm import budget
 from tb_llm.budget import estimate_tokens
+
+from matching.inferred import sentence_of
+from matching.note_answer import affirms
 
 JUDGE_PROMPT = "judge"
 
@@ -101,6 +104,12 @@ class JudgeReply:
     refused: str | None = None  # gateway refusal code: the pair stays unknown, never excluded
     opinions: list[dict[str, Any]] = field(default_factory=list)  # both answers when the checks disagree (D-120)
     calls: tuple[str, ...] = ()  # D-989: every model call the answer rests on; () = this reply's own call_id
+    # L3 (#639 7107834329): the record's sentences of the pair's other quote, read by the one rule of what a note
+    # answer may do (``matching.note_answer``) beside the span's own; never published
+    sentence: str = ""
+    # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
+    # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
+    affirmed: bool = False
 
     @property
     def all_calls(self) -> tuple[str, ...]:
@@ -157,14 +166,14 @@ class GatewayJudge:
         from tb_common.llm import load_prompt, render
         from tb_contracts import inline_schema, load_schema, null_absent, schema_errors
         from tb_llm import CallLabels, GatewayDown, GatewayRefused, json_schema_format
-        from tb_llm.outage import MODEL_FAULTS, OutageBudget, wait_and_retry
+        from tb_llm.outage import OutageBudget, refusal_fault, wait_and_retry
 
         if self.outage is None:
             self.outage = OutageBudget()
 
         def fault_of(exc: BaseException) -> tuple[str, float | None] | None:
-            if isinstance(exc, GatewayRefused) and exc.reason in MODEL_FAULTS:
-                return exc.reason, exc.retry_after
+            if isinstance(exc, GatewayRefused) and (fault := refusal_fault(exc.reason, exc.upstream_kinds)):
+                return fault, exc.retry_after  # walk step 5: a timeout of the gateway's is waited for too
             return ("unreachable", None) if isinstance(exc, GatewayDown) else None
 
         p = load_prompt(self.prompt_id)
@@ -238,6 +247,7 @@ class GatewayJudge:
             prompt_sha=p.sha256,
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
+            affirmed=affirms(data),  # an abstention never excludes, whatever it says
         )
 
 
@@ -265,15 +275,25 @@ class AgreementJudge:
         second: JudgeReply = self.verifier.judge(role=role, **kw)
         answered = second
         mismatch = (first.prompt, first.prompt_sha) != (second.prompt, second.prompt_sha)
+        texts = [str(ex.get("text", "")) for ex in kw.get("excerpts") or []]
+        found = next((f for t in texts if (f := as_in(str(second.quote or ""), t))), None) if second.quote else None
         if mismatch:
             # D-300: the pair agrees only on one registered prompt text; two texts are not two opinions on one question
+            second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
+        elif needs_verifier(_vote(second)) and found is None:  # a decided answer
+            # M1 (#639 7115208555): the verifier's quote must be in the record too, as v1's ``postprocess`` checks it;
+            # a decided answer on a quote that is not there, or on none, is the verifier's "unknown"
             second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
         d = combine(_vote(first), _vote(second))  # the one two-model rule (tb_common.pair, D-118)
         if d.disagreement:
             self.disagreements += 1
         calls = first.all_calls + second.all_calls  # D-989: the verifier's call counts too
         if d.verdict == first.verdict:
-            return replace(first, confidence=d.confidence, calls=calls)
+            # L3: the verifier's quote is read too, in its sentence of the excerpts (never published); M1: it was found
+            other = next((x for t in texts if found and (x := sentence_of(found, t))), str(found or ""))
+            # round 5: the exclusion stands only when both models said the quote affirms it
+            return replace(first, confidence=d.confidence, calls=calls, sentence=other,
+                           affirmed=first.affirmed and second.affirmed)  # fmt: skip
         return JudgeReply(
             "unknown",
             0.0,
@@ -318,12 +338,16 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
     """CAS-16: the verified span (excerpt id, offsets, date, sentence hash) or None when it does not verify."""
     if not reply.quote:
         return None
-    q = quote_key(reply.quote)  # stray spaces next to CJK characters do not count (tb_common.quotes)
     for ex in excerpts:
         raw = str(ex.get("text", ""))
+        # D-641: never across a cut of the excerpt, never the mark; one enclosing 「」 or "" dropped (#639 7113069462)
+        quote = as_in(reply.quote, raw)
+        if quote is None:
+            continue
+        q = quote_key(quote)  # stray spaces next to CJK characters do not count (tb_common.quotes)
         text = quote_key(raw)
         start = text.find(q)
-        if start < 0 or not quote_in(reply.quote, raw):  # D-641: never across a cut of the excerpt, never the mark
+        if start < 0:
             continue
         d = date.fromisoformat(str(ex["date"])[:10])
         if not lo <= d <= hi:
@@ -336,7 +360,10 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
             "end": start + len(q),
             "date": d.isoformat(),
             "sentence_hash": sentence_hash(q),
-            "quote": reply.quote,
+            "quote": quote,
+            # R22-16: the record's sentence the quote lies in, for the one rule of what a note answer may do
+            # (``matching.note_answer``); ``engine._map`` reads it and takes it out, so it is never published
+            "sentence": sentence_of(quote, raw),
         }
     return None
 

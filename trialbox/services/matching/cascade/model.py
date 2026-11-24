@@ -53,6 +53,7 @@ class Outcome:
     # what the flip-date search found, with its kind (``matching.cascade.v3``): only the kind ``answer_changes``
     # is a day to re-check on and is also in ``flip_date``; the others stay here, in the trace
     flip: dict[str, str] | None = None
+    affirmed: bool | None = None  # a note exclusion both models affirmed, the patient's, now (round 5 of R22-16)
 
 
 @dataclass

@@ -170,7 +170,10 @@ def environment_banner(env: Mapping[str, str]) -> str:
     deploy/install.sh --rehearsal only, on TEST or VALIDATION) says REHEARSAL, so it is never taken for a validation
     box."""
     name = environment_name(env)
-    if (env.get("TB_REHEARSAL") or "").strip() == "1" and name in ("TEST", "VALIDATION"):
+    rehearsal = (env.get("TB_REHEARSAL") or "").strip() == "1" and name in ("TEST", "VALIDATION")
+    if rehearsal and (env.get("TB_REHEARSAL_REAL_SERVERS") or "").strip() == "1":  # H-89: the real model servers
+        return f"{name} REHEARSAL: rehearsal: driver below the minimum, not this profile's card, not valid for a site"
+    if rehearsal:
         return f"{name} REHEARSAL"
     return name
 
@@ -790,7 +793,13 @@ def create_app(
         if not u.studies:
             return
         # cross-study lists a study-scoped account (an SMO coordinator) has no business with
-        if path in ("/jobs", "/audit", "/pilot/mailbox") or path.startswith("/pilot/cascade"):
+        # BH1-12 (D-380): the audit trail is one cross-study list; every page under it and its /api/v1 twin are
+        # refused by prefix, not only the list's own path
+        if (
+            path in ("/jobs", "/pilot/mailbox")
+            or path.startswith("/pilot/cascade")
+            or any(path == p or path.startswith(p + "/") for p in ("/audit", "/api/v1/audit"))
+        ):
             au.append("console.denied", actor=f"console:{u.username}", detail={"action": path[:80]})
             raise _Problem(403, "forbidden")
         m = re.match(r"^/pilot/(?:jobs/([0-9A-HJKMNP-TV-Z]{26})|registry/([A-Za-z0-9_-]+))", path)
@@ -1602,6 +1611,10 @@ def create_app(
 
     twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
     people_lists.register(app, helpers, templates.env)  # J-5 (D-1223): Candidates and Participants, behind a flag
+    from console import rc1_guard
+
+    # R22-34 (D-1072): the last middleware added, so the outermost: it reads the address before any rewrite
+    rc1_guard.register(app, helpers, settings.environment)
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00

@@ -45,7 +45,8 @@ The message types read, and the canonical tables (``mapping/templates/CANONICAL.
   OBR-2, OBX-3 and OBX-4. ``local_code`` is the JLAC10 code (the JP mapping looks it up to LOINC); the specimen
   comes from the JLAC10 material code.
 
-A message no codec reads (``hl7.decode_bytes``, STD-020), or one that is not HL7, is quarantined: the file is left
+A message no codec reads (``hl7.decode_bytes``, STD-020), one that is not HL7, or one cut short (its last segment
+with no segment end, or an order's ORC with no RXE: R22-44) is quarantined: the file is left
 where it is (the storage is the hospital's), counted by type and reason in ``stats``, listed in
 :attr:`Ssmix2Source.quarantined` for the steward, and the patient's other files still load. The table's night is held
 (``quarantine_reason``) only when more than ``quarantine_max_pct`` % of its files could not be read.
@@ -767,6 +768,27 @@ def rx_lines(msg: hl7.Message) -> list[tuple[hl7.Segment, hl7.Segment, hl7.Segme
     return out
 
 
+def _cut_short(typ: str, text: str, msg: hl7.Message) -> str:
+    """Why a message is not whole, empty when it is (R22-44): a file the gateway is still writing, or one cut for
+    good, is never read as complete. The last segment must carry its segment end (CR, or CRLF / LF as
+    :func:`hl7.parse` reads them), and in an order message (RDE^O11) every ORC its RXE. A message cut exactly after
+    a whole segment that its type does not require cannot be told from a shorter message, and is read."""
+    if not text.endswith(("\r", "\n")):
+        return "the last segment has no segment end (CR)"
+    if typ in ("OMP-01", "OMP-02"):
+        orc = False
+        for seg in msg.segments:
+            if seg.name == "ORC":
+                if orc:
+                    return "an ORC with no RXE"
+                orc = True
+            elif seg.name == "RXE":
+                orc = False
+        if orc:
+            return "an ORC with no RXE"
+    return ""
+
+
 def order_no(sf: StoredFile, orc: hl7.Segment) -> str:
     """An order's key (third review of PR #1095 item 6): the file's オーダNo, which with the patient, the day and the
     type is the specification's unique key, and ORC-2 (the placer order number) when it says something else, as
@@ -882,6 +904,12 @@ class Ssmix2Source:
         self.extended = CsvSource(ext) if ext.is_dir() else None
         self.ext_storage = extended_storage or directory / "extended_storage"
         self.byomei = _lookup(byomei_to_icd10 or JP_CORE / "byomei_to_icd10.csv", "code", "icd10")
+        # SDR2 (lane M): a WHO ICD-10 code ICD-10-CM lacks takes the table's ICD-10-CM code; a row still to verify is
+        # applied, as the 病名 rows are, and counted apart ("applied, not verified")
+        self.who_cm = _lookup(JP_CORE / "who_icd10_to_icd10cm.csv", "who", "icd10cm")
+        self.who_cm_verified = {
+            k for k, v in _lookup(JP_CORE / "who_icd10_to_icd10cm.csv", "who", "verified").items() if v == "yes"
+        }
         self.yj = _lookup(yj_to_atc or JP_CORE / "yj_to_atc.csv", "yj_code", "atc")
         # 10B-4: the site's 用法 table (review 12 §7 ``codes/usage.csv``: ``code,doses_per_day``), optional; a code it
         # does not list is read from its text ("1日3回"), else the daily dose stays unknown
@@ -1215,7 +1243,7 @@ class Ssmix2Source:
         def read() -> list[Row]:
             text, _codec = hl7.decode_bytes(sf.path.read_bytes())
             msg = hl7.parse(text)
-            if self._identity_problem(sf, msg) or hl7.offset_problem(text):
+            if _cut_short(typ, text, msg) or self._identity_problem(sf, msg) or hl7.offset_problem(text):
                 return []
             return list(build(sf, msg))
 
@@ -1385,6 +1413,10 @@ class Ssmix2Source:
         except (OSError, ValueError) as exc:  # "no MSH segment" is a ValueError
             # D-682: the error's type; an OS error's text holds the whole path
             self._quarantine(typ, sf, "not an HL7 message", type(exc).__name__)
+            return None
+        why = _cut_short(typ, text, msg)
+        if why:  # R22-44: not read tonight; an older version is read as for any newest that cannot be (D-1252 P4)
+            self._quarantine(typ, sf, "file cut short", why)
             return None
         why = self._identity_problem(sf, msg)
         if why:
@@ -1588,10 +1620,20 @@ class Ssmix2Source:
         return bool(code) and code in self._cm
 
     def _icd_columns(self, code: str) -> dict[str, str]:
-        """``icd10`` (WHO, always) and ``icd10cm`` (the same code when ICD-10-CM has it, else empty), D-314."""
+        """``icd10`` (WHO, always) and ``icd10cm``: the same code when ICD-10-CM has it (D-314), else the WHO-to-CM
+        table's code (SDR2), else empty, and the WHO code is counted as unmapped (``missed``), never dropped."""
         if code and not _WHO_SHAPE.match(code):
             self.stats["diagnosis:not a WHO ICD-10 shape"] += 1
-        return {"icd10": code, "icd10cm": code if self._in_cm(code) else ""}
+        if not code or self._in_cm(code):
+            return {"icd10": code, "icd10cm": code}
+        cm = self.who_cm.get(code, "")
+        if cm and self._in_cm(cm):
+            state = "applied" if code in self.who_cm_verified else "applied, not verified"
+            self.stats[f"diagnosis:ICD-10-CM from the WHO-to-CM table ({state})"] += 1
+            return {"icd10": code, "icd10cm": cm}
+        self.stats["diagnosis:WHO ICD-10 with no ICD-10-CM"] += 1
+        self.missed[f"diagnosis:{code}"] += 1
+        return {"icd10": code, "icd10cm": ""}
 
     def _atc(self, yj: str) -> str:
         hit = self.licensed.get("yj", {}).get(yj.upper()) if yj else None

@@ -179,7 +179,11 @@ def test_custody_lists_the_object_key_once_made_and_rotate_kek_keeps_objects_rea
     assert c.keys["objects.key"] == "wrapped" and not c.problems
     O.FsStore(box["root"], box["sec"]).put("outputs/J1/a.xlsx", PATIENT)
     new_out = box["tmp"] / "usb2" / "trialbox.kek"
-    rc, out = _cli(capsys, "rotate-kek", "--secrets", str(box["sec"]), "--backend", "file", "--kek-out", str(new_out))
+    from tb_common.audit import AuditLog
+
+    AuditLog(box["tmp"] / "audit").append("test.box_ready", actor="tester")  # the box's chain (7114085298, F3)
+    rc, out = _cli(capsys, "rotate-kek", "--secrets", str(box["sec"]), "--backend", "file", "--kek-out", str(new_out),
+                   "--audit-dir", str(box["tmp"] / "audit"))  # fmt: skip
     assert rc == 0 and "2 key(s) re-wrapped" in out, out
     assert O.FsStore(box["root"], box["sec"]).get("outputs/J1/a.xlsx") == PATIENT
 

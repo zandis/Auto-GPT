@@ -10,6 +10,24 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The audit chain is held to its signed heads (R22-36). A chain that lost `HEAD.json` after a head was signed is no
+  longer adopted by the next write, and a chain cut below a signed head is refused even when `HEAD.json` was written
+  to match, wherever the writer or the check is given the anchor folder. **An installed box that an earlier release
+  already adopted this way is not stopped**: the update, `doctor` and the nightly `audit-sign` say that the chain
+  waits for a person, and the signed head and the audit archive wait until `tools/audit_verify.py --reanchor` has
+  been run (runbook 05, "The audit chain waits for a person"). The audit writer asks a refusing chain again after one
+  minute, then less often, up to once an hour.
+- A PRODUCTION install finishes only with a backup target shown to be off the box and the hospital's audit share as
+  its anchor folder (10K-4, D-1390). The box's first-run page asks the folder where the backup disk or share is
+  mounted, the audit share's mount point and the log folder; a system folder or two overlapping folders are refused
+  there. The installers accept only what they can show: a backup on a share the box does not serve, or on a physical
+  disk holding none of the box's own data (not a loop device, zram, another partition of the system disk, the
+  database's disk or the disk of the key folders), counted by the nightly backup too; a share served by the box
+  itself (an IPv4-mapped address of it, or a container on it) does not count. A PRODUCTION site run again with
+  `--environment VALIDATION` is still judged as PRODUCTION, before anything is loaded. Of the folders the page asks, the console reads the anchor
+  folder only, read-only, checked before it is mounted and at every start. `python3 -m tools.trialbox finish-check
+  --deploy deploy` says why. **An installed PRODUCTION site run through `deploy/install.sh` again needs both**
+  (runbooks 02, 05, 12); updates are not affected.
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the

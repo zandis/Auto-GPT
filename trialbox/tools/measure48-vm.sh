@@ -47,7 +47,9 @@
 # TB_M48_FUNCTIONS_ONLY=1 and stops at that line, so nothing of the VM's own part below it (the metadata, the bucket,
 # the driver, the reboot, the power-off, the cost cap's timer) is even defined there. The caller defines: RUN, CK, W,
 # SI, POLL, LINE_S, LINE_MIN, ETC, TAKE_O, h, used, tick, say, pack, end_run (and on a host GPU, OWN_ONLY, DISK_PATH,
-# DOCKER_DISK_PATH, NODE_TOOLS, stub_free, engine_room, engine_get and the screen_setup_* functions).
+# DOCKER_DISK_PATH, NODE_TOOLS, stub_free, engine_room, engine_get and the screen_setup_* functions; on the bench host
+# ENGINE, card H-74: ballast48 measure --engine FORM --probe FILE, the engine probe's form and environment; unset on
+# the VM).
 stamp() { date -u +%FT%TZ; }
 
 # A simple command a non-interactive bash starts with & has SIGINT ignored, and Python keeps an ignored SIGINT: the stop
@@ -138,8 +140,8 @@ tool() {  # tool <name> <args...>: run from the checkout, SIGINT at its default
     complete_run) (cd "$CK" && NODE_PATH=${NODE_TOOLS:-/opt/node-tools}/node_modules TB_ENV=DEV PYTHONPATH=libs:services:. \
                    sigint .venv/bin/python -m tools.complete_run "$@") ;;
     fetch_run_data) (cd "$CK" && sigint .venv/bin/python -m tools.fetch_run_data "$@") ;;
-    canary) docker run --rm --network trialbox-model-backend -e TB_GPU_KEY -v "$CK/tools/canary.py:/app/tools/canary.py:ro" \
-              trialbox-py:1.0.0 python -m tools.canary "$@" ;;
+    canary) docker run --rm --network "${COMPOSE_PROJECT_NAME:-trialbox}-model-backend" -e TB_GPU_KEY -v "$CK/tools/canary.py:/app/tools/canary.py:ro" \
+              "trialbox-py:${TRIALBOX_IMAGE_TAG:-1.0.0}" python -m tools.canary "$@" ;;
     setup) "screen_setup_$1" ;;
   esac
 }
@@ -194,7 +196,7 @@ step_ladder() {
     decide "ladder $opt" try "$why; $GATE_WHY"
     local tb0; tb0=$(grep -c '^Traceback' "$STEP_LOG" 2>/dev/null)
     STOP_TARGET="$MEASURE_RE" TB_UNMEASURED_DGPU48_MEASURING_RUN=1 \
-      watched tool ballast48 measure --option "$opt" --keep --out-dir "$(measure_dir "$opt")" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"}
+      watched tool ballast48 measure --option "$opt" --keep --out-dir "$(measure_dir "$opt")" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"} ${ENGINE[@]+"${ENGINE[@]}"}
     rc=$?
     [ "$STOPLINE" = 0 ] || rc=130
     # exit 1 is "did not start" only with lane J's record and no new traceback; else the tool broke (3): the
@@ -221,14 +223,16 @@ step_tools() {
   watched tool setup clean; disk_note "s09-tools-freed"
 }
 pair_kept() { case "$(kv kept)" in pair-32k|pair-16k) return 0 ;; *) return 1 ;; esac; }
-servers_up() { [ -n "$SI" ] || [ "$(docker inspect -f '{{.State.Running}}' trialbox-llm-service-1 2>/dev/null)" = true ]; }
+# H-75: the servers' containers, network and image follow COMPOSE_PROJECT_NAME and TRIALBOX_IMAGE_TAG (the host run's own;
+# unset, the box's names as on the VM)
+servers_up() { [ -n "$SI" ] || [ "$(docker inspect -f '{{.State.Running}}' "${COMPOSE_PROJECT_NAME:-trialbox}-llm-service-1" 2>/dev/null)" = true ]; }
 key_env() {  # the servers' key into the environment, never printed (tools/dgpu48.py _vllm_key's file)
   TB_GPU_KEY="$(sed -n 's/^VLLM_API_KEY=//p' "$CK/deploy/secrets/model/vllm.env" 2>/dev/null | tail -n 1 | tr -d "\"'")"
   export TB_GPU_KEY="${TB_GPU_KEY:-measuring-run-no-key}"
 }
 bridge() {  # bridge connect|disconnect: the kept pair on Docker's local bridge (only this VM reaches it)
-  docker network "$1" bridge trialbox-llm-service-1 >> "$STEP_LOG" 2>&1
-  docker network "$1" bridge trialbox-llm-verifier-1 >> "$STEP_LOG" 2>&1
+  docker network "$1" bridge "${COMPOSE_PROJECT_NAME:-trialbox}-llm-service-1" >> "$STEP_LOG" 2>&1
+  docker network "$1" bridge "${COMPOSE_PROJECT_NAME:-trialbox}-llm-verifier-1" >> "$STEP_LOG" 2>&1
   return 0
 }
 step_screen() {
@@ -236,8 +240,8 @@ step_screen() {
   servers_up || { NOTE="the kept servers are not running (a restart since the ladder?)"; return 1; }
   bridge connect
   local j v
-  j=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' trialbox-llm-service-1 2>/dev/null)
-  v=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' trialbox-llm-verifier-1 2>/dev/null)
+  j=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' "${COMPOSE_PROJECT_NAME:-trialbox}-llm-service-1" 2>/dev/null)
+  v=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' "${COMPOSE_PROJECT_NAME:-trialbox}-llm-verifier-1" 2>/dev/null)
   key_env
   export NODE_PATH=${NODE_TOOLS:-/opt/node-tools}/node_modules TB_ENV=DEV PYTHONPATH=libs:services:.
   # SIGINT to complete_run itself (its own command line starts with the venv's python), not to `during` around it,
@@ -273,7 +277,7 @@ step_down() {
 }
 step_host53() {
   STOP_TARGET="$MEASURE_RE" TB_UNMEASURED_DGPU48_MEASURING_RUN=1 \
-    watched tool ballast48 measure --option pair-32k-host53 --out-dir "$(measure_dir pair-32k-host53)" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"}
+    watched tool ballast48 measure --option pair-32k-host53 --out-dir "$(measure_dir pair-32k-host53)" ${GPU[@]+"${GPU[@]}"} ${BALLAST[@]+"${BALLAST[@]}"} ${ENGINE[@]+"${ENGINE[@]}"}
   NOTE="pair-32k-host53 exit $?"; return 0
 }
 step_release() {

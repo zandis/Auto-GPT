@@ -463,3 +463,66 @@ def test_an_os_patch_is_refused_under_a_running_job(tmp_path: Path) -> None:
                             "--deploy", str(deploy)], env=env, capture_output=True, text=True, check=False)  # fmt: skip
         assert r.returncode == 1 and said in r.stderr, r.stdout + r.stderr
         assert not log.exists() or "install" not in log.read_text(encoding="utf-8")  # nothing upgraded
+
+
+# ------------------------------------------------------------------------------- a host without a TPM (H-89, item 1)
+SECRET_PP = "correct-horse-battery-staple-h89"
+
+
+@pytest.mark.parametrize(
+    ("extra", "kek", "env_name", "status"),
+    [
+        ({}, "file", "PRODUCTION", "FAIL"),  # no passphrase back end: as before
+        # H-96 (the integrator's rulings 7094934985 and 7102655419, L-3): the back end only named, nothing sealed
+        # under it: a FAIL on PRODUCTION; on a PoC box a WARN and one line of the PoC list (D-1091)
+        ({"TB_KEK_BACKEND": "passphrase"}, "file", "PRODUCTION", "FAIL"),
+        ({"TB_KEK_BACKEND": "passphrase"}, "file", "TEST", "WARN"),
+        ({"TB_KEK_PASSPHRASE": SECRET_PP}, "file", "PRODUCTION", "FAIL"),  # a passphrase without the back end
+        ({"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": SECRET_PP}, "file", "PRODUCTION", "FAIL"),
+        # H-97 (the integrator's ruling 7104745003): the site keys already sealed under it follow the same rule: a
+        # FAIL on PRODUCTION that names the action (a WARN before), a listed WARN on a PoC box
+        ({}, "passphrase", "PRODUCTION", "FAIL"),
+        ({}, "passphrase", "TEST", "WARN"),
+        ({"TB_ENV": "TEST"}, "passphrase", "PRODUCTION", "FAIL"),  # a caller's variable does not make it a PoC box
+        # the review of #1429, F7 (D-1091): no caller's TB_ENV makes a PRODUCTION box a PoC box, for either line
+        ({"TB_ENV": "DEV"}, "passphrase", "PRODUCTION", "FAIL"),
+        ({"TB_ENV": "VALIDATION"}, "passphrase", "PRODUCTION", "FAIL"),
+        ({"TB_ENV": "DEV", "TB_KEK_BACKEND": "passphrase"}, "file", "PRODUCTION", "FAIL"),
+    ],
+)
+def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(
+    tmp_path: Path, extra: dict[str, str], kek: str, env_name: str, status: str
+) -> None:
+    args, env = _box(tmp_path, env_name=env_name)
+    (tmp_path / "host" / "dev" / "tpmrm0").unlink()
+    (tmp_path / "secrets" / "kek.json").write_text(f'{{"backend": "{kek}"}}', encoding="utf-8")
+    r = _sh(args, {**env, **extra})
+    line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
+    assert line.startswith(status), r.stdout
+    if status == "WARN":
+        assert "passphrase back end" in line
+    listed = tmp_path / "site" / "poc-stops.jsonl"
+    if env_name != "PRODUCTION" and (kek == "passphrase" or extra.get("TB_KEK_BACKEND")):
+        key = "check_host.sh/no-tpm-sealed" if kek == "passphrase" else "check_host.sh/no-tpm"
+        assert [json.loads(x)["key"] for x in listed.read_text(encoding="utf-8").splitlines()] == [key]
+    else:
+        assert not listed.exists()  # never listed on PRODUCTION
+    if kek == "passphrase":  # the action: on the FAIL line, or on the doctor's line of the PoC list
+        from tools.trialbox import stops
+
+        said = line if status == "FAIL" else " ".join(d for _, d in stops.doctor_lines(tmp_path))
+        assert "reseal the site keys under a TPM" in said, said
+    assert SECRET_PP not in r.stdout + r.stderr
+
+
+def test_sealed_keys_without_a_tpm_say_when_the_poc_list_line_was_not_written(tmp_path: Path) -> None:
+    """H-97 part D, in H-96's form (R2-2): on a TEST box whose list cannot be written (a folder there), keys already
+    sealed under the passphrase are a WARN that says it was NOT listed and names the action; never a FAIL."""
+    args, env = _box(tmp_path, env_name="TEST")
+    (tmp_path / "host" / "dev" / "tpmrm0").unlink()
+    (tmp_path / "secrets" / "kek.json").write_text('{"backend": "passphrase"}', encoding="utf-8")
+    (tmp_path / "site" / "poc-stops.jsonl").mkdir(parents=True)
+    r = _sh(args, env)
+    line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
+    assert line.startswith("WARN") and "NOT listed, deploy/site/poc-stops.jsonl cannot be written" in line, r.stdout
+    assert "reseal the site keys under a TPM" in line

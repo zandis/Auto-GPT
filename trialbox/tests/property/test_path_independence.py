@@ -28,10 +28,14 @@ import base64
 import fcntl
 import io
 import json
+import multiprocessing
 import os
 import pickle
 import shutil
+import tempfile
+import time
 import zipfile
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -369,23 +373,51 @@ SCR = {"practitioners": [PRACT, PRACT2], "appointment_window_days": 180, "recent
        "microbatch_window_days": 14}  # fmt: skip
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _reimbursement_open() -> Iterator[None]:
+    """Card 9e-9: NAV runs only on a test box with reimbursement switched on; this module's box is."""
+    from orchestrator import reimbursement
+
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(reimbursement, "is_open", lambda *a, **k: True)
+        yield
+
+
 @pytest.fixture(scope="module")
 def world(tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str, worker_id: str) -> World:
     """Every path run once on one box, one lake, one snapshot (about 45 s), shared by the xdist workers of the run
-    (the first builds it under a lock, the others read it), so ``-n auto`` does not build it once per worker."""
+    (the first builds it under a lock, the others read it), so ``-n auto`` does not build it once per worker.
+
+    H-81: a build that fails is not built again. The fixture is module-scoped, so a worker that leaves the module and
+    comes back (``--dist worksteal``) asks again; it used to rebuild into the same ``build-<pid>`` folder and fail on
+    ``sec`` already being there, hiding the first error. Each build gets a folder of its own, and the first failure is
+    written down and raised again, with its text, to every later request of the run."""
     if worker_id == "master":
         return build_world(tmp_path_factory.mktemp("paths"), pg_cluster_url)
     root = tmp_path_factory.getbasetemp().parent / "path-independence"  # one directory for the run's workers
-    root.mkdir(exist_ok=True)
+    w: World = shared_build(root, lambda tmp: build_world(tmp, pg_cluster_url))
+    return w
+
+
+def shared_build(root: Path, build: Callable[[Path], Any]) -> Any:
+    """``build`` run once for the run's workers under a file lock, each attempt in a folder of its own; the result
+    pickled for the others; a failure written down and raised again, with its text, instead of a second build."""
+    root.mkdir(parents=True, exist_ok=True)
     done = root / "world.pickle"
+    failed = root / "world.failed"
     with (root / ".lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             if not done.exists():
-                w = build_world(root / f"build-{os.getpid()}", pg_cluster_url)
+                if failed.exists():
+                    raise RuntimeError(f"the world of this run failed to build, not built again: {failed.read_text()}")
+                try:
+                    w = build(Path(tempfile.mkdtemp(prefix=f"build-{os.getpid()}-", dir=root)))
+                except Exception as e:
+                    failed.write_text(f"{type(e).__name__}: {e}", encoding="utf-8")
+                    raise
                 done.write_bytes(pickle.dumps(w))
-            loaded: World = pickle.loads(done.read_bytes())  # this run's own file
-            return loaded
+            return pickle.loads(done.read_bytes())  # this run's own file
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
@@ -727,9 +759,11 @@ _COVERS: dict[str, set[str]] = {p: set(SCREENED) for p in (
 _COVERS["microbatch.new"] = set(SCREENED) - {"OPT"}  # the register keeps OPT out of the new patients too
 # the pool each re-check starts from: who its SCREEN listed (the world checks that the run agrees)
 # UNDATED is on no list: an undated refusal keeps the patient out on every path (D-477, the ruling on its review)
-POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP"}
+# NOFLARE: its note inclusion "not met" sends it to review, so it is in the pool (R22-17, D-1069; ruled on #639
+# 7079180333: the planted patient is expected in review and in the pool)
+POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP", "NOFLARE"}
 _COVERS["microbatch.recheck"] = _COVERS["microbatch.amended"] = POOL
-_COVERS["microbatch.after_single"] = POOL | {"INF", "NOFLARE", "PREGNANT"}  # one model's "not met" is not final
+_COVERS["microbatch.after_single"] = POOL | {"INF", "PREGNANT"}  # one model's "not met" is not final
 
 
 # ------------------------------------------------------------------------------------------------ known differences
@@ -950,3 +984,47 @@ def test_a_status_does_not_depend_on_how_many_patients_are_in_the_run(
     alone = tier([PID["DEEP"]])
     assert alone == "high"  # control: the full record was read
     assert tier([PID["DEEP"], PID["ELIG"]]) == alone
+
+
+# H-81: the shared build, without the world. Several processes at once build one folder; a failed build is raised
+# again with its own text, never rebuilt into a folder an earlier attempt left behind.
+def _slow_build(tmp: Path) -> dict[str, int]:
+    (tmp / "sec").mkdir()  # what the world's build makes first
+    (tmp.parent / f"built-{os.getpid()}").touch()
+    time.sleep(0.3)
+    return {"pid": os.getpid()}
+
+
+def _build_in_child(root: str, out: Any) -> None:
+    out.put(shared_build(Path(root), _slow_build)["pid"])
+
+
+def test_many_workers_at_once_build_one_folder(tmp_path: Path) -> None:
+    ctx = multiprocessing.get_context("spawn")  # a fresh interpreter per worker, as xdist starts them
+    out = ctx.Queue()
+    procs = [ctx.Process(target=_build_in_child, args=(str(tmp_path / "shared"), out)) for _ in range(6)]
+    for pr in procs:
+        pr.start()
+    for pr in procs:
+        pr.join(60)
+    assert [pr.exitcode for pr in procs] == [0] * 6
+    pids = {out.get(timeout=5) for _ in procs}
+    assert len(pids) == 1  # every worker reads the one build
+    assert len(list((tmp_path / "shared").glob("built-*"))) == 1
+    assert len(list((tmp_path / "shared").glob("build-*"))) == 1
+
+
+def test_a_failed_build_is_raised_again_not_built_again(tmp_path: Path) -> None:
+    calls: list[Path] = []
+
+    def fails(tmp: Path) -> None:
+        calls.append(tmp)
+        (tmp / "sec").mkdir()
+        raise AssertionError("font NotoSansTC-Regular.ttf not found")
+
+    with pytest.raises(AssertionError, match="font NotoSansTC"):
+        shared_build(tmp_path, fails)
+    for _ in range(2):  # the worker comes back to the module (worksteal): the first error, not FileExistsError
+        with pytest.raises(RuntimeError, match="failed to build, not built again: AssertionError: font NotoSansTC"):
+            shared_build(tmp_path, fails)
+    assert len(calls) == 1

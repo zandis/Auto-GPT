@@ -4,6 +4,8 @@
 # Models are reached only through tb-gateway (spec v4 LLM-1, NFR-B9): llm-service / llm-stub sit on model-net, which
 # only the gateway joins; the services that call a model get TB_GATEWAY_URL. The model registry, PHI guard and trace
 # store run inside the gateway process (services/gateway/app.py).
+# H-75: the fixed network names follow the project compose is given (-p, or COMPOSE_PROJECT_NAME: the 48 GB host
+# run's own); with none given, trialbox-* as before
 name: trialbox
 
 # No PHI in logs (pids only). Each container keeps TB_LOG_MAX_SIZE x TB_LOG_MAX_FILE of JSON log; `trialbox logs daily`
@@ -220,7 +222,10 @@ services:
                   TB_DB_URL: "postgresql://tb_lake:${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
                   TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}",
-                  TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}"}
+                  TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}",
+                  # Per pool, per process (two HTTP workers plus the rebuild).
+                  TB_LAKE_THREADS: "${TB_LAKE_THREADS:-2}", OPENBLAS_NUM_THREADS: "${TB_LAKE_THREADS:-2}",
+                  OMP_NUM_THREADS: "${TB_LAKE_THREADS:-2}", ARROW_IO_THREADS: "${TB_LAKE_THREADS:-2}"}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - lake-data:/data/lake
@@ -294,6 +299,7 @@ services:
                   TB_VALIDATOR_XMX: 3g}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
       # the site's feed folder (the wizard writes TB_SOURCE_DIR, the host folder, and TB_SOURCE_MOUNT, the
       # settings data_source.path; install.sh requires both in PRODUCTION) and the site's own mapping folder,
       # looked up before the image's (adapter.mapping.site, T-632, D-382)
@@ -349,6 +355,7 @@ services:
     networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
       - orch-data:/data/orchestrator
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
@@ -368,6 +375,7 @@ services:
     networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - mail-data:/data/mail
       - objects-data:/data/objects
@@ -420,6 +428,7 @@ services:
                   TB_AUDIT_ANCHOR_TARGETS: ""}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
       - console-data:/data/console
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
@@ -538,23 +547,23 @@ services:
 
 networks:
   trialbox-net:
-    name: trialbox-net
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-net
     internal: true        # no default route: deny-by-default egress at the compose level
   model-net:
-    name: trialbox-model-net
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-model-net
     internal: true        # gateway <-> model-guard (llm-service, llm-verifier) / llm-stub only
   model-backend-net:
-    name: trialbox-model-backend
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-model-backend
     internal: true        # model-guard <-> the vLLM servers only (D-177)
   egress-net:
-    name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-egress  # host-level nftables (network.sh) restricts destinations per container
   console-net:
     # The console's published port only (D-176). Not internal (Docker publishes no port there), so it is closed by
     # hand: no NAT out (no reply ever comes back from outside), published ports bind to 127.0.0.1 unless
     # TB_CONSOLE_BIND says otherwise, no IPv6, no traffic between its members (the console is the only one).
     # deploy/network.sh drops everything from it that is not a reply, and every connection into it that is not to
     # the published port.
-    name: trialbox-console
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-console
     enable_ipv6: false
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "false"

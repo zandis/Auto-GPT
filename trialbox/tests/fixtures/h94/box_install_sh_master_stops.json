@@ -1,0 +1,110 @@
+{
+ "source": "deploy/box-install.sh at master b32e9b6538db9a95971ff61f8df35f797e50a70d",
+ "how": "every die \"...\" and echo \"box-install: ...\" >&2; exit N, as written (unexpanded)",
+ "stops": [
+  {
+   "message": "TB_BOX_WSL2 is 0 or 1, not '$TB_BOX_WSL2'",
+   "rc": 1
+  },
+  {
+   "message": "run it as root (sudo deploy/box-install.sh ...)",
+   "rc": 1
+  },
+  {
+   "message": "python3 is missing on this machine (Ubuntu 24.04 has it)",
+   "rc": 1
+  },
+  {
+   "message": "Docker is missing on this machine: prepare it from the media first (sudo <media>/linux/box-prepare.sh <media> --pub <the vendor key given to you>; RUNBOOK §16)",
+   "rc": 1
+  },
+  {
+   "message": "usage: deploy/box-install.sh trialbox-<version>.tar [--prepare | --rehearsal] [--yes]",
+   "rc": 1
+  },
+  {
+   "message": "no such bundle: $BUNDLE",
+   "rc": 1
+  },
+  {
+   "message": "no such answers file: $OWNER (nothing was changed)",
+   "rc": 1
+  },
+  {
+   "message": "the owner's answers file is refused (above): nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "no usable TPM: TB_KEK_PASSPHRASE must contain at least 12 characters; follow the Bash example in box-install.sh --help (nothing was changed)",
+   "rc": 1
+  },
+  {
+   "message": "stopped: nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "the owner's answers do not parse (above): nothing was changed",
+   "rc": 1
+  },
+  {
+   "message": "the install stopped (above; $BOX/install.log): nothing for the wizard to serve",
+   "rc": 1
+  },
+  {
+   "message": "this box was not installed by box-install.sh",
+   "rc": 1
+  },
+  {
+   "message": "no passphrase in the owner's answers: the keys stay unsealed (run the wizard again)",
+   "rc": 1
+  },
+  {
+   "message": "the site keys could not be sealed (above)",
+   "rc": 1
+  },
+  {
+   "message": "the owner's answers could not be applied (above)",
+   "rc": 1
+  },
+  {
+   "message": "the finish check did not run (exit $rc, above): the set-up is not finished; nothing was restarted",
+   "rc": 1
+  },
+  {
+   "message": "the set-up is not finished (above). Mount the disk or the share at the folder the owner named; or, when a folder was typed wrongly or is mounted elsewhere, change the setting each line names in $ROOT/deploy/.env (the first-run page does not open again: the answers are applied). Then: sudo deploy/box-install.sh --firstrun",
+   "rc": 1
+  },
+  {
+   "message": "the console's user cannot read $anchor (or its heads/ or keys/): the audit page would find no signed head. Make the folder readable (chmod a+rx), then: sudo deploy/box-install.sh --firstrun",
+   "rc": 1
+  },
+  {
+   "message": "the audit anchor folder is not mounted into the console (above); then: sudo deploy/box-install.sh --firstrun",
+   "rc": 1
+  },
+  {
+   "message": "the stack did not restart on the new settings",
+   "rc": 1
+  },
+  {
+   "message": "--answers needs the owner's answers file (JSON)",
+   "rc": 2
+  },
+  {
+   "message": "unknown option $1",
+   "rc": 2
+  },
+  {
+   "message": "--rehearsal with --prepare: a prepared box goes to a site",
+   "rc": 2
+  },
+  {
+   "message": "--answers is the site's unattended install: not with --prepare, --rehearsal or --firstrun",
+   "rc": 2
+  },
+  {
+   "message": "--rehearsal with --firstrun: the first run finishes the box as it was installed",
+   "rc": 2
+  }
+ ]
+}

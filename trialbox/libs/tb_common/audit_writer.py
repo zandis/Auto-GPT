@@ -528,17 +528,21 @@ class Drain:
 
     def run(self, *, once: bool = False, poll: float = 1.0, alive: Path | None = ALIVE) -> int:
         """Drain until stopped (``once``: until the journal is empty). A chain that cannot take a write (disk full, a
-        broken anchor) stops ``once`` with the error, and the loop retries it each minute. Returns the count."""
+        broken anchor) stops ``once`` with the error, and the loop retries it: after a minute, then twice as long each
+        time up to an hour (R22-36: a chain that waits for a person is not asked every minute). Returns the count."""
         total = 0
+        delay = 60
         while True:
             try:
                 n = self.step(alive)
             except OSError as exc:
                 if once:
                     raise
-                log.error("the audit chain refused a write (%s): retrying in 60 s", exc)
-                time.sleep(60)
+                log.error("the audit chain refused a write (%s): retrying in %d s", exc, delay)
+                time.sleep(delay)
+                delay = min(delay * 2, 3600)
                 continue
+            delay = 60
             total += n
             if alive is not None:
                 with contextlib.suppress(OSError):

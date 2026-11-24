@@ -26,6 +26,7 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,13 @@ IMAGE_LINE = re.compile(r"^\s*image:\s*(\S.*?)\s*(?:#.*)?$")
 VAR_DEFAULT = re.compile(r"^\$\{([A-Z][A-Z0-9_]*):-([^}\s]+)\}$")
 ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
 VLLM = "vllm"
+# H-112 (the rulings on #1459, 7122790579): the second serving profile's image is bench only. Only the file that
+# carries BENCH_MARK may name it, by digest only and never by a tag; the lock refuses an entry for it, so it can
+# never be a third-party image of a release (make_bundle's engine images are the lock's gpu entries).
+BENCH_MARK = "x-trialbox-bench-serving: true"
+BENCH_MARK_LINE = re.compile(r"^x-trialbox-bench-serving:\s*true\s*(?:#.*)?$", re.M)  # blanks and a comment too
+BENCH_VARS = frozenset({"SERVING2_IMAGE"})
+BENCH_REF = re.compile(r"\A(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
 
 
 def load(path: Path = LOCK) -> dict[str, Any]:
@@ -63,6 +71,8 @@ def lock_problems(lock: dict[str, Any]) -> list[str]:
         if not isinstance(variables, list) or not variables:
             out.append(f"{name}: no compose variables")
             continue
+        for v in sorted(set(variables) & BENCH_VARS):
+            out.append(f"{name}: {v} is the bench-only second serving profile's image (H-112): never in the lock")
         for v in variables:
             if v in owner:
                 out.append(f"variable {v}: named by {owner[v]} and {name}")
@@ -101,10 +111,19 @@ def check_compose(lock: dict[str, Any], files: list[Path]) -> tuple[list[str], s
     used: set[str] = set()
     owners = by_variable(lock)
     for f in files:
+        bench = bool(BENCH_MARK_LINE.search(f.read_text(encoding="utf-8")))
         for n, value in image_lines(f):
             where = f"{f.name}:{n}"
             m = VAR_DEFAULT.match(value)
             ref = m.group(2) if m else value
+            if m and m.group(1) in BENCH_VARS:
+                if not bench:
+                    problems.append(f"{where}: {m.group(1)} is the bench-only second serving profile's image (H-112): "
+                                    "only the file marked as the bench profile may name it")  # fmt: skip
+                elif not BENCH_REF.match(ref):
+                    problems.append(f"{where}: {m.group(1)} is {ref}: the bench image is named by digest only, "
+                                    "<repository>@sha256:<64 hex>, never by a tag (H-112)")  # fmt: skip
+                continue
             if ref.startswith(OWN_PREFIX):
                 continue
             if not m:
@@ -148,9 +167,15 @@ def arch_covers(archs: list[str], cap: str) -> bool:
 
 
 def host_check(
-    lock: dict[str, Any], arch: str, driver: str, compute_cap: str, image: str = ""
+    lock: dict[str, Any],
+    arch: str,
+    driver: str,
+    compute_cap: str,
+    image: str = "",
+    rehearsal: Callable[[str], tuple[list[str], dict[str, Any]]] | None = None,
 ) -> list[tuple[str, str]]:
-    """``(PASS|WARN|FAIL, message)`` lines for this GPU host and the locked vLLM image."""
+    """``(PASS|WARN|FAIL, message)`` lines for this GPU host and the locked vLLM image. ``rehearsal``: card H-89's
+    driver allowance (install.sh under the rehearsal mark only); None: a driver below the minimum FAILs."""
     entry = lock["third_party"][VLLM]
     ref = pinned(entry)
     if image and image != ref and not DIGEST.match(image):
@@ -172,7 +197,18 @@ def host_check(
     elif _version(driver) < _version(need):
         line = need.split(".")[0]
         msg = f"NVIDIA driver {driver} is below {need}, the lowest that runs the vLLM image (CUDA {gpu['cuda']})"
-        out.append(("FAIL", f"{msg}: update the driver to the R{line} line or newer"))
+        # REHEARSAL-REAL-SERVERS (H-89): below the minimum a WARN only on a rehearsal box with a passed probe file of
+        # this card, this driver and the pinned image (tools/rehearsal_real.py driver_allowance); else FAIL as before
+        why, _ = rehearsal(driver) if rehearsal is not None else (["no rehearsal"], {})
+        if rehearsal is not None and not why:
+            out.append(("WARN", f"{msg}: rehearsal: driver below the minimum (found {driver}, minimum {need}), with "
+                                "the forward-compatibility path the engine probe passed on this card; not valid for "
+                                "a site"))  # fmt: skip
+        else:
+            out.append(("FAIL", f"{msg}: update the driver to the R{line} line or newer"))
+            if rehearsal is not None:
+                out += [("FAIL", f"rehearsal with real servers refused: {w}") for w in why]
+        # ---- end of REHEARSAL-REAL-SERVERS (H-89)
     else:
         out.append(("PASS", f"NVIDIA driver {driver} runs CUDA {gpu['cuda']} (needs {need} or newer)"))
     if build is not None:
@@ -188,6 +224,26 @@ def host_check(
                                 f"({' '.join(archs)}): vLLM has no kernels for this device"))  # fmt: skip
     out.append(("PASS", f"structured output: vLLM backend {gpu['structured_outputs_backend']} (deploy/images.lock)"))
     return out
+
+
+# REHEARSAL-REAL-SERVERS (H-89): the driver allowance of tools/rehearsal_real.py for this card (run as a file too)
+def _rehearsal_allowance(probe: Path, index: str, deploy: Path) -> Callable[[str], tuple[list[str], dict[str, Any]]]:
+    """The allowance, bound to the probe file, the card's index and the box's deploy folder (the driver is that card's,
+    read again by the allowance)."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tools import rehearsal_real
+
+    def allowance(driver: str) -> tuple[list[str], dict[str, Any]]:
+        problems, rec = rehearsal_real.driver_allowance(probe, index, deploy)
+        if rec.get("driver_found") not in (None, driver):
+            problems.append(f"the card's driver is {rec.get('driver_found')}, the host check read {driver}")
+        return problems, rec
+
+    return allowance
+
+
+# ---- end of REHEARSAL-REAL-SERVERS (H-89)
 
 
 def _files(arg: str) -> list[Path]:
@@ -206,6 +262,12 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument("--driver", default="")
     h.add_argument("--compute-cap", default="")
     h.add_argument("--image", default="", help="the vLLM image the site set (VLLM_IMAGE), if any")
+    # REHEARSAL-REAL-SERVERS (H-89): install.sh's rehearsal only; all four or none
+    h.add_argument("--rehearsal-real-servers", action="store_true", help=argparse.SUPPRESS)
+    h.add_argument("--engine-probe", type=Path, default=None, help=argparse.SUPPRESS)
+    h.add_argument("--gpu-index", default="", help=argparse.SUPPRESS)
+    h.add_argument("--deploy", type=Path, default=None, help=argparse.SUPPRESS)
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89)
     sub.add_parser("vllm", help="print the locked vLLM reference (image@digest)")
     args = ap.parse_args(argv)
     try:
@@ -234,7 +296,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"PASS  third-party images of {len(files)} compose file(s) as deploy/images.lock ({len(used)} entries)"
             )
         return 1 if problems else 0
-    lines = host_check(lock, args.arch, args.driver.strip(), args.compute_cap.strip(), args.image.strip())
+    allowance: Callable[[str], tuple[list[str], dict[str, Any]]] | None = None
+    # REHEARSAL-REAL-SERVERS (H-89)
+    if args.rehearsal_real_servers or args.engine_probe or args.gpu_index or args.deploy:
+        if not (args.rehearsal_real_servers and args.engine_probe and args.gpu_index and args.deploy):
+            ap.error("--rehearsal-real-servers needs --engine-probe, --gpu-index and --deploy (install.sh's rehearsal)")
+        allowance = _rehearsal_allowance(args.engine_probe, args.gpu_index.strip(), args.deploy)
+    # ---- end of REHEARSAL-REAL-SERVERS (H-89)
+    lines = host_check(lock, args.arch, args.driver.strip(), args.compute_cap.strip(), args.image.strip(), allowance)
     for level, msg in lines:
         print(f"{level:<5} {msg}")
     return 1 if any(level == "FAIL" for level, _ in lines) else 0

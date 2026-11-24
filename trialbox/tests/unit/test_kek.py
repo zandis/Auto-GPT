@@ -273,14 +273,23 @@ def test_unseal_refuses_a_kek_path_inside_the_secrets_folder(
 
 def test_passphrase_init_then_wrap_and_unseal(box: dict[str, Path], capsys: pytest.CaptureFixture[str]) -> None:
     site = (box["sec"] / "site_hmac.key").read_bytes()
-    phrase = {"TB_KEK_PASSPHRASE": "a long synthetic test phrase"}
+
+    # H-96 (ruling 7094934985): the passphrase from a file only root can read, never the environment
+    def phrase_file(text: str) -> str:
+        f = box["tmp"] / "kek.pass"
+        f.write_text(text + "\n", encoding="utf-8")
+        f.chmod(0o600)
+        return str(f)
+
     rc, out = _cli(capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--scrypt-n", CHEAP_N,
-                   env=phrase)  # fmt: skip
+                   "--passphrase-file", phrase_file("a long synthetic test phrase"))  # fmt: skip
     assert rc == 0, out
     assert "a long synthetic test phrase" not in out
-    rc, out = _cli(capsys, "unseal", "--secrets", str(box["sec"]), env={"TB_KEK_PASSPHRASE": "wrong but long enough"})
+    rc, out = _cli(capsys, "unseal", "--secrets", str(box["sec"]), "--passphrase-file",
+                   phrase_file("wrong but long enough"))  # fmt: skip
     assert rc == 1 and "not this box's passphrase" in out
-    assert _cli(capsys, "unseal", "--secrets", str(box["sec"]), env=phrase)[0] == 0
+    assert _cli(capsys, "unseal", "--secrets", str(box["sec"]), "--passphrase-file",
+                phrase_file("a long synthetic test phrase"))[0] == 0  # fmt: skip
     assert load_key(box["sec"] / "site_hmac.key") == site
 
 
@@ -291,8 +300,12 @@ def test_rotate_kek_rewraps_every_key_and_the_old_shares_stop_working(
     old = [str(p) for p in _shares(box)]
     assert _cli(capsys, "unseal", "--secrets", str(box["sec"]), "--share", old[0], "--share", old[2])[0] == 0
     old_id = json.loads((box["sec"] / "kek.json").read_text())["kek_id"]
+    from tb_common.audit import AuditLog
+
+    AuditLog(box["tmp"] / "audit").append("test.box_ready", actor="tester")  # the box's chain (7114085298, F3)
     rc, out = _cli(capsys, "rotate-kek", "--secrets", str(box["sec"]), "--backend", "shamir", "--threshold", "2",
-                   "--shares", "3", "--shares-out", str(box["tmp"] / "new-stewards"))  # fmt: skip
+                   "--shares", "3", "--shares-out", str(box["tmp"] / "new-stewards"),
+                   "--audit-dir", str(box["tmp"] / "audit"))  # fmt: skip
     assert rc == 0, out
     meta = json.loads((box["sec"] / "kek.json").read_text())
     assert meta["kek_id"] != old_id

@@ -94,7 +94,7 @@ you may push to the hospital's git server.
    another room; on Windows/WSL2 a share mapped as a drive letter). A named path counts only on another device than
    the box's own disk, or when hospital IT puts a file `.trialbox-offbox` in it. In PRODUCTION a box whose targets
    are all on its own disks still writes the backup, but the run fails and stays red.
-2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `python3 -m
+2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `PYTHONPATH=libs python3 -m
    tools.trialbox backup-install --deploy deploy`, which writes `/etc/cron.d/trialbox-backup`, turns WAL archiving
    on when it can (below), and runs the first backup once the backup key is there (run the command again after
    `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
@@ -125,10 +125,10 @@ you may push to the hospital's git server.
 3. **Age alert.** `python3 -m tools.trialbox backup-status` shows the newest good off-box backup (the one
    `backup-last.json` records, with the same name, size and sha256 on the share) and its age. It turns red (exit 1)
    when that backup is older than `TB_BACKUP_MAX_AGE_HOURS` (36) or dated in the future, when the last nightly run
-   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26
-   hours. Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to
-   `MAILTO`, and piped to `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the
-   hospital's mail tool). The message holds no patient data. Fix the cause, then run `backup-nightly` by hand.
+   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26 hours.
+   Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to `MAILTO`, and piped to
+   `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the hospital's mail tool). The message holds no patient data.
+   Fix the cause, then run `PYTHONPATH=libs python3 -m tools.trialbox backup-nightly` from the install folder. 修正原因後，請在安裝目錄執行上述指令。原因を解消したら、インストール先のディレクトリでこのコマンドを実行します。
 4. **Check a backup** with hospital IT: `trialbox backup-verify <file> --key <private key>` (reads it all, checks
    every hash and the sidecar). A backup made before D-187 (layout 1, gzip or zstd) still verifies and restores.
 
@@ -161,18 +161,17 @@ least the last two weeks:
    "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
    `backup-nightly` so a new full chain starts.
 
-**Restore drill (T-730d, D-892).** Proof that the newest backup restores, without touching the box's data. Hospital
-IT brings the key from the envelope and types, on the box's host (the Operations page's backups tab shows this line
-with the newest file filled in): `sudo python3 -m tools.trialbox restore-drill <backup file> --key <the key>`. It
-checks free space first (the unpacked backup and scratch databases; it says how many GB it needs and starts nothing
-when short), opens the backup with the key and checks every file against its signed manifest, restores each
-database into a scratch database (`tb_drill_<id>_<name>`, never the live one), compares rows and content hashes
-with the manifest, and drops the scratch databases and the unpacked files, after a failure too. Exit 0 is a pass,
-1 a fail, 2 nothing started. The result (never the key or its path) is the box's key-check record and an audit
-event (`backup.restore_drill`): the health check's `backup_verified` turns red after `TB_HEALTH_VERIFIED_DAYS` (100)
-days without one, or at once on a failed drill until one passes, and a failed drill is a backup problem that goes
-through the alert route (mail, or the health page). Run it at least every 90 days, after hardware changes and before
-go-live acceptance (§6).
+**Restore drill (T-730d, D-892).** Hospital IT brings the private key from the envelope. In a root shell on the
+box, run `trialbox restore-drill <backup file> --key <key>`. Operations → Backups fills in the newest backup path.
+The command checks free space for the unpacked backup and scratch databases first. If space is short, it reports
+the GB needed and starts nothing. The release image uses its locked zstandard to unpack and verify every file
+against the signed manifest. The database administrator creates scratch databases (`tb_drill_<id>_<name>`).
+The drill runs pg_restore as their owner and uses the site connection from `deploy/.env` to compare rows and hashes.
+It removes scratch databases and unpacked files even after a failure. Exit 0 means pass, 1 failure, 2 nothing started.
+The key-check record and audit event (`backup.restore_drill`) omit the key and its path. A failed drill alerts by mail
+or on the health page and turns `backup_verified` red until a drill passes. It also turns red after
+`TB_HEALTH_VERIFIED_DAYS` (100) days without a key check. Run the drill at least every 90 days, after hardware
+changes and before go-live acceptance (§6).
 
 **Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
 pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not
@@ -277,6 +276,86 @@ the server's superuser. A restore loads `hapi` as the superuser, so the same scr
 tables back to that role.
 
 
+## The audit chain waits for a person
+
+The audit log is a chain: each event carries the hash of the one before. `HEAD.json` in the audit folder says where
+the chain ends, and each night `trialbox audit-sign` writes a signed head to the anchor folder (the hospital's share).
+The box stops and asks for a person in three cases. In each, the message names this section.
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| `audit.anchored after a signed head`, from an update, `doctor`, the nightly `audit-sign`, `trialbox logs` or the console's audit page | A release before this one found the chain without `HEAD.json` and went on without asking. Events after the last signed head may have been removed with it. **The box still works and still writes audit events.** The nightly signed head and the audit archive wait | Steps 1 to 3 below |
+| `the audit chain has no head anchor, but ... a signed head`, and the `audit-writer` service is unhealthy | `HEAD.json` is gone now. Nothing is written to the chain; the events wait in the database (the journal) and none is lost. The writer asks again after 1 minute, then 2, 4, up to once an hour | Steps 1 to 3 below |
+| `signed head on the box (event N)`, or `... is a signed head over event N` | The chain no longer holds an event that was signed: it was cut below a signed head or rewritten, and `HEAD.json` was written to match. **`--reanchor` does not clear this.** | Step 1, then stop and call the vendor (page 07). Keep the audit folder and the anchor folder as they are |
+
+1. **Look first.** As root in `/opt/trialbox`: `python3 -m tools.trialbox audit-sign --deploy deploy`. It checks the
+   chain against every signed head in the anchor folder, signs nothing while the chain waits, and prints why. The
+   console's audit page (Verify) shows the same. Note the event number of the last signed head and its date.
+2. **Decide who signs for it.** The events after the last signed head cannot be proved complete. The site's
+   administrator and the person responsible for the study's records agree on the reason (a restore, a disk fault, a
+   known mistake) and write it in the site log. If nobody can explain the missing `HEAD.json`, treat it as an incident
+   (page 07) before step 3.
+3. **Re-anchor**, once, in the one container that may write the chain:
+   `docker compose --project-directory deploy exec audit-writer python -m tools.audit_verify /data/audit --reanchor "<the reason, with the ticket>" --actor "<your name>"`.
+   It rewrites no line. It adds one event, `audit.reanchored`, with the old anchor, the chain as found, the reason and
+   the name, and it stays in the chain and on the console's audit page for ever. Run step 1 again after it: it now
+   signs, and the night's signing and the archive go on.
+
+What the box can and cannot show. A chain cut **below** a signed head is always found: by the nightly check, and at
+once by a writer or a console that is given the anchor folder. Events removed **after** the newest signed head, with
+`HEAD.json` written to match, are not found by the box alone: the head file is not keyed. That needs a head kept off
+the box (the anchor folder on the hospital's share, never on the box's own disk) and frequent signing; the night's
+signing leaves at most one day open. On an installed box the `audit-writer` service is not given the anchor folder, so
+there the nightly check is the one that finds a cut below a signed head, within a day.
+
+
+**Restore over the live stack, one command (H-100).** In a root shell on the box, from the install folder. The
+private key from the envelope must be a file owned by root and readable by root alone (mode 0600), not a link: a
+key on a removable stick cannot carry that mode, so copy it first and remove the copy afterwards:
+
+    sudo install -m 0600 -o root -g root /media/usb/trialbox-backup.key /root/trialbox-backup.key
+    sudo trialbox restore --last --key /root/trialbox-backup.key --yes --restart
+    sudo rm /root/trialbox-backup.key
+
+Before anything is stopped: `--last` names the newest backup `backup-nightly` recorded good
+(`deploy/site/backup-last.json`), or name a file instead; the file itself is read and its sha256 must equal its
+`.sha256` sidecar and the nightly's record (the restore is given that hash and refuses any other file); the key is
+checked; and the space the restore needs is checked in `deploy/` (the backup unpacked, about four times the file,
+and a copy of each database it replaces, up to the databases' own size). Any of these refused: exit 2, nothing
+changed. `--restart` never stands for `--yes`; without `--restart` nothing is stopped and step 2's refusal applies.
+
+`--restart` stops every service but `db` (the restore still asks compose afterwards and refuses while any other
+runs). The restore runs in one container of the release's backup image (`TB_BACKUP_IMAGE`), which carries the
+database client tools: the database URLs, the database superuser and the service roles' passwords come from the box's
+own `deploy/.env`, as the nightly's job gets them, and travel by name only. Compose and the container engine get only
+their own needs (PATH, HOME) and the engine settings `deploy/.env` names: a `COMPOSE_*` or `DOCKER_*` exported in the
+shell never points the restore at another project or engine. Each data volume's folder is given to the restore so its
+contents move aside within the volume, the copy of the box goes to `deploy/pre-restore`, and the service-role script
+runs inside it after the trial database is restored (the paragraph "Database roles after a restore", above, is then
+done). Every guard of the steps above holds: the site, the age, the copy of a box that holds data, the rows checked
+before any folder moves, the hold.
+
+**All or nothing.** The restore first copies each database it replaces. If anything fails, is interrupted (Ctrl-C) or
+is stopped by a signal after the first change, it puts the databases and the folders back as they were (each folder
+with its own owner and mode), holds the list jobs (`screening.after_restore`, step 4) and writes
+`backup.restore_failed` with `state: rolled_back`. While it puts them back, further Ctrl-C, SIGTERM or SIGHUP are
+ignored, and the host's step waits for it to the end whatever it receives. If the putting back itself fails, it says
+`NOT as it was` and keeps the copy of the databases it took first (`deploy/pre-restore/pre-restore-dumps-<time>`,
+readable by root alone) and names it: do not start the services; `pg_restore` that copy, or restore the kept copy of
+the box. `--no-copy` on the host needs `--yes-really`: without the kept copy a failed restore whose putting back also
+fails leaves nothing to go back to. One restore runs at a time (`deploy/site/restore.lock`); a scratch folder
+(`deploy/.restore-*`) left by a restore that was killed is removed by the next one.
+
+**What it says.** Every end says the box in one line: `restore: the box now: <what compose says runs>; the data:
+<restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` the services it
+stopped (and only those) start again and are waited for until healthy (`docker compose up -d --no-deps --wait`) when
+the restore ended complete (exit 0), held (exit 4 with `hold: held`), or was refused inside before any change; after a
+put-back the next step is to read the error and start them as they were; otherwise they stay stopped. A stop that
+fails, an interrupt or an error on the host is said the same way and kept as an audit event
+(`deploy/site/backup-audit-pending.jsonl` while the orchestrator is down). Compare the `rows` the restore prints with
+`databases` of `trialbox backup-verify <file> --key <private key>`: they are equal. The steps above are the same
+restore by hand.
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |
@@ -301,3 +380,38 @@ working day in `TB_BACKUP_ALERT_WATCHER`; the install note and `doctor` show the
 A name holds letters and digits of any script, single spaces and `. , - ( ) （ ） / ’ ' ・ · 〜 ～` only (`'` not
 first or last), at most 100 characters; anything else (a line break, a double quote, `$`, a backslash) is refused,
 so a name can never add or change a setting.
+
+**A PRODUCTION install needs a backup target off the box and the hospital's audit share as its anchor folder**
+(10K-4, D-1390). `python3 -m tools.trialbox finish-check --deploy deploy` accepts only what it can show and refuses
+what it cannot tell. Each folder `deploy/.env` names must be there, with no link in its path and no bind of another
+folder behind it, not a system folder (`/etc`, `/home`, `/opt`, `/usr`, `/var/lib`, `/var/log`, `/boot`, `/tmp`,
+`/media`, `/proc`, `/sys`, `/dev`, `/run` ...) nor around one, not the install folder, its `deploy/secrets`, the feed
+folder or the audit data, on a disk or a share (ext4, xfs, btrfs, exfat, vfat, ntfs3, nfs, nfs4, cifs, smb3), never a
+memory file system. In PRODUCTION one target of `TB_BACKUP_TARGETS` must be a share the box does not serve, or a
+physical disk (not a loop device, zram or a virtual disk) holding none of the box's own data: not the system disk
+(another partition of it is not enough), not Docker's data root, not the audit folders; for a disk
+`TB_BACKUP_OFFBOX` names the same folder, so the nightly backup counts it too. `TB_AUDIT_ANCHOR_TARGETS` must be the
+mount point of the hospital's audit share (nfs, nfs4, cifs, smb3; mount it `nosuid,nodev`), under folders only root
+may write; the anchor, backup and log folders do not overlap. Of the folders the first-run page asks, the console
+reads the anchor folder only, read-only; it is checked before it is mounted and again at every start of the stack
+(`deploy/settings_guard.sh`), which does not start when the rule no longer holds. `deploy/install.sh` checks a re-run
+before the bundle step (nothing is loaded or changed when it refuses) and every install before the stack starts; when
+an older install.sh loaded this release, the release that run brought is applied (as after `trialbox update`) and the
+refusal says so: correct `deploy/.env` and run the install again. `deploy/box-install.sh` checks after the first-run
+answers are applied, before the restart; the first-run page does not open again: mount the share or disk at the
+folder named, or correct the line, then `sudo deploy/box-install.sh --firstrun`. **An installed PRODUCTION site that
+runs `deploy/install.sh` again** (02, the anchor folders; 05, after a restore and for the EDC tables; 12, the TLS
+check per release) stops there until both are set; `trialbox update` and `trialbox restore` do not run it.
+
+**The host commands' own environment (H-88, D-1089).** `trialbox` and `python3 -m tools.trialbox` find the product
+from their own folder and read `deploy/.env` themselves, so `sudo` and cron need nothing more; a command that needs
+the box image's libraries runs in a one-off container of `TB_IMAGE` (never pulled). A backup cron file from before
+H-88 sets `PYTHONPATH`: `trialbox doctor` (`backup`) warns until
+`python3 -m tools.trialbox backup-install --deploy deploy --no-first-run` is run again.
+
+**The backup schedule without cron (H-92).** Where systemd is the init, `backup-install` writes the schedule as
+timers (`systemctl list-timers 'trialbox-backup-*'`: 04:45 nightly, hourly check; a missed night runs after boot)
+and removes `/etc/cron.d/trialbox-backup`; elsewhere the cron file stays and needs a running cron daemon. Never both
+(D-1090). An existing box moves with `python3 -m tools.trialbox backup-install --deploy deploy --no-first-run`.
+`trialbox doctor` (`backup`) and `backup-status` name the schedule in use and the one action when none fires or both
+would.

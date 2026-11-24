@@ -9,7 +9,10 @@ the console: role homes (S2/S3/S13), the header command field and the three lang
     python -m tools.demo [--lang ja|zh-TW|en] [--port 8080] [--host 0.0.0.0]
     python -m tools.demo --keep --dir /data/demo --accounts /run/secrets/demo-accounts.json   # the PoC (T-505b)
     make demo                                               # same, on 127.0.0.1:8080
-    docker build -f demo/Dockerfile -t trialbox-demo . && docker run -p 8080:8080 -e TB_DEMO_PASSWORD=... trialbox-demo
+    docker build -f demo/Dockerfile -t trialbox-demo .
+    read -rs TB_DEMO_PASSWORD; export TB_DEMO_PASSWORD
+    docker run -p 8080:8080 -e TB_DEMO_PASSWORD trialbox-demo
+    unset TB_DEMO_PASSWORD
 
 Built-in accounts: admin, crc (coordinator), pi (investigator), subpi (sub-investigator), cra (CRO, aggregate only),
 viewer; one password from ``TB_DEMO_PASSWORD`` (else a random one is printed). Stub model, no network, no secrets,
@@ -619,39 +622,43 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     os.environ["TB_DEMO_DAY"] = a.day
     os.environ.setdefault("TB_ENV", "DEV")
+    was = logging.root.manager.disable  # 9i-1: the level found, given back however this ends
     logging.disable(logging.INFO)
     try:
-        out = start(a)
-    except AccountsError as exc:
-        print(f"demo accounts: {exc}", file=sys.stderr)
-        return 2
-    if out["kept"]:
-        print(f"kept demo reopened from {a.dir} (no rebuild)")
-    else:
-        print(out["report"])
-        print(f"demo day {out['day']} (TB_DEMO_DAY={a.day})")
-    done = out["done"]
-    if out["accounts"]:
-        off = ", ".join(done["off"]) or "-"
-        print(f"accounts file: {len(done['created'])} new, {len(done['logged'])} new log entries, "
-              f"{len(done['enrol'])} enrolment codes; built-in accounts switched off: {off}")  # fmt: skip
-        if done["created"] or done["enrol"]:
-            print(f"new passwords and enrolment codes: {a.dir / ISSUED} (owner only; hand out, then delete)")
-    if a.no_serve:
-        return 0 if out["ok"] else 1
-    import uvicorn
+        try:
+            out = start(a)
+        except AccountsError as exc:
+            print(f"demo accounts: {exc}", file=sys.stderr)
+            return 2
+        if out["kept"]:
+            print(f"kept demo reopened from {a.dir} (no rebuild)")
+        else:
+            print(out["report"])
+            print(f"demo day {out['day']} (TB_DEMO_DAY={a.day})")
+        done = out["done"]
+        if out["accounts"]:
+            off = ", ".join(done["off"]) or "-"
+            print(f"accounts file: {len(done['created'])} new, {len(done['logged'])} new log entries, "
+                  f"{len(done['enrol'])} enrolment codes; built-in accounts switched off: {off}")  # fmt: skip
+            if done["created"] or done["enrol"]:
+                print(f"new passwords and enrolment codes: {a.dir / ISSUED} (owner only; hand out, then delete)")
+        if a.no_serve:
+            return 0 if out["ok"] else 1
+        import uvicorn
 
-    start_up(out["box"].orch)  # H-25 (D-1124): after the seed and its checks, before the console serves
-    logging.disable(logging.NOTSET)
-    print(f"\nconsole on http://{a.host}:{a.port}/home  accounts: {', '.join(out['names'])}")
-    if not out["accounts"] and not os.environ.get("TB_DEMO_PASSWORD"):
-        print(f"password (all accounts): {out['password']}")
-    uvicorn.run(out["app"], host=a.host, port=a.port, log_level="warning")
-    if a.keep and os.environ.get("TB_PG_DIR") == str(a.dir / "pg"):
-        from tools import pglocal
+        start_up(out["box"].orch)  # H-25 (D-1124): after the seed and its checks, before the console serves
+        logging.disable(logging.NOTSET)
+        print(f"\nconsole on http://{a.host}:{a.port}/home  accounts: {', '.join(out['names'])}")
+        if not out["accounts"] and not os.environ.get("TB_DEMO_PASSWORD"):
+            print(f"password (all accounts): {out['password']}")
+        uvicorn.run(out["app"], host=a.host, port=a.port, log_level="warning")
+        if a.keep and os.environ.get("TB_PG_DIR") == str(a.dir / "pg"):
+            from tools import pglocal
 
-        pglocal.stop(a.dir / "pg")  # a clean stop of the kept trial database
-    return 0
+            pglocal.stop(a.dir / "pg")  # a clean stop of the kept trial database
+        return 0
+    finally:
+        logging.disable(was)
 
 
 if __name__ == "__main__":

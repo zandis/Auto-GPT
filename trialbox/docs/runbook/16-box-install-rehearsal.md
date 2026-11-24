@@ -108,8 +108,8 @@ DGX Spark, plan v6.1 OD-11) is installed by `sudo deploy/box-install.sh trialbox
 the settings from the hardware (`tools/box/plan.py`: the GPU profile from `deploy/gpu_profile.sh`, the memory caps
 from the RAM, TLS `internal` under the box's name, `deploy/site/hardening.conf` with the KEK on the TPM or, without
 one, a passphrase the owner sets), runs `install.sh` with `TB_BOX=1` (the overlay `deploy/docker-compose.box.yml`,
-no `bootstrap-admin`), prints the address `https://<name>.local/login/first-run` and a one-time code (also on the
-box's own screen, `/etc/issue.d/trialbox-firstrun.issue`) and waits. The owner answers the first-run wizard
+no `bootstrap-admin`), prints the address `https://<name>.local/login/first-run`, shows a one-time code once, and
+waits. The owner answers the first-run wizard
 (site name, time zone, language, their account and authenticator, the box's name, where backups go, the kind of data
 source); the console makes the owner's accounts (steward and `<name>-admin`) and hands the answers over the tmpfs
 folder `/run/trialbox-firstrun`; the script then applies them (`python -m tools.box apply` in the image: settings
@@ -117,8 +117,24 @@ and `deploy/.env` rewritten from the answers, the install's passwords kept), set
 installs the backup schedule and runs the host check. On a box the inner install does not stop when the backup
 schedule cannot be installed yet (a fresh host has no alert route): it is a line in the install's FAIL list, the
 stack runs and the wizard is served (OPS-003, D-566); `install.sh` without `TB_BOX` still stops there.
-Under WSL2 (the Windows form; the script reads the kernel's release) the address and the code are
-printed and not written to the box's screen file, and the host's time zone is left to Windows (D-571).
+Under WSL2 (the Windows form; the script reads the kernel's release) the host's time zone is left to Windows (D-571).
+
+**Where the one-time code is** (H-97; the integrator's ruling 7101844662). The code is never in the script's output
+(the boot's `trialbox-firstrun.service` sends that output to the system journal, and `install.log` keeps the install's)
+and never in a file other users can read; `/etc/issue.d` is no longer used, and an earlier version's
+`/etc/issue.d/trialbox-firstrun.issue` is removed. The person at the box gets it this way:
+
+- **At a terminal** (`sudo deploy/box-install.sh <bundle>` typed on the box, or over SSH with a terminal): on that
+  terminal, once, under the address. The output piped to a log holds only "shown on this terminal only".
+- **The Windows form (WSL2):** in the Windows installer's window, which is the script's terminal.
+- **A prepared box's first boot, at a physical console:** on the box's screen (the text console, written directly,
+  not through the journal), and in `/root/trialbox-firstrun-code`.
+- **A headless box, or a desktop whose screen shows the graphical login:** over SSH, `sudo cat
+  /root/trialbox-firstrun-code` (root only, mode 0600; the output names the file, never the code).
+
+The file is made new for each code (a link or anything but a regular file at its name is refused, never followed)
+and is removed when the owner's answers are in. Five wrong codes void a code: a new code replaces the file and is
+shown again. With no terminal, no screen and no such file the script stops and says to run it on a terminal.
 When the answers are applied the script writes `deploy/site/box/applied`; a start that finds it (the window
 closed before the last line) shows no new code and finishes the set-up (D-576).
 **A rehearsal box** (D-726, D-887). `deploy/install.sh <bundle> --rehearsal` (or `deploy/box-install.sh <bundle>
@@ -141,7 +157,8 @@ box, and doctor fails the stand-ins in the compose files of any box that is not 
 
 **Prepared image:** Aimedics runs the same script with
 `--prepare` before shipping; it stops before the code and enables `trialbox-firstrun.service`, which at the site's
-first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the wizard, the apply). The rehearsal of
+first boot runs `deploy/box-install.sh --firstrun` (the code on the screen and in the root-only file, the wizard, the
+apply). The rehearsal of
 this path without Docker is `tests/console/test_box_install_rehearsal.py` (the real script, stand-ins for the inner
 install, compose and the host check, the wizard in process); what only a real box proves is listed in D-466 for
 T-213b's rental-workstation and Spark runs.
@@ -157,12 +174,28 @@ question, no first-run code and no wait. Use it for the hospital's own unattende
   - optionally `chartno_rule`, `mta_authserv_id`, and `environment` (`PRODUCTION`, or `VALIDATION` for public or
     synthetic data).
 - The plan is made from that file. The install then makes the first administrator as the IT form does: the password
-  and enrolment code are printed once.
+  and enrolment code are shown once on the terminal, never in `deploy/site/box/install.log` (H-96); with no terminal
+  they are in `/root/trialbox-admin-first-sign-in` (root only), to read once, hand on and remove.
 - After the install it sets the host's time zone, installs the backup schedule and runs the host check.
-- A password or passphrase in the file is refused. On a board without a usable TPM, set `TB_KEK_PASSPHRASE` in the
-  command's environment; the site keys are sealed under it at the install.
+- A password or passphrase in the answers file is refused.
 - A file that does not parse changes nothing.
 - It cannot be combined with `--prepare`, `--rehearsal` or `--firstrun`.
+
+Without a usable TPM, set `bundle` to the signed bundle’s path. The KEK passphrase (12 characters or more, one
+line) goes in a file only root can read: after sudo's own password prompt, type the passphrase, then press Enter
+(nothing is shown). The file must be a regular file owned by root with mode 0600; the install removes it once the
+keys are sealed (`--keep-kek-passphrase-file` keeps it). Instead of the file, `--kek-passphrase-stdin` asks for the
+passphrase twice on the terminal.
+
+```bash
+sudo bash -c 'umask 077; IFS= read -rs TB_KEK_PASSPHRASE; printf "%s\n" "$TB_KEK_PASSPHRASE" > /root/trialbox-kek.pass'
+sudo deploy/box-install.sh "$bundle" --answers owner.json --kek-passphrase-file /root/trialbox-kek.pass
+```
+
+A passphrase in the environment (`sudo --preserve-env`, `sudo -E`, a root shell that exported it) is refused by
+`box-install.sh`, `install.sh`, the bootstrap, `seal_keys.sh` and `tools.keys` (H-96): sudo writes a variable it
+keeps, with its value, to the system journal. A box installed that way before H-96 rotates its passphrase (§23,
+"Rotate the KEK passphrase"). This refusal stands on every box, a proof of concept too: it protects a key.
 
 **The box's name (OPS-005):** a box named `<name>.local` answers that name on the clinic's network.
 - `hardening.conf` says `MDNS=on`, and the input firewall then lets mDNS (UDP 5353) in from the box's own network only.
@@ -186,3 +219,23 @@ driver and toolkit and the host's libraries from the offline media, not by hand.
 - `box-install.sh` on a machine without Docker says to run this step first.
 - The disk's unlock rule (HW-010) is not set here: it waits on the owner's decision. The run on a real bare box is
   T-213b's.
+
+## A rehearsal with the real model servers (H-89, D-1087)
+
+On a bench host whose cards and driver are not the rtxpro6000 profile's, the install walk can run the real model
+servers on one whole card, as a rehearsal box only (it says "rehearsal: driver below the minimum, not this profile's
+card, not valid for a site" and never starts as PRODUCTION). Reload the driver first (skip it when the driver was
+loaded just now and nothing has used the card since, as after a fresh boot), then, as root:
+
+    sudo install -d -m 0700 -o root -g root /var/lib/trialbox/rehearsal
+    sudo python3 tools/engine_probe.py run --gpu-index 1 --out /var/lib/trialbox/rehearsal/engine-probe.json
+    sudo deploy/install.sh trialbox-<version>.tar --rehearsal --rehearsal-real-servers --gpu rtxpro6000 \
+        --gpu-index 1 --engine-probe /var/lib/trialbox/rehearsal/engine-probe.json --yes
+
+The probe file and its folder must be root's and writable by no one else; a probe of another card or host, older than
+7 days, or of another image is refused. The page: docs/handover/rehearsal-real-servers-h89-2026-11-22.md.
+
+Each opened profile is held to its own card's memory on the bench's card (its utilisations scaled into deploy/.env):
+`--gpu rtxpro6000` (96 GB) or `--gpu rtx5090` (32 GB, a whole card), with `--gpu-index N` naming the card the probe was
+taken on. The 32 GB profile on a split card's slice, dgpu48, gb10 and the Windows (WSL2) host are not opened; the
+page says why.

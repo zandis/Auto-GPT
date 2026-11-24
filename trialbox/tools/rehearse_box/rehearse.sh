@@ -10,7 +10,8 @@
 #   wsl2            the WSL2 preflight passes on a WSL2-like host and fails on plain Linux (Windows itself cannot run)
 #   bootstrap       RUNBOOK §1's first command as written: openssl checks the bootstrap's signature, the bootstrap
 #                   verifies the bundle and unpacks its host tree into an empty folder (D-996)
-#   media-negative  missing media, a forged bundle and a missing vendor key each stop the installer, nothing written
+#   media-negative  missing media, a forged bundle, a software pack without its model pack (H-95) and a missing vendor
+#                   key each stop the installer, nothing written
 #   install         install.sh exits 0: bundle verified and loaded, settings, key, pins, stack healthy, serving check
 #   doctor          trialbox doctor --live passes (with the site's TLS proxy assumed: TB_CONSOLE_SECURE_COOKIE=1)
 #   served          the pinned served names are exactly what the stand-ins serve
@@ -31,6 +32,8 @@
 #                   the gateway refuses the call
 #   missing-key     the gateway without the key: the doctor FAILs "refused the key (HTTP 401)", calls are refused
 #   no-registry-pull  the Docker daemon's image events from the clearing of the images to the end: loads, no pull
+#   swapped-stream  H-95 on this real engine (tools/rehearse_box/h95_probe.py): an image archive swapped on the stick
+#                   after the pin read is refused, and 30 s later no image, no tag, the pinned name unmoved
 #
 # Writes $TB_REHEARSE_DIR/report.md and report.json; exit 0 only when every step passes.
 #
@@ -74,6 +77,7 @@ fi
 ID="rehearsal-$(date -u +%Y%m%d)"
 MEDIA="$W/media/TRIALBOX-$ID"
 BUNDLE_NAME="trialbox-$ID.tar"
+MODEL_PACK_NAME="trialbox-models-$ID.pack"  # H-95: the model pack, beside the software pack on the media
 BOX="$W/box"
 HOST_IMG="trialbox-rehearsal-host:24.04"
 HOST_CT="tb-rehearse-host"
@@ -107,7 +111,17 @@ step() {  # step <name> <fatal 0|1> <command...>
   [ "$fatal" = 1 ] && BLOCKED="$name"
   return 1
 }
-in_box() { docker exec -e TB_RH_VARIANT="$VARIANT" -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
+# Keep one synthetic KEK passphrase in this rehearsal process for the install and reinstall. H-96 (F-45; the
+# integrator's ruling 7094934985): it reaches the box as a site gives it, in a file only root can read (written there
+# by docker exec's stdin: never an argument, never an environment), and install.sh reads it with --kek-passphrase-file
+rehearsal_passphrase="$(openssl rand -hex 24)" || exit 1
+in_box() {
+  case "$1" in
+    install|reinstall)
+      printf '%s\n' "$rehearsal_passphrase" \
+        | docker exec -i "$HOST_CT" sh -c 'umask 077 && cat > /root/rehearsal-kek.pass' || return 1 ;;
+  esac
+  docker exec -e TB_RH_VARIANT="$VARIANT" -e TB_RH_DIR="$W" -e TB_RH_MEDIA="$MEDIA" -e TB_RH_BUNDLE="$BUNDLE_NAME" -e TB_RH_BOX="$BOX" \
   "$HOST_CT" bash "$W/run/box.sh" "$@"; }
 box_containers() { docker ps -q --filter label=com.docker.compose.project=trialbox; }
 
@@ -182,13 +196,19 @@ media() (  # a subshell: set -e stops the step, not the run
   tools/make_bundle.sh --allow-dirty "a rehearsal of the working tree" --rehearsal \
     --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
     --out "$W/vendor/dist/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
+    --model-pack-out "$W/vendor/dist/$MODEL_PACK_NAME" \
     --models "$W/vendor/models" --refdata "$pack" "${args[@]}" \
     || { echo "the bundle was not built"; return 1; }
+  # H-95: a release in two packs; the model pack (engine image, placeholder weights) beside the software pack
+  mv "$W/vendor/dist/$MODEL_PACK_NAME" "$W/vendor/dist/$MODEL_PACK_NAME.sha256" "$MEDIA/linux/" \
+    || { echo "the model pack and its .sha256 are not in the vendor's folder"; return 1; }
   # H-22 (D-996): the vendor builds in its own folder and hands the files over; that folder is gone before the site
   # installs, so a sidecar or a check that names the vendor's path fails here as it fails on a site's stick
+  # HS-1: with the stick's launcher (install, the key's fingerprint pinned in it) and the vendor's public key
   mv "$W/vendor/dist/$BUNDLE_NAME" "$W/vendor/dist/$BUNDLE_NAME.sha256" "$W/vendor/dist/trialbox-bootstrap.sh" \
-    "$W/vendor/dist/trialbox-bootstrap.sh.sig" "$MEDIA/linux/" && rmdir "$W/vendor/dist" \
-    || { echo "the bundle's files are not all in the vendor's folder (bundle, .sha256, bootstrap, .sig)"; return 1; }
+    "$W/vendor/dist/trialbox-bootstrap.sh.sig" "$W/vendor/dist/install" "$W/vendor/dist/vendor_ed25519.pub" \
+    "$MEDIA/linux/" && rmdir "$W/vendor/dist" \
+    || { echo "the bundle's files are not all in the vendor's folder (bundle, .sha256, bootstrap, .sig, install, key)"; return 1; }
   [ -s "$MEDIA/linux/$BUNDLE_NAME" ] || { echo "no bundle at $MEDIA/linux/$BUNDLE_NAME"; return 1; }
   cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"
   cp deploy/measured/serving_config.*.json "$MEDIA/measured/"
@@ -257,6 +277,12 @@ clear_images() {  # only the media may bring them back: by id, so every tag and 
   echo "ok: $(wc -l < "$W/vendor/bundle-images.txt") box images removed from the Docker host ($(docker info --format '{{.Driver}}') store); only the media has them"
 }
 
+swapped_stream() {  # H-95 (the re-review of #1409, F1): the update path's streamed load on the real engine
+  PYTHONPATH="$ROOT/libs:$ROOT" "$PY" -m tools.rehearse_box.h95_probe "$W/h95-probe"; local rc=$?
+  rm -rf "$W/h95-probe"
+  return "$rc"
+}
+
 no_registry_pull() {
   [ -n "$EVENTS_PID" ] || { echo "no image event log"; return 1; }
   sleep 1; kill "$EVENTS_PID" 2>/dev/null; wait "$EVENTS_PID" 2>/dev/null; EVENTS_PID=""
@@ -300,13 +326,15 @@ collect() {
 }
 
 restore_images() {  # a run that stopped before the install loaded them must not leave the Docker host without them
-  local ref id b="$MEDIA/linux/$BUNDLE_NAME" m
+  local ref id b="$MEDIA/linux/$BUNDLE_NAME" m src
   [ -f "$W/vendor/bundle-images.txt" ] && [ -f "$b" ] || return 0
   while read -r ref id; do
     docker image inspect "$ref" >/dev/null 2>&1 && continue
     m="files/$(printf '%s' "$ref" | tr '/:' '__').tar"
     echo "restoring $ref from the media" >>"$LOGS/teardown.log"
-    tar -xOf "$b" "$m" | docker load >>"$LOGS/teardown.log" 2>&1 || echo "could not restore $ref" >&2
+    src="$b"  # H-95: the engine image is in the model pack
+    tar -tf "$b" "$m" >/dev/null 2>&1 || src="$MEDIA/linux/$MODEL_PACK_NAME"
+    tar -xOf "$src" "$m" | docker load >>"$LOGS/teardown.log" 2>&1 || echo "could not restore $ref" >&2
   done < "$W/vendor/bundle-images.txt"
 }
 
@@ -319,7 +347,6 @@ teardown() {
   docker image rm "$HOST_IMG" >/dev/null 2>&1 || true
   # D-887: the rehearsal's KEK and its throwaway passphrase do not outlive it
   docker run --rm -v /run/trialbox:/k ubuntu:24.04 rm -f /k/kek >/dev/null 2>&1 || true
-  rm -f "$W/vendor/kek-pass"
   restore_images
   # keep the report and logs; drop the media and the box (gigabytes)
   docker run --rm --user 0:0 -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \
@@ -357,7 +384,9 @@ step screen-after-restart 0 in_box screen second
 step restic-restore 0 in_box restic-restore
 step wrong-name 0 in_box wrong-name
 step missing-key 0 in_box missing-key
+step live-restore 0 in_box live-restore
 step no-registry-pull 0 no_registry_pull
+step swapped-stream 0 swapped_stream
 collect
 teardown
 

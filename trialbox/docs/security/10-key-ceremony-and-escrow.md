@@ -15,7 +15,7 @@ the lost-box list).
 | the escrow set (TPM back end) | `python -m tools.keys escrow-shares` | the escrow custodians, one share each, on removable media | `kek.json` names the set, its custodians and each share's fingerprint; never a share |
 | the ceremony record | `python -m tools.keys ceremony-record` | printed and signed; a copy with the site's validation file | `deploy/site/key-ceremony-<time>.md` and `.json` |
 
-No key, share or passphrase is ever printed, logged, put in the audit or in this record.
+No key, share or passphrase is ever printed (the backup key's paper sheet of §7 aside), logged, put in the audit or in this record.
 
 ## 2. Who attends
 
@@ -41,6 +41,20 @@ ceremony record then says "Escrow: none".
 A **passphrase** KEK (`KEK_BACKEND=passphrase`) is for a proof of concept or a validation run on a plain VM
 (`TB_HOST_PROFILE=poc`). Its ceremony record is marked **not a site's key ceremony**; a site box is made again with
 the TPM or steward shares before real data.
+
+For a passphrase box, run `python -m tools.keys unseal` at a terminal and enter the current passphrase at the hidden prompt. To rotate it, then run `python -m tools.keys rotate-kek --backend passphrase` and enter the new passphrase twice.
+在終端執行上述 unseal 指令，依隱藏提示輸入目前密語。更換密語時再執行 rotate-kek，輸入新密語兩次。
+端末で上記の unseal を実行し、非表示のプロンプトに現在のパスフレーズを入力します。変更時は続けて rotate-kek を実行し、新しいパスフレーズを 2 回入力します。
+
+To rotate an already unsealed KEK without a terminal prompt, put the new passphrase in a file only root can read
+(type it after sudo's own password prompt, then Enter; nothing is shown). The file is removed once the KEK is
+rotated. A passphrase in the environment is refused by `tools.keys` (H-96): sudo writes a variable it keeps, with
+its value, to the system journal. RUNBOOK §23 ("Rotate the KEK passphrase") is the whole procedure.
+
+```bash
+sudo bash -c 'umask 077; IFS= read -rs TB_KEK_NEW_PASSPHRASE; printf "%s\n" "$TB_KEK_NEW_PASSPHRASE" > /root/trialbox-kek-new.pass'
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"
+```
 
 ## 4. The ceremony, in order
 
@@ -111,3 +125,36 @@ From `python -m tools.keys inventory` (RUNBOOK §23):
 - `site_hmac.key`: never rotated (a new key gives every patient a new pseudonym and loses their opt-outs);
 - the backup key: a new pair with hospital IT when the envelope is lost or opened without a restore; every later
   backup uses the new public key.
+
+## 7. The backup-key ceremony on the host (10K-13, D-1379)
+
+On a box that has no `backup.pub` yet, hospital IT (as root on the box's host) and a witness who is another person
+can make the backup key with one command instead of step 1 of §4:
+
+    python -m tools.backup_key_ceremony --stick /media/usb --operator "<name>" --witness "<name>" [--lang ja]
+
+Mount an empty stick first with `mount -o uid=0,gid=0,umask=077,nodev,nosuid,noexec <device> /media/usb`. The
+command runs four steps: (1) it makes the key, records its fingerprint and public key on the box
+(`deploy/secrets/backup-ceremony-<fingerprint>.pending`, never removed), and writes `trialbox-backup.key` and the
+printable sheet `trialbox-backup-key-paper.txt` to the stick; (2) it reads both back after a sync and compares them;
+(3) it records the event `backup.key_ceremony` (the fingerprint and both names, never the key) through the
+orchestrator's audit journal, which must answer with the event's number; (4) only then it makes
+`deploy/secrets/backup.pub`. It refuses on a box whose orchestrator journal does not answer, on a folder that is not
+a removable stick of its own, on a stick holding a key file this box has no record of, while another run is going on,
+and once `backup.pub` exists ("done already"). Nothing is ever undone or deleted. **A run cut short (an error,
+Ctrl-C, a power cut) is finished by running the same command again with the same stick.** If the command is run again
+with another, empty stick instead, it makes a new key there: **the key from the abandoned run stays on its stick,
+never the box's key, until IT wipes that stick** (its record on the box stays too). A stick the command says cannot
+finish a run is wiped by IT too, and the command is run with an empty stick. Then unmount the stick, print the sheet
+from the stick on a printer that keeps no copy of the job (not through this host's print spool), and seal both in
+hospital IT's envelope. To restore from the paper alone, type only the letters between the two bars of each numbered
+line, one line per line, into a file and give that file to `restore --key` (the sheet says the same). Each file is
+written under a hidden temporary name (`.<name>.<random>.part`) and renamed; a run cut short can leave such a file on
+the stick: it is never removed or read again, and goes with the stick. The stick must be one plain removable device
+(no btrfs, LVM, LUKS or md on it). The journal is asked only through this host's own Docker socket, whatever Docker
+context the shell has. The command refuses before making the key when swap is on and its memory cannot be locked:
+run it as root (which may lock memory) or turn swap off first. It refuses a stick folder that is a backup target
+(`TB_BACKUP_TARGETS`), inside one, holds one or shares its filesystem, and asks only the compose project whose
+orchestrator runs from this checkout's deploy folder. Not detected, so set the host up plainly: an ext4 stick whose
+journal is external on an internal disk (use a plain removable stick), and swap switched on during the ceremony when
+memory could not be locked (keep swap off, or allow the memory lock).

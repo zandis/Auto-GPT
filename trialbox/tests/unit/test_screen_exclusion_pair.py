@@ -38,10 +38,18 @@ FLARE = "Acute gout flare of the right toe"
 POOR = "治療反應不佳。"  # the stub's judge reads this sentence as "no" to a question about the response
 INC = note_criterion("T-INC-02", "inclusion", "Gout flare in the past year", "Did the patient have a gout flare?")
 RESP = note_criterion("T-INC-03", "inclusion", "Good response to treatment", "Is a good treatment response documented?")
-LEXICON = {INC.id: ["flare"], RESP.id: ["治療反應"]}
+# R22-17 (D-1069; ruled on #639 7079180333): an inclusion "not met" from the notes no longer excludes, so the controls
+# "two models that agree exclude" are note exclusions whose quote states the condition, with the inclusion case beside
+# each asserting review. The stub's judge reads FLARE_ZH as an ongoing flare (``llm_stub.handlers``)
+EXC_FLARE = note_criterion("T-EXC-03", "exclusion", "Gout flare in the past year", "Did the patient have a gout flare?")
+ONGOING = note_criterion("T-EXC-04", "exclusion", "Acute gout flare ongoing at screening (within 14 days).",
+                         "Is an acute gout flare ongoing at screening?")  # fmt: skip
+FLARE_ZH = "目前右側第一蹠趾關節急性紅腫熱痛，診斷為急性痛風發作中。"
+LEXICON = {INC.id: ["flare"], RESP.id: ["治療反應"], EXC_FLARE.id: ["flare"], ONGOING.id: ["痛風"]}
 PATIENTS: dict[str, list[tuple[date, str]]] = {
     "P-HIT": [(date(2026, 9, 20), f"{FLARE}\nColchicine started")],
     "P-ZH": [(date(2026, 9, 20), POOR)],
+    "P-ZH-FLARE": [(date(2026, 9, 28), FLARE_ZH)],
     "P-NONE": [],
 }
 
@@ -83,9 +91,14 @@ def _reason(pv: PatientVerdicts, cid: str) -> str | None:
 
 def test_two_different_models_that_agree_exclude(lake: LakeLocal) -> None:
     pv, judge, trace = _screen(
-        lake, INC, "P-HIT", ScriptedModel("judge-a", says("fail", FLARE)), ScriptedModel("verifier-b", says("fail", FLARE))
+        lake, EXC_FLARE, "P-HIT", ScriptedModel("judge-a", says("pass", FLARE)), ScriptedModel("verifier-b", says("pass", FLARE))
     )  # fmt: skip
     assert pv.tier == "excluded" and trace.exit_stage == "S3" and judge.disagreements == 0 and judge.same_model == 0
+    # the inclusion case beside it: the same pair's "not met" on the note inclusion is review (R22-17)
+    pv, judge, trace = _screen(
+        lake, INC, "P-HIT", ScriptedModel("judge-a", says("fail", FLARE)), ScriptedModel("verifier-b", says("fail", FLARE))
+    )  # fmt: skip
+    assert pv.tier == "review" and trace.exit_stage is None and judge.disagreements == 0 and judge.same_model == 0
 
 
 @pytest.mark.parametrize(
@@ -124,8 +137,11 @@ def test_one_model_named_twice_never_excludes(lake: LakeLocal) -> None:
 
 # ------------------------------------------------------------------------------------------------ over HTTP (stub)
 def test_the_stub_pair_agrees_and_excludes_over_http(lake: LakeLocal) -> None:
-    pv, _, trace = _screen(lake, RESP, "P-ZH", stub_client("stub"), stub_client("stub-verifier"))
+    pv, _, trace = _screen(lake, ONGOING, "P-ZH-FLARE", stub_client("stub"), stub_client("stub-verifier"))
     assert pv.tier == "excluded" and trace.exit_stage == "S3"
+    # the inclusion case beside it: the stub pair's "not met" on a note inclusion is review (R22-17)
+    pv, _, trace = _screen(lake, RESP, "P-ZH", stub_client("stub"), stub_client("stub-verifier"))
+    assert pv.tier == "review" and trace.exit_stage is None
 
 
 @pytest.mark.parametrize(
@@ -185,15 +201,15 @@ class _NoStructured:
         raise AssertionError("no structured criterion was asked for")
 
 
-def _v1(lake: Any, answer: str) -> tuple[str, str | None]:
+def _v1(lake: Any, answer: str, crit: Any = INC) -> tuple[str, str | None]:
     nj = NoteJudge(
         lake=lake,
         llm=ScriptedModel("judge-a", says(answer, FLARE)),  # type: ignore[arg-type]
         verifier=ScriptedModel("verifier-b", says(answer, FLARE)),  # type: ignore[arg-type]
     )
-    rs = ruleset([INC])
-    out = evaluate_patients(rs, ["P"], IDX, _NoStructured(), nj, 0.75, only={INC.id}, all_candidates=True)
-    return out["P"].tier, _reason(out["P"], INC.id)
+    rs = ruleset([crit])
+    out = evaluate_patients(rs, ["P"], IDX, _NoStructured(), nj, 0.75, only={crit.id}, all_candidates=True)
+    return out["P"].tier, _reason(out["P"], crit.id)
 
 
 def test_v1_not_met_is_not_final_when_the_budget_left_retrieved_notes_out(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -205,7 +221,8 @@ def test_v1_not_met_is_not_final_when_the_budget_left_retrieved_notes_out(monkey
     filler = "Routine follow-up, vitals stable, no change in plan. " * 75
     small = _Chunks([_chunk(n, f"{FLARE}. Seen in clinic, visit {n}.") for n in range(1, 6)])
     large = _Chunks([_chunk(n, f"{FLARE}. Visit {n}. {filler}") for n in range(1, 6)])  # distinct notes (D-905)
-    assert _v1(small, "fail") == ("excluded", "note")  # control: every retrieved note was read
+    assert _v1(small, "pass", EXC_FLARE) == ("excluded", "note")  # control: every retrieved note was read
+    assert _v1(small, "fail") == ("review", "note")  # the inclusion case beside it (R22-17)
     assert _v1(large, "fail") == ("review", "notes_over_budget")
     # T-603 (CR-004 flag half): an answer that keeps the patient stands, flagged: review, with the reason
     assert _v1(large, "pass") == ("review", "notes_over_budget")
@@ -231,7 +248,16 @@ def test_v1_an_answer_on_the_whole_window_is_final_when_the_context_holds_it() -
     )
     assert nj.window("P", INC, IDX).left_out == 0
     out = evaluate_patients(ruleset([INC]), ["P"], IDX, _NoStructured(), nj, 0.75, only={INC.id}, all_candidates=True)
-    assert (out["P"].tier, _reason(out["P"], INC.id)) == ("excluded", "note")
+    assert (out["P"].tier, _reason(out["P"], INC.id)) == ("review", "note")  # an inclusion's "not met" (R22-17)
+    present = NoteJudge(
+        lake=large,  # type: ignore[arg-type]
+        llm=_Roomy("judge-a", says("pass", FLARE)),  # type: ignore[arg-type]
+        verifier=_Roomy("verifier-b", says("pass", FLARE)),  # type: ignore[arg-type]
+    )
+    assert present.window("P", EXC_FLARE, IDX).left_out == 0
+    rs = ruleset([EXC_FLARE])
+    out = evaluate_patients(rs, ["P"], IDX, _NoStructured(), present, 0.75, only={EXC_FLARE.id}, all_candidates=True)
+    assert (out["P"].tier, _reason(out["P"], EXC_FLARE.id)) == ("excluded", "note")  # the control: final, excludes
     assert _v1(large, "fail") == ("review", "notes_over_budget")  # the same notes, models that tell no context
 
 

@@ -649,6 +649,9 @@ DECLARED: dict[str, Declared] = {
     "TB_FHIR_PACKAGE_HOME": Declared("str", "/opt/hl7/home", "FHIR validator package folder"),
     "TB_FHIR_URL": Declared("str", "", "testbench: FHIR store URL"),
     "TB_FHIR_WORKERS": Declared("int", "8", "compiler: parallel FHIR evaluations"),
+    "TB_FINISH_MOUNTINFO": Declared("path", "", "finish check: a mount table read for /proc/self/mountinfo (tests)"),
+    "TB_FINISH_SYS": Declared("path", "", "finish check: a folder read for /sys (tests; 10K-4)"),
+    "TB_FINISH_TEST_ROOT": Declared("path", "", "finish check: a folder that stands for / (tests; 10K-4)"),
     "TB_FIRSTRUN_DIR": Declared("path", "", "console: the box's first-run folder (tmpfs; T-729, D-466)"),
     "TB_FIRSTRUN_COUNTRY": Declared(
         "bool", "", "console: the box's first-run page asks the site's country first (10K-1); off by default"
@@ -717,6 +720,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
     "TB_INSTALL_UP_TIMEOUT": Declared("int", "", "install: seconds to wait for health; empty: from the health checks"),
+    "TB_INTEGRATION": Declared("str", "", "tests: 1 lets the integration and e2e tests start (they skip without it)"),
     "TB_IRB_TEXT_GATE": Declared(
         "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
     ),
@@ -727,6 +731,8 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JUDGE_LLM_URL": Declared("str", "", "tests: the model endpoint the judge suite's real-model test calls"),
+    "TB_JUDGE_MODEL": Declared("str", "", "tests: the served model name the judge suite's real-model test calls"),
     "TB_JUDGED_STORE": Declared(
         "str", "on", "SCREEN: the judged-pair store, on or off; off asks every note question live (D-908, D-519)"
     ),
@@ -771,6 +777,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_LAKE_SOURCE": Declared("str", "legacy", "lake source (legacy or omop)"),
     "TB_LAKE_TEMP_DIR": Declared("path", "", "lake: temporary folder"),
+    "TB_LAKE_THREADS": Declared("int", "2", "lake: thread cap per DuckDB and native library pool in Compose"),
     "TB_LINK_ADDR": Declared("str", "", "two-device link: this device's address on the hospital network"),
     "TB_LINK_CERTS": Declared("path", "/run/secrets/tb_link", "two-device link: certificate folder"),
     "TB_LINK_PEER": Declared("str", "", "two-device link: the other device's address"),
@@ -783,6 +790,11 @@ DECLARED: dict[str, Declared] = {
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
+    "TB_LLM_EVAL_KEY": Declared(
+        "str", "", "tests: the local model servers' key the model-quality suites send to a local endpoint only (secret)"
+    ),
+    "TB_LLM_EVAL_MODEL": Declared("str", "", "tests: the served model name the model-quality suites (marker llm) call"),
+    "TB_LLM_EVAL_URL": Declared("str", "", "tests: the model endpoint the model-quality suites (marker llm) call"),
     "TB_LLM_MODE": Declared("str", "vllm", "model client (vllm, llamacpp, openai, stub)"),
     "TB_LLM_OUTAGE_WAIT_S": Declared(
         "float",
@@ -942,6 +954,11 @@ DECLARED: dict[str, Declared] = {
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
     "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box; doctor says so (D-726, D-887)"),
+    "TB_REHEARSAL_REAL_SERVERS": Declared(
+        "str",
+        "",
+        "install.sh --rehearsal-real-servers: real model servers on a rehearsal box (D-1087)",
+    ),
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),

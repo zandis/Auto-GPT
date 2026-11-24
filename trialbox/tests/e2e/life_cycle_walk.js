@@ -211,7 +211,7 @@ async function act(p, a, tag) {
     case "first_row_link": {
       // the first row of the table ``data-testid=within``: the tester picks one by a name only the product knows
       guess(a);
-      const link = p.locator(`main [data-testid="${a.within}"] tbody tr`).first().getByRole("link").first();
+      const link = p.locator(`main [data-testid="${a.within}"] tbody tr, main [data-testid="${a.within}"] > .pcard`).first().getByRole("link").first();
       const label = (await link.innerText()).replace(/\s+/g, " ").trim();
       return click(p, link, a.wait_s, label);
     }

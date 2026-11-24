@@ -1,0 +1,20 @@
+# The bench CI jobs' egress proxy (card H-105; docs/runbook/13-bench-ci-runner.md). Installed by install.sh. It sits on
+# its way out only; each job's network joins it at a fixed address for that job's life.
+[Unit]
+Description=TrialBox bench CI egress proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tb-bench
+Group=tb-bench
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+WorkingDirectory=/opt/tb-bench-ci
+ExecStart=/usr/bin/python3 -s -E -m tools.bench_ci.launcher proxy --settings /etc/tb-bench-ci/settings.env
+Restart=always
+RestartSec=10
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

@@ -1,3 +1,4 @@
+#!/usr/bin/python3 -I
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
 ``backup``, ``backup-check`` (D-178), ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``),
 ``restore-drill`` (T-730d, D-892, ``restore_drill.py``);
@@ -15,6 +16,8 @@ logs, audit archive and digest updates (T-633, D-416, ``platform_day2.py``); ``e
 ``services/mail_gateway/admin.py``).
 ``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``).
 ``decommission-plan`` prints the close-out and purge checklist of the box (dry run; T-628, D-413, ``decommission.py``).
+``finish-check`` refuses a PRODUCTION install with no backup target off the box or no audit anchor folder of its own,
+and any anchor folder the console may not be given (10K-4, D-1390, ``finish_check.py``).
 ``selftest`` runs the pair canary in the box with the compose files of ``deploy/.env`` (OPS-033, ``selftest.py``).
 ``secrets``, ``logs``, ``update``, ``ops``, ``watchdog``, ``selftest`` and ``decommission-plan`` need only the standard
 library, so they run with the host's ``python3`` from the install folder:
@@ -27,10 +30,11 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["platform-day2"]:  # its own options (platform_day2.py); `pg` passes its arguments through
         from tools.trialbox import platform_day2
@@ -121,9 +125,15 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--deploy", type=Path, default=None, help="where deploy/site/backup-verified.json goes (T-209a)")
     _restic_args(v)
     r = sub.add_parser("restore", help="restore databases and files from a backup (needs the private key)")
-    r.add_argument("file", type=Path)
+    r.add_argument("file", type=Path, nargs="?", help="the backup file (or --last)")
+    r.add_argument("--last", action="store_true",
+                   help="the newest backup backup-nightly recorded good, on a target of this box (H-100)")  # fmt: skip
+    r.add_argument("--restart", action="store_true",
+                   help="on the host: stop all but db first; start them after, wait until healthy")  # fmt: skip
     r.add_argument("--key", type=Path, required=True)
     r.add_argument("--dir", action="append", default=[])
+    r.add_argument("--expect-sha256", default=None,
+                   help="refuse the file unless its sha256 is this one (what the host checked)")  # fmt: skip
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
     r.add_argument(
         "--deploy",
@@ -136,22 +146,25 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument(
         "--public",
         type=Path,
-        default=Path(os.environ.get("TB_BACKUP_PUBKEY", "deploy/secrets/backup.pub")),
-        help="the box's public key: a box that holds data is first kept as an encrypted copy (D-274)",
+        default=None,
+        help="the box's public key: a box that holds data is first kept as an encrypted copy (D-274; default: "
+        "TB_BACKUP_PUBKEY or deploy/secrets/backup.pub, of the box's deploy/.env on the host)",
     )
     r.add_argument(
         "--keep-to",
         type=Path,
-        default=Path(os.environ.get("TB_RESTORE_KEEP_DIR", "deploy/pre-restore")),
+        default=None,
         help="where that copy goes (default: TB_RESTORE_KEEP_DIR or deploy/pre-restore)",
     )
     r.add_argument("--no-copy", action="store_true", help="keep no copy of the box first (audited)")
+    r.add_argument("--yes-really", action="store_true",
+                   help="on the host: --no-copy, though a failed restore then has no copy to go back to")  # fmt: skip
     r.add_argument("--other-site", action="store_true", help="restore a backup of another site (new hardware)")
     r.add_argument("--older-ok", action="store_true", help="restore a backup older than 14 days")
     _restic_args(r)
     kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
-    r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
-                   help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
+    r.add_argument("--refdata", type=Path, default=None,
+                   help=f"the kept reference packs (default: TB_REFDATA_DIR or {kept})")  # fmt: skip
     rd = sub.add_parser("restore-drill", help="prove a backup restores, into scratch databases (needs the key; D-892)")
     rd.add_argument("file", type=Path)
     rd.add_argument("--key", type=Path, required=True)
@@ -168,10 +181,13 @@ def main(argv: list[str] | None = None) -> int:
     bs.add_argument("--deploy", type=Path, default=deploy)
     bs.add_argument("--json", action="store_true")
     bs.add_argument("--quiet", action="store_true", help="print nothing when all is well (cron)")
-    bi = sub.add_parser("backup-install", help="install.sh's backup step: cron, WAL archiving, first backup (D-274)")
+    bi = sub.add_parser(
+        "backup-install", help="install.sh's backup step: the schedule (timer or cron), WAL archiving, first backup"
+    )
     bi.add_argument("--deploy", type=Path, default=deploy)
     bi.add_argument("--cron-dir", type=Path, default=Path("/etc/cron.d"))
-    bi.add_argument("--no-first-run", action="store_true", help="install the cron file only; no first backup")
+    bi.add_argument("--systemd-dir", type=Path, default=Path("/etc/systemd/system"))
+    bi.add_argument("--no-first-run", action="store_true", help="install the schedule only; no first backup")
     mi = sub.add_parser(
         "migrate", help="the schemas no service owns, as the admin (D-486); each service's stores (D-921)"
     )
@@ -190,6 +206,15 @@ def main(argv: list[str] | None = None) -> int:
         "anchors-compose", help="the compose file that mounts the anchor folders into the console (D-638)"
     )
     ac.add_argument("--deploy", type=Path, default=deploy)
+    fc = sub.add_parser(
+        "finish-check", help="refuse a PRODUCTION install with no backup off the box or no anchor of its own (10K-4)"
+    )
+    fc.add_argument("--deploy", type=Path, default=deploy)
+    fc.add_argument("--mount-anchors", action="store_true", help="then mount the anchor folders into the console")
+    fc.add_argument("--print-anchors", action="store_true", help="print the anchor folders, one per line, once passed")
+    fc.add_argument("--anchor-only", action="store_true", help="only whether the console may be given the anchor")
+    fc.add_argument("--environment", choices=("DEV", "TEST", "VALIDATION", "PRODUCTION"), default="",
+                    help="the environment when deploy/.env does not say it yet (install.sh's own reading)")  # fmt: skip
     om = sub.add_parser("omop-store", help="make a second lake's OMOP store for the OMOP group (D-721)")
     om.add_argument("--lake", type=Path, required=True, help="the lake's folder, as the services name it")
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
@@ -199,6 +224,12 @@ def main(argv: list[str] | None = None) -> int:
     u = sub.add_parser("update", help="apply a verified, staged bundle: backup, apply, migrate, check, roll back")
     u.add_argument("--stage", type=Path, required=True)
     u.add_argument("--summary", type=Path, required=True, help="verify_update.py's JSON summary")
+    u.add_argument(
+        "--bundle",
+        type=Path,
+        default=None,
+        help="H-95: the verified bundle, which still holds the payloads the verifier did not stage",
+    )
     u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
@@ -291,6 +322,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import anchors
 
         return anchors.main_action(a.deploy)
+    if a.cmd == "finish-check":
+        from tools.trialbox import finish_check
+
+        return finish_check.main_action(a.deploy, a.mount_anchors, a.print_anchors, a.environment, a.anchor_only)
     if a.cmd == "omop-store":
         from tools.trialbox import omop_store
 
@@ -315,19 +350,22 @@ def main(argv: list[str] | None = None) -> int:
                   "nothing was changed", file=sys.stderr)  # fmt: skip
             return 2
         return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
-                                    no_backup_reason=reason or None)  # fmt: skip
+                                    no_backup_reason=reason or None,
+                                    **({"bundle": a.bundle} if a.bundle else {}))  # fmt: skip
     if a.cmd in ("backup-nightly", "backup-status", "backup-install"):
         from tools.trialbox import backup_schedule as bsch
 
         if a.cmd == "backup-install":
-            return bsch.main_install(a.deploy, a.cron_dir, first=not a.no_first_run)
+            return bsch.main_install(a.deploy, a.cron_dir, first=not a.no_first_run, systemd_dir=a.systemd_dir)
         if a.cmd == "backup-nightly":
             return bsch.main_nightly(a.deploy)
         return bsch.main_status(a.deploy, a.json, a.quiet)
-    if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify", "restore"):
+    if a.cmd == "restore":
+        return _restore_cmd(a, installed)
+    if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify"):
         return _backup_cmd(a)
     if a.cmd == "restore-drill":
-        return _drill_cmd(a)
+        return _drill_cmd(a, installed)
     if a.cmd in ("platform-images", "platform-egress"):
         return _platform_cmd(a)
     if a.cmd == "doctor" and a.preflight:
@@ -486,23 +524,87 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
         return 1
 
 
-def _drill_cmd(a: argparse.Namespace) -> int:
+def _drill_cmd(a: argparse.Namespace, installed: bool) -> int:
     """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started."""
-    from tools.trialbox import backup as bk
     from tools.trialbox import restore_drill as rd
 
     docker_root = Path("/var/lib/docker")
     db_dir = a.db_dir or (docker_root if docker_root.is_dir() else None)
+    res = None
     try:
-        res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
-    except (rd.DrillError, bk.BackupError, OSError) as e:
-        print(f"restore-drill: {e}", file=sys.stderr)
-        return 2
-    res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+        # The installed command (on PATH) uses the box's settings even if another connection was exported by the
+        # caller. The module form never switches on its own: it uses the caller's connection and --dir.
+        if installed:
+            from tools.trialbox.box_drill import BoxDrill
+
+            box = BoxDrill(a.deploy)
+            res = rd.drill(a.file, a.key, box.env, work=a.work, db_dir=a.db_dir or box.data_dir(), ops=box)
+            # As in tools.trialbox.ops, the box's host Python can read metrics without third-party modules.
+            libs = str(Path(__file__).resolve().parents[2] / "libs")
+            if libs not in sys.path:
+                sys.path.insert(0, libs)
+            from tb_common import metrics
+
+            metrics.record_drill(a.deploy, res)
+            box.audit(rd.EVENT, rd.audit_detail(res))
+        else:
+            from tools.trialbox import backup as bk
+
+            res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
+            res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+    except (RuntimeError, ValueError, OSError) as e:
+        if res is None:
+            print(f"restore-drill: {e}", file=sys.stderr)
+            return 2
+        print(json.dumps(res, indent=1, ensure_ascii=False))
+        print(f"restore-drill: could not record the result: {e}", file=sys.stderr)
+        return 1
     print(json.dumps(res, indent=1, ensure_ascii=False))
     if not res["ok"]:
         print(f"restore-drill: FAILED: {res.get('error')}", file=sys.stderr)
     return 0 if res["ok"] else 1
+
+
+def _restore_defaults(a: argparse.Namespace, env: Mapping[str, str], deploy: Path) -> None:
+    """The restore's folders not given on the command line, from ``env`` (H-100: on the host, the box's own
+    deploy/.env; in the restore's container and a developer's interpreter, the process, as before)."""
+    if a.public is None:
+        a.public = Path(env.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub")
+    if a.keep_to is None:
+        a.keep_to = Path(env.get("TB_RESTORE_KEEP_DIR") or deploy / "pre-restore")
+    if a.refdata is None:
+        kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
+        a.refdata = Path(env.get("TB_REFDATA_DIR") or kept)
+
+
+def _restore_cmd(a: argparse.Namespace, installed: bool) -> int:
+    """``restore``: on the host (the installed ``trialbox``, or a host python without the libraries) it runs in the
+    backup image with the box's own settings (H-100, ``box_restore.py``); elsewhere (that container, a developer's
+    interpreter) in this process, as before."""
+    if a.last == (a.file is not None):
+        print("restore: name the backup file, or --last (not both)", file=sys.stderr)
+        return 2
+    if not a.yes:
+        print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
+        return 2
+    from tools.trialbox import launch
+
+    if installed or not launch.has_libs((*launch.CRYPTO, "psycopg")):
+        from tools.trialbox import box_restore, update
+
+        if a.no_copy and not a.yes_really:  # review R3: the kept copy is the way back if the put-back fails
+            print("restore: --no-copy keeps no copy of the box before the restore: if the restore and then its "
+                  "putting back both fail, nothing is left to go back to. Add --yes-really to go on without it; "
+                  "nothing was changed", file=sys.stderr)  # fmt: skip
+            return 2
+        box = update._env_file(a.deploy / ".env")
+        _restore_defaults(a, box, a.deploy)
+        return box_restore.main(a)
+    if a.last or a.restart:
+        print("restore: --last and --restart are the host's (the installed trialbox restore)", file=sys.stderr)
+        return 2
+    _restore_defaults(a, os.environ, Path("deploy"))
+    return _backup_cmd(a)
 
 
 def _restic_args(p: argparse.ArgumentParser) -> None:
@@ -542,6 +644,13 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
     try:
         if a.cmd == "backup-keygen":
+            from tb_common import rc1_refusals
+
+            try:  # R22-34 (D-1072): rc1 makes no backup key on a PRODUCTION box (the box's deploy/.env)
+                box = rc1_refusals.host_env(Path(__file__).resolve().parents[2] / "deploy")
+                rc1_refusals.check("key_ceremonies", box)
+            except rc1_refusals.Rc1Refused as exc:
+                raise bk.BackupError(exc.say()) from None
             fp = bk.keygen(a.private, a.public)
             print(f"backup key {fp}: give {a.private} to hospital IT in a sealed envelope; the box keeps {a.public}")
             return 0
@@ -574,7 +683,7 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata,
                          public_key=a.public, keep_to=a.keep_to, no_copy=a.no_copy, other_site=a.other_site,
                          max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS, running=running,
-                         restic_pw=_restic_pw(a))  # fmt: skip
+                         restic_pw=_restic_pw(a), expect_sha256=a.expect_sha256)  # fmt: skip
         # H-48: the restored audit chain may lack the box's update.tls_relaxed; without the marker, doctor FAILs a
         # relaxed TLS setting and the next deploy/install.sh sends the event again
         from tools.tls_policy import OLD_CLIENTS_AUDITED
@@ -641,9 +750,18 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             return 4
         return 0 if bk.optouts_ok(lost) and not roles_missing else 4
     except bk.BackupError as exc:
+        if a.cmd == "restore":  # H-100: the box's state for the host's step (unchanged: refused before any change)
+            print(json.dumps({"ok": False, "state": getattr(exc, "state", "unchanged")}))
         print(f"{a.cmd}: {exc}", file=sys.stderr)
         return 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # install.sh links this signed file onto PATH. Keep relative input paths relative to the operator's shell.
+    if not __package__:
+        root = Path(__file__).resolve().parents[2]
+        sys.path[:0] = [str(root), str(root / "libs"), str(root / "services")]
+    from tools.trialbox import launch  # H-88 (D-1089): its own import path, the box's settings, the box image
+
+    _code = launch.enter(sys.argv[1:], installed=not __package__)
+    raise SystemExit(main(installed=not __package__) if _code is None else _code)

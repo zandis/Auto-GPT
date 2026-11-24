@@ -18,6 +18,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
+
 ROOT = Path(__file__).resolve().parents[2]
 INSTALL = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
 MARK = "# SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)"
@@ -39,7 +41,8 @@ def _sh(
         "set -euo pipefail\n"
         f'ROOT="{tmp}"\ncd "$ROOT"\nYES=1\nTB_ENV_SITE={env}\nSETTINGS_NEW={fresh}\n'
         'die() { echo "install: $*" >&2; exit 1; }\n'
-        'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
+        + stop_prelude(deploy='"$ROOT/deploy"', environment='"$TB_ENV_SITE"')  # the box is the environment given
+        + 'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
         'envset() { sed -i "/^$1=/d" deploy/.env && printf \'%s=%s\\n\' "$1" "$2" >> deploy/.env; }\n'
         f"{_block()}\n"
     )
@@ -88,9 +91,17 @@ def test_a_mailbox_already_set_is_kept_and_named(tmp_path: Path) -> None:
 @pytest.mark.parametrize("bad", ["trial office", "office@", "@hospital.example", "a@b", "a@b.example,c@d.example",
                                  'a"@b.example', "a$b@x.tw", "a`id`@x.tw", "'x@y.tw", "a\\b@x.tw", "a@.x.tw",
                                  "a@b..tw", "a@b.tw.", "a@-b.tw"])  # fmt: skip
-def test_anything_but_one_mail_address_stops(tmp_path: Path, bad: str) -> None:
-    r = _sh(tmp_path, "TEST", f"TB_SAE_OFFICE_MAILBOX={bad}\n")
-    assert r.returncode == 1 and "not one mail address" in r.stderr
+@pytest.mark.parametrize("env", ["PRODUCTION", "TEST"])
+def test_anything_but_one_mail_address_stops(tmp_path: Path, bad: str, env: str) -> None:
+    """It stops on PRODUCTION. H-94 (the owner's ruling 7092087958): on a TEST box (a PoC box) it is a warning and
+    a line of the list, no mailbox is set, and the install goes on (with the warning of a box with none)."""
+    r = _sh(tmp_path, env, f"TB_SAE_OFFICE_MAILBOX={bad}\n", fresh="0")
+    assert "not one mail address" in r.stderr
+    if env == "PRODUCTION":
+        assert r.returncode == 1
+        return
+    assert r.returncode == 0 and "warning (PoC box, H-94)" in r.stderr and "no SAE office mailbox (TEST)" in r.stderr
+    assert (tmp_path / "deploy" / ".env").read_text(encoding="utf-8") == f"TB_SAE_OFFICE_MAILBOX={bad}\n"  # not set
 
 
 @pytest.mark.parametrize("written", ['"trial-office@hospital.example"', "'trial-office@hospital.example'",

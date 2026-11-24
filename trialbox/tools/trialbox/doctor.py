@@ -51,8 +51,9 @@ closed). Checks:
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
 * ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
   (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD``,
-  ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no ``/etc/cron.d/trialbox-backup`` on a
-  host with ``/etc/cron.d``, no good backup or one
+  ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no schedule that fires (H-92: the
+  ``trialbox-backup-nightly`` timer where systemd is the init, else ``/etc/cron.d/trialbox-backup`` and a cron
+  daemon; both at once is a problem too), no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
   on a platform it passes and points to ``backup_target`` and ``backup_job``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
@@ -138,6 +139,8 @@ as the ``trialbox-weights`` timer before the night's runs and an update after it
   profile (``deploy/gb10-profile.yaml``) puts on it, the link is the only port the Spark publishes and only on the
   link address (a gateway or any listener on 0.0.0.0 there is a FAIL), the link has its certificates, its peer and
   its route alias, and the Spark's memory limits are the profile's. WARN when the driver hold's re-test is past due.
+* ``poc_stop`` (H-94): with ``--env-file``, one WARN line per stop a PoC box's install, start or update warned instead
+  of stopping (``deploy/site/poc-stops.jsonl``, ``tools/trialbox/stops.py``), each with its action; never a FAIL.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -152,6 +155,7 @@ runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it 
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -195,6 +199,8 @@ class DoctorInputs:
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
     timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
+    cron_running: Callable[[], bool] | None = None  # H-92: a cron daemon runs; None: not asked (inputs_from asks)
+    backup_timers: Callable[[str], str | None] | None = None  # D-1090: each backup timer's word; None: not asked
     proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
     gpu_query: Callable[[], tuple[str, str] | None] | None = None  # NEW-WIN-5: (card, driver); None: nvidia-smi
 
@@ -991,7 +997,7 @@ def check_site_key(inp: DoctorInputs) -> Check:
 
 
 def check_backup(inp: DoctorInputs) -> Check:
-    """D-274 (CR-058, OPS-028, OPS-048): targets, an off-box one, an alert route, the cron file, the newest good
+    """D-274 (CR-058, OPS-028, OPS-048): targets, an off-box one, an alert route, the schedule (H-92), the newest good
     backup's age, WAL archiving. In PRODUCTION every problem is a FAIL except archiving off (WARN)."""
     if inp.platform:
         return Check(
@@ -1006,9 +1012,20 @@ def check_backup(inp: DoctorInputs) -> Check:
     cfg = bs.config(inp.deploy, dict(inp.env), process_env=False)
     st = bs.status(cfg)
     fails = list(st["problems"])
-    if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
-        fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
-    warns = []
+    # H-92: the timer where systemd is the init, else the cron file and a cron daemon; one action when none fires
+    running = inp.cron_running() if inp.cron_running is not None else None
+    # every backup timer, enabled and running (D-1090); the host is asked only from the command line (inputs_from)
+    word = inp.timer_state or inp.backup_timers or (lambda unit: None)
+    sched = bs.schedule_state(inp.cron_dir, {t: word(t) for t in bs.TIMERS}, running)
+    if sched["problem"]:
+        fails.append(sched["problem"])
+    warns = [sched["warn"]] if sched["warn"] else []
+    old_form = ""
+    with contextlib.suppress(OSError):  # H-88: a schedule installed before the tools brought their own environment
+        old_form = bs.cron_old_form((inp.cron_dir / bs.CRON_NAME).read_text(encoding="utf-8"))
+        if old_form:
+            warns.append(f"{inp.cron_dir / bs.CRON_NAME} is of the old form ({old_form}): run python3 -m "
+                         "tools.trialbox backup-install --deploy deploy again to replace it (RUNBOOK §5)")  # fmt: skip
     if cfg.page_only(bs.has_mta()):
         warns.append("the only backup alert route is the health page: nobody is mailed, someone must open /admin "
                      "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5); " + cfg.page_watch())  # fmt: skip
@@ -1016,11 +1033,11 @@ def check_backup(inp: DoctorInputs) -> Check:
         warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
     off = sum(t["offbox"] for t in st["targets"])
     good = st["newest_good"]
-    facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
+    facts = f"schedule: {sched['active']}; {len(cfg.targets)} target(s), {off} off-box; newest good " + (
         f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
     if fails:
         return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails + warns) + f" ({facts})")
-    if warns and prod:
+    if warns and (prod or old_form):  # H-88: the old-form schedule is said in every environment
         return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
     return Check("backup", "PASS", facts)
 
@@ -1452,6 +1469,65 @@ def _standins_in_compose(inp: DoctorInputs) -> str:
     return ""
 
 
+BENCH_SERVING_MARK = "x-trialbox-bench-serving: true"
+# the mark as compose still reads it: blanks and a trailing comment allowed (OCR 1459-7)
+_BENCH_MARK_LINE = re.compile(r"^x-trialbox-bench-serving:\s*true\s*(?:#.*)?$", re.M)
+
+
+def check_bench_serving(inp: DoctorInputs) -> Check:
+    """H-112: the second serving profile (deploy/docker-compose.serving-second.yml, marked BENCH_SERVING_MARK) runs
+    the models with an engine that is in no signed bundle, not in deploy/images.lock and with no key check of its
+    own: on a TEST box it is a standing WARN, on a box of any other class (PRODUCTION when unset) a FAIL. It is on
+    when its file is in COMPOSE_FILE (a hand edit) or when the switch in deploy/site/serving-second.env says
+    ``second`` (tools/serving_profile.py adds the file on the command line, never to COMPOSE_FILE); a switch that
+    cannot be read counts as on (OCR 1459-3)."""
+    from tools import serving_profile
+
+    base = inp.deploy or ROOT / "deploy"
+    found = ""
+    for entry in (inp.env.get("COMPOSE_FILE") or "").split(":"):
+        if not entry.strip():
+            continue
+        path = _compose_file(base, entry.strip())
+        try:
+            if _BENCH_MARK_LINE.search(path.read_text(encoding="utf-8")):
+                found = f"{path}, deploy/.env COMPOSE_FILE"
+                break
+        except (OSError, UnicodeDecodeError):
+            continue
+    if not found:
+        try:
+            on = serving_profile.switch(base) == "second"
+        except serving_profile.Refused:
+            on = True  # a switch that cannot be read, or says something else, is never taken for off
+        if on:
+            found = f"the switch in {base / serving_profile.SETTINGS}"
+    if not found:
+        return Check("bench_serving", "PASS", "the models are served by the current serving engine")
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    if env == "TEST":
+        return Check("bench_serving", "WARN", f"BENCH SERVING: the second serving engine serves the models ({found}): "
+                                              "for the engine comparison only, not a pinned image (H-112)")  # fmt: skip
+    return Check("bench_serving", "FAIL", f"the second serving profile is on for a {env} box ({found}): its engine "
+                                          "is in no signed bundle and checks no key of its own. Set SERVING_ENGINE "
+                                          "to current and take the file out of COMPOSE_FILE (H-112)")  # fmt: skip
+
+
+def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:
+    """H-89: (where, what the box says) when this box ran the real model servers as a rehearsal, else None."""
+    from tools import rehearsal_real
+
+    deploy = inp.deploy or ROOT / "deploy"
+    where = rehearsal_real.real_servers_sign(deploy, dict(inp.env))
+    if not where:
+        return None
+    try:
+        said = str(json.loads((deploy / "site" / rehearsal_real.RECORD).read_text(encoding="utf-8"))["words"])
+    except (OSError, ValueError, KeyError, TypeError):
+        said = rehearsal_real.WORDS  # the record is gone or unreadable: the compose file alone says the most
+    return where, said
+
+
 def check_rehearsal(inp: DoctorInputs) -> Check:
     """REHEARSAL (D-726, D-887): a rehearsal box says so. ``deploy/install.sh --rehearsal`` writes the mark
     ``deploy/site/rehearsal.json``, then ``TB_REHEARSAL=1`` and ``TB_ENV`` to deploy/.env: VALIDATION since the
@@ -1462,7 +1538,9 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
     flag = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
     mark = _site_dir(inp) / "rehearsal.json"
     has_mark = mark.is_file()
-    marked = flag or has_mark
+    # H-89: the real servers' record or compose file is a mark of its own (removing rehearsal.json is not enough)
+    real = _real_servers(inp)
+    marked = flag or has_mark or bool(real)
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
     rehearsal = (env == "TEST" and marked) or (env == "VALIDATION" and flag and has_mark)
     standins = _standins_in_compose(inp)
@@ -1476,6 +1554,14 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
         )
     if not marked:
         return Check("rehearsal", "PASS", "not a rehearsal box")
+    if real and not (env == "VALIDATION" and flag and has_mark):
+        return Check("rehearsal", "FAIL", f"{real[1]}: {real[0]} on a {env} box that is no whole rehearsal box "
+                                          "(TB_REHEARSAL=1 and the mark file): install the site's box afresh on an "
+                                          "empty box, never this one (H-89)")  # fmt: skip
+    if real:
+        return Check("rehearsal", "WARN", f"REHEARSAL BOX: {real[1]}; the real model servers ({real[0]}); synthetic "
+                                          "data only, never a site's patients; nothing is qualified or promoted on "
+                                          "it (H-89, D-726, D-887)")  # fmt: skip
     if not rehearsal:
         half = " (a VALIDATION rehearsal box has both TB_REHEARSAL=1 and the mark file)" if env == "VALIDATION" else ""
         return Check(
@@ -2023,12 +2109,22 @@ def check_terminology(inp: DoctorInputs) -> Check:
     rest += "".join(f"; shipped: {n} {line.get('rows')} rows ({line.get('version')})"
                     for n, line in sorted(shipped.items()))  # fmt: skip
     if not tables:
-        return Check("terminology", "PASS", f"nothing loaded in {where}: the shipped tables answer (ICD-10-CM "
-                     "FY2026 with its blocks and index); python -m tools.terminology_install loads more"
-                     + rest)  # fmt: skip
+        return _with_readers(inp, where, f"nothing loaded in {where}: the shipped tables answer (ICD-10-CM "
+                             "FY2026 with its blocks and index); python -m tools.terminology_install loads more"
+                             + rest)  # fmt: skip
     said = [f"{t.name} {t.rows} rows ({t.version})" + (f", {a}" if (a := installed.accepted(where, t.name)) else "")
             for t in tables]  # fmt: skip
-    return Check("terminology", "PASS", "; ".join(said) + rest)
+    return _with_readers(inp, where, "; ".join(said) + rest)
+
+
+def _with_readers(inp: DoctorInputs, where: Path, said: str) -> Check:
+    """V-18 (D-1182, DB-C1): the vocabulary and the FHIR store against the same manifest: FAIL when they hold another
+    release than the terminology now or one was not loaded; WARN when the folder cannot be read here; else each
+    system's version (nothing when the load step never ran)."""
+    from tools import terminology_load
+
+    status, readers = terminology_load.doctor_line(_site_dir(inp), where)
+    return Check("terminology", status, f"{said}; vocabulary and FHIR store: {readers}" if readers else said)
 
 
 def check_provenance_index(inp: DoctorInputs) -> Check:
@@ -2120,6 +2216,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_audit_heads,
     check_anchor_mount,
     check_rehearsal,
+    check_bench_serving,
     check_memory_caps,
     check_postgres_memory,
     check_db_passwords,
@@ -2261,7 +2358,18 @@ def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] =
             out.append(fn(inp))
         except Exception as e:  # fail closed: a check that cannot run is a failure
             out.append(Check(name, "FAIL", f"check error: {type(e).__name__}: {e}"))
-    return tls_old_clients(inp, host_profile(inp, out))
+    return poc_stops(inp, tls_old_clients(inp, host_profile(inp, out)))
+
+
+def poc_stops(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    """H-94 (the owner's ruling 7092087958): each stop a PoC box's install, start or update warned instead of
+    stopping (``deploy/site/poc-stops.jsonl``, ``tools/trialbox/stops.py``), as one WARN line with its action; a list
+    that cannot be read is a WARN line too, never a FAIL. Only with ``--env-file`` (the box's own deploy folder)."""
+    if inp.deploy is None:
+        return out
+    from tools.trialbox import stops
+
+    return [*out, *(Check(name, "WARN", detail) for name, detail in stops.doctor_lines(inp.deploy))]
 
 
 def ok(checks: list[Check]) -> bool:
@@ -2308,7 +2416,21 @@ def inputs_from(
         ingest_lake=wd,
         deploy=deploy,
         input_errors=tuple(errors),
+        cron_running=_cron_running,
+        backup_timers=_backup_timer,
     )
+
+
+def _backup_timer(unit: str) -> str | None:
+    from tools.trialbox import backup_schedule as bs
+
+    return bs.timer_word(unit)
+
+
+def _cron_running() -> bool:
+    from tools.trialbox import backup_schedule as bs
+
+    return bs.cron_daemon()
 
 
 def render(checks: list[Check]) -> str:

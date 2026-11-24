@@ -254,6 +254,29 @@ class Client:
         return {"_error": last}
 
 
+LEADING_ID = re.compile(r"\[(\d+)\]")
+
+
+def evidence_ids(items: Any, n_sentences: int) -> list[int]:
+    """The sentence ids of a reply's ``evidence``: a number, a string of digits, or a quoted sentence that starts with
+    its id as the prompt numbers it (``"[3] ..."``, the form readers often give for a Japanese note). Anything else,
+    and any id outside the note, is dropped."""
+    ids: set[int] = set()
+    for i in items if isinstance(items, list) else []:
+        if isinstance(i, bool):
+            continue
+        if isinstance(i, int):
+            ids.add(i)
+        elif isinstance(i, str):
+            s = i.strip()
+            m = LEADING_ID.match(s)
+            if s.isdigit():
+                ids.add(int(s))
+            elif m:
+                ids.add(int(m.group(1)))
+    return sorted(i for i in ids if 0 <= i < n_sentences)
+
+
 def judge(client: Client, model: str, lang: str, pair: Pair, note: list[str]) -> Result:
     data = client.chat(model, messages(pair, note))
     res = Result(model=model, lang=lang, annotation_id=pair.annotation_id, label=None)
@@ -273,8 +296,7 @@ def judge(client: Client, model: str, lang: str, pair: Pair, note: list[str]) ->
         return res
     res.valid_json = True
     res.label = norm_label(obj.get("label"), pair.criterion_type)
-    ev = obj.get("evidence") or []
-    res.evidence = sorted({int(i) for i in ev if isinstance(i, int | str) and str(i).isdigit() and int(i) < len(note)})
+    res.evidence = evidence_ids(obj.get("evidence") or [], len(note))
     if res.label is None:
         res.error = f"bad label: {str(obj.get('label'))[:40]}"
     return res

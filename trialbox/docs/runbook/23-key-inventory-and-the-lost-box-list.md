@@ -52,6 +52,96 @@ a stolen disk without the shares, the passphrase or the TPM does not open the pi
 the passphrase prompt. `deploy/.env` is still readable by anyone who gets into the running system: assume a stolen
 box that was running exposes every password in it, and every row above applies.
 
+## Rotate the KEK passphrase
+
+*H-96 (F-45; the integrator's ruling 7094934985). For a box whose KEK is under a passphrase (`KEK_BACKEND=passphrase`:
+a proof of concept, a validation run, a board without a TPM). Hospital IT does it, with the box owner.*
+
+**When.** Every box installed with the passphrase in the environment (`sudo --preserve-env=...`, `sudo -E`, the form
+`install.sh`, `box-install.sh` and §16 showed before H-96): sudo wrote the variable with its value to the system
+journal, which root and the `adm` group can read. Treat that passphrase as exposed and rotate it. Rotate it too when
+someone who knew it leaves (§25). Since H-96 every installer and `tools.keys` refuse a passphrase in the
+environment, on every box: it protects a key, so it is not one of the four things a proof-of-concept box may stop for.
+
+**1. Is the KEK unsealed?** `sudo env PYTHONPATH=libs:services:. python3 -m tools.keys status` names the KEK and
+whether it is open (`/run/trialbox/kek`). A box that was restarted and not opened since is opened first with
+`sudo env PYTHONPATH=libs:services:. python3 -m tools.keys unseal`, which asks for the current passphrase (not shown).
+
+**2. The new passphrase** (12 characters or more, one line) goes in a file only root can read. After sudo's own
+password prompt, type it, then press Enter (nothing is shown):
+
+```sh
+cd /opt/trialbox
+sudo bash -c 'umask 077; IFS= read -rs p; printf "%s\n" "$p" > /root/trialbox-kek-new.pass'
+```
+
+**3. Rotate.** Every wrapped key is re-wrapped under the new KEK, and the open KEK in `/run/trialbox/kek` is replaced.
+The file is removed when the rotation succeeds (`--keep-passphrase-files` keeps it). On a terminal,
+`--new-passphrase-stdin` asks for it twice instead of the file. Every rotation, on every box, is an audit event (who,
+when, the box, its environment, the old and the new KEK's ids; never a passphrase; the integrator's ruling
+7114085298): `keys.rotate_kek_started` before any key file changes, and `keys.rotate_kek` once `kek.json` names the
+new KEK. Name the box's audit folder, the one that holds its chain (`HEAD.json`): without it, or when the started
+event cannot be written there, nothing is changed. Run as root, the tool makes each append as the folder's owner (the
+console's user), so the console keeps writing to the day's file. One key command runs at a time on the secrets
+folder: a second rotation started meanwhile is refused and changes nothing.
+
+```sh
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"
+sudo systemctl restart trialbox
+```
+
+**On a PRODUCTION box** the box rotates itself (D-1092; the integrator's ruling 7101844662). rc1 refuses the key
+ceremonies there (R22-34), but rotating an exposed passphrase is a safety action: `rotate-kek --backend passphrase`
+with the new passphrase from the file or from stdin goes through, with the same audit event and the same command:
+
+```sh
+sudo env PYTHONPATH=libs:services:. python3 -m tools.keys rotate-kek --backend passphrase --new-passphrase-file /root/trialbox-kek-new.pass --audit-dir "$(sudo docker volume inspect -f '{{.Mountpoint}}' trialbox_audit-data)"
+sudo systemctl restart trialbox
+```
+
+Every other `rotate-kek` (to the TPM, to steward shares, with an escrow set, or with the new passphrase typed at the
+prompt without `--new-passphrase-stdin`) and the other key ceremonies stay refused there. A passphrase KEK is still
+not a PRODUCTION site's back end: plan the move to the TPM or steward shares (SECURITY §10).
+
+**A rotation cut short** (a kill, a power cut, the done event not written). The rotation keeps a journal in the
+secrets folder (`kek-rotation.json`: the step and the two KEK ids, no key), and `status` names it as a problem. Run
+`sudo env PYTHONPATH=libs:services:. python3 -m tools.keys status --audit-dir "$(sudo docker volume inspect -f
+'{{.Mountpoint}}' trialbox_audit-data)"`: a rotation stopped before its commit is rolled back (the old passphrase
+stands, `keys.rotate_kek_rolled_back`); one stopped after it is finished (the new passphrase stands,
+`keys.rotate_kek`). Then unseal with the passphrase that stands and restart. The next `rotate-kek` does the same first.
+
+**4. Keep the new passphrase** where the old one was kept (the sealed envelope); destroy the old copy. Then make a
+backup (`trialbox backup`, §5): backups made before the rotation hold the old `kek.json`, so they open with the old
+passphrase **and** the backup private key together; a backup made now does not need the old passphrase.
+
+**A rotation re-wraps; it does not re-key.** The site, pid-map, objects and restic keys are the same keys under the
+new KEK. So the old passphrase and any copy of the wrapped files from before the rotation (a backup once opened, a
+disk image, a copied secrets folder) still open the keys in use today. When such a copy may be exposed too, rotate
+the keys themselves: `python -m tools.keys rotate pid_map` for the pid map's key, and each other key by the rotation
+rule `python -m tools.keys inventory` gives it.
+
+**5. Look for passphrase lines in the logs, without printing one.** Each command prints a count only:
+
+```sh
+sudo journalctl --no-pager -o cat | grep -c 'KEK_[A-Z_]*PASSPHRASE[=]'
+sudo zgrep -c 'KEK_[A-Z_]*PASSPHRASE[=]' /var/log/auth.log*
+```
+
+`0` everywhere: no log on this host holds a passphrase. A count above 0 is the exposed (now old) passphrase. The
+journal cannot remove single lines: whether to rotate and vacuum the journal (`journalctl --rotate`, then
+`journalctl --vacuum-time=`) and the old `auth.log` files is hospital IT's decision under its log policy. After the
+rotation those lines open the box's keys only together with a backup made before step 4 and the backup private key.
+
+**Where the passphrase still is.** Nowhere on disk once the install or the rotation is done: the installers hold it
+in a shell variable that is never exported and hand it on by a pipe (to the seal step, to the keys commands in the
+trialbox-py image by the container's stdin), and the operator's file is removed. The open KEK in `/run/trialbox/kek`
+(tmpfs) is derived from it, not the passphrase. A box set up on its first-run page keeps the owner's passphrase in the
+first-run folder (`/run/trialbox-firstrun`, tmpfs) until the apply step has sealed the keys. Nothing takes it from an
+environment (H-97): every service, the nightly audit signer and the backup open the KEK from `/run/trialbox/kek`, which
+`tools.keys unseal` writes after each restart; a `TB_KEK_PASSPHRASE` with a value in a caller's environment is refused
+by the key library too, and the signer's container is never given it. Never export it: unseal with the passphrase typed,
+or from a root-only file (`--passphrase-file`) or stdin (`--passphrase-stdin`).
+
 ## Alliance site keys
 
 *D-1226 (card 10D-1). In a COHORT alliance each member box signs the count table it mails to the alliance root, and

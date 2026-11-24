@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
@@ -1014,3 +1015,398 @@ def install_atc(path: Path, directory: Path, accepted_by: str, accepted_on: str 
     line = _line(f"ATC index ({member})", path, f"ATC {version}", lic.pop("licence"), now, **lic)
     _write(directory, ATC_INDEX, rows, ("code", "display"), line)
     return {ATC_INDEX: len(rows)}
+
+
+# ----------------------------------------------------------------------------------------- V-18: the site's copies
+# V-18 (D-1182; the owner's ruling, #639): SNOMED CT, the UMLS and the ATC/DDD index load from the hospital's own
+# licensed copy, in the format its publisher ships, after a named person accepted the licence (D-1114). Nothing of
+# them ships; the repository and the bundle never carry them. Each copy is verified by its own manifest (UMLS:
+# MRFILES.RRF) or checksum file (SHA256SUMS beside it), else by a sha256 the person recorded (``sha256``), else only
+# by its own headers; the manifest line says which ("verified").
+SNOMED_CT, UMLS_CONCEPTS, UMLS_CODES = "snomed_ct", "umls_concepts", "umls_codes"
+LICENSED.update({
+    SNOMED_CT: "SNOMED CT (SNOMED International): the hospital's own RF2 copy under its licence; never shipped",
+    UMLS_CONCEPTS: "UMLS Metathesaurus (NLM, UMLS licence and its source restrictions): the hospital's own subset",
+    UMLS_CODES: "UMLS Metathesaurus (NLM, UMLS licence and its source restrictions): the hospital's own subset",
+})  # fmt: skip
+SNOMED_IS_A = "116680003"
+
+
+class CopyRefused(ValueError):
+    """A hospital's copy that is not what it says (a checksum, its own manifest, its format): the sentence is the
+    loader's own, so it may be shown and recorded (never a general error's text, NEW-TRUST-6)."""
+
+
+SNOMED_FSN = "900000000000003001"
+SUMS = ("SHA256SUMS", "sha256sums.txt", "SHA256SUMS.txt")
+
+
+def _files(path: Path) -> dict[str, bytes | Path]:
+    """A release as ``{member path: bytes or file}``: a folder's files (read when asked) or a zip's members."""
+    if path.is_dir():
+        return {str(p.relative_to(path)): p for p in sorted(path.rglob("*")) if p.is_file()}
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as z:
+            return {n: z.read(n) for n in z.namelist() if not n.endswith("/")}
+    raise CopyRefused(f"{path.name}: neither a folder nor a zip archive")
+
+
+def _bytes(item: bytes | Path) -> bytes:
+    return item if isinstance(item, bytes) else item.read_bytes()
+
+
+def _copy_line(what: str, path: Path, files: dict[str, bytes | Path], version: str, licence: str,
+               now: datetime | None, **more: str) -> dict[str, Any]:  # fmt: skip
+    """:func:`_line` for a release that may be a folder: its sha256 is of the archive, or over its files' names and
+    sha256s. Only the name and the hash are kept: the copy itself never leaves where the hospital put it."""
+    if path.is_file():
+        return _line(what, path, version, licence, now, **more)
+    h = hashlib.sha256()
+    for name in sorted(files):
+        h.update(f"{name}\0{hashlib.sha256(_bytes(files[name])).hexdigest()}\n".encode())
+    when = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    return {"source": f"{what} ({path.name}/, sha256 {h.hexdigest()[:16]})", "version": version, "licence": licence,
+            "loaded_at": when, **more}  # fmt: skip
+
+
+def _verify_sums(files: dict[str, bytes | Path], path: Path, sha256: str = "") -> str:
+    """How the copy was verified. A ``SHA256SUMS`` beside it: every file it lists must match (a mismatch refuses the
+    copy). Else the person's ``sha256`` of the archive. Else its headers only (said in the manifest line)."""
+    sums = next((k for k in files if k.rsplit("/", 1)[-1] in SUMS), "")
+    if sums:
+        by_name = {k.rsplit("/", 1)[-1]: k for k in files}
+        n = 0
+        for line in _bytes(files[sums]).decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            want, name = line.split(maxsplit=1)
+            key = by_name.get(name.strip().lstrip("*").rsplit("/", 1)[-1])
+            if key is None:
+                raise CopyRefused(f"{path.name}: {sums} lists {name.strip()}, which the copy does not hold")
+            if hashlib.sha256(_bytes(files[key])).hexdigest() != want.lower():
+                raise CopyRefused(f"{path.name}: {key} does not match its sha256 in {sums}")
+            n += 1
+        return f"{sums}: {n} files match"
+    if sha256:
+        if path.is_dir():
+            raise CopyRefused(f"{path.name}: a sha256 is checked against an archive, not a folder (or add SHA256SUMS)")
+        if _sha(path) != sha256.strip().lower():
+            raise CopyRefused(f"{path.name}: its sha256 is not the one recorded ({sha256.strip()[:16]}...)")
+        return "the sha256 the person recorded"
+    return "its own headers only (no SHA256SUMS and no recorded sha256)"
+
+
+def _tsv(data: bytes, want: tuple[str, ...], what: str) -> list[list[str]]:
+    lines = data.decode("utf-8-sig").splitlines()
+    if not lines or tuple(lines[0].split("\t")[: len(want)]) != want:
+        raise CopyRefused(f"{what}: not an RF2 file (its header is not {' '.join(want)})")
+    return [ln.split("\t") for ln in lines[1:] if ln]
+
+
+def _one(files: dict[str, bytes | Path], pattern: str, what: str, many: bool = False) -> list[str]:
+    hits = sorted(k for k in files if re.search(pattern, k.rsplit("/", 1)[-1]))
+    if not hits or (len(hits) > 1 and not many):
+        raise CopyRefused(f"{what}: {'no' if not hits else 'more than one'} file named like {pattern}")
+    return hits
+
+
+def snomed_rows(
+    files: dict[str, bytes | Path], what: str = "the SNOMED CT release"
+) -> tuple[list[dict[str, str]], str]:
+    """An RF2 Snapshot: each active concept, its fully specified name (the active FSN of its descriptions) and its
+    active is-a parents. ``(rows, effective time)``."""
+    (concept,) = _one(files, r"^sct2_Concept_Snapshot_.*\.txt$", what)
+    descs = _one(files, r"^sct2_Description_Snapshot.*\.txt$", what, many=True)
+    (rel,) = _one(files, r"^sct2_Relationship_Snapshot_.*\.txt$", what)
+    active = {r[0]: r[1] for r in _tsv(_bytes(files[concept]), ("id", "effectiveTime", "active"), what) if r[2] == "1"}
+    fsn: dict[str, str] = {}
+    for d in descs:
+        head = ("id", "effectiveTime", "active", "moduleId", "conceptId", "languageCode", "typeId", "term")
+        for r in _tsv(_bytes(files[d]), head, what):
+            if r[2] == "1" and r[6] == SNOMED_FSN and r[4] in active:
+                fsn.setdefault(r[4], r[7])
+    parents: dict[str, set[str]] = {}
+    head = ("id", "effectiveTime", "active", "moduleId", "sourceId", "destinationId", "relationshipGroup", "typeId")
+    for r in _tsv(_bytes(files[rel]), head, what):
+        if r[2] == "1" and r[7] == SNOMED_IS_A and r[4] in active:
+            parents.setdefault(r[4], set()).add(r[5])
+    stamp = re.search(r"_(\d{8})\.txt$", concept)
+    rows = [{"code": c, "display": fsn.get(c, ""), "parents": " ".join(sorted(parents.get(c, ())))}
+            for c in sorted(active, key=int)]  # fmt: skip
+    return rows, stamp.group(1) if stamp else max(active.values(), default="")
+
+
+def install_snomed(path: Path, directory: Path, accepted_by: str, accepted_on: str = "", version: str = "",
+                   sha256: str = "", now: datetime | None = None) -> dict[str, int]:  # fmt: skip
+    """SNOMED CT from the hospital's own RF2 Snapshot (a folder or the release zip), after a named person accepted
+    the licence (D-1114; the owner's ruling on #639). Never shipped; the copy is read, never kept beside the table."""
+    lic = licence_line(SNOMED_CT, accepted_by, accepted_on, now)
+    files = _files(path)
+    verified = _verify_sums(files, path, sha256)
+    rows, effective = snomed_rows(files)
+    if not rows:
+        raise CopyRefused(f"{path.name}: no active SNOMED CT concept")
+    directory.mkdir(parents=True, exist_ok=True)
+    line = _copy_line("SNOMED CT RF2 Snapshot", path, files, f"SNOMED CT {version or effective}", lic.pop("licence"),
+                      now, verified=verified, **lic)  # fmt: skip
+    _write(directory, SNOMED_CT, rows, ("code", "display", "parents"), line)
+    return {SNOMED_CT: len(rows)}
+
+
+def _rrf(data: bytes, cols: int, what: str) -> list[list[str]]:
+    out = []
+    for n, ln in enumerate(data.decode("utf-8").splitlines(), 1):
+        if not ln:
+            continue
+        f = ln.split("|")
+        if len(f) < cols:
+            raise CopyRefused(f"{what}: line {n} has {len(f)} fields, not {cols}")
+        out.append(f)
+    return out
+
+
+def _verify_mrfiles(files: dict[str, bytes | Path], what: str) -> str:
+    """MetamorphoSys's own manifest: each file MRFILES.RRF names has its rows and bytes."""
+    by_name = {k.rsplit("/", 1)[-1]: k for k in files}
+    key = by_name.get("MRFILES.RRF")
+    if key is None:
+        return ""
+    n = 0
+    for f in _rrf(_bytes(files[key]), 6, what):
+        name, rows, size = f[0].rsplit("/", 1)[-1], f[4], f[5]
+        if name not in ("MRCONSO.RRF", "MRREL.RRF") or name not in by_name:
+            continue
+        data = _bytes(files[by_name[name]])
+        if str(len(data)) != size or str(data.count(b"\n")) != rows:
+            raise CopyRefused(f"{what}: {name} does not match MRFILES.RRF ({rows} rows, {size} bytes)")
+        n += 1
+    return f"MRFILES.RRF: {n} files match" if n else ""
+
+
+Rows = list[dict[str, str]]
+
+
+def umls_rows(files: dict[str, bytes | Path], what: str = "the UMLS subset") -> tuple[Rows, Rows, str]:
+    """A MetamorphoSys RRF subset: each concept (CUI) with its preferred English name, its parents (MRREL ``PAR``)
+    and the sources it holds; and each source code with its CUI. ``(concepts, codes, release)``."""
+    by_name = {k.rsplit("/", 1)[-1]: k for k in files}
+    if "MRCONSO.RRF" not in by_name:
+        raise CopyRefused(f"{what}: no MRCONSO.RRF")
+    names: dict[str, tuple[int, str]] = {}
+    sabs: dict[str, set[str]] = {}
+    codes: dict[tuple[str, str, str], str] = {}
+    for f in _rrf(_bytes(files[by_name["MRCONSO.RRF"]]), 18, what):
+        cui, lat, ts, stt, ispref, sab, code, text, suppress = f[0], f[1], f[2], f[4], f[6], f[11], f[13], f[14], f[16]
+        if suppress in ("O", "E", "Y"):
+            continue
+        rank = (lat == "ENG") * 8 + (ts == "P") * 4 + (stt == "PF") * 2 + (ispref == "Y")
+        if cui not in names or rank > names[cui][0]:
+            names[cui] = (rank, text)
+        sabs.setdefault(cui, set()).add(sab)
+        codes.setdefault((sab, code, cui), text)
+    parents: dict[str, set[str]] = {}
+    if "MRREL.RRF" in by_name:
+        for f in _rrf(_bytes(files[by_name["MRREL.RRF"]]), 16, what):
+            if f[3] == "PAR" and f[0] in names and f[4] in names:
+                parents.setdefault(f[0], set()).add(f[4])
+    release = ""
+    if "release.dat" in by_name:
+        m = re.search(r"umls\.release\.name=(\S+)", _bytes(files[by_name["release.dat"]]).decode("utf-8", "replace"))
+        release = m.group(1) if m else ""
+    concepts = [{"code": c, "display": names[c][1], "parents": " ".join(sorted(parents.get(c, ()))),
+                 "sources": " ".join(sorted(sabs[c]))} for c in sorted(names)]  # fmt: skip
+    rows = [{"sab": s, "code": k, "cui": c, "display": t} for (s, k, c), t in sorted(codes.items())]
+    return concepts, rows, release
+
+
+def install_umls(path: Path, directory: Path, accepted_by: str, accepted_on: str = "", version: str = "",
+                 sha256: str = "", now: datetime | None = None) -> dict[str, int]:  # fmt: skip
+    """The UMLS from the hospital's own MetamorphoSys RRF subset (MRCONSO, MRREL; a folder or zip), after a named
+    person accepted the UMLS licence (D-1114). Verified by its MRFILES.RRF, else as :func:`_verify_sums`."""
+    lic = licence_line(UMLS_CONCEPTS, accepted_by, accepted_on, now)
+    files = _files(path)
+    verified = _verify_mrfiles(files, "the UMLS subset") or _verify_sums(files, path, sha256)
+    concepts, codes, release = umls_rows(files)
+    if not concepts:
+        raise CopyRefused(f"{path.name}: no concept in MRCONSO.RRF")
+    if not (version or release):
+        raise CopyRefused("umls: no release.dat in the subset: give --version (the UMLS release, e.g. 2025AB)")
+    directory.mkdir(parents=True, exist_ok=True)
+    label = f"UMLS {version or release}"
+    for table, rows, cols in ((UMLS_CONCEPTS, concepts, ("code", "display", "parents", "sources")),
+                              (UMLS_CODES, codes, ("sab", "code", "cui", "display"))):  # fmt: skip
+        more = dict(lic)
+        line = _copy_line("UMLS Metathesaurus subset (RRF)", path, files, label, more.pop("licence"), now,
+                          verified=verified, **more)  # fmt: skip
+        _write(directory, table, rows, cols, line)
+    return {UMLS_CONCEPTS: len(concepts), UMLS_CODES: len(codes)}
+
+
+def atc_xlsx_text(data: bytes) -> str:
+    """The WHOCC's ATC/DDD index as an Excel workbook (its first sheet), as the CSV text :func:`atc_rows` reads."""
+    import csv
+    import io
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    out = io.StringIO()
+    w = csv.writer(out)
+    for row in wb.worksheets[0].iter_rows(values_only=True):
+        if any(v not in (None, "") for v in row):
+            w.writerow(["" if v is None else str(v) for v in row])
+    return out.getvalue()
+
+
+def install_atc_index(path: Path, directory: Path, accepted_by: str, accepted_on: str = "", version: str = "",
+                      sha256: str = "", now: datetime | None = None) -> dict[str, int]:  # fmt: skip
+    """The ATC/DDD index from the hospital's own copy as the WHOCC sells it: an Excel workbook, or a CSV or TSV
+    (:func:`install_atc`), after a named person accepted the WHOCC's terms (D-1114)."""
+    if not (path.suffix.lower() == ".xlsx" or (path.is_dir() and any(path.glob("*.xlsx")))):
+        src = next(iter(sorted(path.glob("*.[ct]sv"))), path) if path.is_dir() else path
+        return install_atc(src, directory, accepted_by, accepted_on, version, now)
+    lic = licence_line(ATC_INDEX, accepted_by, accepted_on, now)
+    if not version:
+        raise CopyRefused("atc: give --version (the ATC index's year, e.g. 2026)")
+    src = path if path.is_file() else sorted(path.glob("*.xlsx"))[0]
+    verified = _verify_sums(_files(path), path, sha256) if path.is_dir() else _verify_sums({}, src, sha256)
+    rows = atc_rows(atc_xlsx_text(src.read_bytes()))
+    directory.mkdir(parents=True, exist_ok=True)
+    line = _line(
+        f"ATC/DDD index ({src.name})", src, f"ATC {version}", lic.pop("licence"), now, verified=verified, **lic
+    )
+    _write(directory, ATC_INDEX, rows, ("code", "display"), line)
+    return {ATC_INDEX: len(rows)}
+
+
+# The folder the hospital points to (V-18; README of docs/handover/terminology-folder.md): one subfolder per system,
+# and acceptance.json, the named person who accepted the licences (written by the install question, D-1114)
+ACCEPTANCE = "acceptance.json"
+FOLDER_SYSTEMS: tuple[tuple[str, str, str], ...] = (
+    # (subfolder, label, table it loads)
+    ("snomed", "SNOMED CT", SNOMED_CT),
+    ("umls", "UMLS", UMLS_CONCEPTS),
+    ("atc", "ATC", ATC_INDEX),
+    ("loinc", "LOINC", LOINC_TABLE),
+    ("icd10-who", "WHO ICD-10", ICD10_WHO),
+)
+
+
+def _version_file(folder: Path) -> str:
+    v = folder / "VERSION"
+    return v.read_text("utf-8").strip() if v.is_file() else ""
+
+
+def _sha_file(folder: Path) -> str:
+    v = folder / "SHA256"
+    return v.read_text("utf-8").split()[0] if v.is_file() and v.read_text("utf-8").strip() else ""
+
+
+def _release(folder: Path) -> Path:
+    """The release in a system's subfolder: its one archive (zip), else the folder itself (unpacked files)."""
+    zips = sorted(folder.glob("*.zip"))
+    return zips[0] if len(zips) == 1 else folder
+
+
+def install_folder(folder: Path, directory: Path, accepted_by: str = "", accepted_on: str = "",
+                   now: datetime | None = None) -> dict[str, tuple[str, str]]:  # fmt: skip
+    """Each system the hospital's folder holds, loaded from its subfolder (``FOLDER_SYSTEMS``). Never a stop: each
+    system says ``("loaded", what)``, ``("missing", why)`` or ``("refused", why)``. The person who accepted the
+    licences is ``accepted_by``, else the folder's ``acceptance.json``; with neither, nothing licensed is loaded."""
+    if not accepted_by and (folder / ACCEPTANCE).is_file():
+        acc = json.loads((folder / ACCEPTANCE).read_text("utf-8"))
+        accepted_by, accepted_on = str(acc.get("accepted_by") or ""), accepted_on or str(acc.get("accepted_on") or "")
+    loaders = {"snomed": install_snomed, "umls": install_umls, "atc": install_atc_index}
+    out: dict[str, tuple[str, str]] = {}
+    for sub, label, _table in FOLDER_SYSTEMS:
+        where = folder / sub
+        if not where.is_dir() or not any(where.iterdir()):
+            out[label] = ("missing", f"no {sub}/ in the hospital's folder")
+            continue
+        if not accepted_by:
+            out[label] = ("missing", "nobody named accepted its licence (acceptance.json or --accepted-by, D-1114)")
+            continue
+        src, version, sha = _release(where), _version_file(where), _sha_file(where)
+        try:
+            if sub in loaders:
+                got = loaders[sub](src, directory, accepted_by, accepted_on, version, sha, now)
+            elif sub == "loinc":
+                got = install_loinc(src if src.is_file() else next(iter(sorted(where.glob("*.csv"))), src), directory,
+                                    accepted_by, accepted_on, version, now)  # fmt: skip
+            else:
+                got = install_icd10_who(src if src.is_file() else next(iter(sorted(where.glob("*.*ml"))), src),
+                                        directory, accepted_by, accepted_on, version, now)  # fmt: skip
+        except CopyRefused as exc:  # the loader's own sentence
+            out[label] = ("refused", str(exc)[:300])
+            continue
+        except (ValueError, OSError, KeyError, zipfile.BadZipFile, ET.ParseError) as exc:  # its type, never its text
+            cmd = {"icd10-who": "icd10who"}.get(sub, sub)
+            out[label] = ("refused", f"{type(exc).__name__}: deploy/terminology.sh {cmd} /stage/{sub} says why")
+            continue
+        out[label] = ("loaded", ", ".join(f"{t} {n} rows" for t, n in got.items()))
+    return out
+
+
+# V-18 (D-1182): an update's terminology payload can be rolled back. Before it loads, the volume's tables that were
+# not built from a licensed copy are kept aside with their manifest lines (a licensed table never leaves the volume,
+# and an update never carries one); a rollback puts them back and takes away what the update added
+SAVED = "saved.json"
+
+
+def save_tables(directory: Path, dest: Path) -> list[str]:
+    """Copy each table not built from a licensed copy, with its manifest line, into ``dest``; record every table name
+    the volume had. Returns the tables kept."""
+    import fcntl
+
+    dest.mkdir(parents=True, exist_ok=True)
+    kept: dict[str, Any] = {}
+    with (directory / ".manifest.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        tables = manifest(directory).get("tables") or {}
+        for name, line in sorted(tables.items()):
+            if str((line or {}).get("licence_accepted_by") or "").strip() or not _plain_name(name):
+                continue
+            src = directory / f"{name}.parquet"
+            if src.is_file():
+                shutil.copy2(src, dest / src.name)
+                kept[name] = line
+    (dest / SAVED).write_text(json.dumps({"tables": kept, "had": sorted(tables)}, indent=1, sort_keys=True) + "\n",
+                              encoding="utf-8")  # fmt: skip
+    return sorted(kept)
+
+
+def restore_tables(directory: Path, saved: Path) -> list[str]:
+    """Put back what :func:`save_tables` kept, and take away each table the volume did not have then that is not
+    built from a licensed copy (an update's new system). A licensed table is never touched. Returns what changed."""
+    import fcntl
+
+    record = json.loads((saved / SAVED).read_text("utf-8"))
+    kept, had = record.get("tables") or {}, set(record.get("had") or [])
+    changed: list[str] = []
+    with (directory / ".manifest.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = manifest(directory)
+        for name, line in sorted(kept.items()):
+            src = saved / f"{name}.parquet"
+            if not _plain_name(name) or not src.is_file() or _sha(src) != line.get("sha256"):
+                raise ValueError(f"{saved}: {name} is not the table it kept; nothing was restored")
+        for name, line in sorted(kept.items()):
+            tmp = directory / f"{name}.parquet.tmp"
+            shutil.copy2(saved / f"{name}.parquet", tmp)
+            tmp.replace(directory / f"{name}.parquet")
+            data["tables"][name] = line
+            changed.append(name)
+        for name in sorted(set(data["tables"]) - had):
+            line = data["tables"][name] or {}
+            if str(line.get("licence_accepted_by") or "").strip() or not _plain_name(name):
+                continue
+            data["tables"].pop(name)
+            (directory / f"{name}.parquet").unlink(missing_ok=True)
+            changed.append(name)
+        mtmp = directory / f".{MANIFEST}.tmp"
+        with mtmp.open("w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(mtmp, directory / MANIFEST)
+    return changed
