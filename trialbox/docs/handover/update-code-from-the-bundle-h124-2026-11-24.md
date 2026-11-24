@@ -88,7 +88,8 @@ The second check is defence in depth.
 The staged code is one more unpacked copy of the host tree in the stage. The update's `space_needs` runs after it is
 unpacked, when it is already on disk, so it is counted where it can still be refused:
 - the installed verifier's space to stage now counts the host tree twice: the staged tar and its unpacked copy, both
-  read from the signed manifest;
+  read from the signed manifest, against the free space of the file system that holds TMPDIR, where
+  `apply_update.sh` makes the stage, never the install root's (7133378239);
 - `tools/packs.py` counts the copy in the load's peak and in `space`, and its bound allows twice the host tree;
 - tests: `test_h124_06_a_stage_short_by_exactly_the_update_code_is_refused` (short by exactly that amount: refused;
   one byte short: refused; enough: staged).

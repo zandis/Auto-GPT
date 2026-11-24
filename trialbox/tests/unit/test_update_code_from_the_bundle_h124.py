@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -407,7 +408,9 @@ def test_h124_05_a_signed_model_pack_runs_the_installed_code_on_production_and_s
     (b["deploy"] / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     _install(b, _release(b["tmp"], "R1-fixed"))
     r = _apply(b, _model_pack(b, "M2", 2), "--no-backup-reason", "synthetic test box")
-    assert "update code: the installed release's (a model pack carries images and weights, no code)" in r.stdout, _said(r)
+    assert "update code: the installed release's (a model pack carries images and weights, no code)" in r.stdout, _said(
+        r
+    )
     assert "carries no host tree" not in r.stderr
 
 
@@ -442,20 +445,33 @@ def test_h124_05_the_refused_types_cover_pin_models() -> None:
 
 
 def test_h124_06_a_stage_short_by_exactly_the_update_code_is_refused(tmp_path: Path) -> None:
-    """H124-06 (the integrator's ruling 7132484063): the space to stage counts the new release's update code (its
-    host tree unpacked in the stage). A disk short by exactly that amount is refused before anything is staged; with
-    that amount it is staged."""
+    """H124-06 (the integrator's rulings 7132484063, 7133378239): the space to stage counts the new release's update
+    code (its host tree unpacked in the stage), against the file system that holds TMPDIR, where
+    tools/apply_update.sh makes the stage, not the install root's. TMPDIR short by exactly that amount is refused
+    before anything is staged; with that amount it is staged; the install root's free space is never asked."""
     from tools.verify_update import STAGE_MARGIN, Rejected, verify
 
     priv, pub = keygen(tmp_path / "vendor")
     host = _release(tmp_path, "R2")
     bundle = _bundle(tmp_path, priv, "R2", 2, host)
+    tmpdir = tmp_path / "tmpdir"  # TMPDIR: apply_update.sh's stage is mktemp -d "$TMPDIR/tb-update.XXXXXX"
+    tmpdir.mkdir()
     size = host.stat().st_size  # the manifest's declared size of the host tree (the tar itself)
     with_code = int((size + size) * STAGE_MARGIN)  # the staged tar, and its tree unpacked as the update's code
+    asked: list[Path] = []
+
+    def free_of(free: int) -> Callable[[Path], int]:
+        def f(p: Path) -> int:
+            asked.append(p)
+            return free if p == tmpdir else 10**15  # only TMPDIR's file system is short
+
+        return f
+
     short = with_code - int(size * STAGE_MARGIN)  # short by exactly the update code (and its margin)
     with pytest.raises(Rejected, match="not enough disk space to stage the bundle .* the update code"):
-        verify(bundle, pub, tmp_path / "stage-short", disk_free=lambda _p: short)
-    assert not (tmp_path / "stage-short").exists() or not any((tmp_path / "stage-short").rglob("*"))
+        verify(bundle, pub, tmpdir / "tb-update.short", disk_free=free_of(short))
+    assert not (tmpdir / "tb-update.short").exists() or not any((tmpdir / "tb-update.short").rglob("*"))
     with pytest.raises(Rejected, match="not enough disk space"):
-        verify(bundle, pub, tmp_path / "stage-one-byte", disk_free=lambda _p: with_code - 1)
-    assert verify(bundle, pub, tmp_path / "stage-ok", disk_free=lambda _p: with_code)["bundle_id"] == "R2"
+        verify(bundle, pub, tmpdir / "tb-update.one-byte", disk_free=free_of(with_code - 1))
+    assert verify(bundle, pub, tmpdir / "tb-update.ok", disk_free=free_of(with_code))["bundle_id"] == "R2"
+    assert asked and set(asked) == {tmpdir}  # TMPDIR's file system, never the install root's
