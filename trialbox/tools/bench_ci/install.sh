@@ -91,11 +91,11 @@ prerequisites() {
     [ -n "$found" ] || command -v "$helper" >/dev/null || missing+=("$helper")
   done
   [ "${#missing[@]}" = 0 ] || die "missing on this host: ${missing[*]} (install them from the distribution first)"
-  # L-1448-18: the service manager must be the running init, before anything is changed (users, linger, units)
-  [ -d /run/systemd/system ] || die "the service manager is not the running init here: the units cannot run"
   # OCR 1466-12: an id range in only one of the two files is someone's by-hand line: install would add a second one,
   # and remove would take both; stop before any change and let it be set right by hand
   id_ranges_whole || die "$USER_NAME has an id range in only one of ${SUBID_FILES[*]}: set it right by hand first"
+  # L-1448-18: the service manager must be the running init, before anything is changed (users, linger, units)
+  [ -d /run/systemd/system ] || die "the service manager is not the running init here: the units cannot run"
   python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "python3 is older than 3.10"
   [ "$(systemctl --version | awk 'NR==1{print $2}')" -ge 248 ] || die "the service manager is older than 248"
   [ -f "$SETTINGS" ] || die "no $SETTINGS: copy tools/bench_ci/settings.example.env there and fill it in"

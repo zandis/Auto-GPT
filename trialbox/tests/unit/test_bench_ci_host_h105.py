@@ -576,3 +576,16 @@ def test_an_id_range_in_only_one_file_stops_the_install(
         files.append(f'"{f}"')
     got = _bash(INSTALL, f"SUBID_FILES=({' '.join(files)})\nid_ranges_whole")
     assert (got.returncode == 0) is whole
+
+
+def test_the_install_checks_the_id_ranges_before_any_change(tmp_path: Path) -> None:
+    """prerequisites runs the check, before the service manager's check and before the settings are touched."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for cmd in [*HOST_TOOLS, "pasta", "netavark", "aardvark-dns", "grep"]:
+        (bin_dir / cmd).symlink_to("/bin/true" if cmd != "grep" else shutil.which("grep") or "/bin/grep")
+    (tmp_path / "subuid").write_text("tb-bench:300000:65536\n", encoding="utf-8")
+    (tmp_path / "subgid").write_text("", encoding="utf-8")
+    body = f'PATH="{bin_dir}"; SUBID_FILES=("{tmp_path}/subuid" "{tmp_path}/subgid")\nprerequisites'
+    got = _bash(INSTALL, body)
+    assert got.returncode == 1 and "has an id range in only one of" in got.stderr, got.stderr
