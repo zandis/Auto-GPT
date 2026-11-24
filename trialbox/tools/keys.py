@@ -384,15 +384,26 @@ def wrap_plain(sec: Path, kek: bytes) -> list[str]:
         p = sec / name
         if not p.exists():
             continue
-        if K.wrapped_path(p).exists():
-            raise K.KekError(f"{name} is there plain and wrapped: compare fingerprints (status) and remove one")
         key = p.read_bytes()
+        if K.wrapped_path(p).exists():
+            # H-111: a run stopped between the wrap and the plain file's removal; the wrapped key opens to this one
+            try:
+                same = bool(key) and K.unwrap(kek, K.read_wrapped(p), name) == key
+            except K.KekError:
+                same = False
+            if not same:
+                raise K.KekError(f"{name} is there plain and wrapped: compare fingerprints (status) and remove one")
+            _fsync_dir(sec)  # review of #1457 (1457-3): the wrapped copy's name is on disk before the plain one goes
+            p.unlink()
+            done.append(f"{name} (fingerprint {K.fingerprint(key)}; its wrap was already done)")
+            continue
         if not key:
             raise K.KekError(f"{p} is empty: put the key back from the backup first")
         K.store_key(p, key, kek)
         if K.unwrap(kek, K.read_wrapped(p), name) != key:
             K.wrapped_path(p).unlink()
             raise K.KekError(f"{name}: the wrapped key does not open to the same key; left plain")
+        _fsync_dir(sec)  # review of #1457 (1457-3): the wrapped copy's name is on disk before the plain one goes
         p.unlink()
         done.append(f"{name} (fingerprint {K.fingerprint(key)})")
     return done
