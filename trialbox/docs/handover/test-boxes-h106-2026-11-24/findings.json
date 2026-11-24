@@ -40,7 +40,7 @@
   {
    "id": "H106-05",
    "severity": "Medium",
-   "claim": "the rehearsal's test-boxes step first ran in CI on the pushed branch and stopped at the second box's bundle load (H106-10); its added time is measured only once it passes",
+   "claim": "the rehearsal's test-boxes step ran in CI: first it stopped at the second box's bundle load (H106-10); then the second box installed (its TLS proxy on its own port, 8473) but its embed service did not start: the rehearsal's answers say llm_mode: gpu (the model embedder) on a CPU box with no embedder weights; the step now answers llm_mode: stub for that box. Its added time is measured once it passes",
    "lane": "H",
    "basis": "shown",
    "state": "open"

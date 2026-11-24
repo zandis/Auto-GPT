@@ -911,10 +911,13 @@ test-boxes)
   cp "$MEDIA/linux/vendor_ed25519.pub" "$B2/deploy/keys/"
   install -d "$B2/deploy/site" && cp -r "$BOX/tests/fixtures/synthetic_patients/site-a" "$B2/deploy/site/feed-a" \
     || fail "cannot stage the second box's feed folder"
+  # a CPU-only box answers so: the stub models and the embedder's hash stub (the media carries no embedder weights)
+  sed 's/^llm_mode: gpu$/llm_mode: stub/' "$BOX/tools/rehearse_box/site_answers.yaml" > "$W/test-box-answers.yaml"
+  grep -q '^llm_mode: stub$' "$W/test-box-answers.yaml" || fail "the test box's answers do not say llm_mode: stub"
   rc=0
   (cd "$B2" && TB_HOST_PROFILE=poc TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_INSTALL_UP_TIMEOUT=900 \
     deploy/install.sh "$BUNDLE" --test-box rh2 --port-offset 3 --mode stub --environment TEST --ctgov offline --yes \
-    --answers "$BOX/tools/rehearse_box/site_answers.yaml") > "$W/test-box-install.log" 2>&1 || rc=$?
+    --answers "$W/test-box-answers.yaml") > "$W/test-box-install.log" 2>&1 || rc=$?
   tail -n 30 "$W/test-box-install.log"
   [ "$rc" = 0 ] || fail "the test box's install failed (exit $rc; $W/test-box-install.log)"
   grep -q "TEST BOX rh2: one of several boxes on this host" "$W/test-box-install.log" \
@@ -923,7 +926,11 @@ test-boxes)
   case "$P2" in tbt-rh2-??????) ok "the test box's project: $P2" ;; *) fail "the test box's project is '$P2'" ;; esac
   wait_healthy 600
   n2="$(dc2 ps -q | wc -l)"; bad2="$(dc2 ps --format '{{.Service}} {{.State}} {{.Health}}' | awk '$2 != "running" || ($3 != "" && $3 != "healthy")')"
-  [ "$n2" -ge 10 ] && [ -z "$bad2" ] || { dc2 ps; fail "the test box is not healthy: $bad2"; }
+  if [ "$n2" -lt 10 ] || [ -n "$bad2" ]; then
+    dc2 ps
+    for svc in $(echo "$bad2" | awk '{print $1}'); do dc2 logs --tail 40 "$svc"; done
+    fail "the test box is not healthy: $bad2"
+  fi
   ok "both boxes healthy: the first's containers and the test box's $n2"
   # the engine's own answer: volumes, networks, ports, mounts, each container's networks
   v1="$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)"
