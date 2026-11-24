@@ -184,7 +184,8 @@ cmd_token() {
   umask 077
   tmp=""
   trap '[ -z "$tmp" ] || rm -f -- "$tmp"' EXIT
-  trap '[ -z "$tmp" ] || rm -f -- "$tmp"; trap - EXIT; echo "bench CI install: interrupted: no token was kept" >&2; exit 130' INT TERM HUP
+  # 1448-26: a copy gone after it was made means it was moved into place: the token is kept, the restarts were cut
+  trap 'if [ -n "$tmp" ] && [ ! -e "$tmp" ]; then echo "bench CI install: interrupted: the new token is kept, but the slots were not all restarted (restart them, or run the token step again)" >&2; else [ -z "$tmp" ] || rm -f -- "$tmp"; echo "bench CI install: interrupted: no token was kept" >&2; fi; trap - EXIT; exit 130' INT TERM HUP
   tmp="$(mktemp "$ETC/.token.XXXXXX")"
   printf '%s\n' "$tok" > "$tmp"
   tok=""

@@ -10,7 +10,7 @@ language.
 - **Date:** 2026-11-24
 - **Install page:** [RUNBOOK §13 part: the bench host's CI runner](../runbook/13-bench-ci-runner.md)
 - **Findings:** [`bench-ci-runner-h105-2026-11-24/findings.json`](bench-ci-runner-h105-2026-11-24/findings.json)
-  (H105-01 to H105-09)
+  (H105-01 to H105-10)
 - **Files:** `tools/bench_ci/` (new: the launcher, the gate, the cards' check, the egress proxy, the one-job
   configuration's unpacker, the job image, the units, the install script, the example settings), the tests
   `tests/unit/test_bench_ci_{workflow,launcher,gate,unpack_jit,review}_h105.py`, the install page, this page and its
@@ -170,3 +170,29 @@ The re-review (#639, 7123982226; the integrator's line 7123983927) found no High
 - **Left for the follow-up card H-105b:** L-1448-15, L-1448-16, L-1448-19 (2: the evaluator models no cancel; a
   structural rule refuses `always()` instead) and (3), and the question 1448-14 raised: do the CI weights need to be
   secret (a GPU job reads the weights folder, and its code can send what it reads through an allowed host)?
+
+## H-105b: the GPU box rehearsal, and the Lows of the review at bfc1408
+
+The integrator sent the review's six open Lows (7126710814: 1448-14, 1448-15, 1448-16, 1448-19, 1448-26, 1448-27) to
+this follow-up, with the GPU box rehearsal (the lead's part b). Each is held by a test in
+`tests/unit/test_bench_ci_review_h105.py` (or the workflow and launcher tests):
+
+- **The GPU box rehearsal:** the job `rehearse-gpu-box` (a GPU slot; a train or the owner's run by hand) runs
+  `tools/bench_ci/gpu_box.sh`: the TPM fact, the GPU record (no serial or UUID), the weights folder mounted read-only
+  (read from the mount's options, which holds for root as for any user), the job's own engine; NOT RUN for the box
+  install under a real init, the first-run step and the unit start (H105-10) and for the serving step (H105-03).
+- **1448-15:** a GPU job waits up to 30 minutes for busy CI cards, checking every 30 seconds, before it refuses;
+  wrong cards are refused at once (`test_1448_15_*`).
+- **1448-16:** a run by hand is scheduled only on master or an allowed branch, as the gate requires
+  (`test_bench_ci_workflow_h105.py`: the owner's run on a lane branch, on another branch, on a tag).
+- **1448-19 (2):** the schedule test models a cancelled run: only the hosted times table starts
+  (`test_after_a_cancel_no_bench_job_starts_and_only_the_times_table_does`). **(3):** the token step and the scratch
+  folders' check now run in tests; the units, verify and remove are still read as text (a question to the lead).
+- **1448-26:** a signal after the token was moved into place says the new token is kept and the slots may not all
+  be restarted; before the move it says no token was kept (`test_1448_26_a_signal_says_whether_the_token_was_kept`,
+  every line of the step, INT, TERM and HUP).
+- **1448-27:** a failed chown or chmod (not only a failed move) ends the step (`test_1448_27_any_failed_step_of_the_keep_is_a_failure`);
+  the scratch folders' check is run on a shared sticky folder, a link and root's own folders
+  (`test_1448_27_the_scratch_check_*`). The wall-time test counts the bench jobs instead of a fixed five.
+- **1448-14:** the question of whether the CI weights need to be secret is the owner's (a GPU job reads the weights
+  folder, and its code can send what it reads through an allowed host); asked, not answered here.

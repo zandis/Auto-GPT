@@ -151,7 +151,13 @@ gets the unit shards and the integration run (the CPU profile, the hardest); the
 minutes) and the box rehearsal run only for a train and the owner's run by hand (harm 2). The GPU slots share the
 CI cards. A GPU job does not start when a CI card is busy beyond its cap (more memory or load than the settings
 allow, or a reading the tool cannot give): the launcher registers no GPU runner while one is, and the job itself
-checks again before its first step (the runner's job-started hook), with a message naming the card and why. The
+checks again before its first step (the runner's job-started hook): it waits up to 30 minutes for busy cards to come
+within the cap, checking every 30 seconds, then refuses with a message naming the card and why (wrong cards are
+refused at once). The GPU box rehearsal (`tools/bench_ci/gpu_box.sh`, a GPU slot, a train or the owner's run by hand)
+records the TPM ("no TPM: the passphrase path" in a container), the GPU record of its cards (model, memory, driver,
+count; no serial or UUID), that the weights folder is mounted read-only, and that its own engine answers; the box
+install under a real init, the first-run step, the unit start and the serving step say NOT RUN (a NOT RUN is never
+counted as a pass). A run by hand is scheduled only on master or an allowed branch. The
 workflow is separate and no branch rule requires it, so its jobs show red when they fail and block nothing; nothing moves off
 the hosted runners until the owner's ruling says so.
 

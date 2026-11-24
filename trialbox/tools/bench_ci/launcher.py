@@ -64,6 +64,7 @@ OCTET_BASE = {"cpu": 0, "engine": 100, "gpu": 150, "probe": 240}  # the slot's /
 API_SECONDS = 60
 POLL_SECONDS = 5  # how often the run step looks for the gate's mark (the job accepted)
 REATTACH_SECONDS = 30  # how often a slot joins the egress proxy to its network again (a restarted proxy is on none)
+GPU_WAIT_SECONDS = 1800  # 1448-15: how long a GPU job waits for busy CI cards before it refuses (a bench state)
 STARTED = "started"  # the gate's mark in the job's .tb-bench folder: the job was accepted
 DIGITS = re.compile(r"[0-9]+")  # ASCII digits only (str.isdigit also takes superscripts, which int() refuses)
 PRIVATE_16 = re.compile(r"10\.(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})|172\.(1[6-9]|2[0-9]|3[01])|192\.168")
@@ -354,6 +355,7 @@ def gpu_spec(s: Settings) -> tuple[list[str], dict[str, object]]:
         "uuids": uuids,
         "cap_mib": s.num("BENCH_GPU_CAP_MIB"),
         "cap_util": s.num("BENCH_GPU_CAP_UTIL"),
+        "wait_seconds": GPU_WAIT_SECONDS,
     }
     return problems, spec
 

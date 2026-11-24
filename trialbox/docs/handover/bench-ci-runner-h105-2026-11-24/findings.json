@@ -77,6 +77,14 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H105-10",
+   "severity": "Medium",
+   "claim": "H-105b's GPU box rehearsal cannot take the first-run step on a rehearsal box: deploy/box-install.sh refuses --rehearsal with --firstrun (H-94 (3)); the job records the TPM, the GPU record, the read-only weights folder and its own engine, and says NOT RUN for the install under a real init, the first-run step and the unit start until that is ruled, and for the serving step until it is built",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }
