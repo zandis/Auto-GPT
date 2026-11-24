@@ -492,16 +492,26 @@ def _mounts(text: str | None) -> list[tuple[str, str, str, str]]:
 def _resolve(path: Path) -> Path:
     """``path`` with the symlinks of its existing part resolved; a part not made yet is kept as written."""
     p, tail = Path(os.path.normpath(path.absolute())), list[str]()
-    while not p.exists() and p != p.parent:
-        tail.insert(0, p.name)
-        p = p.parent
+    while p != p.parent:
+        try:  # OCR 1469-8: a part the user may not look at is kept as written, as a part not made yet is
+            os.stat(p)
+            break
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            tail.insert(0, p.name)
+            p = p.parent
     return p.resolve().joinpath(*tail)
 
 
 def _existing(path: Path) -> Path:
+    """The nearest folder of ``path`` that exists and this user may look at: a folder it may not read is measured on
+    its readable parent, as a missing one is (OCR 1469-8, the fault of H-121's red 7134736821), never a crash."""
     p = _resolve(path)
-    while not p.exists() and p != p.parent:
-        p = p.parent
+    while p != p.parent:
+        try:
+            os.stat(p)
+            return p
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            p = p.parent
     return p
 
 
@@ -1269,9 +1279,9 @@ class ComposeOps:
                             pit["beside_jobs"] = {"count": left, "jobs": self.running_job_list() if left else None,
                                                   "waited_s": waited, "bound_s": cfg.job_wait_s}  # fmt: skip
                     # every size first: a pause is only taken when every step under it has a limit (D-455, M4)
-                    sizes = {
-                        db: self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))
-                    }
+                    from tools.trialbox.update import DB_SIZE_ROLES  # OCR 1469-4: the one list of the update's
+
+                    sizes = {db: self.db_bytes(db, user) for db, user in DB_SIZE_ROLES}
                     prev = int((_read_json(cfg.last_file).get("good_file") or {}).get("bytes") or 0) or None
                     vols = volume_bytes(self.env, prev)
                     if mode == "pause":
@@ -1295,7 +1305,7 @@ class ComposeOps:
                             if paused:
                                 self.box.run(self.box._c("pause", *paused))
                             pit.update({"held": True, "paused": paused, "why": "TB_BACKUP_QUIESCE=pause"})
-                    for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
+                    for db, user in DB_SIZE_ROLES:
                         limit = cfg.timeout(sizes[db])
                         pit["limits"][db] = limit
                         at = datetime.now(UTC).isoformat(timespec="milliseconds")

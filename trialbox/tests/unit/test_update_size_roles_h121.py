@@ -16,6 +16,7 @@ Passwords are synthetic test strings.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -83,7 +84,9 @@ def _box(root: Path, deploy: Path, monkeypatch: pytest.MonkeyPatch) -> up.Compos
     def run(argv: list[str], **kw: Any) -> str:
         if argv[:4] == ["dc", "exec", "-T", "db"]:
             return up.run_cmd([str(pglocal.bindir() / argv[4]), *argv[5:]], env={"PGHOST": sock}, **kw)
-        return ""  # docker info and the rest: no Docker here
+        if argv[:2] == ["docker", "info"]:  # OCR 1469-7: the engine's data root is the test's own, never the host's
+            return f"{deploy.parent / 'docker-root'}\n"
+        return ""  # the rest: no Docker here
 
     deploy.mkdir(exist_ok=True)
     return up.ComposeBox(deploy, run=run)
@@ -108,6 +111,8 @@ def test_h121_the_size_check_reads_both_databases_on_a_sites_roles(
     assert set(sizes) == {"trialbox_wf", "hapi"} == set(read), read
     plan = up.Plan("B1", "f" * 64, "v", [], tmp_path / "stage")
     needs = {what: n for _p, n, what in box.space_needs(plan, tmp_path / "deploy" / "updates")}
+    assert not [p for p, _n, _w in box.space_needs(plan, tmp_path / "deploy" / "updates")
+                if str(p).startswith("/var/lib/docker")]  # OCR 1469-7: never the host's own engine folder  # fmt: skip
     assert needs["database dumps"] == 2 * sum(sizes.values())
     assert needs["rollback script (largest database) on the db volume"] == max(sizes.values())
     assert all(box.db_bytes(db, user) == sizes[db] for db, user in up.DB_SIZE_ROLES)  # apply_limit_s, backup
@@ -191,3 +196,104 @@ def test_h121_the_update_path_runs_as_a_non_root_user_without_docker_s_folder(
         docker_root.chmod(0o755)
     assert "rollback script (largest database) on the db volume" in " ".join(w for _p, _n, w in needs)
     assert notes and all("needs" in n for n in notes)
+
+
+# ------------------------------------------------------------------------------------------------ OCR re-reviews of #1469
+def test_ocr_1469_7_the_update_paths_stand_ins_never_measure_the_hosts_docker_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OCR 1469-7 (escape check (i)): the space check of a stand-in box measures no folder of the host's own."""
+    from tests.unit.test_update_path import FakeRun
+
+    deploy = tmp_path / "deploy"
+    (deploy / "updates").mkdir(parents=True)
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
+    needs = up.ComposeBox(deploy, run=FakeRun()).space_needs(up.Plan("B1", "f" * 64, "v", [], tmp_path / "stage"),
+                                                             deploy / "updates")  # fmt: skip
+    assert not [p for p, _n, _w in needs if str(p).startswith("/var/lib/docker")], needs
+
+
+def test_1469_1_the_rehearsals_size_check_fails_when_a_size_is_not_read(tmp_path: Path) -> None:
+    """The doctor phase's program (tools/rehearse_box/box.sh) must exit non-zero when psql answers, but not a size."""
+    import re
+    import sys
+
+    text = (ROOT / "tools" / "rehearse_box" / "box.sh").read_text(encoding="utf-8")
+    prog = re.search(r"sizes=\"\$\(cd \"\$BOX\" && python3 -c '(.*?)' 2>&1\)\"", text, re.S)
+    assert prog, "the H-121 program is no longer in box.sh"
+    dc = tmp_path / "dc"
+    dc.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")  # every compose command answers nothing
+    dc.chmod(0o755)
+    (tmp_path / "deploy").mkdir()
+    env = {**os.environ, "TB_COMPOSE": str(dc), "PYTHONPATH": str(ROOT)}
+    r = subprocess.run([sys.executable, "-c", prog.group(1)], cwd=tmp_path, env=env, capture_output=True, text=True,
+                       check=False)  # fmt: skip
+    assert r.returncode != 0, r.stdout + r.stderr
+
+
+def test_1469_2_an_answer_of_digit_like_characters_is_no_size_never_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    (tmp_path / "deploy").mkdir()
+    box = up.ComposeBox(tmp_path / "deploy", run=lambda argv, **kw: "\u00b2\n")  # isdigit() is True, int() refuses
+    assert box.db_bytes("trialbox_wf", "trialbox") is None
+    plan = up.Plan("B1", "f" * 64, "v", [], tmp_path / "stage")
+    with pytest.raises(up.UpdateFailed, match="no size in the answer"):
+        box.space_needs(plan, tmp_path / "deploy" / "updates")
+
+
+def test_1469_3_a_size_that_cannot_be_read_is_a_preflight_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    (tmp_path / "deploy").mkdir()
+    plan = up.Plan("B1", "f" * 64, "v", [], tmp_path / "stage")
+
+    def refused(argv: list[str], **kw: Any) -> str:
+        raise up.UpdateFailed("psql exit 2: permission denied for database")
+
+    for run in (lambda argv, **kw: "", refused):
+        with pytest.raises(up.UpdateRefused, match="nothing was changed$"):
+            up.ComposeBox(tmp_path / "deploy", run=run).space_needs(plan, tmp_path / "deploy" / "updates")
+
+
+def test_1469_4_the_role_pairs_are_written_once(tmp_path: Path) -> None:
+    """OCR 1469-4: DB_SIZE_ROLES is the one list; the update's dumps and the nightly's reads and dumps take it. The
+    restore's read (tools/trialbox/box_restore.py) is #1470's file in those lines: it moves to the list after #1470
+    (H-129), and this test names it until then."""
+    literal = re.compile(r'\(\("trialbox_wf", "trialbox"\), \("hapi", "hapi"\)\)')
+    found = sorted(f"{p.relative_to(ROOT)}:{i}" for p in (ROOT / "tools").rglob("*.py")
+                   for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+                   if literal.search(line) and not line.startswith("DB_SIZE_ROLES = "))  # fmt: skip
+    assert [f.split(":")[0] for f in found] == ["tools/trialbox/box_restore.py"], found
+
+
+@pytest.mark.parametrize("module", ["tools.trialbox.update", "tools.packs", "tools.trialbox.backup_schedule",
+                                    "tools.fetch_weights"])  # fmt: skip
+def test_1469_8_every_existing_measures_an_unreadable_folder_on_its_readable_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str
+) -> None:
+    """OCR 1469-8: each copy of _existing, given a folder inside one the user may not enter (mode 000; as root, the
+    refusal os.stat gives a user who is not root), returns the nearest readable folder, never a PermissionError."""
+    import importlib
+
+    existing = importlib.import_module(module)._existing
+    locked = tmp_path / "locked"
+    (locked / "volumes").mkdir(parents=True)
+    locked.chmod(0)
+    if os.geteuid() == 0:
+        real_stat = os.stat
+
+        def stat(p: Any, *a: Any, **k: Any) -> os.stat_result:
+            if str(p).startswith(str(locked) + os.sep):
+                raise PermissionError(13, "Permission denied", str(p))
+            return real_stat(p, *a, **k)
+
+        monkeypatch.setattr(os, "stat", stat)
+    try:
+        got = Path(existing(locked / "volumes" / "x"))
+    finally:
+        locked.chmod(0o755)
+    assert got == locked, got

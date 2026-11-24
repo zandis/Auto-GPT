@@ -385,7 +385,9 @@ doctor)
   sizes="$(cd "$BOX" && python3 -c 'from pathlib import Path
 from tools.trialbox import update as up
 box = up.ComposeBox(Path("deploy"))
-print(" ".join(f"{db}={box.db_size(db, user)}" for db, user in up.DB_SIZE_ROLES))' 2>&1)" \
+sizes = {db: box.db_size(db, user) for db, user in up.DB_SIZE_ROLES}
+print(" ".join(f"{db}={n}" for db, n in sizes.items()))
+raise SystemExit(0 if all(isinstance(n, int) and n > 0 for n in sizes.values()) else 1)' 2>&1)" \
     || fail "the update's size check failed on the box's own roles (H-121): $sizes"
   ok "the update's size check read both databases on a site's roles (H-121): $sizes"
   ;;

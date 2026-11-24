@@ -728,8 +728,14 @@ def _missing_bytes(models: Path, t: Target) -> int:
 
 
 def _existing(path: Path) -> Path:
-    while not path.exists() and path != path.parent:
-        path = path.parent
+    """The nearest folder of ``path`` that exists and this user may look at: a folder it may not read is measured on
+    its readable parent, as a missing one is (OCR 1469-8, the fault of H-121's red 7134736821), never a crash."""
+    while path != path.parent:
+        try:
+            os.stat(path)
+            return path
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            path = path.parent
     return path
 
 

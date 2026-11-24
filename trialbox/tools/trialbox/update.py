@@ -1884,7 +1884,7 @@ class ComposeBox(_DockerImages):
         except Exception as exc:  # the command's own error (no secret is on its command line)
             said = str(exc)[-400:]
             raise UpdateFailed(f"the size of database {db} could not be read as role {user}: {said}") from exc
-        return int(out) if out.isdigit() else None
+        return int(out) if out.isdecimal() else None  # OCR 1469-2: isdigit() also takes '²', which int() refuses
 
     def db_bytes(self, db: str, user: str) -> int | None:
         """``pg_database_size`` of ``db`` (D-455: a backup step's limit comes from it), or None when not known."""
@@ -1956,7 +1956,7 @@ class ComposeBox(_DockerImages):
         # a quiet box: the services stop (the database stays up), so the dump, the files and the row counts agree
         self.run(self._c("stop", *PY_SERVICES), timeout=600)
         try:
-            for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
+            for db, user in DB_SIZE_ROLES:  # OCR 1469-4: each database dumped as the role that reads its size
                 self._dump(db, user, rb / f"{db}.dump", timeout=cfg.timeout(sizes[db]))
             # D-455: the container reads the dumps and the volumes; without a size for the volumes, no limit
             vols = bsch.volume_bytes(self.env, None)
@@ -2043,10 +2043,10 @@ class ComposeBox(_DockerImages):
             try:
                 n = self.db_size(db, user)
                 if n is None:  # psql answered, but not a size: never counted 0
-                    raise UpdateFailed(f"the size of database {db} could not be read as role {user}: no size in "
-                                       "the answer")  # fmt: skip
-            except UpdateFailed as exc:
-                raise UpdateFailed(f"{exc}; the space check needs it, nothing was changed") from exc
+                    raise UpdateRefused(f"the size of database {db} could not be read as role {user}: no size in "
+                                        "the answer")  # fmt: skip
+            except UpdateFailed as exc:  # OCR 1469-3: a preflight refusal, nothing on the box was changed
+                raise UpdateRefused(f"{exc}; the space check needs it, nothing was changed") from exc
             sizes, largest = sizes + n, max(largest, n)
         try:
             root = Path(self.run(["docker", "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
