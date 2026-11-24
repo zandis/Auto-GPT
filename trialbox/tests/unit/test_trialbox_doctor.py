@@ -69,6 +69,7 @@ def test_default_install_passes() -> None:
         "audit_heads",
         "anchor_mount",  # D-638
         "rehearsal",  # D-726
+        "bench_serving",  # H-112: the second serving profile, never on a PRODUCTION box
         "sae_mailbox",  # D-736
         "named_choices",  # D-1365
         "mail_auth",  # D-825
