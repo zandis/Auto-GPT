@@ -7,7 +7,7 @@
   {
    "id": "H132-01",
    "severity": "High",
-   "claim": "LR-1: a restore whose rename aside fails (a mount point, EBUSY) had its put-back delete the live data folder; fixed: the put-back removes a folder only when its aside exists, and a mount-point target is refused before the first change",
+   "claim": "LR-1: a restore whose rename aside fails (a mount point, EBUSY, or a signal between the two lines) had its put-back delete the live data folder, and on a folder that is not a mount point say \"put back as it was\" (OCR 1474-5); fixed: the put-back removes a folder only when its aside exists, and a mount-point target is refused before the first change",
    "lane": "H",
    "basis": "shown",
    "state": "open",
