@@ -147,7 +147,12 @@ def test_backup_keygen_writes_the_hosts_list_for_the_boxs_own_key(
     from tools.trialbox import __main__ as cli
 
     calls: list[Path] = []
-    monkeypatch.setattr(site_needs, "write_host_given", lambda deploy: calls.append(deploy) or frozenset())
+
+    def written(deploy: Path) -> frozenset[str]:
+        calls.append(deploy)
+        return frozenset()
+
+    monkeypatch.setattr(site_needs, "write_host_given", written)
     monkeypatch.setattr("tools.trialbox.backup.keygen", lambda private, public: "fp")
     monkeypatch.setattr("tb_common.rc1_refusals.check", lambda *a, **k: None)
     deploy = Path(cli.__file__).resolve().parents[2] / "deploy"
