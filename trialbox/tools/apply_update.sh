@@ -53,6 +53,14 @@
 #    --target demo: the one-container demo VM (docs/RUNBOOK.md §11), checked by running e2e_simple in the new container.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# LR-18: run from a release the bootstrap staged (BOX/releases/<id>/tools/apply_update.sh), the code is that
+# release's (ROOT) and the box it updates is BOX, two folders up: the update's --deploy is BOX/deploy, so its host
+# tree step records the release the box runs as the one before and switches `current` with its rollback point. Told
+# from this script's own path alone; run as tools/apply_update.sh, BASE is ROOT
+BASE="$ROOT"
+if [ "$(basename "$(dirname "$ROOT")")" = releases ] && [ -d "$(dirname "$(dirname "$ROOT")")/deploy" ]; then
+  BASE="$(dirname "$(dirname "$ROOT")")"
+fi
 UPDATES="$ROOT/deploy/updates"
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
@@ -129,9 +137,9 @@ tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a k
 TB_STOP_WHO=apply_update; TB_STOP_FILE=apply_update.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""; TB_STOP_REHEARSAL=0
 USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
-  status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
-  rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
-  ospatch-check) cd "$ROOT"; shift; exec python3 "$ROOT/deploy/hardening/ospatch.py" check --deploy "$ROOT/deploy" "$@" ;;
+  status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$BASE/deploy" "$1" ;;
+  rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$BASE/deploy" rollback "${2:?$USAGE}" ;;
+  ospatch-check) cd "$ROOT"; shift; exec python3 "$ROOT/deploy/hardening/ospatch.py" check --deploy "$BASE/deploy" "$@" ;;
   ""|-h|--help) echo "$USAGE" >&2; exit 2 ;;  # H-94 not a stop: the usage, asked for or with nothing to do
 esac
 OSPATCH=""; OSCONF=""
@@ -262,7 +270,7 @@ echo "verified: $SUMMARY"
 if [ -n "$OSPATCH" ]; then
   STARTED=1  # H-114 (review 1461-2): the host's packages change from here; a signal is never "nothing was changed"
   # shellcheck disable=SC2086
-  python3 "$ROOT/deploy/hardening/ospatch.py" apply --stage "$STAGE" --deploy "$ROOT/deploy" \
+  python3 "$ROOT/deploy/hardening/ospatch.py" apply --stage "$STAGE" --deploy "$BASE/deploy" \
     ${OSCONF:+--conf "$OSCONF"} $DRY
   exit $?  # H-94 not a stop: ospatch.py's own answer
 fi
@@ -287,4 +295,4 @@ cd "$ROOT"
 sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }  # H-94 (3)
 STARTED=1
 python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" --target "$TARGET" \
-  --deploy "$ROOT/deploy" --bundle "$BUNDLE_ABS" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}
+  --deploy "$BASE/deploy" --bundle "$BUNDLE_ABS" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}

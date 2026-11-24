@@ -288,6 +288,29 @@ High 1, Medium 1, Low 1. Each fix has a test that fails with the `973a87aa` vers
 | 1455-9 | the compose copies reused fd 6, the fd #1452's host lock is held on: the first `exec 6<` dropped the lock (Medium) | fixed | `deploy/install.sh`: the override and the copy loop open their file on a descriptor bash picks (10 or above), never 6 or 9; `tests/unit/test_ocr1455_host_lock_fd.py` (the reviewer's test, with a case for fd 9 too: 2) |
 | 1455-10 | the page and the body said less than the push changed (Low) | fixed on the page; the body is the lead's | this page's lists of changed assertions and test data; the copy loop's warning says what happens (a file it could not copy is used where it lies, and refused at the start unless root's alone) |
 
+**LR-18 (High, Lane LR's lifecycle review; routed into #1455 by the integrator's 7136231344).** The bootstrap switched
+`current` to the new release before the bundle was verified whole, loaded or given a rollback point. The update path
+then recorded the new release as the one before (a failed update rolled images back to N-1 and the tree "back" to
+N), and a stop before the load left N's tree over N-1's images with no marker. Fixed:
+
+* `deploy/bootstrap.sh` stages the release (`tools/host_tree.py` `stage`: `releases/<bundle id>` with its site
+  paths linked back to the box) and switches nothing. The staged release is compared with the signed tar; the box's
+  top must hold no code the release lacks (the switch never moves such a file aside). The staged release's
+  installer runs.
+* `deploy/install.sh`, `deploy/box-install.sh` and `tools/apply_update.sh` tell a staged run from their own path
+  (`<box>/releases/<id>/...`): the code is the staged release's, the box is two folders up. The install lock, the
+  `current` checks, the space check and the re-run from the signed tree use the box; `apply_update.sh` gives the
+  update `--deploy <box>/deploy`, so its host-tree step records the release the box ran and is the one switch.
+  `box-install.sh` goes on from the box once its install step has switched it.
+* Test: `tests/unit/test_bootstrap_upgrade_h110.py::test_a_running_box_stays_on_its_release_until_the_update_step_switches`
+  (a box from N-1 in the host-tree layout; N's installer stops before any load: `current` still names N-1, at its
+  start and after). It fails with master's and with `973a87aa`'s `deploy/bootstrap.sh`.
+* Changed assertions of this PR's own tests (none on master): the (a) invariant test, the part-3 test and the
+  upgrade test now expect the staged release to run and the box unswitched; the planted-module test expects the
+  top-code refusal's words. The rehearsal's bootstrap step expects `staged:`, the installer run from
+  `releases/<id>`, and no `current`.
+* Not done here: an end-to-end update from a real N-1 box (LR-19, LR-20: their own cards).
+
 **What is not covered.** A script root runs later from the kept paths (a cron or systemd job, `apply_update.sh`'s
 `ospatch.py`) is covered by the bootstrap's walk at the bootstrap only. Two outside compose files with one base name
 would share one copy's name; the only one that can reach the copy loop is the override whose own copy failed.

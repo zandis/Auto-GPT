@@ -43,6 +43,13 @@
 # the console's image whether it can read the audit anchor folder; 10K-4).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# LR-18: run from a release the bootstrap staged (BOX/releases/<id>/deploy/box-install.sh), the box is BASE, two
+# folders up; the install step below runs that release's installer, whose update step switches the box to it, and
+# every step after it runs from the box (BASE). Told from this script's own path alone; otherwise BASE is ROOT
+BASE="$ROOT"
+if [ "$(basename "$(dirname "$ROOT")")" = releases ] && [ -d "$(dirname "$(dirname "$ROOT")")/deploy" ]; then
+  BASE="$(dirname "$(dirname "$ROOT")")"
+fi
 cd "$ROOT"
 BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
@@ -363,6 +370,9 @@ EOP
   if [ "$rc" != 0 ] && ! grep -q "TrialBox is running" "$BOX/install.log"; then
     # H-94 depends (1): on a PoC box install.sh stops only for one of the five (D-1091); a box with none is not served
     die "the install stopped (above; $BOX/install.log): nothing for the wizard to serve"
+  fi
+  if [ "$BASE" != "$ROOT" ]; then  # LR-18: the install switched the box to this release: the rest runs from the box
+    ROOT="$BASE"; cd "$ROOT"; export PYTHONPATH="$ROOT/libs:$ROOT"; BOX="$ROOT/deploy/site/box"
   fi
   if [ "$PREPARE" = 1 ]; then
     # ------------------------------------------------------------------------------------------- 4. prepared image

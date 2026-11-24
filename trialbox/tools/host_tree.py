@@ -314,13 +314,25 @@ def install(tar: Path, base: Path, release_id: str, into: dict[str, Any] | None 
     """Unpack a checked host tree to ``base/releases/<release_id>`` (kept when it is already there exactly as
     signed), switch ``current`` to it and refresh the links. Returns what :func:`restore` needs; ``into`` (the
     caller's rollback record) is filled as each file moves, so an install stopped part way is still undone."""
+    previous = current(base)
+    fresh = stage(tar, base, release_id)
+    info: dict[str, Any] = into if into is not None else {}
+    info.update(previous=previous, release=release_id, fresh=fresh)
+    switch(base, release_id, into=info)
+    return info
+
+
+def stage(tar: Path, base: Path, release_id: str) -> bool:
+    """Unpack a checked host tree to ``base/releases/<release_id>`` (kept when it is already there exactly as
+    signed) with its links back to the site's files, and switch nothing: ``current`` and the box's links stay as
+    they are (LR-18: the bootstrap stages the release; only the update path, with its rollback point, switches).
+    True when the release was unpacked here."""
     if PurePosixPath(release_id).name != release_id or release_id.startswith("."):
         raise HostTreeError(f"bad release id {release_id!r}")
     check_tar(tar)
     rels = base / "releases"
     rels.mkdir(parents=True, exist_ok=True)
     dest = rels / release_id
-    previous = current(base)
     fresh = False
     if dest.exists() and check_dir(dest):  # left over and changed: set aside, unpack again
         dest.rename(rels / f".changed-{release_id}-{int(time.time())}")
@@ -328,10 +340,7 @@ def install(tar: Path, base: Path, release_id: str, into: dict[str, Any] | None 
         _unpack(tar, dest)
         fresh = True
     _back_links(dest, base)
-    info: dict[str, Any] = into if into is not None else {}
-    info.update(previous=previous, release=release_id, fresh=fresh)
-    switch(base, release_id, into=info)
-    return info
+    return fresh
 
 
 def switch(base: Path, release_id: str, into: dict[str, Any] | None = None) -> dict[str, Any]:

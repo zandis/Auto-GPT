@@ -71,6 +71,13 @@
 # checks that this host can reach it (D-140).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# LR-18: run from a release the bootstrap staged (BOX/releases/<id>/deploy/install.sh), the code is that release's
+# (ROOT) and the box is BOX, two folders up: its install lock, its `current` and the update's target are the box's.
+# Told from this script's own path alone, never from a caller's variable. Run as deploy/install.sh, BASE is ROOT
+BASE="$ROOT"
+if [ "$(basename "$(dirname "$ROOT")")" = releases ] && [ -d "$(dirname "$(dirname "$ROOT")")/deploy" ]; then
+  BASE="$(dirname "$(dirname "$ROOT")")"
+fi
 cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
@@ -161,7 +168,7 @@ done
 # by a run that only checks, and when box-install.sh runs it (--keep-poc-list: box-install.sh empties it itself; the
 # option only keeps more lines, and no variable of a caller's is read for it). rm takes a link away, never what it names
 if [ "$_clear" = 1 ] \
-    && { [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; }; then
+    && { [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$BASE/current" 2>/dev/null)" ]; }; then
   rm -f -- "$TB_STOP_DEPLOY/site/poc-stops.jsonl" 2>/dev/null || true
 fi
 PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""; PP_REMOVE=""  # H-96: the KEK passphrase's two ways in (the KEK-INPUT block)
@@ -623,7 +630,7 @@ echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), m
 # written, and the lock ends with the installer's process, so a killed run leaves none behind. The run from the signed
 # tree (exec below) keeps the lock it inherits on fd 9: it is not taken twice
 # H-94: on a PoC box with no flock, or a folder that cannot be opened, the warning skips the lock (LOCKED=0)
-INSTALL_LOCK="$(readlink -f "$ROOT/deploy")"
+INSTALL_LOCK="$(readlink -f "$BASE/deploy")"  # LR-18: the box's, also from a staged release
 LOCKED=1; NO_LOCK="the install lock (a second installer on this folder is not kept out)"
 command -v flock >/dev/null || { stop_or_warn install-lock-flock "$NO_LOCK" "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed"; LOCKED=0; }
 if [ "$LOCKED" = 1 ] && [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$INSTALL_LOCK" ]; then
@@ -714,7 +721,7 @@ ANCHOR_SKIPS="the anchor folders: not mounted into the console, no first head, n
 # PRODUCTION, D-127; a value that is none of the four is taken as PRODUCTION) and --environment, so a PRODUCTION
 # box re-run with --environment VALIDATION is refused here, not after the load (M1)
 SIGNED_RUN=0
-if [ -n "${TB_INSTALL_SIGNED:-}" ] && [ "$TB_INSTALL_SIGNED" = "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+if [ -n "${TB_INSTALL_SIGNED:-}" ] && [ "$TB_INSTALL_SIGNED" = "$(readlink "$BASE/current" 2>/dev/null)" ]; then
   SIGNED_RUN=1
 fi
 GATE_ENV="$EARLY_ENV"
@@ -755,7 +762,7 @@ if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
     SPACE_RC=0
     SPACE="$(python3 "$ROOT/tools/packs.py" space "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} \
       --docker-root "${DOCKER_ROOT:-/var/lib/docker}" --models "$ROOT/deploy/models" --stage "${TMPDIR:-/tmp}" \
-      --deploy "$ROOT" --updates "$ROOT/deploy/updates" 2>&1)" || SPACE_RC=$?
+      --deploy "$BASE" --updates "$BASE/deploy/updates" 2>&1)" || SPACE_RC=$?
     [ "$SPACE_RC" != 1 ] || die "the disk cannot hold the install at its peak; nothing was loaded: $SPACE"  # H-94 (2)
     [ -z "$SPACE" ] || printf '%s\n' "$SPACE" | indent
   fi
@@ -791,14 +798,14 @@ fi
 # H-94 (1): the signed release does not hold what every later step runs (its image, its host tree, its installer)
 docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $IMAGE_PY image"  # H-94 (1)
 # T-631, D-367: compose files, host tools and configuration come only from the signed release
-[ -L "$ROOT/current" ] && [ -d "$ROOT/current/deploy" ] \
+[ -L "$BASE/current" ] && [ -d "$BASE/current/deploy" ] \
   || die "the bundle carried no host tree (payload kind host, D-367): build the release with tools/make_bundle.sh of T-631 or later"  # H-94 (1)
-RELEASE="$(readlink "$ROOT/current")"
-echo "    release: $ROOT/current -> $RELEASE"
+RELEASE="$(readlink "$BASE/current")"
+echo "    release: $BASE/current -> $RELEASE"
 if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # deploy/install.sh is now a link into the signed tree (run by that path, so ROOT stays this folder)
-  [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"  # H-94 (1)
-  say "continuing from the signed release ($ROOT/deploy/install.sh -> $(readlink "$ROOT/deploy/install.sh"))"
+  [ -L "$BASE/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"  # H-94 (1)
+  say "continuing from the signed release ($BASE/deploy/install.sh -> $(readlink "$BASE/deploy/install.sh"))"
   # REHEARSAL-REAL-SERVERS (H-89): the compose override this run exported (above) is never handed on: the run from
   # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
   [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
@@ -816,11 +823,11 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
       PP_ARGS+=("$a")
     done
     [ -z "$KP_FILE" ] || PP_ARGS+=(--kek-passphrase-remove "$KP_FILE")
-    TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
+    TB_INSTALL_SIGNED="$RELEASE" exec bash "$BASE/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
       8< <(printf '%s\n' "$KP_VALUE")
   fi
   # ---- end of KEK-INPUT
-  TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
+  TB_INSTALL_SIGNED="$RELEASE" exec bash "$BASE/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
 # Expose the signed host CLI on PATH. The link follows the release selected by an update or rollback.

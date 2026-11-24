@@ -77,4 +77,50 @@ def test_a_box_from_the_release_before_is_reinstalled_by_the_new_bootstrap(tmp_p
         got = _boot(new, pub, opt, *box, "--", "--kek-passphrase-file", str(pf))
         assert got.returncode == 0, got.stdout + got.stderr
         assert "release N installer ran" in got.stdout and "unknown option" not in got.stderr, got.stdout + got.stderr
-    assert (opt / "deploy" / "install.sh").read_text(encoding="utf-8") == N_INSTALL
+    # LR-18: the release is staged, and the box stays on its own until the update step switches it (the stand-in
+    # installers here load nothing, so nothing switches)
+    assert (opt / "releases" / "1.0.0" / "deploy" / "install.sh").read_text(encoding="utf-8") == N_INSTALL
+    assert (opt / "deploy" / "install.sh").read_text(encoding="utf-8") == N1_INSTALL
+
+
+# LR-18 (Lane LR's lifecycle review, routed into #1455 by the integrator's 7136231344): the bootstrap switched
+# `current` to the new release before the bundle was verified whole, loaded or given a rollback point. The update
+# path then recorded the new release as the one before, and a stop before the load left the box on the new tree
+# with the old images and no marker. The bootstrap now stages the release and switches nothing: the release's
+# installer runs from the staged tree, and only its update step switches (it records the release the box ran).
+N_STOPS = (
+    '#!/usr/bin/env bash\nset -euo pipefail\nBOX="$(cd "$(dirname "$0")/../../.." && pwd)"\n'
+    'echo "release N installer ran from $(cd "$(dirname "$0")/.." && pwd)"\n'
+    'echo "current at the installer\'s start: $(readlink "$BOX/current")"\n'
+    'echo "install: the bundle is not a valid signed TrialBox release; nothing was changed" >&2\nexit 1\n'
+)
+
+
+def test_a_running_box_stays_on_its_release_until_the_update_step_switches(tmp_path: Path) -> None:
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl")
+    priv, pub = sign_bundle.keygen(tmp_path / "vendor")
+    common = {"deploy/docker-compose.yml": "services: {}\n", "tools/__init__.py": "", "tools/host_tree.py": HOST_TREE}
+    old_files = {
+        **common,
+        "deploy/install.sh": N1_INSTALL,
+        "deploy/box-install.sh": N1_INSTALL,
+        "tools/x.py": "X = 0\n",
+    }
+    old = _release(tmp_path, priv, "0.9.0", 2, old_files)
+    new = _release(tmp_path, priv, "1.0.0", 3, {**common, "deploy/install.sh": N_STOPS,
+                                                "deploy/box-install.sh": N_STOPS, "tools/x.py": "X = 1\n"})  # fmt: skip
+    opt = tmp_path / "opt" / "trialbox"
+    assert _boot(old, pub, opt).returncode == 0
+    # the box as an install of N-1 leaves it: the release under releases/, `current` naming it, its record
+    host_tree.install(tmp_path / "trialbox-host-0.9.0.tar", opt, "0.9.0")
+    (opt / "deploy" / "updates").mkdir(parents=True, exist_ok=True)
+    (opt / "deploy" / "updates" / "installed.json").write_text('{"release_seq": 2}\n', encoding="utf-8")
+    before = os.readlink(opt / "current")
+    got = _boot(new, pub, opt, "--", "--kek-passphrase-file", "/x")
+    out = got.stdout + got.stderr
+    assert got.returncode == 1 and "release N installer ran" in got.stdout, out  # N's installer, stopped before a load
+    assert f"current at the installer's start: {before}" in got.stdout, out  # not switched before it ran
+    assert os.readlink(opt / "current") == before == "releases/0.9.0", out  # nor after it stopped
+    assert (opt / "deploy" / "install.sh").resolve() == (opt / "releases" / "0.9.0" / "deploy" / "install.sh")
+    assert (opt / "releases" / "1.0.0" / "deploy" / "install.sh").read_text(encoding="utf-8") == N_STOPS

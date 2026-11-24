@@ -119,6 +119,10 @@ def test_a_signed_file_another_user_could_change_is_never_what_runs(release: dic
         x.chmod(0o664 if how == "group-writable" else 0o646)
     got = _boot(release)
     assert got.returncode == 0, got.stdout + got.stderr
-    assert "brought in: the signed release" in got.stdout, got.stdout
-    used = Path(os.path.realpath(x))
-    assert used.is_relative_to(Path(os.path.realpath(release["opt"]))) and not used.stat().st_mode & 0o022
+    # LR-18: the release is staged and its installer, whose code is the staged tree's, runs; the kept file is
+    # not what runs (it is the box's until the update step switches)
+    staged = release["opt"] / "releases" / "1.0.0"
+    assert "staged: the signed release" in got.stdout and f"running: {staged}/deploy/install.sh" in got.stdout
+    assert "signed installer ran" in got.stdout, got.stdout
+    used = staged / "tools" / "x.py"
+    assert not used.is_symlink() and not used.stat().st_mode & 0o022

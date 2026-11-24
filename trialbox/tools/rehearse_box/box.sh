@@ -252,16 +252,17 @@ bootstrap)
     || { echo "$out"; fail "the bootstrap did not keep and run this release's own tree (exit $rc)"; }
   # H-110 (a; the integrator's ruling 7119913331): a kept tree is the site's data, never code. Its box-install.sh and
   # install.sh replaced by planted ones (the harm: code the vendor key's signature does not cover, run as root): the
-  # signed release is brought in first, the planted files set aside, and the signed installer runs; the planted never
+  # signed release is staged (LR-18: nothing switched before the update step) and its own installer runs from there;
+  # the planted never
   planted="$W/bootstrap/planted-installer-ran"
   for f in box-install.sh install.sh; do printf '#!/bin/sh\ntouch "%s"\n' "$planted" > "$opt/deploy/$f"; done
   out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
   echo "$out" | tail -4
-  [ "$rc" = 0 ] && echo "$out" | grep -q "^brought in: the signed release " \
-    && echo "$out" | grep -q "^running: $opt/deploy/install.sh $BUNDLE --ctgov-check" && [ ! -e "$planted" ] \
-    && ! grep -qs "$planted" "$opt/deploy/install.sh" "$opt/deploy/box-install.sh" \
-    || fail "a kept tree with planted installers: the signed release was not brought in, or a planted installer ran (exit $rc)"
-  ok "a kept tree with planted installers: the signed release brought in, the planted set aside and never run"
+  staged="$(echo "$out" | sed -n "s#^running: \($opt/releases/[^/ ]*\)/deploy/install.sh $BUNDLE --ctgov-check\$#\1#p")"
+  [ "$rc" = 0 ] && echo "$out" | grep -q "^staged: the signed release " && [ -n "$staged" ] && [ ! -e "$planted" ] \
+    && ! grep -qs "$planted" "$staged/deploy/install.sh" "$staged/deploy/box-install.sh" && [ ! -e "$opt/current" ] \
+    || fail "a kept tree with planted installers: the signed release was not staged and run, a planted installer ran, or the box was switched before its update step (exit $rc)"
+  ok "a kept tree with planted installers: the signed release staged and its installer run, the planted never run, nothing switched"
   rm -rf "$W/bootstrap"
   ok "RUNBOOK §1's first command: bootstrap signature checked, bundle verified, host tree unpacked, key placed, installer run"
   ;;

@@ -476,6 +476,17 @@
    "state": "open",
    "fix": "the page's lists completed; the copy loop's warning made exact; the PR body is the lead's",
    "from": "1455-10: the re-review of #1455 at 973a87aa (verdict 7135580046)"
+  },
+  {
+   "id": "H110-44",
+   "severity": "High",
+   "claim": "the bootstrap switched current to the new release before the bundle was verified whole, loaded or given a rollback point: the update then recorded the new release as the one before, and a stop before the load left the new tree over the old images",
+   "severity_basis": "a rollback that does not roll the tree back; a mixed box with no marker",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the bootstrap stages the release and switches nothing; the staged installer runs, and only its update step switches, with its rollback point",
+   "from": "LR-18: Lane LR's lifecycle review (routed by the integrator's 7136231344)"
   }
  ]
 }

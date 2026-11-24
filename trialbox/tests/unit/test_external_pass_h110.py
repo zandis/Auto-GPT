@@ -94,7 +94,8 @@ CHANGES = {
 def test_the_installer_that_runs_from_a_kept_tree_is_the_signed_one(release: dict[str, Path], change: str) -> None:
     """The invariant of (a) (the integrator's ruling 7119913331): whatever a kept tree holds, the installer that runs
     is the signed release's own, and no code of the kept tree runs. The kept tree is the site's data: its own files
-    stay, a changed file of the release is set aside (never deleted), and the signed release is brought in first."""
+    stay. LR-18: the signed release is staged (releases/<id>) and its installer runs from there; nothing is switched
+    or set aside until the installer's update step switches the box (the stand-ins here load nothing)."""
     assert _boot(release).returncode == 0  # the first run unpacks the signed tree
     opt = release["opt"]
     (opt / "deploy" / ".env").write_text("TB_ENV=TEST\n", encoding="utf-8")  # the site's own file
@@ -105,28 +106,29 @@ def test_the_installer_that_runs_from_a_kept_tree_is_the_signed_one(release: dic
     got = _boot(release, "--box", "--", "--yes")
     assert got.returncode == 0, got.stdout + got.stderr
     assert not marker.exists() and "planted" not in got.stdout, got.stdout
-    assert f"signed box-install: {opt}/deploy/box-install.sh {release['bundle']} --yes" in got.stdout
-    for name, text in FILES.items():  # what runs from here on is the signed tree, every file of it
-        assert (opt / name).read_text(encoding="utf-8") == text, name
     assert (opt / "deploy" / ".env").read_text(encoding="utf-8") == "TB_ENV=TEST\n"
     if rel is None:
+        assert f"signed box-install: {opt}/deploy/box-install.sh {release['bundle']} --yes" in got.stdout
         assert "already holds this release's host tree" in got.stdout and not (opt / "releases").exists()
     else:
-        assert "none of its code is run" in got.stdout and "brought in: the signed release 1.0.0" in got.stdout
-        assert os.readlink(opt / "current") == "releases/1.0.0"
-        assert not (opt / "tools" / "json.py").exists()  # the kept tree's own code folder went aside whole
-        kept = [p for p in (opt / "releases").glob(".replaced-*/**/*") if p.is_file()]
-        assert any(p.read_text(encoding="utf-8") == PLANT.format(marker=marker) for p in kept), kept
+        staged = opt / "releases" / "1.0.0"
+        assert f"signed box-install: {staged}/deploy/box-install.sh {release['bundle']} --yes" in got.stdout
+        assert "none of its code is run" in got.stdout and "staged: the signed release 1.0.0" in got.stdout
+        for name, text in FILES.items():  # what runs is the staged signed tree, every file of it
+            assert (staged / name).read_text(encoding="utf-8") == text, name
+        assert (staged / "deploy" / ".env").resolve() == (opt / "deploy" / ".env").resolve()  # the site's file
+        assert not (opt / "current").exists()  # LR-18: nothing switched before the update step
+        assert (opt / rel).read_text(encoding="utf-8") == PLANT.format(marker=marker)  # data until then, never run
 
 
 def test_a_module_planted_at_the_top_of_a_kept_tree_stops_before_anything_runs(release: dict[str, Path]) -> None:
-    """A module at the top is no release path, so bringing the release in leaves it: a python3 started there would
-    import it, so nothing runs (H-94 (1): only the signed files run)."""
+    """A module at the top is no release path, so the update step's switch would leave it: a python3 started there
+    (every root job after the switch) would import it, so nothing runs (H-94 (1): only the signed files run)."""
     assert _boot(release).returncode == 0
     marker = release["tmp"] / "planted-ran"
     (release["opt"] / "sitecustomize.py").write_text(f"open({str(marker)!r}, 'w')\n", encoding="utf-8")
     got = _boot(release, "--box")
-    assert got.returncode == 1 and "still does not match the signed release (sitecustomize.py: " in got.stderr
+    assert got.returncode == 1 and "holds code at its top that the release does not (sitecustomize.py: " in got.stderr
     assert not marker.exists() and "running:" not in got.stdout
 
 
