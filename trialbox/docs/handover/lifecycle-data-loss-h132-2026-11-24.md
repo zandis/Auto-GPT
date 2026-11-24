@@ -90,5 +90,7 @@ case 7 now asserts the forward finish for those two steps (the integrator's ruli
 - `tests/unit/test_restore_from_the_host_h100.py:180`: the "box's runtime" assertion now also allows exactly
   `docker volume inspect -f {{.Mountpoint}}` and `docker container inspect -f {{.State.Status}}`, and asserts no
   volume or container `rm`, `prune` or `create` (ruling 7136897074). The `rec.calls == []` tests stay.
+- `services/console/i18n_audit.py`: one label row for the new audit event `update.finish_failed` (the console's
+  audit browser requires a label for every event the code writes), as H-100 added `backup.restore_failed`'s.
 - `tools/update_drill.py` case 7 (`kill_case`): the forward finish for `refdata` and `finish` (ruling 7136669077,
   item 2 (d)).
