@@ -87,6 +87,15 @@ tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a k
 # H-94: its PoC box is the record (deploy/.env, the mark) alone: it has no command line of its own
 TB_STOP_WHO="TrialBox REFUSED to start"; TB_STOP_FILE=settings_guard.sh; TB_STOP_DEPLOY="$DEPLOY"; TB_STOP_ARG_ENV=""
 TB_STOP_REHEARSAL=0
+# H-124 (lane LR's LR-9, the integrator's 7136231344): an update cut short (a power cut, kill -9) leaves its marker;
+# the box may be between two releases (new images on a database whose steps never ran, or old images on a migrated
+# one), so it does not start until the update is finished or rolled back
+if [ -f "$DEPLOY/updates/IN_PROGRESS.json" ] || [ -L "$DEPLOY/updates/IN_PROGRESS.json" ]; then
+  ip_bundle="$(sed -n 's/.*"bundle_id": *"\([A-Za-z0-9._-]*\)".*/\1/p' "$DEPLOY/updates/IN_PROGRESS.json" 2>/dev/null | head -1)"
+  ip_step="$(sed -n 's/.*"step": *"\([^"]*\)".*/\1/p' "$DEPLOY/updates/IN_PROGRESS.json" 2>/dev/null | head -1)"
+  echo "$TB_STOP_WHO: update ${ip_bundle:-(unreadable marker)} is unfinished (step ${ip_step:-unknown}): the box may be between two releases. Run tools/apply_update.sh status, then tools/apply_update.sh rollback ${ip_bundle:-<bundle>}; nothing was started" >&2
+  exit 1  # H-94 depends (1): a box between two releases is not shown whole, so it is not started (as apply_update.sh refuses an update over it)
+fi
 # 10K-4 (D-1390): the audit anchor folder is bind-mounted into the console, and docker resolves its path again at
 # every start: when the box mounts one (deploy/site/compose.anchors.yml), the rule for a folder the console may be
 # given is checked again here (no link in its path, parents only root may write, no system folder; finish-check

@@ -388,6 +388,16 @@ box = up.ComposeBox(Path("deploy"))
 print(" ".join(f"{db}={box.db_size(db, user)}" for db, user in up.DB_SIZE_ROLES))' 2>&1)" \
     || fail "the update's size check failed on the box's own roles (H-121): $sizes"
   ok "the update's size check read both databases on a site's roles (H-121): $sizes"
+  # H-124 (lane LR's LR-9): the boot unit's start guard, as systemd runs it (ExecStartPre), refuses while an update's
+  # marker stands; the marker is planted, the guard run, the marker removed (the box is not stopped or started)
+  marker="$BOX/deploy/updates/IN_PROGRESS.json"
+  [ ! -e "$marker" ] || fail "an update's marker stands before the LR-9 check: $marker"
+  printf '{"bundle_id": "rehearsal-lr9", "step": "migrate and restart"}\n' > "$marker"
+  guard="$(sh "$BOX/deploy/settings_guard.sh" "$BOX/deploy" 2>&1)"; rc=$?
+  rm -f "$marker"
+  [ "$rc" = 1 ] && printf '%s' "$guard" | grep -q "update rehearsal-lr9 is unfinished" \
+    || fail "the start guard let the box start with an update's marker standing (LR-9): rc $rc: $guard"
+  ok "the start guard refuses while an update's marker stands (LR-9), and names the two commands"
   ;;
 
 # ------------------------------------------------------------------------------------------------ served names
