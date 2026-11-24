@@ -64,6 +64,8 @@ service name), or the suites refuse the key.
   the one `Authorization` line is the only difference.
 - `test_no_object_shows_the_key`, `test_is_local_is_exactly_the_documented_set` (25 hosts),
   `test_full_set_gpu_stage_passes_the_key_through_and_names_both_endpoints`.
+- `test_the_key_is_a_secret_setting_the_support_bundle_scrubs_and_no_service_holds`: the support bundle's
+  secret list and its scrub's declarations name it; the secrets overlay clears it for every service.
 
 ## Mutation pass
 
@@ -87,3 +89,6 @@ run once this is on master. The real model-guard was not in the loop here (its o
 
 `tests/llm/test_llm_layer.py` and `tests/unit/test_judge_tier.py` (the suites' owners): one call each, the client
 from `eval_client`; no interface changed. `libs/tb_common/config.py`: three declared settings.
+`tools/support_bundle.py`: `TB_LLM_EVAL_KEY` in `SECRET_SETTINGS`, so a bundle redacts it by name and value.
+`deploy/docker-compose.secrets.yml`: cleared in the `x-tokens` block with the other host tools' keys, so no service
+holds it (`tests/unit/test_compose_secret_reach.py`, `tests/unit/test_support_bundle_no_secret.py`).

@@ -268,3 +268,13 @@ def test_full_set_gpu_stage_passes_the_key_through_and_names_both_endpoints(
     assert env["TB_LLM_EVAL_URL"] == env["TB_JUDGE_LLM_URL"] == opts.llm_url
     assert env["TB_LLM_EVAL_MODEL"] == env["TB_JUDGE_MODEL"] == SERVED
     assert all(PLANTED not in a for argv in (*gpu.commands, *gpu.always) for a in argv)
+
+
+def test_the_key_is_a_secret_setting_the_support_bundle_scrubs_and_no_service_holds() -> None:
+    from tools import bundle_scrub, support_bundle
+
+    assert ENV in support_bundle.SECRET_SETTINGS
+    assert ENV in bundle_scrub.declarations().secret
+    overlay = (ROOT / "deploy/docker-compose.secrets.yml").read_text(encoding="utf-8")
+    tokens = overlay.split("x-tokens: &tokens", 1)[1].split("\n\n", 1)[0]
+    assert f'  {ENV}: ""' in tokens.splitlines()  # cleared in every service that takes the tokens block
