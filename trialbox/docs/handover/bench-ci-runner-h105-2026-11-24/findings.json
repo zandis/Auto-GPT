@@ -1,0 +1,66 @@
+{
+ "card": "H105",
+ "title": "the bench host's CI runner, made safe for a public repository",
+ "date": "2026-11-24",
+ "source": "docs/handover/bench-ci-runner-h105-2026-11-24.md",
+ "note": "basis 'shown' means shown by the tree or the card's own tests; nothing was installed or run on the bench host: every host-side claim is the walk's to show.",
+ "findings": [
+  {
+   "id": "H105-01",
+   "severity": "Medium",
+   "claim": "a one-job runner needs a fresh registration per job, and a registration token from the runner settings page lasts about an hour, so the launcher holds a fine-grained token of the owner's account (this repository only, Administration read and write) to ask for one-job configurations; that token is stronger than a registration token: leaked, it can register runners and change the repository's administration settings until it is revoked",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "the owner's choice: keep the token's expiry short and revoke it with the remove step (the page says so), or rule another credential"
+  },
+  {
+   "id": "H105-02",
+   "severity": "Medium",
+   "claim": "the engine and gpu slots give the job a nested rootless engine of its own, which needs the fuse and tun devices, the default capabilities and set-uid id mapping: their containers keep a writable root and do not block new privileges, a wider kernel surface than the cpu slots (read-only, no capability); the outer engine is rootless as the tb-bench user in no other group, so an escape lands as that user, not root",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H105-03",
+   "severity": "High",
+   "claim": "the GPU suites (tools/full_set.py stage gpu) need a model endpoint (--llm-url, --llm-model); a bench job sees neither the host's model folders nor the bench's servers, and the card names no way to give it one, so the gpu-suites and full-set jobs report the stage as not started and stay red until that is ruled",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H105-04",
+   "severity": "Medium",
+   "claim": "no make target runs the real-model rehearsal (deploy/install.sh --rehearsal-real-servers, H-89) in CI: it needs pinned weights and the engine probe on the job's own card; the bench workflow's rehearse-box job runs the box rehearsal with the stand-ins, and the real-model rehearsal is not wired",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H105-05",
+   "severity": "Medium",
+   "claim": "the egress proxy tunnels HTTPS on port 443 to the allow-listed hosts only; a nested image build that fetches a distribution archive over plain HTTP (the rehearsal's host image, apt in the Dockerfiles) is refused, and whether the example allow-list is enough for every job is not known until the first run (the proxy logs each refused host by name)",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H105-06",
+   "severity": "Low",
+   "claim": "a job can read its own runner's one-job configuration and session (the same user runs the runner and the job, as on every self-hosted runner); both end with that job and its container, and no job sees another's",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H105-07",
+   "severity": "Low",
+   "claim": "the install page is a part of RUNBOOK section 13 (docs/runbook/13-bench-ci-runner.md), as the integrator gives section numbers; a number of its own needs the integrator's row",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

@@ -535,7 +535,9 @@ def test_the_units_run_as_the_unprivileged_user_from_roots_files() -> None:
         assert "-s -E -m tools.bench_ci.launcher" in unit and "WorkingDirectory=/opt/tb-bench-ci" in unit
         assert "--settings /etc/tb-bench-ci/settings.env" in unit
     assert "useradd --system --user-group --create-home" in INSTALL and "--shell /usr/sbin/nologin" in INSTALL
-    assert '[ "$(id -nG "$USER_NAME")" = "$USER_NAME" ]' in INSTALL  # in no other group (no engine group, no sudo)
+    # in no other group (no engine group, no sudo): install stops, verify fails
+    assert '[ "$(id -nG "$USER_NAME")" = "$USER_NAME" ] || die "$USER_NAME is in another group' in INSTALL
+    assert 'no_group() { [ "$(id -nG "$USER_NAME")" = "$USER_NAME" ]; }' in INSTALL
     assert 'install -d -m 0750 -o root -g "$USER_NAME" "$ETC"' in INSTALL
     assert 'install -m 0644 -o root -g root "$SRC/$f" "$OPT/tools/bench_ci/$f"' in INSTALL
 
