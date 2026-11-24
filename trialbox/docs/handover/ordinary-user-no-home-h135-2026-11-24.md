@@ -6,12 +6,13 @@
   with no home folder, called "same on master". A standing red that each line excuses is a finding.
 - **Date:** 2026-11-24
 - **Findings:** [`ordinary-user-no-home-h135-2026-11-24/findings.json`](ordinary-user-no-home-h135-2026-11-24/findings.json)
-  (H135-01 to H135-03)
+  (H135-01 to H135-04)
 - **Files:** `tests/unit/test_poc_stops_h94.py` (the `_firstrun` helper) and
   `tests/unit/test_kek_passphrase_review_h96.py` (one test and a new helper). No product file changes, and no
   assertion changes.
-- **Files outside the card:** none yet. `tests/unit/test_cloud_run.py` is lane G's: a `question:` went to the lead
-  first (section 3), and the file is not touched.
+- **Files outside the card** (the integrator's go, 7143979475): `tests/unit/test_cloud_run.py`, lane G's. Only the
+  environment of `test_a_part_records_its_run_and_a_new_run_runs_it_again` changed (section 3); its skip and its
+  assertions are as they were.
 
 ## 1. How it was reproduced
 
@@ -86,11 +87,15 @@ This is the environment, not a uid or a mode. Root under `env -i` with `HOME=/ro
 the variable set launches the browser. `node` must also be on `PATH`. The runs here put the container's node folder
 on it.
 
-The question to the lead (lane G to read) proposes a body-only change to `tools/complete_run.py` `_node_env`. It
-already gives `NODE_PATH` the preinstalled node tools when unset. It would also give `PLAYWRIGHT_BROWSERS_PATH` the
-preinstalled browsers folder when unset and when that folder exists. The VM, whose browsers are in root's home cache,
-would be unchanged. The alternative is the same default in the test's own environment (line 56). Neither is made
-until the go.
+The choice: **the test, not the product** (the integrator's ruling 7143979475, after a `question:`). A
+container's browser folder is not product knowledge, so `tools/complete_run.py` is unchanged. The test's own
+environment now gets `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` when the caller gave none and that folder exists.
+Everything else in the test is as it was.
+
+**The skip checks the driver, never a launchable browser (H135-04, lane G's, the external reviewer's note
+7143959133).** The `skipif` at lines 51-54 asks only whether the preinstalled node tools folder exists or `NODE_PATH`
+is set. A host with the driver and no browser it can find runs the test, and the test fails in place of a skip. The
+skip is not changed here.
 
 ## 4. The done test
 
@@ -99,8 +104,10 @@ branch merged with master `cf7c1917` (236 on `ecbb1f89`). They were run under th
 
 | As | Result |
 | --- | --- |
-| `nobody`, `env -i`, its own copy | 1 failed (`test_cloud_run.py`, section 3), 5454 passed, 13 skipped |
-| root | 5459 passed, 9 skipped |
+| `nobody`, `env -i`, its own copy | 5455 passed, 13 skipped (0 failed) |
+| root | 5459 passed, 9 skipped (0 failed) |
+
+Before the `test_cloud_run.py` change, `nobody` gave 1 failed (that test), 5454 passed and 13 skipped.
 
 On the branch before the merge (236 files), root gave 5412 passed, 9 skipped and 1 error. The error was at the
 teardown of the module fixture `box` in `test_host_commands_own_environment.py`, reported against
@@ -115,10 +122,10 @@ Mutants, each put back after it ran:
 | `_firstrun` without the stand-in `getent` | the 9 of cause (a) fail | not run |
 | the T-3 test without `_runner_is_not` | fails (`DID NOT RAISE`) | passes (the helper does nothing for root) |
 | `tools/keys.py` `_safe_folders` without its folder-owner check | the T-3 test fails | the T-3 test fails |
+| `test_cloud_run.py` without the browser folder line | the part test fails (`0/1 screenshots`) | not run |
 
 ## 5. Not run, not verified
 
 - CI itself. Its runner is uid 1001 with a home, so cause (a) wrote into `/home/runner` there, and causes (b) and (c)
   do not arise. The `test_cloud_run.py` test skips on CI, which has no preinstalled node tools folder.
 - The whole unit suite. Only the policy set and the touched files were run.
-- `test_cloud_run.py` stays red as `nobody` under `env -i` until the lead's go on section 3.

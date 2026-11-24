@@ -24,7 +24,15 @@
     {
       "id": "H135-03",
       "severity": "Low",
-      "claim": "test_cloud_run.py::test_a_part_records_its_run_and_a_new_run_runs_it_again runs whenever the preinstalled node tools exist, but its screenshot finds the browser only through the caller's browsers-path variable or the home cache, so under env -i it fails as nobody and as root (0/1 screenshots); a question to lane G proposes a default in tools/complete_run.py _node_env",
+      "claim": "test_cloud_run.py::test_a_part_records_its_run_and_a_new_run_runs_it_again found its screenshot browser only through the caller's browsers-path variable or the home cache, so under env -i it failed as nobody and as root (0/1 screenshots); the test's own environment now gets the preinstalled browser folder when it exists (the integrator's go 7143979475), assertions unchanged",
+      "lane": "G",
+      "basis": "shown",
+      "state": "fixed e4791949bf36489b167a2d228257055c1b20719f"
+    },
+    {
+      "id": "H135-04",
+      "severity": "Low",
+      "claim": "the skip of test_cloud_run.py::test_a_part_records_its_run_and_a_new_run_runs_it_again (lines 51-54) checks only for the node driver, never for a browser it can launch, so a host with the driver and no findable browser fails the test instead of skipping it; the skip is unchanged (the external reviewer's note 7143959133)",
       "lane": "G",
       "basis": "shown",
       "state": "open"
