@@ -52,6 +52,7 @@ import argparse
 import contextlib
 import errno
 import getpass
+import hmac
 import json
 import os
 import shutil
@@ -618,13 +619,40 @@ def _creds_tool() -> str | None:
     return shutil.which("systemd-creds", path=SYSTEM_PATH)
 
 
-def _tpm_sealed() -> bool:
-    """Whether this box's KEK is sealed to the TPM. A credential folder this account cannot look in counts as sealed:
-    a rotation never leaves a credential behind on the old KEK for want of looking."""
+def _credential_present() -> bool | None:
+    """Whether the TPM credential is there; None when this account cannot look in its folder."""
     try:
         return CREDENTIAL_FILE.exists()
     except OSError:
+        return None
+
+
+def _credential_kek() -> bytes:
+    """The KEK the TPM credential opens to (held in memory, never written or printed)."""
+    got = _creds(["decrypt", f"--name={K.CREDENTIAL}", str(CREDENTIAL_FILE), "-"], b"")
+    if got.returncode != 0 or len(got.stdout) != K.KEK_LEN:
+        last = (got.stderr.decode(errors="replace").strip().splitlines() or ["no output"])[-1]
+        raise K.KekError(f"{CREDENTIAL_FILE} cannot be opened on this board (systemd-creds: {last[:300]}): if it is "
+                         "an old board's, move it aside yourself, then run this again; nothing was changed")  # fmt: skip
+    return got.stdout
+
+
+def _seal_here(a: argparse.Namespace, old: bytes) -> bool:
+    """LR-6: whether this rotation seals its new KEK to the TPM. Only when the credential opens to this secrets
+    folder's KEK now (or none is there and --seal-tpm asks for one): a credential sealing another KEK, another
+    folder's or another box's, is never replaced. Read only."""
+    if a.backend != "file":
+        return False
+    present = _credential_present()
+    if not present:
+        return bool(getattr(a, "seal_tpm", False))
+    if hmac.compare_digest(_credential_kek(), old):
         return True
+    if getattr(a, "seal_tpm", False):
+        raise K.KekError(f"{CREDENTIAL_FILE} seals another KEK than this secrets folder's: it is not replaced; "
+                         "nothing was changed")  # fmt: skip
+    _say(f"{CREDENTIAL_FILE} seals another KEK than this secrets folder's: it is left as it is")
+    return False
 
 
 def _cred_next() -> Path:
@@ -957,11 +985,19 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     problem = audit_chain_problem(where_audit)
     if problem is not None:  # the integrator's ruling 7114085298; F3: the box's chain, not any folder
         raise K.KekError(f"a KEK rotation is an audit event on every box: {problem}; nothing was changed")
-    # LR-6: a box whose KEK is sealed by the TPM (or a new board, --seal-tpm) gets the new KEK sealed there too
-    a.seal_tpm = a.backend == "file" and (bool(getattr(a, "seal_tpm", False)) or _tpm_sealed())
-    if a.seal_tpm and _creds_tool() is None:
-        raise K.KekError(f"{CREDENTIAL_FILE} seals this box's KEK, and systemd-creds is not on this host to seal the "
-                         "new one: the boot would open the old KEK only; nothing was changed")  # fmt: skip
+    # LR-6: a box whose KEK is sealed by the TPM (or a new board, --seal-tpm) gets the new KEK sealed there too;
+    # whether the credential is this folder's is read under the lock, once the old KEK is open
+    if a.backend == "file":
+        present = _credential_present()
+        if present is None:
+            if getattr(a, "seal_tpm", False):
+                raise K.KekError(f"{CREDENTIAL_FILE.parent} cannot be looked in by this account: --seal-tpm is run "
+                                 "as root; nothing was changed")  # fmt: skip
+            _say(f"{CREDENTIAL_FILE.parent} cannot be looked in by this account: if this box's KEK is sealed there, "
+                 "run rotate-kek as root")  # fmt: skip
+        elif (present or getattr(a, "seal_tpm", False)) and _creds_tool() is None:
+            raise K.KekError(f"{CREDENTIAL_FILE} is there or asked for, and systemd-creds is not on this host to "
+                             "seal the new KEK: the boot would open the old KEK only; nothing was changed")  # fmt: skip
     assert where_audit is not None
     with _Locked(sec):
         done = resume_rotation(sec, where_audit, "rotate-kek")
@@ -988,11 +1024,12 @@ def _rotate_kek_locked(a: argparse.Namespace, env: Mapping[str, str], sec: Path,
     where = ke.audit_dir(env, a.audit_dir) if a.escrow_out else None
     old_meta = K.read_meta(sec)
     old = K.load_kek(sec, env)
+    seal = _seal_here(a, old)
     keys = {n: K.unwrap(old, K.read_wrapped(sec / n), n) for n in K.PROTECTED if K.wrapped_path(sec / n).exists()}
     # who, when, the box, the environment; never a value
     base = {"started_at": _now(), "box": box, "environment": box_env, "old_kek_id": (old_meta or {}).get("kek_id", ""),
             "backend": a.backend, "rule": rule}  # fmt: skip
-    journal = {**base, "step": "staging", "keys": sorted(keys), "credential": bool(getattr(a, "seal_tpm", False))}
+    journal = {**base, "step": "staging", "keys": sorted(keys), "credential": seal}
     _write_journal(sec, journal)  # first, so a kill after the started event is rolled back and said so
     try:  # F1: the started event before anything changes; without it, no rotation
         append_audit(where_audit, ROTATE_STARTED, {**base, "at": base["started_at"], "who": _who()})

@@ -396,6 +396,26 @@ def test_lr6_a_rotation_on_a_tpm_box_cut_short_keeps_every_key_opening_with_the_
     assert stops >= 8  # the journal twice, the sealed KEK, two staged keys, kek.json.next, the credential, the keys
 
 
+def test_lr6_a_credential_sealing_another_kek_is_never_replaced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LR-6, the card's last rule: a rotation never destroys a key it did not make. The credential on this host may
+    seal another secrets folder's KEK (another box's, a test's): it is left as it is, and --seal-tpm is refused."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    b["cred"].write_bytes(b"STANDIN-SEALED:" + os.urandom(K.KEK_LEN))  # the host's own box, not this folder
+    kept = b["cred"].read_bytes()
+    argv = ["rotate-kek", "--backend", "file", "--secrets", str(b["sec"]), "--audit-dir", str(b["audit"])]
+    env = {**DEV, "TB_KEK_FILE": str(b["run"] / "kek")}
+    before = _state(b["sec"])
+    assert keys.main([*argv, "--kek-out", str(b["media"] / "a.kek"), "--seal-tpm"], env=env) == 1
+    assert _state(b["sec"]) == before and b["cred"].read_bytes() == kept
+    assert keys.main([*argv, "--kek-out", str(b["media"] / "b.kek")], env=env) == 0
+    assert b["cred"].read_bytes() == kept
+    assert not (b["cred"].parent / (K.CREDENTIAL + ".next")).exists()
+    assert _runtime_opens(b)
+
+
 def test_lr6_rotate_kek_on_a_tpm_box_without_the_sealing_tool_changes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -460,6 +480,17 @@ def test_lr7_rotate_pid_map_waits_for_a_kek_rotation_cut_short_and_for_the_folde
         assert _state(b["sec"]) == before
 
 
+class _RootSeen:
+    """``os`` as tb_common.kek sees it in the owner test as an ordinary user: everything real but the effective uid."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(os, name)
+
+    @staticmethod
+    def geteuid() -> int:
+        return 0
+
+
 #: variables a caller could set to steer who gets the key files; none may change it (the card's rule)
 STEER = {"SUDO_UID": "0", "SUDO_GID": "0", "SUDO_USER": "root", "TB_SERVICES_UID": "4242", "TB_SECRETS_OWNER": "0:0",
          "TB_UID": "0", "TB_GID": "0", "USER": "root", "LOGNAME": "root"}  # fmt: skip
@@ -481,8 +512,8 @@ def test_lr3_lr4_the_owner_comes_from_the_secrets_folder_never_from_a_caller_var
     if ROOT:
         for f in (sec, *sec.iterdir()):
             os.chown(f, SERVICES, SERVICES)
-    else:
-        monkeypatch.setattr(os, "geteuid", lambda: 0)
+    else:  # the seam: tb_common.kek sees an effective uid of root; tools.keys's own checks see this user
+        monkeypatch.setattr(K, "os", _RootSeen())
     st = os.stat(sec)
     want = (st.st_uid, st.st_gid)
     assert want[0] != 0
@@ -498,7 +529,7 @@ def test_lr3_lr4_the_owner_comes_from_the_secrets_folder_never_from_a_caller_var
         got = os.stat(p)
         assert (got.st_uid, got.st_gid) == want, p
     assert stat.S_IMODE(os.stat(run).st_mode) == 0o700 and stat.S_IMODE(os.stat(run / "kek").st_mode) == 0o600
-    monkeypatch.setattr(os, "geteuid", lambda: 1 if not ROOT else 0)
+    monkeypatch.setattr(K, "os", os)
     root_owned = tmp_path / "root-owned"
     root_owned.mkdir()
     if ROOT:  # a folder root owns: the writer keeps the files, whatever the variables say
