@@ -56,6 +56,8 @@ prerequisites() {
     command -v "$cmd" >/dev/null || missing+=("$cmd")
   done
   [ "${#missing[@]}" = 0 ] || die "missing on this host: ${missing[*]}"
+  # L-1448-18: the service manager must be the running init, before anything is changed (users, linger, units)
+  [ -d /run/systemd/system ] || die "the service manager is not the running init here: the units cannot run"
   python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "python3 is older than 3.10"
   [ "$(systemctl --version | awk 'NR==1{print $2}')" -ge 248 ] || die "the service manager is older than 248"
   [ -f "$SETTINGS" ] || die "no $SETTINGS: copy tools/bench_ci/settings.example.env there and fill it in"
@@ -168,8 +170,9 @@ cmd_token() {
     IFS= read -r tok || true
   fi
   [ -n "$tok" ] || die "no token was given"
-  local tmp
+  # the temporary copy goes whatever happens (L-1448-11); global, so the trap still sees it after the function ends
   tmp="$(umask 077 && mktemp "$ETC/.token.XXXXXX")"
+  trap 'rm -f -- "$tmp"' EXIT INT TERM HUP
   printf '%s\n' "$tok" > "$tmp"
   tok=""
   chown root:root "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$TOKEN"

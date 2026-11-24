@@ -336,21 +336,8 @@ def test_the_token_goes_to_the_code_hosts_api_only_whatever_a_callers_proxy_says
     assert b"tok-for-a-test" not in call["body"]
     with pytest.raises(ValueError, match="runner endpoints"):
         launcher.api("GET", "/user", "tok-for-a-test")
-    with pytest.raises(ValueError, match="runner endpoints"):  # a read of master's workflow only, never a write
-        launcher.api("PUT", f"/repos/example-owner/example-repo/contents/{launcher.WORKFLOW}?ref=master", "t")
-
-
-def test_masters_workflow_blob_is_read_by_the_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    _Conn.seen = []
-    monkeypatch.setattr("http.client.HTTPSConnection", _Conn)
-    monkeypatch.setattr(_Conn, "answer", (200, {"sha": "b" * 40}))
-    assert launcher.master_blob(_settings(), "tok-for-a-test") == "b" * 40
-    assert _Conn.seen[0]["path"] == (
-        "/repos/example-owner/example-repo/contents/.github/workflows/trialbox-bench-ci.yml?ref=master"
-    )
-    monkeypatch.setattr(_Conn, "answer", (404, {}))
-    with pytest.raises(RuntimeError, match="could not be read"):
-        launcher.master_blob(_settings(), "tok-for-a-test")
+    with pytest.raises(ValueError, match="runner endpoints"):  # the token reads or writes nothing else
+        launcher.api("PUT", f"/repos/example-owner/example-repo/contents/{launcher.WORKFLOW}", "t")
 
 
 @pytest.fixture
@@ -369,7 +356,6 @@ def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         return "CONFIG-X", 7
 
     monkeypatch.setattr(launcher, "jit_config", jit)
-    monkeypatch.setattr(launcher, "master_blob", lambda *_a: "c" * 40)
     monkeypatch.setattr(launcher, "remove_runner", lambda _s, _t, rid: calls.append(("remove", str(rid))))
     me = pwd.getpwuid(os.getuid())
     monkeypatch.setattr("pwd.getpwnam", lambda _n: me)
@@ -394,7 +380,7 @@ def test_the_root_mint_step_gives_the_jobs_user_one_jobs_configuration_and_never
     assert stat.S_IMODE((folder / "runner.jit").stat().st_mode) == 0o600
     facts = json.loads((folder / "job.json").read_text())
     assert facts == {"profile": "cpu", "repo": "example-owner/example-repo", "workflow": launcher.WORKFLOW,
-                     "workflow_blob": "c" * 40, "proxy": "10.213.2.2:3128"}  # fmt: skip
+                     "proxy": "10.213.2.2:3128"}  # fmt: skip
     assert "tok" not in json.dumps(facts) and "tok" not in (folder / "runner.jit").read_text()
     assert json.loads((state / "cpu-2.json").read_text())["runner_id"] == 7
     assert calls[0] == ("token", str(token)) and ("jit", "") in calls

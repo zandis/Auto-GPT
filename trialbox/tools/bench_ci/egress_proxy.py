@@ -52,9 +52,35 @@ def allowed(host: str, exact: frozenset[str], suffixes: Sequence[str]) -> bool:
     return host in exact or any(host.endswith(s) for s in suffixes)
 
 
+NAT64 = ipaddress.ip_network("64:ff9b::/96")
+V4_COMPATIBLE = ipaddress.ip_network("::/96")
+SITE_LOCAL = ipaddress.ip_network("fec0::/10")
+
+
 def public(addr: str) -> bool:
+    """A global unicast address. An IPv4 address carried in IPv6 is judged by its IPv4 address (the review of #1448,
+    L-1448-8): NAT64 (64:ff9b::/96) and IPv4-mapped; IPv4-compatible (::/96) and site-local (fec0::/10) are refused."""
     ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        elif ip in NAT64:
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+        elif ip in V4_COMPATIBLE or ip in SITE_LOCAL:
+            return False
     return ip.is_global and not ip.is_multicast
+
+
+async def connect_any(addrs: Sequence[str]) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    """Each checked address in turn, the first that answers (L-1448-9: an IPv6 address first on a network with no IPv6
+    route must not make the name unreachable)."""
+    last: Exception = OSError("no address")
+    for addr in addrs:
+        try:
+            return await asyncio.wait_for(asyncio.open_connection(addr, PORT), CONNECT_SECONDS)
+        except (OSError, TimeoutError) as exc:
+            last = exc
+    raise last
 
 
 def parse_connect(head: bytes) -> tuple[str, int] | None:
@@ -114,7 +140,7 @@ class Proxy:
                 if not addrs or not all(public(a) for a in addrs):
                     why = "the name resolves to an address that is not public"
                 else:
-                    upstream = await asyncio.wait_for(asyncio.open_connection(addrs[0], PORT), CONNECT_SECONDS)
+                    upstream = await connect_any(addrs)
             except (OSError, TimeoutError) as exc:
                 why = f"no connection ({type(exc).__name__})"
         host_text = target[0] if target else "-"

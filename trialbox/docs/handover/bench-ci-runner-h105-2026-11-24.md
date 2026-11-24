@@ -3,19 +3,31 @@
 **Reader:** the people who build TrialBox: the lane H lead and the integrator. Findings for builders, so in one
 language.
 
-- **Card:** H-105 (the owner's ruling, the integrator's comment 7117447272 on #639, widened by 7117870645 item 8):
+- **Card:** H-105 (the owner's ruling, the integrator's comment 7117447272 on #639, widened by 7117870645 item 8;
+  the security review 7118916382; the weights ruling 7118754451; the ninety-minute ruling 7119929149):
   the bench host runs CI jobs beside the hosted runners, for trains and this repository's lane branches, made safe
   for a public repository
 - **Date:** 2026-11-24
 - **Install page:** [RUNBOOK §13 part: the bench host's CI runner](../runbook/13-bench-ci-runner.md)
 - **Findings:** [`bench-ci-runner-h105-2026-11-24/findings.json`](bench-ci-runner-h105-2026-11-24/findings.json)
   (H105-01 to H105-09)
-- **Files:** `.github/workflows/trialbox-bench-ci.yml` (new), `tools/bench_ci/` (new: the launcher, the cards' check,
-  the egress proxy, the job image, the units, the install script, the example settings),
-  `tests/unit/test_bench_ci_workflow_h105.py`, `tests/unit/test_bench_ci_launcher_h105.py`, the install page, this
-  page and its findings, and `docs/RUNBOOK.md` (the generated index line of §13 only). Outside `trialbox/`: the
-  new workflow and a new `.github/actionlint.yaml`, which declares the four bench labels so that the `checks` job's
-  workflow linter knows them (a test holds it to the launcher's labels; question 5). No existing workflow changes.
+- **Files:** `tools/bench_ci/` (new: the launcher, the gate, the cards' check, the egress proxy, the one-job
+  configuration's unpacker, the job image, the units, the install script, the example settings), the tests
+  `tests/unit/test_bench_ci_{workflow,launcher,gate,unpack_jit,review}_h105.py`, the install page, this page and its
+  findings. No existing workflow's jobs change. The files outside the card are listed below.
+
+## Files outside the card
+
+Named here as the rule asks (each change is the card's own, or a line a ruling asked for):
+
+- `.github/workflows/trialbox-bench-ci.yml` (new);
+- `.github/actionlint.yaml` (new: the four bench labels, so that the workflow linter knows them; the lead's answer:
+  configuration, not a scan allow-list entry);
+- `trialbox/docs/RUNBOOK.md` (the generated index line of §13 only);
+- `trialbox/Makefile` (the job image's Dockerfile added to `HADOLINT_REPORT`, the red of train 161);
+- `trialbox/tests/unit/test_ci_jobs_inside_ninety.py` (the full-set entry the ninety-minute ruling 7119929149 named,
+  and its docstring);
+- `trialbox/tests/unit/test_image_config_scans.py` (its docstring only: six report-only files, not five).
 
 ## What was built
 
@@ -27,8 +39,10 @@ language.
    cancelled or replaced.
    **The owner's switch:** every job also needs the repository variable `TB_BENCH_CI` to be `on` (only an admin sets
    it): unset, every bench job is skipped, so before the install or while the bench is down no lane branch or train
-   waits a day for a runner. **Weight:** a lane push gets the unit shards, the integration run, the GPU suites and the
-   box rehearsal; `make full-set` runs only for a train and the owner's run by hand. The test evaluates every job's
+   waits a day for a runner. **Weight:** A lane push gets the unit shards and the integration run (the CPU
+   profile); the GPU suites, `make full-set` and the box rehearsal run only for a train and the owner's run by hand
+   (the security review's F5). That is less than the owner's ruling (item 8: every lane PR gets the GPU suites):
+   finding H105-09, not met, for the reason given there. The test evaluates every job's
    condition for 13 events with the switch on, unset, off or misspelt. `permissions:
    contents: read`, no secret named, every action pinned by its full commit id, every checkout without a kept
    credential. The test reads every workflow file in `.github/workflows` and fails when a job that can run on a
@@ -73,20 +87,20 @@ language.
 
 ## Questions
 
-1. The GPU suites' model endpoint on the bench (H105-03): may a GPU job fetch the pinned public weights through the
-   proxy and serve them on its own cards with its nested engine, or is a read-only volume of public weights wanted
-   (a host folder the ruling does not allow today)?
+1. Answered (7118754451): the weights folder read-only at `/weights`. Open: the step that serves them (H105-03).
 2. The real-model rehearsal (H105-04): wire it as a bench job on the GPU slot (H-89's probe on the job's card), as a
    later card?
-3. The minting token (H105-01): the owner's choice of credential and expiry.
+3. Answered by the owner: a fine-grained token, this repository only, Administration: write, 30 days, root-only.
 4. A RUNBOOK number of its own for the install page (H105-07)?
 Answered by the lead: `.github/actionlint.yaml` (the four bench labels, so that the workflow linter knows them) is
-configuration, not a scan allow-list entry; it stays, named under the files outside `trialbox/`. The linter was not
-run in the card's container; CI's `checks` job runs it.
+configuration, not a scan allow-list entry; it stays, named under the files outside the card. The workflow linter
+was not run in the card's container (CI's `checks` job runs it); the external review ran it clean, and ran the image
+linter on the job image's Dockerfile: two report-only warnings (DL3008 unpinned packages, DL3010 an archive copied
+then unpacked).
 
 ## The security review of #1448 (fix first): what changed, and the test of each
 
-The review (the newest comment on #1448, 2026-11-24) found that the workflow and its test schedule the bench but do
+The review (its page on #1448, comment 7118916123; the integrator's line 7118916382 on #639, 2026-11-24) found that the workflow and its test schedule the bench but do
 not guard it: a fork's pull request brings its own workflow files. Each fix, and what holds it (every test id under
 `tests/unit/`; each fix also has planted mutants, all caught):
 
@@ -107,3 +121,31 @@ Unproven until the walk's install (H105-08 and the page's last section): that th
 `GITHUB_*` variables and the payload; the three-file form of the one-job configuration; that the rootless engine
 honours `--dns none`, the per-slot networks and the proxy's fixed address; that the nested engine runs with the set-id
 pair alone, plain-folder storage and no tun device; that a unit stop cleans up.
+
+## The external review of #1448 at a5297c6 (fix first): the Mediums, the Lows
+
+The review (#639, 7121436588 and 7121438419; the integrator's line 7121445727) found no High, seven Medium and
+twelve Low. Every Medium is fixed with a test that fails at a5297c6 (`tests/unit/test_bench_ci_review_h105.py`, run
+there before the fix: 29 of its tests failed):
+
+| Finding | The fix | Held by |
+| --- | --- | --- |
+| M-1448-1 | root makes the slot's folder and its subfolders new, each step relative to an open folder, never following a link; the job's files are written into the open folder; each part is handed to the jobs' user by descriptor, the top last; the registration is on record before the folder step | `::test_m1448_1_a_link_planted_at_the_slots_name_after_the_removal_is_not_followed`, `::test_m1448_1_a_link_planted_inside_the_new_folder_is_not_followed` |
+| M-1448-2 | the gate leaves a `started` mark when it accepts a job; the run step counts BENCH_JOB_HOURS from it (until then it is the longest a runner waits: an idle runner is recycled) | `::test_m1448_2_a_job_accepted_late_in_the_runners_wait_gets_its_whole_limit`, `::test_m1448_2_the_gate_marks_an_accepted_job_and_only_that` |
+| M-1448-3 | the example's BENCH_JOB_HOURS is 11 (full-set's 600 minutes); the test holds it to the bench workflow's longest timeout | `::test_m1448_3_the_example_job_hours_cover_the_longest_bench_job` |
+| M-1448-4 | full-set is `${{ !cancelled() && (...) }}`; no job on the bench may use `always()` (the schedule test refuses it); the times table keeps `always()` | `::test_m1448_4_no_job_on_the_bench_starts_after_a_cancel`, `test_bench_ci_workflow_h105.py::test_planted_trigger_mutants_are_caught[full-set after a cancel]` |
+| M-1448-5 | while it waits or runs, the slot joins the egress proxy to its network again every 30 s (a restarted proxy is on none) | `::test_m1448_5_a_waiting_slot_joins_the_proxy_to_its_network_again` |
+| M-1448-6 | the gate reads master's file itself at the job's start, by master's current commit from the code host's ref list, and compares the job's file with it; the mint step no longer reads master (no stale blob, no failing starts before the merge) | `::test_m1448_6_a_train_carrying_masters_new_file_runs_on_a_runner_minted_before_the_change`, `::test_m1448_6_a_branch_still_on_the_old_file_is_refused_whatever_the_runner_saw`, `::test_m1448_6_masters_commit_is_read_from_the_code_hosts_refs`, `::test_m1448_6_the_mint_step_no_longer_reads_masters_file` |
+| M-1448-7 | this page (what a lane push gets, the files outside the card, the rulings cited), the two docstrings (the ninety-minute list grows only by a ruling; six report-only files); the PR body is the lead's to correct | `::test_m1448_7_the_card_page_says_what_a_lane_push_gets`, `::test_m1448_7_the_docstrings_say_what_their_lists_now_hold`, `::test_m1448_7_the_rulings_the_page_cites_are_the_threads` |
+
+Lows fixed (same file): L-1448-8 (a private IPv4 address inside IPv6 is judged as IPv4), L-1448-9 (the proxy tries
+each checked address), L-1448-10 (a private /16 only, BENCH_JOB_HOURS at least 1, ASCII digits), L-1448-11 (the
+token's temporary copy goes on any exit), L-1448-12 (the page: changing the token restarts running slots too),
+L-1448-13 (a container that never took a job fails the unit; the stop handler comes first), L-1448-14 (the page:
+"no upload host" said as what the proxy can tell), L-1448-17 (no huge wall time after an early cancel), L-1448-18
+(the install stops before any change when the service manager is not the running init), L-1448-19 (1) (the switch's
+comparison ignores case, as the code host's does).
+Left for a named follow-up: L-1448-15 (a GPU job refused for busy cards ends red instead of waiting), L-1448-16 (an
+owner's run by hand on a branch the gate refuses is scheduled first; the job `if` could hold the gate's ref rule),
+L-1448-19 (3) (install.sh and the units are tested as text). The review's note on `pytest -n auto` under a CPU quota
+(each shard may start more workers than its share) is not acted on: the first bench runs show it.

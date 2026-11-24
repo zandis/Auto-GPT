@@ -5,7 +5,8 @@ A job's ``timeout-minutes`` is where a hang ends and what a stuck run costs. Thi
 - a job with no limit runs for GitHub's 360 minutes, so each job must name one;
 - a limit above 90 must be on the list below, with the reason the integrator took to the owner.
 
-The list may only shrink. The limits this card lowered were measured first (2026-11-17):
+The list grows only by a ruling of the integrator or the owner (the bench's full-set: 7119929149); otherwise it
+only shrinks. The limits this card lowered were measured first (2026-11-17):
 - ``checks``: 15 to 8, for a job of 3 min 8 s;
 - ``compose``: 150 to 90, for 37.5 min plus about 10.5 for the new-study walk;
 - ``rehearse``: 120 to 60, for about 20 min.

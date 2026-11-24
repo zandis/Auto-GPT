@@ -23,7 +23,8 @@ REPO = "the-owner/the-repo"
 WF = ".github/workflows/trialbox-bench-ci.yml"
 MASTERS = b"name: TrialBox bench CI\non:\n  push:\n"  # master's copy of the workflow file
 COMMIT = "a" * 40
-FACTS = {"repo": REPO, "workflow": WF, "workflow_blob": gate.blob_sha(MASTERS), "proxy": "10.213.1.2:3128"}
+HEAD = "f" * 40  # master's current commit, as the code host's ref list gives it
+FACTS = {"repo": REPO, "workflow": WF, "proxy": "10.213.1.2:3128"}
 
 
 def _env(**over: str) -> dict[str, str]:
@@ -45,6 +46,8 @@ EVENT = {"repository": {"full_name": REPO, "fork": False}}
 
 
 class Fetch:
+    """The code host as the gate reads it: the job's commit holds ``content``; master's current commit MASTERS."""
+
     def __init__(self, content: bytes = MASTERS, fail: bool = False) -> None:
         self.content, self.fail = content, fail
         self.calls: list[tuple[str, ...]] = []
@@ -53,11 +56,16 @@ class Fetch:
         self.calls.append((proxy, repo, commit, path))
         if self.fail:
             raise RuntimeError("the code host did not answer")
-        return self.content
+        return MASTERS if commit == HEAD else self.content
+
+
+def _master(proxy: str, repo: str) -> str:
+    assert (proxy, repo) == ("10.213.1.2:3128", REPO)
+    return HEAD
 
 
 def _decide(env: Mapping[str, str], event: Mapping[str, Any] = EVENT, fetch: Fetch | None = None) -> list[str]:
-    return gate.decide(env, event, FACTS, fetch or Fetch())
+    return gate.decide(env, event, FACTS, fetch or Fetch(), _master)
 
 
 @pytest.mark.parametrize(
@@ -67,7 +75,8 @@ def _decide(env: Mapping[str, str], event: Mapping[str, Any] = EVENT, fetch: Fet
 def test_a_push_of_masters_workflow_to_an_allowed_branch_runs(ref: str) -> None:
     fetch = Fetch()
     assert _decide(_env(GITHUB_REF=ref, GITHUB_WORKFLOW_REF=f"{REPO}/{WF}@{ref}"), fetch=fetch) == []
-    assert fetch.calls == [("10.213.1.2:3128", REPO, COMMIT, WF)]  # read by the job's commit, through the proxy
+    # master's file by master's current commit, the job's by its commit: both by id, through the proxy
+    assert fetch.calls == [("10.213.1.2:3128", REPO, HEAD, WF), ("10.213.1.2:3128", REPO, COMMIT, WF)]
 
 
 def test_the_owners_run_by_hand_runs_also_on_master() -> None:
@@ -156,16 +165,16 @@ def test_a_branch_on_an_older_master_with_the_same_file_runs() -> None:
     old_commit = "b" * 40
     fetch = Fetch(content=MASTERS)
     assert _decide(_env(GITHUB_WORKFLOW_SHA=old_commit), fetch=fetch) == []
-    assert fetch.calls[0][2] == old_commit
+    assert fetch.calls[1][2] == old_commit
 
 
 def test_an_unreadable_file_refuses_and_a_missing_fact_refuses() -> None:
     assert "could not be read" in _decide(_env(), fetch=Fetch(fail=True))[0]
-    missing = ["the host's job file does not name the repository, the workflow and master's blob of it"]
-    for key in ("repo", "workflow", "workflow_blob"):
+    missing = ["the host's job file does not name the repository, the workflow and the proxy"]
+    for key in ("repo", "workflow", "proxy"):
         facts = {k: v for k, v in FACTS.items() if k != key}
-        assert gate.decide(_env(), EVENT, facts, Fetch()) == missing, key
-    assert gate.decide(_env(), EVENT, {**FACTS, "workflow_blob": "not-a-sha"}, Fetch()) == missing
+        assert gate.decide(_env(), EVENT, facts, Fetch(), _master) == missing, key
+    assert "could not be read" in gate.decide(_env(), EVENT, FACTS, Fetch(), lambda *_a: "not-a-commit")[0]
 
 
 def test_the_blob_is_gits() -> None:
@@ -179,13 +188,18 @@ def test_the_hook_ends_the_job_on_a_refusal(tmp_path: Path, capsys: pytest.Captu
     payload = tmp_path / "event.json"
     payload.write_text(json.dumps(EVENT), encoding="utf-8")
     env = _env(GITHUB_EVENT_PATH=str(payload))
-    assert gate.main(["--job", str(job)], env=env, fetch=Fetch()) == 0
-    assert gate.main(["--job", str(job)], env={**env, "GITHUB_EVENT_NAME": "pull_request"}, fetch=Fetch()) == 1
+    assert gate.main(["--job", str(job)], env=env, fetch=Fetch(), master=_master) == 0
+    assert (
+        gate.main(["--job", str(job)], env={**env, "GITHUB_EVENT_NAME": "pull_request"}, fetch=Fetch(), master=_master)
+        == 1
+    )
     assert "does not run on the bench host" in capsys.readouterr().err
-    assert gate.main(["--job", str(tmp_path / "missing.json")], env=env, fetch=Fetch()) == 1  # no facts: refused
+    assert (
+        gate.main(["--job", str(tmp_path / "missing.json")], env=env, fetch=Fetch(), master=_master) == 1
+    )  # no facts: refused
 
 
 def test_the_gate_reads_no_variable_for_its_own_facts() -> None:
-    """The proxy's address and master's blob come from the host's job file; only GITHUB_* facts are the runner's."""
+    """The proxy's address comes from the host's job file; only GITHUB_* facts are the runner's."""
     text = (Path(gate.__file__)).read_text(encoding="utf-8")
     assert "os.environ.get(" not in text and "HTTPS_PROXY" not in text

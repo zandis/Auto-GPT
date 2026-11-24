@@ -149,10 +149,12 @@ def _bench_problems(text: str, doc: dict[Any, Any]) -> list[str]:
         if not PINNED.match(ref):
             out.append(f"{BENCH}: action {ref} is not pinned by its full commit id")
     for name, job in (doc.get("jobs") or {}).items():
-        cond = _norm(job.get("if", ""))
+        cond = _unwrap(_norm(job.get("if", "")))
         want = HEAVY_GUARD if name in HEAVY else GUARD
-        if cond not in (want, f"always() && ({want})"):
+        if cond not in (want, f"always() && ({want})", f"!cancelled() && ({want})"):
             out.append(f"{BENCH}: job {name}'s if is not the switch and the branch-or-owner guard: {cond!r}")
+        if can_run_on_bench(job) and cond.startswith("always()"):  # M-1448-4: always() also runs after a cancel
+            out.append(f"{BENCH}: job {name} on the bench starts even after the run was cancelled (always())")
         if "permissions" in job:
             out.append(f"{BENCH}: job {name} sets its own permissions")
         if "uses" in job or "container" in job or "services" in job:
@@ -259,6 +261,7 @@ PLANTED = [
           "startsWith(github.ref, 'refs/heads/train/'))",
           "name: bench gpu-suites\n    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && "
           "(startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/lane-')))"), "guard"),
+    ("full-set after a cancel", BENCH, _sub("if: ${{ !cancelled() && (", "if: ${{ always() && ("), "after the run was"),
     ("a train's run cancelled", BENCH, _sub("cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/train/') }}",
                                             "cancel-in-progress: true"), "concurrency"),
     ("a train's run replaced", BENCH, _sub("&& github.run_id || 'latest' }}", "&& 'train' || 'latest' }}"),
@@ -347,11 +350,18 @@ def test_the_workflow_linter_knows_the_bench_labels_and_no_other() -> None:
     assert config == {"self-hosted-runner": {"labels": [LABEL] + [f"{LABEL}-{p}" for p in launcher.PROFILES]}}
 
 
+def _unwrap(cond: str) -> str:
+    """``${{ x }}`` and ``x`` are the same condition."""
+    return re.sub(r"^\$\{\{ (.*) \}\}$", r"\1", cond)
+
+
 def _evaluate(cond: str, ctx: dict[str, str]) -> bool:
-    """A job's ``if`` for one event: the few forms the guard uses (&&, ||, ==, startsWith, always(), contexts)."""
-    expr = cond.replace("always()", "True").replace("&&", " and ").replace("||", " or ")
-    expr = expr.replace("startsWith(", "_sw(")
-    expr = re.sub(r"\b(github|vars)\.[A-Za-z_]+", lambda m: repr(ctx.get(m.group(0), "")), expr)
+    """A job's ``if`` for one event, not cancelled: the forms the guard uses (&&, ||, ==, startsWith, always(),
+    !cancelled(), contexts). The code host compares strings without case (L-1448-19), so both sides are lowered."""
+    expr = _unwrap(cond).replace("!cancelled()", "True").replace("always()", "True")
+    expr = expr.replace("&&", " and ").replace("||", " or ").replace("startsWith(", "_sw(")
+    expr = re.sub(r"'[^']*'", lambda m: m.group(0).lower(), expr)
+    expr = re.sub(r"\b(github|vars)\.[A-Za-z_]+", lambda m: repr(str(ctx.get(m.group(0), "")).lower()), expr)
     assert re.fullmatch(r"[\s()'A-Za-z0-9_/.,=:-]*", expr.replace("_sw", "")), expr
 
     def sw(a: object, b: object) -> bool:  # startsWith is case-insensitive
@@ -388,12 +398,12 @@ EVENTS = {
 
 
 @pytest.mark.parametrize("case", sorted(EVENTS))
-@pytest.mark.parametrize("switch", ["on", "", "off", "On "])
+@pytest.mark.parametrize("switch", ["on", "ON", "", "off", "On "])
 def test_which_jobs_each_event_runs_with_the_switch_on_or_not(case: str, switch: str) -> None:
     ctx, weight = EVENTS[case]
     jobs = yaml.safe_load((WORKFLOWS / BENCH).read_text(encoding="utf-8"))["jobs"]
     ran = {n for n, j in jobs.items() if _evaluate(_norm(j["if"]), {**ctx, "vars.TB_BENCH_CI": switch})}
-    if switch != "on":
+    if switch.lower() != "on":  # the code host's == ignores case: ON is on (L-1448-19); "On " is not
         assert ran == set(), "the switch is not on: no job runs, the bench is never asked for"
     elif weight == "all":
         assert ran == set(jobs)

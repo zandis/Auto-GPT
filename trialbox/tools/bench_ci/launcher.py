@@ -42,6 +42,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +62,11 @@ PROFILES = ("cpu", "engine", "gpu")
 SLOT = re.compile(r"^(cpu|engine|gpu)-([1-9][0-9]?)$")
 OCTET_BASE = {"cpu": 0, "engine": 100, "gpu": 150, "probe": 240}  # the slot's /24: <prefix>.<base + n>.0
 API_SECONDS = 60
+POLL_SECONDS = 5  # how often the run step looks for the gate's mark (the job accepted)
+REATTACH_SECONDS = 30  # how often a slot joins the egress proxy to its network again (a restarted proxy is on none)
+STARTED = "started"  # the gate's mark in the job's .tb-bench folder: the job was accepted
+DIGITS = re.compile(r"[0-9]+")  # ASCII digits only (str.isdigit also takes superscripts, which int() refuses)
+PRIVATE_16 = re.compile(r"10\.(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})|172\.(1[6-9]|2[0-9]|3[01])|192\.168")
 PLACEHOLDER = re.compile(r"<[^>]*>")
 WALK_CARD = "1"
 STATE = Path("/run/tb-bench-ci")  # root's: the runner ids, for the cleanup
@@ -144,8 +150,10 @@ def parse_settings(text: str) -> Settings:
         raise SettingsError(f"missing: {', '.join(missing)}")
     s = Settings(values)
     for key in WHOLE_NUMBERS:
-        if not values[key].isdigit():
+        if not DIGITS.fullmatch(values[key]):
             raise SettingsError(f"{key} must be a whole number")
+    if s.num("BENCH_JOB_HOURS") < 1:
+        raise SettingsError("BENCH_JOB_HOURS must be at least 1 (0 would stop every job at once)")
     for profile, most in MAX_SLOTS.items():
         if s.num(f"BENCH_{profile.upper()}_SLOTS") > most:
             raise SettingsError(f"BENCH_{profile.upper()}_SLOTS is at most {most}")
@@ -157,9 +165,8 @@ def parse_settings(text: str) -> Settings:
         raise SettingsError("BENCH_LABEL is a short lower-case label")
     if not re.fullmatch(r"[0-9a-f]{64}", values["BENCH_RUNNER_SHA256"]):
         raise SettingsError("BENCH_RUNNER_SHA256 is the 64 hex digits the runner's release page gives")
-    if not re.fullmatch(r"(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})",
-                        values["BENCH_SUBNET_PREFIX"]):  # fmt: skip
-        raise SettingsError("BENCH_SUBNET_PREFIX is the first two numbers of a private /16, written a.b")
+    if not PRIVATE_16.fullmatch(values["BENCH_SUBNET_PREFIX"]):
+        raise SettingsError("BENCH_SUBNET_PREFIX is a private /16 written a.b (10.x, 172.16 to 172.31, 192.168)")
     for key in ("BENCH_ENGINE", "BENCH_SCRATCH", "BENCH_GPU_QUERY", "BENCH_WEIGHTS"):
         if values.get(key) and not values[key].startswith("/"):
             raise SettingsError(f"{key} is an absolute path")
@@ -171,7 +178,7 @@ def _gpu_settings(values: dict[str, str]) -> None:
     if missing:
         raise SettingsError(f"a GPU slot needs: {', '.join(missing)}")
     for key in ("BENCH_GPU_CAP_MIB", "BENCH_GPU_CAP_UTIL"):
-        if not values[key].isdigit():
+        if not DIGITS.fullmatch(values[key]):
             raise SettingsError(f"{key} must be a whole number")
     reserved = gpu_check.parse_ids(values["BENCH_RESERVED_GPUS"])
     problems = gpu_check.set_problems(gpu_check.parse_ids(values["BENCH_CI_GPUS"]), reserved)
@@ -288,12 +295,9 @@ def proxy_args(s: Settings) -> list[str]:
 
 
 def api(method: str, path: str, token: str, body: dict[str, object] | None = None) -> tuple[int, dict[str, object]]:
-    """One call to the repository's runner endpoints, or the read of the bench workflow's blob on master, straight
-    to API_HOST over TLS (no proxy, no redirect)."""
-    runners = path.startswith("/repos/") and "/actions/runners/" in path
-    workflow = path.startswith("/repos/") and path.endswith(f"/contents/{WORKFLOW}?ref=master") and method == "GET"
-    if not runners and not workflow:
-        raise ValueError("the launcher calls the repository's runner endpoints and reads master's workflow only")
+    """One call to the repository's runner endpoints, straight to API_HOST over TLS (no proxy, no redirect)."""
+    if not path.startswith("/repos/") or "/actions/runners/" not in path:
+        raise ValueError("the launcher calls the repository's runner endpoints only")
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
@@ -315,15 +319,6 @@ def api(method: str, path: str, token: str, body: dict[str, object] | None = Non
     except ValueError:
         got = {}
     return resp.status, got if isinstance(got, dict) else {}
-
-
-def master_blob(s: Settings, token: str) -> str:
-    """Master's blob of the bench workflow, read by the host (the gate compares the job's against it)."""
-    status, got = api("GET", f"/repos/{s['BENCH_REPO']}/contents/{WORKFLOW}?ref=master", token)
-    blob = got.get("sha")
-    if status != 200 or not isinstance(blob, str) or not re.fullmatch(r"[0-9a-f]{40}", blob):
-        raise RuntimeError(f"master's bench workflow could not be read (HTTP {status})")
-    return blob
 
 
 def jit_config(s: Settings, token: str, name: str, profile: str) -> tuple[str, int]:
@@ -363,24 +358,47 @@ def gpu_spec(s: Settings) -> tuple[list[str], dict[str, object]]:
     return problems, spec
 
 
-def _write_for_jobs(path: Path, text: str, uid: int, gid: int) -> None:
-    """A file only the jobs' user reads (0600), written by root without following a link."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+def _write_for_jobs(dir_fd: int, name: str, text: str, uid: int, gid: int) -> None:
+    """A file only the jobs' user reads (0600), made new by root in an open folder (never by a path)."""
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
-    os.chown(path, uid, gid)
+        os.fchown(f.fileno(), uid, gid)
 
 
-def fresh_scratch(s: Settings, slot: str, uid: int, gid: int) -> Path:
-    """The slot's scratch folder, emptied of anything an earlier job left (F8), owned by the jobs' user."""
+def fresh_scratch(s: Settings, slot: str, uid: int, gid: int, files: dict[str, str] | None = None) -> Path:
+    """The slot's scratch folder, emptied of anything an earlier job left (F8), owned by the jobs' user.
+
+    The review of #1448 (M-1448-1): root works in a folder the jobs' user owns, so no step follows a name that user
+    could have changed. Every step is relative to an open folder: the folder and each subfolder are made new (a name
+    put there in the meantime is an error, not a folder to use) and opened without following a link; the job's files
+    are written into the open folder; each is handed to the jobs' user by its descriptor, the top folder last."""
     path = scratch_of(s, slot)
     if path.is_symlink():
         raise RuntimeError(f"{path} is a link")
     if path.exists():
         shutil.rmtree(path)
-    for sub in ("", "home", "tmp", ".tb-bench"):
-        (path / sub).mkdir(mode=0o700, exist_ok=sub == "")
-        os.chown(path / sub, uid, gid)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.mkdir(path.name, 0o700, dir_fd=parent)
+        top = os.open(path.name, flags, dir_fd=parent)
+    finally:
+        os.close(parent)
+    try:
+        for sub in ("home", "tmp", ".tb-bench"):
+            os.mkdir(sub, 0o700, dir_fd=top)
+            fd = os.open(sub, flags, dir_fd=top)
+            try:
+                if sub == ".tb-bench":
+                    for name, text in (files or {}).items():
+                        _write_for_jobs(fd, name, text, uid, gid)
+                os.fchown(fd, uid, gid)
+            finally:
+                os.close(fd)
+        os.fchown(top, uid, gid)
+    finally:
+        os.close(top)
     return path
 
 
@@ -401,15 +419,14 @@ def mint(s: Settings, slot: str, token_file: Path = TOKEN, state: Path = STATE) 
         facts |= spec
     token = read_token(token_file)
     _, proxy_ip = subnet(s, slot)
-    facts |= {"workflow_blob": master_blob(s, token), "proxy": f"{proxy_ip}:{PROXY_PORT}"}
+    facts["proxy"] = f"{proxy_ip}:{PROXY_PORT}"  # the gate reads master's file itself, at the job's start (M-1448-6)
     user = pwd.getpwnam(RUN_USER)
-    scratch = fresh_scratch(s, slot, user.pw_uid, user.pw_gid)
     name = f"tb-bench-{slot}-{secrets.token_hex(4)}"
     config, runner_id = jit_config(s, token, name, profile)
-    state.mkdir(mode=0o700, exist_ok=True)
+    state.mkdir(mode=0o700, exist_ok=True)  # the registration is on record before the folder step can fail
     (state / f"{slot}.json").write_text(json.dumps({"runner_id": runner_id, "name": name}), encoding="utf-8")
-    _write_for_jobs(scratch / ".tb-bench" / "job.json", json.dumps(facts), user.pw_uid, user.pw_gid)
-    _write_for_jobs(scratch / ".tb-bench" / "runner.jit", config + "\n", user.pw_uid, user.pw_gid)
+    files = {"job.json": json.dumps(facts), "runner.jit": config + "\n"}
+    fresh_scratch(s, slot, user.pw_uid, user.pw_gid, files)
     print(f"bench CI: {name} registered for one job ({', '.join(labels(s, profile))})", flush=True)
     return 0
 
@@ -458,27 +475,58 @@ def run_slot(s: Settings, slot: str) -> int:
         print(f"bench CI: {slot}: no one-job configuration (the mint step did not run)", file=sys.stderr)
         return 2
     name = f"tb-bench-{slot}"
-    _engine(s, "rm", "--force", name)  # a container a killed run left behind (F8)
-    net_up(s, slot)
-    proc = subprocess.Popen(container_args(s, profile, name, scratch, slot), stdin=subprocess.DEVNULL)
+    stopping: list[bool] = []
 
     def stop(_sig: int, _frame: FrameType | None) -> None:  # F8: a unit stop stops the job and its network
+        stopping.append(True)
         _engine(s, "stop", "--time", "10", name)
 
-    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGTERM, stop)  # before anything starts (L-1448-13): a stop never leaves a container behind
+    _engine(s, "rm", "--force", name)  # a container a killed run left behind (F8)
     try:
-        try:
-            rc = proc.wait(timeout=s.num("BENCH_JOB_HOURS") * 3600)
-        except subprocess.TimeoutExpired:
-            _engine(s, "rm", "--force", name)
-            print(f"bench CI: {name} passed {s['BENCH_JOB_HOURS']} h and was stopped", file=sys.stderr)
-            rc = proc.wait()
+        net_up(s, slot)
+        if stopping:
+            return 0
+        proc = subprocess.Popen(container_args(s, profile, name, scratch, slot), stdin=subprocess.DEVNULL)
+        rc, accepted = _wait(s, slot, proc, name, scratch)
         print(f"bench CI: {name} ended (exit {rc})", flush=True)
-        return 0
+        if accepted or stopping:
+            return 0
+        if rc:  # L-1448-13: a container that never took a job and failed (an image missing, a bad argument)
+            print(f"bench CI: {name} ended without taking a job (exit {rc})", file=sys.stderr)
+        return rc
     finally:
         with contextlib.suppress(OSError):
             _engine(s, "rm", "--force", name)
         net_down(s, slot)
+
+
+def _wait(s: Settings, slot: str, proc: subprocess.Popen[bytes], name: str, scratch: Path) -> tuple[int, bool]:
+    """The container's exit code, and whether the gate accepted a job (its mark).
+
+    M-1448-2: a one-job runner first waits for its job, so BENCH_JOB_HOURS counts from the job being accepted; until
+    then it is the longest a runner may wait (an idle runner is recycled). M-1448-5: every REATTACH_SECONDS the egress
+    proxy is joined to the slot's network again (a restarted proxy is a new container on none of the networks; the
+    engine's answer for one already joined is an error, ignored)."""
+    _, proxy_ip = subnet(s, slot)
+    limit = s.num("BENCH_JOB_HOURS") * 3600
+    began = time.monotonic()
+    accepted: float | None = None
+    rejoined = began
+    while True:
+        try:
+            return proc.wait(timeout=POLL_SECONDS), accepted is not None
+        except subprocess.TimeoutExpired:
+            now = time.monotonic()
+            if accepted is None and (scratch / ".tb-bench" / STARTED).exists():
+                accepted = now
+            if now - (began if accepted is None else accepted) > limit:
+                _engine(s, "rm", "--force", name)
+                print(f"bench CI: {name} passed {s['BENCH_JOB_HOURS']} h and was stopped", file=sys.stderr)
+                return proc.wait(), accepted is not None
+            if now - rejoined >= REATTACH_SECONDS:
+                _engine(s, "network", "connect", "--ip", proxy_ip, job_net(slot), PROXY_NAME)
+                rejoined = now
 
 
 def probe_args(s: Settings, profile: str, scratch: Path) -> list[str]:

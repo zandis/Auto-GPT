@@ -23,12 +23,14 @@ the end.
    repository is this one and not a fork; the ref is a `train/`, `agent/`, `claude/` or `lane-` branch (one level;
    for a run by hand also `master`); a run by hand is the owner's (actor and triggering actor); the workflow is
    `.github/workflows/trialbox-bench-ci.yml` at that ref; and that file, at the job's workflow commit, is the same
-   blob as on master. A refused job ends there; the cleanup leaves nothing behind.
+   blob as master's file now (read at the job's start by master's current commit). A refused job ends there; the
+   cleanup leaves nothing behind. An accepted job leaves a mark the run step counts the job's hours from.
    **What the gate trusts, and why.** The job's facts: the `GITHUB_*` variables and the event payload the runner
    service sets from the code host's job message, before any step runs (no step has run yet, and a workflow cannot
    set a `GITHUB_*` variable). What the job must be: the job file the host's root mint step writes (the repository,
-   the workflow's path, and master's blob of it, which the host reads from the code host with its own credential,
-   never the job). The file at the job's commit is read by its commit id (immutable). A branch on an older master
+   the workflow's path, the proxy's address), and master's file, which the gate's own code reads from the code host at
+   the job's start (master's current commit from the code host's ref list, then the file by that commit), before any
+   code of the job runs. Both files are read by commit id (immutable). A branch on an older master
    whose copy of the file is unchanged has the same blob and runs; a branch that changed the file, or lacks a change
    master made to it, is refused until it carries master's file (so this card's own change to the file runs on the
    bench only once it is on master).
@@ -61,13 +63,16 @@ the end.
 **this repository only**, with the repository permission **"Administration: write"** and nothing else, a **30-day
 expiry**, kept in the one root-only file. A plain registration token from the runner settings page expires within an
 hour, so it cannot serve one-job runners. Revoke it with the removal below, and make a new one before it expires
-(`install.sh token` again).
+(`install.sh token` again). Changing the token restarts every slot:
+**a slot that is running a job is restarted too** (its job is stopped), so change it when no run is going.
 
 **The egress allow-list.** Exact host names only: the code host (its web and API hosts and the archives the runner
 downloads actions from), the code host's job service (the one suffix), its storage accounts named one by one, the
-package registries and the container registries. No storage wildcard, no user-content wildcard, no upload host. The
-code host's API is one name for reads and writes; the jobs hold no write credential (master's workflow, which the gate
-holds every job to, asks for a read-only one). Each refusal is in the proxy's log by host name; a job that needs a
+package registries and the container registries. No storage wildcard, no user-content wildcard, and no upload host
+that the proxy can tell from a download host: it sees the name only, so a host that takes uploads and downloads under
+one name (the code host's API, the registries) is reachable for both. The workflow's token is read-only (master's
+workflow, which the gate holds every job to, asks for that); a job's own code could still carry a credential of its
+own, which is the trust harm 1 states (everyone with write access). Each refusal is in the proxy's log by host name; a job that needs a
 missing host shows it there.
 
 ## Prerequisites (on the bench host)
@@ -81,7 +86,11 @@ missing host shows it there.
   cap: the most memory and load a CI card may already carry when a GPU job starts. The GPU jobs share the CI cards.
   The weights folder (the integrator's ruling of 2026-11-24 on H105-03): readable by `tb-bench`, writable by root only;
   GPU jobs see it read-only at `/weights`, and the version check uses the pinned hashes. Nothing is downloaded.
-- An unused private /16 for the jobs' networks (`BENCH_SUBNET_PREFIX`): each slot gets its own /24 in it.
+- An unused private /16 for the jobs' networks (`BENCH_SUBNET_PREFIX`: 10.x, 172.16 to 172.31 or 192.168): each
+  slot gets its own /24 in it.
+- `BENCH_JOB_HOURS`: the most hours a job runs once the gate accepted it, and the most a runner waits for a job; at
+  least the bench workflow's longest timeout (full-set: 600 minutes, so 11). While a slot waits or runs, it joins the
+  egress proxy to its network again every 30 seconds, so a restarted proxy reaches every slot within that time.
 - On the code host, by the owner: the Actions setting "Require approval for all outside collaborators" (above).
 - A folder for CI scratch only, on a disk with room for the jobs (venvs, the JVM and fonts caches, images of the
   nested engine). Never a folder of the bench, the walk, the datasets, the integration folder or a home.

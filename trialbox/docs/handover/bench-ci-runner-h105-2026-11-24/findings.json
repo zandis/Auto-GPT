@@ -41,7 +41,7 @@
   {
    "id": "H105-05",
    "severity": "Medium",
-   "claim": "the egress allow-list names hosts exactly (no storage wildcard, no user-content wildcard, no upload host; the one suffix is the code host's job service), and jobs have no name service; whether the list is enough for every job is known only from the first runs (the proxy logs each refused host by name)",
+   "claim": "the egress allow-list names hosts exactly (no storage wildcard, no user-content wildcard, and no upload host the proxy can tell from a download host: it sees the name only, so a host that takes both under one name is reachable for both), and jobs have no name service; whether the list is enough for every job is known only from the first runs (the proxy logs each refused host by name)",
    "lane": "H",
    "basis": "not_run",
    "state": "open"

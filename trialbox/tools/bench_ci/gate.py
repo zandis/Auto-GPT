@@ -9,7 +9,8 @@ What it trusts, and why: the facts of the job come from the runner service itsel
 host: the ``GITHUB_*`` variables it sets for the job (a workflow cannot set a ``GITHUB_*`` variable) and the event
 payload it writes (``GITHUB_EVENT_PATH``). The gate runs before any step, so no code of the job has run yet. What
 the job must be comes from the host: the job file the launcher's root mint step wrote (``job.json``: the repository,
-the workflow's path and master's blob of it, fetched by the host with its own credential, never by the job).
+the workflow's path and the proxy's address). Master's file is read by this gate's own code from the code host at
+the job's start, by master's current commit, before any code of the job runs: no value the job can set takes part.
 
 A job runs only when ALL hold:
 
@@ -19,9 +20,13 @@ A job runs only when ALL hold:
   master), one level deep, as the workflow's push filter;
 * a run by hand: its actor and triggering actor are the repository's owner;
 * the workflow is the bench workflow at that ref (``GITHUB_WORKFLOW_REF``), and its file at the job's workflow commit
-  (``GITHUB_WORKFLOW_SHA``) is the same blob as on master. A branch on an older master whose copy of the file is
-  unchanged passes; a branch that changed the file, or that lacks a change master made to it, is refused until it
-  carries master's file. The blob at the commit is read from the code host by that commit (immutable).
+  (``GITHUB_WORKFLOW_SHA``) is the same blob as master's file NOW: master's current commit is read from the code
+  host's ref list at the job's start, and both files are read by their commit ids (immutable), through the job's
+  proxy, before any step of the job (the review of #1448, M-1448-6: a blob the host read when the runner was
+  registered could be hours old). A branch on an older master whose copy of the file is unchanged passes; a branch
+  that changed the file, or that lacks a change master made to it, is refused until it carries master's file.
+
+An accepted job leaves the mark ``started`` beside the job file: the launcher counts the job's hours from it.
 
 Standard library only: the job image's python3 runs it.
 """
@@ -29,6 +34,7 @@ Standard library only: the job image's python3 runs it.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import http.client
 import json
@@ -48,6 +54,9 @@ FETCH_SECONDS = 30
 FETCH_BYTES = 1_000_000
 
 Fetch = Callable[[str, str, str, str], bytes]  # (proxy, repository, commit, path) -> the file's bytes
+Master = Callable[[str, str], str]  # (proxy, repository) -> master's current commit
+CODE_HOST = "github.com"
+REFS_BYTES = 4_000_000
 
 
 def blob_sha(content: bytes) -> str:
@@ -58,11 +67,7 @@ def blob_sha(content: bytes) -> str:
 def fetch_raw(proxy: str, repo: str, commit: str, path: str) -> bytes:
     """The file at a commit, by the commit's id (immutable), through the job's proxy (its only way out; its address
     is the host's job file's, never a variable)."""
-    m = re.fullmatch(r"([0-9.]+):([0-9]+)", proxy)
-    if not m:
-        raise RuntimeError("the host's job file gives no proxy address")
-    conn = http.client.HTTPSConnection(m.group(1), int(m.group(2)), timeout=FETCH_SECONDS)
-    conn.set_tunnel(RAW_HOST, 443)
+    conn = _tunnel(proxy, RAW_HOST)
     try:
         conn.request("GET", f"/{repo}/{commit}/{path}", headers={"User-Agent": "tb-bench-gate"})
         resp = conn.getresponse()
@@ -70,17 +75,51 @@ def fetch_raw(proxy: str, repo: str, commit: str, path: str) -> bytes:
     finally:
         conn.close()
     if resp.status != 200 or len(body) > FETCH_BYTES:
-        raise RuntimeError(f"the workflow file at the job's commit could not be read (HTTP {resp.status})")
+        raise RuntimeError(f"the workflow file at a commit could not be read (HTTP {resp.status})")
     return body
 
 
-def decide(env: Mapping[str, str], event: Mapping[str, Any], facts: Mapping[str, Any], fetch: Fetch) -> list[str]:
+def _tunnel(proxy: str, host: str) -> http.client.HTTPSConnection:
+    m = re.fullmatch(r"([0-9.]+):([0-9]+)", proxy)
+    if not m:
+        raise RuntimeError("the host's job file gives no proxy address")
+    conn = http.client.HTTPSConnection(m.group(1), int(m.group(2)), timeout=FETCH_SECONDS)
+    conn.set_tunnel(host, 443)
+    return conn
+
+
+def master_from_refs(body: bytes) -> str:
+    """Master's commit in the code host's ref list (the smart HTTP advertisement: pkt-lines of "<sha> <ref>")."""
+    for line in body.split(b"\n"):
+        m = re.search(rb"([0-9a-f]{40}) refs/heads/master$", line.split(b"\x00", 1)[0])
+        if m:
+            return m.group(1).decode()
+    raise RuntimeError("the code host's ref list has no master")
+
+
+def master_head(proxy: str, repo: str) -> str:
+    """Master's current commit, read from the code host's ref list through the job's proxy (no credential)."""
+    conn = _tunnel(proxy, CODE_HOST)
+    try:
+        conn.request("GET", f"/{repo}.git/info/refs?service=git-upload-pack", headers={"User-Agent": "tb-bench-gate"})
+        resp = conn.getresponse()
+        body = resp.read(REFS_BYTES + 1)
+    finally:
+        conn.close()
+    if resp.status != 200 or len(body) > REFS_BYTES:
+        raise RuntimeError(f"the code host's ref list could not be read (HTTP {resp.status})")
+    return master_from_refs(body)
+
+
+def decide(
+    env: Mapping[str, str], event: Mapping[str, Any], facts: Mapping[str, Any], fetch: Fetch, master: Master
+) -> list[str]:
     """Every reason to refuse the job; an empty list lets it run. Missing facts refuse (fail closed)."""
     repo = str(facts.get("repo", ""))
     path = str(facts.get("workflow", ""))
-    master_blob = str(facts.get("workflow_blob", ""))
-    if not repo or not path or not SHA.fullmatch(master_blob):
-        return ["the host's job file does not name the repository, the workflow and master's blob of it"]
+    proxy = str(facts.get("proxy", ""))
+    if not repo or not path or not proxy:
+        return ["the host's job file does not name the repository, the workflow and the proxy"]
     out: list[str] = []
     name = env.get("GITHUB_EVENT_NAME", "")
     if name not in EVENTS:
@@ -107,15 +146,24 @@ def decide(env: Mapping[str, str], event: Mapping[str, Any], facts: Mapping[str,
     if out:
         return out  # never read anything for a job that is refused already
     try:
-        got = blob_sha(fetch(str(facts.get("proxy", "")), repo, commit, path))
+        head = master(proxy, repo)
+        if not SHA.fullmatch(head):
+            raise RuntimeError("master's commit is not a commit id")
+        want = blob_sha(fetch(proxy, repo, head, path))
+        got = blob_sha(fetch(proxy, repo, commit, path))
     except (OSError, RuntimeError, http.client.HTTPException) as exc:
-        return [f"the workflow file at the job's commit could not be read ({type(exc).__name__}): refused"]
-    if got != master_blob:
-        return [f"the workflow file at {commit[:12]} is not master's ({got[:12]} against {master_blob[:12]})"]
+        return [f"the workflow file at the job's commit or on master could not be read ({type(exc).__name__}): refused"]
+    if got != want:
+        return [f"the workflow file at {commit[:12]} is not master's ({got[:12]} against {want[:12]} at {head[:12]})"]
     return []
 
 
-def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, fetch: Fetch = fetch_raw) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    env: Mapping[str, str] | None = None,
+    fetch: Fetch = fetch_raw,
+    master: Master = master_head,
+) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("--job", required=True, help="the host's job file (job.json in the job's scratch folder)")
     args = ap.parse_args(argv)
@@ -124,7 +172,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         facts = json.loads(Path(args.job).read_text(encoding="utf-8"))
         event_path = env.get("GITHUB_EVENT_PATH", "")
         event = json.loads(Path(event_path).read_text(encoding="utf-8")) if event_path else {}
-        problems = decide(env, event if isinstance(event, dict) else {}, facts, fetch)
+        problems = decide(env, event if isinstance(event, dict) else {}, facts, fetch, master)
     except (OSError, ValueError) as exc:
         problems = [f"the job's facts could not be read ({type(exc).__name__})"]
     for p in problems:
@@ -133,6 +181,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print("bench gate: this job does not run on the bench host", file=sys.stderr)
         return 1
     print("bench gate: a push or the owner's run of master's bench workflow, in this repository: runs")
+    # M-1448-2: the launcher counts the job's hours from here, not from the runner's start (it waits for its job)
+    with contextlib.suppress(OSError):
+        Path(args.job).with_name("started").touch()
     return 0
 
 
