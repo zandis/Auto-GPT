@@ -12,8 +12,8 @@
 #      before it does);
 #   2. files/trialbox-host.tar, the release's host tree, has the sha256 the signed manifest names;
 #   3. the tree goes to /opt/trialbox, unpacked beside it and moved whole, never over a folder that holds anything
-#      else. A folder that already holds a TrialBox tree is kept only when it is this signed release's tree (H-110):
-#      every file of the checked host tree there with the same bytes, and no code beside them; else nothing is run;
+#      else. A folder that already holds a TrialBox tree is kept as the site's data: when it is not exactly this
+#      release, the release is brought in first (H-110), and the kept tree's own code never runs;
 #   4. the key goes to /opt/trialbox/deploy/keys/vendor_ed25519.pub, where the installer's first step looks for it
 #      (refused if a different key is already there);
 #   5. deploy/install.sh runs with the bundle and the arguments after `--`; with --box, deploy/box-install.sh does
@@ -93,11 +93,11 @@ tar -xf "$BUNDLE" -C "$WORK" --no-same-owner "files/$HOST_NAME" 2>/dev/null || d
   || die "files/$HOST_NAME does not have the sha256 the signed manifest names: the bundle is refused"  # H-94 (1)
 
 # ---------------------------------------------------------------------------------------------- 3. /opt/trialbox
-if [ -f "$ROOT/deploy/install.sh" ]; then
-  # H-110 (a): the installer that runs is the one the signature covers. A kept tree runs only when it is this release's
-  # host tree: each file of the checked tar there (links followed) with the same bytes, and no file the release does
-  # not hold among its code (the two library folders, a module at the top). Any other tree is never run
-  KEPT_DIFF="$(python3 -I -c '
+# H-110 (a): what a kept tree holds against the checked host tar: each signed file there (links followed) with its
+# bytes, and no file the release does not hold among its code (the two library folders, a module at the top that a
+# python3 started there would import). Prints the differences, nothing when the tree is exactly the signed release
+kept_diff() {
+  python3 -I -c '
 import hashlib, os, sys, tarfile
 tar, root = sys.argv[1], sys.argv[2]
 def sha(f):
@@ -128,9 +128,48 @@ for top in ("tools", "libs"):
                 bad.append(rel + ": not in the release")
 bad += [f + ": not in the release" for f in sorted(os.listdir(root)) if f.endswith((".py", ".pth")) and f not in signed]
 print(", ".join(bad[:5]) + (f" and {len(bad) - 5} more" if len(bad) > 5 else ""))
-' "$WORK/files/$HOST_NAME" "$ROOT")" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
-  [ -z "$KEPT_DIFF" ] || die "the TrialBox tree at $ROOT is not this signed release's ($KEPT_DIFF): its installer is not run, nothing was changed. On a box installed before: sudo trialbox update $BUNDLE (RUNBOOK §5). A tree of no install: move $ROOT aside, then run this command again"  # H-94 (1): the signature covers only the signed tree's installer
-  echo "kept: $ROOT already holds this release's host tree (every file as signed)"
+' "$WORK/files/$HOST_NAME" "$ROOT"
+}
+if [ -f "$ROOT/deploy/install.sh" ]; then
+  # H-110 (a): the installer that runs is always the signed release's; a kept tree is the site's data, never its code.
+  # A tree that is not exactly this release gets the release brought in first, by the release's own host-tree module
+  # read from the checked tar (its install: releases/<bundle id>, `current` switched, the release
+  # files linked through it, a copied file of the kept tree moved to releases/.replaced-<time>/, never deleted; the
+  # site's own files in deploy/ untouched). A bundle older than the one the box records is never brought in
+  KEPT_DIFF="$(kept_diff)" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
+  if [ -n "$KEPT_DIFF" ]; then
+    echo "kept: $ROOT holds a TrialBox tree that is not this release's ($KEPT_DIFF): none of its code is run"
+    python3 -I -c '
+import json, os, sys, tarfile, types
+tar, root, manifest = sys.argv[1], sys.argv[2], sys.argv[3]
+m = json.load(open(manifest, encoding="utf-8"))
+seq = int(m.get("release_seq") or 0)
+rec = os.path.join(root, "deploy", "updates", "installed.json")
+if os.path.isfile(rec) and not os.path.islink(rec):
+    try:
+        have = int(json.load(open(rec, encoding="utf-8")).get("release_seq") or 0)
+    except (OSError, ValueError, AttributeError):
+        sys.exit(f"{rec} cannot be read: the release is not brought in")
+    if have > seq:
+        sys.exit(f"this box records release_seq {have}; the bundle is release_seq {seq}: an older release is not brought in")
+with tarfile.open(tar, "r:") as tf:  # the module of the release, from the checked tar, never from the kept tree
+    src = tf.extractfile(os.path.join("tools", "host_tree.py")).read()
+ht = types.ModuleType("host_tree")
+sys.modules["host_tree"] = ht
+exec(compile(src, "host_tree.py", "exec"), ht.__dict__)
+from pathlib import Path
+info = ht.install(Path(tar), Path(root), str(m["bundle_id"]))
+moved = info.get("moved") or []
+bid = str(m["bundle_id"])
+aside = (" to " + str(info["aside"])) if moved else ""
+print(f"brought in: the signed release {bid} to {root}/releases/{bid} ({len(moved)} file(s) of the kept tree set aside{aside})")
+' "$WORK/files/$HOST_NAME" "$ROOT" "$WORK/manifest.json" \
+      || die "the signed release could not be brought in to $ROOT (above): none of the kept tree's code was run"  # H-94 (1)
+    KEPT_DIFF="$(kept_diff)" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
+    [ -z "$KEPT_DIFF" ] || die "the tree at $ROOT still does not match the signed release ($KEPT_DIFF): nothing was run. Move what it names aside, then run this command again"  # H-94 (1): only the signed files run
+  else
+    echo "kept: $ROOT already holds this release's host tree (every file as signed)"
+  fi
 elif [ -e "$ROOT" ] && [ -n "$(ls -A "$ROOT" 2>/dev/null)" ]; then
   die "$ROOT exists and is not a TrialBox host tree: it is not replaced"  # H-94 depends (1): never merged over another folder's files (the tree is the signed bundle's alone)
 else

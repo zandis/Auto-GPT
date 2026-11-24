@@ -141,12 +141,10 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
   return 0
 }
 tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
-  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
-  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
-  _in="$(cat)"
-  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
-    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
-  } | sort -u || true
+  # (H-110 (g), the integrator's ruling 7119913331): by the kind marker deploy/check_host.sh writes where the line is
+  # made, never by its words: "[H-94 (5)]" a secret's mode (deploy/.env, a plain key); "(2)" what the machine cannot
+  # run (memory class, card, driver, toolkit, disk space); "(3)" the poc profile on a PRODUCTION box. Every other warns
+  grep -E '^FAIL .*\[H-94 \([235]\)\]$' | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: this run's command line is read once before the arguments are, so a stop while they are read knows the box
@@ -1771,7 +1769,7 @@ HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | 
 exec 8>&-
 SECRET_FAILS=()
 while IFS= read -r l; do SECRET_FAILS+=("the host check: $l"); done < <(printf '%s\n' "$HOST_OUT" | tb_kept_fails \
-  | sed -E 's/^FAIL +//' || true)
+  | sed -E 's/^FAIL +//; s/ \[H-94 \([235]\)\]$//' || true)
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
 if [ "$MODE" = gpu ]; then

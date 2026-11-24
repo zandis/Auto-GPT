@@ -76,12 +76,10 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
   return 0
 }
 tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
-  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
-  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
-  _in="$(cat)"
-  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
-    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
-  } | sort -u || true
+  # (H-110 (g), the integrator's ruling 7119913331): by the kind marker deploy/check_host.sh writes where the line is
+  # made, never by its words: "[H-94 (5)]" a secret's mode (deploy/.env, a plain key); "(2)" what the machine cannot
+  # run (memory class, card, driver, toolkit, disk space); "(3)" the poc profile on a PRODUCTION box. Every other warns
+  grep -E '^FAIL .*\[H-94 \([235]\)\]$' | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: its PoC box is the record (deploy/.env, the mark) alone: it has no command line of its own

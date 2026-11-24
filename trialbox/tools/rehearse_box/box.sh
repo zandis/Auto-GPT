@@ -239,15 +239,18 @@ bootstrap)
   out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
   [ "$rc" = 0 ] && echo "$out" | grep -q "^kept: $opt already holds this release's host tree" \
     || { echo "$out"; fail "the bootstrap did not keep and run this release's own tree (exit $rc)"; }
-  # H-110 (a): a kept tree whose box-install.sh is not the signed release's is refused before it runs (the harm: the
-  # vendor key's signature would cover an installer other than the one that runs); the planted one never runs
-  printf '#!/bin/sh\ntouch "%s"\n' "$W/bootstrap/planted-installer-ran" > "$opt/deploy/box-install.sh"
-  out="$(TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" --box -- --yes 2>&1)"; rc=$?
-  echo "$out" | tail -2
-  [ "$rc" != 0 ] && echo "$out" | grep -q "is not this signed release's (deploy/box-install.sh: not the signed bytes" \
-    && [ ! -e "$W/bootstrap/planted-installer-ran" ] \
-    || fail "a kept tree with another box-install.sh was not refused before it ran (exit $rc)"
-  ok "a kept tree with another box-install.sh: refused (exit $rc), the planted installer never ran"
+  # H-110 (a; the integrator's ruling 7119913331): a kept tree is the site's data, never code. Its box-install.sh and
+  # install.sh replaced by planted ones (the harm: code the vendor key's signature does not cover, run as root): the
+  # signed release is brought in first, the planted files set aside, and the signed installer runs; the planted never
+  planted="$W/bootstrap/planted-installer-ran"
+  for f in box-install.sh install.sh; do printf '#!/bin/sh\ntouch "%s"\n' "$planted" > "$opt/deploy/$f"; done
+  out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
+  echo "$out" | tail -4
+  [ "$rc" = 0 ] && echo "$out" | grep -q "^brought in: the signed release " \
+    && echo "$out" | grep -q "^running: $opt/deploy/install.sh $BUNDLE --ctgov-check" && [ ! -e "$planted" ] \
+    && ! grep -qs "$planted" "$opt/deploy/install.sh" "$opt/deploy/box-install.sh" \
+    || fail "a kept tree with planted installers: the signed release was not brought in, or a planted installer ran (exit $rc)"
+  ok "a kept tree with planted installers: the signed release brought in, the planted set aside and never run"
   rm -rf "$W/bootstrap"
   ok "RUNBOOK §1's first command: bootstrap signature checked, bundle verified, host tree unpacked, key placed, installer run"
   ;;

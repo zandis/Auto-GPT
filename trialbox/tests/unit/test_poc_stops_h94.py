@@ -774,8 +774,8 @@ def _firstrun(tmp: Path, *args: str, force: tuple[str, ...] = (), environment: s
     stubs = {"python3": BOX_PYTHON3, "boxpy": BOX_PY,
              "compose": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" stack-restart "*) exit 1 ;; esac\nexit 0\n',
              "hostcheck": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" host-check "*) echo "FAIL  x"; exit 1 ;; esac\n'
-                          'case " $TB_H94_FORCE " in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned)"; exit 1 ;; esac\n'
-                          'case " $TB_H94_FORCE " in *" disk-full "*) echo "FAIL  free space on /var/lib/docker: 4% (below 10%)"; exit 1 ;; esac\n',
+                          'case " $TB_H94_FORCE " in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned) [H-94 (5)]"; exit 1 ;; esac\n'
+                          'case " $TB_H94_FORCE " in *" disk-full "*) echo "FAIL  free space on /var/lib/docker: 4% (below 10%) [H-94 (2)]"; exit 1 ;; esac\n',
              "probe": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" anchor-read "*) exit 1 ;; esac\nexit 0\n'}  # fmt: skip
     for name, text in stubs.items():
         (b / name).write_text(text, encoding="utf-8")

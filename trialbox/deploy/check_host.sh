@@ -54,6 +54,10 @@ FAILS=0
 pass() { echo "PASS  $1"; }
 warn() { echo "WARN  $1"; }
 fail() { echo "FAIL  $1"; FAILS=$((FAILS + 1)); }
+# H-110 (g; the integrator's ruling 7119913331): a FAIL of a kept refusal carries its kind where it is made, and the
+# install keeps a line by that marker (tb_kept_fails), never by its words: (2) what the machine cannot run, (3) the
+# poc profile on a PRODUCTION box, (5) a secret where others can read it
+kept() { fail "$2 [H-94 ($1)]"; }
 mode() { stat -c %a "$1" 2>/dev/null; }
 envget() { [ -r "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -76,7 +80,10 @@ gpu_image_check() {
   # ---- end of REHEARSAL-REAL-SERVERS (H-89)
   out=$(cd "$ROOT_DIR" && python3 -m tools.images_lock host --arch "$(uname -m)" --driver "$drv" \
     --compute-cap "$cap" --image "$img" "$@" 2>&1)
-  echo "$out" | grep -E '^(PASS|WARN|FAIL) ' || echo "FAIL  tools.images_lock: $out"
+  # H-110 (g): tools/images_lock.py's driver FAILs (no driver, one below what the image needs) are what the machine
+  # cannot run: their kind marker is added here, where they become the host check's lines
+  echo "$out" | grep -E '^(PASS|WARN|FAIL) ' | sed -E '/^FAIL .*NVIDIA driver/s/$/ [H-94 (2)]/' \
+    || echo "FAIL  tools.images_lock: $out"
   n=$(echo "$out" | grep -c '^FAIL ')
   [ "$n" -gt 0 ] && FAILS=$((FAILS + n))
   echo "$out" | grep -qE '^(PASS|WARN|FAIL) ' || FAILS=$((FAILS + 1))
@@ -84,12 +91,12 @@ gpu_image_check() {
 # a GB10 host under 96 GiB is the 64 GB class (gb10-64): the same refusal as install.sh's; unknown memory is not judged
 gb10_memory_check() {
   [ "$(sh "$ROOT_DIR/deploy/gpu_profile.sh" memory-class "${TB_TEST_MEM_KIB:-}")" = gb10-64 ] || return 0
-  fail "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB, and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub, or use a 128 GB Spark or another measured box"
+  kept 2 "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB, and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub, or use a 128 GB Spark or another measured box"
 }
 [ -n "$GPU_PROFILE" ] || [ "$(envget TB_LLM_MODE)" != vllm ] || GPU_PROFILE=default
 if [ "$GPU_ONLY" = 1 ]; then
   [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
-  [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"; }
+  [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || kept 2 "GB10 profile on $(uname -m)"; }
   [ "$GB10" = 1 ] && gb10_memory_check
   gpu_image_check
   echo "---"
@@ -116,7 +123,7 @@ facilities() { [ -z "$FACILITIES" ] || warn "host profile poc: ${FACILITIES#, } 
 # What only the site's host can have is a WARN there
 rehearsal_box() { [ "$(envget TB_REHEARSAL)" = 1 ] && { [ "$TBENV" = TEST ] || { [ "$TBENV" = VALIDATION ] && [ -f "$(dirname "$ENV_FILE")/site/rehearsal.json" ]; }; }; }
 if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" = PRODUCTION ]; then
-  fail "TB_HOST_PROFILE=poc on a PRODUCTION box: the host-facility checks are never relaxed there (remove it from $ENV_FILE)"
+  kept 3 "TB_HOST_PROFILE=poc on a PRODUCTION box: the host-facility checks are never relaxed there (remove it from $ENV_FILE)"
 fi
 KREL="$(cat "$HR/proc/sys/kernel/osrelease" 2>/dev/null || true)"
 case "$KREL" in *[Mm]icrosoft*WSL2*) WSL2=1 ;; esac  # a WSL2 kernel: the Windows checks are on by themselves
@@ -288,12 +295,10 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
   return 0
 }
 tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
-  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
-  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
-  _in="$(cat)"
-  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
-    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
-  } | sort -u || true
+  # (H-110 (g), the integrator's ruling 7119913331): by the kind marker deploy/check_host.sh writes where the line is
+  # made, never by its words: "[H-94 (5)]" a secret's mode (deploy/.env, a plain key); "(2)" what the machine cannot
+  # run (memory class, card, driver, toolkit, disk space); "(3)" the poc profile on a PRODUCTION box. Every other warns
+  grep -E '^FAIL .*\[H-94 \([235]\)\]$' | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: the host check's PoC box is the record (deploy/.env beside the --env file, the mark) alone; it never stops by
@@ -335,7 +340,7 @@ else facility strict "no TPM device: the disk unlock and the KEK cannot be bound
 
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then
-  m=$(mode "$ENV_FILE"); [ "$m" = "600" ] || [ "$m" = "400" ] && pass ".env mode $m" || fail ".env mode $m (want 600, root-owned)"
+  m=$(mode "$ENV_FILE"); [ "$m" = "600" ] || [ "$m" = "400" ] && pass ".env mode $m" || kept 5 ".env mode $m (want 600, root-owned)"
 else
   fail ".env not found at $ENV_FILE"
 fi
@@ -345,7 +350,7 @@ if [ -d "$SECRETS" ]; then
       m=$(mode "$SECRETS/$f")
       # H-110 (f): a plain key group or others can read is a secret where others can read it (H-94 (5)): a FAIL on
       # every box and profile, which the install keeps as a refusal (tb_kept_fails)
-      case "$m" in *00) ;; *) fail "$f mode $m: a plain site key that group or others can read (want 600, root-owned)" ;; esac
+      case "$m" in *00) ;; *) kept 5 "$f mode $m: a plain site key that group or others can read (want 600, root-owned)" ;; esac
       # H-110 (g): this line names no mode: a plain key only its owner reads is not one of the five on a PoC box
       facility strict "$f is a plain file: seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)" "$f sealed"
     elif [ -f "$SECRETS/$f.wrapped" ]; then
@@ -385,7 +390,7 @@ fi
 # room to work: Docker's data root (backups and updates stage there too)
 free="$(df -P "$HR$DOCKER_ROOT" 2>/dev/null | awk 'NR == 2 {gsub("%", "", $5); print 100 - $5}')"
 if [ -z "$free" ]; then warn "free space on $DOCKER_ROOT unknown"
-elif [ "$free" -lt 10 ]; then fail "free space on $DOCKER_ROOT: $free% (below 10%)"
+elif [ "$free" -lt 10 ]; then kept 2 "free space on $DOCKER_ROOT: $free% (below 10%)"
 elif [ "$free" -lt 20 ]; then warn "free space on $DOCKER_ROOT: $free% (below 20%)"
 else pass "free space on $DOCKER_ROOT: $free%"; fi
 
@@ -445,18 +450,18 @@ fi
 
 # GPU / GB10 (§2; docker-compose.gb10.yml)
 if [ "$GB10" = 1 ]; then
-  [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"
+  [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || kept 2 "GB10 profile on $(uname -m)"
   gb10_memory_check
   d=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
-  if [ "$d" = "580.142" ]; then pass "NVIDIA driver 580.142 (pinned)"; else fail "NVIDIA driver '${d:-none}' (GB10 requires 580.142; hold it with apt-mark)"; fi
+  if [ "$d" = "580.142" ]; then pass "NVIDIA driver 580.142 (pinned)"; else kept 2 "NVIDIA driver '${d:-none}' (GB10 requires 580.142; hold it with apt-mark)"; fi
   if apt-mark showhold 2>/dev/null | grep -q nvidia; then pass "NVIDIA driver packages held"; else warn "driver packages not held (apt-mark hold)"; fi
-  if docker info 2>/dev/null | grep -qi nvidia; then pass "nvidia container runtime"; else fail "nvidia-container-toolkit not configured"; fi
+  if docker info 2>/dev/null | grep -qi nvidia; then pass "nvidia container runtime"; else kept 2 "nvidia-container-toolkit not configured"; fi
   gpu_image_check
 elif command -v nvidia-smi >/dev/null 2>&1; then
   pass "GPU: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | head -1)"
   [ -z "$GPU_PROFILE" ] || gpu_image_check
 elif [ -n "$GPU_PROFILE" ]; then
-  fail "GPU profile $GPU_PROFILE but no nvidia-smi (NVIDIA driver not installed)"
+  kept 2 "GPU profile $GPU_PROFILE but no nvidia-smi (NVIDIA driver not installed)"
 else
   warn "no NVIDIA GPU: run with TB_LLM_MODE=stub or the cloud flag"
 fi

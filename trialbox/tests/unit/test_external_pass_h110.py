@@ -18,7 +18,6 @@ Synthetic keys, passphrases and settings only.
 
 from __future__ import annotations
 
-import io
 import os
 import pty
 import select
@@ -26,7 +25,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import tarfile
 import time
 from pathlib import Path
 
@@ -35,7 +33,7 @@ from tb_common import kek as K
 
 from tests.unit import test_host_baseline as hb
 from tests.unit.test_kek_passphrase_file_h96 import PHRASE, _sealed_box, _write_pp
-from tools import keys, sign_bundle
+from tools import host_tree, keys, sign_bundle
 from tools.trialbox import backup_schedule as bs
 from tools.trialbox import launch
 
@@ -50,26 +48,27 @@ SIGNED_INSTALL = '#!/usr/bin/env bash\necho "signed install: $0 $*"\n'
 
 
 # ------------------------------------------------------------------------------------------------ (a) the bootstrap
-def _tar(path: Path, files: dict[str, str]) -> Path:
-    with tarfile.open(path, "w:") as tf:
-        for name, text in files.items():
-            data = text.encode()
-            info = tarfile.TarInfo(name)
-            info.size, info.mode = len(data), 0o755
-            tf.addfile(info, io.BytesIO(data))
-    return path
+FILES = {"deploy/install.sh": SIGNED_INSTALL, "deploy/box-install.sh": SIGNED_BOX, "deploy/docker-compose.yml": "services: {}\n",
+         "tools/__init__.py": "", "tools/x.py": "X = 1\n",
+         "tools/host_tree.py": (ROOT / "tools" / "host_tree.py").read_text(encoding="utf-8")}  # fmt: skip
 
 
 @pytest.fixture
 def release(tmp_path: Path) -> dict[str, Path]:
+    """A signed bundle whose host tree is made as the vendor makes it (``HOST-SHA256SUMS`` first)."""
     if shutil.which("openssl") is None:
         pytest.skip("the bootstrap checks with openssl")
     priv, pub = sign_bundle.keygen(tmp_path / "vendor")
-    host = _tar(tmp_path / "trialbox-host.tar", {"deploy/install.sh": SIGNED_INSTALL,
-                                                  "deploy/box-install.sh": SIGNED_BOX, "tools/x.py": "X = 1\n"})  # fmt: skip
+    src = tmp_path / "src"
+    for name, text in FILES.items():
+        (src / name).parent.mkdir(parents=True, exist_ok=True)
+        (src / name).write_text(text, encoding="utf-8")
+        (src / name).chmod(0o755 if name.endswith(".sh") else 0o644)
+    host = tmp_path / "trialbox-host.tar"
+    host_tree.pack(src, host, list(FILES))
     (tmp_path / "usb").mkdir()
     bundle = tmp_path / "usb" / "trialbox-1.0.0.tar"
-    sign_bundle.build(priv, "1.0.0", [("host", host, "trialbox-host.tar")], bundle, release_seq=1)
+    sign_bundle.build(priv, "1.0.0", [("host", host, "trialbox-host.tar")], bundle, release_seq=3)
     return {"pub": pub, "bundle": bundle, "opt": tmp_path / "opt" / "trialbox", "tmp": tmp_path}
 
 
@@ -85,51 +84,81 @@ CHANGES = {
     "the box installer": "deploy/box-install.sh",
     "the installer": "deploy/install.sh",
     "a host tool": "tools/x.py",
+    "the host-tree module": "tools/host_tree.py",
     "a module the release does not hold": "tools/json.py",
-    "a module at the top": "sitecustomize.py",
 }
 
 
 @pytest.mark.parametrize("change", sorted(CHANGES))
 def test_the_installer_that_runs_from_a_kept_tree_is_the_signed_one(release: dict[str, Path], change: str) -> None:
-    """The invariant of (a): whatever a kept tree holds, what the bootstrap runs is the signed release's installer.
-    A kept tree with any file other than the signed one's bytes, or a module the release does not hold, is refused
-    before anything runs (kind 1: the signature covers only the signed tree); the signed tree itself is run."""
+    """The invariant of (a) (the integrator's ruling 7119913331): whatever a kept tree holds, the installer that runs
+    is the signed release's own, and no code of the kept tree runs. The kept tree is the site's data: its own files
+    stay, a changed file of the release is set aside (never deleted), and the signed release is brought in first."""
     assert _boot(release).returncode == 0  # the first run unpacks the signed tree
+    opt = release["opt"]
+    (opt / "deploy" / ".env").write_text("TB_ENV=TEST\n", encoding="utf-8")  # the site's own file
     marker = release["tmp"] / "planted-ran"
     rel = CHANGES[change]
     if rel is not None:
-        (release["opt"] / rel).write_text(PLANT.format(marker=marker), encoding="utf-8")
+        (opt / rel).write_text(PLANT.format(marker=marker), encoding="utf-8")
     got = _boot(release, "--box", "--", "--yes")
-    assert not marker.exists(), got.stdout + got.stderr
-    assert "planted" not in got.stdout
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert not marker.exists() and "planted" not in got.stdout, got.stdout
+    assert f"signed box-install: {opt}/deploy/box-install.sh {release['bundle']} --yes" in got.stdout
+    for name, text in FILES.items():  # what runs from here on is the signed tree, every file of it
+        assert (opt / name).read_text(encoding="utf-8") == text, name
+    assert (opt / "deploy" / ".env").read_text(encoding="utf-8") == "TB_ENV=TEST\n"
     if rel is None:
-        assert got.returncode == 0 and "kept: " in got.stdout, got.stderr
-        assert f"signed box-install: {release['opt']}/deploy/box-install.sh {release['bundle']} --yes" in got.stdout
+        assert "already holds this release's host tree" in got.stdout and not (opt / "releases").exists()
     else:
-        assert got.returncode == 1, got.stdout
-        assert f"is not this signed release's ({rel}: " in got.stderr and "its installer is not run" in got.stderr
-        assert "running:" not in got.stdout
+        assert "none of its code is run" in got.stdout and "brought in: the signed release 1.0.0" in got.stdout
+        assert os.readlink(opt / "current") == "releases/1.0.0"
+        assert not (opt / "tools" / "json.py").exists()  # the kept tree's own code folder went aside whole
+        kept = [p for p in (opt / "releases").glob(".replaced-*/**/*") if p.is_file()]
+        assert any(p.read_text(encoding="utf-8") == PLANT.format(marker=marker) for p in kept), kept
+
+
+def test_a_module_planted_at_the_top_of_a_kept_tree_stops_before_anything_runs(release: dict[str, Path]) -> None:
+    """A module at the top is no release path, so bringing the release in leaves it: a python3 started there would
+    import it, so nothing runs (H-94 (1): only the signed files run)."""
+    assert _boot(release).returncode == 0
+    marker = release["tmp"] / "planted-ran"
+    (release["opt"] / "sitecustomize.py").write_text(f"open({str(marker)!r}, 'w')\n", encoding="utf-8")
+    got = _boot(release, "--box")
+    assert got.returncode == 1 and "still does not match the signed release (sitecustomize.py: " in got.stderr
+    assert not marker.exists() and "running:" not in got.stdout
+
+
+def test_an_older_bundle_is_never_brought_in_over_a_newer_box(release: dict[str, Path]) -> None:
+    assert _boot(release).returncode == 0
+    opt = release["opt"]
+    (opt / "deploy" / "updates").mkdir(parents=True)
+    (opt / "deploy" / "updates" / "installed.json").write_text('{"release_seq": 7}', encoding="utf-8")
+    (opt / "deploy" / "install.sh").write_text("#!/bin/sh\necho the newer release\n", encoding="utf-8")
+    got = _boot(release)
+    assert got.returncode == 1 and "records release_seq 7; the bundle is release_seq 3" in got.stderr, got.stderr
+    assert (opt / "deploy" / "install.sh").read_text(encoding="utf-8") == "#!/bin/sh\necho the newer release\n"
+    assert not (opt / "releases").exists() and "running:" not in got.stdout
 
 
 def test_an_installed_tree_of_this_release_is_kept_through_its_links(release: dict[str, Path]) -> None:
     """A box installed from this bundle: the release files are links into releases/<id> (tools/host_tree.py); the
     links are followed, the site's own files beside them are not the release's business."""
     opt = release["opt"]
-    rel = opt / "releases" / "r1"
-    for name, text in {"deploy/install.sh": SIGNED_INSTALL, "deploy/box-install.sh": SIGNED_BOX,
-                       "tools/x.py": "X = 1\n"}.items():  # fmt: skip
+    rel = opt / "releases" / "1.0.0"
+    for name, text in FILES.items():
         (rel / name).parent.mkdir(parents=True, exist_ok=True)
         (rel / name).write_text(text, encoding="utf-8")
-    (opt / "current").symlink_to("releases/r1")
+    (opt / "current").symlink_to("releases/1.0.0")
     (opt / "deploy").mkdir()
-    for name in ("install.sh", "box-install.sh"):
+    for name in ("install.sh", "box-install.sh", "docker-compose.yml"):
         (opt / "deploy" / name).symlink_to(f"../current/deploy/{name}")
     (opt / "tools").symlink_to("current/tools")
     (opt / "deploy" / ".env").write_text("TB_ENV=TEST\n", encoding="utf-8")
     (opt / "deploy" / "site").mkdir()
     got = _boot(release, "--box")
-    assert got.returncode == 0 and "kept: " in got.stdout and "signed box-install" in got.stdout, got.stderr
+    assert got.returncode == 0 and "already holds this release's host tree" in got.stdout, got.stderr
+    assert "signed box-install" in got.stdout
 
 
 # ------------------------------------------------------------------------------------------------ (b) the launcher
@@ -264,16 +293,60 @@ def test_a_plain_site_key_others_can_read_fails_the_host_check_on_every_box(tmp_
         envf.write_text(envf.read_text(encoding="utf-8") + "TB_HOST_PROFILE=poc\n", encoding="utf-8")
     (tmp_path / "secrets" / "site_hmac.key").chmod(0o644)
     r = hb._sh(args, env)
-    line = "FAIL  site_hmac.key mode 644: a plain site key that group or others can read (want 600, root-owned)"
-    assert r.returncode == 1 and line in r.stdout, r.stdout
+    line = (
+        "FAIL  site_hmac.key mode 644: a plain site key that group or others can read (want 600, root-owned) [H-94 (5)]"
+    )
+    assert r.returncode == 1 and line in r.stdout.splitlines(), r.stdout
     assert "pid_map.key mode" not in r.stdout  # the other plain key is root's alone (0600)
     assert _kept(r.stdout).strip().splitlines() == [line]  # kept by the install: it stops a PoC box too
 
 
+def _class_box(tmp: Path, kind: str) -> tuple[list[str], dict[str, str]]:
+    args, env = hb._box(tmp)
+    envf = Path(args[args.index("--env") + 1])
+    if kind == "env-mode":
+        envf.chmod(0o644)
+    elif kind == "poc-production":
+        envf.write_text("TB_ENV=PRODUCTION\nTB_HOST_PROFILE=poc\n", encoding="utf-8")
+    elif kind == "disk-full":
+        hb._stubs(tmp, {"df": 'case "$1" in --output=source) echo Filesystem; echo /dev/mapper/root ;;\n'
+                              '  *) echo "Filesystem 1024-blocks Used Available Capacity Mounted"; '
+                              'echo "/dev/mapper/root 100 96 4 96% /" ;; esac\n'})  # fmt: skip
+    return args, env
+
+
+CLASSES = {  # each FAIL class of a kept refusal, the line check_host.sh makes, its kind marker
+    "env-mode": ("FAIL  .env mode 644 (want 600, root-owned)", "5"),
+    "poc-production": ("FAIL  TB_HOST_PROFILE=poc on a PRODUCTION box", "3"),
+    "disk-full": ("FAIL  free space on /var/lib/docker: 4% (below 10%)", "2"),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(CLASSES))
+def test_each_kept_fail_class_carries_its_kind_marker_and_is_kept_by_it(tmp_path: Path, kind: str) -> None:
+    """(g; the integrator's ruling 7119913331): the host check writes the kind where it makes the line; the install
+    keeps the line by that marker alone."""
+    r = hb._sh(*_class_box(tmp_path, kind))
+    start, n = CLASSES[kind]
+    got = [ln for ln in r.stdout.splitlines() if ln.startswith(start)]
+    assert len(got) == 1 and got[0].endswith(f" [H-94 ({n})]"), r.stdout
+    assert _kept(r.stdout).strip().splitlines() == got
+    assert _kept(got[0].removesuffix(f" [H-94 ({n})]") + "\n") == ""  # the same words without the marker: not kept
+
+
+def test_the_old_fault_a_0600_key_line_that_names_its_mode_is_not_a_secret_fail() -> None:
+    """(g) pinned: master's unsealed-key line said "(mode 600)" and so was kept as a secret others can read (its words
+    held "mode" and "key"); a line is kept by its marker now, whatever its words."""
+    old = "FAIL  site_hmac.key is a plain file (mode 600): seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)\n"
+    assert _kept(old) == ""
+    assert _kept("FAIL  the token file mode 644 [H-94 (4)]\nFAIL  any words at all [H-94 (5)]\n") == (
+        "FAIL  any words at all [H-94 (5)]\n"
+    )
+
+
 def test_a_plain_key_only_root_reads_is_not_taken_for_a_secret_others_can_read(tmp_path: Path) -> None:
-    """(g): on a VALIDATION box without the poc profile a plain 0600 key FAILs as unsealed; that line named the mode,
-    so the install's wording-based tb_kept_fails kept it as a secret others can read (H-94 (5)) and a PoC install
-    ended 1 for it. Its line names no mode now: it warns on a PoC box like any FAIL that is none of the five."""
+    """(g): on a VALIDATION box without the poc profile a plain 0600 key FAILs as unsealed, a FAIL that is none of the
+    five: it carries no kind marker, so a PoC install warns on it."""
     args, env = hb._box(tmp_path, plain=True, env_name="VALIDATION")
     r = hb._sh(args, env)
     assert "FAIL  site_hmac.key is a plain file: seal it" in r.stdout, r.stdout

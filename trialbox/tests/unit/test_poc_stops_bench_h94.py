@@ -153,8 +153,8 @@ F=" ${TB_H94_FORCE:-} "
 echo "check_host $*" >> "$TB_H94_LOG"
 case " $* " in *" --gpu-only "*) echo "PASS  gpu (stand-in)"; exit 0 ;; esac
 case "$F" in *" host-check "*) echo "FAIL  disk unlock (stand-in)"; exit 1 ;; esac
-case "$F" in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned)"; exit 1 ;; esac
-case "$F" in *" disk-full "*) echo "FAIL  free space on /var/lib/docker: 4% (below 10%)"; exit 1 ;; esac
+case "$F" in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned) [H-94 (5)]"; exit 1 ;; esac
+case "$F" in *" disk-full "*) echo "FAIL  free space on /var/lib/docker: 4% (below 10%) [H-94 (2)]"; exit 1 ;; esac
 echo "PASS  host (stand-in)"
 """
 

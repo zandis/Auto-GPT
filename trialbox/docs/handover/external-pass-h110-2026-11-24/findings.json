@@ -12,7 +12,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "deploy/bootstrap.sh runs a kept tree only when every file of the checked host tar is there with its bytes and no code beside them; else a kind-1 refusal on every box; the rehearsal's bootstrap step plants a box-install.sh",
+   "fix": "the installer that runs is always the signed release's (ruling 7119913331): a kept tree that is not exactly this release gets the release brought in first by the signed tar's own host-tree module (the kept files set aside, the site's files kept), then the signed installer runs; an older bundle is never brought in; the rehearsal plants box-install.sh and install.sh",
    "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
   },
   {
@@ -84,12 +84,12 @@
   {
    "id": "H110-08",
    "severity": "Low",
-   "claim": "tb_kept_fails keeps host check lines by their wording: the unsealed-key line said 'mode 600' and so a 0600 plain key stopped a PoC install as a secret others can read",
+   "claim": "tb_kept_fails kept host check lines by their wording: the unsealed-key line said 'mode 600' and so a 0600 plain key stopped a PoC install as a secret others can read",
    "severity_basis": "a false stop now; a missed stop after a rewording",
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "the unsealed-key line names no mode; a kind marker needs the integrator's ruling (it changes the line test_poc_stops_review_h94.py asserts)",
+   "fix": "check_host.sh writes the kind marker [H-94 (N)] on each kept FAIL line; tb_kept_fails keeps by the marker alone (ruling 7119913331); the stand-in host checks of the H-94 tests print the marker",
    "from": "the external review pass 7119643255 (integrator 7119659794, 7118926528), checked on master 8ddecb8d"
   },
   {
