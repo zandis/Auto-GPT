@@ -24,6 +24,13 @@ UNITS=/etc/systemd/system
 USER_NAME=tb-bench
 HOME_DIR=/var/lib/tb-bench
 ID_RANGE=262144
+# The engine (4.9, rootless) mounts an empty folder over the nearest existing folder of /var/lib/cni while it sets up a
+# user's own network: without /var/lib/cni that is /var/lib, which hides the user's home and its network files ("network
+# not found"; the walk's red, reproduced on the distribution's 4.9.3 with netavark 1.4). An empty root folder there
+# keeps /var/lib in sight.
+CNI_DIR=/var/lib/cni
+HELPER_DIRS=(/usr/lib/podman /usr/libexec/podman)  # where the distributions put the engine's network helpers
+CNI_MARK="$ETC/made-cni-dir"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FILES=(__init__.py launcher.py gpu_check.py)
 IMAGE_FILES=(runner.Dockerfile entrypoint.sh job_started.sh probe.sh gpu_check.py egress_proxy.py gate.py unpack_jit.py)
@@ -56,6 +63,14 @@ prerequisites() {
     command -v "$cmd" >/dev/null || missing+=("$cmd")
   done
   # newuidmap and newgidmap come with the distribution's uidmap package, which a fresh host lacks (the walk's red)
+  # a rootless user's own networks need the engine's network helper for its namespace (either one)
+  command -v slirp4netns >/dev/null || command -v pasta >/dev/null || missing+=("slirp4netns or pasta")
+  local helper dir found
+  for helper in netavark aardvark-dns; do
+    found=""
+    for dir in "${HELPER_DIRS[@]}"; do [ ! -x "$dir/$helper" ] || found=1; done
+    [ -n "$found" ] || command -v "$helper" >/dev/null || missing+=("$helper")
+  done
   [ "${#missing[@]}" = 0 ] || die "missing on this host: ${missing[*]} (install them from the distribution first)"
   # L-1448-18: the service manager must be the running init, before anything is changed (users, linger, units)
   [ -d /run/systemd/system ] || die "the service manager is not the running init here: the units cannot run"
@@ -142,6 +157,10 @@ build_image() {
 make_networks() {
   local engine
   engine="$(get BENCH_ENGINE)"
+  if [ ! -d "$CNI_DIR" ]; then
+    install -d -m 0755 -o root -g root "$CNI_DIR"
+    : >"$CNI_MARK"  # made here: remove takes it away again if it is still empty
+  fi
   as_tb "$engine" network exists tb-bench-egress || as_tb "$engine" network create tb-bench-egress >/dev/null
   say "networks: tb-bench-egress (the proxy's way out); each job gets its own internal network at its start"
 }
@@ -265,6 +284,7 @@ cmd_remove() {
   fi
   if [ -n "$scratch" ] && [ -d "$scratch" ]; then rm -rf --one-file-system "$scratch"; fi
   if [ -f "$TOKEN" ]; then shred -u "$TOKEN" 2>/dev/null || rm -f "$TOKEN"; fi
+  if [ -f "$CNI_MARK" ]; then rmdir "$CNI_DIR" 2>/dev/null || say "$CNI_DIR is left: something else has put files in it"; fi
   rm -rf "$ETC" "$OPT"
   if id "$USER_NAME" >/dev/null 2>&1; then
     loginctl disable-linger "$USER_NAME" || true

@@ -81,8 +81,14 @@ missing host shows it there.
   (`systemctl --version`), `python3` 3.10 or newer, `curl`, `sha256sum`, `runuser`.
 - Two packages a fresh host lacks, installed first from the host's own distribution (the walk's first install had to
   add both): the rootless container engine that `tools/bench_ci/runner.Dockerfile` installs in the job image,
-  version 4.4 or newer, and `uidmap` (`newuidmap`, `newgidmap`). `install.sh install` stops before any change if
-  either is missing, and says which.
+  version 4.4 or newer, and `uidmap` (`newuidmap`, `newgidmap`). Its network helpers (`netavark`, `aardvark-dns`, and
+  `slirp4netns` or `passt`) come with it from the distribution. `install.sh install` stops before any change if
+  any is missing, and says which.
+- The folder `/var/lib/cni` (the install makes it, empty and root's, if it is not there, and remove takes it away
+  again if it made it and it is still empty). Without it the distribution's engine 4.9 mounts an empty folder over
+  `/var/lib` while it sets up a rootless user's own network, which hides `tb-bench`'s home and its networks: "network
+  not found" for every network the user made, while the default network works (the walk's red, reproduced on 4.9.3
+  with netavark 1.4). The jobs never use the default network: the egress-limited network is the boundary.
 - For the GPU slots: the card query tool, and the engine's device description of the cards (written by the card
   vendor's container toolkit). Choose the CI cards (never card 1, the walk's; never a card of the bench) and their
   cap: the most memory and load a CI card may already carry when a GPU job starts. The GPU jobs share the CI cards.

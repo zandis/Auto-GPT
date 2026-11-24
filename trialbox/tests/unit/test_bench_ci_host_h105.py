@@ -98,7 +98,7 @@ def _someone_else() -> pwd.struct_passwd:
 
 
 @pytest.fixture
-def proxy_step(monkeypatch: pytest.MonkeyPatch) -> Any:
+def proxy_step(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
     """The proxy command with stand-ins: the settings, the engine (its answers per sub-command) and exec."""
     user = _someone_else()
     calls: list[list[str]] = []
@@ -116,6 +116,7 @@ def proxy_step(monkeypatch: pytest.MonkeyPatch) -> Any:
 
     settings = {"BENCH_ENGINE": "/usr/bin/engine", "BENCH_IMAGE": "tb-bench-runner:x", "BENCH_ALLOW_HOSTS": "a.test"}
     monkeypatch.setattr(launcher, "read_settings", lambda _p: settings)
+    monkeypatch.setattr(launcher, "CNI_DIR", tmp_path)
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setattr(os, "execv", execv)
     monkeypatch.setattr(os, "geteuid", lambda: user.pw_uid)
@@ -161,6 +162,94 @@ def test_the_proxy_stops_when_its_network_cannot_be_made(proxy_step: Any) -> Non
     _, _, answers, seen, go = proxy_step
     answers["exists"] = answers["create"] = 1
     assert go() == 1 and "exec" not in seen
+
+
+def test_the_proxy_stops_before_the_engine_without_the_cni_folder(
+    proxy_step: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Reproduced on the distribution's engine 4.9.3 with netavark 1.4: without /var/lib/cni the engine mounts an
+    empty folder over /var/lib while it sets up a rootless user's network, so the user's home (and its networks)
+    vanish there: "network not found". The proxy says so instead of starting the engine."""
+    _, calls, _, seen, go = proxy_step
+    monkeypatch.setattr(launcher, "CNI_DIR", tmp_path / "cni")
+    assert go() == 1 and calls == [] and "exec" not in seen
+    assert "/cni is missing" in capsys.readouterr().err
+
+
+def _networks(tmp_path: Path, cni: Path, then: str) -> subprocess.CompletedProcess[str]:
+    etc = tmp_path / "etc"
+    etc.mkdir(exist_ok=True)
+    body = (
+        f'CNI_DIR="{cni}"; ETC="{etc}"; CNI_MARK="$ETC/made-cni-dir"\n'
+        'install() { mkdir -p "${@: -1}"; }; get() { echo engine; }; as_tb() { return 0; }\n'
+        "make_networks\n" + then
+    )
+    return _bash(INSTALL, body)
+
+
+def test_the_install_makes_the_cni_folder_and_remove_takes_it_away_if_empty(tmp_path: Path) -> None:
+    cni = tmp_path / "cni"
+    got = _networks(tmp_path, cni, "")
+    assert got.returncode == 0 and cni.is_dir() and (tmp_path / "etc" / "made-cni-dir").exists(), got.stderr
+    remove = REMOVE_STAND_INS.format(root=tmp_path) + f'CNI_DIR="{cni}"\ncmd_remove\n'
+    got = _bash(INSTALL, remove)
+    assert got.returncode == 0 and not cni.exists(), got.stdout + got.stderr
+
+
+def test_remove_leaves_a_cni_folder_it_did_not_make_or_that_holds_files(tmp_path: Path) -> None:
+    theirs = tmp_path / "theirs"
+    theirs.mkdir()
+    got = _networks(tmp_path, theirs, "")
+    assert got.returncode == 0 and not (tmp_path / "etc" / "made-cni-dir").exists()
+    remove = REMOVE_STAND_INS.format(root=tmp_path) + f'CNI_DIR="{theirs}"\ncmd_remove\n'
+    assert _bash(INSTALL, remove).returncode == 0 and theirs.is_dir()
+    ours = tmp_path / "ours"
+    assert _networks(tmp_path, ours, "").returncode == 0
+    (ours / "a-file").write_text("x", encoding="utf-8")
+    got = _bash(INSTALL, REMOVE_STAND_INS.format(root=tmp_path) + f'CNI_DIR="{ours}"\ncmd_remove\n')
+    assert got.returncode == 0 and ours.is_dir() and "is left: something else has put files in it" in got.stdout
+
+
+HOST_TOOLS = [
+    "systemctl",
+    "loginctl",
+    "runuser",
+    "python3",
+    "curl",
+    "sha256sum",
+    "useradd",
+    "usermod",
+    "userdel",
+    "newuidmap",
+    "newgidmap",
+    "tar",
+]
+
+
+def test_the_install_stops_before_any_change_without_the_networks_helpers(tmp_path: Path) -> None:
+    """A fresh host lacks the engine's network helpers: named, before anything is changed."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for cmd in HOST_TOOLS:
+        (bin_dir / cmd).symlink_to("/bin/true")
+    body = f'PATH="{bin_dir}"; HELPER_DIRS=("{tmp_path}/none")\nprerequisites\necho NO-STOP'
+    got = _bash(INSTALL, body)
+    assert got.returncode == 1 and "NO-STOP" not in got.stdout
+    assert "missing on this host: slirp4netns or pasta netavark aardvark-dns" in got.stderr
+    (bin_dir / "pasta").symlink_to("/bin/true")
+    helpers = tmp_path / "helpers"
+    helpers.mkdir()
+    for helper in ("netavark", "aardvark-dns"):
+        (helpers / helper).symlink_to("/bin/true")
+    got = _bash(INSTALL, f'PATH="{bin_dir}"; HELPER_DIRS=("{helpers}")\nprerequisites')
+    assert "missing on this host" not in got.stderr
+
+
+REMOVE_STAND_INS = """
+need_root() {{ :; }}; systemctl() {{ :; }}; id() {{ return 1; }}; sed() {{ :; }}; get() {{ :; }}
+ETC="{root}/etc"; OPT="{root}/opt"; HOME_DIR="{root}/home-dir"; UNITS="{root}/units"; TOKEN="$ETC/token"
+SETTINGS="$ETC/none"; CNI_MARK="$ETC/made-cni-dir"
+"""
 
 
 def test_roots_steps_do_not_take_the_users_engine_settings(monkeypatch: pytest.MonkeyPatch) -> None:

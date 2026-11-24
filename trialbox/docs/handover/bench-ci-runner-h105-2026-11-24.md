@@ -211,9 +211,18 @@ real-host test is clean:
 - **The runtime folder:** a system unit's `%U` is 0, so the units sent the engine to root's runtime folder. The units
   name none; each step of the `tb-bench` user sets it from its own user id, with its home from the user database, and
   drops the variables that would point the engine at another store.
-- **The proxy's network:** the proxy's own step makes `tb-bench-egress` if its engine does not see it, and stops (no
-  engine start) if it cannot. Whether this is the whole cause of the walk's "network not found" is shown only by the
-  real-host test.
+- **The proxy's network (integrator 7129534370, walk 7129516517):** reproduced in the card's container on the same
+  distribution's packages (engine 4.9.3, netavark 1.4, a system user with its home under `/var/lib`, the runtime
+  folder a tmpfs as the service manager makes it): every network the user made is "not found" (exit 127) while the
+  default network works. The cause: without `/var/lib/cni`, the engine mounts an empty folder over `/var/lib` while it
+  sets up the user's network, hiding the user's home and its network files. With an empty `/var/lib/cni` the same
+  runs pass: the proxy on `tb-bench-egress`, a job on an internal network reaching the proxy at its fixed address,
+  and the job's direct way out refused. Setting pasta in the user's own `containers.conf` changed nothing either way,
+  so the install does not set it; no engine build is pinned. The install makes `/var/lib/cni` (and remove takes it
+  away if it made it and it is empty); the proxy's step refuses to start the engine without it; the proxy's own
+  step also makes `tb-bench-egress` if its engine does not see it. The jobs never fall back to the default network.
+  Not reproduced here: the service manager's units themselves (the container has none); the real-host test shows
+  them.
 - **The prerequisites:** the runbook names the two packages a fresh host lacks (the rootless engine and `uidmap`),
   and the install's refusal says to install them from the distribution.
 - **Found here as well:** `install.sh` was committed without its execute bit, though the runbook runs it by path; it

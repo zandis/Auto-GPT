@@ -126,6 +126,7 @@ main() {
   ENGINE="$(get BENCH_ENGINE 2>/dev/null || echo /usr/bin/podman)"
   echo "host test: engine $("$ENGINE" --version 2>/dev/null | head -n 1)"
   step "no unit names a runtime folder (a system unit's %U is 0)" units_name_no_runtime_folder
+  step "the folder /var/lib/cni is there (without it the engine hides /var/lib from a user's network)" test -d /var/lib/cni
   if proxy_holds >"$LOG/proxy.log" 2>&1; then
     result PASS "the egress proxy starts and runs ${PROXY_HOLD}s with no restart"
   else

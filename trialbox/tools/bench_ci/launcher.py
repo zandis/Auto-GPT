@@ -472,8 +472,15 @@ def own_engine_env() -> None:
         os.environ.pop(key, None)
 
 
+CNI_DIR = Path("/var/lib/cni")  # without it the engine hides /var/lib (the user's home) while it sets up a network
+
+
 def egress_net(s: Settings) -> int:
     """The proxy's way out, made by the proxy's own step if it is missing: in the store its engine reads."""
+    if not CNI_DIR.is_dir():
+        why = "the engine would hide /var/lib, and with it this user's networks, while it sets them up"
+        print(f"bench CI: proxy: {CNI_DIR} is missing: {why} (run install.sh install again)", file=sys.stderr)
+        return 1
     if _engine(s, "network", "exists", EGRESS_NET) == 0:
         return 0
     if _engine(s, "network", "create", EGRESS_NET) == 0:
