@@ -23,11 +23,15 @@ image (``TB_BACKUP_IMAGE``: the box image, restic and the database client tools)
    services start again and are waited for until healthy only when the restore ended complete (exit 0) or held
    (exit 4 with ``hold: held``, D-522: the box screens nobody until a person releases it); otherwise they stay
    stopped and the command says why.
-5. **Every service the box defines (H-126).** ``--restart`` starts the whole of the box's compose project, not
-   only what this run stopped: a run interrupted earlier may have left services stopped that this run never saw
-   running. Afterwards the full expected set (``compose config --services``, less the one-shot services) is checked
-   to run and be healthy; the line names both counts (``16 of 16``) and a shortfall is exit 1, never "healthy".
-   The hold on the list jobs is said either way: released by the restore, or held until a person releases it.
+5. **Every service the box defines (H-126).** After a restore that ran (complete, or held), ``--restart`` starts
+   the whole of the box's compose project, not only what this run stopped: a run interrupted earlier may have left
+   services stopped that this run never saw running. Afterwards the full expected set (``compose config
+   --services``, less the one-shot services) is checked to run and be healthy; the line names both counts (``16 of
+   16``) and a shortfall is exit 1 (a restore's own 4 stays 4), never "healthy". **LR-14:** after a restore refused
+   before any change, only what this run stopped is started (``--no-deps``) and checked with db, and the services
+   it found stopped are named and left stopped: an earlier run may have left them so on data that is not as it
+   was. No start line it prints ever names no service (compose reads that as the whole project). The hold on the
+   list jobs is said either way: released by the restore, or held until a person releases it.
 
 ``--last``: the newest backup ``backup-nightly`` recorded good (``deploy/site/backup-last.json``) and found on a
 target with the same size and sha256.
@@ -277,7 +281,8 @@ class BoxRestore:
 
     def _up(self, stopped: Sequence[str], whole: bool) -> list[str]:
         """The start: the whole project, or (LR-14) only the services named, without their dependencies."""
-        names = [] if whole else ["--no-deps", *stopped]
+        # OCR 1470-6: never ``--no-deps`` alone, which compose reads as every service of the project
+        names = [] if whole else ["--no-deps", *(stopped or sorted(RESTORE_MAY_RUN))]
         return self.box._c("up", "-d", "--pull", self.pull(), "--wait", "--wait-timeout", str(WAIT_S), *names)
 
     def pull(self) -> str:
@@ -536,6 +541,8 @@ class BoxRestore:
                 try:
                     print(f"restore: the services did not all come back healthy: {str(e)[-400:] or type(e).__name__}",
                           file=sys.stderr)  # fmt: skip
+                    if not whole:
+                        self._left_stopped(stopped)
                     self._hold_line(hold, state)
                 finally:
                     _put_back_signals(old)
@@ -546,13 +553,19 @@ class BoxRestore:
                 self._say(stopped, data, f"look at docker compose ps and the services' logs; then {start}")
                 print(f"restore: the services did not all come back healthy: {n}; not running or not healthy: "
                       f"{', '.join(sorted(short))}" + (f" ({err})" if err else ""), file=sys.stderr)  # fmt: skip
+                if not whole:  # OCR 1470-6: the ones found stopped are named here too
+                    self._left_stopped(stopped)
                 self._hold_line(hold, state)
                 return code or 1
             what = "not changed (the restore was refused before any change)" if state == "unchanged" else "restored"
-            if not whole:  # LR-14: what this run stopped, and only that
+            if not whole and not stopped:  # OCR 1470-7: nothing was stopped, nothing was started
+                print(f"restore: the data {what}; this run stopped nothing and started nothing; "
+                      f"{', '.join(sorted(ok))} runs and is healthy ({n})", file=sys.stderr)  # fmt: skip
+                self._left_stopped(stopped)
+            elif not whole:  # LR-14: what this run stopped, and only that
                 print(f"restore: the data {what}; the services this run stopped run again and are healthy: {n} "
                       f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
-                self._left_stopped(ok)
+                self._left_stopped(stopped)
             else:
                 print(f"restore: the data {what}; the services run again and are healthy: {n} "
                       f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
@@ -575,11 +588,12 @@ class BoxRestore:
                       "kept copy of the box (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
         return code
 
-    def _left_stopped(self, ok: set[str]) -> None:
-        """LR-14: after a refused restore, the services the box defines that this run did not start, named: an
-        earlier run may have left them stopped on data that is not as it was. Never started here."""
+    def _left_stopped(self, stopped: Sequence[str]) -> None:
+        """LR-14: after a refused restore, the services the box defines that this run did not start (all but db and
+        what it stopped), named: an earlier run may have left them stopped on data that is not as it was. Never
+        started here."""
         try:
-            rest = sorted(self.expected([]) - ok)
+            rest = sorted(self.expected([]) - set(stopped) - RESTORE_MAY_RUN)
         except Exception:
             print("restore: compose cannot say which other services the box defines: trialbox doctor says what "
                   "runs", file=sys.stderr)  # fmt: skip

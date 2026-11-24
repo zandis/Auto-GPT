@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import signal
 from pathlib import Path
 from typing import Any
@@ -372,3 +373,63 @@ def test_lr14_a_rerun_refused_before_any_change_starts_only_what_it_stopped(
     assert f"the services this run stopped run again and are healthy: {n} of {n} (" in err, err[-1500:]
     assert "the services run again and are healthy" not in err, err[-1500:]
     assert "not started by this run, as it found them stopped: caddy, console, llm-verifier" in err, err[-1500:]
+
+
+@pytest.mark.parametrize("db", ["stopped", "unhealthy", "signal"])
+def test_lr14_a_refused_rerun_never_prints_a_start_of_the_whole_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], db: str
+) -> None:
+    """OCR 1470-6: a re-run refused before any change that stopped nothing (an earlier run left every service
+    stopped, or only db runs) and finds db not running or not healthy, or is signalled while it checks, prints a next
+    step. That step must never be ``up --no-deps`` with no service named: compose then starts the whole project, on
+    data an earlier run said not to start the services on (the harm LR-14 names)."""
+
+    class Refused(Box):
+        def container(self, argv: list[str], values: dict[str, str], base: object = None) -> tuple[int, str]:
+            return 1, json.dumps({"ok": False, "state": "unchanged"})
+
+    deploy = _box(tmp_path)
+    box = Refused(unhealthy=("db",) if db == "unhealthy" else ())
+    box.running = set() if db == "stopped" else {"db"}
+    if db == "signal":
+        box.signal = Interrupt("health", "int")
+    got = _run(deploy, tmp_path, monkeypatch, box)
+    err = capsys.readouterr().err
+    assert got == (130 if db == "signal" else 1) and "are healthy" not in err, (got, err[-1500:])
+    assert not [c for c in box.calls if "up" in c], box.calls  # nothing was started
+    starts = [shlex.split(m) for m in re.findall(r"then (\S+ compose .*? up .*?)(?:,| \(RUNBOOK|$)", err, re.M)]
+    assert starts, err[-1500:]
+    for s in starts:  # each start the person is told names what it starts; never the whole project
+        named = s[s.index("--wait-timeout") + 2 :]
+        assert [a for a in named if a != "--no-deps"], s
+        assert not (set(named) - {"--no-deps", "db"}), s
+
+
+@pytest.mark.parametrize("path", ["shortfall", "signal", "nothing-stopped"])
+def test_lr14_a_refused_rerun_names_what_it_found_stopped_on_every_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], path: str
+) -> None:
+    """OCR 1470-6 and 1470-7: after a refused restore the services it found stopped are named on the shortfall and
+    the interrupt paths too, and a run that stopped nothing says so: never "the services this run stopped"."""
+
+    class Refused(Box):
+        def container(self, argv: list[str], values: dict[str, str], base: object = None) -> tuple[int, str]:
+            return 1, json.dumps({"ok": False, "state": "unchanged"})
+
+    deploy = _box(tmp_path)
+    box = Refused(never_starts=("lake",) if path == "shortfall" else ())
+    if path == "nothing-stopped":
+        box.running = {"db"}
+    else:
+        box.running -= {"caddy", "console"}
+    if path == "signal":
+        box.signal = Interrupt("health", "int")
+    got = _run(deploy, tmp_path, monkeypatch, box)
+    err = capsys.readouterr().err
+    assert got == {"shortfall": 1, "signal": 130, "nothing-stopped": 1}[path], (got, err[-1500:])
+    assert "are healthy" not in err or path == "nothing-stopped", err[-1500:]
+    assert "not started by this run, as it found them stopped: " in err, err[-1500:]
+    assert "caddy" in err.split("as it found them stopped: ")[1].split(".")[0], err[-1500:]
+    if path == "nothing-stopped":
+        assert "this run stopped nothing and started nothing; db runs and is healthy (1 of 1)" in err, err[-1500:]
+        assert "the services this run stopped" not in err and not [c for c in box.calls if "up" in c]
