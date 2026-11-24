@@ -438,8 +438,18 @@ def test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_us
     assert sweep in asked, (
         "the re-run never handed the files it made (kek.json, the wrapped keys) to the services' user"
     )
-    if os.geteuid() == 0:  # review of #1457 (1457-8): as root the files are root's, and the sweep must reach them
-        assert str(tmp_path / "secrets" / K.META_FILE) in asked, "the re-run left kek.json root's"
+    if os.geteuid() == 0:  # review of #1457 (1457-8); H-133 (integrator 7138572054): as root the files end the
+        # services' user's (the key commands give them at the write; the sweep reaches any left root's: here `chown`
+        # only records, so a file still root's must be one it was asked for), modes as written
+        sec = tmp_path / "secrets"
+        for f in (sec / K.META_FILE, *sorted(sec.glob("*.wrapped"))):
+            assert os.stat(f).st_uid == 10001, f"the re-run left {f.name} root's"
+        left = sorted(f for f in sec.iterdir() if f.is_file() and os.lstat(f).st_uid == 0)
+        unreached = [f.name for f in left if str(f) not in asked]
+        assert unreached == [], f"files left root's that the hand-over never reached: {unreached}"
+        modes = {f.name: stat.S_IMODE(os.lstat(f).st_mode) for f in sec.iterdir() if f.is_file()}
+        want = {name: 0o644 if name.endswith(".pub") else 0o600 for name in modes}
+        assert modes == want, f"the hand-over changed a file's mode: { {k: oct(v) for k, v in modes.items()} }"
 
 
 def test_a_plain_key_goes_only_once_its_wrapped_copy_is_on_disk(
