@@ -1,0 +1,25 @@
+{
+ "card": "H134",
+ "title": "the measure48 host form's stop-line test under CI load: its gates read the wall clock",
+ "date": "2026-11-24",
+ "source": "docs/handover/measure48-stop-line-h134-2026-11-24.md",
+ "note": "basis 'shown' means shown by reading the code and by 30 runs of the test beside 8 busy processes on 4 cores in a session container, at master and at the card's head; the CI failure itself was read from its log, not rerun.",
+ "findings": [
+  {
+   "id": "H134-01",
+   "severity": "Low",
+   "claim": "the stop-line test of tests/unit/test_measure48_host_h67.py ran the host form on the real clock with a second counted as 150 and the line at 64 min: stage 4's gate (high 1.05 h) had 60 scaled seconds, 0.4 s of wall time, from the start of the steps, and the ladder's (stage 6, high 0.80 h) 6.4 s; on a loaded machine either was used up, a stage was not started and the line never reached the hang (CI job 138687984359; 7 of 30 runs here)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H134-02",
+   "severity": "Low",
+   "claim": "the product's rule is not the fault: tools/measure48-host.sh and tools/measure48-vm.sh are unchanged; the test now runs them on a stand-in clock (a date on the rig's PATH) that stands still until the hanging measure has started and is then moved past the line, so no gate depends on wall time",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
