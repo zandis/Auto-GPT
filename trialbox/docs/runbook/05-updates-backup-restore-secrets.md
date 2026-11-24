@@ -347,10 +347,15 @@ fails leaves nothing to go back to. One restore runs at a time (`deploy/site/res
 (`deploy/.restore-*`) left by a restore that was killed is removed by the next one.
 
 **What it says.** Every end says the box in one line: `restore: the box now: <what compose says runs>; the data:
-<restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` the services it
-stopped (and only those) start again and are waited for until healthy (`docker compose up -d --no-deps --wait`) when
-the restore ended complete (exit 0), held (exit 4 with `hold: held`), or was refused inside before any change; after a
-put-back the next step is to read the error and start them as they were; otherwise they stay stopped. A stop that
+<restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` every service
+the box's compose defines starts again and is waited for until healthy (`docker compose up -d --wait`), whatever an
+earlier run left stopped, when the restore ended complete (exit 0), held (exit 4 with `hold: held`), or was refused
+inside before any change; after a put-back the next step is to read the error and start them as they were; otherwise
+they stay stopped. After the start the whole expected set is checked (the services compose defines, less the
+one-shot ones): `the services run again and are healthy: 16 of 16`, or `did not all come back healthy: 13 of 16`
+with the names and exit 1. Then the hold is said: released by the restore, or held until a person releases it (step
+4). **A restore that was interrupted (Ctrl-C, a closed session) is run again with the same command:** the re-run
+stops what runs, restores, starts every service and checks them all; a second restore leaves the box held (step 4). A stop that
 fails, an interrupt or an error on the host is said the same way and kept as an audit event
 (`deploy/site/backup-audit-pending.jsonl` while the orchestrator is down). Compare the `rows` the restore prints with
 `databases` of `trialbox backup-verify <file> --key <private key>`: they are equal. The steps above are the same

@@ -23,6 +23,11 @@ image (``TB_BACKUP_IMAGE``: the box image, restic and the database client tools)
    services start again and are waited for until healthy only when the restore ended complete (exit 0) or held
    (exit 4 with ``hold: held``, D-522: the box screens nobody until a person releases it); otherwise they stay
    stopped and the command says why.
+5. **Every service the box defines (H-126).** ``--restart`` starts the whole of the box's compose project, not
+   only what this run stopped: a run interrupted earlier may have left services stopped that this run never saw
+   running. Afterwards the full expected set (``compose config --services``, less the one-shot services) is checked
+   to run and be healthy; the line names both counts (``16 of 16``) and a shortfall is exit 1, never "healthy".
+   The hold on the list jobs is said either way: released by the restore, or held until a person releases it.
 
 ``--last``: the newest backup ``backup-nightly`` recorded good (``deploy/site/backup-last.json``) and found on a
 target with the same size and sha256.
@@ -66,6 +71,7 @@ WAIT_S = 600  # the services' health wait after the restore (as an update's star
 RESTORE_MAY_RUN = frozenset({"db"})
 #: backup.VOLUME_ROOT: where the box's compose volumes are, inside the restore's container as on a host
 VOLUME_ROOT = "/var/lib/docker/volumes/trialbox_{}/_data"
+HOLD_FLAG = "screening.after_restore"  # backup.HOLD_FLAG (D-522): the hold on the list jobs a restore leaves
 
 
 def _backup_error() -> type[Exception]:
@@ -219,12 +225,52 @@ class BoxRestore:
             self.box.run(self.box._c("stop", *others), timeout=900)
             print(f"restore: stopped {', '.join(others)} (--restart); db keeps running", file=sys.stderr)
 
-    def start_and_wait(self, stopped: Sequence[str]) -> list[str]:
-        """H-100 (F6): only the services this command stopped, started again and waited for until healthy."""
-        if stopped:
-            self.box.run(self.box._c("up", "-d", "--no-deps", "--wait", "--wait-timeout", str(WAIT_S), *stopped),
-                         timeout=WAIT_S + 120)  # fmt: skip
-        return self.running() or []
+    def expected(self, stopped: Sequence[str]) -> set[str]:
+        """H-126: the services the box's compose defines (its files and profiles, ``config --services``), less the
+        one-shot ones (``restart: "no"``: they run to the end and exit); with ``db`` and whatever this run stopped,
+        whatever compose says. Never the set that happened to run before (an interrupted run may have stopped some)."""
+        names = set(self.box.run(self.box._c("config", "--services"), timeout=120).split())
+        try:  # the files as written: no value of deploy/.env is put into this output
+            spec = json.loads(self.box.run(self.box._c("config", "--no-interpolate", "--format", "json"), timeout=120))
+        except ValueError:
+            spec = {}
+        services = spec.get("services") if isinstance(spec, dict) else None
+        for name, svc in (services if isinstance(services, dict) else {}).items():
+            if isinstance(svc, dict) and str(svc.get("restart", "")).strip().strip("\"'") == "no":
+                names.discard(name)
+        return names | RESTORE_MAY_RUN | set(stopped)
+
+    def healthy(self, expected: set[str]) -> tuple[set[str], set[str]]:
+        """H-126: of ``expected``, the services that run (``running``, not restarting or paused) and are healthy
+        (no health check, or ``healthy``), asked of compose; and the rest."""
+        runs = set(self.box.run(self.box._c("ps", "--status", "running", "--services"), timeout=120).split())
+        fmt = "{{.Service}} {{.Health}}"
+        out = self.box.run(self.box._c("ps", "--status", "running", "--format", fmt), timeout=120)
+        sick = {f[0] for f in (ln.split() for ln in out.splitlines()) if len(f) > 1 and f[1] != "healthy"}
+        ok = (expected & runs) - sick
+        return ok, expected - ok
+
+    def start_and_wait(self, stopped: Sequence[str]) -> tuple[set[str], set[str], str]:
+        """H-126 (in place of H-100's F6): every service the box defines, started and waited for until healthy, as
+        an update starts the box (``up -d --wait``); then the full expected set checked, whatever the wait said:
+        (healthy, not healthy, the wait's error). An interrupt is raised to the caller."""
+        try:
+            want: set[str] | None = self.expected(stopped)
+        except Exception as e:  # started all the same; never said healthy
+            want, why = None, str(e)[-300:] or type(e).__name__
+        err = ""
+        try:
+            self.box.run(self._up_all(), timeout=WAIT_S + 120)
+        except Exception as e:  # a service that did not come up: counted below, and said
+            err = str(e)[-400:] or type(e).__name__
+        if want is None:
+            raise RestoreStopped(f"compose cannot say which services the box defines ({why}): they were started, "
+                                 "whether each runs and is healthy is not known")  # fmt: skip
+        ok, short = self.healthy(want)
+        return ok, short, err
+
+    def _up_all(self) -> list[str]:
+        return self.box._c("up", "-d", "--wait", "--wait-timeout", str(WAIT_S))
 
     def state(self) -> str:
         """What compose says runs now (asked, never assumed)."""
@@ -425,16 +471,27 @@ class BoxRestore:
             # complete, or held (D-522), or refused before any change (the data is as it was): F6, the services
             # this command stopped, and only those
             data = "restored" if code in (0, 4) else "not changed"
+            start = shlex.join(self._up_all())
             try:
-                up = self.start_and_wait(stopped)
+                ok, short, err = self.start_and_wait(stopped)
             except BaseException as e:  # review R7: an interrupt here is said too, never a silent end
-                self._state_line(stopped, data, f"look at docker compose ps; then {self._start_line(stopped)}")
+                self._state_line(stopped, data, f"look at docker compose ps; then {start}, or run this command "
+                                 f"again: {again}")  # fmt: skip
                 print(f"restore: the services did not all come back healthy: {str(e)[-400:] or type(e).__name__}",
                       file=sys.stderr)  # fmt: skip
+                self._hold_line(hold, state)
                 return 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
+            n = f"{len(ok)} of {len(ok) + len(short)}"
+            if short:  # H-126: a shortfall is never "healthy"
+                self._state_line(stopped, data, f"look at docker compose ps and the services' logs; then {start}")
+                print(f"restore: the services did not all come back healthy: {n}; not running or not healthy: "
+                      f"{', '.join(sorted(short))}" + (f" ({err})" if err else ""), file=sys.stderr)  # fmt: skip
+                self._hold_line(hold, state)
+                return 1
             what = "not changed (the restore was refused before any change)" if state == "unchanged" else "restored"
-            print(f"restore: the data {what}; the services run again and are healthy: {len(up)} "
-                  f"({', '.join(sorted(up))})", file=sys.stderr)  # fmt: skip
+            print(f"restore: the data {what}; the services run again and are healthy: {n} "
+                  f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
+            self._hold_line(hold, state)
             return code
         if code == 3:
             self._state_line(stopped, "the databases and folders are restored; a reference pack is missing",
@@ -452,6 +509,21 @@ class BoxRestore:
                              "do not start the services; put the databases back from that copy, or restore the "
                              "kept copy of the box (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
         return code
+
+    @staticmethod
+    def _hold_line(hold: str, state: str) -> None:
+        """H-126: the hold on the list jobs (``screening.after_restore``, D-522) after the services' start, as RUNBOOK
+        §5 step 4 says it is released: by the restore itself, or by a person."""
+        if hold == "released":
+            print(f"restore: the hold {HOLD_FLAG}: released by the restore (it ended complete)", file=sys.stderr)
+        elif hold == "held":
+            print(f"restore: the hold {HOLD_FLAG} stays held: this restore did not end complete, or a hold or an "
+                  "earlier restore's set-aside audit chain stood before it. No patient list is made until the data "
+                  "steward or the administrator re-applies the events the restores listed and sets it to released on "
+                  "/ops/flags with the reason (RUNBOOK §5, step 4)", file=sys.stderr)  # fmt: skip
+        elif state != "unchanged":
+            print(f"restore: the hold {HOLD_FLAG}: the restore said {hold or 'nothing'}; trialbox doctor shows it "
+                  "(restore_hold)", file=sys.stderr)  # fmt: skip
 
     def checked_sha(self, file: Path, last: bool) -> str:
         """H-100 (F4): the backup file's own sha256, read here before anything stops, equal to what the nightly

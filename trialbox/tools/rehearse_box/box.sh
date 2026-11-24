@@ -830,6 +830,41 @@ EOF
   after="$(dc ps --services --status running | sort)"
   [ "$before" = "$after" ] || fail "the services after the restore differ: before [$before] after [$after]"
   ok "$(printf '%s\n' "$after" | wc -l) services run again after the restore, each healthy, as before it"
+  # H-126: the walk's case. The same command signalled after its data part (the restore's container has ended; the
+  # host's step is starting the services), the site's services left stopped as the walk's interrupted run left them,
+  # then the same command again: every service that ran before runs again healthy, the line says "N of N" (never a
+  # shortfall called healthy) and the site answers through caddy.
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/interrupted.json" 2> "$rr/interrupted.err" &
+  pid=$!
+  seen=0
+  for _ in $(seq 1 1800); do
+    if docker ps --no-trunc --format '{{.Command}}' | grep -q 'tools.trialbox restore'; then seen=1
+    elif [ "$seen" = 1 ]; then break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  [ "$seen" = 1 ] || fail "the restore's container was never seen running"
+  kill -TERM "$pid" 2>/dev/null || true; sleep 1; kill -TERM "$pid" 2>/dev/null || true
+  wait "$pid" || rc=$?
+  cat "$rr/interrupted.err"
+  echo "the restore signalled after its data part ended $rc"
+  mapfile -t left < <(dc ps --services --status running | grep -xE 'caddy|console|llm-verifier')
+  if [ "${#left[@]}" -gt 0 ]; then dc stop "${left[@]}" > "$rr/left.log" 2>&1 || { cat "$rr/left.log"; fail "cannot stop ${left[*]}"; }; fi
+  [ "$(dc ps --services --status running | sort)" != "$before" ] || fail "no service was left stopped for the re-run"
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/rerun.json" 2> "$rr/rerun.err" || rc=$?
+  cat "$rr/rerun.err"
+  [ "$rc" = 0 ] || [ "$rc" = 4 ] || fail "the re-run after the interrupted restore ended $rc"
+  grep -Eq 'the services run again and are healthy: ([0-9]+) of \1 \(' "$rr/rerun.err" \
+    || fail "the re-run did not say every expected service healthy (N of N)"
+  wait_healthy 900
+  after="$(dc ps --services --status running | sort)"
+  [ "$before" = "$after" ] || fail "the services after the re-run differ: before [$before] after [$after]"
+  host="$(envget TB_TLS_HOSTNAME)"
+  curl -fsS -m 10 --cacert "$BOX/deploy/secrets/tls/caddy-root.crt" --resolve "$host:443:${TB_RH_TLS_ADDR:-127.0.0.1}" \
+    "https://$host/healthz" > /dev/null || fail "the site does not answer after the re-run"
+  ok "a restore signalled after its data part, then run again: every service runs healthy and the site answers"
   ;;
 
 # ------------------------------------------------------------------------------------------------ negative: name
