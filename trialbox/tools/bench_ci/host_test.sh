@@ -161,19 +161,15 @@ main() {
     echo "host test: before the token step, or run 'sudo $SRC/install.sh remove' first" >&2
     exit 2
   fi
-  # OCR 1466-11: an install with no record (from before H-105b) is not removed by remove, and nothing_left reads only
-  # the record: on such a host the test would pass with the earlier user, files and units still there
-  if [ ! -f "$MADE" ]; then
-    local p earlier=""
-    ! id "$USER_NAME" >/dev/null 2>&1 || earlier+=" the user $USER_NAME;"
-    for p in "$OPT" "$HOME_DIR" "$UNITS/tb-bench-proxy.service" "$UNITS/tb-bench-runner@.service"; do
-      [ ! -e "$p" ] || earlier+=" $p;"
-    done
-    if [ -n "$earlier" ]; then
-      echo "host test: an install with no record is here:$earlier remove it first (runbook 13, 'Removing a" >&2
-      echo "host test: runner installed before H-105b'): remove at the end would leave it, and the test would pass" >&2
-      exit 2
-    fi
+  # OCR 1466-11: a piece of an install that is here and not in the record (from before H-105b, or under a record a
+  # by-hand install over such pieces left) is not taken by remove, and nothing_left reads only the record: on such a
+  # host the test would pass with it still there (install.sh's own check, which install runs too)
+  local earlier
+  earlier="$(unrecorded_pieces | paste -sd ';' -)"
+  if [ -n "$earlier" ]; then
+    echo "host test: an install with no record is here ($earlier): remove it first (runbook 13, 'Removing a" >&2
+    echo "host test: runner installed before H-105b'): remove at the end would leave it, and the test would pass" >&2
+    exit 2
   fi
   LOG="$(mktemp -d /var/tmp/tb-bench-host-test.XXXXXX)"
   add_redactions "$@"

@@ -43,7 +43,7 @@ def _bash(script: Path, body: str, *args: str) -> subprocess.CompletedProcess[st
 # --- the install ends cleanly (the walk: "line 158: ctx: unbound variable", rc 1, after "installed") ------------
 
 INSTALL_STAND_INS = """
-need_root() { :; }; prerequisites() { :; }; make_user() { :; }; install_files() { :; }
+need_root() { :; }; refuse_unrecorded() { :; }; prerequisites() { :; }; make_user() { :; }; install_files() { :; }
 make_networks() { :; }; start_units() { :; }
 get() { echo "x"; }
 curl() { : > "${@: -2:1}"; }   # the archive: an empty file where -o says
@@ -387,8 +387,9 @@ def test_remove_without_a_record_deletes_nothing_and_says_so(tmp_path: Path) -> 
     got = _remove(tmp_path)
     assert got.returncode == 1 and "nothing was deleted (no record)" in got.stdout
     assert "removed from this host" not in got.stdout
-    for p in ("opt", "units/tb-bench-proxy.service", "home-dir", "etc/token"):
+    for p in ("opt", "units/tb-bench-proxy.service", "home-dir"):
         assert (tmp_path / p).exists(), p
+    assert not (tmp_path / "etc" / "token").exists()  # OCR 1466-15: the token is shredded, recorded or not
 
 
 def test_remove_keeps_the_operators_settings(tmp_path: Path) -> None:
@@ -451,6 +452,8 @@ def _host_run(tmp_path: Path, install_rc: int, extra: str = "") -> tuple[subproc
     marks = tmp_path / "marks"
     (tmp_path / "settings.env").write_text("x\n", encoding="utf-8")
     (fake / "install.sh").write_text(
+        f'source "{INSTALL}"  # the real steps (unrecorded_pieces among them), then the test paths\n'
+        f'SRC="{fake}"; LINGER_DIR="{tmp_path}/linger"; SUBID_FILES=("{tmp_path}/subuid" "{tmp_path}/subgid")\n'
         f'TOKEN="{tmp_path}/token"; SETTINGS="{tmp_path}/settings.env"; MADE="{tmp_path}/made"; UNITS="{tmp_path}"\n'
         f'OPT="{tmp_path}/opt"; HOME_DIR="{tmp_path}/home-dir"; USER_NAME=tb-bench-none-here\n'
         "get() { return 1; }; as_tb() { :; }\n"
@@ -589,3 +592,81 @@ def test_the_install_checks_the_id_ranges_before_any_change(tmp_path: Path) -> N
     body = f'PATH="{bin_dir}"; SUBID_FILES=("{tmp_path}/subuid" "{tmp_path}/subgid")\nprerequisites'
     got = _bash(INSTALL, body)
     assert got.returncode == 1 and "has an id range in only one of" in got.stderr, got.stderr
+
+
+def test_ocr_1466_11_the_host_test_refuses_pieces_its_record_does_not_name(tmp_path: Path) -> None:
+    """OCR 1466-11: a record from a by-hand install over the old layout names the token only: the old code folder
+    is not in it, so remove would leave it and the test would pass."""
+    (tmp_path / "opt").mkdir()
+    (tmp_path / "made").write_text(f"file\t{tmp_path}/token\n", encoding="utf-8")
+    got, marks = _host_run(tmp_path, install_rc=0)
+    assert got.returncode == 2 and marks == "", got.stdout + got.stderr
+    assert "an install with no record is here" in got.stderr and f"{tmp_path}/opt" in got.stderr
+
+
+@pytest.mark.parametrize("piece", ["linger", "subid"])
+def test_ocr_1466_11_an_unrecorded_linger_or_id_range_stops_the_host_test(tmp_path: Path, piece: str) -> None:
+    """What a by-hand removal keeps (it cannot tie it to its install's log) is named, not passed over."""
+    (tmp_path / "linger").mkdir()
+    if piece == "linger":
+        (tmp_path / "linger" / "tb-bench-none-here").write_text("", encoding="utf-8")
+    else:
+        (tmp_path / "subuid").write_text("tb-bench-none-here:300000:65536\n", encoding="utf-8")
+    got, marks = _host_run(tmp_path, install_rc=0)
+    assert got.returncode == 2 and marks == "", got.stdout + got.stderr
+    assert {"linger": "linger", "subid": "id range"}[piece] in got.stderr
+
+
+def _pieces(tmp_path: Path, record: str) -> subprocess.CompletedProcess[str]:
+    (tmp_path / "opt").mkdir(exist_ok=True)
+    (tmp_path / "etc").mkdir(exist_ok=True)
+    (tmp_path / "etc" / "made").write_text(record, encoding="utf-8")
+    where = (
+        f'ETC="{tmp_path}/etc"; MADE="$ETC/made"; OPT="{tmp_path}/opt"; HOME_DIR="{tmp_path}/home"\n'
+        f'UNITS="{tmp_path}/units"; LINGER_DIR="{tmp_path}/linger"; SUBID_FILES=("{tmp_path}/none")\n'
+        "USER_NAME=tb-bench-none-here; need_root() { :; }; prerequisites() { echo PREREQUISITES; exit 0; }\n"
+    )
+    return _bash(INSTALL, where + "cmd_install")
+
+
+def test_ocr_1466_11_install_refuses_unrecorded_pieces_before_any_change(tmp_path: Path) -> None:
+    """LR-46's install half: install run by hand over the old layout goes no further than the check."""
+    got = _pieces(tmp_path, f"file\t{tmp_path}/etc/token\n")
+    assert got.returncode == 1 and "PREREQUISITES" not in got.stdout
+    assert "install: an install with no record is here" in got.stderr and f"{tmp_path}/opt" in got.stderr
+    assert (tmp_path / "etc" / "made").read_text(encoding="utf-8") == f"file\t{tmp_path}/etc/token\n"
+
+
+def test_install_goes_on_over_its_own_recorded_pieces(tmp_path: Path) -> None:
+    got = _pieces(tmp_path, f"dir\t{tmp_path}/opt\n")
+    assert "an install with no record is here" not in got.stderr and "PREREQUISITES" in got.stdout
+
+
+@pytest.mark.parametrize("which", ["opt", "opt/sub", "cni", "cni/sub"])
+def test_ocr_1466_14_scratch_may_not_name_a_folder_install_made_for_itself(tmp_path: Path, which: str) -> None:
+    """OCR 1466-14 (lane LR's LR-49): BENCH_SCRATCH naming the code folder handed it to the jobs' user."""
+    log = tmp_path / "log"
+    scratch = {"opt": "$OPT", "opt/sub": "$OPT/sub", "cni": "$CNI_DIR", "cni/sub": "$CNI_DIR/sub"}[which]
+    body = (
+        f'OPT="{tmp_path}/opt"; CNI_DIR="{tmp_path}/cni"; UNITS="{tmp_path}/units"; HOME_DIR="{tmp_path}/home"\n'
+        f'SRC="{tmp_path}/src"; mkdir -p "$UNITS" "$SRC"; FILES=(); : > "$SETTINGS"\n'
+        f'record_made dir "$CNI_DIR"\nget() {{ [ "$1" = BENCH_SCRATCH ] && echo "{scratch}"; }}\n'
+        f'install() {{ echo "install $*" >> "{log}"; }}\nchmod() {{ :; }}\n'
+        "install_files\n"
+    )
+    got = _bash(INSTALL, body)
+    text = log.read_text(encoding="utf-8") if log.exists() else ""
+    assert got.returncode == 1 and "is not a folder of its own" in got.stderr, got.stdout + got.stderr
+    assert "-o tb-bench -g tb-bench" not in text, text
+
+
+def test_ocr_1466_15_remove_shreds_the_token_and_any_copy_recorded_or_not(tmp_path: Path) -> None:
+    """LR-47: a token given before the first install is not recorded, and a cut token step leaves a copy."""
+    etc = tmp_path / "etc"
+    etc.mkdir()
+    (etc / "token").write_text("tok\n", encoding="utf-8")
+    (etc / ".token.Ab12Cd").write_text("tok\n", encoding="utf-8")
+    (etc / "settings.env").write_text("BENCH_REPO=o/r\n", encoding="utf-8")
+    got = _bash(INSTALL, REMOVE_STAND_INS.format(root=tmp_path) + f'record_made dir "{tmp_path}/opt"\ncmd_remove\n')
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert sorted(p.name for p in etc.iterdir()) == ["settings.env"]

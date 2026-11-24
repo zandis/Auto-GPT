@@ -191,11 +191,14 @@ the hosted runners until the owner's ruling says so.
 1. The owner unsets the repository variable `TB_BENCH_CI` first, so that no new job asks for the runners.
 2. `sudo trialbox/tools/bench_ci/install.sh remove`: stops every slot unit and the proxy, then removes only what
    install recorded that it made (`/etc/tb-bench-ci/made`, root's, written before each thing is made): the units,
-   every container, network and image of `tb-bench`, the scratch folder, the token (shredded), `/opt/tb-bench-ci`,
+   every container, network and image of `tb-bench`, the scratch folder, `/opt/tb-bench-ci`,
    `/var/lib/cni` if it is still empty, the user, its linger, its home and its id range. What was there before stays:
    the settings file (the operator's), a scratch folder install refused, a user or folder of the same name. With no
    record (an install from before the record) it stops the units, deletes nothing and exits 1: the owner decides what
-   goes. It prints a `LEFT` line for anything recorded that is still there and exits 1 if any is.
+   goes. The token, and any copy a cut token step left, are shredded whenever they are there, recorded or not. It
+   prints a `LEFT` line for anything recorded that is still there and exits 1 if any is. Install, and the real-host
+   test, refuse to start while a piece of an install is here that the record does not name (the user, its home,
+   `/opt/tb-bench-ci`, a unit, its linger or its id range): remove would leave it. Remove such pieces first (below).
 3. On the code host, by the owner: the repository's Settings, Actions, Runners: remove any runner named
    `tb-bench-*`; and revoke the token where it was made.
 4. If the runner is not to come back, the workflow stays harmless: with the variable unset its jobs are skipped, and

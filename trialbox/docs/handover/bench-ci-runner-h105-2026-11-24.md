@@ -291,3 +291,19 @@ The re-review (7135144815, verdict 7135149037); each is held by a test in `tests
 - **1466-3 (Medium), H105-11:** open; the walk confirms (7135160993) it never ran the host test and its only install
   is the one at 1fc6579e, which runbook 13's section removes first.
 
+## The re-review of #1466 at 23f95b9 (fix first): 1466-11 (the rest), 1466-14, 1466-15
+
+The re-review (7138769020, verdict 7138774947), with lane LR's LR-46, LR-47 and LR-49; each is held by a test in
+`tests/unit/test_bench_ci_host_h105.py`:
+
+- **1466-11 (Medium; LR-46):** one check in `install.sh` (`unrecorded_pieces`) names every piece of an install that is
+  here and not in the record (the user, its home, `/opt/tb-bench-ci`, a unit, its linger, its id range), whatever the
+  record holds. Install refuses before any change, and the host test refuses before it starts.
+- **1466-14 (Medium; LR-49):** the scratch setting may not name the code folder or the CNI folder, or a folder in
+  them: "install made it" skipped the owner check and handed the folder to the jobs' user.
+- **1466-15 (LR-47):** remove shreds the token, and any copy a cut token step left, whenever they are there.
+- **1466-3 (Medium), H105-11:** open, as before.
+
+My own earlier test `test_remove_without_a_record_deletes_nothing_and_says_so` now asserts that the token goes (it
+kept it before): the change 1466-15 asks for.
+

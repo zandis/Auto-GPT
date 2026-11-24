@@ -36,6 +36,7 @@ HELPER_DIRS=(/usr/lib/podman /usr/libexec/podman)  # where the distributions put
 # was there before, such as a scratch folder install refused). Root's, 0600, always written whole (copy, sync, rename).
 MADE="$ETC/made"
 SUBID_FILES=(/etc/subuid /etc/subgid)
+LINGER_DIR=/var/lib/systemd/linger
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FILES=(__init__.py launcher.py gpu_check.py)
 IMAGE_FILES=(runner.Dockerfile entrypoint.sh job_started.sh probe.sh gpu_check.py egress_proxy.py gate.py unpack_jit.py)
@@ -47,6 +48,23 @@ id_ranges_whole() {  # the user has an id range in both files, or in neither
   local f n=0
   for f in "${SUBID_FILES[@]}"; do ! grep -q "^$USER_NAME:" "$f" 2>/dev/null || n=$((n + 1)); done
   [ "$n" != 1 ]
+}
+unrecorded_pieces() {  # each piece of an install that is here and not in the record, one per line
+  # OCR 1466-11 (lane LR's LR-46): an install from before the record, or what a by-hand removal of it left, is not
+  # taken by remove, which takes only what the record names; install and the host test refuse to go on over it
+  local p
+  ! id "$USER_NAME" >/dev/null 2>&1 || was_made user "$USER_NAME" || echo "the user $USER_NAME"
+  for p in "$OPT" "$HOME_DIR"; do [ ! -e "$p" ] || was_made dir "$p" || echo "$p"; done
+  for p in "$UNITS/tb-bench-proxy.service" "$UNITS/tb-bench-runner@.service"; do
+    [ ! -e "$p" ] || was_made units "$UNITS" || echo "$p"
+  done
+  [ ! -e "$LINGER_DIR/$USER_NAME" ] || was_made linger "$USER_NAME" || echo "$USER_NAME's linger"
+  ! grep -qs "^$USER_NAME:" "${SUBID_FILES[@]}" || was_made subid "$USER_NAME" || echo "$USER_NAME's id range"
+}
+refuse_unrecorded() {  # WHO: stop when unrecorded_pieces names anything
+  local pieces
+  pieces="$(unrecorded_pieces | paste -sd ';' -)"
+  [ -z "$pieces" ] || die "$1: an install with no record is here ($pieces): remove it first (runbook 13, 'Removing a runner installed before H-105b'); remove would leave it"
 }
 was_made() { [ -f "$MADE" ] && grep -qxF -- "$1"$'\t'"$2" "$MADE"; }
 record_made() {  # record_made KIND NAME: before the thing is made
@@ -129,7 +147,7 @@ make_user() {
     start="$(awk -F: 'BEGIN { m = 1000000 } { e = $2 + $3; if (e > m) m = e } END { print m }' /etc/subuid /etc/subgid)"
     usermod --add-subuids "$start-$((start + ID_RANGE - 1))" --add-subgids "$start-$((start + ID_RANGE - 1))" "$USER_NAME"
   fi
-  [ -e "/var/lib/systemd/linger/$USER_NAME" ] || record_made linger "$USER_NAME"
+  [ -e "$LINGER_DIR/$USER_NAME" ] || record_made linger "$USER_NAME"
   loginctl enable-linger "$USER_NAME"
   for _ in $(seq 30); do [ -d "/run/user/$(uid_of)" ] && break; sleep 1; done
   [ -d "/run/user/$(uid_of)" ] || die "no runtime folder for $USER_NAME after enabling linger"
@@ -148,7 +166,9 @@ install_files() {
   chown root:"$USER_NAME" "$SETTINGS" && chmod 0640 "$SETTINGS"
   local scratch
   scratch="$(get BENCH_SCRATCH)"
-  case "$scratch" in /|/home|/home/*|/root|/root/*|/etc|/etc/*|"$HOME_DIR"|"$HOME_DIR"/*) die "scratch $scratch is not a folder of its own" ;; esac
+  # OCR 1466-14 (lane LR's LR-49): never a folder install made for itself (the code folder, the CNI folder): "install
+  # made it" below skips the owner check, and the folder would be handed to the jobs' user
+  case "$scratch" in /|/home|/home/*|/root|/root/*|/etc|/etc/*|"$HOME_DIR"|"$HOME_DIR"/*|"$OPT"|"$OPT"/*|"$CNI_DIR"|"$CNI_DIR"/*) die "scratch $scratch is not a folder of its own" ;; esac
   # OCR 1466-9: a folder that is already there is taken only if install made it, or it is tb-bench's and empty (an
   # earlier install's); never another owner's, even empty: install would hand it to the jobs' user
   if [ -e "$scratch" ] && ! was_made dir "$scratch"; then
@@ -211,6 +231,7 @@ start_units() {
 
 cmd_install() {
   need_root
+  refuse_unrecorded install  # before any change
   prerequisites
   [ -e "$TOKEN" ] || record_made file "$TOKEN"  # the token step writes it; remove shreds it
   make_user
@@ -302,7 +323,7 @@ cmd_remove() {
   # a folder of another owner named as scratch by a slip, a user or folder of the same name)
   local engine="" scratch="" unit kind name
   if [ ! -f "$MADE" ]; then
-    say "no record of what install made ($MADE): the units are stopped, nothing is deleted"
+    say "no record of what install made ($MADE): the units are stopped; only the token and its copies go"
   fi
   if [ -f "$SETTINGS" ]; then engine="$(get BENCH_ENGINE || true)"; scratch="$(get BENCH_SCRATCH || true)"; fi
   while read -r unit; do
@@ -325,7 +346,13 @@ cmd_remove() {
   if [ -n "$scratch" ] && [ -d "$scratch" ]; then
     if was_made dir "$scratch"; then rm -rf --one-file-system "$scratch"; else say "scratch $scratch is kept: install did not make it"; fi
   fi
-  if was_made file "$TOKEN" && [ -f "$TOKEN" ]; then shred -u "$TOKEN" 2>/dev/null || rm -f "$TOKEN"; fi
+  # OCR 1466-15 (lane LR's LR-47): the token and any copy a cut token step left are the token step's own files, never
+  # the operator's: shredded whenever they are there, recorded or not (a token given before the first install)
+  if [ -f "$TOKEN" ]; then shred -u "$TOKEN" 2>/dev/null || rm -f "$TOKEN"; fi
+  local tok
+  for tok in "$ETC"/.token.*; do
+    if [ -f "$tok" ]; then shred -u "$tok" 2>/dev/null || rm -f "$tok"; fi
+  done
   if was_made dir "$CNI_DIR" && [ -d "$CNI_DIR" ]; then
     rmdir "$CNI_DIR" 2>/dev/null || say "$CNI_DIR is left: something else has put files in it"
   fi
@@ -343,7 +370,7 @@ cmd_remove() {
   fi
   local left=0
   if [ ! -f "$MADE" ]; then
-    say "nothing was deleted (no record): stopped only. The owner decides what of an earlier install goes"
+    say "nothing was deleted (no record) but the token and its copies (shredded): stopped only. The owner decides what of an earlier install goes"
     return 1
   else
     while IFS=$'\t' read -r kind name; do
