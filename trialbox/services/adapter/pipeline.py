@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno, feedguard, labvalue, refdata
+from tb_common import chartno, feedguard, labvalue, refdata, site_needs
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -102,6 +102,8 @@ class AdapterConfig:
     site_profile: Path | None = None
     # 10B-6: settings.profiles (tw_core, twpas_version): a profile's standard versions must agree with them
     profile_standards: dict[str, str] = field(default_factory=dict)
+    # U-5 (D-1280): settings.yaml as loaded, for the run gate's items answered there (site.name, data_source.type)
+    site_settings: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         from tb_common.config import site_tz
@@ -524,7 +526,7 @@ def run_ingest(
                 validator=validator,
                 cleanup=cleanup,
             )
-    except SiteKeyError:  # T-612 audits its own refusal (with the reason); one event per night
+    except (SiteKeyError, SiteNeeded):  # T-612 and U-5 audit their own refusal (with the reason); one event per night
         raise
     except Exception as exc:
         if cfg.audit_dir:
@@ -599,6 +601,7 @@ def _run_ingest(
                 },
             )
         raise
+    refuse_site_needs(cfg, snap, source_kind)  # U-5 (D-1280): before a row, a folder or a lake build exists for it
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
@@ -1598,6 +1601,52 @@ def check_room(cfg: AdapterConfig, snap: str) -> None:
 
 class FutureNight(ValueError):
     """A night dated after the site's today (D-529): refused, nothing read or written."""
+
+
+class SiteNeeded(RuntimeError):
+    """U-5 (D-1280): a run on real data refused on a PRODUCTION box, before anything is read or written, while site
+    information it needs is still needed. The message is the gate's line, which names the page "Information still
+    needed"."""
+
+
+#: the boxes that run on synthetic data (D-1091): the run gate warns there and the run goes on with the stand-ins
+POC_ENVS = ("DEV", "TEST", "VALIDATION")
+
+
+def refuse_site_needs(cfg: AdapterConfig, snap: str, source_kind: str) -> None:
+    """U-5 (D-1280, the integrator's go on #639): the first real-data run, at any time, is the step that needs the
+    data source, the chart-number rule, the backup target, key and alarm, the audit share and the hospital's name.
+    On a PRODUCTION box a run with any of them missing, not usable or a stand-in is refused, and the refusal is
+    audited (``ingest.failed``, ``refused: site_needs``, the keys only); on a PoC box the run goes on and the items
+    are logged. The backup key is on the host only: the host's ``host-given.json`` says whether it is there."""
+    from tb_common.config import environment_name
+
+    g = site_needs.gate(
+        "first_real_run",
+        production=environment_name(os.environ) not in POC_ENVS,
+        env=os.environ,
+        settings=cfg.site_settings,
+        files=site_needs.mounted_files(),
+        stand_ins=site_needs.read_mounted_stand_ins(),
+    )
+    if not g.refused:
+        if g.warning:
+            log.warning("run goes on with stand-ins: %s", ", ".join(n.key for n, _ in g.warning))
+        return
+    msg = g.message("en")
+    log.error("run refused: %s", msg)
+    if cfg.audit_dir:
+        open_audit(cfg.audit_dir, cfg.tz).append(
+            "ingest.failed",
+            snapshot=snap,
+            actor="adapter",
+            detail={
+                "source": source_kind,
+                "refused": "site_needs",
+                "needs": {n.key: st for n, st in g.blocking},
+            },
+        )
+    raise SiteNeeded(msg)
 
 
 def refuse_future_night(snap: str, today: date) -> None:
