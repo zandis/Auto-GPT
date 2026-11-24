@@ -39,7 +39,7 @@
   {
    "id": "H112-05",
    "severity": "Low",
-   "claim": "the vendor's release container licence was not read (its registry asked for a sign-in); the engine's source is Apache-2.0 and its wheel names a vendor licence agreement and a proprietary runtime library: the walk reads the container's licence before loading it",
+   "claim": "the vendor's release container licence was not read (its registry asked for a sign-in); the engine's source is Apache-2.0 and its installable package names a vendor licence agreement and a proprietary runtime component: the walk reads the container's licence before loading it",
    "lane": "H",
    "basis": "shown",
    "state": "open"

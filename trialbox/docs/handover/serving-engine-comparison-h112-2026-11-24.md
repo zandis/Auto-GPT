@@ -127,8 +127,8 @@ measures through the gateway, and this harness calls the engine directly.
 | Artefact | Licence | Where it was read |
 | --- | --- | --- |
 | The second serving engine's source | Apache-2.0 | The `LICENSE` file at the root of its source repository |
-| Its packaged wheel | "a vendor software licence agreement, Apache License 2.0, and others" | The package index's metadata for the wheel |
-| The runtime library the wheel depends on | Proprietary | The package index's classifier |
+| Its installable package | "a vendor software licence agreement, Apache License 2.0, and others" | The package index's metadata for the package |
+| A proprietary runtime component the package depends on | Proprietary | The package index's classifier |
 | The vendor's release container | Not read | Its registry asked for a sign-in |
 
 This card adds no artefact: no image, no package and no weights. The image is a placeholder that the bench host
