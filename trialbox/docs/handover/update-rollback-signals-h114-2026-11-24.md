@@ -80,7 +80,7 @@ integrator.
 
 ## What was run
 
-- `tests/unit/test_update_signals_h114.py`: 72 cases:
+- `tests/unit/test_update_signals_h114.py`: 72 cases at fc620ca (80 with the review's 8 below):
   - two signals in every order of INT, TERM and HUP: the first during the apply and the second during the rollback
     (8); both during a rollback that a failure started (8);
   - INT, TERM and HUP at each step's start and inside each step (45);
@@ -107,3 +107,42 @@ its time limit, the group gets SIGTERM and then SIGKILL 10 s later (`procgroup.T
 SIGTERM starts is killed part way. The marker stays, and `rollback` finishes it. This is no worse than before (the
 SIGTERM used to kill the update at once), but the box is between two releases until someone runs `rollback`. This is
 a hypothesis: it was read, not run.
+
+## The external review of #1461 (7124127048, at fc620ca)
+
+The verdict was fix first: High 0, Medium 3, Low 2. Each fix below has a test in
+`tests/unit/test_update_signals_h114.py` that fails at fc620ca (8 cases fail there, all pass now).
+
+- **1461-1 (Medium): fixed.** The first host tree on a copied install moves each copied file aside and links it.
+  The rollback record learned what had moved only when `host_tree.install` returned, so a signal between two moves
+  left the compose file a dangling link while the update said "back on the release before". The reviewer's patch is
+  taken: `install`, `switch` and `sync` fill the caller's record as each file moves (`into`), each name is recorded
+  before its move or link, and `restore` removes a link made before the stop. `tools/host_tree.py` is lane H's file
+  and no open pull request holds it. Not covered: a `kill -9` part way through the switch still leaves `point.json`
+  with the record as it was before the switch (it would need a `save_point` per move). Test: `test_1461_1_*`, with
+  INT, TERM and HUP.
+- **1461-2 (Medium): fixed.** `apply_update.sh ospatch` changes the host's packages before the update path's mark,
+  so a signal then said "nothing was changed" and exited 130, 143 or 129. The mark is now set before the OS patch
+  tool runs. Test: `test_1461_2_*`, with INT, TERM and HUP.
+- **1461-3 (Medium): half fixed; the other half is a question.** When the console's time limit is reached, the
+  updater gets SIGTERM and then SIGKILL 10 s later. The kill can land in the middle of the rollback, and the
+  put-back's command (in a session of its own) runs on. `tools/apply_update.sh rollback` then started a second
+  put-back beside it.
+  - Fixed in `update.py`: `run_cmd` records each command's process group in `deploy/updates/running/<pgid>.json`
+    while an update or a rollback runs. `recover` refuses while a recorded group is alive, names it, and changes
+    nothing. The record of a dead group is removed. Test: `test_1461_3_*`. The updater is killed with SIGKILL during
+    the put-back; `recover` refuses while the put-back runs, and finishes once it has ended.
+  - Not fixed: the 10 s grace itself. Giving the update path's TERM time to finish its rollback needs
+    `procgroup.run` (lane B2) to take a grace, and `ops.do_update_apply` (lane R) to pass one. These are other lanes'
+    files, so the question is for the integrator. H114-05 is this half.
+- **1461-4 (Low): fixed.** An update started under `nohup` (SIGHUP ignored by the caller) was rolled back when the
+  session closed. `Stops` now leaves a signal the caller ignores ignored. Test: `test_1461_4_*`.
+- **1461-5 (Low): not fixed here.** The nightly that meets a host restore says "another backup run holds" the lock.
+  The wording is in `backup_schedule.py`, which #1455 holds; the reviewer's patch is listed for it.
+
+Mutants for these fixes, 5, all caught:
+- the host record not filled as files move;
+- the OS patch not marked as started;
+- `recover` not waiting for a running put-back;
+- `nohup` overridden;
+- a command not recorded while it runs.

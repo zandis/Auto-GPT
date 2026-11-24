@@ -47,11 +47,62 @@
   {
    "id": "H114-05",
    "severity": "Low",
-   "claim": "an update run on a time limit (procgroup) gets SIGTERM, then SIGKILL 10 s later: a rollback the SIGTERM starts is killed part way and the box is between releases until tools/apply_update.sh rollback is run",
+   "claim": "an update run on the console's time limit (procgroup) gets SIGTERM, then SIGKILL 10 s later: a rollback the SIGTERM starts is killed part way and the box is between releases until tools/apply_update.sh rollback is run (review 1461-3)",
    "lane": "H",
-   "basis": "hypothesis",
+   "basis": "shown",
    "state": "open",
-   "from": "card H-114, read from tools/trialbox/procgroup.py, 2026-11-24"
+   "from": "card H-114, reproduced by the external review of #1461 (7124127048), 2026-11-24",
+   "fix": "half: recover refuses while the killed run's put-back still runs (update.py running/<pgid>.json, test_1461_3); the grace itself needs procgroup.py (lane B2) and ops.py (lane R)"
+  },
+  {
+   "id": "H114-06",
+   "severity": "Medium",
+   "claim": "a signal inside the first host-tree switch on a copied install left the moved files out of the rollback record: the compose file a dangling link while the update said back on the release before (review 1461-1)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f5deeece69bb5d3535adc1fb1c966aa29aa7ddfc",
+   "fix": "host_tree install/switch/sync fill the caller's record as each file moves; test_1461_1",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-07",
+   "severity": "Medium",
+   "claim": "apply_update.sh ospatch: a signal while the OS patch was applied said nothing was changed and exited 130/143/129 (review 1461-2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f5deeece69bb5d3535adc1fb1c966aa29aa7ddfc",
+   "fix": "the update path's mark is set before the OS patch tool runs; test_1461_2",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-08",
+   "severity": "Medium",
+   "claim": "a put-back command left running by a killed updater ran beside the put-back of tools/apply_update.sh rollback (review 1461-3)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f5deeece69bb5d3535adc1fb1c966aa29aa7ddfc",
+   "fix": "run_cmd records each command's process group while it runs; recover refuses while one is alive; test_1461_3",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-09",
+   "severity": "Low",
+   "claim": "an update started under nohup was rolled back when the session closed: Stops replaced the inherited ignore of SIGHUP (review 1461-4)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f5deeece69bb5d3535adc1fb1c966aa29aa7ddfc",
+   "fix": "a signal the caller ignores stays ignored; test_1461_4",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-10",
+   "severity": "Low",
+   "claim": "the nightly that meets a host restore says another backup run holds the lock, and the night has no backup without saying so (review 1461-5)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the reviewer's patch is for backup_schedule.py, which #1455 holds",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
   }
  ]
 }
