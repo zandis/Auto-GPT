@@ -1,0 +1,568 @@
+{
+ "card": "LR",
+ "title": "the box's lifecycle as a state machine, one deep review (lane LR, 2026-11-24)",
+ "date": "2026-11-24",
+ "source": "docs/reviews/lifecycle-deep-review-2026-11-24.md",
+ "findings": [
+  {
+   "id": "LR-1",
+   "severity": "High",
+   "claim": "a failed rename-aside makes the restore's put-back delete the live data folder",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-2",
+   "severity": "High",
+   "claim": "deploy/poc.sh reset on an installed box deletes the site's volumes without a check or a question",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-3",
+   "severity": "High",
+   "claim": "after rotate-kek run as root, the services cannot open any key",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-4",
+   "severity": "High",
+   "claim": "a passphrase or share-backed box cannot be opened by the documented step after a restart",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-5",
+   "severity": "High",
+   "claim": "a signal or a failed init during the TPM seal destroys the only KEK after the keys are wrapped (H-111)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-6",
+   "severity": "High",
+   "claim": "rotate-kek --backend file leaves the TPM credential sealing the old KEK, and nothing ever re-seals",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-7",
+   "severity": "High",
+   "claim": "rotate-kek overwrites and consumes the key an interrupted rotate pid_map staged",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-8",
+   "severity": "High",
+   "claim": "on a PRODUCTION box a TPM-sealed KEK has no recovery copy (a ruling's consequence, for the owner)",
+   "lane": "Int",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-9",
+   "severity": "High",
+   "claim": "after a power cut inside an update, the boot unit starts the stack on a between-releases box",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-10",
+   "severity": "High",
+   "claim": "rollback after a kill in \"refdata\" or \"finish\" restores the pre-update database over a live, checked release",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-11",
+   "severity": "High",
+   "claim": "the undo of a streamed image load puts the whole Docker engine back, not the archive's tags",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-12",
+   "severity": "High",
+   "claim": "a failed rollback has no way out",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-13",
+   "severity": "High",
+   "claim": "a closed session kills the restore's host step, the container goes on, and the re-run starts a second restore over it and says healthy",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-14",
+   "severity": "High",
+   "claim": "On #1470 only: a re-run refused before any change starts the whole stack on a box told to stay stopped",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-15",
+   "severity": "High",
+   "claim": "with the engine's data root elsewhere, the host restore restores the databases, writes every folder into the container's own layer, and reports the box restored",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-16",
+   "severity": "High",
+   "claim": "a box whose nightly sends the lake to restic cannot be restored or verified by the documented commands",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-17",
+   "severity": "High",
+   "claim": "a first install that loaded its bundle and then stopped cannot take a corrected release",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-18",
+   "severity": "High",
+   "claim": "On #1455 only: the bootstrap switches current to the new release before the bundle is verified whole, loaded or given a rollback point",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-19",
+   "severity": "High",
+   "claim": "no CI job or rehearsal updates or rolls back an installed compose box",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-20",
+   "severity": "High",
+   "claim": "nothing starts from an older release, so \"the installed code runs\" faults are invisible by construction",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-21",
+   "severity": "Medium",
+   "claim": "deploy/box-install.sh <bundle> run again on a set-up box rewrites the site's host baseline and then waits for ever",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-22",
+   "severity": "Medium",
+   "claim": "H-110 is not closed by #1455 for the media path; on master a tree cut by power \"installs\" with exit 0",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-23",
+   "severity": "Medium",
+   "claim": "there is no uninstall, and removing the folder as the runbook says leaves units that stop Docker at the next boot",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-24",
+   "severity": "Medium",
+   "claim": "the decommissioning plan and the \"empty a rehearsal box\" list miss stores",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-25",
+   "severity": "Medium",
+   "claim": "a lost or rewritten deploy/.env, or a half-initialised database volume, is found only as a failed start and never repaired",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-26",
+   "severity": "Medium",
+   "claim": "a console-started update unpacks the new host tree inside the old release",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-27",
+   "severity": "Medium",
+   "claim": "a KILL or power cut inside the host-tree switch: rollback leaves dangling links",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-28",
+   "severity": "Medium",
+   "claim": "one updater process holds modules of both releases",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "LR-29",
+   "severity": "Medium",
+   "claim": "nothing ever removes the rollback image tags or old release folders",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-30",
+   "severity": "Medium",
+   "claim": "a service a release adds or drops keeps running across an update and a rollback",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-31",
+   "severity": "Medium",
+   "claim": "the update takes none of the box's other locks",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-32",
+   "severity": "Medium",
+   "claim": "\"nothing was changed\" is said while the services are stopped",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-33",
+   "severity": "Medium",
+   "claim": "a stop of the console's update unit kills the rollback after 90 seconds",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-34",
+   "severity": "Medium",
+   "claim": "the key check before an update is skipped silently when the secrets folder is not at one fixed path",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-35",
+   "severity": "Medium",
+   "claim": "files a rollback depends on are not synced before the first change",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-36",
+   "severity": "Medium",
+   "claim": "SIGTERM and SIGHUP are dropped for most of a restore; the host says the box is put back and the restore then replaces the data",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-37",
+   "severity": "Medium",
+   "claim": "every container end that is not a known error is read as \"NOT as it was; do not start the services\"",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-38",
+   "severity": "Medium",
+   "claim": "a power cut or KILL inside the restore's window leaves no durable mark; the boot starts every service on the half-restored box",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-39",
+   "severity": "Medium",
+   "claim": "restoring a backup taken by an older release does not run this release's database steps",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-40",
+   "severity": "Medium",
+   "claim": "restore onto a reinstalled or replaced host: the secrets come back under the old KEK, the host holds the new one, and the page's order cannot work",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-41",
+   "severity": "Medium",
+   "claim": "a setting that is not a number ends backup-nightly and backup-status with a traceback: no record, no alert",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-42",
+   "severity": "Medium",
+   "claim": "an interrupted restore drill leaves the decrypted backup and scratch databases behind",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-43",
+   "severity": "Medium",
+   "claim": "the box rehearsal overwrites and then deletes the Docker host's /run/trialbox/kek",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-44",
+   "severity": "Medium",
+   "claim": "DRY=1 in the caller's environment turns the seal into a dry run that the installer counts as sealed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-45",
+   "severity": "Medium",
+   "claim": "the boot unseal unit is rendered once, at the first TPM seal, and no update can change it",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-46",
+   "severity": "Medium",
+   "claim": "On #1466: an install over the unrecorded older layout goes ahead, and remove then says \"removed\" with almost all of it left",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-47",
+   "severity": "Medium",
+   "claim": "On #1466: the minting token, or a copy, survives remove in three cases",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-48",
+   "severity": "Medium",
+   "claim": "re-running the bench install after a change does not restart the proxy",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-49",
+   "severity": "Medium",
+   "claim": "On #1466: a scratch setting that names the install's own folder hands root's code folder to the jobs' user",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-50",
+   "severity": "Medium",
+   "claim": "the rehearsal's \"power loss\" keeps the KEK and never runs the boot path",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-51",
+   "severity": "Medium",
+   "claim": "lifecycle changes reach the train with their unit tests and the rehearsal both skipped",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-52",
+   "severity": "Medium",
+   "claim": "the bench's rehearse-box job cannot run, and the bench gate refuses a scheduled run",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-53",
+   "severity": "Medium",
+   "claim": "the rehearsal's own health wait passes with services missing",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-54",
+   "severity": "Low",
+   "claim": "small residues of an interrupted install",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-55",
+   "severity": "Low",
+   "claim": "the project cleanup takes the whole stack down for one failed container",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-56",
+   "severity": "Low",
+   "claim": "caller variables the lifecycle commands obey",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-57",
+   "severity": "Low",
+   "claim": "smaller points of the update",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-58",
+   "severity": "Low",
+   "claim": "three locks that do not know each other",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-59",
+   "severity": "Low",
+   "claim": "the backup container is started without --pull never, and one password is not quoted",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-60",
+   "severity": "Low",
+   "claim": "the restore's space check undercounts, and what a restore sets aside is never cleaned or named",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-61",
+   "severity": "Low",
+   "claim": "the nightly has no SIGTERM or SIGHUP handler; two records are not synced",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-62",
+   "severity": "Low",
+   "claim": "a box from before H-96 with the passphrase in deploy/.env stops opening itself after the update",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-63",
+   "severity": "Low",
+   "claim": "key leftovers and unverified commits",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-64",
+   "severity": "Low",
+   "claim": "the bench remove stops dead when userdel fails, with no summary",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-65",
+   "severity": "Low",
+   "claim": "the bench image step's build folder is left on any failure or signal",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-66",
+   "severity": "Low",
+   "claim": "On #1466: remove takes the engine and the scratch path from today's settings, not from the record",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LR-67",
+   "severity": "Low",
+   "claim": "bench leftovers no version of remove looks at",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-68",
+   "severity": "Low",
+   "claim": "key lifecycle beyond the passphrase seal has no end-to-end run",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-69",
+   "severity": "Low",
+   "claim": "\"N-1\" has no mechanical meaning",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "LR-70",
+   "severity": "Low",
+   "claim": "fifteen rows of the matrix have no test, or a part with no test, and no fault was shown in them",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  }
+ ]
+}
