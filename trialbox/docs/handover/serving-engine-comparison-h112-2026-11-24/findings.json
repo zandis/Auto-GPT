@@ -1,0 +1,200 @@
+{
+ "card": "H112",
+ "title": "the serving engine comparison, ready for the bench host",
+ "date": "2026-11-24",
+ "source": "docs/handover/serving-engine-comparison-h112-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H112-01",
+   "severity": "Medium",
+   "claim": "the second serving engine's image is in no signed bundle and not in deploy/images.lock, by design until the bench shows it is worth shipping (the ruling 7122790579): the profile is bench and test boxes only, its image named by digest only, and the lock check refuses it anywhere else",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-02",
+   "severity": "Medium",
+   "claim": "nothing of the second engine's real behaviour is proven: its start with this command line, the served name, structured output, the candidates' 4-bit formats, memory sizing, chat template parity and every timing wait for the walk on the bench host",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H112-03",
+   "severity": "Low",
+   "claim": "E2-9 has no code on master or in any pull request: the harness counts (patient, criterion) answers that differ between runs of the same input with tools.run_metrics.lists_compare, and reports them in the walk's form of 7117120038 (differences from run 1, per run and per criterion)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "not a defect: the integrator's ruling 7122790579 (2): lists_compare counts what E2-9 counted"
+  },
+  {
+   "id": "H112-04",
+   "severity": "Low",
+   "claim": "R1-P2's instrumentation (tools/chart_times.py) is PR #1451, not on master: the per-chart time here has R1-P2's definition (the sum of a chart's own calls) but is measured at the client calling the engine, not through the gateway's audit",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-05",
+   "severity": "Low",
+   "claim": "the vendor's release container licence was not read (its registry asked for a sign-in); the engine's source is Apache-2.0 and its installable package names a vendor licence agreement and a proprietary runtime component: the walk reads the container's licence before loading it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-06",
+   "severity": "Low",
+   "claim": "the second engine's /metrics is not in the metrics text form the current engine's is (per its source): R1-P2's queue, prefill and decode split would be not reported for it",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H112-07",
+   "severity": "Low",
+   "claim": "the GPU memory peak is the whole card's used memory as the GPU monitor reports it, both servers and anything else on it; on a card split into partitions what it reports per partition is not known here",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H112-08",
+   "severity": "Low",
+   "claim": "compose and check-image find the second engine's image by its repository digest; an image store that keeps no repository digest for a loaded file (the classic store, as make_bundle.sh notes) would refuse it on the bench host",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H112-09",
+   "severity": "Medium",
+   "claim": "the external review's 1459-1: the second engine ran from a local tag and no run output recorded the digest; now by digest only, never tagged or pulled, and every run records --image-digest",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 9e203706"
+  },
+  {
+   "id": "H112-10",
+   "severity": "Medium",
+   "claim": "1459-2: a settings file saying second was read as off when unreadable, saved with a byte order mark or written with export: now refused or read as compose reads it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-11",
+   "severity": "Medium",
+   "claim": "1459-3: doctor's bench_serving said PASS while the switch ran the second engine (it read only COMPOSE_FILE): it now reads the switch, and an unreadable switch counts as on",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-12",
+   "severity": "Medium",
+   "claim": "1459-4: the second profile dropped the judge's pinned chat template and the verifier's thinking off: the switch now refuses a judge template other than the current engine's, the verifier takes a thinking-off template, and the page maps each current flag",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-13",
+   "severity": "Medium",
+   "claim": "1459-5: the model servers' key file was handed to the second engine, which checks no key of its own, and VALIDATION boxes were allowed: env_file is reset on both servers and the switch is for TEST boxes only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-14",
+   "severity": "Medium",
+   "claim": "1459-6: repeat agreement was not in the walk's form of 7117120038: now differences from run 1 per run and per criterion",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 9e203706"
+  },
+  {
+   "id": "H112-15",
+   "severity": "Low",
+   "claim": "1459-7: the bench mark was found only as an exact line: now as compose reads it, in doctor and images_lock",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-16",
+   "severity": "Low",
+   "claim": "1459-8: a group- or world-readable settings file or key file was accepted: both must be mode 600",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-17",
+   "severity": "Low",
+   "claim": "1459-9: the settings file was checked, then read again by compose: now read once, compose gets a private copy of the checked values, and deploy/site must be root's or the user's alone",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-18",
+   "severity": "Low",
+   "claim": "1459-10: summary.json was written in place and a reused --out kept an earlier run's summary: now written whole, removed at a run's start, and table refuses a folder without a whole summary",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 681a7497"
+  },
+  {
+   "id": "H112-19",
+   "severity": "Low",
+   "claim": "1459-11: with --key-file the key goes over plain http to a non-loopback endpoint: left open, the bench reaches model-guard over the internal model network in plain http, as R1-P2's harness does",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-20",
+   "severity": "Medium",
+   "claim": "the re-review's 1459-12: repeat agreement's per-criterion keys were the rest of the item id, which for the non-synthetic sources carries a patient, report or item id into summary.json and the table: those sources are now counted under their source name, and the walk freezes the synthetic set only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 85324492"
+  },
+  {
+   "id": "H112-21",
+   "severity": "Low",
+   "claim": "1459-13: the current engine's recorded digest came from the first lock variable deploy/.env set, not the one the stack's llm-service uses: now resolved from the box's own llm-service line",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 85324492"
+  },
+  {
+   "id": "H112-22",
+   "severity": "Low",
+   "claim": "1459-14: the recorded digest is what the walk declares for the engine it started; the harness cannot ask the server which image it runs",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H112-23",
+   "severity": "Low",
+   "claim": "1459-15: the end-to-end test's card monitor stand-in made the last sample the largest, so it no longer told the peak from the last sample: the largest now comes first",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 85324492"
+  },
+  {
+   "id": "H112-24",
+   "severity": "Low",
+   "claim": "1459-16: the digest patterns ended in a line-end anchor, which also matches before a final newline: now anchored at the very end of the value",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 85324492"
+  }
+ ]
+}
