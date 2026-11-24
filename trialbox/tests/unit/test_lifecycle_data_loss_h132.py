@@ -44,6 +44,20 @@ def test_lr1_a_folder_that_cannot_be_renamed_aside_is_never_removed_by_the_put_b
     assert getattr(err.value, "state", None) == "rolled_back", err.value
 
 
+def test_lr1_a_move_recorded_before_a_failed_rename_never_deletes_the_live_folder(tmp_path: Path) -> None:
+    """OCR 1474-5 (its test body): on a folder that is not a mount point the move recorded before a rename that never
+    happened made the put-back delete the live folder and still say "put back as it was before the restore"."""
+    dest = tmp_path / "lake"
+    dest.mkdir()
+    for i in range(3):
+        (dest / f"f{i}").write_text("live", encoding="utf-8")
+    moved = [(dest, dest.with_name("lake.pre-restore-X"), True, None)]  # recorded; the rename never happened
+    ok, words = bk._put_back({}, [], {}, moved, {})
+    gone = (sorted(p.name for p in dest.iterdir()) if dest.is_dir() else []) != ["f0", "f1", "f2"]
+    assert not (gone and (ok or "put back as it was" in words)), words  # never a "put back" over a folder gone
+    assert not gone  # master: the folder is empty, ok is True and the words say "put back as it was"
+
+
 def test_lr1_a_mount_point_target_is_refused_before_the_first_change(
     tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

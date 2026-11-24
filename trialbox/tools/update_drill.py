@@ -151,6 +151,22 @@ def _stage(bundle: Path, pub: Path, stage: Path, updates: Path | None = None, do
     return Plan.load(stage, s)
 
 
+def _plant(url: str, seq: int) -> bool:
+    """H-132 (LR-10): one row the box writes after the update's check (``release_note``, id ``9000 + seq``)."""
+    from tb_common.db import Database
+
+    with Database.connect(url, "release") as db:
+        db.execute("INSERT INTO release_note (id, text) VALUES (?, ?)", (9000 + seq, "written after the check"))
+    return _planted(url, seq)
+
+
+def _planted(url: str, seq: int) -> bool:
+    from tb_common.db import Database
+
+    with Database.connect(url, "release") as db:
+        return db.fetchone("SELECT text FROM release_note WHERE id = ?", (9000 + seq,)) is not None
+
+
 def _tables(url: str) -> list[str]:
     from tb_common.db import Database
 
@@ -233,6 +249,7 @@ def kill_case(
     except UpdateFailed as exc:
         refused = "unfinished" in str(exc)
     out.append((f"kill -9 at '{step}': another update is refused while the marker exists", refused, ""))
+    planted = step in AFTER_CHECK and _plant(url, seq)  # H-132 (LR-10): a row the new release wrote after its check
     lines: list[str] = []
     try:
         Updater(InProcessBox(work, url, base / "backups"), updates, say=lines.append).recover(bid)
@@ -247,6 +264,7 @@ def kill_case(
         out.append((f"kill -9 at '{step}': rollback <bundle> finishes the checked release, the marker is gone, the "
                     "box starts",
                     recovered and us.marker(updates) is None and after[1] != before[1] and after[1].split()[:1] == [bid]
+                    and planted and _planted(url, seq)
                     and not (updates / bid / "rollback").exists() and not plaintext_dumps([updates, work], t0),
                     "; ".join(lines[-3:])[:300]))  # fmt: skip
         return out
