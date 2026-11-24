@@ -180,7 +180,7 @@
    "claim": "after the console's time limit the result was TimeoutExpired with no lines: the update's own outcome (rolled back, or ROLLBACK FAILED) was dropped and only tools/apply_update.sh status on the host told (review 1472-2)",
    "lane": "H",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed 666bd09969cb7596a523c4cbea471f49bc7755cf",
    "fix": "procgroup.run raises TimeoutExpired with the output it read; ops.do_update_apply raises _LimitReached (a private OpsFailed) whose last 20 lines, each through tb_common.logging.redact, are the result's lines; tests/unit/test_update_limit_output_h114e.py",
    "from": "the external review of #1472 (7136336525); the integrator's ruling 7139911468, 2026-11-24"
   }
