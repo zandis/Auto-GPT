@@ -731,6 +731,8 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JUDGE_LLM_URL": Declared("str", "", "tests: the model endpoint the judge suite's real-model test calls"),
+    "TB_JUDGE_MODEL": Declared("str", "", "tests: the served model name the judge suite's real-model test calls"),
     "TB_JUDGED_STORE": Declared(
         "str", "on", "SCREEN: the judged-pair store, on or off; off asks every note question live (D-908, D-519)"
     ),
@@ -788,6 +790,9 @@ DECLARED: dict[str, Declared] = {
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
+    "TB_LLM_EVAL_KEY": Declared(
+        "str", "", "tests: the local model servers' key the model-quality suites send to a local endpoint only (secret)"
+    ),
     "TB_LLM_EVAL_MODEL": Declared("str", "", "tests: the served model name the model-quality suites (marker llm) call"),
     "TB_LLM_EVAL_URL": Declared("str", "", "tests: the model endpoint the model-quality suites (marker llm) call"),
     "TB_LLM_MODE": Declared("str", "vllm", "model client (vllm, llamacpp, openai, stub)"),
