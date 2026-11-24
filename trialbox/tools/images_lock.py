@@ -44,7 +44,7 @@ VLLM = "vllm"
 BENCH_MARK = "x-trialbox-bench-serving: true"
 BENCH_MARK_LINE = re.compile(r"^x-trialbox-bench-serving:\s*true\s*(?:#.*)?$", re.M)  # blanks and a comment too
 BENCH_VARS = frozenset({"SERVING2_IMAGE"})
-BENCH_REF = re.compile(r"^(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")
+BENCH_REF = re.compile(r"\A(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
 
 
 def load(path: Path = LOCK) -> dict[str, Any]:

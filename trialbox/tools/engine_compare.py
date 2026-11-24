@@ -76,7 +76,7 @@ COLUMNS = (
     ("no_answer", "no answer (all repeats)"),
     ("image", "image digest"),
 )
-DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+DIGEST = re.compile(r"\Asha256:[0-9a-f]{64}\Z")  # \Z: no final newline (OCR 1459-16)
 
 
 # ------------------------------------------------------------------------------------------------- the numbers
@@ -84,6 +84,12 @@ def pair_of(row: jb.Row) -> tuple[str, str]:
     """(patient, criterion) of a row: the patient is the item's cluster, the criterion the rest of its id."""
     rest = row.id.removeprefix(f"{row.source}:").removeprefix(f"{row.cluster}:")
     return row.cluster, rest
+
+
+def criterion_of(row: jb.Row) -> str:
+    """What a pair's difference is counted under: the synthetic set's criterion id. Any other source's item id
+    carries a patient, report or item id, so its differences are counted under its source alone (OCR 1459-12)."""
+    return pair_of(row)[1] if row.source == "synthetic" else f"{row.source} (all items)"
 
 
 def answer_of(row: jb.Row) -> str:
@@ -120,12 +126,13 @@ def from_run_1(repeats: Sequence[Sequence[jb.Row]]) -> list[dict[str, Any]]:
     on run 1 and that run), in all and per criterion, the largest first."""
     if len(repeats) < MIN_REPEATS:
         raise ValueError(f"repeat agreement needs at least {MIN_REPEATS} repeats")
+    label = {"\t".join(pair_of(r)): criterion_of(r) for rows in repeats for r in rows}
     out = []
     for k in range(1, len(repeats)):
         d = _differing([repeats[0], repeats[k]])
         per: dict[str, int] = defaultdict(int)
         for key in d:
-            per[key.split("\t", 1)[1]] += 1
+            per[label[key]] += 1
         by = dict(sorted(per.items(), key=lambda kv: (-kv[1], kv[0])))
         out.append({"run": k + 1, "pairs": len(d), "by_criterion": by})
     return out

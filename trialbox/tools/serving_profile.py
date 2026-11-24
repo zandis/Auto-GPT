@@ -74,8 +74,8 @@ TEMPLATE_KEY = "SERVING2_JUDGE_CHAT_TEMPLATE"
 # the judge's pinned chat template in the GPU overlays (DEP-007, D-392): the second engine must render the same one
 CURRENT_TEMPLATE = re.compile(r"--chat-template=/models/\$\{JUDGE_CHAT_TEMPLATE:-([^}\s]+)\}")
 # name@digest: a registry host may carry a port, the name no tag
-PINNED = re.compile(r"^(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9._/-]+@(sha256:[0-9a-f]{64})$")
-DIGEST_TAIL = re.compile(r"@(sha256:[0-9a-f]{64})$")
+PINNED = re.compile(r"\A(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9._/-]+@(sha256:[0-9a-f]{64})\Z")  # \Z: no final newline
+DIGEST_TAIL = re.compile(r"@(sha256:[0-9a-f]{64})\Z")
 COMPOSE_TAG = re.compile(r"(?<=[\s:\[,])!(?:reset|override)\b")  # as doctor reads compose files
 CLEARED_PREFIXES = ("COMPOSE_", "SERVING2_", "SERVING_ENGINE", "DOCKER_DEFAULT_PLATFORM")
 
@@ -329,21 +329,35 @@ def compose(
         return run([*argv, *rest], check=False, env=clean_environ(os.environ)).returncode
 
 
+# ${VAR:-default} or ${VAR:?message} (the platform overlay's form: no default, the box must set it)
+IMAGE_VAR = re.compile(r"\A\$\{([A-Z][A-Z0-9_]*)(?::-([^}\s]+)|:\?[^}]*)?\}\Z")
+
+
+def current_image_ref(deploy: Path, env: Mapping[str, str], own: Sequence[str]) -> str:
+    """The image the current engine's judge server runs on this box, as compose resolves it: the ``image`` of
+    ``llm-service`` in the last of the box's files that sets one; its ``${VAR:-default}`` resolved with the box's
+    ``deploy/.env`` (OCR 1459-13: the variable that stack uses, not any variable of the lock entry)."""
+    value = ""
+    for e in own:
+        try:
+            doc = yaml.safe_load(COMPOSE_TAG.sub("", _text(_file(deploy, e))))
+        except yaml.YAMLError:
+            continue
+        svc = ((doc or {}).get("services") or {}).get("llm-service") if isinstance(doc, dict) else None
+        if isinstance(svc, dict) and svc.get("image"):
+            value = str(svc["image"])
+    m = IMAGE_VAR.match(value)
+    return (env.get(m.group(1)) or m.group(2) or "") if m else value
+
+
 def image(deploy: Path) -> str:
     """The digest the switch's engine runs: the second engine's pin (checked as ``files`` checks it), or the current
-    engine's (its compose variable in deploy/.env when the box sets one, else deploy/images.lock's pin: the lock's
-    one entry with a ``gpu`` part). Never a tag."""
-    engine, _, got = checked(deploy)
+    engine's image as the box's own files and deploy/.env resolve it (:func:`current_image_ref`). Never a tag."""
+    engine, listed, got = checked(deploy)
     if engine == "second":
         ref = got[IMAGE_KEY]
     else:
-        from tools import images_lock
-
-        engines = [e for e in images_lock.load(deploy / "images.lock")["third_party"].values() if e.get("gpu")]
-        box = env_file(deploy / ".env")
-        ref = next((box[v] for v in engines[0].get("variables") or [] if box.get(v)), "") or images_lock.pinned(
-            engines[0]
-        )
+        ref = current_image_ref(deploy, env_file(deploy / ".env"), listed)
     m = PINNED.match(ref) or DIGEST_TAIL.search(ref)  # the lock's own form is repository:tag@digest
     if m is None:
         raise Refused("the engine's image is not pinned by digest")

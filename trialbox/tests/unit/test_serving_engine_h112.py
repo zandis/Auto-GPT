@@ -276,22 +276,39 @@ def test_check_image_checks_the_pinned_digest_and_never_tags_or_pulls(tmp_path: 
     assert all(c[:3] == ["docker", "image", "inspect"] for c in calls)  # no tag, no pull, ever
 
 
-def test_the_image_a_run_records_is_the_switchs_digest(tmp_path: Path) -> None:
+@pytest.mark.parametrize("stack", GPU_STACKS, ids="+".join)
+def test_the_image_a_run_records_is_the_one_its_stack_runs(tmp_path: Path, stack: tuple[str, ...]) -> None:
+    """OCR 1459-13: the current engine's digest is the image its own llm-service line resolves to on this box (the
+    variable that stack uses, its default when the box sets none), never another variable of the lock entry."""
     lock = json.loads((DEPLOY / "images.lock").read_text(encoding="utf-8"))
     engine = next(e for e in lock["third_party"].values() if e.get("gpu"))
-    deploy = _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\n")
-    (deploy / "images.lock").write_text(json.dumps(lock), encoding="utf-8")
-    engine_vars = tuple(f"{v}=" for v in engine["variables"])
-    own = [ln for ln in (deploy / ".env").read_text(encoding="utf-8").splitlines() if not ln.startswith(engine_vars)]
-    (deploy / ".env").write_text("\n".join(own) + "\n", encoding="utf-8")
-    assert sp.image(deploy) == engine["digest"]  # off, the box sets none: the lock's pin of the current engine
-    (deploy / ".env").write_text("\n".join(own) + f"\n{engine['variables'][0]}=engine:1.0\n", encoding="utf-8")
+    m = sp.IMAGE_VAR.match(str(_merge(stack)["llm-service"]["image"]))
+    assert m is not None
+    used = m.group(1)
+    others = [v for v in engine["variables"] if v != used]
+    base = [ln for ln in DUMMY_ENV.splitlines() if not ln.startswith(tuple(f"{v}=" for v in engine["variables"]))]
+
+    def box(extra: str) -> Path:
+        d = _box(tmp_path, stack, "TB_ENV=TEST\n")
+        (d / ".env").write_text("\n".join(base) + f"\nCOMPOSE_FILE={':'.join(str(DEPLOY / f) for f in stack)}\n"
+                                + extra, encoding="utf-8")  # fmt: skip
+        return d
+
+    mine, theirs = "sha256:" + "ef" * 32, "sha256:" + "ab" * 32
+    if m.group(2):  # a default: the lock's pin when the box sets nothing, or sets only another variable
+        assert sp.image(box("")) == engine["digest"]
+        for v in others:
+            assert sp.image(box(f"{v}=mirror.invalid/x@{theirs}\n")) == engine["digest"], v
+    else:  # no default (the platform form): the box must set it
+        with pytest.raises(sp.Refused, match="not pinned by digest"):
+            sp.image(box(""))
+    assert sp.image(box(f"{used}=mirror.invalid/x@{mine}\n")) == mine
     with pytest.raises(sp.Refused, match="not pinned by digest"):
-        sp.image(deploy)  # a tag the box set is never recorded as what ran
-    other = "sha256:" + "ef" * 32
-    _box(tmp_path, GPU_STACKS[0], f"TB_ENV=TEST\n{engine['variables'][0]}=mirror.invalid/x@{other}\n")
-    assert sp.image(deploy) == other  # the box's own setting of the current engine's image
-    _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\n", settings=ON)
+        sp.image(box(f"{used}=engine:1.0\n"))  # a tag the box set is never recorded as what ran
+
+
+def test_the_second_engines_recorded_image_is_its_pin(tmp_path: Path) -> None:
+    deploy = _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\n", settings=ON)
     assert sp.image(deploy) == FILLED["SERVING2_IMAGE"].rsplit("@", 1)[1]
     _box(tmp_path, GPU_STACKS[0], "TB_ENV=TEST\n", settings={**ON, "SERVING2_IMAGE": "registry.invalid/engine:1.0"})
     with pytest.raises(sp.Refused, match="not pinned by digest"):
@@ -439,8 +456,8 @@ def test_two_stand_in_engines_end_to_end(tmp_path: Path, capsys: pytest.CaptureF
         return a
 
     outs = {}
-    # the monitor is asked at least twice (at the start and at the stop): the peak is the second answer, kept after
-    for engine, answer, peaks in (("current", jb.stub_answer, [1000, 41000]), ("second", wavering, [900, 39000])):
+    # the largest answer first and a lower one after it: "the largest sample" is never "the last" (OCR 1459-15)
+    for engine, answer, peaks in (("current", jb.stub_answer, [41000, 1000]), ("second", wavering, [39000, 900])):
         with jb.stub_server(answer=answer) as url:
             outs[engine] = tmp_path / engine
             s = ec.run(url, jb.STUB_NAME, items, {"engine": engine, "candidate": "A", "quant": "q4",
@@ -646,3 +663,39 @@ def test_ocr_1459_10_a_run_leaves_no_old_or_half_summary(tmp_path: Path, monkeyp
     ec.write_summary(out, {"engine": "current"})
     assert json.loads((out / ec.SUMMARY).read_text(encoding="utf-8")) == {"engine": "current"}
     assert not (out / (ec.SUMMARY + ".tmp")).exists()
+
+
+def test_ocr_1459_12_by_criterion_never_carries_a_patient_report_or_item_id() -> None:
+    """Only the synthetic set's item ids end in a criterion id; any other source's id carries a patient, report or
+    item id, so its differences are counted under its source alone, in summary.json and in the table."""
+    others = sorted(set(jb.GATED) - {"synthetic"})
+
+    def row(src: str, rid: str, cl: str, ans: str) -> jb.Row:
+        return jb.Row(rid, src, cl, "", "exclusion", "unknown", False, predicate=ans, attempts=1)
+
+    def rows(ans: str) -> list[jb.Row]:
+        out = [row("synthetic", "synthetic:site-a:1:C1", "site-a:1", ans)]
+        out += [row(s, f"{s}:P-{i}|T-1|0", f"P-{i}", ans) for i, s in enumerate(others, 1)]
+        out += [row(s, f"{s}:ja:RPT-{i}-f2", f"RPT-{i}", ans) for i, s in enumerate(others, 1)]
+        return out
+
+    got = ec.from_run_1([rows("pass"), rows("fail")])
+    labels = {"C1": 1, **{f"{s} (all items)": 2 for s in others}}
+    assert got == [{"run": 2, "pairs": 1 + 2 * len(others), "by_criterion": dict(sorted(labels.items(),
+                   key=lambda kv: (-kv[1], kv[0])))}]  # fmt: skip
+    table = ec.render_table([{"engine": "second", "candidate": "A", "quant": "q4", "from_run_1": got}])
+    assert "P-" not in table and "RPT-" not in table and "site-a" not in table
+
+
+def test_ocr_1459_16_a_digest_with_a_final_newline_is_refused(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    d = "sha256:" + "ab" * 32
+    assert ec.DIGEST.match(d) and not ec.DIGEST.match(d + "\n")
+    assert sp.PINNED.match("r.invalid/e@" + d) and not sp.PINNED.match("r.invalid/e@" + d + "\n")
+    assert not sp.DIGEST_TAIL.search("r.invalid/e:1@" + d + "\n")
+    assert il.BENCH_REF.match("r.invalid/e@" + d) and not il.BENCH_REF.match("r.invalid/e@" + d + "\n")
+    argv = ["run", "--engine", "current", "--candidate", "A", "--quant", "q4", "--image-digest", d + "\n",
+            "--base-url", "http://127.0.0.1:9/v1", "--served-name", "x", "--set", str(tmp_path / "s.jsonl"),
+            "--expect-set-sha", "0", "--out", str(tmp_path / "o")]  # fmt: skip
+    assert ec.main(argv) == 2 and "never a tag" in capsys.readouterr().err

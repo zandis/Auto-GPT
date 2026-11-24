@@ -33,7 +33,10 @@ digest, is refused by the switch and by `tools/images_lock.py`. Nothing bench-on
 - `check-compose` lets only the file marked as the bench profile name that variable;
 - the settings file lives under `deploy/site/`, which the host tree never packs.
 
-Each harness run records the digest it ran (`--image-digest`, from `python3 -m tools.serving_profile image`).
+Each harness run records the digest it ran (`--image-digest`, from `python3 -m tools.serving_profile image`). For
+the current engine that is the image the box's own `llm-service` line resolves to: the variable that stack uses,
+set in `deploy/.env` or else its default (the external review's 1459-13). The harness cannot ask the server which
+image it runs, so the digest is what the walk declares for the engine it just started (1459-14, left open).
 
 **Finding H112-01 stays open by design** (the ruling): bench use on the owner's machine goes ahead; whether
 the second engine may ever ship to a hospital box is decided only if the bench shows it is worth it.
@@ -104,7 +107,8 @@ What it measures:
 `table` joins the runs into one table of counts and times. The engine, the candidate and the quantization are short
 labels, refused if they look like anything else. No patient id, criterion text, excerpt or quote reaches a file or
 the console (the stand-in test scans every written file and the output). Criterion ids of the synthetic set appear,
-as in the walk's line.
+as in the walk's line. Any other source's item id carries a patient, report or item id, so its differences are
+counted under its source name alone (the external review's 1459-12).
 
 **Files outside the card.**
 
@@ -128,7 +132,8 @@ Run from the repository checkout, as root, with the walk's own copies (never com
    gateway's registry expects, the engine's options file and the chat template (the judge's: the file the current
    engine renders; the verifier's: one that renders with thinking off). Keep `SERVING_ENGINE=current` for now. The
    bench box is a TEST box (`TB_ENV=TEST`): the switch refuses any other.
-2. Freeze the set once: `python -m tools.judge_bakeoff --write-set <results>/h112-set.jsonl`. Note its sha256.
+2. Freeze the synthetic set once: `python -m tools.judge_bakeoff --sources synthetic --require-sources synthetic
+   --write-set <results>/h112-set.jsonl`. Note its sha256.
 3. The current engine, for each candidate X (A to D) and its quantization label Q:
 
    ```
