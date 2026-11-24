@@ -578,6 +578,12 @@ STEP_PATHS = {
     "trialbox/tools/trialbox/update.py",
     "trialbox/tools/trialbox/doctor.py",
     ".github/workflows/trialbox-rehearse-box.yml",
+    # review 1452-11 (the integrator's ruling 7130040223): the test boxes' own code and the step's own scripts
+    "trialbox/tools/trialbox/testbox.py",
+    "trialbox/tools/trialbox/launch.py",
+    "trialbox/tools/testboxes.sh",
+    "trialbox/tools/rehearse_box/box.sh",
+    "trialbox/tools/rehearse_box/rehearse.sh",
 }
 
 
@@ -611,6 +617,7 @@ def test_the_second_box_step_runs_on_trains_and_its_paths_only_and_is_skipped_el
     for f in sorted(STEP_PATHS):
         assert _boxes_step(tmp_path, [f.replace("*", ".gb10")]) == "test_boxes=true", f
     outside = ["trialbox/tools/trialbox/backup.py", "trialbox/deploy/box-install.sh", "trialbox/tools/keys.py"]
+    assert _boxes_step(tmp_path, ["trialbox/tools/rehearse_box/standins.yml"]) == "test_boxes=false"
     assert _boxes_step(tmp_path, outside) == "test_boxes=false"
     assert _boxes_step(tmp_path, outside, head="train/171") == "test_boxes=true"
     assert _boxes_step(tmp_path, [], event="workflow_dispatch") == "test_boxes=true"

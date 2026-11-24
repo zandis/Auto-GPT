@@ -215,7 +215,7 @@ alive_start() {
   # it also ends within a minute of the installer's own end (set -e, a signal): it never outlives the install
   ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
     while kill -0 "$installer" 2>/dev/null; do
-      sleep 60 & s=$!; wait "$s"; n=$((n + 1))
+      sleep 60 </dev/null >/dev/null 2>&1 & s=$!; wait "$s"; n=$((n + 1))  # no copy of the caller's output (H106-14)
       kill -0 "$installer" 2>/dev/null && echo "    ... still $what ($n min)" >&2
     done
   ) >&2 & ALIVE_PID=$!
@@ -657,7 +657,8 @@ TB_PROJECT=""  # H-106: the script's own (a test box's record), never a caller's
 TB_HOST_LOCK=/run/lock/trialbox-boxes.lock
 if { [ -n "${TEST_BOX:-}" ] || ! tb_poc_box; } && command -v flock >/dev/null \
     && [ "$(readlink -f "/proc/$$/fd/6" 2>/dev/null)" != "$TB_HOST_LOCK" ] && { exec 6>>"$TB_HOST_LOCK"; } 2>/dev/null; then
-  flock -n 6 || { echo "install: note: another box's install holds this host's lock ($TB_HOST_LOCK): waiting for it" >&2; flock -w 3600 6 || true; }
+  # the note goes to a terminal only: a captured output is the same whether this run waited or not
+  flock -n 6 || { [ ! -t 2 ] || echo "install: note: another box's install holds this host's lock ($TB_HOST_LOCK): waiting for it" >&2; flock -w 3600 6 || true; }
 fi
 if [ -n "${TEST_BOX:-}" ]; then
   [ -z "${TB_SECRETS_HOST_DIR:-}" ] || die "--test-box: TB_SECRETS_HOST_DIR is set in the environment: a test box keeps its keys in its own project's volume, never in a folder a caller names (another box's could be it). Unset it (nothing was changed)"  # H-94 (5)

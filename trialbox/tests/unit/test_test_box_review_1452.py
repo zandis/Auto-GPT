@@ -129,14 +129,16 @@ def test_1452_2_two_installs_never_both_pass_the_host_check(tmp_path: Path) -> N
         released.append(time.monotonic())
         fcntl.flock(fd, fcntl.LOCK_UN)
 
-    threading.Thread(target=release).start()
+    holder = threading.Thread(target=release)
+    holder.start()
     try:
         r = H106Box(tmp_path / "t").run("--test-box", "w", "--port-offset", "1", *TEST_ARGS)
         done = time.monotonic()
     finally:
+        holder.join()
         os.close(fd)
-    assert "another box's install holds this host's lock" in r.err and r.rc == 0, r.text[-1500:]
-    assert released and done >= released[0]
+    assert r.rc == 0 and released and done >= released[0], r.text[-1500:]  # it waited for the lock, then went on
+    assert "holds this host's lock" not in r.err  # the note is a terminal's only: a captured output never varies
 
 
 # ------------------------------------------------------------------------------------------------ 1452-3 (Medium)
@@ -228,3 +230,19 @@ def test_1452_8_one_name_and_one_offset_a_host(tmp_path: Path, clash: str) -> No
             "project": "the name 'trialbox' is the project of another box"}[clash]  # fmt: skip
     assert r.rc == 1 and want in r.err, r.text[-1500:]
     assert not (b.deploy / testbox.RECORD).exists() and not (b.tmp / "current").exists()
+
+
+# ------------------------------------------------------------------------------------------------ H106-14
+def test_h106_14_the_heartbeat_s_sleep_never_holds_the_caller_s_output() -> None:
+    """Found by the card's pre-push run (the integrator, 7130040223: an order-dependent failure is a finding): a heartbeat
+    stopped between its `sleep &` and `s=$!` left the sleep running with the caller's output pipe, so whoever reads the
+    install's output waited for it (a test's 120 s, a log's tee). The worst case, the heartbeat killed outright with its
+    sleep running: the install's output still closes at once."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    start = text.index("alive_start() {")
+    end = text.index("\n}\n", text.index("alive_stop() {")) + 3
+    script = text[start:end] + 'alive_start test; sleep 0.5; kill -9 "$ALIVE_PID"; echo done\n'
+    t0 = time.monotonic()
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, check=False)
+    # the orphaned sleep ends by itself within 60 s; it holds no pipe of the caller's (what is checked)
+    assert r.stdout.strip() == "done" and time.monotonic() - t0 < 10, r

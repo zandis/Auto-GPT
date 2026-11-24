@@ -79,7 +79,8 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
           # H-106 (the integrator's ruling 7124599679): the second-box step (test-boxes) runs on a train, by hand, and
-          # on a pull request that touches one of these; on any other the rehearsal reports it skipped
+          # on a pull request that touches one of these; on any other the rehearsal reports it skipped. The test boxes'
+          # own code and the step's own scripts are on it too (review 1452-11, the integrator's ruling 7130040223)
           TEST_BOX_PATHS: |
             trialbox/deploy/docker-compose*.yml
             trialbox/deploy/docker-compose.identity.yml
@@ -87,6 +88,11 @@ jobs:
             trialbox/tools/trialbox/update.py
             trialbox/tools/trialbox/doctor.py
             .github/workflows/trialbox-rehearse-box.yml
+            trialbox/tools/trialbox/testbox.py
+            trialbox/tools/trialbox/launch.py
+            trialbox/tools/testboxes.sh
+            trialbox/tools/rehearse_box/box.sh
+            trialbox/tools/rehearse_box/rehearse.sh
         run: |
           if [ "$EVENT" != pull_request ]; then echo "test_boxes=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename')"
