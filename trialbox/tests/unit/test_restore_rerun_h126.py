@@ -171,7 +171,7 @@ def test_the_walk_three_services_left_stopped_are_started_by_the_rerun(
     assert box.running == set(SERVICES) and box.site_answers()
     assert "healthy: 16 of 16 (" in err and ": 13" not in err, err[-1500:]
     ups = [c for c in box.calls if "up" in c]
-    assert len(ups) == 1 and ups[0][-5:] == ["up", "-d", "--wait", "--wait-timeout", "600"], ups  # the whole project
+    assert len(ups) == 1 and ups[0][-7:] == ["up", "-d", "--pull", "never", "--wait", "--wait-timeout", "600"], ups
 
 
 @pytest.mark.parametrize("plant", ["never_starts", "unhealthy"])
@@ -320,3 +320,24 @@ def test_a_shortfall_keeps_the_restores_own_code(
     err = capsys.readouterr().err
     assert got == want, (got, err[-1500:])
     assert "are healthy" not in err and "did not all come back healthy: 15 of 16" in err, err[-1500:]
+
+
+@pytest.mark.parametrize(
+    ("box_file", "caller", "want"),
+    [("", "", "never"), ("", "missing", "never"), ("TB_INSTALL_PULL=missing\n", "", "missing"),
+     ("TB_INSTALL_PULL=always\n", "missing", "never")],
+)  # fmt: skip
+def test_the_start_pulls_as_the_box_file_says_never_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], box_file: str, caller: str,
+    want: str,
+) -> None:  # fmt: skip
+    """OCR 1470-2 (D-176): the whole-project start takes every image from the bundle (``--pull never``), as the
+    update's start does, unless the box file says ``TB_INSTALL_PULL=missing``; a caller's exported value never
+    decides it."""
+    deploy = _box(tmp_path, box_file)
+    if caller:
+        monkeypatch.setenv("TB_INSTALL_PULL", caller)
+    box = Box()
+    assert _run(deploy, tmp_path, monkeypatch, box) == 0, capsys.readouterr().err[-1500:]
+    (up,) = [c for c in box.calls if "up" in c]
+    assert up[up.index("up") :] == ["up", "-d", "--pull", want, "--wait", "--wait-timeout", "600"], up

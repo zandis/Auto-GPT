@@ -348,7 +348,8 @@ fails leaves nothing to go back to. One restore runs at a time (`deploy/site/res
 
 **What it says.** Every end says the box in one line: `restore: the box now: <what compose says runs>; the data:
 <restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` every service
-the box's compose defines starts again and is waited for until healthy (`docker compose up -d --wait`), whatever an
+the box's compose defines starts again and is waited for until healthy (`docker compose up -d --pull never --wait`:
+every image from the bundle, as an update starts the box, unless deploy/.env says `TB_INSTALL_PULL=missing`), whatever an
 earlier run left stopped, when the restore ended complete (exit 0), held (exit 4 with `hold: held`), or was refused
 inside before any change; after a put-back the next step is to read the error and start them as they were; otherwise
 they stay stopped. After the start the whole expected set is checked (the services compose defines, less the

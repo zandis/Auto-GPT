@@ -270,7 +270,13 @@ class BoxRestore:
         return ok, short, err
 
     def _up_all(self) -> list[str]:
-        return self.box._c("up", "-d", "--wait", "--wait-timeout", str(WAIT_S))
+        return self.box._c("up", "-d", "--pull", self.pull(), "--wait", "--wait-timeout", str(WAIT_S))
+
+    def pull(self) -> str:
+        """OCR 1470-2 (D-176): the start pulls as the update's start does (``update.ComposeBox._pull``): every image
+        from the bundle (``never``) unless the box file says ``TB_INSTALL_PULL=missing``. The box file's word, never
+        the caller's; any other value is ``never``."""
+        return "missing" if (self.env.get("TB_INSTALL_PULL") or "").strip() == "missing" else "never"
 
     def state(self) -> str:
         """What compose says runs now (asked, never assumed)."""
