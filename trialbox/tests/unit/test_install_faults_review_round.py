@@ -77,7 +77,8 @@ def test_the_image_fallback_takes_the_passphrase_on_stdin_never_in_the_container
     assert phrase.strip() not in res.stdout + res.stderr
     meta = K.read_meta(tmp_path / "secrets")
     assert meta is not None and meta["backend"] == "passphrase"
-    assert K.derive_from_passphrase(phrase, meta) == (tmp_path / "kek.runtime").read_bytes()  # exactly as typed
+    kek = tmp_path / "host" / "run" / "trialbox" / "kek"  # H-118: the box's own place
+    assert K.derive_from_passphrase(phrase, meta) == kek.read_bytes()  # exactly as typed
 
 
 def test_an_answers_file_cannot_put_the_kek_passphrase_in_the_env_file() -> None:
