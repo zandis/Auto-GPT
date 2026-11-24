@@ -23,7 +23,7 @@
   {
    "id": "V18b-03",
    "severity": "Medium",
-   "claim": "Each terminology change now restarts the FHIR store (38 s on the test machine, up to 15 minutes allowed): a CQL evaluation or a validation asked during it fails; install, the manual update and a bundle update are the only callers, but a screening run at that moment is not held back",
+   "claim": "Each terminology change now restarts the FHIR store (38 s on the test machine, up to 15 minutes allowed): a compile's equivalence check or an approval's load asked during it refuses with a reason; screening is SQL only and never calls the store, so no answer moves; install, the manual update and a bundle update are the only callers of the restart",
    "lane": "V",
    "basis": "shown",
    "state": "open"
