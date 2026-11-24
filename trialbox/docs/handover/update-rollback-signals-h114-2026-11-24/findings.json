@@ -163,6 +163,16 @@
    "state": "fixed d28a19bed6f6391cadf6c3e664bf8aecce2ed825",
    "fix": "the switch saves the rollback point before each move; undoing a copied install's first host tree removes the links through current a cut-short switch never recorded; tests/unit/test_host_tree_switch_kill_h114c.py",
    "from": "the integrator's ruling 7129325585 on the second review of #1461, 2026-11-24"
+  },
+  {
+   "id": "H114-17",
+   "severity": "Low",
+   "claim": "in the grace after the limit's SIGTERM nobody read the group's pipes: a put-back that wrote more than a pipe holds blocked on its write and was SIGKILLed at the grace's end, part way (review 1472-1; update.run_cmd the same, ten seconds' grace)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "procgroup._stop reads the pipes through the grace and ends it with the leader's exit or its time; procgroup.run and update.run_cmd use it; tests/unit/test_update_grace_output_h114d.py and the reviewer's test in test_update_grace_h114b.py",
+   "from": "the external review of #1472 (7136336525), 2026-11-24"
   }
  ]
 }

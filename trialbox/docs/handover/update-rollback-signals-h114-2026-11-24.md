@@ -255,3 +255,31 @@ release" with the compose file still set aside (H114-16).
   them apart.
 - A kill between a name's save and its move leaves a name whose file was never moved; `restore` skips it, since the
   file is still in its place.
+
+## H-114d: the group's output is read through the grace (2026-11-24)
+
+The review of #1472 (1472-1, Low) found the grace after the limit's SIGTERM was a bare `wait`. A put-back that
+wrote more than a pipe holds (about 64 KiB) blocked on its write, sat out the whole grace, and was SIGKILLed part
+way. With H-114b the grace is the update's own limit, so that could be hours. The same pattern was in
+`update.run_cmd`, with ten seconds' grace (H114-17).
+
+- `procgroup._stop` is the group's SIGTERM, grace and SIGKILL. Through the grace it reads the pipes in steps of
+  0.2 s. The grace ends when the leader has exited or the time is up, then the group gets its SIGKILL.
+  - The reviewer's one line, `communicate(timeout=grace)`, waits for the pipes' end, not the leader's exit. A child
+    left holding the pipes would then keep the SIGKILL waiting for the whole grace, where `wait` did not.
+- `procgroup.run` and `update.run_cmd` both call `_stop`. Neither signature changes; the default grace is still
+  ten seconds.
+- Tests:
+  - the reviewer's test, kept as written in `tests/unit/test_update_grace_h114b.py`;
+  - `tests/unit/test_update_grace_output_h114d.py`, 5 cases:
+    - a put-back writing 200 kB on both pipes ends inside the grace and is not killed, through `procgroup.run` and
+      through `update.run_cmd`;
+    - a group that ignores the TERM is SIGKILLed when the grace is up;
+    - a child left holding the pipes is SIGKILLed once the leader has exited;
+    - both callers send SIGTERM, then SIGKILL, and nothing else.
+  - At e0ecf6be, 3 of these fail: the reviewer's test and the two put-back cases.
+- Mutants, 3, all caught:
+  - the reviewer's one line in place of the loop: the child case fails;
+  - a grace whose time never ends: the never-exiting case fails at its 30 s bound. H-114b's ten-second test then
+    never ends, as any grace with no end would;
+  - no SIGKILL after a leader that ended by itself: the signals case fails.
