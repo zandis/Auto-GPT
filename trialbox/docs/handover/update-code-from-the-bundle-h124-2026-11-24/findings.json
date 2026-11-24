@@ -53,11 +53,11 @@
   {
    "id": "H124-06",
    "severity": "Low",
-   "claim": "the new release's code staged for its own update is one more unpacked copy of the host tree in the update's stage (TMPDIR), which the update's space check (space_needs) does not count; about 13 MB today",
+   "claim": "the new release's code staged for its own update is one more unpacked copy of the host tree in the update's stage, counted by no space check: neither the verifier's space to stage (it runs before the code is unpacked; space_needs runs after, when the copy is already on disk) nor tools/packs.py's peak",
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "not in this card: a need line in space_needs for the stage (question)"
+   "fix": "H-124 (ruled 7132484063): verify_update counts the host tree twice in the space to stage (test: a disk short by exactly that amount is refused); tools/packs.py counts it in the peak and allows 2 x the manifest's host tree in the bound"
   }
  ]
 }

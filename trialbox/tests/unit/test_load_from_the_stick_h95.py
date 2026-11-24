@@ -19,6 +19,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -287,22 +288,47 @@ def _install_load(b: dict[str, Path], p: dict[str, Path]) -> None:
         assert r.returncode == 0, (args, r.stdout[-2000:], r.stderr[-2000:])
 
 
-def test_peak_disk_during_the_load_is_within_the_installed_size_plus_ten_percent(tmp_path: Path) -> None:
-    """The invariant of (a): measured, not estimated. The disk the box's folders take is sampled for the whole of
-    install.sh's bundle step; its peak is held to the installed size plus 10 %."""
+def _host_declared(bundle: Path) -> int:
+    """H-124: the size the signed manifest declares for the bundle's host tree (read from the bundle, not measured)."""
+    with tarfile.open(bundle) as tf:
+        f = tf.extractfile("manifest.json")
+        assert f is not None
+        manifest = json.load(f)
+    return sum(int(e["size"]) for e in manifest["files"] if e["kind"] == "host")
+
+
+def _measured_load(tmp_path: Path, plant: Path | None = None) -> dict[str, Any]:
+    """install.sh's bundle step with the box's folders sampled throughout; ``plant`` (a file) is copied into the stage
+    folder for the whole step and removed after the last sample, as a third copy of the host tree would be."""
     p = _packs(tmp_path)
     b = _box(tmp_path, p["pub"])
     dirs = [b["box"], b["tmpdir"], b["dockerroot"]]
     before = _used(dirs)
+    third = b["tmpdir"] / "a-third-copy-of-the-host-tree"
     with _Sampler(dirs) as s:
+        if plant is not None:
+            shutil.copyfile(plant, third)
         _install_load(b, p)
-    installed = _used(dirs) - before
-    peak = s.peak - before
+    third.unlink(missing_ok=True)
+    return {"p": p, "b": b, "installed": _used(dirs) - before, "peak": s.peak - before,
+            "allowance": 2 * _host_declared(p["software"])}  # fmt: skip
+
+
+def test_peak_disk_during_the_load_is_within_the_installed_size_plus_ten_percent(tmp_path: Path) -> None:
+    """The invariant of (a): measured, not estimated. The disk the box's folders take is sampled for the whole of
+    install.sh's bundle step; its peak is held to the installed size plus 10 %, plus (H-124, the integrator's ruling
+    7132484063) twice the host tree's size as the signed manifest declares it: the staged tar and one unpacked copy
+    (the update's own code), both in the stage and gone at the end. The allowance is read from the manifest, never
+    measured in the run it bounds; a third copy is over the bound (the next test)."""
+    m = _measured_load(tmp_path)
+    p, b, installed, peak, allowance = m["p"], m["b"], m["installed"], m["peak"], m["allowance"]
     payload = sum(WEIGHTS.values()) + ENGINE[1] + sum(n for _t, n in OWN)
     assert installed >= payload  # everything landed: the weights and every image's layers
     print(f"H-95 measured: installed {installed} bytes, peak {peak} bytes ({peak / installed:.4f} of installed), "
-          f"bound {int(installed * 1.10)} bytes")  # fmt: skip
-    assert peak <= installed * 1.10, f"peak {peak} bytes over the installed {installed} + 10 %"
+          f"bound {int(installed * 1.10 + allowance)} bytes (H-124 allowance {allowance})")  # fmt: skip
+    assert peak <= installed * 1.10 + allowance, (
+        f"peak {peak} bytes over the installed {installed} + 10 % + {allowance}"
+    )
     sizes = packs.sizes([p["software"], p["model"]])
     assert sizes["bound"] >= sizes["peak"] and sizes["stick"] > payload
     assert not list(b["tmpdir"].iterdir())  # the stage is gone
@@ -313,6 +339,13 @@ def test_peak_disk_during_the_load_is_within_the_installed_size_plus_ten_percent
     held = json.loads((b["box"] / "deploy/updates" / up.MODEL_PACK).read_text())
     assert held["manifest_sha256"] == model_pack_identity(p["model"])["manifest_sha256"]
     assert json.loads((b["box"] / "deploy/updates/installed.json").read_text())["bundle_id"] == "r1"
+
+
+def test_peak_disk_a_third_copy_of_the_host_tree_is_over_the_bound(tmp_path: Path) -> None:
+    """H-124 (7132484063): the allowance is two copies of the host tree; a planted third copy in the stage for the
+    whole step is over the bound, so the bound still sees one more copy than the load needs."""
+    m = _measured_load(tmp_path, plant=_host_tree(tmp_path / "src"))
+    assert m["peak"] > m["installed"] * 1.10 + m["allowance"], m
 
 
 def test_the_verify_pass_writes_no_image_and_no_weight(tmp_path: Path) -> None:

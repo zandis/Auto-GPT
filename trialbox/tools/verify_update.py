@@ -388,13 +388,18 @@ def verify(
             if members[name].size != entry["size"]:
                 raise Rejected(f"{entry['path']}: size {members[name].size} != manifest {entry['size']}")
         if stage is not None:  # H-95: a streamed kind is never staged, so it needs no room here
-            need = int(sum(int(f["size"]) for f in manifest["files"] if f["kind"] not in stream_kinds) * STAGE_MARGIN)
+            # H-124 (H124-06, ruled 7132484063): and the new release's update code, its host tree unpacked in the stage
+            # by tools/apply_update.sh after this check (the tar's size bounds its files)
+            code = sum(int(f["size"]) for f in manifest["files"] if f["kind"] == "host")
+            need = int((sum(int(f["size"]) for f in manifest["files"] if f["kind"] not in stream_kinds) + code)
+                       * STAGE_MARGIN)  # fmt: skip
             stage_fs = stage if stage.exists() else next(q for q in stage.parents if q.exists())
             free_of = disk_free or _free_bytes
             free = free_of(stage_fs)
             if free < need:
                 raise Rejected(f"not enough disk space to stage the bundle in {stage_fs}: needs {gb(need)} "
-                               f"(payloads + 5 %), free {gb(free)}; nothing was changed")  # fmt: skip
+                               f"(payloads{' and the update code' if code else ''} + 5 %), free {gb(free)}; "
+                               "nothing was changed")  # fmt: skip
         try:
             _check_payloads(tf, members, listed_files, stage, stream_kinds)
         except Rejected:

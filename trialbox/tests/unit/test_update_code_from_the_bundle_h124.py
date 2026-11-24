@@ -439,3 +439,23 @@ def test_h124_05_the_refused_types_cover_pin_models() -> None:
 
     assert set(pin_model.REFUSED_SUFFIXES) <= set(MODEL_PACK_REFUSED_SUFFIXES)
     assert not set(pin_model.WEIGHT_SUFFIXES) & set(MODEL_PACK_REFUSED_SUFFIXES)
+
+
+def test_h124_06_a_stage_short_by_exactly_the_update_code_is_refused(tmp_path: Path) -> None:
+    """H124-06 (the integrator's ruling 7132484063): the space to stage counts the new release's update code (its
+    host tree unpacked in the stage). A disk short by exactly that amount is refused before anything is staged; with
+    that amount it is staged."""
+    from tools.verify_update import STAGE_MARGIN, Rejected, verify
+
+    priv, pub = keygen(tmp_path / "vendor")
+    host = _release(tmp_path, "R2")
+    bundle = _bundle(tmp_path, priv, "R2", 2, host)
+    size = host.stat().st_size  # the manifest's declared size of the host tree (the tar itself)
+    with_code = int((size + size) * STAGE_MARGIN)  # the staged tar, and its tree unpacked as the update's code
+    short = with_code - int(size * STAGE_MARGIN)  # short by exactly the update code (and its margin)
+    with pytest.raises(Rejected, match="not enough disk space to stage the bundle .* the update code"):
+        verify(bundle, pub, tmp_path / "stage-short", disk_free=lambda _p: short)
+    assert not (tmp_path / "stage-short").exists() or not any((tmp_path / "stage-short").rglob("*"))
+    with pytest.raises(Rejected, match="not enough disk space"):
+        verify(bundle, pub, tmp_path / "stage-one-byte", disk_free=lambda _p: with_code - 1)
+    assert verify(bundle, pub, tmp_path / "stage-ok", disk_free=lambda _p: with_code)["bundle_id"] == "R2"

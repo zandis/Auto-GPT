@@ -37,7 +37,7 @@ alone. Nothing is copied off the stick: the verify pass hashes every payload on 
 weight file is written), then each pack is loaded straight from the stick, the model pack first, every image and
 weight file hashed again as it goes in (a weight file takes its name only when its hash holds; an image stream
 whose hash fails at its end is cut short and removed). Before it loads, the install prints
-`disk: installed size …; peak during the load …, at most … (installed + 10 %); the stick holds …`;
+`disk: installed size …; peak during the load …, at most … (installed + 10 % + twice the host tree, H-124); the stick holds …`;
 the free disk needed is that peak. A software pack whose model pack the box does not hold
 is refused before anything is loaded, naming the model pack's bundle id and manifest sha256. The release walked on
 2026-11-23 was 60.7 GB in one bundle; the bundle builder prints the two packs' sizes when it builds them.

@@ -83,7 +83,27 @@ The second check is defence in depth.
 - **Not changed:** `deploy/gcp/demo-vm-update.sh` (lane D's) exports `TB_PY_IMAGE` and `TB_VERIFY_IN_DOCKER`; lane D
   writes them into the demo VM's own `deploy/.env`. `deploy/install.sh` still reads `TB_VENDOR_PUBKEY` for its own first check (line 406).
 
-## 4. The four recurring finding types
+## 4. Space for the update's own code (H124-06, ruled 7132484063)
+
+The staged code is one more unpacked copy of the host tree in the stage. The update's `space_needs` runs after it is
+unpacked, when it is already on disk, so it is counted where it can still be refused:
+- the installed verifier's space to stage now counts the host tree twice: the staged tar and its unpacked copy, both
+  read from the signed manifest;
+- `tools/packs.py` counts the copy in the load's peak and in `space`, and its bound allows twice the host tree;
+- tests: `test_h124_06_a_stage_short_by_exactly_the_update_code_is_refused` (short by exactly that amount: refused;
+  one byte short: refused; enough: staged).
+
+**H-95's peak-disk test** (`test_load_from_the_stick_h95.py`). Its software packs and whole bundles now carry their
+host tree, as `make_bundle.sh` builds them.
+- The old assertion was `peak <= installed * 1.10`.
+- The new one is `peak <= installed * 1.10 + 2 * host`, where `host` is the host tree's size that the software
+  pack's signed manifest declares. It is read from the bundle, never measured in the run it bounds.
+- A new case, `test_peak_disk_a_third_copy_of_the_host_tree_is_over_the_bound`, plants a third copy in the stage for
+  the whole load and must be over the bound.
+- Measured on the session machine: peak 104,869,888 bytes against installed 79,515,648 bytes.
+- The install page of the runbook names the new bound.
+
+## 5. The four recurring finding types
 
 - **Ctrl-C or SIGTERM:** tested above. Bash runs the trap that removes the stage only after the foreground update
   exits.

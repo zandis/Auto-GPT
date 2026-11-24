@@ -86,8 +86,11 @@ def sizes(bundles: list[Path]) -> dict[str, int]:
         "weights": kinds.get("model", 0),
         "rest": installed - kinds.get("image", 0) - kinds.get("model", 0),
         "staged": staged,
-        "peak": installed + staged,
-        "bound": int(installed * PEAK_MARGIN),
+        # H-124 (the integrator's ruling 7132484063): the update runs the new release's code from its host tree
+        # unpacked in the stage, one more copy while it runs; the bound allows the staged tar and that copy, read from
+        # the signed manifest (2 x the host tree's declared size)
+        "peak": installed + staged + kinds.get("host", 0),
+        "bound": int(installed * PEAK_MARGIN) + 2 * kinds.get("host", 0),
         "stick": stick,
         # review F5: the engine's own working space in its data root while it loads, one archive at a time; not in
         # the peak above (this card's own writes), counted by ``space``
@@ -135,6 +138,8 @@ def space(bundles: list[Path], where: dict[str, Path], updates: Path | None = No
             targets = [("images", where["docker_root"])] if kind == "image" else \
                 [("weights", where["models"])] if kind == "model" else \
                 [("staged in passing", where["stage"]), ("unpacked and kept", where["deploy"])]  # fmt: skip
+            if kind == "host":  # H-124 (7132484063): the update's own code, the tree unpacked in the stage in passing
+                targets.append(("the update's own code, unpacked in passing", where["stage"]))
             for what, path in targets:
                 ex = _existing(path)
                 d = per.setdefault(os.stat(ex).st_dev, {"path": ex, "need": 0, "what": {}})
@@ -193,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print(f"installed size {gb(n['installed'])} (images {gb(n['images'])}, weights {gb(n['weights'])}, "
           f"the rest {gb(n['rest'])}); peak during the load {gb(n['peak'])}, at most {gb(n['bound'])} "
-          f"(installed + 10 %), and the engine's own working space up to {gb(n['engine'])} while an image loads; "
+          f"(installed + 10 % + twice the host tree, H-124), and the engine's own working space up to {gb(n['engine'])} while an image loads; "
           f"the stick holds {gb(n['stick'])}")  # fmt: skip
     return 0
 
