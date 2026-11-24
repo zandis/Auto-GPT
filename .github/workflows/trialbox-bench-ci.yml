@@ -154,7 +154,8 @@ jobs:
           path: ${{ runner.temp }}/bench-time/
           retention-days: 30
 
-  # the GPU suites (tools/full_set.py stage gpu), on the CI cards; the runner's job-started hook refuses busy cards
+  # the GPU suites (tools/full_set.py stage gpu), on the CI cards; the runner's job-started hook refuses busy cards.
+  # A train and the owner's run by hand only: the GPU profile keeps the set-id pair for a nested engine
   gpu-suites:
     name: bench gpu-suites
     if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
@@ -244,7 +245,8 @@ jobs:
           path: ${{ runner.temp }}/bench-time/
           retention-days: 30
 
-  # the box rehearsal (tools/rehearse_box/rehearse.sh) with the job's own nested engine
+  # the box rehearsal (tools/rehearse_box/rehearse.sh) with the job's own nested engine. A train and the owner's run
+  # by hand only: the engine profile keeps the set-id pair
   rehearse-box:
     name: bench rehearse-box
     if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
