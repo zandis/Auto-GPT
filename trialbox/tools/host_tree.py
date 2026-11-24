@@ -37,7 +37,7 @@ import subprocess
 import sys
 import tarfile
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path, PurePosixPath
 from typing import IO, Any
 
@@ -310,10 +310,13 @@ def _back_links(release: Path, base: Path) -> None:
         p.symlink_to(os.path.relpath(base / s, p.parent))
 
 
-def install(tar: Path, base: Path, release_id: str, into: dict[str, Any] | None = None) -> dict[str, Any]:
+def install(tar: Path, base: Path, release_id: str, into: dict[str, Any] | None = None,
+            on_record: Callable[[], None] | None = None) -> dict[str, Any]:  # fmt: skip
     """Unpack a checked host tree to ``base/releases/<release_id>`` (kept when it is already there exactly as
     signed), switch ``current`` to it and refresh the links. Returns what :func:`restore` needs; ``into`` (the
-    caller's rollback record) is filled as each file moves, so an install stopped part way is still undone."""
+    caller's rollback record) is filled as each file moves, so an install stopped part way is still undone; H-114c:
+    ``on_record`` (the caller's save of that record) is called before each move, so a SIGKILL part way leaves a
+    record of every file moved."""
     if PurePosixPath(release_id).name != release_id or release_id.startswith("."):
         raise HostTreeError(f"bad release id {release_id!r}")
     check_tar(tar)
@@ -330,11 +333,12 @@ def install(tar: Path, base: Path, release_id: str, into: dict[str, Any] | None 
     _back_links(dest, base)
     info: dict[str, Any] = into if into is not None else {}
     info.update(previous=previous, release=release_id, fresh=fresh)
-    switch(base, release_id, into=info)
+    switch(base, release_id, into=info, on_record=on_record)
     return info
 
 
-def switch(base: Path, release_id: str, into: dict[str, Any] | None = None) -> dict[str, Any]:
+def switch(base: Path, release_id: str, into: dict[str, Any] | None = None,
+           on_record: Callable[[], None] | None = None) -> dict[str, Any]:  # fmt: skip
     """``current`` -> ``releases/<release_id>`` in one rename, then the links refreshed."""
     if not (base / "releases" / release_id).is_dir():
         raise HostTreeError(f"no release {release_id} in {base / 'releases'}")
@@ -343,10 +347,10 @@ def switch(base: Path, release_id: str, into: dict[str, Any] | None = None) -> d
         tmp.unlink()
     tmp.symlink_to(f"releases/{release_id}")
     os.replace(tmp, base / "current")
-    return sync(base, into)
+    return sync(base, into, on_record)
 
 
-def sync(base: Path, into: dict[str, Any] | None = None) -> dict[str, Any]:
+def sync(base: Path, into: dict[str, Any] | None = None, on_record: Callable[[], None] | None = None) -> dict[str, Any]:
     """Make every release path under ``base`` a link through ``current``: a real file or folder of a copied install
     in its place is moved to ``releases/.replaced-<time>/``; a link to a path the release no longer has is removed.
     STATE paths are never touched; their parent folders stay real folders."""
@@ -369,7 +373,7 @@ def sync(base: Path, into: dict[str, Any] | None = None) -> dict[str, Any]:
             p = here / child.name
             if r in ANCESTORS:  # holds site files below it: a real folder
                 if p.is_symlink() or (p.exists() and not p.is_dir()):  # a site's own link too (review 1461-7)
-                    _aside(p, aside / r, moved, r)
+                    _aside(p, aside / r, moved, r, on_record)
                 p.mkdir(exist_ok=True)
                 walk(PurePosixPath(r))
                 continue
@@ -377,7 +381,7 @@ def sync(base: Path, into: dict[str, Any] | None = None) -> dict[str, Any]:
             if p.is_symlink() and os.readlink(p) == target:
                 continue
             if p.is_symlink() or p.exists():  # a link of the site's own is set aside as a file is (review 1461-7)
-                _aside(p, aside / r, moved, r)
+                _aside(p, aside / r, moved, r, on_record)
             made.append(r)
             p.symlink_to(target)
         for p in sorted(here.iterdir()):  # links into current whose target the release dropped
@@ -391,10 +395,30 @@ def sync(base: Path, into: dict[str, Any] | None = None) -> dict[str, Any]:
     return out
 
 
-def _aside(p: Path, to: Path, moved: list[str], rel: str) -> None:
+def _aside(p: Path, to: Path, moved: list[str], rel: str, on_record: Callable[[], None] | None = None) -> None:
     to.parent.mkdir(parents=True, exist_ok=True)
     moved.append(rel)  # first: restore puts back only what is in the aside folder
+    if on_record is not None:
+        on_record()  # H-114c: saved before the move, so a SIGKILL after it still finds the file in the record
     p.rename(to)
+
+
+def _unlink_through_current(base: Path, release: str | None) -> None:
+    """H-114c: each path the release holds that is, under ``base``, a link through ``base/current`` (only a switch
+    makes them): undoing the first host tree of a copied install removes them, recorded or not (a switch cut short by
+    a SIGKILL made some it never recorded). Only the release's own paths are looked at."""
+    rel_dir = base / "releases" / str(release or "")
+    if not release or not rel_dir.is_dir():
+        return
+    cur = os.path.normpath(base / "current")
+    for root, dirs, files in os.walk(rel_dir):
+        for name in [*dirs, *files]:
+            r = (Path(root) / name).relative_to(rel_dir)
+            p = base / r
+            if p.is_symlink():
+                target = os.path.normpath(os.path.join(p.parent, os.readlink(p)))
+                if target == cur or target.startswith(cur + os.sep):
+                    p.unlink()
 
 
 def restore(base: Path, info: dict[str, Any]) -> None:
@@ -414,6 +438,8 @@ def restore(base: Path, info: dict[str, Any]) -> None:
             p = base / r
             if p.is_symlink():
                 p.unlink()
+        # H-114c: and the links a switch cut short (SIGKILL) made but never recorded
+        _unlink_through_current(base, info.get("release"))
         if cur.is_symlink():
             cur.unlink()
         aside = info.get("aside")
