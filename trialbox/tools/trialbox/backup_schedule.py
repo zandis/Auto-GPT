@@ -489,29 +489,28 @@ def _mounts(text: str | None) -> list[tuple[str, str, str, str]]:
     return out
 
 
+def _there(p: Path) -> bool:
+    """Whether ``p`` is there; below a folder this user may not search (the container engine's 0710 root, a 0700 parent) it is
+    taken as not there, so a walk up stops at the last folder it can see (escape check (i): never PermissionError)."""
+    try:
+        return p.exists()
+    except PermissionError:
+        return False
+
+
 def _resolve(path: Path) -> Path:
     """``path`` with the symlinks of its existing part resolved; a part not made yet is kept as written."""
     p, tail = Path(os.path.normpath(path.absolute())), list[str]()
-    while p != p.parent:
-        try:  # OCR 1469-8: a part the user may not look at is kept as written, as a part not made yet is
-            os.stat(p)
-            break
-        except (FileNotFoundError, NotADirectoryError, PermissionError):
-            tail.insert(0, p.name)
-            p = p.parent
+    while not _there(p) and p != p.parent:
+        tail.insert(0, p.name)
+        p = p.parent
     return p.resolve().joinpath(*tail)
 
 
 def _existing(path: Path) -> Path:
-    """The nearest folder of ``path`` that exists and this user may look at: a folder it may not read is measured on
-    its readable parent, as a missing one is (OCR 1469-8, the fault of H-121's red 7134736821), never a crash."""
     p = _resolve(path)
-    while p != p.parent:
-        try:
-            os.stat(p)
-            return p
-        except (FileNotFoundError, NotADirectoryError, PermissionError):
-            p = p.parent
+    while not _there(p) and p != p.parent:
+        p = p.parent
     return p
 
 

@@ -727,15 +727,18 @@ def _missing_bytes(models: Path, t: Target) -> int:
     return total
 
 
+def _there(p: Path) -> bool:
+    """Whether ``p`` is there; below a folder this user may not search (the container engine's 0710 root, a 0700 parent) it is
+    taken as not there, so a walk up stops at the last folder it can see (escape check (i): never PermissionError)."""
+    try:
+        return p.exists()
+    except PermissionError:
+        return False
+
+
 def _existing(path: Path) -> Path:
-    """The nearest folder of ``path`` that exists and this user may look at: a folder it may not read is measured on
-    its readable parent, as a missing one is (OCR 1469-8, the fault of H-121's red 7134736821), never a crash."""
-    while path != path.parent:
-        try:
-            os.stat(path)
-            return path
-        except (FileNotFoundError, NotADirectoryError, PermissionError):
-            path = path.parent
+    while not _there(path) and path != path.parent:
+        path = path.parent
     return path
 
 
