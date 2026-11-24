@@ -157,7 +157,7 @@ def test_after_rotate_kek_the_copy_waits_for_new_escrow_shares(
     rr.escrow_copy(sec, target)
     before = (target / rr.ESCROW).read_bytes()
     rc, out = _cli(capsys, "rotate-kek", "--secrets", str(sec), "--backend", "file", "--kek-out",
-                   str(tpm["tmp"] / "new.kek"))  # fmt: skip
+                   str(tpm["tmp"] / "new.kek"), "--audit-dir", str(tpm["audit"]))  # fmt: skip  # every rotation is an audit event (ruling 7114085298)
     assert rc == 0, out
     rc, out = _cli(capsys, "unseal", "--secrets", str(sec), "--from", str(tpm["tmp"] / "new.kek"))
     assert rc == 0, out
@@ -189,10 +189,11 @@ def test_a_passphrase_kek_has_no_shares_and_gets_no_copy(
         capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--passphrase-file", str(pp)
     )
     assert rc == 0, out
-    monkeypatch.setenv("TB_KEK_PASSPHRASE", "a passphrase long enough for the rule here")  # the library's own path
+    # the library's own path, as tools.keys hands it the file's value (H-97, ruling 7102655419: never the process env)
+    monkeypatch.delenv("TB_KEK_PASSPHRASE", raising=False)
     target = box["tmp"] / "target"
     target.mkdir()
-    rr.make_key(box["sec"], os.environ)
+    rr.make_key(box["sec"], {**os.environ, "TB_KEK_PASSPHRASE": "a passphrase long enough for the rule here"})
     with pytest.raises(rr.ResticKeyError, match="not covered by escrow shares"):
         rr.escrow_copy(box["sec"], target)
     assert not list(target.iterdir())

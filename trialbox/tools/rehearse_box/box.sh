@@ -71,6 +71,25 @@ ONCE_FILE=/root/trialbox-admin-first-sign-in  # root's home, as the passwd entry
 # no_once_value_left OUT MIN: the root-only file holds at least MIN one-time values; none of them (read by grep -F -f,
 # never printed) is in the install's output, the stand-in sudo's log or deploy/.env. The file is removed after, as
 # RUNBOOK §1 says
+# H-94, H-97 part D (the integrator's ruling 7104745003): the rehearsal box is a PoC box whose keys are sealed under
+# the passphrase. With no TPM device here (the host check reads the same /dev) it lists exactly that stop
+# (check_host.sh/no-tpm-sealed), and doctor shows it in the install's own output; any other line of the PoC list is
+# a stop the rehearsal's own install must not have. $1: the list, $2: which install, $3: that install's output
+only_the_expected_poc_stops() {
+  local other key='"key": "check_host.sh/no-tpm-sealed"'
+  if [ -s "$1" ]; then
+    other="$(grep -v -F "$key" "$1" || true)"
+    [ -z "$other" ] || { printf '%s\n' "$other"; fail "the $2 warned and listed the stops above ($1)"; }
+  fi
+  if [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ]; then
+    return 0  # a TPM here: nothing of part D's is due (the list was checked above)
+  fi
+  grep -q -F "$key" "$1" 2>/dev/null \
+    || fail "the $2 on a box with no TPM did not list check_host.sh/no-tpm-sealed in $1 (H-97 part D)"
+  grep -q 'poc_stop .*check_host.sh/no-tpm-sealed.*reseal the site keys under a TPM' "$3" \
+    || fail "doctor did not show the PoC stop check_host.sh/no-tpm-sealed with its action in the $2's output ($3)"
+  ok "the $2 listed only the expected PoC stop, and doctor showed it: keys sealed under the passphrase with no TPM (H-97 part D)"
+}
 no_once_value_left() {
   local out="$1" min="$2" pat
   [ -f "$ONCE_FILE" ] && [ "$(stat -c '%a %u' "$ONCE_FILE")" = "600 0" ] \
@@ -280,8 +299,8 @@ install)
   no_passphrase_left "$KEK_PASS"
   ok "first install through the signed re-run: sealed from --kek-passphrase-file, the file kept as asked"
   # H-94: the rehearsal box is a PoC box, where a stop that is not one of the five warns and is listed; the
-  # rehearsal's own install must list nothing (as before, when each of them stopped it)
-  [ ! -s deploy/site/poc-stops.jsonl ] || { cat deploy/site/poc-stops.jsonl; fail "the install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
+  # rehearsal's own install lists only the expected one (as before, when each of them stopped it)
+  only_the_expected_poc_stops deploy/site/poc-stops.jsonl install "$W/install-output.log"
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
   grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
@@ -319,7 +338,7 @@ reinstall)
   [ ! -e "$KEK_PASS" ] || { rm -f "$pp_copy"; fail "the seal step did not remove the passphrase file"; }
   no_passphrase_left "$pp_copy"; rm -f "$pp_copy"
   ok "second install: the passphrase file removed after sealing"
-  [ ! -s "$BOX/deploy/site/poc-stops.jsonl" ] || { cat "$BOX/deploy/site/poc-stops.jsonl"; fail "the second install warned and listed the stops above (deploy/site/poc-stops.jsonl)"; }
+  only_the_expected_poc_stops "$BOX/deploy/site/poc-stops.jsonl" "second install" "$W/reinstall-output.log"
   [ "$(sha256sum "$sec/kek.json" | cut -d' ' -f1)" = "$before" ] || fail "the second install replaced the KEK"
   [ "$(stat -c %u "$BOX/deploy/site")" = 0 ] || fail "deploy/site is no longer root's"
   grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"

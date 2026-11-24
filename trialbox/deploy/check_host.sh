@@ -302,7 +302,17 @@ TB_STOP_WHO=check_host; TB_STOP_FILE=check_host.sh; TB_STOP_DEPLOY="$(dirname "$
 TB_STOP_REHEARSAL=0
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
 elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_sealed_pp; then
-  warn "no TPM device: $KEK_PP; the disk unlock is not bound to this board"
+  # H-97 (the integrator's ruling 7104745003, H-96's L-3): keys already sealed under the passphrase follow the rule of
+  # new ones: a WARN listed on a PoC box (the box's recorded environment decides, never a caller's variable), else a
+  # FAIL that names the action
+  NO_TPM_SEALED="no TPM device: the site keys are sealed under the passphrase back end (kek.json); the disk unlock is not bound to this board"
+  NO_TPM_ACTION="reseal the site keys under a TPM: on a board with a TPM, rotate the KEK to the TPM back end (SECURITY §10)"
+  if tb_poc_box; then
+    # the one list's writer says on stderr when it cannot write its line (the WARN says so too, with the action)
+    if [ -z "$(tb_stop_list no-tpm-sealed "the TPM binding of the KEK" "$NO_TPM_SEALED; to do: $NO_TPM_ACTION" 2>&1 >/dev/null)" ]; then
+      warn "$NO_TPM_SEALED (a PoC box: listed in deploy/site/poc-stops.jsonl)"
+    else warn "$NO_TPM_SEALED (a PoC box: NOT listed, deploy/site/poc-stops.jsonl cannot be written). Action: $NO_TPM_ACTION"; fi
+  else fail "$NO_TPM_SEALED: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) keeps them so. Action: $NO_TPM_ACTION"; fi
 elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
   NO_TPM_PP="no TPM device: $KEK_PP, but nothing is sealed under it yet; the disk unlock is not bound to this board"
   if tb_poc_box; then
