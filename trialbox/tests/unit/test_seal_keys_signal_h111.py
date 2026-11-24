@@ -352,6 +352,36 @@ def test_two_runs_at_once_never_leave_keys_the_placed_credential_cannot_open(tmp
     _sealed_and_done(tmp_path, keys)
 
 
+def test_two_secrets_folders_on_one_host_never_leave_keys_the_credential_cannot_open(tmp_path: Path) -> None:
+    """Review of #1457 (1457-1, the rest): kek.new and the credential belong to the host, the first lock to one secrets
+    folder. A run for a second folder that started while the first had sealed and not placed shared kek.new: the first
+    wrapped its keys under the second's KEK, placed its own credential and said done. One TPM seal at a time on a
+    host now: the second is refused, and the first run's keys open under the placed credential."""
+    env, keys = _host(tmp_path)
+    d = tmp_path / "standin"
+    (d / "hook.py").write_text(HOOK + WAIT)
+    other = tmp_path / "secrets2"
+    other.mkdir()
+    for name in NAMES:
+        (other / name).write_bytes(os.urandom(32))
+        (other / name).chmod(0o600)
+
+    def start(sec: Path, tag: str, at: str) -> subprocess.Popen[str]:
+        argv = ["sh", str(SEAL), "--secrets", str(sec), "--conf", str(tmp_path / "no-such.conf")]
+        return subprocess.Popen(argv, env={**env, "STANDIN_TAG": tag, "STANDIN_WAIT": at}, text=True,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)  # fmt: skip
+
+    first = start(tmp_path / "secrets", "A", "after_seal")
+    _until((d / "at-A-after_seal").exists, "the first run never reached its seal")
+    second = start(other, "B", "before_seal")
+    _until(lambda: (d / "at-B-before_seal").exists() or second.poll() is not None, "the second run hung")
+    (d / "go-A").write_text("")
+    assert first.wait(timeout=120) == 0
+    (d / "go-B").write_text("")
+    second.wait(timeout=120)
+    _sealed_and_done(tmp_path, keys)
+
+
 def _root_stand_ins(tmp: Path) -> Path:
     """`id -u` says root, `chown` records what it is asked, and `find` records its sweep, then runs: run as an ordinary
     user (CI) no file is root's, so the sweep finds nothing to hand over, and the sweep itself is what is shown. The
@@ -381,10 +411,13 @@ def test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_us
     _sealed_and_done(tmp_path, keys)
     asked = log.read_text() if log.is_file() else ""
     assert str(tmp_path / "host" / "run" / "trialbox" / "kek") in asked, "the re-run left the runtime KEK root's"
-    sweep = f"find {tmp_path / 'secrets'} -maxdepth 1 -type f -user 0 -exec chown"
+    # review of #1457 (1457-7): chown -h, never through a link
+    sweep = f"find {tmp_path / 'secrets'} -maxdepth 1 -type f -user 0 -exec chown -h"
     assert sweep in asked, (
         "the re-run never handed the files it made (kek.json, the wrapped keys) to the services' user"
     )
+    if os.geteuid() == 0:  # review of #1457 (1457-8): as root the files are root's, and the sweep must reach them
+        assert str(tmp_path / "secrets" / K.META_FILE) in asked, "the re-run left kek.json root's"
 
 
 def test_a_plain_key_goes_only_once_its_wrapped_copy_is_on_disk(
@@ -477,3 +510,24 @@ def test_a_second_signal_during_the_clean_up_leaves_no_plain_kek(tmp_path: Path)
     time.sleep(1)
     _keys_open(tmp_path, keys)
     assert not (tmp_path / "host" / "run" / "trialbox" / "kek.new").exists(), "the plain KEK copy stayed in /run"
+
+
+def test_the_kek_opened_from_the_credential_is_never_written_through_a_link(tmp_path: Path) -> None:
+    """Review of #1457 (1457-4, its untested half): a name already at kek.new (a link left there) is removed before
+    the credential is opened, so the plain KEK is never written through it to where the link points."""
+    env, keys = _host(tmp_path)
+    # the stand-in notes a link at its output; the evidence would not last: the clean-up's shred empties the link's
+    # target through the link before it removes it
+    creds = tmp_path / "bin" / "systemd-creds"
+    seen = 'decrypt) [ -L "$4" ] && : > "$STANDIN_DIR/through-a-link"; cp "$3" "$4" ;;'
+    creds.write_text(CREDS.replace('decrypt) cp "$3" "$4" ;;', seen))
+    res = _seal(tmp_path, {**env, "STANDIN_AT": "after_place", "STANDIN_SIG": "TERM", "STANDIN_SCOPE": "group"})
+    assert res.returncode == 143, res.stdout + res.stderr
+    target = tmp_path / "elsewhere"
+    target.write_bytes(b"")
+    (tmp_path / "host" / "run" / "trialbox" / "kek.new").symlink_to(target)
+    again = _seal(tmp_path, env)
+    assert again.returncode == 0, again.stdout + again.stderr
+    _sealed_and_done(tmp_path, keys)
+    assert not (tmp_path / "standin" / "through-a-link").exists(), "the credential was opened through the link"
+    assert target.read_bytes() == b""

@@ -173,6 +173,11 @@ NEW="$RUN_DIR/kek.new"
 new_gone() { trap '' HUP INT TERM; shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; rm -f "$CRED.new"; }
 arm() {
   ( umask 077; mkdir -p "$RUN_DIR" "$(dirname "$CRED")" )
+  # review of #1457 (1457-1, the rest): kek.new and the credential are the host's, not one secrets folder's: one TPM
+  # seal at a time on this host, whichever folder it is for. The credential's folder is root's (0700); the lock is
+  # taken before the trap is set, so a refused run removes nothing of the other run's
+  exec 5<"$(dirname "$CRED")"
+  flock -n 5 || hb_die "another run of seal_keys.sh on this host holds $(dirname "$CRED"): let it finish, then run this script again; nothing was changed"
   trap new_gone EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 }
 # the KEK of the sealed credential, to $NEW (a run that stopped after the credential was placed)
@@ -198,8 +203,10 @@ any_wrapped() { for w in "$SECRETS"/*.wrapped; do [ -e "$w" ] && return 0; done;
 hand_over() {
   OWNER="$(stat -c %u:%g "$SECRETS")"
   if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
-    find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
-    if [ -f "$KEK_FILE" ]; then chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"; fi
+    # review of #1457 (1457-7): -h, never through a link: the secrets folder is the services' user's, and a name there
+    # can be swapped for a link between the sweep and the chown
+    find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown -h "$OWNER" {} +
+    if [ -f "$KEK_FILE" ]; then chown -h "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"; fi
   fi
 }
 
