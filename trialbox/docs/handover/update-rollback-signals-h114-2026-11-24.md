@@ -256,6 +256,34 @@ release" with the compose file still set aside (H114-16).
 - A kill between a name's save and its move leaves a name whose file was never moved; `restore` skips it, since the
   file is still in its place.
 
+### The review of #1479: its three Lows (OCR 7142576565)
+
+- 1479-1: every kill in the test landed after the whole `_aside` step, so saving after the rename passed. The
+  reviewer's `copied-rename` cases, taken as written, SIGKILL at the 1st and 3rd rename into the aside folder,
+  inside `_aside`. With the rename moved before the save (the reviewer's M2), both fail.
+- 1479-2: nothing held the removal of unrecorded links to links through `current`. The reviewer's
+  `copied-statelink` case, taken as written: the site keeps `deploy/settings.yaml` as a link to its own file, the
+  switch is killed after its 1st move, and after `recover` the link still points at the site's file. With the
+  through-current check dropped (the reviewer's M5), it fails.
+- 1479-3, the counts of the line on #639:
+  - The 133 files are this set, from `trialbox/`:
+    ```
+    POLICY='rglob\("\*\.sh"\)|glob\("\*\*/\*\.sh"\)|glob\("\*\.sh"\)|\.github/workflows|"Makefile"|Dockerfile'
+    RELATED='trialbox import update|from tools.trialbox.update|host_tree|procgroup|update_status|apply_update|box_restore|h95_probe|trialbox import ops|tb_ops'
+    sort -u <(grep -lE "$POLICY" tests/unit/*.py) <(grep -lE "$RELATED" tests/unit/*.py tests/console/*.py)
+    ```
+  - As root: `pytest -q -p no:cacheprovider -n 8 <the set>`.
+  - As the ordinary user: user `nobody` in a worktree it owns, umask 022, `--cov --cov-report=`,
+    `-n auto --dist worksteal`, and a marked `TB_TEST_ROOT` of 144 characters. HOME is a folder of its own and
+    the proxy's CA variables are unset.
+  - The nine reds as `nobody` come from the account itself: its home in the password file is `/nonexistent`,
+    which H-94's box-install refuses to keep the one-time code in. A user with a real home does not see them.
+    The same nine are red at master under the same run.
+  - M2 in the H-114c line was the separate save of the aside folder before the first move. No test could tell it
+    from the first move's own save, so that code was removed, and the line named the three mutants that remained.
+    The reviewer's M2, saving after the move, is a different mutant. It survived the five cases and is now caught
+    (1479-1).
+
 ## H-114d: the group's output is read through the grace (2026-11-24)
 
 The review of #1472 (1472-1, Low) found the grace after the limit's SIGTERM was a bare `wait`. A put-back that
