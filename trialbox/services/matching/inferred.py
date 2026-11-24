@@ -124,7 +124,7 @@ _OTHER_PERSON = (
     r"\b(?:(?:grand|step|half-?)?(?:mother|father|parents?|sisters?|brothers?|siblings?|sons?|daughters?)|"
     r"grandparents?|grand(?:child\w*|kids?)|moms?|mums?|dads?|aunts?|uncles?|cousins?|nephews?|nieces?|in-?laws?|"
     r"wife|husband|spouse|partners?|boy-?friends?|girl-?friends?|fianc\w*|friends?|roommates?|colleagues?|"
-    r"neighbou?rs?|child(?:ren)?|kids?|relatives?|family|familial|maternal|paternal|fhx|fh|f/h|"
+    r"neighbou?rs?|child(?:ren)?|kids?|relatives?|family|familial|fam|maternal|paternal|fhx|fh|f/h|"
     r"contacts? (?:with|of)|close contacts?|household)\b|"
     r"家族|家人|母|父|兄|姉|姐|姊|弟|妹|祖|叔|伯|舅|姨|姑|嬸|婶|媽|妈|爸|哥|奶|爺|爷|婆|公公|外公|息子|娘|妻|夫|親|"
     r"おば|おじ|いとこ|子供|子ども|孫|孙|甥|姪|侄|配偶|パートナー|彼氏|彼女|友人|知人|同居|兒|儿|太太|老公|老婆|"
@@ -160,7 +160,9 @@ _AFTER = re.compile(
 # A question mark does not end the sentence here: it marks the mention as a question (R22-16 review H1). A period
 # after an abbreviation ("hx.", "Dr.") ends nothing (review M1).
 _SENTENCE = re.compile(r"[;。；！!\n]|\.(?=\s|$)")
-_ABBREV = re.compile(r"(?:^|[^A-Za-z/])(?:hx|fhx|pmh|h/o|s/p|dr|mr|mrs|ms|pt|pts|vs|approx|no|e\.g|i\.e|etc|st)$", re.I)
+_ABBREV = re.compile(
+    r"(?:^|[^A-Za-z/])(?:hx|fhx|fam|pmh|h/o|s/p|dr|mr|mrs|ms|pt|pts|vs|approx|no|e\.g|i\.e|etc|st)$", re.I
+)
 
 
 def _breaks(text: str, lo: int = 0, hi: int | None = None) -> list[re.Match[str]]:
@@ -219,12 +221,18 @@ def _translated(criterion: str) -> list[str]:
     return out
 
 
+def _aside(text: str, m: re.Match[str]) -> bool:
+    """A contrast word set off by commas ("No evidence, however, of metastasis."): an aside inside one clause, not a
+    contrast between two; the negation before it still reads the mention after it (fail safe, #639 7118897121)."""
+    return text[: m.start()].rstrip().endswith(",") and text[m.end() :].lstrip().startswith(",")
+
+
 def _part(text: str, start: int, end: int) -> str:
     """The part of ``text``'s sentence that holds ``text[start:end]``, between two contrasts, the mention blanked."""
     s0 = max((m.end() for m in _breaks(text, 0, start)), default=0)
     s1 = next((m.start() for m in _breaks(text, end)), len(text))
-    p0 = max((s0, *(m.end() for m in _CONTRAST.finditer(text, s0, start))))
-    p1 = next((m.start() for m in _CONTRAST.finditer(text, end, s1)), s1)
+    p0 = max((s0, *(m.end() for m in _CONTRAST.finditer(text, s0, start) if not _aside(text, m))))
+    p1 = next((m.start() for m in _CONTRAST.finditer(text, end, s1) if not _aside(text, m)), s1)
     return f"{text[p0:start]} _ {text[end:p1]}"
 
 
