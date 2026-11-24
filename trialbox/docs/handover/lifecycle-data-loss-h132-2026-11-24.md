@@ -91,6 +91,8 @@ case 7 now asserts the forward finish for those two steps (the integrator's ruli
   `docker volume inspect -f {{.Mountpoint}}` and `docker container inspect -f {{.State.Status}}`, and asserts no
   volume or container `rm`, `prune` or `create` (ruling 7136897074). The `rec.calls == []` tests stay.
 - `services/console/i18n_audit.py`: one label row for the new audit event `update.finish_failed` (the console's
-  audit browser requires a label for every event the code writes), as H-100 added `backup.restore_failed`'s.
+  audit browser requires a label for every event the code writes), as H-100 added `backup.restore_failed`'s; the
+  integrator's go 7140759290; `tests/console/test_update_finish_failed_label_h132.py` shows it on the audit page in
+  en, ja and zh-TW.
 - `tools/update_drill.py` case 7 (`kill_case`): the forward finish for `refdata` and `finish` (ruling 7136669077,
   item 2 (d)).
