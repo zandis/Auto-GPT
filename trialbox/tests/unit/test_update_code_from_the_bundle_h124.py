@@ -588,3 +588,38 @@ def test_h124_06_a_stage_short_by_exactly_the_update_code_is_refused(tmp_path: P
         verify(bundle, pub, tmpdir / "tb-update.one-byte", disk_free=free_of(with_code - 1))
     assert verify(bundle, pub, tmpdir / "tb-update.ok", disk_free=free_of(with_code))["bundle_id"] == "R2"
     assert asked and set(asked) == {tmpdir}  # TMPDIR's file system, never the install root's
+
+
+def test_h124_packs_space_measures_an_unreadable_docker_root_on_its_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H-121's red 7134736821, in tools/packs.py too: a Docker data root the user may not read (CI's runner, a user who
+    is not root) is measured on its readable parent, never a PermissionError. As root, os.stat answers EACCES for it,
+    as the kernel does for a user who is not."""
+    from tools import packs
+
+    priv, _pub = keygen(tmp_path / "vendor")
+    image = tmp_path / "py.tar"
+    image.write_bytes(b"synthetic image archive\n")
+    bundle = tmp_path / "R2.tar"
+    build(priv, "R2", [("image", image, "py.tar"), ("host", _release(tmp_path, "R2"), ht.HOST_TAR)], bundle,
+          release_seq=2)  # fmt: skip
+    docker_root = tmp_path / "docker-root"
+    (docker_root / "volumes").mkdir(parents=True)
+    docker_root.chmod(0)
+    if os.geteuid() == 0:
+        real_stat = os.stat
+
+        def stat(p: Any, *a: Any, **k: Any) -> os.stat_result:
+            if str(p).startswith(str(docker_root) + os.sep):
+                raise PermissionError(13, "Permission denied", str(p))
+            return real_stat(p, *a, **k)
+
+        monkeypatch.setattr(os, "stat", stat)
+    where = {"docker_root": docker_root / "volumes", "models": tmp_path / "models", "stage": tmp_path,
+             "deploy": tmp_path}  # fmt: skip
+    try:
+        ok, lines = packs.space([bundle], where, free_of=lambda _p: 10**15)
+    finally:
+        docker_root.chmod(0o755)
+    assert ok and any(ln.startswith(f"{docker_root}:") and "images" in ln for ln in lines), lines

@@ -111,9 +111,16 @@ def _held(updates: Path | None) -> set[str]:
 
 
 def _existing(p: Path) -> Path:
+    """The nearest folder of ``p`` that exists and this user may look at: a folder it may not read (Docker's data
+    root, to a user who is not root) is measured on its readable parent, as a missing one is (H-124, after H-121's
+    red 7134736821), never a crash."""
     p = p.absolute()
-    while not p.exists():
-        p = p.parent
+    while p != p.parent:
+        try:
+            os.stat(p)
+            return p
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            p = p.parent
     return p
 
 
