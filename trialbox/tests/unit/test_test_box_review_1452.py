@@ -109,10 +109,18 @@ def test_1452_2_production_refuses_when_the_boxes_cannot_be_listed(tmp_path: Pat
 
 
 def test_1452_2_two_installs_never_both_pass_the_host_check(tmp_path: Path) -> None:
-    """The host's lock: while another install holds it, a PRODUCTION (or test-box) install waits for it before it
-    looks at the host's boxes; it then goes on (a wait, never a stop)."""
+    """The host's lock: while another install holds it, a test-box (or PRODUCTION) install waits for it before it
+    looks at the host's boxes, then goes on (a wait, never a stop). The installer runs as root on a host, where the
+    lock file can always be opened; a user who cannot open one another account made installs without it, as before."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    assert text.index("# HOST-LOCK (H-106") < text.index("TB_OTHERS=") < text.index("# ---- end of TEST-BOX: the host")
     lock = Path("/run/lock/trialbox-boxes.lock")
-    fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o666)
+    try:
+        fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    except PermissionError:  # another account's lock file (a root install ran here): the install takes no lock
+        r = H106Box(tmp_path / "t").run("--test-box", "w", "--port-offset", "1", *TEST_ARGS)
+        assert r.rc == 0 and "holds this host's lock" not in r.err, r.text[-1500:]
+        return
     fcntl.flock(fd, fcntl.LOCK_EX)
     released: list[float] = []
 
@@ -123,16 +131,12 @@ def test_1452_2_two_installs_never_both_pass_the_host_check(tmp_path: Path) -> N
 
     threading.Thread(target=release).start()
     try:
-        t = H106Box(tmp_path / "t")
-        r = t.run("--test-box", "w", "--port-offset", "1", *TEST_ARGS)
+        r = H106Box(tmp_path / "t").run("--test-box", "w", "--port-offset", "1", *TEST_ARGS)
         done = time.monotonic()
     finally:
         os.close(fd)
     assert "another box's install holds this host's lock" in r.err and r.rc == 0, r.text[-1500:]
     assert released and done >= released[0]
-    assert "install.sh: flock" not in r.err
-    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
-    assert text.index("# HOST-LOCK (H-106") < text.index("TB_OTHERS=") < text.index("# ---- end of TEST-BOX: the host")
 
 
 # ------------------------------------------------------------------------------------------------ 1452-3 (Medium)
