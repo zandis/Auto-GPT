@@ -52,8 +52,10 @@ import argparse
 import contextlib
 import errno
 import getpass
+import hmac
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -479,7 +481,7 @@ def cmd_unseal(a: argparse.Namespace, env: Mapping[str, str]) -> int:
             raise K.KekError(f"{a.kek_in} is not this box's KEK")
     out = runtime_kek_path(a.out, env)
     _outside(out, sec, "the unsealed KEK")
-    K._write_private(out, kek)
+    write_runtime_kek(out, kek, sec)
     _say(f"KEK {meta['kek_id']} unsealed to {out} (mode 0600; on tmpfs it is gone at the next boot)")
     return 0
 
@@ -501,7 +503,7 @@ def _unseal_escrow(a: argparse.Namespace, env: Mapping[str, str], sec: Path, met
     _outside(out, sec, "the unsealed KEK")
     indices = sorted({K.parse_share(t).index for t in texts if t.strip()})
     md, rec = ke.use_record(Path(a.deploy), esc, indices, witness)
-    K._write_private(out, kek)
+    write_runtime_kek(out, kek, sec)
     ke.audit(where, ke.USE_EVENT, ke.USE_ACTOR, {k: rec[k] for k in ("at", "set_id", "kek_id", "witness", "shares")})
     _say(f"KEK {meta['kek_id']} unsealed from escrow set {esc['set_id']} to {out} (mode 0600)")
     _say(f"escrow-use record written to {md} (and .json): the custodians who came and the witness sign it")
@@ -577,7 +579,7 @@ def cmd_status(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     if (journal and audit_chain_problem(Path(given) if given else None) is None) or (
         not journal and sec.is_dir() and _partial_writes(sec)
     ):
-        with _Locked(sec):
+        with _Locked(sec), _HostLock(_journal_touches_credential(sec)):  # its roll-forward may swap it (LR-6)
             done = resume_rotation(sec, Path(str(given)) if given else None, "status")
         if done is not None:
             _err(done)
@@ -631,6 +633,105 @@ ROTATE_ACTOR = "python -m tools.keys rotate-kek"
 #: written, "committing" from then until the done event; the next rotate-kek or status finishes or rolls it back
 JOURNAL = K.ROTATION_JOURNAL
 JOURNAL_FORMAT = "tb-kek-rotation/1"
+#: LR-6: where seal_keys.sh puts a TPM box's sealed KEK, and what trialbox-unseal.service opens at every boot. A fixed
+#: place, never one the environment names
+CREDENTIAL_FILE = Path("/etc/credstore.encrypted") / K.CREDENTIAL
+#: the folders the sealing tool is looked for in (never the caller's PATH)
+SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def _creds_tool() -> str | None:
+    return shutil.which("systemd-creds", path=SYSTEM_PATH)
+
+
+def _credential_present() -> bool | None:
+    """Whether the TPM credential is there; None when this account cannot look in its folder."""
+    try:
+        return CREDENTIAL_FILE.exists()
+    except OSError:
+        return None
+
+
+def _credential_kek() -> bytes:
+    """The KEK the TPM credential opens to (held in memory, never written or printed)."""
+    got = _creds(["decrypt", f"--name={K.CREDENTIAL}", str(CREDENTIAL_FILE), "-"], b"")
+    if got.returncode != 0 or len(got.stdout) != K.KEK_LEN:
+        last = (got.stderr.decode(errors="replace").strip().splitlines() or ["no output"])[-1]
+        raise K.KekError(f"{CREDENTIAL_FILE} cannot be opened on this board (systemd-creds: {last[:300]}): if it "
+                         "is an old board's, move it aside yourself, then run this again; nothing was "
+                         "changed")  # fmt: skip
+    return got.stdout
+
+
+def _seal_here(a: argparse.Namespace, old: bytes) -> bool:
+    """LR-6: whether this rotation seals its new KEK to the TPM. Only when the credential opens to this secrets
+    folder's KEK now (or none is there and --seal-tpm asks for one): a credential sealing another KEK, another
+    folder's or another box's, is never replaced. Read only."""
+    if a.backend != "file":
+        return False
+    present = _credential_present()
+    if not present:
+        return bool(getattr(a, "seal_tpm", False))
+    if hmac.compare_digest(_credential_kek(), old):
+        return True
+    if getattr(a, "seal_tpm", False):
+        raise K.KekError(f"{CREDENTIAL_FILE} seals another KEK than this secrets folder's: it is not replaced; "
+                         "nothing was changed")  # fmt: skip
+    _say(f"{CREDENTIAL_FILE} seals another KEK than this secrets folder's: it is left as it is")
+    return False
+
+
+def _cred_next() -> Path:
+    return CREDENTIAL_FILE.with_name(CREDENTIAL_FILE.name + ".next")
+
+
+def _creds(argv: list[str], data: bytes) -> subprocess.CompletedProcess[bytes]:
+    tool = _creds_tool()
+    if tool is None:
+        raise K.KekError("systemd-creds is not on this host: the new KEK cannot be sealed to the TPM")
+    return subprocess.run([tool, *argv], input=data, capture_output=True, check=False, timeout=120,
+                          env={"PATH": SYSTEM_PATH}, cwd="/")  # fmt: skip
+
+
+def seal_to_tpm(kek: bytes) -> None:
+    """LR-6: the new KEK sealed to this board's TPM beside the credential (``trialbox-kek.next``), written whole and
+    opened again before the rotation's commit. The credential itself is swapped only by the roll-forward."""
+    got = _creds(["encrypt", "--with-key=host+tpm2", f"--name={K.CREDENTIAL}", "-", "-"], kek)
+    if got.returncode != 0 or not got.stdout:
+        last = (got.stderr.decode(errors="replace").strip().splitlines() or ["no output"])[-1]
+        raise K.KekError(f"the TPM could not seal the new KEK (systemd-creds: {last[:300]})")
+    CREDENTIAL_FILE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    K._write_private(_cred_next(), got.stdout)
+    back = _creds(["decrypt", f"--name={K.CREDENTIAL}", str(_cred_next()), "-"], b"")
+    if back.returncode != 0 or back.stdout != kek:
+        _cred_next().unlink(missing_ok=True)
+        raise K.KekError(f"the new KEK sealed to the TPM does not open again from {_cred_next()}")
+    _fsync_dir(CREDENTIAL_FILE.parent)
+
+
+def _cred_leftovers() -> list[Path]:
+    """The sealed new KEK a rotation staged and its write's temporary file (never the credential itself)."""
+    folder = CREDENTIAL_FILE.parent
+    if not folder.is_dir():
+        return []
+    return sorted({_cred_next(), *folder.glob(f".{_cred_next().name}.*.tmp")})
+
+
+def write_runtime_kek(out: Path, kek: bytes, sec: Path) -> None:
+    """LR-4: the unsealed KEK for the services. Run as root for a secrets folder another account owns, the file is that
+    account's before it takes its name, and a folder made for it here (``/run/trialbox`` after a restart) is that
+    account's too, mode 0700. A folder that is there already keeps its owner."""
+    owner = K.services_owner(sec)
+    folder = out.parent
+    if not folder.exists():
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        made = False
+        with contextlib.suppress(FileExistsError):
+            folder.mkdir(mode=0o700)
+            made = True
+        if made and owner is not None:
+            os.chown(folder, *owner, follow_symlinks=False)
+    K._write_private(out, kek, owner)
 
 
 def exposed_passphrase_rotation(a: argparse.Namespace, sec: Path) -> bool:
@@ -755,6 +856,52 @@ class _Locked:
         os.close(self.fd)  # closing the descriptor releases the lock
 
 
+class _HostLock:
+    """LR-6 (with #1457's 1457-1): the TPM credential is the host's, not one secrets folder's. The lock seal_keys.sh
+    takes (an exclusive flock on the credential's folder) is held while a rotation reads, stages or swaps the
+    credential, so a seal for another secrets folder never writes it at the same time. Taken after the secrets
+    folder's lock, as seal_keys.sh does. An account that cannot open the folder cannot write the credential either:
+    nothing to hold. Taken only by a rotation that touches the credential (``needed``), so no other rotation waits
+    on the host's."""
+
+    def __init__(self, needed: bool) -> None:
+        import fcntl
+
+        self.fd: int | None = None
+        if not needed:
+            return
+        folder = CREDENTIAL_FILE.parent
+        try:
+            fd = os.open(folder, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        except (FileNotFoundError, PermissionError):
+            return
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            os.close(fd)
+            if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):
+                raise K.KekError(f"another run of seal_keys.sh or a rotation holds {folder} (the TPM credential): let "
+                                 "it finish, then run this again; nothing was changed") from None  # fmt: skip
+            raise
+        self.fd = fd
+
+    def __enter__(self) -> _HostLock:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+
+
+def _journal_touches_credential(sec: Path) -> bool:
+    """Whether a rotation cut short staged a new KEK beside the TPM credential (its journal says so)."""
+    try:
+        doc = _read_journal(sec)
+    except K.KekError:
+        return False
+    return bool(doc and doc.get("credential"))
+
+
 def _fsync_dir(sec: Path) -> None:
     fd = os.open(sec, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
@@ -804,10 +951,18 @@ def _roll_back(sec: Path, doc: Mapping[str, Any]) -> None:
     (sec / (K.META_FILE + ".next")).unlink(missing_ok=True)
     for f in _partial_writes(sec):
         f.unlink(missing_ok=True)
+    if doc.get("credential"):  # LR-6: the new KEK sealed beside the credential; the credential is as it was
+        for f in _cred_leftovers():
+            f.unlink(missing_ok=True)
 
 
 def _roll_forward(sec: Path, doc: Mapping[str, Any]) -> None:
-    """After the commit every new file is whole: the renames not yet made are made, ``kek.json`` last."""
+    """After the commit every new file is whole: the renames not yet made are made, ``kek.json`` last. LR-6: on a TPM
+    box the credential first, so at every instant each key is either as it was or opens with the KEK sealed in the
+    credential (a boot in between is refused by kek.json's name until this finishes; no key is lost)."""
+    if doc.get("credential") and _cred_next().exists():
+        os.replace(_cred_next(), CREDENTIAL_FILE)
+        _fsync_dir(CREDENTIAL_FILE.parent)
     for name in doc.get("keys", []):
         nxt, final = _staged(sec, str(name))
         if nxt.exists():
@@ -902,13 +1057,39 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     problem = audit_chain_problem(where_audit)
     if problem is not None:  # the integrator's ruling 7114085298; F3: the box's chain, not any folder
         raise K.KekError(f"a KEK rotation is an audit event on every box: {problem}; nothing was changed")
+    # LR-6: a box whose KEK is sealed by the TPM (or a new board, --seal-tpm) gets the new KEK sealed there too;
+    # whether the credential is this folder's is read under the lock, once the old KEK is open
+    if a.backend == "file":
+        present = _credential_present()
+        if present is None:
+            if getattr(a, "seal_tpm", False):
+                raise K.KekError(f"{CREDENTIAL_FILE.parent} cannot be looked in by this account: --seal-tpm is run "
+                                 "as root; nothing was changed")  # fmt: skip
+            _say(f"{CREDENTIAL_FILE.parent} cannot be looked in by this account: if this box's KEK is sealed there, "
+                 "run rotate-kek as root")  # fmt: skip
+        elif (present or getattr(a, "seal_tpm", False)) and _creds_tool() is None:
+            raise K.KekError(f"{CREDENTIAL_FILE} is there or asked for, and systemd-creds is not on this host to "
+                             "seal the new KEK: the boot would open the old KEK only; nothing was changed")  # fmt: skip
     assert where_audit is not None
-    with _Locked(sec):
+    if getattr(a, "seal_tpm", False):  # a new board: the credential's folder, so its lock can be taken
+        CREDENTIAL_FILE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    touches = (a.backend == "file" and (bool(_credential_present()) or bool(getattr(a, "seal_tpm", False)))) or (
+        _journal_touches_credential(sec)
+    )
+    with _Locked(sec), _HostLock(touches):
         done = resume_rotation(sec, where_audit, "rotate-kek")
         if done is not None:
             _say(done)
             _say("run rotate-kek again for a new rotation")
             return 0
+        # LR-7: a key another rotation staged (``rotate pid_map`` cut short after its database commit) is the only copy
+        # of the key its rows are under; this rotation's staged files take the same name. Without a journal of ours
+        # any staged key is that rotation's
+        staged = sorted(f.name for f in sec.glob("*" + K.WRAPPED_SUFFIX + ".next"))
+        if staged:
+            raise K.KekError(f"{', '.join(staged)} is a key a rotation cut short staged (rotate pid_map): finish it "
+                             "(python -m tools.keys rotate pid_map, run again), then rotate-kek; nothing was "
+                             "changed")  # fmt: skip
         box_name = rc1_refusals.environment(box_env)
         return _rotate_kek_locked(a, env, sec, where_audit, rule, box_name, socket.gethostname(), names)
 
@@ -920,11 +1101,12 @@ def _rotate_kek_locked(a: argparse.Namespace, env: Mapping[str, str], sec: Path,
     where = ke.audit_dir(env, a.audit_dir) if a.escrow_out else None
     old_meta = K.read_meta(sec)
     old = K.load_kek(sec, env)
+    seal = _seal_here(a, old)
     keys = {n: K.unwrap(old, K.read_wrapped(sec / n), n) for n in K.PROTECTED if K.wrapped_path(sec / n).exists()}
     # who, when, the box, the environment; never a value
     base = {"started_at": _now(), "box": box, "environment": box_env, "old_kek_id": (old_meta or {}).get("kek_id", ""),
             "backend": a.backend, "rule": rule}  # fmt: skip
-    journal = {**base, "step": "staging", "keys": sorted(keys)}
+    journal = {**base, "step": "staging", "keys": sorted(keys), "credential": seal}
     _write_journal(sec, journal)  # first, so a kill after the started event is rolled back and said so
     try:  # F1: the started event before anything changes; without it, no rotation
         append_audit(where_audit, ROTATE_STARTED, {**base, "at": base["started_at"], "who": _who()})
@@ -935,6 +1117,8 @@ def _rotate_kek_locked(a: argparse.Namespace, env: Mapping[str, str], sec: Path,
         return 1
     try:
         new, meta = new_kek(a, sec, env, "TB_KEK_NEW_PASSPHRASE")
+        if journal["credential"]:
+            seal_to_tpm(new)
         old_esc = ke.current(old_meta)
         if a.escrow_out:
             meta["escrow"] = ke.split(new, a.escrow_threshold, names, Path(a.escrow_out))
@@ -942,7 +1126,7 @@ def _rotate_kek_locked(a: argparse.Namespace, env: Mapping[str, str], sec: Path,
             meta["escrow"] = old_esc  # kept so doctor can say it is of the old KEK; its shares open the old KEK only
         for name, key in keys.items():
             doc = json.dumps(K.wrap(new, key, name), indent=1, sort_keys=True) + "\n"
-            K._write_private(_staged(sec, name)[0], doc.encode())
+            K._write_private(_staged(sec, name)[0], doc.encode(), K.services_owner(sec))  # LR-3
         K.write_meta(sec, meta, suffix=".next")
         _write_journal(sec, {**journal, "step": "committing", "new_kek_id": meta["kek_id"]})  # the commit
     except BaseException:  # before the commit: nothing the box opens with has changed
@@ -960,8 +1144,11 @@ def _rotate_kek_locked(a: argparse.Namespace, env: Mapping[str, str], sec: Path,
         return 1
     runtime = runtime_kek_path(a.out, env)
     if runtime.exists() and not K._inside(runtime, sec):
-        K._write_private(runtime, new)
+        write_runtime_kek(runtime, new, sec)  # LR-3: the services' still
         _say(f"the unsealed KEK in {runtime} is now the new one")
+    if journal["credential"]:
+        _say(f"the new KEK is sealed to this board's TPM in {CREDENTIAL_FILE}: trialbox-unseal.service opens it at the "
+             f"next boot")  # fmt: skip
     _say(f"KEK {meta['kek_id']} (back end {meta['backend']}) replaces the old one; {len(keys)} key(s) re-wrapped")
     detail = {**base, "at": _now(), "who": _who(), "new_kek_id": meta["kek_id"], "backend": meta["backend"]}
     try:
@@ -1008,7 +1195,16 @@ def cmd_rotate(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     if not url:
         raise K.KekError("TB_DB_URL is needed: the pid map rows are in the trial database")
     sec = secrets_dir(a.secrets, env)
+    with _Locked(sec):  # LR-7: never beside a KEK rotation, whose staged files take the same names
+        if (sec / JOURNAL).exists():
+            raise K.KekError(f"a KEK rotation was cut short ({JOURNAL}): python -m tools.keys status --audit-dir DIR "
+                             "finishes it or rolls it back, then rotate pid_map; nothing was changed")  # fmt: skip
+        return _rotate_pid_map_locked(sec, url, env)
+
+
+def _rotate_pid_map_locked(sec: Path, url: str, env: Mapping[str, str]) -> int:
     path = sec / "pid_map.key"
+    owner = K.services_owner(sec)  # LR-3: the services read the key
     wrapped = K.wrapped_path(path).exists()
     kek = K.load_kek(sec, env) if wrapped else None
     nxt = K.wrapped_path(path).with_name(K.wrapped_path(path).name + ".next") if wrapped else path.with_name(
@@ -1018,7 +1214,7 @@ def cmd_rotate(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     else:
         new = os.urandom(32)
         data = (json.dumps(K.wrap(kek, new, path.name), indent=1, sort_keys=True) + "\n").encode() if kek else new
-        K._write_private(nxt, data)
+        K._write_private(nxt, data, owner)
     from adapter.pidmap import PidMap
 
     pm = PidMap(path, url)
@@ -1027,6 +1223,7 @@ def cmd_rotate(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     finally:
         pm.close()
     os.replace(nxt, K.wrapped_path(path) if wrapped else path)
+    _fsync_dir(sec)
     _say(f"pid_map.key rotated (fingerprint {K.fingerprint(new)}); {moved} row(s) re-encrypted")
     return 0
 
@@ -1150,6 +1347,9 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--escrow-shares", type=int, default=3, help="escrow shares made (default 3)")
     r.add_argument("--custodian", action="append", help="an escrow custodian's name (repeat; share order)")
     r.add_argument("--audit-dir", help="the audit folder (TB_AUDIT_DIR)")
+    r.add_argument("--seal-tpm", action="store_true",
+                   help=f"file: seal the new KEK to this board's TPM ({CREDENTIAL_FILE}); a box that has that "
+                        "credential always does (a new board opened from escrow: give it)")  # fmt: skip
     with_passphrase(r, new=True)
     k = with_secrets(sub.add_parser("rotate", help="rotate one key"))
     k.add_argument("key", choices=("pid_map", "site_hmac", "totp", "backup"))
