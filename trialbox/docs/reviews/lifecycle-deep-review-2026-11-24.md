@@ -15,8 +15,9 @@ owner. Findings for builders, so in one language.
 ## The result in short
 
 - **70 findings: 20 High, 33 Medium, 17 Low.** 33 were reproduced in whole or in part (most with stand-ins for the
-  engine, systemd or the TPM; one with a real PostgreSQL), 37 rest on reading only. Each says which.
-- **The matrix has 238 cells: 117 covered on master, 15 covered only by a test in an open pull request, 105 gaps,
+  engine, systemd or the TPM; one with a real PostgreSQL), 36 rest on reading only, and 1 is a hypothesis (LR-28: its
+  mechanism was reproduced, no failing case was found). Each says which.
+- **The matrix has 238 cells: 115 covered on master, 16 covered only by a test in an open pull request, 106 gaps,
   1 not applicable** (there is no uninstall to test). "Covered" is generous: most covering tests drive a stand-in
   engine or an in-process box.
 - **Four root causes explain most of it.**
@@ -76,8 +77,11 @@ another filesystem, or cannot be renamed; or a signal between the two lines. The
 fails at the rename, and the put-back, meaning to remove a half-written new folder, removes every file of the
 original. No aside exists. With `--no-copy --yes-really` nothing is left. Reproduced: a real tmpfs mounted at the
 lake folder, a real PostgreSQL, the real backup and restore; three files before, none after, state
-`not_rolled_back`. Covered: no. Direction: record the move only after the rename succeeded, and refuse a mount-point
-target before the first change.
+`not_rolled_back`. On a folder that is not a mount point (a rename refused for another reason, or a signal between
+the two lines) the put-back deletes the live folder, leaves an empty one and reports "put back as it was before the
+restore": a false "put back". That case was reproduced by the external reviewer of this page, by calling the
+put-back with the move recorded and the rename not done. Covered: no. Direction: record the move only after the
+rename succeeded, and refuse a mount-point target before the first change.
 
 **LR-2. `deploy/poc.sh reset` on an installed box deletes the site's volumes without a check or a question.**
 `deploy/poc.sh:207-208`, `:41`, `:173`. The script is in the signed host tree, so it is on every box, and runbook 9
@@ -517,10 +521,12 @@ replaces. Read only except the record file.
 **LR-69. "N-1" has no mechanical meaning.** No tag, one version, release number 1 in every rehearsal
 (`tools/rehearse_box/rehearse.sh:197`). Direction: a ledger of the bundles handed to a real box.
 
-**LR-70. Fifteen rows of the matrix have no test and no fault was shown in them.** They are marked `GAP (LR-70)` in
-the matrix: a PRODUCTION install end to end, the passphrase unseal on a re-run, the share-backed seal, `rotate-kek`
-under INT and on the TPM and share back ends under a kill, a restore under KILL or a power cut, and the bench runner's
-install and remove after a cut. They are listed so that the rehearsal plan covers them; none is a claim of a defect.
+**LR-70. Fifteen rows of the matrix have no test, or a part with no test, and no fault was shown in them.** Ten
+are marked `GAP (LR-70)` in the matrix; five more (three covered in part, two covered only on a pull request) name
+LR-70 in their note: a PRODUCTION install end to end, the passphrase unseal on a re-run, the share-backed seal,
+`rotate-kek` under INT and on the TPM and share back ends under a kill, a restore under KILL or a power cut, and the
+bench runner's install and remove after a cut. They are listed so that the rehearsal plan covers them; none is a
+claim of a defect.
 
 ## Known items: are they fully fixed?
 
@@ -564,8 +570,12 @@ install and remove after a cut. They are listed so that the rehearsal plan cover
 One row is one cell, or a group of cells that share one answer. "Covered by" names the test, opened and read; a note
 says when it is text-only, a stand-in, or covers the cell in part. A gap names its finding. `R` before a file and
 line is a step of the box rehearsal; `PR` or `pr/<n>` means the test exists only on that open pull request, so the
-cell is a gap on master. Counts: 238 cells, 117 covered on master, 15 covered only on a pull request, 105 gaps,
-1 not applicable.
+cell is a gap on master. Counts: 238 cells, 115 covered on master (5 of them in part), 16 covered only on a pull
+request, 106 gaps, 1 not applicable.
+
+The counting rule, by the start of the "Covered by, or gap" cell: `GAP` is a gap, also when a pull request is named
+after it; `PR`, `pr/<n>` or `master: GAP` followed by a pull request's test is "only on a pull request", also when a
+text-only test on master is named after it; `n/a` is not applicable; anything else, `partly` included, is covered.
 
 ### Install, bootstrap, uninstall
 

@@ -559,7 +559,7 @@
   {
    "id": "LR-70",
    "severity": "Low",
-   "claim": "fifteen rows of the matrix have no test and no fault was shown in them",
+   "claim": "fifteen rows of the matrix have no test, or a part with no test, and no fault was shown in them",
    "lane": "H",
    "basis": "not_run",
    "state": "open"
