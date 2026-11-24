@@ -110,6 +110,124 @@ class UpdateRefused(UpdateFailed):
     """A preflight refusal: nothing on the box was changed (no marker, no backup, no service stopped)."""
 
 
+class UpdateInterrupted(KeyboardInterrupt):
+    """H-114 (ESC-4): SIGINT, SIGTERM or SIGHUP stopped the update; it is rolled back as a Ctrl-C is."""
+
+
+class _Tolerant:
+    """A terminal stream that a closed session cannot break: a write or a flush that fails is dropped, so a rollback
+    that a SIGHUP started is never ended by its own progress line (the history file keeps every line)."""
+
+    def __init__(self, stream: Any) -> None:
+        self._s = stream
+
+    def write(self, text: str) -> int:
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
+            return int(self._s.write(text) or 0)
+        return len(text)
+
+    def flush(self) -> None:
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
+            self._s.flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._s, name)
+
+
+class Stops:
+    """H-114 (ESC-4): the update's signals. SIGINT, SIGTERM and SIGHUP are handled alike. The first one stops the
+    update: at once inside a step the updater marks as stoppable (:meth:`stoppable`), else at the start of the next
+    one, so it always lands where a failure is caught and rolled back. It is raised once, never again: from then on,
+    and for the whole of a rollback, every signal is said and ignored, so the box ends either fully on the new release
+    or fully back on the old one, never between (a second Ctrl-C, or the SIGTERM a closed session sends after the
+    SIGHUP). Commands run in a session of their own (``procgroup``): the terminal's signals never reach them. Only in
+    the main thread (signals are delivered there); elsewhere it changes nothing."""
+
+    NAMES = ("SIGINT", "SIGTERM", "SIGHUP")
+
+    def __init__(self, held: bool = False) -> None:
+        self.first: str | None = None  # the signal that stopped the update
+        self.ignored: list[str] = []  # every signal after it, or during a rollback
+        self._raised = held  # held: nothing is ever raised (a rollback from the start: ``recover``)
+        self._live = False
+        self._old: dict[int, Any] = {}
+        self._streams: tuple[Any, Any] | None = None
+
+    def __enter__(self) -> Stops:
+        import signal
+        import threading
+
+        if threading.current_thread() is threading.main_thread():
+            for name in self.NAMES:
+                sig = getattr(signal, name)
+                self._old[sig] = signal.signal(sig, self._on)
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        import signal
+
+        for sig, h in self._old.items():
+            signal.signal(sig, h)
+        self._old = {}
+        if self._streams is not None:
+            sys.stdout, sys.stderr = self._streams
+            self._streams = None
+
+    def _say(self, text: str) -> None:
+        with contextlib.suppress(BaseException):  # a closed terminal, or a write already under way
+            print(f"update: {text}", file=sys.stderr, flush=True)
+
+    def _on(self, signum: int, _frame: Any) -> None:
+        import signal
+
+        name = signal.Signals(signum).name
+        if self._streams is None:
+            self._streams = (sys.stdout, sys.stderr)
+            sys.stdout, sys.stderr = _Tolerant(sys.stdout), _Tolerant(sys.stderr)
+        if self.first is None and not self._raised:
+            self.first = name
+            if self._live:
+                self._live = False
+                self._raised = True
+                self._say(f"{name}: the update stops here and is put back as it was; further signals are ignored")
+                raise UpdateInterrupted(f"stopped by {name}")
+            self._say(f"{name}: the update stops at the start of its next step; further signals are ignored")
+            return
+        self.ignored.append(name)
+        self._say(f"{name} ignored: the update is being put back, or finished, as one whole; it is not left half way")
+
+    def hold(self) -> None:
+        """From here the update is put back or finished: no signal stops anything; each is said and ignored."""
+        self._raised = True
+        self._live = False
+
+    @property
+    def pending(self) -> bool:
+        """A first signal arrived and has not stopped anything yet."""
+        return self.first is not None and not self._raised
+
+    @contextlib.contextmanager
+    def stoppable(self) -> Any:
+        """A step a first signal may stop at once; a signal that came between two steps stops it at its start."""
+        if self.pending:
+            self._raised = True
+            raise UpdateInterrupted(f"stopped by {self.first}")
+        self._live = not self._raised
+        try:
+            yield
+        finally:
+            self._live = False
+
+    def note(self) -> dict[str, Any]:
+        """For the history and the audit event: the signals the update had (none: empty)."""
+        out: dict[str, Any] = {}
+        if self.first:
+            out["signal"] = self.first
+        if self.ignored:
+            out["signals_ignored"] = list(self.ignored)
+        return out
+
+
 # The steps, in order, as the marker (deploy/updates/IN_PROGRESS.json) names them (D-210).
 STEPS = ("backup", "rollback point", "apply", "migrate and restart", "rulesets", "check", "refdata", "finish")
 SPACE_MARGIN = 1.10
@@ -196,7 +314,9 @@ def streamed_payloads(bundle: Path, manifest: dict[str, Any], kinds: Sequence[st
         with tarfile.open(bundle, "r:") as tf:
             for m in tf.getmembers():
                 f = want.pop(m.name, None)
-                if f is not None and m.isfile():
+                if f is not None and not m.isfile():  # H-114 (1409-2): never dropped in silence on the second read
+                    raise UpdateFailed(f"the bundle {bundle} holds {m.name} as something other than a file now")
+                if f is not None:
                     out.append(Streamed(bundle, str(f["path"]), str(f["kind"]), str(f["sha256"]), int(f["size"]),
                                         m.offset_data))  # fmt: skip
     except (OSError, tarfile.TarError) as exc:
@@ -875,13 +995,15 @@ class Updater:
         self.say = say
         self.disk_free = disk_free or (lambda p: shutil.disk_usage(p).free)
         self.on_step = on_step  # called after the marker names a step, before the step runs (the kill -9 drill)
+        self.stops = Stops()  # H-114: the signals of the run under way (``run`` and ``recover`` install them)
 
     def _history(self, plan: Plan, step: str, ok: bool, detail: str = "") -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         line = {"at": _now(), "bundle": plan.bundle_id, "box": self.box.name, "step": step, "ok": ok, "detail": detail}
         with (self.dir / "history.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(line, ensure_ascii=False) + "\n")
-        self.say(f"{'ok  ' if ok else 'FAIL'}  {step}" + (f": {detail}" if detail else ""))
+        with contextlib.suppress(OSError, ValueError):  # H-114: a closed terminal never fails a step (the file has it)
+            self.say(f"{'ok  ' if ok else 'FAIL'}  {step}" + (f": {detail}" if detail else ""))
 
     # -------------------------------------------------------------------------------------------- preflight
     def state(self) -> dict[str, Any]:
@@ -1081,8 +1203,9 @@ class Updater:
     def run(self, plan: Plan, backup: bool = True) -> dict[str, Any]:
         from tools import update_status as us
 
+        self.stops = Stops()
         try:
-            with us.locked(self.dir):
+            with self.stops, us.locked(self.dir):
                 if us.marker(self.dir) is not None:
                     m = us.marker(self.dir) or {}
                     who = m.get("bundle_id")
@@ -1090,12 +1213,15 @@ class Updater:
                         f"update {who} is unfinished (step {m.get('step')!r}): "
                         f"tools/apply_update.sh status, then rollback {who}"
                     )
-                notes = self.preflight(plan, backup)
+                with self.stops.stoppable():
+                    notes = self.preflight(plan, backup)
                 for n in notes:
                     self.say(f"      preflight: {n}")
                 return self._run(plan, backup)
         except us.Busy as exc:
             raise UpdateRefused(str(exc)) from exc
+        except UpdateInterrupted as exc:  # before the marker: the preflight changes nothing
+            raise UpdateRefused(f"{exc} before anything was changed; nothing was changed") from exc
 
     def _run(self, plan: Plan, backup: bool) -> dict[str, Any]:
         from tools import update_status as us
@@ -1130,9 +1256,11 @@ class Updater:
             step("backup skipped (PoC box, H-99: deploy/site/poc-stops.jsonl)", True, plan.poc_no_backup)
         elif backup:
             try:
-                where = self.box.backup(plan, rb)
-            except Exception as exc:
-                step("backup (D-126)", False, f"{exc}; nothing was changed")
+                with self.stops.stoppable():
+                    where = self.box.backup(plan, rb)
+            except (Exception, KeyboardInterrupt) as exc:  # H-114: a signal too; nothing else had changed
+                self.stops.hold()
+                step("backup (D-126)", False, f"{type(exc).__name__}: {exc}; nothing was changed")
                 self._abandon(plan, rb)
                 raise UpdateFailed(f"backup failed, nothing was changed: {exc}") from exc
             step("backup (D-126)", True, where)
@@ -1145,59 +1273,78 @@ class Updater:
         enter("rollback point")
         point = Point()
         try:
-            self.box.snapshot(plan, rb, point)
-            save_point(rb, point)
-        except Exception as exc:
-            step("rollback point", False, f"{exc}; nothing was changed")
+            with self.stops.stoppable():
+                self.box.snapshot(plan, rb, point)
+                save_point(rb, point)
+        except (Exception, KeyboardInterrupt) as exc:  # H-114: a signal too
+            self.stops.hold()
+            step("rollback point", False, f"{type(exc).__name__}: {exc}; nothing was changed")
             self._abandon(plan, rb)
             raise UpdateFailed(f"could not take the rollback point, nothing was changed: {exc}") from exc
         step("rollback point", True, f"{len(point.images)} images, {len(point.dumps)} databases")
         failed: str | None = None
+        live = self.stops.stoppable  # H-114: a first signal stops the step under way, or the next one at its start
         try:
             enter("apply")
-            applied = self.box.apply(plan, rb, point)
-            save_point(rb, point)
+            with live():
+                applied = self.box.apply(plan, rb, point)
+                save_point(rb, point)
             step("apply", True, f"{len(applied)} payloads")
             enter("migrate and restart")
-            self.box.restart(plan)
+            with live():
+                self.box.restart(plan)
             step("migrate and restart", True)
             enter("rulesets")
             rulesets = getattr(self.box, "rulesets", None)
-            done = rulesets(plan) if rulesets is not None else self.box.post_apply(plan)
+            with live():
+                done = rulesets(plan) if rulesets is not None else self.box.post_apply(plan)
             step("rulesets", True, f"{len(done)} imported")
             enter("check")
-            step("check", True, self.box.check(plan))
-        except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C rolls back too; kill -9 leaves the marker
+            with live():
+                checked = self.box.check(plan)
+            step("check", True, checked)
+        except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C, SIGTERM, SIGHUP roll back; kill -9 leaves the marker
+            self.stops.hold()
             failed = f"{type(exc).__name__}: {exc}"
             step("update", False, failed)
-        if failed is not None:
+        if failed is not None:  # H-114: from here no signal stops anything (Stops raises once): said and ignored
             rolled = self._rollback(plan, rb, point)
+            state = (f"the box is back on the release before {plan.bundle_id}" if rolled else
+                     "the box may be between the two releases: do not use it")  # fmt: skip
             self.box.audit("update.rolled_back", plan,
-                           {"bundle_id": plan.bundle_id, "error": failed[:500], "rolled_back": rolled})  # fmt: skip
+                           {"bundle_id": plan.bundle_id, "error": failed[:500], "rolled_back": rolled,
+                            "state": "previous release" if rolled else "between releases (rollback failed)",
+                            **self.stops.note()})  # fmt: skip
             if rolled:
                 self._done(plan, rb)
             raise UpdateFailed(
                 f"update {plan.bundle_id} failed ({failed}); "
                 + ("rolled back" if rolled else "ROLLBACK FAILED (the marker stays: tools/apply_update.sh status)")
+                + f"; {state}"
             )
         enter("refdata")
         refdata_note = ""
         refdata = getattr(self.box, "refdata", None)
         if refdata is not None:
             try:  # its own step: one transaction; a failure leaves the healthy release in place (D-17)
-                loaded = refdata(plan)
+                with live():  # H-114: a signal here stops the load only; the checked release is finished
+                    loaded = refdata(plan)
                 step("reference data", True, f"{len(loaded)} packs loaded")
-            except Exception as exc:
+            except (Exception, KeyboardInterrupt) as exc:
                 refdata_note = f"{type(exc).__name__}: {exc}"[:500]
                 step("reference data", False, f"{refdata_note}; the release stays; load the pack again "
                                               "(python -m tb_common.refdata load)")  # fmt: skip
         terminology = getattr(self.box, "terminology", None)
-        if terminology is not None and terminology_files(plan):
+        if terminology is not None and terminology_files(plan) and self.stops.first:
+            step("code systems", False, f"not loaded: stopped by {self.stops.first} after the check; the release "
+                                        "stays; load them again (deploy/terminology-update.sh)")  # fmt: skip
+        elif terminology is not None and terminology_files(plan):
             try:  # V-18: after the check, as the reference data; a failure leaves the healthy release in place
-                loaded = terminology(plan)
+                with live():
+                    loaded = terminology(plan)
                 step("code systems", True, f"{len(loaded)} loaded; back: deploy/terminology-update.sh --rollback "
                                            f"{plan.bundle_id}")  # fmt: skip
-            except Exception as exc:
+            except (Exception, KeyboardInterrupt) as exc:
                 step("code systems", False, f"{type(exc).__name__}; the release stays; the previous tables are in "
                                             f"deploy/terminology/previous/{plan.bundle_id}")  # fmt: skip
         enter("finish")
@@ -1208,11 +1355,14 @@ class Updater:
             {"bundle_id": plan.bundle_id, "signer": plan.signer, "files": plan.files, "backup": backup,
              "release_seq": plan.release_seq, "key_id": plan.key_id,
              "rotation": plan.manifest_sha256 in (plan.trust_after or {}).get("rotations", []),
-             "refdata_failed": refdata_note or None, "rollback_point_removed": True},
+             "refdata_failed": refdata_note or None, "rollback_point_removed": True, **self.stops.note()},
         )  # fmt: skip
         step("audited update.applied", True)
+        if self.stops.first:  # H-114: it came after the check: the checked release is finished, never half left
+            step(f"{self.stops.first} after the check", True, f"the box is on {plan.bundle_id}, finished as one whole")
         self._done(plan, rb)
-        return {"ok": True, "bundle_id": plan.bundle_id, "steps": steps, "refdata_failed": refdata_note or None}
+        return {"ok": True, "bundle_id": plan.bundle_id, "steps": steps, "refdata_failed": refdata_note or None,
+                **self.stops.note()}  # fmt: skip
 
     def _record(self, plan: Plan, live: bool = True) -> None:
         """installed.json and trust.json for the release just checked (atomic writes, under the marker). H-95: a
@@ -1287,17 +1437,27 @@ class Updater:
     def _rollback(self, plan: Plan, rb: Path, point: Point) -> bool:
         from tools import update_status as us
 
-        us.set_step(self.dir, us.marker(self.dir) or {}, "rollback")
+        # H-114 (ESC-4): it runs to its end whatever arrives: the Stops in force raise nothing from here (a signal is
+        # said, ignored and named in the audit event), and whatever still stops a step (BaseException) is caught and
+        # said as a failed rollback, the marker kept for ``tools/apply_update.sh rollback`` to finish it
         try:
+            us.set_step(self.dir, us.marker(self.dir) or {}, "rollback")
             self.box.rollback(plan, rb, point)
             self._restore_state(rb)
             put_back = "host tree, images, models, database, rulesets and update state put back"
             self._history(plan, "rollback", True, put_back)
             self._history(plan, "check after rollback", True, self.box.check(plan))
+            if self.stops.ignored:
+                self._history(plan, "signals during the rollback", True,
+                              f"{', '.join(self.stops.ignored)} ignored: the rollback finished")  # fmt: skip
             return True
-        except Exception as exc:
-            us.set_step(self.dir, us.marker(self.dir) or {}, "rollback failed")
-            self._history(plan, "rollback", False, f"{type(exc).__name__}: {exc} (restore from the backup: RUNBOOK §5)")
+        except BaseException as exc:
+            with contextlib.suppress(BaseException):
+                us.set_step(self.dir, us.marker(self.dir) or {}, "rollback failed")
+            with contextlib.suppress(BaseException):
+                self._history(plan, "rollback", False,
+                              f"{type(exc).__name__}: {exc} (tools/apply_update.sh rollback {plan.bundle_id} again, "
+                              "else restore from the backup: RUNBOOK §5)")  # fmt: skip
             return False
 
     def _restore_state(self, rb: Path) -> None:
@@ -1325,7 +1485,7 @@ class Updater:
             if resume is not None:
                 resume(plan)
             self._history(plan, "services started again", True)
-        except Exception as exc:
+        except BaseException as exc:  # H-114: whatever stops it is said; the marker stays for `rollback`
             self._history(plan, "services started again", False, f"{exc} (the marker stays)")
             return
         self._done(plan, rb)
@@ -1351,8 +1511,9 @@ class Updater:
         started again. Audited ``update.rolled_back``; the marker is removed only when the rollback completed."""
         from tools import update_status as us
 
+        self.stops = Stops(held=True)  # H-114: a recovery is a rollback from its start: no signal stops it
         try:
-            with us.locked(self.dir):
+            with self.stops, us.locked(self.dir):
                 m = us.marker(self.dir)
                 if m is None:
                     raise UpdateFailed("no update is in progress (no deploy/updates/IN_PROGRESS.json)")
@@ -1377,7 +1538,10 @@ class Updater:
                     rolled = self._rollback(plan, rb, Point.read(rb))
                 self.box.audit("update.rolled_back", plan, {"bundle_id": bundle_id, "rolled_back": rolled,
                                                             "error": f"interrupted at step {step!r}",
-                                                            "recovered": True})  # fmt: skip
+                                                            "recovered": True,
+                                                            "state": "previous release" if rolled else
+                                                            "between releases (rollback failed)",
+                                                            **self.stops.note()})  # fmt: skip
                 if not rolled:
                     raise UpdateFailed(f"the rollback of {bundle_id} failed; the marker stays (RUNBOOK §5)")
                 self._done(plan, rb)
