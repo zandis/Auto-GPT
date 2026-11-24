@@ -1,7 +1,7 @@
 # R1-COHORT: the cohort-selection set, its criteria in TrialBox's terms, and its metric (2026-11-24)
 
 **Reader:** the people who build TrialBox: lane N, which builds the evaluator (card N-COHORT), the walk, which runs
-it on the B200, and the integrator, who rules on the open choices in "Choices for the integrator".
+it on the B200, and the integrator, whose rulings on the two choices are in section 7.
 
 Card R1-COHORT (lane R1, docs only) [#639 7121102791]. The set is the 2018 shared task on cohort selection for
 clinical trials, track 1. It is the direct public benchmark for trial screening, and the like-for-like comparison with
@@ -54,7 +54,7 @@ How to read the table:
 | DRUG-ABUSE | Drug abuse, current or past | lifestyle | class `note`; condition atom (drug use disorder value set), quantifier `any`, no window; `note_question` "Is there drug abuse, current or past?" | notes, then person | 0.63 |
 | ALCOHOL-ABUSE | Current alcohol use over weekly recommended limits | lifestyle | class `note`; `note_question` on current use over weekly limits; structured proxy: alcohol use disorder condition, window -365..0 | notes, then person | 0.59 |
 | ENGLISH | Patient must speak English | logistics | class `note`; demographic atom (preferred language) where a record states it; else `note_question` | person | 0.46 |
-| MAKES-DECISIONS | Patient must make their own medical decisions | judgement | class `human` in clinical use; for this benchmark class `note` with `note_question` (choice C2) | person, never a model | 0.31 |
+| MAKES-DECISIONS | Patient must make their own medical decisions | judgement | class `human` in clinical use; for this benchmark class `note` with `note_question` (ruling C2) | person, never a model | 0.31 |
 | ABDOMINAL | History of intra-abdominal surgery, small or large intestine resection, or small bowel obstruction | procedure_device | class `mixed`: procedure atom (intra-abdominal surgery, bowel resection value sets) OR condition atom (small bowel obstruction), quantifier `any`, no window | rules, then notes | 0.73 |
 | MAJOR-DIABETES | Major diabetes-related complication: amputation, kidney damage, skin conditions, retinopathy, nephropathy, neuropathy, as a result of uncontrolled diabetes | diagnosis | class `mixed`: OR of condition atoms (one value set per listed complication), the link to diabetes by condition codes that name it (a `diagnosis_role` value cannot carry it: its values are primary, principal, admitting, discharge, secondary and any); `note_question` for "result of diabetes" | rules, then notes | 0.62 |
 | ADVANCED-CAD | Two or more of: two or more medicines for CAD; history of MI; angina now; ischemia, past or present | diagnosis | class `mixed`: four parts (two or more distinct CAD medicines; MI condition; angina condition, `clinical_status` active; ischemia condition), "two or more" written as an `or` over the six `and` pairs, since `BoolNode` has only `and`, `or` and `not`. A medication atom's `count>=` counts records, not distinct medicines, so the medicine part is one atom per CAD drug class with an `or` over pairs of classes, or a `note_question` | rules, then notes | 0.37 |
@@ -95,9 +95,13 @@ Notes on the table:
 ### 3.2 What N-COHORT reports
 
 - **Per criterion:** met P/R/F1, not-met P/R/F1, and the criterion's mean F1.
-- **Overall:** the micro F1 (the ranking measure) and the macro F1, on the 86 test patients.
+- **Overall:** the micro F1 (the ranking measure) and the macro F1, on the 86 test patients. The micro F1 is
+  reported twice (ruling C2): over all 13 criteria, the official figure and the one compared with 0.91; and over the
+  11 criteria the product answers from records, without ENGLISH and MAKES-DECISIONS.
 - **The same report on the 202 train patients**, labelled as train. Nothing is tuned on test.
 - **Counts behind each figure:** TP, FP, FN, TN, and the number of unknowns before mapping (section 3.3).
+- **Beside each criterion (ruling C1):** its unknown count, and its F1 on answered items only with the coverage (the
+  share answered). The answered-only figure is never reported alone.
 - **The published reference beside ours,** from section 4.
 - **A check of the scorer.** N-COHORT's scorer gives the same figures as [E] on the synthetic fixture, to four
   decimals, with [E] run unchanged. This proves the scorer is like for like.
@@ -106,10 +110,10 @@ Notes on the table:
 
 The challenge has two labels; TrialBox has three. An unknown must become one of the two before [E] can score it.
 
-- **Proposed (choice C1):** unknown scores as "not met", and the count of unknowns per criterion is reported beside
-  each figure. The annotators labelled a patient "not met" when the records gave no evidence, so an unknown answer
-  fits that label. A second, strict figure, with every unknown scored as wrong, is reported with it, so neither figure
-  hides the unknowns.
+- **Ruled (C1, [#639 7121874041]):** the headline figure is [E]'s output with every unknown scored as "not met", so
+  it compares like for like with the published 0.91. The annotators labelled a patient "not met" when the records gave
+  no evidence, so an unknown answer fits that label. Beside it, per criterion: the unknown count, and the F1 on
+  answered items only with its coverage. The answered-only figure is never reported alone.
 - **Note answers.** By `services/matching/decision.py:1-25`, a note answer of "not met" counts only when it is final,
   given by a pair of two different models, at or above the confidence threshold, and the run's policy allows it;
   otherwise it reads as unknown. On a set that is all notes, most "not met" answers will arrive as unknowns. The
@@ -132,8 +136,8 @@ The challenge has two labels; TrialBox has three. An unknown must become one of 
 ## 5 Like with like
 
 - **One set, one script, one split.** The comparison with [P]'s systems is fair only on the 86 test patients, with
-  [E] unchanged, and with TrialBox's answers mapped by choice C1. A figure on train, on a subset, or with the strict
-  mapping is labelled as such, not set beside 0.91.
+  [E] unchanged, and with TrialBox's answers mapped by ruling C1. A figure on train, on the 11-criterion subset, or on answered items only
+  is labelled as such, not set beside 0.91.
 - **Not R1-L0's metric.** This metric differs from plan 11's one metric, Lind's per-(patient, criterion) agreement:
   the labels, the averaging and the set all differ. Plan 11 section 10's rule holds: a row whose definitions differ is
   "not comparable".
@@ -150,14 +154,17 @@ The challenge has two labels; TrialBox has three. An unknown must become one of 
 - **Other copies of the set.** Copies of the set appear in public repositories other than the organisers'. They are
   not used, and none is named here.
 
-## 7 Choices for the integrator
+## 7 The integrator's rulings [#639 7121874041]
 
-- **C1:** unknown scores as "not met" for the official figure, with the strict figure and the unknown counts beside
-  it (section 3.3).
-- **C2:** ENGLISH and MAKES-DECISIONS. `criterion_kinds.json` answers them by a person ("person, never a model" for
-  judgement). The proposal is that on this benchmark only, TrialBox answers them from notes like the others, and the
-  report marks them as answered by a path that clinical use does not allow. The other way is to score them as
-  unknown, and so as "not met" by C1.
+- **C1: yes.** Unknown scores as "not met" for the headline figure, which is [E]'s output and compares like for like
+  with the published 0.91. Beside it, per criterion: the unknown count, and the F1 on answered items only with its
+  coverage (the share answered). The answered-only figure is never reported alone (section 3.3).
+- **C2: yes, on the benchmark only.** `criterion_kinds.json` answers ENGLISH and MAKES-DECISIONS by a person ("person,
+  never a model" for judgement). On this benchmark they are answered from notes, under a benchmark-only setting that
+  is off in the product's defaults. The overall micro F1 is reported twice: over all 13 criteria (the official,
+  comparable figure) and over the 11 the product answers from records (section 3.2).
+- **KETO-1YR:** its met F1 is 0.0 for every system by construction (section 4). The overall micro F1 is the
+  comparison figure.
 
 ## What this page did not do
 
