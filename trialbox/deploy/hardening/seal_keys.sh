@@ -131,7 +131,11 @@ if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"; elif [ "$PP_STDIN" = 1 ]; th
 # what a host that cannot seal with its TPM does instead (a fresh box has no hardening.conf)
 NO_TPM_FIX="on a host without a usable TPM 2.0 run the installer with TB_KEK_BACKEND=passphrase and --kek-passphrase-file FILE (one line of 12 characters or more, a file only root can read; no hardening.conf needed)"
 RUN_DIR="$HR/run/trialbox"
-KEK_FILE="${TB_KEK_FILE:-$RUN_DIR/kek}"
+# H-118 (the integrator's ruling 7125021924): the unsealed KEK goes to the box's own place, the one the boot unseal
+# unit writes and the services read (/run/trialbox/kek, a tmpfs); a caller's TB_KEK_FILE never moves it
+[ -z "${TB_KEK_FILE:-}" ] || [ "$TB_KEK_FILE" = "$RUN_DIR/kek" ] \
+  || hb_say "TB_KEK_FILE in the environment ($TB_KEK_FILE) is not used: the unsealed KEK goes to $RUN_DIR/kek"
+KEK_FILE="$RUN_DIR/kek"
 TB_KEK_FILE="$KEK_FILE"; export TB_KEK_FILE
 CRED="$HR/etc/credstore.encrypted/trialbox-kek"
 
