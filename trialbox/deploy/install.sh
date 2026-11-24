@@ -1523,10 +1523,6 @@ if [ "$CAN_CRON" = 1 ] && [ "$NO_CRON_DAEMON" = 0 ]; then
   printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1" \
     > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
   echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
-  # H-110 (M-SC-3): a cron folder is not a cron daemon (a systemd host without one gets the timer above)
-  if [ "$SYSTEMD_HOST" != 1 ] && command -v pgrep >/dev/null && ! pgrep -x cron >/dev/null && ! pgrep -x crond >/dev/null; then
-    echo "install: warning: no cron daemon runs on this host: nothing runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) until one does; start the host's cron daemon" >&2
-  fi
 elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "$SYSTEMD_HOST" != 1 ]; then
   stop_or_warn cron-production "" "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 elif [ "$SYSTEMD_HOST" = 1 ]; then
@@ -1547,6 +1543,11 @@ elif [ "$SYSTEMD_HOST" = 1 ]; then
   else
     echo "install: warning: no cron daemon here: the log retention cron is not installed, and trialbox-retention.timer could not be installed: the log retention and the signed audit head do not run (systemctl status trialbox-retention.timer)" >&2
   fi
+fi
+# H-110 (M-SC-3): a cron folder is not a cron daemon (a systemd host without one got the timer above)
+if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" != 1 ] && command -v pgrep >/dev/null \
+    && ! pgrep -x cron >/dev/null && ! pgrep -x crond >/dev/null; then
+  echo "install: warning: no cron daemon runs on this host: nothing runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) until one does; start the host's cron daemon" >&2
 fi
 # H-94 (D-1091): a finish check warned on a PoC box: the nightly signed head is not written into the refused folder
 [ "${ANCHOR_UNSAFE:-0}" = 0 ] || [ ! -f "$CRON_DIR/trialbox-retention" ] \
