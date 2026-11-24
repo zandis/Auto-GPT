@@ -165,6 +165,32 @@ audit_key() {
     || hb_say "the audit signing key was not made (above): trialbox doctor names it; run this script again"
 }
 
+# tpm (H-111): at every instant either the plain keys are there or the KEK that opens the wrapped keys is sealed in
+# $CRED, its final place: the credential is sealed and placed before any key is wrapped, and nothing here removes it.
+# Only the plain copy in /run ($NEW) and an unplaced $CRED.new are removed, at any exit; a signal exits
+NEW="$RUN_DIR/kek.new"
+new_gone() { shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; rm -f "$CRED.new"; }
+arm() {
+  ( umask 077; mkdir -p "$RUN_DIR" "$(dirname "$CRED")" )
+  trap new_gone EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+}
+# the KEK of the sealed credential, to $NEW (a run that stopped after the credential was placed)
+cred_open() {
+  arm
+  systemd-creds decrypt --name=trialbox-kek "$CRED" "$NEW" \
+    || hb_die "the TPM could not open $CRED (above): nothing was changed; run this script again on the host that sealed it"
+}
+# the boot unit: the same unseal from the sealed credential
+boot_unit() {
+  [ "${TB_SYSTEMD:-1}" != 0 ] || return 0
+  sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_SECRETS@#$SECRETS#g" "$HERE/trialbox-unseal.service" \
+    | hb_write "${TB_SYSTEMD_DIR:-$HR/etc/systemd/system}/trialbox-unseal.service" 644
+  if command -v systemctl >/dev/null 2>&1 && [ -d "$HR/run/systemd/system" ]; then
+    systemctl daemon-reload && systemctl enable trialbox-unseal.service >/dev/null
+  fi
+}
+any_wrapped() { for w in "$SECRETS"/*.wrapped; do [ -e "$w" ] && return 0; done; return 1; }
+
 if [ -f "$SECRETS/kek.json" ]; then
   hb_say "the KEK exists ($SECRETS/kek.json): wrapping any key still plain"
   [ "$DRY" = 1 ] && { hb_say "would run: tools.keys wrap"; exit 0; }
@@ -172,7 +198,15 @@ if [ -f "$SECRETS/kek.json" ]; then
   if [ -n "$KP_VALUE" ] && [ ! -f "$KEK_FILE" ] && grep -q '"backend": *"passphrase"' "$SECRETS/kek.json"; then
     keys_pp unseal --secrets "$SECRETS" --out "$KEK_FILE"
   fi
+  TPM_BOX=0
+  if [ -f "$CRED" ] && grep -q '"backend": *"file"' "$SECRETS/kek.json"; then TPM_BOX=1; fi
+  # H-111: a TPM box stopped after kek.json was written and before its KEK was unsealed here: from the credential
+  if [ "$TPM_BOX" = 1 ] && [ ! -f "$KEK_FILE" ]; then
+    cred_open
+    keys unseal --secrets "$SECRETS" --from "$NEW" --out "$KEK_FILE"
+  fi
   keys wrap --secrets "$SECRETS"
+  [ "$TPM_BOX" = 0 ] || boot_unit
   audit_key
   pp_done
   exit 0
@@ -186,34 +220,35 @@ case "$KEK_BACKEND" in
     # a device node is not enough: systemd-creds needs the TPM and its TSS2 libraries
     TPM2="$(systemd-creds has-tpm2 2>&1)" \
       || hb_die "KEK_BACKEND=tpm but the TPM 2.0 is not usable (systemd-creds has-tpm2: $(echo "$TPM2" | tr '\n' ' ')); $NO_TPM_FIX"
-    [ -f "$CRED" ] && hb_die "$CRED exists but $SECRETS has no kek.json: put kek.json back from the backup, or remove the credential"
+    # H-111: a credential with no kek.json and no wrapped key is a run's that stopped before any key was wrapped
+    if [ -f "$CRED" ] && any_wrapped; then
+      hb_die "$CRED exists but $SECRETS has no kek.json: put kek.json back from the backup, or remove the credential"
+    fi
     if [ "$DRY" = 1 ]; then
       hb_say "would make a KEK in $RUN_DIR/kek.new"
-      hb_say "would run: systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek $RUN_DIR/kek.new $CRED.new"
-      hb_say "would run: tools.keys init --backend file --kek-in $RUN_DIR/kek.new; mv $CRED.new $CRED"
+      hb_say "would run: systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek $RUN_DIR/kek.new $CRED.new; mv $CRED.new $CRED"
+      hb_say "would run: tools.keys init --backend file --kek-in $RUN_DIR/kek.new"
       hb_say "would run: tools.keys unseal --from $RUN_DIR/kek.new --out $KEK_FILE; shred $RUN_DIR/kek.new"
       exit 0
     fi
-    ( umask 077; mkdir -p "$RUN_DIR" "$(dirname "$CRED")" )
-    NEW="$RUN_DIR/kek.new"
-    trap 'shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; rm -f "$CRED.new"' EXIT INT TERM HUP
-    # D-836: make the KEK, seal it, and only then wrap the keys under it: a failed seal leaves every key as it was
-    ( umask 077; head -c 32 /dev/urandom > "$NEW" )
-    systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek "$NEW" "$CRED.new" \
-      || hb_die "the TPM could not seal the KEK (above): nothing was changed; $NO_TPM_FIX"
-    keys init --backend file --secrets "$SECRETS" --kek-in "$NEW" \
-      || hb_die "the site keys could not be wrapped (above): nothing was sealed; run this script again"
-    mv -f "$CRED.new" "$CRED"
-    chmod 600 "$CRED"
-    keys unseal --secrets "$SECRETS" --from "$NEW" --out "$KEK_FILE"
-    # the boot unit: the same unseal from the sealed credential
-    if [ "${TB_SYSTEMD:-1}" != 0 ]; then
-      sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_SECRETS@#$SECRETS#g" "$HERE/trialbox-unseal.service" \
-        | hb_write "${TB_SYSTEMD_DIR:-$HR/etc/systemd/system}/trialbox-unseal.service" 644
-      if command -v systemctl >/dev/null 2>&1 && [ -d "$HR/run/systemd/system" ]; then
-        systemctl daemon-reload && systemctl enable trialbox-unseal.service >/dev/null
-      fi
+    if [ -f "$CRED" ]; then
+      hb_say "$CRED is from a run that stopped before any key was wrapped: its KEK is used"
+      cred_open
+    else
+      arm
+      # D-836: make the KEK, seal it, and only then wrap the keys under it: a failed seal leaves every key as it was
+      ( umask 077; head -c 32 /dev/urandom > "$NEW" )
+      systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek "$NEW" "$CRED.new" \
+        || hb_die "the TPM could not seal the KEK (above): nothing was changed; $NO_TPM_FIX"
+      # H-111: placed, and on disk, before any key is wrapped under it
+      chmod 600 "$CRED.new"
+      mv -f "$CRED.new" "$CRED"
+      sync -- "$CRED" "$(dirname "$CRED")" 2>/dev/null || sync
     fi
+    keys init --backend file --secrets "$SECRETS" --kek-in "$NEW" \
+      || hb_die "the site keys could not be wrapped (above): the KEK is sealed in $CRED; run this script again"
+    keys unseal --secrets "$SECRETS" --from "$NEW" --out "$KEK_FILE"
+    boot_unit
     ;;
   shamir)
     [ -n "$KEK_SHARES_OUT" ] || hb_die "KEK_BACKEND=shamir needs KEK_SHARES_OUT (removable media)"

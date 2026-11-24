@@ -1,0 +1,100 @@
+# H-111: a signal during the TPM seal no longer destroys the only KEK (H-BK-1)
+
+**Reader:** the integrator, the independent reviewer, and the people who build TrialBox
+
+Lane H, 2026-11-24. External review H-BK-1 (High, keys; comment 7120476442, routed in 7120987904). A High on the
+key path: it rides alone. Synthetic keys only; no TPM was used (the review host has none).
+
+## The fault
+
+`deploy/hardening/seal_keys.sh`, `KEK_BACKEND=tpm`, a box with no `kek.json` and plain site keys. The script set a
+trap that shredded the new KEK and removed the new credential on `EXIT INT TERM HUP`, ran `tools.keys init` (it
+writes `kek.json`, wraps each key under the new KEK and removes the plain file), and only then moved the sealed
+credential into place. A SIGTERM, SIGHUP or Ctrl-C between the two left wrapped keys and no KEK anywhere:
+`site_hmac.key` and `pid_map.key` (pseudonyms, the chart-number map) could not be opened again, and a re-run could
+not open the KEK either. A signal that reached the shell alone ran the trap and carried on.
+
+## The invariant
+
+**At every instant, each site key is either there plain, as it was, or the KEK that opens its wrapped copy is sealed
+in `/etc/credstore.encrypted/trialbox-kek`, the credential's final place.**
+
+Why it holds, step by step:
+
+| Step | Plain keys | Credential in place | A stop here leaves |
+| --- | --- | --- | --- |
+| KEK made in `/run/trialbox/kek.new` | all | no | plain keys; the trap shreds `kek.new` |
+| sealed to `trialbox-kek.new` | all | no | plain keys; the trap removes both new files |
+| `chmod 600`, `mv` into place, `sync` | all | yes | plain keys and an unused credential |
+| `tools.keys init` (kek.json, each key wrapped, then its plain file removed) | some | yes | each key plain or opened by the credential |
+| unseal to `/run/trialbox/kek`, boot unit | none | yes | wrapped keys and the credential |
+
+The `mv` is a rename in one folder: the credential is either the old name's or the new one's, never half. Nothing in
+the script removes the credential: the trap removes only `kek.new` (a copy in /run) and `trialbox-kek.new` (never
+placed, so never a KEK anything is wrapped under). HUP, INT and TERM exit with the signal's code (129, 130, 143), so
+a stopped run never goes on to the next step. Each wrapped key and `kek.json` is written through a temporary file,
+fsync and a rename (`tb_common.kek._write_private`), so a key is never half-written.
+
+## A re-run finishes what a stopped run began
+
+- **A credential with no kek.json and no wrapped key** (a stop after the place, before the first wrap): its KEK is
+  opened (`systemd-creds decrypt`) and used for `keys init`. A credential beside wrapped keys with no `kek.json` is
+  still refused as before ("put kek.json back from the backup, or remove the credential").
+- **kek.json there, back end `file`, the credential there, no `/run/trialbox/kek`** (a stop during or after `keys
+  init`): the KEK is opened from the credential and unsealed to `/run/trialbox/kek`, any key still plain is wrapped,
+  and the boot unit is written (it was written only on the first run's last step before).
+- **A key there plain and wrapped** (a stop between its wrap and the removal of its plain file): `tools.keys wrap`
+  removes the plain file when the wrapped copy opens to it under this KEK (`wrap_plain`); a wrapped copy that does not
+  open to it is still refused, and both are kept.
+
+## Tests
+
+`tests/unit/test_seal_keys_signal_h111.py` (19 cases). A host root of its own (`TB_HOST_ROOT`), a stand-in sealing
+tool on PATH whose "sealed" credential is a copy of the KEK, and a stand-in `python3` on PATH that runs the keys
+commands, sends the signal at a named step, and checks the invariant at every step (after the seal, after the place,
+after each key's wrap, after `keys init`). The script reads none of the stand-ins' variables. The signal goes to the
+script's process group (as Ctrl-C or a service stop does) or to its shell alone.
+
+- `test_the_invariant_holds_at_every_step_of_a_full_seal`: the invariant at each step of a whole run.
+- `test_a_signal_during_keys_init_leaves_keys_that_open_and_a_rerun_completes[TERM|HUP|INT-group|shell]`: the
+  reviewer's case, after the first key is wrapped and its plain file removed and the second is wrapped: the run exits
+  with the signal's code, every key opens, a re-run completes.
+- `test_a_kill_at_each_step_of_the_sealing_block[before_seal|after_seal|after_place|after_init-group|shell]`.
+- `test_a_failed_seal_leaves_the_plain_keys_untouched` (it passes on master too: kept as the guard).
+- `test_a_credential_beside_wrapped_keys_without_kek_json_is_still_refused`.
+- `test_a_wrap_stopped_before_the_plain_file_went_is_finished_by_keys_wrap`.
+- `test_the_passphrase_path_after_a_ctrl_c_during_keys_init`.
+
+On master's `seal_keys.sh` 15 of the 19 fail; on master's `tools/keys.py` 5 fail. Mutants planted, each caught:
+master's order; the place moved after `keys init` in the new code; HUP/INT/TERM not exiting; the trap removing the
+credential; no reopening from the credential on a re-run; an orphan credential refused; no boot unit on a re-run; a
+credential reused beside wrapped keys; master's `wrap_plain`.
+
+**The rehearsal.** The box rehearsal (`tools/rehearse_box`) runs the passphrase back end on a plain VM with no TPM
+and has no stand-in for the sealing tool; the TPM path is proven only by these unit tests, with the stand-in. The
+passphrase path's code is unchanged here except for `wrap_plain`, which the rehearsal's install runs.
+
+## Other key paths, looked at once
+
+- **The passphrase back end** (H-96, H-97): no trap, and the KEK comes again from the passphrase and `kek.json`.
+  Not the same fault: a Ctrl-C during `keys init` loses nothing. It shared one gap: a key left plain and wrapped made
+  the re-run stop ("plain and wrapped"); `wrap_plain` now finishes it (the test above).
+- **`tools.keys rotate-kek`** (H-97): no trap; the new KEK is made, the new files written beside the old, the
+  journal committed, then the renames with `kek.json` last; a stopped rotation is finished or rolled back. No new
+  secret is removed while the old one is gone. Read only; `test_rotate_kek_safety_h97.py` run, green.
+- **`deploy/install.sh`'s seal step** calls this script; its one trap (the progress line) holds no secret.
+- **`deploy/box-install.sh`**: its traps remove the first-run code file, not a key or KEK.
+- **The shamir back end** (finding H111-03): the shares are written to the media before `kek.json`, so nothing is
+  lost; but a stop between `keys init` and its `keys unseal` leaves a re-run that cannot open the KEK by itself.
+- **A re-run's ownership** (finding H111-02): the "kek.json exists" branch exits before the D-887 `chown`, so a run
+  stopped before it leaves root-owned key files that a re-run does not hand to the services' user.
+
+## Files outside the card
+
+None. `tools/keys.py`: `wrap_plain` only (H-110 is in `rotate`).
+
+## Not verified
+
+- A real TPM and `systemd-creds` (none on the review host): the stand-in copies the KEK.
+- A power cut: the `sync` after the place was not tested.
+- The rehearsal job was not run (no Docker here, and it has no TPM).
