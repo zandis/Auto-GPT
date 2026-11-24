@@ -89,12 +89,13 @@ def compose_volumes(compose: Path) -> list[str]:
 def stores(deploy: Path, env: Mapping[str, str]) -> list[Store]:
     """Every store, on the box first, from the settings; then the ones no setting names (action ``ask``)."""
     root = Path(env.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+    project = env.get("COMPOSE_PROJECT_NAME") or "trialbox"  # H-106 (OCR 1452-1): a test box's own volumes
     out: list[Store] = []
     for vol in compose_volumes(deploy / "docker-compose.yml"):
         note = {"tb-secrets": "keys: after the crypto-erase", "audit-data": "after the freeze and the archive"}.get(
             vol, "study data: after the archive"
         )
-        out.append(Store(f"volume {vol}", str(root / f"trialbox_{vol}" / "_data"), True, PURGE, note))
+        out.append(Store(f"volume {vol}", str(root / f"{project}_{vol}" / "_data"), True, PURGE, note))
     for pair in _split(env.get("TB_BACKUP_DIRS", "")):
         name, _, path = pair.partition("=")
         out.append(Store(f"backup folder {name}", path or name, True, PURGE, "TB_BACKUP_DIRS"))

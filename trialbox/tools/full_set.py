@@ -19,6 +19,7 @@ Costs nothing by itself: no cloud call, no model but the one the endpoint serves
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -105,12 +106,30 @@ def run_command(argv: Sequence[str], log: Path, env: dict[str, str]) -> int:
 
 def _env(stage: Stage, opts: argparse.Namespace) -> dict[str, str]:
     env = {**os.environ, **stage.env}
-    if opts.llm_url:
+    gpu = "llm_url" in stage.needs  # the model stage; elsewhere the judge's stub test stays a stub (H-113)
+    if opts.llm_url:  # the judge suite (tests/unit/test_judge_tier.py) reads its own names for the same endpoint
         env["TB_LLM_EVAL_URL"] = opts.llm_url
+        if gpu:
+            env["TB_JUDGE_LLM_URL"] = opts.llm_url
     if opts.llm_model:
         env["TB_LLM_EVAL_MODEL"] = opts.llm_model
-    env["TB_TEST_ROOT"] = str(Path(opts.out) / "test-root")
+        if gpu:
+            env["TB_JUDGE_MODEL"] = opts.llm_model
+    env["TB_TEST_ROOT"] = str(scratch_test_root(Path(opts.out)))
+    if not gpu:  # the model servers' key reaches the model stage only (H-113)
+        env.pop("TB_LLM_EVAL_KEY", None)
     return env
+
+
+def scratch_test_root(out: Path) -> Path:
+    """H-115: the run's test root lies under the per-user scratch root, one per ``--out``, never under ``--out``.
+    That folder and the clone above it carry the runner's umask (0775 under 002), and the product's checks that walk
+    the real folders from ``/`` refuse every tree a test builds below them; ``pglocal.mark_test_root`` closes the
+    folders up to the scratch root."""
+    from tools import pglocal
+
+    digest = hashlib.sha256(str(out.resolve()).encode()).hexdigest()[:10]
+    return pglocal.scratch_root() / f"tb-tests-full-set-{digest}"
 
 
 def run_stage(stage: Stage, opts: argparse.Namespace, log_dir: Path, runner: Runner = run_command) -> dict[str, object]:

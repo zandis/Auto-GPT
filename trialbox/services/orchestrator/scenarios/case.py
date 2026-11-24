@@ -312,7 +312,12 @@ def evaluate_case(
             source = "chart"
         ev = v.evidence or Evidence(resource_refs=[])
         shown, why = v.verdict, ev.reason
-        if v.verdict == "fail" and decision.answer_of(c, v, policy) == "unknown":
+        held = v.verdict == "fail" and decision.answer_of(c, v, policy) == "unknown"
+        if held and decision.reviews_inclusion(c, v) and decision.fail_stands(v, policy):
+            # R22-17: an inclusion "not met" from the notes that the policy lets stand is not a weak answer. Its status
+            # is review on every list; the sheet, which has no status, prints the notes' answer and its quote
+            held = False
+        if held:
             shown = "unknown"
             # one model's answer, an answer given while notes could not exclude (its own reason: a pair may have
             # agreed, review of T-709 LOW 6), else a weak one
