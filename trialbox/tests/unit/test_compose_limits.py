@@ -40,6 +40,9 @@ STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
      ("stub", "oidc")),  # T-213a (D-410)
     ((BASE, "docker-compose.secrets.yml", "docker-compose.shared-quota.yml", "platform/docker-compose.platform.yml"),
      ("gpu", "doctor")),
+    # H-112: the second serving profile, bench host only, last over the bench host's GPU overlay (tools/serving_profile.py)
+    ((BASE, "docker-compose.secrets.yml", "docker-compose.shared-quota.yml", "platform/docker-compose.platform.yml",
+      "docker-compose.serving-second.yml"), ("gpu", "doctor")),
     (("docker-compose.testbench.yml",), ("dev",)),
 ]  # fmt: skip
 # the two-device form (T-214, D-373): each device's stack, as its file's header gives it (H58-03)

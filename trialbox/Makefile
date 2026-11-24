@@ -764,7 +764,7 @@ vocab-bundle-check:
 # and the tree as one set. No hadolint ignore is added for them (no scan allow-list entry).
 HADOLINT_GATING := deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile
 HADOLINT_REPORT := deploy/docker/backup.Dockerfile deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile \
-	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile
+	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile tools/bench_ci/runner.Dockerfile
 HADOLINT_IMAGE := hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e
 # each image of SC_OWN_IMAGES and the Dockerfile it is built from
 IMAGE_SCAN_IMAGES ?= trialbox-py:1.0.0=deploy/docker/python.Dockerfile trialbox-backup:1.0.0=deploy/docker/backup.Dockerfile \
