@@ -45,6 +45,7 @@ from matching.cascade.engine import CascadeConfig, run_cascade
 from matching.cascade.judge import JudgeReply
 from matching.cascade.model import STRATUM_INDEX, STRATUM_S1, STRATUM_S3, STRATUM_ZERO_HIT
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage, known_systems
+from matching.note_answer import NOT_AFFIRMED_REASON
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS
 from orchestrator.scenarios.evaluate import (
     Verdict,
@@ -251,30 +252,44 @@ TIER_CRITERIA = [
 TIER_RS = _ruleset(TIER_CRITERIA)
 
 
+STATED_02 = "T-EXC-02 present."  # a quote that states T-EXC-02's condition (the criterion's text is its id)
+
+
 def test_p1_tier_excludes_only_on_a_coded_fail_or_a_sure_blocking_note_fail() -> None:
     """``tier`` over every verdict for two structured criteria, two note criteria at three confidences and a human
-    criterion, with note answers allowed to block or not: ``excluded`` exactly when a structured verdict fails, or a
-    note verdict fails with confidence at or above the threshold while note answers may block. Kills U03."""
+    criterion, with note answers allowed to block or not, and the note exclusion's quote stated or absent:
+    ``excluded`` exactly when a structured verdict fails, or a note verdict fails with confidence at or above the
+    threshold while note answers may block, the note exclusion's only on a quote that states its condition. Kills
+    U03. The note exclusion's "present" with no quote never excludes (L1, #639 7107834329, D-1069); a quoted one
+    still does when the row says both models affirmed it, and never when it does not (round 5, #639 7115208555).
+    """
     threshold = 0.75
     sv: tuple[Verdict, ...] = ("pass", "fail", "unknown")
     notes = [(v, c) for v in sv for c in (0.5, 0.75, 0.95)]
     n = 0
-    for s1, s2, (n1, c1), (n2, c2), block in itertools.product(sv, sv, notes, notes, (True, False)):
+    for s1, s2, (n1, c1), (n2, c2), block, (q2, a2) in itertools.product(
+        sv, sv, notes, notes, (True, False), ((STATED_02, True), (STATED_02, None), (None, True))
+    ):
         verdicts = [
             CriterionVerdict(id="T-INC-01", verdict=s1, evidence=Evidence(resource_refs=[])),
             CriterionVerdict(id="T-EXC-01", verdict=s2, evidence=Evidence(resource_refs=[])),
             CriterionVerdict(id="T-INC-02", verdict=n1, evidence=Evidence(resource_refs=[], confidence=c1)),
-            CriterionVerdict(id="T-EXC-02", verdict=n2, evidence=Evidence(resource_refs=[], confidence=c2)),
+            CriterionVerdict(
+                id="T-EXC-02", verdict=n2, evidence=Evidence(resource_refs=[], confidence=c2, quote=q2), affirmed=a2
+            ),
             CriterionVerdict(id="T-INC-03", verdict="pending_human", evidence=Evidence(resource_refs=[])),
         ]
         t, _, n_unknown = tier(TIER_RS, verdicts, threshold, note_block=block)
-        sure_note_fail = block and any(v == "fail" and c >= threshold for v, c in ((n1, c1), (n2, c2)))
-        assert (t == "excluded") is ("fail" in (s1, s2) or sure_note_fail), (s1, s2, n1, c1, n2, c2, block, t)
+        # L1: the note exclusion only on its quote (``q2``: a quote that states it, or none)
+        sure_note_fail = block and (
+            (n1 == "fail" and c1 >= threshold) or (n2 == "fail" and c2 >= threshold and q2 is not None and a2 is True)
+        )
+        assert (t == "excluded") is ("fail" in (s1, s2) or sure_note_fail), (s1, s2, n1, c1, n2, c2, block, q2, t)
         assert n_unknown == [s1, s2, n1, n2].count("unknown")
         if t != "excluded" and "unknown" in (s1, s2, n1, n2):
             assert t == "review"
         n += 1
-    assert n == 3 * 3 * 9 * 9 * 2
+    assert n == 3 * 3 * 9 * 9 * 2 * 3
 
 
 # ================================================================================================ fake lake
@@ -808,7 +823,9 @@ class _Judge:
         verdict, conf = self.answers.get((role, criterion_text), ("unknown", 0.0))
         ex = excerpts[0]
         quote = str(ex["text"]) if verdict != "unknown" else None
-        return JudgeReply(verdict, conf, quote, str(ex["date"]) if quote else None, "from the notes", call_id="c1")
+        # a pair of judge v6: a decided answer both models affirmed (round 5 of R22-16, #639 7115208555)
+        return JudgeReply(verdict, conf, quote, str(ex["date"]) if quote else None, "from the notes", call_id="c1",
+                          affirmed=quote is not None)  # fmt: skip
 
 
 def _lake(rs: Ruleset, pids: Sequence[str], notes: Sequence[dict[str, Any]], s1: bool | None = True) -> _FakeLake:
@@ -928,13 +945,14 @@ SPAN = {"did": "d1", "start": 0, "end": 5, "date": INDEX.isoformat(), "sentence_
 def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_block() -> None:
     """``_map`` over every verdict, reason, confidence, span and note-block setting, for both kinds: a hard fail
     only for a decided answer with a verified span, confidence at or above the floor, the condition answer that makes
-    the patient ineligible, and note answers allowed to block. Otherwise never a hard fail."""
+    the patient ineligible, and note answers allowed to block, and for an exclusion's "present", both models affirmed
+    it (round 5 of R22-16, #639 7115208555). Otherwise never a hard fail."""
     by = {c.id: c for c in CASCADE_CRITERIA}
     n = 0
     # D-985 (F6): the quote states the condition (both criteria's), or only names a drug: an exclusion "present" on
     # the latter is an inference and never a hard fail
     stated, drug = "Active infection and a gout flare noted.", "Taking amoxicillin 500 mg."
-    for cid, verdict, reason, conf, span, block, quote in itertools.product(
+    for cid, verdict, reason, conf, span, block, quote, affirmed in itertools.product(
         ("N-INC-01", "N-EXC-01"),
         ("pass", "fail", "unknown"),
         ("from the notes", Reason.DISAGREE.value, Reason.REFUSED.value),
@@ -942,15 +960,17 @@ def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_bloc
         (SPAN, None),
         (True, False),
         (stated, drug),
+        (True, False),
     ):
         run = _run_for_map(block)
         c = by[cid]
         sp = {**span, "quote": quote} if span else None
-        o = run._map(c, JudgeReply(verdict, conf, quote, None, reason), sp, "S3")
+        o = run._map(c, JudgeReply(verdict, conf, quote, None, reason, affirmed=affirmed), sp, "S3")
         decided = verdict in ("pass", "fail")
         ineligible = decided and ((verdict == "fail") if c.kind == "inclusion" else (verdict == "pass"))
         guess = c.kind == "exclusion" and verdict == "pass" and quote == drug
-        want_hard = decided and span is not None and ineligible and conf >= 0.75 and block and not guess
+        unsaid = c.kind == "exclusion" and verdict == "pass" and not affirmed  # round 5: not affirmed by both
+        want_hard = decided and span is not None and ineligible and conf >= 0.75 and block and not guess and not unsaid
         assert o.hard is want_hard, (cid, verdict, reason, conf, span is not None, block, o)
         if o.hard:
             assert o.status == "fail" and o.stratum == STRATUM_S3 and o.reason == "not_met"
@@ -963,12 +983,14 @@ def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_bloc
             assert o.status == "unknown" and o.reason == "abstained"
         elif guess:
             assert o.status == "unknown" and o.reason.startswith("inferred")
+        elif unsaid:
+            assert o.status == "unknown" and o.reason == NOT_AFFIRMED_REASON
         elif ineligible and not block:
             assert o.status == "fail" and not o.hard  # D-97: a single model sends to review, never out
         elif not ineligible:
             assert o.status == "pass"
         n += 1
-    assert n == 2 * 3 * 3 * 4 * 2 * 2 * 2
+    assert n == 2 * 3 * 3 * 4 * 2 * 2 * 2 * 2
 
 
 def test_s3_hard_fail_stops_the_patient_and_leaves_the_rest_unjudged() -> None:

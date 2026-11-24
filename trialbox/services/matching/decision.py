@@ -15,7 +15,8 @@ of these hold: the verdict is final (D-476: not given while a note answer may no
 models gave it (``basis``; a row stored before the field is read by the rest), its confidence reaches the threshold,
 and the run may exclude on notes (:class:`Policy`). Otherwise a note "not met" says ``unknown``: a person looks. A
 note "met" below the threshold, or with notes left out of what the models read (T-603), says ``unknown`` too. So a
-single model, a cut record or a low confidence can send a patient to review and can never take them off.
+single model, a cut record or a low confidence can send a patient to review and can never take them off. An
+exclusion's note "present" (its verdict ``fail``) whose quote does not state the condition (D-985) says ``unknown``.
 
 The verdict of a structured criterion is T-652's table (:mod:`matching.verdict`): ``pass`` / ``fail`` / ``unknown``
 by kind and predicate, with a coded ``fail`` the only one that excludes on its own.
@@ -31,6 +32,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from tb_common.verdict_word import held_back
+
+from matching.note_answer import note_answer_may
 
 Answer = Literal["yes", "no", "unknown"]
 Basis = Literal["coded", "pair", "single", "person"]
@@ -91,6 +94,26 @@ def _flagged(verdict: Any) -> bool:
     return ev is not None and ev.reason == NOTES_OVER_BUDGET
 
 
+def _reviewed(criterion: Any, verdict: Any) -> bool:
+    """The backstop of every builder and of a stored row: what this note answer may do, by the one rule of every path
+    (:func:`matching.note_answer.note_answer_may`; D-1069, D-985, R22-16), is review. An exclusion's "present" with no
+    quote is review: what is not shown never excludes (#639 7107834329 L1); so is one the row does not say both models
+    affirmed (``affirmed``, round 5). A criterion that does not say its kind (a caller's stand-in) is read as before."""
+    kind = getattr(criterion, "kind", None)
+    if not kind:
+        return False
+    ev = verdict.evidence
+    quote = ev.quote if ev is not None else None
+    if kind == "exclusion" and verdict.verdict == "fail" and not quote:
+        return True
+    present = (verdict.verdict == "pass") == (kind != "exclusion")
+    # round 5 (#639 7115208555): the row says whether both models affirmed the condition, the patient's, now; a row
+    # that does not say (a judge before v6, a row stored before the field) is not affirmed
+    affirmed = getattr(verdict, "affirmed", None) is True
+    text = str(getattr(criterion, "text", "") or "")
+    return note_answer_may(kind, present, quote, text, affirmed=affirmed).effect == "review"
+
+
 def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
     """``yes`` (fine for eligibility), ``no`` (excludes) or ``unknown`` (a person looks) for one verdict."""
     v = verdict.verdict
@@ -100,6 +123,8 @@ def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
     if basis == "person" or not is_note_answer(criterion, verdict):
         # the records' answer (T-652's table made it) or a person's decision: final as it stands
         return "yes" if v == "pass" else "no"
+    if v == "fail" and _reviewed(criterion, verdict):
+        return "unknown"
     sure = _confidence(verdict) >= policy.threshold
     if v == "pass":
         return "yes" if sure and not _flagged(verdict) else "unknown"

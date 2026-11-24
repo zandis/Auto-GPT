@@ -174,9 +174,12 @@ def test_microbatch_changes_on_seeded_changes(world: dict[str, Any], synth_dir: 
     wb = load_workbook(io.BytesIO(xlsx))
     assert "changes" in wb.sheetnames
     got = {(r[1], r[2], r[3], r[4]) for r in wb["changes"].iter_rows(min_row=2, values_only=True) if r[1]}
-    want = {(p, "GZQO-EXC-04", "pass", "fail") for p in glp} | {
-        (p, "GZQO-EXC-11", by_v[p]["GZQO-EXC-11"], "fail") for p in flare
-    }
+    # R22-16 round 5 (#639 7115208555, ruling (b) of 7115258794): a note exclusion's "present" stands only when both
+    # models of judge v6 affirm it. This box runs as PRODUCTION (no TB_ENV), which serves the newest qualified judge,
+    # whose answers carry none of v6's fields: the flare note's "present" is published as unknown (review), as it was
+    # before the note, so the seeded flare is no change. It was a single model's soft "fail" (unknown -> fail) before.
+    want = {(p, "GZQO-EXC-04", "pass", "fail") for p in glp}
+    assert all(by_v[p].get("GZQO-EXC-11") == "unknown" for p in flare), {p: by_v[p].get("GZQO-EXC-11") for p in flare}
     assert got == want
     tiers = {r[1]: r[2] for r in wb["candidates"].iter_rows(min_row=2, values_only=True) if r[1]}
     assert all(tiers[p] == "excluded" for p in glp)  # a coded exclusion (GLP-1 started) excludes
