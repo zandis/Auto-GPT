@@ -63,7 +63,7 @@ import time
 import urllib.request
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn, Protocol
 
@@ -1545,10 +1545,21 @@ class Updater:
                         f"the update {bundle_id} stopped at step {step!r}, not in a rollback that failed: "
                         f"tools/apply_update.sh rollback {bundle_id} puts the box back; nothing was changed"
                     )
+                restored = restored_since(self.box, str(m.get("started_at") or ""))
+                if restored is None:
+                    raise UpdateRefused(
+                        f"no restore since the update {bundle_id} began (no backup.restored event newer than "
+                        f"{m.get('started_at')} in the box's audit log): restore the box from its backup first "
+                        "(RUNBOOK §5); nothing was changed"
+                    )
+                back = release_back(self.dir.parent, Path(str(m.get("rollback_dir") or "")))
+                if back:
+                    raise UpdateRefused(f"the box is not back on the release before {bundle_id}: {back}; nothing was "
+                                        "changed")  # fmt: skip
                 plan = Plan(bundle_id, str(m.get("manifest_sha256") or ""), "", [],
                             Path(str(m.get("stage") or m.get("rollback_dir") or self.dir)))  # fmt: skip
                 self.box.audit("update.closed_after_restore", plan,
-                               {"bundle_id": bundle_id, "step": step, "reason": why,
+                               {"bundle_id": bundle_id, "step": step, "reason": why, "restored_at": restored,
                                 "rollback_dir": str(m.get("rollback_dir") or "")})  # fmt: skip
                 self._history(plan, "closed after a restore", True, why)
                 us.remove_marker(self.dir)
@@ -2885,6 +2896,49 @@ def box_in_service(deploy: Path, box: Any = None) -> str:
     volumes = getattr(box, "data_volumes", None)
     found = volumes() if volumes is not None else []
     return f"volumes {', '.join(found[:3])}" if found else ""
+
+
+def restored_since(box: Any, started_at: str) -> str | None:
+    """H-124 (LR-12): the time of the newest ``backup.restored`` event in the box's own audit log (its audit volume as
+    the host sees it, from the box's deploy/.env: ``tools/trialbox/audit_heads.host_dirs``; never the caller's
+    environment) written after ``started_at``; None when there is none or the log cannot be read."""
+    from tools.trialbox import audit_heads
+
+    try:
+        since = datetime.fromisoformat(started_at)
+        if since.tzinfo is None:
+            return None
+        audit_dir = audit_heads.host_dirs(dict(getattr(box, "env", {}) or {}))[0]
+        days = sorted((p for p in audit_dir.glob("*.jsonl") if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.jsonl", p.name)),
+                      reverse=True)  # fmt: skip
+        for day in days:
+            for line in reversed(day.read_text(encoding="utf-8", errors="replace").splitlines()):
+                try:
+                    ev = json.loads(line)
+                    when = datetime.fromisoformat(str(ev.get("ts")))
+                except (ValueError, TypeError):
+                    continue
+                if ev.get("event") == "backup.restored" and when.tzinfo is not None and when > since:
+                    return str(ev["ts"])
+            if day.name[:10] < (since - timedelta(days=1)).date().isoformat():
+                break  # a day before the update began (a day's margin for the zones): nothing newer there
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def release_back(deploy: Path, rb: Path) -> str:
+    """H-124 (LR-12): why the box is not back on the release before the update ("" when it is, or when the rollback
+    point names none): the host tree ``current`` names the previous release its rollback point recorded."""
+    try:
+        point = Point.read(rb) if (rb / "point.json").is_file() else None
+    except (OSError, ValueError, KeyError):
+        return f"its rollback point {rb / 'point.json'} cannot be read"
+    previous = ((point.extra if point is not None else {}).get("host") or {}).get("previous")
+    if not previous:
+        return ""
+    now = host_tree.current(deploy.parent)
+    return "" if now == previous else f"the host tree is {now!r}, not {previous!r} as before the update"
 
 
 def never_started(deploy: Path, box: Any, inst: dict[str, Any]) -> bool:

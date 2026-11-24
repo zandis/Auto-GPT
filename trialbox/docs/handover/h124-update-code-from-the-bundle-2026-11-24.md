@@ -137,8 +137,15 @@ matrix (`docs/reviews/lifecycle-deep-review-2026-11-24.md`).
 - **LR-12, a failed rollback has no way out** (cell: update, prior failed rollback then restore). The new command is
   `tools/apply_update.sh close <bundle> --restored REASON`.
   - It is taken only for a marker whose last step is the rollback, so an update cut short elsewhere is never hidden.
-  - It removes the marker, audits `update.closed_after_restore` with the reason, and writes the history.
-  - `status` names it, and so does the runbook's update section.
+  - It needs the restore's own record: a `backup.restored` event in the box's audit log, newer than the marker's
+    start. The log is read where the box keeps it, from the box's `deploy/.env` (`audit_heads.host_dirs`), never
+    from the caller's environment.
+  - It needs the release back: the host tree `current` names the release its rollback point recorded as before.
+    Images and models are not compared; the restore puts back databases and folders only (LR-12).
+  - It removes the marker, audits `update.closed_after_restore` with the reason and the restore's time, and writes
+    the history.
+  - `status` names it, and so does a section appended at the end of the runbook's page 5 (two tests pin that
+    page's earlier lines by number).
   - At master no such command existed.
   - Not done here: the restore naming the marker. `tools/trialbox/box_restore.py` is #1470's (H-126) in those lines.
 - **LR-17, a loaded, never-started install refuses a corrected release** (cell: install.sh re-run, newer bundle,

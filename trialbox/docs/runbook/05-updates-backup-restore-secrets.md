@@ -69,8 +69,7 @@ by a trusted key, applied like any update and accepted once; a retired key is ne
 Every step is in `deploy/updates/history.jsonl`; `deploy/updates/installed.json` records what is installed.
 `--no-backup` is for a test box only and is audited; a PRODUCTION box refuses it without `--no-backup-reason REASON`
 (D-1321). If the rollback itself fails, the marker stays: restore from the
-backup, then close it: `tools/apply_update.sh close <bundle> --restored REASON` (audited, H-124). While a marker
-stands the box does not start, at boot either (`deploy/settings_guard.sh`, H-124). Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
+backup. Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
 `tests/unit/test_update_safety.py` and `tools/update_drill.py`.
 
 **Backup** (D-126, D-187, D-188). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
@@ -416,3 +415,11 @@ and removes `/etc/cron.d/trialbox-backup`; elsewhere the cron file stays and nee
 (D-1090). An existing box moves with `python3 -m tools.trialbox backup-install --deploy deploy --no-first-run`.
 `trialbox doctor` (`backup`) and `backup-status` name the schedule in use and the one action when none fires or both
 would.
+
+**An update cut short, or whose rollback failed** (H-124). While an update's marker stands
+(`deploy/updates/IN_PROGRESS.json`) the box does not start, at boot either: `deploy/settings_guard.sh` refuses and
+names `tools/apply_update.sh status`, then `tools/apply_update.sh rollback <bundle>`. If the rollback itself fails,
+restore the box from its backup (above), then close the update:
+`tools/apply_update.sh close <bundle> --restored REASON`. It is taken only for an update whose rollback did not
+finish, only when the box's audit log holds the restore (`backup.restored`) from after the update began and the host
+tree is back on the release before it; the reason is audited (`update.closed_after_restore`).

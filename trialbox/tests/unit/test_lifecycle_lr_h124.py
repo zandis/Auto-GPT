@@ -159,12 +159,14 @@ def test_lr17_a_record_without_the_first_load_s_mark_keeps_its_refusal(first_loa
 
 # ------------------------------------------------------------------------------------------------ LR-12
 def _failed_rollback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str = "rollback") -> Path:
-    """An update of R2 whose rollback failed (its marker at step "rollback"), then the box restored from its backup
-    (RUNBOOK §5): the marker still stands."""
+    """An update of R2 whose rollback failed (its marker at step "rollback"): the marker still stands. The box's audit
+    log is a folder of its own, named in the box's deploy/.env as on a box (TB_AUDIT_HOST_DIR)."""
     deploy = tmp_path / "deploy"
     updates = deploy / "updates"
     rb = updates / "R2" / "rollback"
     rb.mkdir(parents=True)
+    (tmp_path / "audit").mkdir()
+    (deploy / ".env").write_text(f"TB_ENV=PRODUCTION\nTB_AUDIT_HOST_DIR={tmp_path / 'audit'}\n", encoding="utf-8")
     us.write_atomic(updates / us.INSTALLED, {"format": us.INSTALLED_FORMAT, "release_seq": 1, "bundle_id": "R1",
                                              "state": {}})  # fmt: skip
     us.create_marker(updates, {"bundle_id": "R2", "manifest_sha256": "f" * 64, "release_seq": 2, "target": "compose",
@@ -173,17 +175,29 @@ def _failed_rollback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str 
     return deploy
 
 
+def _restored(tmp_path: Path, hours: float = 0.0) -> None:
+    """The restore's own record (RUNBOOK §5): backup.restored in the box's audit log, ``hours`` after now."""
+    from datetime import UTC, datetime, timedelta
+
+    from tb_common.audit import AuditLog
+
+    AuditLog(tmp_path / "audit").append("backup.restored", ts=datetime.now(UTC) + timedelta(hours=hours),
+                                        detail={"file": "synthetic-backup.tar"})  # fmt: skip
+
+
 def test_lr12_a_restored_box_closes_the_update_whose_rollback_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reproduced at master: no such command (argparse refuses `close`), so the marker stood for ever."""
     deploy = _failed_rollback(tmp_path, monkeypatch)
+    _restored(tmp_path, hours=0.01)
     assert us.main(["--deploy", str(deploy), "close", "R2", "--restored", "restored from the 03:00 backup"]) == 0
     updates = deploy / "updates"
     assert us.marker(updates) is None
     event = json.loads((updates / "pending_audit" / "R2.update.closed_after_restore.json").read_text())
     assert event["event"] == "update.closed_after_restore"
     assert event["detail"]["reason"] == "restored from the 03:00 backup" and event["detail"]["step"] == "rollback"
+    assert event["detail"]["restored_at"]
     hist = (updates / "history.jsonl").read_text()
     assert "closed after a restore" in hist and "restored from the 03:00 backup" in hist
     assert us.installed(updates)["bundle_id"] == "R1"  # the record the restore put back is left as it is
@@ -193,12 +207,14 @@ def test_lr12_a_restored_box_closes_the_update_whose_rollback_failed(
 def test_lr12_a_live_update_is_never_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str) -> None:
     """Only a rollback that did not finish: an update cut short elsewhere is rolled back (or finished), never hidden."""
     deploy = _failed_rollback(tmp_path, monkeypatch, step)
+    _restored(tmp_path, hours=0.01)
     assert us.main(["--deploy", str(deploy), "close", "R2", "--restored", "restored"]) == 1
     assert us.marker(deploy / "updates") is not None
 
 
 def test_lr12_close_needs_the_bundle_and_a_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     deploy = _failed_rollback(tmp_path, monkeypatch)
+    _restored(tmp_path, hours=0.01)
     assert us.main(["--deploy", str(deploy), "close", "R3", "--restored", "restored"]) == 1
     with pytest.raises(SystemExit):
         us.main(["--deploy", str(deploy), "close", "R2"])
@@ -213,3 +229,39 @@ def test_lr12_status_and_the_shell_entry_name_the_command(tmp_path: Path, monkey
     assert "tools/apply_update.sh close R2 --restored" in capsys.readouterr().out
     script = (ROOT / "tools" / "apply_update.sh").read_text(encoding="utf-8")
     assert 'close) cd "$ROOT"; shift; exec python3 -m tools.update_status --deploy "$ROOT/deploy" close "$@"' in script
+
+
+@pytest.mark.parametrize("restore", ["none", "before the update"])
+def test_lr12_close_needs_a_restore_newer_than_the_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restore: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The lead's condition: the restore's own record (backup.restored in the box's audit log) newer than the marker;
+    an operator's word alone, or a restore from before the update began, closes nothing."""
+    deploy = _failed_rollback(tmp_path, monkeypatch)
+    if restore == "before the update":
+        _restored(tmp_path, hours=-2)
+    assert us.main(["--deploy", str(deploy), "close", "R2", "--restored", "restored"]) == 1
+    assert "no restore since the update R2 began" in capsys.readouterr().err
+    assert us.marker(deploy / "updates") is not None
+
+
+def test_lr12_close_needs_the_release_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The rollback point recorded R1 as the host tree before the update; current still names R2: refused."""
+    from tools.trialbox import update as up_
+
+    deploy = _failed_rollback(tmp_path, monkeypatch)
+    _restored(tmp_path, hours=0.01)
+    base = deploy.parent
+    for rid in ("R1", "R2"):
+        (base / "releases" / rid).mkdir(parents=True)
+    (base / "current").symlink_to("releases/R2")
+    point = up_.Point()
+    point.extra["host"] = {"previous": "R1", "release": "R2"}
+    up_.save_point(deploy / "updates" / "R2" / "rollback", point)
+    assert us.main(["--deploy", str(deploy), "close", "R2", "--restored", "restored"]) == 1
+    assert "the host tree is 'R2', not 'R1'" in capsys.readouterr().err
+    (base / "current").unlink()
+    (base / "current").symlink_to("releases/R1")
+    assert us.main(["--deploy", str(deploy), "close", "R2", "--restored", "restored"]) == 0

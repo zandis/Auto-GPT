@@ -84,7 +84,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "H-124: tools/apply_update.sh close <bundle> --restored REASON, for a marker whose rollback did not finish only, audited update.closed_after_restore; the restore naming the marker is left to #1470 (H-126)"
+   "fix": "H-124: tools/apply_update.sh close <bundle> --restored REASON: only a marker whose rollback did not finish, a backup.restored event in the box's audit log newer than the marker, and the host tree back on the release before; audited update.closed_after_restore. Images and models are not compared. The restore naming the marker is H-129's (after #1470)"
   },
   {
    "id": "H124-10",
