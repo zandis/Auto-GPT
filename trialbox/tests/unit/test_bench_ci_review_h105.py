@@ -491,7 +491,9 @@ def test_l1448_13_a_container_that_never_took_a_job_fails_the_run_step_and_the_h
 def test_l1448_17_an_early_cancel_writes_no_huge_wall_time() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "s=$(( $(date +%s) - TB_BENCH_T0 ))" not in text
-    assert text.count("s=$(( $(date +%s) - ${TB_BENCH_T0:-$(date +%s)} ))") == 5
+    jobs = yaml.safe_load(text)["jobs"]
+    walls = sum(1 for j in jobs.values() for st in j.get("steps", []) if st.get("name") == "Wall time")
+    assert walls >= 5 and text.count("s=$(( $(date +%s) - ${TB_BENCH_T0:-$(date +%s)} ))") == walls
 
 
 def test_l1448_18_the_install_stops_before_any_change_without_a_running_service_manager() -> None:

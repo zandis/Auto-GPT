@@ -774,3 +774,80 @@ def test_no_bench_host_detail_in_the_committed_files() -> None:
             # a home folder is named only where install.sh refuses it as the scratch folder
             kept = [ln for ln in text.splitlines() if not ln.lstrip().startswith('case "$scratch" in')]
             assert not HOST_HOME.search("\n".join(kept)), f.name
+
+
+# --- part b: the GPU box rehearsal's script, with stand-ins for the card query tool and the engine -------------
+
+GPU_BOX = BENCH_CI / "gpu_box.sh"
+
+
+def _gpu_box(
+    tmp_path: Path, *, tool_ok: bool = True, engine: str = "true", tool_in_file: bool = True, weights: str = "ro"
+) -> Any:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    tool = tmp_path / "cardquery"
+    body = 'echo "Card Model X, 183000, 580.1"\necho "Card Model X, 183000, 580.1"\n' if tool_ok else "exit 7\n"
+    tool.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+    # a working tool on PATH too: the script must never find it there (only by the job's card file)
+    (bin_dir / "cardquery").write_text('#!/bin/sh\necho "Card Model X, 183000, 580.1"\n', encoding="utf-8")
+    (bin_dir / "cardquery").chmod(0o755)
+    engine_stand_in = bin_dir / "podman"
+    engine_stand_in.write_text(f"#!/bin/sh\necho {engine}\n", encoding="utf-8")
+    for f in (tool, engine_stand_in):
+        f.chmod(0o755)
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps({"profile": "gpu", "tool": str(tool) if tool_in_file else ""}), encoding="utf-8")
+    out = tmp_path / "out"
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    folder = tmp_path / "weights"
+    mounts = tmp_path / "mounts"
+    lines = ["overlay / overlay ro,relatime 0 0"]  # a stand-in for the container's mount table
+    if weights != "none":
+        folder.mkdir()
+        if weights in ("ro", "rw"):
+            lines.append(f"/dev/sdz1 {folder} ext4 {weights},nosuid,nodev,relatime 0 0")
+    mounts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    args = ["bash", str(GPU_BOX), str(out), str(job), str(folder), str(mounts)]
+    proc = subprocess.run(args, check=False, capture_output=True, text=True, env=env)
+    return proc, out
+
+
+def test_the_gpu_box_says_each_step_and_never_counts_a_step_not_run_as_passed(tmp_path: Path) -> None:
+    proc, out = _gpu_box(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    steps = json.loads((out / "report.json").read_text())["steps"]
+    assert steps == {"tpm": "PASS", "gpu": "PASS", "weights": "PASS", "engine": "PASS", "install": "NOT RUN",
+                     "serving": "NOT RUN"}  # fmt: skip
+    report = (out / "report.md").read_text()
+    if not Path("/dev/tpmrm0").exists() and not Path("/dev/tpm0").exists():
+        assert "no TPM: the passphrase path" in report
+    assert "H-94 (3)" in report and "H105-03" in report  # why each step is not run
+    record = json.loads((out / "gpu-record.json").read_text())
+    assert record == {"count": 2, "cards": [{"model": "Card Model X", "memory_mib": 183000, "driver": "580.1"}] * 2}
+
+
+def test_the_gpu_record_holds_no_serial_or_uuid() -> None:
+    text = GPU_BOX.read_text(encoding="utf-8")
+    query = re.search(r"--query-gpu=(\S+)", text)
+    assert query and query.group(1) == "name,memory.total,driver_version"
+    assert "uuid" not in query.group(1) and "serial" not in query.group(1)
+
+
+@pytest.mark.parametrize(
+    ("kw", "step"),
+    [
+        ({"tool_ok": False}, "gpu"),
+        ({"tool_in_file": False}, "gpu"),
+        ({"engine": "false"}, "engine"),
+        ({"weights": "none"}, "weights"),
+        ({"weights": "rw"}, "weights"),
+        ({"weights": "plain"}, "weights"),
+    ],
+)
+def test_the_gpu_box_fails_on_a_failed_step(tmp_path: Path, kw: dict[str, Any], step: str) -> None:
+    proc, out = _gpu_box(tmp_path, **kw)
+    assert proc.returncode == 1
+    assert json.loads((out / "report.json").read_text())["steps"][step] == "FAIL"
+    if not kw.get("tool_in_file", True):
+        assert "no card query tool in the job's card file" in (out / "report.md").read_text()
