@@ -20,10 +20,13 @@ from __future__ import annotations
 import ipaddress
 import os
 from collections.abc import Generator, Mapping
-from typing import Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import httpx
+
+if TYPE_CHECKING:
+    from tb_common.llm import LlmClient
 
 ENV = "TB_LLM_EVAL_KEY"
 # model-guard and the names it answers to on model-net, and the model servers' own names (deploy/docker-compose*.yml)
@@ -86,7 +89,7 @@ class LocalBearer(httpx.Auth):
         yield request
 
 
-def eval_client(url: str, model: str, env: Mapping[str, str] | None = None) -> Any:
+def eval_client(url: str, model: str, env: Mapping[str, str] | None = None) -> LlmClient:
     """The suites' ``LlmClient`` for ``url``: with ``TB_LLM_EVAL_KEY`` set, the key goes to that local host only."""
     from tb_common.llm import LlmClient
 

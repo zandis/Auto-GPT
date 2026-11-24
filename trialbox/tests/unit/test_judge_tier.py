@@ -24,9 +24,9 @@ from orchestrator.scenarios.evaluate import (
 )
 from orchestrator.scenarios.terms import keywords
 from tb_common.llm import LlmClient
-from tb_testkit.eval_key import eval_client
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionVerdict, Evidence
+from tb_testkit.eval_key import eval_client
 
 from tools.judge_eval import evaluate
 

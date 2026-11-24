@@ -21,9 +21,9 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from tb_common.llm import LlmClient, LlmError
 from tb_testkit.eval_key import ENV, LocalBearer, eval_client, is_local
+
 from tools import vllm_standin as vs
 
 pytestmark = pytest.mark.nodb
@@ -229,9 +229,7 @@ def test_gpu_stage_with_the_key_skips_nothing_and_never_shows_it(
 ) -> None:
     s, url = standin
     rc, cases = _gpu_stage(url, tmp_path, PLANTED)
-    skipped = [
-        (c.get("name"), (c.find("skipped").get("message") or "")) for c in cases if c.find("skipped") is not None
-    ]
+    skipped = [(c.get("name"), sk.get("message") or "") for c in cases if (sk := c.find("skipped")) is not None]
     assert skipped == [], skipped  # not the missing URL, not the missing key: no skip at all
     names = {c.get("name") for c in cases}
     assert {"test_ir_extract_against_gold", "test_concept_map_200", "test_judge_set_agreement_real_model"} <= names
