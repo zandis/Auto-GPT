@@ -24,6 +24,12 @@ kept: umask 022, `PYTEST_ADDOPTS="--cov --cov-report= --durations=30"`, `COVERAG
 by `python -m tools.pglocal mark`, with `TMPDIR` 0700 inside it and pytest's basetemp under it. That is how
 `make test-locked` runs.
 
+Every folder above the test root must be writable by its owner only, not by the group or others. The test root
+here was `/var/tmp/trialbox-65534/...`, made 0755 under umask 022. H-116's worker saw that a test root whose parent
+is group-writable (made under umask 002) fails about 91 key tests by design: the passphrase file's folder check
+rightly refuses that chain. With the parent at 0755, only the `test_cloud_run.py` test was left. (Reported by the
+lane H lead; not rerun here.)
+
 The four files gave the 11 failures, and 191 passed:
 
 | Test | Count | Message |
@@ -100,7 +106,7 @@ skip is not changed here.
 ## 4. The done test
 
 The policy set is the files that `grep -lE` with the ruling's pattern finds in `tests/unit/*.py`: 238 files on this
-branch merged with master `cf7c1917` (236 on `ecbb1f89`). They were run under the conditions of section 1.
+branch merged with master `a3739fca` (the counts below were the same on `cf7c1917`) (236 on `ecbb1f89`). They were run under the conditions of section 1.
 
 | As | Result |
 | --- | --- |
@@ -124,7 +130,25 @@ Mutants, each put back after it ran:
 | `tools/keys.py` `_safe_folders` without its folder-owner check | the T-3 test fails | the T-3 test fails |
 | `test_cloud_run.py` without the browser folder line | the part test fails (`0/1 screenshots`) | not run |
 
-## 5. Not run, not verified
+## 5. The follow-up of #1486 (H-134), in its own commit
+
+The lead added the external review's three Lows on #1486 to this branch, once #1486 was on master (train 174).
+
+- **1486-1.** The stand-in clock of `test_the_stop_line_interrupts_the_runs_measure_and_no_other_process_of_that_name`
+  appends each answer it gives to `answers.txt`. The test now asserts at least two answers, the clock before the
+  move and after it. The review's mutant 4 reads the time with `printf '%(%s)T'` in `tools/measure48-host.sh`
+  `T0=` and `used()`, bypassing `PATH`. It was green before and fails now (`assert (0 >= 2)`).
+- **1486-2.** The clock is moved by writing `clock.txt.tmp` and then `os.replace`, so a look at it never sees it
+  empty. No mutant: the window is a race, as the review says.
+- **1486-3.** [The H-134 page](measure48-stop-line-h134-2026-11-24.md) and H134-01 give the gates' margins in
+  whole-second steps.
+- **Under load,** as root, 10 separate runs of the stop-line test went in parallel beside 8 busy processes on 4 cores
+  (load average 13 to 16). All 10 passed in each of three rounds, the last on the final version. In the first round, 6
+  runs ended with exit 3 after passing because the runs shared one coverage file. The later rounds gave each run its
+  own, and all exited 0. Both measure48 files
+  together gave 54 passed.
+
+## 6. Not run, not verified
 
 - CI itself. Its runner is uid 1001 with a home, so cause (a) wrote into `/home/runner` there, and causes (b) and (c)
   do not arise. The `test_cloud_run.py` test skips on CI, which has no preinstalled node tools folder.
