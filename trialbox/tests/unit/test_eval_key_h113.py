@@ -194,6 +194,12 @@ def _gpu_stage(url: str, out: Path, key: str | None, *extra: str) -> tuple[int, 
     base = {k: v for k, v in os.environ.items() if k != ENV and not k.startswith(("TB_LLM_EVAL", "TB_JUDGE"))}
     for k in ("PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT", "TB_TEST_PG_DIR", "TB_TEST_DB_URL"):
         base.pop(k, None)
+    # the gpu stage as tools.full_set starts it, not a pytest nested in this one: none of the outer run's options,
+    # coverage (CI's PYTEST_ADDOPTS=--cov; tools/coverage_shards.py refuses a nested coverage run, card H-63) or trace
+    for k in [k for k in base if k.startswith("COV_CORE_")]:
+        base.pop(k)
+    for k in ("PYTEST_ADDOPTS", "TB_COVERAGE_RUN_DIR", "TB_TRACE_OUT"):
+        base.pop(k, None)
     if key is not None:
         base[ENV] = key
     with mock.patch.dict(os.environ, base, clear=True):
@@ -206,6 +212,8 @@ def _gpu_stage(url: str, out: Path, key: str | None, *extra: str) -> tuple[int, 
         rc = subprocess.run(
             [*gpu.commands[0], *report, *extra], cwd=ROOT, env=env, stdout=so, stderr=se, check=False, timeout=900
         ).returncode
+    if not junit.is_file():  # the child did not start: its own output says why (stderr.txt, stdout.txt under out)
+        pytest.fail(f"the gpu stage wrote no junit report (rc {rc}): see {out / 'stderr.txt'}")
     return rc, list(ET.parse(junit).getroot().iter("testcase"))
 
 
