@@ -17,7 +17,7 @@ that fails on `00bababf` and passes here, and names the cell of the review's mat
 | LR | Place | Test | Matrix cell |
 | --- | --- | --- | --- |
 | LR-1 | `tools/trialbox/backup.py`, `_put_back`, `_set_aside_refusal` | `test_lr1_a_folder_that_cannot_be_renamed_aside_is_never_removed_by_the_put_back`, `test_lr1_a_mount_point_target_is_refused_before_the_first_change`, `test_lr1_a_move_recorded_before_a_failed_rename_never_deletes_the_live_folder` | restore, in the container / folder is a mount point / none |
-| LR-11 | `tools/trialbox/update.py`, `undo_load`, `load_scope`, `TarWatch`, `stream_image` | `test_lr11_the_undo_of_a_failed_load_touches_only_what_the_archive_made`, `test_lr11_a_record_that_names_no_scope_removes_nothing`, `test_lr11_the_scope_is_read_from_the_bytes_handed_to_the_load` | update, from the shell / N, engine shared / failed load |
+| LR-11 | `tools/trialbox/update.py`, `undo_load`, `load_scope`, `TarWatch`, `stream_image` | `test_lr11_the_undo_of_a_failed_load_touches_only_what_the_archive_made`, `test_lr11_a_record_that_names_no_scope_removes_nothing`, `test_lr11_the_scope_is_read_from_the_bytes_handed_to_the_load`, `test_lr11_a_tag_moved_back_takes_the_new_image_it_pointed_at`, `test_lr11_a_stream_without_a_rollback_point_undoes_the_swapped_image` | update, from the shell / N, engine shared / failed load |
 | LR-13 | `tools/trialbox/box_restore.py`, `_call`, `_line`, `sweep`, `no_restore_container`, `RESTORE_NAME` | `test_lr13_a_hangup_with_the_terminal_gone_still_tells_the_container_and_waits_for_it`, `test_lr13_a_second_restore_is_refused_while_the_first_ones_container_exists`, `test_lr13_the_restore_container_has_one_fixed_name` | restore, on the host / fresh / HUP (terminal gone); the sweep half of "fresh / KILL" |
 | LR-15 | `tools/trialbox/box_restore.py`, `volume_folder`, `data_folders` | `test_lr15_a_data_root_elsewhere_is_asked_of_the_engine`, `test_lr15_no_folder_of_the_box_found_is_refused_before_anything_stops` | restore, on the host / Docker root not the default / none |
 | LR-16 | `tools/trialbox/restic_repo.py` (`--no-lock`), `tools/trialbox/launch.py` (`beside`), runbook 5 and 22 | `test_lr16_a_restic_lake_restores_from_a_repository_bound_read_only`, `test_lr16_backup_verify_sees_the_files_beside_the_backup`, `test_lr16_the_runbook_names_how_a_restic_backup_is_opened` | restore, on the host / KEK TPM, KEK file, restic backup / none (stand-in restic) |
@@ -37,7 +37,11 @@ was not there before. It now undoes only what this load can have made: the archi
 manifest digests, what `docker load` said it loaded, and the tags and digests named in the very bytes handed to the
 load (`TarWatch`: an archive swapped on the stick after its pins were read names its own tags there). The scope is
 written into the rollback point before the bytes go, so the undo after a kill is scoped too. A record written before
-this fix names no scope: nothing is removed, and the rollback's retag of the pinned tags stands.
+this fix names no scope: nothing is removed, and the rollback's retag of the pinned tags stands. The
+rehearsal's swapped-stream probe on #1481 (a real engine, no rollback point) found two gaps in the first version: the
+scope from the bytes handed on was widened only when a rollback point was given, and an engine that names an image by
+another digest than the archive's left the swapped image as a new untagged id after its tag was moved back. The scope
+now always widens, and a new image that a tag of this load was moved onto counts as this load's.
 
 **LR-13.** On a hang-up with the terminal gone, the line printed before the signal was passed on raised, so the
 restore container was never told and ran on while the lock was released. The signal now goes first, and a line
