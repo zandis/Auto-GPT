@@ -28,12 +28,20 @@ BENCH = "trialbox-bench-ci.yml"
 LABEL = "tb-bench"
 BENCH_NAME = "TrialBox bench CI"
 BRANCHES = ["train/*", "agent/*", "claude/*", "lane-*"]  # the allow-list: exactly these, in this order
-GUARD = (
-    "(github.event_name == 'push' && ("
-    + " || ".join(f"startsWith(github.ref, 'refs/heads/{b.removesuffix('*')}')" for b in BRANCHES)
-    + ")) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && "
+SWITCH = "vars.TB_BENCH_CI == 'on'"  # the owner's switch: a repository variable only an admin sets; unset: nothing runs
+OWNER = (
+    "(github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && "
     "github.triggering_actor == github.repository_owner)"
 )
+PUSH_ANY = (
+    "(github.event_name == 'push' && ("
+    + " || ".join(f"startsWith(github.ref, 'refs/heads/{b.removesuffix('*')}')" for b in BRANCHES)
+    + "))"
+)
+PUSH_TRAIN = "(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/'))"
+GUARD = f"{SWITCH} && ({PUSH_ANY} || {OWNER})"  # a lane push, a train push, the owner's run by hand
+HEAVY_GUARD = f"{SWITCH} && ({PUSH_TRAIN} || {OWNER})"  # a train push, the owner's run by hand: never a lane push
+HEAVY = {"full-set"}  # the jobs a lane push never gets (600 minutes; the real-model rehearsal joins them when wired)
 CONCURRENCY = {
     "group": "trialbox-bench-ci-${{ github.ref }}-${{ startsWith(github.ref, 'refs/heads/train/') && github.run_id "
     "|| 'latest' }}",
@@ -140,8 +148,9 @@ def _bench_problems(text: str, doc: dict[Any, Any]) -> list[str]:
             out.append(f"{BENCH}: action {ref} is not pinned by its full commit id")
     for name, job in (doc.get("jobs") or {}).items():
         cond = _norm(job.get("if", ""))
-        if cond not in (GUARD, f"always() && ({GUARD})"):
-            out.append(f"{BENCH}: job {name}'s if is not the branch-or-owner guard: {cond!r}")
+        want = HEAVY_GUARD if name in HEAVY else GUARD
+        if cond not in (want, f"always() && ({want})"):
+            out.append(f"{BENCH}: job {name}'s if is not the switch and the branch-or-owner guard: {cond!r}")
         if "permissions" in job:
             out.append(f"{BENCH}: job {name} sets its own permissions")
         if "uses" in job or "container" in job or "services" in job:
@@ -225,6 +234,15 @@ PLANTED = [
                                            "permissions:"), "triggers"),
     ("a guard for any branch", BENCH, _sub("startsWith(github.ref, 'refs/heads/lane-')", "startsWith(github.ref, 'refs/')"),
      "guard"),
+    ("no switch on one job", BENCH, _sub("if: vars.TB_BENCH_CI == 'on' && (", "if: ("), "guard"),
+    ("no switch on the times job", BENCH, _sub("if: always() && (vars.TB_BENCH_CI == 'on' && (", "if: always() && (("),
+     "guard"),
+    ("a switch that is on when unset", BENCH, _sub("vars.TB_BENCH_CI == 'on'", "vars.TB_BENCH_CI != 'off'"), "guard"),
+    ("a caller's variable as the switch", BENCH, _sub("vars.TB_BENCH_CI == 'on'", "env.TB_BENCH_CI == 'on'"), "guard"),
+    ("full-set on a lane push", BENCH,
+     _sub("(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) ||",
+          "(github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || "
+          "startsWith(github.ref, 'refs/heads/claude/'))) ||"), "guard"),
     ("a train's run cancelled", BENCH, _sub("cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/train/') }}",
                                             "cancel-in-progress: true"), "concurrency"),
     ("a train's run replaced", BENCH, _sub("&& github.run_id || 'latest' }}", "&& 'train' || 'latest' }}"),
@@ -232,7 +250,7 @@ PLANTED = [
     ("dispatch inputs", BENCH, _sub(DISPATCH, "  workflow_dispatch:\n    inputs:\n      x:\n        type: string\n\n"
                                               "permissions:"), "workflow_dispatch carries"),
     ("no owner check", BENCH, _sub(" && github.actor == github.repository_owner", ""), "guard"),
-    ("any event", BENCH, _sub("if: (github.event_name == 'push'", "if: always() || (github.event_name == 'push'"),
+    ("any event", BENCH, _sub("if: vars.TB_BENCH_CI == 'on' && (", "if: always() || vars.TB_BENCH_CI == 'on' && ("),
      "guard"),
     ("write permission", BENCH, _sub("permissions:\n  contents: read", "permissions:\n  contents: write"),
      "permissions"),
@@ -306,8 +324,64 @@ def test_the_bench_jobs_ask_for_the_labels_the_launcher_registers() -> None:
             assert got is not None and got[1:] == launcher.labels(s, got[2].removeprefix(f"{LABEL}-")), name
 
 
-def test_actionlint_knows_the_bench_labels_and_no_other() -> None:
-    """actionlint (the `checks` job) refuses a label it does not know; its config declares the bench's labels, the
+def test_the_workflow_linter_knows_the_bench_labels_and_no_other() -> None:
+    """The workflow linter (the `checks` job) refuses a label it does not know; its config declares the bench's labels, the
     ones the launcher registers, and nothing more."""
     config = yaml.safe_load((ROOT.parent / ".github" / "actionlint.yaml").read_text(encoding="utf-8"))
     assert config == {"self-hosted-runner": {"labels": [LABEL] + [f"{LABEL}-{p}" for p in launcher.PROFILES]}}
+
+
+def _evaluate(cond: str, ctx: dict[str, str]) -> bool:
+    """A job's ``if`` for one event: the few forms the guard uses (&&, ||, ==, startsWith, always(), contexts)."""
+    expr = cond.replace("always()", "True").replace("&&", " and ").replace("||", " or ")
+    expr = expr.replace("startsWith(", "_sw(")
+    expr = re.sub(r"\b(github|vars)\.[A-Za-z_]+", lambda m: repr(ctx.get(m.group(0), "")), expr)
+    assert re.fullmatch(r"[\s()'A-Za-z0-9_/.,=:-]*", expr.replace("_sw", "")), expr
+
+    def sw(a: object, b: object) -> bool:  # startsWith is case-insensitive
+        return str(a).lower().startswith(str(b).lower())
+
+    return bool(eval(expr, {"__builtins__": {}, "_sw": sw, "True": True}))  # the test's own expression forms
+
+
+def _event(event: str, ref: str = "refs/heads/master", actor: str = "the-owner", by: str = "") -> dict[str, str]:
+    return {
+        "github.event_name": event,
+        "github.ref": ref,
+        "github.actor": actor,
+        "github.triggering_actor": by or actor,
+        "github.repository_owner": "the-owner",
+    }
+
+
+EVENTS = {
+    "train push": (_event("push", "refs/heads/train/160"), "all"),
+    "owner by hand": (_event("workflow_dispatch"), "all"),
+    "lane push claude/": (_event("push", "refs/heads/claude/lane-x"), "light"),
+    "lane push agent/": (_event("push", "refs/heads/agent/x"), "light"),
+    "lane push lane-": (_event("push", "refs/heads/lane-h-1"), "light"),
+    "push to master": (_event("push"), "none"),
+    "push to another branch": (_event("push", "refs/heads/feature/x"), "none"),
+    "push of a tag": (_event("push", "refs/tags/train/1"), "none"),
+    "a pull request": (_event("pull_request", "refs/pull/1/merge", "a-stranger"), "none"),
+    "pull_request_target": (_event("pull_request_target", "refs/heads/master", "a-stranger"), "none"),
+    "an issue comment": (_event("issue_comment", "refs/heads/master", "a-stranger"), "none"),
+    "by hand, not the owner": (_event("workflow_dispatch", actor="a-collaborator"), "none"),
+    "re-run by another": (_event("workflow_dispatch", by="a-collaborator"), "none"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(EVENTS))
+@pytest.mark.parametrize("switch", ["on", "", "off", "On "])
+def test_which_jobs_each_event_runs_with_the_switch_on_or_not(case: str, switch: str) -> None:
+    ctx, weight = EVENTS[case]
+    jobs = yaml.safe_load((WORKFLOWS / BENCH).read_text(encoding="utf-8"))["jobs"]
+    ran = {n for n, j in jobs.items() if _evaluate(_norm(j["if"]), {**ctx, "vars.TB_BENCH_CI": switch})}
+    if switch != "on":
+        assert ran == set(), "the switch is not on: no job runs, the bench is never asked for"
+    elif weight == "all":
+        assert ran == set(jobs)
+    elif weight == "light":
+        assert ran == set(jobs) - HEAVY
+    else:
+        assert ran == set()

@@ -1,7 +1,7 @@
 # The bench CI job image (card H-105; RUNBOOK §13 part, docs/runbook/13-bench-ci-runner.md). Built on the bench host by
 # install.sh, as the tb-bench user, from a context folder that holds this file, the runner archive (its SHA-256 checked
 # against the settings file first) and the files of tools/bench_ci/. Nothing in it is a secret.
-# The base is the one Ubuntu 24.04 the rehearsal's host image pins (tools/rehearse_box/host.Dockerfile).
+# The base is the base image the rehearsal's host image pins (tools/rehearse_box/host.Dockerfile).
 FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 
 ENV DEBIAN_FRONTEND=noninteractive

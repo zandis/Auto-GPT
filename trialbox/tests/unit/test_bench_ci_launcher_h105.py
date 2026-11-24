@@ -536,7 +536,7 @@ def test_the_token_is_typed_into_a_root_only_file_and_never_shown() -> None:
     assert 'tok=""' in body
     assert not re.search(r"echo[^\n]*\$tok", INSTALL) and "set -x" not in INSTALL
     assert "$1" not in body  # never an argument
-    # the units get it as a systemd credential, by its folder, never by value
+    # the units get it as a credential of the service manager, by its folder, never by value
     assert "LoadCredential=token:/etc/tb-bench-ci/token" in RUNNER_UNIT and "--token-file %d/token" in RUNNER_UNIT
     assert not [ln for ln in RUNNER_UNIT.splitlines() if ln.startswith("Environment") and "TOKEN" in ln.upper()]
     assert "LoadCredential" not in PROXY_UNIT  # the proxy never holds it

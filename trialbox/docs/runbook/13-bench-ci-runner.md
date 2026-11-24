@@ -32,7 +32,7 @@ the end.
    Jobs that need an engine of their own (`engine` and `gpu` slots) get a nested rootless one inside their
    container, never the host's.
 3. **A leaked token lets another machine join as a runner.** The token is typed into a root-only file
-   (`/etc/tb-bench-ci/token`, mode 0600) and handed to the runner units as a systemd credential. It is never an
+   (`/etc/tb-bench-ci/token`, mode 0600) and handed to the runner units as a credential of the service manager. It is never an
    argument, never in an environment, never in the journal or the repository. The launcher sends it to the code
    host's API address only, to ask for a one-job runner registration; the job's container never sees it.
 
@@ -45,7 +45,8 @@ it when the runner is removed.
 
 ## Prerequisites (on the bench host)
 
-- Ubuntu 24.04 or newer with systemd 248 or newer, `python3` 3.10 or newer, `curl`, `sha256sum`, `runuser`.
+- The distribution release of the job image's base (or newer), with a service manager of version 248 or newer
+  (`systemctl --version`), `python3` 3.10 or newer, `curl`, `sha256sum`, `runuser`.
 - The rootless container engine that `tools/bench_ci/runner.Dockerfile` installs in the job image, from the host's
   own distribution, version 4.4 or newer, with `uidmap` (`newuidmap`, `newgidmap`).
 - For the GPU slots: the card query tool, and the engine's device description of the cards (written by the card
@@ -84,29 +85,43 @@ and go nowhere else. Every line says PASS or FAIL:
   code host and the package registry through it, and is refused a host off the list and an address written as a
   number.
 
-Then, on the code host: the repository's runner list shows the waiting runners named `tb-bench-<slot>-<id>`, and a
-run of "TrialBox bench CI" by hand (Actions, the workflow, Run workflow, on `master`) takes them. Its summary's
-`bench times` table holds each job's wall time; read it against the hosted runners' times of the same train.
+Then, on the code host: the repository's runner list shows the waiting runners named `tb-bench-<slot>-<id>`.
+
+## The owner's switch
+
+Every bench job also needs the repository variable `TB_BENCH_CI` to be `on`. Unset (or anything else), every job of
+"TrialBox bench CI" is skipped, so no lane branch or train waits for a runner that is not there. Only a repository
+admin sets it (Settings, Secrets and variables, Actions, Variables): it is the owner's switch, never a caller's
+variable. The install ends here: **the owner sets `TB_BENCH_CI` to `on`** once verify has passed. Then a run of
+"TrialBox bench CI" by hand (Actions, the workflow, Run workflow, on `master`) takes the runners; its summary's
+`bench times` table holds each job's wall time, to read against the hosted runners' times of the same train.
+
+**When the bench is down** (an outage, maintenance, the cards wanted for something else): first **unset
+`TB_BENCH_CI`** (or set it to `off`); the bench jobs are skipped from the next push on. Set it to `on` again when the
+bench is back.
 
 ## The jobs it takes
 
 Unit shards (eight, CPU), the integration run (CPU), the GPU suites (`make full-set` stage `gpu`, on the CI cards),
-`make full-set` (a GPU slot with its nested engine) and the box rehearsal (an engine slot). The GPU slots share the
+`make full-set` (a GPU slot with its nested engine) and the box rehearsal (an engine slot). A push to a lane branch
+gets the unit shards, the integration run, the GPU suites and the box rehearsal; `make full-set` (600 minutes, and the
+real-model rehearsal once it is wired) runs only for a train and the owner's run by hand. The GPU slots share the
 CI cards. A GPU job does not start when a CI card is busy beyond its cap (more memory or load than the settings
 allow, or a reading the tool cannot give): the launcher registers no GPU runner while one is, and the job itself
-checks again before its first step (the runner's job-started hook), with a message naming the card and why. The workflow is
-separate and no branch rule requires it, so its jobs show red when they fail and block nothing; nothing moves off
+checks again before its first step (the runner's job-started hook), with a message naming the card and why. The
+workflow is separate and no branch rule requires it, so its jobs show red when they fail and block nothing; nothing moves off
 the hosted runners until the owner's ruling says so.
 
 ## Remove it completely
 
-1. `sudo trialbox/tools/bench_ci/install.sh remove`: stops and removes every slot unit and the proxy, every container,
+1. The owner unsets the repository variable `TB_BENCH_CI` first, so that no job asks for the runners while they go.
+2. `sudo trialbox/tools/bench_ci/install.sh remove`: stops and removes every slot unit and the proxy, every container,
    network and image of `tb-bench`, the scratch folder, the token (shredded), `/etc/tb-bench-ci`, `/opt/tb-bench-ci`,
    the user, its home and its id range. It prints a `LEFT` line for anything still there and exits 1 if any is.
-2. On the code host, by the owner: the repository's Settings, Actions, Runners: remove any runner named
+3. On the code host, by the owner: the repository's Settings, Actions, Runners: remove any runner named
    `tb-bench-*`; and revoke the token where it was made.
-3. If the runner is not to come back, the workflow stays harmless: with no runner holding the label, its jobs wait
-   and time out, and nothing else depends on them.
+4. If the runner is not to come back, the workflow stays harmless: with the variable unset its jobs are skipped, and
+   nothing else depends on them.
 
 ## What the tests hold, and what only the install can show
 

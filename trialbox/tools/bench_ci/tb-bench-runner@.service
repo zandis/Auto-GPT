@@ -1,6 +1,6 @@
 # One bench CI runner slot (card H-105; docs/runbook/13-bench-ci-runner.md): %i is cpu-N, engine-N or gpu-N.
-# Each start is one job's life (register for one job, run it in a fresh container, remove it); systemd starts the next.
-# The minting token reaches the launcher as a systemd credential: a copy of the root-only file, readable by this unit
+# Each start is one job's life (register for one job, run it in a fresh container, remove it); the service manager starts the next.
+# The minting token reaches the launcher as a credential of the service manager: a copy of the root-only file, readable by this unit
 # only, named on the command line by its folder (%d), never in an argument's value or the environment.
 [Unit]
 Description=TrialBox bench CI runner %i

@@ -12,7 +12,7 @@
 # The harms (the page names them): a public repository's self-hosted runner runs strangers' code if a fork-reachable
 # trigger reaches it (the workflow's part, tested); a job that escapes its container reaches the owner's data and keys
 # (so: the tb-bench user with no group, a rootless engine, one scratch folder); a leaked token lets another machine
-# join as a runner (so: a root-only file, handed to the units as a systemd credential).
+# join as a runner (so: a root-only file, handed to the units as a credential of the service manager).
 set -euo pipefail
 umask 022
 
@@ -57,7 +57,7 @@ prerequisites() {
   done
   [ "${#missing[@]}" = 0 ] || die "missing on this host: ${missing[*]}"
   python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "python3 is older than 3.10"
-  [ "$(systemctl --version | awk 'NR==1{print $2}')" -ge 248 ] || die "systemd is older than 248 (credentials)"
+  [ "$(systemctl --version | awk 'NR==1{print $2}')" -ge 248 ] || die "the service manager is older than 248 (credentials)"
   [ -f "$SETTINGS" ] || die "no $SETTINGS: copy tools/bench_ci/settings.example.env there and fill it in"
   chown root:root "$SETTINGS" && chmod 0600 "$SETTINGS"
   get BENCH_REPO >/dev/null || die "the settings are not complete (the line above says what)"

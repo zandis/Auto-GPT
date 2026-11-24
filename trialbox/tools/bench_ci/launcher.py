@@ -1,13 +1,13 @@
 """The bench host's CI runner launcher (card H-105): one single-use container per CI job, then gone.
 
-A systemd unit runs one slot (``tb-bench-runner@<profile>-<n>``) as the unprivileged ``tb-bench`` user; each run of
+A service unit runs one slot (``tb-bench-runner@<profile>-<n>``) as the unprivileged ``tb-bench`` user; each run of
 the unit is one job's life:
 
 1. read the settings file (a root-owned file on the host; the repository holds only
    ``tools/bench_ci/settings.example.env``) and refuse a placeholder, an unknown key or a missing one;
 2. a GPU slot: check the CI cards (``gpu_check.host_check``): never a card of the walk or the bench, none busy;
 3. ask the code host for a just-in-time runner configuration (one job, then the registration is gone), with the
-   minting token from the file systemd hands the unit (``--token-file``); the token goes to the code host's API
+   minting token from the file the service manager hands the unit (``--token-file``); the token goes to the code host's API
    address written below and nowhere else (``http.client`` reads no proxy setting from any environment), never in
    an argument, never in a log;
 4. start the job's container (``container_args``) with that configuration on its standard input, in a fresh scratch
@@ -15,7 +15,7 @@ the unit is one job's life:
 
 The harms this file stands between (the page names them): a job that escapes its container reaches the owner's
 data and keys (so: a rootless engine as its own user, no host folder but the job's scratch, no engine socket, no host
-network); a leaked token lets another machine join as a runner (so: root-only file, systemd credential, never in an
+network); a leaked token lets another machine join as a runner (so: root-only file, a service credential, never in an
 argument or the environment). Which code reaches this runner at all is the workflow's part
 (``.github/workflows/trialbox-bench-ci.yml``, ``tests/unit/test_bench_ci_workflow_h105.py``).
 
@@ -170,7 +170,7 @@ def read_settings(path: Path) -> Settings:
 
 
 def read_token(path: Path) -> str:
-    """The minting token, from the file systemd hands the unit (a copy of a root-only file). Never printed."""
+    """The minting token, from the file the service manager hands the unit (a copy of a root-only file). Never printed."""
     st = path.stat()
     if st.st_mode & 0o077:
         raise SettingsError("the token file is readable by others: it must be mode 0600 or 0400")

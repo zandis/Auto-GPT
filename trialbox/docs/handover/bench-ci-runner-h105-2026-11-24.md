@@ -15,7 +15,7 @@ language.
   `tests/unit/test_bench_ci_workflow_h105.py`, `tests/unit/test_bench_ci_launcher_h105.py`, the install page, this
   page and its findings, and `docs/RUNBOOK.md` (the generated index line of §13 only). Outside `trialbox/`: the
   new workflow and a new `.github/actionlint.yaml`, which declares the four bench labels so that the `checks` job's
-  actionlint knows them (a test holds it to the launcher's labels; question 5). No existing workflow changes.
+  workflow linter knows them (a test holds it to the launcher's labels; question 5). No existing workflow changes.
 
 ## What was built
 
@@ -24,7 +24,12 @@ language.
    `workflow_dispatch`; every job's `if` repeats the guard: a push to one of those refs, or a run by hand whose actor
    and triggering actor are the repository's owner (`github.repository_owner`, no name written). Concurrency: one
    group per lane branch, whose newer push cancels the older run; a train's run has a group of its own and is never
-   cancelled or replaced. `permissions:
+   cancelled or replaced.
+   **The owner's switch:** every job also needs the repository variable `TB_BENCH_CI` to be `on` (only an admin sets
+   it): unset, every bench job is skipped, so before the install or while the bench is down no lane branch or train
+   waits a day for a runner. **Weight:** a lane push gets the unit shards, the integration run, the GPU suites and the
+   box rehearsal; `make full-set` runs only for a train and the owner's run by hand. The test evaluates every job's
+   condition for 13 events with the switch on, unset, off or misspelt. `permissions:
    contents: read`, no secret named, every action pinned by its full commit id, every checkout without a kept
    credential. The test reads every workflow file in `.github/workflows` and fails when a job that can run on a
    self-hosted runner is in any other workflow, when another workflow names the label `tb-bench` or waits for this
@@ -32,7 +37,7 @@ language.
    ...), branch, tag, input, permission, secret, unpinned action, job guard or concurrency change.
    A `runs-on` it cannot prove (a runner group, an expression that is not a matrix of literals, a reusable workflow
    of another repository) counts as the bench.
-2. **Isolation.** `tools/bench_ci/launcher.py`, run by one systemd unit per slot as the `tb-bench` user (no login,
+2. **Isolation.** `tools/bench_ci/launcher.py`, run by one service unit per slot as the `tb-bench` user (no login,
    no other group): each start registers one one-job runner and runs it in a fresh container of a rootless engine,
    as the image's user 1001, with one host folder (the job's scratch folder, made for it and deleted after it), no
    engine socket, the internal jobs network (no route out) and the egress proxy as the only way out (CONNECT to 443,
@@ -49,7 +54,7 @@ language.
    rule requires**, not `continue-on-error`, so a failing bench job shows red (its result and time are the measure)
    and an outage of the bench blocks nothing. Nothing moved off the hosted runners.
 5. **Install.** The page: prerequisites, install as the temporary sudo user, the token typed or pasted at a prompt
-   into a root-only file (handed to the units as a systemd credential), verify (the named folders as `tb-bench`, a
+   into a root-only file (handed to the units as a credential of the service manager), verify (the named folders as `tb-bench`, a
    probe container with the CPU jobs' arguments exactly), and removal of everything, with what the owner removes on
    the code host.
 6. **Times.** Each bench job writes its wall time to its summary and a small record; the hosted job `bench times`
@@ -59,7 +64,7 @@ language.
 
 | Part | Held by | Not shown |
 | --- | --- | --- |
-| No trigger but a push to a train or lane branch, or the owner's run by hand, reaches the bench label | `test_no_other_trigger_reaches_the_bench_label` and 30 planted mutants | the code host honouring the guard |
+| No trigger but a push to a train or lane branch, or the owner's run by hand, reaches the bench label | `test_no_other_trigger_reaches_the_bench_label` and 35 planted mutants | the code host honouring the guard |
 | The job container's arguments, per profile | the launcher tests (26 planted mutants caught) | the engine honouring them; the image building |
 | The CI cards' check | a stand-in for the card query tool | the real tool's output on the bench's cards |
 | The token's way | the code host's API host only, whatever a caller's proxy says; the configuration on stdin | the code host's answer (no call was made) |
@@ -75,6 +80,6 @@ language.
    later card?
 3. The minting token (H105-01): the owner's choice of credential and expiry.
 4. A RUNBOOK number of its own for the install page (H105-07)?
-5. `.github/actionlint.yaml` declares the bench labels (actionlint names an unknown runner label an error). It
-   suppresses no finding, but it is a list in a lint's configuration: does the rule against allow-list entries
-   cover it? actionlint was not run in the card's container; CI's `checks` job runs it.
+Answered by the lead: `.github/actionlint.yaml` (the four bench labels, so that the workflow linter knows them) is
+configuration, not a scan allow-list entry; it stays, named under the files outside `trialbox/`. The linter was not
+run in the card's container; CI's `checks` job runs it.
