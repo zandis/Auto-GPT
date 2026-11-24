@@ -5,7 +5,7 @@
 Card H-120 implements the owner's process change (integrator 7125828711, item 1, on #639). The CI workflow never
 skips the unit shards (`unit-shard`, eight jobs) or their aggregate `unit` on a pull request. A policy test fails if
 any pull request can skip them. The same day #1460's two tests failed only on its train, because its own shards
-had been skipped (the integrator's 7127377925). Decision: `docs/decisions/D-1357-the-unit-shards-run-on-every-pull-request.md`.
+had been skipped (the integrator's 7127377925). Decision: `docs/decisions/D-1324-the-unit-shards-run-on-every-pull-request.md`.
 Findings: `unit-shards-on-every-pr-h120-2026-11-24/findings.json` (H120-01 to H120-03).
 
 ## The ways a pull request skipped the shards, and how each is closed
@@ -36,7 +36,7 @@ proved (D-578) still skips them, as before.
 
 ## The policy test
 
-`test_every_pull_request_runs_the_unit_shards` in `tests/unit/test_h120_unit_shards_every_pr.py` is one of 126
+`test_every_pull_request_runs_the_unit_shards` in `tests/unit/test_h120_unit_shards_every_pr.py` is one of 127
 tests in the file. The rest:
 
 - `tools/ci_tier.py` is run as the `changes` job runs it, over a table of 13 path sets × draft or not × 4 label states:
@@ -62,6 +62,21 @@ tests in the file. The rest:
   with `ci:full`, false for an empty diff, false with nothing under `trialbox/`, false under `CARD_TIER=touched`,
   false on an `agent/` branch.
 
+The integrator's conditions (7128988990, 7129418551): the table covers a draft, docs only, labels, no `trialbox/`
+path and a failed `changes`; `test_the_unit_output_is_wired_from_changes_to_both_unit_jobs` holds the output's
+path from the tier step to both unit jobs; and `test_the_unit_rule` in `tests/unit/test_ci_tier.py` adds `unit` cases
+beside the rule table (15 rows: every pull request true, a proved master push false).
+
+## The five changed assertions (ruled yes, 7128988990)
+
+- `test_ci_tier.py::test_the_command_line`: the command line prints `unit=true` as a third line.
+- `test_ci_tiers.py::test_the_full_tier_waits_for_a_pull_request_that_is_not_a_draft`: the full-tier gate is held
+  for every full-tier job but the two unit jobs, which are held to the unit gate.
+- `test_ci_tiers.py::test_unit_is_skipped_on_a_draft_and_never_success`, renamed
+  `test_unit_runs_on_every_pull_request_and_is_never_skipped_success`: `unit` reads the unit gate.
+- `test_test_shard.py::test_the_shards_run_every_shard_with_fail_fast_off`: the shards' condition is the unit gate.
+- `test_test_shard.py::test_unit_is_the_gate_over_every_shard_and_the_combined_coverage`: `unit` reads the unit gate.
+
 ## Cost
 
 From the public Actions API, 18 green runs of 2026-11-24 with all eight shards (pull requests and trains): the median
@@ -81,7 +96,7 @@ protection needs no edit (not verified: its settings are not readable from here)
 
 `.github/workflows/trialbox-ci.yml` and `trialbox/tools/ci_tier.py` are shared infrastructure: the card is the ruling
 to change them. The tests that pinned the old tier rule (`tests/unit/test_ci_tier.py`, `tests/unit/test_ci_tiers.py`,
-`tests/unit/test_test_shard.py`) change only after the integrator's ruling on the listed assertions.
+`tests/unit/test_test_shard.py`) changed in the five ruled assertions only (7128988990), plus the new `test_the_unit_rule`.
 `docs/DEVELOPING.md` gets a row and a sentence. `docs/plan/43-ci-and-train-etiquette.md` is not edited (H120-03).
 
 ## Not run, not verified

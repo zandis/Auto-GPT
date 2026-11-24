@@ -1,6 +1,6 @@
 # TrialBox CI gate v1 (D-206, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
 # push to master runs these jobs (in tiers: D-564, D-578); the unit shards and `unit` run on every pull request
-# whatever it touches (H-120, D-1357). `make ci` runs the same list locally. Job names are stable: branch protection on
+# whatever it touches (H-120, D-1324). `make ci` runs the same list locally. Job names are stable: branch protection on
 # master requires unit, checks, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3). D-725: a
 # matrix job (goldens, e2e-simple) reports under an unexpanded expression when it is skipped, so it cannot be required
 # by name; require goldens-gate and e2e-simple-gate instead (with property and security, D-501). Since D-578
@@ -56,7 +56,7 @@ jobs:
       full: ${{ steps.tier.outputs.full }}
       # D-970: 'true' when the scenario jobs (goldens, e2e-simple, demo-boot) run: as `full`, except D's case
       scenarios: ${{ steps.tier.outputs.scenarios }}
-      # H-120 (D-1357): 'true' on every pull request, whatever its tier; otherwise as `full`. The unit jobs run unless
+      # H-120 (D-1324): 'true' on every pull request, whatever its tier; otherwise as `full`. The unit jobs run unless
       # it says 'false', so a `changes` that failed or said nothing runs them too
       unit: ${{ steps.tier.outputs.unit }}
       # D-969: the tests that read the documents of a docs-only pull request (empty otherwise), run by `cross-card`
@@ -92,7 +92,7 @@ jobs:
       # unit, property, goldens, e2e-simple, demo-boot, security, standards, images. tests/unit/test_ci_tiers.py
       # holds the two lists; a new job is put in one. Which tier a run gets: tools/ci_tier.py (D-970): a train,
       # master and a run by hand everything; a card the fast tier unless it is on the full-tier list or labelled
-      # ci:full (CARD_TIER above); a draft and a docs-only card (D-969) the fast tier. H-120 (D-1357): the unit
+      # ci:full (CARD_TIER above); a draft and a docs-only card (D-969) the fast tier. H-120 (D-1324): the unit
       # shards and `unit` are taken out of that rule for a pull request: they run on every one (output `unit`).
       - id: tier
         working-directory: .
@@ -312,7 +312,7 @@ jobs:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    # H-120 (D-1357): on every pull request, whatever its tier, draft state, labels or paths (tools/ci_tier.py
+    # H-120 (D-1324): on every pull request, whatever its tier, draft state, labels or paths (tools/ci_tier.py
     # `unit`); a push or a run by hand with the full tier. Not 'false' rather than 'true': a `changes` that failed or
     # said nothing runs them. tests/unit/test_h120_unit_shards_every_pr.py holds this condition.
     if: ${{ !cancelled() && needs.changes.outputs.unit != 'false' }}
@@ -379,7 +379,7 @@ jobs:
   # T-747 (D-475): the required check `unit` (branch protection and the project's tooling read this name). It passes
   # only when every shard passed, the shards together ran every collected test exactly once, and the coverage ratchet
   # (T-651, unchanged) holds on the combined coverage of all shards. It runs when a shard failed too, so the check
-  # turns red instead of staying skipped. H-120 (D-1357): it runs on every pull request, as the shards do; it is
+  # turns red instead of staying skipped. H-120 (D-1324): it runs on every pull request, as the shards do; it is
   # skipped only on a push or a run by hand that the tier leaves without the shards (a proved master push, D-578).
   unit:
     runs-on: ubuntu-latest

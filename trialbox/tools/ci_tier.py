@@ -20,7 +20,7 @@ standard input; a push or a run by hand has none.
 
 ``scenarios`` is true whenever ``full`` is, except in that one ``touched`` case.
 
-``unit`` (H-120, D-1357): the unit shards and their aggregate `unit` run on every pull request, whatever its tier,
+``unit`` (H-120, D-1324): the unit shards and their aggregate `unit` run on every pull request, whatever its tier,
 draft state, labels or paths (a docs-only one too: ``ci_docs_only.CODE_READS`` was found incomplete, L-CI-1); a
 push and a run by hand run them when ``full`` says so. The workflow runs the two unit jobs unless this says
 ``false``, so a `changes` job that failed or said nothing runs them too. tests/unit/test_h120_unit_shards_every_pr.py
@@ -161,9 +161,9 @@ def decide(env: Mapping[str, str], paths: list[str]) -> tuple[bool, bool, str]:
 
 
 def unit_shards(env: Mapping[str, str], full: bool) -> tuple[bool, str]:
-    """``(unit, why)``: whether the unit shards run (H-120, D-1357): on every pull request, else as ``full``."""
+    """``(unit, why)``: whether the unit shards run (H-120, D-1324): on every pull request, else as ``full``."""
     if env.get("EVENT", "") == "pull_request":
-        return True, "the unit shards run on every pull request (H-120, D-1357), whatever its tier"
+        return True, "the unit shards run on every pull request (H-120, D-1324), whatever its tier"
     return full, f"the unit shards run with the {'full' if full else 'fast'} tier"
 
 

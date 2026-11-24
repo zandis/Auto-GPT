@@ -1,4 +1,4 @@
-"""H-120 (D-1357): the unit shards run on every pull request. The policy fails when any pull request can skip them.
+"""H-120 (D-1324): the unit shards run on every pull request. The policy fails when any pull request can skip them.
 
 The owner's rule (integrator 7125828711, item 1): whatever a pull request touches, its draft state, its labels or the
 tier it gets, the matrix `unit-shard` and its aggregate `unit` run. Before H-120 a card's pull request on no
@@ -347,6 +347,20 @@ def test_the_changes_job_hands_the_tier_codes_unit_on() -> None:
     tier = next(s for s in changes["steps"] if s.get("id") == "tier")
     assert "tools/ci_tier.py" in tier["run"] and '>> "$GITHUB_OUTPUT"' in tier["run"]
     assert "if" not in tier and not tier.get("continue-on-error")
+
+
+def test_the_unit_output_is_wired_from_changes_to_both_unit_jobs() -> None:
+    """The whole path of the answer, in one place: the tier step prints ``unit=`` into ``$GITHUB_OUTPUT``, `changes`
+    hands ``steps.tier.outputs.unit`` on as its output ``unit``, and each unit job needs `changes` and reads exactly
+    that output."""
+    jobs = _jobs()
+    tier = next(s for s in jobs["changes"]["steps"] if s.get("id") == "tier")
+    assert "tools/ci_tier.py" in tier["run"] and '>> "$GITHUB_OUTPUT"' in tier["run"]
+    assert "unit=" in (ROOT / "tools" / "ci_tier.py").read_text(encoding="utf-8")
+    assert jobs["changes"]["outputs"]["unit"] == "${{ steps.tier.outputs.unit }}"
+    for name in UNIT_JOBS:
+        assert "changes" in _needs(jobs[name]), name
+        assert "needs.changes.outputs.unit" in str(jobs[name]["if"]), name
 
 
 # ------------------------------------------------------------------------------- the other ways a job is left out

@@ -1,4 +1,4 @@
-# D-1357 the unit shards run on every pull request
+# D-1324 the unit shards run on every pull request
 
 - **Task:** H-120, lane H; the owner's process change, the integrator's comment 7125828711 item 1 on #639
   (2026-11-24): "the CI workflow never skips the unit shards on a PR, whatever paths it touches"
