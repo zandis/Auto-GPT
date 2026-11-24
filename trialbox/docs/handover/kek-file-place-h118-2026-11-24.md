@@ -33,7 +33,7 @@ Out of this card (ruling 7125341668): `tools.keys` keeps its explicit `--out`. I
 | `deploy/hardening/seal_keys.sh` | it decided where the unsealed KEK is written: a caller's variable | yes: the box's own place |
 | `tools/keys.py` `runtime_kek_path` | where `unseal` and `rotate-kek` write when `--out` is not given: a caller's variable | no: H-119 |
 | `libs/tb_common/kek.py` `kek_sources`/`load_kek` | where a service looks for the KEK; declared in `config.py`; nothing in the compose files sets it, so the services use the default | no: a reader |
-| `tools/trialbox/audit_heads.py:45,211` | passed on to the audit container, and the KEK's folder mounted read-only | no: a reader |
+| `tools/trialbox/audit_heads.py` (`PASSED`, and the mount at line 211) | passed on to the audit container, and the KEK's folder mounted read-only | no: a reader |
 | `tools/trialbox/backup_schedule.py:1127`, `tools/trialbox/box_restore.py:259` | passed on where the KEK is opened | no: readers |
 | `tools/rehearse_box/box.sh:715` | the restore rehearsal's own place | no: a reader |
 | the trusted unit `trialbox-unseal.service` | writes `/run/trialbox/kek` by `--out`; does not read the variable | no |
