@@ -833,9 +833,16 @@ def _gb(n: float) -> str:
 
 
 def _existing(p: Path) -> Path:
+    """The nearest folder of ``p`` (``p`` itself, or a parent) that exists and this user may look at: a folder the
+    update may not read (Docker's data root, to a user who is not root) is measured on its readable parent, as a
+    missing one is (H-121, the integrator's red 7134736821), never a crash of the space check."""
     p = p.absolute()
-    while not p.exists() and p != p.parent:
-        p = p.parent
+    while p != p.parent:
+        try:
+            os.stat(p)
+            return p
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            p = p.parent
     return p
 
 

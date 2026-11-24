@@ -146,3 +146,48 @@ def test_h121_an_answer_that_is_not_a_size_stops_the_update_never_counted_zero(
                                               r"no size in the answer; the space check needs it"):  # fmt: skip
         box.space_needs(plan, tmp_path / "deploy" / "updates")
     assert box.db_bytes("trialbox_wf", "trialbox") is None  # the backup's limit: unknown, no limit (D-455)
+
+
+def test_h121_the_update_path_runs_as_a_non_root_user_without_docker_s_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The integrator's red 7134736821 (CI's unit shard 7, a non-root user): the update path's space check stood on
+    Docker's data root (the rollback script's need on its volumes), and a user who may not read that folder had the
+    update crash with PermissionError. The database sizes come only through the box's own commands; a host folder the
+    user cannot read is measured on its nearest readable parent, as a missing one is.
+    Docker's data root here is a folder of its own that nobody but its owner may enter (mode 000). As a non-root user
+    the kernel refuses it; as root (who passes any mode) the same refusal is what os.stat answers for it."""
+    from tests.unit.test_update_path import FakeRun
+
+    docker_root = tmp_path / "docker-root"
+    (docker_root / "volumes").mkdir(parents=True)
+    docker_root.chmod(0)
+    if os.geteuid() == 0:  # root passes any mode: give it the refusal a non-root user gets from the kernel
+        real_stat = os.stat
+
+        def stat(p: Any, *a: Any, **k: Any) -> os.stat_result:
+            if str(p).startswith(str(docker_root) + os.sep):
+                raise PermissionError(13, "Permission denied", str(p))
+            return real_stat(p, *a, **k)
+
+        monkeypatch.setattr(os, "stat", stat)
+
+    class Run(FakeRun):
+        def __call__(self, argv: list[str], *a: Any, **k: Any) -> str:
+            if argv[:2] == ["docker", "info"]:
+                return f"{docker_root}\n"
+            return super().__call__(argv, *a, **k)
+
+    deploy = tmp_path / "deploy"
+    (deploy / "updates").mkdir(parents=True)
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
+    box = up.ComposeBox(deploy, run=Run())
+    plan = up.Plan("B1", "f" * 64, "v", [], tmp_path / "stage")
+    try:
+        needs = box.space_needs(plan, deploy / "updates")
+        notes = up.Updater(box, deploy / "updates", say=lambda _m: None).space(needs)
+    finally:
+        docker_root.chmod(0o755)
+    assert ("rollback script (largest database) on the db volume" in " ".join(w for _p, _n, w in needs))
+    assert notes and all("needs" in n for n in notes)
