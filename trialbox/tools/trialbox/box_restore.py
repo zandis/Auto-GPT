@@ -337,24 +337,36 @@ class BoxRestore:
     @contextlib.contextmanager
     def lock(self) -> Iterator[None]:
         """``deploy/site/restore.lock`` held for the whole run; a second restore is refused. Under it, a scratch
-        folder another run left (``deploy/.restore-*``: a killed host step's decrypted backup and copies) is removed."""
+        folder another run left (``deploy/.restore-*``: a killed host step's decrypted backup and copies) is removed.
+        H-114 (1421-3): ``deploy/site/backup.lock`` too, the lock every backup run takes
+        (``backup_schedule.run_backup``): no backup writes over the folders while they are restored, and a restore
+        never starts under a running one."""
         import fcntl
 
         site = self.deploy / "site"
         site.mkdir(parents=True, exist_ok=True)
         fd = os.open(site / "restore.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        bfd = -1
         try:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
                 raise RestoreStopped("another restore of this box is running (deploy/site/restore.lock): nothing "
                                      "was changed") from None  # fmt: skip
+            bfd = os.open(site / "backup.lock", os.O_RDWR | os.O_CREAT, 0o644)  # the backup's own file (an empty lock)
+            try:
+                fcntl.flock(bfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise RestoreStopped("a backup of this box is running (deploy/site/backup.lock): run the restore again "
+                                     "when it has ended; nothing was changed") from None  # fmt: skip
             for old in self.deploy.glob(".restore-*"):
                 if old.is_dir() and not old.is_symlink():
                     shutil.rmtree(old, ignore_errors=True)
                     print(f"restore: removed {old.name}, left by a restore that did not finish", file=sys.stderr)
             yield
         finally:
+            if bfd >= 0:
+                os.close(bfd)
             os.close(fd)
 
     def _restore(self, a: Any) -> int:

@@ -1,0 +1,41 @@
+{
+ "card": "H113",
+ "title": "the gpu suites' key to the local model servers",
+ "date": "2026-11-24",
+ "source": "docs/handover/gpu-suites-eval-key-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H113-01",
+   "severity": "High",
+   "claim": "the gpu suites sent no key to the guarded model servers: every model-quality call was a 401",
+   "severity_basis": "the gpu stage cannot pass on a box whose model servers want the key, so rc1 line 1 cannot hold",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 4ada51f4",
+   "fix": "tb_testkit.eval_key.eval_client sends TB_LLM_EVAL_KEY to a local endpoint only; tests/unit/test_eval_key_h113.py",
+   "from": "the integrator's card H-113 (comments 7121989208 and 7122032636), 2026-11-24"
+  },
+  {
+   "id": "H113-02",
+   "severity": "Medium",
+   "claim": "the judge suite's real-model test was always skipped in the gpu stage: it read TB_JUDGE_LLM_URL, which the stage never set",
+   "severity_basis": "the judge's agreement with a real model was never measured by the set while the stage read green",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 4ada51f4",
+   "fix": "tools.full_set's gpu stage sets TB_JUDGE_LLM_URL and TB_JUDGE_MODEL from --llm-url and --llm-model",
+   "from": "reading tools/full_set.py and tests/unit/test_judge_tier.py for card H-113, 2026-11-24"
+  },
+  {
+   "id": "H113-03",
+   "severity": "Low",
+   "claim": "an endpoint named by a dotted host name is not local by this card's definition, so the key is refused for it",
+   "severity_basis": "by design: the walk names the endpoint by a loopback or private address or the service name",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "not in this card: widening local needs a ruling",
+   "from": "card H-113, 2026-11-24"
+  }
+ ]
+}
