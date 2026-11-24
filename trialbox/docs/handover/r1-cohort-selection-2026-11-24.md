@@ -56,11 +56,11 @@ How to read the table:
 | ENGLISH | Patient must speak English | logistics | class `note`; demographic atom (preferred language) where a record states it; else `note_question` | person | 0.46 |
 | MAKES-DECISIONS | Patient must make their own medical decisions | judgement | class `human` in clinical use; for this benchmark class `note` with `note_question` (ruling C2) | person, never a model | 0.31 |
 | ABDOMINAL | History of intra-abdominal surgery, small or large intestine resection, or small bowel obstruction | procedure_device | class `mixed`: procedure atom (intra-abdominal surgery, bowel resection value sets) OR condition atom (small bowel obstruction), quantifier `any`, no window | rules, then notes | 0.73 |
-| MAJOR-DIABETES | Major diabetes-related complication: amputation, kidney damage, skin conditions, retinopathy, nephropathy, neuropathy, as a result of uncontrolled diabetes | diagnosis | class `mixed`: OR of condition atoms (one value set per listed complication), the link to diabetes by condition codes that name it (a `diagnosis_role` value cannot carry it: its values are primary, principal, admitting, discharge, secondary and any); `note_question` for "result of diabetes" | rules, then notes | 0.62 |
-| ADVANCED-CAD | Two or more of: two or more medicines for CAD; history of MI; angina now; ischemia, past or present | diagnosis | class `mixed`: four parts (two or more distinct CAD medicines; MI condition; angina condition, `clinical_status` active; ischemia condition), "two or more" written as an `or` over the six `and` pairs, since `BoolNode` has only `and`, `or` and `not`. A medication atom's `count>=` counts records, not distinct medicines, so the medicine part is one atom per CAD drug class with an `or` over pairs of classes, or a `note_question` | rules, then notes | 0.37 |
-| MI-6MOS | MI in the past 6 months | temporal | condition atom (MI value set), window -183..0 from the most recent record (6 calendar months reach 181 to 184 days; the IR counts days, so the edge is a choice: state it in the report) | rules, then notes | 0.63 |
+| MAJOR-DIABETES | Major diabetes-related complication: amputation, kidney damage, skin conditions, retinopathy, nephropathy, neuropathy, as a result of uncontrolled diabetes | diagnosis | class `mixed`: OR of condition atoms (one value set per listed complication), the link to diabetes by condition codes that name it (a `diagnosis_role` value cannot carry it: its values are primary, principal, admitting, discharge, secondary and any); amputation has no code that names diabetes (acquired absence of a limb, an amputation procedure), so its part is an `and` of the amputation atom and a diabetes condition, and the note decides "result of diabetes"; `note_question` for "result of diabetes" | rules, then notes | 0.62 |
+| ADVANCED-CAD | Two or more of: taking two or more medicines for CAD; history of MI; angina now; ischemia, past or present | diagnosis | class `mixed`: four parts (taking two or more distinct CAD medicines; MI condition; angina condition, `clinical_status` active; ischemia condition), "two or more" written as an `or` over the six `and` pairs, since `BoolNode` has only `and`, `or` and `not`. A medication atom's `count>=` counts records, not distinct medicines, so the medicine part is one medication atom per ingredient of a named CAD-treatment list (each atom's value set holds the ingredient's single and combination-product codes), with an `or` over pairs of ingredients: two ingredients of one class (aspirin and clopidogrel) are two medicines. "Taking" is now: each atom has window 0..0 (the most recent record); else a `note_question` "Is the patient taking two or more medicines for CAD?" | rules, then notes | 0.37 |
+| MI-6MOS | MI in the past 6 months | temporal | condition atom (MI value set), window -184..0 from the most recent record (6 calendar months reach 181 to 184 days; the IR counts days, so the edge is the longest: every MI within 6 calendar months is inside, and up to 3 days more for the shorter spans; say so in the report) | rules, then notes | 0.63 |
 | KETO-1YR | Diagnosis of ketoacidosis in the past year | temporal | condition atom (diabetic ketoacidosis value set), window -365..0 | rules, then notes | -0.1 |
-| DIETSUPP-2MOS | Taken a dietary supplement (excluding vitamin D) in the past 2 months | medication | medication atom (dietary supplements value set minus vitamin D), window -62..0 (2 calendar months reach 59 to 62 days; state the edge in the report) | rules, then notes | 0.66 |
+| DIETSUPP-2MOS | Taken a dietary supplement (excluding vitamin D) in the past 2 months | medication | medication atom (dietary supplements value set minus vitamin D), window -62..0 (2 calendar months reach 59 to 62 days; the edge is the longest, as for MI-6MOS; say so in the report). The window is on the medicine record's own date (`authored`); the IR has no days of supply, so a supplement recorded before the window and still being taken reads as not taken: the `note_question` "Has the patient taken a dietary supplement other than vitamin D in the past 2 months?" answers it | rules, then notes | 0.66 |
 | ASP-FOR-MI | Use of aspirin to prevent MI | medication | class `mixed`: medication atom (aspirin), `latest` in the most recent record; `note_question` for "to prevent MI" | rules, then notes | 0.62 |
 | HBA1C | Any hemoglobin A1c value between 6.5 % and 9.5 % | lab | observation atom on `VS_HBA1C` (`rulesets/GZQO`), quantifier `any`, value `between` 6.5 and 9.5 %, no window | rules | n.c. |
 | CREATININE | Serum creatinine > upper limit of normal | lab | observation atom (serum creatinine), quantifier `any`, value with `ref` uln multiple 1 (`RefRange`: the result's own range, else the site table) | rules | n.c. |
@@ -73,6 +73,19 @@ Notes on the table:
 - **The `between` value.** The tree has no example of a `between` value in a ruleset's IR. HBA1C will be its first.
 - **ADVANCED-CAD and MAJOR-DIABETES** are compound. [P] defines both with the lists above, and N-COHORT encodes those
   lists, not a wider clinical reading.
+- **Facts read from notes.** A condition or medicine taken from a note counts only when it is the patient's own and
+  asserted: "no history of MI", "rule out MI", "r/o ischemia", "denies angina", "FHx: MI", "mother had an MI",
+  "stopped aspirin" and their Chinese and Japanese forms give no fact (or a stopped one). N-COHORT's fixture has one
+  line of each kind for MI, angina and a CAD medicine.
+- **Tests N-COHORT's ruleset owes.** The reviews on #1458 (7122142455, 7122964942) give the cases, each on a
+  synthetic patient. For ADVANCED-CAD:
+  - one CAD medicine on two dates plus an MI is "not met";
+  - two CAD medicines plus an MI is "met";
+  - aspirin with clopidogrel plus ischemia is "met";
+  - CAD medicines stopped four years ago plus an MI is "not met".
+
+  For the window edges, MI-6MOS at -184 days is "met" and at -185 is "not met"; DIETSUPP-2MOS at -62 is "met" and
+  at -63 is "not met".
 - **"Ever" criteria.** ABDOMINAL and DRUG-ABUSE have no window ("history of", "current or past"). Every record of the
   patient counts.
 
