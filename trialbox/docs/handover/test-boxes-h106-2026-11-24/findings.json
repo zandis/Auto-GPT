@@ -112,10 +112,10 @@
   {
    "id": "H106-14",
    "severity": "Medium",
-   "claim": "the order-dependent failure of tests/unit/test_poc_real_embedder.py::test_a_lake_embedded_by_the_other_embedder_is_refused (the card's pre-push run, a poc.sh run timed out at 120 s) is a race in the heartbeat of deploy/poc.sh (alive_start/alive_stop, lines 71-79), also in deploy/install.sh: a heartbeat stopped between its `sleep &` and `s=$!` leaves the sleep running with the caller's stdout/stderr, so whoever reads the output waits for the sleep (up to TB_POC_ALIVE_S, 600 s in that test); reproduced 5 times in 300 runs of the bare pattern, 0 in 300 with the fix: the sleep gets </dev/null >/dev/null 2>&1. Fixed in deploy/install.sh by this card (test test_h106_14_the_heartbeat_s_sleep_never_holds_the_caller_s_output, which fails without it); deploy/poc.sh needs the same one-line change by its owner (lane R: its last change, #1330)",
+   "claim": "the order-dependent failure of tests/unit/test_poc_real_embedder.py::test_a_lake_embedded_by_the_other_embedder_is_refused (the card's pre-push run, a poc.sh run timed out at 120 s) is a race in the heartbeat of deploy/poc.sh (alive_start/alive_stop, lines 71-79), also in deploy/install.sh: a heartbeat stopped between its `sleep &` and `s=$!` leaves the sleep running with the caller's stdout/stderr, so whoever reads the output waits for the sleep (up to TB_POC_ALIVE_S, 600 s in that test); reproduced 5 times in 300 runs of the bare pattern, 0 in 300 with the fix: the sleep gets </dev/null >/dev/null 2>&1. Fixed by this card in deploy/install.sh (test test_h106_14_the_heartbeat_s_sleep_never_holds_the_caller_s_output, which fails without it); and in deploy/poc.sh (lane R's file, a body change under the integrator's go, 7130219155; test test_h106_14_the_poc_heartbeat_s_sleep_never_holds_the_caller_s_output, which fails without it). #1455 (H-110, OCR 1455-4) rewrites the same two lines (one-second sleeps, >/dev/null 2>&1): whichever of #1452 and #1455 lands second merges master first, drops its duplicate and keeps both tests",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed"
   }
  ]
 }

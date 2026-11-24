@@ -246,3 +246,16 @@ def test_h106_14_the_heartbeat_s_sleep_never_holds_the_caller_s_output() -> None
     r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, check=False)
     # the orphaned sleep ends by itself within 60 s; it holds no pipe of the caller's (what is checked)
     assert r.stdout.strip() == "done" and time.monotonic() - t0 < 10, r
+
+
+def test_h106_14_the_poc_heartbeat_s_sleep_never_holds_the_caller_s_output() -> None:
+    """The same heartbeat in deploy/poc.sh (lane R's file, a body change under the integrator's go, 7130219155): the
+    heartbeat killed outright with its sleep running, the script's output still closes at once."""
+    text = (ROOT / "deploy" / "poc.sh").read_text(encoding="utf-8")
+    start = text.index("alive_start() {")
+    end = text.index("\n", text.index("alive_stop() {")) + 1
+    script = text[start:end] + 'alive_start test; sleep 0.5; kill -9 "$ALIVE_PID"; echo done\n'
+    t0 = time.monotonic()
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, check=False)
+    # the orphaned sleep ends by itself within TB_POC_ALIVE_S (60 s); it holds no pipe of the caller's (what is checked)
+    assert r.stdout.strip() == "done" and time.monotonic() - t0 < 10, r
