@@ -1386,11 +1386,14 @@ CRON_NAME = "trialbox-backup"
 
 
 def set_env(path: Path, key: str, value: str) -> None:
-    """Set ``key=value`` in a ``deploy/.env`` (replaced in place, else appended); the file keeps its mode."""
+    """Set ``key=value`` in a ``deploy/.env`` (its old line dropped, the new one appended). H-110 (ESC-5): the file is
+    replaced whole, 0600, never rewritten in place (:func:`tools.trialbox.private_file.replace_private`)."""
+    from tools.trialbox.private_file import replace_private
+
     lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
     out = [ln for ln in lines if not ln.startswith(f"{key}=")]
     out.append(f"{key}={value}")
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    replace_private(path, "\n".join(out) + "\n")
 
 
 def cron_text(template: str, root: Path, mailto: str) -> str:

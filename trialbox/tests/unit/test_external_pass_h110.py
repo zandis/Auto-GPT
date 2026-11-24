@@ -27,6 +27,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tb_common import kek as K
@@ -435,12 +436,25 @@ def test_a_rotation_to_the_passphrase_the_box_is_sealed_under_is_refused(tmp_pat
 
 # ================================================================================ the sweep's items (7120987904)
 # ------------------------------------------------------------------------------------------------ M-IB-2
-def test_the_box_settings_are_replaced_whole_never_rewritten_in_place(tmp_path: Path,
-                                                                     monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
-    """``merge_env`` wrote ``deploy/.env`` in place: a cut write left it empty or short (every password gone), and a
-    new file was 0644 until the chmod. Now a new file beside it, 0600 from its first byte, renamed over it."""
+def _merge_env(env: Path, key: str, value: str) -> None:
     from tools.box import __main__ as boxmain
 
+    boxmain.merge_env(env, {key: value})
+
+
+def _set_env(env: Path, key: str, value: str) -> None:
+    from tools.trialbox import backup_schedule as bs
+
+    bs.set_env(env, key, value)
+
+
+@pytest.mark.parametrize("write", [_merge_env, _set_env], ids=["M-IB-2 box apply", "ESC-5 backup-install"])
+def test_the_box_settings_are_replaced_whole_never_rewritten_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any
+) -> None:
+    """Both writers of ``deploy/.env`` (the box's apply, backup-install) rewrote it in place: a cut write left it empty
+    or short (every password gone), and a new file was 0644 until the chmod. Now one helper: a new file beside it,
+    0600 from its first byte, on disk, renamed over it."""
     env = tmp_path / ".env"
     env.write_text("POSTGRES_PASSWORD=synthetic-old\nTB_TZ=UTC\n", encoding="utf-8")
     env.chmod(0o600)
@@ -453,7 +467,7 @@ def test_the_box_settings_are_replaced_whole_never_rewritten_in_place(tmp_path: 
         real_replace(src, dst)
 
     monkeypatch.setattr(os, "replace", replace)
-    boxmain.merge_env(env, {"TB_TZ": "Asia/Tokyo"})
+    write(env, "TB_TZ", "Asia/Tokyo")
     assert env.stat().st_ino != before and modes == [0o600] and env.stat().st_mode & 0o777 == 0o600
     assert env.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=synthetic-old\nTB_TZ=Asia/Tokyo\n"
 
@@ -462,7 +476,7 @@ def test_the_box_settings_are_replaced_whole_never_rewritten_in_place(tmp_path: 
 
     monkeypatch.setattr(os, "fsync", cut)
     with pytest.raises(OSError, match="the power went"):
-        boxmain.merge_env(env, {"TB_TZ": "Europe/Paris"})
+        write(env, "TB_TZ", "Europe/Paris")
     assert env.read_text(encoding="utf-8") == "POSTGRES_PASSWORD=synthetic-old\nTB_TZ=Asia/Tokyo\n"
     assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]  # no temp file left
 

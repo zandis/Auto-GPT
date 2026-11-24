@@ -29,6 +29,7 @@ from tb_common import firstrun
 from tb_common.box_answers import OwnerAnswers, parse
 
 from tools.box.plan import DEPLOY, Hardware, PlanError, detect, plan, provisional, write
+from tools.trialbox.private_file import replace_private
 
 # made by the install (or the wizard's first write) and never replaced by an apply: the database and services hold them
 KEEP = frozenset({"POSTGRES_PASSWORD", "IMAP_PASS", "SMTP_PASS", "TB_SERVICE_TOKEN", "CLOUD_LLM_API_KEY"})
@@ -102,36 +103,8 @@ def merge_env(env_file: Path, new: dict[str, str]) -> list[str]:
         else:
             lines.append(line)
             changed.append(k)
-    write_private(env_file, "\n".join(lines) + "\n")
+    replace_private(env_file, "\n".join(lines) + "\n")  # H-110 (M-IB-2): whole, 0600, never in place
     return changed
-
-
-def write_private(path: Path, text: str) -> None:
-    """H-110 (M-IB-2): ``path`` replaced whole, never rewritten in place: a new file beside it made 0600 from its first
-    byte (``O_EXCL``, a name of its own), flushed to disk, then renamed over it. A cut-off write leaves the old file
-    whole; the services' passwords are never in a file others can read, even for a moment. The old file's owner is
-    kept when this runs as root."""
-    import secrets
-
-    old = os.stat(path) if path.exists() else None
-    tmp = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        if old is not None and os.geteuid() == 0:
-            os.chown(tmp, old.st_uid, old.st_gid)
-        os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-    dfd = os.open(path.parent, os.O_RDONLY)
-    try:
-        os.fsync(dfd)
-    finally:
-        os.close(dfd)
 
 
 def apply(folder: Path, hw: Hardware, deploy: Path) -> list[str]:
