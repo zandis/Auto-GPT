@@ -187,6 +187,10 @@ def test_the_host_reads_through_the_box_never_its_own_database_or_a_callers_vari
     )
     seen = {ln[5:].split("=", 1)[0] for ln in log.splitlines() if ln.startswith("env: ")}
     assert not seen & {"COMPOSE_PROJECT_NAME", "COMPOSE_FILE", "DOCKER_HOST", "TB_DB_URL", "TB_DOCKER", "TB_COMPOSE"}
+    # a host with no box: a caller's hand-in is still no reading (only the box image takes one)
+    handed = json.dumps({"state": "held", "stored": True, "reason": "synthetic: a caller's line"})
+    alone = _doctor(None, in_image=False, env={"TB_DOCTOR_RESTORE_HOLD": handed})
+    assert alone.status == "PASS" and "HELD" not in alone.detail and "synthetic" not in alone.detail
 
 
 def test_in_the_box_image_the_doctor_takes_the_hosts_reading(tmp_path: Path, db_url: str) -> None:
