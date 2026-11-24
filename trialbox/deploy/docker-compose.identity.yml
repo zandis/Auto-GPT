@@ -132,7 +132,7 @@ secrets:
 
 networks:
   edge-net:
-    name: trialbox-edge   # the one network with a published port (443)
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-edge   # the one network with a published port (443); H-106: the project's
 
 volumes:
   caddy-data:

@@ -1,0 +1,35 @@
+{
+ "card": "H111",
+ "title": "a signal during the TPM seal no longer destroys the only KEK (H-BK-1)",
+ "date": "2026-11-24",
+ "source": "docs/handover/seal-keys-signal-h111-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H111-01",
+   "severity": "High",
+   "claim": "seal_keys.sh (tpm, no kek.json, plain keys): a SIGTERM, SIGHUP or Ctrl-C during keys init shredded the only KEK after the keys were wrapped under it; fixed: the credential is sealed and placed before any key is wrapped, nothing removes it, a signal exits, a re-run finishes",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/hardening/seal_keys.sh, tools/keys.py wrap_plain"
+  },
+  {
+   "id": "H111-02",
+   "severity": "Low",
+   "claim": "seal_keys.sh's kek.json-exists branch exits before the D-887 chown: a run stopped before the chown leaves root-owned key files that a re-run does not hand to the services' user",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/hardening/seal_keys.sh"
+  },
+  {
+   "id": "H111-03",
+   "severity": "Low",
+   "claim": "seal_keys.sh shamir: a stop between keys init and keys unseal leaves a re-run that cannot open the KEK by itself (the shares are on the media; nothing is lost)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/hardening/seal_keys.sh"
+  }
+ ]
+}

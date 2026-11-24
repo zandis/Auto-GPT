@@ -35,7 +35,7 @@ import shlex
 import stat
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -287,7 +287,10 @@ def container_argv(args: Sequence[str], need: Need, box: Mapping[str, str], cwd:
     # the settings only to a command with a network (the database's password among them); never on a command line
     envf = ["--env-file", str(DEPLOY / ".env")] if need.network != "none" and (DEPLOY / ".env").is_file() else []
     image = box.get("TB_IMAGE") or DEFAULT_IMAGE
-    return [*docker, "run", "--rm", "-i", "--pull", "never", "--network", need.network, "--cap-drop", "ALL",
+    network = need.network
+    if network.startswith("trialbox-"):  # H-106: the box's own project's network (the H-75 names)
+        network = (box.get("COMPOSE_PROJECT_NAME") or "trialbox") + network.removeprefix("trialbox")
+    return [*docker, "run", "--rm", "-i", "--pull", "never", "--network", network, "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true", "--user", f"{uid}:{gid}", "-e", "PYTHONDONTWRITEBYTECODE=1",
             *envf, *mounts, "-w", "/app", image, "python", "-m", "tools.trialbox", *out_args]  # fmt: skip
 
@@ -320,6 +323,71 @@ def in_box_image() -> bool:
     return any(os.path.exists(m) for m in CONTAINER_MARKS) and str(ROOT) == IMAGE_ROOT
 
 
+#: H-106: on a test box, the commands that would reach the ordinary box's volumes, network or host files (the
+#: backup's and restore's fixed volume names, the host's log folder and schedule, a hospital platform's): refused
+TEST_BOX_REFUSED = frozenset(
+    {"backup", "backup-nightly", "backup-status", "backup-install", "restore", "restore-drill", "logs",
+     "platform-day2", "platform-images", "platform-egress"}
+)  # fmt: skip
+
+
+def _engine_boxes() -> list[tuple[str, str]]:
+    """(name, folder) of every box the engine holds: a test box by its record's name, any other by its project."""
+    from tools.trialbox import testbox
+
+    out = []
+    for s in testbox.boxes():
+        name = s.project
+        if s.kind == "test" and s.root:
+            rec = testbox.load(Path(s.root) / "deploy")
+            name = rec.name if rec else name
+        out.append((name, s.root))
+    return out
+
+
+Boxes = Callable[[], list[tuple[str, str]]]
+
+
+def pick_box(args: Sequence[str], installed: bool, boxes: Boxes = _engine_boxes) -> tuple[Path | None, list[str], str]:
+    """H-106: ``trialbox --box NAME ...`` runs NAME's own command (a test box's name, or an ordinary box's project,
+    ``trialbox``). The installed ``trialbox`` without ``--box`` on a host with more than one box refuses to guess.
+    Returns the folder to hand on to (None: this one), the arguments left, and a refusal ('' when there is none).
+    An engine that cannot be asked leaves a command without ``--box`` as it was (a host with no engine runs no box)."""
+    from tools.trialbox import testbox
+
+    rest = list(args)
+    want = ""
+    if rest[:1] == ["--box"]:
+        if len(rest) < 2:
+            return None, rest, "--box needs a box's name"
+        want, rest = rest[1], rest[2:]
+    elif not installed:
+        return None, rest, ""
+    try:
+        found = boxes()
+    except (testbox.NoEngine, testbox.Refused, OSError) as e:
+        return None, rest, (f"--box {want}: the boxes on this host cannot be listed ({e})" if want else "")
+    names = sorted(n for n, _ in found)
+    if not want:
+        if len(found) > 1:
+            return None, rest, (f"this host has {len(found)} boxes ({', '.join(names)}): name one, "
+                                f"trialbox --box NAME {' '.join(rest)}".rstrip())  # fmt: skip
+        return None, rest, ""
+    hits = [Path(r) for n, r in found if n == want and r]
+    if len(hits) != 1:
+        return None, rest, f"--box {want}: no single box of that name on this host ({', '.join(names) or 'none'})"
+    return hits[0], rest, ""
+
+
+def hand_on(rest: Sequence[str], root: Path) -> list[str]:
+    """The arguments a box named by ``--box`` gets: its doctor reads that box's own settings (``--env-file``, and with
+    it the box's deploy folder and its records); without it the doctor would read the release tree's folder."""
+    out = list(rest)
+    if out[:1] == ["doctor"] and not any(a == "--env-file" or a.startswith("--env-file=") for a in out):
+        out[1:1] = ["--env-file", str(root / "deploy" / ".env")]
+    return out
+
+
 def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None = None, *,
           installed: bool = False) -> int | None:  # fmt: skip
     """The entry of ``trialbox`` (installed on PATH) and ``python3 -m tools.trialbox``: its own import path and the
@@ -333,6 +401,13 @@ def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None
     sys.path[:] = own_path(sys.path, environ)
     if in_box_image():  # the box image: its environment is what compose, install.sh, this launcher or the rehearsal
         return None  # set for it (`-e TB_LLM_API_KEY=` on purpose, D-450); the box's file is the host's rule
+    root, rest, refused = pick_box(args, installed)
+    if refused:
+        print(f"trialbox: refused: {refused}", file=sys.stderr)
+        return 2  # H-94 (3): a command aimed at the wrong box (a restore, an update) is never guessed
+    if root is not None:  # H-106: that box's own command, from its own folder (its module form: no guess again)
+        os.chdir(root)
+        os.execv(sys.executable, [sys.executable, "-m", "tools.trialbox", *hand_on(rest, root)])
     cmd = command_of(args)
     try:
         box = box_file(DEPLOY)
@@ -341,6 +416,11 @@ def enter(args: Sequence[str], environ: dict[str, str] | os._Environ[str] | None
     except BoxFileError as e:
         print(f"trialbox: {e}", file=sys.stderr)
         return 2
+    if (box.get("TB_TEST_BOX") or "").strip() and cmd in TEST_BOX_REFUSED:
+        print(f"trialbox: refused: {cmd} on test box {box['TB_TEST_BOX'].strip()} (H-106): it would reach the ordinary "
+              "box's volumes, network or host files; a test box is removed and installed again (tools/testboxes.sh)",
+              file=sys.stderr)  # fmt: skip
+        return 2  # H-94 (5): another box's keys and data
     need = COMMANDS.get(cmd)
     if need is None or need.where == HOST or "-h" in args or "--help" in args or has_libs(need.libs):
         return None

@@ -24,6 +24,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -337,12 +338,65 @@ def check_test_root(path: Path) -> Path:
     return p
 
 
+def _close_to_others(folder: Path) -> None:
+    """Take group and others' write from ``folder`` if this user owns it (the search bit stays). A shared folder (a
+    sticky one such as /tmp, a group's setgid folder, the home folder, / or a system folder) is never changed. The
+    folder is opened once without following a link, and the folder looked at is the folder changed."""
+    if folder in {Path("/"), Path.home(), *(Path(d) for d in SYSTEM_DIRS)}:
+        return
+    try:
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:  # a link, gone, or not a folder: left as it is
+        return
+    try:
+        st = os.fstat(fd)
+        shared = st.st_mode & (stat.S_ISVTX | stat.S_ISGID) or st.st_uid != os.geteuid()
+        if not shared and st.st_mode & 0o022:
+            os.fchmod(fd, stat.S_IMODE(st.st_mode) & ~0o022)
+    finally:
+        os.close(fd)
+
+
 def mark_test_root(path: Path) -> Path:
-    """Check ``path`` as a test root, create it (mode 0700 parents are left as they are) and write its marker."""
+    """Check ``path`` as a test root, create it and write its marker.
+
+    H-115: the folders it creates are 0700 whatever the umask. The test root, and the folders from it up to the
+    per-user scratch root when it lies under that root, lose group and others' write if this user owns them. A folder
+    above the scratch root is never changed, nor any folder when the scratch root is ``/`` or a top-level folder. A
+    folder in that chain that another account owns (not root), sticky or not, is refused: its owner could swap what
+    this run makes. The marker is written through the root's own descriptor, opened without following a link.
+    Under an ordinary user's umask 002 these folders were 0775, and the product's checks that walk the real folders
+    from ``/`` rightly refused every tree a test built below them."""
     p = check_test_root(path)
-    p.mkdir(parents=True, exist_ok=True)
-    (p / MARKER).touch()
+    for folder in reversed([p, *p.parents]):
+        if not folder.exists():
+            with contextlib.suppress(FileExistsError):  # another run made it a moment ago: checked below
+                folder.mkdir(mode=0o700)
+                folder.chmod(0o700)
+    scratch = Path(os.path.realpath(scratch_root()))  # p is a real path: compare like with like
+    for folder in [p, *p.parents]:
+        if folder != p and (len(scratch.parts) < 3 or not folder.is_relative_to(scratch)):
+            break
+        st = os.lstat(folder)
+        if st.st_uid not in (0, os.geteuid()):  # a sticky bit does not hold off the folder's own owner
+            raise ValueError(f"TB_TEST_ROOT={path} is refused: {folder} is uid {st.st_uid}'s, not this user's: "
+                             "its owner could swap what the run makes; give a root of this user's own")  # fmt: skip
+        _close_to_others(folder)
+        if folder == scratch:
+            break
+    _write_marker(p)
     return p
+
+
+def _write_marker(root: Path) -> None:
+    """The marker, written in ``root`` itself: a root swapped for a link after the checks is refused (an OSError),
+    never followed, and a marker that is a link is not followed either."""
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
+        os.close(os.open(MARKER, flags, 0o600, dir_fd=fd))
+    finally:
+        os.close(fd)
 
 
 def test_root() -> Path:

@@ -27,7 +27,7 @@ COMPILER_STEPS: tuple[str, ...] = (
     "compiler.equivalence",  # the equivalence gate run again, or the compile's report enforced
     "compiler.checks",  # flags, blocking, terminology stamp and site lists, the manifest
     "compiler.files",  # the ruleset's files assembled
-    "compiler.fhir_load",  # the libraries and value sets loaded to the FHIR server (its handling included)
+    "compiler.fhir_load",  # the FHIR libraries built (FHIRHelpers read from the jar) and loaded with the value sets
     "compiler.repo_write",  # the rulesets repository: the draft branch written (the rulesets volume)
     "compiler.repo_tag",  # the rulesets repository: the version tagged
     "compiler.repo_promote",  # the rulesets repository: the tag promoted to release
