@@ -1,7 +1,7 @@
 """10G-41 (D-1343, review 21 OT-3): hadolint on every Dockerfile, and three configuration scans per image.
 
 The Dockerfiles in the tree are the three the CI ``images`` job gates on (``HADOLINT_GATING``, unchanged since
-D-206) and the five it lints report-only (``HADOLINT_REPORT``, ``make hadolint-report``, a step that cannot fail).
+D-206) and the six it lints report-only (``HADOLINT_REPORT``, ``make hadolint-report``, a step that cannot fail).
 No hadolint ignore is added (the owner's rule: no scan allow-list entry): the pragmas are exactly master's. Every image of ``SC_OWN_IMAGES`` is scanned from the Dockerfile it is built from by ``make image-scan``,
 which the image gates' job runs report-only after the release gates, keeping its folder with the gate record. Dockle
 is pinned by sha256 like Syft and Trivy. D-1343 carries the dated lines (hadolint report-only, the scan gating at HIGH); this
