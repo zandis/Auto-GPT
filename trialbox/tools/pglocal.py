@@ -363,9 +363,10 @@ def mark_test_root(path: Path) -> Path:
     H-115: the folders it creates are 0700 whatever the umask. The test root, and the folders from it up to the
     per-user scratch root when it lies under that root, lose group and others' write if this user owns them. A folder
     above the scratch root is never changed, nor any folder when the scratch root is ``/`` or a top-level folder. A
-    folder in that chain that another account owns (not root, not sticky) is refused: its owner could swap what this
-    run makes. Under an ordinary user's umask 002 these folders were 0775, and the product's checks that walk the
-    real folders from ``/`` rightly refused every tree a test built below them."""
+    folder in that chain that another account owns (not root), sticky or not, is refused: its owner could swap what
+    this run makes. The marker is written through the root's own descriptor, opened without following a link.
+    Under an ordinary user's umask 002 these folders were 0775, and the product's checks that walk the real folders
+    from ``/`` rightly refused every tree a test built below them."""
     p = check_test_root(path)
     for folder in reversed([p, *p.parents]):
         if not folder.exists():
@@ -377,14 +378,25 @@ def mark_test_root(path: Path) -> Path:
         if folder != p and (len(scratch.parts) < 3 or not folder.is_relative_to(scratch)):
             break
         st = os.lstat(folder)
-        if st.st_uid not in (0, os.geteuid()) and not st.st_mode & stat.S_ISVTX:
+        if st.st_uid not in (0, os.geteuid()):  # a sticky bit does not hold off the folder's own owner
             raise ValueError(f"TB_TEST_ROOT={path} is refused: {folder} is uid {st.st_uid}'s, not this user's: "
                              "its owner could swap what the run makes; give a root of this user's own")  # fmt: skip
         _close_to_others(folder)
         if folder == scratch:
             break
-    (p / MARKER).touch()
+    _write_marker(p)
     return p
+
+
+def _write_marker(root: Path) -> None:
+    """The marker, written in ``root`` itself: a root swapped for a link after the checks is refused (an OSError),
+    never followed, and a marker that is a link is not followed either."""
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
+        os.close(os.open(MARKER, flags, 0o600, dir_fd=fd))
+    finally:
+        os.close(fd)
 
 
 def test_root() -> Path:

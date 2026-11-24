@@ -196,3 +196,56 @@ def test_a_root_swapped_for_a_link_between_the_look_and_the_change_moves_nothing
     with contextlib.suppress(OSError):
         pglocal.mark_test_root(root)
     assert _mode(victim) == 0o775
+
+
+@pytest.mark.parametrize("mode", [0o1777, 0o1733])
+def test_a_sticky_scratch_root_another_account_made_first_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int
+) -> None:
+    """1462-10: a sticky bit keeps others from renaming what this user makes in a folder, never the folder's owner.
+    Another account that makes the scratch root first, sticky and open to all, can still swap the test root."""
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    scratch.chmod(mode)
+    monkeypatch.setenv("TB_SCRATCH", str(scratch))
+    real_lstat = os.lstat
+
+    def lstat(path: Any, *a: Any, **k: Any) -> os.stat_result:
+        st = real_lstat(path, *a, **k)
+        if Path(str(path)) == scratch:  # the scratch root is another account's; the test root below is this user's
+            fields = list(st)
+            fields[4] = st.st_uid + 1
+            return os.stat_result(fields)
+        return st
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    with pytest.raises(ValueError, match="not this user's"):
+        pglocal.mark_test_root(scratch / "tb-tests-x")
+    assert not (scratch / "tb-tests-x" / pglocal.MARKER).exists()
+
+
+def test_a_root_swapped_for_a_link_after_the_checks_leaves_no_marker_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """1462-11: the root is replaced by a link to another folder of this user's, which holds other files, after it is
+    checked. The marker is not written through the link: that folder never becomes a test root."""
+    monkeypatch.setenv("TB_SCRATCH", str(tmp_path / "scratch"))
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "notes.txt").write_text("not a test root\n", encoding="utf-8")
+    root = tmp_path / "elsewhere" / "tb-tests-z"
+    root.mkdir(parents=True)
+    real_close = pglocal._close_to_others
+
+    def close_then_swap(folder: Path) -> None:
+        real_close(folder)
+        if folder == root and not root.is_symlink():  # the last check of the root is done: swap it now
+            root.rename(tmp_path / "moved")
+            root.symlink_to(other)
+
+    monkeypatch.setattr(pglocal, "_close_to_others", close_then_swap)
+    with pytest.raises(OSError):
+        pglocal.mark_test_root(root)
+    assert not (other / pglocal.MARKER).exists()
+    with pytest.raises(ValueError, match="no .tb-test-root marker"):
+        pglocal.check_test_root(other)
