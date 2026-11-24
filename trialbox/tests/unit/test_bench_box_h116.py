@@ -315,3 +315,54 @@ def test_the_mark_changes_no_production_rule() -> None:
     from tb_common.config import environment_name
 
     assert environment_name({"TB_ENV": "PRODUCTION", "TB_BENCH": "1"}) == "PRODUCTION"
+
+
+@pytest.mark.parametrize("path", ["trialbox/tools/trialbox/benchbox.py", "trialbox/deploy/settings_guard.sh"])
+def test_a_change_to_the_bench_mark_alone_runs_the_real_install_path_step(tmp_path: Path, path: str) -> None:
+    """H116-01, the integrator's ruling 7142529568: a pull request that changes only the bench mark's code or its start
+    check runs the rehearsal's test-boxes step (which drives the bench mark's real install path); the step's list is
+    H-106's plus exactly these two."""
+    from tests.unit.test_test_box_h106 import STEP_PATHS, _boxes_step
+
+    assert path in STEP_PATHS
+    assert _boxes_step(tmp_path, [path]) == "test_boxes=true"
+    assert _boxes_step(tmp_path, [path.replace(".py", "_notes.md").replace(".sh", ".md")]) == "test_boxes=false"
+
+
+@pytest.mark.parametrize(
+    ("env", "shown"),
+    [
+        ({"TB_ENV": "DEV"}, "DEV"),
+        ({"TB_ENV": "TEST"}, "TEST"),
+        ({"TB_ENV": "VALIDATION"}, "VALIDATION"),
+        ({"TB_ENV": "PRODUCTION"}, "PRODUCTION"),
+        ({"TB_ENV": "PRODUCTION", "TB_BENCH": "1"}, benchbox.LABEL),
+        ({}, "PRODUCTION"),  # TB_ENV unset: PRODUCTION (D-127), and no bench mark
+        (
+            {"TB_BENCH": "1"},
+            benchbox.LABEL,
+        ),  # unset TB_ENV is PRODUCTION: the mark shows (its record is checked elsewhere)
+        ({"TB_ENV": "PRODUCTION", "TB_BENCH": ""}, "PRODUCTION"),
+        ({"TB_ENV": "DEV", "TB_BENCH": "1"}, "DEV"),
+        ({"TB_ENV": "TEST", "TB_BENCH": "1"}, "TEST"),
+        ({"TB_ENV": "VALIDATION", "TB_BENCH": "1"}, "VALIDATION"),
+    ],
+    ids=[
+        "dev",
+        "test",
+        "validation",
+        "production",
+        "production-bench",
+        "unset",
+        "unset-bench",
+        "production-empty",
+        "dev-bench",
+        "test-bench",
+        "validation-bench",
+    ],
+)
+def test_the_banner_for_each_environment(env: dict[str, str], shown: str) -> None:
+    """The console's banner for each environment value: the bench words only on a PRODUCTION box with TB_BENCH=1."""
+    from console.app import environment_banner
+
+    assert environment_banner(env) == shown

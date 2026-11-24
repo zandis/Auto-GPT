@@ -8,10 +8,10 @@
   {
    "id": "H116-01",
    "severity": "Low",
-   "claim": "the rehearsal's test-boxes step runs on a pull request only when it touches a path in TEST_BOX_PATHS (the integrator's ruling 7124599679 and 7130040223); tools/trialbox/benchbox.py and deploy/settings_guard.sh are not on the list, so a change to the bench mark alone would not run the step that drives its real install path. Adding them changes what tests/unit/test_test_box_h106.py's STEP_PATHS asserts, which needs the integrator's ruling: a question on the line",
+   "claim": "the rehearsal's test-boxes step ran on a pull request only when it touched a path in TEST_BOX_PATHS; tools/trialbox/benchbox.py and deploy/settings_guard.sh were not on the list, so a change to the bench mark alone would not run the step that drives its real install path. Fixed under the integrator's ruling 7142529568: both are on the list, STEP_PATHS pins H-106's list plus exactly these two, and a test runs the step's own text for each",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed"
   },
   {
    "id": "H116-02",

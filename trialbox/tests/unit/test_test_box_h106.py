@@ -594,6 +594,9 @@ STEP_PATHS = {
     "trialbox/tools/testboxes.sh",
     "trialbox/tools/rehearse_box/box.sh",
     "trialbox/tools/rehearse_box/rehearse.sh",
+    # the integrator's ruling 7142529568 (H116-01): the bench mark's own code and its start check
+    "trialbox/tools/trialbox/benchbox.py",
+    "trialbox/deploy/settings_guard.sh",
 }
 
 
