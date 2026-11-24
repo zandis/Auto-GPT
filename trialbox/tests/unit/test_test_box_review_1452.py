@@ -10,6 +10,7 @@ offset a host).
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import os
 import subprocess
@@ -60,10 +61,8 @@ def test_1452_1_a_test_box_s_update_serving_check_and_terminology_are_its_own(
     monkeypatch.setattr(up, "terminology_files", lambda plan: [f])
     plan = up.Plan.__new__(up.Plan)
     object.__setattr__(plan, "bundle_id", "b1")
-    try:
+    with contextlib.suppress(Exception):  # the stand-in runner answers nothing: the engine calls are what is checked
         cb.terminology(plan)
-    except Exception:  # the stand-in runner answers nothing: the engine calls are what is checked
-        pass
     assert any(f"--network {box.project}-model-net " in c for c in calls), calls
     assert any(f"{box.project}_tb-terminology:/data/terminology" in c for c in calls), calls
     assert not [c for c in calls if "trialbox-model-net" in c or "trialbox_tb-terminology" in c], calls
@@ -156,7 +155,12 @@ def test_1452_3_the_record_is_written_to_the_disk_before_it_is_renamed(
 ) -> None:
     synced: list[int] = []
     real = os.fsync
-    monkeypatch.setattr(testbox.os, "fsync", lambda fd: synced.append(fd) or real(fd))
+
+    def fsync(fd: int) -> None:
+        synced.append(fd)
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)  # the one os module testbox imports
     d = tmp_path / "x" / "deploy"
     (d / "site").mkdir(parents=True)
     testbox.record(d, "f", "1")
