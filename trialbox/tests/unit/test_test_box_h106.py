@@ -462,3 +462,20 @@ def test_an_update_of_a_test_box_never_takes_a_secrets_folder_a_caller_names(tmp
     )
     text = (ROOT / "tools" / "apply_update.sh").read_text(encoding="utf-8")
     assert "SECRETS=${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/${OWN_PROJECT:-trialbox}_tb-secrets/_data}" in text
+
+
+def test_the_key_tool_s_folders_are_the_test_box_s_own(tmp_path: Path) -> None:
+    """The KEK rotation's journal and lock live in the secrets folder: tools/keys.py's default is the box's own."""
+    from tools import keys
+
+    root = tmp_path / "box"
+    (root / "tools").mkdir(parents=True)
+    (root / "tools" / "keys.py").write_bytes((ROOT / "tools" / "keys.py").read_bytes())
+    d = root / "deploy"
+    (d / "site").mkdir(parents=True)
+    box = testbox.record(d, "k", "1")
+    script = "import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]]; import keys; print(keys.secrets_dir(None, {}))"
+    r = subprocess.run([sys.executable, "-c", script, str(root / "tools"), str(ROOT / "libs")], capture_output=True,
+                       text=True, check=False)  # fmt: skip
+    assert r.stdout.strip() == f"/var/lib/docker/volumes/{box.project}_tb-secrets/_data", r.stderr
+    assert keys.secrets_dir(None, {}) == Path(keys.HOST_SECRETS)  # the ordinary box: as before
