@@ -299,6 +299,7 @@ services:
                   TB_VALIDATOR_XMX: 3g}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
       # the site's feed folder (the wizard writes TB_SOURCE_DIR, the host folder, and TB_SOURCE_MOUNT, the
       # settings data_source.path; install.sh requires both in PRODUCTION) and the site's own mapping folder,
       # looked up before the image's (adapter.mapping.site, T-632, D-382)
@@ -354,6 +355,7 @@ services:
     networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
       - orch-data:/data/orchestrator
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
@@ -373,6 +375,7 @@ services:
     networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - mail-data:/data/mail
       - objects-data:/data/objects
@@ -425,6 +428,7 @@ services:
                   TB_AUDIT_ANCHOR_TARGETS: ""}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
       - console-data:/data/console
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro

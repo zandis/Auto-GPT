@@ -37,6 +37,7 @@ from tb_llm import timeouts as tt
 from tests.unit.test_gateway import H, _judge_body, _records
 from tests.unit.test_model_swap import CHAT_BODY, CHAT_H, JH, FakeVllm, _swap
 from tests.unit.test_model_swap import _gw as _swap_gw
+from tools.timing_bound import bound
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -71,13 +72,19 @@ class Silent:
         self.sock.close()
 
 
-SCALED = {  # every limit of D-445, scaled down so the test runs in seconds
-    "TB_GATEWAY_INTERACTIVE_TIMEOUT_S": "1.0",
-    "TB_GATEWAY_UPSTREAM_READ_S": "2.0",
-    "TB_GATEWAY_CALL_BUDGET_S": "3.0",
-    "TB_GATEWAY_RETRY_DELAY_S": "0.01",
-    "TB_GATEWAY_STALL_S": "0.5",
-    "TB_GATEWAY_WATCH_S": "0.1",
+_SECONDS = {  # every limit of D-445, scaled down so the test runs in seconds
+    "TB_GATEWAY_INTERACTIVE_TIMEOUT_S": 1.0,
+    "TB_GATEWAY_UPSTREAM_READ_S": 2.0,
+    "TB_GATEWAY_CALL_BUDGET_S": 3.0,
+    "TB_GATEWAY_RETRY_DELAY_S": 0.01,
+    "TB_GATEWAY_STALL_S": 0.5,
+    "TB_GATEWAY_WATCH_S": 0.1,
+}
+# the branch tracer slows the loop that starts the 100 calls: every time limit grows by the coverage factor in a run
+# that measures coverage (tools/timing_bound.py), so the breaker is no sooner open than the front desk's call; the
+# counts are not times and stay
+SCALED = {
+    **{k: str(bound(v)) for k, v in _SECONDS.items()},
     "TB_GATEWAY_SLOTS": "16",
     "TB_GATEWAY_MAX_INFLIGHT": "64",
 }

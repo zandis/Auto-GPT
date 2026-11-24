@@ -11,8 +11,9 @@ and ``doctor`` can name the key without opening it.
 ``kek.json`` in the same folder describes the KEK without holding it: its id (a domain-separated SHA-256), its back
 end and the back end's public parameters. Back ends:
 
-* ``passphrase``: the KEK is scrypt(passphrase, salt). The passphrase is typed at boot or comes from
-  ``TB_KEK_PASSPHRASE`` (an environment variable, never a file in the secrets folder);
+* ``passphrase``: the KEK is scrypt(passphrase, salt). The passphrase is typed at boot (``tools.keys unseal``, which
+  writes the KEK file) or read by ``tools.keys`` from a root-only file or stdin and handed here in the mapping it
+  builds; never from the process environment (H-96, H-97: refused), never a file in the secrets folder;
 * ``shamir``: a random KEK split into ``n`` shares of which any ``k`` give it back (GF(256), one share per steward).
   ``tools/keys.py unseal`` takes ``k`` shares, checks them against ``kek.json`` and writes the KEK to a runtime file;
 * ``file``: a random KEK written once to a place outside the data volume that the host protects: a TPM-sealed
@@ -29,9 +30,10 @@ end and the back end's public parameters. Back ends:
   plain http to the loopback for a test KMS. No proxy is used: the KMS is inside the hospital.
 
 Where a running service finds the KEK (:func:`load_kek`), in order: ``TB_KEK_FILE`` (default ``/run/trialbox/kek``,
-a tmpfs the unseal writes), ``$CREDENTIALS_DIRECTORY/trialbox-kek``, then ``TB_KEK_PASSPHRASE`` for the passphrase
-back end, or the KMS for the ``kms`` back end when ``TB_KMS_TOKEN`` is set. A KEK file inside the secrets folder
-is refused: a KEK beside the keys it wraps protects nothing. A KEK whose id is not ``kek.json``'s is refused.
+a tmpfs the unseal writes), ``$CREDENTIALS_DIRECTORY/trialbox-kek``, then ``TB_KEK_PASSPHRASE`` of a mapping a tool
+built from a root-only file or stdin for the passphrase back end (the process environment's is refused), or the KMS
+for the ``kms`` back end when ``TB_KMS_TOKEN`` is set. A KEK file inside the secrets folder is refused: a KEK beside
+the keys it wraps protects nothing. A KEK whose id is not ``kek.json``'s is refused.
 With none of them the key load fails closed (:class:`KekLockedError`); the night, the pid map and the console say
 why and no key is made in its place.
 
@@ -430,7 +432,15 @@ def load_kek(secrets_dir: Path, env: Mapping[str, str] | None = None) -> bytes:
         if len(kek) != KEK_LEN or not hmac.compare_digest(kek_id(kek), str(meta["kek_id"])):
             raise KekError(f"{src} is not this box's KEK (kek.json names {meta['kek_id']})")
         return kek
-    if meta["backend"] == "passphrase" and env.get("TB_KEK_PASSPHRASE"):
+    if meta["backend"] == "passphrase" and os.environ.get("TB_KEK_PASSPHRASE"):
+        # H-97 (the review's L-2, 7102655419; H-94 (5)): a caller's environment may be in a log (sudo keeps it with
+        # its value) or a container's configuration; the value is never printed
+        raise KekError(
+            "TB_KEK_PASSPHRASE is set in the environment: refused. Unseal with `python -m tools.keys "
+            "unseal` (the passphrase typed, or --passphrase-file FILE, root only, or --passphrase-stdin); "
+            "treat the passphrase given in the environment as exposed and rotate it (RUNBOOK §23)"
+        )
+    if meta["backend"] == "passphrase" and env.get("TB_KEK_PASSPHRASE"):  # a mapping tools.keys built
         kek = derive_from_passphrase(env["TB_KEK_PASSPHRASE"], meta)
         if not hmac.compare_digest(kek_id(kek), str(meta["kek_id"])):
             raise KekError("TB_KEK_PASSPHRASE is not this box's passphrase")
@@ -570,6 +580,10 @@ class Custody:
                 "fingerprints": self.fingerprints, "problems": self.problems}  # fmt: skip
 
 
+#: tools.keys rotate-kek's journal (the review of #1429, F4): its step and the two KEK ids, never a key
+ROTATION_JOURNAL = "kek-rotation.json"
+
+
 def custody(secrets_dir: Path, env: Mapping[str, str] | None = None) -> Custody:
     """The state of the protected keys of ``secrets_dir`` and of the KEK. ``problems`` lists what is wrong whatever
     the environment: a key both plain and wrapped, a wrapped key without ``kek.json`` or under another KEK, a KEK
@@ -610,6 +624,9 @@ def custody(secrets_dir: Path, env: Mapping[str, str] | None = None) -> Custody:
     stray = sorted(f.name for f in secrets_dir.glob("*") if f.name.lower() in {"kek", "kek.bin", "kek.key", CREDENTIAL})
     if stray:
         c.problems.append(f"a KEK file is in the secrets folder ({', '.join(stray)}): a KEK beside the keys")
+    if (secrets_dir / ROTATION_JOURNAL).exists():
+        c.problems.append(f"a KEK rotation was cut short ({ROTATION_JOURNAL}): python -m tools.keys status --audit-dir "
+                          "DIR finishes it or rolls it back (RUNBOOK §23)")  # fmt: skip
     if meta is not None:
         try:
             load_kek(secrets_dir, env)

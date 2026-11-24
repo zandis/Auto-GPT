@@ -9,8 +9,9 @@ clinician wrote:
   CC BY-SA 4.0, Koopman and Zuccon, CSIRO, see ``eval/criterion_ml/NOTICE.md``). Real case summaries written for
   the SIGIR trial-matching collection.
 * **JA site** - NTCIR-16 Real-MedNLP MedTxt (CC BY 4.0, Sociocom NAIST): Japanese case reports (MedTxt-CR) and
-  radiology reports (MedTxt-RR) written by clinicians. Fetched at run time into ``.cache/medtxt`` (``python -c
-  "import tools.medtxt_eval as m; m.fetch()"``), never committed.
+  radiology reports (MedTxt-RR) written by clinicians. The texts are the 147 case reports and 50 radiology reports of
+  JMED-LLM's three CC BY 4.0 datasets (``eval/medtxt/jmed-llm``, committed unchanged with their licence, pinned by
+  SHA-256; ``medtxt_docs``). The corpus host is not reachable from the CI runner, so nothing is fetched.
 
 What is real and what is not is written next to the CSVs (``PROVENANCE.md``) and returned by :func:`build`:
 
@@ -264,18 +265,55 @@ def sigir_docs() -> list[Derived]:
     return out
 
 
-def medtxt_docs() -> list[Derived]:
-    from tools import medtxt_eval
+JMED_DIR = ROOT / "eval" / "medtxt" / "jmed-llm"
+#: the three committed JMED-LLM datasets (CC BY 4.0, from NTCIR-16 Real-MedNLP MedTxt-CR, MedTxt-RR) and their SHA-256
+JMED_PINS = {
+    "mrner_disease.csv": "eb2164166417b719d7975a9feb6464fad605bd84f86105f7cd8cec1307f0bae0",
+    "mrner_medicine.csv": "7797c76c8c7ee4557d0e810644ce2b49df3971d572b428a4932e4075c856edfa",
+    "CRNER.csv": "d0cd14334f29b8b5b34c437da4d8742ca86dd2ebc247c844af5a0efca3790e52",  # all 147 case reports (owner)
+}
+_QUOTED = re.compile(r"「(.*)」\s*$", re.S)
 
-    if not (medtxt_eval.CACHE / "Test collection").is_dir():  # ENG-002: fetched at run time, never committed
-        raise SystemExit(f"the MedTxt corpus is not in {medtxt_eval.CACHE}: fetch it once with `make public-data`")
-    _items, notes = medtxt_eval.dataset()
+
+def jmed_reports(directory: Path = JMED_DIR) -> list[tuple[str, str]]:
+    """The reports of the three committed JMED-LLM datasets: (``"CR"`` or ``"RR"``, plain text), each report once, in
+    file order. Each row of a dataset is a question that quotes one report in 「」; a file that is not the pinned one is
+    refused by name (never read as if it were)."""
+    import hashlib
+
+    csv.field_size_limit(10**8)
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for name, sha in JMED_PINS.items():
+        raw = (directory / name).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != sha:
+            raise SystemExit(f"{directory / name} is not the pinned JMED-LLM file (sha256 {sha}): not read")
+        for row in csv.DictReader(raw.decode("utf-8").splitlines(keepends=True)):
+            q = str(row["question"])
+            m = _QUOTED.search(q)
+            if not m:
+                raise SystemExit(f"{name}: a question quotes no report")
+            kind = "RR" if "読影" in q[:40] else "CR"
+            text = re.sub(
+                r"(?<=[。．！？])\s+", "", m.group(1)
+            ).strip()  # the sentences, as the corpus's own were joined
+            if text and text not in seen:
+                seen.add(text)
+                out.append((kind, text))
+    return out
+
+
+def medtxt_docs() -> list[Derived]:
+    """The JA site's documents: the 147 case reports and 50 radiology reports of the committed JMED-LLM datasets
+    (NTCIR-16 Real-MedNLP MedTxt, CC BY 4.0), ids ``CR:J001``, ``RR:J001`` and so on."""
     out = []
-    for doc, sents in notes["ja"].items():
-        text = "".join(sents) if isinstance(sents, list) else str(sents)
-        src = "MedTxt-CR" if doc.startswith("CR:") else "MedTxt-RR"
+    n: Counter[str] = Counter()
+    for kind, text in jmed_reports():
+        n[kind] += 1
         age, approx, sex = derive_ja(text)
-        out.append(Derived(src, doc, "ja", text, age, approx, sex, derive_dx(text, "ja")))
+        out.append(
+            Derived(f"MedTxt-{kind}", f"{kind}:J{n[kind]:03d}", "ja", text, age, approx, sex, derive_dx(text, "ja"))
+        )
     return out
 
 
@@ -294,7 +332,7 @@ def build(out: Path, ref: date = REF, sites: tuple[str, ...] = ("en", "ja")) -> 
     if "ja" in sites:
         docs += medtxt_docs()
     if not docs:
-        raise SystemExit("no public data found (SIGIR notes missing, or MedTxt not fetched)")
+        raise SystemExit("no public data found (SIGIR notes or the committed MedTxt datasets missing)")
     out.mkdir(parents=True, exist_ok=True)
     pats, encs, notes, dxs, appts = [], [], [], [], []
     patients: list[dict[str, Any]] = []

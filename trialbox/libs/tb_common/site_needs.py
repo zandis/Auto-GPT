@@ -43,7 +43,9 @@ from typing import Any
 LANGS = ("en", "ja", "zh-TW")
 STAND_INS = Path("site") / "needs" / "stand-ins.json"  # under the deploy folder: a folder of its own, mounted read-only
 #: where a service reads it: the folder ``deploy/site/needs`` mounted read-only (the integrator's go on #639)
-MOUNTED = Path("/run/trialbox/needs")
+MOUNTED = Path("/run/tb-needs")  # not under /run/trialbox, which the KEK's read-only mount holds
+#: the uid the services run as (``user: "10001:10001"`` in ``deploy/docker-compose.yml``): the list is theirs to read
+SERVICE_UID = 10001
 STAND_INS_FORMAT = "tb-stand-ins/1"
 STATES = ("missing", "unusable", "stand_in", "given")
 
@@ -506,7 +508,8 @@ def _read(path: Path, label: str) -> tuple[frozenset[str], list[str]]:
 def write_stand_ins(deploy: Path, keys: Iterable[str]) -> None:
     """Replace the list with ``keys`` (each a key of :data:`NEEDS`; a value is never written). Written to a new file
     of mode 0600 beside it and moved into place, so a reader sees the old list or the new one; a link in its place is
-    refused, never followed. Raises ValueError for an unknown key and OSError when it cannot be written."""
+    refused, never followed. Written as root, the file is given to :data:`SERVICE_UID`, the uid the services read it
+    as through their read-only mount. Raises ValueError for an unknown key and OSError when it cannot be written."""
     wanted = sorted(set(keys))
     unknown = [k for k in wanted if k not in BY_KEY]
     if unknown:
@@ -522,6 +525,8 @@ def write_stand_ins(deploy: Path, keys: Iterable[str]) -> None:
         try:
             os.write(fd, body.encode("utf-8"))
             os.fsync(fd)
+            if os.geteuid() == 0:  # the installer or the apply step, as root: the services read it as their own uid
+                os.fchown(fd, SERVICE_UID, SERVICE_UID)
         finally:
             os.close(fd)
         os.replace(tmp, path)

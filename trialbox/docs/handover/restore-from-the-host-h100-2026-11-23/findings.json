@@ -1,0 +1,228 @@
+{
+ "card": "H100",
+ "title": "the live restore could not start from the host",
+ "date": "2026-11-23",
+ "source": "docs/handover/restore-from-the-host-h100-2026-11-23.md",
+ "findings": [
+  {
+   "id": "H100-01",
+   "severity": "High",
+   "claim": "backup-nightly --deploy deploy bound the public key and the dump folder by relative path, which the container engine reads as volume names: the nightly failed when typed from the install folder",
+   "severity_basis": "no backup is written by the documented form of the command",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 27d81f26",
+   "fix": "the schedule's entries and the job's public key path are made absolute (backup_schedule.absolute); tests/unit/test_restore_from_the_host_h100.py",
+   "from": "the integrator's red 7106858719 (the MVP walk's step 8 on the bench host), 2026-11-23"
+  },
+  {
+   "id": "H100-02",
+   "severity": "High",
+   "claim": "trialbox restore typed on the host ran in a plain one-off container with no hapi URL, no data volume, no database client and no way to run the role script, so it stopped before changing anything",
+   "severity_basis": "restore is part of the MVP: a box could not be restored from its backup by any documented command",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 55fafaf0",
+   "fix": "the host form runs the restore in the backup image as the nightly's job runs, with the box's own URLs and role passwords by name, the volumes bound, the role script inside, --last and --restart; tools/trialbox/box_restore.py; tests/unit/test_restore_from_the_host_h100.py",
+   "from": "the integrator's red 7106858719 (the MVP walk's step 8 on the bench host), 2026-11-23"
+  },
+  {
+   "id": "H100-03",
+   "severity": "High",
+   "claim": "the backup image carried no database client tools, so a restore or a drill run in it had no pg_restore",
+   "severity_basis": "the restore's container cannot restore a database without them",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2eecaf3f",
+   "fix": "deploy/docker/backup.Dockerfile installs the client tools of the server's major from the db base's own source, pinned, held and checked; tests/unit/test_restore_from_the_host_h100.py",
+   "from": "the integrator's red 7106858719 (the MVP walk's step 8 on the bench host), 2026-11-23"
+  },
+  {
+   "id": "H100-04",
+   "severity": "Medium",
+   "claim": "the nightly's job container builds the hapi URL with the database password unquoted (update.ComposeBox._backup_container): a password holding @, / or # would give a URL that names another host or database",
+   "severity_basis": "install.sh's generated passwords may not hold those characters; a site's own password could, and the nightly's hapi snapshot would then fail",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card (update.py is in flight on H-99 and H-95); the host restore quotes it (box_restore.job_db_env)",
+   "from": "reading update.py for card H-100, 2026-11-23"
+  },
+  {
+   "id": "H100-05",
+   "severity": "Medium",
+   "claim": "backup_schedule.config lets the process environment win over deploy/.env for every TB_ setting, TB_BACKUP_PUBKEY and TB_BACKUP_TARGETS among them, and ComposeBox reads TB_BACKUP_PUBKEY, TB_COMPOSE and TB_DOCKER from the process: a person who runs backup-nightly with one exported decides where the backup goes and what it is encrypted to",
+   "severity_basis": "cron and sudo drop the caller's environment, so the schedule is not affected; a hand run with sudo -E or a kept variable is",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "not in this card. On the restore's path a caller steers none of them: `trialbox restore` on the host takes the public key, the copy folder, the targets (--last), the engine and compose from deploy/.env (BoxRestore, __main__._restore_defaults, last_good with process_env=False), and the container gets only the names it is given; tested by test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller. A caller steers them in backup-nightly, backup-status and backup-install (config) and in the update's backup (ComposeBox: TB_BACKUP_PUBKEY, TB_COMPOSE, TB_DOCKER, TB_MODELS_DIR)",
+   "from": "reading backup_schedule.py and update.py for card H-100, 2026-11-23"
+  },
+  {
+   "id": "H100-06",
+   "severity": "High",
+   "claim": "the live restore over a real stack (all services healthy after it, the restored rows equal backup-verify's) and the backup image with the client tools were not run or built in this card's session",
+   "severity_basis": "the done criterion of the card is proved only by the rehearse jobs (box.sh live-restore) or the bench",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the rehearsal's live-restore step runs it in CI; the bench repeats step 8 with the one documented command",
+   "from": "card H-100, 2026-11-23"
+  },
+  {
+   "id": "H100-07",
+   "severity": "Medium",
+   "claim": "compose and the restore's container inherited the caller's whole environment: an exported COMPOSE_PROJECT_NAME, COMPOSE_FILE or DOCKER_HOST pointed the running-services check at another project, so the restore started while the box still ran",
+   "severity_basis": "the D-724 refusal could be skipped by a variable kept through sudo -E or a root shell",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "they run with the engine's own PATH and HOME and the engine variables deploy/.env names (BoxRestore.engine_env); test_f1_a_callers_compose_or_engine_variable_reaches_neither_compose_nor_the_container (one case per variable)",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-08",
+   "severity": "Medium",
+   "claim": "a restore that failed after it replaced a database left the box half restored (the schemas were dropped and committed before the restore), and --restart offered to start the services",
+   "severity_basis": "a box could start on an empty or mixed database",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "all or nothing: each database is dumped first (space checked on the host and inside) and the databases and folders are put back on any failure, interrupt or signal, the list jobs held and backup.restore_failed audited with its state; the host starts the services only after a complete, held or refused restore; test_f2_a_restore_that_fails_after_its_first_change_puts_the_box_back_holds_and_audits and three more test_f2_ tests",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-09",
+   "severity": "Medium",
+   "claim": "a failed compose stop, an interrupt or any other error left the box stopped with no word and no audit event",
+   "severity_basis": "a person meets a stopped box and no record of why",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "one state line with the next command on every end, an audit event kept in deploy/site/backup-audit-pending.jsonl while the orchestrator is down, an interrupt passed to the container and waited for; test_f3_a_stop_that_fails_says_the_state_and_keeps_the_audit_event, test_f3_an_interrupt_while_the_container_runs_is_passed_on_and_waited_for",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-10",
+   "severity": "Low",
+   "claim": "--last checked the sidecar, not the file, and the container was not given the recorded hash",
+   "severity_basis": "a file swapped between the host's check and the restore was found only after the services were stopped",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "the host hashes the file before anything stops (sidecar and the nightly's record) and passes the hash; the container refuses any other file; test_f4_ (two tests). Signing backups: card H-104",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-11",
+   "severity": "Low",
+   "claim": "the private key path was accepted with any owner and mode, and through a link",
+   "severity_basis": "a key readable by others or swapped through a link was used",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "opened with O_NOFOLLOW and checked on the open file: a regular file, owned by root (or the user running it), mode 0600; the runbook copies a stick's key to a root-only file first; test_f5_the_key_is_a_root_only_regular_file_and_not_a_link",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-12",
+   "severity": "Low",
+   "claim": "--restart started every default service, not the ones it stopped",
+   "severity_basis": "a service stopped on purpose came back",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "up -d --no-deps --wait with the stopped services only; test_restart_starts_the_services_only_after_a_complete_or_held_restore",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-13",
+   "severity": "Low",
+   "claim": "no test held the TLS marker's removal on exits 3 and 4 (mutant M12 survived)",
+   "severity_basis": "a regression would pass unnoticed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 60a9c7d4",
+   "fix": "test_f7_the_tls_marker_goes_after_every_exit_that_restored",
+   "from": "the independent review of #1421 (comment 7109588168) and the integrator's red 7109588664, 2026-11-23"
+  },
+  {
+   "id": "H100-14",
+   "severity": "High",
+   "claim": "a second signal while a failed restore put the box back abandoned the put-back (the raising handlers were live and the put-back caught only Exception): a database left empty, no hold, no audit",
+   "severity_basis": "one Ctrl-C under the engine can arrive twice",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "signals ignored for the whole put-back, each step catches BaseException; test_r1_a_second_signal_during_the_put_back_never_abandons_it (four orders), test_r1_whatever_stops_one_put_back_step_the_rest_still_go_back_and_it_is_audited; the rehearsal sends SIGINT then SIGTERM",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-15",
+   "severity": "Medium",
+   "claim": "a second interrupt on the host left the restore's container running, said the restore did not start, and deleted the work folder the put-back read",
+   "severity_basis": "the person is told to start the services while the box is being put back",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "the host passes one signal on, ignores the rest and waits for the container; after the container started it never says 'did not start' and keeps the work folder if it stops; test_r2_ (two tests)",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-16",
+   "severity": "Medium",
+   "claim": "when the put-back failed, the copy of the databases it was made from was deleted, and with --no-copy nothing was left",
+   "severity_basis": "the one exact copy of the box as it was was lost",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "the copy is kept in --keep-to (0700) and named; --no-copy on the host needs --yes-really; test_r3_r5_a_put_back_that_fails_keeps_its_copy_and_says_the_hold_is_unknown, test_r3_no_copy_on_the_host_needs_yes_really",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-17",
+   "severity": "Low",
+   "claim": "an empty folder was put back as root 0755",
+   "severity_basis": "a service could not write its empty volume",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "made again with its own owner and mode (never a set-id bit); test_r4_an_empty_folder_comes_back_with_its_own_owner_and_mode",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-18",
+   "severity": "Low",
+   "claim": "'held' was said after the hold's row went with the emptied database",
+   "severity_basis": "a person trusts a hold that is not there",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "a failed put-back says the hold is unknown; test_r3_r5_a_put_back_that_fails_keeps_its_copy_and_says_the_hold_is_unknown",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-19",
+   "severity": "Low",
+   "claim": "SIGHUP (container and host) and the host's space check had no test (mutants survived)",
+   "severity_basis": "a regression would pass unnoticed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "test_r1_ [SIGHUP cases], test_r6_the_hosts_step_raises_on_sighup_and_sigterm, test_r6_the_hosts_space_check_refuses_before_anything_stops",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  },
+  {
+   "id": "H100-20",
+   "severity": "Low",
+   "claim": "a killed host step left deploy/.restore-* with the decrypted backup; an interrupt while the services started printed no state",
+   "severity_basis": "plaintext left on disk; a silent end",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8480a690",
+   "fix": "one restore at a time under deploy/site/restore.lock, a left folder swept by the next; the start is under the same handlers and says the state; test_r7_ (two tests)",
+   "from": "the second independent review of #1421 (comment 7114502241) and the integrator's red 7114502663, 2026-11-23"
+  }
+ ]
+}

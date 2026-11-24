@@ -200,6 +200,7 @@ differential: venv-check
 # the pure tests alone (ENG-028, T-653): the tests marked nodb (tests/conftest.py PURE_MODULES), with no PostgreSQL
 # at all: TB_PG_BIN points nowhere and TB_TEST_DB_URL is unset, so a test that needs a database fails at once
 test-pure: venv-check
+	@mkdir -p "$(TB_TEST_ROOT)"
 	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-n $(PYTEST_N) -m "nodb and not integration and not e2e and not llm and not perf"
 
@@ -316,9 +317,10 @@ test-e2e:
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
 # the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
-# the public corpus the public-data site reads (ENG-002, D-560; tools/public_site.py): NTCIR-16 Real-MedNLP MedTxt
-# (CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and never committed. `tools.public_e2e` and the
-# nightly job `public-e2e` need it.
+# the Real-MedNLP MedTxt test collection (NTCIR-16, CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and
+# never committed. The eval, the medtxt gate and the public-medtxt scenario need it (the negative and suspicious tags).
+# The public-data site and `tools.public_e2e` no longer do: they read the JMED-LLM datasets committed under
+# eval/medtxt/jmed-llm (D-639; #639 7116467086). The corpus host is not reachable from the CI runner.
 public-data:
 	PYTHONPATH=libs:services:. $(PY) -c "import tools.medtxt_eval as m; m.fetch(); print('public-data: MedTxt in', m.CACHE)"
 
