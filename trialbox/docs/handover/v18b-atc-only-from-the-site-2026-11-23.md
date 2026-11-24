@@ -125,6 +125,22 @@ So:
   temporary file beside it and renames it; `update.py` and the `restarted` command use it. Test:
   `test_v18b_store_restart.py::test_the_report_is_written_whole_or_not_at_all`.
 
+## The review of `5d9a7c5` (#1439, comment 7122360665)
+
+- **1439-3 (fixed in this PR):** `write_text_whole` syncs the temporary file before the rename; the update's
+  code-system step writes the load's report through it too, so a kill, a full disk or a power cut never leaves a
+  half-written or empty report. Tests: `test_the_report_is_synced_before_its_rename`,
+  `test_the_updates_load_report_is_never_left_half_written`.
+- **1439-4 (fixed in this PR):** `carry` keeps, in a new report, the systems an earlier load changed whose restart
+  never ran or did not answer (`pending_restart`); `changed` includes them. A rerun that finds every system unchanged
+  still restarts the store, and the doctor warns until a restart answers. Tests:
+  `test_a_rerun_after_a_restart_that_did_not_answer_restarts_again`,
+  `test_a_restart_that_answered_ends_the_pending_systems`.
+- **1439-1 and 1439-2 (to the integrator):** the anticoagulant grouper leaves out the heparins (B01AB) and the other
+  anticoagulants (B01AX); the RA biologic groupers leave out sarilumab, abatacept and rituximab (V18b-04). Either
+  change moves the shipped rule sets AD-MAB, RA-COH and RA-JAK (their ValueSets, SQL and expected verdicts) and needs
+  their criteria reviewed again; proposed as a card of its own, so this one moves no screening answer.
+
 ## Not in this card
 
 - The ATC concepts an existing box loaded from the shipped table stay in `omop.concept` (V18b-01).

@@ -48,6 +48,8 @@ docker rm -f tb-terminology-load >/dev/null 2>&1 || true
 COMPOSE=(docker compose --project-directory deploy)  # the files and profile of deploy/.env (COMPOSE_FILE), as installed
 if "${COMPOSE[@]}" run --rm --no-deps -T --name tb-terminology-load criteria-compiler \
     python -m tools.terminology_load load --report - >"$REPORT.new"; then
+  # review 1439-4: the systems an earlier load changed and no restart served stay pending in the new report
+  PYTHONPATH=. python3 -m tools.terminology_load carry --old "$REPORT" --new "$REPORT.new" || true
   mv -f "$REPORT.new" "$REPORT"
   # V-18b (D-1183, V18-01): the store keeps its $lookup and $validate-code answers for minutes and no operation of
   # it clears them, so after a load that changed a system it is restarted, and waited for until it is healthy

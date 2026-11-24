@@ -2148,8 +2148,16 @@ class ComposeBox(_DockerImages):
                           timeout=7200)  # fmt: skip
         site = self.deploy / "site"
         site.mkdir(parents=True, exist_ok=True)
-        (site / "terminology-load.json").write_text(report, encoding="utf-8")
-        self._restart_fhir_store(site / "terminology-load.json")
+        from tools import terminology_load as tl
+
+        path = site / "terminology-load.json"
+        try:  # review 1439-4: systems an earlier restart did not serve stay pending
+            new = json.loads(report)
+            old = json.loads(path.read_text("utf-8")) if path.is_file() else None
+            tl.write_report(path, tl.carry(old if isinstance(old, dict) else None, new))
+        except ValueError:
+            tl.write_text_whole(path, report)  # whole or not at all (review 1439-3): the doctor reads it
+        self._restart_fhir_store(path)
         return done
 
     def _restart_fhir_store(self, path: Path) -> None:

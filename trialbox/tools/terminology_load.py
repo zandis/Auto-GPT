@@ -148,7 +148,19 @@ def changed(report: dict[str, Any]) -> list[str]:
     """V-18b (D-1183): the systems this run loaded into the FHIR store anew (a new version, or one rolled back). The
     store keeps its ``$lookup`` and ``$validate-code`` answers for minutes, and no operation of the pinned store clears
     them: after such a load it is restarted, so no caller sees the earlier version's answer (V18-01)."""
-    return [str(r["key"]) for r in report.get("fhir") or [] if r.get("state") == "loaded"]
+    loaded = [str(r["key"]) for r in report.get("fhir") or [] if r.get("state") == "loaded"]
+    return sorted({*loaded, *(str(k) for k in report.get("pending_restart") or [])})
+
+
+def carry(old: dict[str, Any] | None, new: dict[str, Any]) -> dict[str, Any]:
+    """Review 1439-4: the systems an earlier load changed whose restart never ran or did not answer stay pending in
+    the new report (``pending_restart``), so a rerun that finds them unchanged still restarts the store, and the
+    doctor keeps its warning until a restart answers."""
+    if not old:
+        return new
+    done = old.get("store_restart")
+    pending = set() if isinstance(done, dict) and done.get("answered") else set(changed(old))
+    return {**new, "pending_restart": sorted(pending)} if pending else new
 
 
 def restarted(report: dict[str, Any], answered: bool, seconds: int, at: str) -> dict[str, Any]:
@@ -158,17 +170,25 @@ def restarted(report: dict[str, Any], answered: bool, seconds: int, at: str) -> 
                                         "systems": changed(report)}}  # fmt: skip
 
 
-def write_report(path: Path, report: dict[str, Any]) -> None:
-    """The report written whole or not at all (a temporary file beside it, then renamed): the doctor never reads a
-    half-written one, and a failed write leaves the earlier report."""
+def write_text_whole(path: Path, text: str) -> None:
+    """``text`` written whole or not at all: a temporary file beside it, synced, then renamed, so neither a kill nor
+    a power cut leaves a half-written or empty file, and a failed write leaves the earlier one."""
     import os
 
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
-        tmp.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def write_report(path: Path, report: dict[str, Any]) -> None:
+    """The report written whole or not at all (``write_text_whole``): the doctor never reads a half-written one."""
+    write_text_whole(path, json.dumps(report, indent=1, ensure_ascii=False) + "\n")
 
 
 def restart_line(report: dict[str, Any]) -> tuple[Literal["PASS", "WARN"], str]:
@@ -278,6 +298,9 @@ def main(argv: list[str] | None = None) -> int:
     sn.add_argument("--faults", action="store_true", help="only the faults: a system given but refused or not loaded")
     ch = sub.add_parser("changed", help="the systems a report loaded anew, one a line; exit 1 when none (V18-01)")
     ch.add_argument("--report", required=True)
+    cy = sub.add_parser("carry", help="keep in a new report the systems an earlier load changed and no restart served")
+    cy.add_argument("--old", required=True)
+    cy.add_argument("--new", required=True)
     rs = sub.add_parser("restarted", help="record the FHIR store's restart after the load in the report")
     rs.add_argument("--report", required=True)
     rs.add_argument("--answered", choices=("yes", "no"), required=True)
@@ -292,6 +315,14 @@ def main(argv: list[str] | None = None) -> int:
             rec = json.loads(ln) if ln.strip() else {}
             if str(rec.get("key", "")).startswith("terminology/") and (rec.get("fault", True) or not a.faults):
                 print(f"{rec['key'].split('/', 1)[1]}\t{' '.join(str(rec.get('why', '')).split())}")
+        return 0
+    if a.cmd == "carry":  # the standard library only: deploy/terminology-update.sh, on the host
+        old, new = Path(a.old), Path(a.new)
+        try:
+            before = json.loads(old.read_text("utf-8")) if old.is_file() else None
+        except ValueError:
+            before = None  # an unreadable earlier report carries nothing
+        write_report(new, carry(before, json.loads(new.read_text("utf-8"))))
         return 0
     if a.cmd in ("changed", "restarted"):  # the standard library only: deploy/terminology-update.sh, on the host
         rp = Path(a.report)

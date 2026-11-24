@@ -136,3 +136,72 @@ def test_the_report_is_written_whole_or_not_at_all(tmp_path: Path, monkeypatch: 
     tl.write_report(path, tl.restarted(LOADED, True, 38, "2026-11-24T00:00:00+00:00"))
     assert json.loads(path.read_text("utf-8"))["store_restart"]["seconds"] == 38
     assert [p.name for p in tmp_path.iterdir()] == [tl.REPORT]
+
+
+def test_the_report_is_synced_before_its_rename(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review 1439-3: a power cut after the rename never leaves an empty report: the temporary file is synced first."""
+    order: list[str] = []
+    real_fsync, real_replace = os.fsync, os.replace
+
+    def fsync(fd: int) -> None:
+        order.append("fsync")
+        real_fsync(fd)
+
+    def replace(src: str, dst: str) -> None:
+        order.append("replace")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "replace", replace)
+    tl.write_report(tmp_path / tl.REPORT, LOADED)
+    assert order == ["fsync", "replace"]
+
+
+def test_the_updates_load_report_is_never_left_half_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review 1439-3: the update's code-system step writes the load's report through a renamed temporary file too: a
+    write that fails before the rename leaves the earlier report, never a half-written one the restart and the doctor
+    read."""
+    from tools.trialbox import update as up
+
+    monkeypatch.setenv("TB_DOCKER", "true")
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    path = deploy / "site" / tl.REPORT
+    path.write_text(json.dumps({"release": "TL-000000000001"}), encoding="utf-8")
+    stage = tmp_path / "stage"
+    (stage / "terminology" / "nhi-services").mkdir(parents=True)
+    (stage / "terminology" / "nhi-services" / "services.csv").write_text("synthetic\n", encoding="utf-8")
+    plan = up.Plan("B9", "0" * 64, "signer", [], stage)
+
+    def run(cmd: list[str], **_: object) -> str:
+        return json.dumps({**SAME, "release": "TL-000000000002"}) if "tools.terminology_load" in cmd else ""
+
+    def broken(src: object, dst: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", broken)
+    with pytest.raises(OSError, match="disk full"):
+        up.ComposeBox(deploy, run=run).terminology(plan)
+    assert json.loads(path.read_text("utf-8"))["release"] == "TL-000000000001"
+
+
+def test_a_rerun_after_a_restart_that_did_not_answer_restarts_again(tmp_path: Path) -> None:
+    """Review 1439-4: the load changed a system and the restart did not answer; the operator runs the step again and
+    the second load finds every system unchanged. The system stays pending, so the store is restarted again and the
+    doctor keeps its warning until a restart answers."""
+    report, calls, env = _box(tmp_path, LOADED, "starting")
+    assert _run(tmp_path, env).returncode == 0
+    (tmp_path / "report.json").write_text(json.dumps(SAME), encoding="utf-8")  # the rerun changes nothing
+    assert _run(tmp_path, env).returncode == 0
+    assert sum(c.endswith("restart fhir-store") for c in calls.read_text("utf-8").splitlines()) == 2
+    rep = json.loads(report.read_text("utf-8"))
+    assert rep["pending_restart"] == ["icd10cm"] and tl.restart_line(rep)[0] == "WARN"
+
+
+def test_a_restart_that_answered_ends_the_pending_systems() -> None:
+    failed = tl.restarted(LOADED, False, 900, "2026-11-24T00:00:00+00:00")
+    assert tl.changed(tl.carry(failed, SAME)) == ["icd10cm"]  # still to restart
+    done = tl.restarted(tl.carry(failed, SAME), True, 38, "2026-11-24T00:01:00+00:00")
+    assert tl.restart_line(done)[0] == "PASS"
+    assert tl.changed(tl.carry(done, SAME)) == []  # served: nothing carried
+    assert tl.carry(None, SAME) == SAME
