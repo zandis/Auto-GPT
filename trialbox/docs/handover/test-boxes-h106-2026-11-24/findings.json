@@ -1,0 +1,129 @@
+{
+ "card": "H106",
+ "title": "several test boxes on one host",
+ "date": "2026-11-24",
+ "source": "docs/handover/test-boxes-h106-2026-11-24.md",
+ "note": "basis 'shown' means shown by the card's local runs (the real installer on H-94's bench, stand-ins for the container engine and the card); the container rehearsal and the bench host were not run.",
+ "findings": [
+  {
+   "id": "H106-01",
+   "severity": "High",
+   "claim": "on master the backup, the restore, the restore drill and the logs command name the ordinary box's volumes and network (trialbox_*, trialbox-net): on a second box they would read or write the first box's data and keys; they are refused on a test box until each is made per box. The pre-update backup, the update's serving check and terminology volume, the decommission plan, the launcher's networks, the update's key check and the host check follow the box's project (the last four also outside install.sh's own run, review 1452-1); follow-up card H-117 (backup, restore and logs for a named test box); it does not hold H-106 (the integrator, 7124599679)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-02",
+   "severity": "Medium",
+   "claim": "the ruling says a PRODUCTION install still refuses a second box word for word as today: on master no step refuses a second ordinary box by name; a second one in another folder is stopped late, after the bundle loads, by the project check (the same project name, containers from another folder) or by the console's port; that is kept word for word, and a PRODUCTION install now also refuses, before anything, a host where a test box runs",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-03",
+   "severity": "Medium",
+   "claim": "the ruling's item 3 puts a separate real-data box on the bench host; this card refuses a test box beside a PRODUCTION box and a PRODUCTION box beside a test box, so the real-data box (if PRODUCTION) and the test boxes cannot share the host: a ruling is wanted",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H106-04",
+   "severity": "Medium",
+   "claim": "the memory cap a card is enforced by the serving engine's utilisation setting only (each server asks for its profile's share of a card of the cap); the container engine has no card memory limit; the scaling is tested with a stand-in for the card's memory figure, the real cap only on the bench host",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H106-05",
+   "severity": "Medium",
+   "claim": "the rehearsal's test-boxes step ran in CI and found H106-10, H106-11, H106-12 and the host doctor's import; it passes at f724fbf in 231 s (test) and 238 s (validation); it runs on trains and on pull requests touching its paths, and is reported skipped elsewhere (7124599679)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
+  },
+  {
+   "id": "H106-06",
+   "severity": "Low",
+   "claim": "a test box has no systemd unit, timer or cron file (the host's are the ordinary box's), so it does not come back after a reboot and has no backup; the runbook says how to start it again",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-07",
+   "severity": "Low",
+   "claim": "the runbook's three commands were a section of part 16; they are part 30 of their own, linked from part 16 (the integrator, 7124599679)",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "fixed"
+  },
+  {
+   "id": "H106-08",
+   "severity": "Low",
+   "claim": "the installed trialbox command asks the container engine for the host's boxes on every call; when the engine cannot be asked, a command without --box runs on its own folder as before (it cannot tell whether other boxes exist)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H106-09",
+   "severity": "Low",
+   "claim": "the ruling names a root-folder variable and the card-list variable; the design rule (no caller's variable decides a guard or where a secret goes) wins: the folder is the installer's own and the cards are an install option, recorded in the box's settings",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H106-10",
+   "severity": "High",
+   "claim": "found by the rehearsal's test-boxes step (CI job 138170206562): the bundle loads before deploy/.env exists, and the update path read a fresh test box as PRODUCTION and refused the rehearsal bundle; the test box's record now says TEST until deploy/.env does, as the rehearsal mark does",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
+  },
+  {
+   "id": "H106-11",
+   "severity": "High",
+   "claim": "found by the rehearsal's test-boxes step (CI job 138221062810): the record's folder check hashed the folder it was read from, so inside the box's own container (the tree at /app) the doctor FAILed an untouched test box; the record now carries the host folder written at install, and a record is refused as a copy only where that folder is on this machine and is not this one",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
+  },
+  {
+   "id": "H106-12",
+   "severity": "High",
+   "claim": "found by the rehearsal's test-boxes step (CI job 138221062810): deploy/docker-compose.identity.yml named its network with a fixed name (trialbox-edge), so a test box's TLS proxy joined the ordinary box's network; it now follows the project (unchanged for the ordinary box). The unit invariant missed it because it read only docker-compose.yml's networks and volumes, not the overlays, and the bench's engine stand-in records commands, not what compose creates; it now reads every compose file an install can add and fails on any volume, network or container name that does not follow the project",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
+  },
+  {
+   "id": "H106-13",
+   "severity": "High",
+   "claim": "the external review of f724fbf (7126707961) found a test box's update (serving check, terminology volume), decommission plan and host check (install.sh --check) still naming the ordinary box's objects (1452-1, High), PRODUCTION's refusal of a host with a test box failing open (1452-2, Medium: a test box whose folder is gone, a listing that fails, two installs together), and a test box with a lost record re-run as the ordinary box (1452-3, Medium); each is fixed with a test in tests/unit/test_test_box_review_1452.py, as are the Lows 1452-4 to 1452-8",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
+  },
+  {
+   "id": "H106-14",
+   "severity": "Medium",
+   "claim": "the order-dependent failure of tests/unit/test_poc_real_embedder.py::test_a_lake_embedded_by_the_other_embedder_is_refused (the card's pre-push run, a poc.sh run timed out at 120 s) is a race in the heartbeat of deploy/poc.sh (alive_start/alive_stop, lines 71-79), also in deploy/install.sh: a heartbeat stopped between its `sleep &` and `s=$!` leaves the sleep running with the caller's stdout/stderr, so whoever reads the output waits for the sleep (up to TB_POC_ALIVE_S, 600 s in that test); reproduced 5 times in 300 runs of the bare pattern, 0 in 300 with the sleep's outputs sent to /dev/null (OCR 1452-12, Medium). The integrator's ruling (7131125435, 7131128250): the fix and its test live in #1455 only (H-110, OCR 1455-4: one-second sleeps with the outputs redirected), so #1452 carries neither; #1452's two kill-the-heartbeat tests passed against #1455's lines (be4a0d80). If #1452 needs it to pass its own run, it rides after #1455",
+   "lane": "H",
+   "basis": "shown",
+   "state": "card issued #1455"
+  },
+  {
+   "id": "H106-15",
+   "severity": "Low",
+   "claim": "the external review of affb343 (7131110953): the host lock (HOST-LOCK) was a file in the shared /run/lock, where any account can make it first, and was skipped without a word when it could not be opened or after an hour's wait; its test errored on a host with no /run/lock (1452-13). Fixed: the lock is in /run/trialbox-boxes, a folder root makes for itself (install -d -m 0700, not a link, root's own); a lock that cannot be taken or an hour's wait is said on the console; the block's tests run on a folder of their own as any user. And the invariant read neither master's docker-compose.serving-second.yml nor docker-compose.test.yml (1452-14). Fixed: both read, and a test that every deploy/docker-compose*.yml is read or named as one no box adds",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
+  }
+ ]
+}
