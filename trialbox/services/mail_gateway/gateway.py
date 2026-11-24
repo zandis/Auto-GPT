@@ -234,12 +234,12 @@ class Gateway:
         return g.message("en") if g.refused else ""
 
     def _attempt(self, req: SendRequest, key: str, message_id: str | None, attempts: int, from_outbox: bool) -> Outcome:
-        needed = self._site_needs()
-        if needed:  # U-5: the mail waits, the try not counted, and goes once the page is filled in (D-1280)
-            return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S)
         why = self._still_current(req)
         if why in (OPTED_OUT, NO_JOB) or (why and rc1_refusals.refused("patient_mail_and_downloads")):  # held at once
             return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
+        needed = self._site_needs()  # after the refusals that end a mail: those stay final (rc1, D-863)
+        if needed:  # U-5: the mail waits, the try not counted, and goes once the page is filled in (D-1280)
+            return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S)
         if why:  # not known now: tried again with back-off, counted, and failed for a person at the limit
             n = attempts + 1
             state = "failed" if n >= MAX_ATTEMPTS else "queued"
