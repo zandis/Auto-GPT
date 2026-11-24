@@ -172,6 +172,70 @@ audit_key() {
     || hb_say "the audit signing key was not made (above): trialbox doctor names it; run this script again"
 }
 
+# tpm (H-111): at every instant either the plain keys are there or the KEK that opens the wrapped keys is sealed in
+# $CRED, its final place: the credential is sealed and placed before any key is wrapped, and nothing here removes it.
+# Only the plain copy in /run ($NEW) and an unplaced $CRED.new are removed, at any exit; a signal exits
+NEW="$RUN_DIR/kek.new"
+# review of #1457 (1457-5): once the clean-up starts a further signal neither cuts it short nor kills its shred
+# review of #1457 (1457-9): /run/trialbox is handed to the services' user, so a name there is never followed: a link is
+# removed, not shredded through
+new_gone() {
+  trap '' HUP INT TERM
+  if [ -L "$NEW" ]; then rm -f "$NEW"; else shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; fi
+  rm -f "$CRED.new"
+}
+arm() {
+  ( umask 077; mkdir -p "$RUN_DIR" "$(dirname "$CRED")" )
+  # review of #1457 (1457-1, the rest): kek.new and the credential are the host's, not one secrets folder's: one TPM
+  # seal at a time on this host, whichever folder it is for. The credential's folder is root's (0700); the lock is
+  # taken before the trap is set, so a refused run removes nothing of the other run's
+  exec 5<"$(dirname "$CRED")"
+  flock -n 5 || hb_die "another run of seal_keys.sh on this host holds $(dirname "$CRED"): let it finish, then run this script again; nothing was changed"
+  # review of #1457 (1457-9): with the host lock held no other seal runs, so a name at kek.new is a stopped run's (its KEK
+  # is in the placed credential, or no key was wrapped under it) or a link: removed before the new KEK is written
+  rm -f -- "$NEW"
+  trap new_gone EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+}
+# the KEK of the sealed credential, to $NEW (a run that stopped after the credential was placed)
+cred_open() {
+  arm
+  # review of #1457 (1457-4): owner only, as the new KEK is made, and never written through a name already there
+  ( umask 077; rm -f -- "$NEW" && systemd-creds decrypt --name=trialbox-kek "$CRED" "$NEW" ) \
+    || hb_die "the TPM could not open $CRED (above): nothing was changed; run this script again on the host that sealed it"
+}
+# the boot unit: the same unseal from the sealed credential
+boot_unit() {
+  [ "${TB_SYSTEMD:-1}" != 0 ] || return 0
+  sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_SECRETS@#$SECRETS#g" "$HERE/trialbox-unseal.service" \
+    | hb_write "${TB_SYSTEMD_DIR:-$HR/etc/systemd/system}/trialbox-unseal.service" 644
+  if command -v systemctl >/dev/null 2>&1 && [ -d "$HR/run/systemd/system" ]; then
+    systemctl daemon-reload && systemctl enable trialbox-unseal.service >/dev/null
+  fi
+}
+any_wrapped() { for w in "$SECRETS"/*.wrapped; do [ -e "$w" ] && return 0; done; return 1; }
+# D-887 (found by the box rehearsal): the keys commands run as root and leave kek.json, the wrapped keys and the
+# runtime KEK root's; the services (the secrets folder's owner, uid 10001) must open them. Owner only: modes stay 0600.
+# Review of #1457 (1457-2): on each way out that says done, a re-run's (the kek.json branch) too
+hand_over() {
+  OWNER="$(stat -c %u:%g "$SECRETS")"
+  if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
+    # review of #1457 (1457-7): -h, never through a link: the secrets folder is the services' user's, and a name there
+    # can be swapped for a link between the sweep and the chown
+    find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown -h "$OWNER" {} +
+    if [ -f "$KEK_FILE" ]; then chown -h "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"; fi
+  fi
+}
+
+# review of #1457 (1457-1): one run at a time on this secrets folder. Two runs at once shared kek.new: one wrapped the
+# keys under the other's KEK and placed its own credential. An exclusive lock on the folder itself (no file is added,
+# the lock tools.keys rotate-kek takes), held until this run and its children end
+if [ "$DRY" != 1 ]; then
+  command -v flock >/dev/null 2>&1 \
+    || hb_die "flock (util-linux) is missing, so a second run could not be kept out: install util-linux, then run this script again; nothing was changed"
+  exec 6<"$SECRETS"
+  flock -n 6 || hb_die "another run of seal_keys.sh or a key command holds $SECRETS: let it finish, then run this script again; nothing was changed"
+fi
+
 if [ -f "$SECRETS/kek.json" ]; then
   hb_say "the KEK exists ($SECRETS/kek.json): wrapping any key still plain"
   [ "$DRY" = 1 ] && { hb_say "would run: tools.keys wrap"; exit 0; }
@@ -179,9 +243,18 @@ if [ -f "$SECRETS/kek.json" ]; then
   if [ -n "$KP_VALUE" ] && [ ! -f "$KEK_FILE" ] && grep -q '"backend": *"passphrase"' "$SECRETS/kek.json"; then
     keys_pp unseal --secrets "$SECRETS" --out "$KEK_FILE"
   fi
+  TPM_BOX=0
+  if [ -f "$CRED" ] && grep -q '"backend": *"file"' "$SECRETS/kek.json"; then TPM_BOX=1; fi
+  # H-111: a TPM box stopped after kek.json was written and before its KEK was unsealed here: from the credential
+  if [ "$TPM_BOX" = 1 ] && [ ! -f "$KEK_FILE" ]; then
+    cred_open
+    keys unseal --secrets "$SECRETS" --from "$NEW" --out "$KEK_FILE"
+  fi
   keys wrap --secrets "$SECRETS"
+  [ "$TPM_BOX" = 0 ] || boot_unit
   audit_key
   pp_done
+  hand_over
   exit 0
 fi
 
@@ -193,34 +266,39 @@ case "$KEK_BACKEND" in
     # a device node is not enough: systemd-creds needs the TPM and its TSS2 libraries
     TPM2="$(systemd-creds has-tpm2 2>&1)" \
       || hb_die "KEK_BACKEND=tpm but the TPM 2.0 is not usable (systemd-creds has-tpm2: $(echo "$TPM2" | tr '\n' ' ')); $NO_TPM_FIX"
-    [ -f "$CRED" ] && hb_die "$CRED exists but $SECRETS has no kek.json: put kek.json back from the backup, or remove the credential"
+    # H-111: a credential with no kek.json and no wrapped key is a run's that stopped before any key was wrapped
+    if [ -f "$CRED" ] && any_wrapped; then
+      hb_die "$CRED exists but $SECRETS has no kek.json: put kek.json back from the backup, or remove the credential"
+    fi
     if [ "$DRY" = 1 ]; then
       hb_say "would make a KEK in $RUN_DIR/kek.new"
-      hb_say "would run: systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek $RUN_DIR/kek.new $CRED.new"
-      hb_say "would run: tools.keys init --backend file --kek-in $RUN_DIR/kek.new; mv $CRED.new $CRED"
+      hb_say "would run: systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek $RUN_DIR/kek.new $CRED.new; mv $CRED.new $CRED"
+      hb_say "would run: tools.keys init --backend file --kek-in $RUN_DIR/kek.new"
       hb_say "would run: tools.keys unseal --from $RUN_DIR/kek.new --out $KEK_FILE; shred $RUN_DIR/kek.new"
       exit 0
     fi
-    ( umask 077; mkdir -p "$RUN_DIR" "$(dirname "$CRED")" )
-    NEW="$RUN_DIR/kek.new"
-    trap 'shred -u "$NEW" 2>/dev/null || rm -f "$NEW"; rm -f "$CRED.new"' EXIT INT TERM HUP
-    # D-836: make the KEK, seal it, and only then wrap the keys under it: a failed seal leaves every key as it was
-    ( umask 077; head -c 32 /dev/urandom > "$NEW" )
-    systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek "$NEW" "$CRED.new" \
-      || hb_die "the TPM could not seal the KEK (above): nothing was changed; $NO_TPM_FIX"
-    keys init --backend file --secrets "$SECRETS" --kek-in "$NEW" \
-      || hb_die "the site keys could not be wrapped (above): nothing was sealed; run this script again"
-    mv -f "$CRED.new" "$CRED"
-    chmod 600 "$CRED"
-    keys unseal --secrets "$SECRETS" --from "$NEW" --out "$KEK_FILE"
-    # the boot unit: the same unseal from the sealed credential
-    if [ "${TB_SYSTEMD:-1}" != 0 ]; then
-      sed -e "s#@TB_ROOT@#$ROOT#g" -e "s#@TB_SECRETS@#$SECRETS#g" "$HERE/trialbox-unseal.service" \
-        | hb_write "${TB_SYSTEMD_DIR:-$HR/etc/systemd/system}/trialbox-unseal.service" 644
-      if command -v systemctl >/dev/null 2>&1 && [ -d "$HR/run/systemd/system" ]; then
-        systemctl daemon-reload && systemctl enable trialbox-unseal.service >/dev/null
-      fi
+    if [ -f "$CRED" ]; then
+      hb_say "$CRED is from a run that stopped before any key was wrapped: its KEK is used"
+      cred_open
+    else
+      arm
+      # review of #1457 (1457-11): the credential was looked for before the host lock was held; a run that finished in
+      # between placed its own, and a second seal would move a new one over it (the other folder's keys then open
+      # under no credential). Looked for again under the lock
+      [ ! -e "$CRED" ] || hb_die "$CRED was placed by another run while this one started: run this script again; nothing was changed"
+      # D-836: make the KEK, seal it, and only then wrap the keys under it: a failed seal leaves every key as it was
+      ( umask 077; head -c 32 /dev/urandom > "$NEW" )
+      systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek "$NEW" "$CRED.new" \
+        || hb_die "the TPM could not seal the KEK (above): nothing was changed; $NO_TPM_FIX"
+      # H-111: placed, and on disk, before any key is wrapped under it
+      chmod 600 "$CRED.new"
+      mv -f "$CRED.new" "$CRED"
+      sync -- "$CRED" "$(dirname "$CRED")" 2>/dev/null || sync
     fi
+    keys init --backend file --secrets "$SECRETS" --kek-in "$NEW" \
+      || hb_die "the site keys could not be wrapped (above): the KEK is sealed in $CRED; run this script again"
+    keys unseal --secrets "$SECRETS" --from "$NEW" --out "$KEK_FILE"
+    boot_unit
     ;;
   shamir)
     [ -n "$KEK_SHARES_OUT" ] || hb_die "KEK_BACKEND=shamir needs KEK_SHARES_OUT (removable media)"
@@ -242,10 +320,4 @@ esac
 keys check --secrets "$SECRETS"
 audit_key
 pp_done
-# D-887 (found by the box rehearsal): the keys commands run as root and leave kek.json, the wrapped keys and the
-# runtime KEK root's; the services (the secrets folder's owner, uid 10001) must open them. Owner only: modes stay 0600
-OWNER="$(stat -c %u:%g "$SECRETS")"
-if [ "${OWNER%%:*}" != 0 ] && [ "$(id -u)" = 0 ]; then
-  find "$SECRETS" -maxdepth 1 -type f -user 0 -exec chown "$OWNER" {} +
-  [ -f "$KEK_FILE" ] && chown "$OWNER" "$KEK_FILE" "$(dirname "$KEK_FILE")"
-fi
+hand_over

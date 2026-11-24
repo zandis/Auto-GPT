@@ -32,6 +32,9 @@
 #                   the gateway refuses the call
 #   missing-key     the gateway without the key: the doctor FAILs "refused the key (HTTP 401)", calls are refused
 #   no-registry-pull  the Docker daemon's image events from the clearing of the images to the end: loads, no pull
+#   test-boxes      H-106: a second, TEST box (--test-box, CPU only) beside the first: both healthy; the engine shows no
+#                   shared volume, network, published port or secrets volume; `trialbox` refuses to guess; PRODUCTION
+#                   refuses --test-box and a host where a test box runs; removing it leaves the first whole
 #   swapped-stream  H-95 on this real engine (tools/rehearse_box/h95_probe.py): an image archive swapped on the stick
 #                   after the pin read is refused, and 30 s later no image, no tag, the pinned name unmoved
 #
@@ -40,6 +43,8 @@
 # The rehearsal box is VALIDATION (D-887, the integrator's (i)), run as a validation run on a plain VM: no TPM and the
 # passphrase KEK (TB_KEK_BACKEND=passphrase, a throwaway synthetic passphrase), TB_HOST_PROFILE=poc.
 # TB_REHEARSE_VARIANT=validation adds a root-owned deploy/site and a second install of the same bundle.
+# TB_REHEARSE_TEST_BOXES=0 reports the test-boxes step SKIPPED (the workflow sets it for a pull request outside the
+# step's paths, H-106); unset or 1 runs it.
 # Knobs: TB_REHEARSE_DIR (default a fresh mktemp dir; the same path is mounted in the box container, docker-outside-of-
 # docker), TB_REHEARSE_SKIP_BUILD=1 (use the trialbox-py and trialbox-jvm images already built), TB_REHEARSE_KEEP=1
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
@@ -395,6 +400,8 @@ step screen-after-restart 0 in_box screen second
 step restic-restore 0 in_box restic-restore
 step wrong-name 0 in_box wrong-name
 step missing-key 0 in_box missing-key
+if [ "${TB_REHEARSE_TEST_BOXES:-1}" = 1 ]; then step test-boxes 0 in_box test-boxes
+else N=$((N + 1)); record test-boxes SKIPPED "not run: no second-box path in this pull request (H-106; trains run it)"; fi
 step live-restore 0 in_box live-restore
 step no-registry-pull 0 no_registry_pull
 step swapped-stream 0 swapped_stream
@@ -402,7 +409,7 @@ collect
 teardown
 
 VERDICT=PASS
-for s in "${STATES[@]}"; do [ "$s" = PASS ] || VERDICT=FAIL; done
+for s in "${STATES[@]}"; do case "$s" in PASS|SKIPPED) ;; *) VERDICT=FAIL ;; esac; done  # SKIPPED: H-106 only
 {
   echo "# TrialBox box-install rehearsal ($VARIANT): $VERDICT"
   echo

@@ -22,7 +22,7 @@
 set -u
 GB10=0; GPU_PROFILE=""; GPU_ONLY=0; BASELINE=0; ENV_FILE="$(dirname "$0")/.env"
 WSL2=0; WSL2_DISTRO="${WSL_DISTRO_NAME:-}"; ESCROW=""; RRS=0; RRS_PROBE=""; RRS_INDEX=""
-SECRETS="${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}"
+SECRETS="${TB_SECRETS_HOST_DIR:-}"  # H-106: else the box's own project's volume (OWN_PROJECT, below)
 HR="${TB_HOST_ROOT:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -44,6 +44,11 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# H-106 (OCR 1452-1): this folder's own project: a test box's record beside the settings file (install.sh --check runs
+# before the record is exported), else as before
+OWN_PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$(dirname "$ENV_FILE")/site/test-box.env" 2>/dev/null | tail -1)"
+OWN_PROJECT="${OWN_PROJECT:-${COMPOSE_PROJECT_NAME:-trialbox}}"
+[ -n "$SECRETS" ] || SECRETS="/var/lib/docker/volumes/${OWN_PROJECT}_tb-secrets/_data"
 # REHEARSAL-REAL-SERVERS (H-89): all three or none, never on GB10
 if [ "$RRS" = 1 ] || [ -n "$RRS_PROBE" ] || [ -n "$RRS_INDEX" ]; then
   { [ "$RRS" = 1 ] && [ -n "$RRS_PROBE" ] && [ -n "$RRS_INDEX" ] && [ "$GB10" = 0 ] && [ -n "$GPU_PROFILE" ]; } \
@@ -490,13 +495,13 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   [ -d "$KEK_DIR" ] && KEK_MOUNT="$KEK_DIR:/run/trialbox:ro"
   # D-991: the code systems loaded at install (deploy/terminology.sh), read-only, so doctor's terminology line reports
   # what criteria-compiler, orchestrator and console read
-  TERM_VOL="${COMPOSE_PROJECT_NAME:-trialbox}_tb-terminology"; TERM_MOUNT=""
+  TERM_VOL="${OWN_PROJECT}_tb-terminology"; TERM_MOUNT=""
   docker volume inspect "$TERM_VOL" >/dev/null 2>&1 && TERM_MOUNT="${TERM_VOL}:/data/terminology:ro"
   # NEW-STD-2 (D-562): doctor's audit_heads check reads the secrets volume (the audit key) and the anchor folders
   # (the signed heads) at their host paths, read-only; without them a healthy box FAILed the check in the image
   AUDIT_MOUNTS=""
   SEC_HOST="$(sed -n 's/^TB_SECRETS_HOST_DIR=//p' "$ENV_FILE" | tail -1)"
-  [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)"
+  [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${OWN_PROJECT}_tb-secrets" 2>/dev/null)"
   [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="-v $SEC_HOST:$SEC_HOST:ro -e TB_SECRETS_HOST_DIR=$SEC_HOST"
   # D-887 (found by the box rehearsal in CI): doctor's site_key check reads the site key where the services do
   if [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ]; then AUDIT_MOUNTS="$AUDIT_MOUNTS -v $SEC_HOST:/run/secrets/trialbox:ro"
@@ -527,7 +532,7 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   # D-621: the doctor's container has no network and no docker, so the host hands in what it cannot see: the
   # environment of the running containers (docker inspect, through a pipe: it holds passwords and is never
   # written to a file) and the pid map's row for the site (the fingerprint and the chart-number rule; no secret)
-  PROJECT="${COMPOSE_PROJECT_NAME:-trialbox}"
+  PROJECT="$OWN_PROJECT"  # H-106: this folder's own (a test box's record)
   RUNNING_IDS="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null | tr '\n' ' ')"
   SITE_ID="$(sed -n 's/^TB_SITE_ID=//p' "$ENV_FILE" | tail -1)"
   PIDMAP_ROW=""
