@@ -817,7 +817,9 @@ def test_a_cron_folder_with_no_cron_daemon_is_said(tmp_path: Path) -> None:
     assert "install: no cron daemon runs on this host: nothing runs" in r.stderr
 
 
-def _retention_said(tmp: Path, poc: bool, stubs: dict[str, str], systemd: bool, path: str) -> subprocess.CompletedProcess[str]:
+def _retention_said(
+    tmp: Path, poc: bool, stubs: dict[str, str], systemd: bool, path: str
+) -> subprocess.CompletedProcess[str]:
     """install.sh's own retention lines with the stop helper (a PoC box warns, PRODUCTION stops)."""
     a = INSTALL.index("# H-92 (D-1090): a systemd host")
     b = INSTALL.index('if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]', a)
@@ -830,7 +832,11 @@ def _retention_said(tmp: Path, poc: bool, stubs: dict[str, str], systemd: bool, 
         (stub / name).write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
         (stub / name).chmod(0o755)
     (tmp / "cron.d").mkdir(exist_ok=True)
-    script = HELPER.format(poc=int(poc)) + f"ROOT=/opt/trialbox\nANCHOR_UNSAFE=0\nSYSTEMD_DIR={tmp / 'units'}\n" + INSTALL[a:b]
+    script = (
+        HELPER.format(poc=int(poc))
+        + f"ROOT=/opt/trialbox\nANCHOR_UNSAFE=0\nSYSTEMD_DIR={tmp / 'units'}\n"
+        + INSTALL[a:b]
+    )
     return subprocess.run(["bash", "-c", script.replace("/run/systemd/system", str(run))], capture_output=True,
                           text=True, check=False, timeout=60,
                           env={"PATH": f"{stub}:{path}", "TB_ENV_SITE": "PRODUCTION", "TB_CRON_DIR": str(tmp / "cron.d")})  # fmt: skip
