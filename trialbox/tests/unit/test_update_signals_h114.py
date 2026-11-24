@@ -730,3 +730,34 @@ def test_1461_9_a_stop_while_the_command_is_recorded_still_kills_the_command(
     with pytest.raises(up.UpdateInterrupted):
         up.run_cmd(["sh", "-c", f"sleep 3; echo done > {ran}"])
     assert time.monotonic() - t < 2 and not ran.exists()
+
+
+def test_a_running_record_is_written_whole_never_in_place(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A torn record reads as malformed and is dropped, so a put-back still running would no longer hold the
+    recovery: the record is written whole (temp file, fsync, rename), and it is whole while its command runs."""
+    sys.path.insert(0, str(ROOT))
+    from tools import update_status as us
+    from tools.trialbox import update as up
+
+    real, written = us.write_atomic, []
+
+    def spy(path: Path, data: Any, mode: int = 0o600) -> None:
+        written.append(path)
+        real(path, data, mode)
+
+    monkeypatch.setattr(us, "write_atomic", spy)
+    seen = tmp_path / "seen.json"
+    with up._recording(tmp_path / "updates"):
+        d = f"{tmp_path}/updates/.running"  # the record is written just after the command starts: wait for it
+        up.run_cmd(
+            [
+                "sh",
+                "-c",
+                f'for i in $(seq 100); do ls "{d}"/*.json >/dev/null 2>&1 && break; sleep 0.05; done; '
+                f'cat "{d}"/*.json > "{seen}"',
+            ]
+        )
+    assert [p.parent.name for p in written] == [".running"], written
+    rec = json.loads(seen.read_text())
+    assert rec["argv"][:2] == ["sh", "-c"] and isinstance(rec["pgid"], int)
+    assert not list((tmp_path / "updates" / ".running").iterdir())  # gone once the command ended

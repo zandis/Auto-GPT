@@ -1592,14 +1592,17 @@ def _proc_id(pid: int) -> tuple[str | None, str | None]:
 
 
 def _record_running(pgid: int, argv: Sequence[str]) -> Path | None:
+    from tools import update_status as us
+
     if _running_dir is None:
         return None
     with contextlib.suppress(OSError):
-        _running_dir.mkdir(parents=True, exist_ok=True)
         f = _running_dir / f"{pgid}.json"
         boot, start = _proc_id(pgid)
-        f.write_text(json.dumps({"pgid": pgid, "argv": [str(a) for a in argv[:6]], "at": _now(), "boot": boot,
-                                 "start": start}), encoding="utf-8")  # fmt: skip
+        # written whole (temp file, fsync, rename): a torn record would read as malformed and be dropped, so a put-back
+        # still running would no longer hold the recovery
+        us.write_atomic(f, {"pgid": pgid, "argv": [str(a) for a in argv[:6]], "at": _now(), "boot": boot,
+                            "start": start})  # fmt: skip
         return f
     return None
 
