@@ -189,5 +189,5 @@ def test_h121_the_update_path_runs_as_a_non_root_user_without_docker_s_folder(
         notes = up.Updater(box, deploy / "updates", say=lambda _m: None).space(needs)
     finally:
         docker_root.chmod(0o755)
-    assert ("rollback script (largest database) on the db volume" in " ".join(w for _p, _n, w in needs))
+    assert "rollback script (largest database) on the db volume" in " ".join(w for _p, _n, w in needs)
     assert notes and all("needs" in n for n in notes)
