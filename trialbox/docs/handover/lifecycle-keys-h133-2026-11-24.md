@@ -34,14 +34,22 @@ file the services read stays readable by the services' account; a rotation never
 
 Every file is written through a temporary file, fsync and a rename; each one the services read is theirs before the
 rename. A Ctrl-C or SIGTERM partway raises out of the staging (rolled back) or leaves a committed journal (finished by
-the next command); the test kills the roll-forward at each of its four renames.
+the next command). The test stops the rotation at every rename it makes (the journal's writes, the sealed new KEK, the
+staged keys, the commit, the credential, each key, `kek.json`, the done event): at each stop every key is as it was
+or opens with the KEK in the credential, and after `status --audit-dir` every key opens with the credential in place.
 
 ## Tests
 
+`::test_lr3_lr4_the_owner_comes_from_the_secrets_folder_never_from_a_caller_variable` sets `SUDO_UID`, `SUDO_GID`,
+`TB_SERVICES_UID`, `TB_SECRETS_OWNER` and others in the process environment and in the command's mapping: the owner
+is still the folder's.
+
 Root runs the services as a real other account: a child takes on uid 10001 and opens the files by a descriptor of
 their folder. An ordinary user cannot give a file away, so there the folder's owner is taken to be uid 10001 and each
-change of owner is recorded by inode; the same reads are checked against the recorded owner and the mode. No test is
-skipped as either user. Eleven mutants of the fix (no `fchown`, the run folder kept, the raw `PermissionError`, the
+change of owner is recorded by inode; the same reads are checked against the recorded owner and the mode, and the owner test
+takes the effective uid to be root so the real `services_owner()` and `unseal` run. No test is skipped as either
+user. Only as root: the reads by a real uid-10001 process, a real `chown`, and `services_owner()` of a folder root
+owns; only as an ordinary user: `services_owner()` returning None when not root. Eleven mutants of the fix (no `fchown`, the run folder kept, the raw `PermissionError`, the
 credential never swapped or swapped last, no seal, no staged-key refusal, `rotate pid_map` without the journal check
 or the lock, no tool check, staged keys not handed) each turn at least one of these tests red.
 
