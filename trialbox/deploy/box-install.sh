@@ -17,9 +17,9 @@
 #   3. install:  deploy/install.sh with the plan's answers and flags, TB_BOX=1 (the first-run folder for the console, no
 #                printed administrator password) and, without a TPM, TB_BOX_DEFER_SEAL=1
 #   4. --prepare stops here (deploy/site/box/prepared; trialbox-firstrun.service enabled for the site's first boot)
-#   5. first run: a one-time code (tb_common.firstrun) in /run/trialbox-firstrun (tmpfs), printed with the address and
-#      written to /etc/issue.d (the box's own screen); it waits until the owner has finished the wizard. Five wrong
-#      codes void a code: a new one is shown
+#   5. first run: a one-time code (tb_common.firstrun) in /run/trialbox-firstrun (tmpfs), shown with the address on
+#      a terminal once, never on the output (H-97, show_code); it waits until the owner has finished the wizard. Five
+#      wrong codes void a code: a new one is shown
 #   6. apply:    the keys sealed under the owner's passphrase when deferred; python -m tools.box apply in the image (the
 #                owner's answers into settings.yaml and deploy/.env, the install's passwords kept); the host's time zone;
 #                the stack restarted on the new settings; the backup schedule; the host check with `trialbox doctor`
@@ -37,7 +37,7 @@
 # the environment (TB_KEK_PASSPHRASE) is refused: sudo logs the variables it keeps (RUNBOOK §23, H-96).
 # Knobs for the tests and the rehearsal only: TB_BOX_HARDWARE (a hardware.json instead of detecting), TB_BOX_INSTALL
 # (the install command), TB_BOX_PY (a python command instead of the image), TB_BOX_COMPOSE (the compose command),
-# TB_BOX_HOST_CHECK (the host check command), TB_ISSUE_DIR, TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
+# TB_BOX_HOST_CHECK (the host check command), TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
 # TB_SYSTEMD=0 (as install.sh), TB_BOX_PREFLIGHT (the python command that runs the first-run page's preflight, even
 # with TB_BOX_PY; 10K-3), TB_BOX_PREFLIGHT_S (its time limit, 90 s) and TB_BOX_DOCKER (the docker command that asks
 # the console's image whether it can read the audit anchor folder; 10K-4).
@@ -258,9 +258,8 @@ elif [ -n "$KP_VALUE" ]; then PP_INSTALL=(--kek-passphrase-fd 8); fi
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 FR="${TB_FIRSTRUN_HOST_DIR:-/run/trialbox-firstrun}"
 BOX="$ROOT/deploy/site/box"
-ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
-# BOX-WSL2 (D-571): under WSL2 (the Windows form, plan v7.2 section 2.3) no screen shows /etc/issue.d, and Windows
-# keeps the clock and the time zone. The kernel's release says so; TB_BOX_WSL2=0|1 sets it for a test.
+# BOX-WSL2 (D-571): under WSL2 (the Windows form, plan v7.2 section 2.3) Windows keeps the clock and the time zone.
+# The kernel's release says so; TB_BOX_WSL2=0|1 sets it for a test.
 WSL2=0; case "$(uname -r)" in *[Mm]icrosoft*) WSL2=1 ;; esac
 case "${TB_BOX_WSL2:-}" in "") ;; 0|1) WSL2="$TB_BOX_WSL2" ;; *) stop_or_warn wsl2-value "TB_BOX_WSL2 (the kernel's word: $WSL2)" "TB_BOX_WSL2 is 0 or 1, not '$TB_BOX_WSL2'" ;; esac
 export PYTHONPATH="$ROOT/libs:$ROOT"
@@ -399,19 +398,68 @@ HOST="$(json_get "$BOX/answers.json" tls_hostname)"
 box_address() {  # OPS-005: the box's first address on its network, for a computer that cannot resolve .local
   { hostname -I 2>/dev/null || true; } | awk '{print $1}'
 }
+# H-97 (the integrator's ruling 7101844662, H96-09; H-94 (5): a secret read from or written to a place others can
+# read): the one-time code is never on stdout, which trialbox-firstrun.service sends to the system journal, and never
+# in a file others can read (it was in /etc/issue.d). On stdout only when stdout is a terminal; else on the
+# controlling terminal (the Windows installer's window under WSL2, a terminal whose output is piped to a log); with
+# no terminal at all (the service at boot), on the box's screen, written to the virtual console directly (/dev/tty0,
+# never a serial console a hypervisor may log), and in a root-only file in the home the passwd entry names (0600,
+# made new; a link or anything but a regular file at its name refused, never followed). No variable of the caller
+# names where the code goes. The file is removed once the owner's answers are in, and replaced by a new code
+CODE_FILE=""
+code_file() {  # the root-only file's name: the home of the user that runs this, by its passwd entry (never HOME)
+  local home
+  home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+  [ -n "$home" ] && [ -d "$home" ] || return 1
+  printf '%s/trialbox-firstrun-code\n' "${home%/}"
+}
+drop_code_file() {  # rm takes a link away, never what it names
+  local f
+  f="$(code_file)" || return 0
+  rm -f -- "$f" 2>/dev/null || true
+}
+drop_written_code_file() {  # on a stop: only the file this run wrote (CODE_FILE), never a link planted at the name
+  [ -z "$CODE_FILE" ] || rm -f -- "$CODE_FILE" 2>/dev/null || true
+}
 show_code() {
-  CODE="$(python3 -m tools.box code --firstrun "$FR")"
+  local code text addr shown=""
+  code="$(python3 -m tools.box code --firstrun "$FR")"
   chown 10001:10001 "$FR/code.json" 2>/dev/null || true
-  local text addr
-  text="$(printf '\n  TrialBox set-up:  https://%s/login/first-run\n  One-time code:    %s\n' "$HOST" "$CODE")"
+  text="$(printf '\n  TrialBox set-up:  https://%s/login/first-run\n  One-time code:    %s\n' "$HOST" "$code")"
+  code=""
   addr="$(box_address)"
   [ -z "$addr" ] || text="$text$(printf '\n  If the name does not open: https://%s/login/first-run (the browser warns about the certificate: it names %s)\n' "$addr" "$HOST")"
-  if [ "$WSL2" = 0 ]; then  # the box's own screen; under WSL2 the Windows installer's window shows this output
-    mkdir -p "$(dirname "$ISSUE")"
-    printf '%s\n\n' "$text" > "$ISSUE"
-  fi
   say "open https://$HOST/login/first-run on a computer of the team (or this box) and type the code"
-  printf '%s\n\n' "$text"
+  if [ -t 1 ]; then printf '%s\n\n' "$text"; text=""; return 0; fi
+  # the write itself is checked: a terminal that is gone (a hung-up SSH session) falls through to the screen and file
+  if { printf '%s\n\n' "$text" >> /dev/tty; } 2>/dev/null; then
+    text=""
+    echo "    the one-time code is shown on this terminal only: never in this output, which a log or the journal keeps"
+    return 0
+  fi
+  if [ -c /dev/tty0 ] && { : >> /dev/tty0; } 2>/dev/null; then
+    printf '%s\n\n' "$text" >> /dev/tty0 2>/dev/null && shown="on this box's screen and "
+  fi
+  CODE_FILE="$(code_file)" || CODE_FILE=""
+  if [ -z "$CODE_FILE" ] || [ -L "$CODE_FILE" ] || { [ -e "$CODE_FILE" ] && [ ! -f "$CODE_FILE" ]; }; then
+    # H-94 (5): never followed, never written through
+    echo "box-install: ${CODE_FILE:-the home of uid $(id -u)} is a link or not a regular file (or there is no home): the one-time code is not kept there (H-94 (5)); remove it, then: sudo deploy/box-install.sh --firstrun" >&2
+    CODE_FILE=""
+  else
+    rm -f -- "$CODE_FILE"
+    if ! (umask 077; set -C; printf '%s\n\n' "$text" > "$CODE_FILE") 2>/dev/null; then
+      echo "box-install: $CODE_FILE could not be made new: the one-time code is not kept there (H-94 (5))" >&2
+      CODE_FILE=""
+    fi
+  fi
+  text=""
+  [ -n "$CODE_FILE" ] || [ -n "$shown" ] \
+    || die "no terminal, no screen and no root-only file for the one-time code (above): nothing was shown (H-94 (5)); run it on a terminal: sudo deploy/box-install.sh --firstrun"
+  if [ -n "$CODE_FILE" ]; then
+    echo "    the one-time code is not in this output (a log or the system journal keeps it): it is ${shown}in $CODE_FILE (root only, 0600). On this box or over SSH: sudo cat $CODE_FILE"
+  else
+    echo "    the one-time code is not in this output (a log or the system journal keeps it): it is on this box's screen only"
+  fi
 }
 box_preflight() {  # 10K-3 (D-1361): the live preflight the first-run page shows (tb_common.preflight); never stops the set-up
   # an earlier run's lines never stay: a run that fails or is stopped leaves no file, and the page says "not run yet"
@@ -435,12 +483,19 @@ box_preflight() {  # 10K-3 (D-1361): the live preflight the first-run page shows
   chown 10001:10001 "$FR/preflight.json" 2>/dev/null || true
 }
 box_preflight
+rm -f /etc/issue.d/trialbox-firstrun.issue 2>/dev/null || true  # H-97: an earlier version's copy, readable by all
+# a run stopped while it waits (the service stopped, a time-out, a reboot, a closed terminal) leaves no code file
+trap 'drop_written_code_file' EXIT
+trap 'drop_written_code_file; exit 129' HUP  # H-94 not a stop: the signal's own exit, the code file removed
+trap 'drop_written_code_file; exit 130' INT  # H-94 not a stop: the signal's own exit, the code file removed
+trap 'drop_written_code_file; exit 143' TERM  # H-94 not a stop: the signal's own exit, the code file removed
 show_code
 while [ ! -f "$FR/answers.json" ]; do
   [ -f "$FR/code.json" ] || { echo "    the code was voided (five wrong codes): a new one"; show_code; }
   sleep "${TB_BOX_POLL_S:-5}"
 done
-[ "$WSL2" = 1 ] || rm -f "$ISSUE"
+drop_code_file
+trap - EXIT HUP INT TERM
 
 # ------------------------------------------------------------------------------------------------ 6. apply
 say "applying the owner's answers"

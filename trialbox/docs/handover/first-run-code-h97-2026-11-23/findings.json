@@ -1,0 +1,144 @@
+{
+ "card": "H97",
+ "title": "the first-run code in no journal or file others read; a PRODUCTION box rotates its exposed passphrase (D-1092); no passphrase from a caller's environment",
+ "date": "2026-11-23",
+ "source": "docs/handover/first-run-code-h97-2026-11-23.md",
+ "note": "basis 'shown' means shown by the card's local runs (no Docker, no systemd, no Windows, stand-ins); the container rehearsal was not run by the card.",
+ "findings": [
+  {
+   "id": "H97-01",
+   "severity": "Medium",
+   "claim": "the first-run wizard's one-time code went to stdout, which trialbox-firstrun.service sends to the system journal, and outside WSL2 to /etc/issue.d/trialbox-firstrun.issue, a file every local user reads (H96-09); fixed: box-install.sh show_code writes it to stdout only when stdout is a terminal, else to the controlling terminal, and with no terminal to the virtual console directly and a root-only 0600 file in the passwd home (made new, a link refused, removed when the answers are in); TB_ISSUE_DIR is gone",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/box-install.sh show_code, deploy/systemd/trialbox-firstrun.service"
+  },
+  {
+   "id": "H97-02",
+   "severity": "Low",
+   "claim": "the box rehearsal (tools/rehearse_box/box.sh) runs install.sh and never box-install.sh --firstrun, so the rule has no real-path check there; the first-run step runs in the box-run rehearsal (tests/rehearsal/box-run, its getent shim now names the VM's root home) and the cloud box run (deploy/gcp/box-install-run.sh reads the root-only file), neither run in this session",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "tools/rehearse_box/box.sh, tests/rehearsal/box-run, deploy/gcp/box-install-run.sh"
+  },
+  {
+   "id": "H97-03",
+   "severity": "Low",
+   "claim": "on a box whose screen shows a graphical login (a desktop install) the code written to the virtual console is not seen; the root-only file is the way there (runbook 16 says so). On a VM the virtual console is its display, not a serial console a hypervisor logs; not shown on real hardware or a VM",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/box-install.sh show_code"
+  },
+  {
+   "id": "H97-04",
+   "severity": "Low",
+   "claim": "the code shown on a terminal stays in that terminal's scrollback, and a site that turns on sudo's I/O logging (log_output) would record it with the session; the code is single use and voided after five wrong codes",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/box-install.sh show_code"
+  },
+  {
+   "id": "H97-05",
+   "severity": "Low",
+   "claim": "a box installed before H-97 holds its first-run code in its journal and, outside WSL2, in /etc/issue.d until the next first run removes that file; a code already used opens nothing, and a box still waiting for its owner gets a new code at its next first run",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/box-install.sh"
+  },
+  {
+   "id": "H97-06",
+   "severity": "Medium",
+   "claim": "rc1 refused tools.keys rotate-kek on a PRODUCTION box, so a box sealed under an exposed passphrase could not rotate it (H96-04); fixed by D-1092: a passphrase box rotates to a new passphrase from a root-only file or stdin, with no escrow set, as the audit event keys.rotate_kek (who, when, the box, the two KEK ids; never a value), refused without an audit folder; every other rotate-kek and key ceremony stays refused there",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek, libs/tb_common/rc1_refusals.py (key_ceremonies)"
+  },
+  {
+   "id": "H97-07",
+   "severity": "Low",
+   "claim": "keys.rotate_kek_started and keys.rotate_kek are appended by the host into the audit folder (the audit volume's mount point on a box) beside the console's audit writer; since the review of #1429 (F2) as the folder's owner, each append under the chain's own lock. That a concurrent append by the console keeps the chain was not run on a box with the stack up",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek, tools/key_escrow.py audit"
+  },
+  {
+   "id": "H97-08",
+   "severity": "Low",
+   "claim": "the Windows installer's window (wsl.exe owning the console) as the controlling terminal of box-install.sh under WSL2 is stood in for by a pty; not run on Windows",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "deploy/windows/wsl-setup.sh, deploy/windows/box-install.ps1"
+  },
+  {
+   "id": "H97-09",
+   "severity": "Low",
+   "claim": "the KEK passphrase from a caller's environment was still honoured outside the installers (the review of H-96, L-2): tb_common.kek load_kek derived the KEK from TB_KEK_PASSPHRASE in the process environment, the nightly audit signer's container was given -e TB_KEK_PASSPHRASE (a caller's value in its configuration, docker inspect), and the restic key step forwarded it; fixed: load_kek refuses the process environment's value (the KEK file, read first, and tools.keys' own mapping unchanged), the signer is never given the name, the restic step forwards only TB_KEK_FILE",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "libs/tb_common/kek.py load_kek, tools/trialbox/audit_heads.py PASSED, tools/trialbox/backup_schedule.py"
+  },
+  {
+   "id": "H97-10",
+   "severity": "Low",
+   "claim": "on a host with no TPM, site keys already sealed under the passphrase were a WARN on every box, PRODUCTION too (H-96's L-3); fixed by the integrator's ruling 7104745003: a WARN listed in deploy/site/poc-stops.jsonl on a PoC box (the box's recorded environment decides), else a FAIL; both name the action, reseal under a TPM",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/check_host.sh (the TPM lines)"
+  },
+  {
+   "id": "H97-11",
+   "severity": "Medium",
+   "claim": "rotate-kek wrote its audit event after the key files and kek.json were replaced, so a failed append left a rotated KEK with no event (the review of #1429, F1); fixed: keys.rotate_kek_started before any change (no event, no rotation), keys.rotate_kek after the commit (no event, the journal stays for status --audit-dir)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek"
+  },
+  {
+   "id": "H97-12",
+   "severity": "Medium",
+   "claim": "run as root, an append to the audit volume made that day's file root's, so the console's user could not append until the day rolled over (the review of #1429, F2); fixed for the rotation's events (appended as the folder's owner); the escrow events (escrow-shares, unseal from escrow, a set made by rotate-kek --escrow-out) still append as the caller: not fixed in this card",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py append_audit, tools/key_escrow.py audit"
+  },
+  {
+   "id": "H97-13",
+   "severity": "Medium",
+   "claim": "a rotation killed between the key renames and kek.json's, or two rotations at once, left keys that no tool opened (the review of #1429, F4, F5); fixed: a journal the next status --audit-dir or rotate-kek finishes or rolls back, and an exclusive lock on the secrets folder for the rotation; the other key commands that write the folder (init, wrap, rotate, seal-objects) do not take the lock yet",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek, resume_rotation, _Locked; libs/tb_common/kek.py custody"
+  },
+  {
+   "id": "H97-14",
+   "severity": "Low",
+   "claim": "rotate-kek took any existing folder as the audit folder, so its event could land outside the box's chain (the review of #1429, F3); fixed: the folder must hold the chain's head anchor (HEAD.json)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py audit_chain_problem"
+  },
+  {
+   "id": "H97-15",
+   "severity": "Low",
+   "claim": "the review of #1429, F6, F9, F10: RUNBOOK §23 did not say a rotation re-wraps and does not re-key (now it does, with the re-key step); a failed write to the terminal counted the code as shown (now it falls through to the screen and the root-only file); a first run stopped while it waited left the code file (now a trap removes it)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "docs/runbook/23-key-inventory-and-the-lost-box-list.md, deploy/box-install.sh show_code"
+  }
+ ]
+}
