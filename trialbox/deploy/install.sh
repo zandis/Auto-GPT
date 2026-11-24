@@ -1274,7 +1274,7 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
          OVR_COPY="$ROOT/deploy/site/compose-override.yml"
          # written whole beside it, synced, then renamed over it (never written in place)
          if mkdir -p "$ROOT/deploy/site" && rm -f -- "$OVR_COPY.new" && (umask 077; cat <&6 > "$OVR_COPY.new") \
-             && chmod 0644 "$OVR_COPY.new" && sync -- "$OVR_COPY.new" && mv -f -- "$OVR_COPY.new" "$OVR_COPY" \
+             && { [ "$(id -u)" != 0 ] || chown 0:0 "$OVR_COPY.new"; } && chmod 0644 "$OVR_COPY.new" && sync -- "$OVR_COPY.new" && mv -f -- "$OVR_COPY.new" "$OVR_COPY" \
              && sync -- "$ROOT/deploy/site"; then
            echo "install: note: the compose override $OVR copied to $OVR_COPY (the copy is the one used)" >&2
            OVR="$OVR_COPY"
@@ -1310,7 +1310,7 @@ for cf in $FILES; do
     "$CF_ROOT"/*) ;;
     *) cf_copy="$ROOT/deploy/site/compose-$(basename -- "$cf")"
        if mkdir -p "$ROOT/deploy/site" && exec 6< "$cf" && rm -f -- "$cf_copy.new" && (umask 077; cat <&6 > "$cf_copy.new") \
-           && chmod 0644 "$cf_copy.new" && sync -- "$cf_copy.new" && mv -f -- "$cf_copy.new" "$cf_copy" \
+           && { [ "$(id -u)" != 0 ] || chown 0:0 "$cf_copy.new"; } && chmod 0644 "$cf_copy.new" && sync -- "$cf_copy.new" && mv -f -- "$cf_copy.new" "$cf_copy" \
            && sync -- "$ROOT/deploy/site"; then
          echo "install: note: the compose file $cf is outside $ROOT: copied to $cf_copy (the copy is the one used)" >&2
          for i in "${!COMPOSE[@]}"; do [ "${COMPOSE[$i]}" != "$cf" ] || COMPOSE[i]="$cf_copy"; done

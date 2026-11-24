@@ -629,6 +629,82 @@ def test_the_install_starts_only_from_compose_files_in_its_tree(tmp_path: Path) 
     assert copy.read_text(encoding="utf-8") == "services: {extra: {}}\n"
 
 
+def _copy_loop(tmp: Path, outside: Path, stub: Path | None = None) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """install.sh's own copy lines (OCR 1455-2 (A)) on a box of the test's own: the release's file and ``outside``."""
+    a = INSTALL.index("# OCR 1455-2 (A), the integrator's ruling 7128436810: root's later starts")
+    b = INSTALL.index("# the same file set for every later", a)
+    root = tmp / "box"
+    inside = root / "deploy" / "docker-compose.yml"
+    if not inside.is_symlink():
+        (root / "deploy" / "site").mkdir(parents=True)
+        (root / "releases" / "r1").mkdir(parents=True)
+        (root / "releases" / "r1" / "base.yml").write_text("services: {}\n", encoding="utf-8")
+        inside.symlink_to(root / "releases" / "r1" / "base.yml")
+    script = (f"set -euo pipefail\nROOT={root}\nFILES={inside}:{outside}\nCOMPOSE=(docker compose -f {inside} -f {outside})\n"
+              + INSTALL[a:b] + 'echo "FILES=$FILES"; echo "COMPOSE=${COMPOSE[*]}"\n')  # fmt: skip
+    env = {"PATH": f"{stub}:/usr/bin:/bin"} if stub else None
+    return subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False, timeout=60, env=env
+    ), root
+
+
+def test_the_copy_of_an_outside_compose_file_is_roots(tmp_path: Path) -> None:
+    """OCR 1455-2 (A), the integrator's 7129418551 (3): run as root, the install gives the copy to root (0:0, 0644)."""
+    out = tmp_path / "elsewhere" / "extra.yml"
+    out.parent.mkdir()
+    out.write_text("services: {extra: {}}\n", encoding="utf-8")
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    log = tmp_path / "chown.log"
+    (stub / "id").write_text('#!/bin/sh\ncase "$1" in -u) echo 0 ;; *) /usr/bin/id "$@" ;; esac\n', encoding="utf-8")
+    (stub / "chown").write_text(f'#!/bin/sh\necho "$*" >> {log}\n', encoding="utf-8")
+    for f in ("id", "chown"):
+        (stub / f).chmod(0o755)
+    r, root = _copy_loop(tmp_path, out, stub)
+    copy = root / "deploy" / "site" / "compose-extra.yml"
+    assert r.returncode == 0 and copy.is_file(), r.stderr
+    assert log.read_text(encoding="utf-8") == f"0:0 {copy}.new\n"  # given to root before it takes the name
+    assert copy.stat().st_mode & 0o777 == 0o644 and copy.stat().st_uid == os.geteuid()
+
+
+def test_the_copy_is_refreshed_from_the_source_at_each_install(tmp_path: Path) -> None:
+    """OCR 1455-2 (A), 7129418551 (3): the site changes its file and runs the install again: the copy follows."""
+    out = tmp_path / "elsewhere" / "extra.yml"
+    out.parent.mkdir()
+    out.write_text("services: {extra: {}}\n", encoding="utf-8")
+    r, root = _copy_loop(tmp_path, out)
+    copy = root / "deploy" / "site" / "compose-extra.yml"
+    assert r.returncode == 0 and copy.read_text(encoding="utf-8") == "services: {extra: {}}\n", r.stderr
+    out.write_text("services: {extra: {}, more: {}}\n", encoding="utf-8")
+    r, _ = _copy_loop(tmp_path, out)
+    assert r.returncode == 0 and copy.read_text(encoding="utf-8") == "services: {extra: {}, more: {}}\n", r.stderr
+    assert not list((root / "deploy" / "site").glob("*.new"))
+
+
+def test_the_original_of_a_copied_compose_file_is_never_what_starts(tmp_path: Path) -> None:
+    """OCR 1455-2 (A), 7129418551 (3): the original lies in a folder others can write. The set the install writes
+    names only the copy, so every start (the guard, then compose) reads the copy and goes on; the original is named
+    nowhere."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    out = shared / "extra.yml"
+    out.write_text("services: {extra: {}}\n", encoding="utf-8")
+    shared.chmod(0o777)
+    try:
+        r, root = _copy_loop(tmp_path, out)
+        assert r.returncode == 0, r.stderr
+        files = next(x for x in r.stdout.splitlines() if x.startswith("FILES="))[len("FILES=") :]
+        assert str(out) not in r.stdout and str(out) not in files.split(":")
+        deploy = root / "deploy"
+        (deploy / ".env").write_text(f"TB_ENV=TEST\nCOMPOSE_FILE={files}\n", encoding="utf-8")
+        (deploy / ".env").chmod(0o600)
+        g = subprocess.run(["sh", str(ROOT / "deploy" / "settings_guard.sh"), str(deploy)], capture_output=True,
+                           text=True, check=False, timeout=60, env={"PATH": "/usr/bin:/bin"})  # fmt: skip
+        assert g.returncode == 0 and "REFUSED" not in g.stderr, g.stderr
+    finally:
+        shared.chmod(0o755)
+
+
 def _guard(tmp: Path, env_name: str, compose: Path) -> subprocess.CompletedProcess[str]:
     deploy = tmp / "deploy"
     deploy.mkdir(exist_ok=True)
