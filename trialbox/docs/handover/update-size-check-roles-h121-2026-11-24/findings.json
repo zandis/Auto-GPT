@@ -1,0 +1,63 @@
+{
+ "card": "H121",
+ "title": "the update's size check on a site's database roles",
+ "date": "2026-11-24",
+ "source": "docs/handover/update-size-check-roles-h121-2026-11-24.md",
+ "note": "basis 'shown' means shown by the card's local runs (a local PostgreSQL 16 cluster with the roles made by the install's own db-init scripts, git ancestry of the walk box's releases); the bench host, Docker and the box rehearsal were not run.",
+ "findings": [
+  {
+   "id": "H121-01",
+   "severity": "High",
+   "claim": "the walk box's update ran its installed release's update.py (apply_update.sh runs the installed tree), installed before H-99: it read pg_database_size('hapi') as trialbox on trialbox_wf, refused on a site's roles with the walk's exact error; master's reads were already right, so a box installed before a9cc50c9 cannot update until it is reinstalled once",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "one reinstall with the bootstrap on such a box (the walk did it); the walk's next update is the proof; H-124 for the class (H121-06)"
+  },
+  {
+   "id": "H121-02",
+   "severity": "High",
+   "claim": "nothing in CI runs an update with the previous release's update path (the box rehearsal installs and never updates; the update drill runs the in-process box), so a fault in an installed release's update path is first seen on a real box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "card H-123 (the rehearsal updates from release N-1)"
+  },
+  {
+   "id": "H121-03",
+   "severity": "Medium",
+   "claim": "ComposeBox's size reads never ran against the box's real database container in CI; the rehearsal's doctor phase now checks that trialbox cannot connect to hapi and that db_size reads both databases with DB_SIZE_ROLES through the box's own command line",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "H-121 (this card); the rehearsal job on its pull request is the first run"
+  },
+  {
+   "id": "H121-04",
+   "severity": "Low",
+   "claim": "space_needs counted 0 for a size answer that was not a number (psql succeeded but printed none), so the space check went on without that database; now it stops the update with the same plain line; the fakes of the update tests (test_update_path.py FakeRun, test_host_tree.py STAND_IN_DOCKER, one runner in test_update_safety.py) now answer the size query, no assertion changed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "H-121 (this card)"
+  },
+  {
+   "id": "H121-05",
+   "severity": "Medium",
+   "claim": "the change was not run on the bench host, with Docker or in the box rehearsal: the size reads ran on a local PostgreSQL 16 cluster with the roles of the install's own db-init scripts; the rehearsal check's seconds are an estimate",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the rehearsal job on the pull request, and the walk's next update on the bench host"
+  },
+  {
+   "id": "H121-06",
+   "severity": "High",
+   "claim": "the update's checks and its applying code run from the INSTALLED tree, never from the signed new bundle: tools/apply_update.sh sets ROOT from its own folder (line 55), cd \"$ROOT\" (line 262) and runs python3 -m tools.trialbox update (line 267), which imports tools/trialbox/update.py from that tree (tools/trialbox/__main__.py line 341; install.sh line 810 links /usr/local/bin/trialbox to the installed __main__.py); so a fault in an installed release's update code cannot be fixed by a new bundle, only by a reinstall",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "card H-124 (the update's code from the signed bundle, verified with the installed vendor key)"
+  }
+ ]
+}

@@ -159,6 +159,8 @@ class FakeRun:
             return "true\n"
         if "FROM orch.jobs" in line:  # T-695: no job running, so the update may stop the services
             return "0\n"
+        if "pg_database_size" in line:  # H-121: the size check reads a size (an empty answer stops the update)
+            return "1000\n"
         return ""
 
 
