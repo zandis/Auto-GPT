@@ -103,6 +103,56 @@
    "state": "open",
    "fix": "the reviewer's patch is for backup_schedule.py, which #1455 holds",
    "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-11",
+   "severity": "Medium",
+   "claim": "a rollback cut short (SIGKILL) after a stop inside the host-tree switch left recover a point.json without the moved files: previous release said with the compose file still set aside (review 1461-1, the part left)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "the rollback saves the rollback point before its put-back; test_1461_1_a_rollback_killed_after_a_stop_in_the_switch_is_finished_by_recover",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-12",
+   "severity": "Low",
+   "claim": "a running-command record was trusted by its group id alone (an earlier boot's record, or the id now another's, held the recovery) and sat in a folder a bundle named running could own (review 1461-6)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "the record names the boot and the leader's start time, in deploy/updates/.running; test_1461_6",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-13",
+   "severity": "Low",
+   "claim": "the host-tree rollback lost a site's own link at a release path, and left aside a site file a new release path displaced on a box already on a host tree (review 1461-7)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "sync sets a site's link aside as a file; restore after a switch puts back what was moved; test_1461_7",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-14",
+   "severity": "Low",
+   "claim": "test_1461_1 sent its signal to the test run itself: a regression would end the whole run instead of failing one test (review 1461-8)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "the case runs in a child process",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-15",
+   "severity": "Low",
+   "claim": "a first signal while a command's running record was written left the command running and the rollback waiting for it (review 1461-9)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "the record is written inside the try whose handler kills the group; test_1461_9",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
   }
  ]
 }

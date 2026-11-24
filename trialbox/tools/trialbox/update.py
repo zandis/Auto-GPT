@@ -1581,7 +1581,8 @@ _running_dir: Path | None = None
 
 
 def _proc_id(pid: int) -> tuple[str | None, str | None]:
-    """This boot's id and the process's start time (from the kernel): with the group id, who the record names (review 1461-6)."""
+    """This boot's id and the process's start time (from the kernel): with the group id, who the record names
+    (review 1461-6)."""
     boot = start = None
     with contextlib.suppress(OSError):
         boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
