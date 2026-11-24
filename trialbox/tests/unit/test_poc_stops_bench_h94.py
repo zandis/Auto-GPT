@@ -237,9 +237,15 @@ class Box:
         b.mkdir()
         # id: the installer runs as a user that is not root (as CI does), whoever runs the test: no step of root's
         # (/usr/local/bin, /etc) is reached; chown: the services' group 10001 is not the test user's
-        stand = {"docker": DOCKER, "nvidia-smi": SMI, "chown": "#!/bin/sh\nexit 0\n", "id": ID, "getent": GETENT,
-                 # H-110 (M-SC-3): a host whose cron daemon runs, as a site's does (its absence is a stop of its own)
-                 "pgrep": '#!/bin/sh\ncase " $* " in *" cron "*|*" crond "*) exit 0 ;; esac\nexit 1\n'}
+        stand = {
+            "docker": DOCKER,
+            "nvidia-smi": SMI,
+            "chown": "#!/bin/sh\nexit 0\n",
+            "id": ID,
+            "getent": GETENT,
+            # H-110 (M-SC-3): a host whose cron daemon runs, as a site's does (its absence is a stop of its own)
+            "pgrep": '#!/bin/sh\ncase " $* " in *" cron "*|*" crond "*) exit 0 ;; esac\nexit 1\n',
+        }
         if "python3" not in self.no:
             stand["python3"] = PYTHON
         for name, text in stand.items():
