@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import base64
 import fcntl
+import itertools
 import json
 import os
 import pickle
@@ -48,8 +49,9 @@ from lake.store import Lake
 from matching import decision
 from matching.cascade.judge import AgreementJudge, JudgeReply, verify_span
 from matching.inferred import inferred, sentence_of
-from matching.note_answer import INFERRED_REASON, OTHER_KIND_REASON, note_answer_may
-from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, note_verdict
+from matching.note_answer import INCLUSION_REASON, INFERRED_REASON, OTHER_KIND_REASON, note_answer_may
+from orchestrator.scenarios import nav
+from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, PatientVerdicts, note_verdict
 from tb_common.crypto import pid_for_mrn
 from tb_common.reasons import code_of
 from tb_common.ruleset import Ruleset
@@ -66,6 +68,7 @@ SNAP = "2026-10-04"
 TZ = "Asia/Taipei"
 PRACT, PRACT2, DEPT = "P12345", "P23456", "RHEU"  # doctors of deploy/settings.example.yaml
 POLICY = decision.Policy(0.75, True)  # the world's policy: the default threshold, a pair that may exclude
+POLICIES = [decision.Policy(0.75, True), decision.Policy(0.75, False), decision.Policy(0.95, True)]
 #: the reason code a published verdict carries for an inferred exclusion (the cascade's, ``verdict_of``)
 INFERRED_CODE = code_of(INFERRED_REASON, "unknown", True)
 
@@ -174,7 +177,6 @@ PATIENTS: dict[str, dict[str, Any]] = {  # adults born 1960, a booked RHEU visit
 }
 PID = {k: pid_for_mrn(KEY, v["number"]) for k, v in PATIENTS.items()}
 WHO = {v: k for k, v in PID.items()}
-SCREENED = [k for k, v in PATIENTS.items() if v.get("pract", PRACT) == PRACT]
 
 
 @dataclass(frozen=True)
@@ -185,6 +187,7 @@ class Input:
     cid: str
     patient: str
     quote: str
+    world: str = "exclusions"  # the world whose patient it is: ``exclusions`` (D9) or ``inclusions`` (R7)
 
 
 INPUTS = [
@@ -235,19 +238,105 @@ def test_a_fragment_is_read_in_its_sentence() -> None:
     assert sentence_of(FRAGMENT, PATIENTS["HIV_FRAGMENT"]["note"]) == FRAGMENT_SENTENCE
 
 
+# ------------------------------------------------------------------------------------------------ the inclusions (R22-17)
+# The second world: an inclusion answered "not met" from the notes (the review's R22-17 input), with its own ruleset
+# and patients, so each world's notes say one coherent thing. The cascade finds a note by the shipped terms table (S2):
+# the note questions name words it knows ("pain", "infection") and every note holds one.
+I_AGE, INC, INCJ, I_HIV = "R7-INC-01", "R7-INC-02", "R7-INC-03", "R7-EXC-01"
+I_CRITERIA: list[dict[str, Any]] = [
+    _ir(I_AGE, "inclusion", "structured", "Age 18 or older",
+        {"domain": "demographic", "valueset": "NONE", "age": {"min": 18}}),
+    _ir(INC, "inclusion", "note", "Diagnosis of type 2 diabetes", NOTE_LOGIC,
+        note_question="Do the notes document a diagnosis of type 2 diabetes (not a pain or an infection)?"),
+    _ir(INCJ, "inclusion", "note", "2型糖尿病の診断", NOTE_LOGIC,
+        note_question="2型糖尿病の診断がカルテに記載されていますか？（type 2 diabetes; not a pain or an infection）"),
+    _ir(I_HIV, "exclusion", "note", "Known HIV infection", NOTE_LOGIC,
+        note_question="Do the notes document known HIV infection?"),
+]  # fmt: skip
+I_BY_ID = {c["id"]: CriterionIR.model_validate({**c, "ruleset": "R7"}) for c in I_CRITERIA}
+OFF_TOPIC = "Patient denies chest pain."
+ON_TOPIC = "No history of diabetes. HbA1c 5.2%."
+OFF_TOPIC_JA = "胸痛は否定。"
+ON_TOPIC_JA = "糖尿病の既往なし。HbA1c 5.2%。"
+MET = {INC: "Type 2 diabetes on metformin.", INCJ: "2型糖尿病で治療中。"}  # each inclusion met, when nothing else
+NO_HIV = "No HIV infection."
+I_FILLER = "Routine follow-up; no new infection; vitals stable."
+I_ORACLE = {
+    "2型糖尿病の診断": [Decisive(OFF_TOPIC_JA, "fail", PAIR), Decisive(ON_TOPIC_JA, "fail", PAIR), Decisive(MET[INCJ])],
+    "type 2 diabetes": [Decisive(OFF_TOPIC, "fail", PAIR), Decisive(ON_TOPIC, "fail", PAIR), Decisive(MET[INC])],
+    "known hiv": [Decisive(HAS_HIV, confidence=PAIR), Decisive(NO_HIV, "fail")],
+}  # fmt: skip
+
+
+def _i_note(own: str, cid: str | None = None, hiv: str = NO_HIV) -> str:
+    """``own``, each inclusion other than ``cid`` met, the HIV sentence and the filler."""
+    return " ".join([own, *(s for k, s in MET.items() if k != cid), hiv, I_FILLER])
+
+
+I_PATIENTS: dict[str, dict[str, Any]] = {  # born 1960 unless said, a booked RHEU visit with PRACT unless said
+    "OFF_TOPIC_EN": {"number": "20000101", "note": _i_note(f"{OFF_TOPIC} Vitals stable.", INC)},
+    "ON_TOPIC_EN": {"number": "20000102", "note": _i_note(ON_TOPIC, INC)},
+    "OFF_TOPIC_JA": {"number": "20000103", "note": _i_note(f"{OFF_TOPIC_JA}バイタル安定。", INCJ)},
+    "ON_TOPIC_JA": {"number": "20000104", "note": _i_note(ON_TOPIC_JA, INCJ)},
+    # the controls
+    "CODED_FAIL": {"number": "20000111", "born": "2014-01-01", "note": _i_note("")},  # 12: the coded inclusion fails
+    "I_HIV_STATED": {"number": "20000112", "note": _i_note("", hiv=HAS_HIV)},
+    # the other doctor's patient: screened first, so MICROBATCH finds everyone else new
+    "I_OTHERDOC": {"number": "20000120", "pract": PRACT2, "note": _i_note("")},
+}
+I_INPUTS = [
+    Input("a-off-topic-en", INC, "OFF_TOPIC_EN", OFF_TOPIC, "inclusions"),
+    Input("b-on-topic-en", INC, "ON_TOPIC_EN", ON_TOPIC, "inclusions"),
+    Input("c-off-topic-ja", INCJ, "OFF_TOPIC_JA", OFF_TOPIC_JA, "inclusions"),
+    Input("d-on-topic-ja", INCJ, "ON_TOPIC_JA", ON_TOPIC_JA, "inclusions"),
+]
+I_CONTROLS = [
+    Input("coded-inclusion-fails", I_AGE, "CODED_FAIL", "", "inclusions"),
+    Input("exclusion-stated", I_HIV, "I_HIV_STATED", HAS_HIV, "inclusions"),
+]
+#: every criterion of both worlds, by id (the ids differ)
+ALL_BY_ID = {**BY_ID, **I_BY_ID}
+I_PID = {k: pid_for_mrn(KEY, v["number"]) for k, v in I_PATIENTS.items()}
+WHO.update({v: k for k, v in I_PID.items()})
+
+
+def test_the_inclusion_inputs_are_in_their_patients_notes_and_go_to_review() -> None:
+    for i in [*I_INPUTS, I_CONTROLS[1]]:
+        assert i.quote in I_PATIENTS[i.patient]["note"], i.name
+    for i in I_INPUTS:
+        may = note_answer_may("inclusion", False, i.quote, I_BY_ID[i.cid].text, _i_sentence(i))
+        assert (may.effect, may.reason, may.reading_stands) == ("review", INCLUSION_REASON, True), i.name
+
+
+def _i_sentence(i: Input) -> str:
+    return sentence_of(i.quote, I_PATIENTS[i.patient]["note"])
+
+
+@dataclass(frozen=True)
+class World:
+    """One world: its criteria, patients, scripted pair and the letter of its rulesets (``<L>X``, ``<L>V``, ...)."""
+
+    tag: str
+    letter: str
+    criteria: list[dict[str, Any]]
+    patients: dict[str, dict[str, Any]]
+    oracle: dict[str, list[Decisive]]
+
+
 # ------------------------------------------------------------------------------------------------ the world
 def _res(rtype: str, rid: str, **body: Any) -> dict[str, Any]:
     return {"resourceType": rtype, "id": rid, **body}
 
 
-def build_lake(nd: Path, lake_dir: Path) -> None:
+def build_lake(nd: Path, lake_dir: Path, patients: dict[str, dict[str, Any]]) -> None:
     types = ("Patient", "Practitioner", "Appointment", "Encounter", "DocumentReference", "Condition", "Consent")
     out: dict[str, list[dict[str, Any]]] = {t: [] for t in types}
     for pr in (PRACT, PRACT2):
         out["Practitioner"].append(_res("Practitioner", pr, name=[{"text": f"Dr {pr} (synthetic)"}]))
-    for key, p in PATIENTS.items():
-        pid, ref, pract = PID[key], {"reference": f"Patient/{PID[key]}"}, p.get("pract", PRACT)
-        out["Patient"].append(_res("Patient", pid, gender="female", birthDate="1960-01-01"))
+    for p in patients.values():
+        pid = pid_for_mrn(KEY, p["number"])
+        ref, pract = {"reference": f"Patient/{pid}"}, p.get("pract", PRACT)
+        out["Patient"].append(_res("Patient", pid, gender="female", birthDate=p.get("born", "1960-01-01")))
         out["Appointment"].append(_res(
             "Appointment", f"{pid}-a", status="booked", start="2026-10-08T09:00:00+08:00",
             serviceType=[{"coding": [{"code": DEPT}]}],
@@ -266,9 +355,9 @@ def build_lake(nd: Path, lake_dir: Path) -> None:
     Lake(lake_dir, TZ).rebuild(SNAP, HashEmbedder(), nd)
 
 
-def write_ruleset(root: Path, rid: str, base: str, **manifest: Any) -> Ruleset:
-    """``CRITERIA`` as the approved ruleset ``rid`` under the manifest of the committed ruleset ``base``."""
-    crits = [CriterionIR.model_validate({**c, "ruleset": rid}) for c in CRITERIA]
+def write_ruleset(root: Path, rid: str, base: str, criteria: list[dict[str, Any]], **manifest: Any) -> Ruleset:
+    """``criteria`` as the approved ruleset ``rid`` under the manifest of the committed ruleset ``base``."""
+    crits = [CriterionIR.model_validate({**c, "ruleset": rid}) for c in criteria]
     sql = SqlGenerator(rid, "1.0.0", ValueSets(rid, VALUESETS, Terminology())).render(
         [c for c in crits if c.class_ == "structured"]
     )
@@ -357,9 +446,9 @@ def new_patients_seen(box: Box, job: Any) -> Seen:
     return s
 
 
-def nav_seen(box: Box, job: Any) -> Seen:
+def nav_seen(box: Box, job: Any, patients: dict[str, dict[str, Any]]) -> Seen:
     """NAV: the list a patient is on (``-``: none) and the verdicts of the listed."""
-    s = Seen({k: "-" for k in PATIENTS})
+    s = Seen({k: "-" for k in patients})
     for name, rows in _doc(box, job, "nav_lists_")["lists"].items():
         for r in rows:
             if name != "doc_gaps":
@@ -372,11 +461,17 @@ SCR = {"practitioners": [PRACT, PRACT2], "appointment_window_days": 180, "recent
        "microbatch_window_days": 14}  # fmt: skip
 
 
-def build_world(tmp: Path, pg_cluster_url: str) -> dict[str, Seen]:
+WORLDS = {
+    "exclusions": World("exclusions", "D", CRITERIA, PATIENTS, ORACLE),
+    "inclusions": World("inclusions", "R", I_CRITERIA, I_PATIENTS, I_ORACLE),
+}
+
+
+def build_world(w: World, tmp: Path, pg_cluster_url: str) -> dict[str, Seen]:
     tmp.mkdir(parents=True, exist_ok=True)
     mp = pytest.MonkeyPatch()
     sep = "&" if "?" in pg_cluster_url else "?"
-    mp.setenv("TB_DB_URL", f"{pg_cluster_url}{sep}tb_prefix=noteans{os.getpid()}_")
+    mp.setenv("TB_DB_URL", f"{pg_cluster_url}{sep}tb_prefix=noteans{w.letter.lower()}{os.getpid()}_")
     mp.setenv("TB_TZ", TZ)
     mp.setenv("TB_NOTE_BLOCK", "both_agree")  # the default policy: a note answer excludes when both models agree
     mp.setenv("TB_CANARY_GATE", "off")
@@ -386,39 +481,41 @@ def build_world(tmp: Path, pg_cluster_url: str) -> dict[str, Seen]:
         sec = tmp / "sec"
         sec.mkdir()
         (sec / "site_hmac.key").write_bytes(KEY)
-        build_lake(tmp / "nd", tmp / "lake")
+        build_lake(tmp / "nd", tmp / "lake", w.patients)
         box = make_box(tmp / "box", tmp / "lake", sec, RUN)
         approved = tmp / "approved"
         box.orch.rulesets_dir = approved
-        for rid in ("DX", "DV", "DM", "DMV"):
-            write_ruleset(approved, rid, "GZQO", scopes={"screen": SCR})
-        write_ruleset(approved, "DN", "RA-BIO")  # NAV needs an NHI ruleset: the same criteria
+        lt = w.letter
+        for rid in ("X", "V", "M", "MV"):
+            write_ruleset(approved, lt + rid, "GZQO", w.criteria, scopes={"screen": SCR})
+        write_ruleset(approved, lt + "N", "RA-BIO", w.criteria)  # NAV needs an NHI ruleset: the same criteria
         svc = box.orch.services
-        judge, verifier = quoting_pair(QuotingOracle(ORACLE))
+        judge, verifier = quoting_pair(QuotingOracle(w.oracle))
         svc.llm, svc.verifier = cast(Any, judge), cast(Any, verifier)  # the scripted pair stands in for LlmClient
 
         seen: dict[str, Seen] = {}
         screen = f"pract={PRACT}"
-        seen["screen.cascade"] = screen_seen(box, run_job(box, f"SCREEN DX {screen}"))
-        run_job(box, "MICROBATCH DX incident=0")
-        seen["microbatch.recheck.cascade"] = pool_seen(box, "DX")
-        run_job(box, f"SCREEN DM pract={PRACT2}")
-        seen["microbatch.new.cascade"] = new_patients_seen(box, run_job(box, "MICROBATCH DM"))
-        seen["nav"] = nav_seen(box, run_job(box, "NAV DN dept=RHEU", sender="nurse-rheu@hospa.test"))
+        seen["screen.cascade"] = screen_seen(box, run_job(box, f"SCREEN {lt}X {screen}"))
+        run_job(box, f"MICROBATCH {lt}X incident=0")
+        seen["microbatch.recheck.cascade"] = pool_seen(box, f"{lt}X")
+        run_job(box, f"SCREEN {lt}M pract={PRACT2}")
+        seen["microbatch.new.cascade"] = new_patients_seen(box, run_job(box, f"MICROBATCH {lt}M"))
+        seen["nav"] = nav_seen(box, run_job(box, f"NAV {lt}N dept=RHEU", sender="nurse-rheu@hospa.test"), w.patients)
         case = Seen()
-        for key in SCREENED:
-            p = PATIENTS[key]
-            j = run_job(box, f"CASE DX mrn={p['number']} lang=en", files=(("chart.txt", f"2026-09-20\n{p['note']}".encode()),))  # fmt: skip
+        for key, p in w.patients.items():
+            if p.get("pract", PRACT) != PRACT:
+                continue
+            j = run_job(box, f"CASE {lt}X mrn={p['number']} lang=en", files=(("chart.txt", f"2026-09-20\n{p['note']}".encode()),))  # fmt: skip
             rec = json.loads(next(v for k, v in _outputs(box, j).items() if k.endswith(".json")))
             case.status[key] = "sheet"
             case.rows[key] = _rows(rec["criteria"])
         seen["case"] = case
         mp.setenv("TB_SCREEN_PIPELINE", "v1")
-        seen["screen.v1"] = screen_seen(box, run_job(box, f"SCREEN DV {screen}"))
-        run_job(box, "MICROBATCH DV incident=0")
-        seen["microbatch.recheck.v1"] = pool_seen(box, "DV")
-        run_job(box, f"SCREEN DMV pract={PRACT2}")
-        seen["microbatch.new.v1"] = new_patients_seen(box, run_job(box, "MICROBATCH DMV"))
+        seen["screen.v1"] = screen_seen(box, run_job(box, f"SCREEN {lt}V {screen}"))
+        run_job(box, f"MICROBATCH {lt}V incident=0")
+        seen["microbatch.recheck.v1"] = pool_seen(box, f"{lt}V")
+        run_job(box, f"SCREEN {lt}MV pract={PRACT2}")
+        seen["microbatch.new.v1"] = new_patients_seen(box, run_job(box, f"MICROBATCH {lt}MV"))
         return seen
     finally:
         mp.undo()
@@ -435,72 +532,124 @@ def _reimbursement_open() -> Iterator[None]:
         yield
 
 
-@pytest.fixture(scope="module")
-def world(tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str, worker_id: str) -> dict[str, Seen]:
+def _shared(w: World, tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str, worker_id: str) -> dict[str, Seen]:
     """Every path run once on one box, shared by the run's xdist workers (the first builds it under a lock)."""
     if worker_id == "master":
-        return build_world(tmp_path_factory.mktemp("noteans"), pg_cluster_url)
-    root = tmp_path_factory.getbasetemp().parent / "note-answer-every-path"
+        return build_world(w, tmp_path_factory.mktemp(f"noteans-{w.tag}"), pg_cluster_url)
+    root = tmp_path_factory.getbasetemp().parent / f"note-answer-every-path-{w.tag}"
     root.mkdir(exist_ok=True)
     done = root / "world.pickle"
     with (root / ".lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             if not done.exists():
-                done.write_bytes(pickle.dumps(build_world(root / f"build-{os.getpid()}", pg_cluster_url)))
+                done.write_bytes(pickle.dumps(build_world(w, root / f"build-{os.getpid()}", pg_cluster_url)))
             loaded: dict[str, Seen] = pickle.loads(done.read_bytes())
             return loaded
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
+@pytest.fixture(scope="module")
+def world(tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str, worker_id: str) -> dict[str, Seen]:
+    return _shared(WORLDS["exclusions"], tmp_path_factory, pg_cluster_url, worker_id)
+
+
+@pytest.fixture(scope="module")
+def inclusion_world(tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str, worker_id: str) -> dict[str, Seen]:
+    return _shared(WORLDS["inclusions"], tmp_path_factory, pg_cluster_url, worker_id)
+
+
 # ------------------------------------------------------------------------------------------------ the paths
-#: path -> (what the inferred patient's status must be, what the control's must be). NAV's lists are not tiers:
-#: a patient with an exclusion open is likely_eligible with a 確認 row; one excluded is on no list. A MICROBATCH
-#: re-check re-tiers the pool, which holds no excluded patient. CASE prints a sheet for everyone.
-PATHS: dict[str, tuple[tuple[str | None, ...], tuple[str | None, ...]]] = {
-    "screen.cascade": (("review",), ("excluded",)),
-    "screen.v1": (("review",), ("excluded",)),
-    "microbatch.recheck.cascade": (("review",), (None, "excluded")),
-    "microbatch.recheck.v1": (("review",), (None, "excluded")),
-    "microbatch.new.cascade": (("review",), ("excluded",)),
-    "microbatch.new.v1": (("review",), ("excluded",)),
-    "nav": (("likely_eligible",), ("-",)),
-    "case": (("sheet",), ("sheet",)),
+#: path -> (what an input patient's status must be, what a control's must be), per world. NAV's lists are not tiers:
+#: a patient with an exclusion open is likely_eligible with a 確認 row; one excluded, and one with an inclusion that
+#: is not "yes", is on no list (``-``; NAV's rule for the inclusion is checked at ``nav.classify`` below: open, ruled
+#: acceptable for ring 0 on #639 7079180333 because rc1 refuses NAV on PRODUCTION). A MICROBATCH re-check re-tiers the
+#: pool, which holds no excluded patient. CASE prints a sheet for everyone.
+PATHS: dict[str, dict[str, tuple[tuple[str | None, ...], tuple[str | None, ...]]]] = {
+    "exclusions": {
+        "screen.cascade": (("review",), ("excluded",)),
+        "screen.v1": (("review",), ("excluded",)),
+        "microbatch.recheck.cascade": (("review",), (None, "excluded")),
+        "microbatch.recheck.v1": (("review",), (None, "excluded")),
+        "microbatch.new.cascade": (("review",), ("excluded",)),
+        "microbatch.new.v1": (("review",), ("excluded",)),
+        "nav": (("likely_eligible",), ("-",)),
+        "case": (("sheet",), ("sheet",)),
+    },
 }
-EVERY = [pytest.param(path, i, id=f"{path}-{i.name}") for path in PATHS for i in INPUTS]
-EVERY_CONTROL = [pytest.param(path, i, id=f"{path}-{i.name}") for path in PATHS for i in CONTROLS]
+PATHS["inclusions"] = {**PATHS["exclusions"], "nav": (("-",), ("-",))}
+LISTS = [p for p in PATHS["exclusions"] if p not in ("nav", "case")]  # the paths that publish a tier and the rows
+EVERY = [pytest.param(path, i, id=f"{path}-{i.name}") for path in PATHS["exclusions"] for i in [*INPUTS, *I_INPUTS]]
+EVERY_CONTROL = [
+    pytest.param(path, i, id=f"{path}-{i.world}-{i.name}")
+    for path in PATHS["exclusions"]
+    for i in [*CONTROLS, *I_CONTROLS]
+]
+
+
+def _seen(request: pytest.FixtureRequest, case: Input) -> dict[str, Seen]:
+    seen: dict[str, Seen] = request.getfixturevalue("world" if case.world == "exclusions" else "inclusion_world")
+    return seen
 
 
 @pytest.mark.parametrize(("path", "case"), EVERY)
-def test_an_inferred_exclusion_sends_the_patient_to_review_on_every_path(
-    world: dict[str, Seen], path: str, case: Input
-) -> None:
-    """The patient's status is review (never excluded), and the criterion's published verdict is ``unknown`` with
-    the cascade's code for the reason and the quote kept: not a ``fail`` that excludes, nor one held back later."""
-    s = world[path]
-    assert s.status.get(case.patient) in PATHS[path][0], (path, case.name, s.status.get(case.patient))
+def test_a_note_answer_never_excludes_on_any_path(request: pytest.FixtureRequest, path: str, case: Input) -> None:
+    """The one test of rc1 line 2: every screening scenario, every input of the review, through the one rule. The
+    patient's status is review, never excluded.
+
+    * an inferred exclusion (R22-16): the criterion's published verdict is ``unknown`` with the cascade's code for the
+      reason and the quote kept, not a ``fail`` that excludes, nor one held back later;
+    * an inclusion "not met" from the notes (R22-17): the published row stays "not met" with the quote kept (a person
+      reads what the notes said), and the status rule answers it ``unknown``. On the lists, the patient's other note
+      criteria were judged: the cascade did not stop at the inclusion as at a hard fail (CAS-3)."""
+    s = _seen(request, case)[path]
+    want = PATHS[case.world][path][0]
+    assert s.status.get(case.patient) in want, (path, case.name, s.status.get(case.patient))
+    if case.world == "inclusions" and path == "nav":
+        return  # on no list, so nothing published about the patient: NAV's rule is checked below
     row = s.rows[case.patient][case.cid]
-    assert row["verdict"] == "unknown", (path, case.name, row)
-    ev = row.get("evidence") or {}
-    if path != "case":  # CASE's sheet row is its own shape: the reason and quote at the top level
-        assert ev.get("reason") == INFERRED_CODE, (path, case.name, row)
-        assert ev.get("quote") == case.quote, (path, case.name, row)
-        v = CriterionVerdict.model_validate(row)
-        assert decision.answer_of(BY_ID[case.cid], v, POLICY) == "unknown"
+    if case.world == "exclusions":
+        assert row["verdict"] == "unknown", (path, case.name, row)
     else:
+        assert row["verdict"] == "fail", (path, case.name, row)
+    if path == "case":  # CASE's sheet row is its own shape: the reason and quote at the top level
         assert row.get("quote") == case.quote, (path, case.name, row)
+        return
+    ev = row.get("evidence") or {}
+    assert ev.get("quote") == case.quote, (path, case.name, row)
+    if case.world == "exclusions":
+        assert ev.get("reason") == INFERRED_CODE, (path, case.name, row)
+    assert decision.answer_of(ALL_BY_ID[case.cid], CriterionVerdict.model_validate(row), POLICY) == "unknown"
+    if case.world == "inclusions":
+        others = {cid: r["verdict"] for cid, r in s.rows[case.patient].items() if cid != case.cid}
+        want_others = {I_AGE: "pass", I_HIV: "pass", (INCJ if case.cid == INC else INC): "pass"}
+        assert others == want_others, (path, case.name, others)
 
 
 @pytest.mark.parametrize(("path", "case"), EVERY_CONTROL)
-def test_a_quote_that_states_the_condition_still_excludes_on_every_path(
-    world: dict[str, Seen], path: str, case: Input
+def test_a_stated_exclusion_or_a_coded_inclusion_still_excludes_on_every_path(
+    request: pytest.FixtureRequest, path: str, case: Input
 ) -> None:
-    s = world[path]
-    assert s.status.get(case.patient) in PATHS[path][1], (path, case.name, s.status.get(case.patient))
+    s = _seen(request, case)[path]
+    assert s.status.get(case.patient) in PATHS[case.world][path][1], (path, case.name, s.status.get(case.patient))
     row = s.rows.get(case.patient, {}).get(case.cid)
     if row is not None:  # the excluded list and NAV's "on no list" carry no verdict of the control's criterion
         assert row["verdict"] == "fail", (path, case.name, row)
+
+
+@pytest.mark.parametrize("tag", ["exclusions", "inclusions"])
+def test_each_world_lists_every_input_on_each_list_path(request: pytest.FixtureRequest, tag: str) -> None:
+    """The premise: every list path screened the inputs, and the controls are excluded where a list says so (a path
+    that published nothing would pass the control check with None on a re-check)."""
+    seen: dict[str, Seen] = request.getfixturevalue("world" if tag == "exclusions" else "inclusion_world")
+    inputs = INPUTS if tag == "exclusions" else I_INPUTS
+    controls = CONTROLS if tag == "exclusions" else I_CONTROLS
+    for path in LISTS:
+        missing = [i.patient for i in inputs if i.patient not in seen[path].status]
+        assert not missing, (path, missing)
+    for path in ("screen.cascade", "screen.v1", "microbatch.new.cascade", "microbatch.new.v1"):
+        assert all(seen[path].status.get(i.patient) == "excluded" for i in controls), path
 
 
 # ------------------------------------------------------------------------------------------------ each rule itself
@@ -630,6 +779,162 @@ def test_an_inclusion_is_never_affected(kind: str) -> None:
         assert (v.verdict, o.status) == ("pass", "pass")
     else:
         assert (v.verdict, o.status) == ("unknown", "unknown")
+
+
+# ------------------------------------------------------------------------------------------------ the inclusion rule itself (R22-17)
+def _i_note_row(i: Input, *, basis: Any = "pair", final: bool | None = True, conf: float = PAIR) -> CriterionVerdict:
+    """A note "not met" resting on the quote, as a path publishes or stores it."""
+    return CriterionVerdict(
+        id=i.cid,
+        verdict="fail",
+        evidence=Evidence(resource_refs=["DocumentReference/d1"], quote=i.quote, confidence=conf, reason="note"),
+        basis=basis,
+        final=final,
+        prov=["c-judge", "c-verifier"],
+        affirmed=True,  # round 5 of R22-16 (#639 7115208555): both models affirmed it (judge v6)
+    )
+
+
+def _i_met(cid: str) -> CriterionVerdict:
+    if cid == I_AGE:
+        return CriterionVerdict(id=cid, verdict="pass", evidence=Evidence(resource_refs=[], reason="coded"),
+                                basis="coded", prov=[])  # fmt: skip
+    return CriterionVerdict(id=cid, verdict="pass",
+                            evidence=Evidence(resource_refs=["DocumentReference/d1"], quote="q", confidence=PAIR,
+                                              reason="note"), basis="pair", prov=["c"])  # fmt: skip
+
+
+def _i_patient(row: CriterionVerdict) -> list[CriterionVerdict]:
+    return [row if row.id == cid else _i_met(cid) for cid in I_BY_ID]
+
+
+I_ROWS = [
+    pytest.param(i, basis, final, conf, id=f"{i.name}-{basis}-{final}-{conf}")
+    for i, (basis, final), conf in itertools.product(
+        I_INPUTS, [("pair", True), ("pair", False), ("single", False), (None, None)], (PAIR, 0.5)
+    )
+]
+
+
+@pytest.mark.parametrize("policy", POLICIES, ids=lambda p: f"t{p.threshold}-block{p.note_block}")
+@pytest.mark.parametrize(("case", "basis", "final", "conf"), I_ROWS)
+def test_the_status_rule_answers_a_note_inclusion_not_met_unknown_under_every_policy(
+    case: Input, basis: Any, final: bool | None, conf: float, policy: decision.Policy
+) -> None:
+    """``answer_of``: SCREEN on v1, MICROBATCH (a stored pool row too), NAV's answers and the cascade's published tier.
+    Whatever the policy, the basis, ``final`` or the confidence: ``unknown``, and the patient's status review."""
+    v = _i_note_row(case, basis=basis, final=final, conf=conf)
+    assert decision.answer_of(I_BY_ID[case.cid], v, policy) == "unknown"
+    assert decision.status_of(I_BY_ID, _i_patient(v), policy).tier == "review"
+
+
+@pytest.mark.parametrize("case", [pytest.param(i, id=f"mixed-{i.name}") for i in I_INPUTS])
+def test_a_mixed_inclusion_the_codes_did_not_settle_is_a_note_answer(case: Input) -> None:
+    c = I_BY_ID[case.cid].model_copy(update={"class_": "mixed"})
+    v = _i_note_row(case)
+    assert decision.is_note_answer(c, v)
+    assert decision.answer_of(c, v, POLICY) == "unknown"
+
+
+@pytest.mark.parametrize("policy", POLICIES, ids=lambda p: f"t{p.threshold}-block{p.note_block}")
+def test_the_records_answer_and_a_persons_still_exclude(policy: decision.Policy) -> None:
+    """Controls of the status rule: a coded inclusion "not met" (structured, and a mixed one the codes settled: no
+    model confidence), and a person's "not met" on the note inclusion, exclude under every policy."""
+    coded = CriterionVerdict(id=I_AGE, verdict="fail", evidence=Evidence(resource_refs=[], reason="coded"),
+                             basis="coded", prov=[])  # fmt: skip
+    assert decision.answer_of(I_BY_ID[I_AGE], coded, policy) == "no"
+    assert decision.status_of(I_BY_ID, _i_patient(coded), policy).tier == "excluded"
+    settled = CriterionVerdict(id=INC, verdict="fail", evidence=Evidence(resource_refs=["Condition/c1"], reason="coded"),
+                               basis="coded", prov=[])  # fmt: skip
+    assert decision.answer_of(I_BY_ID[INC].model_copy(update={"class_": "mixed"}), settled, policy) == "no"
+    person = CriterionVerdict(id=INC, verdict="fail", evidence=Evidence(resource_refs=[], reason="human"),
+                              basis="person", prov=[])  # fmt: skip
+    assert decision.answer_of(I_BY_ID[INC], person, policy) == "no"
+
+
+def test_an_exclusion_whose_quote_states_the_condition_still_excludes() -> None:
+    v = _i_note_row(I_CONTROLS[1])
+    assert decision.answer_of(I_BY_ID[I_HIV], v, POLICY) == "no"
+    assert decision.status_of(I_BY_ID, _i_patient(v), POLICY).tier == "excluded"
+
+
+def _i_note_result(i: Input) -> NoteResult:
+    return NoteResult(
+        "fail",
+        PAIR,
+        i.quote,
+        "2026-09-20",
+        "note",
+        dids=["d1"],
+        calls=["c-judge", "c-verifier"],
+        sentence=_i_sentence(i),
+        affirmed=True,  # round 5 of R22-16: both models affirmed it (judge v6)
+    )
+
+
+@pytest.mark.parametrize("case", [pytest.param(i, id=f"v1.note_verdict-{i.name}") for i in I_INPUTS])
+def test_the_v1_row_stays_not_met_and_the_status_is_review(case: Input) -> None:
+    """``note_verdict`` (SCREEN on v1, NAV, CASE, MICROBATCH on v1): the row is the pair's "not met" with its quote;
+    the status rule reads it as a person's check."""
+    v = note_verdict(I_BY_ID[case.cid], _i_note_result(case), pair=True)
+    assert (v.verdict, v.basis) == ("fail", "pair")
+    assert v.evidence is not None and v.evidence.quote == case.quote
+    assert decision.status_of(I_BY_ID, _i_patient(v), POLICY).tier == "review"
+
+
+class _IRs:
+    """The one thing ``nav.classify`` asks of a ruleset."""
+
+    def by_id(self) -> dict[str, CriterionIR]:
+        return I_BY_ID
+
+
+@pytest.mark.parametrize("case", [pytest.param(i, id=f"nav.classify-{i.name}") for i in I_INPUTS])
+def test_nav_reads_an_inclusion_not_met_from_the_notes_as_a_row_to_confirm(case: Input) -> None:
+    """NAV (line 83: the status rule's answer per criterion): the inclusion is a 確認 row, not a "no". A patient with
+    an inclusion not "yes" is on no NAV list (``nav.lists``), so the row is what NAV's rule changes."""
+    v = note_verdict(I_BY_ID[case.cid], _i_note_result(case), pair=True)
+    pv = PatientVerdicts("P1", _i_patient(v), "review", [], 0)
+    name, missing = nav.classify(cast(Any, _IRs()), pv, None, None, RUN, 42, 90, 0.75, True)
+    assert name is None and [m.criterion_id for m in missing] == [case.cid]
+
+
+@pytest.mark.parametrize("case", [pytest.param(i, id=f"nav.classify-{i.name}") for i in I_CONTROLS])
+def test_nav_reads_a_coded_inclusion_or_a_stated_exclusion_as_a_no(case: Input) -> None:
+    if case.cid == I_AGE:
+        v = CriterionVerdict(id=I_AGE, verdict="fail", evidence=Evidence(resource_refs=[], reason="coded"),
+                             basis="coded", prov=[])  # fmt: skip
+    else:
+        v = _i_note_row(case)
+    pv = PatientVerdicts("P1", _i_patient(v), "excluded", [], 0)
+    assert nav.classify(cast(Any, _IRs()), pv, None, None, RUN, 42, 90, 0.75, True) == (None, [])
+
+
+def _i_cascade(i: Input, note_block: bool, stage: str = "S3") -> Any:
+    reply = JudgeReply("fail", PAIR, i.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test",
+                       affirmed=True)  # round 5 of R22-16: a pair of judge v6  # fmt: skip
+    span = {**SPAN, "quote": i.quote, "sentence": _i_sentence(i)}
+    return _run_for_map(note_block)._map(I_BY_ID[i.cid], reply, span, stage)
+
+
+@pytest.mark.parametrize("note_block", [True, False], ids=["block", "no-block"])
+@pytest.mark.parametrize("stage", ["S3", "S4"])
+@pytest.mark.parametrize("case", [pytest.param(i, id=f"cascade.map-{i.name}") for i in I_INPUTS])
+def test_the_cascade_outcome_of_an_inclusion_not_met_is_a_soft_fail(case: Input, stage: str, note_block: bool) -> None:
+    """``engine._map`` (SCREEN on the cascade, MICROBATCH's screen of new patients): "not met", never hard (no CAS-3
+    stop, no exclusion, no recall stratum), whatever the policy."""
+    o = _i_cascade(case, note_block, stage)
+    assert (o.status, o.hard, o.stratum) == ("fail", False, None)
+
+
+def test_the_cascade_outcome_of_a_stated_exclusion_is_a_hard_fail() -> None:
+    c = I_CONTROLS[1]
+    reply = JudgeReply("pass", PAIR, c.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test",
+                       affirmed=True)  # round 5 of R22-16: both models affirmed it  # fmt: skip
+    o = _run_for_map(True)._map(I_BY_ID[c.cid], reply, {**SPAN, "quote": c.quote}, "S3")
+    assert (o.status, o.hard) == ("fail", True)
+    unsaid = _run_for_map(True)._map(I_BY_ID[c.cid], replace(reply, affirmed=False), {**SPAN, "quote": c.quote}, "S3")
+    assert (unsaid.status, unsaid.hard) == ("unknown", False)  # round 5: not affirmed by both models
 
 
 # ------------------------------------------------------------------------------------------------ the report sentences
