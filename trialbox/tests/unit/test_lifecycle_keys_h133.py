@@ -615,3 +615,106 @@ def test_lr6_seal_tpm_on_a_new_board_without_the_sealing_tool_is_refused_before_
     assert rc == 1
     assert _state(b["sec"]) == before and not b["cred"].parent.exists()
     assert {f.relative_to(b["audit"]).as_posix(): f.read_bytes() for f in b["audit"].rglob("*") if f.is_file()} == audit
+
+
+def _everything(b: dict[str, Path]) -> dict[str, str]:
+    """What a refused rotation must leave as it was: the secrets folder (no journal), the audit folder, the
+    credential's folder and the media folder (no new KEK file), each file by its digest."""
+    out: dict[str, str] = {}
+    for key in ("sec", "audit", "media"):
+        for f in sorted(b[key].rglob("*")):
+            if f.is_file():
+                out[f"{key}/{f.relative_to(b[key]).as_posix()}"] = hashlib.sha256(f.read_bytes()).hexdigest()
+    folder = b["cred"].parent
+    with contextlib.suppress(OSError):
+        for f in sorted(folder.iterdir()):
+            out[f"cred/{f.name}"] = hashlib.sha256(f.read_bytes()).hexdigest()
+    return out
+
+
+def _rotate_file(b: dict[str, Path], *more: str) -> int:
+    return keys.main(["rotate-kek", "--backend", "file", "--secrets", str(b["sec"]), "--kek-out",
+                      str(b["media"] / "kek.new"), "--audit-dir", str(b["audit"]), "--out", str(b["run"] / "kek"),
+                      *more], env={**DEV, "TB_KEK_FILE": str(b["run"] / "kek")})  # fmt: skip
+
+
+def test_1478_2_an_account_that_cannot_look_for_the_credential_is_refused_with_nothing_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review of #1478 (1478-2): rotate-kek --backend file by an account that cannot look in the credential's folder
+    went on and said done, the credential left on the old KEK. It is refused before the lock, the journal or any
+    event. As an ordinary user the folder is made unreadable for real; root reads any folder, so there the seam
+    (``_credential_present`` answering "cannot tell") stands in."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    before = _everything(b)
+    folder = b["cred"].parent
+    if ROOT:
+        monkeypatch.setattr(keys, "_credential_present", lambda: None)
+    else:
+        folder.chmod(0o000)
+    try:
+        rc = _rotate_file(b)
+    finally:
+        folder.chmod(0o700)
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "cannot be looked in by this account" in err and "--no-tpm" in err and "Nothing was changed" in err
+    assert _everything(b) == before
+    assert _sealed_opens(b)
+
+
+@pytest.mark.parametrize(
+    ("argv", "says"),
+    [
+        (["--no-tpm", "--seal-tpm"], "--no-tpm and --seal-tpm: give one"),
+        (["--no-tpm"], "--no-tpm is refused"),
+    ],
+    ids=["with-seal-tpm", "credential-there"],
+)
+def test_1478_2_no_tpm_is_refused_with_seal_tpm_or_where_a_credential_is_there(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: list[str], says: str
+) -> None:
+    """Review of #1478 (1478-2): --no-tpm is the only way to say there is no TPM credential, so it is refused beside
+    --seal-tpm and on a box whose credential is there; nothing is changed."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    before = _everything(b)
+    assert _rotate_file(b, *argv) == 1
+    assert says in capsys.readouterr().err
+    assert _everything(b) == before
+
+
+def test_1478_2_no_tpm_is_for_the_file_back_end_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review of #1478 (1478-2): --no-tpm with another back end is refused; nothing is changed."""
+    own = Owners(monkeypatch)
+    b = _passphrase_box(tmp_path, own)
+    before = _state(b["sec"])
+    audit = _state(b["audit"])
+    assert keys.main([*_rotate_argv(b), "--no-tpm"], env=DEV) == 1
+    assert "--no-tpm is for the file back end" in capsys.readouterr().err
+    assert _state(b["sec"]) == before and _state(b["audit"]) == audit
+
+
+def test_1478_2_no_tpm_on_a_box_without_a_credential_rotates_and_looks_for_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #1478 (1478-2): a file-back-end box with no TPM credential rotates with --no-tpm, and the rotation
+    neither looks for a credential nor makes its folder."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    b["cred"].unlink()
+    b["cred"].parent.rmdir()
+    called: list[list[str]] = []
+
+    def creds(argv: list[str], data: bytes) -> Any:
+        called.append(argv)
+        raise AssertionError("the sealing tool was run under --no-tpm")
+
+    monkeypatch.setattr(keys, "_creds", creds)
+    old_id = (K.read_meta(b["sec"]) or {})["kek_id"]
+    assert _rotate_file(b, "--no-tpm") == 0
+    assert (K.read_meta(b["sec"]) or {})["kek_id"] != old_id and _runtime_opens(b)
+    assert not b["cred"].parent.exists() and called == []  # nothing sealed, opened or made
