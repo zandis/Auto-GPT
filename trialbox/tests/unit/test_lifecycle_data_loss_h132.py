@@ -149,6 +149,77 @@ def test_lr11_a_record_that_names_no_scope_removes_nothing(tmp_path: Path) -> No
     assert eng.tags["theirs:1"] == T1 and X in eng.ids
 
 
+def test_lr11_a_tag_moved_back_takes_the_new_image_it_pointed_at(tmp_path: Path) -> None:
+    """The rehearsal's swapped-stream case on a real engine (#1481 CI): the box held ``app:1`` at A; the failed load
+    re-pointed it at a new image whose id the archive's names do not give (the engine's own digest). The undo moves
+    the tag back and removes that image too; an untagged image another user pulled meanwhile stays."""
+    from tools.trialbox import update as up
+
+    eng = SharedEngine({"app:1": A})
+    before = up.image_state(eng)
+    eng.tags["app:1"] = B  # the load: the pinned name re-pointed at a new image
+    eng.ids.add(B)
+    eng.ids.add(X)  # meanwhile another user's untagged image
+    up.undo_load(before, eng, ({"app:1"}, {T1}))  # the archive named another digest than the engine's id
+    assert eng.tags == {"app:1": A} and B not in eng.ids and X in eng.ids
+
+
+@pytest.mark.parametrize("swap_tag", ["app:1", "db:16"])
+def test_lr11_a_stream_without_a_rollback_point_undoes_the_swapped_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, swap_tag: str
+) -> None:
+    """``stream_image`` called as the rehearsal's probe calls it (no rollback point): an archive swapped after the pin
+    read, another image under the pinned name the box already holds. The refusal leaves the engine as it was."""
+    import hashlib
+    import io
+    import json
+    import subprocess
+    import tarfile
+
+    from tools.trialbox import update as up
+
+    def archive(tag: str, config: str) -> bytes:
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tf:
+            for name, data in (("layer.tar", b"\0" * 4096),
+                               ("manifest.json", json.dumps([{"Config": f"{config}.json", "RepoTags": [tag]}]).encode())):  # fmt: skip
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+        return buf.getvalue()
+
+    original = archive("app:1", "c" * 64)
+    swapped = archive(swap_tag, "e" * 64)
+    size = len(swapped) + 3 * up.HOLD_BACK
+    stick = tmp_path / "stick.bin"
+    stick.write_bytes(swapped + b"\0" * (size - len(swapped)))  # the stick after the swap
+    p = up.Streamed(stick, "engine.tar", "image", hashlib.sha256(original).hexdigest(), size, 0)
+    eng = SharedEngine({"app:1": A})
+    new_id = "sha256:" + "d" * 64  # the engine's own id for the swapped image (not the archive's config digest)
+
+    class Load:
+        def __init__(self, *a: object, **kw: object) -> None:
+            self.stdin = io.BytesIO()
+            self.stdin.close = lambda: None  # type: ignore[method-assign]
+            # the pinned name: the load says it; a new name (db:16): it says nothing (a late registration)
+            self.stdout = io.BytesIO(b"Loaded image: app:1\n" if swap_tag == "app:1" else b"")
+
+        def wait(self, timeout: float | None = None) -> int:
+            # the pinned name: the engine's own id; a new name: the archive's config digest, named only by the bytes
+            iid = new_id if swap_tag == "app:1" else "sha256:" + "e" * 64
+            eng.tags[swap_tag] = iid
+            eng.ids.add(iid)
+            return 0
+
+        def kill(self) -> None:
+            pass
+
+    monkeypatch.setattr(subprocess, "Popen", Load)
+    with pytest.raises(up.UpdateFailed, match="undone"):
+        up.stream_image(p, {"app:1": "sha256:" + "c" * 64}, set(), eng)
+    assert eng.tags == {"app:1": A} and eng.ids == {A}  # master 513758e3: the new image stayed, untagged
+
+
 def test_lr11_the_scope_is_read_from_the_bytes_handed_to_the_load() -> None:
     """An archive swapped after its pins were read names its own tags in the bytes the load gets: those are this
     load's, and only those."""

@@ -588,6 +588,11 @@ def undo_load(
     own_tags, own_ids = scope
     old_tags, old_ids = before
     new_tags, new_ids = image_state(run)
+    # an image a tag of this load now names and the engine did not hold before is this load's, whatever digest the
+    # engine gives it (a store that names images by another digest than the archive's)
+    own_ids = set(own_ids) | {
+        i for t, i in new_tags.items() if t in own_tags and old_tags.get(t) != i and i not in old_ids
+    }
     done: list[str] = []
     for tag, iid in sorted(new_tags.items()):
         if old_tags.get(tag) == iid or tag not in own_tags:
@@ -751,11 +756,11 @@ def stream_image(
     def hand_on(data: bytes) -> None:
         watch.feed(data)
         seen = watch.scope()
-        if rb is not None and point is not None and not (seen[0] <= own[0] and seen[1] <= own[1]):
-            own[0].update(seen[0])  # H-132 (LR-11): what the bytes handed on name, recorded before the load gets them
+        if not (seen[0] <= own[0] and seen[1] <= own[1]):
+            own[0].update(seen[0])  # H-132 (LR-11): what the bytes handed on name, before the load gets them
             own[1].update(seen[1])
-            rec = point.extra.get(LOAD_BEFORE)
-            if isinstance(rec, dict):
+            rec = point.extra.get(LOAD_BEFORE) if point is not None else None
+            if rb is not None and point is not None and isinstance(rec, dict):  # and in the record, for a kill
                 rec.update(scope_tags=sorted(own[0]), scope_ids=sorted(own[1]))
                 save_point(rb, point)
         assert proc.stdin is not None
