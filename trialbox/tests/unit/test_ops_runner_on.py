@@ -91,6 +91,7 @@ def _deploy(tmp_path: Path, at: datetime | None) -> Path:
 
 
 def _check(deploy: Path | None, env: str, **kw: Any) -> doctor.Check:
+    kw.setdefault("timer_state", lambda unit: None)  # H-115: a host of the test's own, never the machine's systemd
     inp = doctor.DoctorInputs(env={"TB_ENV": env}, deploy=deploy, **kw)
     return doctor.check_ops_runner(inp, now=NOW)
 
@@ -102,7 +103,9 @@ def test_doctor_passes_a_runner_that_wrote_its_record_this_hour(tmp_path: Path) 
 
 @pytest.mark.parametrize(("env", "status"), [("PRODUCTION", "FAIL"), ("VALIDATION", "FAIL"), ("DEV", "WARN"), ("TEST", "WARN")])  # fmt: skip
 def test_doctor_fails_a_runner_that_never_ran(tmp_path: Path, env: str, status: str) -> None:
-    c = _check(_deploy(tmp_path, None), env)
+    # H-115: a host of the test's own whose systemd cannot be asked, not the machine's (a box running the tests has
+    # the timer enabled, and doctor rightly says so instead)
+    c = _check(_deploy(tmp_path, None), env, timer_state=lambda unit: None)
     assert c.status == status and "systemctl enable --now trialbox-ops.timer" in c.detail
 
 
@@ -140,3 +143,10 @@ def test_a_record_that_does_not_parse_is_not_a_pass(tmp_path: Path) -> None:
 
 def test_the_check_is_one_of_doctors() -> None:
     assert doctor.check_ops_runner in doctor.CHECKS
+
+
+def test_no_check_here_asks_the_machines_own_systemd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H-115 (1462-8): every doctor check in this file is given a host of its own."""
+    monkeypatch.setattr(doctor, "_timer_state", lambda unit: pytest.fail("asked the machine's systemd"))
+    test_doctor_fails_a_record_dated_after_the_clock(tmp_path / "a")
+    test_a_record_that_does_not_parse_is_not_a_pass(tmp_path / "b")
