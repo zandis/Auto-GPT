@@ -5,6 +5,11 @@
 leaves both in place cannot tell when one is lost (the review's mutation M3 survived). Here each guard is checked
 by itself: once through the real rule, once with ``held_back`` taken out so that only the ``basis`` check stands.
 A ``pair`` answer under the same input does exclude, so the checks are not vacuous.
+
+R22-17 (D-1069; ruled on #639 7088402135): a note inclusion's "not met" goes to review whatever its basis, so for the
+inclusion the basis check shows in what the answer may print, not in the status: whether the "not met" stands
+(``decision.fail_stands``, what a CASE sheet prints as "not met" rather than "to check"). The control for the
+inclusion is review; the exclusion's control still excludes.
 """
 
 from __future__ import annotations
@@ -54,15 +59,20 @@ def test_the_basis_check_alone_keeps_a_single_model_fail_from_excluding(
     assert answer_of(criterion, _fail(criterion, "single"), MAY_EXCLUDE) == "unknown"
     status = status_of(BY, [_fail(criterion, "single")], MAY_EXCLUDE)
     assert (status.tier, status.excluded_by) == ("review", [])
+    assert not decision.fail_stands(_fail(criterion, "single"), MAY_EXCLUDE)  # what the basis check alone decides
 
 
 @pytest.mark.parametrize("criterion", [INC, EXC], ids=["inclusion", "exclusion"])
 def test_control_a_pair_fail_under_the_same_input_excludes(criterion: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert answer_of(criterion, _fail(criterion, "pair"), MAY_EXCLUDE) == "no"
+    """The pair's "not met" stands; on the exclusion it excludes, on the inclusion it is review (R22-17)."""
+    want = "no" if criterion is EXC else "unknown"
+    tier = ("excluded", [criterion.id]) if criterion is EXC else ("review", [])
+    assert answer_of(criterion, _fail(criterion, "pair"), MAY_EXCLUDE) == want
     _without_held_back(monkeypatch)
-    assert answer_of(criterion, _fail(criterion, "pair"), MAY_EXCLUDE) == "no"
+    assert answer_of(criterion, _fail(criterion, "pair"), MAY_EXCLUDE) == want
     status = status_of(BY, [_fail(criterion, "pair")], MAY_EXCLUDE)
-    assert (status.tier, status.excluded_by) == ("excluded", [criterion.id])
+    assert (status.tier, status.excluded_by) == tier
+    assert decision.fail_stands(_fail(criterion, "pair"), MAY_EXCLUDE)
 
 
 def test_a_pair_fail_on_a_note_exclusion_both_models_did_not_affirm_is_review() -> None:

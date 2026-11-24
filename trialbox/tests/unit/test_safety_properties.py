@@ -45,7 +45,7 @@ from matching.cascade.engine import CascadeConfig, run_cascade
 from matching.cascade.judge import JudgeReply
 from matching.cascade.model import STRATUM_INDEX, STRATUM_S1, STRATUM_S3, STRATUM_ZERO_HIT
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage, known_systems
-from matching.note_answer import NOT_AFFIRMED_REASON
+from matching.note_answer import INCLUSION_REASON, NOT_AFFIRMED_REASON
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS
 from orchestrator.scenarios.evaluate import (
     Verdict,
@@ -250,18 +250,17 @@ TIER_CRITERIA = [
     _ir("T-INC-03", "inclusion", "human", COND, human_question="Q?"),
 ]
 TIER_RS = _ruleset(TIER_CRITERIA)
-
-
 STATED_02 = "T-EXC-02 present."  # a quote that states T-EXC-02's condition (the criterion's text is its id)
 
 
 def test_p1_tier_excludes_only_on_a_coded_fail_or_a_sure_blocking_note_fail() -> None:
     """``tier`` over every verdict for two structured criteria, two note criteria at three confidences and a human
     criterion, with note answers allowed to block or not, and the note exclusion's quote stated or absent:
-    ``excluded`` exactly when a structured verdict fails, or a note verdict fails with confidence at or above the
-    threshold while note answers may block, the note exclusion's only on a quote that states its condition. Kills
-    U03. The note exclusion's "present" with no quote never excludes (L1, #639 7107834329, D-1069); a quoted one
-    still does when the row says both models affirmed it, and never when it does not (round 5, #639 7115208555).
+    ``excluded`` exactly when a structured verdict fails, or the note exclusion fails on a quote that states its
+    condition, with confidence at or above the threshold, while note answers may block. Kills U03. The note
+    inclusion's "not met" is review, never an exclusion (R22-17, D-1069; ruled on #639 7079180333), and so is the
+    note exclusion's "present" with no quote (L1, #639 7107834329); a quoted one excludes only when the row says both
+    models affirmed it (round 5, #639 7115208555).
     """
     threshold = 0.75
     sv: tuple[Verdict, ...] = ("pass", "fail", "unknown")
@@ -280,10 +279,8 @@ def test_p1_tier_excludes_only_on_a_coded_fail_or_a_sure_blocking_note_fail() ->
             CriterionVerdict(id="T-INC-03", verdict="pending_human", evidence=Evidence(resource_refs=[])),
         ]
         t, _, n_unknown = tier(TIER_RS, verdicts, threshold, note_block=block)
-        # L1: the note exclusion only on its quote (``q2``: a quote that states it, or none)
-        sure_note_fail = block and (
-            (n1 == "fail" and c1 >= threshold) or (n2 == "fail" and c2 >= threshold and q2 is not None and a2 is True)
-        )
+        # R22-17: the note exclusion only; L1: only on its quote (``q2``); round 5: only when affirmed (``a2``)
+        sure_note_fail = block and n2 == "fail" and c2 >= threshold and q2 is not None and a2 is True
         assert (t == "excluded") is ("fail" in (s1, s2) or sure_note_fail), (s1, s2, n1, c1, n2, c2, block, q2, t)
         assert n_unknown == [s1, s2, n1, n2].count("unknown")
         if t != "excluded" and "unknown" in (s1, s2, n1, n2):
@@ -797,6 +794,7 @@ def test_p5_an_unreadable_row_turns_a_false_inclusion_into_unknown(
 
 # ================================================================================================ ENG-020 S2 to S4
 NOTE_TEXT = "Gout flare in the left toe."
+INFECTED = "Active infection of the left toe."  # states N-EXC-01's condition (D-985)
 CASCADE_CRITERIA = [
     _ir("N-INC-00", "inclusion", "structured", COND),
     _ir("N-INC-01", "inclusion", "note", COND, text="Gout flare documented", note_question="Is a gout flare noted?"),
@@ -945,8 +943,9 @@ SPAN = {"did": "d1", "start": 0, "end": 5, "date": INDEX.isoformat(), "sentence_
 def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_block() -> None:
     """``_map`` over every verdict, reason, confidence, span and note-block setting, for both kinds: a hard fail
     only for a decided answer with a verified span, confidence at or above the floor, the condition answer that makes
-    the patient ineligible, and note answers allowed to block, and for an exclusion's "present", both models affirmed
-    it (round 5 of R22-16, #639 7115208555). Otherwise never a hard fail."""
+    the patient ineligible on an exclusion (an inclusion's "not met" from the notes is soft: R22-17), and note answers
+    allowed to block, and for an exclusion's "present", both models affirmed it (round 5 of R22-16, #639 7115208555).
+    Otherwise never a hard fail."""
     by = {c.id: c for c in CASCADE_CRITERIA}
     n = 0
     # D-985 (F6): the quote states the condition (both criteria's), or only names a drug: an exclusion "present" on
@@ -969,8 +968,12 @@ def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_bloc
         decided = verdict in ("pass", "fail")
         ineligible = decided and ((verdict == "fail") if c.kind == "inclusion" else (verdict == "pass"))
         guess = c.kind == "exclusion" and verdict == "pass" and quote == drug
-        unsaid = c.kind == "exclusion" and verdict == "pass" and not affirmed  # round 5: not affirmed by both
-        want_hard = decided and span is not None and ineligible and conf >= 0.75 and block and not guess and not unsaid
+        # R22-17 (D-1069; ruled on #639 7079180333): an inclusion's "not met" from the notes is never a hard fail
+        excl = c.kind == "exclusion"
+        unsaid = excl and verdict == "pass" and not affirmed  # round 5: not affirmed by both
+        want_hard = (
+            decided and span is not None and ineligible and conf >= 0.75 and block and not guess and excl and not unsaid
+        )
         assert o.hard is want_hard, (cid, verdict, reason, conf, span is not None, block, o)
         if o.hard:
             assert o.status == "fail" and o.stratum == STRATUM_S3 and o.reason == "not_met"
@@ -983,6 +986,8 @@ def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_bloc
             assert o.status == "unknown" and o.reason == "abstained"
         elif guess:
             assert o.status == "unknown" and o.reason.startswith("inferred")
+        elif ineligible and not excl:
+            assert o.status == "fail" and not o.hard and o.reason == INCLUSION_REASON
         elif unsaid:
             assert o.status == "unknown" and o.reason == NOT_AFFIRMED_REASON
         elif ineligible and not block:
@@ -1010,25 +1015,30 @@ def test_s3_hard_fail_stops_the_patient_and_leaves_the_rest_unjudged() -> None:
 def test_s3_not_sampled_and_out_of_budget_never_exclude() -> None:
     """CAS-8: a patient outside the feasibility sample is ``unknown`` (not sampled). CAS-4: when the budget runs out
     the remaining pairs are ``unknown`` and the patient is marked unprocessed. Neither is ever an exclusion, even
-    when the judge would have excluded."""
-    judge = _Judge({("judge", "Gout flare documented"): ("fail", 0.95)})
-    rs = _ruleset(CASCADE_CRITERIA[:2])
+    when the judge would have excluded. R22-17 (D-1069; ruled on #639 7079180333): the answer that would have excluded
+    is the note exclusion's "present" on a quote that states it; the inclusion case beside it is review."""
+    judge = _Judge({("judge", "Active infection"): ("pass", 0.95)})
+    rs = _ruleset([CASCADE_CRITERIA[0], CASCADE_CRITERIA[2]])
     pids = ["S-1", "S-2", "S-3"]
-    lake = _lake(rs, pids, [_note(p, did="same") for p in pids])
+    lake = _lake(rs, pids, [_note(p, INFECTED, did="same") for p in pids])
     res = _cascade(lake, lexicon=LEXICON, judge=judge, sample_per_stratum=1)
     sampled = [p for p in pids if res.traces[p].sampled]
     assert len(sampled) == 1 and res.traces[sampled[0]].exit_stage == "S3"
     for p in set(pids) - set(sampled):
         t = res.traces[p]
-        o = t.outcomes["N-INC-01"]
+        o = t.outcomes["N-EXC-01"]
         assert (o.status, o.reason, o.hard, t.exit_stage) == ("unknown", "not sampled", False, None)
         assert t.tier == "potential:uncertain"
-    lake = _lake(rs, pids, [_note(p) for p in pids])
-    res = _cascade(lake, lexicon=LEXICON, judge=_Judge({("judge", "Gout flare documented"): ("fail", 0.95)}),
+    inc = _ruleset(CASCADE_CRITERIA[:2])
+    res = _cascade(_lake(inc, pids, [_note(p, did="same") for p in pids]), lexicon=LEXICON,
+                   judge=_Judge({("judge", "Gout flare documented"): ("fail", 0.95)}), sample_per_stratum=1)  # fmt: skip
+    assert not any(t.exit_stage for t in res.traces.values())  # the inclusion case beside it: review, never out
+    lake = _lake(rs, pids, [_note(p, INFECTED) for p in pids])
+    res = _cascade(lake, lexicon=LEXICON, judge=_Judge({("judge", "Active infection"): ("pass", 0.95)}),
                    sample_per_stratum=None, max_llm_items=0)  # fmt: skip
     for p in pids:
         t = res.traces[p]
-        o = t.outcomes["N-INC-01"]
+        o = t.outcomes["N-EXC-01"]
         assert t.unprocessed and t.exit_stage is None and (o.status, o.reason) == ("unknown", "unprocessed (budget)")
     assert res.metrics.unprocessed == 3
 

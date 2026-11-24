@@ -208,9 +208,9 @@ class CascadeConfig:
     stored: Any = None
     # D-103 (SCREEN runs the cascade): the population is given by the caller instead of POP_SQL (the practitioner /
     # appointment scope of a screening run); a note ``fail`` is soft (review, never exclusion) when ``note_block`` is
-    # False (D-95/D-97 single-model fallback); zero-hit pairs below the S2b threshold go to the judge instead of
-    # taking absence semantics when ``absence_semantics`` is False (screening spends the tokens, feasibility saves
-    # them).
+    # False (D-95/D-97 single-model fallback), and an inclusion's always (R22-17); zero-hit pairs below the S2b
+    # threshold go to the judge instead of taking absence semantics when ``absence_semantics`` is False (screening
+    # spends the tokens, feasibility saves them).
     population: Sequence[str] | None = None
     note_block: bool = True
     absence_semantics: bool = True
@@ -1236,8 +1236,9 @@ class _Run:
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
         if may.effect == "review" and may.reading_stands:
-            # D-1069: a "not met" from the notes the one rule sends to review (a renewal or documentation criterion,
-            # #639 7107834329 L2) is never a hard fail: the patient stays in the cascade and the tier is review
+            # D-1069: a "not met" from the notes the one rule sends to review (an inclusion, R22-17, the owner's ruling
+            # of 2026-11-22; a renewal or documentation criterion, #639 7107834329 L2) is never a hard fail, whatever
+            # the policy: the patient stays in the cascade, the other criteria are judged, and the tier is review
             return Outcome(c.id, "fail", stage, hard=False, evidence=[*ev, meta], reason=may.reason)
         if may.effect == "review":
             # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a
