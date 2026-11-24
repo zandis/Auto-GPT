@@ -912,13 +912,15 @@ test-boxes)
   install -d "$B2/deploy/site" && cp -r "$BOX/tests/fixtures/synthetic_patients/site-a" "$B2/deploy/site/feed-a" \
     || fail "cannot stage the second box's feed folder"
   # a CPU-only box answers so: the stub models and the embedder's hash stub (the media carries no embedder weights)
-  sed 's/^llm_mode: gpu$/llm_mode: stub/' "$BOX/tools/rehearse_box/site_answers.yaml" > "$W/test-box-answers.yaml"
-  grep -q '^llm_mode: stub$' "$W/test-box-answers.yaml" || fail "the test box's answers do not say llm_mode: stub"
+  # (beside the site mapping folder, mapping/, which the settings step copies in from beside the answers file)
+  ANS2="$B2/tools/rehearse_box/test-box-answers.yaml"
+  sed 's/^llm_mode: gpu$/llm_mode: stub/' "$B2/tools/rehearse_box/site_answers.yaml" > "$ANS2"
+  grep -q '^llm_mode: stub$' "$ANS2" || fail "the test box's answers do not say llm_mode: stub"
   rc=0
   (cd "$B2" && TB_HOST_PROFILE=poc TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_INSTALL_UP_TIMEOUT=900 \
     deploy/install.sh "$BUNDLE" --test-box rh2 --port-offset 3 --mode stub --environment TEST --ctgov offline --yes \
-    --answers "$W/test-box-answers.yaml") > "$W/test-box-install.log" 2>&1 || rc=$?
-  tail -n 30 "$W/test-box-install.log"
+    --answers "$ANS2") > "$W/test-box-install.log" 2>&1 || rc=$?
+  tail -n 40 "$W/test-box-install.log"
   [ "$rc" = 0 ] || fail "the test box's install failed (exit $rc; $W/test-box-install.log)"
   grep -q "TEST BOX rh2: one of several boxes on this host" "$W/test-box-install.log" \
     || fail "the test box's install does not say what it is in its last lines"
