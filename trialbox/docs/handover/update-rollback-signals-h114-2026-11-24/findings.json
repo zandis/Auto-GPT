@@ -1,0 +1,57 @@
+{
+ "card": "H114",
+ "title": "the update's rollback finishes whatever signal arrives",
+ "date": "2026-11-24",
+ "source": "docs/handover/update-rollback-signals-h114-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H114-01",
+   "severity": "Medium",
+   "claim": "a second Ctrl-C during the update's rollback escaped it (Exception caught only) and SIGTERM and SIGHUP had no handler on the update path: no ROLLBACK FAILED line, no update.rolled_back event, a half restored box (external review ESC-4)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3fe71fb368958a477ba89a33a593416145d96d0c",
+   "fix": "tools/trialbox/update.py Stops: INT, TERM and HUP alike, raised once at a stoppable step, every later signal and every signal during a rollback said and ignored; the rollback catches BaseException; the error line and the audit event say the release; tests/unit/test_update_signals_h114.py",
+   "from": "the external review's escape pass (ledger 7122387629), 2026-11-24"
+  },
+  {
+   "id": "H114-02",
+   "severity": "Low",
+   "claim": "tools/apply_update.sh: a signal to the shell before the update path only removed the stage folder and the script went on to the next commands, the update path included",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3fe71fb368958a477ba89a33a593416145d96d0c",
+   "fix": "the shell ends on INT, TERM or HUP before the update path (130, 143, 129, nothing was changed) and leaves one during it to the update path; tests/unit/test_update_signals_h114.py test_s1, test_s2",
+   "from": "card H-114, 2026-11-24"
+  },
+  {
+   "id": "H114-03",
+   "severity": "Low",
+   "claim": "streamed_payloads dropped in silence a signed payload that was no longer a file on the second read of the stick (external review 1409-2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3fe71fb368958a477ba89a33a593416145d96d0c",
+   "fix": "refused as UpdateFailed; tests/unit/test_update_signals_h114.py test_1409_2; the rehearsal's swapped-stream step (tools/rehearse_box/h95_probe.py)",
+   "from": "the external review's ledger 7122383360, row 1409-2, 2026-11-24"
+  },
+  {
+   "id": "H114-04",
+   "severity": "Medium",
+   "claim": "the host restore took only restore.lock, so the nightly backup could run over the folders it was restoring (external review 1421-3)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3fe71fb368958a477ba89a33a593416145d96d0c",
+   "fix": "the restore holds deploy/site/backup.lock for its whole run; tests/unit/test_update_signals_h114.py test_1421_3",
+   "from": "the external review's ledger 7122383360, row 1421-3, 2026-11-24"
+  },
+  {
+   "id": "H114-05",
+   "severity": "Low",
+   "claim": "an update run on a time limit (procgroup) gets SIGTERM, then SIGKILL 10 s later: a rollback the SIGTERM starts is killed part way and the box is between releases until tools/apply_update.sh rollback is run",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "from": "card H-114, read from tools/trialbox/procgroup.py, 2026-11-24"
+  }
+ ]
+}
