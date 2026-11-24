@@ -108,3 +108,13 @@ At 7831433: High 0, Medium 1, Low 4. Each is fixed here, with a test:
 - **H126-11 (Low), found while fixing 1470-5.** A signal between the restore container's end and the start (while the
   host prints and reads its result) escaped as a traceback. `_restore` now says the state and ends 130. The
   invariant gains the step `after-container` (14 cases) and catches an escaped interrupt as a failure.
+
+## LR-14 (the lifecycle review; the integrator's 7136293245)
+
+**H126-12, High.** A re-run refused inside before any change (an old backup, another site, a wrong key) started the
+whole stack at bb9a77b: services an earlier restore had left stopped, on data that was NOT as it was, were started
+and the line said "healthy: N of N". Now, after a refusal before any change, `--restart` starts only what this run
+stopped (`up -d --pull never --wait --no-deps <stopped>`), checks those and db ("the services this run stopped run
+again and are healthy: N of N") and names the services it found stopped without starting them. After a restore that
+ran (complete, or held), the whole project starts as before. `test_lr14_a_rerun_refused_before_any_change_starts_only_what_it_stopped`
+fails at bb9a77b (caddy, console and llm-verifier started) and passes here.

@@ -124,6 +124,17 @@
    "state": "fixed bfdb163",
    "fix": "BoxRestore._restore says the state through _say and ends 130; the invariant's step after-container (2 cases); found while fixing H126-10",
    "from": "lane H, while fixing OCR 1470-5, 2026-11-24"
+  },
+  {
+   "id": "H126-12",
+   "severity": "High",
+   "claim": "LR-14 (the lifecycle review, on #1470 only): a re-run refused inside before any change (an old backup, another site, a wrong key) started the whole stack, including services an earlier restore left stopped on data that was NOT as it was, and said healthy N of N",
+   "severity_basis": "services start on half-restored data that the earlier run said not to start",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 9b5e0388",
+   "fix": "after a restore refused before any change, --restart starts only what this run stopped (up --no-deps), checks those and db, and names the services it found stopped without starting them; test_lr14_a_rerun_refused_before_any_change_starts_only_what_it_stopped (fails at bb9a77b7)",
+   "from": "Lane LR's lifecycle deep review (docs/reviews/lifecycle-deep-review-2026-11-24.md, LR-14) and the integrator's 7136293245, 2026-11-24"
   }
  ]
 }
