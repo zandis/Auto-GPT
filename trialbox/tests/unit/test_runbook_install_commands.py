@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.test_update_code_from_the_bundle_h124 import checkout_box
+
 ROOT = Path(__file__).resolve().parents[2]
 SECTION = ROOT / "docs/runbook/01-install-a-new-site.md"
 ANSWERS_C = ROOT / "tests/fixtures/onboarding/site_c_answers.yaml"
@@ -238,8 +240,8 @@ def run_apply_update(tmp: Path) -> None:
 
     priv, pub = keygen(tmp / "vendor")
     bundle = _bundle(tmp, priv, "2026.11-1", 1, "one")
-    out = _run(["sh", "tools/apply_update.sh", str(bundle), "--dry-run"], TB_VENDOR_PUBKEY=str(pub),
-               TB_SECRETS_HOST_DIR=str(tmp / "no-secrets"))  # fmt: skip
+    script = str(checkout_box(tmp, pub) / "tools/apply_update.sh")  # H-124: the box's own key file
+    out = _run(["sh", script, str(bundle), "--dry-run"], TB_SECRETS_HOST_DIR=str(tmp / "no-secrets"))
     assert out.returncode == 0 and "verified:" in out.stdout and "nothing applied" in out.stdout, out.stderr
 
 

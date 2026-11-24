@@ -12,7 +12,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "the second commit of H-124: on an installed box (deploy/updates/installed.json or trust.json) apply_update.sh verifies with the box's own key and says TB_VENDOR_PUBKEY is not read (test_h124_01_an_installed_box_does_not_take_its_vendor_key_from_the_caller); TB_VERIFY_IN_DOCKER and TB_PY_IMAGE are left: deploy/gcp/demo-vm-update.sh needs them (question on #639); install.sh's own read is outside this card"
+   "fix": "H-124 (the integrator's ruling 7131272906): the key is the installed key file alone (a file of its own, root's or this user's), the verifier's image settings are deploy/.env's, a caller's three variables are unset unread; deploy/gcp/demo-vm-update.sh and install.sh line 406 are outside this card"
   },
   {
    "id": "H124-02",

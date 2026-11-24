@@ -758,7 +758,8 @@ def test_review_f7_a_model_pack_given_without_a_dry_run_is_not_mounted(tmp_path:
     p = _packs(tmp_path)
     b = _box(tmp_path, p["pub"])
     log = tmp_path / "docker.log"
-    env = {**_env(b), "TB_VERIFY_IN_DOCKER": "1", "H95_DOCKER_LOG": str(log)}
+    (b["box"] / "deploy" / ".env").write_text("TB_VERIFY_IN_DOCKER=1\n")  # H-124: the box's own setting
+    env = {**_env(b), "H95_DOCKER_LOG": str(log)}
     rel = os.path.relpath(p["model"], b["box"])
     subprocess.run(["sh", str(b["box"] / "tools/apply_update.sh"), str(p["software"]), "--with-model-pack", rel],
                    capture_output=True, text=True, env=env, cwd=b["box"], check=False, timeout=600)  # fmt: skip

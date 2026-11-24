@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from tests.unit.test_update_code_from_the_bundle_h124 import checkout_box
 from tools.sign_bundle import build, keygen
 from tools.verify_update import verify
 
@@ -358,14 +359,15 @@ def test_an_os_patch_bundle_dry_run_through_apply_update(tmp_path: Path) -> None
     host = tmp_path / "host/etc"
     host.mkdir(parents=True)
     (host / "os-release").write_text('ID=ubuntu\nVERSION_ID="24.04"\n', encoding="utf-8")
-    env = _env(tmp_path, bin_dir, TB_VENDOR_PUBKEY=str(b["pub"]))
-    r = _sh(["tools/apply_update.sh", "ospatch", str(b["bundle"]), "--dry-run"], env)
+    env = _env(tmp_path, bin_dir)
+    script = str(checkout_box(tmp_path, b["pub"]) / "tools/apply_update.sh")  # H-124: the box's own key file
+    r = _sh([script, "ospatch", str(b["bundle"]), "--dry-run"], env)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "verified:" in r.stdout and "would upgrade openssl" in r.stdout
     assert "held, left as it is: nvidia-driver-580" in r.stdout and "dry run: nothing changed" in r.stdout
     assert not log.exists()
     # the same bundle on the TrialBox update path is refused
-    r = _sh(["tools/apply_update.sh", str(b["bundle"]), "--dry-run"], env)
+    r = _sh([script, str(b["bundle"]), "--dry-run"], env)
     assert r.returncode == 1 and "is an OS patch bundle" in r.stderr
 
 

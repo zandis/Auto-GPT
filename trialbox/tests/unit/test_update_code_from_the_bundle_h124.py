@@ -313,9 +313,9 @@ def test_h124_03_an_unpacked_tree_is_on_disk_before_it_is_named(
     assert after == [f"fsync {dest.parent}"]
 
 
-def test_h124_01_an_installed_box_does_not_take_its_vendor_key_from_the_caller(box: dict[str, Any]) -> None:
-    """A bundle signed by a key of the caller's own, named by TB_VENDOR_PUBKEY: an installed box verifies with its
-    own vendor key, so the bundle is rejected and nothing of it runs."""
+def test_h124_01_a_vendor_key_named_by_the_caller_changes_nothing(box: dict[str, Any]) -> None:
+    """A bundle signed by a key of the caller's own, named by TB_VENDOR_PUBKEY: the box verifies with its installed
+    key file alone, so the bundle is rejected and nothing of it runs."""
     b = box
     _install(b, _release(b["tmp"], "R1-fixed"))
     other_priv, other_pub = keygen(b["tmp"] / "not-the-vendor")
@@ -323,5 +323,69 @@ def test_h124_01_an_installed_box_does_not_take_its_vendor_key_from_the_caller(b
     b["env"]["TB_VENDOR_PUBKEY"] = str(other_pub)
     r = _apply(b, bundle)
     assert r.returncode == 1 and "update REJECTED" in _said(r), _said(r)
-    assert "TB_VENDOR_PUBKEY is not read on an installed box" in r.stderr
     assert "update code:" not in r.stdout and _current(b) == "releases/R1" and _seq(b) == 1
+
+
+@pytest.mark.parametrize("name", ["TB_VERIFY_IN_DOCKER", "TB_PY_IMAGE"])
+def test_h124_01_the_callers_verifier_switches_change_nothing(box: dict[str, Any], name: str) -> None:
+    """TB_VERIFY_IN_DOCKER or TB_PY_IMAGE set by the caller: the host's verifier runs as before (no `docker run`), the
+    update goes through; only the box's own deploy/.env could send the verifier into an image."""
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    b["env"][name] = "1" if name == "TB_VERIFY_IN_DOCKER" else "an-image-of-the-callers:1"
+    r = _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed")))
+    assert r.returncode == 0, _said(r)
+    runs = [ln for ln in (b["tmp"] / "docker.log").read_text().splitlines() if ln.startswith("run ")]
+    assert not runs, runs
+
+
+def test_h124_01_the_box_s_own_setting_sends_the_verifier_into_its_image(box: dict[str, Any]) -> None:
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    (b["deploy"] / ".env").write_text("TB_ENV=DEV\nTB_VERIFY_IN_DOCKER=1\n", encoding="utf-8")
+    _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed")))
+    runs = [ln for ln in (b["tmp"] / "docker.log").read_text().splitlines() if ln.startswith("run ")]
+    assert runs and "trialbox-py:1.0.0" in runs[0] and "verify_update.py" in runs[0], runs
+
+
+def test_h124_01_a_vendor_key_that_is_a_link_is_refused(box: dict[str, Any]) -> None:
+    b = box
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    key = b["deploy"] / "keys" / "vendor_ed25519.pub"
+    moved = b["tmp"] / "elsewhere.pub"
+    key.rename(moved)
+    key.symlink_to(moved)
+    r = _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed")))
+    assert r.returncode == 2 and "is a link or belongs to neither root nor this user" in r.stderr, _said(r)
+    assert _current(b) == "releases/R1"
+
+
+# ------------------------------------------------------------------------------------------------ for other tests
+def checkout_box(tmp: Path, pub: Path) -> Path:
+    """A box made of this checkout, for a test that runs its ``tools/apply_update.sh``: tools/, libs/ and schemas/
+    linked to the checkout, a deploy/ of its own whose release files link to the checkout's and whose vendor key is
+    ``pub`` (H-124: the key is the box's installed key file, never a caller's TB_VENDOR_PUBKEY)."""
+    box = tmp / "checkout-box"
+    if box.is_dir():  # a second run in the same test: the same box, this key
+        shutil.copy2(pub, box / "deploy" / "keys" / "vendor_ed25519.pub")
+        return box
+    (box / "deploy" / "keys").mkdir(parents=True)
+    for name in ("tools", "libs", "schemas"):
+        (box / name).symlink_to(ROOT / name, target_is_directory=True)
+    for p in (ROOT / "deploy").iterdir():
+        if not ht.is_state(f"deploy/{p.name}") and p.name != "keys":
+            (box / "deploy" / p.name).symlink_to(p, target_is_directory=p.is_dir())
+    shutil.copy2(pub, box / "deploy" / "keys" / "vendor_ed25519.pub")
+    return box
+
+
+def test_h124_a_checkout_box_verifies_with_its_own_key_file(tmp_path: Path) -> None:
+    priv, pub = keygen(tmp_path / "vendor")
+    box = checkout_box(tmp_path, pub)
+    bundle = _bundle(tmp_path, priv, "R1", 1, None)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
+    env.update(PATH=f"{Path(sys.executable).parent}:{env.get('PATH', '')}", TMPDIR=str(tmp_path),
+               TB_SECRETS_HOST_DIR=str(tmp_path / "no-secrets"))  # fmt: skip
+    r = subprocess.run(["sh", str(box / "tools" / "apply_update.sh"), str(bundle), "--dry-run"], env=env,
+                       capture_output=True, text=True, check=False, timeout=300)  # fmt: skip
+    assert r.returncode == 0 and "verified:" in r.stdout, r.stdout + r.stderr

@@ -19,6 +19,7 @@ import pytest
 from criteria_compiler.import_ruleset import ImportRefused, install
 from criteria_compiler.repo import RulesetRepo
 
+from tests.unit.test_update_code_from_the_bundle_h124 import checkout_box
 from tools.sign_bundle import build, keygen
 from tools.verify_update import Rejected, verify
 
@@ -154,12 +155,11 @@ def _apply(bundle: Path, pub: Path, tmp: Path) -> subprocess.CompletedProcess[st
     env = {
         **os.environ,
         "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
-        "TB_VENDOR_PUBKEY": str(pub),
         "TB_MODELS_DIR": str(tmp / "models"),
         "TMPDIR": str(tmp),
     }
     return subprocess.run(
-        ["sh", str(ROOT / "tools/apply_update.sh"), str(bundle), "--dry-run"],
+        ["sh", str(checkout_box(tmp, pub) / "tools/apply_update.sh"), str(bundle), "--dry-run"],
         capture_output=True,
         text=True,
         env=env,

@@ -169,19 +169,22 @@ if [ -z "$OSPATCH" ] && [ -n "$NOBACKUP" ] && [ -z "$NOBACKUP_REASON" ]; then
     *) TB_STOP_WHO="update REFUSED"; stop_or_warn --rc 2 no-backup-production "" "--no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); nothing was changed"; TB_STOP_WHO=apply_update ;;
   esac
 fi
-# H-124 (H124-01): an installed box trusts its own vendor key (deploy/keys, or deploy/updates/trust.json once it
-# exists): a caller's TB_VENDOR_PUBKEY names the key only where no release is installed yet (a checkout, the vendor's
-# own test runs). The box's own record decides, never the caller's environment
+# H-124 (H124-01, the integrator's ruling 7131272906): no caller's environment steers the trust. The vendor key is the
+# installed key file alone (deploy/keys, put there by the bootstrap; deploy/updates/trust.json once it exists), a file
+# of its own owned by root or by the user running this; whether the verifier runs in the box's Python image, and which
+# image, are the box's own settings (deploy/.env), never a caller's TB_VERIFY_IN_DOCKER or TB_PY_IMAGE
+box_setting() {  # NAME: its value in the box's own deploy/.env (an "export", quotes and blanks dropped; the last wins)
+  { sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=//p" "$ROOT/deploy/.env" 2>/dev/null || true; } \
+    | tail -1 | sed -E -e 's/[[:space:]]+#.*$//' | tr -d "\"' \r\t"
+}
+own_key() {  # FILE: a regular file (no link), owned by root or by this user
+  [ -f "$1" ] && [ ! -L "$1" ] && { _u="$(stat -c %u "$1")"; [ "$_u" = 0 ] || [ "$_u" = "$(id -u)" ]; }
+}
+unset TB_VENDOR_PUBKEY TB_VERIFY_IN_DOCKER TB_PY_IMAGE  # a caller's value is never read (nor passed on)
 PUBKEY="$ROOT/deploy/keys/vendor_ed25519.pub"
-if [ -n "${TB_VENDOR_PUBKEY:-}" ]; then
-  if [ -e "$UPDATES/installed.json" ] || [ -e "$UPDATES/trust.json" ]; then
-    echo "apply_update: TB_VENDOR_PUBKEY is not read on an installed box; its own vendor key is the trust" >&2
-  else
-    PUBKEY=$TB_VENDOR_PUBKEY
-  fi
-fi
 NEXTKEY="$ROOT/deploy/keys/vendor_ed25519.next.pub"
-IMAGE=${TB_PY_IMAGE:-trialbox-py:1.0.0}
+IMAGE="$(box_setting TB_PY_IMAGE)"; IMAGE="${IMAGE:-trialbox-py:1.0.0}"
+IN_DOCKER="$(box_setting TB_VERIFY_IN_DOCKER)"
 
 [ -f "$BUNDLE" ] || { echo "no such bundle: $BUNDLE" >&2; exit 2; }  # H-94 (1): no bundle, no signature
 if [ -f "$UPDATES/IN_PROGRESS.json" ]; then
@@ -197,6 +200,12 @@ if [ -d "$SECRETS" ]; then
     || { echo "update REFUSED: the site keys (above); nothing was changed" >&2; exit 1; }  # H-94 (5): a KEK beside the keys it seals, keys plain and wrapped
 fi
 [ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }  # H-94 (1)
+if [ ! -f "$UPDATES/trust.json" ]; then  # H124-01: the installed key file, a file of its own (not a link), root's
+  for _k in "$PUBKEY" "$NEXTKEY"; do
+    [ -e "$_k" ] || [ -L "$_k" ] || continue
+    own_key "$_k" || { echo "update REFUSED: the vendor key $_k is a link or belongs to neither root nor this user; nothing was changed" >&2; exit 2; }  # H-94 (1): a key others may swap checks no signature
+  done
+fi
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/tb-update.XXXXXX")
 chmod 0700 "$STAGE"  # H-95: a folder of its own, 0700 wherever TMPDIR points (mktemp -d makes it so; said here)
 # H-114 (ESC-4): INT, TERM and HUP alike. Before the update path starts, a signal ends the script here and nothing
@@ -246,7 +255,7 @@ esac
 
 # host python3 with cryptography (a clean site host has it from the media's debs; tools/verify_update.py checks the
 # manifest schema without jsonschema there, D-176): on a first install the trialbox-py image is still inside the bundle
-if [ -z "${TB_VERIFY_IN_DOCKER:-}" ] && python3 -c "import cryptography" 2>/dev/null; then
+if [ -z "$IN_DOCKER" ] && python3 -c "import cryptography" 2>/dev/null; then
   SUMMARY=$(PYTHONPATH="$ROOT/libs:$ROOT" python3 "$ROOT/tools/verify_update.py" "$@") \
     || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }  # H-94 (1)
 else

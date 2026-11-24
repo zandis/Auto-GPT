@@ -308,7 +308,8 @@ def _apply_update(tmp: Path, *first: str, **env: str) -> subprocess.CompletedPro
     (box / "deploy" / "keys").mkdir(parents=True)
     shutil.copy(ROOT / "tools" / "apply_update.sh", box / "tools" / "apply_update.sh")
     (box / "deploy" / "keys" / "vendor_ed25519.pub").write_text("stand-in key\n")
-    (box / "deploy" / ".env").write_text("TB_ENV=TEST\n")
+    # H-124: the verifier's image is the box's own setting (deploy/.env), never a caller's
+    (box / "deploy" / ".env").write_text("TB_ENV=TEST\nTB_VERIFY_IN_DOCKER=1\n")
     # the settings guard: the last step before the update path; a signal to the shell while it runs
     (box / "deploy" / "settings_guard.sh").write_text(
         '#!/bin/sh\n[ -z "$TB_H114_SIG_GUARD" ] || kill -"$TB_H114_SIG_GUARD" "$PPID"\nexit 0\n'
@@ -320,7 +321,7 @@ def _apply_update(tmp: Path, *first: str, **env: str) -> subprocess.CompletedPro
         (b / name).write_text(text, encoding="utf-8")
         (b / name).chmod(0o755)
     full = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
-    full.update(PATH=f"{b}:{os.environ['PATH']}", TB_VERIFY_IN_DOCKER="1", TB_H114_REAL_PY=sys.executable,
+    full.update(PATH=f"{b}:{os.environ['PATH']}", TB_H114_REAL_PY=sys.executable,
                 TB_SECRETS_HOST_DIR=str(tmp / "no-secrets"), TMPDIR=str(tmp), **env)  # fmt: skip
     (box / "deploy" / "hardening").mkdir(parents=True)
     (box / "deploy" / "hardening" / "ospatch.py").write_text(OSPATCH, encoding="utf-8")

@@ -61,13 +61,21 @@ the installed `PYTHONPATH` with `cd "$ROOT"`. Each fails the invariant, the cont
 SIGTERM case. A mutant that drops `stage_code`'s own `check_tar` is not caught: the installed verifier refuses first.
 The second check is defence in depth.
 
-## 3. The caller's key (H124-01, a commit of its own)
+## 3. No caller's environment steers the trust (H124-01, the ruling's point 2)
 
-On an installed box (`deploy/updates/installed.json` or `trust.json` there) `apply_update.sh` verifies with the box's
-own vendor key. It says `TB_VENDOR_PUBKEY is not read on an installed box`. Where no release is installed yet (a
-checkout, the vendor's own test runs) the variable still names the key, as those tests use it. `TB_VERIFY_IN_DOCKER`
-and `TB_PY_IMAGE`, which let a caller choose the image the verifier runs in, are left as they are:
-`deploy/gcp/demo-vm-update.sh` sets both. That is a question for the integrator.
+- The vendor key is the installed key file alone: `deploy/keys/vendor_ed25519.pub`, put there by the bootstrap,
+  or `deploy/updates/trust.json` once it exists. It must be a file of its own, not a link, owned by root or by the
+  user running the update; otherwise the update is refused (kept stop (1)).
+- Whether the verifier runs in the box's Python image, and which image, come from the box's own `deploy/.env`
+  (`TB_VERIFY_IN_DOCKER`, `TB_PY_IMAGE`).
+- A caller's `TB_VENDOR_PUBKEY`, `TB_VERIFY_IN_DOCKER` and `TB_PY_IMAGE` are unset unread. Each has a test that
+  setting it changes nothing.
+- **Other files.** Tests that set these variables now set them in their box's `deploy/.env`, or run the script of a
+  `checkout_box` that holds its own key file. Their assertions are unchanged: `test_update_signals_h114.py`,
+  `test_poc_stops_h94.py`, `test_load_from_the_stick_h95.py` (f7), `test_update_bundle.py`, `test_host_baseline.py`,
+  the runbook commands test file, `test_update_safety.py`.
+- **Not changed:** `deploy/gcp/demo-vm-update.sh` exports `TB_PY_IMAGE` and `TB_VERIFY_IN_DOCKER`. The demo VM needs
+  both in its `deploy/.env`. `deploy/install.sh` still reads `TB_VENDOR_PUBKEY` for its own first check (line 406).
 
 ## 4. The four recurring finding types
 

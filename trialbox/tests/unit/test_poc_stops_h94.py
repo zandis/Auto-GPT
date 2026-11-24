@@ -861,7 +861,8 @@ def _apply_update(tmp: Path, *args: str, environment: str = "TEST", guard_rc: in
     (box / "deploy" / "keys").mkdir(parents=True)
     shutil.copy(APPLY_UPDATE, box / "tools" / "apply_update.sh")
     (box / "deploy" / "keys" / "vendor_ed25519.pub").write_text("stand-in key\n")
-    (box / "deploy" / ".env").write_text(f"TB_ENV={environment}\n")
+    # H-124: the verifier's image is the box's own setting (deploy/.env), never a caller's
+    (box / "deploy" / ".env").write_text(f"TB_ENV={environment}\nTB_VERIFY_IN_DOCKER=1\n")
     (box / "deploy" / "settings_guard.sh").write_text(f"#!/bin/sh\nexit {guard_rc}\n")
     (tmp / "b.tar").write_bytes(b"stand-in bundle\n")
     b = tmp / "bin"
@@ -870,7 +871,7 @@ def _apply_update(tmp: Path, *args: str, environment: str = "TEST", guard_rc: in
         (b / name).write_text(text, encoding="utf-8")
         (b / name).chmod(0o755)
     full = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
-    full.update(PATH=f"{b}:{os.environ['PATH']}", TB_VERIFY_IN_DOCKER="1", TB_H94_REAL_PY=sys.executable,
+    full.update(PATH=f"{b}:{os.environ['PATH']}", TB_H94_REAL_PY=sys.executable,
                 TB_SECRETS_HOST_DIR=str(tmp / "no-secrets"), TMPDIR=str(tmp))  # fmt: skip
     r = subprocess.run(["sh", str(box / "tools" / "apply_update.sh"), str(tmp / "b.tar"), *args], cwd=tmp, env=full,
                        capture_output=True, text=True, check=False, timeout=120)  # fmt: skip

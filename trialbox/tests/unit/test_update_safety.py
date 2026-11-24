@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 
+from tests.unit.test_update_code_from_the_bundle_h124 import checkout_box
 from tools import update_status as us
 from tools.sign_bundle import build, keygen, permissive_compat, rotation_for
 from tools.trialbox import update as up
@@ -801,8 +802,9 @@ def test_the_shell_entry_refuses_a_path_with_a_space(tmp_path: Path) -> None:
     (d / "b.tar").write_bytes(b"x")
     pub = tmp_path / "vendor.pub"
     pub.write_text("k")
-    env = {**os.environ, "TB_VENDOR_PUBKEY": str(pub), "TMPDIR": str(tmp_path)}
-    r = subprocess.run(["sh", str(ROOT / "tools/apply_update.sh"), str(d / "b.tar")], env=env, capture_output=True,
+    env = {**os.environ, "TMPDIR": str(tmp_path)}
+    script = checkout_box(tmp_path, pub) / "tools/apply_update.sh"  # H-124: the box's own key file
+    r = subprocess.run(["sh", str(script), str(d / "b.tar")], env=env, capture_output=True,
                        text=True, check=False)  # fmt: skip
     assert r.returncode == 2 and "space or a glob character" in r.stderr
 
