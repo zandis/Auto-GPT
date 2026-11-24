@@ -1,0 +1,45 @@
+{
+ "card": "H124",
+ "title": "the update's code comes from the signed new bundle",
+ "date": "2026-11-24",
+ "source": "docs/handover/update-code-from-the-bundle-h124-2026-11-24.md",
+ "note": "basis 'shown' means shown by the card's local runs (the real apply_update.sh and signer, a stand-in docker); the bench host, Docker and the box rehearsal were not run.",
+ "findings": [
+  {
+   "id": "H124-01",
+   "severity": "High",
+   "claim": "caller environment variables steer the update's trust: TB_VENDOR_PUBKEY names the key a signature is checked against on a box without trust.json, and TB_VERIFY_IN_DOCKER with TB_PY_IMAGE make a caller-chosen image run the verifier (tools/apply_update.sh); deploy/install.sh reads TB_VENDOR_PUBKEY too",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a separate commit of H-124 for apply_update.sh (question on #639); install.sh's own read is outside it"
+  },
+  {
+   "id": "H124-02",
+   "severity": "Medium",
+   "claim": "only a box whose installed apply_update.sh has H-124 runs the new release's update code; a box on an older release runs its own update code once more (the walk box's red), so such a box needs H-124 installed first",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "not in this card: the release note says it; H-123's rehearsal from release N-1 shows it"
+  },
+  {
+   "id": "H124-03",
+   "severity": "Low",
+   "claim": "host_tree._unpack writes a release folder (and the update's staged code) to .partial and renames it, without fsync of the files or the folder; a power cut after the rename may leave short files in releases/<id>",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "a separate commit of H-124"
+  },
+  {
+   "id": "H124-04",
+   "severity": "Medium",
+   "claim": "not run on the bench host, with Docker or in the box rehearsal: the hand-off ran with the real apply_update.sh, the real verifier and signer and a stand-in docker",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the rehearsal job on its pull request; H-123's update from release N-1"
+  }
+ ]
+}

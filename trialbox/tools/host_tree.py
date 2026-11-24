@@ -23,6 +23,7 @@ switches back (``restore``). A file of an older, copied install that the release
     python3 -m tools.host_tree pack --root . --out dist/trialbox-host.tar
     python3 -m tools.host_tree check trialbox-host.tar
     python3 -m tools.host_tree status --base /opt/trialbox
+    python3 -m tools.host_tree stage-code trialbox-host.tar --to STAGE/code --base /opt/trialbox   # H-124
 """
 
 from __future__ import annotations
@@ -332,6 +333,21 @@ def install(tar: Path, base: Path, release_id: str) -> dict[str, Any]:
     return info
 
 
+def stage_code(tar: Path, dest: Path, base: Path) -> int:
+    """H-124: the new release's code for its own update. The checked tree is unpacked to ``dest`` (a new folder in
+    the update's 0700 stage, never under ``base``) and its ``deploy`` is replaced by one link to the box's own
+    ``base/deploy``: the new release's tools, libs and schemas run against the box's own files and configuration, as
+    the installed code does (a tool finds ``deploy/`` beside its own folder, ``tools/trialbox/launch.py``).
+    ``tools/apply_update.sh`` then runs that tree's ``tools.trialbox update``. Returns the number of files."""
+    if dest.exists() or dest.is_symlink():
+        raise HostTreeError(f"{dest} exists: the update's code goes to a new folder")
+    files = check_tar(tar)
+    _unpack(tar, dest)
+    shutil.rmtree(dest / "deploy", ignore_errors=True)
+    (dest / "deploy").symlink_to((base / "deploy").absolute(), target_is_directory=True)
+    return len(files)
+
+
 def switch(base: Path, release_id: str) -> dict[str, Any]:
     """``current`` -> ``releases/<release_id>`` in one rename, then the links refreshed."""
     if not (base / "releases" / release_id).is_dir():
@@ -435,6 +451,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", type=Path, required=True)
     c = sub.add_parser("check", help="check a host tree tar")
     c.add_argument("tar", type=Path)
+    u = sub.add_parser("stage-code", help="H-124: unpack a checked tree as the update's own code (a new folder)")
+    u.add_argument("tar", type=Path)
+    u.add_argument("--to", type=Path, required=True)
+    u.add_argument("--base", type=Path, required=True)
     s = sub.add_parser("status", help="the release BASE/current names, checked against its HOST-SHA256SUMS")
     s.add_argument("--base", type=Path, default=Path("/opt/trialbox"))
     a = ap.parse_args(argv)
@@ -443,6 +463,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(pack(a.root, a.out)))
         elif a.cmd == "check":
             print(f"host tree: {len(check_tar(a.tar))} files, PASS")
+        elif a.cmd == "stage-code":
+            print(f"host tree: {stage_code(a.tar, a.to, a.base)} files, the update's code in {a.to}")
         else:
             st = status(a.base)
             print(json.dumps(st, indent=1))
