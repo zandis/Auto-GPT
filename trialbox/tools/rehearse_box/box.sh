@@ -912,8 +912,11 @@ test-boxes)
   install -d "$B2/deploy/site" && cp -r "$BOX/tests/fixtures/synthetic_patients/site-a" "$B2/deploy/site/feed-a" \
     || fail "cannot stage the second box's feed folder"
   # a CPU-only box answers so: the stub models and the embedder's hash stub (the media carries no embedder weights)
-  # (beside the site mapping folder, mapping/, which the settings step copies in from beside the answers file)
-  ANS2="$B2/tools/rehearse_box/test-box-answers.yaml"
+  # in a folder of its own with the site mapping (mapping/, which the settings step copies in from beside the answers
+  # file): the box's tools/ becomes links into the signed release at the load, so nothing is written there
+  rm -rf "$W/test-box-site" && mkdir -p "$W/test-box-site" && cp -r "$B2/tools/rehearse_box/mapping" "$W/test-box-site/" \
+    || fail "cannot stage the test box's answers"
+  ANS2="$W/test-box-site/answers.yaml"
   sed 's/^llm_mode: gpu$/llm_mode: stub/' "$B2/tools/rehearse_box/site_answers.yaml" > "$ANS2"
   grep -q '^llm_mode: stub$' "$ANS2" || fail "the test box's answers do not say llm_mode: stub"
   rc=0
