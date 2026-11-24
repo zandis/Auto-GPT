@@ -1,0 +1,24 @@
+# One bench CI runner slot (card H-105; docs/runbook/13-bench-ci-runner.md): %i is cpu-N, engine-N or gpu-N.
+# Each start is one job's life (register for one job, run it in a fresh container, remove it); systemd starts the next.
+# The minting token reaches the launcher as a systemd credential: a copy of the root-only file, readable by this unit
+# only, named on the command line by its folder (%d), never in an argument's value or the environment.
+[Unit]
+Description=TrialBox bench CI runner %i
+After=network-online.target tb-bench-proxy.service
+Wants=network-online.target
+Requires=tb-bench-proxy.service
+
+[Service]
+Type=simple
+User=tb-bench
+Group=tb-bench
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+WorkingDirectory=/opt/tb-bench-ci
+LoadCredential=token:/etc/tb-bench-ci/token
+ExecStart=/usr/bin/python3 -s -E -m tools.bench_ci.launcher run --settings /etc/tb-bench-ci/settings.env --token-file %d/token --slot %i
+Restart=always
+RestartSec=30
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
