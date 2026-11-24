@@ -128,9 +128,6 @@ tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a k
 }
 # ---- end of STOP-OR-WARN
 # H-94: apply_update.sh has no --environment: its PoC box is the record (deploy/.env, the mark) alone
-# H-124: a software bundle with no host tree on a PRODUCTION box: warn (the installed update code runs, said
-# plainly) or refuse. One constant, as the integrator rules it (#639); a PoC box goes on either way (not one of five)
-H124_NO_HOST_TREE_PRODUCTION=warn
 TB_STOP_WHO=apply_update; TB_STOP_FILE=apply_update.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""; TB_STOP_REHEARSAL=0
 USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
@@ -288,12 +285,17 @@ fi
 
 # in the 0700 stage folder, beside the staged manifest.json whose sha256 the update path checks against it
 ( umask 077; printf '%s' "$SUMMARY" > "$STAGE/summary.json" )
+cd "$ROOT"
+# D-888: the update restarts the stack: never on the example settings while the site's exist
+# H-94 (3): the start guard warns by itself on a PoC box for what is not one of the five (7102087475); what it still
+# refuses there is its kept refusal (3), a rehearsal box never starting as PRODUCTION (review M-1 of #1430)
+sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }  # H-94 (3)
 # H-124: the update's own code is the NEW release's. This script, the verifier above, the vendor key and the start
 # guard are the installed ones (a bundle never vouches for itself); the signed host tree the verifier just checked (its
 # sha256 in the manifest, its HOST-SHA256SUMS and member rules) is unpacked into the 0700 stage with its deploy/ one
 # link to the box's own, and that tree's `tools.trialbox update` runs the update. A fault in the installed release's
 # update code is then mended by the next bundle, not only by a reinstall. A bundle without a host tree (an older
-# bundle format) runs the installed code, said plainly; PRODUCTION refuses it only if H124_NO_HOST_TREE_PRODUCTION says
+# bundle format): PRODUCTION refuses it; a PoC box warns, lists it and runs the installed code, naming it (7131272906)
 CODE="$ROOT"
 if [ -f "$STAGE/host/trialbox-host.tar" ]; then
   PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.host_tree stage-code "$STAGE/host/trialbox-host.tar" \
@@ -301,19 +303,17 @@ if [ -f "$STAGE/host/trialbox-host.tar" ]; then
     || { echo "update REJECTED: the new release's host tree (above); nothing was changed" >&2; exit 1; }  # H-94 (1)
   CODE="$STAGE/code"
   echo "update code: the new release's (its signed host tree)"
-else
-  if [ "$H124_NO_HOST_TREE_PRODUCTION" = refuse ] && ! tb_poc_box; then
-    echo "update REFUSED: $BUNDLE carries no host tree, so its own update code cannot run; nothing was changed" >&2
-    exit 1  # H-94 not a stop on a PoC box: PRODUCTION only, as H124_NO_HOST_TREE_PRODUCTION says (#639)
-  fi
-  echo "update: warning: $BUNDLE carries no host tree; the installed release's update code runs" >&2
+elif tb_poc_box; then  # not one of the five (D-1091): warned, on the PoC list, the installed code runs and is named
+  echo "update: warning (PoC box, H-124): $BUNDLE carries no host tree; the installed release's update code runs" >&2
+  tb_stop_list update.no-host-tree "the new release's update code (the installed release's runs)" \
+    "$BUNDLE carries no host tree"
   echo "update code: the installed release's (the bundle carries no host tree)"
+else
+  echo "update REFUSED: $BUNDLE carries no host tree (an older bundle format), so the new release's own update code" \
+    "cannot run; nothing was changed. Ask the vendor for the release's full bundle, or install it with the bootstrap" \
+    "(RUNBOOK §5)" >&2
+  exit 1  # H-94 not a stop on a PoC box: PRODUCTION only (the integrator's ruling 7131272906), a PoC box goes on above
 fi
-cd "$ROOT"
-# D-888: the update restarts the stack: never on the example settings while the site's exist
-# H-94 (3): the start guard warns by itself on a PoC box for what is not one of the five (7102087475); what it still
-# refuses there is its kept refusal (3), a rehearsal box never starting as PRODUCTION (review M-1 of #1430)
-sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }  # H-94 (3)
 cd "$CODE"
 STARTED=1
 PYTHONPATH="$CODE/libs:$CODE" python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" \

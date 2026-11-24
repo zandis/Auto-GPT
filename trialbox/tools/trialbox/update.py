@@ -1317,7 +1317,7 @@ class Updater:
             self.box.audit("update.rolled_back", plan,
                            {"bundle_id": plan.bundle_id, "error": failed[:500], "rolled_back": rolled,
                             "state": "previous release" if rolled else "between releases (rollback failed)",
-                            **self.stops.note()})  # fmt: skip
+                            "update_code": update_code(plan.stage), **self.stops.note()})  # fmt: skip
             if rolled:
                 self._done(plan, rb)
             raise UpdateFailed(
@@ -1358,7 +1358,8 @@ class Updater:
             {"bundle_id": plan.bundle_id, "signer": plan.signer, "files": plan.files, "backup": backup,
              "release_seq": plan.release_seq, "key_id": plan.key_id,
              "rotation": plan.manifest_sha256 in (plan.trust_after or {}).get("rotations", []),
-             "refdata_failed": refdata_note or None, "rollback_point_removed": True, **self.stops.note()},
+             "refdata_failed": refdata_note or None, "rollback_point_removed": True,
+             "update_code": update_code(plan.stage), **self.stops.note()},
         )  # fmt: skip
         step("audited update.applied", True)
         if self.stops.first:  # H-114: it came after the check: the checked release is finished, never half left
@@ -2848,6 +2849,15 @@ def no_backup_refused(target: str, deploy: Path) -> bool:
     box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
     env = str(box.environment()).strip().upper()
     return env not in ("DEV", "TEST", "VALIDATION")
+
+
+def update_code(stage: Path) -> str:
+    """H-124: whose code runs this update, from where this file is (never from the caller): ``bundle`` when it is the
+    new release's, unpacked into the update's stage by ``tools/apply_update.sh``; ``installed`` otherwise."""
+    try:
+        return "bundle" if Path(__file__).resolve().is_relative_to(stage.resolve()) else "installed"
+    except OSError:
+        return "installed"
 
 
 def main_apply(

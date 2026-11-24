@@ -7,8 +7,8 @@
 - **Date:** 2026-11-24
 - **Findings:** [`update-code-from-the-bundle-h124-2026-11-24/findings.json`](update-code-from-the-bundle-h124-2026-11-24/findings.json)
 - **Files:** `tools/apply_update.sh` (the hand-off and the one constant), `tools/host_tree.py` (`stage_code`, the
-  `stage-code` command), the new test `tests/unit/test_update_code_from_the_bundle_h124.py`, one row each for its
-  two new lines in the H-94 page's `tools/apply_update.sh` table.
+  `stage-code` command), the new test `tests/unit/test_update_code_from_the_bundle_h124.py`, three rows in the H-94 page's
+  `tools/apply_update.sh` table, `tools/trialbox/update.py` (`update_code` in two audit events).
 
 ## 1. What runs from where
 
@@ -27,10 +27,15 @@ libs and schemas read the box's own settings, keys, records and configuration, a
 finds `deploy/` beside its own folder (`tools/trialbox/launch.py`). `host_tree.install`, inside the update, then
 unpacks the same checked tar under `releases/<id>` as before.
 
-**A bundle without a host tree** (an older bundle format) runs the installed code, and says so on stdout and
-stderr. That is not one of the five stops of D-1091. On PRODUCTION the integrator rules between warn and refuse
-(#639). Until then the one constant `H124_NO_HOST_TREE_PRODUCTION=warn` in `tools/apply_update.sh` decides; set to
-`refuse`, it stops PRODUCTION only, before anything runs.
+**A bundle without a host tree.** This follows the integrator's ruling 7131272906:
+- On PRODUCTION it is refused before anything runs, saying why and what to do: "Ask the vendor for the release's
+  full bundle, or install it with the bootstrap (RUNBOOK §5)".
+- On a PoC box it is warned and listed in `deploy/site/poc-stops.jsonl`, and the installed code runs.
+- The output names the code that ran (`update code: ...`), and so do the audit events `update.applied` and
+  `update.rolled_back` (`update_code`: `bundle` or `installed`). The update decides that from where its own file is,
+  never from the environment.
+
+The start guard runs before this choice, as before H-124, so its refusals come first.
 
 **The limit.** Only a box whose installed `apply_update.sh` has H-124 gains it. A box on an older release still runs
 its own update code once (H124-02).

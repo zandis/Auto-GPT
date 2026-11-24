@@ -45,7 +45,7 @@ SLOW = (
     "            before(name)\n"
     "        if name == 'rollback point':  # the marker is written, nothing is changed yet\n"
     "            (self.dir / 'H124-STARTED').touch()\n"
-    "            time.sleep(60)\n\n"
+    "            time.sleep(15)\n\n"
     "    self.on_step = on\n\n\n"
     "Updater.__init__ = _h124_slow_init  # type: ignore[method-assign]\n"
 )
@@ -167,6 +167,7 @@ def test_h124_a_fault_in_the_installed_update_code_does_not_stop_an_update_to_a_
     assert "update code: the new release's (its signed host tree)" in r.stdout
     assert "PLANTED FAULT" not in _said(r)
     assert _current(b) == "releases/R2" and _seq(b) == 2
+    assert _audited(b, "R2", "update.applied")["update_code"] == "bundle"
 
 
 def test_h124_the_control_a_fault_in_the_new_release_is_the_one_that_runs(box: dict[str, Any]) -> None:
@@ -193,55 +194,54 @@ def test_h124_a_host_tree_changed_after_signing_is_refused_before_any_of_it_runs
     assert _current(b) == "releases/R1" and _seq(b) == 1
 
 
-def test_h124_a_bundle_without_a_host_tree_runs_the_installed_code_and_says_so(box: dict[str, Any]) -> None:
-    """An older bundle format on a PoC box: not one of the five stops (D-1091); the installed release's code runs,
-    said plainly, and nothing goes on the PoC list (nothing is skipped)."""
+def _audited(b: dict[str, Any], bid: str, event: str) -> dict[str, Any]:
+    """The audit event as the site box hands it to the audit writer (deploy/updates/<bundle>/<event>.json)."""
+    return dict(json.loads((b["deploy"] / "updates" / bid / f"{event}.json").read_text())["detail"])
+
+
+def test_h124_a_poc_box_warns_runs_the_installed_code_and_names_it_in_the_output_and_the_audit(
+    box: dict[str, Any],
+) -> None:
+    """The integrator's ruling 7131272906: a bundle with no host tree (an older bundle format) on a PoC box is warned
+    and listed (D-1091), the installed release's code runs, and the output and the audit event name it."""
     b = box
-    _install(b, _release(b["tmp"], "R1-broken", FAULT))
+    _install(b, _release(b["tmp"], "R1-fixed"))
     r = _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, None))
-    assert "update code: the installed release's (the bundle carries no host tree)" in r.stdout, _said(r)
-    assert "carries no host tree; the installed release's update code runs" in r.stderr and "REFUSED" not in r.stderr
-    assert "PLANTED FAULT in this release" in _said(r) and r.returncode == 1  # the installed code ran
-    assert not (b["deploy"] / "site" / "poc-stops.jsonl").exists()
+    assert r.returncode == 0, _said(r)
+    assert "update code: the installed release's (the bundle carries no host tree)" in r.stdout
+    assert "warning (PoC box, H-124)" in r.stderr and "REFUSED" not in r.stderr
+    listed = [json.loads(ln) for ln in (b["deploy"] / "site" / "poc-stops.jsonl").read_text().splitlines()]
+    assert [x["key"] for x in listed] == ["apply_update.sh/update.no-host-tree"]
+    assert _audited(b, "R2", "update.applied")["update_code"] == "installed"
 
 
-def test_h124_production_without_a_host_tree_follows_the_one_constant(box: dict[str, Any]) -> None:
-    """Until the integrator rules (#639): PRODUCTION warns as a PoC box does; the constant is the one place, and
-    `refuse` stops PRODUCTION only, before anything runs."""
+def test_h124_production_refuses_a_bundle_without_a_host_tree_saying_why_and_what_to_do(box: dict[str, Any]) -> None:
     b = box
     (b["deploy"] / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     _install(b, _release(b["tmp"], "R1-broken", FAULT))
-    bundle = _bundle(b["tmp"], b["priv"], "R2", 2, None)
-    r = _apply(b, bundle, "--no-backup-reason", "synthetic test box")
-    assert "carries no host tree; the installed release's update code runs" in r.stderr, _said(r)
-    script = (b["base"] / "tools" / "apply_update.sh").read_text(encoding="utf-8")
-    assert script.count("H124_NO_HOST_TREE_PRODUCTION=") == 1 and "H124_NO_HOST_TREE_PRODUCTION=warn" in script
-    refusing = b["base"] / "tools" / "apply_update.sh"
-    target = refusing.resolve()
-    target.unlink()  # the installed release's own file is read-only content of its release: replaced, not edited
-    target.write_text(script.replace("H124_NO_HOST_TREE_PRODUCTION=warn", "H124_NO_HOST_TREE_PRODUCTION=refuse"))
-    r = _apply(b, bundle, "--no-backup-reason", "synthetic test box")
-    assert r.returncode == 1 and "update REFUSED: " in r.stderr and "carries no host tree" in r.stderr, _said(r)
-    assert "PLANTED FAULT" not in _said(r) and _current(b) == "releases/R1"
-    (b["deploy"] / ".env").write_text("TB_ENV=DEV\n", encoding="utf-8")  # a PoC box goes on under `refuse` too
-    r = _apply(b, bundle)
-    assert "REFUSED" not in r.stderr and "PLANTED FAULT in this release" in _said(r), _said(r)
+    r = _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, None), "--no-backup-reason", "synthetic test box")
+    assert r.returncode == 1, _said(r)
+    said = " ".join(r.stderr.split())
+    assert "update REFUSED: " in said and "carries no host tree (an older bundle format)" in said
+    assert "nothing was changed" in said and "Ask the vendor for the release's full bundle" in said
+    assert "PLANTED FAULT" not in _said(r) and "update code:" not in r.stdout  # nothing of either release ran
+    assert _current(b) == "releases/R1" and _seq(b) == 1
 
 
 def test_h124_the_callers_environment_does_not_choose_the_update_code(box: dict[str, Any]) -> None:
-    """A caller's PYTHONPATH (or the constant's name in the environment) changes nothing: the new release's runs."""
+    """A caller's PYTHONPATH changes nothing: the new release's code runs."""
     b = box
     _install(b, _release(b["tmp"], "R1-broken", FAULT))
-    b["env"].update(PYTHONPATH=str(b["base"]), H124_NO_HOST_TREE_PRODUCTION="refuse")
+    b["env"].update(PYTHONPATH=str(b["base"]))
     r = _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-fixed")))
     assert r.returncode == 0 and "PLANTED FAULT" not in _said(r), _said(r)
 
 
 # ------------------------------------------------------------------------------------------------ a stop partway
-def test_h124_a_sigterm_partway_leaves_a_marker_the_installed_tree_reads_and_rolls_back(box: dict[str, Any]) -> None:
+def test_h124_a_sigterm_partway_is_handled_by_the_new_code_and_the_box_stays_sound(box: dict[str, Any]) -> None:
     """SIGTERM to the update's process group (as a service manager stops it) while the NEW release's code holds the
-    marker: the box is still on R1, the stage (and the new code in it) is removed, and the INSTALLED tree's
-    `apply_update.sh status` names the step and `rollback R2` clears it, the box on R1."""
+    marker: that code's own handling (H-114, #1461) puts the box back, the stage (and the code in it) is removed only
+    after it ends, and the INSTALLED tree's `apply_update.sh status` reads what is left without a fault."""
     b = box
     _install(b, _release(b["tmp"], "R1-fixed"))
     p = _apply(b, _bundle(b["tmp"], b["priv"], "R2", 2, _release(b["tmp"], "R2-slow", SLOW)), wait=False)
@@ -251,21 +251,16 @@ def test_h124_a_sigterm_partway_leaves_a_marker_the_installed_tree_reads_and_rol
             break
         time.sleep(0.1)
     assert started.exists(), p.communicate()[0][-3000:]
+    assert (b["deploy"] / "updates" / "IN_PROGRESS.json").exists()  # the new code wrote the marker
     os.killpg(p.pid, signal.SIGTERM)
-    out = p.communicate(timeout=120)[0]
+    out = p.communicate(timeout=180)[0]
     assert p.returncode != 0, out[-3000:]
     assert _current(b) == "releases/R1" and _seq(b) == 1
+    assert not (b["deploy"] / "updates" / "IN_PROGRESS.json").exists(), out[-3000:]
     assert not list((b["tmp"] / "tmp").glob("tb-update.*")), "the stage (and the new code in it) is removed"
-    marker = json.loads((b["deploy"] / "updates" / "IN_PROGRESS.json").read_text())
-    assert marker["bundle_id"] == "R2" and marker["step"] == "rollback point"
-    installed = ["bash", str(b["base"] / "tools" / "apply_update.sh")]
-    st = subprocess.run([*installed, "status"], env=b["env"], capture_output=True, text=True, check=False, timeout=120)
-    assert "R2" in st.stdout + st.stderr and "Traceback" not in st.stdout + st.stderr, st.stdout + st.stderr
-    rb = subprocess.run([*installed, "rollback", "R2"], env=b["env"], capture_output=True, text=True, check=False,
-                        timeout=300)  # fmt: skip
-    assert rb.returncode == 0, (rb.stdout + rb.stderr)[-3000:]
-    assert not (b["deploy"] / "updates" / "IN_PROGRESS.json").exists()
-    assert _current(b) == "releases/R1" and _seq(b) == 1
+    st = subprocess.run(["bash", str(b["base"] / "tools" / "apply_update.sh"), "status"], env=b["env"],
+                        capture_output=True, text=True, check=False, timeout=120)  # fmt: skip
+    assert st.returncode == 0 and "Traceback" not in st.stdout + st.stderr, st.stdout + st.stderr
 
 
 # ------------------------------------------------------------------------------------------------ the hand-off
@@ -275,9 +270,8 @@ def test_h124_the_hand_off_runs_the_staged_tree_and_the_installed_verifier(box: 
     verify = text.index('python3 "$ROOT/tools/verify_update.py"')
     stage = text.index("python3 -m tools.host_tree stage-code")
     run = text.index('PYTHONPATH="$CODE/libs:$CODE" python3 -m tools.trialbox update')
-    assert verify < stage < run
     guard = text.index('sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy"')  # the installed start guard
-    assert verify < guard < text.index('cd "$CODE"') < run
+    assert verify < guard < stage < text.index('cd "$CODE"') < run
 
 
 def test_h124_the_staged_code_reads_the_boxs_own_deploy_folder(box: dict[str, Any]) -> None:
@@ -292,7 +286,9 @@ def test_h124_the_staged_code_reads_the_boxs_own_deploy_folder(box: dict[str, An
         ht.stage_code(_release(b["tmp"], "R3"), dest, b["base"])
 
 
-def test_h124_03_an_unpacked_tree_is_on_disk_before_it_is_named(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_h124_03_an_unpacked_tree_is_on_disk_before_it_is_named(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Every file and every folder of the unpacked tree is fsynced before the rename, and the parent after it."""
     calls: list[str] = []
     real_fsync, real_rename = os.fsync, Path.rename
