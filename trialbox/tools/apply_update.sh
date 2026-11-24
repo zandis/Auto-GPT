@@ -312,6 +312,8 @@ if [ -f "$STAGE/host/trialbox-host.tar" ]; then
     || { echo "update REJECTED: the new release's host tree (above); nothing was changed" >&2; exit 1; }  # H-94 (1)
   CODE="$STAGE/code"
   echo "update code: the new release's (its signed host tree)"
+elif [ "$(printf '%s' "$SUMMARY" | python3 -c 'import json, sys; print((json.load(sys.stdin).get("pack") or {}).get("kind") or "")')" = model ]; then
+  echo "update code: the installed release's (a model pack carries images and weights, no code)"  # H-95: by design
 elif tb_poc_box; then  # not one of the five (D-1091): warned, on the PoC list, the installed code runs and is named
   echo "update: warning (PoC box, H-124): $BUNDLE carries no host tree; the installed release's update code runs" >&2
   tb_stop_list update.no-host-tree "the new release's update code (the installed release's runs)" \

@@ -389,3 +389,18 @@ def test_h124_a_checkout_box_verifies_with_its_own_key_file(tmp_path: Path) -> N
     r = subprocess.run(["sh", str(box / "tools" / "apply_update.sh"), str(bundle), "--dry-run"], env=env,
                        capture_output=True, text=True, check=False, timeout=300)  # fmt: skip
     assert r.returncode == 0 and "verified:" in r.stdout, r.stdout + r.stderr
+
+
+def test_h124_05_a_signed_model_pack_runs_the_installed_code_on_production_and_says_so(box: dict[str, Any]) -> None:
+    """H-95: a model pack carries images and weights, no code (pack.kind model, signed): no newer update code exists
+    to run, so even PRODUCTION runs the installed release's and says so (H124-05, for the integrator to confirm)."""
+    b = box
+    (b["deploy"] / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
+    _install(b, _release(b["tmp"], "R1-fixed"))
+    weights = b["tmp"] / "weights.bin"
+    weights.write_bytes(b"synthetic weights\n")
+    out = b["tmp"] / "M2.pack"
+    build(b["priv"], "M2", [("model", weights, "judge/weights.bin")], out, release_seq=2, pack={"kind": "model"})
+    r = _apply(b, out, "--no-backup-reason", "synthetic test box")
+    assert "update code: the installed release's (a model pack carries images and weights, no code)" in r.stdout, _said(r)
+    assert "carries no host tree" not in r.stderr

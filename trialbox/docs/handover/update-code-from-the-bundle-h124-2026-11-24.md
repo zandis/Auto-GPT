@@ -31,6 +31,9 @@ unpacks the same checked tar under `releases/<id>` as before.
 - On PRODUCTION it is refused before anything runs, saying why and what to do: "Ask the vendor for the release's
   full bundle, or install it with the bootstrap (RUNBOOK §5)".
 - On a PoC box it is warned and listed in `deploy/site/poc-stops.jsonl`, and the installed code runs.
+- **One exception, built here, for the integrator to confirm:** a signed model pack (H-95, `pack.kind: model`)
+  carries images and weights and no code by design, so it runs the installed code on every box and says so.
+  Refusing it would refuse every model-pack update on PRODUCTION.
 - The output names the code that ran (`update code: ...`), and so do the audit events `update.applied` and
   `update.rolled_back` (`update_code`: `bundle` or `installed`). The update decides that from where its own file is,
   never from the environment.

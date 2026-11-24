@@ -40,6 +40,15 @@
    "basis": "not_run",
    "state": "open",
    "fix": "the rehearsal job on its pull request; H-123's update from release N-1"
+  },
+  {
+   "id": "H124-05",
+   "severity": "Medium",
+   "claim": "the ruling's PRODUCTION refusal of a bundle without a host tree would also refuse every signed model pack (H-95: images and weights only, no code by design); built as an exception that runs the installed code and says so, for the integrator to confirm",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the integrator's word on #639"
   }
  ]
 }
