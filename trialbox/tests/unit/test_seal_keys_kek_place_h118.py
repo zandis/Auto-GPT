@@ -121,3 +121,54 @@ def test_no_callers_folder_is_handed_to_the_services_user(tmp_path: Path) -> Non
     asked = log.read_text().split()
     assert str(_the_box_place(tmp_path)) in asked and str(_the_box_place(tmp_path).parent) in asked
     assert not [a for a in asked if a.startswith(str(callers))], asked
+
+
+# ------------------------------------------------------------------- the plain KEK's own folder (#1457's review, 1457-9)
+SEEN = (
+    'case "$1" in has-tpm2) exit 0 ;;\n'
+    '  encrypt) stat -c "%n %u %a" "$(dirname "$4")" >> "$SEEN_LOG"; cp "$4" "$5" ;;\n'
+    '  decrypt) cp "$3" "$4" ;; *) exit 2 ;; esac\n'
+)
+
+
+def test_the_plain_kek_is_made_in_a_folder_of_its_own_never_handed_over(tmp_path: Path) -> None:
+    """The plain KEK (kek.new) was made in /run/trialbox, the folder D-887 hands to the services' user, where a name
+    can be swapped for a link. It is made in /run/trialbox-seal: this run's, mode 0700, and never handed over."""
+    env, keys, _ = _host(tmp_path, "tpm")
+    (tmp_path / "bin" / "systemd-creds").write_text("#!/bin/sh\n" + SEEN)
+    b, log = tmp_path / "bin", tmp_path / "chown.log"
+    (b / "id").write_text('#!/bin/sh\n[ "$1" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id "$@"\n')
+    (b / "chown").write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\n')
+    for f in ("id", "chown"):
+        (b / f).chmod(0o755)
+    if os.geteuid() == 0:
+        os.chown(tmp_path / "secrets", 10001, 10001)
+    seen = tmp_path / "seen.log"
+    res = _seal(tmp_path, {**env, "SEEN_LOG": str(seen)})
+    assert res.returncode == 0, res.stdout + res.stderr
+    folder = tmp_path / "host" / "run" / "trialbox-seal"
+    assert seen.read_text().split() == [str(folder), str(os.geteuid()), "700"]
+    assert not list((tmp_path / "host").rglob("kek.new"))
+    assert str(folder) not in log.read_text(), "the plain KEK's folder was handed to the services' user"
+    _opens(tmp_path, keys, _the_box_place(tmp_path).read_bytes())
+
+
+@pytest.mark.parametrize("what", ["a link", "open to others"])
+def test_a_seal_folder_that_is_not_this_runs_own_is_refused_and_nothing_changes(tmp_path: Path, what: str) -> None:
+    env, keys, _ = _host(tmp_path, "tpm")
+    folder = tmp_path / "host" / "run" / "trialbox-seal"
+    folder.parent.mkdir(parents=True)
+    if what == "a link":
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir(mode=0o700)
+        folder.symlink_to(elsewhere)
+    else:
+        folder.mkdir()
+        folder.chmod(0o755)
+    res = _seal(tmp_path, env)
+    assert res.returncode == 1 and "is not a folder only this user can open" in res.stderr, res.stdout + res.stderr
+    sec = tmp_path / "secrets"
+    for name, want in keys.items():
+        assert (sec / name).read_bytes() == want and not K.wrapped_path(sec / name).exists()
+    assert not (sec / K.META_FILE).exists() and not list((tmp_path / "host").rglob("trialbox-kek*"))
+    assert not list(tmp_path.rglob("kek.new"))

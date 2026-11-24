@@ -171,8 +171,11 @@ audit_key() {
 
 # tpm (H-111): at every instant either the plain keys are there or the KEK that opens the wrapped keys is sealed in
 # $CRED, its final place: the credential is sealed and placed before any key is wrapped, and nothing here removes it.
-# Only the plain copy in /run ($NEW) and an unplaced $CRED.new are removed, at any exit; a signal exits
-NEW="$RUN_DIR/kek.new"
+# Only the plain copy in /run ($NEW) and an unplaced $CRED.new are removed, at any exit; a signal exits.
+# H-118 (#1457's review, 1457-9): $NEW lives in a folder of its own, root's (0700) and never handed over: $RUN_DIR is
+# handed to the services' user (D-887), and a name there could be swapped for a link
+SEAL_DIR="$HR/run/trialbox-seal"
+NEW="$SEAL_DIR/kek.new"
 # review of #1457 (1457-5): once the clean-up starts a further signal neither cuts it short nor kills its shred
 # review of #1457 (1457-9): /run/trialbox is handed to the services' user, so a name there is never followed: a link is
 # removed, not shredded through
@@ -188,6 +191,14 @@ arm() {
   # taken before the trap is set, so a refused run removes nothing of the other run's
   exec 5<"$(dirname "$CRED")"
   flock -n 5 || hb_die "another run of seal_keys.sh on this host holds $(dirname "$CRED"): let it finish, then run this script again; nothing was changed"
+  # H-118: the plain KEK's folder, made by this run under the host lock: a real folder, this user's, mode 0700, or
+  # nothing is done
+  ( umask 077; mkdir -p "$SEAL_DIR" )
+  # (the owner compared with this shell's own, /proc/$$: never `id`, which a test may stand in for)
+  if [ -L "$SEAL_DIR" ] || [ ! -d "$SEAL_DIR" ] \
+    || [ "$(stat -c %u:%a "$SEAL_DIR")" != "$(stat -c %u /proc/$$):700" ]; then
+    hb_die "$SEAL_DIR is not a folder only this user can open (a link, another owner, or not mode 0700): remove it, then run this script again; nothing was changed"
+  fi
   # review of #1457 (1457-9): with the host lock held no other seal runs, so a name at kek.new is a stopped run's (its KEK
   # is in the placed credential, or no key was wrapped under it) or a link: removed before the new KEK is written
   rm -f -- "$NEW"
@@ -268,10 +279,10 @@ case "$KEK_BACKEND" in
       hb_die "$CRED exists but $SECRETS has no kek.json: put kek.json back from the backup, or remove the credential"
     fi
     if [ "$DRY" = 1 ]; then
-      hb_say "would make a KEK in $RUN_DIR/kek.new"
-      hb_say "would run: systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek $RUN_DIR/kek.new $CRED.new; mv $CRED.new $CRED"
-      hb_say "would run: tools.keys init --backend file --kek-in $RUN_DIR/kek.new"
-      hb_say "would run: tools.keys unseal --from $RUN_DIR/kek.new --out $KEK_FILE; shred $RUN_DIR/kek.new"
+      hb_say "would make a KEK in $SEAL_DIR/kek.new"
+      hb_say "would run: systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek $SEAL_DIR/kek.new $CRED.new; mv $CRED.new $CRED"
+      hb_say "would run: tools.keys init --backend file --kek-in $SEAL_DIR/kek.new"
+      hb_say "would run: tools.keys unseal --from $SEAL_DIR/kek.new --out $KEK_FILE; shred $SEAL_DIR/kek.new"
       exit 0
     fi
     if [ -f "$CRED" ]; then
