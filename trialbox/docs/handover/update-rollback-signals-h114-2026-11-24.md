@@ -234,21 +234,24 @@ reached `point.json` only when the install returned. A SIGKILL between two moves
 limit's SIGKILL) left the record of before the switch, and `tools/apply_update.sh rollback` then said "previous
 release" with the compose file still set aside (H114-16).
 
-- `host_tree.install`, `switch` and `sync` take `on_record`. `_aside` calls it after a file's name is recorded and
-  before the file moves. `apply_host` passes a save of the rollback point (`save_point`, written whole with fsync).
+- `host_tree.install`, `switch` and `sync` take `on_record`. The list of moved files saves the record each time a
+  name is added, which `_aside` does before the file moves. `_aside` keeps its signature, which the existing tests'
+  stand-ins use. `apply_host` passes a save of the rollback point (`save_point`, written whole with fsync).
 - Undoing the first host tree of a copied install also removes the links through `current` that a cut-short switch
   made but never recorded. Only the release's own paths are looked at. Links are not saved one by one, which would
   cost one fsync per release path.
-- Test: `tests/unit/test_host_tree_switch_kill_h114c.py`, 4 cases (copied install, killed after the 1st, 2nd and 4th
-  move; a box already on a host tree, killed in its next switch). A real SIGKILL ends the first child process, and a
-  second child runs `recover`. All 4 fail at 27e8f0d8: `recover` said ok with the files still set aside and links
-  left through `current`.
+- Test: `tests/unit/test_host_tree_switch_kill_h114c.py`, 5 cases:
+  - a copied install, killed after the 1st, 2nd and 4th move;
+  - a copied install, killed right after linking a path only the release has, so the link is unrecorded;
+  - a box already on a host tree, killed in its next switch.
+  In each, a real SIGKILL ends the first child process, and a second child runs `recover`. All 5 fail at 27e8f0d8.
 - Mutants, 3, all caught:
-  - no save before a move;
+  - no save as each name is added;
   - no removal of the unrecorded links;
   - `apply_host` passing no save.
-  A fourth, the save of the aside folder before the first move, was not caught: the first move's save already
-  carries it. That code is removed.
-- Not covered: a SIGKILL between a move and the save after it cannot happen, because the save comes first. A kill
-  between the save and the move leaves a name whose file was never moved; `restore` skips it, since the file is
-  still in its place.
+- A first version changed `_aside`'s signature. It broke the three existing `test_1461_1_*` cases, whose stand-in
+  takes four arguments, so it was replaced by the saving list, and those tests stay unchanged. A separate save of the
+  aside folder before the first move was removed: the first move's save already carries it, and no test could tell
+  them apart.
+- A kill between a name's save and its move leaves a name whose file was never moved; `restore` skips it, since the
+  file is still in its place.

@@ -359,7 +359,8 @@ def sync(base: Path, into: dict[str, Any] | None = None, on_record: Callable[[],
         raise HostTreeError(f"{cur} names no release")
     out: dict[str, Any] = into if into is not None else {}
     aside = base / "releases" / f".replaced-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
-    out.update(moved=[], linked=[], aside=str(aside))  # recorded before anything moves: a stop part way is undone
+    # recorded before anything moves: a stop part way is undone
+    out.update(moved=_Saved(on_record) if on_record is not None else [], linked=[], aside=str(aside))
     moved: list[str] = out["moved"]
     made: list[str] = out["linked"]
 
@@ -373,7 +374,7 @@ def sync(base: Path, into: dict[str, Any] | None = None, on_record: Callable[[],
             p = here / child.name
             if r in ANCESTORS:  # holds site files below it: a real folder
                 if p.is_symlink() or (p.exists() and not p.is_dir()):  # a site's own link too (review 1461-7)
-                    _aside(p, aside / r, moved, r, on_record)
+                    _aside(p, aside / r, moved, r)
                 p.mkdir(exist_ok=True)
                 walk(PurePosixPath(r))
                 continue
@@ -381,7 +382,7 @@ def sync(base: Path, into: dict[str, Any] | None = None, on_record: Callable[[],
             if p.is_symlink() and os.readlink(p) == target:
                 continue
             if p.is_symlink() or p.exists():  # a link of the site's own is set aside as a file is (review 1461-7)
-                _aside(p, aside / r, moved, r, on_record)
+                _aside(p, aside / r, moved, r)
             made.append(r)
             p.symlink_to(target)
         for p in sorted(here.iterdir()):  # links into current whose target the release dropped
@@ -395,12 +396,23 @@ def sync(base: Path, into: dict[str, Any] | None = None, on_record: Callable[[],
     return out
 
 
-def _aside(p: Path, to: Path, moved: list[str], rel: str, on_record: Callable[[], None] | None = None) -> None:
+def _aside(p: Path, to: Path, moved: list[str], rel: str) -> None:
     to.parent.mkdir(parents=True, exist_ok=True)
-    moved.append(rel)  # first: restore puts back only what is in the aside folder
-    if on_record is not None:
-        on_record()  # H-114c: saved before the move, so a SIGKILL after it still finds the file in the record
+    moved.append(rel)  # first: restore puts back only what is in the aside folder (H-114c: and it is saved)
     p.rename(to)
+
+
+class _Saved(list[str]):
+    """H-114c: the list of moved files, saved (``on_record``) at each name added, before that file moves: a SIGKILL
+    part way leaves a record of every file moved."""
+
+    def __init__(self, on_record: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_record = on_record
+
+    def append(self, rel: str) -> None:
+        super().append(rel)
+        self._on_record()
 
 
 def _unlink_through_current(base: Path, release: str | None) -> None:

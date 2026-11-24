@@ -30,6 +30,7 @@ t, phase, case, after = Path(sys.argv[1]), sys.argv[2], sys.argv[3], int(sys.arg
 files = (*ht.REQUIRED, "deploy/install.sh", "libs/x.py", "tools/a.py", "tools/b.py", "tools/c.py")
 src, base, stage = t / "src", t / "box", t / "stage"
 bid = "B2" if case == "host-tree" else "B1"
+kind = "copied" if case.startswith("copied") else case
 updates = base / "deploy" / "updates"
 
 
@@ -59,6 +60,8 @@ if phase == "run":
         for root, text in ((src, "new"), (base, "old")):
             (root / n).parent.mkdir(parents=True, exist_ok=True)
             (root / n).write_text(f"{text} {n}\n")
+    if case == "copied-link":
+        (src / "deploy" / "new.sh").write_text("new deploy/new.sh\n")
     if case == "host-tree":  # the box is on host tree B1 already; B2 adds two paths where the site keeps its own files
         (stage / "host").mkdir(parents=True)
         ht.pack(src, stage / "host" / ht.HOST_TAR)
@@ -78,11 +81,21 @@ if phase == "run":
             os.kill(os.getpid(), signal.SIGKILL)
 
     ht._aside = aside
+    if case == "copied-link":  # a path only the release has: linked with no move, killed right after (unrecorded)
+        real_link = Path.symlink_to
+
+        def link(self, target, *a, **kw):
+            real_link(self, target, *a, **kw)
+            if self.name == "new.sh" and "releases" not in self.parts:
+                os.kill(os.getpid(), signal.SIGKILL)
+
+        Path.symlink_to = link
+        after = 10**6  # no kill at a move
     up.Updater(Box(), updates, say=lambda _m: None).run(plan_of(bid))
     print("NOT KILLED")
 else:
     r = up.Updater(Box(), updates, say=lambda _m: None).recover(bid)
-    want = {n: f"old {n}\n" for n in files} if case == "copied" else {}
+    want = {n: f"old {n}\n" for n in files} if kind == "copied" else {}
     if case == "host-tree":
         want = {"deploy/extra.sh": "site deploy/extra.sh\n", "tools/site.py": "site tools/site.py\n"}
     bad = [n for n, text in want.items() if (base / n).is_symlink() or not (base / n).is_file()
@@ -90,7 +103,7 @@ else:
     cur = os.path.normpath(base / "current")
     dangling = [str(p.relative_to(base)) for p in base.rglob("*") if p.is_symlink() and "releases" not in p.parts
                 and os.path.normpath(os.path.join(p.parent, os.readlink(p))).startswith(cur + os.sep)]
-    print(json.dumps({"ok": r["ok"], "not_back": bad, "links_left": dangling if case == "copied" else [],
+    print(json.dumps({"ok": r["ok"], "not_back": bad, "links_left": dangling if kind == "copied" else [],
                       "current": os.readlink(base / "current") if (base / "current").is_symlink() else None,
                       "marker": us.marker(updates)}))
 """
@@ -103,7 +116,9 @@ def _run(script: Path, t: Path, phase: str, case: str, after: int) -> subprocess
                           capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
 
 
-@pytest.mark.parametrize(("case", "after"), [("copied", 1), ("copied", 2), ("copied", 4), ("host-tree", 1)])
+@pytest.mark.parametrize(
+    ("case", "after"), [("copied", 1), ("copied", 2), ("copied", 4), ("copied-link", 0), ("host-tree", 1)]
+)
 def test_a_sigkill_inside_the_switch_is_put_back_whole_by_the_next_rollback(tmp_path: Path, case: str,
                                                                             after: int) -> None:  # fmt: skip
     """THE INVARIANT of H-114c: whichever move the SIGKILL follows, ``recover`` puts every copied (or site) file back
