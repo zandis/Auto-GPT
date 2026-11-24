@@ -444,7 +444,9 @@ def test_a_step_whose_name_holds_a_slash_is_run_and_the_test_goes_on(tmp_path: P
     assert got.stdout.rstrip().endswith("REACHED 1 1")
 
 
-def _host_run(tmp_path: Path, install_rc: int, extra: str = "") -> tuple[subprocess.CompletedProcess[str], str]:
+def _host_run(
+    tmp_path: Path, install_rc: int, extra: str = "", *, cni: bool = True
+) -> tuple[subprocess.CompletedProcess[str], str]:
     """main with a stand-in install.sh that notes each command it is run with; root's id given; the host's own checks
     replaced where they would read the bench host."""
     fake = tmp_path / "src"
@@ -452,7 +454,8 @@ def _host_run(tmp_path: Path, install_rc: int, extra: str = "") -> tuple[subproc
     marks = tmp_path / "marks"
     (tmp_path / "settings.env").write_text("x\n", encoding="utf-8")
     (tmp_path / "os-release").write_text('ID=stand-in-os\nVERSION_ID="0"\n', encoding="utf-8")
-    (tmp_path / "cni").mkdir(exist_ok=True)
+    if cni:
+        (tmp_path / "cni").mkdir(exist_ok=True)
     (fake / "install.sh").write_text(
         f'source "{INSTALL}"  # the real steps (unrecorded_pieces among them), then the test paths\n'
         f'SRC="{fake}"; LINGER_DIR="{tmp_path}/linger"; SUBID_FILES=("{tmp_path}/subuid" "{tmp_path}/subgid")\n'
@@ -676,13 +679,16 @@ def test_ocr_1466_15_remove_shreds_the_token_and_any_copy_recorded_or_not(tmp_pa
     assert sorted(p.name for p in etc.iterdir()) == ["settings.env"]
 
 
-def test_ocr_1466_17_the_host_tests_tests_reach_no_path_of_the_host(tmp_path: Path) -> None:
+@pytest.mark.parametrize("cni_there", [True, False])
+def test_ocr_1466_17_the_host_tests_tests_reach_no_path_of_the_host(tmp_path: Path, cni_there: bool) -> None:
     """OCR 1466-17 (escape check (i)): the CNI folder, the system's name and the service manager's version are the
-    stand-ins' in the tests: the report names the stand-in's folder, system and version, never the host's."""
-    got, marks = _host_run(tmp_path, install_rc=0)
+    stand-ins' in the tests: the report names the stand-in's folder, system and version, never the host's, and the
+    folder's step follows the stand-in whether the host has its own CNI folder or not."""
+    got, marks = _host_run(tmp_path, install_rc=0, cni=cni_there)
     assert marks == "install\nverify\nremove\n", got.stdout + got.stderr
     out = got.stdout
-    assert re.search(rf"^PASS the folder \S*{re.escape(tmp_path.name)}/cni is there", out, re.M), out
+    word = "PASS" if cni_there else "FAIL"
+    assert re.search(rf"^{word} the folder \S*{re.escape(tmp_path.name)}/cni is there", out, re.M), out
     assert "/var/lib/cni" not in out and "stand-in-os 0; service manager 255" in out
 
 
