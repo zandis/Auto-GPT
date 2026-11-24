@@ -706,19 +706,30 @@ def test_a_second_apply_waits_for_the_first(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ M-SC-2, M-SC-3
-def _units_part(tmp: Path, *, egress_ok: bool) -> subprocess.CompletedProcess[str]:
+#: the helper as it ends on each box: PRODUCTION stops with its words and exit 1, a PoC box warns and goes on
+HELPER = (
+    'stop_or_warn() {{ shift 2; if [ "{poc}" = 1 ]; then echo "install: warning (PoC box, H-94): $*" >&2; '
+    'return 0; fi; echo "install: $*" >&2; exit 1; }}\n'
+)
+
+
+def _units_part(tmp: Path, *, egress_ok: bool, poc: bool = False) -> subprocess.CompletedProcess[str]:
     a = INSTALL.index('SYSTEMD_DIR="${TB_SYSTEMD_DIR:-/etc/systemd/system}"')
     b = INSTALL.index("# H-92 (D-1090): a systemd host", a)
-    script = (f"ROOT=/opt/trialbox\nEGRESS_OK={int(egress_ok)}\nsay() {{ :; }}\nstop_or_warn() {{ echo \"STOP $*\"; exit 1; }}\n"
+    script = (f"ROOT=/opt/trialbox\nEGRESS_OK={int(egress_ok)}\nsay() {{ :; }}\n" + HELPER.format(poc=int(poc))
               + INSTALL[a:b])  # fmt: skip
     return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False, timeout=60,
                           env={"PATH": "/usr/bin:/bin", "TB_SYSTEMD": "0"})  # fmt: skip
 
 
-def test_a_host_without_systemd_is_told_nothing_restores_egress_at_boot(tmp_path: Path) -> None:
-    r = _units_part(tmp_path, egress_ok=True)
-    assert r.returncode == 0 and "nothing restores the egress rules after a reboot" in r.stderr, r.stderr
-    assert "deploy/network.sh restore" in r.stderr
+@pytest.mark.parametrize("poc", [False, True], ids=["PRODUCTION stops", "PoC box warns"])
+def test_a_host_without_systemd_is_told_nothing_restores_egress_at_boot(tmp_path: Path, poc: bool) -> None:
+    """M-SC-2 (the integrator's ruling 7122559749): a stop on PRODUCTION, a warning on a PoC box."""
+    r = _units_part(tmp_path, egress_ok=True, poc=poc)
+    assert r.returncode == (0 if poc else 1) and "nothing restores the egress rules after a reboot" in r.stderr, (
+        r.stderr
+    )
+    assert "deploy/network.sh restore" in r.stderr and ("warning (PoC box" in r.stderr) is poc
     assert "nothing restores" not in _units_part(tmp_path, egress_ok=False).stderr
 
 
@@ -731,13 +742,13 @@ def test_a_cron_folder_with_no_cron_daemon_is_said(tmp_path: Path) -> None:
         (stub / name).write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
         (stub / name).chmod(0o755)
     (tmp_path / "cron.d").mkdir()
-    script = 'stop_or_warn() { echo "STOP $*"; exit 1; }\nROOT=/opt/trialbox\nANCHOR_UNSAFE=0\n' + INSTALL[a:b]
+    script = HELPER.format(poc=0) + "ROOT=/opt/trialbox\nANCHOR_UNSAFE=0\n" + INSTALL[a:b]
     r = subprocess.run(["bash", "-c", script.replace("/run/systemd/system", str(tmp_path / "no-systemd"))],
                        capture_output=True, text=True, check=False, timeout=60,
                        env={"PATH": f"{stub}:/usr/bin:/bin", "TB_ENV_SITE": "PRODUCTION",
                             "TB_CRON_DIR": str(tmp_path / "cron.d")})  # fmt: skip
-    assert r.returncode == 0 and (tmp_path / "cron.d" / "trialbox-retention").is_file(), r.stderr
-    assert "no cron daemon runs on this host: nothing runs" in r.stderr
+    assert r.returncode == 1 and (tmp_path / "cron.d" / "trialbox-retention").is_file(), r.stderr  # PRODUCTION stops
+    assert "install: no cron daemon runs on this host: nothing runs" in r.stderr
 
 
 # ------------------------------------------------------------------------------------------------ L-IB-2
@@ -866,3 +877,34 @@ def test_a_model_pair_that_cannot_be_put_back_never_ends_an_install_as_ready(tmp
         last.startswith("install: FAIL: the model pair was promoted on its shipped record")
         and "could NOT be put back" in last
     )
+
+
+# ------------------------------------------------------------------------------------------------ 1421-4 (ruled)
+def test_the_restore_container_is_removed_when_it_ends_and_its_passwords_are_on_no_command_line(tmp_path: Path) -> None:
+    """1421-4, ruled not a fault on one condition (the integrator's 7122559749): the passwords go to the restore
+    container as ``-e NAME`` (the values in the engine's environment, never on a command line), and the container runs
+    with ``--rm``, so that environment does not outlive it in the engine's inspect. Both held here."""
+    from types import SimpleNamespace
+
+    from tools.trialbox import box_restore
+
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    pw = "synthetic-" + "restore-pw"
+    (deploy / ".env").write_text(
+        f"TB_DB_URL=postgresql://trialbox:{pw}@db:5432/trialbox_wf\nPOSTGRES_PASSWORD={pw}\n"
+        f"TB_DOCKER_VOLUMES={tmp_path / 'volumes'}\nTB_ENV=TEST\n",
+        encoding="utf-8",
+    )
+    (deploy / ".env").chmod(0o600)
+    for name in ("backup.tbbak", "it.key", "box.pub"):
+        (tmp_path / name).write_text("synthetic\n", encoding="utf-8")
+    a = SimpleNamespace(key=tmp_path / "it.key", public=tmp_path / "box.pub", keep_to=tmp_path / "keep",
+                        refdata=tmp_path / "refdata", restic_share=[], dir=[], restic_from_box=False, no_copy=False,
+                        other_site=False, older_ok=False)  # fmt: skip
+    restore = box_restore.BoxRestore(deploy, run=lambda *args, **kw: "")
+    argv, values = restore.container(a, tmp_path / "backup.tbbak", tmp_path / "work", "0" * 64)
+    assert argv[argv.index("run") + 1] == "--rm", argv
+    assert pw not in " ".join(argv) and any(pw in v for v in values.values())
+    for name in values:
+        assert argv[argv.index(name) - 1] == "-e"  # the name alone; its value from the engine's own environment

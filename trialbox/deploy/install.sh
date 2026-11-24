@@ -1505,7 +1505,7 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
 elif [ "$EGRESS_OK" = 1 ]; then
   # H-110 (M-SC-2): no systemd here (or TB_SYSTEMD=0): no unit loads the closed egress table at boot, and nftables keeps
   # no rule across a reboot, while Docker brings every service back: said, every time
-  echo "install: warning: no systemd units here: nothing restores the egress rules after a reboot, and the services start again without them. After every boot run: sudo $ROOT/deploy/network.sh restore && sudo $ROOT/deploy/network.sh apply (the host check FAILs the missing table)" >&2
+  stop_or_warn egress-at-boot "the egress rules at boot (restore and apply them after each boot)" "no systemd units here: nothing restores the egress rules after a reboot, and the services start again without them. After every boot run: sudo $ROOT/deploy/network.sh restore && sudo $ROOT/deploy/network.sh apply (the host check FAILs the missing table)"
 fi
 # H-92 (D-1090): a systemd host schedules the backup with timers, so it needs no /etc/cron.d for that
 SYSTEMD_HOST=0; [ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/systemd/system ] \
@@ -1547,7 +1547,7 @@ fi
 # H-110 (M-SC-3): a cron folder is not a cron daemon (a systemd host without one got the timer above)
 if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" != 1 ] && command -v pgrep >/dev/null \
     && ! pgrep -x cron >/dev/null && ! pgrep -x crond >/dev/null; then
-  echo "install: warning: no cron daemon runs on this host: nothing runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) until one does; start the host's cron daemon" >&2
+  stop_or_warn cron-daemon "the nightly log retention and signed audit head (until a cron daemon runs)" "no cron daemon runs on this host: nothing runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) until one does; start the host's cron daemon, then re-run"
 fi
 # H-94 (D-1091): a finish check warned on a PoC box: the nightly signed head is not written into the refused folder
 [ "${ANCHOR_UNSAFE:-0}" = 0 ] || [ ! -f "$CRON_DIR/trialbox-retention" ] \

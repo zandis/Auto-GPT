@@ -133,7 +133,7 @@ print(", ".join(bad[:5]) + (f" and {len(bad) - 5} more" if len(bad) > 5 else "")
 if [ -f "$ROOT/deploy/install.sh" ]; then
   # H-110 (a): the installer that runs is always the signed release's; a kept tree is the site's data, never its code.
   # A tree that is not exactly this release gets the release brought in first, by the release's own host-tree module
-  # read from the checked tar (its install: releases/<bundle id>, `current` switched, the release
+  # read from the checked tar (tools/host_tree.py install: releases/<bundle id>, `current` switched, the release
   # files linked through it, a copied file of the kept tree moved to releases/.replaced-<time>/, never deleted; the
   # site's own files in deploy/ untouched). A bundle older than the one the box records is never brought in
   KEPT_DIFF="$(kept_diff)" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
@@ -153,7 +153,7 @@ if os.path.isfile(rec) and not os.path.islink(rec):
     if have > seq:
         sys.exit(f"this box records release_seq {have}; the bundle is release_seq {seq}: an older release is not brought in")
 with tarfile.open(tar, "r:") as tf:  # the module of the release, from the checked tar, never from the kept tree
-    src = tf.extractfile(os.path.join("tools", "host_tree.py")).read()
+    src = tf.extractfile("tools/host_tree.py").read()
 ht = types.ModuleType("host_tree")
 sys.modules["host_tree"] = ht
 exec(compile(src, "host_tree.py", "exec"), ht.__dict__)

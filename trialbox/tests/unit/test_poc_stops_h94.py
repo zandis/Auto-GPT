@@ -173,6 +173,8 @@ NOT_DRIVEN = {
     "host-baseline-ssh": "root only (deploy/site/hardening.conf as root): the tests run as a user, as CI does",
     "host-baseline": "root only: the tests run as a user, as CI does",
     "systemd-units": "root only (systemd): the tests run as a user, as CI does",
+    "egress-at-boot": "root only (the egress rules applied, no systemd): the tests run as a user, as CI does",  # H-110
+    "cron-daemon": "root only (the cron file written by root, no cron daemon): the tests run as a user",  # H-110
     "install-lock-open": "the deploy folder cannot be made unreadable to root, and the bench may run as root",
     "override-owner": "a file owned by another user cannot be made without root",
     "docker-missing": "the next step that runs Docker is kept refusal 1: test_with_no_docker_a_poc_box_warns_then_stops_at_the_load",

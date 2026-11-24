@@ -147,8 +147,8 @@ master's version of its file swapped in.
 | M-LH-2 the override's folders | fixed in this card | the install uses a copy in `deploy/site` (0644), never the caller's file; `deploy/settings_guard.sh` checks every `COMPOSE_FILE` file and each folder above it before each start (PRODUCTION refuses, a PoC box warns); `test_the_override_root_reads_later_is_a_copy_in_deploy_site`, `test_every_start_refuses_a_compose_file_in_a_folder_others_can_write` |
 | M-BK-1 `sign_bundle keygen` overwrites | fixed in this card | the command refuses a folder that holds a pair, unless `--force` (the library call stays as the tests use it); the private key `O_EXCL` 0600; `test_a_vendor_key_is_never_replaced_and_is_private_from_its_first_byte` |
 | M-SC-1 egress `apply` races | fixed in this card | `deploy/egress.py`: a temp file of the run's own, on disk before the rename, and one lock around `apply` and `save`; `test_two_applies_at_once_never_break_the_state_file`, `test_apply_and_save_take_the_one_lock_before_anything`, `test_a_second_apply_waits_for_the_first` |
-| M-SC-2 no systemd: nothing restores egress at boot | warned in this card; a stop is a question | a warning every time, naming what to run after each boot; `test_a_host_without_systemd_is_told_nothing_restores_egress_at_boot` |
-| M-SC-3 retention needs a running cron | fixed in this card ((c)); the rest warned | the timer on a systemd host; elsewhere a cron folder with no cron daemon is said; `test_a_cron_folder_with_no_cron_daemon_is_said` |
+| M-SC-2 no systemd: nothing restores egress at boot | fixed in this card | `stop_or_warn egress-at-boot`: PRODUCTION stops, a PoC box warns and lists it (the integrator's ruling 7122559749); `test_a_host_without_systemd_is_told_nothing_restores_egress_at_boot[PRODUCTION stops, PoC box warns]` |
+| M-SC-3 retention needs a running cron | fixed in this card | the timer on a systemd host ((c)); elsewhere a cron file with no cron daemon is `stop_or_warn cron-daemon` (PRODUCTION stops, a PoC box warns); `test_a_cron_folder_with_no_cron_daemon_is_said` |
 | L-IB-1 | fixed in this card | (i) above |
 | L-IB-2 a caller's `TB_VENDOR_PUBKEY` | fixed in this card | `deploy/install.sh` and `tools/apply_update.sh` refuse one that is not the key in deploy/keys (H-94 (1)); `test_a_callers_vendor_key_never_stands_in_for_the_boxs` |
 | L-BK-1 the backup private key made 0644 | fixed in this card | `tools/trialbox/backup.py`: `O_EXCL` 0600; `test_the_backup_private_key_is_made_0600_and_only_once` |
@@ -182,15 +182,38 @@ its master file. `tools/trialbox/finish_check.py` `_write_env` was already sound
 the GCP driver. GNU `sed -i` writes a temp file and renames it, so a cut leaves the old file or the new one. It does
 not fsync, though, and the temp file takes the old file's mode. The `>>` lines append.
 
-**Not done, and why.** Three things are not done here.
+**The integrator's rulings (7122559749), and what they changed.** Four rulings, applied as follows.
 
-* M-SC-2 and M-SC-3 on PRODUCTION. A new stop in `deploy/install.sh` is a new message, and
-  `test_every_converted_message_is_master_s` (in `tests/unit/test_poc_stops_h94.py`) holds every message to master's. They
-  warn on every box. Whether PRODUCTION should stop is the integrator's question.
-* L-IB-2 on a box with no key in deploy/keys. The bootstrap always places that key. A box with none still takes the
-  caller's key, as before: the update tests run so.
-* H-BK-1 is another card's. `deploy/hardening/seal_keys.sh` changed here only in its KEK-INPUT lines, for (i), because
-  a test holds the three copies identical.
+* M-SC-2 and M-SC-3 stop on PRODUCTION and warn on a PoC box. Two new keys, `egress-at-boot` and `cron-daemon`; both
+  are rows on H-94's page and not driven (root only).
+* 1396-1's second half is kind 2: the fix stands, and it stops on every box.
+* 1396-2 (the install lock on a PoC box) and 1421-4 (`-e NAME`) are not faults. 1421-4 holds on one condition: the
+  restore container runs with `--rm`, so its environment does not outlive it in the engine's inspect.
+  `test_the_restore_container_is_removed_when_it_ends_and_its_passwords_are_on_no_command_line` holds that; it fails
+  when `--rm` is taken out. `tools/trialbox/box_restore.py` is not changed here.
+* The bootstrap reads `tools/host_tree.py` from the verified tar, with its path written plainly.
+  `tests/unit/test_install_bootstrap.py` allows that one read, and nothing else under `tools/`.
+* H-BK-1 stays with its own card. `deploy/hardening/seal_keys.sh` changed here only in its KEK-INPUT lines, for (i),
+  because a test holds the three copies identical.
+
+**Changed assertions (each by the integrator's ruling 7122559749).** Two assertions changed.
+
+* `tests/fixtures/h94/install_sh_master_stops.json`: two new messages, M-SC-2's and M-SC-3's.
+* `test_it_needs_only_what_a_bare_ubuntu_has` (in `tests/unit/test_install_bootstrap.py`): "no `tools/` in the script"
+  becomes "no `tools/` but the one read of the release's host-tree module from the verified tar, and its comment".
+
+**Changed test data.** Four kinds, none of them an assertion.
+
+* `tests/unit/test_poc_stops_h94.py` `NOT_DRIVEN`: the two new keys (root only).
+* The H-94 stand-in host checks print the `[H-94 (N)]` marker, as in (g).
+* Fixture modes: 0600 in `tests/unit/test_host_commands_own_environment.py` and `tests/unit/test_host_baseline.py`.
+* `tests/unit/test_poc_real_embedder.py`: the timeout 120 s becomes 30 s, with the measurement beside it.
+
+**Not done here.** Two rows only.
+
+* L-IB-2 on a box with no key in deploy/keys. The bootstrap always places that key; a box with none still takes the
+  caller's key, as before.
+* 1421-3 and 1409-2 are with the H-114 worker. ESC-4 is not this card's.
 
 ## Tests, mutants and what was not run
 
