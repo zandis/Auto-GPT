@@ -16,7 +16,8 @@ This module reads the switch and gives the compose file list:
   - the box is a TEST or VALIDATION box (``TB_ENV`` of ``deploy/.env``; absent is PRODUCTION): the second engine is
     in no signed bundle and not in ``deploy/images.lock``, so a PRODUCTION box never runs it;
   - the settings file is owned by root or by this user, not writable by group or others, and fills every key of
-    ``deploy/serving-second.example.env`` (no ``<...>`` left);
+    ``deploy/serving-second.example.env`` (no ``<...>`` left), the image by digest only
+    (``<repository>@sha256:<64 hex>``, never a tag: the rulings on #1459, 7122790579);
   - the box's own list defines both llm-service and llm-verifier (a GPU overlay is in it): the second profile changes
     only what runs inside them.
 
@@ -25,8 +26,8 @@ Nothing here reads the caller's environment: the switch, the box's class and the
 ``SERVING2_*`` variable, so a variable of the caller's shell cannot replace a setting.
 
     python3 -m tools.serving_profile files --deploy deploy           # the file list, ':'-joined (COMPOSE_FILE form)
-    python3 -m tools.serving_profile check-image --deploy deploy     # the local image against its pinned digest,
-                                                                     # then tagged as SERVING2_IMAGE
+    python3 -m tools.serving_profile check-image --deploy deploy     # the local image has the pinned digest
+    python3 -m tools.serving_profile image --deploy deploy           # the engine's image as the switch selects it
     python3 -m tools.serving_profile compose --deploy deploy -- --profile gpu up -d --wait llm-service llm-verifier
 
 Exit 0 done, 1 refused (the reason on stderr), 2 usage. Standard library and the YAML library only.
@@ -54,7 +55,10 @@ MARK = "x-trialbox-bench-serving: true"
 ALLOWED_ENVS = frozenset({"TEST", "VALIDATION"})
 SERVICES = ("llm-service", "llm-verifier")
 PLACEHOLDER = re.compile(r"<[^>]*>")
-DIGEST = re.compile(r"@(sha256:[0-9a-f]{64})$")
+IMAGE_KEY = "SERVING2_IMAGE"
+# name@digest: a registry host may carry a port, the name no tag
+PINNED = re.compile(r"^(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9._/-]+@(sha256:[0-9a-f]{64})$")
+DIGEST_TAIL = re.compile(r"@(sha256:[0-9a-f]{64})$")
 COMPOSE_TAG = re.compile(r"(?<=[\s:\[,])!(?:reset|override)\b")  # as doctor reads compose files
 CLEARED_PREFIXES = ("COMPOSE_", "SERVING2_", "SERVING_ENGINE", "DOCKER_DEFAULT_PLATFORM")
 
@@ -135,9 +139,9 @@ def settings_problems(deploy: Path) -> list[str]:
         val = got.get(key, "")
         if not val or PLACEHOLDER.search(val):
             out.append(f"{key} is not filled in {path}")
-    src = got.get("SERVING2_SOURCE_IMAGE", "")
-    if src and not PLACEHOLDER.search(src) and not DIGEST.search(src):
-        out.append("SERVING2_SOURCE_IMAGE is not pinned by digest (<repository>@sha256:<64 hex>)")
+    ref = got.get(IMAGE_KEY, "")
+    if ref and not PLACEHOLDER.search(ref) and not PINNED.match(ref):
+        out.append(f"{IMAGE_KEY} is not pinned by digest (<repository>@sha256:<64 hex>, never a tag)")
     return out
 
 
@@ -189,36 +193,53 @@ def _run(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
 
 
 def check_image(deploy: Path, run: Runner = _run) -> str:
-    """The bench host's loaded image against its pin: ``SERVING2_SOURCE_IMAGE``'s digest must be among the
-    local image's repository digests; then it is tagged ``SERVING2_IMAGE`` (what compose runs, never pulled).
-    Returns the digest checked; :class:`Refused` otherwise."""
+    """The bench host's loaded image against its pin: the digest of ``SERVING2_IMAGE`` must be among the local
+    image's repository digests. Nothing is pulled and nothing is tagged: compose runs the image by that digest.
+    Returns the digest; :class:`Refused` otherwise."""
     if switch(deploy) != "second":
         raise Refused(f"{SWITCH} is not 'second' in deploy/{SETTINGS}: there is no second image to check")
-    files(deploy)  # the same refusals as the switch: class of box, settings, GPU overlay
-    got = env_file(deploy / SETTINGS)
-    src, tag = got["SERVING2_SOURCE_IMAGE"], got["SERVING2_IMAGE"]
-    m = DIGEST.search(src)
+    files(deploy)  # the same refusals as the switch: class of box, settings, digest form, GPU overlay
+    ref = env_file(deploy / SETTINGS)[IMAGE_KEY]
+    m = PINNED.match(ref)
     assert m is not None  # settings_problems refused it otherwise
-    r = run(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", src])
+    r = run(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", ref])
     if r.returncode != 0:
-        raise Refused("the pinned image is not loaded on this host (docker image inspect failed): load it from the "
-                      "file the walk verified; nothing is pulled")  # fmt: skip
+        raise Refused("the pinned image is not on this host (docker image inspect failed): load it from the file "
+                      "whose licence the walk read; nothing is pulled")  # fmt: skip
     try:
         digests = [str(d).rsplit("@", 1)[-1] for d in json.loads(r.stdout or "[]") or []]
     except ValueError:
         digests = []
     if m.group(1) not in digests:
-        raise Refused("the local image's digest is not the pinned one: not tagged")
-    t = run(["docker", "tag", src, tag])
-    if t.returncode != 0:
-        raise Refused("docker tag failed")
+        raise Refused("the local image's digest is not the pinned one")
+    return m.group(1)
+
+
+def image(deploy: Path) -> str:
+    """The digest the switch's engine runs: the second engine's pin (checked as ``files`` checks it), or the current
+    engine's (its compose variable in deploy/.env when the box sets one, else deploy/images.lock's pin: the lock's
+    one entry with a ``gpu`` part). Never a tag."""
+    if switch(deploy) == "second":
+        files(deploy)
+        ref = env_file(deploy / SETTINGS)[IMAGE_KEY]
+    else:
+        from tools import images_lock
+
+        engines = [e for e in images_lock.load(deploy / "images.lock")["third_party"].values() if e.get("gpu")]
+        box = env_file(deploy / ".env")
+        ref = next((box[v] for v in engines[0].get("variables") or [] if box.get(v)), "") or images_lock.pinned(
+            engines[0]
+        )
+    m = PINNED.match(ref) or DIGEST_TAIL.search(ref)  # the lock's own form is repository:tag@digest
+    if m is None:
+        raise Refused("the engine's image is not pinned by digest")
     return m.group(1)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python3 -m tools.serving_profile", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("files", "check-image", "compose"):
+    for name in ("files", "check-image", "image", "compose"):
         p = sub.add_parser(name)
         p.add_argument("--deploy", type=Path, default=Path("deploy"))
         if name == "compose":
@@ -230,7 +251,10 @@ def main(argv: list[str] | None = None) -> int:
             print(":".join(files(deploy)))
             return 0
         if a.cmd == "check-image":
-            print(f"serving_profile: the pinned image is loaded and tagged ({check_image(deploy)[:19]}...)")
+            print(f"serving_profile: the pinned image is on this host ({check_image(deploy)[:19]}...)")
+            return 0
+        if a.cmd == "image":
+            print(image(deploy))
             return 0
         rest = a.rest[1:] if a.rest[:1] == ["--"] else list(a.rest)
         cmd = [*compose_argv(deploy), *rest]

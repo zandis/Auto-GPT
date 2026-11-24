@@ -20,9 +20,25 @@ behind `model-guard` stay the same. The card, the memory caps, the networks, the
 stay the GPU overlay's (tested on every GPU stack's rendering). The second serving engine answers the same
 `/v1` chat routes and `/health` as the current one, so the gateway, `model-guard` and the services do not change. Every value
 comes from the bench host's settings file, `deploy/site/serving-second.env` (not in the repository).
-`deploy/serving-second.example.env` lists the keys with placeholders. The image is never pulled
-(`pull_policy: never`): the bench host loads it, and `check-image` checks its digest against the pin in the settings
-file and tags it `trialbox-serving2:bench`. No engine build is needed per card or per model: the second engine's
+`deploy/serving-second.example.env` lists the keys with placeholders.
+
+**The image: by digest only, never by a tag** (the integrator's ruling 3 on #1459, 7122790579). The overlay and the
+settings file name it `<repository>@sha256:<digest>`. It is never pulled (`pull_policy: never`) and never tagged: the
+bench host loads it, and `check-image` checks that the local image carries that digest. A tag, or a tag before the
+digest, is refused by the switch and by `tools/images_lock.py`. Nothing bench-only reaches a signed bundle:
+
+- `images_lock`'s lock check refuses any `deploy/images.lock` entry for the bench image's variable, and the lock's
+  entries are the only third-party images a box's compose files may name. `make_bundle.sh` takes the engine images
+  for the model pack from the lock's GPU entries;
+- `check-compose` lets only the file marked as the bench profile name that variable;
+- the settings file lives under `deploy/site/`, which the host tree never packs.
+
+Each harness run records the digest it ran (`--image-digest`, from `python3 -m tools.serving_profile image`).
+
+**Finding H112-01 stays open by design** (the ruling): bench use on the owner's machine goes ahead; whether
+the second engine may ever ship to a hospital box is decided only if the bench shows it is worth it.
+
+No engine build is needed per card or per model: the second engine's
 default backend loads a checkpoint folder directly (per its source; not run here).
 
 **The switch.** `SERVING_ENGINE` is set in the settings file, never in `deploy/.env`, because every service reads
@@ -34,7 +50,7 @@ tools.serving_profile files` prints the compose file list:
 - **On:** that list with the profile added last, only when all of these hold:
   - the box is a TEST or VALIDATION box (`TB_ENV` of `deploy/.env`; absent is PRODUCTION);
   - the settings file is root's or the user's, not writable by group or others, and fills every key;
-  - the source image is pinned by digest;
+  - the image is pinned by digest, with no tag;
   - the box's files define both servers.
 
   Otherwise the switch is refused with the reason. A caller's environment variable decides nothing (tested).
@@ -53,13 +69,18 @@ What it measures:
   and p95 (`run_metrics.percentile`) over the charts that were asked, pooled over the repeats.
 - **Throughput:** charts per hour and generated tokens per second, over the summed wall time.
 - **GPU memory:** the peak of the card's used memory, from the GPU monitor `run_metrics.Monitor` samples.
-- **Repeat agreement:** the (patient, criterion) answers that differ between repeats. A pair counts as different
-  when its answers are not all equal, and a pair missing from a repeat counts as a different answer
-  (`run_metrics.lists_compare`'s rule, called as is).
+- **Repeat agreement, as E2-9 counts it:** the (patient, criterion) answers that differ between runs of the same
+  input (the integrator's ruling 2, 7122790579). `run_metrics.lists_compare`, called as is, counts exactly that: a
+  pair differs when its answers are not all equal, and a pair missing from a run counts as an answer of its own.
+  The table reports it in the walk's form (7117120038), so the two read side by side:
+  "differences from run 1 in (patient, criterion) answers: run 2 28 (27 on X, 1 on Y); run 3 22 (22 on X)". It also
+  gives, over all the runs, the pairs that differ and the patients with such a pair.
+- **The image:** the digest the engine ran.
 
 `table` joins the runs into one table of counts and times. The engine, the candidate and the quantization are short
-labels, refused if they look like anything else. No id, criterion, excerpt or quote reaches a file or the console:
-the stand-in test scans every written file and the output.
+labels, refused if they look like anything else. No patient id, criterion text, excerpt or quote reaches a file or
+the console (the stand-in test scans every written file and the output). Criterion ids of the synthetic set appear,
+as in the walk's line.
 
 **Files outside the card.**
 
@@ -67,8 +88,8 @@ the stand-in test scans every written file and the output.
 - `tests/unit/test_compose_limits.py`: one stack added to `STACKS` (the bench host's shared-quota stack with the profile),
   so the limits and the hardening tests lint and render the new file. No assertion changed.
 - `tests/unit/test_trialbox_doctor.py`: `bench_serving` added to the set of check names that
-  `test_default_install_passes` enumerates (every new doctor check adds its name there). A question to the
-  integrator, as it changes what the test expects.
+  `test_default_install_passes` enumerates. Allowed by the integrator's ruling 1 (7122790579).
+- `tools/images_lock.py`: the bench image's rules (above).
 
 **Tests.** `tests/unit/test_serving_engine_h112.py`; the invariant is
 `test_the_switch_off_renders_the_same_bytes_as_compose_reading_the_box`.
@@ -86,6 +107,7 @@ Run from the repository checkout, as root, with the walk's own copies (never com
 
    ```
    python -m tools.engine_compare run --engine current --candidate X --quant Q \
+       --image-digest "$(python3 -m tools.serving_profile image --deploy deploy)" \
        --base-url <the judge's /v1, as R1-P2's walk reaches it> --served-name <served name> \
        --key-file <root-only key file> --set <results>/h112-set.jsonl --expect-set-sha <sha256> \
        --out <results>/h112/current-X
@@ -116,6 +138,8 @@ These are untested: no engine, GPU or model ran in this card.
 - **Memory and size:** that its memory share and sequence length fit the card or its partition.
 - **Chat template and decoding:** that its chat template matches the current engine's, and that its sampling
   defaults give the same deterministic decoding.
+- **The digest on the host:** that the loaded image keeps its repository digest, which `check-image` and compose
+  look for. An image store that keeps no digests for a loaded file would refuse it (finding H112-08).
 - **Timing:** any time, throughput or memory figure.
 
 The harness's timing is the client's own measure of each call. R1-P2 also uses the gateway's audit and the servers'

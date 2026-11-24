@@ -7,7 +7,7 @@
   {
    "id": "H112-01",
    "severity": "Medium",
-   "claim": "the second serving engine's image is in no signed bundle and not in deploy/images.lock: the profile is bench and test boxes only, its image a local tag the bench host makes after checking the pinned digest (images_lock skips trialbox-* names)",
+   "claim": "the second serving engine's image is in no signed bundle and not in deploy/images.lock, by design until the bench shows it is worth shipping (the ruling 7122790579): the profile is bench and test boxes only, its image named by digest only, and the lock check refuses it anywhere else",
    "lane": "H",
    "basis": "shown",
    "state": "open"
@@ -23,10 +23,10 @@
   {
    "id": "H112-03",
    "severity": "Low",
-   "claim": "E2-9 has no code on master or in any pull request, only the ruling 7107834329: the harness counts differing (patient, criterion) answers by tools.run_metrics.lists_compare's rule (a missing pair counts as an answer); a ruling is wanted that this is E2-9's count",
+   "claim": "E2-9 has no code on master or in any pull request: the harness counts (patient, criterion) answers that differ between runs of the same input with tools.run_metrics.lists_compare, and reports them in the walk's form of 7117120038 (differences from run 1, per run and per criterion)",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "not a defect: the integrator's ruling 7122790579 (2): lists_compare counts what E2-9 counted"
   },
   {
    "id": "H112-04",
@@ -56,6 +56,14 @@
    "id": "H112-07",
    "severity": "Low",
    "claim": "the GPU memory peak is the whole card's used memory as the GPU monitor reports it, both servers and anything else on it; on a card split into partitions what it reports per partition is not known here",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H112-08",
+   "severity": "Low",
+   "claim": "compose and check-image find the second engine's image by its repository digest; an image store that keeps no repository digest for a loaded file (the classic store, as make_bundle.sh notes) would refuse it on the bench host",
    "lane": "H",
    "basis": "hypothesis",
    "state": "open"

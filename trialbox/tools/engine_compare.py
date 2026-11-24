@@ -2,6 +2,7 @@
 engine, with the same models and the same quantization, on the bench host.
 
     python -m tools.engine_compare run --engine current --candidate A --quant <label> \\
+        --image-digest "$(python3 -m tools.serving_profile image --deploy deploy)" \\
         --base-url <the judge's /v1> --served-name <served name> --key-file <root-only key file> \\
         --set <frozen set> --expect-set-sha <sha256> [--repeats 3] [--workers 8] --out <results>/current-A
     python -m tools.engine_compare table <results>/current-A <results>/second-A ... [--out <results>/table.md]
@@ -18,11 +19,14 @@ the quote check), so an engine is measured on what the box would send it. One ru
   the generated tokens per second over the same time;
 * **GPU memory**: the peak of the card's used memory over the run, as ``tools.run_metrics.Monitor`` samples it every
   ``--sample-every`` seconds (the whole card, so both servers on it; none on a machine without the card's monitor);
-* **repeat agreement**: each (patient, criterion) answer (the judge's answer after the product's checks, or
-  ``no_answer``) in each repeat; a pair differs when its answers are not all the same, a pair missing from a repeat
-  counting as an answer of its own (``tools.run_metrics.lists_compare``, the repository's rule for two runs that must
-  list alike; E2-9's ruling [#639 7107834329] counts per-criterion and per-patient differences between identical
-  runs). Reported: the pairs, the pairs that differ, the patients with a pair that differs.
+* **repeat agreement**, as E2-9 counts it (the walk's line 7117120038; the ruling 7122790579): each (patient,
+  criterion) answer (the judge's answer after the product's checks, or ``no_answer``) in each run of the same input.
+  Per later run, the pairs whose answer differs from run 1's, in all and per criterion ("differences from run 1 in
+  (patient, criterion) answers: run 2 28 (27 on X, 1 on Y)"); and over all the runs, the pairs whose answers are not
+  all the same and the patients with such a pair. A pair differs by ``tools.run_metrics.lists_compare``'s rule, called
+  as is: its answers are not all equal, a pair missing from a run counting as an answer of its own;
+* **the image**: the digest the engine ran (``--image-digest``, ``sha256:<64 hex>``, never a tag), recorded with the
+  run.
 
 ``table`` joins the runs' ``summary.json`` into one Markdown table. Counts and times only: no chart text, no
 excerpt, no quote, no patient or item id is written to any file or log, and the summary names the engine
@@ -69,7 +73,9 @@ COLUMNS = (
     ("pairs_differ", "pairs that differ"),
     ("patients_differ", "patients with a pair that differs"),
     ("no_answer", "no answer (all repeats)"),
+    ("image", "image digest"),
 )
+DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 # ------------------------------------------------------------------------------------------------- the numbers
@@ -99,18 +105,37 @@ def differ(repeats: Sequence[Sequence[jb.Row]]) -> dict[str, int]:
     """Repeat agreement over the repeats, by ``tools.run_metrics.lists_compare``'s rule (see the module text)."""
     if len(repeats) < MIN_REPEATS:
         raise ValueError(f"repeat agreement needs at least {MIN_REPEATS} repeats")
-    runs = []
-    for k, rows in enumerate(repeats, 1):
-        pairs = [("\t".join(pair_of(r)), answer_of(r)) for r in rows]
-        runs.append({"part": "hospital", "lang": "bench", "tag": f"r{k}", "candidates": _listed(pairs)})
-    cmp = lists_compare(runs)["bench"]
     keys = {"\t".join(pair_of(r)) for rows in repeats for r in rows}
-    diff = [str(d["pid"]) for d in cmp["differ"]]
+    diff = _differing(repeats)
     return {
         "pairs": len(keys),
         "pairs_differ": len(diff),
         "patients_differ": len({d.split("\t", 1)[0] for d in diff}),
     }
+
+
+def from_run_1(repeats: Sequence[Sequence[jb.Row]]) -> list[dict[str, Any]]:
+    """E2-9's form: per later run, the (patient, criterion) pairs whose answer differs from run 1's (lists_compare
+    on run 1 and that run), in all and per criterion, the largest first."""
+    if len(repeats) < MIN_REPEATS:
+        raise ValueError(f"repeat agreement needs at least {MIN_REPEATS} repeats")
+    out = []
+    for k in range(1, len(repeats)):
+        d = _differing([repeats[0], repeats[k]])
+        per: dict[str, int] = defaultdict(int)
+        for key in d:
+            per[key.split("\t", 1)[1]] += 1
+        by = dict(sorted(per.items(), key=lambda kv: (-kv[1], kv[0])))
+        out.append({"run": k + 1, "pairs": len(d), "by_criterion": by})
+    return out
+
+
+def _differing(repeats: Sequence[Sequence[jb.Row]]) -> list[str]:
+    runs = []
+    for k, rows in enumerate(repeats, 1):
+        pairs = [("\t".join(pair_of(r)), answer_of(r)) for r in rows]
+        runs.append({"part": "hospital", "lang": "bench", "tag": f"r{k}", "candidates": _listed(pairs)})
+    return [str(d["pid"]) for d in lists_compare(runs)["bench"]["differ"]]
 
 
 def summarize(
@@ -149,6 +174,8 @@ def summarize(
         "gpu_samples": (gpu or {}).get("samples", 0),
         **agree,
         "no_answer": sum(1 for n in keys_no.values() if n == len(repeats)),
+        "from_run_1": from_run_1(repeats),
+        "image": meta.get("image", ""),
         "set_sha256": meta.get("set_sha256", ""),
     }
     return out
@@ -167,7 +194,17 @@ def render_table(summaries: Sequence[dict[str, Any]]) -> str:
         if len(shas) == 1 and shas[0]
         else "\nNOT COMPARABLE: the rows were run on different chart sets."
     )
-    return "\n".join([head, rule, *body]) + "\n" + note + "\n"
+    lines = ["", "Repeat agreement, as E2-9 counts it: differences from run 1 in (patient, criterion) answers."]
+    for s in summaries:
+        runs = "; ".join(_run_line(x) for x in s.get("from_run_1") or []) or "not measured"
+        lines.append(f"- {s.get('engine')} {s.get('candidate')} {s.get('quant')}: {runs}.")
+    return "\n".join([head, rule, *body]) + "\n" + note + "\n" + "\n".join(lines) + "\n"
+
+
+def _run_line(x: dict[str, Any]) -> str:
+    by = x.get("by_criterion") or {}
+    detail = f" ({', '.join(f'{n} on {c}' for c, n in by.items())})" if by else ""
+    return f"run {x['run']} {x['pairs']}{detail}"
 
 
 # ------------------------------------------------------------------------------------------------------ the run
@@ -227,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--engine", required=True)
     r.add_argument("--candidate", required=True)
     r.add_argument("--quant", required=True)
+    r.add_argument("--image-digest", required=True, help="sha256:<64 hex> of the image the engine runs")
     r.add_argument("--base-url", required=True)
     r.add_argument("--served-name", required=True)
     r.add_argument("--key-file", type=Path)
@@ -252,6 +290,10 @@ def main(argv: list[str] | None = None) -> int:
         "candidate": _label("candidate", a.candidate, CANDIDATES),
         "quant": _label("quant", a.quant),
     }
+    if not DIGEST.match(a.image_digest):
+        print("engine_compare: --image-digest is sha256:<64 hex>, never a tag", file=sys.stderr)
+        return 2
+    meta["image"] = a.image_digest
     if not jb._loopback(a.base_url) and not a.base_url.startswith("https://") and not a.key_file:
         print("engine_compare: a non-loopback http endpoint needs --key-file", file=sys.stderr)
         return 2

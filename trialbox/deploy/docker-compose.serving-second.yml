@@ -16,9 +16,10 @@
 # deploy/site/serving-second.env (not in the repository; deploy/serving-second.example.env lists the keys): the
 # defaults below are placeholders that start nothing.
 #
-# Never pulled: pull_policy never. The bench host loads the image itself, checks its digest against the pin in its
-# settings file and tags it trialbox-serving2:bench (tools/serving_profile.py check-image); compose then only uses
-# the local image.
+# By digest only, never by a tag, and never pulled (pull_policy never; the rulings on #1459, 7122790579): the bench
+# host loads the image itself, and tools/serving_profile.py check-image checks that the local image has the digest
+# its settings file pins. tools/images_lock.py refuses this file's image in any other form, and refuses it in
+# deploy/images.lock, so it can never ride in a signed bundle.
 x-trialbox-bench-serving: true
 
 x-serving2-env: &serving2env
@@ -26,7 +27,7 @@ x-serving2-env: &serving2env
 
 services:
   llm-service:
-    image: ${SERVING2_IMAGE:-trialbox-serving2:bench}
+    image: ${SERVING2_IMAGE:-serving2-unset@sha256:0000000000000000000000000000000000000000000000000000000000000000}
     pull_policy: never
     entrypoint: ["${SERVING2_SERVER:-serving2-server-unset}"]
     command:
@@ -40,7 +41,7 @@ services:
     environment: *serving2env
 
   llm-verifier:
-    image: ${SERVING2_IMAGE:-trialbox-serving2:bench}
+    image: ${SERVING2_IMAGE:-serving2-unset@sha256:0000000000000000000000000000000000000000000000000000000000000000}
     pull_policy: never
     entrypoint: ["${SERVING2_SERVER:-serving2-server-unset}"]
     command:
