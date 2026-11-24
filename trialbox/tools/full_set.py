@@ -106,11 +106,18 @@ def run_command(argv: Sequence[str], log: Path, env: dict[str, str]) -> int:
 
 def _env(stage: Stage, opts: argparse.Namespace) -> dict[str, str]:
     env = {**os.environ, **stage.env}
-    if opts.llm_url:
+    gpu = "llm_url" in stage.needs  # the model stage; elsewhere the judge's stub test stays a stub (H-113)
+    if opts.llm_url:  # the judge suite (tests/unit/test_judge_tier.py) reads its own names for the same endpoint
         env["TB_LLM_EVAL_URL"] = opts.llm_url
+        if gpu:
+            env["TB_JUDGE_LLM_URL"] = opts.llm_url
     if opts.llm_model:
         env["TB_LLM_EVAL_MODEL"] = opts.llm_model
+        if gpu:
+            env["TB_JUDGE_MODEL"] = opts.llm_model
     env["TB_TEST_ROOT"] = str(scratch_test_root(Path(opts.out)))
+    if not gpu:  # the model servers' key reaches the model stage only (H-113)
+        env.pop("TB_LLM_EVAL_KEY", None)
     return env
 
 
