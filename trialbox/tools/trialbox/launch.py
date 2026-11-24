@@ -58,6 +58,9 @@ class Need:
     libs: tuple[str, ...] = ()
     network: str = "none"
     read: tuple[str, ...] = ()  # options (or "0" for the first positional) whose file is read: mounted read-only
+    # H-132 (LR-16): options whose file is read with what lies beside it (a backup's sha256 sidecar, the restic
+    # repository and its escrow file): the file's folder mounted read-only
+    beside: tuple[str, ...] = ()
     write: tuple[str, ...] = ()  # options whose file or folder is written: its folder mounted read-write
     pairs: tuple[str, ...] = ()  # options of name=path (``--dir``): the path mounted read-write
     site: bool = False  # writes deploy/site (a record): that folder mounted read-write, --deploy passed
@@ -75,7 +78,7 @@ COMMANDS: dict[str, Need] = {
     "backup-keygen": Need(IMAGE, CRYPTO, write=("--private", "--public")),
     "backup": Need(IMAGE, (*CRYPTO, "psycopg"), DB_NETWORK, read=("--public",), write=("--to",), pairs=("--dir",)),
     "backup-check": Need(IMAGE, CRYPTO, read=("0",)),
-    "backup-verify": Need(IMAGE, CRYPTO, read=("0", "--key", "--restic-share"), site=True),
+    "backup-verify": Need(IMAGE, CRYPTO, read=("0", "--key", "--restic-share"), beside=("0",), site=True),
     "restore": Need(),  # H-100: on the host it runs in the backup image itself, as the nightly's job (box_restore.py)
     "restore-drill": Need(),  # installed: its image steps are box_drill.py's own (#1305)
     "backup-nightly": Need(),
@@ -263,6 +266,11 @@ def container_argv(args: Sequence[str], need: Need, box: Mapping[str, str], cwd:
         for v in _values(args, flag):
             p = _abs(v, cwd)
             mount(p, True)
+            rewrite(v, str(p))
+    for flag in need.beside:
+        for v in _values(args, flag):
+            p = _abs(v, cwd)
+            mount(p.parent, True)
             rewrite(v, str(p))
     for flag in need.write:
         for v in _values(args, flag):

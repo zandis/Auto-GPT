@@ -356,6 +356,13 @@ fails, an interrupt or an error on the host is said the same way and kept as an 
 `databases` of `trialbox backup-verify <file> --key <private key>`: they are equal. The steps above are the same
 restore by hand.
 
+**A box whose nightly sends the lake to restic (H-132).** Its backup file holds the databases and every folder but the
+lake, which is in the restic repository beside it (`trialbox-restic`). `backup-verify` and `restore` (both forms
+above) then need one more option to open that repository: `--restic-from-box` on the box itself (the box's restic
+key under its unsealed KEK), or `--restic-share <file>` once per custodian's share on a new box. Without one, both
+refuse and name the two options. The file's folder is read as a whole (the sidecar, the repository and its escrow
+file), read-only.
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |
