@@ -95,7 +95,7 @@ from orchestrator.scenarios.evaluate import (
     is_note_answer,
     not_in_snapshot,
     row,
-    sort_key,
+    sort_rows,
     tier,
 )
 from orchestrator.scenarios.review import recipients, require_approved
@@ -818,7 +818,7 @@ def run(ctx: Ctx) -> Outcome:
     # ---------------------------------------------------------------- outputs
     ctx.state("reporting")
     meta = report_meta(ctx, rs, snapshot, run_date, judging)
-    everyone = sorted([*pool_rows, *version_rows, *waiting_rows, *new_rows], key=sort_key)
+    everyone = sort_rows([*pool_rows, *version_rows, *waiting_rows, *new_rows])
     listed = [r for r in everyone if r.tier in LISTED]
     cl = CandidateList(
         ruleset=rs.id,
@@ -897,7 +897,7 @@ def run(ctx: Ctx) -> Outcome:
         if on_ingest
         else f"this_week_visit1_{rs.id}_{run_date.isoformat()}"
     )
-    mailed = sorted(found if on_ingest else [*week_rows, *found], key=sort_key)
+    mailed = sort_rows(found if on_ingest else [*week_rows, *found])
     deliveries, _ = deliver_lists(ctx, rs, mailed, meta, stem, changes=None if on_ingest else changes)
     agg_to = recipients(rs.manifest.routing, job.requested_by)
     summary = ctx.publish(

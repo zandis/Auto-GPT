@@ -9,7 +9,7 @@ exactly as CASE prints it. :func:`held_back` is the one test both functions use.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from tb_common.reasons import Reason
@@ -38,3 +38,44 @@ def shown_of(verdict: Any) -> tuple[str, str | None]:
     if why is not None:
         return "unknown", why
     return str(_get(verdict, "verdict") or ""), None
+
+
+# INT-S-B (D-1072): a note reading that speaks against a criterion is review, never an exclusion. The page and the
+# workbook say it in these words; the patient stays on the list. Display only: nothing here changes a status.
+NOTE_AGAINST = {
+    "en": "A note may speak against {criterion}. Not excluded. Please check.",
+    "ja": "記録の文章が{criterion}に反する可能性があります。除外していません。確認してください。",
+    "zh-TW": "病歷文字可能不利於{criterion}。未排除。請確認。",
+}
+NOTE_AGAINST_COUNT = {
+    "en": "Patients with a note that may speak against a criterion: {n}. None is excluded.",
+    "ja": "記録の文章が基準に反する可能性がある患者：{n}名。いずれも除外していません。",
+    "zh-TW": "病歷文字可能不利於某項條件的病人：{n} 位。皆未排除。",
+}
+
+
+def notes_against(verdict: Any) -> bool:
+    """A pair's note "not met" that was not allowed to exclude (``not_final``): what the page and the sheet print as
+    "a note may speak against" the criterion, with its quotes and dates, instead of ``unknown``."""
+    return held_back(verdict) == "not_final"
+
+
+def against_ids(criteria: Any) -> list[str]:
+    return [str(_get(v, "id")) for v in criteria or [] if notes_against(v)]
+
+
+def flagged_last[T](
+    rows: list[T], day: Callable[[T], str], review: Callable[[T], bool], flagged: Callable[[T], bool]
+) -> list[T]:
+    """``rows`` in their order, except that on each appointment day the review rows that are ``flagged`` take the last
+    of that day's review places, in their own order. Nothing else moves; no row is added or dropped."""
+    slots: dict[str, list[int]] = {}
+    for i, r in enumerate(rows):
+        if review(r):
+            slots.setdefault(day(r), []).append(i)
+    out = list(rows)
+    for idx in slots.values():
+        group = [rows[i] for i in idx]
+        for i, r in zip(idx, [r for r in group if not flagged(r)] + [r for r in group if flagged(r)], strict=True):
+            out[i] = r
+    return out
