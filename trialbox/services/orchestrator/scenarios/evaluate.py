@@ -41,7 +41,7 @@ from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
-from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
+from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong, unknown_carries_nothing
 from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
 from tb_common.quotes import as_in
 from tb_common.reasons import Reason, code_of
@@ -546,6 +546,7 @@ def check_judge(judge: NoteJudge | None) -> None:
 def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str = "chunks") -> NoteResult:
     """SPEC §7.3: the quote must be a substring of one excerpt (whitespace-normalised), else ``unknown``. A quote from
     a sentence the guard's planted-instruction screen flags is ``unknown`` too (T-606, D-359)."""
+    d = unknown_carries_nothing(d)  # INT-S-C: an abstention has no quote, date or confidence, whatever the reply says
     verdict = str(d.get("verdict", "unknown"))
     quote = d.get("quote")
     conf = float(d.get("confidence", 0.0))
@@ -641,6 +642,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
     why = r.reason
+    abstained = r.predicate == "unknown"  # INT-S-C: an abstention has no quote, date or confidence, from any result
     affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
     if pred is not None:
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
@@ -657,9 +659,9 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
         verdict=verdict,
         evidence=Evidence(
             resource_refs=refs,
-            quote=r.quote,
-            quote_date=r.quote_date,
-            confidence=r.confidence,
+            quote=None if abstained else r.quote,
+            quote_date=None if abstained else r.quote_date,
+            confidence=None if verdict == "unknown" else r.confidence,
             reason=why,
             opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
