@@ -8,6 +8,7 @@ lower-case letters only, and every id the adapter hands out is drawn by it."""
 from __future__ import annotations
 
 import ast
+import logging
 import os
 import random
 import threading
@@ -195,17 +196,30 @@ def test_a_run_is_started_under_a_site_rule_that_reads_letters(
     assert len(rid) == ids.LENGTH and set(rid) <= set(ids.ALPHABET)
 
 
-def _formatted(caplog: pytest.LogCaptureFixture, msg: str, service: str) -> str:
-    """The line the service's own formatter writes for the record ``msg`` (the scrubber runs there)."""
-    from tb_common.logging import JsonFormatter
+class _Lines(logging.Handler):
+    """The lines a service's own formatter writes (the scrubber runs there), whatever handlers the process holds."""
 
-    [record] = [r for r in caplog.records if r.getMessage() == msg]
-    return JsonFormatter(service).format(record)
+    def __init__(self, service: str) -> None:
+        from tb_common.logging import JsonFormatter
+
+        super().__init__(logging.DEBUG)
+        self.setFormatter(JsonFormatter(service))
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(self.format(record))
 
 
-def test_the_compilers_error_id_is_logged_whole(
-    monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
-) -> None:
+def _lines_of(monkeypatch: pytest.MonkeyPatch, logger: str, service: str) -> _Lines:
+    lines = _Lines(service)
+    lg = logging.getLogger(logger)
+    monkeypatch.setattr(lg, "handlers", [*lg.handlers, lines])  # a new list: the old one is put back after the test
+    monkeypatch.setattr(lg, "level", logging.DEBUG)
+    monkeypatch.setattr(lg, "disabled", False)
+    return lines
+
+
+def test_the_compilers_error_id_is_logged_whole(monkeypatch: pytest.MonkeyPatch) -> None:
     """H147-02: a 500 gives the caller an ``error_id`` to find the log line by; with a draw the scrubber cuts
     planted where the old id came from (``uuid4().hex[:12]``), the logged line must still hold the id whole."""
     import uuid
@@ -216,16 +230,15 @@ def test_the_compilers_error_id_is_logged_whole(
     cut = next(h for h in (rng.randbytes(6).hex() for _ in range(20_000)) if redact(h) != h)
     planted = uuid.UUID(hex=cut + "0" * 20)
     monkeypatch.setattr(uuid, "uuid4", lambda: planted)
+    lines = _lines_of(monkeypatch, "criteria-compiler", "criteria-compiler")
     resp, _ = _post(monkeypatch, KeyError("a value that must never be shown"))
     assert resp.status_code == 500
     error_id = resp.json()["detail"]["error_id"]
-    logged = "".join(capfd.readouterr())  # the service's own handler writes the scrubbed lines out
-    assert '"msg": "unhandled error"' in logged and f'"error_id": "{error_id}"' in logged
+    [line] = [x for x in lines.lines if '"msg": "unhandled error"' in x]
+    assert f'"error_id": "{error_id}"' in line
 
 
-def test_a_cascade_runs_id_is_logged_whole(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_a_cascade_runs_id_is_logged_whole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """H147-03: a failed cascade run is logged by its id; with a ULID the scrubber cuts planted where the old id came
     from (``new_ulid``), the logged line must still hold the run's id whole."""
     from console import cascade
@@ -241,7 +254,8 @@ def test_a_cascade_runs_id_is_logged_whole(
     drop.mkdir()
     (drop / "patient.csv").write_text("pid\n", encoding="utf-8")  # a synthetic site drop is "mounted"
     done = threading.Event()
-    caplog.set_level("ERROR")
+    lines = _lines_of(monkeypatch, "console.cascade", "console")
     run = cascade.CascadeRuns(tmp_path / "runs", drop, runner=broke).start("GZQO", "crc", lambda _r: done.set())
     assert done.wait(30)
-    assert f'"run": "{run.run_id}"' in _formatted(caplog, "cascade run failed", "console")
+    [line] = [x for x in lines.lines if '"msg": "cascade run failed"' in x]
+    assert f'"run": "{run.run_id}"' in line
