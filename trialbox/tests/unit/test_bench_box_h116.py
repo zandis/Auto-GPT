@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,7 +26,7 @@ import pytest
 from tests.unit.test_test_box_h106 import TEST_ARGS, Engine, H106Box, _compose_names, _published
 from tools.trialbox import benchbox, doctor, testbox
 
-pytestmark = [pytest.mark.nodb, pytest.mark.skipif(sys.platform != "linux", reason="bash and GNU tools")]
+pytestmark = [pytest.mark.nodb]
 ROOT = Path(__file__).resolve().parents[2]
 WHEN = datetime(2026, 11, 24, 12, 0, 0, tzinfo=UTC)
 
