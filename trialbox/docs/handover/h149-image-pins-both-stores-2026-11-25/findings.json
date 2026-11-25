@@ -8,7 +8,7 @@
   {
    "id": "H149-01",
    "severity": "High",
-   "claim": "on the containerd image store (the container engine's default from major version 29) a loaded image's id is its manifest digest and the registry digest is not kept, so tools/image_pins.py found every digest-pinned third-party image missing and the install stopped at starting the stack (the integrator's 7168582084; the failure is reproduced on the recorded answer by test_containerd_store_was_missing_before_h149)",
+   "claim": "on the engine's newer image store (the container engine's default from major version 29) a loaded image's id is its manifest digest and the registry digest is not kept, so tools/image_pins.py found every digest-pinned third-party image missing and the install stopped at starting the stack (the integrator's 7168582084; the failure is reproduced on the recorded answer by test_newer_store_was_missing_before_h149)",
    "lane": "H",
    "basis": "shown",
    "state": "open",
@@ -17,7 +17,7 @@
   {
    "id": "H149-02",
    "severity": "Medium",
-   "claim": "a bundle made before this card carries pins without layers: on the containerd store it still stops at starting the stack (refused, as before); only a bundle made after this card installs there",
+   "claim": "a bundle made before this card carries pins without layers: on the newer image store it still stops at starting the stack (refused, as before); only a bundle made after this card installs there",
    "lane": "H",
    "basis": "shown",
    "state": "open",
@@ -26,7 +26,7 @@
   {
    "id": "H149-03",
    "severity": "Medium",
-   "claim": "that compose starts a service from an image named by the containerd store's own id (sha256 of the manifest), with no pull, is not shown: no container engine runs in the card's container",
+   "claim": "that compose starts a service from an image named by the newer image store's own id (sha256 of the manifest), with no pull, is not shown: no container engine runs in the card's container",
    "lane": "H",
    "basis": "not_run",
    "state": "open",

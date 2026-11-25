@@ -240,7 +240,7 @@ for img in "${IMAGES[@]}"; do
   case "$img" in *@sha256:*)
     # a digest-pinned image saved by its digest loads back with no name, so compose cannot find it offline and tries
     # to pull (found by the box rehearsal, D-176): save it under its tag. Neither image store of the container
-    # engine is sure to resolve the digest reference after a load (the classic store keeps no digests; the containerd
+    # engine is sure to resolve the digest reference after a load (the classic store keeps no digests; the newer
     # store gives the image another id, H-149), so the bundle also carries the pin read out of the saved archive: its
     # config digest, tag, layer diff ids and config (tools/image_pins.py proves the loaded image by them)
     ref="${img%@*}"; case "${ref##*/}" in *:*) ;; *) ref="$ref:pinned" ;; esac

@@ -14,10 +14,10 @@
 
 ## 1. What failed
 
-On a host with the container engine at major version 29, whose default image store is the containerd store, the
+On a host with the container engine at major version 29, whose default image store is the newer image store, the
 install of a signed bundle stopped at "starting the stack": `image pins: MISSING ...: neither on this box by digest
 nor loaded from the bundle`. The pin check knew two cases: the digest reference resolves, or the bundle's image id
-(the config digest) does. On the containerd store neither does: the loaded image's `Id` is the digest of the manifest
+(the config digest) does. On the newer image store neither does: the loaded image's `Id` is the digest of the manifest
 the archive carried, and `RepoDigests` names that manifest, not the registry's.
 
 ## 2. What changed
@@ -37,7 +37,7 @@ then the image under the pin's tag, whose `RootFS.Layers` must equal the signed 
 fields must equal the signed ones, absent and empty being one value. Only then is the compose variable set to the
 store's own `Id`: an id the store keeps, so compose neither pulls nor names a digest the store does not keep. Any
 difference leaves the variable alone, notes what differs, and keeps the line `MISSING <VAR>: <ref>` (its words are
-unchanged). A pin without layers (a bundle from before this card) is not enough on the containerd store.
+unchanged). A pin without layers (a bundle from before this card) is not enough on the newer image store.
 
 ## 3. Every place that compares an image id or digest
 
@@ -55,7 +55,7 @@ unchanged). A pin without layers (a bundle from before this card) is not enough 
 
 ## 4. The invariant and its mutants
 
-`test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused`: on the recorded containerd store answer the
+`test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused`: on the recorded newer image store answer the
 variable is set to the store's own id and nothing else; on thirteen changed answers (a layer differs, missing, one
 more, reordered; another entrypoint, command, environment, user, working directory, platform, an added label; no root
 file system; no id) nothing is set and the image is `MISSING`. Mutants run against the final code, each killed:
@@ -67,9 +67,9 @@ file system; no id) nothing is set and the image is `MISSING`. Mutants run again
 | M3 the layers compared as a set | the invariant |
 | M4 the config not compared | the invariant |
 | M5 a field only the box has ignored | the invariant |
-| M6 the config digest written on the containerd store | the invariant (and two more) |
+| M6 the config digest written on the newer image store | the invariant (and two more) |
 | M7 the tag written | the invariant (and two more) |
-| M8 a pin without layers accepted by its tag | `test_a_pin_from_before_h149_is_not_enough_on_the_containerd_store` |
+| M8 a pin without layers accepted by its tag | `test_a_pin_from_before_h149_is_not_enough_on_the_newer_store` |
 
 Failing first: on master's `tools/image_pins.py` the new file had 9 of 12 failing; the three that pass are the
 recorded bench failure, update's load check (already both stores) and the make_bundle text check.

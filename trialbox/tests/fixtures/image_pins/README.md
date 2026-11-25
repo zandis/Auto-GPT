@@ -5,10 +5,10 @@ Synthetic, written by hand from the container engine's documented formats; no re
 - `hapi-config.json`: the image config a `save` archive carries for a stand-in of the pinned FHIR image (three
   synthetic layer diff ids). Its sha256 is the image id the bundle pins.
 - `hapi-manifest.json`: the OCI manifest that names that config and those layers. Its sha256 is the id the
-  containerd store gives the loaded image.
+  newer image store gives the loaded image.
 - `inspect-classic-store.json`: `image inspect` of the loaded image on the classic store (major version 28 and
   before): `Id` is the config digest, `RepoDigests` is empty, `Config` carries the container fields.
-- `inspect-containerd-store.json`: the same image on the containerd store (the default from major version 29): `Id`
+- `inspect-newer-store.json`: the same image on the newer image store (the default from major version 29): `Id`
   and `RepoDigests` name the manifest digest, never the config digest; `Config` carries the image config's fields
   only; `Descriptor` names the manifest.
 

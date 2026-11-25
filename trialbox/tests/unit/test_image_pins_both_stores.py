@@ -1,11 +1,11 @@
 """H-149: a digest-pinned image loaded from the signed bundle is proved on either image store of the container engine.
 
-On major version 29 the default image store is the containerd store: a loaded image keeps neither the registry's
+On major version 29 the default image store is the newer image store: a loaded image keeps neither the registry's
 digest nor the config digest as its id (``Id`` is the manifest digest), so the pin check of D-176 found every pinned
 third-party image missing and the install stopped at "starting the stack". The recorded ``image inspect`` answers of
 both stores are in ``tests/fixtures/image_pins`` (synthetic, written from the engine's documented formats).
 
-The invariant (``test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused``): on the containerd store the
+The invariant (``test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused``): on the newer image store the
 compose variable is set to the store's own id only when the image under the bundle's tag has exactly the signed layer
 diff ids and config; any other image is refused, and nothing else is ever written (no digest reference, no config
 digest the store does not keep).
@@ -107,7 +107,7 @@ def test_an_archive_whose_config_is_not_its_digest_pins_no_layers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A config that is not the content its name says, or one without layers, gives today's pin (the id only) and
-    a warning: such a pin proves nothing on the containerd store, where the box refuses it."""
+    a warning: such a pin proves nothing on the newer image store, where the box refuses it."""
     bad = _archive(tmp_path, CONFIG, "bad.tar")
     swapped = tmp_path / "swapped.tar"
     with tarfile.open(bad) as src, tarfile.open(swapped, "w") as dst:
@@ -124,7 +124,7 @@ def test_an_archive_whose_config_is_not_its_digest_pins_no_layers(
     assert json.loads(out.read_text(encoding="utf-8"))["pins"] == [{"ref": HAPI, "image": CONFIG_ID}]
     assert "is not the content its digest names" in capsys.readouterr().err
     deploy, files = _box(tmp_path / "box", {"ref": HAPI, "image": CONFIG_ID})
-    has, inspect = _store(_inspect("containerd"))
+    has, inspect = _store(_inspect("newer"))
     assert ip.resolve(deploy, files, has=has, inspect=inspect)[2] == [f"HAPI_IMAGE: {HAPI}"]
 
 
@@ -137,12 +137,10 @@ def test_make_bundle_writes_the_pins_with_the_pin_tool() -> None:
 # ------------------------------------------------------------------------------------------------ the box's side
 def test_both_recorded_stores_agree_on_what_the_image_is_proved_by(tmp_path: Path) -> None:
     pin = ip.read_pin_records(_box(tmp_path, _signed_pin(tmp_path))[0] / ip.PINS)[HAPI]
-    classic, containerd = _inspect("classic"), _inspect("containerd")
-    assert classic["Id"] == CONFIG_ID and containerd["Id"] == MANIFEST_ID != CONFIG_ID
-    assert containerd["RepoDigests"] == [f"hapiproject/hapi@{MANIFEST_ID}"] and HAPI.split("@")[1] not in json.dumps(
-        containerd
-    )
-    assert ip.differs(pin, classic) == "" and ip.differs(pin, containerd) == ""
+    classic, newer = _inspect("classic"), _inspect("newer")
+    assert classic["Id"] == CONFIG_ID and newer["Id"] == MANIFEST_ID != CONFIG_ID
+    assert newer["RepoDigests"] == [f"hapiproject/hapi@{MANIFEST_ID}"] and HAPI.split("@")[1] not in json.dumps(newer)
+    assert ip.differs(pin, classic) == "" and ip.differs(pin, newer) == ""
 
 
 def test_classic_store_points_compose_at_the_config_digest(tmp_path: Path) -> None:
@@ -152,18 +150,18 @@ def test_classic_store_points_compose_at_the_config_digest(tmp_path: Path) -> No
     assert missing == [] and changes == {"HAPI_IMAGE": CONFIG_ID}
 
 
-def test_containerd_store_was_missing_before_h149(tmp_path: Path) -> None:
-    """The bench's failure: neither the digest reference nor the config digest resolves on the containerd store."""
-    has, _ = _store(_inspect("containerd"))
+def test_newer_store_was_missing_before_h149(tmp_path: Path) -> None:
+    """The bench's failure: neither the digest reference nor the config digest resolves on the newer image store."""
+    has, _ = _store(_inspect("newer"))
     assert not has(HAPI) and not has(CONFIG_ID)
 
 
 def test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused(tmp_path: Path) -> None:
-    """The invariant. The containerd store's answer, as recorded: set to the store's own id. Every changed answer:
+    """The invariant. The newer image store's answer, as recorded: set to the store's own id. Every changed answer:
     refused, nothing set."""
     pin = _signed_pin(tmp_path)
     deploy, files = _box(tmp_path, pin, "A=1\n")
-    good = _inspect("containerd")
+    good = _inspect("newer")
     has, inspect = _store(good)
     changes, notes, missing = ip.resolve(deploy, files, has=has, inspect=inspect)
     assert missing == [] and changes == {"HAPI_IMAGE": MANIFEST_ID}
@@ -199,9 +197,9 @@ def test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused(tmp_path
         assert any("not proved on this box" in n for n in notes), name
 
 
-def test_a_pin_from_before_h149_is_not_enough_on_the_containerd_store(tmp_path: Path) -> None:
+def test_a_pin_from_before_h149_is_not_enough_on_the_newer_store(tmp_path: Path) -> None:
     deploy, files = _box(tmp_path, {"ref": HAPI, "image": CONFIG_ID})  # no layers: today's pin
-    has, inspect = _store(_inspect("containerd"))
+    has, inspect = _store(_inspect("newer"))
     changes, notes, missing = ip.resolve(deploy, files, has=has, inspect=inspect)
     assert changes == {} and missing == [f"HAPI_IMAGE: {HAPI}"] and any("H-149" in n for n in notes)
 
@@ -210,14 +208,14 @@ def test_the_cli_sets_the_store_id_and_says_so(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     deploy, files = _box(tmp_path, _signed_pin(tmp_path))
-    has, inspect = _store(_inspect("containerd"))
+    has, inspect = _store(_inspect("newer"))
     monkeypatch.setattr(ip, "docker_has", has)
     monkeypatch.setattr(ip, "docker_inspect", inspect)
     assert ip.main(["resolve", "--deploy", str(deploy), "--files", str(files[0])]) == 0
     assert f"HAPI_IMAGE={MANIFEST_ID}" in (deploy / ".env").read_text(encoding="utf-8")
     assert (deploy / ".env").stat().st_mode & 0o777 == 0o600
     assert f"deploy/.env HAPI_IMAGE={MANIFEST_ID}" in capsys.readouterr().out
-    bad = _inspect("containerd")
+    bad = _inspect("newer")
     bad["RootFS"]["Layers"] = bad["RootFS"]["Layers"][:1]
     monkeypatch.setattr(ip, "docker_inspect", _store(bad)[1])
     (deploy / ".env").write_text("", encoding="utf-8")
@@ -238,7 +236,7 @@ def test_merge_keeps_the_layers_of_the_signed_pin(tmp_path: Path) -> None:
     assert not list(deploy.glob(".*.tmp"))
 
 
-def test_an_update_resolves_on_the_containerd_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_update_resolves_on_the_newer_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from tools.trialbox import update as up
 
     pin = _signed_pin(tmp_path)
@@ -256,7 +254,7 @@ def test_an_update_resolves_on_the_containerd_store(tmp_path: Path, monkeypatch:
     box = up.ComposeBox(deploy, run=run)
     plan = up.Plan("b1", "", "", [], stage)
     assert "image pins: 1" in box.apply(plan, tmp_path / "rb", up.Point())
-    has, inspect = _store(_inspect("containerd"))
+    has, inspect = _store(_inspect("newer"))
     monkeypatch.setattr(ip, "docker_has", has)
     monkeypatch.setattr(ip, "docker_inspect", inspect)
     box.restart(plan)
@@ -264,14 +262,14 @@ def test_an_update_resolves_on_the_containerd_store(tmp_path: Path, monkeypatch:
     assert "up" in calls[-1]
 
 
-def test_the_update_load_check_accepts_the_containerd_store_id(tmp_path: Path) -> None:
-    """update.py's check after ``load``: the containerd store's ``Id`` is a manifest digest of the archive's
+def test_the_update_load_check_accepts_the_newer_store_id(tmp_path: Path) -> None:
+    """update.py's check after ``load``: the newer image store's ``Id`` is a manifest digest of the archive's
     index.json, which tar_images reads; anything else is refused."""
     from tools.trialbox import update as up
 
     configs, manifests = up.tar_images(_archive(tmp_path))
     assert configs == {TAG: CONFIG_ID} and manifests == {MANIFEST_ID}
-    answers = {"id": str(_inspect("containerd")["Id"])}
+    answers = {"id": str(_inspect("newer")["Id"])}
 
     def run(argv: Sequence[str], **_: Any) -> str:
         return answers["id"] + "\n"

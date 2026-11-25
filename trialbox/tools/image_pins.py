@@ -12,7 +12,7 @@ After ``load``, three cases, tried in this order:
 * The classic store (the container engine's default through major version 28): ``load`` restores tags only, and an
   image's id is its config digest. The bundle's id is found as it is, and its compose variable is set in
   ``deploy/.env`` to that id. The id is content addressed: an image with that id is that content.
-* The containerd store (the default from major version 29): the loaded image keeps neither the registry's digest nor
+* The newer image store (the default from major version 29): the loaded image keeps neither the registry's digest nor
   the config digest as its id; its ``Id`` is the digest of the manifest (or index) the archive carried. Here the image
   under the bundle's tag is proved by what both stores agree on: its ``RootFS.Layers`` equal the signed diff ids, in
   order, and its architecture, OS and run config equal the signed ones. Only then is its compose variable set to the
@@ -45,7 +45,7 @@ from typing import Any
 PINS = "image-pins.json"
 VAR_REF = re.compile(r"\$\{([A-Z][A-Z0-9_]*):-([^}\s]+@sha256:[0-9a-f]{64})\}")
 IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
-#: the image config's run fields compared on the containerd store (``config`` of the image config, ``Config`` of
+#: the image config's run fields compared on the newer image store (``config`` of the image config, ``Config`` of
 #: ``image inspect`` on either store); with the layers they decide what a container of the image runs
 RUN_FIELDS = ("Entrypoint", "Cmd", "Env", "User", "WorkingDir", "Volumes", "ExposedPorts", "StopSignal", "Labels",
               "Healthcheck", "Shell", "OnBuild")  # fmt: skip
@@ -217,7 +217,7 @@ def resolve(
     """``({variable: image id, or None to clear}, notes, missing references)`` for this box's compose files.
     ``used`` (OPS-004b, D-574): the images the rendered stack runs (``docker compose config --images`` with the
     box's overrides). A pinned variable whose image no service runs is noted and not asked for; without the list
-    every pinned variable is asked for. ``inspect`` (H-149): ``image inspect`` of a reference, for the containerd
+    every pinned variable is asked for. ``inspect`` (H-149): ``image inspect`` of a reference, for the newer image
     store, where the bundle's image is proved by its layers and config under the bundle's tag."""
     has = has or docker_has
     inspect = inspect or docker_inspect
