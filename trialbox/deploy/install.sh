@@ -522,6 +522,12 @@ NO_DOCKER="every step that runs Docker (each fails where it runs)"
 command -v docker >/dev/null || stop_or_warn docker-missing "$NO_DOCKER" "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"
 docker info >/dev/null 2>&1 || stop_or_warn docker-not-running "$NO_DOCKER" "Docker is not running (sudo systemctl start docker)"
 docker compose version >/dev/null 2>&1 || stop_or_warn compose-missing "$NO_DOCKER" "the docker compose plugin is missing"
+# M9 (consult 10, section 4): the installer never depends on what an Engine version happens to do; the one range is
+# tools/trialbox/profile_m9.py ENGINE_TESTED. Outside it, or unreadable: the install stops before changing anything.
+if command -v python3 >/dev/null && docker info >/dev/null 2>&1; then
+  ENGINE_RC=0; ENGINE_LINE="$(cd "$ROOT" && python3 -m tools.trialbox.profile_m9 engine 2>&1)" || ENGINE_RC=$?
+  [ "$ENGINE_RC" = 0 ] || stop_or_warn docker-engine-range "$NO_DOCKER" "$ENGINE_LINE"
+fi
 # HOST-PYTHON (D-831): the host steps run python3 -m tools.... (anchors, pre-start, doctor, the secrets); the modules
 # they import at the top are checked here, before anything loads, not 20 minutes in. module:Debian package, one per
 # word. Not cryptography: the host python3 may lack it (libs/tb_common/kek.py). Without python3 those steps say so.
