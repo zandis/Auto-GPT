@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{# M8: "Screen now" (console.screen_now). Counts, times and states only: no patient. #}
+{% import "_fields.html" as fm with context %}
+{% from "_ds.html" import page_header %}
+{# the tab's title says "Error:" after a failed POST (base.html reads this page_title); the heading never does #}
+{% set page_title = fm.title(fe, t('screennow.title')) %}
+{% block content %}
+{{ fm.error_summary(fe, testid='screennow-errors') }}
+{% set page_title = t('screennow.title') %}{% call page_header(page_title, rs) %}{% endcall %}
+<p class="hint">{{ t('screennow.intro') }}</p>
+{% if error %}<p class="error" role="alert" data-testid="screennow-error">{{ t(error) }}</p>{% endif %}
+{% if version is none %}<p data-testid="screennow-no-ruleset">{{ t('screennow.no_ruleset') }}</p>{% else %}
+<section class="card" data-testid="screennow-facts">
+<p>{% if st.scope is not none %}{{ t('screennow.scope.known', n=st.scope) }}{% else %}{{ t('screennow.scope.unknown') }}{% endif %}</p>
+<p>{% if st.minutes is not none %}{{ t('screennow.time.known', minutes=st.minutes, per=st.per_1000) }}{% else %}{{ t('screennow.time.unknown') }}{% endif %}</p>
+{% if st.stale %}<p data-testid="screennow-stale">{{ t('screennow.stale', day=st.stale) }}</p>{% endif %}
+</section>
+{% if joined %}<p data-testid="screennow-joined">{{ t('screennow.joined') }}</p>{% endif %}
+{% if st.running %}
+<section class="card" data-testid="screennow-running">
+<p>{{ t('screennow.running', state=st.running.state) }}</p><p class="hint">{{ t('screennow.progress') }}</p>
+<p><a href="/pilot/jobs/{{ st.running.job_id }}">{{ st.running.job_id }}</a></p>
+</section>
+{% endif %}
+{% if st.behind and (not st.running or st.running.state == 'received') %}
+<section class="card" data-testid="screennow-queue">
+<p>{{ t('screennow.queued', n=st.behind) }}</p>
+<p>{% if st.wait_minutes is not none %}{{ t('screennow.wait.known', minutes=st.wait_minutes) }}{% else %}{{ t('screennow.wait.unknown') }}{% endif %}</p>
+</section>
+{% endif %}
+{% if st.failed %}<p data-testid="screennow-failed">{{ t('screennow.failed', step=st.failed.error.step if st.failed.error else '?') }}</p>{% endif %}
+{% if may_start %}
+<form method="post" action="/studies/{{ rs }}/screen-now" data-fields="screen-now" data-testid="screennow-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% if st.scope is none %}<p data-testid="screennow-ask-scope">{{ t('screennow.ask_scope') }}</p>{{ fm.field(fe, 'screen-now', 'sn', 'all_dept', t('screennow.all_dept'), '1', kind='checkbox') }}{% endif %}
+  <button type="submit" data-testid="screennow-start">{{ t('screennow.start') }}</button>
+</form>
+{% else %}<p data-testid="screennow-not-allowed">{{ t('screennow.not_allowed') }}</p>{% endif %}
+{% if st.last %}
+<section class="card" data-testid="screennow-last">
+<p>{{ t('screennow.done', at=st.last.updated_at.strftime('%Y-%m-%d %H:%M')) }}
+<a href="/pilot/jobs/{{ st.last.job_id }}">{{ t('screennow.open_list') }}</a></p>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}
