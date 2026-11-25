@@ -11,6 +11,7 @@
 #
 #   deploy/terminology-update.sh                      # after the files changed, or a system was added to the folder
 #   deploy/terminology-update.sh --rollback BUNDLE    # the tables an update's code systems replaced, put back
+#   deploy/terminology-update.sh --scheduled          # M2 (V-19): a signed pack from TB_TERMINOLOGY_UPDATE_DIR or a stick
 #   deploy/terminology-update.sh --readers-only       # step 2 only (deploy/terminology.sh, after it loaded a system)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,6 +27,15 @@ if [ "${1:-}" = "--rollback" ]; then  # V-18: the tables kept aside by update BU
     || { echo "terminology-update: the kept tables were not put back (above); nothing changed" >&2; exit 2; }
   shift 2
   set -- "$@"
+fi
+if [ "${1:-}" = "--scheduled" ]; then  # M2 (V-19): run by trialbox-terminology.timer, before the night
+  STICKS=(); for s in ${TB_TERMINOLOGY_STICK:-}; do STICKS+=(--stick "$s"); done
+  PACK="$(PYTHONPATH=. python3 -m tools.terminology_pack find --update-dir "${TB_TERMINOLOGY_UPDATE_DIR:-}" "${STICKS[@]}")"
+  [ -n "$PACK" ] || { echo "terminology-update: no pack waiting"; exit 0; }
+  PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' deploy/.env 2>/dev/null | tail -1)"; PROJECT="${PROJECT:-trialbox}"
+  mkdir -p deploy/terminology/previous
+  # exit: 0 applied or waits, 3 refused (by name, nothing changed), 4 a reader failed (the old release is back)
+  exec docker compose --project-directory deploy run --rm --no-deps -T -v "$PACK:/pack:ro"     -v "$ROOT/deploy/terminology/previous:/keep" -v "$ROOT/deploy/keys:/keys:ro"     -v "${PROJECT}_audit-data:/data/audit" -e TB_VENDOR_KEYS=/keys -e TB_AUDIT_DIR=/data/audit     criteria-compiler python -m tools.terminology_pack run --pack /pack --keep /keep
 fi
 READERS_ONLY=0
 [ "${1:-}" != "--readers-only" ] || READERS_ONLY=1

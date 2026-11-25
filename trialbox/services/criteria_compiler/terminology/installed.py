@@ -356,6 +356,12 @@ LICENSED: dict[str, str] = {
     ICD10_WHO: "WHO ICD-10 (WHO copyright): the site's own licensed copy; never shipped",
     ATC_INDEX: "ATC index (WHOCC copyright, https://atcddd.fhi.no/copyright_disclaimer/): the site's own copy",
 }
+# M2 (DB-C2): the imaging code list. Its source and licence are the owner's (JJ1017): until a hospital names who
+# accepted its licence it is a licensed system, loaded only from the hospital's copy, never in the release or a backup
+IMAGING_LIST = "imaging_list"
+LICENSED[IMAGING_LIST] = (
+    "imaging code list (source and licence owner-decided, JJ1017): the hospital's own copy; never shipped"
+)
 # what the doctor names when it is not loaded, in the order of the install step
 AT_INSTALL: tuple[tuple[str, str], ...] = (
     ("site lists", SITE_PREFIX), ("NHI drug list", NHI_DRUGS), ("NHI service codes", NHI_SERVICES),
@@ -1015,6 +1021,42 @@ def install_atc(path: Path, directory: Path, accepted_by: str, accepted_on: str 
     line = _line(f"ATC index ({member})", path, f"ATC {version}", lic.pop("licence"), now, **lic)
     _write(directory, ATC_INDEX, rows, ("code", "display"), line)
     return {ATC_INDEX: len(rows)}
+
+
+_IMAGING_CODE = re.compile(r"^[0-9A-Z][0-9A-Z._-]{0,29}$")
+
+
+def imaging_rows(text: str) -> list[dict[str, str]]:
+    """The imaging list as a table: ``code``, ``display`` and the optional ``modality`` (CT, MR, XR, US...)."""
+    rows = table_rows(text, "the imaging list")
+    code = _col(rows, ("code", "imaging_code"), "the imaging list")
+    name = _col(rows, ("display", "name"), "the imaging list")
+    mod = _col(rows, ("modality",), "the imaging list", required=False)
+    out, seen = [], set()
+    for r in rows:
+        c = r.get(code, "").upper()
+        if not c or c in seen:
+            continue
+        if not _IMAGING_CODE.match(c):
+            raise ValueError(f"the imaging list: {c!r} is not a code")
+        seen.add(c)
+        out.append({"code": c, "display": r.get(name, ""), "modality": r.get(mod, "") if mod else ""})
+    return out
+
+
+def install_imaging(path: Path, directory: Path, accepted_by: str, accepted_on: str = "", version: str = "",
+                    now: datetime | None = None) -> dict[str, int]:  # fmt: skip
+    """The imaging code list from the hospital's own copy (CSV or TSV), after a named person accepted its licence
+    (D-1114). A release names no list: the real one is the owner's (JJ1017)."""
+    lic = licence_line(IMAGING_LIST, accepted_by, accepted_on, now)
+    if not version:
+        raise ValueError("imaging: give --version (the list's own version or year)")
+    data, member = _source(path, (".csv", ".tsv", ".txt"), "an imaging code list")
+    rows = imaging_rows(_text(data, member))
+    directory.mkdir(parents=True, exist_ok=True)
+    line = _line(f"imaging list ({member})", path, f"imaging {version}", lic.pop("licence"), now, **lic)
+    _write(directory, IMAGING_LIST, rows, ("code", "display", "modality"), line)
+    return {IMAGING_LIST: len(rows)}
 
 
 # ----------------------------------------------------------------------------------------- V-18: the site's copies

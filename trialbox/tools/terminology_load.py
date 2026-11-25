@@ -37,6 +37,8 @@ RELEASE_PREFIX = "TL-"
 # the tables loaded at install that are code lists (code, display) of one system; the ICD-10-CM blocks and index are
 # names for the mapper, and a site list maps local codes (each row its own system): neither is a code system release
 CODE_COLUMNS = {"nhi_drug_list": ("nhi_code", "name")}
+# M2 (DB-C2): a loaded table the mapper has no system for yet: its code system in the vocabulary and the FHIR store
+EXTRA_SYSTEMS = {"imaging_list": "https://trialbox.local/fhir/CodeSystem/imaging"}
 
 
 def httpx_error() -> type[Exception]:
@@ -72,7 +74,7 @@ def code_lists(term_dir: Path) -> dict[str, tuple[str, str, list[tuple[str, str]
 
     out: dict[str, tuple[str, str, list[tuple[str, str]]]] = {}
     for name, line in sorted((inst.manifest(term_dir).get("tables") or {}).items()):
-        system = table_system(name)
+        system = table_system(name) or EXTRA_SYSTEMS.get(name, "")
         if not system or system == "site" or name.startswith("icd10cm_"):
             continue
         rows = inst.read_table(term_dir, name) or []  # refused: TerminologyRefused, said by the caller
@@ -119,6 +121,24 @@ def run(term_dir: Path, fhir: str, db: Any | None, wait: float = 900.0, by: str 
     except (*FAILED, httpx_error()) as exc:
         report["problems"].append(f"fhir: {type(exc).__name__}: {str(exc)[:300]}")
     return report
+
+
+def run_here(term_dir: Path, fhir: str = "", wait: float = 900.0) -> dict[str, Any]:
+    """M2: :func:`run` against this box's vocabulary database and FHIR store (the scheduled update's readers)."""
+    from tb_common.config import load_env
+
+    db = None
+    try:
+        from omop import schema
+
+        db = schema.connect()
+    except FAILED:  # said in the report as a problem, which the scheduled update treats as a failed reader
+        db = None
+    try:
+        return run(term_dir, fhir or load_env().fhir_base_url, db, wait)
+    finally:
+        if db is not None:
+            db.close()
 
 
 def skipped(report: dict[str, Any]) -> list[tuple[str, str, bool]]:
