@@ -228,6 +228,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.site_remote": ("Remote site source changed", "遠隔施設ソースの変更", "遠端院內來源變更"),
     "console.site_resolve": ("Site question resolved", "施設の確認事項の解決", "解決院內問題"),
     "console.site_sheet": ("Site sheet read", "施設シートの読込", "讀取院內試算表"),
+    "console.site_needs": ("Site information filled in", "まだ必要な情報の入力", "填寫尚需的資料"),
     "console.ops": ("Operations action", "運用操作", "維運操作"),
     # services: data, EDC, set-up, mail, model gateway, operations
     "data.entry": ("Study data entered (service)", "研究データの入力（サービス）", "輸入研究資料（服務）"),

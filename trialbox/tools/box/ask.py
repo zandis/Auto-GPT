@@ -134,7 +134,8 @@ def four(
         "source": "later",
         **({"country": country} if country else {}),
         **seed,
-        **({"environment": environment.upper()} if environment else {}),
+        # a vendor's DEV or TEST box is asked as a box that is not in use
+        **({"environment": "PRODUCTION" if environment.upper() == "PRODUCTION" else "VALIDATION"} if environment else {}),
     }
 
 

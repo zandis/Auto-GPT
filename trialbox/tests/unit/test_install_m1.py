@@ -149,7 +149,7 @@ def _on_a_terminal(tmp_path: Path, typed: str, *args: str, tpm: bool = True) -> 
     main, sub = pty.openpty()
     proc = subprocess.Popen(
         ["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), *args],
-        cwd=tmp_path, env={**t["env"], "LANG": "C.UTF-8"}, stdin=sub, stdout=subprocess.PIPE,
+        cwd=tmp_path, env={**t["env"], "LANG": "C.UTF-8", "TB_BOX_WSL2": "0"}, stdin=sub, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, start_new_session=True,
     )  # fmt: skip
     os.close(sub)

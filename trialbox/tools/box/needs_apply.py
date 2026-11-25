@@ -254,7 +254,7 @@ def run(
 
 
 def doctor_checks(deploy: Path, env: Mapping[str, str], settings: Mapping[str, Any]) -> list[tuple[str, str, str]]:
-    """The framework's hook (section 6): one WARN per open item, naming the page; PASS when none is open. Never a FAIL:
+    """The framework's hook (section 6, ``tools/trialbox/doctor_m1.py``): one WARN per open item, naming the page; PASS when none is open. Never a FAIL:
     a missing item blocks only the step that needs it, at its gate."""
     stand, problems = site_needs.read_stand_ins(deploy)
     files = [f for f in ("secrets/backup.pub",) if (deploy / f).is_file()]

@@ -337,7 +337,8 @@ EOP
       || die "the site seed beside the bundle is not signed by the vendor's key (above): nothing was changed"  # H-94 (1)
     SEED_ARGS=(--seed "$SEED")
   fi
-  if [ -z "$OWNER" ] && [ "$YES$PREPARE$REHEARSAL" = 000 ] && [ -t 0 ]; then
+  # (the Windows form keeps the first-run page: its own steps wait for it)
+  if [ -z "$OWNER" ] && [ "$YES$PREPARE$REHEARSAL$WSL2" = 0000 ] && [ -t 0 ]; then
     OWNER="$BOX/owner.json"
     if [ -f "$OWNER" ]; then echo "    the answers of the earlier run are kept ($OWNER)"
     else

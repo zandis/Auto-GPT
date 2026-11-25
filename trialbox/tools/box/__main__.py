@@ -235,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
                 answers, notes = owner_answers(json.loads(args.owner.read_text(encoding="utf-8")),
                                                tuple(x.path for x in hw.disks))  # fmt: skip
             bp = plan(answers, hw, args.deploy)
+            if args.keep:  # the IT form: install.sh writes the environment itself (D-837)
+                bp.wizard_answers["env_extra"] = {k: v for k, v in bp.env_extra.items() if k != "TB_ENV"}
             write(bp, args.deploy, args.out, keep=args.keep)
             if not args.provisional:
                 keep_answers(args.deploy, answers)

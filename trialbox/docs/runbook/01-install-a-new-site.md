@@ -95,7 +95,7 @@ file nothing is asked at all. The box installer keeps the answers it was given i
 password, no passphrase): the same file on another machine gives the same settings. ClinicalTrials.gov is offline unless
 its option says live. A seed file the vendor signed, `site-seed.json` with its `.sig` beside the bundle, answers all but
 the administrator and the passphrase (10K-2). A box that is not in use (VALIDATION) is given a sample hospital of 600
-synthetic patients, loaded and screened once at the install (`tools/site_seed.py`); a PRODUCTION box gets none.
+synthetic patients, loaded and screened once at the install; a PRODUCTION box gets none.
 
 **Memory caps from the hospital's size** (T-692, D-473). The night's ingest and the lake rebuild stream: what they
 hold grows only slowly with the patient count. The installer sizes `TB_MEM_ADAPTER` and `TB_MEM_LAKE` in
