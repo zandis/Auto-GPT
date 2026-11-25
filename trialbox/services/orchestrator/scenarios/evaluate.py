@@ -653,7 +653,6 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     why = r.reason
     abstained = r.predicate == "unknown"  # INT-S-C: an abstention has no quote, date or confidence, from any result
     affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
-    opinions = r.opinions
     if pred is not None:
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
         # exclusion "present" on a quote that does not state its condition is the models' inference: a person looks,
