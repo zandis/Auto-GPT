@@ -128,6 +128,9 @@ closed). Checks:
   ``host_tree.IMAGE_ONLY``). An update neither replaces nor checks such a copy: WARN, naming it and the command that
   removes it (never removed for the operator); FAIL when this command's import path holds it (a caller's PYTHONPATH:
   a host command run so would import it). PASS on a source checkout; WARN in the box image (not seen there).
+* ``prefix_cache`` (H-146, D-1462): the judge and verifier servers' prefix cache (``TB_LLM_PREFIX_CACHING``). PASS
+  off (the default), WARN on (``enable``: runs may differ), FAIL another value; with ``--compose-config``, FAIL a
+  server whose rendered command does not carry the flag the setting names.
 
 On a host's own Python (H-144), the checks of ``IMAGE_CHECKS`` (the ones that import pydantic, httpx or the services'
 code, or read ``models/``) run in a one-off container of the box's own image (``tools/trialbox/doctor_image.py``) and
@@ -1628,6 +1631,50 @@ def check_bench_serving(inp: DoctorInputs) -> Check:
                                           "to current and take the file out of COMPOSE_FILE (H-112)")  # fmt: skip
 
 
+def check_prefix_cache(inp: DoctorInputs) -> Check:
+    """H-146 (D-1462): the judge and verifier servers' prefix cache, off unless the box chooses it. Off (the
+    default: ``TB_LLM_PREFIX_CACHING`` absent, empty or ``no-enable``) is a PASS; ``enable`` a standing WARN (the
+    same calls may then answer differently from run to run); another value a FAIL (the servers refuse to start).
+    With the box's rendered compose (``--compose-config``), each server there must carry the flag the setting
+    names."""
+    from tools import prefix_cache
+
+    env = dict(inp.env)
+    if inp.deploy is not None and prefix_cache.SETTING not in os.environ:
+        # review 1514-1: deploy/.env as compose reads it (an "export", a comment after an unquoted value)
+        from tools import rehearsal_real
+
+        env.pop(prefix_cache.SETTING, None)
+        env.update({k: v for k, v in rehearsal_real.env_file(inp.deploy / ".env").items() if k == prefix_cache.SETTING})
+    try:
+        word = prefix_cache.state(env)
+    except ValueError as exc:
+        detail = f"{exc}: the model servers may refuse to start or run another option; set {prefix_cache.SETTING}"
+        return Check("prefix_cache", "FAIL", detail + " to no-enable (off) in deploy/.env (D-1462)")
+    if inp.compose_config is not None:
+        want = prefix_cache.flag(word)
+        services = inp.compose_config.get("services") or {}
+        bad = [
+            name
+            for name in ("llm-service", "llm-verifier")
+            if isinstance(services.get(name), Mapping)
+            and [a for a in services[name].get("command") or [] if str(a).endswith("prefix-caching")] != [want]
+        ]
+        if bad:
+            return Check("prefix_cache", "FAIL", f"{', '.join(bad)}: the rendered command does not carry {want} "
+                                                 f"({prefix_cache.SETTING}); a GPU overlay without the line runs "
+                                                 "the model server's own default (D-1462)")  # fmt: skip
+    if word == "on":
+        return Check("prefix_cache", "WARN", f"prefix caching on ({prefix_cache.SETTING}=enable): runs may differ "
+                                             "from run to run on the same calls (D-1462)")  # fmt: skip
+    seen = (
+        "the rendered servers"
+        if inp.compose_config is not None
+        else "the setting (--compose-config checks the servers)"
+    )
+    return Check("prefix_cache", "PASS", f"prefix caching off on the judge and verifier servers: {seen} (D-1462)")
+
+
 def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:
     """H-89: (where, what the box says) when this box ran the real model servers as a rehearsal, else None."""
     from tools import rehearsal_real
@@ -2398,6 +2445,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_anchor_mount,
     check_rehearsal,
     check_bench_serving,
+    check_prefix_cache,
     check_memory_caps,
     check_postgres_memory,
     check_db_passwords,

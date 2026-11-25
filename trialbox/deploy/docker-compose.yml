@@ -478,6 +478,7 @@ services:
       - --max-model-len=32768
       - --max-num-seqs=64
       - --gpu-memory-utilization=${GPU_MEM_UTIL:-0.85}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
     # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
     # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
     # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.

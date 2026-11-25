@@ -811,6 +811,11 @@ DECLARED: dict[str, Declared] = {
         "1800",
         "jobs: seconds a job waits in model outages in all; a server reloads in minutes (0: no wait; D-456)",
     ),
+    "TB_LLM_PREFIX_CACHING": Declared(
+        "str",
+        "no-enable",
+        "compose: model servers' prefix cache, no-enable (off) or enable (on: runs may differ; D-1462)",
+    ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
     "TB_JOBS_PER_SENDER_PER_DAY": Declared(
         "int", "", "heavy jobs a sender may start a day, overriding settings.yaml; 0: no limit (D-146, D-775)"
