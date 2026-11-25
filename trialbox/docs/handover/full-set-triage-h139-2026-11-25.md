@@ -83,10 +83,47 @@ On master 6c73db64, then at this branch's head, the same commands:
   11 xfailed), `make cross-card` (329 passed), `pytest tests --collect-only` (rc 0): all clean. `--add-from` of this
   card's findings, tried on a copy of the register, adds its 7 rows.
 
+### Round 2 (items 3, 4, 1 and 2)
+
+- The policy set (the integrator's: the unit files that name `.github`, a workflow, a Dockerfile, the Makefile, a
+  `.sh` file or shellcheck; 241 files) and every touched file's tests (276 files in all), CI's conditions: as root
+  6011 passed, 20 skipped, 1 xfailed.
+- The same as uid 1003: 120 failed, 3 errors, all "detected dubious ownership". That account's git worktree had
+  root's `.git`. The same 21 files on master give the same 120 failures and 3 errors. In a clone that uid 1003 owns,
+  those files pass, except one: `test_cloud_run.py::test_a_part_records_its_run_and_a_new_run_runs_it_again`, which
+  fails the same way on master in such a clone ("0/1 screenshots").
+- The bench host's conditions (uid 1003 in its own clone, umask 0002, psql off PATH) over the touched files (81).
+  Master: 182 failed, 11 errors. Head: 33 failed, 1 error. No failing id is new, and 159 are fixed. Each of the 34
+  left is now the plain refusal ("the PostgreSQL client tool pg_dump cannot be run here"), in files this round does
+  not change: `test_backup_without_pause` (5), `test_refdata` (1), `test_update_path` (1), and seven more:
+  `test_backup_vector_store` (7), `test_t728_asof_restore_optouts` (7), `test_restore_hold` (4), `test_restore_roles`
+  (4), `test_lane_b_on_the_train` (3), `test_backup_licensed_terminology` (1), `test_erasure_reach_restore` (1 error).
+- The new tests on master's code: `test_schema_versions_no_xml_h139` 3 of 4 fail, `test_backup_client_tools_h139`
+  4 of 4 fail. With a node that waits 61 s, collecting the six console files that ask the check: master calls node 6
+  times in 363 s, with a TimeoutExpired traceback per module; head calls it once in 62 s, with one plain line per
+  module and no skip.
+- The console files that use the check, as root with node and Playwright: 101 passed. The whole `tests/console`
+  was not run this round: the lead asked for the touched files and the policy set only.
+- `make lint`, doclint, data-scan, security-scan, limits_lint, `decisions_index --check`,
+  `findings_register --check`, collect-only: clean. `make guard` 1198 passed, 1 skipped, 11 xfailed;
+  `make cross-card` 329 passed. `--add-from` on a copy of the register: 9 rows.
+
+## Owners named in this card
+
+The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/unit/test_refdata.py` and
+`tests/unit/test_update_path.py` are lane H's from now on. `test_backup_verifies_itself` and
+`test_backup_without_pause` stay lane D's; the same go covers their one-line client-tools fix (bodies only).
+
+## Files outside the card
+
+Changed in bodies only, after each lane's go: lane D's `tests/unit/test_backup.py`, `tests/unit/test_backup_restic.py`,
+`tests/unit/test_backup_busy_night.py`, `tests/unit/test_restore_drill.py` and `tools/trialbox/backup.py`; lane J's
+`tests/console/test_cjk_layout.py`.
+
 ## Not verified
 
 - The erasure module's red on the bench host: its cause is not found.
 - A PostgreSQL built without libxml was not run; a stand-in was.
-- Lanes D's and J's fixes are not built: they wait for their lanes' go.
+- The compose stage was not run (no Docker daemon here); its rows are read from the code.
 - `box.sh`'s new count runs only on a real rehearsal box, and was not run on one. Its statement was compared with the
   old one on the test cluster.
