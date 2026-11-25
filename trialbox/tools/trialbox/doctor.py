@@ -443,6 +443,29 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     return Check("secure_cookie", status, why)
 
 
+def check_trusted_proxy(inp: DoctorInputs) -> Check:
+    """H-137 (the owner's decision, #639 7156806411 item 7): the one list of proxies the console trusts for forwarded
+    headers (``tb_common.trusted_proxy``). "All" is a FAIL in PRODUCTION (the console refuses to start with it) and a
+    WARN elsewhere; behind Caddy (``TB_TLS_HOSTNAME`` set) a list without Caddy's fixed address is a WARN: every browser
+    is then one address to the sign-in lock (ASVS V3-01)."""
+    from tb_common import trusted_proxy as tp
+    from tb_common.config import environment_name
+
+    env = environment_name(inp.env)
+    value = (inp.env.get(tp.NAME) or "").strip()
+    if tp.trusts_all(value):
+        status: Status = "FAIL" if env == "PRODUCTION" else "WARN"
+        return Check("trusted_proxy", status, f"{tp.NAME}={value!r} trusts every sender's X-Forwarded-For: a client "
+                     "chooses its own address for the sign-in lock and the audit")  # fmt: skip
+    proxy = (inp.env.get("TB_PROXY_ADDR") or "").strip() or tp.DEFAULT_PROXY_ADDR
+    if (inp.env.get("TB_TLS_HOSTNAME") or "").strip() and proxy not in tp.entries(value):
+        return Check("trusted_proxy", "WARN", f"behind Caddy ({proxy}) the console trusts {value or 'no proxy'}: every "
+                     "browser is Caddy's one address to the sign-in lock; re-run the installer")  # fmt: skip
+    if not value:
+        return Check("trusted_proxy", "PASS", "no proxy trusted: each browser is the address it connects from")
+    return Check("trusted_proxy", "PASS", f"forwarded headers trusted from {value} only")
+
+
 def check_phi_tripwire(inp: DoctorInputs) -> Check:
     """9g-11 (D-1348; review 01 B1-P2): the gateway's PHI tripwire (D-506, D-792), read by the gateway's own rule
     (``gateway.core.GatewayConfig.from_env``: off, 0, false or no turns it off; unset or anything else keeps it on) in
@@ -2227,6 +2250,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_trusted_proxy,
     check_phi_tripwire,
     check_sae_mailbox,
     check_named_choices,

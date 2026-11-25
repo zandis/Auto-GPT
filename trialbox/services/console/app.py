@@ -42,6 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from tb_common import trusted_proxy
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
@@ -268,6 +269,10 @@ class ConsoleSettings:
             studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
             identity=IdentitySettings.from_env(env, environment, Path(env.get("TB_CONSOLE_DIR") or "/data/console")),
         )
+        # H-137 (the owner's decision, #639 7156806411 item 7): "all" trusted proxies are refused in PRODUCTION
+        why = trusted_proxy.refusal(env, environment)
+        if why:
+            raise PilotRefused(why)
         if obj.sso_header and not obj.sso_trusted:
             raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
         if obj.sso_default_role not in ROLES:

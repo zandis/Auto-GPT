@@ -28,7 +28,7 @@ from tb_common.objstore import ObjectStore
 from tb_common.timeutil import now
 from tb_contracts import Job, JobCreate, SendRequest, SendResult
 
-from mail_gateway import intake
+from mail_gateway import intake, tls
 from mail_gateway.outbound import NotSent, Transport, mail_statement, prepare
 from mail_gateway.store import MailDB, SendUncertain
 
@@ -449,8 +449,12 @@ class Gateway:
     # ------------------------------------------------------------------ IMAP
     def poll_once(self) -> int:
         env = self.cfg.env
-        cls = imaplib.IMAP4_SSL if env.imap_ssl else imaplib.IMAP4
-        conn = cls(env.imap_host, env.imap_port)
+        if env.imap_ssl:  # H-137: the server's certificate checked unless IMAP_TLS_VERIFY is off
+            conn: imaplib.IMAP4 = imaplib.IMAP4_SSL(
+                env.imap_host, env.imap_port, ssl_context=tls.context(env.imap_tls_verify)
+            )
+        else:
+            conn = imaplib.IMAP4(env.imap_host, env.imap_port)
         n = 0
         try:
             conn.login(env.imap_user, env.imap_pass)
