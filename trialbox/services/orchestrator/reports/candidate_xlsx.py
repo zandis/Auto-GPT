@@ -87,7 +87,7 @@ def render(
                 text = f"{v.evidence.quote_date or ''} {v.evidence.quote or ''}".strip() or ""
                 if v.evidence.reason:
                     text += f"\n({v.evidence.reason})"
-                if v.evidence.confidence is not None:
+                if v.evidence.confidence is not None and v.verdict != "unknown":  # INT-S-C: also a stored row
                     text += f"\nconfidence {v.evidence.confidence:.2f}"
                 cell.comment = Comment(text[:1000], "TrialBox")
             if c.id in set(r.changed or []):
