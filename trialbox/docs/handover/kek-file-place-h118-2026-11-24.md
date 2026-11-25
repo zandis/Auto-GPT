@@ -59,7 +59,7 @@ The tests that named the old place, under the integrator's ruling 7138516776 ("k
 
 The old place keeps its own case (`test_a_link_at_the_old_place_is_never_written_through`, above).
 
-Mutants, each caught: `kek.new` back in `/run/trialbox` (4 tests); the mode check removed; the owner check removed;
+Mutants, each caught: `kek.new` back in `/run/trialbox` (8 tests); the mode check removed; the owner check removed;
 the caller's `TB_KEK_FILE` put back. The link test alone (`[ -L ]`) is not caught when removed: `stat` without `-L`
 reports a link's own mode, 0777, so the mode check refuses a link as well. It stays as the plain statement of intent.
 The review of #1482 found two more not caught by those tests: `! -d` removed (equivalent: `mkdir -p` on a non-folder
@@ -95,6 +95,10 @@ changes.
 | `test_install_faults_review_round.py::test_the_image_fallback_takes_the_passphrase_on_stdin_never_in_the_container_environment` | the passphrase derives `tmp/kek.runtime` | it derives `tmp/host/run/trialbox/kek` |
 
 ## Tests
+
+Master's script under these tests: 14 of the 93 tests of the four card files (h118 10, `test_seal_keys_order.py` 11,
+`test_seal_keys_signal_h111.py` 29, `test_host_baseline.py` 43) fail as non-root (10 in h118, 2 in each of the other
+two); as root 15 of 93, the root-only `test_the_sealed_files_belong_to_the_services_user` the 15th (shown, a6670922).
 
 `tests/unit/test_seal_keys_kek_place_h118.py` collects 10 tests: the 4 below, the 5 of the plain KEK's own folder
 (above) and the 1482-2 test (below). `tests/unit/test_seal_keys_image_mounts_ocr1482.py` has 1 (1482-1, below). The 4
