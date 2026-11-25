@@ -55,7 +55,7 @@ from orchestrator.scenarios.evaluate import (
     not_in_snapshot,
     row,
     served,
-    sort_key,
+    sort_rows,
 )
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
@@ -141,8 +141,9 @@ def attach_values(lake: Any, rs: Ruleset, verdicts: dict[str, Any], run_date: da
 
 
 def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
-    """How note criteria were judged on this run: models, agreement mode, and whether a note answer could exclude
-    (D-97). Aggregate metadata: goes into the candidate list, the summary PDF, the done mail and the console.
+    """How note criteria were judged on this run: models, agreement mode, and whether its note answers
+    are final (D-97; none excludes a patient, D-1072). Aggregate metadata: goes into the candidate list, the summary
+    PDF, the done mail and the console.
     ``ctx``: the job, so the record says the decision the job ran under (D-477); None for a caller with no job."""
     nb = note_block_of(judge, ctx)
     may_block, policy, reason, code = nb.may_block, nb.policy, nb.reason, nb.code
@@ -164,12 +165,12 @@ def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
 
 
 def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
-    """One sentence for the mail and the PDF: who judged the notes and whether a note answer could exclude."""
+    """One sentence for the mail and the PDF: who judged the notes, and that a note answer never excludes (D-1072)."""
     if j.get("mode") == "nothing":  # D-909: every criterion is a person's
         return t(lang, "screen.judging.nothing")
     if j.get("mode") == "none":
         return t(lang, "screen.judging.none")
-    if j.get("may_block"):
+    if j.get("may_block") or (j.get("verifier_model") and j.get("note_block_code") == "configured"):  # a pair read them
         return t(lang, "screen.judging.pair", judge=j.get("judge_model"), verifier=j.get("verifier_model"))
     # the reason in the reader's language, from its code: the reason text is the English diagnostic (a failed canary's
     # is every failed model's line) and stays in the list's metadata and the log. A list from before the code: its text
@@ -331,8 +332,8 @@ def models_used(j: dict[str, Any] | None) -> str:
     if not j or j.get("mode") == "none" or not j.get("judge_model"):
         return NO_MODEL
     if j["verifier_model"]:
-        return f"{j['judge_model']} + {j['verifier_model']} (both agree)"
-    return f"{j['judge_model']} (single, {j['note_block']}-exclude)"
+        return f"{j['judge_model']} + {j['verifier_model']} (both agree; notes never exclude)"
+    return f"{j['judge_model']} (single; notes never exclude)"
 
 
 def provenance(ctx: Ctx, rs: Ruleset, meta: ReportMeta, judging: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -693,7 +694,7 @@ def run_screen(
         row(pv, by_pid[p].next_appointment, by_pid[p].practitioner_id, by_pid[p].department, stamp)
         for p, pv in results.items()
     ]
-    rows.sort(key=sort_key)
+    rows = sort_rows(rows)
     return ScreenRun(
         rs, run_date, snapshot, scoped, results, rows, list(practitioners or []), depts, window, judge, judging,
         cascade, whole_hospital=practitioners is None, s2b_sources=s2b_sources, coded_values_read=values_read,
@@ -773,7 +774,7 @@ def confirmed_facts(ctx: Ctx, pids: list[str]) -> set[str] | None:
 
 def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
     """Every patient the run excluded, with the criterion (or the scope or consent rule) that excluded them, where
-    the answer came from (the coded records, a confirmed fact, or the notes with both models agreeing) and its
+    the answer came from (the coded records or a confirmed fact; a note answer never excludes, D-1072) and its
     evidence (review 2026-11-09 P-04, D-143). Stored with the job for the console's "Excluded patients and why"
     page; never mailed.
 

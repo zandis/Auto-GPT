@@ -464,9 +464,10 @@ def test_the_budget_is_the_smaller_context_of_the_pair_and_the_default_when_neit
     assert not hasattr(evaluate, "CHUNK_TOKENS") and not hasattr(evaluate, "FULL_RECORD_MAX_CANDIDATES")
 
 
-def test_the_v1_read_counts_a_window_note_the_retrieval_did_not_return() -> None:
+def test_the_v1_read_counts_a_window_note_the_retrieval_did_not_return(monkeypatch: pytest.MonkeyPatch) -> None:
     """Review H4, the v1 half: the retrieval returns two notes that say nothing; the third note of the window does
     not fit. Before, nothing was "left out" and both models' "not met" excluded the patient."""
+    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")  # a run whose note answers are final (D-1072: not the default)
 
     class Lake(_Chunks):
         def chunks_search(self, pid: str, query: str, k: int = 5, **kw: Any) -> list[dict[str, Any]]:
@@ -494,7 +495,7 @@ def test_the_v1_read_counts_a_window_note_the_retrieval_did_not_return() -> None
     present = _judge(lake, "pass", 20_000, 20_000)  # the control: a pair's final answer on a stated exclusion
     out = evaluate_patients(ruleset([EXC_FLARE]), ["P"], IDX, _NoStructured(), present, 0.75, only={EXC_FLARE.id},
                             all_candidates=True)  # fmt: skip
-    assert out["P"].tier == "excluded"
+    assert out["P"].tier == "review"  # D-1072 (ring 0): a pair's final answer on a stated exclusion is review
 
 
 def test_a_window_with_notes_none_of_which_fits_is_unknown_not_no_notes() -> None:

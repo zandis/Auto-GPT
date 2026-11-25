@@ -124,10 +124,10 @@ def test_a_one_model_box_never_excludes_on_a_note_answer_in_the_weekly_run(monke
     assert _weekly_tier(monkeypatch, judge, same) == "review"  # the judge named twice
 
 
-def test_a_pair_of_two_models_still_excludes_in_the_weekly_run(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pair_of_two_models_is_review_in_the_weekly_run(monkeypatch: pytest.MonkeyPatch) -> None:
     judge = SimpleNamespace(model="judge-a", base_url="http://a/v1", gateway=None, served_root="judge-a")
     verifier = SimpleNamespace(model="verifier-b", base_url="http://b/v1", gateway=None, served_root="verifier-b")
-    assert _weekly_tier(monkeypatch, judge, verifier) == "excluded"  # control
+    assert _weekly_tier(monkeypatch, judge, verifier) == "review"  # D-1072 (ring 0): a pair's neither
     assert _weekly_tier(monkeypatch, judge, verifier, affirmed=None) == "review"  # round 5: not affirmed by both
 
 

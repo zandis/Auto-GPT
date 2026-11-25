@@ -121,9 +121,9 @@ def test_an_exclusion_present_on_an_inference_goes_to_review_never_out() -> None
     assert o.status == "unknown" and not o.hard and o.reason.startswith("inferred")  # type: ignore[attr-defined]
 
 
-def test_an_exclusion_present_on_a_stated_condition_still_excludes() -> None:
+def test_an_exclusion_present_on_a_stated_condition_is_a_soft_not_met() -> None:
     o = _map("exclusion", HT, HT_Q, STATED[0][1])
-    assert o.status == "fail" and o.hard  # type: ignore[attr-defined]
+    assert o.status == "fail" and not o.hard  # type: ignore[attr-defined]  # D-1072 (ring 0): review, not out
     unsaid = _map("exclusion", HT, HT_Q, STATED[0][1], affirmed=False)  # round 5: not affirmed by both models
     assert unsaid.status == "unknown" and not unsaid.hard  # type: ignore[attr-defined]
 

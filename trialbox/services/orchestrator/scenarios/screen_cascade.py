@@ -120,6 +120,7 @@ class OrchestratorJudge(NoteJudge):
             calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
             sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
             affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
+            pair_opinions=list(r.pair_opinions),  # D-1072: both quotes and notes of an agreed answer
         )
 
 
@@ -405,7 +406,7 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
             resource_refs=refs[:20],
             quote=quote,
             quote_date=quote_date,
-            confidence=confidence,
+            confidence=None if status == "unknown" else confidence,  # INT-S-C: an unknown carries none
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
             opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
         ),

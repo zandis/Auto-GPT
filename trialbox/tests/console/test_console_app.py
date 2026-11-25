@@ -1224,7 +1224,11 @@ def test_overview_shows_models_and_the_never_exclude_fallback(box: dict[str, Any
         "may_block": True,
     }
     page = c.get("/").text
-    assert "v-verifier" in page and "Only when both models agree" in page and 'data-testid="models-warning"' not in page
+    assert (
+        "v-verifier" in page
+        and "Never: the notes may speak against a criterion" in page
+        and 'data-testid="models-warning"' not in page
+    )
     box["backend"].models_info = None
     assert "orchestrator is not answering" in c.get("/").text
 

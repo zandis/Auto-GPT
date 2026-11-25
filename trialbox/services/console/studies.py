@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_common.config import environment_name
-from tb_common.verdict_word import shown_of
+from tb_common.verdict_word import flagged_last, notes_against, shown_of
 from tb_contracts import Job
 
 from console import coded_view
@@ -385,6 +385,9 @@ class Fit:
     open: list[str] = field(default_factory=list)  # unknown labels
     not_met: list[str] = field(default_factory=list)  # inclusion criteria a note or record says are not met
     person: list[str] = field(default_factory=list)  # pending_human labels
+    against: list[str] = field(
+        default_factory=list
+    )  # labels a note may speak against (INT-S-B): still open, not excluded
     todo_words: dict[str, str] = field(default_factory=dict)  # a run's to-do -> its words in the page language (D-309)
 
 
@@ -414,6 +417,8 @@ def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Criterio
                 fit.note_exclusion.append(
                     {"id": cid, "label": label, "date": ev.get("quote_date"), "quote": ev.get("quote")}
                 )
+        if notes_against(v):
+            fit.against.append(label)
         if word == "unknown":
             fit.open.append(label)
         elif word == "pending_human":
@@ -482,7 +487,9 @@ def weekly_rows(
         )
     order = {"high": 0, "review": 1}
     rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2), x["pid"]))
-    return rows
+    return flagged_last(
+        rows, lambda x: x["visit_text"][:10], lambda x: x["tier"] == "review", lambda x: bool(x["fit"].against)
+    )
 
 
 # ---------------------------------------------------------------------------------------------- amendment re-screen
@@ -665,6 +672,7 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
                 "reason": ev.get("reason"),
+                "against": notes_against(v),  # INT-S-B: the page says "a note may speak against", with the quotes below
                 # both quotes (D-120); each says where it came from: the test model, a recorded run or a synthetic
                 # example (T-515)
                 "opinions": [view(o, test_model_in_use()) for o in ev.get("opinions") or [] if o.get("quote")],
