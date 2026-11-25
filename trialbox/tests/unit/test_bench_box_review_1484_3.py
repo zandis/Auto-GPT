@@ -5,6 +5,7 @@ twice: a file swapped in between was taken as the mark."""
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ import pytest
 from tools.trialbox import benchbox
 
 pytestmark = [pytest.mark.nodb]
-WHEN = benchbox.datetime(2026, 11, 24, 12, 0, 0, tzinfo=benchbox.UTC)
+WHEN = datetime(2026, 11, 24, 12, 0, 0, tzinfo=UTC)
 
 
 def test_1484_3_a_record_swapped_in_after_the_owner_and_mode_check_is_not_the_mark(

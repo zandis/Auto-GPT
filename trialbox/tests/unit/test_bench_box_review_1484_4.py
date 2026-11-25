@@ -3,6 +3,7 @@ holds is there (before, only ``write`` was tested on a test box; the check's own
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ import pytest
 from tools.trialbox import benchbox
 
 pytestmark = [pytest.mark.nodb]
-WHEN = benchbox.datetime(2026, 11, 24, 12, 0, 0, tzinfo=benchbox.UTC)
+WHEN = datetime(2026, 11, 24, 12, 0, 0, tzinfo=UTC)
 
 
 def test_1484_4_a_test_box_folder_never_holds_the_bench_mark(tmp_path: Path) -> None:
