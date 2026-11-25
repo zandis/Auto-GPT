@@ -54,6 +54,10 @@ def test_resume_keeps_only_parts_of_this_run_id_and_head(tmp_path: Path) -> None
 )
 def test_a_part_records_its_run_and_a_new_run_runs_it_again(tmp_path: Path) -> None:
     env = dict(os.environ, PYTHONPATH="libs:services:.", TB_SELFTEST_SECONDS="0.2", TB_ENV="DEV")
+    # H-135: the screenshot's browser is found by this variable or in the home's cache; a run with neither (env -i,
+    # no home) is given the preinstalled browser folder when it exists
+    if not env.get("PLAYWRIGHT_BROWSERS_PATH") and Path("/opt/pw-browsers").is_dir():
+        env["PLAYWRIGHT_BROWSERS_PATH"] = "/opt/pw-browsers"
 
     def run(run_id: str) -> str:
         r = subprocess.run([sys.executable, "-m", "tools.complete_run", "--dir", str(tmp_path), "--run-id", run_id,
