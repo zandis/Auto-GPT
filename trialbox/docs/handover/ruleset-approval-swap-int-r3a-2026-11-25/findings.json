@@ -8,7 +8,7 @@
   {
    "id": "INTR3A-01",
    "severity": "High",
-   "claim": "RulesetRepo.materialize removed a ruleset's working copy, then renamed the new one in, and load_approved returned whatever it had read: with two reader processes and 200 approvals, 20 reads found no file, 15 loads were partial rulesets and 16 found no manifest; the copy is now exchanged in one rename and a read that differs from the approval tag's tree is refused as RulesetReadIncomplete (0 of each in three runs)",
+   "claim": "RulesetRepo.materialize removed a ruleset's working copy, then renamed the new one in, and load_approved returned whatever it had read: with two reader processes and 200 approvals, 20 reads found no file, 15 loads were partial rulesets and 16 found no manifest; the copy is now exchanged in one rename and a read that differs from the approval tag's tree is refused as RulesetReadIncomplete (0 of each in every run)",
    "lane": "J",
    "basis": "shown",
    "state": "open"
@@ -51,6 +51,30 @@
    "claim": "fail-open on a DEV or TEST box by an existing test's design: load_approved does not hold a read against an approval tag that points at nothing (tests/unit/test_new_life_1_no_preapproved_ruleset.py::test_a_broken_repository_stops_no_timer asserts such a ruleset is still listed on a TEST box); a site box refuses it in seeded_approval; left as is by the integrator's ruling",
    "lane": "J",
    "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-07",
+   "severity": "High",
+   "claim": "the card's own first head (514aa32): RulesetRepo.__init__ removed every .<ruleset>.tmp without a lock, and the doctor, an offline install and an update's restore open the repository too, so a second process removed a copy the compiler was building; the writer and the clean-up now hold a lock on the .git folder",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-08",
+   "severity": "Medium",
+   "claim": "a failure between an approval's tag and its swap other than an unsupported exchange (a full disk, a kill) leaves the tag and main's commit written and the whole old copy in use; nothing materialises main again at the next start, and the same version cannot be approved again (its tag exists); as before this card; not fixed",
+   "lane": "J",
+   "basis": "read",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-09",
+   "severity": "Low",
+   "claim": "a working copy damaged on disk is refused by scenarios.approve before the compiler is called, so approving a new version of that ruleset does not repair it; an offline install or a materialisation from main does; not fixed",
+   "lane": "J",
+   "basis": "read",
    "state": "open"
   }
  ]

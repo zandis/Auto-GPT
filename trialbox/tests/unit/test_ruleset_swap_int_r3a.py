@@ -25,6 +25,7 @@ from criteria_compiler import repo as repo_mod
 from criteria_compiler.repo import RulesetRepo
 from tb_common import ruleset as ruleset_mod
 from tb_common.ruleset import approved_here, load_approved
+from tb_contracts import ApproveRequest
 
 import tests.unit.test_compiler_service as compiler_tests
 from tests.rulesets_guard import RULESETS
@@ -305,18 +306,32 @@ def test_an_approval_where_the_folder_cannot_swap_is_refused_with_nothing_writte
     _approve, _compile, _decisions = compiler_tests._approve, compiler_tests._compile, compiler_tests._decisions
 
     res = _compile(env)
+    _approve(env, _decisions(env["store"], res.review_xlsx_key))  # v1.0.0 stands: the next approval must exchange
+    res = _compile(env)
+    assert res.version != "1.0.0"
     repo: RulesetRepo = env["deps"].repo
     before = (repo.tags(), repo.ref("main"), _on_disk(repo.path / "GZQO"))
+    assert res.branch
+    draft = repo.ref(res.branch)
+    assert before[2]
 
     def no_exchange(a: Path, b: Path) -> None:
         raise OSError(errno.EINVAL, "Invalid argument", str(b))
 
     monkeypatch.setattr(repo_mod, "_exchange", no_exchange, raising=False)
     with pytest.raises(CompileFailed) as got:
-        _approve(env, _decisions(env["store"], res.review_xlsx_key))
+        env["comp"].approve(
+            ApproveRequest(
+                ruleset="GZQO",
+                version=res.version,
+                by="crc1@hospa.test",
+                decisions=_decisions(env["store"], res.review_xlsx_key),
+            )
+        )
     assert got.value.step == "approve"
     assert type(got.value.__cause__).__name__ == "SwapUnsupported"
     assert (repo.tags(), repo.ref("main"), _on_disk(repo.path / "GZQO")) == before
+    assert repo.ref(res.branch) == draft  # no commit on the draft's branch either
     assert sorted(p.name for p in repo.path.iterdir() if p.name.startswith(".") and p.name != ".git") == []
 
 
@@ -329,3 +344,55 @@ def test_list_rulesets_never_lists_a_dot_name(tmp_path: Path) -> None:
         (tmp_path / name).mkdir()
         (tmp_path / name / "manifest.yaml").write_text("id: x\n", encoding="utf-8")
     assert list_rulesets(tmp_path) == ["RA-JAK"]
+
+
+def test_an_offline_install_where_the_folder_cannot_swap_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import zipfile
+
+    from criteria_compiler.import_ruleset import install
+
+    repo, path = _box(tmp_path)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in _version_files(2).items():
+            z.writestr(f"{RID}/{name}", data)
+    before = (repo.tags(), repo.ref("main"), _on_disk(path / RID))
+
+    def no_exchange(a: Path, b: Path) -> None:
+        raise OSError(22, "Invalid argument", str(b))
+
+    monkeypatch.setattr(repo_mod, "_exchange", no_exchange)
+    with pytest.raises(Exception) as got:
+        install(repo, buf.getvalue(), "tester")
+    assert type(got.value).__name__ == "SwapUnsupported"
+    assert (repo.tags(), repo.ref("main"), _on_disk(path / RID)) == before
+
+
+def test_another_process_opening_the_repository_never_removes_a_copy_being_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The doctor and an install open the repository too: their clean-up must leave a running writer's copy."""
+    repo, path = _box(tmp_path)
+    real = repo_mod._exchange
+
+    def opened_meanwhile(a: Path, b: Path) -> None:
+        RulesetRepo(path)
+        real(a, b)
+
+    monkeypatch.setattr(repo_mod, "_exchange", opened_meanwhile)
+    _approve(repo, 2)
+    assert _on_disk(path / RID) == _version_files(2)
+    assert not list(path.glob(".*.tmp"))
+
+
+def test_one_damaged_ruleset_does_not_take_the_list_of_rulesets_down(tmp_path: Path) -> None:
+    """A page that lists every ruleset goes on: the damaged one is shown as not approved, never as approved."""
+    from console.backend import approval_state_of, criteria_of, ruleset_infos
+
+    _, path = _box(tmp_path)
+    _drop(path / RID)
+    assert [(i.id, i.version, i.status) for i in ruleset_infos(path)] == [(RID, None, "draft")]
+    assert criteria_of(path, RID) == [] and approval_state_of(path, RID) is None

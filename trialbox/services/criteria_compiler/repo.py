@@ -8,11 +8,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
+import fcntl
 import logging
 import os
 import shutil
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +35,7 @@ log = logging.getLogger(__name__)
 
 def _write_synced(path: Path, data: bytes) -> None:
     """Write ``path`` whole and fsync it. Its own write loop: ``os.write`` may write less than it is given."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o666)
     try:
         view = memoryview(data)
         while view:
@@ -234,49 +237,70 @@ class RulesetRepo:
         """INT-R3A: the new copy is built whole beside the old one and fsynced, then the two folders are exchanged
         in one rename, so a reader finds the whole old copy or the whole new one, never none or a mix of files
         written in place. The old copy is removed after the swap; a kill leaves ``.<ruleset>.tmp``, removed at the
-        next start (:meth:`_clean_left_overs`)."""
-        target = self.path / ruleset
-        tmp = self.path / f".{ruleset}.tmp"
-        shutil.rmtree(tmp, ignore_errors=True)
-        files = self.files(ref, f"{ruleset}/")
-        if not files:  # the ruleset is gone from ``ref``
-            shutil.rmtree(target, ignore_errors=True)
-            return
-        for p, data in files.items():
-            dest = tmp / p[len(ruleset) + 1 :]
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            _write_synced(dest, data)
-        for d in sorted((x for x in tmp.rglob("*") if x.is_dir()), key=lambda x: len(x.parts), reverse=True):
-            _fsync_dir(d)
-        _fsync_dir(tmp)
-        if target.exists():
-            _exchange(tmp, target)
-            shutil.rmtree(tmp)
-        else:
-            os.rename(tmp, target)
-        _fsync_dir(self.path)
+        next start (:meth:`_clean_left_overs`). One writer at a time (:meth:`_writing`)."""
+        with self._writing():
+            target = self.path / ruleset
+            tmp = self.path / f".{ruleset}.tmp"
+            shutil.rmtree(tmp, ignore_errors=True)
+            files = self.files(ref, f"{ruleset}/")
+            if not files:  # the ruleset is gone from ``ref``
+                shutil.rmtree(target, ignore_errors=True)
+                return
+            for p, data in files.items():
+                dest = tmp / p[len(ruleset) + 1 :]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                _write_synced(dest, data)
+            for d in sorted((x for x in tmp.rglob("*") if x.is_dir()), key=lambda x: len(x.parts), reverse=True):
+                _fsync_dir(d)
+            _fsync_dir(tmp)
+            if target.exists():
+                _exchange(tmp, target)
+                shutil.rmtree(tmp)
+            else:
+                os.rename(tmp, target)
+            _fsync_dir(self.path)
+
+    @contextlib.contextmanager
+    def _writing(self, wait: bool = True) -> Iterator[None]:
+        """The lock on the working copy's temporary folders: the compiler, an offline install, an update's restore
+        and the doctor each open this repository. ``wait`` False: BlockingIOError when another holds it. A killed
+        process's lock goes with it. On the ``.git`` folder itself: no lock file whose owner could shut another out."""
+        fd = os.open(self.path / ".git", os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield
+        finally:
+            os.close(fd)
 
     def check_swap(self) -> None:
         """INT-R3A (INTR3A-02): exchange two empty folders in the rulesets folder; :class:`SwapUnsupported` when its
         file system cannot. An approval asks before it writes its commit and tag, so a refusal changes nothing."""
         pair = (self.path / ".swap-a.tmp", self.path / ".swap-b.tmp")
-        try:
-            for p in pair:
-                shutil.rmtree(p, ignore_errors=True)
-                p.mkdir()
-            _exchange(*pair)
-        except OSError as exc:
-            raise SwapUnsupported(f"the rulesets folder cannot swap two folders in one rename: {exc}") from exc
-        finally:
-            for p in pair:
-                shutil.rmtree(p, ignore_errors=True)
+        with self._writing():
+            try:
+                for p in pair:
+                    shutil.rmtree(p, ignore_errors=True)
+                    p.mkdir()
+                _exchange(*pair)
+            except OSError as exc:
+                raise SwapUnsupported("the rulesets folder cannot swap two folders in one rename") from exc
+            finally:
+                for p in pair:
+                    shutil.rmtree(p, ignore_errors=True)
 
     def _clean_left_overs(self) -> None:
-        """A copy a kill left part way (``.<ruleset>.tmp``, built or swapped out): removed, and said."""
-        for p in sorted(self.path.glob(".*.tmp")):
-            if p.is_dir() and not p.is_symlink():
-                log.warning("rulesets: removing %s, left by an interrupted materialisation", p.name)
-                shutil.rmtree(p)
+        """A copy a kill left part way (``.<ruleset>.tmp``, built or swapped out): removed, and said. Never one a
+        running writer holds (its lock), and a folder this process may not write is left and said."""
+        left = sorted(p for p in self.path.glob(".*.tmp") if p.is_dir() and not p.is_symlink())
+        if not left:
+            return
+        try:
+            with self._writing(wait=False):
+                for p in left:
+                    log.warning("rulesets: removing %s, left by an interrupted materialisation", p.name)
+                    shutil.rmtree(p, ignore_errors=True)
+        except OSError as exc:  # another process is writing, or this one only reads
+            log.warning("rulesets: %d temporary folder(s) left as they are (%s)", len(left), type(exc).__name__)
 
     def materialize_all(self, ref: str = "main") -> None:
         rulesets = {p.split("/", 1)[0] for p in self.files(ref) if "/" in p}
