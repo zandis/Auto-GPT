@@ -163,12 +163,31 @@ On master 6c73db64, then at this branch's head, the same commands:
   host cannot run the vLLM image"), rightly. The step now runs with the host's own graphics tool off its PATH. With a
   stand-in `nvidia-smi` that reports another card: master fails cmd2, head passes all 35; without one, 35 passed.
 
+### Push 4 (CI on push 2; the integrator's 7158058588)
+
+- **The CI red `tests/console/test_ctgov_mode_text.py::test_only_the_one_sentence_depends_on_the_mode`** (unit shard 6/8,
+  job 139070865985, "AssertionError: /home … assert 2 == 1") is a timing flake that master has too. `/home` is the
+  console route under test. Every signed-in page carries the idle warning's seconds left (`data-idle-left`,
+  `data-abs-left`, `_idle_warn.html`, from `UserStore.session_left` and its clock). Two renders of `/home` 1.1 s apart
+  differ only there (28799, then 28798). The test's twenty renders, on a loaded worker, crossed a second. The fix
+  (body only, no assertion change): the test holds the session's clock still (`box["users"].clock` fixed after
+  sign-in). With a scratch plugin making every store's clock advance a second per read: master fails "/home", the
+  fixed test passes. Alone, the file passes (30 passed).
+- **The same form elsewhere, looked for once.** These compare renders of signed-in pages taken at different moments:
+  `test_console_timing`, `test_people_lists` (its with/without comparison) and `test_home_today` already strip
+  `data-*-left`, and so do the tests that go through `tests/console/j7_master_bytes.py`.
+  `tests/console/test_tier_status_words.py`'s `_pages` strips only the CSRF value and compares `/home`. It has the same
+  latent flake and is not failing now, so it is listed, not changed. `test_people_lists.py:226` compares two 404
+  answers byte for byte. It is listed as possible (not checked whether a 404 carries the timer).
+- master c3a5b2b2 (train 176) merged once.
+
 ## Owners named in this card
 
 The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/unit/test_refdata.py` and
 `tests/unit/test_update_path.py` are lane H's from now on. `test_backup_verifies_itself` and
 `test_backup_without_pause` stay lane D's; the same go covers their one-line client-tools fix (bodies only).
 The go 7156065500: `tests/unit/test_restore_roles.py` is lane H's from now on.
+The ruling 7158058588: `tests/console/test_ctgov_mode_text.py` is lane H's from now on.
 
 ## Files outside the card
 
