@@ -1603,15 +1603,19 @@ def _record_running(pgid: int, argv: Sequence[str]) -> Path | None:
 
     if _running_dir is None:
         return None
-    with contextlib.suppress(OSError):
-        f = _running_dir / f"{pgid}.json"
+    f = _running_dir / f"{pgid}.json"
+    try:
         boot, start = _proc_id(pgid)
         # written whole (temp file, fsync, rename): a torn record would read as malformed and be dropped, so a put-back
         # still running would no longer hold the recovery
         us.write_atomic(f, {"pgid": pgid, "argv": [str(a) for a in argv[:6]], "at": _now(), "boot": boot,
                             "start": start})  # fmt: skip
-        return f
-    return None
+    except OSError as exc:  # H-142 (.k): the command still runs, but never in silence: no record holds a recovery
+        with contextlib.suppress(OSError, ValueError):
+            print(f"update: the record of the running command {argv[0] if argv else ''} could not be written ({exc}): "
+                  "a recovery started while it runs will not wait for it", file=sys.stderr)  # fmt: skip
+        return None
+    return f
 
 
 @contextlib.contextmanager

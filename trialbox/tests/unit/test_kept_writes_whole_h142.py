@@ -16,6 +16,8 @@ import textwrap
 import time
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 KEPT = 20000  # events the orchestrator could not take: a few MB, so a kill lands in the rewrite
 
@@ -91,6 +93,62 @@ def test_a_kill_9_while_the_kept_events_are_rewritten_loses_none(tmp_path: Path)
         p.send_signal(signal.SIGKILL)
         p.wait(timeout=30)
         _all_kept(pending, kept)
+
+
+def test_a_full_disk_while_the_kept_events_are_rewritten_loses_none(tmp_path: Path) -> None:
+    """The rewrite fails part-way (the disk is full: here, the largest file the process may write): the kept
+    events stay as they were. Before: the file was cut at the point of the failure."""
+    deploy, pending, kept = _box(tmp_path)
+    p, _ready = _start(tmp_path, deploy, limit=pending.stat().st_size // 2, once=True)
+    _out, err = p.communicate(timeout=60)
+    assert p.returncode != 0 and "File too large" in err, err[-1500:]
+    _all_kept(pending, kept)
+
+
+#: write_atomic alone, in a child: how is "short" (the disk fills: the first write takes half, the next one fails
+#: ENOSPC), "limit" (the largest file the process may write) or "kill" (killed between the write and the rename)
+ATOMIC = textwrap.dedent(
+    """
+    import errno, os, resource, signal, sys
+    from pathlib import Path
+    root, path, how = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+    sys.path[:0] = [root]
+    from tools import update_status as us
+
+    body = "y" * 100000
+    if how == "short":
+        real, calls = os.write, []
+
+        def write(fd, data):
+            calls.append(1)
+            if len(calls) == 1:
+                return real(fd, bytes(data[: len(data) // 2]))
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        os.write = write
+    elif how == "limit":
+        resource.setrlimit(resource.RLIMIT_FSIZE, (50000, 50000))
+    else:
+        os.replace = lambda a, b: os.kill(os.getpid(), signal.SIGKILL)
+    us.write_atomic(path, body)
+    """
+)
+
+
+@pytest.mark.parametrize("how", ["short", "limit", "kill"])
+def test_write_atomic_leaves_the_original_whole_and_no_temp_file(tmp_path: Path, how: str) -> None:
+    """The ruling on 7156528847: every byte written (a short write is never renamed over the original), the
+    original untouched on any failure, the temp file removed (a kill leaves it, never over the original); the
+    caller sees the failure. Before: a short write was fsynced and renamed over the original, exit 0."""
+    child, f = tmp_path / "atomic.py", tmp_path / "kept.json"
+    child.write_text(ATOMIC, encoding="utf-8")
+    f.write_text("the original, whole\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, str(child), str(ROOT), str(f), how], capture_output=True, text=True,
+                       timeout=60, check=False)  # fmt: skip
+    assert r.returncode != 0, r.stderr[-1500:]
+    assert f.read_text(encoding="utf-8") == "the original, whole\n"
+    left = sorted(x.name for x in tmp_path.iterdir() if x.name.startswith(".kept.json."))
+    assert how == "kill" or not left, left  # a kill -9 cannot remove its temp file; it never reached the original
 
 
 def _function(script: str, name: str) -> str:

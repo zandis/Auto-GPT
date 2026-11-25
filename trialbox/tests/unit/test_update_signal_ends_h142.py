@@ -144,3 +144,18 @@ def test_a_refused_update_keeps_its_1_on_the_way_out(tmp_path: Path, sig: str) -
     assert at_mark(p, marks, "preflight", 0.05, sig)
     code, out, err = ended(p)
     assert code == 1 and "before anything was changed; nothing was changed" in out, (code, out, err[-2000:])
+
+
+def test_a_record_of_a_running_command_that_cannot_be_written_is_said(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """.k (the ruling on 7156528847: a caller that took write_atomic's failure for success): the record that holds a
+    recovery while a put-back runs could not be written, in silence. The command still runs; the line says so."""
+    from tools.trialbox import update as up
+
+    blocked = tmp_path / "not-a-folder"
+    blocked.write_text("a file where the records' folder would be", encoding="utf-8")
+    with up._recording(tmp_path):
+        up._running_dir = blocked
+        assert up._record_running(4242, ["sh", "-c", "true"]) is None
+    assert "the record of the running command sh could not be written" in capsys.readouterr().err
