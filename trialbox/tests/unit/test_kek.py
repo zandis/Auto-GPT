@@ -17,8 +17,16 @@ from adapter.pidmap import PidMap, load_map_key
 from tb_common import kek as K
 from tb_common.crypto import KeyMissingError, create_key, key_fingerprint, load_key
 
+from tests.own_deploy import own_deploy
 from tools import keys as keys_cli
 from tools.trialbox import doctor
+
+
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CHEAP_N = "1024"  # scrypt cost for the tests only (kek.json records it)

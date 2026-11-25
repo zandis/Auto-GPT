@@ -30,9 +30,18 @@ import pytest
 from tb_common import kek as K
 from tb_common.audit import AuditLog
 
+from tests.own_deploy import own_deploy
 from tools import keys
 
 pytestmark = pytest.mark.nodb
+
+
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
+
+
 OLD = "synthetic-h133-" + "lifecycle-old-passphrase"  # synthetic
 NEW = "synthetic-h133-" + "lifecycle-new-passphrase"  # synthetic
 DEV = {"TB_ENV": "DEV"}  # a key ceremony is refused on a PRODUCTION box (rc1)
