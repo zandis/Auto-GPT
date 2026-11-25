@@ -22,6 +22,7 @@ For every pair of runs:
 |---|---|---|
 | (i) the list | tier `high` or `review` in one run and not in the other (excluded, or absent) | any patient leaves the list; a move between `high` and `review` is only reported |
 | (ii) coded | the pairs with `basis: coded` in either run | any verdict differs, or the pair is coded in one run only |
+| (i) withheld | a run whose list was withheld | every patient counts as having left the list |
 | (iii) model | the pairs with a model call behind them (`prov` not empty) | more than the bound (3 %) differ; exactly 3 % passes; the pairs are named |
 
 "Same verdict, different evidence" (the note reference or the quote date differs) is counted per pair of runs and
@@ -32,6 +33,11 @@ whose state differs, are refused with exit 2 and the missing part named. Exit 1:
 
 ```json
 {
+  "commit": "<the build's commit>",
+  "snapshot": "2026-10-01",
+  "flags": {"derived.stored_read": false},
+  "consent_state": "<the consent register state the run read, a digest or a version>",
+  "list_withheld": false,
   "judged_store": {"on": true, "read": 0, "live": 12},
   "rows": [
     {"pid": "p001", "tier": "high", "actions": [],
@@ -44,13 +50,29 @@ whose state differs, are refused with exit 2 and the missing part named. Exit 1:
 }
 ```
 
-- `judged_store` is the SCREEN summary's block (`on` must be a boolean; `read` and `live` are printed).
+- `judged_store` is the SCREEN summary's block. `on` must be a boolean. With `on` true, `read` must be recorded and be 0:
+  a run that replays stored answers proves nothing and is refused. Runs whose `on` differs are refused too.
+- `commit`, `snapshot`, `flags["derived.stored_read"]` and `consent_state` must be present and equal in every run
+  (a missing one is named). `snapshot` is the candidate list's field; the flag is the product's `derived.stored_read`.
+  `commit` and `consent_state` are not fields of a candidate list today: the walk's script writes them. `list_withheld`
+  (true or false, required) says the run's list was withheld (the more-than-10 % rule); true counts every patient as
+  having left the list. I found no field of that name in the product, so its name is the tool's.
 - `rows` has one row for every patient of the run, the excluded ones too (`tier`: `high`, `review` or `excluded`), the
-  product's `CandidateRow` with its `criteria` (`CriterionVerdict`). The tool reads `pid`, `tier`, and per criterion
-  `id`, `verdict`, `basis`, `prov` and `evidence.resource_refs / quote_date`.
+  product's `CandidateRow` with its `criteria` (`CriterionVerdict`). The tool reads `pid`, `tier`, and per criterion `id`,
+  `verdict`, `basis`, `prov` and `evidence.resource_refs / quote_date`.
 - The candidate list file of a job holds only the listed tiers, so it is not a run file by itself. The walk's step-9
   script must write this file for each run (the walk will adapt its script); there is no reader of the screen output
   in this card.
+
+Reported and not gated (thresholds come from a rehearsal run): per criterion, the share of differing model verdicts
+(a criterion with more than half of the differences is named), and section 4: the patients whose tier differs between
+runs and, with `--note-truth FILE`, per run and criterion the harm against the synthetic fixtures' note truth. The file
+is `{pid: {criterion: "yes"|"no"|"unknown"}}`, the shape `tools.scenarios.note_truth` returns from the sites'
+`note_truth.json` (it maps MRNs to pseudonymous ids with the site key). The direction is `BLOCKING_TRUTH` of
+`tools/scenarios.py`: for an exclusion criterion a truth of `yes` speaks against the patient, for an inclusion
+criterion `no`. Reported: false demotions (the truth does not speak against the patient, the run says "not met"),
+misses (it does, the run did not say "not met"), the "unknown" truths apart, and pairs the run did not judge. Without the
+file it prints that the harm measure is not available.
 
 ## Not verified
 
