@@ -2555,7 +2555,14 @@ def run(
     away = tuple(n for n in names if n in IMAGE_CHECKS) if image is not None else ()
     there: dict[str, Check] = {}
     if away and image is not None:
-        for c in image(away):
+        try:
+            answers = image(away)
+        except (
+            Exception
+        ) as e:  # OCR 1512-2, fail closed: an image part that cannot even be prepared is each check's FAIL
+            why = f"not run: the box image's part could not be prepared ({type(e).__name__}: {e})"
+            answers = [Check(n, "FAIL", why) for n in away]
+        for c in answers:
             if c.name == "inputs":  # the image read a settings file the host read (or not): its own line
                 out.append(replace(c, name="inputs (box image)"))
             elif c.name in away:

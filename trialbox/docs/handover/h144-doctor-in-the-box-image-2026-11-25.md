@@ -92,7 +92,7 @@ checks, 15 import-error FAILs, no image run. `note_block` did not reach its impo
   in `tools/` import a services package). Which of those paths a host command really takes is not shown. That is
   H144-03, a follow-up, not a claim of this card.
 
-## 5. The tests (`tests/unit/test_doctor_in_image_h144.py`, 34)
+## 5. The tests (`tests/unit/test_doctor_in_image_h144.py`, 37)
 
 - **The invariant:** `test_h144_the_installed_doctor_on_a_hosts_own_python_reports_every_checks_own_verdict`.
   - Setup: the installed wrapper of a box made from this host tree (R1, then R2), on a Python without pydantic,
@@ -143,3 +143,18 @@ so the `models/` rule sends the checks to the image anyway: the installed-tree r
 - The box rehearsal: its doctor phase on an installed box now takes the image path. Not run (H144-06).
 - The model network's name on a real box (`<project>-model-net`, as `launch` names it for `eval`): shown only with
   the stand-in engine (H144-04).
+
+## 8. OCR's review of #1512 (7162740417)
+
+- **1512-4 (Medium), CI's two red unit shards:** the runbook text first sat at §5's lines 49-63 and moved the lines
+  `tools/planted_faults.py` and the restore drill's committed `findings.json` pin. It is now its own section at the
+  end of the page, after every pinned and cited line (c5c57359). Nothing that pins or cites a page-05 line was
+  touched; the diff to that page only adds lines after its last one.
+- **1512-1 (Low):** the update's note no longer names anything in a source checkout (`_name_loose` asks
+  `host_tree.install_folder` first, as `release_tree` does). Test: `test_ocr_1512_1_...`.
+- **1512-2 (Low):** an image part that cannot even be prepared (a deploy folder this user may not search) is each
+  image check's FAIL with the reason, never a traceback. Test: `test_ocr_1512_2_...`; its refusal is a stand-in, so it
+  runs as root and as an ordinary user.
+- **1512-3 (Low):** each container is named (`tb-doctor-<pid>-<network>`); one that reaches `TIMEOUT_S` is removed
+  (`rm -f`) and the check's FAIL says so. Test: `test_ocr_1512_3_...` (an engine stand-in that times out).
+- Each of the three tests fails at c5c57359's code and passes after.

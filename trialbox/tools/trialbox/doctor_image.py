@@ -31,6 +31,7 @@ PASS, never a skip.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -100,7 +101,7 @@ def network_of(name: str, project: str) -> str:
     return net
 
 
-def argv(req: Request, network: str = "none", pidmap_row: str = "") -> list[str]:
+def argv(req: Request, network: str = "none", pidmap_row: str = "", name: str = "") -> list[str]:
     """The ``docker run`` of one part of the image's checks: see the module's text for what is mounted and why."""
     docker = shlex.split(req.box.get("TB_DOCKER") or "docker")
     image = req.box.get("TB_IMAGE") or "trialbox-py:1.0.0"
@@ -150,7 +151,8 @@ def argv(req: Request, network: str = "none", pidmap_row: str = "") -> list[str]
     terminology = req.box.get("_TB_TERMINOLOGY_VOLUME", "")  # filled by verdicts() when the volume is there
     if terminology:
         mounts.extend(["-v", f"{terminology}:/data/terminology:ro"])
-    return [*docker, "run", "--rm", "-i", "--pull", "never", "--network", network, "--cap-drop", "ALL",
+    named = ["--name", name] if name else []
+    return [*docker, "run", "--rm", "-i", *named, "--pull", "never", "--network", network, "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true", "--user", "0:0", "-e", "PYTHONDONTWRITEBYTECODE=1",
             "-e", "TB_DOCTOR_RUNNING_INSPECT=stdin", "-e", f"TB_DOCTOR_PIDMAP_ROW={pidmap_row}",
             "-e", f"COMPOSE_PROJECT_NAME={project}", *envf, *mounts, "-w", "/app", image,
@@ -210,9 +212,15 @@ def _part(req: Request, names: tuple[str, ...], network: str, pidmap: str, runni
           run: Runner) -> tuple[dict[str, dict[str, str]], str]:  # fmt: skip
     """One container's verdicts, and why it gave none (empty when it answered)."""
     image = req.box.get("TB_IMAGE") or "trialbox-py:1.0.0"
-    cmd = argv(Request(names, req.deploy, req.env_file, req.settings, req.routing, req.box), network, pidmap)
+    name = f"tb-doctor-{os.getpid()}-{network}"  # OCR 1512-3: named, so a container past its time can be removed
+    cmd = argv(Request(names, req.deploy, req.env_file, req.settings, req.routing, req.box), network, pidmap, name)
     try:
         got = run(cmd, input=running, capture_output=True, text=True, check=False, timeout=TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        # the engine's client is killed, not the container: remove it, so no hung check stays behind
+        gone = _quiet(run, [*shlex.split(req.box.get("TB_DOCKER") or "docker"), "rm", "-f", name])
+        removed = "removed" if gone is not None and gone.returncode == 0 else "could not be removed: remove it by hand"
+        return {}, f"the box image {image} did not answer within {TIMEOUT_S} s (container {name} {removed})"
     except (OSError, subprocess.SubprocessError) as exc:
         return {}, f"the box image {image} could not be started here ({type(exc).__name__}: {exc})"
     try:

@@ -68,7 +68,7 @@ if a[:1] != ["run"]:
 if os.path.exists(MODE):
     print("Error: Unable to find image locally (pull never)", file=sys.stderr)
     sys.exit(125)
-VALUED = {"-v", "-e", "--env-file", "--network", "--user", "--security-opt", "--cap-drop", "--pull", "-w", "--tmpfs"}
+VALUED = {"-v", "-e", "--env-file", "--network", "--user", "--security-opt", "--cap-drop", "--pull", "-w", "--tmpfs", "--name"}
 net = a[a.index("--network") + 1]
 if os.path.exists(NONET) and net != "none":
     print(f"Error response from daemon: network {net} not found", file=sys.stderr)
@@ -286,6 +286,9 @@ def test_h144_a_stale_services_folder_after_an_update_is_seen_and_never_imported
 def test_h144_the_update_names_a_loose_folder_and_leaves_it(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     base = tmp_path / "opt-trialbox"
     (base / "deploy").mkdir(parents=True)
+    (base / "releases" / "r1").mkdir(parents=True)
+    (base / "releases" / "r1" / ht.SUMS).write_text("", encoding="utf-8")
+    (base / "current").symlink_to("releases/r1")
     up._name_loose(base / "deploy")
     assert capsys.readouterr().out == ""
     (base / "services").mkdir()
@@ -297,6 +300,59 @@ def test_h144_the_update_names_a_loose_folder_and_leaves_it(tmp_path: Path, caps
     main = next(n for n in src.body if isinstance(n, ast.FunctionDef) and n.name == "main_apply")
     calls = [n for n in ast.walk(main) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "_name_loose"]
     assert len(calls) == 2  # after "applied, checked and audited" and after "loaded" (install.sh's first load)
+
+
+def test_ocr_1512_1_the_update_names_nothing_in_a_source_checkout(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """OCR 1512-1: a source checkout's services/ and models/ are its own code: no note, and no rm -rf line for them."""
+    checkout = tmp_path / "checkout"
+    for n in ("deploy", "services", "models", "rulesets"):
+        (checkout / n).mkdir(parents=True)
+    up._name_loose(checkout / "deploy")
+    assert capsys.readouterr().out == ""
+
+
+def test_ocr_1512_2_a_deploy_folder_the_caller_cannot_search_is_each_image_checks_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OCR 1512-2 (escape check i): the install's deploy folder present but not searchable by this user: each image
+    check is a FAIL that names why, never a traceback that ends the doctor. The refusal is a stand-in (os.stat below
+    the folder answers PermissionError), so the case runs as root and as an ordinary user alike."""
+    box = tmp_path / "box"
+    (box / "deploy").mkdir(parents=True)
+    (box / "deploy" / ".env").write_text("TB_ENV=DEV\n", encoding="utf-8")
+    monkeypatch.setattr(launch, "DEPLOY", box / "deploy")
+    real_stat = os.stat
+    below = str(box) + os.sep
+
+    def stat(p: Any, *a: Any, **k: Any) -> os.stat_result:
+        if os.fspath(p).startswith(below):
+            raise PermissionError(13, "Permission denied", os.fspath(p))
+        return real_stat(p, *a, **k)
+
+    monkeypatch.setattr(os, "stat", stat)
+    out = doctor.run(doctor.DoctorInputs(env={"TB_ENV": "DEV"}), (doctor.check_topology,),
+                     image=doctor.image_part(None, None, None), extras=False)  # fmt: skip
+    (topology,) = [c for c in out if c.name == "topology"]
+    assert topology.status == "FAIL" and "PermissionError" in topology.detail, topology
+
+
+def test_ocr_1512_3_a_container_past_its_time_is_removed_and_the_check_fails() -> None:
+    calls: list[list[str]] = []
+
+    def run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        if cmd[1] == "run":
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout") or 0)
+        return subprocess.CompletedProcess(cmd, 0 if cmd[1] == "rm" else 1, "", "")
+
+    req = doctor_image.Request(("topology",), None, None, box={"TB_DOCKER": "eng"})
+    (v,) = doctor_image.verdicts(req, run=run)
+    started = next(c for c in calls if c[1] == "run")
+    name = started[started.index("--name") + 1]
+    assert ["eng", "rm", "-f", name] in calls, calls
+    assert v["status"] == "FAIL" and f"container {name} removed" in v["detail"], v
 
 
 def test_h144_the_merge_keeps_the_order_and_never_passes_a_check_the_image_did_not_answer() -> None:

@@ -3281,6 +3281,9 @@ def _name_loose(deploy: Path) -> None:
     operator's own change). ``trialbox doctor``'s ``release_tree`` FAILs while it is there."""
     from tools import host_tree as ht
 
-    note = ht.loose_note(Path(deploy).absolute().parent)
+    base = Path(deploy).absolute().parent
+    if ht.install_folder(base / "current") != base.resolve():  # OCR 1512-1: a source checkout's services/ is its own
+        return
+    note = ht.loose_note(base)
     if note:
         print(f"update: note (H-144): {note}")
