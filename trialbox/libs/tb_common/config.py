@@ -1156,3 +1156,15 @@ DECLARED: dict[str, Declared] = {
     "TB_WEIGHTS_FLAG": Declared("path", "", "doctor --verify-all: where the weights flag file goes (D-393)"),
     "TB_WORKERS": Declared("int", "4", "orchestrator: job workers"),
 }
+
+# F0: the settings.yaml keys the system modules add (section.key), each with its default and one line. The schema
+# (schemas/settings.schema.json) refuses a value of another form at start; tests/unit/test_framework_f0.py holds the
+# schema, the Settings model and deploy/settings.example.yaml to these defaults.
+DECLARED_SETTINGS: dict[str, Declared] = {
+    "terminology.update_dir": Declared(
+        "path", "", "M2: absolute folder where a signed code-system pack is looked for; empty: a stick only"
+    ),
+    "terminology.update_time": Declared(
+        "str", "before_night", "M2: when a found pack is applied: before_night, or HH:MM on the site's clock"
+    ),
+}

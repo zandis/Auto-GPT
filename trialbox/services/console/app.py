@@ -20,6 +20,8 @@ from __future__ import annotations
 import base64
 import contextlib
 import hashlib
+import importlib
+import importlib.util
 import io
 import ipaddress
 import logging
@@ -33,6 +35,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import ModuleType
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
@@ -106,6 +109,17 @@ from console.refusals import localize as localize_refusal
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
+#: F0: the system modules' page files (framework section 4). Each has register(app, helpers, env) for its own routes and
+#: joins its own i18n_<module>.py there, as instruments_page does. A file that is not there yet is logged and passed
+#: over, so the console starts; tests/unit/test_framework_f0.py stops on one missing that no module still owes
+MODULE_PAGES = (
+    "console.still_needed",  # M1: "Information still needed"
+    "console.egress_page",  # M3: "What left this box"
+    "console.health_page",  # M5: the health page
+    "console.data_step",  # M5: the data step
+    "console.support_page",  # M5: the support session
+    "console.screen_now",  # M8: "Screen now"
+)
 #: D-1245: how far back a protocol's audit rows are read while it is compiled (the model answers since its start)
 COMPILE_ROWS = 5000
 COOKIE = "tb_console"
@@ -423,6 +437,14 @@ def job_line(job: Job) -> str:
 
 def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
     return dict(env if env is not None else os.environ)
+
+
+def _module_page(name: str) -> ModuleType | None:
+    """A system module's page file (``MODULE_PAGES``), or None, said in the log, when this tree has not got it."""
+    if importlib.util.find_spec(name) is None:
+        logging.getLogger(__name__).warning("declared page file not in this tree, its pages are off: %s", name)
+        return None
+    return importlib.import_module(name)
 
 
 def _provenance_db(env: Mapping[str, str]) -> Callable[[], Any] | None:
@@ -1614,6 +1636,9 @@ def create_app(
 
     twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
     people_lists.register(app, helpers, templates.env)  # J-5 (D-1223): Candidates and Participants, behind a flag
+    for name in MODULE_PAGES:  # F0: a module's file that is there and does not import stops the start, as any page's
+        if (mod := _module_page(name)) is not None:
+            mod.register(app, helpers, raw_env)
     from console import rc1_guard
 
     # R22-34 (D-1072): the last middleware added, so the outermost: it reads the address before any rewrite

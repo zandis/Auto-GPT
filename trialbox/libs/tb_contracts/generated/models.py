@@ -1845,6 +1845,27 @@ class Schedule(BaseModel):
     calibration: str = "1st 05:30"
 
 
+class TerminologySettings(BaseModel):
+    """
+    The scheduled update of the code systems (F0 for M2); each key's meaning is tb_common.config.DECLARED_SETTINGS
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    update_dir: str = Field("", pattern="^(/.*)?$")
+    """
+    absolute folder where a signed code-system pack is looked for; empty: a stick only
+    """
+    update_time: str = Field(
+        "before_night", pattern="^(before_night|([01][0-9]|2[0-3]):[0-5][0-9])$"
+    )
+    """
+    when a found pack is applied: before_night, or HH:MM on the site's clock
+    """
+
+
 class RegistrySource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1968,6 +1989,10 @@ class Settings(BaseModel):
     models: SiteModels | None = Field(None, title="SiteModels")
     thresholds: SiteThresholds = Field(..., title="SiteThresholds")
     schedule: Schedule = Field(..., title="Schedule")
+    terminology: TerminologySettings | None = Field(None, title="TerminologySettings")
+    """
+    The scheduled update of the code systems (F0 for M2); each key's meaning is tb_common.config.DECLARED_SETTINGS
+    """
     site_capabilities: dict[str, bool] | None = None
     registry_source: RegistrySource | None = Field(None, title="RegistrySource")
     attachment_encryption: Literal["zip", "smime", "link"] = "link"

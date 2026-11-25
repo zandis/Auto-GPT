@@ -30,6 +30,9 @@ profiles: {tw_core: "1.0.0", twpas_version: "1.2.5"}  # TWPAS IG version; the ca
 models: {judge: qwen3.5-35b-a3b-q4, extract_local: gpt-oss-120b-mxfp4, embed: bge-m3, cloud_enabled: false}
 thresholds: {tier_high_confidence: 0.75, small_cell: 5, equivalence_min_pct: 98, validation_error_max_pct: 0.5}
 schedule: {ingest: "02:00", microbatch: "MON 03:00", nav: "MON 03:30", cohort: "1st 04:00", retention: "05:00", calibration: "1st 05:30"}
+# F0 (M2): the code systems' scheduled update. update_dir: the absolute folder a signed pack is looked for in; "" = a
+# stick only. update_time: before_night, or HH:MM on the site's clock. Any other value stops the services at start.
+terminology: {update_dir: "", update_time: before_night}
 site_capabilities: {fundus_photography: true, injection_training: true, cold_chain: true, ediary_support: true}
 registry_source: {type: csv, path: /data/source/site-a/registry.csv}
 attachment_encryption: zip  # synthetic test stacks only; per site (D-127, D-369): link (the default; needs TB_CONSOLE_URL), smime, or zip (refused for patient files outside TB_ENV DEV/TEST)
