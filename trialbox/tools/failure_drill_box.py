@@ -80,7 +80,8 @@ def compose(*args: str, disk: bool = False) -> list[str]:
 
 def compose_env() -> dict[str, str]:
     # the test file's object folder defaults to ${PWD}/deploy/.objects, as `make up-test` binds it
-    return {"PWD": str(ROOT), "TB_SETTINGS_FILE": str(SETTINGS)}
+    # H139-14: TEST and D0, as COMPOSE_TEST pins them, whatever the caller's shell exports
+    return {"PWD": str(ROOT), "TB_SETTINGS_FILE": str(SETTINGS), "TB_ENV": "TEST", "TB_DATA_CLASS": "D0"}
 
 
 def dc(*args: str, disk: bool = False, timeout: float = 900, check: bool = False) -> str:

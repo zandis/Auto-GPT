@@ -149,3 +149,48 @@ def test_the_refusal_is_said_plainly_and_nothing_starts(monkeypatch: pytest.Monk
 def test_a_configuration_that_cannot_be_read_starts_nothing(capsys: Any) -> None:
     assert tsf.main([PROJECT], stdin=io.StringIO("")) == 1
     assert "could not be read" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------------------------------------ H139-14: TEST always
+def _pins() -> dict[str, str]:
+    """The settings COMPOSE_TEST gives compose before its command, those with a plain value."""
+    head = _make_var("COMPOSE_TEST").split("$(COMPOSE)")[0].split()
+    return dict(a.split("=", 1) for a in head if "=" in a and "$(" not in a)
+
+
+def _service_envs(tmp_path: Path, env: dict[str, str]) -> dict[str, dict[str, str]]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".env").write_text((ROOT / ".env.example").read_text(encoding="utf-8"), encoding="utf-8")
+    r = subprocess.run(["docker", "compose", "--project-directory", str(tmp_path), "-p", PROJECT,
+                        "-f", str(DEPLOY / "docker-compose.yml"), "-f", str(DEPLOY / "docker-compose.test.yml"),
+                        "--profile", "stub", "--profile", "test", "config", "--format", "json"],
+                       capture_output=True, text=True, timeout=120, check=False, env=env)  # fmt: skip
+    assert r.returncode == 0, r.stderr[-2000:]
+    return {n: dict(s.get("environment") or {}) for n, s in json.loads(r.stdout)["services"].items()}
+
+
+def test_the_test_stack_is_test_and_d0_whatever_the_caller_exports(tmp_path: Path) -> None:
+    """A caller whose shell exports the TB_ENV of the host's own box (and its data class) still starts a TEST stack:
+    no caller's environment variable decides it. Without COMPOSE_TEST's settings the caller's value would reach
+    every service that takes ${TB_ENV:-TEST}."""
+    import os
+
+    pins = _pins()
+    assert pins.get("TB_ENV") == "TEST" and pins.get("TB_DATA_CLASS") == "D0", pins
+    assert {"TB_ENV": "TEST", "TB_DATA_CLASS": "D0"}.items() <= fdb.compose_env().items()
+    caller = {**os.environ, "TB_ENV": "PRODUCTION", "TB_DATA_CLASS": "D3"}
+    pinned = _service_envs(tmp_path / "pinned", {**caller, **pins})
+    envs = {n: e["TB_ENV"] for n, e in pinned.items() if "TB_ENV" in e}
+    assert envs and set(envs.values()) == {"TEST"}, envs
+    assert all(e.get("TB_DATA_CLASS", "D0") == "D0" for e in pinned.values())
+    bare = _service_envs(tmp_path / "bare", caller)  # the gap the settings close
+    assert any(bare[n].get("TB_ENV") == "PRODUCTION" for n in _takes_test())
+
+
+def _takes_test() -> list[str]:
+    """The services the test file gives ``TB_ENV: "${TB_ENV:-TEST}"``."""
+    import yaml
+
+    doc = yaml.safe_load((DEPLOY / "docker-compose.test.yml").read_text(encoding="utf-8"))
+    return [n for n, s in (doc.get("services") or {}).items()
+            if isinstance(s, dict) and "${TB_ENV:-TEST}" in json.dumps(s.get("environment") or {})]  # fmt: skip

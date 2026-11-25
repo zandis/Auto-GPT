@@ -93,6 +93,15 @@
    "basis": "shown",
    "state": "open",
    "place": "Makefile test-console, test-console-e2e"
+  },
+  {
+   "id": "H139-14",
+   "severity": "Medium",
+   "claim": "the compose test stack took TB_ENV and TB_DATA_CLASS from the caller's shell (every test-stack service has ${TB_ENV:-TEST}, and the full set passes its whole environment), so a shell exporting the host box's TB_ENV made the stack non-TEST and every unauthenticated test call a 401; fixed: COMPOSE_TEST and the failure drill set TB_ENV=TEST and TB_DATA_CLASS=D0",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "Makefile COMPOSE_TEST, tools/failure_drill_box.py compose_env"
   }
  ]
 }

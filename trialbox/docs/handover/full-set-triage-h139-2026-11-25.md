@@ -195,6 +195,27 @@ On master 6c73db64, then at this branch's head, the same commands:
   probe run with no node on PATH, strict and plain). On master's Makefile its two console and poc cases fail.
 - master c3a5b2b2 (train 176) merged once.
 
+### Push 5 (the walk's ids, the integrator's 7159506328)
+
+- **H139-14, compose: the test stack's TB_ENV came from the caller's shell.** The walk saw no name or port conflict,
+  so the 401s at the adapter (`test_compose_data` ×4 errors: its module fixture posts `/run` with no token) and at the
+  orchestrator (`test_mail_compose` 5, `test_compile_compose` 2) are re-read. No token can come from the stack's
+  files: tokens come only from `deploy/docker-compose.secrets.yml`, which `COMPOSE_TEST` does not name, and
+  `.env.example`'s `TB_SERVICE_TOKEN` is a placeholder counted as none. Without a token, a service takes
+  unauthenticated calls only on DEV or TEST. Every test-stack service takes `TB_ENV: "${TB_ENV:-TEST}"`, which
+  compose fills from the caller's shell first, and the full set runs every stage with the walk's whole environment.
+  A shell that exports the TB_ENV of the host's own box makes the whole test stack non-TEST. This is the likely
+  cause, not confirmed on the bench. Class (a), the owner's rule (no caller's environment variable decides it).
+  The fix: `COMPOSE_TEST` sets `TB_ENV=TEST` and `TB_DATA_CLASS=D0` before its command, as it already sets
+  `TB_SETTINGS_FILE`, and `tools/failure_drill_box.py` does the same. Test: rendered with a caller's
+  `TB_ENV=PRODUCTION` and `TB_DATA_CLASS=D3`, every service is TEST and D0; without the settings, the caller's
+  PRODUCTION reaches the services that take `${TB_ENV:-TEST}`. `test_planted_faults`, `test_role_walk` and
+  `test_limits_edge_box` are likely the same cause, not confirmed.
+- **Pure, three ids, not reproduced here** (root, with and without a controlling terminal, `/dev/tty0` writable). The
+  hypotheses wait for the bench's error lines. `test_first_run_code_h97`: a write to a real virtual console that
+  blocks or is held. `test_lifecycle_keys_h133` LR-3: the root test's uid-10001 child, or a fork under xdist.
+  `test_release_dirty_refused`: a compose box that reaches the host's real Docker as root.
+
 ## Owners named in this card
 
 The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/unit/test_refdata.py` and

@@ -6,9 +6,11 @@ COMPOSE := docker compose --project-directory deploy -f deploy/docker-compose.ym
 TEST_SETTINGS := .cache/test-settings.yaml
 # H-139: the test stack's own compose project. The base file's name (trialbox) is a box's, and a box installed on the
 # same host would otherwise share the test stack's containers and networks; `make up-test` refuses when another
-# project or program holds what the stack would publish (tools/test_stack_free.py)
+# project or program holds what the stack would publish (tools/test_stack_free.py). H-139 (H139-14): the test stack is
+# TEST and D0 whatever the caller's shell exports (a TB_ENV of the host's own box made every service refuse the
+# tests' calls, 401): no caller's environment variable decides it
 TEST_PROJECT := trialbox-test
-COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -p $(TEST_PROJECT) -f deploy/docker-compose.test.yml --profile stub --profile test
+COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) TB_ENV=TEST TB_DATA_CLASS=D0 $(COMPOSE) -p $(TEST_PROJECT) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
 # release identity on every image we build (T-110b, ENG-015): the version from pyproject.toml and the commit
 TB_VERSION := $(shell sed -n 's/^version = "\(.*\)"$$/\1/p' pyproject.toml | head -1)
