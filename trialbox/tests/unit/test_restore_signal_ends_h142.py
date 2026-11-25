@@ -388,6 +388,7 @@ def test_a_signal_after_the_container_ended_is_not_passed_on_and_says_so(
     code, out = box_restore._call(["docker", "run"], {}, {"PATH": "/usr/bin"})
     err = capsys.readouterr().err
     assert code == 0 and not sent and "had ended (0) when the signal came" in err and "is told" not in err, err
+    assert '"restored"' in out
 
 
 def test_a_signal_in_a_clean_up_is_taken_after_it_and_said(
@@ -468,3 +469,28 @@ def test_a_signal_at_any_phase_ends_0_1_or_130_and_says_the_state(tmp_path: Path
         # "healthy" only after a complete restore, or a refused one whose data is as it was (LR-14)
         assert code == 0 or "are healthy" not in err or "the data not changed" in err, where
         assert "is kept" in err or not list(deploy.glob(".restore-*")), where
+
+
+def test_a_signal_after_the_state_line_changes_neither_the_line_nor_the_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """H138-02, .b: the state line is the restore's end. A signal after it (here, while the hold is said) changes
+    neither what it said nor its exit code. Before: a second line ("this step was interrupted after it") and 130 in
+    place of the complete restore's 0."""
+    import json
+
+    from tests.unit.test_restore_from_the_host_h100 import Recorder, _restore
+    from tools.trialbox import box_restore
+
+    deploy = _box(tmp_path)
+    real = box_restore.BoxRestore._hold_line
+
+    def hold_line(hold: str, state: str) -> None:
+        os.kill(os.getpid(), signal.SIGTERM)
+        real(hold, state)
+
+    monkeypatch.setattr(box_restore.BoxRestore, "_hold_line", staticmethod(hold_line))
+    code, _seen = _restore(deploy, tmp_path, monkeypatch, Recorder(running=["db", "console"]),
+                           json.dumps({"hold": "released"}), 0, "--restart")  # fmt: skip
+    err = capsys.readouterr().err
+    assert code == 0 and err.count("restore: the box now:") == 1 and "are healthy" in err, (code, err[-2000:])
