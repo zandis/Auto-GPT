@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Protocol
 
 import pytest
 
@@ -95,7 +95,18 @@ def pg_cluster_url(request: pytest.FixtureRequest) -> Iterator[str]:
         pglocal.remove(root)
 
 
-def _vector_or_stop(request: pytest.FixtureRequest, url: str) -> None:
+class _Stoppable(Protocol):
+    shouldstop: bool | str
+
+
+class _InSession(Protocol):
+    """What :func:`_vector_or_stop` uses of a fixture request: its session's stop flag."""
+
+    @property
+    def session(self) -> _Stoppable: ...
+
+
+def _vector_or_stop(request: _InSession, url: str) -> None:
     """H-139: a test server whose vector extension is older than the db image's pin stops the run with one plain
     message (``shouldstop`` stops every xdist worker), not one error per test (the bench host's halfvec errors)."""
     from tb_common.db import split_url

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from types import SimpleNamespace
+from dataclasses import dataclass, field
 
 import psycopg
 import pytest
@@ -39,13 +39,25 @@ def test_the_check_reads_this_clusters_vector(pg_cluster_url: str) -> None:
     assert pglocal.vector_check(dsn) == pglocal.vector_behind_pin(row[0] if row else None, PIN)
 
 
+@dataclass
+class _Session:
+    shouldstop: bool | str = False
+
+
+@dataclass
+class _Request:
+    """A stand-in fixture request: only its session's stop flag is used."""
+
+    session: _Session = field(default_factory=_Session)
+
+
 def test_the_cluster_fixture_stops_the_run_once_with_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pglocal, "vector_check", lambda url: "synthetic: the vector extension is older")
-    request = SimpleNamespace(session=SimpleNamespace(shouldstop=False))
+    request = _Request()
     with pytest.raises(pytest.fail.Exception, match="synthetic: the vector extension is older"):
-        conftest._vector_or_stop(request, "postgresql://synthetic@/x?host=/nowhere")  # type: ignore[arg-type]
+        conftest._vector_or_stop(request, "postgresql://synthetic@/x?host=/nowhere")
     assert request.session.shouldstop == "synthetic: the vector extension is older"
     monkeypatch.setattr(pglocal, "vector_check", lambda url: "")
-    conftest._vector_or_stop(request, "postgresql://synthetic@/x?host=/nowhere")  # type: ignore[arg-type]
+    conftest._vector_or_stop(request, "postgresql://synthetic@/x?host=/nowhere")
     source = inspect.getsource(conftest.pg_cluster_url)
     assert "_vector_or_stop(request, given)" in source and "_vector_or_stop(request, url)" in source

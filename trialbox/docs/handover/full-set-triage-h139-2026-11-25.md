@@ -134,7 +134,9 @@ On master 6c73db64, then at this branch's head, the same commands:
   the client tools; the CLI forms take them through the process environment. Both pass with psql off PATH.
   `test_backup_verifies_itself` and `test_rehearsal_restic` already pass through test_backup's fixtures. They are
   unchanged. `test_refdata`'s red is not psql: it is `test_the_tar_is_deterministic_and_safe` at umask 0002, the case
-  H-115 left as H115-18 (`pack_tar` keeps each file's mode). It is left for its own card.
+  H-115 left as H115-18 (`pack_tar` keeps each file's mode). It is left for its own card. At umask 022 it passes: in
+  push 2's run as uid 1003 in its own clone (CI's conditions), test_refdata passed, so the corrected bench (umask 022)
+  does not meet it. It fails only at umask 0002.
 
 ### Push 3 (the integrator's 7155439799, 7156055986 and 7156065500)
 
