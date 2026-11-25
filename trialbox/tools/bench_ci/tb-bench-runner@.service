@@ -14,7 +14,6 @@ Requires=tb-bench-proxy.service
 Type=simple
 User=tb-bench
 Group=tb-bench
-Environment=XDG_RUNTIME_DIR=/run/user/%U
 WorkingDirectory=/opt/tb-bench-ci
 ExecStartPre=+/usr/bin/python3 -s -E -m tools.bench_ci.launcher mint --settings /etc/tb-bench-ci/settings.env --slot %i
 ExecStart=/usr/bin/python3 -s -E -m tools.bench_ci.launcher run --settings /etc/tb-bench-ci/settings.env --slot %i

@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tools.bench_ci import egress_proxy, gate, launcher
+from tools.bench_ci import egress_proxy, gate, gpu_check, launcher
 
 pytestmark = pytest.mark.nodb
 
@@ -491,7 +491,11 @@ def test_l1448_13_a_container_that_never_took_a_job_fails_the_run_step_and_the_h
 def test_l1448_17_an_early_cancel_writes_no_huge_wall_time() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "s=$(( $(date +%s) - TB_BENCH_T0 ))" not in text
-    assert text.count("s=$(( $(date +%s) - ${TB_BENCH_T0:-$(date +%s)} ))") == 5
+    jobs = yaml.safe_load(text)["jobs"]
+    # the integrator's condition (7129949024): the six bench jobs by name, so a dropped one cannot pass
+    timed = {n for n, j in jobs.items() for st in j.get("steps", []) if st.get("name") == "Wall time"}
+    assert timed == {"unit-shard", "integration", "gpu-suites", "full-set", "rehearse-box", "rehearse-gpu-box"}
+    assert text.count("s=$(( $(date +%s) - ${TB_BENCH_T0:-$(date +%s)} ))") == 6
 
 
 def test_l1448_18_the_install_stops_before_any_change_without_a_running_service_manager() -> None:
@@ -631,3 +635,111 @@ def test_m1448_25_no_real_address_in_the_bench_tests() -> None:
 def test_l1448_14_the_example_says_no_upload_host_only_as_the_proxy_can_tell() -> None:
     assert "no upload host, no user-content wildcard" not in EXAMPLE
     assert "no upload host the proxy can tell from a download host" in EXAMPLE
+
+
+# --- H-105b: the Lows of the review of #1448 at bfc1408 (7126706872) ------------------------------------------
+
+
+@pytest.mark.parametrize("sig", ["INT", "TERM", "HUP"])
+@pytest.mark.parametrize("at", range(TOKEN_FIRST, len(TOKEN_LINES)))
+def test_1448_26_a_signal_says_whether_the_token_was_kept(tmp_path: Path, sig: str, at: int) -> None:
+    """A signal after any line, the move included: the step says what is true (kept, or not), never the other."""
+    got, etc = _token_step(tmp_path, [*TOKEN_LINES[: at + 1], f"  kill -s {sig} $$", *TOKEN_LINES[at + 1 :]])
+    assert got.returncode != 0
+    token = etc / "token"
+    kept = token.exists() and token.read_text(encoding="utf-8") == "tok-for-a-test\n"
+    if kept:  # moved into place: the step must never say otherwise
+        assert "no token was kept" not in got.stderr and "the new token is kept" in got.stderr, got.stderr
+    else:
+        assert "kept" not in got.stdout and "the new token is kept" not in got.stderr, got.stdout + got.stderr
+    assert [p.name for p in etc.iterdir() if p.name.startswith(".token.")] == []
+
+
+@pytest.mark.parametrize("step", ['chown root:root "$tmp"', 'chmod 0600 "$tmp"', 'mv -f "$tmp" "$TOKEN"'])
+def test_1448_27_any_failed_step_of_the_keep_is_a_failure(tmp_path: Path, step: str) -> None:
+    """A failed chown or chmod (which set -e ignores inside a list), not only a failed move, ends the step."""
+    lines = [ln.replace(step, "false") for ln in TOKEN_LINES]
+    assert lines != TOKEN_LINES
+    got, etc = _token_step(tmp_path, lines)
+    assert got.returncode != 0 and "kept" not in got.stdout and "START_UNITS" not in got.stdout, got.stdout
+    assert [p.name for p in etc.iterdir() if p.name.startswith(".token.")] == []
+
+
+LOOP = re.search(r'^  local up="\$scratch"\n(.*?^  done\n)', INSTALL, re.M | re.S)
+
+
+def _scratch_loop(scratch: Path) -> subprocess.CompletedProcess[str]:
+    """install_files' check of the folders above the scratch folder, run as written (1448-27: not read as text)."""
+    assert LOOP is not None
+    script = 'set -euo pipefail\ndie() { echo "die: $*" >&2; exit 1; }\nscratch="$1"\n'
+    script += '  local_up() {\n  local up="$scratch"\n' + LOOP.group(1) + "}\nlocal_up\necho FOLDERS-OK\n"
+    return subprocess.run(["bash", "-c", script, "loop", str(scratch)], check=False, capture_output=True, text=True)
+
+
+def test_1448_27_the_scratch_check_refuses_a_folder_others_can_change(tmp_path: Path) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o1777)  # a shared sticky folder, as the system's temporary folders are
+    got = _scratch_loop(shared / "ci-scratch")
+    assert got.returncode != 0 and "must be root's, not a link, and writable by root only" in got.stderr
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path, target_is_directory=True)
+    assert _scratch_loop(link / "ci-scratch").returncode != 0  # a link above it
+
+
+def test_1448_27_the_scratch_check_takes_a_folder_under_roots_own_folders() -> None:
+    """Every folder above /usr/share/<name> is root's and written by root only on any host this runs on."""
+    got = _scratch_loop(Path("/usr/share/tb-bench-ci-scratch"))
+    assert got.returncode == 0 and "FOLDERS-OK" in got.stdout, got.stderr
+
+
+def _cards_tool(tmp_path: Path, busy_reads: int, uuids: tuple[str, ...] = ("GPU-4", "GPU-5")) -> Path:
+    """A stand-in for the card query tool: the first ``busy_reads`` answers show card GPU-4 busy, then free."""
+    count = tmp_path / "reads"
+    count.write_text("0", encoding="utf-8")
+    tool = tmp_path / "cardquery"
+    rows = "\n".join(f'echo "{i}, {u}, ${{mem{i}}}, 0"' for i, u in enumerate(uuids))
+    tool.write_text(
+        "#!/bin/sh\n"
+        f'n=$(cat "{count}"); echo $((n + 1)) > "{count}"\n'
+        f'mem0=3; [ "$n" -lt {busy_reads} ] && mem0=90000\n'
+        "mem1=3\n" + rows + "\n",
+        encoding="utf-8",
+    )
+    tool.chmod(0o755)
+    return tool
+
+
+def _card_file(tmp_path: Path, tool: Path, wait: int) -> Path:
+    spec = {"profile": "gpu", "tool": str(tool), "uuids": ["GPU-4", "GPU-5"], "cap_mib": 1024, "cap_util": 5,
+            "wait_seconds": wait}  # fmt: skip
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps(spec), encoding="utf-8")
+    return job
+
+
+def test_1448_15_a_gpu_job_waits_for_busy_cards_and_starts_when_they_are_free(tmp_path: Path) -> None:
+    slept: list[float] = []
+    job = _card_file(tmp_path, _cards_tool(tmp_path, busy_reads=3), wait=1800)
+    assert gpu_check.main(["--in-job", str(job)], sleep=slept.append) == 0
+    assert slept == [gpu_check.POLL_SECONDS] * 3
+
+
+def test_1448_15_a_gpu_job_refuses_when_the_cards_stay_busy_past_the_wait(tmp_path: Path) -> None:
+    slept: list[float] = []
+    job = _card_file(tmp_path, _cards_tool(tmp_path, busy_reads=10_000), wait=120)
+    assert gpu_check.main(["--in-job", str(job)], sleep=slept.append) == 1
+    assert sum(slept) == 120
+
+
+def test_1448_15_the_wrong_cards_are_refused_at_once_without_waiting(tmp_path: Path) -> None:
+    slept: list[float] = []
+    job = _card_file(tmp_path, _cards_tool(tmp_path, busy_reads=0, uuids=("GPU-4", "GPU-9")), wait=1800)
+    assert gpu_check.main(["--in-job", str(job)], sleep=slept.append) == 1
+    assert slept == []
+
+
+def test_1448_15_the_launcher_gives_gpu_jobs_a_wait() -> None:
+    assert launcher.GPU_WAIT_SECONDS > 0
+    source = (ROOT / "tools" / "bench_ci" / "launcher.py").read_text(encoding="utf-8")
+    assert '"wait_seconds": GPU_WAIT_SECONDS' in source

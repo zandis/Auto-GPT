@@ -9,7 +9,6 @@ Wants=network-online.target
 Type=simple
 User=tb-bench
 Group=tb-bench
-Environment=XDG_RUNTIME_DIR=/run/user/%U
 WorkingDirectory=/opt/tb-bench-ci
 ExecStart=/usr/bin/python3 -s -E -m tools.bench_ci.launcher proxy --settings /etc/tb-bench-ci/settings.env
 Restart=always
