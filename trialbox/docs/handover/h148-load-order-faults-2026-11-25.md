@@ -48,7 +48,17 @@ findings.
 
 ## What ran
 
-See the pull request for the commands and counts of the checks; under CI's conditions here means `env -i`, umask
+- `make lint`, `tools/doclint.py`, `make data-scan`, `make security-scan`, `tools.limits_lint`,
+  `tools.decisions_index --check`, `tools.findings_register --check`, `make guard`: rc 0; `make cross-card`: 329
+  passed; `pytest tests --collect-only`: rc 0, 26,860 tests.
+- The policy set, the card's files and the tests of every touched file (278 files) under CI's conditions at
+  8d31c201: as root 6,385 passed, 25 skipped, 7 xfailed; as an ordinary user 6,381 passed, 29 skipped, 7 xfailed.
+- With shellcheck present (it was skipped above): SC2217 on the first form of id 6's fix (`</dev/null` on `sleep`),
+  fixed in 07b6821f; then the 112 files that name `poc.sh`, `install.sh` or shellcheck, and the new test: as root
+  3,224 passed, 5 skipped, 7 xfailed; as an ordinary user 3,222 passed, 7 skipped, 7 xfailed.
+- Under 16 busy loops after the change: the gateway test 20 of 20, the console walk test 5 of 5, session-stop passed.
+
+Under CI's conditions here means `env -i`, umask
 022, `COVERAGE_CORE=sysmon`, `PYTEST_ADDOPTS="--cov --cov-report= --durations=30"`, `-n auto --dist worksteal`, a
 long `TB_TEST_ROOT` marked with `tools.pglocal mark` and a 0700 `TMPDIR` inside it, SIGHUP at its default, as root in
 the session's checkout and as an ordinary user in a clone of their own.
