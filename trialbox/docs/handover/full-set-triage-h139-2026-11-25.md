@@ -179,6 +179,12 @@ On master 6c73db64, then at this branch's head, the same commands:
   `tests/console/test_tier_status_words.py`'s `_pages` strips only the CSRF value and compares `/home`. It has the same
   latent flake and is not failing now, so it is listed, not changed. `test_people_lists.py:226` compares two 404
   answers byte for byte. It is listed as possible (not checked whether a 404 carries the timer).
+- **A second instance, already failing on CI** (#1489, job 139105640093, unit shard 1/8):
+  `tests/console/test_dates_setting_and_nendo.py::test_an_upgraded_japanese_site_and_a_site_elsewhere_count_by_calendar_year_as_before`
+  compares a signed-in page rendered from master's template with the same page rendered now, byte for byte. It is
+  the same countdown. It is fixed the same way (the store's clock held still; body only, no assertion change), and
+  the file is lane H's now. With the ticking clock: master fails, the fixed test passes. Alone, the file passes (9
+  passed).
 - master c3a5b2b2 (train 176) merged once.
 
 ## Owners named in this card
@@ -187,7 +193,8 @@ The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/un
 `tests/unit/test_update_path.py` are lane H's from now on. `test_backup_verifies_itself` and
 `test_backup_without_pause` stay lane D's; the same go covers their one-line client-tools fix (bodies only).
 The go 7156065500: `tests/unit/test_restore_roles.py` is lane H's from now on.
-The ruling 7158058588: `tests/console/test_ctgov_mode_text.py` is lane H's from now on.
+The ruling 7158058588: `tests/console/test_ctgov_mode_text.py` and `tests/console/test_dates_setting_and_nendo.py` are lane H's
+from now on.
 
 ## Files outside the card
 
