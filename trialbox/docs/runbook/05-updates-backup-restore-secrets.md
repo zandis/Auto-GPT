@@ -46,21 +46,6 @@ runs (`trialbox-weights.timer`, `deploy/check_weights.sh`), and by hand with `tr
 removes the flag. The gateway also compares each model server's `GET /v1/models` (the folder it serves and its
 `max_model_len`) with the pin at start and every hour, and refuses `model_mismatch` until they agree.
 
-**What an update replaces, and a loose `services/` or `models/`** (H-144, D-1463). An update replaces the signed host
-tree only: `deploy/`, `tools/`, `libs/` and `schemas/` in the install folder. The services' code and `models/` come
-with the box image, never from the install folder. A `services/`, `models/`, `rulesets/`, `catalogue/` or `eval/`
-folder found in the install folder (one left from an install before the signed host tree) is not the release's: no
-update replaces or checks it, and nothing reads it. The update names it at its end ("update: note (H-144): ...") and
-leaves it; `sudo trialbox doctor --env-file deploy/.env` WARNs `release_tree` while it is there, naming each folder
-and the command that removes it (a FAIL when the command's own PYTHONPATH holds the folder: run that way, a host
-command would import it). Look in the folder for a change of your own first, then, for example:
-
-    sudo rm -rf -- /opt/trialbox/services /opt/trialbox/models
-
-The doctor's checks that need the box image's libraries, the services' code or `models/` (`doctor.IMAGE_CHECKS`) run
-in a one-off container of the box's own image when `trialbox doctor` is typed on the host; a check that cannot run
-there is a FAIL that says why, never a pass.
-
 **After the update that brings D-275, run one ingest** (the nightly one is enough). Until then the lake still holds records the new rule leaves out (a result entered in error, a cancelled order, a sex of `other` / `unknown` as text), and orders with no date that the old ingest dropped are only read again when the source sends them. Approved rulesets need no new approval: their SQL runs guarded by the current rules (`criteria_compiler/compile_sql/overlay.py`) until they are next compiled.
 
 **While an update runs** `deploy/updates/IN_PROGRESS.json` names the bundle and the step. It is removed only when the
@@ -469,3 +454,19 @@ and removes `/etc/cron.d/trialbox-backup`; elsewhere the cron file stays and nee
 (D-1090). An existing box moves with `python3 -m tools.trialbox backup-install --deploy deploy --no-first-run`.
 `trialbox doctor` (`backup`) and `backup-status` name the schedule in use and the one action when none fires or both
 would.
+
+## What an update replaces, and a loose services/ or models/ (H-144, D-1463)
+
+An update replaces the signed host tree only: `deploy/`, `tools/`, `libs/` and `schemas/` in the install folder. The
+services' code and `models/` come with the box image, never from the install folder. A `services/`, `models/`, `rulesets/`, `catalogue/` or `eval/`
+folder found in the install folder (one left from an install before the signed host tree) is not the release's: no
+update replaces or checks it, and nothing reads it. The update names it at its end ("update: note (H-144): ...") and
+leaves it; `sudo trialbox doctor --env-file deploy/.env` WARNs `release_tree` while it is there, naming each folder
+and the command that removes it (a FAIL when the command's own PYTHONPATH holds the folder: run that way, a host
+command would import it). Look in the folder for a change of your own first, then, for example:
+
+    sudo rm -rf -- /opt/trialbox/services /opt/trialbox/models
+
+The doctor's checks that need the box image's libraries, the services' code or `models/` (`doctor.IMAGE_CHECKS`) run
+in a one-off container of the box's own image when `trialbox doctor` is typed on the host; a check that cannot run
+there is a FAIL that says why, never a pass.
