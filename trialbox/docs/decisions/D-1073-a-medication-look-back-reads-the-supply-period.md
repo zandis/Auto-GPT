@@ -16,7 +16,6 @@
 4. The CQL duration atom reads the same period as the SQL.
 5. SQL compiled before this decision is not run alone: the overlay of D-275 runs it beside a fresh rendering and
    leaves a difference unknown (the mark line names D-1073).
-
-Not here: the check of uncoded orders (`matching/coverage.py`) still reads the order date (INTR1-04, open).
+6. The check of uncoded orders (`matching/coverage.py`) places an order by the same rule.
 
 The evidence, the tests and what was found and not fixed: `docs/handover/med-supply-lookback-intr1-2026-11-25.md`.

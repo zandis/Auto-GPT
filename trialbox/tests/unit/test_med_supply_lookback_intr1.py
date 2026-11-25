@@ -28,6 +28,7 @@ from criteria_compiler.terminology.mapper import SYSTEMS, Concept, Terminology, 
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
+from matching.coverage import Coverage
 from tb_common.ruleset import Ruleset
 from tb_contracts import Atom, CriterionIR
 
@@ -353,3 +354,12 @@ def test_sql_approved_before_this_rule_is_not_run_alone(setup: tuple[LakeLocal, 
     for pid in ("P-IN", "P-ENDED", "P-NONE"):  # both agree: the stored answer stands
         assert got[pid] == EXPECTED[pid], pid
     assert safe_sql(Ruleset(manifest=manifest, criteria=CRIT, valuesets=VS, sql=now)) == now
+
+
+def test_an_uncoded_order_is_placed_by_the_same_period(tmp_path: Path) -> None:
+    """INTR1-04: an order with no readable code that could answer the look-back keeps an inclusion unknown."""
+    lake, _ = _lake(tmp_path, _orders("urn:local:drug", "X1"), PIDS)
+    crit = _crit("MS-INC-02", "inclusion", "any")
+    cov = Coverage.for_criteria(lake, [crit], PIDS, None, VS)
+    reached = {p for p in PIDS if cov.refs(crit, p, IDX)}
+    assert reached == {p for p in PIDS if MET[p] is not False}

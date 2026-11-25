@@ -34,10 +34,10 @@
   {
    "id": "INTR1-04",
    "severity": "Medium",
-   "claim": "the uncoded medication rows that make an inclusion unknown are placed by authored alone, so an uncoded order whose supply reaches into the look-back does not make it unknown; not fixed here: a two-line SQL change and one method do it, but the fixture table of test_code_coverage.py::test_a_diagnosis_with_an_empty_code_is_unreadable has no start and end columns, so that test's set-up must change, which is not ruled",
+   "claim": "the uncoded medication rows that make an inclusion unknown are placed by authored alone, so an uncoded order whose supply reaches into the look-back does not make it unknown",
    "lane": "J",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed",
    "place": "services/matching/coverage.py SQL and Coverage.refs"
   },
   {

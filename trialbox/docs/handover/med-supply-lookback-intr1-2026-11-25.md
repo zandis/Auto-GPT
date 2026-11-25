@@ -84,6 +84,7 @@ same month-end as the DAS28. That is a reading of the code; the single patient w
 | --- | --- |
 | `test_cql_sql_generators.py::test_atoms_cql_snapshot_and_determinism`, `::test_atoms_sql_snapshot_and_determinism` | `ATOMS.cql` and `ATOMS.sql` rewritten with the test's own `UPDATE_SNAPSHOTS=1` |
 | `test_fhir_inbound_contract.py::test_medication_reference_is_resolved_and_statements_are_read` | 4 weeks end on 2026-03-28, the last covered day; was 2026-03-29 |
+| `test_code_coverage.py::test_a_diagnosis_with_an_empty_code_is_unreadable` | its medication table gains empty `start` and `end` columns; its assertions stand |
 | `test_criteria_safety.py::test_cql_carries_the_same_rules_and_translates` | the new CQL text of the no-end rule; its other assertions stand |
 
 ## Duration criteria ("on drug X for at least N days", ruling 3)
@@ -99,10 +100,7 @@ It changes GZQO-INC-06, RA-BIO-INC-03, RA-BIO-INC-04 and RA-JAK-INC-03: a supply
 ## Found, not fixed
 
 * INTR1-03: the CQL retrieves `MedicationRequest` only; the lake's table also holds `MedicationStatement` rows.
-* INTR1-04 (open, Medium): `services/matching/coverage.py` (the uncoded medication rows that make an inclusion unknown)
-  still places an order by `authored` alone. The change is small, but the fixture table of
-  `test_code_coverage.py::test_a_diagnosis_with_an_empty_code_is_unreadable` has no `start` and `end` columns, so that
-  test's set-up (not its assertions) must change, which is not ruled.
+* INTR1-04 (fixed here): the uncoded medication rows of `services/matching/coverage.py` follow the same rule.
 * INTR1-05 (fixed here): the mark names D-1073, so SQL approved before it is guarded by the overlay, never run alone.
 * INTR1-06: the SQL reads a date and time in the site's zone, the CQL in its own offset; a UTC evening differs by a
   day (shown on master with an order date; the supply's end follows it).
