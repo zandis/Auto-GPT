@@ -3,7 +3,7 @@
 On the bench host, which is a real box, the pure stage ran as an ordinary account. One key test reached the host's
 real KEK file (``/run/trialbox/kek``), and an update test reached the host's Docker engine and the volumes of a
 real stack. In CI neither exists, so both passed there. A test that gives the code its own run folder and a stub
-engine calls :func:`watch` and asserts the list stays empty. Any open of the host's run folder or of an engine
+engine calls :func:`watch` and asserts the list stays empty. Any look at or open of the host's run folder or of an engine
 socket, and any engine command not given by the test, is then a failure, not a pass that depends on the host.
 """
 
@@ -30,9 +30,10 @@ def _name(path: Any) -> str:
 
 
 def watch(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """What the test reached of the host: each opened host path, and each engine command it did not stub."""
+    """What the test reached of the host: each host path it looked at or opened, and each engine command it did not stub."""
     seen: list[str] = []
     real_os_open, real_open, real_popen = os.open, builtins.open, subprocess.Popen
+    real_stat, real_lstat = os.stat, os.lstat
 
     def check(path: Any) -> None:
         name = _name(path)
@@ -42,6 +43,14 @@ def watch(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     def os_open(path: Any, *a: Any, **kw: Any) -> int:
         check(path)
         return real_os_open(path, *a, **kw)
+
+    def stat(path: Any, *a: Any, **kw: Any) -> os.stat_result:  # a look before an open: is_file(), exists()
+        check(path)
+        return real_stat(path, *a, **kw)
+
+    def lstat(path: Any, *a: Any, **kw: Any) -> os.stat_result:
+        check(path)
+        return real_lstat(path, *a, **kw)
 
     def b_open(file: Any, *a: Any, **kw: Any) -> Any:
         check(file)
@@ -54,6 +63,8 @@ def watch(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return real_popen(args, *a, **kw)
 
     monkeypatch.setattr(os, "open", os_open)
+    monkeypatch.setattr(os, "stat", stat)
+    monkeypatch.setattr(os, "lstat", lstat)
     monkeypatch.setattr(builtins, "open", b_open)
     monkeypatch.setattr(io, "open", b_open)
     monkeypatch.setattr(subprocess, "Popen", popen)
