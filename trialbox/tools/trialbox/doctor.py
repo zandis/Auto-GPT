@@ -704,7 +704,9 @@ def check_note_block(inp: DoctorInputs) -> Check:
                 "serves is known only from its /models at start, so this check cannot confirm two models. Use the "
                 "gateway verifier build (TB_GATEWAY_VERIFIER_MODEL), whose build hash is compared on every answer",
             )
-        return Check("note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree to exclude")
+        return Check(
+            "note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree; no note answer excludes"
+        )
     why = "TB_SCREEN_JUDGE=single" if mode == "single" else "no verifier configured"
     env = inp.env.get("TB_ENV", "DEV")
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"

@@ -348,7 +348,7 @@ services:
                   TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
                   TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
                   TB_GATEWAY_VERIFIER_MODEL: "${TB_GATEWAY_VERIFIER_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}",
-                  TB_NOTE_BLOCK: "${TB_NOTE_BLOCK:-both_agree}", TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
+                  TB_NOTE_BLOCK: "${TB_NOTE_BLOCK:-never}", TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
                   TB_SELFTEST: "${TB_SELFTEST:-on}",
                   TB_LAKE_MAX_SNAPSHOT_AGE_DAYS: "${TB_LAKE_MAX_SNAPSHOT_AGE_DAYS:-3}",  # D-383
                   TB_SITE_PUBLISH_BATCH_SECONDS: "${TB_SITE_PUBLISH_BATCH_SECONDS:-300}"}  # D-403

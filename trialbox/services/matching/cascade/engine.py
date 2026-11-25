@@ -68,7 +68,6 @@ from matching.cascade.model import (
     STRATUM_INDEX,
     STRATUM_S1,
     STRATUM_S2B,
-    STRATUM_S3,
     STRATUM_ZERO_HIT,
     CascadeMetrics,
     Outcome,
@@ -207,8 +206,8 @@ class CascadeConfig:
     # D-442: the stored derived rows (``tb_common.derived_store.stored_read``, None while the flag is off)
     stored: Any = None
     # D-103 (SCREEN runs the cascade): the population is given by the caller instead of POP_SQL (the practitioner /
-    # appointment scope of a screening run); a note ``fail`` is soft (review, never exclusion) when ``note_block`` is
-    # False (D-95/D-97 single-model fallback), and an inclusion's always (R22-17); zero-hit pairs below the S2b
+    # appointment scope of a screening run); a note ``fail`` is soft (review, never exclusion) always (D-1072):
+    # ``note_block`` is accepted and read by nothing; zero-hit pairs below the S2b
     # threshold go to the judge instead of taking absence semantics when ``absence_semantics`` is False (screening
     # spends the tokens, feasibility saves them).
     population: Sequence[str] | None = None
@@ -1251,26 +1250,9 @@ class _Run:
             # negated, a relative's, a suspected condition, a drug, a value, findings counted into one) is the
             # models' inference (both agreed on four on jmed): a person looks
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=may.reason)
-        if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
-            return Outcome(
-                c.id,
-                "fail",
-                stage,
-                hard=False,
-                evidence=[*ev, meta],
-                reason="not_met (single model: review, not exclusion)",
-                affirmed=affirmed,
-            )
-        return Outcome(
-            c.id,
-            "fail",
-            stage,
-            hard=True,
-            stratum=STRATUM_S3,
-            evidence=[*ev, meta],
-            reason="not_met",
-            affirmed=affirmed,
-        )
+        # ring 0 (D-1072): whatever the rule above may say one day, no note answer is a hard fail, under any policy
+        why = "not_met (from the notes: review, not exclusion)"
+        return Outcome(c.id, "fail", stage, hard=False, evidence=[*ev, meta], reason=why, affirmed=affirmed)
 
     def s3(self, routes: list[_Route]) -> list[_Route]:
         by_pid: dict[str, list[_Route]] = {}

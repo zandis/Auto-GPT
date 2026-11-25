@@ -835,7 +835,7 @@ DECLARED: dict[str, Declared] = {
     "TB_MIG_PROFILE": Declared("str", "", "platform: GPU MIG profile"),
     "TB_MODELS_DIR": Declared("path", "", "models folder"),
     "TB_MODEL_SWAP": Declared("str", "", "one GPU for two models (sleep) or not"),
-    "TB_NOTE_BLOCK": Declared("str", "both_agree", "note-block policy"),
+    "TB_NOTE_BLOCK": Declared("str", "never", "note-block policy"),
     "TB_NOTICE_N1_AT": Declared("str", "07:00", "console: first notice time"),
     "TB_NOTICE_N2_AT": Declared("str", "07:30", "console: second notice time"),
     "TB_NOT_MATCHED_GATE": Declared(
