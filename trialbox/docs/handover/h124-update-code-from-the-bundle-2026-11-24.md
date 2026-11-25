@@ -177,5 +177,15 @@ matrix (`docs/reviews/lifecycle-deep-review-2026-11-24.md`).
   temp folder after every test. It now holds a `TemporaryDirectory`, removed with the stand-in.
   `test_update_path.py::test_ocr_1469_9_the_stand_ins_engine_root_goes_with_the_stand_in` failed first (1 failed),
   then passed; `test_update_path.py` and `test_update_size_roles_h121.py` (29 passed) leave no `docker-root-*` folder.
+- **The H-95 load's peak under load (found in this run, root, `-n auto`):**
+  `test_load_from_the_stick_h95.py::test_peak_disk_during_the_load_is_within_the_installed_size_plus_ten_percent`
+  failed once in the 258-file set: peak 118607872 against the bound 113873305.
+  - Alone it passed. With 12 copies at once it failed 8 of 36.
+  - The cause is a measurement artifact. The sampler's walk passed its link check on the staged code's `deploy` while
+    that was still a folder (the unpacked tree's own `deploy`). It then followed the link `stage_code` puts there, into
+    the box's `deploy`, and counted the box's models twice: the same files, the same inodes.
+  - The sampler now counts each file once, by device and inode. The assertion and the bound are unchanged.
+  - After the fix: 36 of 36 pass under the same load, and the file gives 44 passed. The planted third copy is still
+    over the bound.
 - OCR 1469-4 (the role pairs written out at `update.py`'s rollback point and restore and in `box_restore.py`) is not
   here: it goes to H-129 with H121-08 (the lead's split).
