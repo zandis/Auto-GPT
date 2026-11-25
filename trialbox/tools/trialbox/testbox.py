@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -90,6 +91,67 @@ def project_for(name: str, root: Path) -> str:
 
 def ports(offset: int) -> dict[str, int]:
     return {k: base + STEP * offset for k, base in PORTS.items()}
+
+
+_NET_DEFAULT = re.compile(r"\$\{(TB_NET_SUBNET|TB_PROXY_ADDR):-([^}]+)\}")
+_BRIDGES = ("lo", "docker", "br-", "veth")  # the engine's own bridges: other boxes' networks, kept apart by offset
+
+
+def nets(deploy: Path, offset: int) -> dict[str, str]:
+    """H-137: the box's internal range behind the TLS proxy and the proxy's fixed address in it: the overlay's defaults
+    (the ordinary box's, deploy/docker-compose.identity.yml) moved down by ``offset`` ranges of their size, so every
+    box on the host has its own (the engine refuses a second network on a range another box's network holds: "Pool
+    overlaps"). {} without the overlay."""
+    try:
+        found = dict(_NET_DEFAULT.findall((deploy / "docker-compose.identity.yml").read_text(encoding="utf-8")))
+    except FileNotFoundError:
+        return {}
+    if set(found) != {"TB_NET_SUBNET", "TB_PROXY_ADDR"}:
+        return {}
+    net = ipaddress.ip_network(found["TB_NET_SUBNET"], strict=False)
+    shift = net.num_addresses * offset
+    own = ipaddress.ip_network((int(net.network_address) - shift, net.prefixlen))
+    return {"TB_NET_SUBNET": str(own), "TB_PROXY_ADDR": str(ipaddress.ip_address(found["TB_PROXY_ADDR"]) - shift)}
+
+
+def host_ranges(run: Runner | None = None) -> list[str] | None:
+    """The ranges this host is on (its addresses with their prefix, and its routes), the engine's bridges left out;
+    None when ``ip`` cannot say (as tools/trialbox/preflight.py's name_cert reads them)."""
+    try:
+        got = [(run or _run)(["ip", "-j", what, "show"]) for what in ("addr", "route")]
+        links, routes = (json.loads(g.stdout or "null") if g.returncode == 0 else None for g in got)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if not isinstance(links, list) or not isinstance(routes, list):
+        return None
+    kept = [link for link in links if not str(link.get("ifname", "")).startswith(_BRIDGES)]
+    out = [
+        f"{a['local']}/{a.get('prefixlen', 32)}" for link in kept for a in link.get("addr_info") or () if a.get("local")
+    ]
+    out += [str(r["dst"]) for r in routes if r.get("dst") not in (None, "default")
+            and not str(r.get("dev", "")).startswith(_BRIDGES)]  # fmt: skip
+    return out
+
+
+def range_clash(deploy: Path, offset: int, run: Runner | None = None) -> str:
+    """Why this box's internal range cannot be used here ("" when it can): it overlaps a range this host is on."""
+    own = nets(deploy, offset).get("TB_NET_SUBNET")
+    taken = host_ranges(run) if own else None
+    if not own or taken is None:
+        return ""
+    mine = ipaddress.ip_network(own)
+    hit = []
+    for raw in taken:
+        try:
+            other = ipaddress.ip_network(raw, strict=False)
+        except ValueError:
+            continue
+        if other.version == mine.version and other.prefixlen > 0 and other.overlaps(mine):
+            hit.append(str(other))
+    if not hit:
+        return ""
+    said = ", ".join(sorted(set(hit)))
+    return f"the box's internal range {own} (port offset {offset}) clashes with this host's {said}: choose another one"
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -258,6 +320,7 @@ def env_lines(deploy: Path, profile: str = "", run: Runner = _run) -> list[str]:
     if box is None:
         return []
     out = [*box.lines(), *(f"{k}={v}" for k, v in sorted(ports(box.offset).items()))]
+    out += [f"{k}={v}" for k, v in sorted(nets(deploy, box.offset).items())]  # H-137: a range of its own
     out += [f"{k}={v}" for k, v in sorted(capped(deploy, box, profile, run).items())]
     return out
 
@@ -461,6 +524,9 @@ def main(argv: list[str] | None = None) -> int:
             clash = clashes(a.deploy, a.name, check_values(offset, gpus, cap)[0])
             if clash:
                 raise Refused("; ".join(clash) + ": a test box has a name and a port offset of its own on this host")
+            why = range_clash(a.deploy, check_values(offset, gpus, cap)[0])  # H-137: the internal range is free here
+            if why:
+                raise Refused(why)
             print(record(a.deploy, a.name, offset, gpus, cap).project)
         elif a.cmd == "env":
             print("\n".join(env_lines(a.deploy, a.profile)))

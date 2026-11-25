@@ -105,6 +105,10 @@ class Env:
     smtp_user: str = ""
     smtp_pass: str = ""
     smtp_starttls: bool = True
+    # H-137 (the owner's decision, #639 7156806411 item 6): the mail servers' certificates are verified unless the
+    # server's switch is off; every start with a switch off is audited (mail_gateway.tls)
+    smtp_tls_verify: bool = True
+    imap_tls_verify: bool = True
     mail_intake_addr: str = "trialbox@localhost"
     mail_from_addr: str = "trialbox@localhost"
     fhir_base_url: str = "http://fhir-store:8080/fhir"
@@ -176,6 +180,8 @@ _ENV_MAP: dict[str, str] = {
     "SMTP_USER": "smtp_user",
     "SMTP_PASS": "smtp_pass",
     "SMTP_STARTTLS": "smtp_starttls",
+    "SMTP_TLS_VERIFY": "smtp_tls_verify",
+    "IMAP_TLS_VERIFY": "imap_tls_verify",
     "MAIL_INTAKE_ADDR": "mail_intake_addr",
     "MAIL_FROM_ADDR": "mail_from_addr",
     "FHIR_BASE_URL": "fhir_base_url",
@@ -645,6 +651,9 @@ DECLARED: dict[str, Declared] = {
         "float", "40", "compiler: tokens a second the model writes, sizing an extraction part to the timeout (D-981)"
     ),
     "TB_EXTRA_CA_FILE": Declared("path", "", "extra CA bundle the services trust"),
+    "TB_EXTRA_CA": Declared("path", "", "host path of the hospital's CA file, mounted as TB_EXTRA_CA_FILE"),
+    "TB_NET_SUBNET": Declared("str", "172.31.252.0/24", "the box's internal range behind Caddy (H-137)"),
+    "TB_PROXY_ADDR": Declared("str", "172.31.252.250", "Caddy's fixed address, the console's one trusted proxy"),
     "TB_FEED_DROP_OVERRIDE": Declared("str", "", "allow one feed load that drops too many rows"),
     "TB_FEED_MAX_DROP_PCT": Declared("float", "", "largest row drop a feed load may make"),
     "TB_FHIR_PACKAGE_HOME": Declared("str", "/opt/hl7/home", "FHIR validator package folder"),

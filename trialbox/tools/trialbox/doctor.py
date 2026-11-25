@@ -457,6 +457,47 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     return Check("secure_cookie", status, why)
 
 
+def check_mail_tls(inp: DoctorInputs) -> Check:
+    """H-137 (the owner's decision, #639 7156806411 item 6; the integrator's ruling 7165038321 item 4): a WARN in every
+    environment while a mail server is spoken to without a verified certificate, naming the server and the setting
+    (``mail_gateway.tls``: SMTP_TLS_VERIFY, SMTP_STARTTLS, IMAP_TLS_VERIFY, IMAP_SSL); the gateway audits each start
+    so. The IMAP server counts only when a mailbox is polled (IMAP_USER)."""
+    from pathlib import Path as _Path
+
+    from mail_gateway import tls
+    from tb_common.config import load_env
+
+    env = load_env(_Path("/nonexistent"), {k: str(v) for k, v in inp.env.items()})
+    off = tls.unverified(env, imap_used=bool(env.imap_user))
+    if not off:
+        return Check("mail_tls", "PASS", "the mail servers' certificates are verified")
+    said = "; ".join(f"{s} {h}: {setting}" for s, h, _m, setting in off)
+    return Check("mail_tls", "WARN", f"mail without a verified certificate ({said}): each start is audited")
+
+
+def check_trusted_proxy(inp: DoctorInputs) -> Check:
+    """H-137 (the owner's decision, #639 7156806411 item 7): the one list of proxies the console trusts for forwarded
+    headers (``tb_common.trusted_proxy``). "All" is a FAIL in PRODUCTION (the console refuses to start with it) and a
+    WARN elsewhere; behind Caddy (``TB_TLS_HOSTNAME`` set) a list without Caddy's fixed address is a WARN: every browser
+    is then one address to the sign-in lock (ASVS V3-01)."""
+    from tb_common import trusted_proxy as tp
+    from tb_common.config import environment_name
+
+    env = environment_name(inp.env)
+    value = (inp.env.get(tp.NAME) or "").strip()
+    if tp.trusts_all(value):
+        status: Status = "FAIL" if env == "PRODUCTION" else "WARN"
+        return Check("trusted_proxy", status, f"{tp.NAME}={value!r} trusts every sender's X-Forwarded-For: a client "
+                     "chooses its own address for the sign-in lock and the audit")  # fmt: skip
+    proxy = (inp.env.get("TB_PROXY_ADDR") or "").strip() or tp.DEFAULT_PROXY_ADDR
+    if (inp.env.get("TB_TLS_HOSTNAME") or "").strip() and proxy not in tp.entries(value):
+        return Check("trusted_proxy", "WARN", f"behind Caddy ({proxy}) the console trusts {value or 'no proxy'}: every "
+                     "browser is Caddy's one address to the sign-in lock; re-run the installer")  # fmt: skip
+    if not value:
+        return Check("trusted_proxy", "PASS", "no proxy trusted: each browser is the address it connects from")
+    return Check("trusted_proxy", "PASS", f"forwarded headers trusted from {value} only")
+
+
 def check_phi_tripwire(inp: DoctorInputs) -> Check:
     """9g-11 (D-1348; review 01 B1-P2): the gateway's PHI tripwire (D-506, D-792), read by the gateway's own rule
     (``gateway.core.GatewayConfig.from_env``: off, 0, false or no turns it off; unset or anything else keeps it on) in
@@ -2331,6 +2372,8 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_trusted_proxy,
+    check_mail_tls,
     check_phi_tripwire,
     check_sae_mailbox,
     check_named_choices,

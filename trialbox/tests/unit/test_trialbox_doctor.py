@@ -49,6 +49,8 @@ def test_default_install_passes() -> None:
         "perimeter_addresses",
         "channel_engine",
         "secure_cookie",
+        "trusted_proxy",  # H-137: the owner's decision, #639 7156806411 item 7
+        "mail_tls",  # H-137: the owner's decision, #639 7156806411 item 6; ruling 7165038321 (4), 7161211237
         "phi_tripwire",  # 9g-11, D-1348
         "console_mfa",
         "ldap_ca",  # D-722
