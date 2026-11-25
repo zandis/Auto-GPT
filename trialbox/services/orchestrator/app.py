@@ -404,7 +404,11 @@ def waiting_studies() -> list[str]:
 
 
 @app.get("/jobs/{job_id}/outputs-current")
-def job_outputs_current(job_id: str, key: Annotated[list[str] | None, Query()] = None) -> dict[str, bool]:
+def job_outputs_current(
+    job_id: str,
+    key: Annotated[list[str] | None, Query()] = None,
+    to: Annotated[list[str] | None, Query()] = None,
+) -> dict[str, bool | None]:
     """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``key``, by object
     key; every output when none is named) are still current against the opt-out register, asked by the mail gateway just
     before it sends them (at publish, a queued try, a person's resend). ``current`` false: one names a patient opted
@@ -420,6 +424,15 @@ def job_outputs_current(job_id: str, key: Annotated[list[str] | None, Query()] =
         gone = frozenset(register_now())
     except Exception as exc:
         raise HTTPException(status_code=503, detail="the opt-out register did not answer") from exc
+    if to:  # M3: the mail's recipients, and who asked for the job, on the study's delegation log today
+        from tb_common.authz import norm
+
+        from orchestrator.core import SYSTEM_SENDERS
+        from orchestrator.grants import all_of, mailbox_right
+
+        study, day = (job.ruleset or "").upper(), o._now().date()
+        rights = {r: mailbox_right(norm(r), study, day) for r in {*to, job.requested_by} - set(SYSTEM_SENDERS)}
+        return {"delegated": all_of([rights.get(r) for r in to]), "sender": rights.get(job.requested_by, True)}
     keys = list(key or [])
     current = not outputs_name_opted_out(o, job, gone, keys or None)
     # the review of D-863: each ask is audited, by count (a yes or no for so many files; never a name or a patient)

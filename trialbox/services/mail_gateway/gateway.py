@@ -19,17 +19,18 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from tb_common import patient_files, rc1_refusals
+from tb_common import egress_edge, patient_files, rc1_refusals
 from tb_common.audit import AuditLog, mask_ids
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError, trace_of
 from tb_common.objstore import ObjectStore
+from tb_common.routing import is_internal
 from tb_common.timeutil import now
 from tb_contracts import Job, JobCreate, SendRequest, SendResult
 
 from mail_gateway import intake
-from mail_gateway.outbound import NotSent, Transport, mail_statement, prepare
+from mail_gateway.outbound import NotSent, RoutingRefused, Transport, mail_statement, prepare
 from mail_gateway.store import MailDB, SendUncertain
 
 log = logging.getLogger("mail-gateway")
@@ -38,6 +39,23 @@ JobSink = Callable[[JobCreate], Job]
 #: NEW-MAIL-1 (D-863): ``(job_id, the object keys a mail carries) -> current`` against the opt-out register; raises
 #: :class:`NoSuchJob` for a job the orchestrator does not have
 OutputsCurrent = Callable[[str, list[str]], bool]
+
+
+def http_mail_rights(base_url: str) -> egress_edge.Rights:
+    """M3 (PR1239-H2, H3): the orchestrator's reading of the study's delegation log for one mail's recipients and for
+    the person who asked for the job. Yes, no, or unknown (None), never a guess."""
+    client = _orchestrator(base_url)
+
+    def ask(job_id: str, to: list[str]) -> tuple[bool | None, bool | None]:
+        query = urlencode([("key", "-"), *(("to", r) for r in to)])
+        try:
+            got = client._request("GET", f"/jobs/{job_id}/outputs-current?{query}").json()
+        except Exception as exc:
+            log.warning("mail rights not known (%s)", type(exc).__name__)
+            return None, None
+        return got.get("delegated"), got.get("sender")
+
+    return ask
 
 
 class OptedOutSince(RuntimeError):
@@ -160,6 +178,7 @@ class Gateway:
     per_recipient_per_day: int = PER_RECIPIENT_PER_DAY  # T-108c: mails to one address in 24 hours; 0 = no limit
     #: D-863: asked before a job's patient-level files are sent; None (not wired) holds every such mail (fail closed)
     outputs_current: OutputsCurrent | None = None
+    mail_rights: egress_edge.Rights | None = None  # M3: who a patient file may go to now, and who asked for it
 
     @property
     def sender(self) -> str:
@@ -335,9 +354,17 @@ class Gateway:
         return before
 
     def _prepare(self, req: SendRequest, message_id: str | None = None) -> Any:
+        store: Any = self.store
+        try:  # M3: what leaves passes the egress edge
+            req, store = egress_edge.gate_mail(
+                req, store, audit=self.audit, rights=self.mail_rights,
+                internal=lambda r: is_internal(r, list(self.cfg.settings.internal_domains)))  # fmt: skip
+        except egress_edge.Refused as exc:
+            if exc.reason != "not_named":  # a patient file to another domain: prepare's own refusal names it
+                raise RoutingRefused(f"the mail may not leave the box ({exc.reason})") from exc
         return prepare(
             req,
-            store=self.store,
+            store=store,
             sender=self.sender,
             internal_domains=list(self.cfg.settings.internal_domains),
             mode=self.mode,
@@ -386,6 +413,15 @@ class Gateway:
         msg["Message-ID"] = make_msgid(domain=self.sender.rsplit("@", 1)[-1])
         msg["In-Reply-To"] = m.message_id
         msg["Auto-Submitted"] = "auto-replied"
+        try:  # M3: what leaves passes the egress edge
+            out = egress_edge.leave("mail.reply", f"mail:{m.sender.rsplit('@', 1)[-1]}",
+                                    egress_edge.Message(str(msg["Subject"]), text), audit=self.audit,
+                                    actor="mail-gateway")  # fmt: skip
+        except egress_edge.Refused as exc:
+            log.warning("reply not sent: %s", exc)
+            return
+        msg.replace_header("Subject", out.subject)
+        text = out.body
         msg.set_content(text.rstrip("\n") + "\n\n-- \n" + mail_statement(text) + "\n")  # TB-IU-01 C1 (T-116)
         try:
             self.transport(self.sender, [m.sender], bytes(msg))

@@ -21,6 +21,7 @@ import json
 from datetime import timedelta
 from typing import Any
 
+from tb_common import egress_edge
 from tb_common.authz import allowed, norm
 from tb_common.routing import RoutingViolation, check
 
@@ -236,7 +237,12 @@ def run(ctx: Ctx) -> Outcome:
                 f"({prior['outcome']}).",
             )
         try:
+            egress_edge.leave("nhi.submit", NHI_DISPLAY, data, audit=ctx.orch.audit,  # M3: before it leaves
+                              actor=f"mail:{record['submitted_by']}", named=[NHI_DISPLAY], items=1)  # fmt: skip
             response = post_bundle(str(base), data)
+        except egress_edge.Refused as exc:
+            ctx.orch.db.submission_release(job.job_id)
+            raise StepFailed("running", f"The bundle may not leave the box ({exc.reason}); not submitted.") from exc
         except NotSubmitted:
             ctx.orch.db.submission_release(job.job_id)
             raise
