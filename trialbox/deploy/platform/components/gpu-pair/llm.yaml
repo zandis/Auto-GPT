@@ -83,6 +83,7 @@ spec:
             - --max-num-seqs=$(JUDGE_MAX_SEQS)
             - --enforce-eager
             - --gpu-memory-utilization=$(JUDGE_GPU_MEM_UTIL)
+            - --$(TB_LLM_PREFIX_CACHING)-prefix-caching   # H-146 (D-1462): trialbox-serving, no-enable unless chosen
             - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
           envFrom: [{configMapRef: {name: trialbox-serving}}]
           env:
@@ -132,6 +133,7 @@ spec:
             - --max-num-seqs=$(VERIFIER_MAX_SEQS)
             - --enforce-eager
             - --gpu-memory-utilization=$(VERIFIER_GPU_MEM_UTIL)
+            - --$(TB_LLM_PREFIX_CACHING)-prefix-caching   # H-146 (D-1462): trialbox-serving, no-enable unless chosen
             - --limit-mm-per-prompt={"image":0,"video":0}
             - --default-chat-template-kwargs={"enable_thinking":false}
           envFrom: [{configMapRef: {name: trialbox-serving}}]

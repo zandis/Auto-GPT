@@ -83,6 +83,7 @@ from tb_common.crypto import KeyMissingError
 from tools.trialbox import backup_schedule as _sched
 from tools.trialbox import box_restore as _box_restore
 from tools.trialbox import restic_repo as _rr
+from tools.trialbox import sigends
 
 SUFFIX = _sched.SUFFIX
 prune = _sched.prune
@@ -126,6 +127,12 @@ FD_SPARE = 256  # PERF-011: files the backup keeps free for its own work while i
 
 class BackupError(RuntimeError):
     pass
+
+
+class _NotPutBack(BackupError):
+    """H-142 (.d): a restore stopped during its change whose putting back did not run; the command says its state."""
+
+    state = "not_rolled_back"
 
 
 class _HashReader:
@@ -2147,44 +2154,19 @@ class RestoreInterrupted(BaseException):
 
 
 def _signals_raise() -> Callable[[], None]:
-    """While a restore changes the box, SIGTERM and SIGHUP (``docker run`` forwards them; a closed session sends
-    the second) raise :class:`RestoreInterrupted`, so the restore is put back, held and audited like any failure.
-    Returns the function that puts the old handlers back. Only in the main thread (signals are delivered there)."""
+    """While a restore runs, SIGINT, SIGTERM and SIGHUP (``docker run`` forwards them; a closed session sends the
+    last) raise :class:`RestoreInterrupted`, so the restore is refused before its first change, and after it put back,
+    held and audited like any failure. H-142: the first one raises, once; from then on all three are ignored (the
+    put-back is never cut short). One the caller ignored stays ignored. Returns the function that ends it: the old
+    handlers back, or on the process's own way out ignored to the exit. Only in the main thread."""
     import signal
-    import threading
-
-    if threading.current_thread() is not threading.main_thread():
-        return lambda: None
 
     def stop(signum: int, _frame: Any) -> None:
+        sigends.ignore()
         raise RestoreInterrupted(f"the restore was stopped by signal {signal.Signals(signum).name}")
 
-    old = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)}
-
-    def back() -> None:
-        for sig, h in old.items():
-            signal.signal(sig, h)
-
-    return back
-
-
-@contextlib.contextmanager
-def _signals_ignored() -> Iterator[None]:
-    """H-100 (review R1): while a failed restore puts the box back, SIGINT, SIGTERM and SIGHUP are ignored: one
-    Ctrl-C under ``docker run`` can arrive twice (the engine passes SIGINT on, then the host's step sends SIGTERM), and
-    a second signal must never abandon the put-back half way. The old handlers come back after it."""
-    import signal
-    import threading
-
-    if threading.current_thread() is not threading.main_thread():
-        yield
-        return
-    old = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
-    try:
-        yield
-    finally:
-        for sig, h in old.items():
-            signal.signal(sig, h)
+    old = sigends.take(stop)
+    return lambda: sigends.leave(old)
 
 
 def _db_bytes(src: DbSource) -> int:
@@ -2358,7 +2340,50 @@ def restore(
 
     ``ok`` is False (and ``refdata.missing`` names them) while a pack could not be loaded again. Rows that differ from
     the manifest fail the restore when the backup counted them in its own snapshot; a backup that counted them on a
-    live box (layout 1, or the update path's dumps) gives a warning instead."""
+    live box (layout 1, or the update path's dumps) gives a warning instead.
+
+    H-142 (.d): the raising handlers of SIGINT, SIGTERM and SIGHUP are taken here, first (in the restore's
+    container this process is PID 1, with no init: a signal it does not take is dropped, never its death). One that
+    comes before the first change ends the restore as a refusal: nothing was changed (``state: unchanged``). From
+    the first change on it is a failure, put back (H-100, F2). The first signal raises once; every later one is
+    ignored, and at the end the handlers are put back (on the process's own way out they stay ignored).
+    """
+    changing: list[bool] = []  # set just before the first change (_restore_inside)
+    stop = _signals_raise()
+    try:
+        sigends.replay()  # a signal the entry noted before these handlers: as if it came now
+        return _restore_inside(file, key, env, dirs, now, refdata_dir, public_key=public_key, keep_to=keep_to,
+                               no_copy=no_copy, other_site=other_site, max_age_days=max_age_days, running=running,
+                               restic_pw=restic_pw, expect_sha256=expect_sha256, changing=changing)  # fmt: skip
+    except (RestoreInterrupted, KeyboardInterrupt) as e:  # after the first change the put-back raises BackupError
+        sigends.ignore()
+        why = str(e) or "the restore was stopped by an interrupt (Ctrl-C)"
+        if changing:  # never said "unchanged" once a change may have begun (an interrupt inside the put-back's start)
+            raise _NotPutBack(f"{why} during the restore, and its putting back did not run: NOT as it was") from None
+        raise BackupError(f"{why} before any change: nothing was changed") from None
+    finally:
+        stop()
+
+
+def _restore_inside(
+    file: Path,
+    key: Path,
+    env: Mapping[str, str] | None = None,
+    dirs: Mapping[str, Path] | None = None,
+    now: datetime | None = None,
+    refdata_dir: Path | None = None,
+    *,
+    public_key: Path | None = None,
+    keep_to: Path | None = None,
+    no_copy: bool = False,
+    other_site: bool = False,
+    max_age_days: float | None = RESTORE_MAX_AGE_DAYS,
+    running: Callable[[], list[str] | None] | None = None,
+    restic_pw: str | None = None,
+    expect_sha256: str | None = None,
+    changing: list[bool] | None = None,
+) -> dict[str, Any]:
+    """:func:`restore` under its handlers (taken there, H-142 .d)."""
     env = dict(os.environ if env is None else env)
     when = now or datetime.now(UTC)
     stamp = when.strftime("%Y%m%dT%H%M%SZ")
@@ -2484,7 +2509,8 @@ def restore(
             f"restore of the backup of {manifest['created_at']}: held until the restore ends complete or a person "
             "releases it (audit: backup.restored, backup.restore_reapply)"
         )
-        stop_signals = _signals_raise()
+        if changing is not None:
+            changing.append(True)
         try:
             for name, want in manifest["databases"].items():
                 replaced.append(name)  # before its first change: its schemas are dropped first
@@ -2613,13 +2639,12 @@ def restore(
             for dname, (dest, top) in placed.items():  # D-724: the restore's own audit events were written as root
                 _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
         except BaseException as e:
-            stop_signals()  # the raising handlers off first: none is put back when the put-back ends
-            with _signals_ignored():  # review R1: no second signal stops the put-back
-                err = _undo_restore(e, srcs, replaced, pre, moved, env, targets, sha, base, copy, hold, hold_dir,
-                                    hold_reason, wf_restored, keep, keep_to, stamp)  # fmt: skip
+            # review R1: no second signal stops the put-back. H-142: ignored at once (never the defaults between) and
+            # to the end of restore(): a signal after the put-back never turns its said state into a traceback
+            sigends.ignore()
+            err = _undo_restore(e, srcs, replaced, pre, moved, env, targets, sha, base, copy, hold, hold_dir,
+                                hold_reason, wf_restored, keep, keep_to, stamp)  # fmt: skip
             raise err from e
-        finally:
-            stop_signals()
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,

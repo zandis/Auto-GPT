@@ -356,6 +356,12 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "mail.sent": ("Mail sent", "メールの送信", "寄出郵件"),
     "mail.duplicate_suppressed": ("Duplicate mail held back", "重複メールの抑止", "攔下重複郵件"),
     "mail.resolved": ("Uncertain mail resolved", "不確定メールの解決", "解決不確定郵件"),
+    "mail.tls_unverified": (
+        "Mail server certificate not checked",
+        "メールサーバー証明書の検証なし",
+        "未驗證郵件伺服器憑證",
+    ),
+    "mail.plaintext": ("Mail server spoken to without TLS", "TLS なしのメールサーバー接続", "未以 TLS 連線郵件伺服器"),
     "mail.deferred": ("Mail delivery deferred", "メール配信の延期", "郵件延後寄送"),
     "mail.failed": ("Mail delivery failed", "メール配信の失敗", "郵件寄送失敗"),
     "mail.uncertain": ("Mail delivery uncertain", "メール配信の不確定", "郵件寄送狀態不確定"),

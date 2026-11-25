@@ -6,8 +6,10 @@ record id, which is not a chart number.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
@@ -59,9 +61,26 @@ def save(folder: str, doc: dict[str, Any]) -> None:
             str(k).strip(): str(v).strip() for k, v in rows.items() if str(k).strip() and str(v).strip()
         }
     kept["subjects"] = subjects
+    data = json.dumps(kept, ensure_ascii=False, indent=2).encode("utf-8")
     with _LOCK:
-        path.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.chmod(path, 0o600)
+        # H-137: written whole to a 0600 temp file beside the map and renamed over it: no reader sees a torn or
+        # group-readable map, and a failed write leaves the saved one as it was
+        fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+        folder_fd = os.open(path.parent, os.O_RDONLY)  # the rename itself survives a power cut
+        try:
+            os.fsync(folder_fd)
+        finally:
+            os.close(folder_fd)
 
 
 def study_for_project(folder: str, project_id: str) -> str:

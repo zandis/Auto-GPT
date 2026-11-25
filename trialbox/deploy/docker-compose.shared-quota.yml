@@ -61,6 +61,7 @@ services:
       - --max-num-seqs=${JUDGE_MAX_SEQS:?measured on the partition (shared-quota serving record)}
       - --enforce-eager
       - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:?measured on the partition (shared-quota serving record)}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
     deploy:
       resources:
@@ -81,6 +82,7 @@ services:
       - --max-num-seqs=${VERIFIER_MAX_SEQS:?measured on the partition (shared-quota serving record)}
       - --enforce-eager
       - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:?measured on the partition (shared-quota serving record)}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"video":0}
       - --default-chat-template-kwargs={"enable_thinking":false}
     deploy:

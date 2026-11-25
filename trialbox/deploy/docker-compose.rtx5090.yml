@@ -115,6 +115,7 @@ services:
       - --max-num-seqs=${JUDGE_MAX_SEQS:-4}
       - --enforce-eager
       - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.81}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
       - --enable-sleep-mode
 
@@ -146,6 +147,7 @@ services:
       - --max-num-seqs=${VERIFIER_MAX_SEQS:-4}
       - --enforce-eager
       - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.81}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"video":0}
       - --default-chat-template-kwargs={"enable_thinking":false}
       - --enable-sleep-mode

@@ -297,7 +297,7 @@ def test_h144_the_update_names_a_loose_folder_and_leaves_it(tmp_path: Path, caps
     assert out.startswith(f"update: note (H-144): {base / 'services'}: not the release's"), out
     assert f"sudo rm -rf -- {base / 'services'}" in out and (base / "services").is_dir()
     src = ast.parse((ROOT / "tools/trialbox/update.py").read_text(encoding="utf-8"))
-    main = next(n for n in src.body if isinstance(n, ast.FunctionDef) and n.name == "main_apply")
+    main = next(n for n in src.body if isinstance(n, ast.FunctionDef) and n.name == "_main_apply")
     calls = [n for n in ast.walk(main) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "_name_loose"]
     assert len(calls) == 2  # after "applied, checked and audited" and after "loaded" (install.sh's first load)
 
