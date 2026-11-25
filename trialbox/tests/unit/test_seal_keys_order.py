@@ -110,7 +110,8 @@ def test_the_tpm_path_seals_then_wraps(tmp_path: Path) -> None:
     assert not (sec / "site_hmac.key").exists() and K.wrapped_path(sec / "site_hmac.key").exists()
     cred = tmp_path / "host" / "etc" / "credstore.encrypted" / "trialbox-kek"
     assert cred.is_file() and not cred.with_name("trialbox-kek.new").exists()
-    assert (tmp_path / "kek.runtime").read_bytes() == cred.read_bytes()  # the stand-in "sealed" by copying
+    kek = tmp_path / "host" / "run" / "trialbox" / "kek"  # H-118: the box's own place, never the caller's TB_KEK_FILE
+    assert kek.read_bytes() == cred.read_bytes()  # the stand-in "sealed" by copying
     assert not list((tmp_path / "host" / "run").rglob("kek.new"))  # the plain copy is gone
 
 
@@ -123,7 +124,7 @@ def test_the_passphrase_path_without_a_hardening_conf(tmp_path: Path) -> None:
     meta = K.read_meta(sec)
     assert meta is not None and meta["backend"] == "passphrase"
     assert K.wrapped_path(sec / "pid_map.key").exists() and not (sec / "pid_map.key").exists()
-    assert (tmp_path / "kek.runtime").stat().st_size == K.KEK_LEN
+    assert (tmp_path / "host" / "run" / "trialbox" / "kek").stat().st_size == K.KEK_LEN  # H-118: the box's own place
 
 
 def test_keys_init_takes_a_kek_that_exists(tmp_path: Path) -> None:
@@ -168,9 +169,8 @@ def test_the_sealed_files_belong_to_the_services_user(tmp_path: Path) -> None:
     sec = tmp_path / "secrets"
     for p in (sec, *sec.iterdir()):
         os.chown(p, 10001, 10001)
-    kek_dir = tmp_path / "run"
-    kek_dir.mkdir(mode=0o700)
-    env["TB_KEK_FILE"] = str(kek_dir / "kek")
+    kek_dir = tmp_path / "host" / "run" / "trialbox"  # H-118: the box's own place, never a caller's TB_KEK_FILE
+    kek_dir.mkdir(mode=0o700, parents=True)
     res = _seal(tmp_path, {**env, "TB_KEK_BACKEND": "passphrase"}, "--kek-passphrase-file",
                 _phrase_file(tmp_path, "a long synthetic phrase"))  # fmt: skip
     assert res.returncode == 0, res.stderr

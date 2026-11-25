@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -596,11 +597,32 @@ def test_the_cap_ends_the_steps_and_cleans_up_without_powering_anything_off(rig:
 def test_the_stop_line_interrupts_the_runs_measure_and_no_other_process_of_that_name(rig: Rig) -> None:
     """The stop line 64 minutes in, a second counted as 150: the ladder starts in time, then the hang reaches the
     line. Another user's process whose command line matches the measure's pattern is not the run's: untouched."""
+    # The run's clock is a stand-in the test moves (H-134): it stands still until the hanging measure has started, so
+    # every gate before it sees no time used however slow the machine; then it is moved 30 s, 75 minutes scaled, past
+    # the line. With the real clock a loaded machine used up the gates' few seconds of margin before the ladder.
+    # Each answer it gives is also kept in answers.txt (1486-1): the test shows the run read the time through it.
+    clock, answers = rig.tmp / "clock.txt", rig.tmp / "answers.txt"
+    clock.write_text("1700000000\n")
+    answers.write_text("")
+    real = shutil.which("date")
+    (rig.bin / "date").write_text(f'#!/bin/sh\nif [ "$*" = "+%s" ]; then v="$(cat "{clock}")"; '
+                                  f'echo "$v" >> "{answers}"; echo "$v"; else exec "{real}" "$@"; fi\n')  # fmt: skip
+    (rig.bin / "date").chmod(0o755)
     decoy = subprocess.Popen(["bash", "-c", "exec -a 'their ballast48 measure --option x' sleep 300"])
+    p = subprocess.Popen(rig.args("run"), env=rig.env(M48_HANG="pair-32k", TB_M48_LINE_MIN="64",
+                                                      TB_M48_TIME_SCALE="150"),
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
     try:
-        r = rig.go("run", M48_HANG="pair-32k", TB_M48_LINE_MIN="64", TB_M48_TIME_SCALE="150")
+        _until(rig, "measure --option pair-32k", p)
+        # moved by write-then-rename (1486-2): a look at the clock never sees it empty
+        (rig.tmp / "clock.txt.tmp").write_text("1700000030\n")
+        os.replace(rig.tmp / "clock.txt.tmp", clock)
+        out, _ = p.communicate(timeout=240)
+        r = subprocess.CompletedProcess(p.args, p.returncode, out, "")
         alive = decoy.poll() is None
     finally:
+        if p.poll() is None:
+            p.kill()
         decoy.kill()
         subprocess.run(["pkill", "-f", str(rig.bin / "standin")], check=False)
     assert r.returncode == 1, r.stdout[-2000:]
@@ -610,6 +632,8 @@ def test_the_stop_line_interrupts_the_runs_measure_and_no_other_process_of_that_
     assert alive, "the stop line's SIGINT reached a process that is not the run's"
     assert rig.run_objects() == []
     rig.assert_nothing_forbidden_and_others_untouched()
+    told = answers.read_text().split()
+    assert len(told) >= 2 and "1700000000" in told and "1700000030" in told, told
 
 
 def test_with_pull_a_missing_engine_image_is_pulled_at_s06(rig: Rig) -> None:

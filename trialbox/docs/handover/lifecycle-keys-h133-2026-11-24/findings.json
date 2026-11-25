@@ -1,0 +1,80 @@
+{
+ "card": "H133",
+ "title": "the key operations of the lifecycle review: files the services read, the TPM credential, a staged pid-map key",
+ "date": "2026-11-24",
+ "source": "docs/handover/lifecycle-keys-h133-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H133-01",
+   "severity": "High",
+   "claim": "LR-3: rotate-kek run as root left kek.json, every wrapped key and the runtime KEK root's (0600), so the services (the secrets folder's owner) opened no key; fixed: each file is given to the folder's owner before it takes its name",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py rotate-kek, libs/tb_common/kek.py _write_private, store_key, write_meta"
+  },
+  {
+   "id": "H133-02",
+   "severity": "High",
+   "claim": "LR-4: unseal after a restart (the runbook's step and the installer's re-run) left the runtime KEK and the folder it made root's, and an unreadable KEK was a bare PermissionError custody() did not catch; fixed: both are the services', the folder 0700, an unreadable KEK is a KekError",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py unseal, libs/tb_common/kek.py load_kek"
+  },
+  {
+   "id": "H133-03",
+   "severity": "High",
+   "claim": "LR-6: rotate-kek --backend file on a TPM box left the credential sealing the old KEK; fixed: the new KEK is sealed beside it and opened again before the commit, the credential is swapped first in the roll-forward, no systemd-creds is refused before any change",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py rotate-kek, _roll_forward, _roll_back"
+  },
+  {
+   "id": "H133-04",
+   "severity": "High",
+   "claim": "LR-7: rotate-kek wrote over and renamed away the key an interrupted rotate pid_map staged under the same name; fixed: rotate-kek refuses a staged key it did not journal, rotate pid_map takes the folder's lock and waits for a KEK rotation cut short",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py rotate-kek, rotate pid_map"
+  },
+  {
+   "id": "H133-05",
+   "severity": "Medium",
+   "claim": "rotate-kek from a TPM box to the passphrase, shamir or kms back end leaves the credential and the boot unit on the old KEK: each boot writes the old KEK to /run/trialbox/kek and the services refuse it (no key is lost)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "tools/keys.py rotate-kek, deploy/hardening/trialbox-unseal.service"
+  },
+  {
+   "id": "H133-06",
+   "severity": "Low",
+   "claim": "unseal hands over only a runtime folder it makes; a folder already there, root's and 0700, stays closed to the services until seal_keys.sh's hand-over runs",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "tools/keys.py write_runtime_kek"
+  },
+  {
+   "id": "H133-07",
+   "severity": "Low",
+   "claim": "the runtime KEK's place still comes from --out or TB_KEK_FILE in the caller's environment (unseal, rotate-kek); the card's rule says no caller's variable decides where a secret goes",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py runtime_kek_path"
+  },
+  {
+   "id": "H133-08",
+   "severity": "Low",
+   "claim": "LR-3's read-only class: restic-key, wrap and the audit signing key write through store_key and now get the folder's owner, untested here; the object store's seal file (seal-objects) is written by its own path and was not checked",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "libs/tb_common/objstore.py, tools/trialbox/restic_repo.py, tools/audit_verify.py"
+  }
+ ]
+}

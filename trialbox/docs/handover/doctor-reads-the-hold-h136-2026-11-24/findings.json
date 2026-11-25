@@ -1,0 +1,50 @@
+{
+ "card": "H136",
+ "title": "trialbox doctor could not read the hold after a restore on an installed box",
+ "date": "2026-11-24",
+ "source": "docs/handover/doctor-reads-the-hold-h136-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H136-01",
+   "severity": "Medium",
+   "claim": "on an installed box trialbox doctor's restore_hold check could not read screening.after_restore (the host's python3 has no database client: ModuleNotFoundError; with the box's libraries there is no database address from the host: OperationalError), and said so as a WARN that passed, while RUNBOOK §5 says doctor shows the hold",
+   "severity_basis": "the operator's check is blind right after a restore: an operator can be told nothing is held while the screening hold is on",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed c733d39c",
+   "fix": "doctor reads the hold through the box (tools/trialbox/box_hold.py: compose exec db psql with the box file's runtime, never the host's Python or a caller's variable); the image's doctor takes the host's reading; tests/unit/test_doctor_reads_the_hold.py",
+   "from": "the walk's report 7145893589 and the integrator's card 7145902865 on #639, 2026-11-24"
+  },
+  {
+   "id": "H136-02",
+   "severity": "Medium",
+   "claim": "a hold that could not be read was a WARN, so trialbox doctor passed with the box possibly held; it is now a FAIL naming the cause",
+   "severity_basis": "doctor passed while it could not say whether the box makes patient lists",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed c733d39c",
+   "fix": "held is a WARN with who, when and the reason, released a PASS, unreadable a FAIL with the cause; test_an_unreadable_hold_is_a_fail_naming_its_cause_never_a_warn",
+   "from": "the integrator's card 7145902865 on #639, 2026-11-24"
+  },
+  {
+   "id": "H136-03",
+   "severity": "Low",
+   "claim": "RUNBOOK §5 step 4 did not name the release path's second step: the change on /ops/flags is made only by the \"Please confirm\" page's button \"Yes, do it\" (the walk's first two tries stopped at that page)",
+   "severity_basis": "an operator may believe the hold released when the form alone changed nothing; doctor now shows it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed c733d39c",
+   "fix": "runbook page 05, step 4: the console page, the reason, Change, then Please confirm and Yes, do it; no release command",
+   "from": "the walk's report 7145893589 on #639, 2026-11-24"
+  },
+  {
+   "id": "H136-04",
+   "severity": "Low",
+   "claim": "the real-box path (the rehearsal job's doctor and live-restore steps with the installed trialbox doctor on the host) was not run in this session: no container engine here",
+   "severity_basis": "the reader is shown against a real psql and PostgreSQL 16 behind a stand-in engine, not against a box's db container",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  }
+ ]
+}
