@@ -234,7 +234,7 @@ def test_a_run_that_does_not_say_whether_its_list_was_withheld_is_refused(tmp_pa
 def _two_criteria(n: int, flips: dict[tuple[int, str], str]) -> list[dict[str, Any]]:
     out = []
     for i in range(n):
-        crit = [_model(c, flips.get((i, c), "pass")) for c in ("c1", "c2")]
+        crit = [_coded("c0", "pass"), *(_model(c, flips.get((i, c), "pass")) for c in ("c1", "c2"))]
         out.append(_row(f"p{i:03d}", "high", crit))
     return out
 
@@ -270,7 +270,7 @@ def test_section_four_with_a_note_truth_counts_false_demotions_misses_and_unknow
     cases = {"a": (exc, "no", "fail"), "b": (exc, "yes", "pass"), "c": (exc, "yes", "fail"),
              "d": (exc, "unknown", "fail"), "e": (inc, "no", "unknown"), "f": (inc, "yes", "fail"),
              "g": (inc, "yes", "pass")}  # fmt: skip
-    rows = [_row(f"p{k}", "review", [_model(c, v)]) for k, (c, _, v) in cases.items()]
+    rows = [_row(f"p{k}", "review", [_coded("c0", "pass"), _model(c, v)]) for k, (c, _, v) in cases.items()]
     truth = tmp_path / "truth.json"
     truth.write_text(json.dumps({f"p{k}": {c: t} for k, (c, t, _) in cases.items()}), encoding="utf-8")
     files = [str(_write(tmp_path, f"r{i}.json", rows)) for i in (0, 1)]
@@ -281,3 +281,60 @@ def test_section_four_with_a_note_truth_counts_false_demotions_misses_and_unknow
     assert h[exc]["speaks_against"] == 2 and h[exc]["does_not_speak_against"] == 1 and h[exc]["truth_unknown"] == 1
     assert h[inc]["false_demotion"] == ["pf/GZQO-INC-05"] and h[inc]["missed"] == ["pe/GZQO-INC-05"]
     assert "false demotion: pa/GZQO-EXC-11" in capsys.readouterr().out
+
+
+# ---- OCR 1502-1, 1502-2, 1502-3
+
+
+def test_a_run_with_no_patient_is_refused(tmp_path: Path, capsys: Any) -> None:
+    """OCR 1502-1: two runs that hold no patient compare nothing; they must not pass step 9."""
+    files = [str(_write(tmp_path, f"r{i}.json", [])) for i in (0, 1)]
+    assert step9_compare.main(files) == 2
+    assert "rows empty" in capsys.readouterr().err
+
+
+def test_a_run_with_no_model_pair_or_no_coded_pair_is_refused_and_says_which(tmp_path: Path, capsys: Any) -> None:
+    only_model = [_row("p0", "high", [_model("c1", "pass")])]
+    only_coded = [_row("p0", "high", [_coded("c0", "pass")])]
+    for rows, missing in ((only_model, "no coded pair"), (only_coded, "no model pair")):
+        files = [str(_write(tmp_path, f"r{i}.json", rows)) for i in (0, 1)]
+        assert step9_compare.main(files) == 2
+        assert missing in capsys.readouterr().err
+
+
+def test_a_pair_decided_without_a_model_or_a_coded_record_is_counted_and_reported(tmp_path: Path, capsys: Any) -> None:
+    def run(v: str) -> list[dict[str, Any]]:
+        rows = _population(100)
+        rows[0]["criteria"].append({"id": "s2", "verdict": v, "basis": None, "prov": []})
+        return rows
+
+    rc, rep = _check(tmp_path, [run("pass"), run("fail")], capsys)
+    assert rep["pairs"][0]["other_differing"] == ["p000/s2"] and rep["pairs"][0]["other_total"] == 1
+    assert rc == 0  # reported, not gated
+
+
+def test_a_malformed_row_is_refused_with_the_row_named(tmp_path: Path, capsys: Any) -> None:
+    bad_rows: list[Any] = [{"tier": "high", "criteria": []}, "not an object"]
+    for bad in bad_rows:
+        rows: list[Any] = [*_population(3), bad]
+        files = [str(_write(tmp_path, f"r{i}.json", rows)) for i in (0, 1)]
+        assert step9_compare.main(files) == 2
+        assert "row 3" in capsys.readouterr().err
+    rows = _population(3)
+    rows[1]["criteria"].append({"verdict": "pass"})
+    files = [str(_write(tmp_path, f"r{i}.json", rows)) for i in (0, 1)]
+    assert step9_compare.main(files) == 2
+    assert "row 1" in capsys.readouterr().err
+
+
+def test_a_duplicate_patient_or_criterion_is_refused_never_last_wins(tmp_path: Path, capsys: Any) -> None:
+    rows = _population(3)
+    rows.append(_row("p001", "excluded", [_coded("c0", "pass"), _model("c1", "pass")]))
+    files = [str(_write(tmp_path, f"r{i}.json", rows)) for i in (0, 1)]
+    assert step9_compare.main(files) == 2
+    assert "p001" in capsys.readouterr().err
+    rows = _population(3)
+    rows[0]["criteria"].append(_model("c1", "fail"))
+    files = [str(_write(tmp_path, f"r{i}.json", rows)) for i in (0, 1)]
+    assert step9_compare.main(files) == 2
+    assert "p000/c1" in capsys.readouterr().err

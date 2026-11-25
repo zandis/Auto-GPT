@@ -60,6 +60,9 @@ whose state differs, are refused with exit 2 and the missing part named. Exit 1:
 - `rows` has one row for every patient of the run, the excluded ones too (`tier`: `high`, `review` or `excluded`), the
   product's `CandidateRow` with its `criteria` (`CriterionVerdict`). The tool reads `pid`, `tier`, and per criterion `id`,
   `verdict`, `basis`, `prov` and `evidence.resource_refs / quote_date`.
+- Refused (exit 2, the row named): no rows; no coded pair or no model pair in a run; a row without `pid`, a criterion
+  without `id`, a patient or a pair twice (never last-wins). Pairs with neither `basis: coded` nor a call (a search rule,
+  a person) are counted and the differing ones named, not gated.
 - The candidate list file of a job holds only the listed tiers, so it is not a run file by itself. The walk's step-9
   script must write this file for each run (the walk will adapt its script); there is no reader of the screen output
   in this card.

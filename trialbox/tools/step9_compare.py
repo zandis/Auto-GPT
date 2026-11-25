@@ -60,6 +60,8 @@ def load(path: Path) -> dict[str, Any]:
         raise Refused(f"{path.name}: judged_store.on not recorded (true or false is missing)")
     if not isinstance(doc.get("rows"), list):
         raise Refused(f"{path.name}: rows missing (every patient's row, the excluded ones too)")
+    if not doc["rows"]:
+        raise Refused(f"{path.name}: rows empty (a run with no patient proves nothing)")
     if store["on"] and not isinstance(store.get("read"), int):
         raise Refused(
             f"{path.name}: judged_store.read not recorded (the store is on; how many answers it read is missing)"
@@ -78,10 +80,18 @@ def load(path: Path) -> dict[str, Any]:
         raise Refused(f"{path.name}: list_withheld not recorded (true or false is missing)")
     tiers: dict[str, str] = {}
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
-    for r in doc["rows"]:
+    for n, r in enumerate(doc["rows"]):
+        if not isinstance(r, dict) or "pid" not in r or not isinstance(r.get("criteria", []), list):
+            raise Refused(f"{path.name}: row {n} is malformed (an object with a pid and a criteria list is needed)")
         pid = str(r["pid"])
+        if pid in tiers:
+            raise Refused(f"{path.name}: row {n}: patient {pid} appears twice")
         tiers[pid] = str(r.get("tier"))
         for c in r.get("criteria") or []:
+            if not isinstance(c, dict) or "id" not in c:
+                raise Refused(f"{path.name}: row {n} (patient {pid}) has a criterion without an id")
+            if (pid, str(c["id"])) in pairs:
+                raise Refused(f"{path.name}: row {n}: pair {pid}/{c['id']} appears twice")
             ev = c.get("evidence") or {}
             pairs[(pid, str(c["id"]))] = {
                 "verdict": str(c.get("verdict")),
@@ -89,6 +99,9 @@ def load(path: Path) -> dict[str, Any]:
                 "model": bool(c.get("prov")),
                 "evidence": (tuple(sorted(ev.get("resource_refs") or [])), ev.get("quote_date")),
             }
+    for what, key in (("coded pair (basis coded)", "coded"), ("model pair (a call behind the answer)", "model")):
+        if not any(v[key] for v in pairs.values()):
+            raise Refused(f"{path.name}: no {what}; a run without one proves nothing about that rule")
     return {"name": path.name, "store": store, "tiers": tiers, "pairs": pairs, "same": same,
             "withheld": doc["list_withheld"]}  # fmt: skip
 
@@ -107,6 +120,7 @@ def compare_two(a: dict[str, Any], b: dict[str, Any], bound_pct: float) -> dict[
     pa, pb = a["pairs"], b["pairs"]
     keys = sorted(set(pa) | set(pb))
     coded, model, different, evidence = [], [], [], []  # coded: ii; model: the iii denominator; different: iii
+    other, other_diff = 0, []  # decided by neither a record nor a model (a search rule, a person): reported only
     for k in keys:
         x, y = pa.get(k), pb.get(k)
         if (x and x["coded"]) or (y and y["coded"]):
@@ -119,6 +133,10 @@ def compare_two(a: dict[str, Any], b: dict[str, Any], bound_pct: float) -> dict[
                 different.append(_name(k))
             elif x["evidence"] != y["evidence"]:
                 evidence.append(_name(k))
+        else:
+            other += 1
+            if not (x and y) or x["verdict"] != y["verdict"]:
+                other_diff.append(_name(k))
     per_crit: dict[str, dict[str, Any]] = {}
     for k in model:
         c = per_crit.setdefault(k[1], {"total": 0, "differing": 0})
@@ -141,6 +159,8 @@ def compare_two(a: dict[str, Any], b: dict[str, Any], bound_pct: float) -> dict[
         "per_criterion": dict(sorted(per_crit.items())),
         "criterion_over_half": top,
         "same_verdict_different_evidence": evidence,
+        "other_total": other,
+        "other_differing": other_diff,
     }
 
 
@@ -241,8 +261,12 @@ def text(rep: dict[str, Any]) -> str:
             f"{len(p['model_differing'])} of {p['model_total']} ({100 * p['model_share']:.2f} %, bound "
             f"{rep['bound_pct']:g} %); same verdict, different evidence {len(p['same_verdict_different_evidence'])}"
         )
-        for label, key in (("left the list", "left_list"), ("coded differing", "coded_differing"),
-                           ("model differing", "model_differing")):  # fmt: skip
+        for label, key in (
+            ("left the list", "left_list"),
+            ("coded differing", "coded_differing"),
+            ("model differing", "model_differing"),
+            ("no record or model, differing", "other_differing"),
+        ):
             if p[key]:
                 out.append(f"  {label}: {', '.join(p[key])}")
         pc = {c: v for c, v in p["per_criterion"].items() if v["differing"]}
