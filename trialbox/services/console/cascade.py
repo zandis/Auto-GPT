@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tb_common import ids
 from tb_common.http import kept_failure, trace_of
-from tb_common.ulid import new_ulid
 
 log = logging.getLogger("console.cascade")
 
@@ -117,7 +117,7 @@ class CascadeRuns:
         with self._lock:
             if any(r.state == "running" for r in self.list()):
                 raise RuntimeError("a cascade run is already running; wait for it to finish")
-            run = CascadeRun(new_ulid(), trial, user, "running", time.time())
+            run = CascadeRun(ids.log_safe_id(), trial, user, "running", time.time())  # H-147: logged whole
             self._save(run)
         source = self.source_dir
 
