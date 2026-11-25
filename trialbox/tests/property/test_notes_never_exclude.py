@@ -23,15 +23,31 @@ from __future__ import annotations
 
 import itertools
 from datetime import date
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from matching import decision
+from matching.cascade import engine as cascade_engine
 from matching.cascade.judge import AgreementJudge, JudgeReply, verify_span
-from matching.note_answer import note_answer_may
+from matching.note_answer import NoteEffect, note_answer_may
+from orchestrator.reports import docx_draft
 from orchestrator.scenarios import nav
-from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, PatientVerdicts, not_final, note_verdict, tier
+from orchestrator.scenarios.evaluate import (
+    NoteJudge,
+    NoteResult,
+    PatientVerdicts,
+    evaluate_patients,
+    not_final,
+    note_block_policy,
+    note_block_why,
+    note_verdict,
+    tier,
+)
+from orchestrator.scenarios.screen import judging_sentence, models_used
 from orchestrator.scenarios.screen_cascade import OrchestratorJudge, verdict_of, verdicts_of
+from tb_common.config import DECLARED
 from tb_common.reasons import Reason, code_of
 from tb_contracts import CriterionVerdict, Evidence
 
@@ -62,6 +78,18 @@ CRITERIA = [
     _ir("R-EXC-02", "exclusion", "mixed", COND, text="Active infection", note_question="Infection?"),
 ]
 RS = _ruleset(CRITERIA)
+
+
+class _NoStructured:
+    name = "sql"
+
+    def evaluate(self, *a: Any, **kw: Any) -> dict[str, Any]:
+        return {}
+
+
+def _nj(cls: Any = NoteJudge) -> Any:
+    llm, verifier = (ScriptedModel(n, says("pass", STATED)) for n in ("a", "b"))
+    return cls(lake=None, llm=llm, verifier=verifier)
 
 
 class _Fixed:
@@ -212,6 +240,112 @@ def test_the_row_keeps_both_quotes_and_both_notes(path: str, kind: str) -> None:
     assert v.evidence.resource_refs == ["DocumentReference/d1", "DocumentReference/d2"]
     kept = row(eligible)
     assert kept.verdict == "pass" and kept.evidence is not None and kept.evidence.opinions is None
+
+
+@pytest.mark.parametrize("kind", [None, "", "cohort"])
+def test_a_criterion_with_no_kind_or_an_unknown_one_is_review_on_the_whole_path(
+    kind: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ruling 1: a pair's stated, affirmed "present" through ``evaluate_patients`` (the judge, the row, ``not_final``,
+    the status) on a criterion that does not say a known kind: never excluded, the answer reads unknown."""
+    rs = _ruleset([CRITERIA[2].model_copy()])
+    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
+    monkeypatch.setenv("TB_CANARY_GATE", "off")
+    for c in rs.criteria:
+        c.kind = kind
+
+    class _Pair(NoteJudge):
+        def judge_patient(self, pid: str, c: Any, index_date: date, full: bool = False) -> NoteResult:
+            return NoteResult("pass", 0.95, STATED, reason="note", dids=["d1"], sentence=STATED, affirmed=True)
+
+    nj = _nj(_Pair)
+    verdict: Any
+    for verdict in ("pass", "fail"):
+        row = CriterionVerdict(id="R-EXC-01", verdict=verdict, basis="pair", final=True, affirmed=True,
+                               evidence=Evidence(resource_refs=[], quote=STATED, confidence=0.95))  # fmt: skip
+        assert tier(rs, [row], 0.75, note_block=True)[0] != "excluded"
+        assert decision.answer_of(rs.by_id()["R-EXC-01"], row, decision.Policy(0.75, True)) != "no"
+    out = evaluate_patients(rs, ["P"], date(2026, 10, 5), _NoStructured(), nj, 0.75, only={"R-EXC-01"},
+                            all_candidates=True, workers=1, note_block=True)  # fmt: skip
+    assert out["P"].tier != "excluded"
+
+
+def test_the_engine_never_makes_a_note_outcome_hard_whatever_the_rule_says(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ruling 2: were the one rule to say ``excludes`` again, the engine still keeps the patient and judges on."""
+    monkeypatch.setattr(cascade_engine, "note_answer_may", lambda *a, **kw: NoteEffect("excludes"))
+    judge = _Judge({("judge", "Active infection"): ("pass", 0.95), ("judge", "Gout flare documented"): ("fail", 0.95)})
+    lake = _lake(CASCADE_RS, ["P-1"], [_note("P-1", "Active infection and a gout flare noted.")])
+    res = _cascade(lake, lexicon=LEXICON, judge=judge, sample_per_stratum=None, note_block=True)
+    t = res.traces["P-1"]
+    assert t.exit_stage is None and not any(o.hard for o in t.outcomes.values()) and len(judge.calls) == 2
+    assert verdicts_of(CASCADE_RS, t, policy=decision.Policy(0.75, True), pair=True).tier == "review"
+
+
+def test_the_words_of_a_run_never_promise_a_note_exclusion() -> None:
+    """Ruling 3: the mail's and the PDF's sentence, in three languages, and the footer."""
+    j = {"mode": "agreement", "judge_model": "j", "verifier_model": "v", "note_block": "never", "may_block": False,
+         "note_block_code": "configured"}  # fmt: skip
+    for info in (j, {**j, "may_block": True, "note_block": "both_agree"}):
+        assert "stays on the list" in judging_sentence(info, "en") and "v" in judging_sentence(info, "en")
+        assert "患者はリストに残" in judging_sentence(info, "ja") and "病人仍留在名單上" in judging_sentence(
+            info, "zh-TW"
+        )
+        assert "notes never exclude" in models_used(info)
+
+
+def test_the_default_policy_is_never_and_both_agree_does_not_exclude(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ruling 4: unset is ``never``, in the code, the declared settings, the platform's site file and compose; set to
+    ``both_agree``, a pair's stated exclusion is review all the same."""
+    monkeypatch.delenv("TB_NOTE_BLOCK", raising=False)
+    assert note_block_policy() == "never"
+    root = Path(__file__).resolve().parents[2]
+    assert DECLARED["TB_NOTE_BLOCK"].default == "never"
+    assert "TB_NOTE_BLOCK=never\n" in (root / "deploy/platform/base/site.env").read_text("utf-8")
+    assert "${TB_NOTE_BLOCK:-never}" in (root / "deploy/docker-compose.yml").read_text("utf-8")
+    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
+    monkeypatch.setenv("TB_CANARY_GATE", "off")
+    nj = _nj()
+    may = note_block_why(nj)[0]
+    r = NoteResult("pass", 0.95, STATED, reason="note", dids=["d1"], sentence=STATED, affirmed=True)
+    v = not_final(CRITERIA[2], note_verdict(CRITERIA[2], r, True), may)
+    assert may and tier(RS, [_coded("pass"), v], 0.75, note_block=may)[0] == "review"
+
+
+def test_nav_never_drops_a_patient_for_a_note_not_met_on_an_inclusion() -> None:
+    """NAV: a note "not met" on an inclusion keeps the patient on the sheet, with the inclusion a row to confirm, for
+    every basis, quote, confidence and policy; a coded "not met" (or no coded answer) still keeps them off it."""
+    for c in (CRITERIA[1], CRITERIA[3]):
+        for basis, conf, quote, policy in itertools.product(("pair", "single", None), (0.5, 0.95), QUOTES, POLICIES):
+            b: Any = basis
+            row = CriterionVerdict(id=c.id, verdict="fail", basis=b, evidence=Evidence(resource_refs=[], quote=quote,
+                                                                                     confidence=conf))  # fmt: skip
+            for coded, want in (("pass", "likely_eligible"), ("fail", None), ("unknown", None)):
+                pv = PatientVerdicts("P-1", [_coded(coded), row], "review", [], 0)
+                name, missing = nav.classify(RS, pv, None, None, date(2026, 10, 5), 30, 90, policy.threshold,
+                                             policy.note_block)  # fmt: skip
+                assert name == want, (c.id, basis, conf, quote, policy, coded)
+                assert c.id in [m.criterion_id for m in missing]
+
+
+@pytest.mark.parametrize("basis", ["pair", "single"])
+def test_a_nav_draft_never_says_a_note_exclusion_is_present(basis: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A patient a note speaks against is on the sheet, so has a draft: the exclusion is left to fill in, never
+    written as present; a coded one is written."""
+    seen: list[Any] = []
+    monkeypatch.setattr(docx_draft, "render", lambda *a: seen.extend([a[7]]))
+    rows = [
+        CriterionVerdict(id="R-EXC-01", verdict="fail", basis=basis, final=True, affirmed=True,
+                         evidence=Evidence(resource_refs=[], quote=STATED, confidence=0.95)),
+        CriterionVerdict(id="R-EXC-02", verdict="fail", basis="coded", evidence=Evidence(resource_refs=["Condition/1"])),
+    ]  # fmt: skip
+    rs: Any = SimpleNamespace(by_id=RS.by_id, id="R", version="1", manifest=SimpleNamespace(
+        docx_template="t.docx", routing=SimpleNamespace(list_to=["crc@hospa.test"])))  # fmt: skip
+    row: Any = SimpleNamespace(pid="P-1", criteria=rows, approval_end=None, practitioner_id=None)
+    ctx: Any = SimpleNamespace(services=SimpleNamespace(llm=None), publish=lambda *a, **kw: None)
+    facts: Any = SimpleNamespace()
+    meta: Any = None
+    nav._draft(ctx, rs, row, facts, meta, "", {}, [])
+    assert [w for _, w in seen[0]] == ["[待補]", "有"]
 
 
 def test_a_stored_row_never_excludes_when_re_tiered() -> None:

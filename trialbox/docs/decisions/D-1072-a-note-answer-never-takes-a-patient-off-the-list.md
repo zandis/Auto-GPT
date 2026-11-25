@@ -21,11 +21,12 @@
 - D-1069 point 1 is superseded: "Only an exclusion criterion whose quote states the condition removes a patient,
   and only when two different models agree" no longer holds. An inclusion's "not met" from the notes stays review
   (D-1069 point 1, first half, unchanged). Points 2 to 5 of D-1069 stand.
-- D-95 (`TB_NOTE_BLOCK=both_agree`), D-97, D-117 (the canary gate) and D-276 stay as they are: they still decide
-  whether a run's note "not met" is final and which runs are a pair, and the canary stays a health check. None of
-  them can make a note answer exclude any more.
+- D-95: the default of `TB_NOTE_BLOCK` is `never` (code, declared settings, the platform's site file, compose).
+  `both_agree`, D-97, D-117 (the canary gate) and D-276 only decide whether a run's note "not met" is final and which
+  runs are a pair; the canary stays a health check. None of them can make a note answer exclude any more.
 - The one rule is `matching.note_answer.note_answer_may`, read by the cascade, the v1 evaluator and the status rule
-  over a stored row; it no longer returns `excludes`.
+  over a stored row; it no longer returns `excludes`. The
+  status rule and the engine hold it on their own too: a note "not met" is never "no" and never a hard fail.
 
 ## Where the wording comes from
 

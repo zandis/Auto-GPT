@@ -15,17 +15,17 @@
   },
   {
    "id": "INTSA-02",
-   "severity": "Medium",
-   "claim": "NAV's likely-eligible sheet needs every inclusion answered yes, so a note answer (or an unknown) on an inclusion still keeps a patient off that sheet; unchanged, and pinned by a test",
+   "severity": "High",
+   "claim": "NAV dropped a patient for a note \"not met\" on an inclusion; fixed: the patient stays on the sheet with the inclusion a row to confirm, and a draft never writes a note exclusion as present",
    "lane": "E",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed",
    "place": "services/orchestrator/scenarios/nav.py classify"
   },
   {
    "id": "INTSA-03",
    "severity": "Low",
-   "claim": "on v1 a pair's note not-met is stored final: true (cascade: false), so a patient the coded records exclude also lists that note criterion as a reason on the criteria-not-matched page, as an inclusion's not-met did before",
+   "claim": "with TB_NOTE_BLOCK=both_agree on v1 a pair's note not-met is stored final: true (cascade: false), so a patient the coded records exclude also lists that note criterion as a reason on the criteria-not-matched page, as an inclusion's did before; not under the default never",
    "lane": "E",
    "basis": "read",
    "state": "open",
@@ -48,6 +48,33 @@
    "basis": "read",
    "state": "open",
    "place": "deploy/docker-compose.*.yml, deploy/install.sh, deploy/dgpu48-profile.yaml, tools/e2e_simple.py, tools/public_e2e.py, tools/scenarios.py"
+  },
+  {
+   "id": "INTSA-06",
+   "severity": "Medium",
+   "claim": "feasibility counts drop a patient on an absence in the notes with no model answer (certified zero hits, index condition absent); a separate card after ring 0",
+   "lane": "E",
+   "basis": "read",
+   "state": "open",
+   "place": "services/matching/cascade/engine.py s2, s2b"
+  },
+  {
+   "id": "INTSA-07",
+   "severity": "Low",
+   "claim": "for lane H's card: the installer writes TB_NOTE_BLOCK=both_agree and the doctor reads an unset one as both_agree (its tests pin it); neither can exclude a patient, both decide final only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/install.sh, tools/trialbox/doctor.py check_note_block"
+  },
+  {
+   "id": "INTSA-08",
+   "severity": "Low",
+   "claim": "NAV still keeps a patient off the likely-eligible sheet for a note inclusion answered unknown (disagreement, no quote, weak or cut \"met\"), and for a coded unknown, as before; only the note \"not met\" was ruled",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/orchestrator/scenarios/nav.py classify"
   }
  ]
 }

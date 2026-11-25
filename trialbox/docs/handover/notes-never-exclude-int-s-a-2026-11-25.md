@@ -23,7 +23,10 @@ v1 evaluator (`evaluate.note_verdict`) and the status rule over a stored row (`d
 - **The wording:** the console, mail, report, runbook, user guide and design pages no longer promise that two models
   agreeing excludes. They say the notes may speak against a criterion and the patient stays on the list. **The ja and
   zh-TW strings are to be checked by a clinician** (list in the pull request).
-- The canary, the pair rule, `TB_NOTE_BLOCK` and `final` are unchanged.
+- **Held twice more** (the integrator's rulings): the status rule answers `unknown` to any note "not met", also on a
+  criterion with no kind; the engine makes no note outcome hard, whatever the rule says. `TB_NOTE_BLOCK` is `never` by
+  default and `both_agree` excludes nobody. The CASE sheet's word does not depend on the canary.
+- The canary, the pair rule and `final` are unchanged.
 
 ## What it costs
 
@@ -40,8 +43,8 @@ appointment in 180 days, eight rulesets (the stub's answers, not a forecast of r
 
 ## Not changed here
 
-- The engine's hard-fail branch after the rule (`engine._map`) and `Effect`'s `excludes` can no longer be reached; they
-  stay, so this change is bodies only.
+- `CascadeConfig.note_block` and `Effect`'s `excludes` stay as names that nothing reads or returns. The installer still
+  writes `TB_NOTE_BLOCK=both_agree` and the doctor reads an unset one as `both_agree`; both only touch `final`.
 - Feasibility's two absence rules (certified zero hits, index condition absent) exclude on text that is not there, with
-  no model answer. SCREEN does not run them.
+  no model answer. SCREEN does not run them. A separate card, after ring 0.
 - The findings are in `notes-never-exclude-int-s-a-2026-11-25/findings.json`.

@@ -652,7 +652,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     verdict = eligibility(c.kind, pred)
     why = r.reason
     abstained = r.predicate == "unknown"  # INT-S-C: an abstention has no quote, date or confidence, from any result
-    affirmed: bool | None = None  # round 5: set on a note exclusion both models affirmed
+    affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
     opinions = r.opinions
     if pred is not None:
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
@@ -667,7 +667,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
         # a "not met" the rule sends to review keeps its row: the status rule (``decision.answer_of``) reads the same
         # function and says review. D-1072: with both models' quotes, and both notes (the judge's first)
         if may.reading_stands and r.pair_opinions:
-            opinions = [{k: v for k, v in o.items() if k != "did"} for o in r.pair_opinions]
+            r = replace(r, opinions=[{k: v for k, v in o.items() if k != "did"} for o in r.pair_opinions])
             dids = [*r.dids, *(str(o["did"]) for o in r.pair_opinions if o["did"])]
             refs = [f"DocumentReference/{d}" for d in dict.fromkeys(dids)]
     return CriterionVerdict(
@@ -679,7 +679,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
             quote_date=None if abstained else r.quote_date,
             confidence=None if verdict == "unknown" else r.confidence,
             reason=why,
-            opinions=[Opinion(**o) for o in opinions] or None,
+            opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
         basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
         prov=note_calls(r),
@@ -763,10 +763,9 @@ NOTE_BLOCK_POLICIES = ("both_agree", "never")
 
 
 def note_block_policy() -> str:
-    """``TB_NOTE_BLOCK`` (D-95): ``both_agree`` (default) lets a note criterion exclude a patient, which with a verifier
-    configured means both models agreed (D-89); ``never`` (single-model boxes such as one RTX 4090) never lets a note
-    answer exclude: a note ``fail`` keeps its verdict and quote but sends the patient to review."""
-    v = os.environ.get("TB_NOTE_BLOCK", "both_agree").strip().lower() or "both_agree"
+    """``TB_NOTE_BLOCK`` (D-95): ``never`` (default, D-1072) or ``both_agree``, which only says a pair's note "not met"
+    is final. No note answer excludes a patient under either: it keeps its verdict and quote and goes to review."""
+    v = os.environ.get("TB_NOTE_BLOCK", "never").strip().lower() or "never"
     if v not in NOTE_BLOCK_POLICIES:
         raise ValueError(f"TB_NOTE_BLOCK must be one of {', '.join(NOTE_BLOCK_POLICIES)}, not {v!r}")
     return v
@@ -819,7 +818,7 @@ def note_block_why(judge: NoteJudge | None) -> tuple[bool, str, str, str]:
 
 
 def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
-    """Whether a confident note ``fail`` may exclude a patient on this run (D-95, D-97).
+    """Whether a confident note ``fail`` is final on this run (D-95, D-97); none excludes a patient (D-1072).
 
     ``both_agree`` promises that two models agreed; without a verifier that promise cannot be kept, so the run falls
     back to ``never`` (a single model may send a patient to review, never out) and says so. The same holds when the
@@ -835,7 +834,7 @@ def tier(
     (:func:`matching.decision.status_of`, T-709, D-478), under this run's policy.
 
     high: every structured and note criterion says yes, only criteria a person decides are open; excluded: an
-    answer says no (a note answer only when a pair gave it, it is final, sure enough and ``note_block``); review
+    answer says no (never a note answer, D-1072); review
     otherwise. ``note_block`` is required and comes from the job's decision context (D-477): the configured policy
     alone is not enough (no verifier, one model twice, the canary gate; D-276, review F-01)."""
     st = decision.status_of(rs.by_id(), verdicts, decision.Policy(threshold, note_block))

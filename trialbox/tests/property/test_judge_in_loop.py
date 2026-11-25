@@ -583,9 +583,9 @@ def test_the_control_excludes_the_ineligible(lake: LakeLocal, path: str, monkeyp
     # R22-17 (D-1069; ruled on #639 7079180333): the planted patient whose note inclusion is not met (N-NONE) is in
     # review on every list (NAV: a row to confirm); the CASE sheet, which has no status, prints the notes' "not met",
     # which ``case_run`` reads as off
-    assert statuses["N-NONE"] == {"screen_v1": "review", "screen_cascade": "review", "nav": "confirm"}.get(
+    assert statuses["N-NONE"] == {"screen_v1": "review", "screen_cascade": "review", "nav": "listed"}.get(
         path, "excluded"
-    )
+    )  # D-1072: NAV lists it, with the inclusion a row to confirm
     assert statuses["N-KEEP"] in ("high", "listed", "kept")
 
 
