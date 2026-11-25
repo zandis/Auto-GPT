@@ -727,8 +727,18 @@ def _missing_bytes(models: Path, t: Target) -> int:
     return total
 
 
+def _there(p: Path) -> bool:
+    """Whether ``p`` is there; below a folder this user may not search (the container engine's 0710 root, a 0700
+    parent) it is taken as not there, so a walk up stops at the last folder it can see (escape check (i): never
+    PermissionError)."""
+    try:
+        return p.exists()
+    except PermissionError:
+        return False
+
+
 def _existing(path: Path) -> Path:
-    while not path.exists() and path != path.parent:
+    while not _there(path) and path != path.parent:
         path = path.parent
     return path
 

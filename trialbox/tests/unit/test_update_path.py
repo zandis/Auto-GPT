@@ -12,6 +12,7 @@ import hashlib
 import json
 import shutil
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +139,9 @@ class FakeRun:
         self.envs: list[dict[str, str]] = []
         self.fail_on = fail_on
         self.images = images or {}
+        # OCR 1469-7: the engine's data root is a folder of the test's own, never the host's /var/lib/docker (an
+        # empty answer to `docker info` falls back to it: CI's runner has it, 0710 root, train 167)
+        self.docker_root = Path(tempfile.mkdtemp(prefix="docker-root-"))
 
     def __call__(self, argv: list[str], stdin_file: Path | None = None, stdout_file: Path | None = None,
                  env: dict[str, str] | None = None, timeout: float | None = None) -> str:  # fmt: skip
@@ -160,6 +164,10 @@ class FakeRun:
             return "true\n"
         if "FROM orch.jobs" in line:  # T-695: no job running, so the update may stop the services
             return "0\n"
+        if argv[:2] == ["docker", "info"]:
+            return f"{self.docker_root}\n"
+        if "pg_database_size" in line:  # H-121: the size check reads a size (an empty answer stops the update)
+            return "1000\n"
         return ""
 
 

@@ -60,6 +60,7 @@ def test_images_lock_pins_the_db_base_by_digest_and_matches_the_dockerfile() -> 
         "pgbackrest": args["PGBACKREST_VERSION"],  # D-371: from PGDG, pinned
         "zlib1g": args["ZLIB1G_VERSION"],  # SC-1b (D-993): the trixie-security fix
         **{p: args["KRB5_VERSION"] for p in KRB5_PACKAGES},  # H-93: the trixie-security fix
+        **{p: args["ZSTD_VERSION"] for p in ("libzstd1", "zstd")},  # CVE-2026-124851: the trixie-security fix
     }
     assert db["trusted_extensions"] == list(IMAGE_EXTENSIONS) and "trusted = true" in DOCKERFILE.read_text()
     assert db["healthcheck"] == "/usr/local/bin/tb-db-check"

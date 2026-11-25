@@ -178,9 +178,13 @@ def test_the_host_restore_takes_every_url_from_the_box_and_none_from_the_caller(
     assert code == 0 and len(seen) == 1, seen
     argv, values = seen[0]
     assert argv[0] == "docker" and "trialbox-backup:1.0.0" in argv and "caller/evil:1" not in argv
-    assert all(c[0] == "docker" and c[1] == "compose" for c in rec.calls), (
-        rec.calls
-    )  # the box's runtime, not the caller's
+    assert all(c[0] == "docker" for c in rec.calls), rec.calls  # the box's runtime, not the caller's
+    for c in rec.calls:  # H-132 (LR-13, LR-15; ruling 7136897074): compose, or the engine's two read-only questions
+        if c[1] != "compose":
+            assert len(c) == 6 and c[3] == "-f", c
+            assert (c[1:3], c[4]) in ((["volume", "inspect"], "{{.Mountpoint}}"),
+                                      (["container", "inspect"], "{{.State.Status}}")), c  # fmt: skip
+    assert not [c for c in rec.calls if c[1] in ("volume", "container") and c[2] in ("rm", "prune", "create")]
     # the job's own URLs (update.ComposeBox._backup_container, from the same file): the same server, user and database
     job: dict[str, str] = {}
     box = update.ComposeBox(deploy, lambda argv, env=None, **kw: job.update(env or {}) or "")

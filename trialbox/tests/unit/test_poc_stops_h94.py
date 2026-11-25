@@ -769,9 +769,15 @@ def _firstrun(tmp: Path, *args: str, force: tuple[str, ...] = (), environment: s
         "20 0 * * * root cd x && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; }\n"
     )
     (tmp / "anchor").mkdir()
+    # H-135: the root-only code file goes to the home the passwd entry names (never HOME): a stand-in getent names
+    # the test's own, so no run writes into the runner's real home, and a runner with no home (nobody) has one
+    pw_home = tmp / "pwhome"
+    pw_home.mkdir(mode=0o700)
     b = tmp / "bin"
     b.mkdir()
-    stubs = {"python3": BOX_PYTHON3, "boxpy": BOX_PY,
+    getent = (f'#!/bin/sh\ncase "$*" in "passwd $(id -u)") echo "tester:x:$(id -u):$(id -g)::{pw_home}:/bin/sh" ;;\n'
+              '*) exec /usr/bin/getent "$@" ;; esac\n')  # fmt: skip
+    stubs = {"python3": BOX_PYTHON3, "boxpy": BOX_PY, "getent": getent,
              "compose": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" stack-restart "*) exit 1 ;; esac\nexit 0\n',
              "hostcheck": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" host-check "*) echo "FAIL  x"; exit 1 ;; esac\n'
                           'case " $TB_H94_FORCE " in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned)"; exit 1 ;; esac\n'

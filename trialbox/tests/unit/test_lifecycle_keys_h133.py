@@ -17,6 +17,7 @@ The passphrases and keys here are synthetic.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -74,6 +75,31 @@ class Owners:
 
         monkeypatch.setattr(os, "fchown", fchown)
         monkeypatch.setattr(os, "chown", chown)
+        # review of #1478 (1478-4): a freed inode forgets the owner it was given, or a folder made again (or a new
+        # file) that takes the same inode would read as the services' with no chown at all
+        real_rmdir, real_unlink, real_replace = os.rmdir, os.unlink, os.replace
+
+        def forget(path: Any, dir_fd: int | None = None) -> None:
+            with contextlib.suppress(OSError):
+                st = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
+                self.given.pop((st.st_dev, st.st_ino), None)
+
+        def rmdir(path: Any, *, dir_fd: int | None = None) -> None:
+            forget(path, dir_fd)
+            real_rmdir(path, dir_fd=dir_fd)
+
+        def unlink(path: Any, *, dir_fd: int | None = None) -> None:
+            forget(path, dir_fd)
+            real_unlink(path, dir_fd=dir_fd)
+
+        def replace(src: Any, dst: Any, **kw: Any) -> None:
+            forget(dst)
+            real_replace(src, dst, **kw)
+
+        monkeypatch.setattr(os, "rmdir", rmdir)
+        monkeypatch.setattr(os, "unlink", unlink)
+        monkeypatch.setattr(os, "remove", unlink)
+        monkeypatch.setattr(os, "replace", replace)
         # the secrets folder of this test belongs to the services: what the box's own folder is (D-887)
         monkeypatch.setattr(K, "services_owner", lambda _sec: (SERVICES, SERVICES), raising=False)
 
@@ -572,3 +598,132 @@ def test_lr3_lr4_the_owner_comes_from_the_secrets_folder_never_from_a_caller_var
         assert K.services_owner(root_owned) is None
     else:  # not root: never a hand-over
         assert K.services_owner(sec) is None
+
+
+def test_no_unit_test_reaches_the_hosts_tpm_credential() -> None:
+    """Review of #1478 (1478-1): the credential's fixed place is a stand-in under the test root in every unit test."""
+    assert not keys.CREDENTIAL_FILE.is_relative_to("/etc"), keys.CREDENTIAL_FILE
+    assert not keys.CREDENTIAL_FILE.parent.exists()
+
+
+def test_lr6_seal_tpm_on_a_new_board_without_the_sealing_tool_is_refused_before_any_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #1478 (1478-5): a new board (no credential yet) asked for --seal-tpm with no systemd-creds is refused
+    before the journal, the started event or the credential's folder: nothing at all is written."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    b["cred"].unlink()
+    b["cred"].parent.rmdir()
+    monkeypatch.setattr(keys, "_creds_tool", lambda: None)
+    before = _state(b["sec"])
+    audit = {f.relative_to(b["audit"]).as_posix(): f.read_bytes() for f in b["audit"].rglob("*") if f.is_file()}
+    rc = keys.main(["rotate-kek", "--backend", "file", "--secrets", str(b["sec"]), "--seal-tpm", "--kek-out",
+                    str(b["media"] / "kek.new"), "--audit-dir", str(b["audit"])],
+                   env={**DEV, "TB_KEK_FILE": str(b["run"] / "kek")})  # fmt: skip
+    assert rc == 1
+    assert _state(b["sec"]) == before and not b["cred"].parent.exists()
+    assert {f.relative_to(b["audit"]).as_posix(): f.read_bytes() for f in b["audit"].rglob("*") if f.is_file()} == audit
+
+
+def _everything(b: dict[str, Path]) -> dict[str, str]:
+    """What a refused rotation must leave as it was: the secrets folder (no journal), the audit folder, the
+    credential's folder and the media folder (no new KEK file), each file by its digest."""
+    out: dict[str, str] = {}
+    for key in ("sec", "audit", "media"):
+        for f in sorted(b[key].rglob("*")):
+            if f.is_file():
+                out[f"{key}/{f.relative_to(b[key]).as_posix()}"] = hashlib.sha256(f.read_bytes()).hexdigest()
+    folder = b["cred"].parent
+    with contextlib.suppress(OSError):
+        for f in sorted(folder.iterdir()):
+            out[f"cred/{f.name}"] = hashlib.sha256(f.read_bytes()).hexdigest()
+    return out
+
+
+def _rotate_file(b: dict[str, Path], *more: str) -> int:
+    return keys.main(["rotate-kek", "--backend", "file", "--secrets", str(b["sec"]), "--kek-out",
+                      str(b["media"] / "kek.new"), "--audit-dir", str(b["audit"]), "--out", str(b["run"] / "kek"),
+                      *more], env={**DEV, "TB_KEK_FILE": str(b["run"] / "kek")})  # fmt: skip
+
+
+def test_1478_2_an_account_that_cannot_look_for_the_credential_is_refused_with_nothing_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review of #1478 (1478-2): rotate-kek --backend file by an account that cannot look in the credential's folder
+    went on and said done, the credential left on the old KEK. It is refused before the lock, the journal or any
+    event. As an ordinary user the folder is made unreadable for real; root reads any folder, so there the seam
+    (``_credential_present`` answering "cannot tell") stands in."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    before = _everything(b)
+    folder = b["cred"].parent
+    if ROOT:
+        monkeypatch.setattr(keys, "_credential_present", lambda: None)
+    else:
+        folder.chmod(0o000)
+    try:
+        rc = _rotate_file(b)
+    finally:
+        folder.chmod(0o700)
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "cannot be looked in by this account" in err and "--no-tpm" in err and "Nothing was changed" in err
+    assert _everything(b) == before
+    assert _sealed_opens(b)
+
+
+@pytest.mark.parametrize(
+    ("argv", "says"),
+    [
+        (["--no-tpm", "--seal-tpm"], "--no-tpm and --seal-tpm: give one"),
+        (["--no-tpm"], "--no-tpm is refused"),
+    ],
+    ids=["with-seal-tpm", "credential-there"],
+)
+def test_1478_2_no_tpm_is_refused_with_seal_tpm_or_where_a_credential_is_there(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: list[str], says: str
+) -> None:
+    """Review of #1478 (1478-2): --no-tpm is the only way to say there is no TPM credential, so it is refused beside
+    --seal-tpm and on a box whose credential is there; nothing is changed."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    before = _everything(b)
+    assert _rotate_file(b, *argv) == 1
+    assert says in capsys.readouterr().err
+    assert _everything(b) == before
+
+
+def test_1478_2_no_tpm_is_for_the_file_back_end_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review of #1478 (1478-2): --no-tpm with another back end is refused; nothing is changed."""
+    own = Owners(monkeypatch)
+    b = _passphrase_box(tmp_path, own)
+    before = _state(b["sec"])
+    audit = _state(b["audit"])
+    assert keys.main([*_rotate_argv(b), "--no-tpm"], env=DEV) == 1
+    assert "--no-tpm is for the file back end" in capsys.readouterr().err
+    assert _state(b["sec"]) == before and _state(b["audit"]) == audit
+
+
+def test_1478_2_no_tpm_on_a_box_without_a_credential_rotates_and_looks_for_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #1478 (1478-2): a file-back-end box with no TPM credential rotates with --no-tpm, and the rotation
+    neither looks for a credential nor makes its folder."""
+    own = Owners(monkeypatch)
+    b = _tpm_box(tmp_path, own, monkeypatch)
+    b["cred"].unlink()
+    b["cred"].parent.rmdir()
+    called: list[list[str]] = []
+
+    def creds(argv: list[str], data: bytes) -> Any:
+        called.append(argv)
+        raise AssertionError("the sealing tool was run under --no-tpm")
+
+    monkeypatch.setattr(keys, "_creds", creds)
+    old_id = (K.read_meta(b["sec"]) or {})["kek_id"]
+    assert _rotate_file(b, "--no-tpm") == 0
+    assert (K.read_meta(b["sec"]) or {})["kek_id"] != old_id and _runtime_opens(b)
+    assert not b["cred"].parent.exists() and called == []  # nothing sealed, opened or made

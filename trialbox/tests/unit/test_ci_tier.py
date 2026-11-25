@@ -75,6 +75,35 @@ def test_the_rule(env: dict[str, str], paths: list[str], full: bool, scenarios: 
     assert got[2]  # the log says why
 
 
+@pytest.mark.parametrize(
+    ("env", "paths", "unit"),
+    [
+        # H-120 (D-1324): `unit` is true on every pull request, whatever the tier says (the rows of test_the_rule)
+        (_env(), ["trialbox/services/lake/build.py"], True),  # fast tier
+        (_env(), ["trialbox/services/matching/engine.py"], True),
+        (_env(LABELS="bug\nci:full\n"), ["trialbox/services/lake/build.py"], True),
+        (_env(DOCS_ONLY="true"), ["trialbox/docs/x.md"], True),  # docs only
+        (_env(DOCS_ONLY="true", LABELS="ci:full"), ["trialbox/docs/x.md"], True),
+        (_env(DRAFT="true"), ["trialbox/services/matching/engine.py"], True),  # a draft
+        (_env(HEAD_REF="train/12"), [], True),
+        (_env(CARD_TIER="touched"), ["trialbox/deploy/install.sh", ".github/x.yml"], True),
+        (_env(CARD_TIER="Fast"), ["trialbox/services/lake/build.py"], True),
+        (_env(CARD_TIER=""), ["trialbox/services/lake/build.py"], True),
+        (_env(LABELS="bug"), ["classic/README.md"], True),  # nothing under trialbox/
+        (_env(DRAFT="true", DOCS_ONLY="true"), [], True),  # an empty diff
+        # a push and a run by hand: as `full`
+        (_env(EVENT="push"), [], True),
+        (_env(EVENT="push", PROVED="true"), [], False),  # D-578: a proved master push skips them, as before
+        (_env(EVENT="workflow_dispatch"), [], True),
+    ],
+)
+def test_the_unit_rule(env: dict[str, str], paths: list[str], unit: bool) -> None:
+    full = ct.decide(env, paths)[0]
+    got = ct.unit_shards(env, full)
+    assert got[0] is unit, got[1]
+    assert got[1]  # the log says why
+
+
 def test_the_command_line(tmp_path: Path) -> None:
     import os
     import sys
@@ -82,7 +111,7 @@ def test_the_command_line(tmp_path: Path) -> None:
     env = {**os.environ, **_env(), "LABELS": ""}
     res = subprocess.run([sys.executable, str(ROOT / "tools/ci_tier.py")], input="trialbox/services/edc/a.py\n",
                          env=env, capture_output=True, text=True, check=True)  # fmt: skip
-    assert res.stdout.split() == ["full=true", "scenarios=true"]
+    assert res.stdout.split() == ["full=true", "scenarios=true", "unit=true"]  # H-120 (D-1324): unit on every PR
     assert "full-tier list" in res.stderr
     assert "guard tests" in res.stderr  # D-1119: the log names the guard step every tier runs
 

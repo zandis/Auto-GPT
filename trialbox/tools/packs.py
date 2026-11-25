@@ -107,9 +107,19 @@ def _held(updates: Path | None) -> set[str]:
     return out
 
 
+def _there(p: Path) -> bool:
+    """Whether ``p`` is there; below a folder this user may not search (the container engine's 0710 root, a 0700
+    parent) it is taken as not there, so a walk up stops at the last folder it can see (escape check (i): never
+    PermissionError)."""
+    try:
+        return p.exists()
+    except PermissionError:
+        return False
+
+
 def _existing(p: Path) -> Path:
     p = p.absolute()
-    while not p.exists():
+    while not _there(p) and p != p.parent:
         p = p.parent
     return p
 
