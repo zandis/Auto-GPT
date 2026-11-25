@@ -462,3 +462,19 @@ restore the box from its backup (above), then close the update:
 `tools/apply_update.sh close <bundle> --restored REASON`. It is taken only for an update whose rollback did not
 finish, only when the box's audit log holds the restore (`backup.restored`) from after the update began and the host
 tree is back on the release before it; the reason is audited (`update.closed_after_restore`).
+
+## What an update replaces, and a loose services/ or models/ (H-144, D-1463)
+
+An update replaces the signed host tree only: `deploy/`, `tools/`, `libs/` and `schemas/` in the install folder. The
+services' code and `models/` come with the box image, never from the install folder. A `services/`, `models/`, `rulesets/`, `catalogue/` or `eval/`
+folder found in the install folder (one left from an install before the signed host tree) is not the release's: no
+update replaces or checks it, and nothing reads it. The update names it at its end ("update: note (H-144): ...") and
+leaves it; `sudo trialbox doctor --env-file deploy/.env` WARNs `release_tree` while it is there, naming each folder
+and the command that removes it (a FAIL when the command's own PYTHONPATH holds the folder: run that way, a host
+command would import it). Look in the folder for a change of your own first, then, for example:
+
+    sudo rm -rf -- /opt/trialbox/services /opt/trialbox/models
+
+The doctor's checks that need the box image's libraries, the services' code or `models/` (`doctor.IMAGE_CHECKS`) run
+in a one-off container of the box's own image when `trialbox doctor` is typed on the host; a check that cannot run
+there is a FAIL that says why, never a pass.

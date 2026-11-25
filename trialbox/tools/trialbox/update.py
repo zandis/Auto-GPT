@@ -3380,6 +3380,7 @@ def main_apply(
             print(f"update REFUSED: {exc}")
             return 1
         print(f"update {plan.bundle_id} loaded; the box is not running, so install.sh starts it and audits it")
+        _name_loose(deploy)
         return 0
     try:
         Updater(box, updates).run(plan, backup=backup)
@@ -3387,4 +3388,19 @@ def main_apply(
         print(f"update FAILED: {exc}")
         return 1
     print(f"update {plan.bundle_id} applied, checked and audited")
+    _name_loose(deploy)
     return 0
+
+
+def _name_loose(deploy: Path) -> None:
+    """H-144: an image-only folder left in the install folder (``services/``, ``models/``, ...) is named after the
+    update, with the command that removes it; never removed by the update (it did not make it, and it may hold an
+    operator's own change). ``trialbox doctor``'s ``release_tree`` FAILs while it is there."""
+    from tools import host_tree as ht
+
+    base = Path(deploy).absolute().parent
+    if ht.install_folder(base / "current") != base.resolve():  # OCR 1512-1: a source checkout's services/ is its own
+        return
+    note = ht.loose_note(base)
+    if note:
+        print(f"update: note (H-144): {note}")
