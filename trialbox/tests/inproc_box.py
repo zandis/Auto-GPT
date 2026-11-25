@@ -274,6 +274,7 @@ def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, sit
         rebuild=rebuild,
         # the pid map's trial database: TB_DB_URL, or the run's schemas in a local throwaway one (as make_box)
         db_url=pglocal.for_work(lake_dir.parent),
+        synthetic_source=True,  # M1: every in-process box is synthetic data
     )
     report = run_ingest(cfg, "csv", str(src), snapshot=snapshot, load_fhir=False, validate=False)
     if report.passed:  # D-442: the derive batch of the new snapshot, as the INGEST job runs it after a passed ingest

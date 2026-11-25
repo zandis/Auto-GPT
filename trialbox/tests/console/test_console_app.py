@@ -453,6 +453,7 @@ def box(tmp_path: Path) -> dict[str, Any]:
         "TB_CONSOLE_DIR": str(tmp_path / "console"),
         "TB_CONSOLE_SAMPLES_DIR": str(samples),
         "TB_CONSOLE_CONSENT_SAMPLE": str(samples / "GZQO_ICF_v2.md"),
+        "TB_OPS_DIR": str(tmp_path / "ops"),  # M1: never the machine's own /data/ops
     }
     app = create_app(env, backend=backend, audit=audit, users=users, classify=classify, cascades=cascades)
 

@@ -48,9 +48,9 @@ def test_a_step_whose_items_are_given_passes_on_either_box(production: bool) -> 
 
 
 def test_every_item_a_step_needs_is_named_once_in_the_lists_order() -> None:
-    g = gate("first_real_night", production=True, env={})
+    g = gate("first_real_run", production=True, env={})
     keys = [n.key for n, _ in g.blocking]
-    assert keys == [n.key for n in BY_KEY.values() if "first_real_night" in n.before]
+    assert keys == [n.key for n in BY_KEY.values() if "first_real_run" in n.before]
     assert len(set(keys)) == len(keys)
 
 

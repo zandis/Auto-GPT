@@ -2,15 +2,17 @@
 # The box installer (T-729, D-466; plan v6.1 OD-11, OD-13): one installer for a GPU workstation or a DGX Spark, set up
 # by its owner, with no shell knowledge and no question an IT department would be asked.
 #
-#   sudo deploy/box-install.sh trialbox-<version>.tar [--yes]       # hardware the site bought: install, then the wizard
+#   sudo deploy/box-install.sh trialbox-<version>.tar                # on a terminal: four questions, then no more (M1)
+#   sudo deploy/box-install.sh trialbox-<version>.tar --yes          # no question: install, then the first-run page
 #   sudo deploy/box-install.sh trialbox-<version>.tar --prepare      # Aimedics, before shipping: stop before the wizard
 #   sudo deploy/box-install.sh trialbox-<version>.tar --rehearsal    # a rehearsal box: TEST, stand-ins (D-726)
 #   deploy/box-install.sh --firstrun                                 # the prepared box's first boot (trialbox-firstrun.service)
 #   sudo deploy/box-install.sh trialbox-<version>.tar --answers owner.json   # unattended (D-898): the hospital's install
 #
 # What it does, in order:
-#   1. hardware: python3 -m tools.box detect (the GPU, memory, disks, TPM, the box's network); shown, and the one
-#      question on the terminal: is this the machine? (--yes skips it)
+#   1. hardware: python3 -m tools.box detect (the GPU, memory, disks, TPM, the box's network); shown, not asked. On a
+#                terminal the four questions (D-1280: language, time zone, first administrator, and the key passphrase
+#                only without a TPM), then the install runs to its end with the rest at its defaults (--yes skips them)
 #   2. plan:     python3 -m tools.box plan --provisional: the GPU profile from the card (deploy/gpu_profile.sh), memory
 #                caps from the RAM (OD-10), TLS internal under the box's name, deploy/site/hardening.conf (KEK tpm, or a
 #                passphrase the owner sets on a board without a TPM; the input firewall open to the box's own network)
@@ -40,11 +42,11 @@
 # TB_BOX_HOST_CHECK (the host check command), TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
 # TB_SYSTEMD=0 (as install.sh), TB_BOX_PREFLIGHT (the python command that runs the first-run page's preflight, even
 # with TB_BOX_PY; 10K-3), TB_BOX_PREFLIGHT_S (its time limit, 90 s) and TB_BOX_DOCKER (the docker command that asks
-# the console's image whether it can read the audit anchor folder; 10K-4).
+# the console's image whether it can read the audit anchor folder; 10K-4), TB_BOX_SEED (the site seed's command; M1).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""
+BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""; ENVIRONMENT=""
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
 # (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk,
@@ -118,14 +120,17 @@ tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a k
   } | sort -u || true
 }
 # ---- end of STOP-OR-WARN
-# H-94: this run's command line (--rehearsal) is read once before the arguments are; box-install.sh has no
-# --environment (the owner's answers file is not read for it: on a fresh box it stays PRODUCTION, the stricter)
+# H-94: this run's command line (--rehearsal, --environment) is read once before the arguments are (the owner's
+# answers file is not read for it: on a fresh box with no --environment it stays PRODUCTION, the stricter)
 TB_STOP_WHO=box-install; TB_STOP_FILE=box-install.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""
 TB_STOP_REHEARSAL=0
 _clear=1
+_p=""
 for _a in "$@"; do
+  [ "$_p" != --environment ] || TB_STOP_ARG_ENV="$_a"  # M1: as install.sh reads its own
   [ "$_a" != --rehearsal ] || TB_STOP_REHEARSAL=1
   [ "$_a" != --firstrun ] || _clear=0
+  _p="$_a"
 done
 # the list is this install's (review L-3 of #1396): emptied when a box install starts, kept by --firstrun (it finishes
 # the same install) and by install.sh run from here (--keep-poc-list). rm takes a link away, never what it names
@@ -137,6 +142,9 @@ while [ $# -gt 0 ]; do
     --prepare) PREPARE=1 ;;
     --firstrun) FIRSTRUN=1 ;;
     --rehearsal) REHEARSAL=1 ;;
+    --environment)  # M1: as install.sh's (D-837); a PRODUCTION box unless it says otherwise
+      ENVIRONMENT="$(printf '%s' "${2:-}" | tr '[:lower:]' '[:upper:]')"; [ $# -lt 2 ] || shift
+      case "$ENVIRONMENT" in VALIDATION|PRODUCTION) ;; *) echo "box-install: --environment is VALIDATION or PRODUCTION" >&2; exit 2 ;; esac ;;  # H-94 not a stop: a usage error
     --answers) if [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then OWNER="$2"; shift
       else stop_or_warn --rc 2 answers-value "--answers (ignored)" "--answers needs the owner's answers file (JSON)"; fi ;;
     --kek-passphrase-file) PP_FILE="${2:-}"; shift ;;
@@ -320,10 +328,32 @@ EOP
     fi
     YES=1
   fi
-  if [ "$YES" != 1 ] && [ -t 0 ]; then
-    printf 'Is this the machine to install TrialBox on? [Y/n] '; read -r ans
-    case "$ans" in n|N) die "stopped: nothing was changed" ;; esac  # H-94 not a stop: the operator's own answer
+  # FOUR (M1, D-1280): on a terminal the four questions are asked here, before anything is changed; from there the
+  # install is the unattended one (no first-run code, no wait, no question). A re-run keeps the answers it has. A site
+  # seed beside the bundle, signed by the vendor (10K-2), answers all but the person and the passphrase
+  SEED="$(dirname "$BUNDLE")/site-seed.json"; SEED_ARGS=()
+  if [ -f "$SEED" ]; then
+    python3 -m tools.site_seed verify "$SEED" --pub "$ROOT/deploy/keys/vendor_ed25519.pub" \
+      || die "the site seed beside the bundle is not signed by the vendor's key (above): nothing was changed"  # H-94 (1)
+    SEED_ARGS=(--seed "$SEED")
   fi
+  # (the Windows form keeps the first-run page: its own steps wait for it)
+  if [ -z "$OWNER" ] && [ "$YES$PREPARE$REHEARSAL$WSL2" = 0000 ] && [ -t 0 ]; then
+    OWNER="$BOX/owner.json"
+    if [ -f "$OWNER" ]; then echo "    the answers of the earlier run are kept ($OWNER)"
+    else
+      python3 -m tools.box ask --hardware "$BOX/hardware.json" --out "$OWNER" ${ENVIRONMENT:+--environment "$ENVIRONMENT"} \
+        ${SEED_ARGS[@]+"${SEED_ARGS[@]}"} || die "the questions were not answered (above): nothing was changed"  # H-94 (3): the site's install
+    fi
+    if [ "$(json_get "$BOX/hardware.json" tpm)" != True ] && [ "$KP_LEN" = 0 ]; then
+      kp_read_stdin  # the fourth: not shown, twice
+      KP_LEN="${#KP_VALUE}"
+      [ "$KP_LEN" -ge 12 ] || die "the KEK passphrase must contain at least 12 characters (nothing was changed)"  # H-94 (5)
+      PP_INSTALL=(--kek-passphrase-fd 8)
+    fi
+    YES=1
+  fi
+  # ---- end of FOUR
   # ---------------------------------------------------------------------------------------------- 2. plan
   say "plan from the hardware"
   rm -f "$BOX/applied"  # D-576: a new install: the answers are provisional again and the wizard is due
@@ -334,6 +364,7 @@ EOP
     ARGS_LINE="$(python3 -m tools.box plan --hardware "$BOX/hardware.json" --provisional --deploy "$ROOT/deploy" --out "$BOX/answers.json" | tail -1)"
   fi
   read -r -a INSTALL_ARGS <<< "${ARGS_LINE#install-args: }"
+  [ -z "$ENVIRONMENT" ] || INSTALL_ARGS+=(--environment "$ENVIRONMENT")
   [ "$REHEARSAL" = 1 ] && INSTALL_ARGS+=(--rehearsal)  # D-726: a rehearsal box, handed on to install.sh
   DEFER=0; [ "$(json_get "$BOX/hardware.json" tpm)" = True ] || [ -n "$OWNER" ] || DEFER=1
   INBOX=1; [ -z "$OWNER" ] || INBOX=0  # D-898: unattended, the install makes the first administrator (the IT form)
@@ -508,9 +539,24 @@ if [ -f "$ROOT/deploy/site/hardening.conf" ] && grep -q '^KEK_BACKEND=passphrase
   [ -n "$KP_VALUE" ] || die "no passphrase in the owner's answers: the keys stay unsealed (run the wizard again)"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets")}"
   printf '%s\n' "$KP_VALUE" | TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" \
-    --conf "$ROOT/deploy/site/hardening.conf" --kek-passphrase-stdin \
+    --conf "$ROOT/deploy/site/hardening.conf" --kek-passphrase-stdin --record deploy/site/kek-backend \
     || die "the site keys could not be sealed (above)"  # H-94 (5): H-96's refusal
   KP_VALUE=""
+  # H-77 (F-22): the back end is the one seal_keys.sh recorded (deploy/site/kek-backend, kept when the wizard rewrites
+  # deploy/.env), copied as it is (never worked out here) to deploy/.env, where the host check reads it. Without a
+  # record: deploy/.env is left as it is. The same block is in install.sh and in
+  # box-install.sh's deferred seal; a test keeps the two identical
+  KEK_USED=""; [ -f deploy/site/kek-backend ] && KEK_USED="$(tr -d ' \r\t\n' < deploy/site/kek-backend)"
+  case "$KEK_USED" in
+    tpm|shamir|passphrase)
+      { [ -f deploy/.env ] && [ ! -L deploy/.env ]; } \
+        || die "deploy/.env is missing or a link: TB_KEK_BACKEND=$KEK_USED was not written (put the file back, then run this again)"  # H-94 (5): the file that holds the box's secrets
+      [ -z "$(tail -c 1 deploy/.env)" ] || echo >> deploy/.env  # a last line without its newline is not joined
+      { sed -i '/^[[:space:]]*\(export[[:space:]]\+\)\?TB_KEK_BACKEND=/d' deploy/.env \
+          && echo "TB_KEK_BACKEND=$KEK_USED" >> deploy/.env; } || die "deploy/.env: TB_KEK_BACKEND=$KEK_USED could not be written"  # H-94 (5): the file that holds the box's secrets
+      echo "    the KEK back end that sealed the keys: $KEK_USED (recorded by seal_keys.sh; deploy/.env TB_KEK_BACKEND)" ;;
+    *) echo "    note: no record of the KEK back end in deploy/site/kek-backend (above): deploy/.env not changed" >&2 ;;
+  esac
 fi
 TZ_NEW="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tz"])' "$FR/answers.json")"
 if [ -n "${TB_BOX_PY:-}" ]; then APPLY=(--firstrun "$FR" --hardware "$BOX/hardware.json" --deploy "$ROOT/deploy")
@@ -583,6 +629,17 @@ if grep -q '^TB_BACKUP_TARGETS=.' deploy/.env && [ -z "${TB_BOX_PY:-}" ]; then
     || echo "box-install: warning: the backup schedule is not installed yet (the health page says why; T-730)" >&2
 fi
 rm -f "$BOX/prepared"
+# SEED (M1): the sample hospital and study on a box that is not in use, what the network and disks suggest for the page
+# "Information still needed"; neither stops the install, and each can be run again
+if [ -z "${TB_BOX_PY:-}" ] || [ -n "${TB_BOX_SEED:-}" ]; then
+  say "site seed"
+  # shellcheck disable=SC2086 # a command line on purpose (tests)
+  ${TB_BOX_SEED:-python3 -m tools.site_seed run --deploy "$ROOT/deploy"} 2>&1 | sed 's/^/    /' \
+    || echo "box-install: warning: the site seed did not finish (above): sudo python3 -m tools.site_seed run" >&2
+  python3 -m tools.box propose --deploy "$ROOT/deploy" 2>/dev/null \
+    || echo "box-install: warning: the network and disks could not be read for proposals" >&2
+fi
+# ---- end of SEED
 say "host check"
 set +e
 # shellcheck disable=SC2086 # a command line on purpose (tests)
@@ -599,6 +656,7 @@ if [ -n "$OWNER" ]; then
 else
   printf '\n  TrialBox is ready: https://%s  (sign in with the account you made in the set-up)\n' "$HOST"
 fi
+printf '  Information still needed: https://%s/admin/still-needed\n' "$HOST"
 # H-94: the host check's FAIL lines (above) end the run with its code; on a PoC box a warning and a line of the list
 [ "$rc" = 0 ] || [ -z "$SECRET_FAIL" ] || exit "$rc"  # H-94 (5): a secret's file or key where others can read it
 [ "$rc" = 0 ] || stop_or_warn --rc "$rc" --silent host-check "" "the host check reported FAIL lines (above)"

@@ -38,8 +38,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from tb_common import site_country
-from tb_common.box_answers import BackupKind, OwnerAnswers, SourceKind
+from tb_common import site_country, site_needs
+from tb_common.box_answers import BackupKind, OwnerAnswers, SourceKind, person_name, stand_ins
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / "deploy"
@@ -57,6 +57,9 @@ SECOND_DISK_MOUNT = "/srv/trialbox-backup"
 SHARE_MOUNT = "/mnt/trialbox-share"
 FIRSTRUN_DIR = "/run/trialbox-firstrun"  # tmpfs: the answers (and a passphrase) never reach a disk
 BOX_MAPPING = "mapping/tw_core/box_site.yaml"
+PROVISIONAL_MAIL = "owner@box.invalid"
+SAMPLE_FEED = "./site/sample"  # M1: the sample hospital (synthetic, tools/site_seed.py)
+SHIPPED_DEPARTMENTS = "shipped"  # the wizard reads the shipped list (M2's): it is in the image, not on the host
 BOX_SOURCE_MOUNT = "/data/source/site"  # where compose mounts the feed folder, read-only (TB_SOURCE_MOUNT)
 # OD-10: below half of the compose files' own caps the services were never measured: such a machine is refused
 MIN_SERVICE_SHARE = 0.5
@@ -105,6 +108,7 @@ class BoxPlan:
     env_extra: dict[str, str]
     files: dict[str, str]  # path under deploy/ -> text
     warnings: list[str] = field(default_factory=list)
+    stand_ins: frozenset[str] = frozenset()  # M1 (D-1280): items of site_needs the box runs on its own value for
 
     @property
     def install_args(self) -> list[str]:
@@ -516,7 +520,10 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
             "SS-MIX2: the shipped Japanese code tables (JLAC10, byomei, YJ) are sample rows marked verify: check them "
             "and load the site's licensed releases (services/adapter/mapping/jp_core/ssmix2_site.yaml)"
         )
-    ds: dict[str, Any] = {"data_source_host_dir": "./site/feed", "mapping": mapping}
+    # M1: a box that is not in use reads the sample hospital (tools/site_seed.py) until a source is given
+    sample = a.source is SourceKind.LATER and a.environment != "PRODUCTION"
+    feed = a.source_dir or (SAMPLE_FEED if sample else "./site/feed")
+    ds: dict[str, Any] = {"data_source_host_dir": feed, "mapping": mapping}
     if a.source is SourceKind.SSMIX2:
         # 10K-1: the SS-MIX2 storage's root folder, mounted read-only where the adapter reads it (the ssmix2 reader)
         ds |= {
@@ -545,8 +552,11 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     env["TB_BACKUP_MAILTO"] = email  # OD-16: the owner is told (the message path itself is T-730's)
     env["TB_BACKUP_ALERT_ROUTE"] = "health-page"  # D-735: without a mail agent the health tab carries the alert
     # 10K-21 (D-1365): the first-run page's answers, written only when given (a box that was not asked: as before)
-    if a.health_page_person:
-        env["TB_BACKUP_ALERT_WATCHER"] = a.health_page_person  # who opens the health tab every working day
+    # M1 (UX finding 6): who opens the health tab every working day; the first administrator until one is named
+    provisional_owner = email == PROVISIONAL_MAIL  # before the owner's answers: nobody stands in for anybody
+    watcher = a.health_page_person or ("" if provisional_owner else person_name(a.owner.full_name))
+    if watcher:
+        env["TB_BACKUP_ALERT_WATCHER"] = watcher
     if a.tls_root_confirmed_by:  # who in hospital IT confirmed the box's root certificate is on the PCs, and when
         env["TB_TLS_ROOT_CONFIRMED_BY"] = a.tls_root_confirmed_by
         env["TB_TLS_ROOT_CONFIRMED_ON"] = a.tls_root_confirmed_on
@@ -575,7 +585,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "alliance_sites": [],
         **ds,
         "registry_type": "none",
-        "departments": {},
+        "departments": SHIPPED_DEPARTMENTS,
         "practitioners": {},
         "llm_mode": mode,
         "cloud_enabled": "no",
@@ -584,7 +594,11 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "twpas_enabled": "no",
         "alliance_root": "no",
         "cohort_rulesets": [],
-        "smtp_host": "",
+        "smtp_host": a.smtp_host,
+        **({"smtp_port": a.smtp_port} if a.smtp_port else {}),
+        "sae_office_mailbox": a.sae_office_mailbox
+        or ("" if provisional_owner else email),  # D-1280: the administrator's mail stands in
+        "stand_ins": sorted(stand_ins(a)),
         "imap_host": "",
         "mta_authserv_id": a.mta_authserv_id,  # D-825: the owner's answer; empty: mail stays closed (D-369)
         "tls_hostname": a.hostname,
@@ -605,7 +619,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
             "no usable TPM (systemd-creds has-tpm2): the site keys are sealed under a passphrase the owner "
             "sets, typed after every restart"
         )
-    return BoxPlan(profile, mode, wizard, env, files, warnings)
+    return BoxPlan(profile, mode, wizard, env, files, warnings, stand_ins(a))
 
 
 def provisional(hw: Hardware) -> OwnerAnswers:
@@ -615,7 +629,7 @@ def provisional(hw: Hardware) -> OwnerAnswers:
 
     a, problems = parse({
         "site_name": "TrialBox", "tz": hw.host_tz or "UTC", "language": "en",
-        "owner": {"full_name": "owner", "username": "owner", "email": "owner@box.invalid"},
+        "owner": {"full_name": "owner", "username": "owner", "email": PROVISIONAL_MAIL},
         "box_name": hw.hostname, "backup": {"kind": "later"}, "source": "later",
     })  # fmt: skip
     if a is None:
@@ -623,12 +637,16 @@ def provisional(hw: Hardware) -> OwnerAnswers:
     return a
 
 
-def write(p: BoxPlan, deploy: Path, answers_out: Path) -> None:
-    """The site files under ``deploy`` and the wizard's answers file (JSON, which is YAML), 0600."""
+def write(p: BoxPlan, deploy: Path, answers_out: Path, *, keep: bool = False) -> None:
+    """The site files under ``deploy`` (``keep``: one that is there stays as it is) and the wizard's answers file (JSON,
+    which is YAML), 0600."""
     for rel, text in p.files.items():
         f = deploy / rel
+        if keep and f.exists():
+            continue
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(text, encoding="utf-8")
     answers_out.parent.mkdir(parents=True, exist_ok=True)
     answers_out.write_text(json.dumps(p.wizard_answers, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     answers_out.chmod(0o600)
+    site_needs.write_stand_ins(deploy, p.stand_ins)
