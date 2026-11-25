@@ -269,20 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         for line in problems:
             print(f"{BY}: {line}")
         return 1 if problems else 0
-    from tb_common.config import load_env
-
-    db = None
-    try:
-        from omop import schema
-
-        db = schema.connect()
-    except FAILED as exc:  # the vocabulary out of reach: said in the report, never a stop
-        print(f"{BY}: warning: the vocabulary database could not be opened ({type(exc).__name__})", file=sys.stderr)
-    try:
-        report = run(where, a.fhir or load_env().fhir_base_url, db, a.wait)
-    finally:
-        if db is not None:
-            db.close()
+    report = run_here(where, a.fhir, a.wait)  # M2: the one place that opens the vocabulary database
     for key, why, fault in skipped(report):
         print(f"{BY}: warning: {key} not loaded: {why}", file=sys.stderr)
         if a.deploy and fault:
