@@ -232,17 +232,6 @@ mkdir -p "$(dirname "$OUT")"
   "${IMAGES[@]}") || exit 2
 
 ITEMS=(); PINS=(); SAVED=(); M_ITEMS=(); M_SAVED=()
-CONFIG_ID='import json, sys
-print(json.load(sys.stdin)[0]["Config"].rsplit("/", 1)[-1].removesuffix(".json"))'
-PINS_JSON='import json, re, sys
-pins = []
-for arg in sys.argv[2:]:
-    ref, _, cfg = arg.rpartition("=")
-    cfg = cfg if cfg.startswith("sha256:") else "sha256:" + cfg
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", cfg):
-        sys.exit(f"make_bundle: {ref}: no image id in the saved archive ({cfg})")
-    pins.append({"ref": ref, "image": cfg})
-json.dump({"pins": pins}, open(sys.argv[1], "w"), indent=1)'
 echo "==> images"
 for img in "${IMAGES[@]}"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "    pulling $img"; docker pull -q "$img" >/dev/null; }
@@ -250,9 +239,10 @@ for img in "${IMAGES[@]}"; do
   ref="$img"
   case "$img" in *@sha256:*)
     # a digest-pinned image saved by its digest loads back with no name, so compose cannot find it offline and tries
-    # to pull (found by the box rehearsal, D-176): save it under its tag. Docker's containerd image store resolves
-    # the digest reference to it again; the classic overlay2 store keeps no digests, so the bundle also carries the
-    # image id that docker save wrote (its config digest), and tools/image_pins.py points compose at that id
+    # to pull (found by the box rehearsal, D-176): save it under its tag. Neither image store of the container
+    # engine is sure to resolve the digest reference after a load (the classic store keeps no digests; the newer
+    # store gives the image another id, H-149), so the bundle also carries the pin read out of the saved archive: its
+    # config digest, tag, layer diff ids and config (tools/image_pins.py proves the loaded image by them)
     ref="${img%@*}"; case "${ref##*/}" in *:*) ;; *) ref="$ref:pinned" ;; esac
     docker tag "$img" "$ref" ;;
   esac
@@ -263,11 +253,10 @@ for img in "${IMAGES[@]}"; do
   else
     ITEMS+=("image:$f=$(basename "$f")"); SAVED+=(--image "$img=$f")
   fi
-  [ "$ref" = "$img" ] || PINS+=("$img=$(tar -xOf "$f" manifest.json | "$PY" -c "$CONFIG_ID")")
+  [ "$ref" = "$img" ] || PINS+=("$img=$ref=$f")
 done
 if [ ${#PINS[@]} -gt 0 ]; then
-  "$PY" -c "$PINS_JSON" "$STAGE/image-pins.json" "${PINS[@]}"
-  echo "    image pins: ${#PINS[@]} digest references (image-pins.json)"
+  (cd "$ROOT" && PYTHONPATH="$ROOT" "$PY" -m tools.image_pins bundle-pins "$STAGE/image-pins.json" "${PINS[@]}") || exit 1
   ITEMS+=("other:$STAGE/image-pins.json=image-pins.json")
 fi
 if [ -n "$MODELS" ]; then
