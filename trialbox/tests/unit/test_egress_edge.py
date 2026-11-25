@@ -198,7 +198,9 @@ def test_a_study_s_own_number_stays_and_a_chart_number_under_its_head_does_not()
 def test_a_consent_form_keeps_the_hospital_s_own_telephone_and_nothing_of_a_patient() -> None:
     page = b"<p>Emergency line 02-2312-3456. MRN: 70000054</p>"
     audit = Audit()
-    form = ee.leave("mail.staff", "x", ee.Message("s", "b", (("consent_RA01_zh-TW.html", page),)), audit=audit, actor="t")
+    form = ee.leave(
+        "mail.staff", "x", ee.Message("s", "b", (("consent_RA01_zh-TW.html", page),)), audit=audit, actor="t"
+    )
     assert b"02-2312-3456" in form.files[0][1] and b"70000054" not in form.files[0][1]
     other = ee.leave("mail.staff", "x", ee.Message("s", "b", (("report.html", page),)), audit=audit, actor="t")
     assert b"02-2312-3456" not in other.files[0][1]
