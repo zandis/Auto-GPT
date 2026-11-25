@@ -528,6 +528,7 @@ objects-dir:
 	       "another user): remove it (sudo rm -rf $(OBJECTS_DIR)) and run again" >&2; exit 1; }
 
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
+	@echo "up-test: the test stack is compose project $(TEST_PROJECT), TB_ENV=TEST and TB_DATA_CLASS=D0, whatever this shell exports"
 	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects
 	set -o pipefail; $(COMPOSE_TEST) config --format json | PYTHONPATH=libs:services:. $(PY) -m tools.test_stack_free $(TEST_PROJECT)
 	$(COMPOSE_TEST) up -d --wait

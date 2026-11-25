@@ -194,3 +194,8 @@ def _takes_test() -> list[str]:
     doc = yaml.safe_load((DEPLOY / "docker-compose.test.yml").read_text(encoding="utf-8"))
     return [n for n, s in (doc.get("services") or {}).items()
             if isinstance(s, dict) and "${TB_ENV:-TEST}" in json.dumps(s.get("environment") or {})]  # fmt: skip
+
+
+def test_up_test_says_on_its_first_line_that_the_stack_is_test() -> None:
+    first = _recipe("up-test").splitlines()[0]
+    assert first.lstrip("\t").startswith("@echo") and "TB_ENV=TEST" in first and "TB_DATA_CLASS=D0" in first
