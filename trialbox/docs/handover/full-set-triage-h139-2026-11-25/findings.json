@@ -34,7 +34,7 @@
   {
    "id": "H139-04",
    "severity": "Low",
-   "claim": "lane H's fixtures built box trees under the run's umask, so at umask 0002 the product rightly refused them (deploy/.env, deploy/site, a passphrase folder writable by the group); fixed: the built trees as root makes them (H-115's helper)",
+   "claim": "lane H's fixtures build box trees under the run's umask, so at umask 0002 the product rightly refuses them (deploy/.env, deploy/site, a passphrase folder writable by the group); held for the integrator's ruling, proposed fix: the built trees as root makes them (H-115's helper)",
    "lane": "H",
    "basis": "shown",
    "state": "open",
@@ -43,20 +43,20 @@
   {
    "id": "H139-05",
    "severity": "Low",
-   "claim": "lane D's backup tests run the bare psql and pg_dump from PATH (58 reds on the bench host), and backup.py meets a missing client tool with a bare FileNotFoundError instead of naming it",
+   "claim": "lane D's backup tests ran the bare psql and pg_dump from PATH (58 reds on the bench host), and backup.py met a missing client tool with a bare FileNotFoundError, a restore after it had emptied the schemas; fixed: the tests hand in the cluster's client tools, backup.py refuses the tool by name and setting before any change",
    "lane": "D",
    "basis": "shown",
    "state": "open",
-   "place": "tests/unit/test_backup.py, test_backup_restic.py, test_backup_busy_night.py, test_restore_drill.py; tools/trialbox/backup.py take_snapshot"
+   "place": "tests/unit/test_backup.py, test_backup_restic.py, test_backup_busy_night.py, test_restore_drill.py; tools/trialbox/backup.py _client, dump, take_snapshot, restore_db"
   },
   {
    "id": "H139-06",
    "severity": "Low",
-   "claim": "the console's Node Playwright check runs at import inside a skipif, so a node slower than 60 s makes every importing module a collection error, once per xdist worker (112 on the bench host)",
+   "claim": "the console's Node Playwright check ran at import inside a skipif, once per importing module, so a node slower than 60 s made every importing module a TimeoutExpired traceback, in every xdist worker (112 on the bench host); fixed: checked once per test process, a timeout one plain line, never a skip",
    "lane": "J",
    "basis": "shown",
    "state": "open",
-   "place": "tests/console/test_cjk_layout.py _node_playwright, imported by tests/console/test_button_targets_9k3.py"
+   "place": "tests/console/test_cjk_layout.py _node_playwright, tests/node_check.py"
   },
   {
    "id": "H139-07",
@@ -66,6 +66,24 @@
    "basis": "hypothesis",
    "state": "open",
    "place": "tests/unit/test_erasure_reach.py reach fixture"
+  },
+  {
+   "id": "H139-08",
+   "severity": "Medium",
+   "claim": "the compose test stack and a box installed on the same host share the compose project name trialbox (deploy/docker-compose.yml name:), so make up-test may talk to or re-create the installed box; the compose stage's 401s and its backup red fit this reading, not run here (no Docker daemon)",
+   "lane": "Int",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "deploy/docker-compose.yml name, Makefile COMPOSE_TEST and up-test"
+  },
+  {
+   "id": "H139-09",
+   "severity": "Low",
+   "claim": "more tests run the bare psql or pg_dump from PATH: test_ops_pages and test_admin_screens_209c (shown), test_backup_verifies_itself, test_backup_without_pause, test_rehearsal_restic, test_refdata, test_update_path (shown), test_db_image (hypothesis: its skip without pg_dump is a failure under TB_STRICT_SKIPS)",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/console/test_ops_pages.py, tests/console/test_admin_screens_209c.py, tests/unit/ (five files), tests/integration/test_db_image.py"
   }
  ]
 }

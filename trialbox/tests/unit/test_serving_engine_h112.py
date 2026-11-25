@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.host_modes import as_root_makes_it
 from tests.unit.test_compose_limits import BASE, DEPLOY, DUMMY_ENV, STACKS, _compose, _load, _merge
 from tools import engine_compare as ec
 from tools import images_lock as il
@@ -72,7 +71,6 @@ def _box(tmp: Path, stack: tuple[str, ...], extra: str = "", settings: dict[str,
         p = d / sp.SETTINGS
         p.write_text("".join(f"{k}={v}\n" for k, v in settings.items()), encoding="utf-8")
         p.chmod(0o600)
-    as_root_makes_it(d)  # H-139: as the installer leaves it, at any umask of the run
     return d
 
 
