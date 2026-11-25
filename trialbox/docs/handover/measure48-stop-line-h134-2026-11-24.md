@@ -25,8 +25,11 @@ seconds:
 
 | Gate | High | Scaled seconds left for it | Wall time from the start of the steps |
 | --- | --- | --- | --- |
-| stage 4, s05-stub | 1.05 h | 60 | 0.4 s |
-| stage 6, the ladder | 0.80 h | 960 | 6.4 s |
+| stage 4, s05-stub | 1.05 h | 60, less than one 150 s step | up to the first whole second after `T0`: from a few milliseconds to 1 s |
+| stage 6, the ladder | 0.80 h | 960, six whole steps | up to the seventh whole second after `T0`: between 6 and 7 s |
+
+The host clock counts whole seconds (`date +%s`), so the run's time moves in steps of 150 scaled seconds, and a gate
+fails at a second boundary, not at a fraction of one (1486-3 of the external review of #1486).
 
 On a loaded runner the steps before a gate took longer than that, the stage was "not started", the run ended at
 the gate and the ladder never reached the hang, so no SIGINT was sent. Both forms were seen here: s05-stub not

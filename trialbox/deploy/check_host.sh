@@ -523,6 +523,11 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
       PIDMAP_ROW="${PIDMAP_OUT:-none}"
     fi
   fi
+  # H-136: the hold after a restore (D-522), read through the box as the doctor reads it on a host (compose exec db,
+  # tools/trialbox/box_hold.py, the standard library only): this doctor has no engine to ask. One JSON line, held,
+  # released or unread with its cause, which the doctor FAILs (an operator told nothing is held while it is on)
+  HOLD_LINE="$(cd "$ROOT_DIR" && python3 -m tools.trialbox.box_hold "$ROOT_DIR/deploy" 2>/dev/null)" || HOLD_LINE=""
+  [ -n "$HOLD_LINE" ] || HOLD_LINE='{"state": "unread", "cause": "the host check could not run python3 -m tools.trialbox.box_hold"}'
   # $AUDIT_MOUNTS and $RUNNING_IDS are lists of words by design (the folders' paths hold no space on a box)
   running_env() {
     # shellcheck disable=SC2086
@@ -532,7 +537,8 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   doctor_in_image() {
     # shellcheck disable=SC2086
     if docker run --rm --network none --env-file "$ENV_FILE" -i -e TB_HOST_TZ="$HOST_TZ" \
-        -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
+        -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -e TB_DOCTOR_RESTORE_HOLD="$HOLD_LINE" \
+        -v "$ROOT_DIR/deploy:/app/deploy:ro" \
         ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} ${TERM_MOUNT:+-v "$TERM_MOUNT"} ${LDAP_MOUNT:+-v "$LDAP_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
         "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
       return 0

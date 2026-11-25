@@ -152,6 +152,9 @@ if args[0] == "compose":
         sys.exit(1)
     sys.exit(0)
 
+if args[0] in ("volume", "container"):  # H-132: no such volume or container here (the box file's folder is used)
+    sys.exit(1)
+
 # run: the restore's container
 mark("container")
 got = []
