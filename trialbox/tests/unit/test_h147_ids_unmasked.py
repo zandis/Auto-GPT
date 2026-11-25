@@ -193,3 +193,55 @@ def test_a_run_is_started_under_a_site_rule_that_reads_letters(
     assert started.status_code == 202, started.text
     rid = started.json()["run"]
     assert len(rid) == ids.LENGTH and set(rid) <= set(ids.ALPHABET)
+
+
+def _formatted(caplog: pytest.LogCaptureFixture, msg: str, service: str) -> str:
+    """The line the service's own formatter writes for the record ``msg`` (the scrubber runs there)."""
+    from tb_common.logging import JsonFormatter
+
+    [record] = [r for r in caplog.records if r.getMessage() == msg]
+    return JsonFormatter(service).format(record)
+
+
+def test_the_compilers_error_id_is_logged_whole(
+    monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """H147-02: a 500 gives the caller an ``error_id`` to find the log line by; with a draw the scrubber cuts
+    planted where the old id came from (``uuid4().hex[:12]``), the logged line must still hold the id whole."""
+    import uuid
+
+    from tests.unit.test_compiler_answers_every_failure import _post
+
+    rng = random.Random(147)
+    cut = next(h for h in (rng.randbytes(6).hex() for _ in range(20_000)) if redact(h) != h)
+    planted = uuid.UUID(hex=cut + "0" * 20)
+    monkeypatch.setattr(uuid, "uuid4", lambda: planted)
+    resp, _ = _post(monkeypatch, KeyError("a value that must never be shown"))
+    assert resp.status_code == 500
+    error_id = resp.json()["detail"]["error_id"]
+    logged = "".join(capfd.readouterr())  # the service's own handler writes the scrubbed lines out
+    assert '"msg": "unhandled error"' in logged and f'"error_id": "{error_id}"' in logged
+
+
+def test_a_cascade_runs_id_is_logged_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """H147-03: a failed cascade run is logged by its id; with a ULID the scrubber cuts planted where the old id came
+    from (``new_ulid``), the logged line must still hold the run's id whole."""
+    from console import cascade
+    from tb_common.ulid import new_ulid
+
+    cut = next(u for u in (new_ulid() for _ in range(2_000_000)) if redact(u) != u)
+    monkeypatch.setattr(cascade, "new_ulid", lambda: cut, raising=False)  # where the old code drew it
+
+    def broke(source: Path, trial: str, out: Path) -> dict[str, object]:
+        raise RuntimeError("the drop could not be read")
+
+    drop = tmp_path / "drop"
+    drop.mkdir()
+    (drop / "patient.csv").write_text("pid\n", encoding="utf-8")  # a synthetic site drop is "mounted"
+    done = threading.Event()
+    caplog.set_level("ERROR")
+    run = cascade.CascadeRuns(tmp_path / "runs", drop, runner=broke).start("GZQO", "crc", lambda _r: done.set())
+    assert done.wait(30)
+    assert f'"run": "{run.run_id}"' in _formatted(caplog, "cascade run failed", "console")
