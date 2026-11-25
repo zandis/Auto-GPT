@@ -139,11 +139,17 @@ def test_an_input_that_ends_before_the_administrator_stops_with_nothing_made() -
     assert raw["tz"] == "Asia/Tokyo" and raw["owner_full_name"] == "A B"
 
 
-def _on_a_terminal(tmp_path: Path, typed: str, *args: str, tpm: bool = True) -> tuple[int, str, str]:
-    """``box-install.sh`` with a terminal for its input, which is closed after ``typed``."""
+def _tree(tmp_path: Path) -> dict[str, Any]:
     from tests.console.test_box_install_rehearsal import _tree
 
-    t: dict[str, Any] = _tree(tmp_path)
+    return _tree(tmp_path)
+
+
+def _on_a_terminal(
+    tmp_path: Path, typed: str, *args: str, tpm: bool = True, tree: dict[str, Any] | None = None
+) -> tuple[int, str, str]:
+    """``box-install.sh`` with a terminal for its input, which is closed after ``typed``."""
+    t = tree or _tree(tmp_path)
     hw = {**HW, "tpm": tpm}
     Path(t["env"]["TB_BOX_HARDWARE"]).write_text(json.dumps(hw), encoding="utf-8")
     main, sub = pty.openpty()
@@ -181,6 +187,24 @@ def test_no_prompt_after_the_fourth_answer_and_exit_0(tmp_path: Path) -> None:
     assert planned["env_extra"]["TB_ENV"] == "VALIDATION" and planned["data_source_host_dir"] == bp.SAMPLE_FEED
     kept = deploy / "site" / "box" / "owner.json"
     assert kept.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("how", ["exit 1", "kill -9 0"], ids=["stopped", "killed"])
+def test_an_install_cut_off_goes_on_with_the_same_answers_and_asks_nothing(how: str, tmp_path: Path) -> None:
+    """Interrupted in the install phase and run again: the answers are kept, nothing is asked, the same settings."""
+    t = _tree(tmp_path)
+    stub = Path(t["env"]["TB_BOX_INSTALL"])
+    good = stub.read_text(encoding="utf-8")
+    stub.write_text(f"#!/bin/sh\n{how}\n", encoding="utf-8")
+    rc, _, _ = _on_a_terminal(tmp_path, "en\n\nit@hospa.test\nIT Desk\n", "--environment", "VALIDATION", tree=t)
+    planned = t["deploy"] / "site" / "box" / "answers.json"
+    first = planned.read_bytes()
+    assert rc != 0 and not (t["deploy"] / "site" / "box" / "applied").exists()
+    stub.write_text(good, encoding="utf-8")
+    rc, out, _ = _on_a_terminal(tmp_path, "", "--environment", "VALIDATION", tree=t)
+    assert rc == 0, out[-2000:]
+    assert "the answers of the earlier run are kept" in out and "1 of 4" not in out
+    assert planned.read_bytes() == first
 
 
 def test_without_a_tpm_the_fourth_is_the_passphrase_and_no_file_holds_it(tmp_path: Path) -> None:

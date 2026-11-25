@@ -2,10 +2,12 @@
 {# M1 (D-1280): "Information still needed": the open items by the step that needs them, and every install question #}
 {% import "_fields.html" as fm with context %}
 {% set noauto = {'autocapitalize': 'none', 'spellcheck': 'false', 'maxlength': '255'} %}
-{% block title %}{{ fm.title(fe, t('stillneeded.title')) }}{% endblock %}
+{% from "_ds.html" import page_header %}
+{# the tab's <title> says "Error:" after a failed POST (base.html reads this page_title); the heading never does #}
+{% set page_title = fm.title(fe, t('stillneeded.title')) %}
 {% block content %}
 {{ fm.error_summary(fe, testid='sn-errors') }}
-<div class="headrow"><h1>{{ t('stillneeded.title') }}</h1><a class="button secondary" href="/admin">{{ t('nav.admin') }}</a></div>
+{% set page_title = t('stillneeded.title') %}{% call page_header(page_title) %}<a class="button secondary" href="/admin">{{ t('nav.admin') }}</a>{% endcall %}
 <p>{{ t('stillneeded.intro') }}</p>
 {% if sent %}<p class="ok" role="status" data-testid="sn-sent">{{ t('stillneeded.sent') }}</p>{% endif %}
 {% if mail_off %}<p class="warn" data-testid="sn-mail-off">{{ t('stillneeded.mail.off') }}</p>{% endif %}
