@@ -1,6 +1,6 @@
 """Which tier a CI run gets (CI-TIER, D-970; D-564, D-578, D-969 before it).
 
-    python3 trialbox/tools/ci_tier.py < changed-paths     # prints full=<true|false> and scenarios=<true|false>
+    python3 trialbox/tools/ci_tier.py < changed-paths     # prints full=, scenarios= and unit=<true|false>
 
 The `changes` job of ``.github/workflows/trialbox-ci.yml`` runs it with the runner's python3 (standard library only),
 reading what it needs from the environment: EVENT, DRAFT, HEAD_REF, PROVED, DOCS_ONLY, LABELS (the pull request's
@@ -19,6 +19,12 @@ standard input; a push or a run by hand has none.
 * Whatever ``CARD_TIER`` says: a draft and a docs-only card (D-969) run the fast tier unless labelled ``ci:full``.
 
 ``scenarios`` is true whenever ``full`` is, except in that one ``touched`` case.
+
+``unit`` (H-120, D-1324): the unit shards and their aggregate `unit` run on every pull request, whatever its tier,
+draft state, labels or paths (a docs-only one too: ``ci_docs_only.CODE_READS`` was found incomplete, L-CI-1); a
+push and a run by hand run them when ``full`` says so. The workflow runs the two unit jobs unless this says
+``false``, so a `changes` job that failed or said nothing runs them too. tests/unit/test_h120_unit_shards_every_pr.py
+holds both halves.
 
 The tiers' jobs are unchanged by D-1119: the fast tier's `checks` job ends with the guard tests (the test files marked
 ``guard``, static readers of the tree, no database) and the collection check of a pull request's changed test files,
@@ -154,12 +160,22 @@ def decide(env: Mapping[str, str], paths: list[str]) -> tuple[bool, bool, str]:
     return True, True, "a card (CARD_TIER=touched): the full tier"
 
 
+def unit_shards(env: Mapping[str, str], full: bool) -> tuple[bool, str]:
+    """``(unit, why)``: whether the unit shards run (H-120, D-1324): on every pull request, else as ``full``."""
+    if env.get("EVENT", "") == "pull_request":
+        return True, "the unit shards run on every pull request (H-120, D-1324), whatever its tier"
+    return full, f"the unit shards run with the {'full' if full else 'fast'} tier"
+
+
 def main() -> int:
     paths = [ln.strip() for ln in sys.stdin.read().splitlines() if ln.strip()] if not sys.stdin.isatty() else []
     full, scenarios, why = decide(os.environ, paths)
     print(f"full={'true' if full else 'false'}")
     print(f"scenarios={'true' if scenarios else 'false'}")
+    unit, unit_why = unit_shards(os.environ, full)
+    print(f"unit={'true' if unit else 'false'}")
     print(f"ci_tier: {why}", file=sys.stderr)
+    print(f"ci_tier: {unit_why}", file=sys.stderr)
     print(f"ci_tier: {GUARD_NOTE}", file=sys.stderr)
     return 0
 

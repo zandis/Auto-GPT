@@ -667,7 +667,7 @@ def _seal_here(a: argparse.Namespace, old: bytes) -> bool:
     """LR-6: whether this rotation seals its new KEK to the TPM. Only when the credential opens to this secrets
     folder's KEK now (or none is there and --seal-tpm asks for one): a credential sealing another KEK, another
     folder's or another box's, is never replaced. Read only."""
-    if a.backend != "file":
+    if a.backend != "file" or getattr(a, "no_tpm", False):  # --no-tpm: no credential is looked for or sealed
         return False
     present = _credential_present()
     if not present:
@@ -1059,23 +1059,32 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
         raise K.KekError(f"a KEK rotation is an audit event on every box: {problem}; nothing was changed")
     # LR-6: a box whose KEK is sealed by the TPM (or a new board, --seal-tpm) gets the new KEK sealed there too;
     # whether the credential is this folder's is read under the lock, once the old KEK is open
+    # Review of #1478 (1478-2): no TPM credential may be assumed but by --no-tpm, and an account that cannot look for
+    # one is refused, never told "done" with the credential left on the old KEK
+    no_tpm = bool(getattr(a, "no_tpm", False))
+    if no_tpm and a.backend != "file":
+        raise K.KekError("--no-tpm is for the file back end")
+    if no_tpm and getattr(a, "seal_tpm", False):
+        raise K.KekError("--no-tpm and --seal-tpm: give one; nothing was changed")
     if a.backend == "file":
         present = _credential_present()
-        if present is None:
-            if getattr(a, "seal_tpm", False):
-                raise K.KekError(f"{CREDENTIAL_FILE.parent} cannot be looked in by this account: --seal-tpm is run "
-                                 "as root; nothing was changed")  # fmt: skip
-            _say(f"{CREDENTIAL_FILE.parent} cannot be looked in by this account: if this box's KEK is sealed there, "
-                 "run rotate-kek as root")  # fmt: skip
-        elif (present or getattr(a, "seal_tpm", False)) and _creds_tool() is None:
+        if no_tpm and present:
+            raise K.KekError(f"{CREDENTIAL_FILE} is there: this box's KEK may be sealed to the TPM, so --no-tpm is "
+                             "refused; nothing was changed")  # fmt: skip
+        if present is None and not no_tpm:
+            raise K.KekError(f"{CREDENTIAL_FILE.parent} cannot be looked in by this account, so whether this box's "
+                             "KEK is sealed to the TPM there is unknown: run rotate-kek as root (sudo python -m "
+                             "tools.keys rotate-kek ...); on a box with no TPM credential, give --no-tpm. Nothing was "
+                             "changed")  # fmt: skip
+        if not no_tpm and (present or getattr(a, "seal_tpm", False)) and _creds_tool() is None:
             raise K.KekError(f"{CREDENTIAL_FILE} is there or asked for, and systemd-creds is not on this host to "
                              "seal the new KEK: the boot would open the old KEK only; nothing was changed")  # fmt: skip
     assert where_audit is not None
     if getattr(a, "seal_tpm", False):  # a new board: the credential's folder, so its lock can be taken
         CREDENTIAL_FILE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    touches = (a.backend == "file" and (bool(_credential_present()) or bool(getattr(a, "seal_tpm", False)))) or (
-        _journal_touches_credential(sec)
-    )
+    touches = (
+        a.backend == "file" and not no_tpm and (bool(_credential_present()) or bool(getattr(a, "seal_tpm", False)))
+    ) or _journal_touches_credential(sec)
     with _Locked(sec), _HostLock(touches):
         done = resume_rotation(sec, where_audit, "rotate-kek")
         if done is not None:
@@ -1350,6 +1359,9 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--seal-tpm", action="store_true",
                    help=f"file: seal the new KEK to this board's TPM ({CREDENTIAL_FILE}); a box that has that "
                         "credential always does (a new board opened from escrow: give it)")  # fmt: skip
+    r.add_argument("--no-tpm", action="store_true",
+                   help="file back end: this box has no TPM credential; the rotation does not look for one and "
+                        "never seals one (refused together with --seal-tpm)")  # fmt: skip
     with_passphrase(r, new=True)
     k = with_secrets(sub.add_parser("rotate", help="rotate one key"))
     k.add_argument("key", choices=("pid_map", "site_hmac", "totp", "backup"))

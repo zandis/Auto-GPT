@@ -53,6 +53,8 @@ if args[:1] == ["compose"]:
         sys.stdout.write("PGDMP synthetic dump")
     elif cmd == "run" and "snapshot" in rest:
         print("{}")
+    elif cmd == "exec" and any("pg_database_size" in a for a in rest):  # H-121: the size check reads a size
+        print("1000")
     elif cmd == "exec":
         sys.stdin.read() if not sys.stdin.isatty() else None
 elif args[:1] == ["info"]:
