@@ -89,7 +89,9 @@ _EN_FORWARD = (
     r"negative\s+for|never|rather\s+than|ruled?\s+out|to\s+exclude|with\s+no|without|none(?:\s+of)?|neither|nor|"
     r"no|not|[a-z]+n['’]t|cannot|na[iï]ve\s+(?:to|for|with\s+respect\s+to)|abstinen\w*\s+from|exclud\w*|"
     # card 10A-1b: a prohibition or an exception before the concept ("forbidden: X", "other than X", "except X")
-    r"other\s+than|except(?:\s+for)?|contraindicat\w*|forbid\w*|prohibit\w*|disallow\w*|preclud\w*"
+    r"other\s+than|except(?:\s+for)?|contraindicat\w*|forbid\w*|prohibit\w*|disallow\w*|preclud\w*|"
+    # D-1267: a cessation before the concept ("off corticosteroids", "refrained from smoking"): its absence is asked
+    r"off(?![-‐])|refrain\w*\s+from|abstain\w*\s+from|discontinu\w*"
 )
 _PARTICIPLE = r"[a-z]+(?:ed|en|wn|ne|ht)"  # administered, given, shown, done, brought
 _EN_BACKWARD = (
@@ -135,7 +137,9 @@ _JA_BACKWARD = (
     r"な[しいく]|無[しいく]|ません|おらず|せず|認めず|認めない|否定|除外|ではない|でない|ゼロ|"
     r"未(?:施行|実施|投与|治療|経験|使用|受診)|ナイーブ|禁煙|禁酒|断酒|"
     # card 10A-1b: a prohibition or an exception after the concept ("化学療法は不可", "禁止", "を除き", "以外")
-    r"不可(?!欠|避)|禁止|禁忌|許可しない|許容しない|認められない|除き|を除く|以外"
+    r"不可(?!欠|避)|禁止|禁忌|許可しない|許容しない|認められない|除き|を除く|以外|"
+    # D-1267: a negative result or a cessation after the concept ("HIV抗体陰性", "ステロイドを休薬", "投与を中止")
+    r"陰性|休薬|中止"
 )
 _JA_FORWARD = r"未|非|無"  # "未治療", "非妊娠", "無治療": a prefix right before the concept
 _JA_TERMINATE = r"ただし|但し|除き|を除く|以外"
@@ -153,9 +157,10 @@ _ZH_FORWARD = (
     r"從未|从未|未曾|不曾|尚未|並未|并未|須未|须未|必須未|必须未|沒有|没有|沒|没|無|无|不得|不可|不能|不應|不应|"
     r"否認|否认|排除|未|非|免於|免于|"
     # card 10A-1b: a prohibition, or an exception ("除X外"; not 切除, 摘除 …)
-    r"不允許|不允许|不准|禁止|禁用|禁忌|除了|(?<![切摘排去清割根免解移刪删])除(?=[^,，。;；]{1,12}外)"
+    r"不允許|不允许|不准|禁止|禁用|禁忌|除了|(?<![切摘排去清割根免解移刪删])除(?=[^,，。;；]{1,12}外)|"
+    r"停用|停藥|停药|中止"  # D-1267: a cessation before the concept ("停用類固醇至少兩週")
 )
-_ZH_BACKWARD = r"未曾|從未|从未|未|沒有|没有|不曾|陰性|阴性|不允許|不允许|不准|禁止|禁忌|不可"
+_ZH_BACKWARD = r"未曾|從未|从未|未|沒有|没有|不曾|陰性|阴性|不允許|不允许|不准|禁止|禁忌|不可|停用|停藥|停药|中止"
 _ZH_TERMINATE = r"但|但是|除了|除外|然而|惟|唯|以外"
 _ZH_BLOCK = r"惡化|恶化|進展|进展|反應|反应|效果|改善|控制|耐受|復發|复发"
 _ZH_PSEUDO = (
