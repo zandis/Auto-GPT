@@ -13,7 +13,7 @@ G = `tools/trialbox/sigends.py` (new).
 No exit code other than 0, 1 and 130 leaves a restore or an update because of a signal, and every end says the
 state line (RUNBOOK §5: "Every end says the box in one line"). The restore's own documented ends stay as RUNBOOK §5
 gives them: 2 (refused before anything stopped), 3 (a reference pack missing), 4 (NOT complete). The restore now
-maps any other code to 1 at its last line. Python's own start (before the entry's first line runs) still has the
+maps any other code to 1 at its last line. The integrator ruled on #1505 (7159615798) to keep 2, 3 and 4: they are documented and scripts may read them. A signal never ends with one of them, or with 0, and an undocumented failure ends 1. One test per code (`test_the_documented_ends_keep_their_codes_and_any_other_failure_is_1`). Python's own start (before the entry's first line runs) still has the
 defaults: a signal in those few milliseconds is the default's death. That window is not closed here.
 
 ## The changes, row by row

@@ -534,3 +534,37 @@ def test_a_signal_while_a_failure_is_said_ends_130(
     code = cli.main(argv, installed=True)
     assert "not asked (interrupted again)" in capsys.readouterr().err
     assert code == 130
+
+
+# ------------------------------------------------------------------------------------------------ the documented ends
+@pytest.mark.parametrize(
+    ("given", "code", "want"),
+    [
+        ("refused", 0, 2),  # the key readable by others: refused before anything stopped (RUNBOOK §5: exit 2)
+        ("restored", 3, 3),  # a reference pack missing (exit 3)
+        ("restored", 4, 4),  # NOT complete (exit 4)
+        ("restored", 7, 1),  # a code nobody documented: 1
+        ("none", 125, 1),  # the engine could not run the container, no signal: 1
+    ],
+)
+def test_the_documented_ends_keep_their_codes_and_any_other_failure_is_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], given: str, code: int,
+    want: int,
+) -> None:  # fmt: skip
+    """The integrator's ruling on #1505 (7159615798): 2, 3 and 4 are documented (RUNBOOK §5) and scripts may read
+    them, so they stay; a failure nobody documented ends 1; a signal never ends with one of them, or 0."""
+    import json
+
+    from tests.unit.test_restore_from_the_host_h100 import Recorder, _restore
+
+    deploy = _box(tmp_path)
+    if given == "refused":
+        (tmp_path / "usb" / "backup.key").chmod(0o644)
+    out = "" if given == "none" else json.dumps({"state": "restored", "hold": "held"})
+    got, _seen = _restore(deploy, tmp_path, monkeypatch, Recorder(running=["db", "console"]), out, code, "--restart")
+    err = capsys.readouterr().err
+    assert got == want, (got, err[-2000:])
+    if given == "refused":
+        assert "nothing was changed" in err.lower()
+    else:
+        assert "restore: the box now:" in err
