@@ -129,3 +129,26 @@ def test_the_runbooks_compose_lines_reach_the_test_stack_whatever_the_caller_exp
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "tbfullset")  # what the bench's runner exported
     rc, out = rd.shell('printf %s "$COMPOSE_PROJECT_NAME"', {})
     assert (rc, out) == (0, rd.TEST_PROJECT)
+
+
+def _started_from(row: dict[str, object], *files: str) -> dict[str, object]:
+    files_label = ",".join(f"/srv/tb/deploy/{f}" for f in files)
+    return {**row, "Labels": f"{row['Labels']},com.docker.compose.project.config_files={files_label}"}
+
+
+def test_the_poc_is_the_one_project_started_from_the_poc_file_never_a_guessed_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "trialbox")  # the box's own name: never taken on its word
+    box = _started_from(_row("trialbox-console-1", "trialbox", "console", "127.0.0.1:8090->8090/tcp"),
+                        "docker-compose.yml")  # fmt: skip
+    poc = _started_from(_row("pocrun-console-1", "pocrun", "console", "127.0.0.1:18090->8090/tcp"),
+                        "docker-compose.yml", "docker-compose.test.yml", stack.POC_FILE)  # fmt: skip
+    monkeypatch.setattr(stack, "_poc", [])
+    assert stack.poc_project(lambda: [box, poc]) == "pocrun"
+    monkeypatch.setattr(stack, "_poc", [])
+    with pytest.raises(stack.StackNotRunning, match="found: none"):
+        stack.poc_project(lambda: [box])  # a box alone is never taken for the POC
+    other = _started_from(_row("p2-console-1", "p2", "console", ""), stack.POC_FILE)
+    with pytest.raises(stack.StackNotRunning, match="found: p2, pocrun"):
+        stack.poc_project(lambda: [poc, other])

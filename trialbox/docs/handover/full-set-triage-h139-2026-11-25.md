@@ -260,6 +260,18 @@ On master 6c73db64, then at this branch's head, the same commands:
 - Tests: `tests/unit/test_stack_ports_h139.py`, 9 tests. On master's helpers: 8 failed, 1 passed (the import check
   passes there: master asks no engine at import). At head: 9 passed.
 
+### After push 6 (the integrator's 7161352305)
+
+- **No test or drill that drives a real engine names the box's project or volumes.** `tests/unit/test_no_box_project_h139.py`
+  reads the code (not the docstrings or comments) of the drills, the stack helpers and the e2e and integration tests.
+  It fails on a box volume (`trialbox_<volume>`, a database such as `trialbox_wf` is not one) and on the box's project
+  given to compose (`-p`, `--project-name`, COMPOSE_PROJECT_NAME). Push 5's restore drill is held in the test as a
+  sample: its four volume lines are caught. Unit tests are outside the rule, because they hand the product fakes of a
+  box called `trialbox`.
+- It found one at push 6: `stack.poc_project` fell back to `trialbox`, so on a host with a box and no POC, the POC test
+  would have read the box's containers. The POC's project is now the one project started from
+  `docker-compose.poc.yml`, read from the containers' labels. A box alone, or two POCs, is refused.
+
 ## Owners named in this card
 
 The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/unit/test_refdata.py` and

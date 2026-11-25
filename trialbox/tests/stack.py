@@ -13,7 +13,6 @@ holder. It never talks to a service of another stack on the same host, which has
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 from collections.abc import Callable, Iterable, Mapping
@@ -105,10 +104,22 @@ def port_of(name: str, containers: Iterable[Mapping[str, object]], config: Mappi
     return port
 
 
-def poc_project() -> str:
-    """The POC stack's compose project, as ``deploy/poc.sh`` names it (its PROJECT): the base file's ``trialbox``
-    unless COMPOSE_PROJECT_NAME says otherwise. It publishes the same TB_HOST_<NAME>_PORT ports."""
-    return os.environ.get("COMPOSE_PROJECT_NAME") or "trialbox"
+POC_FILE = "docker-compose.poc.yml"  # deploy/poc.sh starts the POC from it; a box never does
+_poc: list[str] = []  # the POC's project, once found
+
+
+def poc_project(ask: Callable[[], list[dict[str, object]]] = running_containers) -> str:
+    """The POC stack's compose project, read from its own containers: the one project started from the POC file.
+    Never a name guessed from the caller's environment, which on a host with a box is the box's own."""
+    if _poc:
+        return _poc[0]
+    projects = {_labels(r).get(PROJECT_LABEL, "") for r in ask() if POC_FILE in str(r.get("Labels") or "")}
+    projects.discard("")
+    if len(projects) != 1:
+        found = ", ".join(sorted(projects)) or "none"
+        raise StackNotRunning(f"one POC stack (started from {POC_FILE}) must be running (make poc); found: {found}")
+    _poc.append(projects.pop())
+    return _poc[0]
 
 
 _seen: dict[tuple[str, str], int] = {}
