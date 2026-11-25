@@ -773,7 +773,9 @@ if __name__ == "__main__":
     if not __package__:
         root = Path(__file__).resolve().parents[2]
         sys.path[:0] = [str(root), str(root / "libs"), str(root / "services")]
-    from tools.trialbox import launch  # H-88 (D-1089): its own import path, the box's settings, the box image
+    # H-88 (D-1089): launch: its own import path, the box's settings, the box image
+    from tools.trialbox import launch, sigends
 
+    sigends.own_exit()  # H-142: this process ends when the command returns; a restore or an update keeps it so
     _code = launch.enter(sys.argv[1:], installed=not __package__)
     raise SystemExit(_exit_code(main(installed=not __package__) if _code is None else _code))

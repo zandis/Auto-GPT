@@ -15,6 +15,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from tests.unit.test_restore_from_the_host_h100 import _box
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +32,7 @@ CHILD = textwrap.dedent(
     from tools.trialbox import box_restore as br, launch
 
     launch.enter = lambda args, environ=None, installed=False: None  # this host is no box: run the command here
+    real = br.BoxRestore.restore
 
     def restore(self, a):
     {body}
@@ -61,24 +64,38 @@ SAID_INTERRUPT = """
 """
 
 
-def run_entry(tmp_path: Path, body: str, last: str = "", first: str = "") -> tuple[int, str, str]:
-    """The entry as a script with the stand-in restore ``body``; ``first``: a signal once it says ``ready``;
-    ``last``: a signal on its way out. The exit code as a shell reads it (a signal's death: 128 + its number)."""
-    deploy = _box(tmp_path)
+def start_entry(
+    tmp_path: Path, body: str, deploy: Path, last: str = "", *more: str, ignored: str = ""
+) -> subprocess.Popen[str]:
+    """The entry as a script (``trialbox restore <file> --key <key> --yes --restart``) with the restore ``body``;
+    ``last``: a signal on its way out; ``ignored``: a signal its caller ignores (``nohup``)."""
     child = tmp_path / "child.py"
     child.write_text(CHILD.format(body=textwrap.indent(textwrap.dedent(body).strip("\n"), "    ")), encoding="utf-8")
     argv = [sys.executable, str(child), str(ROOT), str(ENTRY), "restore", str(tmp_path / "nas" / BACKUP), "--key",
-            str(tmp_path / "usb" / "backup.key"), "--yes", "--restart", "--deploy", str(deploy)]  # fmt: skip
+            str(tmp_path / "usb" / "backup.key"), "--yes", "--restart", "--deploy", str(deploy), *more]  # fmt: skip
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "H142_LAST": last}
-    p = subprocess.Popen(argv, cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if ignored:  # nohup: the command starts with SIGHUP ignored
+        assert ignored == "SIGHUP"
+        argv = ["nohup", *argv]
+    return subprocess.Popen(argv, cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def ended(p: subprocess.Popen[str]) -> tuple[int, str, str]:
+    """The exit code as a shell reads it (a signal's death: 128 + its number), stdout and stderr."""
+    out, err = p.communicate(timeout=60)
+    code = p.returncode
+    return (128 - code if code < 0 else code), out, err
+
+
+def run_entry(tmp_path: Path, body: str, last: str = "", first: str = "") -> tuple[int, str, str]:
+    """The entry with the stand-in restore ``body``; ``first``: a signal once it says ``ready``."""
+    p = start_entry(tmp_path, body, _box(tmp_path), last)
     assert p.stdout is not None
     if first:
         line = p.stdout.readline()  # the first signal once the handlers are in, never after a fixed sleep
         assert line == "ready\n", (line, p.communicate(timeout=30))
         p.send_signal(getattr(signal, first))
-    out, err = p.communicate(timeout=60)
-    code = p.returncode
-    return (128 - code if code < 0 else code), out, err
+    return ended(p)
 
 
 def test_the_entry_keeps_the_said_130_when_the_walks_second_signal_lands_on_its_way_out(tmp_path: Path) -> None:
@@ -86,3 +103,156 @@ def test_the_entry_keeps_the_said_130_when_the_walks_second_signal_lands_on_its_
     arrives after ``main`` returned. Without the entry's own ``_exit_code`` call: 143."""
     code, _out, err = run_entry(tmp_path, SAID_INTERRUPT, last="SIGTERM", first="SIGTERM")
     assert code == 130, (code, err[-2000:])
+
+
+# ------------------------------------------------------------------------------------------------ the stand-in box
+#: The box's engine and compose, stood in for by one script (``TB_DOCKER`` of the box file): compose answers from a
+#: state folder, and ``run`` is the restore's container. Each step it reaches writes its mark (``marks``) and then
+#: waits ``PAUSE`` s, the window a sweep's signal lands in. The container's start is the python's start: until it
+#: takes its own handlers (``started``), a signal is the default's death, as a real one's is.
+STANDIN = r"""
+import json, os, signal, sys, time
+state, args = sys.argv[1], sys.argv[2:]
+cfg = json.load(open(os.path.join(state, "cfg.json")))
+ALL = ["caddy", "console", "db", "orchestrator"]
+
+def mark(name):
+    with open(os.path.join(state, "marks"), "a") as fh:
+        fh.write(name + "\n")
+    time.sleep(cfg.get("pause", 0.15))
+
+def running():
+    try:
+        return open(os.path.join(state, "running")).read().split()
+    except OSError:
+        return list(ALL)
+
+def runs(names):
+    open(os.path.join(state, "running"), "w").write("\n".join(names))
+
+if args[0] == "compose":
+    rest = args[args.index("--project-directory") + 2:] if "--project-directory" in args else args[1:]
+    cmd = rest[0]
+    if cmd == "ps":
+        mark("ps")
+        fmt = "--format" in rest
+        print("\n".join(f"{s} healthy" if fmt else s for s in running()))
+    elif cmd == "stop":
+        mark("stop")
+        runs(["db"])
+    elif cmd == "up":
+        mark("up")
+        runs(ALL)
+    elif cmd == "config":
+        print("\n".join(ALL) if "--services" in rest else json.dumps({"services": {s: {} for s in ALL}}))
+    elif cmd == "exec" and "psql" in rest:
+        mark("db-size")
+        print(1000)
+    else:  # the orchestrator's audit: down, so the host keeps the event in its pending file
+        sys.exit(1)
+    sys.exit(0)
+
+# run: the restore's container
+mark("container")
+got = []
+for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    signal.signal(s, lambda n, f: got.append(n))
+mark("started")
+if got or cfg.get("container") == "unchanged":
+    print(json.dumps({"ok": False, "state": "unchanged"}))
+    sys.exit(1)
+mark("change")
+if got:
+    mark("put-back")
+    print(json.dumps({"ok": False, "state": "rolled_back"}))
+    sys.exit(1)
+print(json.dumps({"ok": True, "state": "restored", "hold": "released", "refdata": {"missing": []}}))
+sys.exit(0)
+"""
+
+#: the real restore of the host (the stand-in is the box's engine and compose only)
+REAL = """
+    return real(self, a)
+"""
+
+
+def stand_in_box(tmp_path: Path, **cfg: object) -> tuple[Path, Path]:
+    """A box folder whose engine is the stand-in, and the stand-in's state folder."""
+    import json
+
+    deploy = _box(tmp_path)
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "cfg.json").write_text(json.dumps(cfg), encoding="utf-8")
+    script = tmp_path / "standin.py"
+    script.write_text(STANDIN, encoding="utf-8")
+    with (deploy / ".env").open("a", encoding="utf-8") as fh:
+        fh.write(f"TB_DOCKER={sys.executable} {script} {state}\n")
+    return deploy, state
+
+
+def marks(state: Path) -> list[str]:
+    try:
+        return (state / "marks").read_text(encoding="utf-8").split()
+    except OSError:
+        return []
+
+
+def at_mark(p: subprocess.Popen[str], state: Path, mark: str, delay: float, sig: str, n: int = 1) -> bool:
+    """``sig`` sent ``delay`` s after the stand-in's ``n``-th ``mark``; False: the run ended before it."""
+    import time
+
+    t = time.monotonic()
+    while marks(state).count(mark) < n:
+        if p.poll() is not None or time.monotonic() - t > 30:
+            return False
+        time.sleep(0.002)
+    time.sleep(delay)
+    if p.poll() is not None:
+        return False
+    p.send_signal(getattr(signal, sig))
+    return True
+
+
+def test_a_complete_restore_on_the_real_entry_ends_0_and_says_its_state(tmp_path: Path) -> None:
+    """The stand-in's whole run, no signal: 0, the services healthy, the state line said."""
+    deploy, state = stand_in_box(tmp_path, pause=0)
+    code, _out, err = ended(start_entry(tmp_path, REAL, deploy))
+    assert code == 0 and "are healthy: 4 of 4" in err and "restore: the box now:" in err, (code, err[-3000:])
+    assert marks(state)[:5] == ["db-size", "db-size", "ps", "stop", "ps"] and "up" in marks(state), marks(state)
+
+
+# ------------------------------------------------------------------------------------------------ H138-02, .a, .b
+@pytest.mark.parametrize("sig", ["SIGTERM", "SIGHUP"])
+def test_a_signal_in_the_space_check_ends_130_and_says_nothing_was_changed(tmp_path: Path, sig: str) -> None:
+    """.a: the handlers are taken at the top of restore(), before the lock, the key, the hash and the space check.
+    Before: the default's death (143, 129) with no line, and a deploy/.restore-* folder left."""
+    deploy, state = stand_in_box(tmp_path)
+    p = start_entry(tmp_path, REAL, deploy)
+    assert at_mark(p, state, "db-size", 0.05, sig)
+    code, _out, err = ended(p)
+    assert code == 130 and "nothing was changed" in err and "restore: the box now:" in err, (code, err[-3000:])
+    assert "stop" not in marks(state) and not list(deploy.glob(".restore-*"))
+    assert "backup.restore_failed" in (deploy / "site" / "backup-audit-pending.jsonl").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(("container", "want"), [("restored", 0), ("unchanged", 1)])
+@pytest.mark.parametrize("sig", ["SIGTERM", "SIGHUP"])
+def test_a_signal_on_the_way_out_keeps_the_said_end_for_every_code(
+    tmp_path: Path, container: str, want: int, sig: str
+) -> None:
+    """H138-02, .b: after the state line the signals stay ignored to the exit, whatever the code (#1496 kept 130
+    only). Before: 143 or 129 in place of the 0 or 1 the restore said."""
+    deploy, _state = stand_in_box(tmp_path, pause=0, container=container)
+    code, _out, err = ended(start_entry(tmp_path, REAL, deploy, sig))
+    assert code == want and "restore: the box now:" in err, (code, err[-3000:])
+
+
+def test_a_signal_the_caller_ignored_stays_ignored(tmp_path: Path) -> None:
+    """.j: ``nohup trialbox restore ...``: SIGHUP ignored when the command starts stays ignored, as update.Stops
+    keeps it. Before: the restore took SIGHUP and stopped on it."""
+    deploy, state = stand_in_box(tmp_path)
+    p = start_entry(tmp_path, REAL, deploy, ignored="SIGHUP")
+    assert at_mark(p, state, "stop", 0.05, "SIGHUP")
+    code, _out, err = ended(p)
+    assert code == 0 and "are healthy: 4 of 4" in err, (code, err[-3000:])
