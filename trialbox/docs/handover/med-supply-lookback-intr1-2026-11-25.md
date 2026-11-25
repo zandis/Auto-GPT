@@ -86,6 +86,8 @@ same month-end as the DAS28. That is a reading of the code; the single patient w
 | `test_fhir_inbound_contract.py::test_medication_reference_is_resolved_and_statements_are_read` | 4 weeks end on 2026-03-28, the last covered day; was 2026-03-29 |
 | `test_code_coverage.py::test_a_diagnosis_with_an_empty_code_is_unreadable` | its medication table gains empty `start` and `end` columns; its assertions stand |
 | `test_safety_properties.py`, the `gap_lake` fixture | its medication table gains empty `start` and `end` columns; no assertion changed |
+| `test_study_manifest.py::test_the_criteria_hash_of_a_shipped_study_is_its_golden` | RA-JAK's hash after the recompile (D-1366, dated note) |
+| `tools/e2e_simple.py`, stage 13 | GOUT-COH-INC-03 remaining 797 to 800; the 3 were not separated by rule (overlap read, not traced) |
 | `test_criteria_safety.py::test_cql_carries_the_same_rules_and_translates` | the new CQL text of the no-end rule; its other assertions stand |
 
 ## Duration criteria ("on drug X for at least N days", ruling 3)
