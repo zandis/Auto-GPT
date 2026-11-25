@@ -191,5 +191,30 @@
       ],
       "note": "acceptance overlay only (deploy/docker-compose.acceptance.yml, T-213a, D-410): the test directory the identity overlay signs in against on the acceptance box; never on a hospital box and never in a bundle. The newest tag on 2026-11-11, read from Docker Hub."
     }
+  },
+  "security_floors": {
+    "about": "H-143: the OS packages an image gets only from its unpinned security-upgrade step (deploy/docker/python.Dockerfile, demo/Dockerfile: apt-get upgrade, D-23), each at the lowest version that fixes the finding the release gates fail on (libzstd1: CVE-2026-124851, DSA-6657-1; zlib1g: the Nov 2026 fix the upgrade step was added for; the same versions the db image pins and holds). The release gates (tools/supply_chain/floors.py) read each built image's SBOM and refuse an image whose package is older or missing: a build cache that kept an older upgrade layer cannot pass. `make release-images` builds that layer afresh. Raise a floor when a newer fix is needed; never lower one.",
+    "images": {
+      "trialbox-py": {
+        "libzstd1": "1.5.7+dfsg-1+deb13u1",
+        "zlib1g": "1:1.3.dfsg+really1.3.1-1+deb13u1"
+      },
+      "trialbox-backup": {
+        "libzstd1": "1.5.7+dfsg-1+deb13u1",
+        "zlib1g": "1:1.3.dfsg+really1.3.1-1+deb13u1"
+      },
+      "trialbox-jvm": {
+        "libzstd1": "1.5.7+dfsg-1+deb13u1",
+        "zlib1g": "1:1.3.dfsg+really1.3.1-1+deb13u1"
+      },
+      "trialbox-embed": {
+        "libzstd1": "1.5.7+dfsg-1+deb13u1",
+        "zlib1g": "1:1.3.dfsg+really1.3.1-1+deb13u1"
+      },
+      "trialbox-demo": {
+        "libzstd1": "1.5.7+dfsg-1+deb13u1",
+        "zlib1g": "1:1.3.dfsg+really1.3.1-1+deb13u1"
+      }
+    }
   }
 }
