@@ -75,7 +75,9 @@ def _box_on(root: Path, deploy: Path, monkeypatch: pytest.MonkeyPatch) -> up.Com
     def run(argv: list[str], **kw: Any) -> str:
         if argv[:4] == ["dc", "exec", "-T", "db"]:
             return up.run_cmd([str(pglocal.bindir() / argv[4]), *argv[5:]], env={"PGHOST": sock}, **kw)
-        return ""  # docker info and the rest: no Docker here
+        if argv[:2] == ["docker", "info"]:  # OCR 1469-7: the engine's data root is the test's own, never the host's
+            return f"{deploy.parent / 'docker-root'}\n"
+        return ""  # the rest: no Docker here
 
     return up.ComposeBox(deploy, run=run)
 

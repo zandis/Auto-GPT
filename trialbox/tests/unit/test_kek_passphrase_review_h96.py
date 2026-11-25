@@ -474,14 +474,41 @@ def test_tools_keys_walks_up_to_the_root_folder_itself(tmp_path: Path, monkeypat
         keys.read_passphrase_file(str(f))
 
 
+def _runner_is_not(uid: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H-135: ``uid`` is the test's "another user". When the runner is that user itself (nobody is 65534), the runner
+    is shown to tools.keys as a uid one lower, and what the runner owns as owned by that uid, so the folder is still
+    another user's and the file still the runner's (the file's own owner check must not answer for the folder's)."""
+    real = os.geteuid()
+    if real != uid:
+        return
+    shown = uid - 1
+
+    def owned_by_shown(call: Any) -> Any:
+        def fake(*a: Any, **k: Any) -> os.stat_result:
+            st: os.stat_result = call(*a, **k)
+            if st.st_uid != real:
+                return st
+            v = list(st)
+            v[4] = shown
+            return os.stat_result(v)
+
+        return fake
+
+    monkeypatch.setattr(os, "geteuid", lambda: shown)
+    for name in ("stat", "lstat", "fstat"):
+        monkeypatch.setattr(os, name, owned_by_shown(getattr(os, name)))
+
+
 def test_tools_keys_refuses_a_folder_owned_by_another_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """T-3 of the second review: tools.keys' own folder-owner check (the tests cannot chown: os.stat says uid
     65534 owns the file's folder)."""
     safe = _folder(tmp_path / "safe")
     f = _pp(safe / "kek.pass")
-    monkeypatch.setattr(os, "stat", _stat_as(os.stat, os.path.realpath(safe), uid=65534))
-    with pytest.raises(K.KekError, match=re.escape("is owned by uid 65534, not root")):
-        keys.read_passphrase_file(str(f))
+    with monkeypatch.context() as m:  # H-135: undone before the teardown's own checks read the tree
+        _runner_is_not(65534, m)
+        m.setattr(os, "stat", _stat_as(os.stat, os.path.realpath(safe), uid=65534))
+        with pytest.raises(K.KekError, match=re.escape("is owned by uid 65534, not root")):
+            keys.read_passphrase_file(str(f))
 
 
 def _relinked(tmp: Path) -> tuple[Path, Path, Path, Path]:

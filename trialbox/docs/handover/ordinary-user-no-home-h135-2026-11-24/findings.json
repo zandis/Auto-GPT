@@ -1,0 +1,41 @@
+{
+  "card": "H135",
+  "title": "the policy set as an ordinary user with no home folder",
+  "date": "2026-11-24",
+  "source": "docs/handover/ordinary-user-no-home-h135-2026-11-24.md",
+  "note": "basis 'shown' means shown in the card's container on master ecbb1f89, as nobody (uid 65534, passwd home /nonexistent) under env -i in its own copy, with CI's umask, coverage, xdist and long test root, and as root; CI itself was not run",
+  "findings": [
+    {
+      "id": "H135-01",
+      "severity": "Medium",
+      "claim": "the box-install first-run tests (test_poc_stops_h94 _firstrun) let the script keep the one-time code in the runner's real passwd home: as nobody (no home) the script rightly stopped and 9 tests failed, and as root each run wrote then removed /root/trialbox-firstrun-code (a synthetic marker there was deleted); a stand-in getent now names a home under tmp_path, no product change and no assertion changed",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed 295282df5f4ac73eb25596a1bf6b9fa01037caea"
+    },
+    {
+      "id": "H135-02",
+      "severity": "Low",
+      "claim": "test_tools_keys_refuses_a_folder_owned_by_another_user made uid 65534 the folder's other owner, which is nobody's own uid, so as nobody tools.keys rightly accepted the folder (DID NOT RAISE); the test now shows tools.keys another runner uid only when the runner is 65534, the assertion unchanged",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed 295282df5f4ac73eb25596a1bf6b9fa01037caea"
+    },
+    {
+      "id": "H135-03",
+      "severity": "Low",
+      "claim": "test_cloud_run.py::test_a_part_records_its_run_and_a_new_run_runs_it_again found its screenshot browser only through the caller's browsers-path variable or the home cache, so under env -i it failed as nobody and as root (0/1 screenshots); the test's own environment now gets the preinstalled browser folder when it exists (the integrator's go 7143979475), assertions unchanged",
+      "lane": "G",
+      "basis": "shown",
+      "state": "fixed e4791949bf36489b167a2d228257055c1b20719f"
+    },
+    {
+      "id": "H135-04",
+      "severity": "Low",
+      "claim": "the skip of test_cloud_run.py::test_a_part_records_its_run_and_a_new_run_runs_it_again (lines 51-54) checks only for the node driver, never for a browser it can launch, so a host with the driver and no findable browser fails the test instead of skipping it; the skip is unchanged (the external reviewer's note 7143959133)",
+      "lane": "G",
+      "basis": "shown",
+      "state": "open"
+    }
+  ]
+}

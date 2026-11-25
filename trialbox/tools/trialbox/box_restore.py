@@ -16,9 +16,11 @@ image (``TB_BACKUP_IMAGE``: the box image, restic and the database client tools)
    of compose again after the stop, and the restore runs only when ``db`` alone runs.
 3. **The container.** The backup file's folder, the key and the box's public key read-only; the folder for the copy
    and each data volume's folder read-write (the volume's ``_data`` is moved aside within it); the service-role
-   script of the box read-only. The URLs and passwords travel as ``-e NAME`` without a value (never on a command
-   line); the restore runs the role script itself (``python -m tools.trialbox.box_restore roles``) over the database
-   network as the superuser, with each role's password as compose gives it to the ``db`` container.
+   script of the box read-only. Each volume's folder is asked of the engine (H-132, LR-15); the container has one
+   name (``trialbox-restore``), and a second restore is refused while it exists (LR-13). The URLs and passwords
+   travel as ``-e NAME`` without a value (never on a command line); the restore runs the role script itself
+   (``python -m tools.trialbox.box_restore roles``) over the database network as the superuser, with each role's
+   password as compose gives it to the ``db`` container.
 4. **After it.** Its JSON and its lines are the command's own, and so is its exit code. With ``--restart`` the
    services start again and are waited for until healthy only when the restore ended complete (exit 0) or held
    (exit 4 with ``hold: held``, D-522: the box screens nobody until a person releases it); otherwise they stay
@@ -73,6 +75,10 @@ WAIT_S = 600  # the services' health wait after the restore (as an update's star
 #: D-724 (DATA-011): the services a restore leaves running: the database it restores into, nothing that writes
 #: a volume the restore renames aside
 RESTORE_MAY_RUN = frozenset({"db"})
+#: the engine's default volume folder, used only when neither the engine nor the box file names one (H-132, LR-15)
+DEFAULT_VOLUMES = Path("/var/lib/docker/volumes")
+#: H-132 (LR-13): the restore container's one name: a second restore is refused while it exists
+RESTORE_NAME = "trialbox-restore"
 #: backup.VOLUME_ROOT: where the box's compose volumes are, inside the restore's container as on a host
 VOLUME_ROOT = "/var/lib/docker/volumes/trialbox_{}/_data"
 HOLD_FLAG = "screening.after_restore"  # backup.HOLD_FLAG (D-522): the hold on the list jobs a restore leaves
@@ -310,12 +316,61 @@ class BoxRestore:
 
     # ------------------------------------------------------------------------------------------- the container
     def volumes_root(self) -> Path:
-        return Path(self.env.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+        return Path(self.env.get("TB_DOCKER_VOLUMES") or DEFAULT_VOLUMES)
+
+    def volume_folder(self, vol: str) -> tuple[Path, bool]:
+        """H-132 (LR-15): the folder that holds a volume's ``_data``, asked of the engine (a data root elsewhere, a
+        rootless engine); the box file's ``TB_DOCKER_VOLUMES`` (else the engine's default) only when the engine
+        names none. Also whether the engine knows the volume."""
+        from tools.trialbox.update import UpdateFailed
+
+        try:
+            where = self.box.run([*self.box.docker, "volume", "inspect", "-f", "{{.Mountpoint}}", f"trialbox_{vol}"],
+                                 timeout=60).strip()  # fmt: skip
+        except (UpdateFailed, OSError):
+            return self.volumes_root() / f"trialbox_{vol}", False
+        if where.startswith("/") and "\n" not in where:
+            return Path(where).parent, True
+        return self.volumes_root() / f"trialbox_{vol}", bool(where)
+
+    def data_folders(self, a: Any) -> tuple[dict[str, Path], dict[str, tuple[str, Path]]]:
+        """The folders the restore writes: ``--dir name=path`` as given, and each volume's folder (``name: (volume,
+        folder)``) as the engine names it (H-132, LR-15). Asked before anything stops; refused, nothing changed, when
+        a volume the engine knows has no folder, or when no folder of the box is found at all (the databases alone
+        restored and the folders written into the container's own layer, "restored" all the same)."""
+        from tools.trialbox.backup_schedule import absolute
+        from tools.trialbox.update import BACKUP_VOLUMES
+
+        given: dict[str, Path] = {}
+        for pair in a.dir:
+            name, _, path = str(pair).partition("=")
+            if not name or not path:
+                raise RestoreStopped(f"bad directory {pair!r}: use name=path. Nothing was changed")
+            given[name] = absolute(Path(path))
+        volumes: dict[str, tuple[str, Path]] = {}
+        for name, vol in BACKUP_VOLUMES.items():
+            if name in given:
+                continue
+            folder, known = self.volume_folder(vol)
+            try:
+                there = folder.is_dir()
+            except OSError:  # a folder this user cannot look into is not one the restore can write
+                there = False
+            if there:
+                volumes[name] = (vol, folder)
+            elif known:
+                raise RestoreStopped(f"the engine names volume trialbox_{vol} but its folder {folder} is not there "
+                                     f"or cannot be read here (pass --dir {name}=<folder>). Nothing was "
+                                     "changed")  # fmt: skip
+        if not given and not volumes:
+            raise RestoreStopped("no data folder of the box was found (the engine names none of its volumes, and "
+                                 f"{self.volumes_root()} holds none): pass --dir name=<folder> for each. Nothing "
+                                 "was changed")  # fmt: skip
+        return given, volumes
 
     def container(self, a: Any, file: Path, work: Path, sha: str) -> tuple[list[str], dict[str, str]]:
         """The restore's one container and the values its ``-e NAME`` options take (never on its command line)."""
         from tools.trialbox.backup_schedule import absolute
-        from tools.trialbox.update import BACKUP_VOLUMES
 
         image = self.env.get("TB_BACKUP_IMAGE") or "trialbox-backup:1.0.0"
         file, key = absolute(file), absolute(a.key)
@@ -349,28 +404,22 @@ class BoxRestore:
         if roles.is_file():
             bind(roles, ROLES_IN, True)
         dirs: list[str] = []
-        given: dict[str, Path] = {}
-        for pair in a.dir:  # --dir name=path (the host part among them): its folder, moved aside within its parent
-            name, _, path = str(pair).partition("=")
-            if not name or not path:
-                raise RestoreStopped(f"bad directory {pair!r}: use name=path. Nothing was changed")
-            given[name] = absolute(Path(path))
-            given[name].parent.mkdir(parents=True, exist_ok=True)
-            bind(given[name].parent, given[name].parent, False)
-            dirs += ["--dir", f"{name}={given[name]}"]
-        root = self.volumes_root()
-        for name, vol in BACKUP_VOLUMES.items():  # each volume's own folder: its _data is moved aside within it
-            folder = root / f"trialbox_{vol}"
-            if name not in given and folder.is_dir():
-                inside = Path(VOLUME_ROOT.format(vol)).parent
-                bind(folder, inside, False)
-                dirs += ["--dir", f"{name}={inside / '_data'}"]
+        given, volumes = self.data_folders(a)
+        for name, path in given.items():  # --dir name=path (the host part among them): moved aside within its parent
+            path.parent.mkdir(parents=True, exist_ok=True)
+            bind(path.parent, path.parent, False)
+            dirs += ["--dir", f"{name}={path}"]
+        for name, (vol, folder) in volumes.items():  # each volume's own folder: its _data is moved aside within it
+            inside = Path(VOLUME_ROOT.format(vol)).parent
+            bind(folder, inside, False)
+            dirs += ["--dir", f"{name}={inside / '_data'}"]
         if a.restic_from_box:  # D-968: the box's restic.key under its unsealed KEK, read-only
             kek_dir = self.env.get("TB_KEK_HOST_DIR") or "/run/trialbox"
             bind(Path(kek_dir), "/run/trialbox", True)
             values["TB_SECRETS_DIR"] = str(Path(VOLUME_ROOT.format("tb-secrets")))
         names = sorted(values)
-        argv = [*self.box.docker, "run", "--rm", "-i", "--pull", "never", "--network", "trialbox-net", "--user", "0",
+        argv = [*self.box.docker, "run", "--rm", "-i", "--name", RESTORE_NAME, "--pull", "never", "--network",
+                "trialbox-net", "--user", "0",
                 "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER", "--cap-add", "DAC_OVERRIDE",
                 "--security-opt", "no-new-privileges:true", "-e", "PYTHONDONTWRITEBYTECODE=1",
                 *[x for n in names for x in ("-e", n)], *mounts, image,
@@ -421,7 +470,8 @@ class BoxRestore:
     @contextlib.contextmanager
     def lock(self) -> Iterator[None]:
         """``deploy/site/restore.lock`` held for the whole run; a second restore is refused. Under it, a scratch
-        folder another run left (``deploy/.restore-*``: a killed host step's decrypted backup and copies) is removed.
+        folder another run left (``deploy/.restore-*``: a killed host step's decrypted backup and copies) is removed
+        (:meth:`sweep`, after the checks that come before anything stops).
         H-114 (1421-3): ``deploy/site/backup.lock`` too, the lock every backup run takes
         (``backup_schedule.run_backup``): no backup writes over the folders while they are restored, and a restore
         never starts under a running one."""
@@ -443,15 +493,35 @@ class BoxRestore:
             except OSError:
                 raise RestoreStopped("a backup of this box is running (deploy/site/backup.lock): run the restore again "
                                      "when it has ended; nothing was changed") from None  # fmt: skip
-            for old in self.deploy.glob(".restore-*"):
-                if old.is_dir() and not old.is_symlink():
-                    shutil.rmtree(old, ignore_errors=True)
-                    print(f"restore: removed {old.name}, left by a restore that did not finish", file=sys.stderr)
             yield
         finally:
             if bfd >= 0:
                 os.close(bfd)
             os.close(fd)
+
+    def sweep(self) -> None:
+        """Review R7: what a killed run left (``deploy/.restore-*``) is removed, under the lock; H-132 (LR-13): only
+        once no restore container of an earlier run exists (its put-back reads its dumps from that folder)."""
+        self.no_restore_container()
+        for old in self.deploy.glob(".restore-*"):
+            if old.is_dir() and not old.is_symlink():
+                shutil.rmtree(old, ignore_errors=True)
+                print(f"restore: removed {old.name}, left by a restore that did not finish", file=sys.stderr)
+
+    def no_restore_container(self) -> None:
+        """H-132 (LR-13): a restore container left running by a host step that ended (a closed session, a kill)
+        still puts the box back from its work folder. Refused while one exists; nothing is removed or started."""
+        from tools.trialbox.update import UpdateFailed
+
+        try:
+            status = self.box.run([*self.box.docker, "container", "inspect", "-f", "{{.State.Status}}", RESTORE_NAME],
+                                  timeout=60).strip()  # fmt: skip
+        except (UpdateFailed, OSError):  # no such container (or no engine: then none runs either)
+            return
+        if status:
+            raise RestoreStopped(f"a restore container ({RESTORE_NAME}, {status}) of an earlier run still exists: "
+                                 f"wait until it has ended (docker ps -a), then run the restore again. Nothing was "
+                                 "changed")  # fmt: skip
 
     def _restore(self, a: Any) -> int:
         file = absolute_path(last_good(self.deploy, self.env) if a.last else Path(a.file))
@@ -461,6 +531,8 @@ class BoxRestore:
         sha = self.checked_sha(file, a.last)  # F4: the file itself, before anything stops
         again = shlex.join(["trialbox", "restore", *(["--last"] if a.last else [str(file)]), "--key", str(a.key),
                             "--yes", *(["--restart"] if a.restart else [])])  # fmt: skip
+        self.data_folders(a)  # H-132 (LR-15): where each folder goes, asked of the engine before anything stops
+        self.sweep()
         work = self.work_dir(file)  # the space the restore needs, before anything stops
         stopped: list[str] = []
         started = keep_work = False
@@ -735,6 +807,12 @@ def _ignore_signals() -> dict[int, Any]:
     return {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
 
 
+def _line(text: str) -> None:
+    """H-132 (LR-13): a line to the person; a terminal that is gone (a closed session) never stops what follows."""
+    with contextlib.suppress(OSError, ValueError):
+        print(text, file=sys.stderr, flush=True)
+
+
 def _put_back_signals(old: Mapping[int, Any]) -> None:
     import signal
 
@@ -764,9 +842,8 @@ def _call(argv: list[str], values: dict[str, str], base: Mapping[str, str] | Non
             except (KeyboardInterrupt, HostInterrupted):
                 if old is None:
                     old = _ignore_signals()  # first: nothing more stops this wait
-                    print("restore: stopping: the restore is told and puts the box back; waiting for it",
-                          file=sys.stderr)  # fmt: skip
-                    proc.send_signal(signal.SIGTERM)
+                    proc.send_signal(signal.SIGTERM)  # H-132 (LR-13): told first, before any line
+                    _line("restore: stopping: the restore is told and puts the box back; waiting for it")
     finally:
         if old is not None:
             for sig, h in old.items():

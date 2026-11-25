@@ -1,0 +1,36 @@
+{
+ "card": "H120",
+ "title": "the unit shards run on every pull request",
+ "date": "2026-11-24",
+ "source": "docs/handover/unit-shards-on-every-pr-h120-2026-11-24.md",
+ "note": "basis 'shown' means shown by the card's policy test and mutants locally; the pull request's own CI run is the proof on GitHub and was not seen by the card.",
+ "findings": [
+  {
+   "id": "H120-01",
+   "severity": "Medium",
+   "claim": "a pull request skipped the unit shards and `unit` in five ways: the fast tier of a card on no full-tier path (D-970), a draft (D-564), a docs-only diff (D-969), a diff with nothing under trialbox/ (the `trialbox` output) and a `changes` job that failed (empty outputs); a skipped `unit` satisfies the required check, so such a pull request could merge with no unit test run; fixed: tools/ci_tier.py prints `unit` (true on every pull request) and both unit jobs run on `!cancelled() && needs.changes.outputs.unit != 'false'`",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": ".github/workflows/trialbox-ci.yml unit-shard and unit, tools/ci_tier.py; tests/unit/test_h120_unit_shards_every_pr.py"
+  },
+  {
+   "id": "H120-02",
+   "severity": "Low",
+   "claim": "a head commit whose message holds a skip-CI marker starts no workflow, so no condition in the workflow can make the shards run; the required `unit` then stays expected and should block the merge, but branch protection is not readable here, so whether `unit` is still required is not verified",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "branch protection on master (the owner's settings)"
+  },
+  {
+   "id": "H120-03",
+   "severity": "Low",
+   "claim": "docs/plan/43-ci-and-train-etiquette.md 'Draft first' still says a push to a draft runs the fast tier only; true for every job but the unit shards since D-1324; the page is outside the card and was not edited",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "docs/plan/43-ci-and-train-etiquette.md"
+  }
+ ]
+}
