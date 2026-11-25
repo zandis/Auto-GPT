@@ -1918,11 +1918,7 @@ def run_cmd(
                 rec = _record_running(proc.pid, argv)
                 out, err = proc.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
-                procgroup._kill(proc.pid, signal.SIGTERM)
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    proc.wait(procgroup.TERM_GRACE_S)
-                procgroup._kill(proc.pid, signal.SIGKILL)
-                proc.communicate()
+                procgroup._stop(proc, procgroup.TERM_GRACE_S)  # H-114d: its pipes read through the grace
                 raise subprocess.TimeoutExpired(list(argv), timeout or 0) from None
             except BaseException:
                 procgroup._kill(proc.pid, signal.SIGKILL)
