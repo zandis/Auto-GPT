@@ -23,12 +23,17 @@ from pypdf import PdfReader
 from tb_common.service_auth import auth_headers
 from tb_common.subject import is_job_mail
 
-from tests.stack import MAILPIT_LIST, ensure_ingested, host_port, outbound_mail, url
+from tests.stack import MAILPIT_LIST, StackNotRunning, ensure_ingested, host_port, outbound_mail, url
 
 pytestmark = pytest.mark.e2e
 ROOT = Path(__file__).resolve().parents[2]
-MAILHOG = url("MAILHOG")
-ORCH = url("ORCH")
+
+
+def _orch() -> str:
+    """H-139: read from the running test stack when a test runs, not at import (a collection asks no engine)."""
+    return url("ORCH")
+
+
 AUTH = "mx.hospa.test; spf=pass smtp.mailfrom=hospa.test; dkim=pass header.d=hospa.test; dmarc=pass"
 
 
@@ -73,7 +78,7 @@ def final_job(job_id: object, timeout: float = 60) -> dict[str, Any]:
     the mail can land a moment before the state flips."""
     deadline = time.monotonic() + timeout
     while True:
-        job: dict[str, Any] = httpx.get(headers=auth_headers(), url=f"{ORCH}/jobs/{job_id}", timeout=30).json()
+        job: dict[str, Any] = httpx.get(headers=auth_headers(), url=f"{_orch()}/jobs/{job_id}", timeout=30).json()
         if job["state"] in ("done", "failed") or time.monotonic() > deadline:
             return job
         time.sleep(1)
@@ -95,10 +100,10 @@ def job_id_from(m: EmailMessage) -> str:
 @pytest.fixture(scope="module", autouse=True)
 def stack() -> None:
     try:
-        assert httpx.get(f"{ORCH}/healthz", timeout=5).status_code == 200
-        httpx.get(f"{MAILHOG}{MAILPIT_LIST}", timeout=5).raise_for_status()
-    except (httpx.HTTPError, AssertionError):
-        pytest.skip("compose test stack not running (make up-test)")
+        assert httpx.get(f"{_orch()}/healthz", timeout=5).status_code == 200
+        httpx.get(url("MAILHOG", MAILPIT_LIST), timeout=5).raise_for_status()
+    except (httpx.HTTPError, AssertionError, StackNotRunning) as exc:
+        pytest.skip(f"compose test stack not running (make up-test): {exc}")
     ensure_ingested()  # the scenarios need patients in the lake and FHIR store
 
 
@@ -110,7 +115,7 @@ def test_feas_email_to_pdf() -> None:
     deadline = time.monotonic() + 300
     while not job and time.monotonic() < deadline:  # the gateway polls IMAP every 5 s in the test profile
         jobs = httpx.get(
-            headers=auth_headers(), url=f"{ORCH}/jobs", params={"type": "FEAS", "limit": 50}, timeout=30
+            headers=auth_headers(), url=f"{_orch()}/jobs", params={"type": "FEAS", "limit": 50}, timeout=30
         ).json()
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
@@ -172,7 +177,7 @@ def test_screen_email_to_encrypted_list() -> None:
     deadline = time.monotonic() + 300
     while not job and time.monotonic() < deadline:
         jobs = httpx.get(
-            headers=auth_headers(), url=f"{ORCH}/jobs", params={"type": "SCREEN", "limit": 50}, timeout=30
+            headers=auth_headers(), url=f"{_orch()}/jobs", params={"type": "SCREEN", "limit": 50}, timeout=30
         ).json()
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
@@ -199,7 +204,7 @@ def test_nav_email_to_lists_and_drafts() -> None:
     deadline = time.monotonic() + 300
     while not job and time.monotonic() < deadline:
         jobs = httpx.get(
-            headers=auth_headers(), url=f"{ORCH}/jobs", params={"type": "NAV", "limit": 50}, timeout=30
+            headers=auth_headers(), url=f"{_orch()}/jobs", params={"type": "NAV", "limit": 50}, timeout=30
         ).json()
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
@@ -219,7 +224,7 @@ def _job_by_tag(jtype: str, tag: str, timeout: float = 300) -> dict[str, object]
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         jobs = httpx.get(
-            headers=auth_headers(), url=f"{ORCH}/jobs", params={"type": jtype, "limit": 50}, timeout=30
+            headers=auth_headers(), url=f"{_orch()}/jobs", params={"type": jtype, "limit": 50}, timeout=30
         ).json()
         job: dict[str, object] = next((j for j in jobs if j.get("comment") == tag), {})
         if job:

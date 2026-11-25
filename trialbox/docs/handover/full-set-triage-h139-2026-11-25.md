@@ -40,9 +40,9 @@ no assertion changed, nothing skipped); (c) the bench host's own setup (the walk
 | `tests/unit/test_host_commands_own_environment.py` (39) | yes, 39 of 39 | umask 0002: the box tree the fixture builds, `deploy/.env` among it, is group-writable and the product rightly refuses it ("can be written by group or others (chmod 600 it): nothing was run"); with psql off PATH one more | (b) | the psql one: fixed here (item 4); the 39: item 5, `as_root_makes_it` (H-115's `tests/host_modes.py`) on the built trees, built in round 1, waiting for the ruling | H |
 | `tests/unit/test_serving_engine_h112.py` (14, unit and pure) | 13 of 14 | umask 0002: "deploy/site is not root's or this user's alone (chmod go-w)" | (b) | item 5: `as_root_makes_it` in `_box`, waiting for the ruling | H |
 | `tests/unit/test_kek_env_refused_h97.py` (1) | yes | umask 0002: the test's passphrase folder is 0775 and `keys init` rightly refuses it | (b) | item 5: `as_root_makes_it` in `_passphrase_box`, waiting for the ruling | H |
-| `tests/unit/test_lifecycle_keys_h133.py` (5) | no (passes at both umasks as uid 1003) | the walk's "assert 0 >= 8" is `test_lifecycle_keys_h133.py:396`: `rotate-kek` refused before its first rename | open | wait for the walk's captured stderr | H |
-| `tests/unit/test_release_dirty_refused.py` (1), `tests/unit/test_first_run_code_h97.py` (1) | no | first-run: the output had begun, so probably the test's 60 s pty deadline on a loaded host | open | wait for the walk's captured stderr | H |
-| `tests/e2e/test_mail_compose.py` (5), `tests/integration/test_compose_data.py` (4), `tests/integration/test_compile_compose.py` (2) | not run (no Docker daemon in this container) | the 401s: services that answer an unauthenticated call with 401 are PRODUCTION or hold a token, unlike CI's TEST stack; mail_compose iterates the 401's JSON body (`test_mail_compose.py:112-115`), hence `'str' object has no attribute 'get'`. Hypothesis: `deploy/docker-compose.yml:9` pins `name: trialbox`, so `make up-test` shares the project, the container names and the ports of a box installed on the same host | (a)/(b), to rule on | the test stack under a project name of its own, or `make up-test` refusing while another stack holds the name | to be found (git log: 9i-1 for mail_compose) |
+| `tests/unit/test_lifecycle_keys_h133.py` (5) | the cause, yes (push 6) | LR-3's rotate read the host's own KEK file (`/run/trialbox/kek`, a real box's, unreadable to the bench's ordinary account) | (b) | push 6: the test gives the rotate its own run folder's KEK, and an escape check fails it if it looks at the host's run folder | H |
+| `tests/unit/test_release_dirty_refused.py` (1), `tests/unit/test_first_run_code_h97.py` (1) | yes (push 6) | release-dirty: the update reached the host's engine and a real stack's volumes (the caller's COMPOSE_PROJECT_NAME); first-run: the caller ignored SIGTTOU, so the terminal write went through | (b); an (a) part | push 6: a stub engine and no caller's project; the orphaned wrapper resets SIGTTOU; `update.first_load_needs` asks the box's own engine | H |
+| `tests/e2e/test_mail_compose.py` (5), `tests/integration/test_compose_data.py` (4), `tests/integration/test_compile_compose.py` (2) | not run (no Docker daemon in this container); push 6: each port from the running test stack, another project's port refused | the 401s: services that answer an unauthenticated call with 401 are PRODUCTION or hold a token, unlike CI's TEST stack; mail_compose iterates the 401's JSON body (`test_mail_compose.py:112-115`), hence `'str' object has no attribute 'get'`. Hypothesis: `deploy/docker-compose.yml:9` pins `name: trialbox`, so `make up-test` shares the project, the container names and the ports of a box installed on the same host | (a)/(b), to rule on | the test stack under a project name of its own, or `make up-test` refusing while another stack holds the name | to be found (git log: 9i-1 for mail_compose) |
 | `tests/e2e/test_planted_faults.py` (1) | not run | `'backup': 'red'` in the health answer: on the reading above, the installed box's backup state | the same | the same | the same |
 | `tests/integration/test_db_image.py` (1) | not run | `test_db_image.py:243` skips without `pg_dump` on PATH, and `TB_STRICT_SKIPS=1` makes that skip a failure. Hypothesis | (b) | `tests/pg_client.py` | H (H-93) |
 | `tests/e2e/test_module_walks.py` (12), `test_life_cycle_walk.py` (3), `test_life_cycle_walk_390.py` (3), `test_phone_walk.py` (3) | from the code | `assert []` is `assert lines`: `node` printed nothing (`test_module_walks.py:116`, `test_life_cycle_walk.py:90`); 390's missing JSON is the file node writes | (c) | the node wrapper (the walk's) | — |
@@ -216,6 +216,50 @@ On master 6c73db64, then at this branch's head, the same commands:
   blocks or is held. `test_lifecycle_keys_h133` LR-3: the root test's uid-10001 child, or a fork under xdist.
   `test_release_dirty_refused`: a compose box that reaches the host's real Docker as root.
 
+### Push 6 (the walk's error lines; the integrator's 7159615798 and 7159714024)
+
+- **H139-14 is kept as a guard, not as the cause.** The walk found TB_ENV not exported on the bench (the process had
+  COMPOSE_PROJECT_NAME, TB_PG_BIN, TB_TEST_ROOT and one evaluation key), so the compose stage ran TEST. The pin stays.
+- **H139-15, pure: three tests reached the host (class b), and one product call ignored the box's engine (class a).**
+  The bench host is a real box, and the pure stage ran as an ordinary account.
+  - `test_lifecycle_keys_h133` LR-3: `rotate-kek` looked for the KEK at its default path, `/run/trialbox/kek`. That is
+    the host box's KEK, unreadable to the account, hence the PermissionError. The test now hands the rotate its own run
+    folder's KEK (`TB_KEK_FILE`), as the LR-6 tests already do.
+  - `test_release_dirty_refused`: the first install read the volumes of the stack the caller's COMPOSE_PROJECT_NAME
+    names, through the host's engine ("installed … but not running"). The helper now gives a stub engine (`TB_DOCKER`)
+    and drops the caller's project.
+  - The escape check (`tests/host_escape.py`) found one more: `update.first_load_needs` ran a bare `docker info` and
+    skipped the box's TB_DOCKER. It now asks the box's own engine (`tools/trialbox/update.py`).
+  - The check wraps `os.open`, `open`, `os.stat`, `os.lstat` and `subprocess.Popen`, and points `DOCKER_HOST` at a
+    socket that does not exist. A test fails if it looks at or opens the host's run folder or an engine socket, or if
+    it runs an engine it did not stub. Evidence: LR-3 without its own KEK fails with `['/run/trialbox/kek']`;
+    release-dirty without the engine fix fails with `['engine: docker', 'engine: docker']`. Both pass at head.
+- **`test_first_run_code_h97` line 346: the branch.** `first_run_code` writes the code to `/dev/tty` from an orphaned
+  process group. With SIGTTOU at its default action, that write fails with EIO, the code is not shown, and the test
+  expects that. A caller that ignores SIGTTOU (the bench's runner) lets the write through, and the code reads as "shown
+  on this terminal only", the bench's text. Reproduced on master: the test fails under a parent that ignores SIGTTOU
+  and passes under one that does not. The test's orphaned wrapper now resets SIGTTOU to its default, as on any host.
+  Under a parent that ignores it: 11 passed at head.
+- **H139-16, compose: every port comes from the running test stack.** `tests/stack.py` no longer holds a port table.
+  The compose files say which service and container port each `TB_HOST_<NAME>_PORT` publishes. The engine says where
+  that service's container in project `trialbox-test` publishes it. With no such container, or with another
+  project's container on the same host port, the test stops and names the holder (`StackNotRunning`). The conftest's
+  stack check, `ensure_ingested`, the mail and POC e2e helpers and the drills go through it. Module-level addresses
+  are now read when a test runs, so collecting the compose tests runs no engine. The POC test asks the POC's own
+  project (`deploy/poc.sh`'s). `test_role_walk` cannot form `127.0.0.1:8016`: its demo runs in one process on a box
+  whose environment `make_box` closes (adapter `adapter:8016`). The one code path that posts to `127.0.0.1:<adapter
+  port>/run` is `ensure_ingested` (test_compose_data, test_compile_compose, test_mail_compose). The walk's full
+  traceback for that id would settle it.
+- **H139-16, also: the restore drill addressed the wrong project after push 5.** It brings the stack up with `make
+  up-test` (now `trialbox-test`), but its compose commands named no project, and `wipe` removed volumes named
+  `trialbox_<name>`. On a host with a box, those are the box's own volumes. Fixed: `-p trialbox-test` on its compose
+  commands, `trialbox-test_<name>` for the volumes, and `COMPOSE_PROJECT_NAME=trialbox-test` for the runbook's own
+  `docker compose` lines, whatever the caller exports. The console's address comes from the stack too.
+- `test_limits_edge_box`: no full diff was kept, so not sorted. It runs in process (`tools.limits_edge` on a scratch
+  cluster) and calls no stack port. With `TB_LIMITS_EDGE_OUT` set, the walk's next run keeps the verdicts.
+- Tests: `tests/unit/test_stack_ports_h139.py`, 9 tests. On master's helpers: 8 failed, 1 passed (the import check
+  passes there: master asks no engine at import). At head: 9 passed.
+
 ## Owners named in this card
 
 The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/unit/test_refdata.py` and
@@ -233,10 +277,17 @@ Changed in bodies only, after each lane's go: lane D's `tests/unit/test_backup.p
 `tests/console/test_ops_pages.py`; `tests/integration/test_db_image.py` (H-93); lane D's `tests/unit/test_backup_without_pause.py`,
 `test_backup_vector_store.py`, `test_t728_asof_restore_optouts.py`; lane B's `test_restore_hold.py`, `test_lane_b_on_the_train.py`;
 lane V's `test_backup_licensed_terminology.py`, `test_erasure_reach_restore.py`; the Makefile's `COMPOSE_TEST` and `up-test`;
-`tests/conftest.py`'s `pg_cluster_url`.
+`tests/conftest.py`'s `pg_cluster_url`. Under the ruling 7159714024 (the stack's ports: `tests/stack.py`, `ensure_ingested`
+and the e2e helpers): `tests/conftest.py`'s `_stack_up`; `tests/e2e/test_mail_compose.py` (9i-1),
+`tests/e2e/test_console_poc.py`; `tests/integration/test_compose_data.py`, `test_compile_compose.py`; lane V's
+`test_fhir_codesystems_compose.py` (V-18) and `test_valueset_store_compose.py` (V-17): their module-level addresses
+only, read when a test runs.
 
 ## Not verified
 
 - The erasure module's red on the bench host: its cause is not found.
 - The db image was not pulled (no Docker daemon here): its libxml is read from its base and its packaging.
-- The compose stage was not run (no Docker daemon here); its rows are read from the code.
+- The compose stage was not run (no Docker daemon here); its rows are read from the code. The port lookup is tested
+  on recorded `docker ps` rows, not on a live engine.
+- Which test of the compose stage got the 401 at `127.0.0.1:8016/run`: read from the code, not from a traceback.
+- The pure fixes were run here as root and as an ordinary account, not on the bench host.

@@ -464,12 +464,12 @@ def _stack_up() -> bool:
     """The compose test stack answers on the lake's host port (tests/stack.py)."""
     import socket
 
-    from tests.stack import host_port
+    from tests.stack import StackNotRunning, host_port
 
-    try:
+    try:  # H-139: the port the test stack's own lake container publishes, never another project's
         with socket.create_connection(("127.0.0.1", host_port("LAKE")), timeout=1):
             return True
-    except OSError:
+    except (OSError, StackNotRunning):
         return False
 
 
