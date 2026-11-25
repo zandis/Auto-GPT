@@ -1,0 +1,632 @@
+# Card 10A-1d (D-1248): what a plain statement of presence looks like, the only shape of inclusion line that runs as
+# "the patient has the coded concept". Read by criteria_compiler.ir_extract.recognition.
+#
+# A structured inclusion asks the presence of a concept. Its line runs only when every clause of it is read: the
+# concept's name (or a synonym the extractor gave), other concepts the logic codes, the words below, and unlisted
+# content words where the rules allow one (see "Unlisted words" further down). What governs the name must be listed
+# here: a frame ("diagnosis of", と診断された, 確診為) or a governing phrase (`governors`). The cue rules of cards
+# 10A-1 to 10A-1c still run as a second net: a line recognised here and cued there is held.
+#
+# How a word is matched. English and other Latin words: case does not matter, a space or hyphen between the words of
+# an entry matches any run of spaces and hyphens, and an entry matches whole words only ("on" never matches inside
+# "ongoing"). Japanese and Chinese: the entry as written, after NFKC (full-width letters and digits become ASCII,
+# Ⅱ becomes II). A clause may be cut into entries in any way that uses them all; numbers, Roman numerals, TNM codes
+# and the marks listed under `marks` need no entry.
+#
+# Each class lists the domains it applies to (`any`, or some of condition, medication, procedure, observation …):
+# "refractory" qualifies a disease ("refractory epilepsy") but says a drug failed ("refractory to rituximab"), so it
+# is listed for conditions only.
+#
+# Special classes:
+# * `history`: says the patient has had the concept. Allowed unless the criterion's logic asks it active only
+#   (clinical_status active, recurrence or relapse).
+# * `links`: may join another concept the extractor named in the same clause to this one ("surgery for colorectal
+#   cancer"). Another named concept with no link word before or after it holds the line.
+# * `{X}` and `{O}` inside a word stand for this concept and for another the logic codes ("{X}診斷"). "requiring" is
+#   read after the name ("heart failure requiring dialysis"); before it, a need is held ("patients requiring
+#   chemotherapy" with chemotherapy coded: `requiring_concept` under `holds`).
+# * `ended`: words that say the concept ended or lies in the past ("last dose", "ago", 最終投与, 停用). A clause
+#   with one (any clause; a word inside the coded name never counts) holds the line, unless the criterion's own
+#   logic asks a past occurrence: its atom has a window that ends before the index day. Without one, it cannot be
+#   told from the atom, so the line is held.
+# * every clause of the line must be recognised, not only those that name the concept: what follows a full stop,
+#   "but" or 但 may say the line is not a fact ("Pending central review.", "Father, aged 52."). In a clause that does
+#   not name the concept, another named concept may stand alone.
+# * `alternatives`: "or", 又は, 或 joining another named concept make it one arm of a choice. The clause is held,
+#   unless the criterion's logic itself carries that arm: a concept the logic joins to this one by "or" is read as
+#   one of this concept's names.
+# * an abbreviation in brackets right after the name is recognised when its letters follow the name's in order
+#   ("Type 2 diabetes mellitus (T2DM)"), never otherwise ("Colorectal cancer (FH)").
+# * a line of kanji alone is read once, as Japanese when it has a character written only in Japanese, else as
+#   Chinese, and with both languages' `unlisted_never` lists; a word inside the coded name never counts.
+# * exceptions: what "except", "other than", を除く, 以外, 除…外 name is cut out of the clause before it is read
+#   ("any malignancy except basal cell carcinoma"); a line whose concept is the excepted one is held.
+# * a class with `needs` counts only in a clause that also holds one of those words: "criteria" is an assertion in
+#   "meeting the 2010 ACR/EULAR criteria", a definition in "criteria for hypertension".
+#
+# Adding a frame or a qualifier: add the words to the right class and language, then add to
+# tests/fixtures/negated_inclusion/card_10a1d_development.tsv the line it lets run AND its nearest lines that must
+# still hold (the same words with a plan, a person, a stop, a symbol), and run
+#   python -m tools.negated_inclusion_score tests/fixtures/negated_inclusion/card_10a1d_development.tsv --rows
+# A word that would let one must-hold line run does not go in. Never add a word that says the concept is absent,
+# doubtful, planned, stopped, someone else's, or only a heading, a definition or an instruction. A class named
+# `frames`, `history` or `tail` closes what is attached to a Japanese or Chinese name (after it, unlisted words are
+# read again): a word that only names a test or an act ("検査", "診斷") goes in `seen`, which does not.
+
+marks: ",(){}'\"・、，（）「」『』"  # read wherever they stand
+joiners: "-–/:~〜"  # read only between the two things they join ("ACR/EULAR", "medium- to high-dose", "T2DM: yes");
+  # a mark that stands alone ("HBsAg: -", "Diabetes -/-", "高血壓 ×") is never read, and neither is "=", "×", "+",
+  # "±", an empty box or a dash: a form's mark says what its form defines, which the line does not carry
+
+holds:  # regular expressions over a clause as read ({X} this concept, {O} another named one): listed words that
+  # together say otherwise. An entry may be {pattern, domains} to apply to some domains only.
+  form_value: '{X}\s*[:=]\s*[-+]?\d+(?:[.,]\d+)?\s*$'  # a form's field and its coded value ("Asthma: 0", "高血圧：2")
+  zero: '(?<![A-Za-z\d.,\-−])0+(?:[.,]0+)?(?![\d.,])(?!\s*(?:-|–|to\b|〜|~|至|到|から))'  # a count or a value of zero
+  schedule_day: '(?i)\b(?:days?|cycles?|weeks?|visits?)\s*[-−]?\d'  # a schedule ("on day 1", "cycle 1 day 1")
+  schedule_cjk: '第\s*\d+\s*(?:天|日|週|周|次|個?療程|週期|周期|サイクル|コース|回)|\d+\s*日目'
+  numbered_heading: '^\s*\d+(?:[.．]\d+)+[.)]?\s*\x00\s*[.。]?\s*$'  # a section number and a bare name ("5.2 Hepatitis B")
+  # an upper bound on a count or a dose of the concept itself, which zero meets ("<=2 hospitalizations for heart
+  # failure", "Prednisone up to 10 mg/day", "プレドニゾロン10 mg/日以下", "低血糖發作每週不大於2次")
+  count_bound_concept: '(?i)(?:<=|=<|≤|<|\bat\s+most|\bup\s+to|\bfewer\s+than|\bless\s+than|\bno\s+more\s+than|\bnot\s+more\s+than|\bnot\s+exceeding|\bmaximum(?:\s+of)?|\bmax\b\.?)\s*(?:\d+|one|two|three|four|five)\s*(?:[a-zµμ/]+\s+){0,2}?(?:of\s+)?\x00'
+  count_bound_concept_after: '(?i)\x00(?:\s*(?:episodes?|attacks?|admissions?|hospitali[sz]ations?|events?|exacerbations?|flares?|relapses?|cycles?|lines?|doses?|dosage|courses?|times|number))?\s*[:=]?\s*(?:<=|=<|≤|<|less\s+than|fewer\s+than|up\s+to|at\s+most|no\s+more\s+than|not\s+more\s+than|not\s+exceeding|not\s+to\s+exceed|maximum(?:\s+of)?|max\b\.?)\s*\d|\x00[^;。]{0,12}?\d+\s*or\s+(?:fewer|less)\b'
+  count_bound_concept_cjk: '\x00[^。；;，,]{0,10}?\d+(?:\.\d+)?\s*[^\d。；;，,]{0,6}?(?:以下|未満|まで|以內|以内|を超えない|超えない)|\x00[^。；;，,]{0,10}?(?:不超過|不超过|不大於|不大于|不多於|不多于|不高於|不高于|至多|最多|少於|少于|未滿|未满|≤|<)\s*\d|(?:至多|最多|不超過|不超过|最大)\s*\d+\s*\S{0,3}\x00'
+  criteria_for: '(?i)^(?:(?!\b(?:meet|meets|meeting|met|fulfil\w*|satisf\w*)\b).)*\b(?:diagnostic\s+|classification\s+)?(?:criteria|classification|definition)\s+(?:for|of)\s+(?:the\s+)?(?:diagnosis\s+of\s+)?\x00'  # a definition, not the patient (unless the patient meets it)
+  definition_after: '(?i)^(?:(?!\b(?:meet|meets|meeting|met|fulfil\w*|satisf\w*)\b).)*\x00\s*(?:diagnostic\s+)?(?:definition|criteria|classification)\b'  # "Sepsis definition per the 2016 criteria"
+  definition_cjk: '^(?:(?!満た|合致|該当|符合|滿足|满足).)*\x00\s*(?:の|之|的)?\s*(?:診断|診斷|诊断|分類|分类)?\s*(?:基準|標準|标准|定義|定义)'  # 糖尿病診斷標準依據WHO
+  # the concept as one arm of an alternative the logic does not carry ("Diabetes or any other disease", 糖尿病等の疾患,
+  # "Metformin or any drug", 糖尿病/高血壓): the line is met without the concept. An arm the logic joins by "or" is
+  # read as the concept itself, so it never matches here
+  alternative_after: '(?i)\x00[\s,;，、\-]*(?:\b(?:or|and/or|nor)\b|又は|または|もしくは|若しくは|あるいは|或いは|或是|或者|抑或|或|及/或)(?!\s*(?:\x00|more\b|greater\b|higher\b|above\b|older\b|over\b|以上))'
+  alternative_open: '(?i)\b(?:or|and/or)\s+(?:any\s+|an?\s+|some\s+)?(?:other|another|similar|equivalent|related|comparable|else)\b|\b(?:such\s+as|e\.g\.?|for\s+example|etc\.?|and\s+so\s+on|or\s+the\s+like)(?![a-z])|\x00\s*(?:等|など|とか|等等|之類|之类)|(?:又は|または|もしくは|或|或是|或者|及び|および|及|和|與|与|、|,|;)\s*(?:その他|其他|其它|他の|類似|类似|同等|任何)|例えば|例如|比如|譬如|諸如|诸如'
+  alternative_mark: '\x00\s*[/・](?!\s*\x00)|(?<![\x00A-Za-z0-9])\s*[/・]\s*\x00|[A-Za-z0-9぀-ヿ㐀-鿿]\s*[/・]\s*\x00(?![A-Za-z0-9])'
+  requiring_concept: '(?i)\b(?:requir\w+|need\w*|necessitat\w+|warrant\w+|awaiting|await\w*|candidates?\s+for|eligible\s+for|indicated\s+for|planned\s+for|scheduled\s+for|referred\s+for|listed\s+for)\s+(?:(?:a|an|the)\s+)?(?:[a-z\-]+\s+){0,3}?\x00|\x00\s*(?:を|が)?\s*(?:要する|必要とする|必要な|予定)|(?:需要|需|須|须|擬|拟|預計|预计|等待)(?:接受|使用|進行|进行)?\s*\x00'  # "patients requiring <chemotherapy>": a need is not a receipt
+  definition_copula: '(?i)\x00\s+(?:is|are|was|were|will\s+be|shall\s+be)\s+(?:defined|diagnosed\s+(?:when|if)|considered|classified|regarded|taken)\b|\x00\s*(?:とは|の定義|は.{0,12}と定義)|\x00\s*(?:定義為|定义为|是指|係指|系指|的定義|的定义)'  # "Hypertension is defined as …": a definition, not the patient
+  label_then_name: '^[^:]*[^\s:][^:]*:\s*\x00\s*[.。]?\s*$'  # "Section 5.2: Hepatitis B", "コホートB:腎機能障害": a label and a bare name
+  revised: '(?i)\b(?:revised|changed|reclassified|corrected|amended|converted|switched|downgraded|upgraded)\s+to\b|\blater\s+(?:found|shown|diagnosed|determined|proved|proven|revised)\b|\bmisdiagnos\w*|\binitially\s+(?:diagnosed|thought|considered|suspected)\b|\bturned\s+out\b|後に[^。]{0,8}(?:訂正|変更|修正)|誤診|误诊|(?:後來|后来)[^。]{0,6}(?:改|更正|修正)|更正為|更正为|修正診斷|改診'
+  alternative_etc: '[、,，]\s*[^、。,，]{1,12}(?:等|など|等等)\s*(?:の|之|的|$|[。、,，）)])'  # "<X>、高血圧、喘息等": an open list
+  before_concept: '\x00\s*(?:の|之|的)?\s*(?:開始|开始|施行|投与|導入|治療|治疗)?(?:前|以前|之前)(?![立列])'  # "化学療法の前に採血": it has not happened yet
+  risk_instrument: '\b(?:MUST|Wells|Geneva|Caprini|Khorana|Padua|Framingham|FRAX|QRISK\d?|ASCVD|TIMI|GRACE|CHA2DS2-VASc|CHADS2|HAS-BLED|Braden|Norton|Waterlow|Morse|Gail|STOP-BANG)\s*(?:risk\s+)?(?:scores?\b|scales?\b|index\b|criteria\b|tool\b|probability\b|スコア|評分|评分|分數|分数|量表|尺度)'  # a named instrument that scores a risk, not the disease
+  alternative_any_of: '(?i)\b(?:(?:at\s+least\s+)?(?:one|1|two|2)(?:\s+or\s+more)?|any|either|≥\s*\d+|\d+\s+or\s+more)\s+of(?:\s+the\s+following)?\b\s*:?|(?:以下|下列|次)の?(?:いずれか|任一|任何|之一)|いずれか|任一|其中之一|之一'
+  mark_elsewhere: '[^\x00\s]\s*(?:✓|☑|✔|\[x\]|\(\+\))'  # a tick counts only right after the name it ticks
+  prediction_of: '\x00\s*(?:の)?(?:発症|發病|发病|発生|發生|发生|罹患)?\s*(?:予測|預測|预测|リスク|風險|风险|確率|機率|概率|危険)'
+  less_than_once: '(?i)\b(?:less|fewer)\s+than\s+(?:once|one|1)\b(?![.,]?\d)|<\s*1(?![.,\d])\s*(?:times?|episodes?|per\b|/|a\b|$)'
+  chapter: '第\s*[一二三四五六七八九十\d]+\s*[章節节條条項项部篇]'
+  empty_field: '[(\[{「『【（]\s*[/\-−–—_]?\s*[)\]}」』】）]|_{2,}|□|☐|\[\s\]'  # an empty box or bracket: nothing was ticked
+  tnm_zero: '\x00\s*[,，、(（:]?\s*[ytpc]?[TNM](?:0|x|X)(?![A-Za-z0-9])'  # "<distant metastasis> (M0)", "<nodal metastasis> cN0", "…, Mx": right after the name the category says none, or not assessed
+  grade_bound: '(?i)\b(?:grade|stage|class|degree)\s*(?:<=|≤|<|below|under|less\s+than|lower\s+than|up\s+to|at\s+most)\s*\d|(?:グレード|段階|分級|分级|級|级|度)\s*\d+\s*(?:未満|以下)|(?:低於|低于|小於|小于|未滿|未满|不超過|不超过)\s*\d+\s*(?:級|级|度)|(?:分級|分级|等級|等级|級|级|グレード|分期)\s*(?:低於|低于|小於|小于|未滿|未满|<|≤)\s*\d'
+  rate_bound: '(?i)\b(?:less\s+than|fewer\s+than|under|below|at\s+most|up\s+to|no\s+more\s+than|<=?|≤)\s*(?:\d+|once|one|twice|two)\s*(?:(?:time|episode|attack|flare|event|exacerbation|relapse)s?\s*)?(?:per|a|an|each|every|in\s+the|/)\s*(?:past\s+|last\s+|previous\s+)?(?:\d+\s*)?(?:day|week|month|year)|(?:年|月|週|周|每年|每月|每週|每周)\s*\d+\s*(?:回|度|次)\s*(?:未満|以下)|(?:每年|每月|每週|每周|年|月|週)(?:低於|低于|少於|少于|不超過|不超过|未滿|未满|至多|最多)\s*\d+\s*次'
+  below_detection: '(?i)(?:below|under|less\s+than|<)\s*(?:the\s+|an?\s+)?(?:lower\s+)?(?:limit\s+of\s+)?(?:detect\w*|quantif\w*|lloq|lod)\b|\bundetect\w*|\bnot\s+detect\w*|検出(?:限界)?(?:未満|以下|せず)|檢測(?:下限|不到)|检测不到|测不到|檢測不出'
+  object_of_another:  # the concept is the object of another named concept: that one is about it, not a fact of it
+    # ("Vaccination for hepatitis B", "Colonoscopy for colorectal cancer", B型肝炎に対するワクチン接種, 針對B型肝炎之疫苗接種)
+    # and the concept belongs to another named one ("Spouse with COVID-19", ドナーが高血圧, 配偶者がHIV感染症)
+    pattern: '(?i)\x01(?:\s+[a-z\-]+){0,2}\s+(?:with|having|has|had|diagnosed\s+with|who\s+(?:has|had))\s+(?:a\s+|an\s+)?\x00|\x01\s*(?:が|に|には|は)\s*\x00|\x01\s*(?:患有|罹患|有|為|为|是)\s*\x00|\x01[\s\-]*(?:(?:for|against|of|to\s+(?:rule\s+out|assess|exclude|evaluate|detect|prevent|treat|screen\s+for))\s+(?:the\s+)?(?:[a-z\-]+\s+){0,2}?)\x00|\x01[\s\-]*\x00|\x00[\s\-]*\x01|\x00\s*(?:に対する|に対して|への|のための|の)\s*\x01|(?:針對|针对|為了|为了|為|为|因)\s*\x00\s*(?:之|的|而)?\s*\x01|\x00\s*(?:之|的)\s*\x01'
+  non_fact_after:  # a word after a disease name that makes it something else ("malaria medication", "breast cancer gene")
+    domains: [condition]
+    pattern: '(?i)\x00[\s\-]*(?:medications?|medicines?|drugs?|therap(?:y|ies)|treatments?|agents?|regimens?|vaccin\w*|immuni[sz]ation|prophylaxis|prevention|screening|surveillance|tests?|testing|serology|cultures?|antibod(?:y|ies)|carriers?|genes?|risk|education|clinic|programmes?|programs?|guidelines?)\b|\x00(?:に対する|の)?(?:ワクチン|予防接種|治療薬|スクリーニング|検査|抗体|血清|培養)|\x00[之的]?(?:疫苗|藥物|药物|篩檢|筛检|檢查|检查|檢測|检测|抗體|抗体|血清學|血清学|培養|培养|影像)'
+
+ended:  # regular expressions over a clause as read: the concept ended or lies in the past (see the head). An entry
+  # may be {pattern, unless}: "ago" after a diagnosis date is not an ending
+  en:
+    - '(?i)\blast\s+(?:dose|administration|infusion|injection|cycle|course|treatment|use)\b|\bstopped\b|\bdiscontinu\w*|\bceased\b|\bwash-?\s?out\b|\bno\s+longer\b|\bwithdrawn\b|\btapered\s+off\b|\bdeprescribed\b'
+    - {pattern: '(?i)\bcompleted\b|\bended\b|\bfinished\b', not_domains: [procedure]}
+    - {pattern: '(?i)\bin\s+the\s+past\b(?!\s+(?:\d|one|two|three|four|five|six|twelve|few|several|year|month|week|day))', unless: '(?i)\b(?:received|underwent|undergone|treated|had|history)\b', not_domains: [procedure]}
+    - '(?i)\b(?:up\s+to|until|till)\b[^.;]{0,30}?\b(?:before|prior\s+to|ago|preceding)\b|\bpreviously\s+(?:on|taking|receiving|used)\b'
+    - {not_domains: [procedure], pattern: '(?i)\bago\b', unless: '(?i)\b(?:diagnos\w*|onset|first\s+(?:noted|seen|documented))\b'}
+  ja:
+    - '最終投与|最終使用|最終|中止|終了|休薬|完了|離脱|前に(?:投与|使用|服用|施行)|前\d*[^。、]{0,6}まで|まで(?:に)?(?:投与|使用|服用)'
+  zh:
+    - '停用|停藥|停药|停止|結束|结束|最後一次|最后一次|末次|已完成|完成|已停|為止|为止|曾使用至|用至'
+
+non_fact:  # a second net, read over each clause with only this concept's own name masked (another named concept's
+  # words are read as written): a word that says the line is not a present fact of this patient. Naming "remission",
+  # "father" or "pending review" as a concept never hides it. Every line is read with all three lists
+  en: '(?i)\b(?:remission|remitted|cured|resolved|recovered|eradicated|cleared|father|mother|parents?|siblings?|brothers?|sisters?|spouse|partners?|husband|wife|sons?|daughters?|(?:his|her|their|patient.?s?)\s+child(?:ren)?|child(?:ren)?\s+of\b|relatives?|famil\w*|donors?|fetus|foetus|household|contacts?|pending|awaiting|planned|scheduled|booked|candidates?|eligible|suspected|possible|probable|query|considered|recommended|offered|referr\w*|on\s+hold|withheld)\b'
+  ja: '(?<!再発)寛解(?!型)|治癒|回復|父|母|親|兄|姉|弟|妹|配偶者|夫|妻|子供|家族|近親者|ドナー|胎児|接触|予定|待ち|疑い|可能性|検討|勧め|紹介|精査|候補'
+  zh: '(?<!復發)緩解(?!型)|(?<!复发)缓解(?!型)|治癒|治愈|痊癒|痊愈|康復|康复|清除|父|母|親|亲|兄|姐|弟|妹|配偶|伴侶|伴侣|丈夫|妻子|子女|家族|家屬|家属|捐贈|捐赠|胎兒|胎儿|接觸|接触|預計|预计|計畫|计划|等待|疑似|懷疑|怀疑|可能為|可能为|考慮|考虑|建議|建议|轉介|转介|候選|候选'
+
+exceptions:  # regular expressions: an exception and what it names, cut out of a clause (D-1248)
+  en_after: '(?i)\b(?:except(?:\s+for)?|other\s+than|excluding|apart\s+from|aside\s+from|but\s+not)\b[^;.\n]*'
+  cjk_before: '[^,，、。；;（(\n]*(?:を除く|を除き|を除いた|以外の|以外之|以外的|以外)'
+  zh_around: '除(?:了)?[^,，。；;\n]{1,20}?(?:以外|之外|外)[之的]?'
+
+patterns:  # regular expressions (Python), matched at a position; each describes a number or a bound, nothing more. A code is
+  # recognised only when it is one of the concept's own codes (from its value set), read as the concept itself
+  number: '[-−+]?\d+(?:[.,]\d+)?(?:\s*(?:-|–|〜|~|to|至|到|から)\s*[-−+]?\d+(?:[.,]\d+)?)?'
+  roman: '(?<![A-Za-z])(?:i{1,3}|iv|vi{0,3}|ix)[abc]?(?![A-Za-z])'
+  tnm: '(?<![A-Za-z])[ytpc]?[tnm](?:[0-4]|x|is)[a-d]?\+?(?![A-Za-z0-9])'  # a staging written out; "<distant metastasis> (M0)" is held (tnm_zero)
+  cjk_number: '[一二兩两三四五六七八九十百]+'
+  bound: '(?:>/=|</=|<=|>=|=<|=>|≥|≤|≧|≦|<|>|=)\s*[-−+]?\d+(?:[.,]\d+)?'  # a comparison sign only with its number
+  percent: '(?<=\d)\s*%'
+  ordinal: '(?<![A-Za-z0-9])\d+(?:st|nd|rd|th)(?![A-Za-z])'
+  stage_code: '(?<![A-Za-z0-9])(?:[A-D]|[A-Z][1-9][a-c]?|[1-9][a-c])(?![A-Za-z0-9+])'  # "stage B or C", "F2 or F3", "3b"
+  alnum_code: '(?<![A-Za-z0-9])\d+[A-Za-z]{1,3}\d*(?![A-Za-z0-9])'  # "22C3"
+  plus_grade: '(?<![A-Za-z0-9])[1-3]\+(?![A-Za-z0-9])'  # "IHC 3+"
+  power: '(?:x|×)\s*10\s*\^?\s*\d+\s*/\s*[a-zµμ]+'
+  initials: '(?<![A-Za-z0-9.])(?:[A-Z]\.){2,}[A-Z]?(?![A-Za-z0-9])'  # "M.I.N.I"
+  year_version: '(?<![A-Za-z0-9])(?:19|20)\d\d(?:年|版)?'
+
+# ---------------------------------------------------------------------------------------------------------------
+# Unlisted words (D-1248, the rule as adopted). A closed list of every word a criterion may use holds most ordinary
+# lines (88 of 100 realistic plain lines at the experiment's last head). So an unlisted word may be read, but only as
+# a content word (a noun or an adjective) and only where a content word cannot change whether the concept is present:
+#
+# * never a closed-class word (`closed_class`): an article, a pronoun, an auxiliary, a modal, a conjunction or a
+#   preposition is read only as part of a listed word or shape. "if", "when", "whose", "his", "will", "may", "to be"
+#   carry what makes a line something other than a fact;
+# * never a word shaped like a verb form ("-ed", "-ing", "n't"), and in Japanese never hiragana: what is said OF the
+#   concept is a verb, and verbs are listed (diagnosed, confirmed, 診断された, 確診);
+# * never what is attached to the concept and governs it: the word right after the name ("<X> screening"), in
+#   Japanese and Chinese everything after the name up to the next mark and the owner before の / 之 / 的, in English
+#   the phrase whose preposition governs the name (`governors`: "diagnosis of", "history of"; "vaccination for" is
+#   not one);
+# * never a word of a class that says the concept is not a present fact of this patient (`unlisted_never`: doubt, a
+#   plan, a wish, a risk, another person, an ending, a refusal, an alternative);
+# * right before the name only an adjective (not a plural or a verb's "-s", not a possessive), and in Chinese only a
+#   run that ends as a modifier does (性, 型, 期, 度, 的, 之);
+# * at most 12 in an English clause, 8 runs in a Japanese or Chinese one; none in a clause that names no coded
+#   concept ("Pending central review." must be listed words throughout).
+closed_class:
+  en: [a, an, the, this, that, these, those, some, any, no, none, each, every, all, both, either, neither, such, same,
+    other, another, others, i, me, my, we, us, our, you, your, he, him, his, she, her, hers, it, its, they, them,
+    their, theirs, who, whom, whose, which, what, where, when, why, how, whether, if, unless, until, till, while,
+    whilst, although, though, because, since, so, than, then, thus, hence, therefore, however, but, yet, nor, or, and,
+    as, is, are, was, were, be, been, being, am, has, have, had, having, do, does, did, done, doing, will, would,
+    shall, should, may, might, can, could, cannot, must, ought, need, needs, not, never, ever, only, just, also, too,
+    very, quite, rather, still, already, again, once, yes, of, for, to, "on", "off", in, into, onto, at, by, from,
+    with, without, within, about, above, below, over, under, between, among, through, during, before, after, against,
+    toward, towards, upon, via, per, like, unlike, except, despite, beyond, behind, beside, besides, near, around,
+    along, across, out, up, down, there, here, now, later, soon, next, future, someone, anyone, nobody, somebody,
+    anybody, everyone, something, anything, nothing, else, otherwise, instead, perhaps, maybe, likely, unlikely,
+    apparently, reportedly, allegedly, possibly, probably, potentially, presumably, supposedly, hopefully, let, lets]
+unlisted_never:
+  en:  # each a regular expression over one whole word
+    doubt: 'fear\w*|worr\w*|concern\w*|afraid|suspect\w*|suspicio\w*|possib\w*|probab\w*|presum\w*|potential\w*|putative\w*|tentative\w*|provisional\w*|doubt\w*|uncertain\w*|unclear|unconfirm\w*|unverif\w*|unknown|equivocal|indeterminate|inconclusive|borderline|questionab\w*|query|apparent\w*|alleged\w*|suppos\w*|hypothe\w*|theoretic\w*|speculat\w*|differential|impression|working|rule|ruled|pending|tbc|tbd|vs|versus|likelihood|chance|odds'
+    plan: 'plan\w*|schedul\w*|book\w*|intend\w*|intent\w*|propos\w*|upcoming|forthcoming|anticipat\w*|expect\w*|await\w*|future|eventual\w*|imminent|impending|prospective\w*|candida\w*|eligib\w*|indicat\w*|suitab\w*|appropriate\w*|amenab\w*|fit|fitness|offer\w*|recommend\w*|advis\w*|advice|consider\w*|refer\w*|request\w*|order\w*|consent\w*|agree\w*|willing\w*|wish\w*|want\w*|desir\w*|prefer\w*|choice|option\w*|optional|need|needs|requir\w*|necessary|necessit\w*|prn|trial|attempt\w*|try|tries|goal|aim\w*|target\w*|protocol|study|investigational|experimental|placebo|sham|randomi[sz]\w*|assign\w*|allocat\w*|arm|arms'
+    risk: 'risk\w*|predict\w*|prognos\w*|susceptib\w*|predispos\w*|prone|vulnerab\w*|prophyla\w*|prevent\w*|precaution\w*|protect\w*|screen\w*|surveillance|vaccin\w*|immuni[sz]\w*|wells|geneva|caprini|khorana|padua|framingham|frax|qrisk|ascvd|timi|grace|chads2?|vasc|bled|must|gail|calculator|nomogram|probability'
+    person: '\w*(?:father|mother|parent|brother|sister|daughter|sibling|spouse|husband|uncle|aunt|cousin|nephew|niece)\w*|\w+-in-law|fianc\w+|girlfriend|boyfriend|famil\w*|relative\w*|kin|kindred|mother\w*|father\w*|parent\w*|matern\w*|patern\w*|sibling\w*|brother\w*|sister\w*|son|sons|daughter\w*|child|children|offspring|spouse\w*|spousal|husband\w*|wife|wives|partner\w*|grand\w+|aunt\w*|uncle\w*|cousin\w*|nephew\w*|niece\w*|twin\w*|donor\w*|fetus|foetus|fetal|foetal|household|contact\w*|caregiver\w*|carer\w*|guardian\w*|friend\w*|neighbou?r\w*|roommate\w*|colleague\w*|proband|pedigree|hereditary|inherit\w*|carrier\w*|trait|gene|genes|genetic\w*'
+    ended: 'former\w*|ex|past|previous\w*|prior|remote|historic\w*|childhood|old|resol\w*|recover\w*|remission|remit\w*|cure\w*|heal\w*|eradicat\w*|clear\w*|quiescent|inactive|dormant|burnt|stop\w*|ceas\w*|cessation|discontinu\w*|withdraw\w*|withdrew|terminat\w*|complet\w*|finish\w*|end|ended|ending|last|final|washout|wash|taper\w*|interrupt\w*|suspen\w*|hold|held|paus\w*|remov\w*|explant\w*|revers\w*|quit\w*|abstinen\w*|abstain\w*|free|naive|naïve'
+    refusal: 'refractor\w*|resistan\w*|refus\w*|declin\w*|den(?:y|ies|ied|ial)\w*|reject\w*|avoid\w*|contraindicat\w*|intoleran\w*|allerg\w*|hypersensitiv\w*|sensitiv\w*|reaction\w*|adverse|toxic\w*|fail\w*|inadequate\w*|insufficien\w*|ineffective|unsuccessful|unable|inability|incapab\w*|ineligib\w*|unfit|unsuitab\w*|prohibit\w*|forbid\w*|forbidden|ban|banned|restrict\w*|exclu\w*|exempt\w*|waive\w*|omit\w*|miss\w*|skip\w*|defer\w*|delay\w*|postpon\w*|cancel\w*|abort\w*|abandon\w*|lack\w*|absen\w*|negative\w*|neg|nil|none|zero|normal\w*|unremarkable|undetect\w*|nondetect\w*'
+    alternative: 'other\w*|another|alternativ\w*|similar\w*|equivalen\w*|comparab\w*|analogous|related|different\w*|mimic\w*|resembl\w*|like|variant\w*|etc|eg|ie|example\w*|namely|including|includ\w*|misc\w*|various|several|unspecified|any'
+    reported: 'self|reported\w*|report|reports|stated|states|claim\w*|said|say|says|told|hearsay|rumou?r\w*|anecdot\w*|per'
+    form: 'yes|no|na|n/a|true|false|checked|unchecked|ticked|blank|empty|unknown|missing|null|tbd|x'
+    not_yet: 'latent\w*|subclinical\w*|incipient|prodrom\w*|preclinical|premalignant|precancer\w*|precursor\w*|threatened|elective\w*|fh|fhx|pmh|nkda|nka|ro|dnr|nad|wnl|tba|braden|norton|waterlow|morse'
+    prefix: 'non-?[a-z]+|un(?!i|der|til)[a-z]+|pseudo\w+|quasi\w+|(?:pre|ex|post)-[a-z]+|prediabet\w*'  # a negating or "before / after" prefix is read only when listed ("non-small", "uncontrolled")
+  ja:  # regular expressions over a run of kanji or katakana
+    doubt: '心配|恐怖|疑|可能|恐れ|未確|不明|不確|不詳|保留|暫定|仮|推定|鑑別|懸念|境界|潜在|潜伏|予備|前段階|前駆|待機|偽|擬似|類似'
+    plan: '予定|計画|検討|希望|候補|適応|適格|対象|推奨|勧|紹介|依頼|同意|必要|要す|待ち|将来|今後|見込|試み|試行|治験薬|プラセボ|割付|目標|延期|見送|保留|選択肢'
+    risk: 'リスク|危険|予測|予後|素因|予防|スクリーニング検査|検診|ワクチン|接種|サーベイランス|確率'
+    person: 'パートナー|恋人|友人|知人|同僚|隣人|家族|親|父|母親|母方|祖母|叔母|伯母|兄|姉|弟|妹|夫|妻|子供|子ども|息子|娘|孫|叔|伯|配偶|近親|血縁|同居|ドナー|提供者|胎児|接触者|介護|遺伝|保因|キャリア'
+    ended: '既|旧|寛解|治癒|完治|回復|軽快|消失|中止|終了|休薬|中断|断薬|離脱|完了|最終|抜去|摘出後|禁煙|禁酒'
+    refusal: '拒否|辞退|回避|禁忌|禁止|不可|不能|不要|不使用|不適|不応|不耐|無効|無し|有無|未|否|欠如|除外|除く|除き|以外|失敗|アレルギー|過敏|副作用|有害|毒性|陰性|ネガティブ|マイナス|正常|ゼロ'
+    alternative: 'その他|他の|他疾患|別の|類似|同等|同様|例えば|任意|各種|種々|諸'
+    reported: '申告|自称|自己|主張|伝聞'
+    form: '該当|空欄|未記入'
+  zh:  # regular expressions over a run of Chinese characters
+    doubt: '擔心|担心|害怕|恐懼|恐惧|憂慮|忧虑|顧慮|顾虑|疑|可能|恐|未確|未确|不明|不確|不确|不詳|不详|待|暫|暂|擬診|拟诊|推測|推测|鑑別|鉴别|也許|或許|臨界|临界|邊緣|边缘|潛伏|潜伏|潛在|潜在|前驅|前驱|擇期|择期|偽|伪|假性|類似|类似'
+    plan: '預|预|計畫|計劃|计划|擬|拟|將|将|欲|願意|愿意|意願|意愿|候選|候选|候補|適合|适合|適應症|适应症|適用|适用|建議|建议|推薦|推荐|轉介|转介|申請|申请|安排|排程|排定|規劃|规划|同意|需|須|须|應該|应该|應當|应当|試驗藥|试验药|安慰劑|安慰剂|隨機|随机|目標|目标|考慮|考虑|打算|準備|准备|希望|期望|等候|延後|延后|延遲|延迟|推遲|推迟|取消|放棄|放弃|婉|謝絕|谢绝'
+    risk: '風險|风险|危險|危险|預測|预测|預後|预后|易感|預防|预防|篩檢|筛检|篩查|筛查|疫苗|接種|接种|監測|监测|機率|概率'
+    person: '家族|家屬|家属|家人|家庭|親|亲|父|母親|母亲|母方|祖母|兄|姊|姐|弟|妹|丈夫|妻|子女|兒子|儿子|女兒|女儿|孫|孙|叔|伯|配偶|伴侶|伴侣|同住|捐|供者|胎兒|胎儿|接觸者|接触者|照顧者|照顾者|遺傳|遗传|帶原|带原|携带'
+    ended: '既|曾|舊|旧|緩解|缓解|治癒|治愈|痊|康復|康复|好轉|好转|消退|消失|停|終止|终止|中止|為止|为止|戒|結束|结束|完成|末次|最後|最后|移除|摘除|拔除|已癒|已愈'
+    refusal: '拒|辭|辞|避|禁|不|無|无|未|非|否|沒|没|缺乏|缺少|缺如|除外|除了|排除|除非|以外|之外|失敗|失败|不耐|過敏|过敏|副作用|毒性|陰性|阴性|正常|零|勿|毋'
+    alternative: '其他|其它|他人|別的|别的|另|類似|类似|同等|例如|任何|任一|各種|各种|多種|多种|諸|诸|或|抑或'
+    reported: '自述|自稱|自称|自訴|自诉|主訴|主诉|聲稱|声称|據稱|据称|口述'
+    form: '是否|有無|有无|空白|未填'
+    grammar: '若|如|倘|假如|假設|假设|假使|即使|雖|虽|但|卻|却|而|否則|否则|才|可以|可接受|尚可|能夠|能够|想|讓|让|使得|致使|被|把|誰|谁|何|哪|怎|甚|什|嗎|吗|呢|吧'
+  # hiragana that is never read unless a listed word holds it: an ending that denies, doubts, wishes, conditions,
+  # allows, asks, stops or gives an example
+  ja_grammar: 'ない|なし|なく|なかっ|ぬ|ず|まい|ません|たい|たが|そう|よう|らし|みたい|だろう|でしょう|かも|はず|べき|つもり|れば|けば|えば|せば|てば|めば|たら|だら|なら|ても|でも|のに|けれど|か$|かどう|まで|やめ|とめ|でき|うる|ほし|おく|みる|とか|など|くださ|いずれ|または|もしく|あるい|ただし|しかし|だが|ものの|について$'
+governors:
+  zh: [診斷為, 诊断为, 診斷, 诊断, 確診為, 确诊为, 確診, 确诊, 患有, 罹患, 接受, 接受過, 接受过, 過, 过, 使用, 服用, 施行,
+    進行, 进行, 發生, 发生, 出現, 出现, 合併, 合并, 併有, 并有, 為, 为, 有, 證實為, 证实为, 證實, 证实, 植入, 置入, 顯示,
+    显示, 帶有, 带有, 具有, 具, 確認為, 确认为, 判定為, 判定为, 呈, 屬, 属, 行]
+  en: [with, diagnosis of, diagnoses of, diagnosed with, diagnosed as, diagnosed as having, history of, evidence of,
+    presence of, episode of, episodes of, case of, cases of, form of, forms of, onset of, duration of, stage of,
+    recurrence of, relapse of, exacerbation of, exacerbations of, flare of, flares of, attack of, attacks of,
+    symptoms of, signs of, clinical signs of, signs and symptoms of, admitting diagnosis of, features of, findings of, manifestations of, complications of, criteria for, treated for,
+    treatment for, therapy for, hospitalised for, hospitalized for, admitted for, surgery for, operated for,
+    medication for, receiving treatment for, on treatment for, treated with, treatment with, therapy with,
+    managed with, controlled with, controlled on, maintained on, stable on, stabilised on, stabilized on,
+    patients on, subjects on, participants on, currently on, are on, is on, been on, "on a stable dose of",
+    stable dose of, stable doses of, dose of, doses of, dosage of, course of, courses of, cycle of, cycles of,
+    line of, lines of, regimen of, use of, administration of, infusion of, injection of, receipt of, exposure to,
+    positive for, seropositive for, positivity for, confirmed to have, known to have, found to have, shown to have,
+    documented to have, suffering from, affected by, living with, presenting with, presented with,
+    hospitalised with, hospitalized with, admitted with, infected with, infection with, resection of, removal of,
+    replacement of, repair of, transplantation of, ablation of, implantation of, placement of, insertion of,
+    carcinoma of, cancer of, adenocarcinoma of, tumour of, tumor of, tumours of, tumors of, disease of,
+    disorder of, infection of, inflammation of, "^on", "^with", "^after", "^following", "^post", status after,
+    status post, "^since", months after, weeks after, days after, years after, months since, weeks since,
+    years since, days since, months following, weeks following, years following, "^for", indicated by,
+    evidenced by, as, defined as, classified as, such as, according to, in accordance with, per, based on]
+
+common:  # every language: names of measures, markers, methods and units, as written in any of them
+  measure:
+    domains: [any]
+    words: [hbs, hbe, hbc, hbs-ag, hba1c, a1c, fev1, fvc, lvef, egfr, bmi, inr, psa, cd4, ldl, ldl-c, alt, ast, bnp,
+      nt-probnp, crp, esr, hbsag, hbeag, hbv dna, hcv rna, hiv rna, hiv-1 rna, das28, cdai, sdai, sledai, pasi,
+      easi, edss, mmse, nihss, t-score, z-score, nyha, gold, gina, ecog, kps, ckd, uln, x uln, mmhg, mg/dl, mmol/l,
+      mmol/mol, ml/min, ml/min/1.73 m2, kg/m2, kg, cm, mg, g, mcg, µg, ml, iu, units, copies/ml, cells/µl,
+      cells/mm3, mg/kg, mg/m2]
+  marker:
+    domains: [condition]
+    words: [her2, er, pr, hr, egfr, alk, ros1, kras, braf, brca1, brca2, pd-l1, msi-h, dmmr, hla-b27, jak2, idh,
+      flt3, npm1, bcr-abl, rf, acpa, anti-ccp, ana, anca]
+  positive_mark:  # a box ticked or a positive result; an empty box, a blank, a dash or "±" is not listed
+    domains: [any]
+    words: ["[x]", "☑", "✓", "✔", "(+)"]
+  standard:  # a named standard or classification, and a code system's name
+    domains: [any]
+    words: [uicc, tnm, tnm7, tnm8, recist, recist 1.1, irecist, acr, eular, acr/eular, dsm-5, dsm-iv, iwg, iwg-2,
+      mcdonald, rome iv, who, icd-9, icd-10, icd-10-cm, icd-11, icd9, icd10, central]
+  method:  # a test is recognised only as what confirmed the concept, never as a test of or for it
+    domains: [any]
+    needs: [confirm, confirmed, confirmation, verified, diagnosed, documented, proven, demonstrated, shown,
+      established, evidenced, 確認, 確定, 診断, 証明, 記録, 確診, 确诊, 確認, 确认, 證實, 证实, 診斷為, 诊断为, 記錄,
+      记录]
+    words: [sonographic, sonographically, angiography, ct angiography, troponin, blood culture, ecg, ekg, ct, mri,
+      pet, pet-ct, x-ray, pcr, rt-pcr, naat, ihc, fish, ngs]
+
+languages:
+  en:
+    frames:
+      domains: [any]
+      words: [disease characteristics, patient characteristics, that is, that are, which is, which are, verified on, diagnosed on, confirmed on, diagnosis of,
+        diagnosis, diagnosed with, diagnosed, confirmed, confirmed diagnosis of, documented,
+        known, established, proven, verified, presence of, evidence of, positive for, positive, present, ongoing,
+        current, currently, existing, pre-existing, with, patients, patient, subjects, subject, participants,
+        participant, adults, adult, men, women, man, woman, male, female, males, females, people, persons,
+        individuals, cases of, case of, who have, who has, having, has, have, must have, must, should have, should,
+        is, are, be, been, has been, have been, was, were, the, a, an, any, all, at least one, either, both, or,
+        and, and/or, including, of, for, by, in, "on", at, as, per, according to, that, which, who, meeting,
+        meets, meet, fulfilling, fulfils, fulfills, fulfil, satisfying, satisfies, consistent with, defined by,
+        as defined by, harbouring, harboring]
+    tail:  # words of the ordinary rest of a line: its small words, its time and place, what was seen and how
+      domains: [any]
+      words: [a, an, the, of, for, "on", in, at, by, with, within, during, before, after, between, over, under, per,
+        each, every, both, all, from, to, than, and, as, who, that, which, while, despite, prior to, following,
+        since, into, through, via, among, around, about, above, below, their, his, her, its, this, these, those,
+        there, also, only, "or", "yes", own,
+        children, child, infants, infant, neonates, newborns, adolescents, adolescent, boys, girls, elderly,
+        outpatients, inpatients, volunteers, survivors, recipients, residents, individuals, those,
+        # card 10A-1c's R8 and R9: a modifier whose own object is what is absent or excepted. The cue reading decides
+        # whether such a line runs (it holds every other "not"); here the words are only read
+        without, not on, not receiving, not treated with, not controlled with, not controlled on,
+        not controlled by, with no, but no, other than, except, except for, excluding,
+        requiring, uncomplicated, complicated, unresectable, uncontrolled, unstable, untreated,
+        hospitalised with admitting diagnosis of, hospitalized with admitting diagnosis of, admitting diagnosis of,
+        clinical signs of, signs and symptoms of, will be included, are included, were included, operated on,
+        respiratory tract sample, presentation,
+        living with, suffering from, affected by, presenting with, presented with, hospitalised, hospitalized,
+        hospitalised with, hospitalized with, admitted, admitted with, born, aged, weighing, enrolled, attending,
+        experiencing, experienced, arising, arising in, occurring, located, located in, involving, affecting,
+        extending, spreading, originating, performed, placed, implanted, inserted, administered, given,
+        initiated, started, begun, commenced, continued, continuing, maintained, maintained on, stabilised,
+        stabilized, managed, controlled, titrated, tolerated, maximally tolerated, maximum tolerated, prescribed,
+        dispensed, demonstrated, determined, detected, identified, observed, seen, noted, found, shown, measured,
+        assessed, evaluated, examined, tested, read, read centrally, reviewed, centrally reviewed, obtained,
+        collected, recorded, reported in the medical record, calculated, estimated, graded, staged, classified,
+        categorised, categorized, characterised, characterized, defined, defined as, considered as, treated,
+        pretreated, pre-treated, previously treated, untreated, treatment-naive, resected, operated,
+        irradiated, transplanted, vaccinated against, rising, increasing, increased, elevated, raised, decreased,
+        reduced, lowered, impaired, enlarged, thickened, persisting, lasting, remaining, ongoing, repeated, repeat, confirmed with, confirmed on, confirmed at, verified by, supported by, based on,
+        according to, in accordance with, consistent with, compatible with, corresponding to, as assessed by,
+        as measured by, as determined by, as defined in, as per, as shown by, as demonstrated by, using, used,
+        eluting, drug-eluting, containing, -containing, -based, based, -related, related to, -associated,
+        associated with, -induced, induced by, -dependent, dependent, -positive, -resistant, -sensitive,
+        -confirmed, -proven, -documented, -diagnosed, -treated, -controlled, -invasive, -free interval,
+        preceding, previous, earlier, later, former, current, present, recent, latest, initial, subsequent,
+        screening visit, the screening visit, screening period, baseline period, baseline visit, run-in,
+        run-in period, study entry, study eye, fellow eye, study drug, study treatment, study medication,
+        first dose of study drug, first study dose, index date, index event, index procedure, informed consent,
+        signing informed consent, time of consent, time of screening, time of enrolment, time of enrollment,
+        time of randomisation, time of randomization, time of diagnosis, day of surgery, pregnancy, gestation,
+        of gestation, weeks of gestation, gestational age, birth, delivery, life, of life, period, phase,
+        minimum of, a minimum of, maximum, minimum, mean, median, average, total, sum, number of, proportion,
+        percentage, degrees, points, minutes, minute, seconds, nights, night, occasions, x, measurement,
+        determinations, tests, test, testing, examination, exam, assessment, evaluation, review, report,
+        results, result, findings, finding, specimen, specimens, sample, samples, tissue, tumour tissue,
+        tumor tissue, blood, serum, plasma, urine, stool, sputum, bone marrow, cerebrospinal fluid, csf,
+        medical record, medical records, chart, charts, records, local, central, centrally, locally, laboratory,
+        validated, approved, standard, standardised, standardized, modified, revised, updated, edition,
+        version, v, guideline, guidelines, recommendations, consensus, international, national, working group,
+        society, association, college, criteria, classification, system, staging system, scoring system,
+        algorithm, equation, formula, questionnaire, scale, rating scale, inventory, checklist, interview,
+        score, subscore, total score, sum score, status, function, functional, functional class, performance,
+        severity, of mild severity, of moderate severity, activity, disease activity, burden, extent, size,
+        diameter, thickness, area, angle, volume, gradient, velocity, frequency, rate, weight, height, length,
+        symptoms, symptom, signs, sign, features, lesions, lesion, nodules, plaques, tumours, tumors, tumour,
+        tumor, mass, deposits, changes, abnormalities, abnormality, defect, defects, damage, injury,
+        dysfunction, impairment, failure, insufficiency, deficiency, deficit, loss, pain, bleeding, swelling,
+        obstruction, stenosis, occlusion, narrowing, enlargement, progression, disease progression, recurrence,
+        events, event, crises, crisis, seizures, seizure, comorbidity, comorbidities, complication,
+        complications, sequelae, despite treatment with, despite, inadequate response to, response to,
+        responding to, progression on, progressed on, progressed after, refractory to,
+        resistant to, intolerant of, background, background therapy, concomitant, concurrent, add-on,
+        adjunctive, maintenance therapy, immunosuppression, immunosuppressive, replacement, supplementation,
+        inhibitor, inhibitors, antagonist, antagonists, agonist, agonists, blocker, blockers, antibody,
+        antibodies, autoantibodies, analogue, analog, corticosteroids, corticosteroid, steroids, steroid,
+        chemotherapy, radiotherapy, immunotherapy, surgery, resection, implantation, transplantation,
+        transplant, post-transplant, intervention, procedure, operation, anaesthesia, anesthesia, device,
+        implant, stent, graft, catheter, prosthesis, pacemaker]
+    history:
+      domains: [any]
+      words: [history of, history, prior, previous, previously, past, had, has had, have had, received,
+        has received, have received, underwent, undergone, has undergone, have undergone, at any time, ever,
+        lifetime, experienced, has experienced, have experienced]
+    history_after_procedure:
+      domains: [procedure]
+      words: [status after, status post, s/p, post]
+    treatment:
+      domains: [any]
+      words: [undergoing, undergoes, "requiring {O}", "requires {O}", receiving, receives, taking, takes, treated with, treated, treatment with, treatment, therapy,
+        therapies, stable, stable dose of, stable dose, stable doses, dose of, dose, doses, dosage, maintenance,
+        regular, regularly, daily, once daily, twice daily, three times daily, weekly, twice weekly,
+        three times weekly, monthly, every, oral, orally, intravenous, intravenously, iv, subcutaneous,
+        subcutaneously, inhaled, topical, monotherapy, combination, combined with, plus, regimen, regimens,
+        containing, based, standard, adjuvant, neoadjuvant, palliative, curative, curative-intent, setting,
+        platinum, platinum-based, platinum-containing, anthracycline, anthracycline-based, taxane, taxane-based,
+        fluoropyrimidine, fluoropyrimidine-based, cytotoxic, systemic, external beam, stereotactic, line, lines, line of, lines of, first-line, second-line, third-line, cycle,
+        cycles, course, courses, using, use of, user, users, drug, drugs, medication, medications, agent, agents,
+        recipient, recipients, scheduled dose, prescribed dose]
+    stage:
+      domains: [condition]
+      words: [stage, stages, staging, metastatic, metastases, metastasis, metastasised, metastasized, advanced,
+        locally advanced, early, early-stage, late-stage, limited-stage, extensive-stage, localised, localized,
+        unresectable, resectable, operable, inoperable, recurrent, relapsed, refractory, relapsed or refractory,
+        progressive, invasive, in situ, node-positive, de novo, class, classes, step, measurable, evaluable,
+        measurable disease, bulky, extranodal]
+    grade:
+      domains: [condition]
+      words: [grade, grades, high-grade, low-grade, intermediate-grade, well differentiated, moderately differentiated,
+        poorly differentiated, gleason, gleason score, score, scores, isup, grade group, performance status]
+    severity:
+      domains: [condition]
+      words: [mild, moderate, severe, moderately, severely, moderate to severe, mild to moderate, moderately to severely,
+        mild to severe, very severe, chronic, acute, subacute, persistent, intermittent, symptomatic,
+        uncontrolled, poorly controlled, inadequately controlled, well controlled, well-controlled, controlled,
+        active, flare, flares, exacerbation, exacerbations, attack, attacks, episode, episodes, relapse, relapses,
+        clinically significant, significant, overt, clinically, clinical, frequent, high, low, very high]
+    type:
+      domains: [condition]
+      words: [of any cause, due to any cause, any cause, other, others, type, types, subtype, subtypes, form, forms, essential, primary, secondary, idiopathic,
+        congenital, acquired, paroxysmal, permanent, long-standing, longstanding, focal, generalised, generalized,
+        plaque, plaque-type, seropositive, erosive, drug-resistant, treatment-resistant, resistant, refractory,
+        castration-resistant, hormone-sensitive, castration-sensitive, postmenopausal, premenopausal,
+        relapsing-remitting, relapsing, secondary progressive, primary progressive, with aura, aura, single,
+        recurrent, mellitus, infection, infections, disease, disorder, syndrome, carcinoma, adenocarcinoma,
+        genotype, genotypes, mutation, mutations,
+        mutated, mutation-positive, rearrangement, rearranged, fusion, amplification, amplified, overexpression,
+        overexpressing, expression, expressing, receptor, hormone receptor, hormone receptor-positive, gene, ductal,
+        lobular, ischaemic, ischemic, dilated, hypertrophic, reduced, preserved, mildly reduced, ejection fraction,
+        with reduced ejection fraction, with preserved ejection fraction, non-hodgkin, non-invasive, noninvasive,
+        non-muscle-invasive, non-metastatic, nonmetastatic, non-st-elevation, non-alcoholic, nonalcoholic,
+        non-squamous, nonsquamous, non-seminomatous, non-clear cell, non-tuberculous, non-valvular, nonvalvular,
+        non-ischaemic, non-ischemic, non-obstructive, non-functioning, non-secretory, non-hereditary, asymptomatic,
+        not otherwise specified, nos, compensated, decompensated]
+    site:
+      domains: [condition, procedure]
+      words: [cranial, head, covering, affecting, left, right, bilateral, unilateral, sided, left-sided, right-sided, side, upper, lower, proximal,
+        distal, central, peripheral, pulmonary, hepatic, renal, cardiac, cerebral, spinal, bone, bones, liver,
+        lung, lungs, brain, kidney, kidneys, skin, chest, breast, abdomen, abdominal, pelvis, pelvic, head and neck,
+        neck, colon, colonic, rectum, rectal, ileum, ileal, joint, joints, knee, knees, hip, hips, hand, hands,
+        lymph node, lymph nodes, nodal, visceral, cns, involving, involvement, involvement of, of the, to the chest,
+        to the brain, to the pelvis, to the breast, to the bone, to the liver, to the lung, site, sites, organ,
+        organs, extensive, widespread, multifocal, multiple]
+    measure:
+      domains: [any]
+      words: [ejection fraction, body surface area, bsa, body mass index, blood pressure, systolic, diastolic, bp,
+        creatinine, cholesterol, triglycerides, bilirubin, platelets, platelet count, haemoglobin, hemoglobin,
+        viral load, level, levels, value, values, count, counts, target, predicted, of predicted, ratio, index,
+        concentration, percent, per cent, upper limit of normal, times the upper limit of normal,
+        at least, or more, or greater, or higher, or above, or less, or lower, or below, or older, or over,
+        and above, and over, greater than, more than, less than, fewer than, above, below, over, under, up to,
+        between, equal to, or equal to, approximately, about, detectable, quantifiable, not more than, no more than,
+        not greater than, no greater than, not less than, no less than, not exceeding, not to exceed]
+    time:
+      domains: [any]
+      words: [year, years, month, months, week, weeks, day, days, hour, hours, yr, yrs, mo, wk, wks, hrs, ago,
+        since, duration, of duration, lasting, newly diagnosed, newly, new, new-onset, onset, recent, recently,
+        recently diagnosed, since diagnosis, from diagnosis, at diagnosis, of diagnosis, within, within the past,
+        within the last, in the past, in the last, during the past, during the last, the past, the last, last,
+        before screening, at screening, prior to screening, of screening, before enrolment, before enrollment,
+        prior to enrolment, prior to enrollment, at enrolment, at enrollment, before randomisation,
+        before randomization, prior to randomisation, prior to randomization, before the first dose,
+        prior to the first dose, before study entry, prior to study entry, at study entry,
+        at baseline, baseline, at age, age, aged, ages, years old, year old, years of age, of age, older, times,
+        time, once, twice, three times, one, two, three, four, five, six, ten, twelve, first, second, third,
+        consecutive, documented on, separate, occasions, visits, visit, measurements, readings, refill, refills,
+        apart, continuous, continuously, uninterrupted, gap, gaps]
+    method_word:  # how it was confirmed, said with the confirming word itself
+      domains: [any]
+      words: [histologically, cytologically, pathologically, histopathologically, radiologically, endoscopically,
+        spirometrically, serologically, biopsy-proven, biopsy-confirmed, laboratory-confirmed, lab-confirmed,
+        culture-confirmed, cytologically or histologically, histologically or cytologically, physician, doctor,
+        specialist, investigator, physician-diagnosed, doctor-diagnosed, test-confirmed, confirmed by, documented by,
+        diagnosed by, determined by, assessed by, measured by, demonstrated by, shown by, proven by,
+        as evidenced by, evidenced by]
+    method:  # a test: only beside a confirming word (see common.method)
+      domains: [any]
+      needs: [confirm, confirmed, confirmation, verified, diagnosed, documented, proven, demonstrated, shown,
+        established, evidenced]
+      words: [histological, histology, cytological, cytology, pathological, pathology, histopathological, biopsy,
+        radiological, imaging, ultrasound, echocardiography, echocardiogram, echo, electrocardiogram, holter,
+        spirometry, endoscopy, colonoscopy, serology, laboratory, lab, culture, sputum, smear, assay]
+    criteria:
+      domains: [any]
+      needs: [according to, based on, defined by, diagnosed, meeting, meets, meet, fulfilling, fulfils, fulfills, fulfil, satisfying,
+        satisfies]
+      words: [criteria, classification criteria, classification, diagnostic criteria, definition]
+    links:
+      domains: [any]
+      words: [with, and, or, for, "on", due to, secondary to, caused by, associated with, including, plus, in, of, by,
+        treated with, receiving, and/or]
+    alternatives:
+      domains: [any]
+      words: [or, and/or, either, nor]
+
+  ja:
+    frames:
+      domains: [any]
+      words: [と診断されてから, 診断されてから, 前に診断された, 前に診断, 記録された, で記録された, 者, の者, である, であり, 現在, している, 陽性, 有り, アリ, と診断された, と診断されている, と診断され, と診断, の診断, 診断された, 確定診断された, 確定診断, で確定した,
+        確定した, で確認された, 確認された, 確認されている, が確認されている, で確認, を有する, を有し, を有している, 有する,
+        がある, があり, のある, ある, あり, を認める, を合併する, 合併, に罹患している, 罹患, 患者, の患者, 症例, の症例,
+        成人, 男性, 女性, 男女, の, を, が, に, で, と, は, も, および, 及び, または, 又は, もしくは, ならびに, 並びに, 等]
+    tail:  # the ordinary rest of a line: who, what was seen, how it was confirmed, and common verbs with their endings
+      domains: [any]
+      words: [小児, 小児患者, 成人患者, 高齢者, 乳児, 新生児, 妊婦, 外来患者, 入院患者, レシピエント, 者, もの,
+        を伴わない, を有さない, を合併しない, を使用していない, を服用していない, のない, を除く, を除き, 以外の, 以外,
+        の症状, 症状, の所見, 所見, 病変, 診断され, 診断されている, と判定された, 判定された, 確定している, 確認され, 確認された, 確認されている, 認める, 認めた, 認められる, 認められた,
+        認められ, を認め, 記録された, 記録されている, 測定した, 測定された, 検出される, 検出された, 示す, 示した,
+        呈する, 呈した, 伴う, 伴い, 伴った, 有し, 有している, 持続している, 持続する, 継続している, 経過している, 経過した, 経過し, 以上経過, 発症した, 罹患している, 合併している, 内服中, 内服している, 服用中, 服用している, 服用しており, 使用している, 使用しており, 使用中,
+        投与されている, 投与を受けている, 投与を受けた, 投与を受けたことがある, 投与中, 治療中,
+        治療を受けている, 治療を受けた, 治療されている, 治療歴がある, を受けて, 受け, 受けている,
+        施行された, 施行されている, 施行後, 実施された, 移植後, 投与後, 診断後, 以降,
+        初発, 初回, 新規, 根治的, 根治, 低用量, 高用量, 用量, 一定用量, 承認用量, 長期, 現在, 過去に, 以前に,
+        前に, 以上前に, 時点, 時, 間, 期間, かつ, であり, である, であること, こと, ため, うち, における, において,
+        により, による, によって, に基づき, に基づく, に基づいて, に従い, として, とともに, から, より, での, には,
+        機能分類, 病期, ステージ, グレード, 診断基準, 分類基準, 国際診断基準, 臨床診断基準, 改訂,
+        版, 第, ガイドライン, 合計スコア, 総スコア, 総得点, 得点, 点, 個, 剤, 回, 中央, 中央判定, 腫瘍組織, 試験眼]
+    seen:  # what was seen, tested or done: read, but it does not close what is attached to the name ("<X>検査" is a test)
+      domains: [any]
+      words: [の診断, 診断, 確定, 確認, 判定, 測定, 検査, 検体, 試験, 分析, 画像診断, 組織診断, 病理診断, 投与, 使用, 内服, 服用, 施行, 実施, 治療歴, 基準, 定義, 分類, スコア, 上昇, 低下, 増加, 減少, 狭窄, 浸潤, 持続, 継続, 発症, 併発, 陽性, 後, 術後]
+    history:
+      domains: [any]
+      words: [の既往, 既往歴, 既往, 歴, 治療歴, の治療歴がある, 歴がある, 歴を有する, を受けた, 受けた, 受けたことがある,
+        施行歴, 前治療, の前治療歴, 実施歴, 投与歴, 使用歴, 施行された, 施行されている, を施行, 施行, を受けており,
+        受けており]
+    treatment:
+      domains: [any]
+      words: ["{O}を要する", "{O}を必要とする", を服用中, 服用中, を服用している, 服用している, 投与中, で治療中, 治療中, を使用中, 使用中, 安定用量,
+        一定用量, 1日, 1回, 週1回, 週3回, 毎日, 維持, 定期的, レジメン, ライン, コース, サイクル, 治療, 療法, 薬物療法,
+        で治療, による治療, を受けている, 受けている, レシピエント, 経口, 静注, 皮下注, 吸入, 単剤, 併用, 継続中, 継続]
+    stage:
+      domains: [condition]
+      words: [病期, ステージ, 転移性, 遠隔転移, 転移を有する, 転移, 進行, 進行性, 局所進行, 切除不能, 再発, 再発性,
+        難治性, 再発・難治性, 浸潤性, 上皮内, 測定可能病変, 度, 期, クラス, ステップ]
+    grade:
+      domains: [condition]
+      words: [グレード, 悪性度, 高悪性度, 低悪性度, 高分化, 中分化, 低分化, スコア, グリーソンスコア]
+    severity:
+      domains: [condition]
+      words: [軽症, 中等症, 重症, 軽度, 中等度, 重度, 最重症, から, 慢性, 急性, 亜急性, 持続性, 間欠性, 活動性, 活動期,
+        症候性, コントロール不良, 増悪, 急性増悪, 発作, 臨床的に]
+    type:
+      domains: [condition]
+      words: [その他, その他の, 血管性, 持続型, 発作性, 永続性, 本態性, 二次性, 原発性, 特発性, 先天性, 局面型, 尋常性, 焦点, 全般,
+        薬剤抵抗性, 治療抵抗性, 去勢抵抗性, ホルモン感受性, 閉経後, 閉経前, 再発寛解型, 二次進行型, 一次進行型,
+        前兆のある, 前兆を伴う, 単一エピソード, 反復性, エピソード, 感染症, 感染, 疾患, 症候群, 陽性, 腺癌, 扁平上皮癌,
+        ジェノタイプ, 遺伝子型, 変異, 変異陽性, 遺伝子変異, 融合遺伝子, 型, 駆出率の低下した,
+        駆出率の保たれた, 浸潤性乳管癌, 非ホジキン, 非アルコール性, 非ST上昇型, 非ST上昇, 非浸潤性, 非扁平上皮, 非転移性,
+        非結核性, 非弁膜症性, 非虚血性, 非機能性, 無症状の, 無症状, 無症候性の, 無症候性, 代償性, 非代償性]
+    site:
+      domains: [condition, procedure]
+      words: [左側, 右側, 両側, 片側, 左, 右, 肺, 肝, 骨, 脳, 腎, 皮膚, 回腸, 大腸, 結腸, 直腸, 胸部, 頭頸部, 腹部,
+        骨盤, リンパ節, 病変, に病変を有する, 肝転移, 骨転移, 脳転移, 肺転移, 膝, 股関節, 関節, 多発, への, に対する,
+        に対して, 部位]
+    measure:
+      domains: [any]
+      words: [左室駆出率, 駆出率, 1秒量, 予測値, 予測値の, 体表面積, 血圧, 収縮期, 拡張期, ウイルス量, 値, 濃度, スコア, Tスコア,
+        基準値上限, 以上, 以下, 未満, 超, 以内, を超えない, 超えない, 以上でない, 以下でない, 未満でない, 心機能分類, 抗原, 抗体, 平均]
+    time:
+      domains: [any]
+      words: [年, か月, ヶ月, カ月, ケ月, 箇月, 週間, 週, 日, 時間, 歳, 才, まで, 新たに, 新規, 診断から, 診断後, 経過している,
+        経過した, 経過, 最近, 直近, 過去, 登録前, 登録時, 同意取得時, 同意取得前, スクリーニング時,
+        スクリーニング前, 割付前, 初回投与前, 治験薬投与開始前, 発症, 罹病期間, 罹患期間, 回]
+    method_word:
+      domains: [any]
+      words: [組織学的に, 組織学的, 細胞学的に, 細胞学的, 病理学的に, 病理学的, 医師, 医師により, 専門医, により, による, で]
+    method:  # a test: only beside a confirming word
+      domains: [any]
+      needs: [確認, 確定, 診断, 証明, 記録]
+      words: [組織診, 細胞診, 生検, 画像, 画像診断, 心電図, 心エコー, 心臓超音波検査, 超音波, スパイロメトリー, 呼吸機能検査,
+        内視鏡, 培養, 喀痰, 血清学的]
+    criteria:
+      domains: [any]
+      words: [基準を満たす, 診断基準を満たす, 分類基準を満たす, 基準に合致する]
+    links:
+      domains: [any]
+      words: [に対する, に対して, による, を伴う, と, および, 及び, または, 又は, で, の, に, を, が]
+    alternatives:
+      domains: [any]
+      words: [または, 又は, もしくは, 若しくは, あるいは, 或いは]
+
+  zh:
+    frames:
+      domains: [any]
+      words: [依, 已, 帶有, 带有, 陽性, 阳性, 診斷為, 诊断为, 經診斷, 经诊断, 被診斷, 被诊断, 診斷之, 诊断之, 確診為, 确诊为, 確診, 确诊, 確診之, 确诊之,
+        證實為, 证实为, 證實之, 证实之, 經證實, 经证实, 確認為, 确认为, 確認之, 确认之, 確定為, 确定为,
+        患有, 罹患, 之病人, 的病人, 病人, 之患者, 的患者, 患者, 病患, 受試者, 受试者, 成人, 男性, 女性, 有, 具有, 具,
+        合併, 合并, 併有, 并有, 之, 的, 且, 及, 和, 或, 與, 与, 並, 并, 為, 为, 於, 于, 或是, 以及, 包括]
+    tail:  # the ordinary rest of a line: who, what was seen, how it was confirmed
+      domains: [any]
+      words: [者, 兒童, 儿童, 孩童, 青少年, 成人患者, 嬰兒, 婴儿, 新生兒, 新生儿, 孕婦, 孕妇, 婦女, 妇女, 長者, 老年人,
+        受贈者, 受赠者, 初診患者, 初诊患者, 門診患者, 门诊患者, 住院患者, 兒童及青少年, 及, 且, 並, 并, 並有, 并有,
+        曾發生, 曾发生, 呈現, 呈现, 帶有, 带有, 確定診斷為,
+        确定诊断为, 檢測證實, 检测证实, 檢查證實, 检查证实,
+        檢查確診, 检查确诊, 接受過, 接受过, 曾接受, 移植後, 移植后, 滿, 满, 已滿, 已满, 至少, 以上, 持續, 持续, 連續, 连续, 長期, 长期,
+        規律, 规律, 穩定, 稳定, 穩定服用, 稳定服用, 持續使用, 持续使用, 目前使用, 正在使用, 作為, 作为,
+        首次, 初次, 既往, 分類標準, 分类标准, 診斷標準,
+        诊断标准, 診斷準則, 诊断准则, 修訂, 修订, 修訂版, 修订版, 版, 第, 定義為, 定义为, 分, 個, 个, 次, 項, 项, 腫瘤組織, 肿瘤组织, 試驗眼, 试验眼, 基期, 基線, 基线, 基線期, 基线期, 篩選期, 筛选期]
+    seen:  # what was seen, tested or done: read, but it does not close what is attached to the name ("<X>検査" is a test)
+      domains: [any]
+      words: [診斷, 诊断, 確認, 确认, 確定, 确定, 判定, 證實, 证实, 檢查, 检查, 檢測, 检测, 測量, 测量, 記錄, 记录, 標準, 标准, 準則, 准则, 分級, 分级, 分期, 分類, 分类, 評分, 评分, 分數, 分数, 總分, 总分, 切片, 檢體, 检体, 標本, 标本, 血清, 陽性, 阳性, 升高, 上升, 下降, 降低, 狹窄, 狭窄, 服用, 使用, 後, 后, 術後, 术后, 行, 過, 过, 發生, 发生, 出現, 出现, 顯示, 显示, 植入, 置入, 置放]
+    history:
+      domains: [any]
+      words: [病史, 既往, 既往史, 曾, 曾經, 曾经, 曾患, 曾接受, 先前, 過去, 过去, 治療史, 治疗史]
+    treatment:
+      domains: [any]
+      words: ["需要{O}", "{X}診斷", "{X}诊断", 正在服用, 服用, 目前, 正在, 接受, 治療中, 治疗中, 使用中, 服用中, 治療, 治疗, 使用, 每日, 每天, 每週, 每周, 毫克, 穩定劑量, 稳定剂量,
+        劑量, 剂量, 規則, 规则, 持續, 持续, 維持, 维持, 受者, 線, 线, 療程, 疗程, 週期, 周期, 口服, 注射, 單一療法,
+        单一疗法, 合併治療]
+    stage:
+      domains: [condition]
+      words: [第, 期, 級, 级, 類, 类, 轉移性, 转移性, 晚期, 末期, 局部晚期, 進行性, 进行性, 復發性, 复发性, 復發, 复发,
+        難治性, 难治性, 侵襲性, 侵袭性, 原位, 可測量病灶, 可测量病灶, 至, 到, 或]
+    grade:
+      domains: [condition]
+      words: [分級, 分级, 高惡性度, 低惡性度, 分化, 評分, 评分]
+    severity:
+      domains: [condition]
+      words: [輕度, 轻度, 中度, 重度, 嚴重, 严重, 慢性, 急性, 持續性, 持续性, 間歇性, 间歇性, 活動性, 活动性, 症狀性,
+        症状性, 控制不佳, 控制不良, 急性發作, 急性发作, 發作, 发作, 惡化, 恶化, 臨床, 临床]
+    type:
+      domains: [condition]
+      words: [其他, 陣發性, 阵发性, 永久性, 原發性, 原发性, 繼發性, 继发性, 特發性, 特发性, 先天性, 斑塊型, 斑块型,
+        局部性, 全身性, 藥物難治型, 药物难治型, 難治型, 难治型, 去勢抗性, 去势抵抗性, 荷爾蒙敏感性, 停經後, 绝经后,
+        停經前, 復發緩解型, 复发缓解型, 有先兆, 單次發作, 反覆發作, 感染, 疾病, 症候群, 综合征, 陽性, 阳性, 腺癌,
+        鱗狀細胞癌, 基因型, 突變, 突变, 型, 非何杰金氏, 非何杰金, 非霍奇金, 非酒精性,
+        非ST段上升, 非ST段抬高, 非浸潤性, 非浸润性, 非鱗狀細胞型, 非鳞状细胞型, 非鱗狀, 非鳞状, 非轉移性, 非转移性,
+        非結核, 非结核, 非瓣膜性, 非缺血性, 無症狀, 无症状, 代償性, 代偿性, 非代償性, 非代偿性]
+    site:
+      domains: [condition, procedure]
+      words: [左側, 左侧, 右側, 右侧, 雙側, 双侧, 單側, 单侧, 肺, 肝, 骨, 腦, 脑, 腎, 肾, 皮膚, 迴腸, 回肠, 大腸, 结肠,
+        直腸, 胸部, 頭頸部, 腹部, 骨盆, 淋巴結, 淋巴结, 病灶, 侵犯, 肝轉移, 肝转移, 骨轉移, 腦轉移, 部位, 膝]
+    measure:
+      domains: [any]
+      words: [糖化血色素, 糖化血红蛋白, 左心室射出分率, 射出分率, 左心室射血分数, 射血分数, T值, 體表面積, 体表面积,
+        血壓, 血压, 病毒量, 數值, 数值, 濃度, 浓度, 以上, 以下, 至少, 超過, 超过, 低於, 低于, 高於, 高于, 大於, 大于,
+        小於, 小于, 正常值上限, 預測值, 预测值, 不超過, 不超过, 不大於, 不大于, 不小於, 不小于, 不高於, 不高于, 不低於,
+        不低于, 未滿, 未满]
+    time:
+      domains: [any]
+      words: [年, 個月, 个月, 月, 週, 周, 天, 日, 小時, 小时, 歲, 岁, 年齡, 年龄, 新診斷, 新诊断, 新確診, 新确诊, 診斷後,
+        诊断后, 內, 内, 以內, 以内, 最近, 近期, 篩選時, 筛选时, 篩選前, 筛选前, 收案前, 入組前, 入组前, 隨機分配前,
+        首次給藥前, 次, 至少, 期間, 期间, 發病, 发病, 病程, 達, 达]
+    method_word:
+      domains: [any]
+      words: [經, 经, 經由, 经由, 醫師, 医师, 醫生, 医生, 以]
+    method:  # a test: only beside a confirming word
+      domains: [any]
+      needs: [確診, 确诊, 確認, 确认, 證實, 证实, 診斷為, 诊断为, 記錄, 记录, 確定, 确定]
+      words: [組織學, 组织学, 組織病理學, 组织病理学, 細胞學, 细胞学, 病理, 切片, 活檢, 活检, 影像, 心電圖, 心电图, 心臟超音波,
+        心脏超声, 超音波, 肺功能檢查, 肺功能检查, 內視鏡, 内镜, 培養, 培养, 血清學, 心電圖記錄, 心电图记录]
+    criteria:
+      domains: [any]
+      needs: [符合, 滿足, 满足, 依據, 依据, 根據, 根据]
+      words: [符合, 滿足, 满足, 依據, 依据, 根據, 根据, 分類標準, 分类标准, 診斷標準, 诊断标准, 標準, 标准]
+    links:
+      domains: [any]
+      words: [合併, 合并, 併, 并, 及, 和, 或, 與, 与, 因, 因為, 之, 的, 以, 針對, 针对, 接受, 使用]
+    alternatives:
+      domains: [any]
+      words: [或, 或是, 或者, 抑或]

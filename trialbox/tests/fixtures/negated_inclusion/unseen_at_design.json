@@ -11,7 +11,8 @@
    "domain": "medication",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -21,7 +22,8 @@
    "domain": "medication",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -31,7 +33,8 @@
    "domain": "medication",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -41,7 +44,8 @@
    "domain": "medication",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -51,7 +55,8 @@
    "domain": "medication",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -63,7 +68,8 @@
    "domain": "medication",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -76,7 +82,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -89,7 +96,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -101,7 +109,8 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -114,7 +123,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -126,7 +136,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -136,7 +147,8 @@
    "domain": "medication",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -148,7 +160,8 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -160,7 +173,8 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -170,7 +184,8 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -182,7 +197,8 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -194,7 +210,8 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -206,7 +223,8 @@
    "domain": "observation",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -218,7 +236,8 @@
    "domain": "observation",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -230,7 +249,8 @@
    "domain": "observation",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -242,7 +262,8 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "held",
-   "source": "review-j2"
+   "source": "review-j2",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -254,7 +275,9 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "runs",
-   "source": "review-j2"
+   "source": "review-j2",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -264,7 +287,9 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "runs",
-   "source": "review-j2"
+   "source": "review-j2",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -276,7 +301,9 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "runs",
-   "source": "review-j2"
+   "source": "review-j2",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -287,7 +314,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -298,7 +326,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -310,8 +339,7 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "source": "review-j3"
   },
   {
    "lang": "en",
@@ -324,7 +352,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -337,7 +366,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -348,7 +378,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -359,7 +390,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -370,7 +402,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -383,7 +416,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -396,7 +430,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -409,7 +444,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -422,7 +458,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -435,7 +472,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -448,7 +486,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -461,7 +500,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -474,7 +514,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -487,7 +528,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -500,7 +542,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -513,7 +556,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -524,7 +568,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j3",
-   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)"
+   "over_held": "the fail-safe holds it: a negated second thing is not among the line's concept candidates (card 10A-1b)",
+   "held_by": "cue"
   }
  ]
 }

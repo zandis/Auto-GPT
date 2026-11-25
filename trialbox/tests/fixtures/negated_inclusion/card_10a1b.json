@@ -13,7 +13,8 @@
    "others": [
     "surgery"
    ],
-   "why": "ellipsis: the cue governs both"
+   "why": "ellipsis: the cue governs both",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -27,7 +28,8 @@
    "others": [
     "chemotherapy"
    ],
-   "why": "ellipsis, the review line with the second concept coded"
+   "why": "ellipsis, the review line with the second concept coded",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -41,7 +43,8 @@
    "others": [
     "surgery"
    ],
-   "why": "negated coded concept, positive other in the second clause"
+   "why": "negated coded concept, positive other in the second clause",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -55,7 +58,8 @@
    "others": [
     "surgery"
    ],
-   "why": "negated coded concept after the boundary"
+   "why": "negated coded concept after the boundary",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -68,7 +72,8 @@
    "source": "card-10A-1b",
    "others": [
     "surgery"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -81,7 +86,8 @@
    "source": "card-10A-1b",
    "others": [
     "surgery"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -96,7 +102,8 @@
     "diabetes",
     "hypertension"
    ],
-   "why": "list under one cue"
+   "why": "list under one cue",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -108,7 +115,8 @@
    "expect": "held",
    "source": "card-10A-1b",
    "others": [],
-   "why": "list under one cue; no other candidate"
+   "why": "list under one cue; no other candidate",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -121,7 +129,8 @@
    "source": "card-10A-1b",
    "others": [
     "radiotherapy"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -134,7 +143,8 @@
    "source": "card-10A-1b",
    "others": [
     "radiotherapy"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -147,7 +157,8 @@
    "source": "card-10A-1b",
    "others": [
     "surgery"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -160,7 +171,8 @@
    "source": "card-10A-1b",
    "others": [
     "surgery"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -174,7 +186,8 @@
    "others": [
     "surgery",
     "radiotherapy"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -187,7 +200,8 @@
    "source": "card-10A-1b",
    "others": [
     "chemotherapy"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -200,7 +214,8 @@
    "source": "card-10A-1b",
    "others": [
     "diabetes"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -213,7 +228,8 @@
    "source": "card-10A-1b",
    "others": [
     "type 2 diabetes"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -226,7 +242,8 @@
    "source": "card-10A-1b",
    "others": [
     "surgery"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -240,7 +257,8 @@
    "others": [
     "type 2 diabetes"
    ],
-   "why": "the negated thing coded"
+   "why": "the negated thing coded",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -254,7 +272,8 @@
    "others": [
     "surgery",
     "chemotherapy"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -267,7 +286,8 @@
    "source": "card-10A-1b",
    "others": [
     "surgery"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -279,7 +299,8 @@
    "expect": "held",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the cue negates the coded concept's own time window"
+   "why": "the cue negates the coded concept's own time window",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -291,7 +312,8 @@
    "expect": "held",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the cue's clause has no object of its own"
+   "why": "the cue's clause has no object of its own",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -306,7 +328,8 @@
     "surgery",
     "radiotherapy"
    ],
-   "why": "a list split by semicolons under one cue"
+   "why": "a list split by semicolons under one cue",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -318,7 +341,8 @@
    "expect": "held",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the cue's clause first, the list goes on after the semicolon"
+   "why": "the cue's clause first, the list goes on after the semicolon",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -333,7 +357,8 @@
    "source": "card-10A-1b",
    "others": [
     "手術"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -348,7 +373,8 @@
    "source": "card-10A-1b",
    "others": [
     "手術"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -363,7 +389,8 @@
    "source": "card-10A-1b",
    "others": [
     "手術"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -379,7 +406,8 @@
    "others": [
     "化学療法"
    ],
-   "why": "ellipsis: the cue after both"
+   "why": "ellipsis: the cue after both",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -395,7 +423,8 @@
    "others": [
     "放射線治療",
     "化学療法"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -410,7 +439,8 @@
    "source": "card-10A-1b",
    "others": [
     "放射線治療"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -425,7 +455,8 @@
    "source": "card-10A-1b",
    "others": [
     "2型糖尿病"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -440,7 +471,8 @@
    "source": "card-10A-1b",
    "others": [
     "2型糖尿病"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -455,7 +487,8 @@
    "source": "card-10A-1b",
    "others": [
     "HIV感染"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -470,7 +503,8 @@
    "source": "card-10A-1b",
    "others": [
     "喫煙"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -485,7 +519,8 @@
    "source": "card-10A-1b",
    "others": [
     "手術"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -500,7 +535,8 @@
    "source": "card-10A-1b",
    "others": [
     "手術"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -515,7 +551,8 @@
    "source": "card-10A-1b",
    "others": [
     "手術"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -530,7 +567,8 @@
    "source": "card-10A-1b",
    "others": [
     "第二型糖尿病"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -546,7 +584,8 @@
    "others": [
     "放射線治療",
     "化學治療"
-   ]
+   ],
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -560,7 +599,8 @@
    "expect": "held",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the cue's object is a word that takes in the coded concept"
+   "why": "the cue's object is a word that takes in the coded concept",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -573,7 +613,8 @@
    "source": "card-10A-1b",
    "others": [],
    "why": "the negated thing is not a candidate",
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -586,7 +627,9 @@
    "source": "card-10A-1b",
    "others": [
     "hormonal therapy"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -599,7 +642,9 @@
    "source": "card-10A-1b",
    "others": [
     "radiotherapy"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -625,7 +670,8 @@
    "source": "card-10A-1b",
    "others": [],
    "why": "the negated thing is not a candidate",
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -637,7 +683,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -649,7 +696,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -662,7 +710,9 @@
    "source": "card-10A-1b",
    "others": [
     "biologic therapy"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -690,7 +740,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -703,7 +754,9 @@
    "source": "card-10A-1b",
    "others": [
     "lactic acidosis"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -715,7 +768,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -728,7 +782,9 @@
    "source": "card-10A-1b",
    "others": [
     "anticoagulant therapy"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -754,7 +810,9 @@
    "source": "card-10A-1b",
    "others": [
     "radiotherapy"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -767,7 +825,8 @@
    "source": "card-10A-1b",
    "others": [],
    "why": "the cue's clause first, an adversative boundary",
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "en",
@@ -782,7 +841,9 @@
    "source": "card-10A-1b",
    "others": [
     "fetal anomalies"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -809,7 +870,9 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "why": "no cue at all"
+   "why": "no cue at all",
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "en",
@@ -836,7 +899,9 @@
    "source": "card-10A-1b",
    "others": [
     "放射線治療"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "ja",
@@ -850,7 +915,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -865,7 +931,8 @@
    "source": "card-10A-1b",
    "others": [],
    "why": "the cue's clause first, an adversative boundary",
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -896,7 +963,8 @@
    "others": [
     "インスリン"
    ],
-   "over_held": "held after card 10A-1b: 未 before 使用 reads forward onto the coded concept in the same clause, with no boundary; a structural rule cannot tell it from 未治療の肺癌"
+   "over_held": "held after card 10A-1b: 未 before 使用 reads forward onto the coded concept in the same clause, with no boundary; a structural rule cannot tell it from 未治療の肺癌",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -910,7 +978,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -925,7 +994,9 @@
    "source": "card-10A-1b",
    "others": [
     "抗凝固療法"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "ja",
@@ -953,7 +1024,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "ja",
@@ -968,7 +1040,9 @@
    "source": "card-10A-1b",
    "others": [
     "胎児異常"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -983,7 +1057,9 @@
    "source": "card-10A-1b",
    "others": [
     "放射線治療"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -997,7 +1073,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1012,7 +1089,8 @@
    "source": "card-10A-1b",
    "others": [],
    "why": "the cue's clause first, an adversative boundary",
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1027,7 +1105,9 @@
    "source": "card-10A-1b",
    "others": [
     "酮酸中毒"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1042,7 +1122,9 @@
    "source": "card-10A-1b",
    "others": [
     "胰島素"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   },
   {
    "lang": "zh",
@@ -1056,7 +1138,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1070,7 +1153,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1098,7 +1182,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)",
+   "held_by": "cue"
   },
   {
    "lang": "zh",
@@ -1113,7 +1198,9 @@
    "source": "card-10A-1b",
    "others": [
     "胎兒異常"
-   ]
+   ],
+   "over_held": "not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248); not recognised as a plain statement of presence (D-1248)",
+   "held_by": "unrecognised"
   }
  ]
 }
