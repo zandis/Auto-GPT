@@ -12,6 +12,7 @@ import io
 import json
 import zipfile
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -88,6 +89,39 @@ def _docx(label: str, value: str, line: str) -> bytes:
     return buf.getvalue()
 
 
+def _members(*members: tuple[str, bytes], comment: str = "") -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in members:
+            z.writestr(name, data)
+        z.comment = comment.encode()
+    return buf.getvalue()
+
+
+def _pdf(attached: bytes = b"", field: str = "") -> bytes:
+    """A page of clean text, with a file attached or a form's field filled in."""
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    c.drawString(72, 700, "12 of 85 patients")
+    c.save()
+    w = PdfWriter(clone_from=PdfReader(io.BytesIO(buf.getvalue())))
+    if attached:
+        w.add_attachment("list.csv", attached)
+    if field:
+        f = DictionaryObject({NameObject("/FT"): NameObject("/Tx"), NameObject("/T"): TextStringObject("a"),
+                              NameObject("/V"): TextStringObject(field)})  # fmt: skip
+        form = DictionaryObject({NameObject("/Fields"): ArrayObject([w._add_object(f)])})
+        w._root_object[NameObject("/AcroForm")] = w._add_object(form)
+    out = io.BytesIO()
+    w.write(out)
+    return out.getvalue()
+
+
+_TYPES = ("[Content_Types].xml", b"<Types/>")
 CONTAINERS: dict[str, Callable[[str, str, str], Any]] = {
     "text": lambda _l, _v, line: line,
     "txt": lambda _l, _v, line: ee.File("a.txt", line.encode()),
@@ -99,6 +133,14 @@ CONTAINERS: dict[str, Callable[[str, str, str], Any]] = {
     "docx": lambda lb, v, line: ee.File("a.docx", _docx(lb, v, line)),
     "zip": lambda lb, v, line: ee.File("a.zip", _zip("in.csv", _csv(lb, v, line))),
     "zip_xlsx": lambda lb, v, line: ee.File("a.zip", _zip("in.xlsx", _xlsx(lb, v, line))),
+    # OCR 1523-3: what a container holds beside its text
+    "zip_content_types": lambda _l, _v, line: ee.File("a.zip", _members(_TYPES, ("notes.txt", line.encode()))),
+    "docx_embedded": lambda lb, v, line: ee.File(
+        "a.docx", _members(_TYPES, ("word/document.xml", b"<p>hi</p>"), ("word/embedded/a.csv", _csv(lb, v, line)))
+    ),
+    "zip_comment": lambda _l, _v, line: ee.File("a.zip", _members(("a.txt", b"hello"), comment=line)),
+    "pdf_attached": lambda lb, v, line: ee.File("a.pdf", _pdf(attached=_csv(lb, v, line))),
+    "pdf_field": lambda _l, _v, line: ee.File("a.pdf", _pdf(field=line)),
     "mail": lambda lb, v, line: ee.Message(line, line, (("a.csv", _csv(lb, v, line)),)),
     "record": lambda lb, v, line: {"rows": [{lb: v, "detail": line}]},
 }
@@ -113,7 +155,14 @@ def _all_text(p: Any) -> str:
     if isinstance(p, bytes):
         if p[:2] == b"PK":
             with zipfile.ZipFile(io.BytesIO(p)) as z:
-                return "\n".join(i.filename + "\n" + _all_text(z.read(i)) for i in z.infolist())
+                parts = [i.filename + "\n" + _all_text(z.read(i)) for i in z.infolist()]
+                return "\n".join([*parts, z.comment.decode()])
+        if p[:5] == b"%PDF-":
+            from pypdf import PdfReader
+
+            r = PdfReader(io.BytesIO(p))
+            fields = [str(f.get("/V")) for f in (r.get_fields() or {}).values()]
+            return "\n".join([*fields, *(_all_text(d) for files in r.attachments.values() for d in files)])
         return html.unescape(p.decode("utf-8", errors="replace"))  # a workbook writes a character as its number
     return p if isinstance(p, str) else json.dumps(p, ensure_ascii=False)
 
@@ -164,3 +213,32 @@ def test_the_same_payload_leaves_as_the_same_bytes() -> None:
     p = ee.File("a.xlsx", _xlsx("Patient name", "Robin Example", "Pt: Robin Example"))
     a, b = (ee.leave("download.study", "x", p, audit=Audit(), actor="t") for _ in range(2))
     assert a == b
+
+
+@pytest.mark.parametrize("ask", [{}, {"Range": "bytes=0-"}, {"Range": "bytes=3-"}, {"Range": "bytes=0-1,2-"}])
+@pytest.mark.parametrize("form", sorted(FORMS))
+def test_no_range_request_takes_a_form_past_the_console_s_layer(form: str, ask: dict[str, str], tmp_path: Path) -> None:
+    """OCR 1523-5: a file answer to a request for a part of it."""
+    from console.egress_page import EgressLayer
+    from fastapi import FastAPI
+    from fastapi.responses import FileResponse, Response
+    from starlette.testclient import TestClient
+
+    _label, value, line = FORMS[form]
+    sheet = tmp_path / "a.md"
+    sheet.write_text("x\n" + line, encoding="utf-8")
+
+    class Door:
+        def leave(self, _request: Any, _path: str, name: str, data: bytes) -> ee.File:
+            got: ee.File = ee.leave("download.site", "x", ee.File(name, data), audit=Audit(), actor="t")
+            return got
+
+        def refusal(self, *_a: Any) -> Response:
+            return Response(status_code=409)
+
+    app = FastAPI()
+    app.get("/admin/ops/network/{name}")(lambda name: FileResponse(sheet, filename=name))
+    door: Any = Door()
+    app.add_middleware(EgressLayer, door=door)
+    r = TestClient(app).get("/admin/ops/network/a.md", headers=ask)
+    assert r.status_code in (200, 409) and value not in r.content.decode("utf-8", errors="replace")

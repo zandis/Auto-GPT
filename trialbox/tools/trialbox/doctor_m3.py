@@ -5,10 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from tb_common import egress_edge  # what a host's python lacks, doctor.module_rows says (OCR 1523-14)
+
 
 def doctor_checks(inp: Any) -> Iterable[tuple[str, str, str]]:
-    try:
-        from tb_common import egress_edge
-    except ImportError as exc:  # a host whose python3 lacks a library: not looked at, never a FAIL
-        return [("egress", "WARN", f"not looked at: this python3 does not have {exc.name}")]
     return egress_edge.doctor_checks(inp.env)

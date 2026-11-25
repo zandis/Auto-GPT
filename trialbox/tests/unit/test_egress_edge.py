@@ -561,3 +561,150 @@ def test_every_file_the_console_gives_is_in_the_download_rules() -> None:
     assert len(paths) >= 15
     unlisted = {x for x in paths if not ee.download_route(re.sub(r"\{[^}]+\}", "x", x))[0]}
     assert unlisted == set()
+
+
+# ------------------------------------------------------------------------------------------------ OCR 1523-3: containers
+LIST = b"mrn,name\n70000054,Robin Example\n"
+
+
+def _zip_of(members: dict[str, bytes], comment: bytes = b"") -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n, d in members.items():
+            z.writestr(n, d)
+        z.comment = comment
+    return buf.getvalue()
+
+
+def _office(more: dict[str, bytes]) -> bytes:
+    return _zip_of({"[Content_Types].xml": b"<Types/>", **more})
+
+
+def _book(more: dict[str, bytes] | None = None) -> bytes:
+    """A real workbook with members added to it."""
+    from openpyxl import Workbook
+
+    buf = io.BytesIO()
+    Workbook().save(buf)
+    with zipfile.ZipFile(buf, "a") as z:
+        for n, d in (more or {}).items():
+            z.writestr(n, d)
+    return buf.getvalue()
+
+
+def _pdf(attached: bytes = b"", field: str = "", note: str = "") -> bytes:
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.annotations import FreeText
+    from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    c.drawString(72, 700, "12 of 85 patients")
+    c.save()
+    w = PdfWriter(clone_from=PdfReader(io.BytesIO(buf.getvalue())))
+    if attached:
+        w.add_attachment("list.csv", attached)
+    if field:
+        f = DictionaryObject({NameObject("/FT"): NameObject("/Tx"), NameObject("/T"): TextStringObject("a"),
+                              NameObject("/V"): TextStringObject(field)})  # fmt: skip
+        form = DictionaryObject({NameObject("/Fields"): ArrayObject([w._add_object(f)])})
+        w._root_object[NameObject("/AcroForm")] = w._add_object(form)
+    if note:
+        w.add_annotation(0, FreeText(text=note, rect=(10, 10, 90, 90)))
+    out = io.BytesIO()
+    w.write(out)
+    return out.getvalue()
+
+
+def _twice() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("a.txt", b"MRN: 70000054")
+        with pytest.warns(UserWarning):
+            z.writestr("a.txt", b"hello")
+    return buf.getvalue()
+
+
+UNREAD: dict[str, tuple[str, bytes]] = {
+    "content_types_beside_a_list": ("a.zip", _office({"notes.txt": b"MRN: 70000054\n"})),
+    "office_embedded_list": ("a.docx", _office({"word/embedded/list.csv": LIST})),
+    "office_embedded_zip": ("a.docx", _office({"word/embedded/a.bin": _zip_of({"list.csv": LIST})})),
+    "a_list_called_a_picture": ("a.docx", _office({"word/media/image1.png": LIST})),
+    "a_list_called_xml": ("a.docx", _office({"word/a.xml": b"MRN: 70000054"})),
+    "office_link": ("a.docx", _office({"word/_rels/a.rels": b'<R Target="mailto:robin@mail.example"/>'})),
+    "office_member_name": ("a.docx", _office({"word/MRN 70000054.xml": b"<a/>"})),
+    "zip_comment": ("a.zip", _zip_of({"a.txt": b"hello"}, comment=b"MRN: 70000054")),
+    "workbook_theme_list": ("a.xlsx", _book({"xl/theme/list.csv": LIST})),
+    "workbook_sheet_list": ("a.xlsx", _book({"xl/worksheets/sheet2.txt": b"MRN: 70000054"})),
+    "pdf_attachment": ("a.pdf", _pdf(attached=LIST)),
+    "pdf_form_value": ("a.pdf", _pdf(field="MRN: 70000054")),
+    "pdf_note": ("a.pdf", _pdf(note="MRN: 70000054")),
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNREAD))
+def test_what_a_container_holds_beside_its_text_is_read_too(case: str) -> None:
+    name, data = UNREAD[case]
+    assert reason("download.study", ee.File(name, data)) == "identifiers"
+
+
+@pytest.mark.parametrize(
+    ("name", "data"),
+    [
+        ("a.docx", _office({"word/a.xml": "<a>MRN: 70000054</a>".encode("utf-16")})),
+        ("a.docx", _office({"word/a.xml": "<a>MRN: 70000054</a>".encode("utf-16-le")})),
+        ("a.xlsm", _book({"xl/vbaProject.bin": b"\xd0\xcf\x11\xe0\x00MRN: 70000054"})),
+        ("a.xlsx", _book({"xl/worksheets/sheet9.xml": b"<s><c><v>70000054</v></c></s>"})),
+        ("a.zip", _twice()),
+    ],
+    ids=["utf16", "utf16_no_mark", "macro", "a_sheet_no_book_lists", "two_members_of_one_name"],
+)
+def test_what_cannot_be_read_in_a_container_does_not_leave(name: str, data: bytes) -> None:
+    assert reason("download.study", ee.File(name, data)) == "unreadable"
+
+
+_CLEAN = {"word/document.xml": b"<w:p>hi</w:p>", "word/_rels/a.rels": b'<R Target="a.xml"/>'}
+
+
+@pytest.mark.parametrize(
+    ("name", "data"),
+    [
+        ("a.docx", _office({**_CLEAN, "word/media/image1.png": b"\x89PNG\r\n\x1a\n\x00\x00", "word/a/": b""})),
+        ("a.docx", _office({"word/document.xml": b"\xef\xbb\xbf<w:p>hi</w:p>", "word/e/list.csv": b"n\n3\n"})),
+        ("a.xlsx", _book()),
+        ("a.pdf", _pdf(attached=b"n\n3\n", field="yes", note="a clean note")),
+        ("a.pdf", _pdf()),
+    ],
+    ids=["office_picture", "office_clean_list", "workbook", "pdf_clean_parts", "pdf"],
+)
+def test_a_clean_container_still_leaves_as_it_is(name: str, data: bytes) -> None:
+    f = ee.File(name, data)
+    assert ee.leave("download.study", "x", f, audit=Audit(), actor="t") == f
+
+
+# ------------------------------------------------------------------------------------------------ OCR 1523-5: a range
+@pytest.mark.parametrize("path", ["/admin/ops/network/{name}", "/new/{name}"])
+def test_a_range_request_does_not_take_a_download_past_the_edge(tmp_path: Path, path: str) -> None:
+    """A file answer to a request with a Range header answered 206 with the file's own bytes, and the layer held only
+    a 200."""
+    from fastapi.responses import FileResponse
+
+    sheet = tmp_path / "sheet.md"
+    sheet.write_bytes(b"MRN: 70000054\n")
+    c, _ = _console({})
+    c.app.get(path)(lambda name: FileResponse(sheet, filename=name, content_disposition_type="attachment"))
+    asks: list[dict[str, str]] = [{}, {"Range": "bytes=0-"}, {"Range": "bytes=5-"}, {"Range": "bytes=0-4,5-"}]
+    for ask in asks:
+        r = c.get(path.replace("{name}", "sheet.md"), headers=ask)
+        assert r.status_code in (200, 409) and b"70000054" not in r.content, (ask, r.status_code)
+
+
+def test_a_door_named_in_a_comment_only_is_not_wired(tmp_path: Path) -> None:
+    """OCR 1523-14: the doctor looks for the call, not for its name in a comment or a docstring."""
+    (tmp_path / "services/gateway").mkdir(parents=True)
+    door = tmp_path / "services/gateway/core.py"
+    door.write_text('"""leaves by "model.offbox" ."""\n# leave("model.offbox")\n')
+    assert ee.wired("model.offbox", tmp_path) is False
+    door.write_text('leave("model.offbox")\n')
+    assert ee.wired("model.offbox", tmp_path) is True

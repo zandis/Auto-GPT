@@ -129,6 +129,11 @@ def write_whole(path: Path, text: str, mode: int = 0o600) -> None:
         with contextlib.suppress(OSError):
             tmp.unlink()
         raise
+    folder = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(folder)  # the rename too
+    finally:
+        os.close(folder)
 
 
 def owner_answers(raw: dict[str, Any], disks: tuple[str, ...]) -> tuple[OwnerAnswers, list[str]]:

@@ -332,7 +332,10 @@ EOP
   # install is the unattended one (no first-run code, no wait, no question). A re-run keeps the answers it has. A site
   # seed beside the bundle, signed by the vendor (10K-2), answers all but the person and the passphrase
   SEED="$(dirname "$BUNDLE")/site-seed.json"; SEED_ARGS=()
-  if [ -f "$SEED" ]; then
+  if [ -f "$SEED" ]; then  # OCR 1523-15: checked and read from the box's own copy, whatever the medium holds next
+    rm -f "$BOX/site-seed.json" "$BOX/site-seed.json.sig"
+    for f in "$SEED" "$SEED.sig"; do [ ! -f "$f" ] || install -m 600 "$f" "$BOX/$(basename "$f")"; done
+    SEED="$BOX/site-seed.json"
     python3 -m tools.site_seed verify "$SEED" --pub "$ROOT/deploy/keys/vendor_ed25519.pub" \
       || die "the site seed beside the bundle is not signed by the vendor's key (above): nothing was changed"  # H-94 (1)
     SEED_ARGS=(--seed "$SEED")

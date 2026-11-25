@@ -572,3 +572,72 @@ def test_a_tree_without_the_department_list_is_not_stopped_by_it(monkeypatch: py
     assert settings_wizard.shipped_departments("ja")["RHEU"] == "Rheumatology"
     monkeypatch.setattr("importlib.util.find_spec", lambda _name: None)
     assert settings_wizard.shipped_departments("ja") == {}
+
+
+# ------------------------------------------------------------------------------------------------ OCR 1523
+def test_a_settings_key_that_holds_no_settings_is_filled_or_refused_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OCR 1523-12: an empty parent key is none; one with another value is a NeedsError, never an AttributeError."""
+    from tb_common import config
+
+    monkeypatch.setattr(config, "load_settings", lambda _p: None)
+    path = tmp_path / "settings.yaml"
+    path.write_text("data_source:\n", encoding="utf-8")
+    needs_apply.patch_settings(tmp_path, {"data_source.type": "csv"})
+    assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"data_source": {"type": "csv"}}
+    path.write_text("data_source: csv\n", encoding="utf-8")
+    with pytest.raises(needs_apply.NeedsError, match="data_source"):
+        needs_apply.patch_settings(tmp_path, {"data_source.type": "csv"})
+
+
+def test_a_bad_backup_target_is_said_whatever_the_last_one_is(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.trialbox import finish_check as fc
+
+    monkeypatch.setattr(fc, "backup_targets", lambda _e: ["/bad", "/good"])
+    monkeypatch.setattr(fc, "folder_problem", lambda t, *_a: "not a folder" if t == "/bad" else "")
+    monkeypatch.setattr(fc, "off_the_box", lambda *_a: "")
+    with pytest.raises(needs_apply.NeedsError, match="not a folder"):
+        needs_apply.check_on_host("backup_target", needs_apply.Change(), tmp_path)
+
+
+def test_a_source_folder_that_cannot_be_read_is_said_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def is_dir(self: Path, **_k: Any) -> bool:
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    with pytest.raises(needs_apply.NeedsError, match="cannot be read"):
+        needs_apply.check_on_host("data_source", needs_apply.Change({"TB_SOURCE_DIR": "/srv/x"}), tmp_path)
+
+
+@pytest.mark.parametrize("ops", ["", "./elsewhere", "{tmp}/abs"])
+def test_the_machine_s_proposals_go_where_the_console_reads_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ops: str
+) -> None:
+    """OCR 1523-16: ``TB_OPS_DIR`` is the console's operations mount."""
+    from tools.box import detect
+
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    ops = ops.replace("{tmp}", str(tmp_path))
+    (deploy / ".env").write_text(f"TB_OPS_DIR={ops}\n", encoding="utf-8")
+    monkeypatch.setattr(detect, "_run", lambda _c: "")
+    monkeypatch.setattr(detect, "propose", lambda **_k: {"a": "b"})
+    detect.write(deploy)
+    assert (deploy / (ops or "ops") / "needs-proposals.json").read_text(encoding="utf-8") == '{"a": "b"}\n'
+
+
+def test_four_questions_that_do_not_finish_say_so_before_the_stop_for_no_settings() -> None:
+    """OCR 1523-10: that stop speaks of a missing terminal only."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    four = text.split("# FOUR (M1", 1)[1].split("# ---- end of FOUR", 1)[0]
+    assert "else echo " in four and "did not finish" in four
+
+
+def test_the_seed_is_checked_and_read_from_the_box_s_own_copy() -> None:
+    """OCR 1523-15: the medium may change between the two reads."""
+    text = (ROOT / "deploy" / "box-install.sh").read_text(encoding="utf-8")
+    block = text.split('SEED="$(dirname "$BUNDLE")/site-seed.json"', 1)[1].split("fi\n", 1)[0]
+    assert block.index('SEED="$BOX/site-seed.json"') < block.index("site_seed verify") < block.index("--seed")

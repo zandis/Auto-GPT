@@ -133,6 +133,11 @@ def check_and_sign(audit_dir: Path, secrets_dir: Path, targets: Sequence[Path], 
             why = "; ".join(res.errors[:3])
             return Night(False, [f"the audit chain does not agree with {what} ({why}): nothing was signed; look at it "
                                  "with tools/audit_verify.py --heads before anything else"])  # fmt: skip
+        if not earlier and any(res.told(t) for t in targets):  # V8-05, V8-06: never signed over
+            return Night(False, ["no anchor folder here holds a signed head, but the audit chain records heads written "
+                                 "to one: emptied or replaced; nothing was signed; a person looks "
+                                 "(tools/audit_verify.py --heads) and signs by hand (tools/audit_verify.py "
+                                 "--sign-head)"])  # fmt: skip
         first, last = audit._ts(res.first_ts), audit._ts(res.last_ts)
         if not earlier and not res.signed_events and first and last and last - first > audit.FIRST_SIGNING_MAX:
             return Night(False, ["the audit chain spans more than 48 h, no anchor folder holds a signed head and the "
@@ -345,12 +350,19 @@ def doctor_checks(env: Mapping[str, str], deploy: Path, now: datetime | None = N
     if isinstance(last, dict) and last.get("ok") is False:
         said = "; ".join(str(x) for x in (last.get("problems") or [])[:2])[:500]
         warn.append(f"the last audit-sign ({last.get('at')}) was refused or failed: {said}")
+    own: dict[str, bytes] | None
     try:
-        own: dict[str, bytes] = own_keys(secrets)
+        own = own_keys(secrets)
     except (OSError, ValueError):
         own = {}
+    except ImportError:  # OCR 1523-14: a host python3 without the crypto library: the dates and the chain
+        own = None
     for t in targets:
-        state, text = audit.anchor_state(t, audit_dir, own, now, limit)
+        try:
+            state, text = audit.anchor_state(t, audit_dir, own, now, limit)
+        except PermissionError as exc:  # an ordinary user's doctor: not looked at, never a FAIL for it
+            warn.append(f"cannot look at {t} here ({exc.filename}: not readable by this user)")
+            continue
         if state == "missing" and "no signed head" in text and key_age is not None and abs(key_age) <= limit:
             text += f": the audit key is {key_age:.0f} h old, the first night has not signed"
         if state == "tampered":

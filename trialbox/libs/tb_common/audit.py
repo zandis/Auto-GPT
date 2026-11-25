@@ -63,6 +63,7 @@ are one rule.
 from __future__ import annotations
 
 import base64
+import contextlib
 import ctypes
 import fcntl
 import hashlib
@@ -630,11 +631,19 @@ class VerifyResult:
     errors: list[str] = field(default_factory=list)
     head: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)
-    #: M4: the chain's own ``audit.head_signed`` events as (lines, head hash, anchor folders that took it), and the
-    #: time of its first and last event, so that a head missing from the anchor or an anchor no event speaks of shows
-    signed_events: list[tuple[int, str, int]] = field(default_factory=list)
+    #: M4: the chain's own ``audit.head_signed`` events as (lines, head hash, anchor folders that took it, what
+    #: ``failed`` says of those that did not), and the time of its first and last event, so that a head missing from the
+    #: anchor or an anchor no event speaks of shows
+    signed_events: list[tuple[int, str, int, tuple[str, ...]]] = field(default_factory=list)
     first_ts: str | None = None
     last_ts: str | None = None
+
+    def told(self, target: Path) -> list[tuple[int, str]]:
+        """The heads (lines, hash) the chain says were written, without those ``target`` is named not to have taken
+        (OCR 1523-4): by the signer (``<folder>: <why>``) or by the host before it (``sign_on_box``)."""
+        missed = (f"{target}: ", f"the anchor folder {target} is not there")
+        return [(n, h) for n, h, took, failed in self.signed_events
+                if took >= 1 and not any(f.startswith(missed) for f in failed)]  # fmt: skip
 
 
 def verify(
@@ -693,7 +702,9 @@ def verify(
                 if rec.get("event") == SIGNED_EVENT and isinstance(rec.get("detail"), dict):
                     d = rec["detail"]
                     if isinstance(d.get("lines"), int) and isinstance(d.get("head"), str):
-                        res.signed_events.append((d["lines"], d["head"], int(d.get("anchors") or 0)))
+                        failed = d.get("failed") if isinstance(d.get("failed"), list) else []
+                        res.signed_events.append((d["lines"], d["head"], int(d.get("anchors") or 0),
+                                                  tuple(map(str, failed))))  # fmt: skip
                 if rec.get("prev_hash") != prev:
                     res.errors.append(f"{path.name}:{lineno}: prev_hash does not match previous line")
                 expected = line_hash(str(rec.get("prev_hash")), rec)
@@ -905,9 +916,10 @@ def _check_signed_heads(
         else:
             covered = max(covered, n)
     have = {(h.get("lines"), h.get("hash")) for h in heads}
-    if res.signed_events:  # M4: the newest head the chain says a folder took must be there; older ones may be pruned
-        n, last_hash, took = max(res.signed_events)
-        if took >= 1 and (n, last_hash) not in have:
+    if written := [e for e in res.signed_events if e[2] >= 1]:
+        # M4: the newest head the chain says a folder took must be there; older ones may be pruned
+        n, last_hash = max(written)[:2]
+        if (n, last_hash) not in have:
             res.errors.append(f"signed heads: the newest head the chain records as written (event {n}) is not in the "
                               "folder(s) checked: it was deleted, or the folder was replaced")  # fmt: skip
     if covered:
@@ -941,12 +953,20 @@ def _write_once(path: Path, data: bytes) -> bool:
         if path.read_bytes() == data:
             return False
         raise AuditSignError(f"{path} is already there with other content: it is never replaced")
-    tmp = path.with_name(f".{path.name}.tmp")  # a leftover of a killed night is overwritten
-    with tmp.open("wb") as fh:
+    # OCR 1523-8: a leftover of a killed night is removed; a link planted there by another machine is never followed
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.unlink(missing_ok=True)
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644), "wb") as fh:
         fh.write(data)
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
+    with contextlib.suppress(OSError):  # the name too (a share may not let a folder be synced)
+        fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
     if path.read_bytes() != data:
         path.unlink(missing_ok=True)
         raise AuditSignError(f"the copy in {path} differs from what was written (read back): it was removed and "
@@ -1128,30 +1148,36 @@ def _scan(directory: Path, wanted: set[int]) -> tuple[int, dict[int, str], int |
     return n, at, restored, before
 
 
-def anchor_state(target: Path, audit_dir: Path, own: Mapping[str, bytes], now: datetime,
+def anchor_state(target: Path, audit_dir: Path, own: Mapping[str, bytes] | None, now: datetime,
                  limit_h: float = 36.0) -> tuple[str, str]:  # fmt: skip
     """One anchor folder against the chain: ``(state, sentence)``, state one of :data:`ANCHOR_STATES`.
 
     missing: the folder is not reachable, is on the audit volume (it protects nothing) or holds no head yet.
     tampered: a head that no key of this box signed, a head whose signature fails, or a chain that has no event the
-    head names, or another hash there (named by the day the head was signed). restored: the chain is a shorter
+    head names, or another hash there (named by the day the head was signed), or a folder emptied of every head the
+    chain records as written to it. restored: the chain is a shorter
     copy that a ``backup.restored`` event closes, and every head it disagrees with is later than that event.
-    stale: the newest head is older than ``limit_h``. ok: the chain holds every head and the newest is fresh."""
+    stale: the newest head is older than ``limit_h``. ok: the chain holds every head and the newest is fresh.
+    ``own`` None: this python3 has no crypto library, so the signatures are not checked here (said in the sentence;
+    the nightly signer checks them)."""
     if not target.is_dir():
         return "missing", f"the anchor folder {target} is not reachable (not mounted?)"
     if _inside(target, audit_dir):
         return "missing", f"the anchor folder {target} is on the audit volume: it protects nothing"
     heads = read_signed_heads(target) if (target / _HEADS_DIR).is_dir() else []
-    told = verify(audit_dir, require_head=False).signed_events if audit_dir.is_dir() else []  # what the chain says
-    told = [e for e in told if e[2] >= 1]
-    if not heads and told:
-        return "missing", (f"{target} holds no signed head, but the chain records {len(told)} written to an anchor "
-                          "folder: emptied or replaced; nothing is signed over it until a person looks")  # fmt: skip
+    told = verify(audit_dir, require_head=False).told(target) if audit_dir.is_dir() else []  # what the chain says
+    if not heads and told:  # OCR 1523-17: every head the chain names deleted is tampering, as one deleted head is
+        return "tampered", (f"{target} holds no signed head, but the chain records {len(told)} written to an anchor "
+                           "folder: emptied or replaced; nothing is signed over it until a person looks")  # fmt: skip
     if not heads:
         return "missing", f"no signed head in {target} yet (python3 -m tools.trialbox audit-sign)"
     for h in heads:
-        pub = own.get(str(h.get("key_id")))
         day = str(h.get("ts") or "?")[:10]
+        if own is None:  # no crypto library here: the record's form only
+            if not (isinstance(h.get("lines"), int) and isinstance(h.get("hash"), str) and _ts(h.get("ts"))):
+                return "tampered", f"a head in {target}/heads (day {day}) is not a {HEAD_FORMAT} record"
+            continue
+        pub = own.get(str(h.get("key_id")))
         if pub is None:
             return "tampered", (f"a head in {target}/heads (day {day}) is not signed by this box's audit key "
                                 f"(key id {h.get('key_id')}): not a valid head")  # fmt: skip
@@ -1159,7 +1185,10 @@ def anchor_state(target: Path, audit_dir: Path, own: Mapping[str, bytes], now: d
             return "tampered", (f"the head of {day} in {target}/heads is not valid ({why}): it does not hold as "
                                 "signed by this box's key")  # fmt: skip
     held = {(h.get("lines"), h.get("hash")) for h in heads}
-    if lost := [e for e in told if (e[0], e[1]) not in held]:
+    # OCR 1523-4: from the folder's own first head on. One before it was signed before the folder was set up, or pruned;
+    # the newer heads cover the events it covered (_check_signed_heads)
+    first_line = min(int(h["lines"]) for h in heads)
+    if lost := [e for e in told if e[0] >= first_line and e not in held]:
         return "tampered", (f"the head of event {max(lost)[0]}, which the chain records as written, is not in "
                            f"{target}: it was deleted, or the folder was replaced")  # fmt: skip
     n, at, restored, before = _scan(audit_dir, {int(h["lines"]) for h in heads})
@@ -1179,4 +1208,5 @@ def anchor_state(target: Path, audit_dir: Path, own: Mapping[str, bytes], now: d
     if abs(age) > limit_h:
         return "stale", (f"the newest signed head in {target} is {age:.0f} h old (limit {limit_h:g} h): the nightly "
                          "audit-sign did not run or did not reach the folder")  # fmt: skip
-    return "ok", f"{target}: newest signed head {age:.0f} h old"
+    said = "" if own is not None else " (signatures not checked: this python3 has no crypto library)"
+    return "ok", f"{target}: newest signed head {age:.0f} h old{said}"

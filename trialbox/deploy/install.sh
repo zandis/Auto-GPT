@@ -929,7 +929,8 @@ if [ ! -f deploy/settings.yaml ]; then
     if PYTHONPATH="$BOX_PP" python3 -m tools.box detect --deploy deploy > deploy/site/box/hardware.json \
        && { [ -f deploy/site/box/owner.json ] || PYTHONPATH="$BOX_PP" python3 -m tools.box ask --hardware deploy/site/box/hardware.json --out deploy/site/box/owner.json --environment "$WIZ_ENV"; } \
        && PYTHONPATH="$BOX_PP" python3 -m tools.box plan --hardware deploy/site/box/hardware.json --owner deploy/site/box/owner.json \
-         --deploy deploy --out deploy/site/box/answers.json --keep >/dev/null; then ANSWERS=deploy/site/box/answers.json; fi
+         --deploy deploy --out deploy/site/box/answers.json --keep >/dev/null; then ANSWERS=deploy/site/box/answers.json
+    else echo "install: the four questions did not finish (above), so no settings were written: run the installer again and answer them" >&2; fi
     if [ -n "$ANSWERS" ] && [ -z "$KP_VALUE$KP_FILE" ] && grep -q '^KEK_BACKEND=passphrase' deploy/site/hardening.conf; then kp_read_stdin; fi
   fi
   # ---- end of FOUR
@@ -1573,14 +1574,14 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     # trialbox-ops.timer (NEW-OPS-8, D-561): the runner that writes the host's health facts every minute and runs
     # the Operations page's requests; without it the health line is red (OPS-009)
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
-      trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer >/dev/null 2>&1 \
+      trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer trialbox-terminology.timer >/dev/null 2>&1 \
       || { stop_or_warn systemd-units "the start of the units" "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"; SYSTEMD_OK=0; }
     if [ "$SYSTEMD_OK" = 1 ]; then  # H-94: units a PoC box could not enable are not started
       systemctl start trialbox.service
       systemctl start trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
-        trialbox-egress-watch.service trialbox-ops.timer >/dev/null 2>&1 || true
+        trialbox-egress-watch.service trialbox-ops.timer trialbox-terminology.timer >/dev/null 2>&1 || true
     fi
-    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer"
+    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer, trialbox-terminology.timer"
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
   fi

@@ -167,3 +167,38 @@ def test_the_night_may_pass_midnight() -> None:
 def test_find_prefers_the_folder_then_a_stick(tmp_path: Path) -> None:
     a, b = make_pack(tmp_path / "a", "1.0"), make_pack(tmp_path / "b", "1.0")
     assert tp.find(str(a), [str(b)]) == a and tp.find("", [str(b.parent)]) is None and tp.find("", [str(b)]) == b
+
+
+def test_the_bytes_installed_are_the_bytes_checked(box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR 1523-9: a stick another machine writes: the table changes after the check, before it is copied."""
+    pack = make_pack(tmp_path, "2026.12.1")
+    before, real = _tree(box), tp.check
+
+    def check(*a: Any, **k: Any) -> Any:
+        man = real(*a, **k)
+        _parquet(pack / "department.parquet", ["OTHER"])
+        return man
+
+    monkeypatch.setattr(tp, "check", check)
+    (out, text), log = _go(pack, box, tmp_path)
+    assert out == "refused" and "changed" in text
+    assert _tree(box) == before and not (box / tp.JOURNAL).exists() and not list(box.glob("*.tmp"))
+    assert [k["outcome"] for _, k in log] == ["refused"]
+
+
+def test_an_update_undone_at_the_next_start_is_undone_in_the_readers_too(box: Path, tmp_path: Path) -> None:
+    """OCR 1523-9: the next pack is refused, so nothing else loads the readers again."""
+
+    def killed(n: int) -> dict[str, Any]:
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        _go(make_pack(tmp_path, "2026.12.1"), box, tmp_path, killed)
+    seen: list[int] = []
+
+    def readers(n: int) -> dict[str, Any]:
+        seen.append(n)
+        return {"problems": []}
+
+    (out, _), _log = _go(make_pack(tmp_path, "2026.12.2", sign=False), box, tmp_path, readers)
+    assert out == "refused" and seen == [1] and not (box / tp.JOURNAL).exists()

@@ -2317,6 +2317,13 @@ def check_terminology(inp: DoctorInputs) -> Check:
     return _with_readers(inp, where, "; ".join(said) + rest)
 
 
+def check_terminology_tables(inp: DoctorInputs) -> Check:
+    """M2: every table of the code systems, shipped and loaded, with its rows, version and hash."""
+    from tools import terminology_pack
+
+    return _row(terminology_pack.tables_row(inp.env))
+
+
 def _with_readers(inp: DoctorInputs, where: Path, said: str) -> Check:
     """V-18 (D-1182, DB-C1): the vocabulary and the FHIR store against the same manifest: FAIL when they hold another
     release than the terminology now or one was not loaded; WARN when the folder cannot be read here; else each
@@ -2458,6 +2465,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_wsl2_versions,
     check_backup_speed,
     check_terminology,
+    check_terminology_tables,
     check_provenance_index,
     check_negated_inclusions,
     check_release_tree,
@@ -2546,6 +2554,7 @@ IMAGE_CHECKS = (
     "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "trusted_proxy",
     "mail_tls", "phi_tripwire", "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule",
     "db_passwords", "wsl2_memory", "update_window", "backup_speed", "terminology",
+    "terminology_tables",
 )  # fmt: skip
 #: what those checks import beyond the host's Python (the box image has each one)
 IMAGE_MODULES = ("pydantic", "httpx", "gateway", "guard", "registry", "channels", "criteria_compiler", "tb_llm",

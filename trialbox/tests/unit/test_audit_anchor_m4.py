@@ -40,6 +40,13 @@ def _events(log: AuditLog, n: int) -> None:
         log.append("test.event", ts=T0 + timedelta(minutes=i), actor="tester", detail={"n": i})
 
 
+def _recorder(log: AuditLog) -> audit_heads.Recorder:
+    def record(event: str, actor: str, detail: dict[str, Any]) -> None:
+        log.append(event, actor=actor, detail=detail)
+
+    return record
+
+
 def _night(box: dict[str, Path], now: datetime = NIGHT) -> Any:
     return audit_heads.sign_night(box["audit"], box["secrets"], [box["share"]], record=lambda *a: None, now=now)
 
@@ -191,3 +198,162 @@ def test_candidate_places_lists_a_second_disk_or_share_and_never_the_audit_disk(
     assert places == ["/mnt/backup", "/srv/share"] and item is None  # /mnt/same is the audit disk
     none, item = anchors.candidate_places("/dev/sda2 / ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n", "/var/lib/audit")
     assert none == [] and "this machine for now" in str(item) and "open item" in str(item)
+
+
+# ------------------------------------------------------------------------------------------------ OCR 1523
+def _two_nights(box: dict[str, Path], second: Path, missed: str) -> None:
+    """Three nights into two folders; the second folder is away on the middle one. ``missed``: ``written`` (the signer
+    tries it and fails) or ``absent`` (the host leaves a folder that is not there out, ``sign_on_box``)."""
+    log = AuditLog(box["audit"])
+    two = [box["share"], second]
+
+    def rec(event: str, actor: str, detail: dict[str, Any]) -> None:
+        if missed == "absent" and detail["anchors"] == 1:  # what sign_on_box adds for a folder that is not there
+            detail["failed"] = [
+                f"the anchor folder {second} is not there (not mounted?): no signed head was written to it"
+            ]
+        log.append(event, actor=actor, detail=detail)
+
+    def sign(folders: list[Path], day: int) -> Any:
+        return audit_heads.sign_night(
+            box["audit"], box["secrets"], folders, record=rec, now=NIGHT + timedelta(days=day)
+        )
+
+    _events(log, 3)
+    assert sign(two, 0).ok
+    log.append("test.event", ts=NIGHT + timedelta(hours=1), actor="tester", detail={"n": 9})
+    off = second.rename(second.with_name("second-off"))
+    if missed == "written":
+        second.write_text("not mounted")  # the head cannot be written there tonight
+        assert not sign(two, 1).ok
+        second.unlink()
+    else:
+        sign([two[0]], 1)
+    off.rename(second)
+    log.append("test.event", ts=NIGHT + timedelta(days=1, hours=1), actor="tester", detail={"n": 10})
+    assert sign(two, 2).ok
+
+
+@pytest.mark.parametrize("missed", ["written", "absent"])
+def test_a_second_folder_that_missed_one_night_is_not_called_tampered(
+    box: dict[str, Path], tmp_path: Path, missed: str
+) -> None:
+    """OCR 1523-4: the chain names the folder that did not take a head: it is not looked for there."""
+    second = tmp_path / "second"
+    second.mkdir()
+    _two_nights(box, second, missed)
+    own, later = audit_heads.own_keys(box["secrets"]), NIGHT + timedelta(days=2, hours=1)
+    for folder in (box["share"], second):
+        assert audit.anchor_state(folder, box["audit"], own, later)[0] == "ok"
+    # the folder that took that night's head is still held to it
+    sorted((box["share"] / "heads").iterdir())[1].unlink()
+    assert audit.anchor_state(box["share"], box["audit"], own, later)[0] == "tampered"
+
+
+def test_a_folder_added_later_is_not_held_to_the_heads_before_it(box: dict[str, Path], tmp_path: Path) -> None:
+    """OCR 1523-4, the same list: a second folder set up after the first nights holds no head from before."""
+    log = AuditLog(box["audit"])
+    record = _recorder(log)
+    _events(log, 3)
+    assert audit_heads.sign_night(box["audit"], box["secrets"], [box["share"]], record=record, now=NIGHT).ok
+    log.append("test.event", ts=NIGHT + timedelta(hours=1), actor="tester", detail={"n": 9})
+    second = tmp_path / "second"
+    second.mkdir()
+    both = [box["share"], second]
+    day = NIGHT + timedelta(days=1)
+    assert audit_heads.sign_night(box["audit"], box["secrets"], both, record=record, now=day).ok
+    own = audit_heads.own_keys(box["secrets"])
+    for folder in both:
+        assert audit.anchor_state(folder, box["audit"], own, day + timedelta(hours=1))[0] == "ok"
+
+
+def test_an_anchor_folder_emptied_after_a_signed_night_is_tampered_a_fail_and_never_signed_over(
+    box: dict[str, Path],
+) -> None:
+    """OCR 1523-17: the chain records a head written to the folder and the folder holds none: deleted, never only
+    "missing". The nightly signer refuses (V8-05, V8-06) until a person signs by hand."""
+    log = AuditLog(box["audit"])
+    _events(log, 3)
+    record = _recorder(log)
+    assert audit_heads.sign_night(box["audit"], box["secrets"], [box["share"]], record=record, now=NIGHT).ok
+    for f in (box["share"] / "heads").iterdir():
+        f.unlink()
+    state, text = _state(box, NIGHT + timedelta(hours=1))
+    assert state == "tampered" and "emptied" in text
+    for env in ("PRODUCTION", "VALIDATION", "DEV"):
+        assert _doctor(box, env, NIGHT + timedelta(hours=1)).status == "FAIL"
+    log.append("test.event", ts=NIGHT + timedelta(hours=1), actor="tester", detail={"n": 9})
+    night = audit_heads.sign_night(
+        box["audit"], box["secrets"], [box["share"]], record=record, now=NIGHT + timedelta(days=1)
+    )
+    assert not night.ok and "emptied" in " ".join(night.problems) and not list((box["share"] / "heads").iterdir())
+
+
+def test_a_night_no_folder_took_does_not_hide_a_deleted_newest_head(box: dict[str, Path]) -> None:
+    log = AuditLog(box["audit"])
+    _events(log, 3)
+    record = _recorder(log)
+    for d in (0, 1):
+        log.append("test.event", ts=NIGHT + timedelta(days=d), actor="tester", detail={"n": d})
+        now = NIGHT + timedelta(days=d, hours=1)
+        assert audit_heads.sign_night(box["audit"], box["secrets"], [box["share"]], record=record, now=now).ok
+    log.append(audit.SIGNED_EVENT, actor="t", detail={"lines": 99, "head": "f" * 64, "anchors": 0, "failed": ["x"]})
+    sorted((box["share"] / "heads").iterdir())[-1].unlink()
+    night = audit_heads.sign_night(
+        box["audit"], box["secrets"], [box["share"]], record=record, now=NIGHT + timedelta(days=2)
+    )
+    assert not night.ok and "deleted" in " ".join(night.problems)
+
+
+def test_a_torn_last_line_is_not_tampered(box: dict[str, Path]) -> None:
+    """V8-01: a write cut short is neither tampering nor signed over."""
+    _events(AuditLog(box["audit"]), 4)
+    assert _night(box).ok
+    AuditLog(box["audit"]).append("test.event", ts=NIGHT, actor="t", detail={})
+    log_file = sorted(box["audit"].glob("*.jsonl"))[-1]
+    log_file.write_bytes(log_file.read_bytes()[:-20])
+    assert _state(box, NIGHT + timedelta(hours=1))[0] == "ok"
+    night = _night(box, NIGHT + timedelta(hours=1))
+    assert not night.ok and "not tampering" in " ".join(night.problems)
+
+
+def test_a_link_planted_at_the_temporary_name_is_not_followed(box: dict[str, Path], tmp_path: Path) -> None:
+    """OCR 1523-8: the share is a folder other machines write; the signer is root."""
+    other = tmp_path / "other"
+    other.write_text("kept")
+    heads = box["share"] / "heads"
+    heads.mkdir()
+    (heads / ".a.json.tmp").symlink_to(other)
+    assert audit._write_once(heads / "a.json", b"new") is True
+    assert other.read_text() == "kept" and (heads / "a.json").read_bytes() == b"new"
+    assert [p.name for p in heads.iterdir()] == ["a.json"]
+
+
+def test_a_host_without_the_crypto_library_reads_what_it_can(
+    box: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OCR 1523-14: the dates and the chain as before M4; the signatures are said not checked, never a FAIL for it."""
+    _events(AuditLog(box["audit"]), 3)
+    assert _night(box).ok
+
+    def gone(*_a: Any) -> Any:
+        raise ModuleNotFoundError("No module named 'cryptography'", name="cryptography")
+
+    monkeypatch.setattr(audit_heads, "own_keys", gone)
+    c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1))
+    assert c.status == "PASS" and "signatures not checked" in c.detail
+    assert _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=40)).status == "WARN"  # stale all the same
+
+
+def test_a_folder_the_doctor_may_not_read_is_a_warn_that_says_so(
+    box: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _events(AuditLog(box["audit"]), 3)
+    assert _night(box).ok
+
+    def refuse(*_a: Any, **_k: Any) -> Any:
+        raise PermissionError(13, "Permission denied", str(box["audit"]))
+
+    monkeypatch.setattr(audit, "anchor_state", refuse)
+    c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1))
+    assert c.status == "WARN" and "cannot look" in c.detail

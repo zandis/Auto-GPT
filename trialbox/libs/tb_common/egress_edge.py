@@ -16,7 +16,9 @@ Standard library and ``phi_guard`` only at import: the support bundle runs this 
 
 from __future__ import annotations
 
+import ast
 import csv
+import functools
 import hashlib
 import html
 import io
@@ -164,6 +166,10 @@ _OWN = re.compile(
 _SSN = re.compile(r"(?<![0-9A-Za-z\-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![0-9A-Za-z\-])")
 #: a compact ROC birth date (year, month, day) before 出生 (V5-08)
 _BORN_ROC = re.compile(r"(?<!\d)\d{2,3}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?=\s*出生)")
+#: an office document's parts that hold no text to read: its pictures and the printer's settings (OCR 1523-3)
+_OPAQUE = re.compile(r"(?:\.(?:png|jpe?g|gif|bmp|tiff?|emf|wmf)|/printerSettings/[^/]+\.bin)$", re.I)
+#: a workbook's parts that :meth:`_Reader.workbook` reads as cells
+_CELLS = re.compile(r"xl/(?:worksheets/[^/]+|sharedStrings|styles|theme/[^/]+|workbook)\.xml$|docProps/app\.xml$")
 _FRACTION = re.compile(r"\d\.$")  # the digits after a decimal point are no phone number
 Span = tuple[str, int, int]
 
@@ -380,12 +386,9 @@ class _Reader:
         if data[:4] in (b"PK\x03\x04", b"PK\x05\x06"):  # what it is, not what it is called
             return self.archive(data, depth)
         if data[:5] == b"%PDF-":
-            return self.pdf(data)
-        try:
-            raw = data.decode("utf-8")
-        except UnicodeDecodeError:
-            raise Refused("", "unreadable") from None
-        if re.search(r"[\x00-\x08\x0e-\x1f]", raw):
+            return self.pdf(data, depth)
+        raw = _plain(data)
+        if raw is None:
             raise Refused("", "unreadable")
         out = self.document(kind, raw)
         return data if out == raw else out.encode("utf-8")
@@ -424,19 +427,28 @@ class _Reader:
         csv.writer(buf, lineterminator="\r\n" if "\r\n" in body else "\n").writerows(new)
         return bom + buf.getvalue()
 
-    def pdf(self, data: bytes) -> bytes:
+    def pdf(self, data: bytes, depth: int = 0) -> bytes:
+        """A PDF's pages, every text its objects hold (a form's filled values, notes, its own description) and the
+        files it carries, each read as a file of its own (OCR 1523-3). It is not rewritten: an identifier refuses it."""
         from pypdf import PdfReader
 
         try:
             r = PdfReader(io.BytesIO(data))
             body = "\n".join(p.extract_text() or "" for p in r.pages)
-            meta = "\n".join(str(v) for v in (r.metadata or {}).values())
+            texts, files = _pdf_parts(r.trailer)
         except Exception:
             raise Refused("", "unreadable") from None
         if not body.strip():  # a scan: nothing in it can be read
             raise Refused("", "unreadable")
-        self.none_in(body + "\n" + meta)
+        self.none_in("\n".join([body, *texts]))
+        for name, part in files:
+            self.whole(name, part, depth)
         return data
+
+    def whole(self, name: str, part: bytes, depth: int) -> None:
+        """A file inside one that is not rewritten: refused when reading it would change it."""
+        if self.file(name, part, depth + 1) != part:
+            raise Refused("", "identifiers")
 
     def none_in(self, text: str) -> None:
         got = self.find(text)
@@ -457,12 +469,15 @@ class _Reader:
             raise Refused("", "unreadable") from None
         if any(i.flag_bits & 1 for i in infos):  # encrypted
             raise Refused("", "unreadable")
-        names = {i.filename for i in infos}
-        if "[Content_Types].xml" in names:
-            return self.workbook(data, z) if "xl/workbook.xml" in names else self.parts(data, z)
+        # OCR 1523-3: the archive's comment and its members' comments leave with it
+        self.none_in("\n".join(c.decode("utf-8", "replace") for c in (z.comment, *(i.comment for i in infos)) if c))
+        safe = {i.filename: self.name(i.filename) for i in infos}
+        if "[Content_Types].xml" in safe:
+            if any(a != b for a, b in safe.items()):
+                raise Refused("", "identifiers")
+            return self.workbook(data, z, depth) if "xl/workbook.xml" in safe else self.parts(data, z, depth)
         old = {i.filename: z.read(i) for i in infos if not i.is_dir()}
         new = {n: self.file(n, d, depth + 1) for n, d in old.items()}
-        safe = {n: self.name(n) for n in old}
         if new == old and all(a == b for a, b in safe.items()):
             return data
         buf = io.BytesIO()
@@ -474,25 +489,41 @@ class _Reader:
                     out.writestr(info, new[i.filename])
         return buf.getvalue()
 
-    def parts(self, data: bytes, z: zipfile.ZipFile, skip: str = "") -> bytes:
-        """An office document's text, part by part. It is not rewritten: an identifier refuses it."""
+    def parts(self, data: bytes, z: zipfile.ZipFile, depth: int = 0, cells: bool = False) -> bytes:
+        """An office document's text, part by part. It is not rewritten: an identifier refuses it. A part that is not
+        XML (an embedded file, a list that a member named ``[Content_Types].xml`` sits beside) is read as a file of its
+        own (OCR 1523-3); a picture is not looked at. ``cells``: a workbook's cells are read by :meth:`workbook`."""
         for i in z.infolist():
-            if i.filename.endswith(".xml") and not (skip and re.match(skip, i.filename)):
-                raw = z.read(i).decode("utf-8", errors="replace")
-                raw = re.sub(r"</(?:\w+:)?(?:p|tr)>", "\n", raw)  # a paragraph's runs read together
-                self.none_in(html.unescape(re.sub(r"<[^>]+>", "", raw)))
+            if i.is_dir() or (cells and _CELLS.match(i.filename)):
+                continue
+            part = z.read(i)
+            markup = i.filename.endswith((".xml", ".rels", ".vml")) and part.lstrip(b"\xef\xbb\xbf \t\r\n")[:1] == b"<"
+            if markup:
+                self.markup(part)
+            elif not _OPAQUE.search(i.filename) or _plain(part) is not None or part[:4] in (b"PK\x03\x04", b"%PDF"):
+                self.whole(i.filename, part, depth)
         return data
 
-    def workbook(self, data: bytes, z: zipfile.ZipFile) -> bytes:
+    def markup(self, part: bytes) -> None:
+        raw = _plain(part)
+        if raw is None:
+            raise Refused("", "unreadable")
+        links = re.findall(r"""\bTarget\s*=\s*["']([^"']*)""", raw)  # a link's address stands in an attribute
+        raw = re.sub(r"</(?:\w+:)?(?:p|tr|si)>", "\n", raw)  # a paragraph's runs read together
+        self.none_in(html.unescape("\n".join([re.sub(r"<[^>]+>", "", raw), *links])))
+
+    def workbook(self, data: bytes, z: zipfile.ZipFile, depth: int = 0) -> bytes:
         """A workbook's cells, each read with its column's head and with the cell to its left; every other part
         (properties, comments, drawings) as text."""
         from openpyxl import load_workbook
 
-        self.parts(data, z, skip=r"xl/(?:worksheets/sheet|sharedStrings|styles|theme/|workbook\.xml)|docProps/app")
+        self.parts(data, z, depth, cells=True)
         try:
             wb = load_workbook(io.BytesIO(data))
         except Exception:
             raise Refused("", "unreadable") from None
+        if sum(bool(re.match(r"xl/worksheets/[^/]+$", n)) for n in z.namelist()) > len(wb.worksheets):
+            raise Refused("", "unreadable")  # a sheet the book does not list: its cells are not read below
         changed = False
         for ws in wb.worksheets:
             self.none_in(ws.title)
@@ -510,6 +541,9 @@ class _Reader:
                 if not head and sum(isinstance(c.value, str) for c in row) >= 2:
                     head = [c.value if isinstance(c.value, str) else "" for c in row]
         if not changed:
+            for n in z.namelist():  # a text no cell shows leaves with the file as it is
+                if n == "xl/sharedStrings.xml":
+                    self.markup(z.read(n))
             return data
         from tb_common.deterministic import normalize_ooxml
 
@@ -527,6 +561,45 @@ class _Reader:
                 self.hits += 1
                 out = out[:s] + "_" * (e - s) + out[e:]
         return out
+
+
+def _plain(data: bytes) -> str | None:
+    """``data`` as text; None when it is not text."""
+    try:
+        raw = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return None if re.search(r"[\x00-\x08\x0e-\x1f]", raw) else raw
+
+
+def _pdf_parts(trailer: Any) -> tuple[list[str], list[tuple[str, bytes]]]:
+    """Every text a PDF's objects hold, and the files it carries with their names."""
+    from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject, StreamObject, TextStringObject
+
+    texts: list[str] = []
+    files: list[tuple[str, bytes]] = []
+    seen: set[int] = set()
+    todo: list[Any] = [trailer]
+    while todo:
+        o = todo.pop()
+        if isinstance(o, IndirectObject):
+            if o.idnum in seen:
+                continue
+            seen.add(o.idnum)
+            o = o.get_object()
+        if isinstance(o, TextStringObject):
+            texts.append(str(o))
+        elif isinstance(o, ArrayObject):
+            todo.extend(list.__iter__(o))
+        elif isinstance(o, DictionaryObject):
+            todo.extend(dict.values(o))
+            if "/EF" in o:
+                name = str(o.get("/UF") or o.get("/F") or "")
+                kept: Any = o["/EF"]
+                files += [(name, s.get_object().get_data()) for s in kept.values()]
+            elif isinstance(o, StreamObject) and o.get("/Subtype") == "/XML":  # its description of itself
+                texts.append(html.unescape(re.sub(r"<[^>]+>", "\n", o.get_data().decode("utf-8", "replace"))))
+    return texts, files
 
 
 def _a_day(text: str) -> bool:
@@ -738,14 +811,29 @@ def tripwire_on(env: Mapping[str, str] | None = None) -> bool:
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@functools.lru_cache(maxsize=64)
+def _code(text: str) -> str:
+    """Python source without its comments and docstrings; nothing when it does not parse."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return ""
+    for n in ast.walk(tree):
+        if isinstance(body := getattr(n, "body", None), list):
+            kept = [s for s in body if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
+            n.body = kept or [ast.Pass()]  # type: ignore[attr-defined]
+    return ast.unparse(tree)
+
+
 def wired(route: str, root: Path = ROOT) -> bool | None:
-    """Whether the route's door calls the edge in this tree; None when the file is not here to read."""
+    """Whether the route's door calls the edge in this tree (OCR 1523-14: in its code, never in a comment); None when
+    the file is not here to read."""
     file, call = ROUTES[route].door
     try:
         texts = [p.read_text(encoding="utf-8") for p in root.glob(file)]
     except OSError:
         return None
-    return any(call in t for t in texts) if texts else None
+    return any(call.replace('"', "'") in _code(t) for t in texts) if texts else None
 
 
 def doctor_checks(env: Mapping[str, str] | None = None, root: Path = ROOT) -> list[tuple[str, str, str]]:

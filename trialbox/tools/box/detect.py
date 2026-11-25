@@ -23,7 +23,7 @@ from tools.box.plan import Disk, parse_lsblk
 
 RELAY_PORTS, MAILBOX_PORTS = (587, 465, 25), (993, 143)
 NETWORK_FS = ("nfs", "nfs4", "cifs", "smb3")
-PROPOSALS = Path("ops") / "needs-proposals.json"  # under deploy/: the console reads it in its operations folder
+PROPOSALS = "needs-proposals.json"  # in the operations folder the console reads (TB_OPS_DIR, deploy/ops by default)
 MAX_ROWS = 500  # the first records are enough to see the form of a number
 _CHART_COLUMNS = (
     "mrn",
@@ -169,5 +169,6 @@ def write(deploy: Path) -> dict[str, str]:  # pragma: no cover - the machine
         mounted=shares(mounts.read_text(encoding="utf-8")) if mounts.is_file() else [],
         charts=chart_numbers(folder) if src and folder.is_dir() else [],
     )
-    write_whole(deploy / PROPOSALS, json.dumps(got, ensure_ascii=False) + "\n", 0o644)
+    ops = deploy / (env.get("TB_OPS_DIR") or "ops")  # as compose: against deploy/; an absolute one is its own
+    write_whole(ops / PROPOSALS, json.dumps(got, ensure_ascii=False) + "\n", 0o644)
     return got

@@ -161,27 +161,32 @@ def check_on_host(item: str, change: Change, deploy: Path, rows: Callable[[], in
     env = {**fc.read_env(deploy / ".env"), **change.env}
     production = fc.environment(env) == "PRODUCTION"
     why = ""
-    if item == "audit_share":
-        why = "; ".join(fc.anchor_problems(deploy, env, fc.Host.from_environ(), production))
-    elif item == "backup_target":
-        host = fc.Host.from_environ()
-        base = fc._base(deploy, env, host)
-        for t in fc.backup_targets(env):
-            why = fc.folder_problem(t, host, base) or fc.off_the_box(t, host, deploy, env)
-    elif item == "data_source" and not Path(change.env["TB_SOURCE_DIR"]).is_dir():
-        why = f"{change.env['TB_SOURCE_DIR']} is not a folder on this machine"
-    elif item == "chart_number":
-        try:
-            chartno_change(deploy / ".env", change.env["TB_CHARTNO_RULE"], rows or (lambda: pid_map_rows(deploy)))
-        except PlanError as exc:
-            why = str(exc)
+    try:
+        if item == "audit_share":
+            why = "; ".join(fc.anchor_problems(deploy, env, fc.Host.from_environ(), production))
+        elif item == "backup_target":
+            host = fc.Host.from_environ()
+            base = fc._base(deploy, env, host)
+            # OCR 1523-12: each target that cannot be used is said, whatever the last one is
+            bad = (fc.folder_problem(t, host, base) or fc.off_the_box(t, host, deploy, env)
+                   for t in fc.backup_targets(env))  # fmt: skip
+            why = "; ".join(b for b in bad if b)
+        elif item == "data_source" and not Path(change.env["TB_SOURCE_DIR"]).is_dir():
+            why = f"{change.env['TB_SOURCE_DIR']} is not a folder on this machine"
+        elif item == "chart_number":
+            try:
+                chartno_change(deploy / ".env", change.env["TB_CHARTNO_RULE"], rows or (lambda: pid_map_rows(deploy)))
+            except PlanError as exc:
+                why = str(exc)
+    except PermissionError as exc:
+        why = f"{exc.filename} cannot be read on this machine"
     if why:
         raise NeedsError("unusable", f"given, but not usable: {why}")
 
 
 def patch_settings(deploy: Path, patch: Mapping[str, Any]) -> None:
-    """The named paths of ``settings.yaml``, the rest of the document as it was; checked as the services check it
-    before it takes the file's place."""
+    """The named paths of ``settings.yaml``, every other value as it was (comments after the first lines are not
+    kept); checked as the services check it before it takes the file's place."""
     import yaml
     from tb_common.config import load_settings
 
@@ -194,8 +199,11 @@ def patch_settings(deploy: Path, patch: Mapping[str, Any]) -> None:
     for dotted, value in patch.items():
         *parents, leaf = dotted.split(".")
         node = doc
-        for p in parents:
-            node = node.setdefault(p, {})
+        for p in parents:  # a key left empty in the file is none
+            if not isinstance(node.setdefault(p, {}) or {}, dict):
+                raise NeedsError("unusable", f"settings.yaml: {p} is not a list of settings: not written")
+            node[p] = node[p] or {}
+            node = node[p]
         node[leaf] = value
     head = "".join(ln for ln in path.read_text(encoding="utf-8").splitlines(True)[:3] if ln.startswith("#"))
     text = head + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)

@@ -138,6 +138,10 @@ def _swap(pack: Path, man: Mapping[str, Any], term_dir: Path, now: datetime) -> 
             shutil.copyfile(pack / man["tables"][n]["file"], tmp)
             with tmp.open("rb") as f:
                 os.fsync(f.fileno())
+            if _sha(tmp) != man["tables"][n]["sha256"]:  # OCR 1523-9: the bytes installed are the bytes checked
+                for m in names:
+                    (term_dir / f"{m}.parquet.tmp").unlink(missing_ok=True)
+                raise PackRefused(f"{n}: {man['tables'][n]['file']} changed after it was checked")
         data = installed.manifest(term_dir)
         for n in names:
             os.replace(term_dir / f"{n}.parquet.tmp", term_dir / f"{n}.parquet")
@@ -149,8 +153,9 @@ def _swap(pack: Path, man: Mapping[str, Any], term_dir: Path, now: datetime) -> 
         _fsync_write(term_dir / installed.MANIFEST, json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 
-def _recover(term_dir: Path) -> str:
-    """A journal left by a run that was cut short: the old tables go back, and the next run starts clean."""
+def _recover(term_dir: Path, readers: Callable[[Path], Mapping[str, Any]]) -> str:
+    """A journal left by a run that was cut short: the old tables go back, into the readers too (OCR 1523-9), and the
+    next run starts clean."""
     from criteria_compiler.terminology import installed
 
     j = term_dir / JOURNAL
@@ -160,6 +165,7 @@ def _recover(term_dir: Path) -> str:
     installed.restore_tables(term_dir, keep)
     for tmp in term_dir.glob("*.parquet.tmp"):
         tmp.unlink()
+    readers(term_dir)
     j.unlink()
     return f"a cut-short update was undone from {keep}"
 
@@ -173,7 +179,7 @@ def run(pack: Path, term_dir: Path, keep_root: Path, keys: Mapping[str, Any], re
 
     if in_night(now, night):
         return "waits", f"the night window {night} is running; the pack waits"
-    undone = _recover(term_dir)
+    undone = _recover(term_dir, readers)
     try:
         man = check(pack, term_dir, keys, register)
     except PackRefused as exc:
@@ -183,7 +189,12 @@ def run(pack: Path, term_dir: Path, keep_root: Path, keys: Mapping[str, Any], re
     installed.save_tables(term_dir, keep)
     _fsync_write(term_dir / JOURNAL, json.dumps({"keep": str(keep)}))
     before = installed.manifest(term_dir)
-    _swap(pack, man, term_dir, now)
+    try:
+        _swap(pack, man, term_dir, now)
+    except PackRefused as exc:
+        (term_dir / JOURNAL).unlink()
+        audit(EVENT, outcome="refused", reason=str(exc)[:300])
+        return "refused", str(exc)
     try:
         bad = _failed(readers(term_dir))
     except Exception as exc:  # a reader that raises is a reader that failed
@@ -212,44 +223,52 @@ def find(update_dir: str, sticks: Iterable[str]) -> Path | None:
     return None
 
 
-def doctor_checks(env: Mapping[str, str], now: datetime) -> list[tuple[str, str, str]]:
-    """Rows ``(key, PASS|WARN|FAIL, text)`` for the doctor hook: the update's state, and every table with its rows,
-    version and hash (shipped and loaded). A pack that cannot be read says so by name, never a FAIL for "could not
-    look"."""
+def update_row(env: Mapping[str, str], where: Path) -> tuple[str, str, str]:
+    """The doctor's row of the update's state: the pack waiting against the version applied in ``where``. Standard
+    library only: it reads the host's folders, where a pack is. What cannot be read is said by name, never a FAIL."""
+    key = "terminology_update"
+    try:
+        have = applied_version(where) if where.is_dir() else ""
+        pack = find(
+            env.get("TB_TERMINOLOGY_UPDATE_DIR", ""), [s for s in env.get("TB_TERMINOLOGY_STICK", "").split(":") if s]
+        )
+        if pack is None:
+            return key, "PASS", f"current: pack version {have or 'none applied'}; no pack waiting"
+    except (OSError, ValueError) as exc:
+        return key, "WARN", f"NOT CHECKED: {where} cannot be read ({type(exc).__name__})"
+    try:
+        want = str(json.loads((pack / PACK).read_text("utf-8")).get("version"))
+        due = _ver(want, "the pack") > _ver(have, "the box") if have else True
+        since = datetime.fromtimestamp((pack / PACK).stat().st_mtime).date().isoformat()
+    except (OSError, ValueError, PackRefused) as exc:
+        return key, "WARN", f"NOT CHECKED: the pack in {pack} cannot be read ({type(exc).__name__})"
+    if due:
+        return key, "WARN", f"update due since {since}: pack {want} in {pack}, applied {have or 'none'}"
+    return key, "PASS", f"current: pack {want} already applied"
+
+
+def tables_row(env: Mapping[str, str]) -> tuple[str, str, str]:
+    """The doctor's row of every table with its rows, version and hash (shipped and loaded): the box image's part
+    (``doctor.IMAGE_CHECKS``), where the compiler's package is."""
     from criteria_compiler.terminology import installed
 
-    where = installed.installed_dir(dict(env))
-    have = applied_version(where) if where.is_dir() else ""
-    rows: list[tuple[str, str, str]] = []
-    pack = find(
-        env.get("TB_TERMINOLOGY_UPDATE_DIR", ""), [s for s in env.get("TB_TERMINOLOGY_STICK", "").split(":") if s]
-    )
-    if pack is None:
-        rows.append(("terminology_update", "PASS", f"current: pack version {have or 'none applied'}; no pack waiting"))
-    else:
-        try:
-            want = str(json.loads((pack / PACK).read_text("utf-8")).get("version"))
-            due = _ver(want, "the pack") > _ver(have, "the box") if have else True
-            since = datetime.fromtimestamp((pack / PACK).stat().st_mtime).date().isoformat()
-            rows.append(("terminology_update", "WARN" if due else "PASS",
-                         f"update due since {since}: pack {want} in {pack}, applied {have or 'none'}" if due
-                         else f"current: pack {want} already applied"))  # fmt: skip
-        except (OSError, ValueError, PackRefused) as exc:
-            rows.append(
-                ("terminology_update", "WARN", f"NOT CHECKED: the pack in {pack} cannot be read ({type(exc).__name__})")
-            )
-    lines: dict[str, Any] = {}
+    key, lines = "terminology_tables", dict[str, Any]()
     try:
         if installed.shipped_tables():
             lines.update(installed.manifest(installed.SHIPPED_DIR)["tables"])
-        lines.update(installed.manifest(where)["tables"])
+        lines.update(installed.manifest(installed.installed_dir(dict(env)))["tables"])
     except installed.TerminologyRefused as exc:
-        rows.append(("terminology_tables", "WARN", f"NOT CHECKED: {exc}"))
-        return rows
+        return key, "WARN", f"NOT CHECKED: {exc}"
     said = "; ".join(f"{n} {ln.get('rows')} rows ({ln.get('version')}, sha256 {str(ln.get('sha256'))[:12]})"
                      for n, ln in sorted(lines.items()))  # fmt: skip
-    rows.append(("terminology_tables", "PASS", said or "no tables loaded"))
-    return rows
+    return key, "PASS", said or "no tables loaded"
+
+
+def doctor_checks(env: Mapping[str, str], now: datetime) -> list[tuple[str, str, str]]:
+    """Both rows ``(key, PASS|WARN|FAIL, text)``, where the code systems' folder and the compiler's package are."""
+    from criteria_compiler.terminology import installed
+
+    return [update_row(env, installed.installed_dir(dict(env))), tables_row(env)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -271,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         print(got or "")
         return 0
     from criteria_compiler.terminology import installed
-    from tb_common.audit import AuditLog
+    from tb_common.audit_writer import open_audit
 
     from tools import licence_register
     from tools import terminology_load as tl
@@ -286,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     keys, _ = trusted_keys(None, sorted(Path(os.environ.get("TB_VENDOR_KEYS", "deploy/keys")).glob("*.pub")))
     term = Path(a.terminology) if a.terminology else installed.installed_dir()
-    log = AuditLog(Path(audit_dir))
+    log = open_audit(Path(audit_dir))  # the journal on a box (D-394), never the chain's own files
     out, text = run(Path(a.pack), term, Path(a.keep), keys, licence_register.load(),
                     tl.run_here, log.append,
                     datetime.now().astimezone(), a.night)  # fmt: skip

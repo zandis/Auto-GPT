@@ -29,6 +29,11 @@ if [ "${1:-}" = "--rollback" ]; then  # V-18: the tables kept aside by update BU
   set -- "$@"
 fi
 if [ "${1:-}" = "--scheduled" ]; then  # M2 (V-19): run by trialbox-terminology.timer, before the night
+  # OCR 1523-2: the unit has no environment of its own: the settings come from deploy/.env (quotes removed, as compose
+  # reads it), as the project's name does
+  for k in TB_TERMINOLOGY_UPDATE_DIR TB_TERMINOLOGY_STICK TB_TERMINOLOGY_NIGHT; do
+    [ -n "${!k:-}" ] || export "$k=$(sed -n "s/^$k=//p" deploy/.env 2>/dev/null | tail -1 | sed "s/^[\"']//; s/[\"']\$//")"
+  done
   STICKS=(); IFS=: read -ra FOLDERS <<< "${TB_TERMINOLOGY_STICK:-}"  # ":" between folders, as terminology_pack.py reads it
   for s in "${FOLDERS[@]}"; do if [ -n "$s" ]; then STICKS+=(--stick "$s"); fi; done
   PACK="$(PYTHONPATH=. python3 -m tools.terminology_pack find --update-dir "${TB_TERMINOLOGY_UPDATE_DIR:-}" "${STICKS[@]}")"
@@ -36,7 +41,13 @@ if [ "${1:-}" = "--scheduled" ]; then  # M2 (V-19): run by trialbox-terminology.
   PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' deploy/.env 2>/dev/null | tail -1)"; PROJECT="${PROJECT:-trialbox}"
   mkdir -p deploy/terminology/previous
   # exit: 0 applied or waits, 3 refused (by name, nothing changed), 4 a reader failed (the old release is back)
-  exec docker compose --project-directory deploy run --rm --no-deps -T -v "$PACK:/pack:ro"     -v "$ROOT/deploy/terminology/previous:/keep" -v "$ROOT/deploy/keys:/keys:ro"     -v "${PROJECT}_audit-data:/data/audit" -e TB_VENDOR_KEYS=/keys -e TB_AUDIT_DIR=/data/audit     criteria-compiler python -m tools.terminology_pack run --pack /pack --keep /keep
+  # as deploy/terminology.sh: root, the volume's owner, with the volume writable (the service's own mount of it is
+  # read-only); the service's audit journal, never the audit volume (D-394)
+  exec docker compose --project-directory deploy run --rm --no-deps -T --user 0:0 -v "$PACK:/pack:ro" \
+    -v "$ROOT/deploy/terminology/previous:/keep" -v "$ROOT/deploy/keys:/keys:ro" \
+    -v "${PROJECT}_tb-terminology:/data/terminology-rw" -e TB_VENDOR_KEYS=/keys \
+    -e "TB_TERMINOLOGY_NIGHT=${TB_TERMINOLOGY_NIGHT:-}" criteria-compiler python -m tools.terminology_pack run \
+    --pack /pack --keep /keep --terminology /data/terminology-rw
 fi
 READERS_ONLY=0
 [ "${1:-}" != "--readers-only" ] || READERS_ONLY=1

@@ -116,7 +116,7 @@ class EgressLayer:
             if message["type"] == "http.response.start":
                 head = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in message["headers"]}
                 attached = head.get("content-disposition", "").lower().startswith("attachment")
-                if message["status"] == 200 and (attached or listed) and scope["method"] != "HEAD":
+                if message["status"] in (200, 206) and (attached or listed) and scope["method"] != "HEAD":
                     start = message
                     return
             if start is None:
@@ -130,6 +130,8 @@ class EgressLayer:
 
         # no file path may be handed to the server: the bytes must pass here. The scope itself is passed on (a copy
         # would keep the matched route from the middleware outside this one, whose timing header reads it)
+        if listed:  # a listed download is always whole: a range would answer 206 with the file's own bytes (OCR 1523-5)
+            scope["headers"] = [(k, v) for k, v in scope.get("headers", []) if k.lower() not in (b"range", b"if-range")]
         scope["extensions"] = {k: v for k, v in (scope.get("extensions") or {}).items() if k != PATHSEND}
         await self.app(scope, receive, held)
 
