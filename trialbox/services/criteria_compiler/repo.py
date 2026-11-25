@@ -226,6 +226,13 @@ class RulesetRepo:
         self.refs[key] = t.id
         return t.id
 
+    def files_before(self, name: str, prefix: str) -> dict[str, bytes]:
+        """The files under ``prefix`` one commit before the one tag ``name`` names (an approval's draft)."""
+        sha = self.ref(f"refs/tags/{name}")
+        commit: Any = self.repo[sha] if sha else None
+        parent = commit.parents[0] if commit is not None and commit.parents else None
+        return {p[len(prefix) :]: b for p, b in self._files(parent).items() if p.startswith(prefix)}
+
     def promote(self, ruleset: str, from_ref: str, message: str, author: str | None = None) -> bytes:
         """Copy ``<ruleset>/`` from ``from_ref`` onto ``main`` and refresh the materialized copy."""
         files = {p[len(ruleset) + 1 :]: b for p, b in self.files(from_ref, f"{ruleset}/").items()}

@@ -6,7 +6,7 @@ owner. Findings for builders, so in one language.
 - **Card:** INT-R3A (ordered by the owner; a ring-0 condition)
 - **Date:** 2026-11-25
 - **Findings:** [`ruleset-approval-swap-int-r3a-2026-11-25/findings.json`](ruleset-approval-swap-int-r3a-2026-11-25/findings.json)
-  (INTR3A-01 to INTR3A-09)
+  (INTR3A-01 to INTR3A-10)
 - **Tests:** `tests/unit/test_ruleset_swap_int_r3a.py`
 
 ## The fault
@@ -37,6 +37,11 @@ folders in the rulesets folder. The approval (`Compiler._approve`) asks before i
 and an offline install (`import_ruleset.install`) before its commit and tag. A folder whose file system cannot
 exchange is refused (`CompileFailed`, step `approve`, from `SwapUnsupported`) with nothing written.
 
+**An approval cut short after its tag** (INTR3A-08, -09, the integrator's ruling): approving the same version again
+builds it from the draft the tag approved, at the tagged approval's time. The same tree finishes the swap (the tag
+and its commit stay), and replaces a damaged copy; a different tree is refused with nothing written, and so is a
+version with a later one tagged. An offline install of the same content finishes its swap the same way.
+
 **The list** (INTR3A-04, the integrator's ruling): `list_rulesets` never lists a dot-name, so `.<ruleset>.tmp` is
 not a ruleset while a copy is built or swapped out.
 
@@ -58,7 +63,7 @@ behaviour, recorded as INTR3A-06.
 | `orchestrator.scenarios.review.approved_or_none` (FEAS; `require_approved`: SCREEN, microbatch, NAV, SUBMIT, CASE, COHORT) | a partial ruleset was returned and run; a missing manifest was "not approved" (None: a FEAS job with a protocol compiled a new draft) | the refusal propagates; the job fails (`Orchestrator.run`: a Failed reply, the error logged), nothing is screened, no draft is compiled |
 | `scenarios.retention` (via `approved_or_none`, `run=False`) | a missing manifest made the study "not approved", so its pool could be pruned | the refusal propagates; the retention job fails, nothing is pruned |
 | `scenarios.calibration` (via `approved_or_none`) | a partial manifest's routing was used | the job fails |
-| `scenarios.approve._approved` | a partial ruleset was compared | the refusal propagates; the approval job fails |
+| `scenarios.approve._approved` | a partial ruleset was compared | a refused read is "not approved yet": the compiler decides, and replaces the copy |
 | `tb_common.ruleset.approved_here` (the timers) | a partial ruleset counted as approved | `False` with a warning (it catches every error); the next tick asks again |
 | `orchestrator.app` `/rulesets/{id}`, `study_info`, `approved_of`, `/registry/{id}/promote` | `FileNotFoundError` gave 404 / none; a partial ruleset was shown | the refusal answers as an unreadable ruleset did: 404, no version, none; nothing is promoted |
 | `console.backend` `criteria_of`, `approval_state_of`, `ruleset_infos` | a partial ruleset was shown; a file that did not parse was "draft" | the damaged ruleset is shown as not approved; the other rulesets of the list are shown |
@@ -77,7 +82,7 @@ the refusal through (an uncut search of `services/` and `libs/`).
 | --- | --- | --- |
 | master 6c73db64 (the test file copied in), 4 runs | 9 failed (the 9 tests of the first head) | missing 20, 30, 21, 17; partial 15, 15, 17, 16; other ("no approved version") 16, 49, 54, 779 |
 | the first head 514aa32, 7 runs | 9 passed | missing, partial, other and refused 0 in each (whole 369 to 712) |
-| the head | 14 passed | whole 613; missing, partial, other and refused 0 |
+| 3dc9395d | 14 passed | whole 613; missing, partial, other and refused 0 |
 
 The five later tests (`-k "swap_writes_nothing or cannot_swap or dot_name or being_built or damaged_ruleset"`): at
 514aa32 5 failed (the approval failed with a bare `OSError` after its writes; an install the same; `list_rulesets`
@@ -93,5 +98,5 @@ test reaches "running".
 - No fallback swap where `renameat2` exchange is missing (another OS, a file system without it): the approval is
   refused before it writes (INTR3A-02).
 - The other forms of fault type 2 found are reported, not fixed (INTR3A-03, INTR3A-05).
-- A failure after the probe (a full disk, a kill) still leaves the tag and the commit with the old copy (INTR3A-08).
-- A damaged working copy refuses its own re-approval too (INTR3A-09).
+- A kill between the approval's commit on the draft's branch and its tag: no tag names it and no draft waits, so the
+  protocol is compiled again (INTR3A-10).

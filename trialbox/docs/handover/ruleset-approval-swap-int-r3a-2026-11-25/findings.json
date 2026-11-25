@@ -64,15 +64,23 @@
   {
    "id": "INTR3A-08",
    "severity": "Medium",
-   "claim": "a failure between an approval's tag and its swap other than an unsupported exchange (a full disk, a kill) leaves the tag and main's commit written and the whole old copy in use; nothing materialises main again at the next start, and the same version cannot be approved again (its tag exists); as before this card; not fixed",
+   "claim": "a failure between an approval's tag and its swap (a full disk, a kill) left the tag with the old copy and the same version could not be approved again; approving it again now finishes the swap when the tree is the tagged one, and is refused when it differs; an offline install the same",
    "lane": "J",
-   "basis": "read",
+   "basis": "shown",
    "state": "open"
   },
   {
    "id": "INTR3A-09",
    "severity": "Low",
-   "claim": "a working copy damaged on disk is refused by scenarios.approve before the compiler is called, so approving a new version of that ruleset does not repair it; an offline install or a materialisation from main does; not fixed",
+   "claim": "a working copy damaged on disk was refused by scenarios.approve before the compiler was called; the compiler is now called, and approving the same version again replaces the copy",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-10",
+   "severity": "Low",
+   "claim": "a kill between an approval's commit on the draft's branch and its tag leaves no draft awaiting approval and no tag: the protocol must be compiled again; as before this card; not fixed",
    "lane": "J",
    "basis": "read",
    "state": "open"

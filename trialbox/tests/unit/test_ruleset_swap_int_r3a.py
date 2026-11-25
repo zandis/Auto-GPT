@@ -396,3 +396,54 @@ def test_one_damaged_ruleset_does_not_take_the_list_of_rulesets_down(tmp_path: P
     _drop(path / RID)
     assert [(i.id, i.version, i.status) for i in ruleset_infos(path)] == [(RID, None, "draft")]
     assert criteria_of(path, RID) == [] and approval_state_of(path, RID) is None
+
+
+def test_an_approval_cut_short_after_its_tag_is_finished_by_approving_again(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """INTR3A-08 and -09: a full disk after the tag left the tag with the old copy, and the same version could not
+    be approved again. The same approval finishes the swap; a different one under the tag is refused."""
+    import errno
+
+    from criteria_compiler.service import CompileFailed
+    from orchestrator.scenarios import approve as approve_job
+
+    _decisions = compiler_tests._decisions
+    res = compiler_tests._compile(env)
+    compiler_tests._approve(env, _decisions(env["store"], res.review_xlsx_key))
+    res = compiler_tests._compile(env)
+    repo: RulesetRepo = env["deps"].repo
+    copy, tag = repo.path / "GZQO", f"GZQO/v{res.version}"
+    old = _on_disk(copy)
+
+    def approve(by: str = "crc1@hospa.test", changes: Any = None) -> Any:
+        decisions = _decisions(env["store"], res.review_xlsx_key, changes)
+        return env["comp"].approve(ApproveRequest(ruleset="GZQO", version=res.version, by=by, decisions=decisions))
+
+    def full(path: Path, data: bytes) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device", str(path))
+
+    with monkeypatch.context() as mp:
+        mp.setattr(repo_mod, "_write_synced", full)
+        with pytest.raises(OSError):
+            approve()
+    tagged = repo.ref(f"refs/tags/{tag}")
+    assert tagged and _on_disk(copy) == old
+    new = {p[len("GZQO/") :]: b for p, b in repo.files(f"refs/tags/{tag}", "GZQO/").items()}
+    said: list[str] = []
+    for other in ({"by": "pi@hospa.test"}, {"changes": {"GZQO-EXC-06": ("reject", None)}}):
+        with pytest.raises(CompileFailed) as got:
+            approve(**other)
+        said.append(str(got.value))
+        assert repo.ref(f"refs/tags/{tag}") == tagged and _on_disk(copy) == old
+    out = approve()
+    assert (out.status, out.tag) == ("approved", tag)
+    assert repo.ref(f"refs/tags/{tag}") == tagged and _on_disk(copy) == new
+    assert load_approved(repo.path, "GZQO").version == res.version
+    main = repo.ref("main")
+    (copy / "manifest.yaml").write_bytes((copy / "manifest.yaml").read_bytes() + b"#")  # damaged on disk
+    ctx: Any = SimpleNamespace(rulesets_dir=repo.path)
+    assert approve_job._approved(ctx, "GZQO", res.version) is None  # the job goes on to the compiler
+    approve()
+    assert _on_disk(copy) == new and (repo.ref(f"refs/tags/{tag}"), repo.ref("main")) == (tagged, main)
+    assert len(said) == 2 and all("already approved with different content" in x for x in said)
