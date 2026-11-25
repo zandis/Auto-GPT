@@ -4,6 +4,7 @@ separately mailed password (PPAP; refused for patient files outside DEV and TEST
 
 from __future__ import annotations
 
+import functools
 import html as html_lib
 import io
 import re
@@ -78,11 +79,8 @@ def smtp_transport(
     def send(sender: str, to: list[str], data: bytes) -> None:
         ctx = tls.context(verify)  # H-137: the relay's certificate checked unless SMTP_TLS_VERIFY is off
         try:  # DNS, connect, the TLS handshake on 465, the greeting
-            s = (
-                smtplib.SMTP_SSL(host, port, timeout=60, context=ctx)
-                if port == 465
-                else smtplib.SMTP(host, port, timeout=60)
-            )
+            cls = functools.partial(smtplib.SMTP_SSL, context=ctx) if port == 465 else smtplib.SMTP
+            s = cls(host, port, timeout=60)
         except (OSError, smtplib.SMTPException) as exc:
             raise NotSent(exc) from exc
         with s:

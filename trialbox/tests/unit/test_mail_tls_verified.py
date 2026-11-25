@@ -174,6 +174,24 @@ def test_the_switch_off_sends_without_the_check(relay: tuple[int, Path, list[byt
     assert b"ok\r\n" in got
 
 
+def test_port_465_checks_the_certificate_from_the_first_byte(monkeypatch: pytest.MonkeyPatch) -> None:
+    import smtplib
+
+    from mail_gateway.outbound import NotSent, smtp_transport
+
+    seen: list[Any] = []
+
+    def smtp_ssl(host: str, port: int, *a: Any, context: ssl.SSLContext | None = None, **k: Any) -> Any:
+        seen.append(context)
+        raise ConnectionRefusedError("no relay in this test")
+
+    monkeypatch.setattr(smtplib, "SMTP_SSL", smtp_ssl)
+    for verify, mode in ((True, ssl.CERT_REQUIRED), (False, ssl.CERT_NONE)):
+        with pytest.raises(NotSent):
+            smtp_transport("relay.hospital.test", 465, verify=verify)("box@hospital.test", ["crc@hospital.test"], b"x")
+        assert seen[-1] is not None and seen[-1].verify_mode == mode
+
+
 def test_the_imap_poll_checks_the_certificate(monkeypatch: pytest.MonkeyPatch) -> None:
     from mail_gateway.gateway import Gateway
 
