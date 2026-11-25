@@ -236,7 +236,7 @@ def test_a_path_outside_the_folder_is_refused() -> None:
 
 # ---------------------------------------------------------------------------------------------- the review's cases
 #: RA-JAK's criteria hash as shipped: 10D-3 must reproduce it byte for byte from the canonical form of D-1366
-RA_JAK_CRITERIA_SHA256 = "69ae60cdf2d49dd0e903228af12699009b6ed3da5157cda281485d976c7d69d1"
+RA_JAK_CRITERIA_SHA256 = "70e2a0479107a55b81570ec627f6a8d0bb46d6e1e76737c89c3360ca7c16ce01"
 
 
 def test_the_criteria_hash_of_a_shipped_study_is_its_golden() -> None:

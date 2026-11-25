@@ -35,12 +35,14 @@ UNKNOWN_CODE_SYSTEM = "unknown_code_system"
 
 # rows of the two domains whose code no ValueSet can read; $1 pids (NULL = every patient), $2 known diagnosis systems
 SQL = """
-SELECT pid, 'condition' AS domain, cid AS rid, coalesce(onset, recorded) AS d, coalesce(system, '') AS system
+SELECT pid, 'condition' AS domain, cid AS rid, coalesce(onset, recorded) AS d, coalesce(system, '') AS system,
+       NULL::DATE AS ts, NULL::DATE AS te
 FROM condition
 WHERE (CAST($1 AS VARCHAR[]) IS NULL OR pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))))
   AND (coalesce(code, '') = '' OR coalesce(system, '') = '' OR NOT list_contains(CAST($2 AS VARCHAR[]), system))
 UNION ALL
-SELECT pid, 'medication' AS domain, mid AS rid, authored AS d, '' AS system
+SELECT pid, 'medication' AS domain, mid AS rid, authored AS d, '' AS system,
+       coalesce(start, authored) AS ts, "end" AS te
 FROM medication
 WHERE (CAST($1 AS VARCHAR[]) IS NULL OR pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))))
   AND coalesce(atc, '') = ''
@@ -58,6 +60,16 @@ class GapRow:
     rid: str
     d: date | None
     system: str
+    ts: date | None = None  # a medication's supply period (D-1073), as the compiled SQL reads it
+    te: date | None = None
+
+    def outside(self, lo: date | None, hi: date) -> bool:
+        """A dated row that cannot answer the window: not in it, and (a medication, D-1073) no supply reaching it."""
+        if self.d is None or (self.d <= hi and (lo is None or self.d >= lo)):
+            return False
+        if self.domain != "medication" or lo is None or self.ts is None or self.ts > hi:
+            return True
+        return self.d > hi if self.te is None else self.te < lo
 
 
 def known_systems(valuesets: Mapping[str, Mapping[str, Any]] | None) -> list[str]:
@@ -109,7 +121,7 @@ class Coverage:
         out: dict[str, list[GapRow]] = {}
         for r in table.to_pylist():
             out.setdefault(str(r["pid"]), []).append(
-                GapRow(str(r["domain"]), str(r["rid"]), r["d"], str(r["system"] or ""))
+                GapRow(str(r["domain"]), str(r["rid"]), r["d"], str(r["system"] or ""), r.get("ts"), r.get("te"))
             )
         return cls(out)
 
@@ -144,7 +156,7 @@ class Coverage:
             for r in rows:
                 if r.domain != a.domain:
                     continue
-                if r.d is not None and (r.d > hi or (lo is not None and r.d < lo)):
+                if r.outside(lo, hi):
                     continue
                 ref = f"{r.rid}|{r.d.isoformat()}" if r.d else r.rid
                 if ref not in out:
