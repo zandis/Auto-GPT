@@ -128,8 +128,13 @@ doctor() {  # the model key as the gateway reads it: the key file only (D-437, D
     case "$cf" in "$BOX/deploy/"*) ;; /*) [ -f "$cf" ] && more+=(-v "$cf:$cf:ro") ;; esac
   done
   unset IFS
+  # H-136: the hold after a restore as the host check hands it in: read through the box (compose exec db), on the host
+  local hold
+  hold="$(cd "$BOX" && python3 -m tools.trialbox.box_hold "$BOX/deploy")" || hold=""
+  [ -n "$hold" ] || hold='{"state": "unread", "cause": "the rehearsal could not run python3 -m tools.trialbox.box_hold"}'
   docker run --rm --network trialbox-model-net --env-file "$BOX/deploy/.env" -v "$BOX/deploy:/app/deploy:ro" \
     ${more[@]+"${more[@]}"} -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
+    -e TB_DOCTOR_RESTORE_HOLD="$hold" \
     --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml \
     --env-file /app/deploy/.env "$@"   # D-887: as the host check gives it (db_passwords, chartno_rule read the box)
 }
@@ -372,6 +377,9 @@ doctor)
   echo "$out" | grep -q "^WARN  rehearsal .*REHEARSAL BOX: placeholder models, synthetic data only" \
     || fail "the doctor does not carry the standing REHEARSAL BOX line"
   echo "$out" | grep -q "^PASS  serving" || fail "the live serving check did not PASS"
+  # H-136: the image's doctor is handed the hold the host read through the box; a fresh box is not held
+  echo "$out" | grep -qE "^PASS  restore_hold +released" \
+    || fail "doctor did not read the hold after a restore through the box (H-136): an operator would be told nothing is held while the screening hold is on"
   echo "$out" | grep -q "^PASS  registry_pins" || fail "registry_pins did not PASS"
   # D-887: the pins are the media's placeholders, and the doctor says so where it shows them
   echo "$out" | grep -q "^PASS  serving.*rehearsal placeholder" || fail "the serving line does not name the rehearsal placeholder"
@@ -854,6 +862,66 @@ EOF
   after="$(dc ps --services --status running | sort)"
   [ "$before" = "$after" ] || fail "the services after the restore differ: before [$before] after [$after]"
   ok "$(printf '%s\n' "$after" | wc -l) services run again after the restore, each healthy, as before it"
+  # H-126: the walk's case. The same command signalled after its data part (the restore's container has ended; the
+  # host's step is starting the services), the site's services left stopped as the walk's interrupted run left them,
+  # then the same command again: every service that ran before runs again healthy, the line says "N of N" (never a
+  # shortfall called healthy) and the site answers through caddy.
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/interrupted.json" 2> "$rr/interrupted.err" &
+  pid=$!
+  stop_bg() { kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; }
+  seen=0
+  for _ in $(seq 1 9000); do  # every 0.2 s, up to 30 minutes
+    if docker ps --no-trunc --format '{{.Command}}' | grep -q 'tools.trialbox restore'; then seen=1
+    elif [ "$seen" = 1 ]; then break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  [ "$seen" = 1 ] || { stop_bg; fail "the restore's container was never seen running"; }
+  kill -0 "$pid" 2>/dev/null || fail "the restore had ended before it could be signalled after its data part"
+  kill -TERM "$pid" 2>/dev/null || true; sleep 0.2; kill -TERM "$pid" 2>/dev/null || true  # the walk's two
+  wait "$pid" || rc=$?
+  cat "$rr/interrupted.err"
+  case "$rc" in
+    1|130) echo "the restore signalled after its data part ended $rc" ;;
+    *) fail "the restore signalled after its data part ended $rc, not 130 or 1 (the signal came too late?)" ;;
+  esac
+  if grep -q "are healthy" "$rr/interrupted.err"; then fail "the interrupted restore said healthy"; fi
+  grep -q "restore: the box now:" "$rr/interrupted.err" || fail "the interrupted restore did not say the box's state"
+  mapfile -t stopped_again < <(dc ps --services --status running | grep -xE 'caddy|console|llm-verifier')
+  if [ "${#stopped_again[@]}" -gt 0 ]; then dc stop "${stopped_again[@]}" > "$rr/left.log" 2>&1 || { cat "$rr/left.log"; fail "cannot stop ${stopped_again[*]}"; }; fi
+  [ "$(dc ps --services --status running | sort)" != "$before" ] || fail "no service was left stopped for the re-run"
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/rerun.json" 2> "$rr/rerun.err" || rc=$?
+  cat "$rr/rerun.err"
+  [ "$rc" = 0 ] || [ "$rc" = 4 ] || fail "the re-run after the interrupted restore ended $rc"
+  grep -Eq 'the services run again and are healthy: ([0-9]+) of \1 \(' "$rr/rerun.err" \
+    || fail "the re-run did not say every expected service healthy (N of N)"
+  wait_healthy 900
+  after="$(dc ps --services --status running | sort)"
+  [ "$before" = "$after" ] || fail "the services after the re-run differ: before [$before] after [$after]"
+  host="$(envget TB_TLS_HOSTNAME)"
+  curl -fsS -m 10 --cacert "$BOX/deploy/secrets/tls/caddy-root.crt" --resolve "$host:443:${TB_RH_TLS_ADDR:-127.0.0.1}" \
+    "https://$host/healthz" > /dev/null || fail "the site does not answer after the re-run"
+  ok "a restore signalled after its data part, then run again: every service runs healthy and the site answers"
+  # H-136: the walk's check right after a restore, typed on the box's host as RUNBOOK §5 says (the installed command,
+  # the host's python3): the doctor reads the hold through the box and says what the flag on the box says (held: a
+  # WARN with the reason; released: a PASS), never "cannot read". The harm it guards: an operator told nothing is
+  # held while the screening hold is on
+  flag="$(dc exec -T db psql -X -At -U trialbox -d trialbox_wf -c "SELECT value FROM app.flag WHERE name = 'screening.after_restore'")" \
+    || fail "cannot read the hold on the box's database"
+  trialbox doctor --env-file deploy/.env > "$rr/doctor.out" 2>&1 || true
+  line="$(grep -E '^(PASS|WARN|FAIL) +restore_hold ' "$rr/doctor.out")" \
+    || { cat "$rr/doctor.out"; fail "the installed trialbox doctor printed no restore_hold line"; }
+  echo "$line"
+  case "${flag:-released}" in
+    held) echo "$line" | grep -qE '^WARN +restore_hold +HELD ' \
+      || fail "the hold is held on the box; the installed trialbox doctor said: $line" ;;
+    released) echo "$line" | grep -qE '^PASS +restore_hold +released' \
+      || fail "the hold is released on the box; the installed trialbox doctor said: $line" ;;
+    *) fail "the hold holds a value the box does not declare: $flag" ;;
+  esac
+  ok "the installed trialbox doctor on the host shows the hold after the restore as the box holds it (${flag:-released})"
   ;;
 
 # ------------------------------------------------------------------------------------------------ negative: name

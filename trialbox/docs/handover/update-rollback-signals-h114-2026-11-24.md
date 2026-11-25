@@ -225,3 +225,33 @@ files. Files outside the card: `tools/trialbox/procgroup.py` (lane B2) and `tool
     the default grace): it runs to its end and is audited `rolled_back: true`;
   - the console passes its limit as both the timeout and the grace.
 - Mutants, 3, all caught: the default moved to 20 s; `procgroup` ignoring the grace; the console passing no grace.
+
+## H-114c: a SIGKILL inside the host-tree switch (2026-11-24)
+
+The integrator ruled (7129325585) that the half of 1461-1 left open is card H-114c, High-class. The fault: on a
+copied install, the first host tree's switch moves each copied file aside and links it. The record of those moves
+reached `point.json` only when the install returned. A SIGKILL between two moves (a power cut, or the console
+limit's SIGKILL) left the record of before the switch, and `tools/apply_update.sh rollback` then said "previous
+release" with the compose file still set aside (H114-16).
+
+- `host_tree.install`, `switch` and `sync` take `on_record`. The list of moved files saves the record each time a
+  name is added, which `_aside` does before the file moves. `_aside` keeps its signature, which the existing tests'
+  stand-ins use. `apply_host` passes a save of the rollback point (`save_point`, written whole with fsync).
+- Undoing the first host tree of a copied install also removes the links through `current` that a cut-short switch
+  made but never recorded. Only the release's own paths are looked at. Links are not saved one by one, which would
+  cost one fsync per release path.
+- Test: `tests/unit/test_host_tree_switch_kill_h114c.py`, 5 cases:
+  - a copied install, killed after the 1st, 2nd and 4th move;
+  - a copied install, killed right after linking a path only the release has, so the link is unrecorded;
+  - a box already on a host tree, killed in its next switch.
+  In each, a real SIGKILL ends the first child process, and a second child runs `recover`. All 5 fail at 27e8f0d8.
+- Mutants, 3, all caught:
+  - no save as each name is added;
+  - no removal of the unrecorded links;
+  - `apply_host` passing no save.
+- A first version changed `_aside`'s signature. It broke the three existing `test_1461_1_*` cases, whose stand-in
+  takes four arguments, so it was replaced by the saving list, and those tests stay unchanged. A separate save of the
+  aside folder before the first move was removed: the first move's save already carries it, and no test could tell
+  them apart.
+- A kill between a name's save and its move leaves a name whose file was never moved; `restore` skips it, since the
+  file is still in its place.

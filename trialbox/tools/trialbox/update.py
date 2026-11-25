@@ -233,6 +233,10 @@ class Stops:
 
 # The steps, in order, as the marker (deploy/updates/IN_PROGRESS.json) names them (D-210).
 STEPS = ("backup", "rollback point", "apply", "migrate and restart", "rulesets", "check", "refdata", "finish")
+#: H-132 (LR-10): the steps after the check, when the new release is in service: an interrupted one is finished forward
+AFTER_CHECK = ("refdata", "finish")
+#: H-132 (LR-10): the marker's step when finishing forward did not end: the next ``rollback <bundle>`` tries it again
+FORWARD_FAILED = "finish forward failed"
 SPACE_MARGIN = 1.10
 #: H-95: the model pack the box holds (verify_update.py --model-pack-record reads it)
 MODEL_PACK = "model-pack.json"
@@ -568,25 +572,40 @@ def image_state(run: Runner) -> tuple[dict[str, str], set[str]]:
     return tags, ids
 
 
-def undo_load(before: tuple[dict[str, str], set[str]], run: Runner) -> list[str]:
+def undo_load(
+    before: tuple[dict[str, str], set[str]], run: Runner, scope: tuple[set[str], set[str]] | None = None
+) -> list[str]:
     """H-95 (review F1, F2): put the engine back as it was before one load: a tag the load moved points at its old
     image again, a tag the load made is removed, an image id the load added is removed. Nothing that was there before
-    is removed. Returns what it did."""
+    is removed. Returns what it did.
+
+    H-132 (LR-11): only within ``scope``, the tags and image ids this load can have made: the archive's pinned tags
+    and its config and manifest digests, with what ``docker load`` itself said it loaded. A tag or an image another
+    user of the engine moved or added meanwhile is not this load's and is left alone. No scope (a record written
+    before H-132): nothing is undone."""
+    if scope is None:
+        return []
+    own_tags, own_ids = scope
     old_tags, old_ids = before
     new_tags, new_ids = image_state(run)
+    # an image a tag of this load now names and the engine did not hold before is this load's, whatever digest the
+    # engine gives it (a store that names images by another digest than the archive's)
+    own_ids = set(own_ids) | {
+        i for t, i in new_tags.items() if t in own_tags and old_tags.get(t) != i and i not in old_ids
+    }
     done: list[str] = []
     for tag, iid in sorted(new_tags.items()):
-        if old_tags.get(tag) == iid:
+        if old_tags.get(tag) == iid or tag not in own_tags:
             continue
         if tag in old_tags:
             run(["docker", "tag", old_tags[tag], tag])
             done.append(f"{tag} back to {old_tags[tag]}")
-        elif iid not in old_ids:
+        elif iid not in old_ids and iid in own_ids:
             continue  # the image itself goes below, and its tag with it
         else:
             run(["docker", "image", "rm", tag])
             done.append(f"{tag} removed")
-    for iid in sorted(new_ids - old_ids):
+    for iid in sorted((new_ids - old_ids) & own_ids):
         with contextlib.suppress(UpdateFailed):
             run(["docker", "image", "rm", "-f", iid])
         done.append(f"{iid} removed")
@@ -596,12 +615,154 @@ def undo_load(before: tuple[dict[str, str], set[str]], run: Runner) -> list[str]
 LOAD_BEFORE = "load_before"  # the rollback point's record of the engine before a streamed load (re-review F1)
 
 
+def load_scope(configs: dict[str, str], manifests: set[str], said: str = "") -> tuple[set[str], set[str]]:
+    """H-132 (LR-11): what one load can have made: the archive's tags and digests, and the tags and ids ``docker
+    load`` printed (``Loaded image: <tag>``, ``Loaded image ID: <id>``)."""
+    tags, ids = set(configs), {*configs.values(), *manifests} - {""}
+    for line in said.splitlines():
+        head, _, value = line.strip().partition(": ")
+        if head == "Loaded image" and value:
+            tags.add(value.strip())
+        elif head == "Loaded image ID" and value:
+            ids.add(value.strip())
+    return tags, ids
+
+
+class TarWatch:
+    """H-132 (LR-11): the ``manifest.json`` and ``index.json`` of the tar handed to ``docker load``, read from the
+    very bytes handed on (an archive swapped on the stick after its pins were read names its own tags here).
+
+    OCR 1481-1: a kept file is at most ``LIMIT`` bytes, held once in a ``bytearray``; a bigger one sets ``too_big``
+    and the load is stopped before it gets any byte of it. OCR 1481-2: a PAX record (``path``, ``size``) or a GNU long
+    name applies to the next member as a tar reader applies it; a ``manifest.json``/``index.json`` that is not a regular
+    file (a link), or a header that cannot be read, sets ``unsure``, and the load is stopped the same way."""
+
+    WANT = ("manifest.json", "index.json")
+    #: OCR 1481-1: an image archive's manifest.json and index.json are a few kilobytes; a bigger one is never held
+    LIMIT = 1 << 20
+    _META = (b"x", b"L")  # a PAX record for the next member; a GNU long name for the next member
+    _SKIP = (b"g", b"K")  # a PAX global record; a GNU long link name: read past
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+        self._buf = bytearray()
+        self._left = 0  # bytes of the current entry's data (and padding) still to come
+        self._size = 0
+        self._keep: str | None = None  # a wanted file, or "\0x"/"\0L" for a record of the next member
+        self._data = bytearray()
+        self._next: dict[str, str] = {}  # what a PAX record or a GNU long name says of the next member
+        self._done = False
+        self.too_big = False
+        self.unsure = False
+        self.version = 0  # how many files were read so far (the scope is read again only when one was)
+
+    def _stop(self, *, too_big: bool = False) -> None:
+        self.too_big = self.too_big or too_big
+        self.unsure = self.unsure or not too_big
+        self._done = True
+
+    @staticmethod
+    def _octal(field: bytes) -> int:
+        if field[:1] in (b"\x80", b"\xff"):  # base-256 (a member of 8 GiB or more)
+            return int.from_bytes(field[1:], "big", signed=field[:1] == b"\xff")
+        return int(field.split(b"\0", 1)[0].strip() or b"0", 8)
+
+    def _ended(self, keep: str, data: bytes) -> None:
+        if keep == "\0x":  # PAX records: "<len> <key>=<value>\n"
+            for rec in data.decode("utf-8", "replace").splitlines():
+                key, _, value = rec.partition(" ")[2].partition("=")
+                if key in ("path", "size"):
+                    self._next[key] = value
+        elif keep == "\0L":
+            self._next["path"] = data.split(b"\0", 1)[0].decode("utf-8", "replace")
+        else:
+            self.files[keep] = data
+            self.version += 1
+
+    def feed(self, data: bytes) -> None:
+        if self._done:
+            return
+        self._buf += data
+        while not self._done:
+            if self._left:
+                take = bytes(self._buf[: self._left])
+                del self._buf[: self._left]
+                self._left -= len(take)
+                if self._keep is not None:
+                    self._data += take
+                    if not self._left:
+                        self._ended(self._keep, bytes(self._data[: self._size]))
+                        self._keep, self._data = None, bytearray()
+                if self._left:
+                    return
+                continue
+            if len(self._buf) < 512:
+                return
+            head = bytes(self._buf[:512])
+            del self._buf[:512]
+            if not head.strip(b"\0"):
+                self._done = True
+                return
+            kind = head[156:157]
+            name = head[:100].split(b"\0", 1)[0].decode("utf-8", "replace")
+            prefix = head[345:500].split(b"\0", 1)[0].decode("utf-8", "replace")
+            if prefix and head[257:262] == b"ustar":
+                name = f"{prefix}/{name}"
+            try:
+                self._size = self._octal(head[124:136])
+                if kind not in self._META and "size" in self._next:
+                    self._size = int(self._next["size"])
+            except ValueError:
+                return self._stop()
+            if kind not in self._META:
+                name = self._next.pop("path", name)
+                self._next.clear()
+            self._left = -(-self._size // 512) * 512
+            name = name.removeprefix("./")
+            if kind in self._META:
+                self._keep = "\0" + kind.decode()
+            elif kind in self._SKIP:
+                self._keep = None
+            elif name in self.WANT:
+                if kind not in (b"0", b"\0"):  # a link or anything but a regular file: cannot tell what it names
+                    return self._stop()
+                self._keep = name
+            else:
+                self._keep = None
+            if self._keep is not None and self._size > self.LIMIT:
+                return self._stop(too_big=name in self.WANT)
+            if self._keep is not None and not self._left:
+                self._ended(self._keep, b"")
+                self._keep = None
+
+    def scope(self) -> tuple[set[str], set[str]]:
+        tags: set[str] = set()
+        ids: set[str] = set()
+        try:
+            for entry in json.loads(self.files.get("manifest.json") or b"[]"):
+                name = PurePosixPath(str(entry.get("Config") or "")).name.removesuffix(".json")
+                if re.fullmatch(r"[0-9a-f]{64}", name):
+                    ids.add(f"sha256:{name}")
+                tags.update(str(t) for t in entry.get("RepoTags") or [])
+            for d in json.loads(self.files.get("index.json") or b"{}").get("manifests") or []:
+                if isinstance(d, dict) and isinstance(d.get("digest"), str):
+                    ids.add(d["digest"])
+        except (ValueError, AttributeError, TypeError):
+            pass
+        return tags, ids
+
+
 def undo_recorded_load(point: Point, run: Runner) -> list[str]:
-    """Undo a streamed load the rollback point recorded and nothing undid (a kill between the load and its undo)."""
+    """Undo a streamed load the rollback point recorded and nothing undid (a kill between the load and its undo),
+    within the scope the record names (H-132, LR-11)."""
     rec = point.extra.pop(LOAD_BEFORE, None)
     if not isinstance(rec, dict):
         return []
-    return undo_load(({str(k): str(v) for k, v in (rec.get("tags") or {}).items()}, set(rec.get("ids") or [])), run)
+    scope = None
+    if isinstance(rec.get("scope_tags"), list) and isinstance(rec.get("scope_ids"), list):
+        scope = ({str(t) for t in rec["scope_tags"]}, {str(i) for i in rec["scope_ids"]})
+    before = ({str(k): str(v) for k, v in (rec.get("tags") or {}).items()}, set(rec.get("ids") or []))
+    return undo_load(before, run, scope)
 
 
 def stream_image(
@@ -625,10 +786,15 @@ def stream_image(
     killed client, after the undo). Its input is closed with the archive cut short and the client is waited for: it
     exits only once the engine has answered, so the undo reads a settled engine. The engine as it was before is
     written into the rollback point first (``rb``, ``point``): a kill between the load and the undo is undone by the
-    rollback, or by the next run of the same pack (``main_apply``)."""
+    rollback, or by the next run of the same pack (``main_apply``).
+
+    H-132 (LR-11): the undo touches only what this load can have made (:func:`load_scope`), widened by what the
+    bytes handed on name (:class:`TarWatch`) before the load gets them; the scope is kept in the record too."""
     before = image_state(run)
+    own = load_scope(configs, manifests)
     if rb is not None and point is not None:
-        point.extra[LOAD_BEFORE] = {"image": p.name, "tags": before[0], "ids": sorted(before[1])}
+        point.extra[LOAD_BEFORE] = {"image": p.name, "tags": before[0], "ids": sorted(before[1]),
+                                    "scope_tags": sorted(own[0]), "scope_ids": sorted(own[1])}  # fmt: skip
         save_point(rb, point)
     proc = subprocess.Popen(["docker", "load"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)  # fmt: skip
@@ -641,16 +807,36 @@ def stream_image(
     h = hashlib.sha256()
     held = b""
     ok = broken = False
+    watch = TarWatch()
+
+    def hand_on(data: bytes) -> None:
+        version = watch.version
+        watch.feed(data)
+        if watch.too_big or watch.unsure:  # OCR 1481-1, 1481-2: refused before the load gets it; cut short below
+            raise OSError(f"{p.name}: a {' or '.join(TarWatch.WANT)} of more than {TarWatch.LIMIT} bytes"
+                          if watch.too_big else f"{p.name}: its {' or '.join(TarWatch.WANT)} cannot be read as a "
+                          "plain file of the archive")  # fmt: skip
+        seen = watch.scope() if watch.version != version else (set(), set())
+        if not (seen[0] <= own[0] and seen[1] <= own[1]):
+            own[0].update(seen[0])  # H-132 (LR-11): what the bytes handed on name, before the load gets them
+            own[1].update(seen[1])
+            rec = point.extra.get(LOAD_BEFORE) if point is not None else None
+            if rb is not None and point is not None and isinstance(rec, dict):  # and in the record, for a kill
+                rec.update(scope_tags=sorted(own[0]), scope_ids=sorted(own[1]))
+                save_point(rb, point)
+        assert proc.stdin is not None
+        proc.stdin.write(data)
+
     try:
         for chunk in p.chunks():
             h.update(chunk)
             held += chunk
             if len(held) > HOLD_BACK:
-                proc.stdin.write(held[:-HOLD_BACK])
+                hand_on(held[:-HOLD_BACK])
                 held = held[-HOLD_BACK:]
         ok = h.hexdigest() == p.sha256
         if ok:
-            proc.stdin.write(held)
+            hand_on(held)
     except BrokenPipeError:  # the load stopped on its own: its exit and its words say why
         ok, broken = False, True
     except OSError:  # the stick could not be read to the end: its bytes do not hash to the signed sha256
@@ -674,7 +860,8 @@ def stream_image(
             point.extra.pop(LOAD_BEFORE, None)
             save_point(rb, point)
         return
-    undone = undo_load(before, run)
+    said_scope = load_scope(configs, manifests, said)
+    undone = undo_load(before, run, (own[0] | said_scope[0], own[1] | said_scope[1]))
     if point is not None and rb is not None:
         point.extra.pop(LOAD_BEFORE, None)
         save_point(rb, point)
@@ -736,8 +923,11 @@ def apply_host(plan: Plan, base: Path, rb: Path, point: Point) -> list[str]:
     point.extra["host"] = {"previous": host_tree.current(base), "release": plan.bundle_id,
                            "fresh": not (base / "releases" / plan.bundle_id).exists()}  # fmt: skip
     save_point(rb, point)
-    try:  # 1461-1: the record fills as files move, so a stop inside the install is put back by restore_host
-        info = host_tree.install(tars[0], base, plan.bundle_id, into=point.extra["host"])
+    try:  # 1461-1: the record fills as files move, so a stop inside the install is put back by restore_host;
+        # H-114c: and it is saved before each move, so a SIGKILL inside the switch leaves point.json knowing every
+        # file set aside (the next `tools/apply_update.sh rollback` puts them back)
+        info = host_tree.install(tars[0], base, plan.bundle_id, into=point.extra["host"],
+                                 on_record=lambda: save_point(rb, point))  # fmt: skip
     except host_tree.HostTreeError as exc:
         raise UpdateFailed(f"host tree: {exc}") from exc
     point.extra["host"] = info
@@ -1335,6 +1525,10 @@ class Updater:
                 + ("rolled back" if rolled else "ROLLBACK FAILED (the marker stays: tools/apply_update.sh status)")
                 + f"; {state}"
             )
+        # H-132 (LR-10): the checked release is in service from here on: recorded before the reference data, so a
+        # kill or a power cut in "refdata" or "finish" is finished forward by recover(), never rolled back over the
+        # rows the box has written since the restart
+        self._record(plan)
         enter("refdata")
         refdata_note = ""
         refdata = getattr(self.box, "refdata", None)
@@ -1361,7 +1555,6 @@ class Updater:
                 step("code systems", False, f"{type(exc).__name__}; the release stays; the previous tables are in "
                                             f"deploy/terminology/previous/{plan.bundle_id}")  # fmt: skip
         enter("finish")
-        self._record(plan)
         self.box.audit(
             "update.applied",
             plan,
@@ -1570,10 +1763,55 @@ class Updater:
         except us.Busy as exc:
             raise UpdateFailed(str(exc)) from exc
 
+    def _finish_forward(self, plan: Plan, rb: Path, m: dict[str, Any], step: str) -> dict[str, Any]:
+        """H-132 (LR-10, the integrator's ruling 7136669077 item 2): an update interrupted after its check (``refdata``,
+        ``finish``) is finished forward. Its release was recorded before ``refdata`` and has served since; nothing
+        is rolled back over the rows written since. Every step here may run any number of times: the full health
+        check (``check``, then ``health``: every service the box defines, ``N of M``), one audit, the clean-up. A
+        shortfall or any failure stops in the named state ``finish forward failed`` (the marker stays, audited
+        ``update.finish_failed``) with the command that tries again; still nothing is rolled back."""
+        from tools import update_status as us
+
+        bid = plan.bundle_id
+        again = f"tools/apply_update.sh rollback {bid}"
+        if step == FORWARD_FAILED:  # OCR 1481-3: a retry names the step the update was cut short in, not its own state
+            step = next((s for s in reversed(m.get("steps_done") or []) if s in AFTER_CHECK), step)
+        try:
+            self.box.check(plan)
+            health = getattr(self.box, "health", None)
+            ok, short = health() if health is not None else ([], [])
+            if short:
+                raise UpdateFailed(f"not running or not healthy: {', '.join(short)} ({len(ok)} of "
+                                   f"{len(ok) + len(short)})")  # fmt: skip
+        except (Exception, KeyboardInterrupt) as exc:
+            why = f"{type(exc).__name__}: {exc}"[:500]
+            us.set_step(self.dir, us.marker(self.dir) or m, FORWARD_FAILED)
+            self.box.audit("update.finish_failed", plan, {
+                "bundle_id": bid, "recovered": True, "error": why, "interrupted_at": step,
+                "state": "new release in service, not finished; nothing rolled back", "next": again})  # fmt: skip
+            self._history(plan, FORWARD_FAILED, False, f"{why}; nothing rolled back; then: {again}")
+            raise UpdateFailed(
+                f"update {bid} was interrupted after its check ({step!r}) and could not be finished: {why}. The "
+                f"checked release stays and nothing was rolled back over the rows written since; the marker stays "
+                f"(step {FORWARD_FAILED!r}). Make the services named healthy, then run: {again}"
+            ) from exc
+        counted = f"{len(ok)} of {len(ok)}" if ok else "every service healthy"
+        self.box.audit("update.applied", plan, {
+            "bundle_id": bid, "recovered": True, "error": f"interrupted at step {step!r}", "health": counted,
+            "refdata_failed": "interrupted: load the pack again (python -m tb_common.refdata load)"
+            if step == "refdata" else None,
+            **self.stops.note()})  # fmt: skip
+        self._history(plan, "finished forward", True, f"interrupted at {step!r}, after the check: the checked "
+                      f"release stays, {counted}; nothing rolled back")  # fmt: skip
+        self._done(plan, rb)
+        return {"ok": True, "bundle_id": bid, "from_step": step, "finished_forward": True, "health": counted}
+
     def recover(self, bundle_id: str) -> dict[str, Any]:
         """``tools/apply_update.sh rollback <bundle>``: an update interrupted (power cut, ``kill -9``) at any step is
         rolled back from its marker and ``point.json``; before the rollback point existed only the services are
-        started again. Audited ``update.rolled_back``; the marker is removed only when the rollback completed."""
+        started again. Audited ``update.rolled_back``; the marker is removed only when the rollback completed.
+        H-132 (LR-10): after the check (``AFTER_CHECK``) the new release was in service and recorded: it is finished
+        forward (audited ``update.applied`` with ``recovered``), never rolled back over what the box wrote since."""
         from tools import update_status as us
 
         self.stops = Stops(held=True)  # H-114: a recovery is a rollback from its start: no signal stops it
@@ -1600,6 +1838,8 @@ class Updater:
                     self._done(plan, rb)
                     self._history(plan, "clean-up finished", True, "the update had completed; nothing rolled back")
                     return {"ok": True, "bundle_id": bundle_id, "from_step": step}
+                if step in (*AFTER_CHECK, FORWARD_FAILED):  # H-132 (LR-10): the checked release is in service
+                    return self._finish_forward(plan, rb, m, step)
                 if step in ("None", "backup", "rollback point") or not (rb / "point.json").is_file():
                     resume = getattr(self.box, "resume", None)
                     if resume is not None:
@@ -1874,6 +2114,22 @@ class ComposeBox(_DockerImages):
             return False
         env = _env_file(self.deploy / ".env")
         return env.get("TB_REHEARSAL", "").strip() == "1" or not env.get("TB_ENV")
+
+    def health(self) -> tuple[list[str], list[str]]:
+        """H-132 (LR-10): of every service the box's compose defines (``config --services``), those that run and are
+        healthy (or have no health check), or ran to the end with exit 0 (a one-shot service); and the rest."""
+        want = self.run(self._c("config", "--services")).split()
+        fmt = "{{.Service}} {{.State}} {{.Health}} {{.ExitCode}}"
+        good: set[str] = set()
+        for line in self.run(self._c("ps", "-a", "--format", fmt)).splitlines():
+            f = line.split()
+            if len(f) < 2:
+                continue
+            health = f[2] if len(f) > 3 else ""
+            code = f[-1] if len(f) > 2 else ""
+            if (f[1] == "running" and health in ("", "healthy")) or (f[1] == "exited" and code == "0"):
+                good.add(f[0])
+        return sorted(s for s in want if s in good), sorted(s for s in want if s not in good)
 
     def running_services(self) -> list[str] | None:
         """D-724: the compose services that run now; None when compose cannot answer."""

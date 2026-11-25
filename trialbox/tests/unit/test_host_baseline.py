@@ -287,6 +287,8 @@ def test_seal_keys_wraps_the_plain_keys_under_a_tpm_sealed_kek(tmp_path: Path) -
     assert kek.stat().st_mode & 0o777 == 0o600 and len(kek.read_bytes()) == 32
     cred = host / "etc/credstore.encrypted/trialbox-kek"
     assert cred.read_bytes().startswith(b"SEALED") and not (host / "run/trialbox/kek.new").exists()
+    # H-118 (ruling 7138516776): the twin, kek.new's own folder
+    assert not (host / "run/trialbox-seal/kek.new").exists()
     unit = (tmp_path / "units/trialbox-unseal.service").read_text(encoding="utf-8")
     assert f"--secrets {sec}" in unit and "LoadCredentialEncrypted=trialbox-kek" in unit
     # again: idempotent (the KEK exists, nothing is plain)
