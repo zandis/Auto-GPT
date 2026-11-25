@@ -423,14 +423,21 @@ class BoxRestore:
         (``nothing was changed``) and ends 130. At the end the caller's handlers come back; on the process's own way
         out (``sigends.own_exit``) the signals stay ignored to the exit instead, for every exit code (H138-02, .b)."""
         self._stopped: list[str] = []
+        self._work: Path | None = None
+        self._ended: int | None = None  # the container's exit code, once it ended
+        _TOLD.clear()  # the signal passed on to the container (_call)
         old = _host_take()
         try:
             try:
+                sigends.replay()  # a signal the entry noted before these handlers: as if it came now
                 with self.lock():  # review R7: one restore at a time; what a killed one left is swept first
-                    return self._restore(a)
-            except (KeyboardInterrupt, HostInterrupted) as e:  # escaped every step's own handling: said here
+                    code = self._restore(a)
+            except (KeyboardInterrupt, HostInterrupted) as e:  # .f: escaped every step's own handling: said here
                 sigends.ignore()  # no further signal cuts the line short
                 return self._interrupted(a, e)
+            # H-142: 0, 1 and 130, and the restore's own documented ends (2, 3, 4: RUNBOOK §5); never a code the
+            # engine or a signal made
+            return code if code in (0, 1, 2, 3, 4, 130) else 1
         finally:
             sigends.leave(old)
 
@@ -441,14 +448,24 @@ class BoxRestore:
                            *(["--restart"] if a.restart else [])])  # fmt: skip
 
     def _interrupted(self, a: Any, e: BaseException) -> int:
-        """H-142 (.a): a signal before the restore's container started: nothing was changed but what this run
-        stopped; said and audited, 130."""
+        """H-142 (.a, .f): the one outer handler. A signal no step took (before the container started, in a clean-up,
+        between two steps) is said for where the restore was, audited, and ends 130."""
         stopped = self._stopped
         why = str(e) or type(e).__name__
-        nxt = f"start them as they were: {self._start_line(stopped)}; or " if stopped else ""
-        self._say(stopped, f"not changed: stopped ({why}) before the restore started, nothing was changed",
-                  f"{nxt}run it again: {self._again(a)}",
-                  {"error": why[-300:], "stopped": stopped, "file": Path(str(a.file or "--last")).name})  # fmt: skip
+        detail = {"error": why[-300:], "stopped": stopped, "file": Path(str(a.file or "--last")).name}
+        if self._ended is not None:  # the container had ended: its lines above say the data
+            self._say(stopped, f"the restore's container ended {self._ended} (its lines above say the data); this "
+                      f"step was interrupted after it ({type(e).__name__})",
+                      f"look at docker compose ps; run this command again: {self._again(a)}")  # fmt: skip
+        elif self._work is not None:  # started: the container may still be putting the box back
+            self._say(stopped, f"unknown: the restore's container was started and this step stopped "
+                      f"({type(e).__name__}); its work folder {self._work} is kept",
+                      "docker ps: wait until no restore container runs, then trialbox doctor; do not start the "
+                      "services before", {**detail, "state": "unknown"})  # fmt: skip
+        else:
+            nxt = f"start them as they were: {self._start_line(stopped)}; or " if stopped else ""
+            self._say(stopped, f"not changed: stopped ({why}) before the restore started, nothing was changed",
+                      f"{nxt}run it again: {self._again(a)}", detail)  # fmt: skip
         return 130
 
     @contextlib.contextmanager
@@ -482,9 +499,10 @@ class BoxRestore:
                     print(f"restore: removed {old.name}, left by a restore that did not finish", file=sys.stderr)
             yield
         finally:
-            if bfd >= 0:
-                os.close(bfd)
-            os.close(fd)
+            with sigends.held():  # H-142 (.f): no signal between the two closes
+                if bfd >= 0:
+                    os.close(bfd)
+                os.close(fd)
 
     def _restore(self, a: Any) -> int:
         file = absolute_path(last_good(self.deploy, self.env) if a.last else Path(a.file))
@@ -505,7 +523,9 @@ class BoxRestore:
                 raise RestoreStopped(str(e)) from None
             argv, values = self.container(a, file, work, sha)
             started = True  # review R2: from here on, never "did not start"
+            self._work = work
             code, out = self.call(argv, values)
+            self._ended = code
         except BaseException as e:  # F3: a stop that failed, an interrupt, anything: said, audited
             why = str(e) or type(e).__name__
             if started and not isinstance(e, RestoreStopped):
@@ -528,18 +548,35 @@ class BoxRestore:
             print(f"restore: {type(e).__name__}: {why[-400:]}", file=sys.stderr)
             return 1
         finally:
-            if not keep_work:
-                shutil.rmtree(work, ignore_errors=True)
+            if not keep_work:  # H-142 (.f): no signal cuts a clean-up short; it is taken after it
+                with sigends.held():
+                    shutil.rmtree(work, ignore_errors=True)
+        self._work = None if not keep_work else work
+        state = None
+        if not _said(out) and (code < 0 or code >= 125):  # .c: no result, and a code no restore ends with
+            # the engine client itself died of a signal (it had not started the container), or the engine could not
+            # run it (125-127): the container did not run. Never SIGKILL (an engine's kill, a lack of memory), and
+            # never a container that died of a signal (128 + n): that one may have been changing the box (unknown)
+            if (code < 0 and code != -9) or code in (125, 126, 127):
+                how = f"died of signal {-code}" if code < 0 else f"ended {code}"
+                print(f"restore: the restore's container did not run (the engine client {how} with no result): "
+                      "nothing was changed by it", file=sys.stderr)  # fmt: skip
+                state = "unchanged"
+            code = 1 if code in (125, 126, 127) else 130
         try:
-            return self._after(a, code, out, stopped, again)
+            rc = self._after(a, 1 if code == 130 else code, out, stopped, again, state)
+            # H-142 (.c, .d): a restore told to stop (or whose container a signal ended) that did not restore ends
+            # 130, never the engine's 241 or 143
+            return 130 if (_TOLD or code == 130) and rc not in (0, 3, 4) else rc
         except (KeyboardInterrupt, HostInterrupted) as e:  # H-126: between the container's end and the start
             self._say(stopped, f"the restore's container ended {code} (its lines above say the data); this step "
                       f"was interrupted after it ({type(e).__name__})",
                       f"look at docker compose ps; run this command again: {again}")  # fmt: skip
             return 130
 
-    def _after(self, a: Any, code: int, out: str, stopped: list[str], again: str) -> int:
-        """What the restore's container ended with: said, and with ``--restart`` the services started or not."""
+    def _after(self, a: Any, code: int, out: str, stopped: list[str], again: str, given: str | None = None) -> int:
+        """What the restore's container ended with: said, and with ``--restart`` the services started or not.
+        ``given``: its state when it gave none (.c: it did not run)."""
         if out:
             print(out, end="" if out.endswith("\n") else "\n")
         if code in (0, 3, 4):  # restored: H-48's marker goes, as the in-process restore removes it
@@ -548,7 +585,7 @@ class BoxRestore:
             (self.deploy / "site" / OLD_CLIENTS_AUDITED).unlink(missing_ok=True)
         said = _said(out)
         hold = str(said.get("hold") or "")
-        state = str(said.get("state") or ("restored" if code in (0, 3, 4) else "unknown"))
+        state = given or str(said.get("state") or ("restored" if code in (0, 3, 4) else "unknown"))
         if not a.restart:  # H-142: every end says the line, this one too (RUNBOOK §5)
             if code == 0:
                 self._say(stopped, "restored", f"start the box: {shlex.join(self._up([], True))}")
@@ -710,22 +747,29 @@ class HostInterrupted(BaseException):
 
 
 def _host_stop(signum: int, _frame: Any) -> None:
+    """H-142 (.g): from the first signal a closed terminal breaks no line (the session's end sends SIGHUP)."""
     import signal
 
+    sigends.tolerant()
+    if signum == signal.SIGINT:
+        raise KeyboardInterrupt
     raise HostInterrupted(f"signal {signal.Signals(signum).name}")
 
 
 def _host_take() -> dict[int, Any]:
-    """SIGTERM and SIGHUP raise :class:`HostInterrupted` (SIGINT raises ``KeyboardInterrupt`` as Python's own does);
-    one the caller ignored stays ignored (H-142 .j: ``nohup trialbox restore ...``). The old handlers returned."""
-    import signal
-
-    return sigends.take(_host_stop, (signal.SIGTERM, signal.SIGHUP))
+    """SIGTERM and SIGHUP raise :class:`HostInterrupted`, SIGINT ``KeyboardInterrupt``; one the caller ignored stays
+    ignored (H-142 .j: ``nohup trialbox restore ...``). The old handlers of all three returned."""
+    return sigends.take(_host_stop)
 
 
 def _host_signals() -> Callable[[], None]:
     old = _host_take()
-    return lambda: sigends.put_back(old)
+
+    def back() -> None:
+        sigends.put_back(old)
+        sigends.untolerant()
+
+    return back
 
 
 def absolute_path(p: Path) -> Path:
@@ -766,51 +810,50 @@ def _said(out: str) -> dict[str, Any]:
     return d if isinstance(d, dict) else {}
 
 
-def _ignore_signals() -> dict[int, Any]:
-    import signal
-    import threading
-
-    if threading.current_thread() is not threading.main_thread():
-        return {}
-    return {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
-
-
-def _put_back_signals(old: Mapping[int, Any]) -> None:
-    import signal
-
-    for sig, h in old.items():
-        signal.signal(sig, h)
+#: H-142: the signal :func:`_call` passed on to the restore's container in this run (``restore`` clears it)
+_TOLD: list[str] = []
 
 
 def _call(argv: list[str], values: dict[str, str], base: Mapping[str, str] | None = None) -> tuple[int, str]:
     """The restore container: its stdout (the JSON) captured and passed on, its stderr straight to the person. Its
     environment is the engine's own (``base``, F1) and the values its ``-e NAME`` options name. The first interrupt
     or signal while it runs is passed to it once; from then on further ones are ignored and the container is waited
-    for to the end, whatever arrives (review R2): the restore puts the box back itself and says its state."""
+    for to the end, whatever arrives (review R2): the restore puts the box back itself and says its state. H-142
+    (.e): its stdout goes to a file and the wait is re-entered with nothing lost (a pipe's read cut by the interrupt
+    lost what it had read: the restore's JSON); :data:`_TOLD` gets the signal that was passed on."""
     import signal
 
-    try:
-        proc = subprocess.Popen(argv, env={**(base or {}), **values}, stdout=subprocess.PIPE, text=True)
-    except OSError as e:
-        raise RestoreStopped(
-            f"the container runtime cannot be started here ({e.strerror}): nothing was changed"
-        ) from None
-    old: dict[int, Any] | None = None
-    try:
-        while True:
-            try:
-                out, _ = proc.communicate()
-                return proc.returncode, out or ""
-            except (KeyboardInterrupt, HostInterrupted):
-                if old is None:
-                    old = _ignore_signals()  # first: nothing more stops this wait
-                    print("restore: stopping: the restore is told and puts the box back; waiting for it",
-                          file=sys.stderr)  # fmt: skip
-                    proc.send_signal(signal.SIGTERM)
-    finally:
-        if old is not None:
-            for sig, h in old.items():
-                signal.signal(sig, h)
+    with tempfile.TemporaryFile("w+", encoding="utf-8") as fh:  # 0600, unlinked: its JSON, nothing else
+        try:
+            proc = subprocess.Popen(argv, env={**(base or {}), **values}, stdout=fh, text=True)
+        except OSError as e:
+            raise RestoreStopped(
+                f"the container runtime cannot be started here ({e.strerror}): nothing was changed"
+            ) from None
+        old: dict[int, Any] | None = None
+        try:
+            while True:
+                try:
+                    piped, _ = proc.communicate()  # no pipe: the wait itself, re-entered with nothing lost (.e)
+                    break
+                except (KeyboardInterrupt, HostInterrupted) as e:
+                    if old is None:
+                        old = sigends.ignore()  # first: nothing more stops this wait
+                        proc.send_signal(signal.SIGTERM)  # Popen's own check: never to a container that had ended
+                        _TOLD.append(str(e) or type(e).__name__)
+                        if proc.returncode is not None:
+                            print(f"restore: the restore's container had ended ({proc.returncode}) when the signal "
+                                  "came: nothing was sent to it; its result follows", file=sys.stderr)  # fmt: skip
+                        else:
+                            print("restore: stopping: the restore is told and puts the box back; waiting for it",
+                                  file=sys.stderr)  # fmt: skip
+        finally:
+            if old is not None:
+                sigends.put_back(old)
+        if piped is None:
+            fh.seek(0)
+            piped = fh.read()
+        return proc.returncode, piped or ""
 
 
 def main(a: Any) -> int:

@@ -256,3 +256,215 @@ def test_a_signal_the_caller_ignored_stays_ignored(tmp_path: Path) -> None:
     assert at_mark(p, state, "stop", 0.05, "SIGHUP")
     code, _out, err = ended(p)
     assert code == 0 and "are healthy: 4 of 4" in err, (code, err[-3000:])
+
+
+# ------------------------------------------------------------------------------------------------ .c to .g
+def test_an_engine_client_that_died_of_the_signal_is_a_container_that_did_not_run(tmp_path: Path) -> None:
+    """.c: the first signal reaches the engine client before it took its own handlers (the container never ran):
+    said, 130, the services this run stopped started again. Before: its raw code (241 for -15) and NOT as it was."""
+    deploy, state = stand_in_box(tmp_path)
+    p = start_entry(tmp_path, REAL, deploy)
+    assert at_mark(p, state, "container", 0.03, "SIGTERM")
+    code, _out, err = ended(p)
+    assert code == 130 and "the restore's container did not run" in err and "NOT as it was" not in err, (code, err)
+    assert "restore: the box now:" in err and "started" not in marks(state) and "up" in marks(state), marks(state)
+
+
+#: the restore's container (the real entry's module form, as the backup image runs it) with its unpack stood in:
+#: the restore's first step marks and waits there
+INSIDE = textwrap.dedent(
+    """
+    import os, runpy, sys, time
+    root, mark = sys.argv[1], sys.argv[2]
+    sys.path[:0] = [root, os.path.join(root, "libs"), os.path.join(root, "services")]
+    from tools.trialbox import backup as bk
+
+    def unpack(*a, **kw):
+        open(mark, "w").write("unpack")
+        time.sleep(5)
+        raise SystemExit("the stand-in's unpack was not stopped")
+
+    bk.unpack = unpack
+    sys.argv = ["trialbox", *sys.argv[3:]]
+    runpy.run_module("tools.trialbox", run_name="__main__", alter_sys=True)
+    """
+)
+
+
+@pytest.mark.parametrize("sig", ["SIGTERM", "SIGHUP", "SIGINT"])
+def test_a_signal_inside_the_container_before_its_first_change_is_a_refusal(tmp_path: Path, sig: str) -> None:
+    """.d: backup.restore takes raising handlers (SIGINT too) at its start; one before the first change ends as a
+    refusal: ``state: unchanged``, exit 1, "nothing was changed". Before: the signal was the default's (PID 1 in the
+    container drops SIGTERM and SIGHUP and the restore ran on: 0 "healthy" after "told"; here, not PID 1, its death),
+    and Ctrl-C a traceback."""
+    import json
+    import time
+
+    child = tmp_path / "inside.py"
+    child.write_text(INSIDE, encoding="utf-8")
+    mark = tmp_path / "mark"
+    f = tmp_path / BACKUP
+    f.write_bytes(b"synthetic")
+    argv = [sys.executable, str(child), str(ROOT), str(mark), "restore", str(f), "--key", str(f), "--yes",
+            "--services-stopped", "--no-copy", "--dir", f"audit={tmp_path / 'audit'}"]  # fmt: skip
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "TB_DB_URL": "postgresql://x@127.0.0.1:1/x"}
+    p = subprocess.Popen(argv, cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    t = time.monotonic()
+    while not mark.exists() and p.poll() is None and time.monotonic() - t < 30:
+        time.sleep(0.01)
+    p.send_signal(getattr(signal, sig))
+    code, out, err = ended(p)
+    assert code == 1 and json.loads(out) == {"ok": False, "state": "unchanged"}, (code, out, err[-2000:])
+    assert "before any change: nothing was changed" in err and "Traceback" not in err, err[-2000:]
+
+
+CHUNKS = r"""
+import signal, sys, time
+got = []
+signal.signal(signal.SIGTERM, lambda s, f: got.append(s))
+sys.stdout.write('{"ok": false, ')
+sys.stdout.flush()
+open(sys.argv[1], "w").write("half")
+t = time.time()
+while not got and time.time() - t < 10:
+    time.sleep(0.01)
+sys.stdout.write('"state": "rolled_back"}\n')
+sys.exit(1)
+"""
+
+
+def test_an_interrupt_in_the_wait_loses_none_of_the_containers_result(tmp_path: Path) -> None:
+    """.e: the interrupt cut the read of the container's output and the wait, re-entered, read only what came after
+    it: the restore's JSON was lost. Its stdout is a file now, and the wait loses nothing."""
+    import threading
+    import time
+
+    from tools.trialbox import box_restore
+
+    mark, script = tmp_path / "half", tmp_path / "chunks.py"
+    script.write_text(CHUNKS, encoding="utf-8")
+
+    def fire() -> None:
+        while not mark.exists():
+            time.sleep(0.01)
+        time.sleep(0.1)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    back = box_restore._host_signals()
+    try:
+        threading.Thread(target=fire, daemon=True).start()
+        code, out = box_restore._call([sys.executable, str(script), str(mark)], {}, dict(os.environ))
+    finally:
+        back()
+    assert code == 1 and box_restore._said(out) == {"ok": False, "state": "rolled_back"}, out
+
+
+def test_a_signal_after_the_container_ended_is_not_passed_on_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """.e: the container had ended when the signal came: nothing is sent, and the line says so (never "the restore
+    is told and puts the box back")."""
+    from tools.trialbox import box_restore
+
+    sent: list[int] = []
+
+    class Ended:
+        def __init__(self, *a: object, **kw: object) -> None:
+            self.returncode: int | None = None
+            self.n = 0
+
+        def communicate(self) -> tuple[str | None, None]:
+            self.n += 1
+            if self.n == 1:
+                self.returncode = 0  # it ended just before the interrupt
+                raise box_restore.HostInterrupted("signal SIGTERM")
+            return '{"ok": true, "state": "restored"}', None
+
+        def send_signal(self, sig: int) -> None:  # as Popen's: never to a process that has ended
+            if self.returncode is None:
+                sent.append(sig)
+
+    monkeypatch.setattr(subprocess, "Popen", Ended)
+    code, out = box_restore._call(["docker", "run"], {}, {"PATH": "/usr/bin"})
+    err = capsys.readouterr().err
+    assert code == 0 and not sent and "had ended (0) when the signal came" in err and "is told" not in err, err
+
+
+def test_a_signal_in_a_clean_up_is_taken_after_it_and_said(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """.f: the signal that came while the work folder was being removed (a ``finally``) cut the removal short and no
+    handler took it: a traceback, exit 1, no line, the services stopped. It waits for the clean-up now and the one
+    outer handler says the state: 130."""
+    import shutil
+
+    from tests.unit.test_restore_from_the_host_h100 import Recorder, _restore
+    from tools.trialbox import box_restore
+
+    deploy = _box(tmp_path)
+    real = shutil.rmtree
+
+    def rmtree(path: object, *a: object, **kw: object) -> None:
+        if ".restore-" in str(path):
+            os.kill(os.getpid(), signal.SIGTERM)
+        real(path, *a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(box_restore.shutil, "rmtree", rmtree)
+    try:
+        code: object = _restore(deploy, tmp_path, monkeypatch, Recorder(running=["db", "console"]), "{}", 0,
+                                "--restart")[0]  # fmt: skip
+    except BaseException as e:  # escaped the command: nothing said
+        code = e
+    err = capsys.readouterr().err
+    assert code == 130 and "restore: the box now:" in err and "ended 0" in err, (code, err[-2000:])
+    assert not list(deploy.glob(".restore-*"))
+
+
+def test_a_closed_terminal_after_the_signal_breaks_no_line_and_the_host_waits(tmp_path: Path) -> None:
+    """.g: the session closed (its pipes gone, then SIGHUP): every print raised, the host left without waiting for
+    the container and ended 120. Its streams are tolerant from the first signal: it waits, and ends 130."""
+    deploy, state = stand_in_box(tmp_path, pause=0.3)
+    p = start_entry(tmp_path, REAL, deploy)
+    assert p.stdout is not None and p.stderr is not None
+    assert at_mark(p, state, "change", 0.05, "SIGCONT")  # the container is changing the box, its handlers in
+    p.stdout.close()
+    p.stderr.close()
+    p.send_signal(signal.SIGHUP)
+    code = p.wait(timeout=60)
+    assert code == 130 and "put-back" in marks(state), (code, marks(state))
+
+
+# ------------------------------------------------------------------------------------------------ THE INVARIANT
+#: the stand-in's marks, in the order a restore reaches them: the space check, the stop, the container's start,
+#: its handlers, its change, the services' start, the health check
+PHASES = [("db-size", 1), ("stop", 1), ("container", 1), ("started", 1), ("change", 1), ("up", 1), ("ps", 4)]
+DELAYS = (0.0, 0.07, 0.2)  # inside the stand-in's step (it waits 0.15 s at each mark), and past it into the host's
+
+
+@pytest.mark.parametrize("sig", ["SIGTERM", "SIGINT", "SIGHUP"])
+@pytest.mark.parametrize(("phase", "n"), PHASES)
+def test_a_signal_at_any_phase_ends_0_1_or_130_and_says_the_state(tmp_path: Path, phase: str, n: int, sig: str) -> None:
+    """THE INVARIANT (H-142): the real entry, the stand-in's engine and compose; a real signal at each phase mark and
+    swept delay, the walk's second SIGTERM 30 ms after it and a third on the way out. Every run ends 0, 1 or 130,
+    says ``restore: the box now:``, never a traceback, never "healthy" on data it changed and did not finish, and
+    leaves no scratch
+    folder it did not name. The mutants (each fix taken out) it catches are named on the card's page."""
+    import time
+
+    for i, delay in enumerate(DELAYS):
+        run = tmp_path / str(i)
+        run.mkdir()
+        deploy, state = stand_in_box(run)
+        p = start_entry(run, REAL, deploy, "SIGTERM")
+        sent = at_mark(p, state, phase, delay, sig, n)
+        if sent:
+            time.sleep(0.03)
+            if p.poll() is None:
+                p.send_signal(signal.SIGTERM)
+        code, _out, err = ended(p)
+        where = (phase, delay, sig, code, marks(state), err[-2500:])
+        assert code in (0, 1, 130), where
+        assert "restore: the box now:" in err and "Traceback" not in err, where
+        # "healthy" only after a complete restore, or a refused one whose data is as it was (LR-14)
+        assert code == 0 or "are healthy" not in err or "the data not changed" in err, where
+        assert "is kept" in err or not list(deploy.glob(".restore-*")), where

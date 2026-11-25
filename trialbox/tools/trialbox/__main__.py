@@ -776,6 +776,8 @@ if __name__ == "__main__":
     # H-88 (D-1089): launch: its own import path, the box's settings, the box image
     from tools.trialbox import launch, sigends
 
-    sigends.own_exit()  # H-142: this process ends when the command returns; a restore or an update keeps it so
+    # H-142: this process ends when the command returns (a restore or an update keeps its signals ignored to the
+    # exit); for those two a signal before they take their own handlers is noted and given to them
+    sigends.own_exit(note=launch.command_of(sys.argv[1:]) in ("restore", "update"))
     _code = launch.enter(sys.argv[1:], installed=not __package__)
     raise SystemExit(_exit_code(main(installed=not __package__) if _code is None else _code))
