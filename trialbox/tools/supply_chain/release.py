@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tools.supply_chain import licences, sbom, vulns
+from tools.supply_chain import floors, licences, sbom, vulns
 from tools.supply_chain.allowlist import Allowlist
 
 # Report mode is left only for the test-only mail servers of deploy/docker-compose.test.yml (T-110b, ENG-007): no
@@ -199,12 +199,15 @@ def run_gates(
     fail_unfixed: bool = False,
     vuln_mode: str = "block",
     now: dt.datetime | None = None,
+    images_lock: Path | None = None,
 ) -> dict[str, Any]:
     """Scan and gate every target; return the record (also written to ``out_dir/gates.json``).
 
     For the images in ``VULN_REPORT_ONLY`` only, in either ``vuln_mode`` (D-827), a fixable CRITICAL/HIGH finding is
     recorded and shown but does not fail the image. Everything else still fails: such findings in any other image,
-    a missing or odd severity, an unreadable or empty report, a scan or SBOM that does not name the image."""
+    a missing or odd severity, an unreadable or empty report, a scan or SBOM that does not name the image. H-143: so
+    does an image whose security-upgraded OS package is older than the floor ``images_lock`` (deploy/images.lock
+    unless given) records for it, or is missing, and a lock whose floors are unreadable."""
     if vuln_mode not in VULN_MODES:
         raise vulns.ReportError(f"vuln mode must be one of {', '.join(VULN_MODES)}, got {vuln_mode!r}")
     now = now or dt.datetime.now(dt.UTC)
@@ -215,6 +218,11 @@ def run_gates(
     if insecure:  # a plain-HTTP registry on the build machine (the CI's local registry for images-multiarch)
         syft_env["SYFT_REGISTRY_INSECURE_USE_HTTP"] = "true"
     db_errors, db_seen = vulns.db_problems(cache_dir, now)
+    floor_errors: list[str] = []
+    try:
+        floor_map = floors.load(images_lock)
+    except (OSError, ValueError, AttributeError) as exc:
+        floor_map, floor_errors = {}, [f"security floors unreadable: {exc}"]
     record: dict[str, Any] = {
         "created": now.isoformat(),
         "trivy_db": db_seen,
@@ -268,6 +276,7 @@ def run_gates(
             sbom_path = sbom_dir / sbom.file_name(target.ref, plat)
             doc = sbom.run_syft(source, sbom_path, syft_env, platform=plat if remote else None)
             entry["errors"] += identity_problems(target, pinned, report, doc)
+            entry["errors"] += floors.problems(target.ref, doc, floor_map)
             # D-622: the content's own repository digests (the image store's and the scanner's), not its name alone
             digests = (*pinned["repo_digests"], *report.repo_digests)
             result = vulns.gate(list(report.findings), allow, fails=fails, subject=target.ref, digests=digests)
@@ -314,11 +323,13 @@ def run_gates(
         "report": "licences.md",
     }
     record["db_errors"] = db_errors
+    record["floor_errors"] = floor_errors
     record["ok"] = bool(
         targets
         and all(e["ok"] for e in record["images"])
         and record["licences"]["ok"]
         and not db_errors
+        and not floor_errors
         and not allow_errors
         and "lock_sbom_error" not in record
     )
@@ -372,6 +383,7 @@ def summary_markdown(record: dict[str, Any]) -> str:
 def render(record: dict[str, Any]) -> str:
     lines = [f"release gates: {'PASS' if record.get('ok') else 'FAIL'}"]
     lines += [f"  ERROR {e}" for e in record.get("db_errors", [])]
+    lines += [f"  ERROR {e}" for e in record.get("floor_errors", [])]
     lines += [f"  ERROR allow-list: {e}" for e in record.get("allowlist_errors", [])]
     if record.get("lock_sbom_error"):
         lines.append(f"  ERROR {record['lock_sbom_error']}")

@@ -23,12 +23,14 @@ import argparse
 import json
 import subprocess
 import sys
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 GPU_FIELDS = "index,uuid,memory.used,utilization.gpu"
 QUERY_SECONDS = 60
+POLL_SECONDS = 30  # how often a job that waits for busy cards checks them again (1448-15)
 
 
 @dataclass(frozen=True)
@@ -136,21 +138,45 @@ def job_check(tool: str, uuids: Sequence[str], cap_mib: int, cap_util: int) -> l
     return out + busy_problems([c for c in cards if c.uuid in uuids], cap_mib, cap_util)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+def _check(spec: dict[str, object]) -> tuple[list[str], bool]:
+    """The job's problems, and whether every one is a busy card (which may pass if the job waits)."""
+    try:
+        uuids = spec["uuids"]
+        if not isinstance(uuids, list):
+            raise TypeError("the card file's uuids are not a list")
+        cap_mib, cap_util = int(str(spec["cap_mib"])), int(str(spec["cap_util"]))
+        problems = job_check(str(spec["tool"]), [str(u) for u in uuids], cap_mib, cap_util)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as exc:
+        return [f"the CI cards could not be checked: {exc}"], False
+    return problems, bool(problems) and all("busy beyond its cap" in p for p in problems)
+
+
+def main(argv: Sequence[str] | None = None, sleep: Callable[[float], None] = time.sleep) -> int:
+    """1448-15: cards busy beyond their cap are a state of the bench, not of the code: the job waits up to the job
+    file's ``wait_seconds`` (the launcher's), checking every POLL_SECONDS, before it refuses. Any other problem (the
+    wrong cards, an unreadable reading's tool) refuses at once."""
+    ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("--in-job", required=True, help="the card file the launcher wrote into the job's scratch folder")
     args = ap.parse_args(argv)
     try:
         spec = json.loads(Path(args.in_job).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        spec, problems, busy = {}, [f"the CI cards could not be checked: {exc}"], False
+    else:
         if spec.get("profile") != "gpu":
             return 0
-        problems = job_check(spec["tool"], spec["uuids"], int(spec["cap_mib"]), int(spec["cap_util"]))
-    except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as exc:
-        problems = [f"the CI cards could not be checked: {exc}"]
+        problems, busy = _check(spec)
+    waited = 0
+    wait = int(spec.get("wait_seconds", 0) or 0) if isinstance(spec, dict) else 0
+    while busy and waited < wait:
+        print(f"bench CI: the CI cards are busy beyond their cap: waiting ({waited} of {wait} s)", flush=True)
+        sleep(POLL_SECONDS)
+        waited += POLL_SECONDS
+        problems, busy = _check(spec)
     for p in problems:
         print(f"bench CI: {p}", file=sys.stderr)
     if problems:
-        print("bench CI: this job does not start: its CI cards are busy beyond their cap", file=sys.stderr)
+        print("bench CI: this job does not start: its CI cards are not as they must be (above)", file=sys.stderr)
         return 1
     print("bench CI: the CI cards are within their cap")
     return 0
