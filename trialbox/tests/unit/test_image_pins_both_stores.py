@@ -17,6 +17,9 @@ import copy
 import hashlib
 import io
 import json
+import os
+import subprocess
+import sys
 import tarfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -103,11 +106,11 @@ def test_the_bundle_pin_is_read_out_of_the_saved_archive(tmp_path: Path) -> None
     assert pin["config"]["Entrypoint"] == cfg["config"]["Entrypoint"] and pin["config"]["User"] == "65532"
 
 
-def test_an_archive_whose_config_is_not_its_digest_pins_no_layers(
+def test_an_archive_whose_config_is_not_its_digest_is_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A config that is not the content its name says, or one without layers, gives today's pin (the id only) and
-    a warning: such a pin proves nothing on the newer image store, where the box refuses it."""
+    """A config that is not the content its name says (a swapped or altered archive), or one without layers, stops
+    the bundle: no pin is written, so no bundle carries it (the integrator's 7172912951, OCR 1525-2)."""
     bad = _archive(tmp_path, CONFIG, "bad.tar")
     swapped = tmp_path / "swapped.tar"
     with tarfile.open(bad) as src, tarfile.open(swapped, "w") as dst:
@@ -120,12 +123,15 @@ def test_an_archive_whose_config_is_not_its_digest_pins_no_layers(
                 m.size = len(data)
             dst.addfile(m, io.BytesIO(data))
     out = tmp_path / "out.json"
-    assert ip.main(["bundle-pins", str(out), f"{HAPI}={TAG}={swapped}"]) == 0
-    assert json.loads(out.read_text(encoding="utf-8"))["pins"] == [{"ref": HAPI, "image": CONFIG_ID}]
-    assert "is not the content its digest names" in capsys.readouterr().err
-    deploy, files = _box(tmp_path / "box", {"ref": HAPI, "image": CONFIG_ID})
-    has, inspect = _store(_inspect("newer"))
-    assert ip.resolve(deploy, files, has=has, inspect=inspect)[2] == [f"HAPI_IMAGE: {HAPI}"]
+    assert ip.main(["bundle-pins", str(out), f"{HAPI}={TAG}={swapped}"]) == 1
+    assert not out.exists()
+    assert "is not the content its digest names; refused" in capsys.readouterr().err
+    nolayers = json.loads(CONFIG)
+    nolayers["rootfs"]["diff_ids"] = []
+    archive = _archive(tmp_path, json.dumps(nolayers).encode(), "n.tar")
+    assert ip.main(["bundle-pins", str(out), f"{HAPI}={TAG}={archive}"]) == 1
+    assert not out.exists()
+    assert "names no layer diff ids; refused" in capsys.readouterr().err
 
 
 def test_make_bundle_writes_the_pins_with_the_pin_tool() -> None:
@@ -151,9 +157,13 @@ def test_classic_store_points_compose_at_the_config_digest(tmp_path: Path) -> No
 
 
 def test_newer_store_was_missing_before_h149(tmp_path: Path) -> None:
-    """The bench's failure: neither the digest reference nor the config digest resolves on the newer image store."""
-    has, _ = _store(_inspect("newer"))
+    """The bench's failure, through the pin code: with the pin a bundle made before H-149 carries (the id only), the
+    newer image store's recorded answer leaves the image MISSING and nothing is written (OCR 1525-4)."""
+    deploy, files = _box(tmp_path, {"ref": HAPI, "image": CONFIG_ID})
+    has, inspect = _store(_inspect("newer"))
     assert not has(HAPI) and not has(CONFIG_ID)
+    changes, _, missing = ip.resolve(deploy, files, has=has, inspect=inspect)
+    assert changes == {} and missing == [f"HAPI_IMAGE: {HAPI}"]
 
 
 def test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused(tmp_path: Path) -> None:
@@ -177,6 +187,7 @@ def test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused(tmp_path
         "a layer is missing": lambda d: d["RootFS"].__setitem__("Layers", layers[:2]),
         "a layer more": lambda d: d["RootFS"].__setitem__("Layers", [*layers, other]),
         "the layers reordered": lambda d: d["RootFS"].__setitem__("Layers", layers[::-1]),
+        "a layer twice": lambda d: d["RootFS"].__setitem__("Layers", [layers[0], *layers]),
         "another entrypoint": lambda d: d["Config"].__setitem__("Entrypoint", ["sh"]),
         "a command added": lambda d: d["Config"].__setitem__("Cmd", ["--debug"]),
         "another environment": lambda d: d["Config"].__setitem__("Env", [*d["Config"]["Env"], "X=1"]),
@@ -281,3 +292,70 @@ def test_the_update_load_check_accepts_the_newer_store_id(tmp_path: Path) -> Non
     answers["id"] = "sha256:" + "9" * 64
     with pytest.raises(up.UpdateFailed, match="not the bundle's image"):
         box.check_loaded(plan, TAG, {configs[TAG], *manifests})
+
+
+@pytest.mark.parametrize("target", [".env", "image-pins.json"])
+def test_a_short_write_never_replaces_the_file(tmp_path: Path, target: str) -> None:
+    """A disk that fills partway (the kernel writes part of the file and stops): the old file stays whole and the
+    write fails; no temporary file is left (OCR 1525-1)."""
+    if target == ".env":
+        old = "TB_SECRET=" + "s" * 200 + "\n"
+    else:
+        old = json.dumps({"pins": [{"ref": HAPI, "image": CONFIG_ID}]})
+    (tmp_path / target).write_text(old, encoding="utf-8")
+    src = tmp_path / "src.json"
+    src.write_text(json.dumps({"pins": [{"ref": HAPI.replace("@", "-other@"), "image": CONFIG_ID}]}), encoding="utf-8")
+    if target == ".env":
+        call = f"ip.write_env(Path({str(tmp_path / target)!r}), {{'HAPI_IMAGE': 'sha256:' + '1' * 64}})"
+    else:
+        call = f"ip.merge(Path({str(src)!r}), Path({str(tmp_path)!r}))"
+    code = (
+        "import resource\nfrom pathlib import Path\nfrom tools import image_pins as ip\n"
+        "soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)\n"
+        "resource.setrlimit(resource.RLIMIT_FSIZE, (64, hard))\n"
+        f"try:\n    {call}\nfinally:\n    resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, check=False)
+    assert r.returncode != 0, r.stdout
+    assert (tmp_path / target).read_text(encoding="utf-8") == old
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_a_left_over_temp_file_or_link_is_not_written_through(tmp_path: Path) -> None:
+    """A link planted under the temp file's name: the secret never lands at its target, and .env stays a file with
+    its mode (OCR 1525-3)."""
+    env, outside = tmp_path / ".env", tmp_path / "outside"
+    env.write_text("TB_SECRET=x\n", encoding="utf-8")
+    env.chmod(0o600)
+    outside.write_text("", encoding="utf-8")
+    tmp = tmp_path / "..env.pins.tmp"  # the name _write_atomic uses for .env
+    tmp.symlink_to(outside)
+    ip.write_env(env, {"HAPI_IMAGE": "sha256:" + "1" * 64})
+    assert outside.read_text(encoding="utf-8") == "" and not env.is_symlink()
+    assert env.stat().st_mode & 0o777 == 0o600 and "TB_SECRET=x" in env.read_text(encoding="utf-8")
+    assert not tmp.exists() and not tmp.is_symlink()
+
+
+def test_a_left_over_wide_temp_file_never_holds_the_secret_at_its_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A temp file left by a killed run with a wide mode is replaced, not reused: the new file is never readable by
+    others while it holds the secrets (OCR 1525-3)."""
+    env = tmp_path / ".env"
+    env.write_text("TB_SECRET=x\n", encoding="utf-8")
+    env.chmod(0o600)
+    tmp = tmp_path / "..env.pins.tmp"
+    tmp.write_text("stale", encoding="utf-8")
+    tmp.chmod(0o666)
+    seen: list[int] = []
+    real = os.write
+
+    def spy(fd: int, data: Any) -> int:
+        seen.append(os.fstat(fd).st_mode & 0o777)
+        return int(real(fd, data))
+
+    monkeypatch.setattr(os, "write", spy)
+    ip.write_env(env, {"HAPI_IMAGE": "sha256:" + "1" * 64})
+    monkeypatch.undo()
+    assert seen and all(m == 0o600 for m in seen)
+    assert env.stat().st_mode & 0o777 == 0o600 and not tmp.exists()

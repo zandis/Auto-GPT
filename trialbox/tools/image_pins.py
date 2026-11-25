@@ -134,15 +134,25 @@ def read_pins(path: Path) -> dict[str, str]:
 
 
 def _write_atomic(path: Path, text: str, mode: int) -> None:
-    """Write-then-rename with fsync: a reader sees the old file or the new one, never half of one."""
+    """Write-then-rename with fsync: a reader sees the old file or the new one, never half of one. The temp file is
+    made new (``O_EXCL|O_NOFOLLOW``: a left-over file or a planted link under its name is never written through),
+    gets its mode before any byte, is written whole (a short write, as from a disk that fills, is written on or
+    raises; never a short file renamed over the old one, OCR 1525-1) and is removed on any failure."""
     tmp = path.with_name(f".{path.name}.pins.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    data = memoryview(text.encode("utf-8"))
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
-        os.write(fd, text.encode("utf-8"))
-        os.fchmod(fd, mode)
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+        try:
+            os.fchmod(fd, mode)
+            while data:
+                data = data[os.write(fd, data) :]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     tmp.replace(path)
     dfd = os.open(path.parent, os.O_RDONLY)
     try:
@@ -293,11 +303,10 @@ def write_env(path: Path, changes: dict[str, str | None]) -> None:
 
 
 # --------------------------------------------------------------------------------- the bundle's side (make_bundle.sh)
-def archive_pin(archive: Path, ref: str, tag: str) -> tuple[dict[str, Any], str]:
+def archive_pin(archive: Path, ref: str, tag: str) -> dict[str, Any]:
     """The pin record of a digest reference saved as ``tag`` in ``archive`` (a ``save`` archive), read out of the
-    archive itself, and a warning (empty when none). The image id is the config's name, as before H-149. The layers
-    and config are added only when the config blob is the content its digest names and carries the layer diff ids;
-    otherwise the pin is today's, which proves the image on the classic store only, and the warning says so."""
+    archive itself. A config blob that is not the content its digest names, or that names no layer diff ids, is
+    refused (the integrator's 7172912951): such an archive is altered or broken, and no bundle carries it."""
     with tarfile.open(archive) as tf:
         m = tf.extractfile("manifest.json")
         entries = json.loads(m.read()) if m else []
@@ -310,28 +319,24 @@ def archive_pin(archive: Path, ref: str, tag: str) -> tuple[dict[str, Any], str]
             raise ValueError(f"{archive.name}: no image id in the saved archive ({path or 'no Config'})")
         blob = tf.extractfile(path)
         raw = blob.read() if blob else b""
-    pin: dict[str, Any] = {"ref": ref, "image": f"sha256:{name}"}
     if hashlib.sha256(raw).hexdigest() != name:
-        return pin, f"{ref}: its config {path} is not the content its digest names: no layers pinned"
+        raise ValueError(f"{archive.name}: {ref}: its config {path} is not the content its digest names; refused")
     cfg = json.loads(raw)
     layers = list(_obj(cfg.get("rootfs")).get("diff_ids") or [])
     if not layers or not all(isinstance(x, str) and IMAGE_ID.match(x) for x in layers):
-        return pin, f"{ref}: its config names no layer diff ids: no layers pinned"
-    pin.update({"tag": tag, "layers": layers, "config": config_fields(cfg)})
-    return pin, ""
+        raise ValueError(f"{archive.name}: {ref}: its config names no layer diff ids; refused")
+    return {"ref": ref, "image": f"sha256:{name}", "tag": tag, "layers": layers, "config": config_fields(cfg)}
 
 
-def bundle_pins(out: Path, items: Iterable[str]) -> tuple[int, list[str]]:
-    """Write the bundle's ``image-pins.json`` from ``REF=TAG=ARCHIVE`` items; the count written and the warnings."""
-    pins, warnings = [], []
+def bundle_pins(out: Path, items: Iterable[str]) -> int:
+    """Write the bundle's ``image-pins.json`` from ``REF=TAG=ARCHIVE`` items; the count written. Nothing is written
+    when any archive is refused."""
+    pins = []
     for item in items:
         ref, tag, archive = item.split("=", 2)
-        pin, warn = archive_pin(Path(archive), ref, tag)
-        pins.append(pin)
-        if warn:
-            warnings.append(warn)
+        pins.append(archive_pin(Path(archive), ref, tag))
     out.write_text(json.dumps({"pins": pins}, indent=1) + "\n", encoding="utf-8")
-    return len(pins), warnings
+    return len(pins)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -353,16 +358,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "bundle-pins":
         try:
-            count, warnings = bundle_pins(a.out, a.items)
+            count = bundle_pins(a.out, a.items)
         except (OSError, ValueError, KeyError, tarfile.TarError) as e:
             print(f"make_bundle: image pins: {e}", file=sys.stderr)
             return 1
-        for w in warnings:
-            print(
-                f"make_bundle: WARNING image pins: {w}; this bundle's {w.split(':', 1)[0]} installs on the classic "
-                "image store only (H-149)",
-                file=sys.stderr,
-            )
         print(f"    image pins: {count} digest references (image-pins.json)")
         return 0
     files = [Path(f) for f in a.files.split(":") if f]

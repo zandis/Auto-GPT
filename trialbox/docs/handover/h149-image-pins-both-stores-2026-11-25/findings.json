@@ -35,11 +35,29 @@
   {
    "id": "H149-04",
    "severity": "Low",
-   "claim": "the inline Python of make_bundle.sh that wrote image-pins.json took the config digest from manifest.json without reading the config; the pin tool now reads and hashes the config blob, and pins layers only when the blob is the content its digest names (else today's id-only pin and a WARNING: the bundle then installs on the classic store only). A refusal there would need the shared fake engine of tests/unit/test_release_bundle.py to write a real config, which changes that file's image ids: asked of the integrator",
+   "claim": "the inline Python of make_bundle.sh that wrote image-pins.json took the config digest from manifest.json without reading the config, so a pin could name an id the archive's config blob does not hash to (OCR 1525-2)",
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "tools.image_pins bundle-pins, called by make_bundle.sh; the refusal on the integrator's ruling"
+   "fix": "tools.image_pins bundle-pins, called by make_bundle.sh, refuses an archive whose config is not the content its digest names or names no layer diff ids; no pin file is written (the integrator's 7172912951)"
+  },
+  {
+   "id": "H149-05",
+   "severity": "High",
+   "claim": "the card's first write-then-rename wrote the temp file with one unchecked os.write: a disk that fills partway gave a short deploy/.env, fsynced and renamed over the whole one, truncating the generated service passwords, and the step reported success (OCR 1525-1, found in review before merge)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "_write_atomic writes until every byte is written or raises, and removes the temp file on any failure"
+  },
+  {
+   "id": "H149-06",
+   "severity": "Low",
+   "claim": "the temp file's fixed name was opened with O_CREAT|O_TRUNC: a left-over file kept its wider mode while the secrets were written, and a link planted under the name was written through and became deploy/.env (OCR 1525-3; the same on master)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the temp file is unlinked and made new with O_EXCL|O_NOFOLLOW, and gets its mode before any byte"
   }
  ]
 }

@@ -233,11 +233,11 @@ health line warns 90 days before the list runs out and is red after it.
 (`asis` is an answer); `doctor` (`named_choices`) warns a site installed before, with the line to add.
 
 **The container engine's range** (H-149). The installer and the update run the bundle's pinned third-party images on
-either image store of the container engine: the classic store (the default through major version 28) and the
-newer image store (the default from major version 29). On the classic store a loaded image is found by the bundle's
-image id; on the newer image store, whose loaded images have another id and keep no registry digest, it is proved by
-the layer diff ids and config the signed bundle names. An image that differs is refused and nothing is pulled. The
-range handled is major versions 27 to 29, shown by recorded answers of both stores (the card's tests), not yet on a
-real host. A bundle made before H-149 carries no layers: on the newer image store it stops at "starting the stack" with
-`MISSING`; install a bundle made after it. The install walk on a host with major version 28 and one with 29 is the
-proof on real hosts; until it has passed, the walk's own record says which versions were installed.
+either image store of the container engine: the classic store (the default through major version 28) and the newer
+image store (the default from major version 29). On the classic store a loaded image is found by the bundle's image
+id; on the newer image store, whose loaded images have another id and keep no registry digest, it is proved by the
+layer diff ids and config the signed bundle names. An image that differs is refused and nothing is pulled. Both stores
+are shown by recorded, synthetic answers of each (the card's tests), not on a real host. A bundle made before H-149
+carries no layers: on the newer image store it stops at "starting the stack" with `MISSING`; install a bundle made
+after it. The install walk on a host with major version 28 and one with 29 is the proof on real hosts; until it has
+passed, the walk's own record says which versions were installed.

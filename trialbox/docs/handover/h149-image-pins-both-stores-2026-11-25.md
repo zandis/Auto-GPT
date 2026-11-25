@@ -5,12 +5,14 @@
 - **Card:** H-149, High, blocks S0 (the integrator's 7168582084 on #1504).
 - **Date:** 2026-11-25
 - **Findings:** [`h149-image-pins-both-stores-2026-11-25/findings.json`](h149-image-pins-both-stores-2026-11-25/findings.json)
-  (H149-01 to H149-04)
+  (H149-01 to H149-06)
 - **Files:** `tools/image_pins.py` (the pin record, `resolve`'s third case, `bundle-pins`, write-then-rename with
   fsync for `merge` and `write_env`), `tools/make_bundle.sh` (the pins written by the pin tool), runbook page 01
   (a paragraph at its end), the new test `tests/unit/test_image_pins_both_stores.py` and its fixtures
   `tests/fixtures/image_pins/`.
-- **Files outside the card:** none. `deploy/install.sh` is not touched: it calls `tools.image_pins resolve` as before.
+- **Files outside the card:** `tests/unit/test_release_bundle.py`, on the integrator's go 7172912951: its shared
+  stand-in engine now saves a real config with one diff id, its image id is that config's sha256, and `_iid` the
+  same; nothing else of the file. `deploy/install.sh` is not touched: it calls `tools.image_pins resolve` as before.
 
 ## 1. What failed
 
@@ -24,13 +26,16 @@ the archive carried, and `RepoDigests` names that manifest, not the registry's.
 
 `make_bundle.sh` now writes `image-pins.json` with `python3 -m tools.image_pins bundle-pins`. Each pin is read out of
 the saved archive and carries the config digest (`image`), the tag the image was saved under, the layer diff ids
-(`rootfs.diff_ids`) and the config fields a container runs by (architecture, OS, variant, entrypoint, command, environment, user, working directory,
-volumes, ports, stop signal, labels, health check, shell, on-build). The layers and config are pinned only when the
-config blob is the content its digest names and carries diff ids; otherwise the pin is today's (the id only) and
-`make_bundle` prints a WARNING that the bundle installs on the classic store only. Refusing there instead is a
-question for the integrator: the shared fake engine of `tests/unit/test_release_bundle.py` writes `{}` as every
-config, under a name that is not its hash, and a faithful fake changes the image ids those tests assert (H149-04).
-The file stays a signed member of the bundle.
+(`rootfs.diff_ids`) and the config fields a container runs by (architecture, OS, variant, entrypoint, command,
+environment, user, working directory, volumes, ports, stop signal, labels, health check, shell, on-build). An archive
+whose config blob is not the content its digest names, or names no diff ids, is refused and no pin file is written,
+so no bundle carries it (the integrator's 7172912951, OCR 1525-2, H149-04). The file stays a signed member of the
+bundle.
+
+`merge` and `write_env` write then rename, with fsync. The temp file is made new (`O_EXCL|O_NOFOLLOW`: a left-over
+file or a planted link under its name is never written through), gets its mode before any byte, is written whole
+(a short write, as from a disk that fills, is written on or raises; a short file is never renamed over `deploy/.env`)
+and is removed on any failure (OCR 1525-1 and 1525-3).
 
 `resolve` tries, in order: the digest reference (nothing to set); the config digest (the classic store, as before);
 then the image under the pin's tag, whose `RootFS.Layers` must equal the signed diff ids in order and whose config
@@ -56,8 +61,8 @@ unchanged). A pin without layers (a bundle from before this card) is not enough 
 ## 4. The invariant and its mutants
 
 `test_the_loaded_image_is_proved_by_its_layers_and_config_or_refused`: on the recorded newer image store answer the
-variable is set to the store's own id and nothing else; on thirteen changed answers (a layer differs, missing, one
-more, reordered; another entrypoint, command, environment, user, working directory, platform, an added label; no root
+variable is set to the store's own id and nothing else; on fourteen changed answers (a layer differs, missing, one
+more, reordered, one twice; another entrypoint, command, environment, user, working directory, platform, an added label; no root
 file system; no id) nothing is set and the image is `MISSING`. Mutants run against the final code, each killed:
 
 | Mutant | Killed by |
@@ -70,13 +75,20 @@ file system; no id) nothing is set and the image is `MISSING`. Mutants run again
 | M6 the config digest written on the newer image store | the invariant (and two more) |
 | M7 the tag written | the invariant (and two more) |
 | M8 a pin without layers accepted by its tag | `test_a_pin_from_before_h149_is_not_enough_on_the_newer_store` |
+| M9 layers compared after removing duplicates (OCR 1525-4) | the invariant (its "a layer twice" case) |
 
-Failing first: on master's `tools/image_pins.py` the new file had 9 of 12 failing; the three that pass are the
-recorded bench failure, update's load check (already both stores) and the make_bundle text check.
+Failing first: on base 6d8ad1a the first twelve tests of the new file had 10 of 12 failing (OCR's count; an earlier
+count of 9 was taken with `make_bundle.sh` already changed). The five tests of OCR's fixes (the refusal, a short write
+for `.env` and for `image-pins.json`, a planted link, a wide left-over temp file) failed on 6576756e before the fix.
+`test_newer_store_was_missing_before_h149` now runs the pin code with a pin of before H-149 (OCR 1525-4).
 
 ## 5. Not shown
 
 - No container engine runs in the card's container: that compose starts from the store's own id with no pull, and
   that a real engine's answers match the recorded ones, are for the walk on hosts with major versions 28 and 29.
+- The runbook's range is two stores as recorded (synthetic), not versions: which versions a real host proves is the
+  walk's (OCR 1525-5).
+- Two images with equal layers and run fields but another history or creation date are taken as one; neither
+  changes what a container runs (OCR's note). Two writers at once share the temp name; a lock is not part of this card.
 - A bundle made by `make_bundle.sh` was not built here (it needs the engine); `bundle-pins` is tested on a
   synthetic archive.
