@@ -670,10 +670,22 @@ restore-drill:
 # H-145 (#1504): the console tests run as `make test` runs the unit suite: the same marked TB_TEST_ROOT and its lock,
 # the xdist workers with --dist worksteal, TMPDIR and basetemp under the root. TB_STRICT_SKIPS=1 (tests/conftest.py):
 # a browser file that cannot start node or Chromium fails with its reason, it never turns the stage green by skipping.
-test-console: venv-check
-	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+# The lead's bench (#1504): a run under nohup (SIGHUP ignored) is refused, since its workers, servers and browsers
+# would outlive a closed session; so is a root that group or others can write into, or that lies under such a folder
+# without the sticky bit (pglocal mark closes the folders this user owns; this refuses the ones it cannot close).
+test-console: venv-check test-console-preflight
 	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-console-locked; rc=$$?; \
 	if [ $$rc = 75 ]; then echo "test-console: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
+
+.PHONY: test-console-preflight
+test-console-preflight:
+	@case "$$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$$$/status)" in *[13579bdfBDF]) \
+		echo "test-console: SIGHUP is ignored (nohup?): run it in a session that can end it" >&2; exit 1;; esac
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	@d="$(TB_TEST_ROOT)"; while :; do m=$$(stat -L -c %A "$$d") || exit 1; \
+		case "$$m" in ?????w????|????????w?) case "$$m" in *[tT]) ;; *) \
+			echo "test-console: $$d ($$m) can be written by others: give TB_TEST_ROOT a parent only you can write" >&2; \
+			exit 1;; esac;; esac; [ "$$d" = / ] && break; d=$$(dirname "$$d"); done
 
 .PHONY: test-console-locked
 test-console-locked:
