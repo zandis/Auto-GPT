@@ -15,6 +15,7 @@ not PRODUCTION, on a test box, and on a box with a sending identity (a mail rela
 a bench box sends no mail outside the host.
 
     python3 -m tools.trialbox.benchbox write --deploy D     # the record (deploy/install.sh --bench only)
+    python3 -m tools.trialbox.benchbox may --deploy D       # write's refusals, nothing written
     python3 -m tools.trialbox.benchbox check --deploy D     # "bench" on a bench box, nothing on another; 2 refused
     python3 -m tools.trialbox.benchbox words --deploy D     # what the box says it is, on a bench box
 
@@ -60,11 +61,15 @@ class Mark:
 
 def read_env(path: Path) -> dict[str, str]:
     """KEY=VALUE lines, as compose reads a plain file (the last line wins); {} when there is none."""
-    out: dict[str, str] = {}
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return out
+        return {}
+    return _parse_env(text)
+
+
+def _parse_env(text: str) -> dict[str, str]:
+    out: dict[str, str] = {}
     for line in text.splitlines():
         m = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$", line)
         if m:
@@ -88,10 +93,9 @@ def sending_identity(env: dict[str, str]) -> str:
     return ""
 
 
-def _refuse_record(rec: Path) -> None:
+def _refuse_record(rec: Path, st: os.stat_result) -> None:
     """The record must be the one the install option wrote: a regular file, not a link, owned by root (or by the
     user who runs the check), writable by its owner only."""
-    st = rec.lstat()
     if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
         raise Refused(f"{rec} is not a regular file (a link, or another kind): the bench mark is written by "
                       "deploy/install.sh --bench only")  # fmt: skip
@@ -114,13 +118,19 @@ def check(deploy: Path, env: dict[str, str] | None = None) -> Mark | None:
             raise Refused(f"TB_BENCH={named} in deploy/.env with no record (deploy/{RECORD}): the bench mark is "
                           "written by deploy/install.sh --bench only")  # fmt: skip
         return None
-    _refuse_record(rec)
-    try:
-        text = rec.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
+    _refuse_record(rec, rec.lstat())
+    try:  # review 1484-3: one open; its kind, owner and mode are the ones checked, and its bytes are the ones read
+        fd = os.open(rec, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
         raise Refused(f"{rec} cannot be read ({exc}): the box's mark is not known") from None
+    with os.fdopen(fd, "rb") as fh:
+        _refuse_record(rec, os.fstat(fh.fileno()))
+        try:
+            text = fh.read(65536).decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise Refused(f"{rec} cannot be read ({exc}): the box's mark is not known") from None
     lines = [ln for ln in text.splitlines() if ln.strip()]
-    values = read_env(rec)
+    values = _parse_env(text)
     if not lines or lines[0] != HEADER or sorted(values) != sorted(KEYS) or len(lines) != 1 + len(KEYS):
         raise Refused(f"{rec} does not carry the install's trace (its first line and {', '.join(KEYS)} only): the "
                       "bench mark is written by deploy/install.sh --bench only")  # fmt: skip
@@ -147,9 +157,9 @@ def check(deploy: Path, env: dict[str, str] | None = None) -> Mark | None:
     return Mark(values["TB_BENCH_ROOT"], values["TB_BENCH_AT"])
 
 
-def write(deploy: Path, now: datetime | None = None) -> Mark:
-    """Write (or keep) the record, after the box is shown to be one that may carry it (PRODUCTION, no test box, no
-    sending identity): a refusal writes nothing. A record already there is kept as it is when it holds."""
+def may(deploy: Path) -> Mark | None:
+    """:func:`write`'s refusals, nothing written (review 1484-1: the install asks first, and writes the record only
+    once it is past its own refusals); the record already there when it holds."""
     env = read_env(deploy / ".env")
     if (deploy / TEST_RECORD).exists():
         raise Refused(f"this folder is a test box (deploy/{TEST_RECORD}): a test box never carries the bench mark")
@@ -166,6 +176,13 @@ def write(deploy: Path, now: datetime | None = None) -> Mark:
         old = None  # one the install option did not write: written again by the option, as the option writes it
         if (deploy / RECORD).is_symlink() or ((deploy / RECORD).exists() and not (deploy / RECORD).is_file()):
             raise
+    return old
+
+
+def write(deploy: Path, now: datetime | None = None) -> Mark:
+    """Write (or keep) the record, after the box is shown to be one that may carry it (PRODUCTION, no test box, no
+    sending identity): a refusal writes nothing. A record already there is kept as it is when it holds."""
+    old = may(deploy)
     if old is not None:
         return old
     at = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -192,12 +209,14 @@ def write(deploy: Path, now: datetime | None = None) -> Mark:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python3 -m tools.trialbox.benchbox", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("write", "check", "words"):
+    for name in ("write", "may", "check", "words"):
         sub.add_parser(name).add_argument("--deploy", type=Path, required=True)
     a = ap.parse_args(argv)
     try:
         if a.cmd == "write":
             print(write(a.deploy).words())
+        elif a.cmd == "may":
+            may(a.deploy)
         elif a.cmd == "check":
             if check(a.deploy) is not None:
                 print("bench")

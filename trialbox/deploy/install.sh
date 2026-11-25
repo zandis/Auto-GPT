@@ -269,9 +269,10 @@ if [ "$BENCH" = 1 ]; then
   [ "$BENCH_ENV" = PRODUCTION ] && { [ -z "$BENCH_NOW" ] || [ "$BENCH_NOW" = PRODUCTION ]; } \
     || die "--bench marks a PRODUCTION box, not ${BENCH_NOW:-$BENCH_ENV}: the mark keeps every PRODUCTION protection and is never a PoC box's (nothing was changed)"  # H-94 (3)
   command -v python3 >/dev/null || die "--bench needs python3 on the host (tools/trialbox/benchbox.py writes the box's record)"  # H-94 depends (3): the record is the mark
-  python3 -m tools.trialbox.benchbox write --deploy "$ROOT/deploy" >/dev/null || die "--bench: refused (above)"  # H-94 (3)
+  python3 -m tools.trialbox.benchbox may --deploy "$ROOT/deploy" >/dev/null || die "--bench: refused (above)"  # H-94 (3)
+  BENCH_MARK="--bench"  # review 1484-1: the record is written at ENV-BENCH, past every refusal that says nothing was changed
 fi
-if [ -e "$ROOT/deploy/site/bench-box.env" ] || [ -L "$ROOT/deploy/site/bench-box.env" ] || { [ -f "$ROOT/deploy/.env" ] && grep -q '^TB_BENCH=' "$ROOT/deploy/.env"; }; then
+if [ "$BENCH" = 0 ] && { [ -e "$ROOT/deploy/site/bench-box.env" ] || [ -L "$ROOT/deploy/site/bench-box.env" ] || { [ -f "$ROOT/deploy/.env" ] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?TB_BENCH[[:space:]]*=' "$ROOT/deploy/.env"; }; }; then
   command -v python3 >/dev/null || die "this box carries the bench mark, which needs python3 on the host to be checked (tools/trialbox/benchbox.py)"  # H-94 depends (3): an unchecked mark would put a PRODUCTION box beside test boxes
   BENCH_MARK="$(python3 -m tools.trialbox.benchbox check --deploy "$ROOT/deploy")" || die "the bench mark of this box is refused (above)"  # H-94 (3): a mark the install option did not write never puts a PRODUCTION box beside test boxes
 fi
@@ -1067,7 +1068,9 @@ envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/
 # ENV-BENCH (H-116): deploy/.env says TB_BENCH=1 (the console's banner reads it there), and the mark is checked again
 # now that deploy/.env is the site's (the wizard's mail relay): a bench box sends no mail outside the host
 if [ -n "$BENCH_MARK" ]; then
-  envset TB_BENCH 1
+  python3 -m tools.trialbox.benchbox may --deploy "$ROOT/deploy" >/dev/null || die "the bench mark of this box is refused (above)"  # H-94 (3)
+  envset TB_BENCH 1  # before the record: a stop between the two leaves TB_BENCH with no record, which is refused
+  [ "$BENCH" = 0 ] || python3 -m tools.trialbox.benchbox write --deploy "$ROOT/deploy" >/dev/null || die "--bench: the record cannot be written (above)"  # H-94 (3)
   python3 -m tools.trialbox.benchbox check --deploy "$ROOT/deploy" >/dev/null || die "the bench mark of this box is refused (above)"  # H-94 (3)
 fi
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
