@@ -69,4 +69,9 @@ Under `worksteal` these spread over the workers; splitting them is not this card
   the runs above, not on CI's runner.
 - The root runs of the whole stage were at 9f865610, before the preflight checks were added. At the head the
   preflight was run by the card's test (as root and as the ordinary user) and by the ordinary user's whole stage.
-- `make cross-card`, `make guard` and the other checks: see the pull request.
+- The checks, at the head, as root and as the ordinary user alike: `make cross-card` 329 passed; `make guard` 1198
+  passed, 1 skipped, 11 xfailed; the policy set (248 files) 5864 passed and 9 skipped as root, 5860 passed and 13
+  skipped as the user (tools not installed here, or root needed); lint, doclint, data-scan, security-scan,
+  limits_lint, decisions_index, the findings register's check and collect-only (26696, rc 0) clean as root.
+- `tools.text_keys` was not run: no text changed. The whole unit suite was not run: `services/` and `libs/` are
+  untouched.
