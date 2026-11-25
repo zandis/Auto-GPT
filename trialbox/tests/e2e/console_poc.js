@@ -166,7 +166,7 @@ async function proposeFlow(page, args, out) {
 async function cascade(page, args, out) {
   await login(page, args);
   await page.goto(args.base + "/pilot/cascade", { waitUntil: "load" });
-  await Promise.all([page.waitForURL(/\/pilot\/cascade\/[0-9A-Z]+/), page.click("[data-testid=cascade-start]")]);
+  await Promise.all([page.waitForURL(/\/pilot\/cascade\/[0-9A-Za-z]+/), page.click("[data-testid=cascade-start]")]);
   const url = page.url();
   const t0 = Date.now();
   let state = "running";

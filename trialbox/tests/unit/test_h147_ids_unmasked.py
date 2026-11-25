@@ -259,3 +259,20 @@ def test_a_cascade_runs_id_is_logged_whole(tmp_path: Path, monkeypatch: pytest.M
     assert done.wait(30)
     [line] = [x for x in lines.lines if '"msg": "cascade run failed"' in x]
     assert f'"run": "{run.run_id}"' in line
+
+
+def test_the_browser_walk_waits_for_the_address_of_a_cascade_run_the_console_names() -> None:
+    """1515-4: ``console_poc.js`` waits for the run's page after "Run cascade". A cascade run's id is lower-case
+    letters now (it was a ULID), and the nightly's console test allows no skip: the wait must match both forms and
+    not the list page itself."""
+    import re
+
+    from tb_common.ulid import new_ulid
+
+    src = (ROOT / "tests" / "e2e" / "console_poc.js").read_text(encoding="utf-8")
+    m = re.search(r"waitForURL\(/(\\/pilot\\/cascade\\/.*?)/\)", src)
+    assert m, "the cascade step of console_poc.js no longer waits for the run's address"
+    wait = re.compile(m.group(1))
+    assert wait.search(f"/pilot/cascade/{ids.log_safe_id()}"), m.group(1)
+    assert wait.search(f"/pilot/cascade/{new_ulid()}"), m.group(1)  # a run kept from before H-147
+    assert not wait.search("/pilot/cascade"), m.group(1)
