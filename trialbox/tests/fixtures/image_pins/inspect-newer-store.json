@@ -1,0 +1,51 @@
+[
+    {
+        "Id": "sha256:f40a7eff06d8c806be9d1d90154c68ed29422dfcefd646845eb324c467e14fad",
+        "RepoTags": [
+            "hapiproject/hapi:v8.12.0-2"
+        ],
+        "RepoDigests": [
+            "hapiproject/hapi@sha256:f40a7eff06d8c806be9d1d90154c68ed29422dfcefd646845eb324c467e14fad"
+        ],
+        "Parent": "",
+        "Comment": "",
+        "Created": "2026-01-01T00:00:00Z",
+        "Config": {
+            "User": "65532",
+            "ExposedPorts": {
+                "8080/tcp": {}
+            },
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "JAVA_HOME=/opt/java/openjdk"
+            ],
+            "Entrypoint": [
+                "java",
+                "--class-path",
+                "/app/main.war",
+                "-Dloader.path=main.war!/WEB-INF/classes/,main.war!/WEB-INF/,/app/extra-classes",
+                "org.springframework.boot.loader.PropertiesLauncher"
+            ],
+            "WorkingDir": "/app"
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 3072,
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:ed7370d344074145541b2dfd9425764e5f4328a8edd1db1d652a67e1a4145572",
+                "sha256:c838efb747da5b3d077ac6e3019812e6eda53f444870f0c793a6216875ecbccb",
+                "sha256:4c301e51fd15e5cd4324c916d58431e759d4aa817eb90d4878866c52ecaf5ce5"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-11-20T10:00:00Z"
+        },
+        "Descriptor": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:f40a7eff06d8c806be9d1d90154c68ed29422dfcefd646845eb324c467e14fad",
+            "size": 697
+        }
+    }
+]
