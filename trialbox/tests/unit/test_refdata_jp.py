@@ -310,7 +310,8 @@ def test_a_bad_yj_row_refuses_the_table(tmp_path: Path) -> None:
 
 def test_site_setup_suggests_atc_for_a_yj_code(loaded: str) -> None:
     got = sm.suggest("medication", sm.local_system("drug-code"), "3339004F1020")  # an apixaban tablet
-    assert got == {"system": sm.ATC, "code": "B01AF02", "display": "apixaban", "method": "refdata",
+    # V-18b (D-1183): the ingredient table names an ATC code by the code; WHOCC's names do not ship
+    assert got == {"system": sm.ATC, "code": "B01AF02", "display": "B01AF02", "method": "refdata",
                    "confidence": "0.90"}  # fmt: skip
     assert sm.suggest("medication", sm.local_system("drug-code"), "9999999F1020") == {}  # stem not in the table
     assert jp.yj_atc_targets("333900412345") == []  # all digits: a hospital's own code, not a YJ code
@@ -415,11 +416,30 @@ def test_the_ctcae_store_answers_en_and_ja(loaded: str, tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ D-175 synonyms
-def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name() -> None:
+def _site_atc(tmp: Path) -> Path:
+    """V-18b (D-1183): no ATC name ships, so a drug's name answers only from the site's own ATC copy. A SYNTHETIC
+    copy: the dictionary's drug names, each under a made-up code (Z99, a group ATC does not have)."""
+    from criteria_compiler.terminology import installed
+
+    # a substance name only: TrialBox's own groupers (urate-lowering therapy, colchicine, ...) answer theirs themselves
+    groupers = {str(s["name"]) for s in Terminology().synonyms if s["table"] == "atc"}
+    names = sorted({r["canonical"] for r in jp.parse_ja_synonyms(jp.REPO_SYNONYMS)
+                    if r["domain"] == "medication" and r["canonical"] not in groupers})  # fmt: skip
+    src = tmp / "atc.tsv"
+    src.write_text("ATC code\tATC level name\n" + "".join(f"Z99AA{i:02d}\t{n}\n" for i, n in enumerate(names, 1)),
+                   encoding="utf-8")  # fmt: skip
+    installed.install_atc(src, tmp / "terminology", "Ada Example (SYNTHETIC test person)", version="2099")
+    return tmp / "terminology"
+
+
+def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name(tmp_path: Path) -> None:
     rows = list(jp.parse_ja_synonyms(jp.REPO_SYNONYMS))
     assert len(rows) == 70 and {r["term"] for r in rows if not r["curated"]} == {"RA", "AMI", "MTX", "PSL", "GPT"}
-    plain = Terminology()
-    dead = [r["term"] for r in rows if plain.map(r["domain"], r["canonical"]).method not in ("exact", "synonym")]
+    site = _site_atc(tmp_path)  # V-18b: the drug names answer from the site's copy (synthetic here)
+    plain = Terminology(installed=site)
+    # V-18b: a drug name answers from the site's copy, a table loaded at install (method "loaded")
+    dead = [r["term"] for r in rows
+            if plain.map(r["domain"], r["canonical"]).method not in ("exact", "synonym", "loaded")]  # fmt: skip
     assert dead == []
 
     def lookup(term: str, domain: str = "") -> list[dict[str, Any]]:
@@ -427,7 +447,7 @@ def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name() ->
         return [{**r, "source_id": "ja_synonyms"} for r in rows
                 if rd.norm_name(r["term"]) == n and (not domain or r["domain"] == domain)]  # fmt: skip
 
-    t = Terminology(name_synonyms=lookup)
+    t = Terminology(name_synonyms=lookup, installed=site)
     off = [r["term"] for r in rows if r["curated"] and (
         {c.code for c in t.map(r["domain"], r["term"]).concepts}
         != {c.code for c in plain.map(r["domain"], r["canonical"]).concepts}
@@ -435,12 +455,16 @@ def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name() ->
     assert off == []
 
 
-def test_the_name_matcher_reads_the_ja_dictionary(loaded: str) -> None:
-    plain = Terminology()
-    with_dict = Terminology(name_synonyms=rd.synonym_lookup(loaded))
+def test_the_name_matcher_reads_the_ja_dictionary(loaded: str, tmp_path: Path) -> None:
+    site = _site_atc(tmp_path)  # V-18b: the drug names answer from the site's copy (synthetic here)
+    plain = Terminology(installed=site)
+    with_dict = Terminology(name_synonyms=rd.synonym_lookup(loaded), installed=site)
     assert plain.map("condition", "関節リウマチ").method not in ("exact", "synonym")
     ra = with_dict.map("condition", "関節リウマチ")
     assert ra.method == "synonym" and not ra.needs_review and "ja_synonyms" in ra.notes[0]
     assert ra.concepts == plain.map("condition", "rheumatoid arthritis").concepts
     psl = with_dict.map("medication", "PSL")  # a note abbreviation: reviewed
-    assert psl.method == "dictionary" and psl.needs_review and {c.code for c in psl.concepts} == {"H02AB06"}
+    # V-18b: prednisolone's code is the site copy's (H02AB06 in WHOCC's index; a made-up code in this synthetic one)
+    assert psl.method == "dictionary" and psl.needs_review
+    pred = {c.code for c in plain.map("medication", "prednisolone").concepts}
+    assert len(pred) == 1 and {c.code for c in psl.concepts} == pred

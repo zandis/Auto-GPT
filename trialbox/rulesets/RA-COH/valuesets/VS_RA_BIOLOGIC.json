@@ -5,15 +5,15 @@
     "concept": [
      {
       "code": "L04AB01",
-      "display": "etanercept"
+      "display": "L04AB01"
      },
      {
       "code": "L04AB04",
-      "display": "adalimumab"
+      "display": "L04AB04"
      },
      {
       "code": "L04AC07",
-      "display": "tocilizumab"
+      "display": "L04AC07"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -32,5 +32,5 @@
  "status": "active",
  "title": "ra biologic",
  "url": "http://trialbox.local/fhir/ValueSet/RA-COH-VS-RA-BIOLOGIC",
- "version": "1.0.0-v72e415c8"
+ "version": "1.0.0-v9c2aa166"
 }

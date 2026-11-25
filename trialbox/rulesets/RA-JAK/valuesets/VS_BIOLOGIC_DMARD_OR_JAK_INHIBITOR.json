@@ -5,27 +5,27 @@
     "concept": [
      {
       "code": "L04AB01",
-      "display": "etanercept"
+      "display": "L04AB01"
      },
      {
       "code": "L04AB04",
-      "display": "adalimumab"
+      "display": "L04AB04"
      },
      {
       "code": "L04AC07",
-      "display": "tocilizumab"
+      "display": "L04AC07"
      },
      {
       "code": "L04AF01",
-      "display": "tofacitinib"
+      "display": "L04AF01"
      },
      {
       "code": "L04AF02",
-      "display": "baricitinib"
+      "display": "L04AF02"
      },
      {
       "code": "L04AF03",
-      "display": "upadacitinib"
+      "display": "L04AF03"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -48,5 +48,5 @@
  "status": "active",
  "title": "biologic dmard or jak inhibitor",
  "url": "http://trialbox.local/fhir/ValueSet/RA-JAK-VS-BIOLOGIC-DMARD-OR-JAK-INHIBITOR",
- "version": "1.0.0-v2902eb03"
+ "version": "1.0.0-v675aa659"
 }

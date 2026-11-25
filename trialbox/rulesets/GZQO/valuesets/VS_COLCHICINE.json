@@ -5,7 +5,7 @@
     "concept": [
      {
       "code": "M04AC01",
-      "display": "colchicine"
+      "display": "M04AC01"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -18,5 +18,5 @@
  "status": "active",
  "title": "colchicine",
  "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-COLCHICINE",
- "version": "1.0.0-vb4d2624c"
+ "version": "1.0.0-va76810bf"
 }

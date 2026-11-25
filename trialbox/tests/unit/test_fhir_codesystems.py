@@ -46,7 +46,11 @@ def _src(key: str) -> fc.Source:
 
 
 def test_a_system_its_licence_does_not_let_the_box_carry_is_skipped_with_the_reason() -> None:
-    got = fc.pick(_src("atc"), TERM, None)
+    # V-18b (D-1183): ATC ships nothing; a file of its register row (permission to ask) shows the gate
+    held = fc.Source(
+        "x", "CodeSystem", "urn:x", "X", "services/adapter/mapping/mimic/tables/drug_to_atc.csv", fc._parquet
+    )
+    got = fc.pick(held, TERM, None)
     assert isinstance(got, str) and "atc is permission-to-ask" in got
     out = {o.key: o for o in fc.load(MemoryStore(), TERM, [_src("atc")])}
     assert out["atc"].state == "skipped"

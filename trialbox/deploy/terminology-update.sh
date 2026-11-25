@@ -48,7 +48,29 @@ docker rm -f tb-terminology-load >/dev/null 2>&1 || true
 COMPOSE=(docker compose --project-directory deploy)  # the files and profile of deploy/.env (COMPOSE_FILE), as installed
 if "${COMPOSE[@]}" run --rm --no-deps -T --name tb-terminology-load criteria-compiler \
     python -m tools.terminology_load load --report - >"$REPORT.new"; then
+  # review 1439-4: the systems an earlier load changed and no restart served stay pending in the new report
+  PYTHONPATH=. python3 -m tools.terminology_load carry --old "$REPORT" --new "$REPORT.new" || true
   mv -f "$REPORT.new" "$REPORT"
+  # V-18b (D-1183, V18-01): the store keeps its $lookup and $validate-code answers for minutes and no operation of
+  # it clears them, so after a load that changed a system it is restarted, and waited for until it is healthy
+  if PYTHONPATH=. python3 -m tools.terminology_load changed --report "$REPORT" >/dev/null; then
+    echo "code systems: restarting the FHIR store, so it answers from the new versions at once"
+    start=$(date +%s)
+    answered=no
+    if "${COMPOSE[@]}" restart fhir-store >/dev/null 2>&1; then
+      for _ in $(seq "${TB_FHIR_RESTART_TRIES:-60}"); do  # 15 s apart: the store's own start period is 90 s
+        cid="$("${COMPOSE[@]}" ps -q fhir-store 2>/dev/null)"
+        if [ -n "$cid" ] && [ "$(docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null)" = healthy ]; then
+          answered=yes
+          break
+        fi
+        sleep "${TB_FHIR_RESTART_STEP:-15}"
+      done
+    fi
+    PYTHONPATH=. python3 -m tools.terminology_load restarted --report "$REPORT" --answered "$answered" \
+      --seconds "$(( $(date +%s) - start ))"
+    [ "$answered" = yes ] || echo "terminology-update: warning: the FHIR store did not answer after its restart" >&2
+  fi
 else
   echo "terminology-update: warning: the vocabulary and the FHIR store were not loaded (above); run this again" >&2
   rm -f "$REPORT"

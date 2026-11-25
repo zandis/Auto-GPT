@@ -98,7 +98,7 @@ SOURCES: tuple[Source, ...] = (
         "icd10cm", "CodeSystem", ICD10CM, "ICD-10-CM", _rel(TERM / "icd10cm_full.parquet"), _parquet, hierarchy=True
     ),
     Source("loinc", "CodeSystem", LOINC, "LOINC", _rel(TERM / "loinc_tw.parquet"), _parquet, loaded="loinc_table"),
-    Source("atc", "CodeSystem", ATC, "ATC", _rel(TERM / "atc.parquet"), _parquet, loaded="atc_index"),
+    Source("atc", "CodeSystem", ATC, "ATC", "", _parquet, loaded="atc_index"),  # V-18b (D-1183): nothing ships
     Source(
         "nhi-order",
         "CodeSystem",

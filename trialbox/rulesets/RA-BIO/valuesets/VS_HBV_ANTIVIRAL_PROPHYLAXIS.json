@@ -5,11 +5,11 @@
     "concept": [
      {
       "code": "J05AF07",
-      "display": "tenofovir disoproxil"
+      "display": "J05AF07"
      },
      {
       "code": "J05AF10",
-      "display": "entecavir"
+      "display": "J05AF10"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -22,5 +22,5 @@
  "status": "active",
  "title": "hbv antiviral prophylaxis",
  "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-HBV-ANTIVIRAL-PROPHYLAXIS",
- "version": "1.0.0-vc5d4b082"
+ "version": "1.0.0-vcd15bab9"
 }
