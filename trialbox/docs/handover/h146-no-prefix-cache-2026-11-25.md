@@ -51,7 +51,7 @@ that passed were the coverage test and the helper's parsing, which uses only the
 ## Findings
 
 - **H146-01** (High, shown): before this card, no judge or verifier server named the prefix cache, so the model
-  server's own default (on) applied on every box. The integrator's bench saw runs differ with it on.
+  server's own default (on) applied on every box. The integrator's bench saw runs differ with it on. Fixed in d2a1187e.
 - **H146-02** (Medium, open): the cluster manifests (`deploy/platform/components/gpu-pair/llm.yaml`, another lane's
   files) start both servers with no prefix-cache flag. The same change there needs the `trialbox-serving` config
   map to carry the value. Raised as a question, not changed here.

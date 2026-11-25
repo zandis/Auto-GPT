@@ -805,8 +805,7 @@ DECLARED: dict[str, Declared] = {
     "TB_LLM_PREFIX_CACHING": Declared(
         "str",
         "no-enable",
-        "compose: the judge and verifier servers' prefix cache, no-enable (off) or enable (on: runs may differ;"
-        " D-1462)",
+        "compose: model servers' prefix cache, no-enable (off) or enable (on: runs may differ; D-1462)",
     ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
     "TB_JOBS_PER_SENDER_PER_DAY": Declared(

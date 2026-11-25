@@ -171,7 +171,9 @@ def test_doctor_reads_the_rendered_servers_when_it_has_them(tmp_path: Path) -> N
     c = _doctor({}, stripped)
     assert c.status == "FAIL" and "llm-verifier" in c.detail and "llm-service" not in c.detail
     turned = json.loads(json.dumps(rendered))
-    turned["services"]["llm-service"]["command"] = [ON if a == OFF else a for a in turned["services"]["llm-service"]["command"]]
+    turned["services"]["llm-service"]["command"] = [
+        ON if a == OFF else a for a in turned["services"]["llm-service"]["command"]
+    ]
     c = _doctor({}, turned)
     assert c.status == "FAIL" and "llm-service" in c.detail  # the files say on where the setting says off
 
