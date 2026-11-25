@@ -272,6 +272,40 @@ On master 6c73db64, then at this branch's head, the same commands:
   would have read the box's containers. The POC's project is now the one project started from
   `docker-compose.poc.yml`, read from the containers' labels. A box alone, or two POCs, is refused.
 
+### OCR's review of 71868874 (1498-1, -2, -3)
+
+- **H139-17, 1498-1 (Medium): the drill's backup read the box's own volumes.** The restore drill runs `backup-nightly`
+  on the host. Its host part (`backup_schedule`: `host_files`, `volume_bytes`, `copy_night_length`) read
+  `trialbox_<volume>`, written into the code. On a host with a box, the drill's backup copied the box's caddy and
+  authelia data, its TLS keys among them. Fixed: one helper, `host_volume`. It takes the box file's
+  `COMPOSE_PROJECT_NAME`, else `trialbox`, and never a caller's export (F1). `restore_drill.prepare` writes
+  `COMPOSE_PROJECT_NAME=trialbox-test` into the test stack's `deploy/.env`.
+- **The guard, one file** (`tests/unit/test_no_test_names_the_box_project_h139.py`, the held commit's test merged
+  into it):
+  - (a) OCR's behavioural test, and the same with a caller's export;
+  - (b) every compose command the suite runs names a project: `subprocess` calls in the tests, the drills' own
+    runners, and the Makefile's test recipes;
+  - (c) the files that drive a real engine name no box project or volume.
+
+  At 71868874: 4 failed, 22 passed. At push 5: 4 failed. At head: 26 passed.
+- **How (b) and (c) are narrowed.** The tests' text holds 132 `docker compose` strings with no project and 12 unit
+  files with a literal `trialbox_<volume>`. These are fakes of a box called `trialbox`, product commands that a test
+  asserts, and runbook text. A box's own commands carry no `-p`: its box file names the project. So (b) judges what
+  the suite runs, not what it asserts, and (c) judges the engine-driving files. Changing other lanes' assertions
+  would need a ruling.
+- **1498-3 (Low), fixed:** `backup.restore` finds `pg_restore` before its first change. A missing one now says
+  nothing was changed, never "NOT put back … half restored". The test fails without the fix.
+- **1498-2 (Low), fixed:** `host_escape.watch` also sees `listdir`, `scandir`, `access`, the engines' data roots, an
+  engine named anywhere in a command (after `sudo`, `env` or `bash -c`, or in a shell string), and a Unix socket's
+  `connect`. A stand-in under the test's own temporary folder is not the engine. One test per form: 21 of 24 fail on
+  the earlier helper.
+- **Follow-ups, not built:**
+  - `box_restore.py` (H-142's) still asks the engine for `trialbox_<vol>` (:328-362), and `backup.layout`'s default
+    is `trialbox_<vol>`. The drill passes its own `TB_BACKUP_DIRS`, so it does not reach them.
+  - `keys.py` `HOST_SECRETS`/`HOST_OBJECTS` and `logs.py` `DEFAULT_AUDIT` are defaults behind a setting.
+  - `make up` (the dev stub stack) runs under the base file's `trialbox`.
+- The merge with #1505 (48c66ca7) is clean. The touched tests on the merge: 191 passed.
+
 ## Owners named in this card
 
 The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/unit/test_refdata.py` and
@@ -293,7 +327,8 @@ lane V's `test_backup_licensed_terminology.py`, `test_erasure_reach_restore.py`;
 and the e2e helpers): `tests/conftest.py`'s `_stack_up`; `tests/e2e/test_mail_compose.py` (9i-1),
 `tests/e2e/test_console_poc.py`; `tests/integration/test_compose_data.py`, `test_compile_compose.py`; lane V's
 `test_fhir_codesystems_compose.py` (V-18) and `test_valueset_store_compose.py` (V-17): their module-level addresses
-only, read when a test runs.
+only, read when a test runs. Under OCR 1498-3: lane D's `tools/trialbox/backup.py` (`restore`, one line before its first
+change).
 
 ## Not verified
 

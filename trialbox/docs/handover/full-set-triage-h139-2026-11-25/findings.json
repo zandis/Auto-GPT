@@ -120,6 +120,15 @@
    "basis": "shown",
    "state": "open",
    "place": "tests/stack.py, tools/restore_drill.py ComposeDrill and shell, tests/conftest.py _stack_up, the compose e2e and integration modules"
+  },
+  {
+   "id": "H139-17",
+   "severity": "Medium",
+   "claim": "the nightly backup's host part read trialbox_<volume> written into the code, so the restore drill's backup, run on a host with a box, copied the box's caddy and authelia data (TLS keys among them) instead of the test stack's (OCR 1498-1); fixed: host_volume takes the box file's COMPOSE_PROJECT_NAME, else trialbox, never a caller's; the drill's box file names trialbox-test; one guard file checks the behaviour, every compose command the suite runs, and the engine-driving files",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/backup_schedule.py host_volume, tools/restore_drill.py prepare, tests/unit/test_no_test_names_the_box_project_h139.py"
   }
  ]
 }
