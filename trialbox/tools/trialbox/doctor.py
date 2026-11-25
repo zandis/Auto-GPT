@@ -128,8 +128,8 @@ A system module (F0, the modules framework section 6) adds its rows from its own
 (``MODULE_CHECKS``): ``doctor_checks(inp)`` returns rows ``(key, state, text)``, state PASS, WARN or FAIL. A function
 there named like a check this file opened to it (``_supplied``) is that check's body and returns one such row. A file
 that is not there adds nothing; one that raises or returns anything else is a FAIL that says so, and every other row
-stays. One whose import fails (a package this python lacks) is a WARN "cannot look": nothing was found wrong, nothing
-was looked at. A check that cannot look returns WARN with the reason.
+stays. One that does not import because a third-party package is missing on a host's own python (never in the box image) is a
+WARN "cannot look here: <package>"; every other import failure is a FAIL. A check that cannot look returns WARN with the reason.
 
 ``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
@@ -241,6 +241,22 @@ def _module(name: str) -> ModuleType | None:
     return None if importlib.util.find_spec(name) is None else importlib.import_module(name)
 
 
+#: the packages of pyproject's dependencies, by import name: a host's own python may lack them (the box image never)
+_THIRD_PARTY = frozenset(
+    "pydantic yaml jsonschema jinja2 httpx fastapi uvicorn multipart duckdb pyarrow sqlglot sqlalchemy psycopg openpyxl "
+    "reportlab matplotlib docxtpl docx pypdf py7zr cryptography apscheduler numpy fhir dateutil tzdata markdown dulwich "
+    "zstandard".split()
+)
+
+
+def _host_lacks(e: ModuleNotFoundError) -> bool:
+    """A third-party package missing on a host's own python (not the box image): the check could not look, nothing is
+    wrong. Anything else that does not import (syntax, the box's own module, any error in the image) stays a FAIL."""
+    from tools.trialbox import launch
+
+    return (e.name or "").partition(".")[0] in _THIRD_PARTY and not launch.in_box_image()
+
+
 def _row(row: Any) -> Check:
     key, state, text = row
     if state not in ("PASS", "WARN", "FAIL") or not (isinstance(key, str) and key and isinstance(text, str)):
@@ -256,8 +272,10 @@ def module_rows(inp: DoctorInputs, out: list[Check]) -> list[Check]:
         try:
             try:
                 mod = _module(name)
-            except ImportError as e:  # the host's python lacks a package the file needs: not looked at, not wrong
-                out.append(Check(own, "WARN", f"cannot look: {name} does not import ({type(e).__name__}: {e})"))
+            except ModuleNotFoundError as e:
+                if not _host_lacks(e):
+                    raise
+                out.append(Check(own, "WARN", f"cannot look here: {e.name}"))
                 continue
             for c in map(_row, mod.doctor_checks(inp) if mod is not None and hasattr(mod, "doctor_checks") else ()):
                 if any(c.name == o.name for o in out):
@@ -279,8 +297,10 @@ def _supplied(name: str) -> Callable[[Callable[..., Check]], Callable[..., Check
         def check(inp: DoctorInputs, *args: Any, **kwargs: Any) -> Check:
             try:
                 body = getattr(_module(name), fn.__name__, None)
-            except ImportError as e:
-                return Check(fn.__name__.removeprefix("check_"), "WARN", f"cannot look: {name} does not import ({e})")
+            except ModuleNotFoundError as e:
+                if not _host_lacks(e):
+                    raise
+                return Check(fn.__name__.removeprefix("check_"), "WARN", f"cannot look here: {e.name}")
             if body is None:
                 return fn(inp, *args, **kwargs)
             c = _row(body(inp, *args, **kwargs))

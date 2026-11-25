@@ -138,6 +138,20 @@ def test_a_file_that_does_not_import_is_a_fail(monkeypatch: pytest.MonkeyPatch, 
     sys.modules.pop("f0_broken", None)
 
 
+def test_a_third_party_package_missing_on_a_host_is_a_warn(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "f0_host.py").write_text("import pydantic_not_here_f0\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(doctor, "MODULE_CHECKS", ("f0_host",))
+    monkeypatch.setattr(doctor, "_THIRD_PARTY", frozenset({"pydantic_not_here_f0"}))
+    monkeypatch.setattr("tools.trialbox.launch.in_box_image", lambda: False)
+    (c,) = doctor.module_rows(doctor.DoctorInputs(), [])
+    assert (c.name, c.status, c.detail) == ("f0_host", "WARN", "cannot look here: pydantic_not_here_f0")
+    monkeypatch.setattr("tools.trialbox.launch.in_box_image", lambda: True)
+    (c,) = doctor.module_rows(doctor.DoctorInputs(), [])
+    assert (c.name, c.status) == ("f0_host", "FAIL")  # in the box image the same failure is a FAIL
+    sys.modules.pop("f0_host", None)
+
+
 def test_the_rows_are_of_a_whole_run_only(monkeypatch: pytest.MonkeyPatch) -> None:
     _brought(monkeypatch, doctor_m9={"doctor_checks": lambda inp: [("profile", "PASS", "96")]})
 

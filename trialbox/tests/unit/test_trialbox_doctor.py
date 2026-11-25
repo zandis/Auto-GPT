@@ -40,6 +40,8 @@ def test_default_install_passes() -> None:
     assert {c.name for c in checks} == {
         "topology",
         "terminology",  # D-858 (lane E's hunk): the code systems loaded on the box
+        "terminology_update",  # M2
+        "terminology_tables",  # M2
         "provenance_index",  # D-989 step 2c: the index against the audit chain (NOT CHECKED with no database)
         "negated_inclusions",  # card 10A-1: approved negated inclusions (NOT CHECKED with no ruleset repository)
         "env_class_ceiling",
