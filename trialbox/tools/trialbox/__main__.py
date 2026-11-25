@@ -787,7 +787,11 @@ if __name__ == "__main__":
         root = Path(__file__).resolve().parents[2]
         # H-144: never root/services: the box image carries the services' code (a copy here is not the release's)
         sys.path[:0] = [str(root), str(root / "libs")]
-    from tools.trialbox import launch  # H-88 (D-1089): its own import path, the box's settings, the box image
+    # H-88 (D-1089): launch: its own import path, the box's settings, the box image
+    from tools.trialbox import launch, sigends
 
+    # H-142: this process ends when the command returns (a restore or an update keeps its signals ignored to the
+    # exit); for those two a signal before they take their own handlers is noted and given to them
+    sigends.own_exit(note=launch.command_of(sys.argv[1:]) in ("restore", "update"))
     _code = launch.enter(sys.argv[1:], installed=not __package__)
     raise SystemExit(_exit_code(main(installed=not __package__) if _code is None else _code))
