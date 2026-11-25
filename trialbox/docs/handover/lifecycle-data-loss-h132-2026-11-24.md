@@ -10,7 +10,10 @@
 
 The rule of every fix: never delete what this run did not make, or what is not proven safe to delete; put back
 before removing; a refusal changes nothing. Each finding has a test in `tests/unit/test_lifecycle_data_loss_h132.py`
-that fails on `00bababf` and passes here, and names the cell of the review's matrix it turns green.
+that fails on `00bababf` and passes here, and names the cell of the review's matrix it turns green. Three tests of
+the file are guards and pass on master too (OCR 1481-6): `test_lr10_a_kill_before_the_check_keeps_the_full_rollback`,
+and the two params of `test_lr11_a_stream_without_a_rollback_point_undoes_the_swapped_image` (master's undo removed
+every new image; they guard against the first LR-11 fix, `513758e3`, where they fail).
 
 ## What was fixed
 
@@ -78,6 +81,50 @@ case 7 now asserts the forward finish for those two steps (the integrator's ruli
   and the recovery; a rollback loses it). The steps before the check keep the old check.
 - "the audit chain verifies, with every update event in order". Old: every kill case `update.rolled_back`. New:
   `update.applied` for `refdata` and `finish`, `update.rolled_back` for the steps before the check.
+
+## The OCR review of #1481 (`a7e32b89`)
+
+- **1481-1 (Medium).** `TarWatch` holds a `manifest.json` or `index.json` of at most 1 MiB, once, in a `bytearray`,
+  and reads the scope again only when a file was read; a bigger one stops the load before it gets any byte (the
+  existing `OSError` path: input closed, waited for, undone). OCR's patch and test
+  (`test_ocr1481_1_an_oversized_manifest_in_the_stream_is_never_held_and_never_handed_on`).
+- **1481-2.** `TarWatch` applies a PAX `path`/`size` record, and a GNU long name, to the next member as a tar reader
+  does, and reads a base-256 size; a `manifest.json`/`index.json` that is not a regular file (a link) or a header it
+  cannot read stops the load the same way (`unsure`). OCR's test
+  (`test_ocr1481_2_a_manifest_named_another_way_is_seen_or_refused`, `pax-path` and `hardlink`).
+- **1481-3.** A retry after `finish forward failed` names the step the update was cut short in (from the marker's
+  `steps_done`), and says the reference-data load was cut only when that step is `refdata`. OCR's patch and test
+  (`test_ocr1481_3_a_retry_after_finish_forward_failed_names_the_step_that_was_cut`).
+- **1481-4.** A test that an unreadable engine volume folder is refused, never a traceback
+  (`test_ocr1481_4_lr15_an_unreadable_engine_volume_folder_is_refused_and_never_a_traceback`). OCR's test, with one
+  change: the folder is made unreadable through the stand-in (`Path.is_dir` raises `PermissionError` there), not by
+  mode 000 with a skip as root, so it runs and holds for every user (no test is skipped).
+- **1481-5.** `deploy/poc.sh` refuses too when `deploy/updates` is there and this user cannot search it. OCR's patch
+  and test (`test_ocr1481_5_poc_sh_does_nothing_when_the_install_record_cannot_be_looked_for`), without the skip as
+  root: as root the folder stays searchable and the record itself is found, so the refusal holds for both users.
+- **1481-6.** This page names the three guards above, and the counts below name their selections and commands.
+
+## How the counts were taken
+
+From `trialbox/`. "CI's conditions": `env -i` with `PATH` and `HOME` only, `umask 022`,
+`PYTEST_ADDOPTS="--cov --cov-report= --durations=30"`, `COVERAGE_CORE=sysmon`, `-n auto --dist worksteal`, a
+`TB_TEST_ROOT` of a path over 100 characters marked with `python -m tools.pglocal mark`, `TMPDIR` inside it at
+0700, and `/var/lib/docker` present at 0710 root (as on CI's runner). Run as root from a worktree and as an ordinary
+user from a clone that user owns.
+
+- **The set:** `.venv/bin/python -m pytest $(cat all.txt)` where `all.txt` lists every `tests/unit` file that reads
+  a workflow, a Dockerfile, a shell script or the Makefile (`grep -lE '\.github/workflows|Dockerfile|"Makefile"|
+  \.sh"' tests/unit/*.py`), the card's file, `tests/console/test_update_finish_failed_label_h132.py`,
+  `tests/unit/test_restore_rerun_h126.py`, and the tests of the files the card touches
+  (`tests/unit/test_{backup*,restore*,restic*,nightly_restic,update_path,update_safety,update_signals_h114,
+  load_from_the_stick_h95,host_commands_own_environment,t728_asof_restore_optouts,host_tree*,poc_*}.py`).
+- **Card, h100 and h126:** `.venv/bin/python -m pytest tests/unit/test_lifecycle_data_loss_h132.py
+  tests/unit/test_restore_from_the_host_h100.py tests/unit/test_restore_rerun_h126.py`.
+- **The checks:** `make lint`, `make guard`, `make cross-card`, `make data-scan`, `make security-scan`, doclint,
+  `tools.limits_lint`, `tools.text_keys`, `tools.decisions_index --check`, `tools.findings_register --check`;
+  `python -m tools.update_drill --dir <scratch>` with `TB_ENV=DEV` (after `make jvm-deps` and `make fonts`).
+- **Known red outside the diff:** `tests/unit/test_cloud_run.py::test_a_part_records_its_run_and_a_new_run_runs_it_again`
+  fails under these conditions on master too (`cf7c1917`).
 
 ## Not fixed here
 

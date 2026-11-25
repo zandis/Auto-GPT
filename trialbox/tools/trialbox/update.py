@@ -630,18 +630,54 @@ def load_scope(configs: dict[str, str], manifests: set[str], said: str = "") -> 
 
 class TarWatch:
     """H-132 (LR-11): the ``manifest.json`` and ``index.json`` of the tar handed to ``docker load``, read from the
-    very bytes handed on (an archive swapped on the stick after its pins were read names its own tags here)."""
+    very bytes handed on (an archive swapped on the stick after its pins were read names its own tags here).
+
+    OCR 1481-1: a kept file is at most ``LIMIT`` bytes, held once in a ``bytearray``; a bigger one sets ``too_big``
+    and the load is stopped before it gets any byte of it. OCR 1481-2: a PAX record (``path``, ``size``) or a GNU long
+    name applies to the next member as a tar reader applies it; a ``manifest.json``/``index.json`` that is not a regular
+    file (a link), or a header that cannot be read, sets ``unsure``, and the load is stopped the same way."""
 
     WANT = ("manifest.json", "index.json")
+    #: OCR 1481-1: an image archive's manifest.json and index.json are a few kilobytes; a bigger one is never held
+    LIMIT = 1 << 20
+    _META = (b"x", b"L")  # a PAX record for the next member; a GNU long name for the next member
+    _SKIP = (b"g", b"K")  # a PAX global record; a GNU long link name: read past
 
     def __init__(self) -> None:
         self.files: dict[str, bytes] = {}
-        self._buf = b""
+        self._buf = bytearray()
         self._left = 0  # bytes of the current entry's data (and padding) still to come
         self._size = 0
-        self._keep: str | None = None
-        self._data = b""
+        self._keep: str | None = None  # a wanted file, or "\0x"/"\0L" for a record of the next member
+        self._data = bytearray()
+        self._next: dict[str, str] = {}  # what a PAX record or a GNU long name says of the next member
         self._done = False
+        self.too_big = False
+        self.unsure = False
+        self.version = 0  # how many files were read so far (the scope is read again only when one was)
+
+    def _stop(self, *, too_big: bool = False) -> None:
+        self.too_big = self.too_big or too_big
+        self.unsure = self.unsure or not too_big
+        self._done = True
+
+    @staticmethod
+    def _octal(field: bytes) -> int:
+        if field[:1] in (b"\x80", b"\xff"):  # base-256 (a member of 8 GiB or more)
+            return int.from_bytes(field[1:], "big", signed=field[:1] == b"\xff")
+        return int(field.split(b"\0", 1)[0].strip() or b"0", 8)
+
+    def _ended(self, keep: str, data: bytes) -> None:
+        if keep == "\0x":  # PAX records: "<len> <key>=<value>\n"
+            for rec in data.decode("utf-8", "replace").splitlines():
+                key, _, value = rec.partition(" ")[2].partition("=")
+                if key in ("path", "size"):
+                    self._next[key] = value
+        elif keep == "\0L":
+            self._next["path"] = data.split(b"\0", 1)[0].decode("utf-8", "replace")
+        else:
+            self.files[keep] = data
+            self.version += 1
 
     def feed(self, data: bytes) -> None:
         if self._done:
@@ -649,34 +685,54 @@ class TarWatch:
         self._buf += data
         while not self._done:
             if self._left:
-                take = self._buf[: self._left]
-                self._buf = self._buf[self._left :]
+                take = bytes(self._buf[: self._left])
+                del self._buf[: self._left]
                 self._left -= len(take)
                 if self._keep is not None:
                     self._data += take
                     if not self._left:
-                        self.files[self._keep] = self._data[: self._size]
-                        self._keep, self._data = None, b""
+                        self._ended(self._keep, bytes(self._data[: self._size]))
+                        self._keep, self._data = None, bytearray()
                 if self._left:
                     return
                 continue
             if len(self._buf) < 512:
                 return
-            head, self._buf = self._buf[:512], self._buf[512:]
+            head = bytes(self._buf[:512])
+            del self._buf[:512]
             if not head.strip(b"\0"):
                 self._done = True
                 return
+            kind = head[156:157]
             name = head[:100].split(b"\0", 1)[0].decode("utf-8", "replace")
+            prefix = head[345:500].split(b"\0", 1)[0].decode("utf-8", "replace")
+            if prefix and head[257:262] == b"ustar":
+                name = f"{prefix}/{name}"
             try:
-                self._size = int(head[124:136].split(b"\0", 1)[0].strip() or b"0", 8)
+                self._size = self._octal(head[124:136])
+                if kind not in self._META and "size" in self._next:
+                    self._size = int(self._next["size"])
             except ValueError:
-                self._done = True
-                return
+                return self._stop()
+            if kind not in self._META:
+                name = self._next.pop("path", name)
+                self._next.clear()
             self._left = -(-self._size // 512) * 512
             name = name.removeprefix("./")
-            self._keep = name if name in self.WANT and head[156:157] in (b"0", b"\0") else None
+            if kind in self._META:
+                self._keep = "\0" + kind.decode()
+            elif kind in self._SKIP:
+                self._keep = None
+            elif name in self.WANT:
+                if kind not in (b"0", b"\0"):  # a link or anything but a regular file: cannot tell what it names
+                    return self._stop()
+                self._keep = name
+            else:
+                self._keep = None
+            if self._keep is not None and self._size > self.LIMIT:
+                return self._stop(too_big=name in self.WANT)
             if self._keep is not None and not self._left:
-                self.files[self._keep] = b""
+                self._ended(self._keep, b"")
                 self._keep = None
 
     def scope(self) -> tuple[set[str], set[str]]:
@@ -754,8 +810,13 @@ def stream_image(
     watch = TarWatch()
 
     def hand_on(data: bytes) -> None:
+        version = watch.version
         watch.feed(data)
-        seen = watch.scope()
+        if watch.too_big or watch.unsure:  # OCR 1481-1, 1481-2: refused before the load gets it; cut short below
+            raise OSError(f"{p.name}: a {' or '.join(TarWatch.WANT)} of more than {TarWatch.LIMIT} bytes"
+                          if watch.too_big else f"{p.name}: its {' or '.join(TarWatch.WANT)} cannot be read as a "
+                          "plain file of the archive")  # fmt: skip
+        seen = watch.scope() if watch.version != version else (set(), set())
         if not (seen[0] <= own[0] and seen[1] <= own[1]):
             own[0].update(seen[0])  # H-132 (LR-11): what the bytes handed on name, before the load gets them
             own[1].update(seen[1])
@@ -1653,6 +1714,8 @@ class Updater:
 
         bid = plan.bundle_id
         again = f"tools/apply_update.sh rollback {bid}"
+        if step == FORWARD_FAILED:  # OCR 1481-3: a retry names the step the update was cut short in, not its own state
+            step = next((s for s in reversed(m.get("steps_done") or []) if s in AFTER_CHECK), step)
         try:
             self.box.check(plan)
             health = getattr(self.box, "health", None)
@@ -1676,7 +1739,7 @@ class Updater:
         self.box.audit("update.applied", plan, {
             "bundle_id": bid, "recovered": True, "error": f"interrupted at step {step!r}", "health": counted,
             "refdata_failed": "interrupted: load the pack again (python -m tb_common.refdata load)"
-            if "refdata" in (step, *(m.get("steps_done") or [])) and step != "finish" else None,
+            if step == "refdata" else None,
             **self.stops.note()})  # fmt: skip
         self._history(plan, "finished forward", True, f"interrupted at {step!r}, after the check: the checked "
                       f"release stays, {counted}; nothing rolled back")  # fmt: skip

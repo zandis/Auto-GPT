@@ -626,3 +626,172 @@ def test_lr2_poc_sh_does_nothing_on_an_installed_box(tmp_path: Path, action: str
     assert res.returncode == 1 and "installed box" in res.stderr and "Nothing was done" in res.stderr, res.stderr
     assert not log.exists()  # no engine command at all
     assert sorted(p.relative_to(root) for p in root.rglob("*")) == before
+
+
+# ----------------------------------------------------------------------------------------- OCR review of #1481
+def test_ocr1481_1_an_oversized_manifest_in_the_stream_is_never_held_and_never_handed_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OCR 1481-1: an archive swapped on the stick whose manifest.json claims 64 MiB: TarWatch held every byte of it
+    (and copied it again at each chunk) while the load got it all; now the load is stopped before it gets any."""
+    import hashlib
+    import io
+    import subprocess
+    import tarfile
+
+    from tools.trialbox import update as up
+
+    info = tarfile.TarInfo("manifest.json")
+    info.size = 64 << 20
+    stick = tmp_path / "stick.bin"
+    with stick.open("wb") as fh:
+        fh.write(info.tobuf(format=tarfile.USTAR_FORMAT))
+        fh.write(b" " * (6 << 20))
+    p = up.Streamed(stick, "engine.tar", "image", hashlib.sha256(b"the signed archive").hexdigest(),
+                    stick.stat().st_size, 0)  # fmt: skip
+    eng = SharedEngine({"app:1": A})
+    written: list[int] = []
+
+    class Load:
+        def __init__(self, *a: object, **kw: object) -> None:
+            self.stdin = io.BytesIO()
+            self.stdin.write = lambda b: written.append(len(b)) or len(b)  # type: ignore[method-assign]
+            self.stdin.close = lambda: None  # type: ignore[method-assign]
+            self.stdout = io.BytesIO(b"")
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 1
+
+        def kill(self) -> None:
+            pass
+
+    monkeypatch.setattr(subprocess, "Popen", Load)
+    with pytest.raises(up.UpdateFailed):
+        up.stream_image(p, {"app:1": B}, set(), eng)
+    assert sum(written) == 0 and eng.tags == {"app:1": A}
+    w = up.TarWatch()
+    w.feed(info.tobuf(format=tarfile.USTAR_FORMAT) + b" " * (2 << 20))
+    assert w.too_big and not w._data
+
+
+@pytest.mark.parametrize("how", ["pax-path", "hardlink"])
+def test_ocr1481_2_a_manifest_named_another_way_is_seen_or_refused(how: str) -> None:
+    import io
+    import json
+    import tarfile
+
+    from tools.trialbox import update as up
+
+    data = json.dumps([{"Config": "f" * 64 + ".json", "RepoTags": ["theirs:1"]}]).encode()
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tf:
+        if how == "pax-path":
+            i = tarfile.TarInfo("x")
+            i.size = len(data)
+            i.pax_headers = {"path": "manifest.json"}
+            tf.addfile(i, io.BytesIO(data))
+        else:
+            i = tarfile.TarInfo("m")
+            i.size = len(data)
+            tf.addfile(i, io.BytesIO(data))
+            link = tarfile.TarInfo("manifest.json")
+            link.type = tarfile.LNKTYPE
+            link.linkname = "m"
+            tf.addfile(link)
+    w = up.TarWatch()
+    w.feed(buf.getvalue())
+    assert w.scope()[0] == {"theirs:1"} or getattr(w, "too_big", False) or getattr(w, "unsure", False)
+
+
+@pytest.mark.parametrize(("step", "load_cut"), [("refdata", True), ("finish", False)])
+def test_ocr1481_3_a_retry_after_finish_forward_failed_names_the_step_that_was_cut(
+    tmp_path: Path, step: str, load_cut: bool
+) -> None:
+    """OCR 1481-3: the retry's ``update.applied`` said the reference-data load was cut short when the kill came in
+    "finish" (the load had ended), and named "finish forward failed" as the step the update was interrupted in."""
+    from tools.trialbox import update as up
+
+    updates = _killed_after_the_check(tmp_path, step)
+
+    class Short(us_t.Recorder):
+        missing: tuple[str, ...] = ("console",)
+
+        def health(self) -> tuple[list[str], list[str]]:
+            return ["db"], list(self.missing)
+
+    with pytest.raises(up.UpdateFailed):
+        up.Updater(Short(), updates, say=lambda _m: None).recover("B1")
+    healthy = Short()
+    healthy.missing = ()
+    up.Updater(healthy, updates, say=lambda _m: None).recover("B1")
+    ((event, detail),) = healthy.audits
+    assert event == "update.applied" and detail["error"] == f"interrupted at step {step!r}", detail
+    assert (detail["refdata_failed"] is not None) is load_cut, detail
+
+
+@pytest.mark.parametrize("known", [False, True])
+def test_ocr1481_4_lr15_an_unreadable_engine_volume_folder_is_refused_and_never_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], known: bool
+) -> None:
+    """Escape check (i): the engine's volume folder present but not searchable by this user (CI's runner: 0710 root).
+    The stand-in makes it unreadable for any user, root included (a mode-000 folder is readable by root)."""
+    touched = _no_host_engine_folder(monkeypatch)
+    deploy = _box_without_the_volume_setting(tmp_path, monkeypatch)
+    from tools.trialbox import box_restore
+
+    engine = Path(box_restore.DEFAULT_VOLUMES)
+    (engine / "trialbox_lake-data" / "_data").mkdir(parents=True)
+
+    class Engine(h100.Recorder):
+        def __call__(self, argv: list[str], **kw: object) -> str:
+            if argv[1:3] == ["volume", "inspect"]:
+                if known and argv[-1] == "trialbox_lake-data":
+                    return f"{engine / 'trialbox_lake-data' / '_data'}\n"
+                raise UpdateFailed(f"no such volume: {argv[-1]}")
+            return super().__call__(argv, **kw)
+
+    real_is_dir = Path.is_dir
+
+    def is_dir(self: Path) -> bool:
+        if str(self).startswith(str(engine)):
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_is_dir(self)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    rec = Engine(running=["db", "console"])
+    code, seen = h100._restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
+    err = capsys.readouterr().err
+    assert code == 2 and not seen, err
+    assert ("cannot be read here" if known else "no data folder of the box was found") in err, err
+    assert not [c for c in rec.calls if "stop" in c] and touched == []
+
+
+def test_ocr1481_5_poc_sh_does_nothing_when_the_install_record_cannot_be_looked_for(tmp_path: Path) -> None:
+    """OCR 1481-5 (escape check (i)): ``deploy/updates`` present but not searchable by the user who runs poc.sh: ``-e``
+    is false there, and ``down`` ran on the box's project. (As root the folder stays searchable and the record is
+    found; the refusal holds either way.)"""
+    import os
+    import shutil
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[2]
+    root = tmp_path / "root"
+    (root / "deploy" / "updates").mkdir(parents=True)
+    shutil.copy2(repo / "deploy/poc.sh", root / "deploy/poc.sh")
+    shutil.copy2(repo / ".env.example", root / ".env.example")
+    (root / "deploy/updates/installed.json").write_text('{"bundle_id": "synthetic"}', encoding="utf-8")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    log = tmp_path / "docker.log"
+    (bindir / "docker").write_text(f'#!/bin/sh\necho "$*" >> {log}\nexit 0\n', encoding="utf-8")
+    (bindir / "docker").chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "COMPOSE_"))}
+    env["PATH"] = f"{bindir}:/usr/bin:/bin"
+    (root / "deploy" / "updates").chmod(0o000)
+    try:
+        res = subprocess.run(["bash", str(root / "deploy/poc.sh"), "down"], capture_output=True, text=True, env=env,
+                             timeout=60, check=False)  # fmt: skip
+    finally:
+        (root / "deploy" / "updates").chmod(0o755)
+    assert res.returncode == 1 and "Nothing was done" in res.stderr, res.stderr
+    assert not log.exists()

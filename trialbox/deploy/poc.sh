@@ -29,7 +29,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 # H-132 (LR-2): on a host where a box is installed (the update path's record) every action of this script would act on
 # that box's compose project (reset: down -v, its volumes). Refused before anything is made, run or removed
-if [ -e deploy/updates/installed.json ]; then
+if [ -e deploy/updates/installed.json ] || { [ -d deploy/updates ] && ! [ -x deploy/updates ]; }; then  # OCR 1481-5
   printf 'poc: this host has an installed box (deploy/updates/installed.json): "deploy/poc.sh %s" would act on' \
     "${1:-up}" >&2
   printf ' its compose project and data. Nothing was done; the box is run by its own commands (RUNBOOK §5).\n' >&2
