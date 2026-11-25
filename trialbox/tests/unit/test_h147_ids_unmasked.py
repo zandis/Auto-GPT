@@ -135,3 +135,61 @@ def test_the_log_line_of_a_failed_run_holds_the_whole_id_with_a_cut_draw_planted
     assert st["state"] == "failed" and rid in st["detail"]
     logged = "".join(capfd.readouterr())
     assert f"ingest run {rid} failed: ValueError" in logged
+
+
+LETTER_RULE = r"^[A-Za-z0-9]{6,20}$"  # a site's chart numbers with letters in them: it reads every letter draw
+
+
+def _counted_scrubber(monkeypatch: pytest.MonkeyPatch, limit: int) -> dict[str, int]:
+    """The scrubber, counted: past ``limit`` asks it raises, so a loop with no bound fails instead of hanging."""
+    from tb_common import logging as tb_logging
+
+    asked = {"n": 0}
+    real = tb_logging.redact
+
+    def counted(text: str) -> str:
+        asked["n"] += 1
+        if asked["n"] > limit:
+            raise AssertionError(f"the scrubber was asked more than {limit} times: the draw loop has no bound")
+        return real(text)
+
+    monkeypatch.setattr(tb_logging, "redact", counted)
+    return asked
+
+
+def test_a_site_rule_that_reads_letters_does_not_hang_the_draw(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1515-1: such a rule changes every draw. The helper stops after ``ATTEMPTS`` draws and hands out the last one
+    (a valid id; its log line then shows the rule's kind, as a hex id's did), never a request that spins."""
+    from tb_common import logging as tb_logging
+
+    monkeypatch.setattr(tb_logging, "_EXTRA_MRN", [])  # put back after the test
+    tb_logging.set_mrn_regex(LETTER_RULE)
+    asked = _counted_scrubber(monkeypatch, 1000)
+    rid = ids.log_safe_id(random.Random(147))
+    assert len(rid) == ids.LENGTH and set(rid) <= set(ids.ALPHABET)
+    assert asked["n"] == ids.ATTEMPTS == 32  # every draw refused, then the bound
+
+
+def test_a_run_is_started_under_a_site_rule_that_reads_letters(
+    site: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1515-1: ``POST /run`` holds the run gate while it draws; under such a rule it answers 202, it does not spin."""
+    from adapter import app as adapter_app
+    from adapter import cli
+    from fastapi.testclient import TestClient
+    from tb_common import logging as tb_logging
+
+    assert cli.main(["keys-init"]) == 0
+    monkeypatch.setenv("TB_ADAPTER_RUN", "thread")
+    monkeypatch.setattr(adapter_app, "_runs", {})
+    monkeypatch.setattr(adapter_app, "_running", threading.Lock())
+    monkeypatch.setattr(adapter_app, "run_ingest", _boom)
+    monkeypatch.setattr(tb_logging, "_EXTRA_MRN", [])
+    tb_logging.set_mrn_regex(LETTER_RULE)
+    _counted_scrubber(monkeypatch, 5000)  # the request's own log lines are a few asks; a spinning draw is endless
+    client = TestClient(adapter_app.app, raise_server_exceptions=False)
+    started = client.post("/run", json={"source": "csv", "snapshot": "2026-10-04", "load_fhir": False})
+    assert started.status_code == 202, started.text
+    rid = started.json()["run"]
+    assert len(rid) == ids.LENGTH and set(rid) <= set(ids.ALPHABET)
