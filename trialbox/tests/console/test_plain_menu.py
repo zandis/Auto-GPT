@@ -117,12 +117,10 @@ def test_the_layout_flags_are_read_together_in_one_read(box: dict[str, Any], mon
 #: catalogue words that stand for a value of the page's context in a heading (the site workspace's own name: the
 #: hospital's, or the practice one), read as data like the study code
 CONTEXT_KEYS = ("site.ws.main", "site.ws.practice")
-#: menu entries that answer 403 with the flag on, as with it off: the investigator in no delegation log reads no
-#: patient-level list (master's menu links them the same; the page says why). Listed, never skipped silently
-REFUSED_MENU_ENTRIES = frozenset(
-    {("pi", "/week"), ("pi", f"/studies/{RS}/candidates"), ("pi", f"/studies/{RS}/conflicts"),
-     ("pi", f"/studies/{RS}/entry"), ("pi", f"/studies/{RS}/referrals")}
-)  # fmt: skip
+#: menu entries that answer 403 with the flag on, as with it off. Before D-1258 the investigator in no delegation log
+#: was offered GZQO's patient-level lists, which refused it; since D-1258 the menu leaves out the pages of a study whose
+#: doors refuse its reader, and /week answers it, so there are none. Listed, never skipped silently
+REFUSED_MENU_ENTRIES: frozenset[tuple[str, str]] = frozenset()
 
 
 def _context_words(lang: str) -> set[str]:
@@ -308,9 +306,9 @@ WANT: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {
         (*_CLIN_HOSPITAL, "/site/staff", "/jobs", "/settings/notices", "/reports/research-office"),
         (*_CLIN_HOSPITAL, *STUDY, "/site/staff", "/jobs", "/settings/notices", "/reports/research-office"),
     ),
-    "pi": (
+    "pi": (  # D-1258: off GZQO's log, no GZQO page in "More" (each refuses this reader)
         ("/week", "/pilot/registry", "/reports"),
-        (*_CLIN_HOSPITAL, *STUDY, "/site/staff", "/breakglass", "/jobs", "/settings/notices"),
+        (*_CLIN_HOSPITAL, "/site/staff", "/breakglass", "/jobs", "/settings/notices"),
         (),
     ),
     "lpi": (

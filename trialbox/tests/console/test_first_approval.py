@@ -154,7 +154,9 @@ def test_review_findings_fail_closed_one_page_only_and_a_pi_with_an_account(box:
     assert r.status_code in (303, 400)
     assert f'data-testid="task-name-pi-{NEW}"' in stw.get("/site/staff").text
     pi = _user(box, "drsato", "investigator")
-    assert 'data-testid="approve-needs-pi"' in pi.get(f"/pilot/jobs/{jid}/approval").text
+    # D-1258 (the owner's decision of 2026-11-20, "listed = in"): the log now has an entry and does not list drsato,
+    # so the approval page refuses them; the task above (name the PI) stays, which is what M1 holds
+    assert pi.get(f"/pilot/jobs/{jid}/approval", follow_redirects=False).status_code == 403
     # H1: the orchestrator is down: nothing new opens, and no log entry can be written for an unknown study
 
     def down(*_a: Any, **_k: Any) -> list[Any]:

@@ -34,7 +34,7 @@ from orchestrator.lifecycle_api import router as life_router
 from tb_common.audit import AuditLog
 
 from tests.actor3 import SignedClient
-from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login, name_pi  # noqa: F401 - the fixture is used by name
 
 PW = "life-cycle-password-0001"
 NOW = datetime(2026, 11, 8, 1, 0, tzinfo=UTC)
@@ -148,6 +148,8 @@ def test_lifecycle_path_on_the_console(lb: dict[str, Any]) -> None:
     assert 'data-testid="ae-ae1"' in r.text and "event=ae2" in r.text
     home = c.get("/home").text
     assert 'data-testid="sae-banner"' in home and "Pneumonia" in home
+    # D-1258: the start page's SAE banner follows the SAE pages' own rule, which admits the PI the log names
+    name_pi(lb, "pi")
     p, _ = login(lb["app"], "pi", PW)
     assert 'data-testid="sae-banner"' in p.get("/week").text
     r = p.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": _, "to": "withdrawn", "reason": "3"})

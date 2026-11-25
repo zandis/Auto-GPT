@@ -4,7 +4,8 @@ One account (its own role ``viewer``, and every other hospital role as an extra 
 every route of the router table is called once in each, as ``test_role_route_matrix`` calls it for each column (the
 page with the role's CSRF token, ``/api/v1`` with its bearer token). No route may let the acting role in where the
 design table's column of an account of that role does not: acting adds no right. The column of an investigator is
-``pi`` (an investigator the GZQO log does not name); the account is on no log.
+``pi`` (an investigator the GZQO log does not name); the account is on no log, and GZQO's log names another PI, as
+in the design table's walk.
 
 A second account (its own role ``admin``) acting as ``viewer`` holds the same: an acting role never keeps the rights
 of the account's own role."""
@@ -84,6 +85,15 @@ def walked_box(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dict[str
     _orchestrator_routes(box)
     _done_feas(box["backend"])
     _done_screen(box["backend"], _ulid(991))
+    from console.teamstore import TeamStore
+
+    # the design table's own log (``test_role_route_matrix.clients``): GZQO's log names ``lpi`` as its PI, so the
+    # acting investigator is its ``pi`` column, an investigator that log does not name (D-1258: while a log names
+    # nobody, every investigator reaches the study's doors, which the design table's column does not describe)
+    team = TeamStore()
+    team.add_entry("GZQO", username="lpi", name="Dr L", role="pi", tasks=(), start="2026-01-01", end=None,
+                   training_day="2026-01-01", training_ref=None, by="stw", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+    team.close()
     return box
 
 
