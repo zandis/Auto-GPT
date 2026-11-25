@@ -11,7 +11,7 @@ one language.
 - **Change:** one id helper, `libs/tb_common/ids.py`, used by the adapter's three draw sites, the criteria compiler's
   error id and the console's cascade run id; the scrubber is as it was
 - **Findings:** [`h147-ids-unmasked-2026-11-25/findings.json`](h147-ids-unmasked-2026-11-25/findings.json)
-  (H147-01 to H147-05)
+  (H147-01 to H147-09)
 
 ## Files outside the card
 
@@ -117,6 +117,21 @@ pass. The orchestrator takes the id from the answer's `run` field and the `X-TB-
   service's stdout, and under `-n auto` an earlier test in the worker had bound the service's handler to another
   stream (empty stdout). The test now reads the line through the service's own formatter (3d5f6ee9); the earlier
   set at fab3329f (257 files) was green: root 6,015 passed, ordinary user 6,011 passed.
+
+## The review of #1515 at 6229578d, fixed at ae92db6a
+
+- 1515-4 (Medium, H147-09): `tests/e2e/console_poc.js` waited for `/pilot/cascade/[0-9A-Z]+`; the wait now takes
+  `[0-9A-Za-z]+`, the letter id and a ULID kept from before. A unit test reads the wait from the script and checks
+  a letter id, a ULID and the bare list page: 1 failed at 6229578d, passing at ae92db6a. The script parses
+  (`node --check`). The walk itself needs the compose stack: `tests/e2e/test_console_poc.py` skips here (7 skipped).
+- Searched for other shapes: the walks, `tests/console`, `tests/e2e` and the e2e helpers. The
+  `[0-9A-HJKMNP-TV-Z]{26}` patterns are job ids (still ULIDs); the hex patterns are boot ids, key ids, pids, account
+  requests and not-matched samples. None reads a cascade run id, an adapter run id or a compiler error id by shape.
+- 1515-5 (Low, H147-08): the changed assertion pins the length only. Open, not in this push.
+
+- At ae92db6a under CI's conditions (as above), the card's file and `tests/e2e/test_console_poc.py`: as root 12
+  passed, as an ordinary user (`nobody`) 12 passed; the walk's test is deselected there (`not e2e`) and skips
+  without the stack.
 
 ## What was not run or not verified
 

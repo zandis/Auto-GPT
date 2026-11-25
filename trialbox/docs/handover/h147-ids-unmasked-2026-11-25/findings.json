@@ -80,6 +80,28 @@
    "state": "fixed fab3329f",
    "fix": "at most ATTEMPTS (32) draws, then the last draw is handed out (a valid id whose log line shows the rule's kind); tests/unit/test_h147_ids_unmasked.py::test_a_site_rule_that_reads_letters_does_not_hang_the_draw, ::test_a_run_is_started_under_a_site_rule_that_reads_letters (both fail at b7fc5914)",
    "from": "the external review of #1515 at b7fc5914 (7166485201), 2026-11-25"
+  },
+  {
+   "id": "H147-08",
+   "severity": "Low",
+   "claim": "the changed assertion of test_compiler_answers_every_failure.py pins only the length (16), so a 16-character error id not drawn by the helper (os.urandom(8).hex(), uuid4().hex[:16]) passes it; the compiler and the cascade are not pinned to the helper as the adapter is (review 1515-5)",
+   "severity_basis": "a test's reach, not behaviour; a return to the old 12-hex id is still caught",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "not in this push: pin the characters (ids.ALPHABET) or extend the AST pin to criteria_compiler/app.py and console/cascade.py",
+   "from": "the external review of #1515 at 6229578d (7169788597), 2026-11-25"
+  },
+  {
+   "id": "H147-09",
+   "severity": "Medium",
+   "claim": "the nightly browser walk (tests/e2e/console_poc.js) waited for /pilot/cascade/[0-9A-Z]+ after Run cascade; a cascade run id is lower-case letters since 4eb0c2b1, so the nightly's console test, which allows no skip, would time out at the cascade step after the merge (review 1515-4; not on master)",
+   "severity_basis": "a nightly red after the merge; the PR's CI does not run the walk",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed ae92db6a",
+   "fix": "the wait takes [0-9A-Za-z]+ (the letter id and an older ULID); tests/unit/test_h147_ids_unmasked.py::test_the_browser_walk_waits_for_the_address_of_a_cascade_run_the_console_names (fails at 6229578d); no other walk, console test or e2e helper reads these ids by shape",
+   "from": "the external review of #1515 at 6229578d (7169788597), 2026-11-25"
   }
  ]
 }
