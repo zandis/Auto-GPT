@@ -61,11 +61,29 @@
   {
    "id": "H139-09",
    "severity": "Low",
-   "claim": "more tests ran the bare psql or pg_dump from PATH: test_ops_pages and test_admin_screens_209c, test_backup_without_pause, test_update_path (fixed here), test_db_image (its skip without pg_dump is a failure under TB_STRICT_SKIPS, shown; fixed here); open: test_backup_vector_store, test_t728_asof_restore_optouts, test_restore_hold, test_restore_roles, test_lane_b_on_the_train, test_backup_licensed_terminology, test_erasure_reach_restore",
+   "claim": "more tests ran the bare psql or pg_dump from PATH: test_ops_pages and test_admin_screens_209c, test_backup_without_pause, test_update_path, test_db_image (its skip under TB_STRICT_SKIPS shown), and seven more (test_backup_vector_store, test_t728_asof_restore_optouts, test_restore_hold, test_restore_roles, test_lane_b_on_the_train, test_backup_licensed_terminology, test_erasure_reach_restore); fixed: each hands in the test cluster's client tools",
    "lane": "Int",
    "basis": "shown",
    "state": "open",
-   "place": "tests/console/test_ops_pages.py, tests/unit/test_backup_without_pause.py, tests/unit/test_update_path.py, tests/integration/test_db_image.py; open: seven files in tests/unit/"
+   "place": "tests/console/test_ops_pages.py, tests/integration/test_db_image.py, nine files in tests/unit/, tests/pg_client.py"
+  },
+  {
+   "id": "H139-10",
+   "severity": "Medium",
+   "claim": "about 30 key and KEK tests read the checkout's deploy/.env as the box's: make up-test copies it from .env.example, which names no TB_ENV, so after a compose stage the checkout is a PRODUCTION box and the key commands refuse; fixed: each key test gives the code a deploy folder of its own, and a test keeps the PRODUCTION default under test",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/own_deploy.py; seven tests/unit key files; tests/unit/test_box_env_production_h139.py"
+  },
+  {
+   "id": "H139-12",
+   "severity": "Low",
+   "claim": "test_runbook_install_commands' installer step depended on the caller's graphics tool on PATH: a host card that cannot run the model server's image made the installer refuse, rightly; fixed: the step runs with the host's nvidia-smi off its PATH",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_runbook_install_commands.py _install_to_the_host_step"
   }
  ]
 }

@@ -136,17 +136,47 @@ On master 6c73db64, then at this branch's head, the same commands:
   unchanged. `test_refdata`'s red is not psql: it is `test_the_tar_is_deterministic_and_safe` at umask 0002, the case
   H-115 left as H115-18 (`pack_tar` keeps each file's mode). It is left for its own card.
 
+### Push 3 (the integrator's 7155439799, 7156055986 and 7156065500)
+
+- **H139-10, the key and KEK group.** Which environment value made a unit test see a PRODUCTION box on the bench host
+  and not in CI: no process variable, but the checkout's own `deploy/.env`. `make up-test` copies it from
+  `.env.example`, which names no `TB_ENV`, and `rc1_refusals.host_env` reads it as the box's, taking the stricter of
+  the box's and the caller's. The bench host's unit stage ran after its compose stage; CI's unit jobs never run
+  up-test. On master, `cp .env.example deploy/.env` makes 29 of the twelve named files' 324 tests fail (test_key_escrow
+  11, test_rc1_refusal_sites 5, test_lifecycle_keys_h133 4, test_restic_password 4, test_kek 2, test_sign_keys_kek 2,
+  test_nightly_restic 1). The fix (the ruling: a test sets what it depends on): `tests/own_deploy.py` points
+  `tools.keys`' deploy folder at a folder of the test's own, with no `.env`. For the ceremony it also points
+  `tools.backup_key_ceremony`'s, and `trialbox backup-keygen`'s beside its file, as `test_restore_drill.py` points
+  it. Each of the seven files has an autouse fixture. At this head, 324 passed with the file and without it. The rule
+  stays under test: `tests/unit/test_box_env_production_h139.py`, one case per group, shows that a box file naming no
+  `TB_ENV` still makes the key commands, the ceremony and `backup-keygen` refuse as on a PRODUCTION box though the
+  caller says TEST. No assertion changed.
+- **Seven more files, client tools** (the go 7156065500): `test_backup_vector_store`, `test_t728_asof_restore_optouts`,
+  `test_restore_hold`, `test_restore_roles`, `test_lane_b_on_the_train`, `test_backup_licensed_terminology`,
+  `test_erasure_reach_restore`. The CLI forms and the backup drill's restore take the tools through the process
+  environment (`tests/pg_client.py` `setenv`): the drill puts the cluster's folder on its own PATH, but
+  `backup.dump` runs with the process's. With psql off PATH: 57 passed, 1 xfailed.
+- **H139-12** (Low): `test_runbook_install_commands.py::test_the_command_runs[cmd2]` ran the installer with the
+  caller's PATH. On a host with a card that cannot run the model server's image, the installer refuses ("this GPU
+  host cannot run the vLLM image"), rightly. The step now runs with the host's own graphics tool off its PATH. With a
+  stand-in `nvidia-smi` that reports another card: master fails cmd2, head passes all 35; without one, 35 passed.
+
 ## Owners named in this card
 
 The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/unit/test_refdata.py` and
 `tests/unit/test_update_path.py` are lane H's from now on. `test_backup_verifies_itself` and
 `test_backup_without_pause` stay lane D's; the same go covers their one-line client-tools fix (bodies only).
+The go 7156065500: `tests/unit/test_restore_roles.py` is lane H's from now on.
 
 ## Files outside the card
 
 Changed in bodies only, after each lane's go: lane D's `tests/unit/test_backup.py`, `tests/unit/test_backup_restic.py`,
 `tests/unit/test_backup_busy_night.py`, `tests/unit/test_restore_drill.py` and `tools/trialbox/backup.py`; lane J's
-`tests/console/test_cjk_layout.py`.
+`tests/console/test_cjk_layout.py` and `tests/unit/test_rc1_refusal_sites.py` (J-5); the console lane's
+`tests/console/test_ops_pages.py`; `tests/integration/test_db_image.py` (H-93); lane D's `tests/unit/test_backup_without_pause.py`,
+`test_backup_vector_store.py`, `test_t728_asof_restore_optouts.py`; lane B's `test_restore_hold.py`, `test_lane_b_on_the_train.py`;
+lane V's `test_backup_licensed_terminology.py`, `test_erasure_reach_restore.py`; the Makefile's `COMPOSE_TEST` and `up-test`;
+`tests/conftest.py`'s `pg_cluster_url`.
 
 ## Not verified
 
