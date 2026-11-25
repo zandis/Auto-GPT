@@ -791,8 +791,10 @@ live-restore)
   trap put_back_all EXIT
   rows() {  # every base table's rows in both databases, the flags store (schema app) left out
     local db q
-    q="SELECT table_schema||'.'||table_name||' '||(xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I.%I', table_schema, table_name), false, true, '')))[1]::text FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema', 'app') ORDER BY 1"
-    for db in trialbox_wf hapi; do dc exec -T db psql -X -At -U hapi -d "$db" -c "$q" | sed "s/^/$db /"; done
+    # H-139: each table's count statement is made by the server (format's %L and %I) and run by psql's \gexec; no XML
+    # function, which a PostgreSQL built without libxml refuses ("unsupported XML feature")
+    q="SELECT format('SELECT %L||'' ''||count(*) FROM %I.%I', table_schema||'.'||table_name, table_schema, table_name) FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema', 'app') ORDER BY table_schema||'.'||table_name"
+    for db in trialbox_wf hapi; do printf '%s\n\\gexec\n' "$q" | dc exec -T db psql -X -At -U hapi -d "$db" | sed "s/^/$db /"; done
   }
   mapfile -t stopped < <(dc ps --services --status running | grep -vx db | sort)
   [ "${#stopped[@]}" -gt 0 ] || fail "no service runs but db before the failing restore"

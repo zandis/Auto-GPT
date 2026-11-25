@@ -28,6 +28,8 @@ from typing import Any
 import pytest
 import yaml
 
+from tests import pg_client
+from tests.host_modes import as_root_makes_it
 from tests.unit.test_doctor_serving import KEY, _inputs, _pins, servers  # noqa: F401 (the fixture)
 from tools.trialbox import backup_schedule as bs
 from tools.trialbox import launch
@@ -230,6 +232,7 @@ def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluste
            "STANDIN_CONTAINER_SPOOL": bs.CONTAINER_SPOOL,
            "TB_SYSTEMD": "0",  # H-92: a root run on a systemd host never enables the host's own backup timers
            **{f"STANDIN_DB_{k}": v for k, v in dbs.items()}}  # fmt: skip
+    as_root_makes_it(d)  # H-139: as the installer leaves it, at any umask of the run
     yield {"root": root, "deploy": root / "deploy", "nas": nas, "env": env, "log": log, "dir": d,
            "key": d / "usb" / "backup.key", "dbs": dbs, "admin": admin, "user": str(info.get("user") or "postgres"),
            "bin": bindir, "python": system_python}  # fmt: skip
@@ -466,7 +469,7 @@ def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_env
     url = box["env"]["STANDIN_DB_URL"]
     hapi = make_conninfo(box["admin"], dbname=box["dbs"]["hapi"])
     made = bk.backup([tmp_path / "nas"], box["deploy"] / "secrets" / "backup.pub",
-                     env={"TB_DB_URL": url, "TB_HAPI_DB_URL": hapi}, dirs={})[0]  # fmt: skip
+                     env={"TB_DB_URL": url, "TB_HAPI_DB_URL": hapi, **pg_client.env()}, dirs={})[0]  # fmt: skip
     root = tmp_path / "opt" / "trialbox"  # an install folder of its own: the box's URL names this server's owner
     skip = shutil.ignore_patterns("__pycache__", "*.pyc", "site", ".env")
     for sub in ("tools", "libs", "deploy"):
@@ -490,6 +493,7 @@ def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_env
     # its shebang's interpreter (`python3 -I`), the stand-in system python, not the test host's /usr/bin/python3
     (bindir / "trialbox").write_text(f'#!/bin/sh\nexec {box["python"]} -I {link} "$@"\n', encoding="utf-8")
     (bindir / "trialbox").chmod(0o755)
+    as_root_makes_it(tmp_path)  # H-139: as the installer leaves it, at any umask of the run
     audit = Path(box["env"]["STANDIN_AUDIT"])
     audit.unlink(missing_ok=True)
     before = len(calls(box))
@@ -516,6 +520,7 @@ def test_the_box_file_wins_except_for_the_module_forms_drill(tmp_path: Path, mon
     restore-drill`` keeps the caller's connection (#1305, review item 12); the installed ``trialbox restore-drill``
     takes the box's."""
     (tmp_path / ".env").write_text(f"TB_DB_URL={DSN}\nTB_IMAGE={PY_IMAGE}\n", encoding="utf-8")
+    as_root_makes_it(tmp_path)  # H-139: as the installer leaves it, at any umask of the run
     monkeypatch.setattr(launch, "DEPLOY", tmp_path)
     monkeypatch.setattr(sys, "path", list(sys.path))
     caller = "postgresql://x@caller-host:5432/x"

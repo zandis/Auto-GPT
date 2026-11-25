@@ -1,0 +1,71 @@
+{
+ "card": "H139",
+ "title": "full-set triage: why the bench host is red where CI is green",
+ "date": "2026-11-25",
+ "source": "docs/handover/full-set-triage-h139-2026-11-25.md",
+ "findings": [
+  {
+   "id": "H139-01",
+   "severity": "Medium",
+   "claim": "the update path read every store's schema version through query_to_xml and xpath, which a PostgreSQL built without libxml refuses (unsupported XML feature), so installed_state stopped on such a server; fixed: two reads with no XML, the statements quoted by the server",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/update.py SCHEMA_SQL, ComposeBox.installed_state, InProcessBox.installed_state"
+  },
+  {
+   "id": "H139-02",
+   "severity": "Low",
+   "claim": "the rehearsal's row count before and after a failing restore used the same query_to_xml and xpath way; fixed: psql's gexec runs each table's count statement made by the server",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/rehearse_box/box.sh rows()"
+  },
+  {
+   "id": "H139-03",
+   "severity": "Low",
+   "claim": "lane H's backup and restore tests ran the bare psql and pg_dump from PATH, red on a host whose PostgreSQL is not on PATH; fixed: the tests hand in the test cluster's own client tools",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_backup_schedule.py, tests/unit/test_restore_from_the_host_h100.py, tests/unit/test_host_commands_own_environment.py, tests/pg_client.py"
+  },
+  {
+   "id": "H139-04",
+   "severity": "Low",
+   "claim": "lane H's fixtures built box trees under the run's umask, so at umask 0002 the product rightly refused them (deploy/.env, deploy/site, a passphrase folder writable by the group); fixed: the built trees as root makes them (H-115's helper)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_host_commands_own_environment.py, tests/unit/test_serving_engine_h112.py, tests/unit/test_kek_env_refused_h97.py"
+  },
+  {
+   "id": "H139-05",
+   "severity": "Low",
+   "claim": "lane D's backup tests run the bare psql and pg_dump from PATH (58 reds on the bench host), and backup.py meets a missing client tool with a bare FileNotFoundError instead of naming it",
+   "lane": "D",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_backup.py, test_backup_restic.py, test_backup_busy_night.py, test_restore_drill.py; tools/trialbox/backup.py take_snapshot"
+  },
+  {
+   "id": "H139-06",
+   "severity": "Low",
+   "claim": "the console's Node Playwright check runs at import inside a skipif, so a node slower than 60 s makes every importing module a collection error, once per xdist worker (112 on the bench host)",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/console/test_cjk_layout.py _node_playwright, imported by tests/console/test_button_targets_9k3.py"
+  },
+  {
+   "id": "H139-07",
+   "severity": "Medium",
+   "claim": "test_erasure_reach errors at setup on the bench host (226), read by the walk as unsupported XML feature; not reproduced: the module passes here and its fixture sends no XML statement",
+   "lane": "B2",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "tests/unit/test_erasure_reach.py reach fixture"
+  }
+ ]
+}
