@@ -197,6 +197,9 @@ warn_unused_ignores = true
 module = [
   "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "sqlglot.*", "duckdb.*",
   "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "pypdf.*",
+  # F0: the console pages a system module has not brought yet (console.app.MODULE_PAGES)
+  "console.still_needed", "console.egress_page", "console.health_page", "console.data_step", "console.support_page",
+  "console.screen_now",
   "uvicorn.*", "numpy.*", "duckdb_extension_fts.*", "paddleocr.*", "fontTools.*", "markdown.*",
 ]
 ignore_missing_imports = true
