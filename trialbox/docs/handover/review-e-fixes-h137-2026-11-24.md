@@ -9,7 +9,9 @@ Findings for builders, so in one language.
 - **Base:** master a3739fca9f7cc9ede71a59347f068eefeb705822
 - **Findings:** [`review-e-fixes-h137-2026-11-24/findings.json`](review-e-fixes-h137-2026-11-24/findings.json)
   (H137-01 to H137-16)
-- **Tests:** `tests/unit/test_review_e_patches.py` (13 tests, 17 cases), in the unit job; no new CI job
+- **Tests:** `tests/unit/test_review_e_patches.py` (13 tests, 17 cases); for the owner's two decisions
+  `tests/unit/test_mail_tls_verified.py` and `tests/unit/test_trusted_proxy_list.py`, and V3-01's test in
+  `tests/console/test_asvs_evidence.py`, no longer a strict xfail. All in the existing jobs; no new CI job
 
 ## What this card is
 
@@ -58,7 +60,7 @@ hidden request would be dropped and the fault would not show. It uses `/v1/model
 ## The highs not applied: triage
 
 Model E's own text was not available (the draft's body was replaced); these are triaged from the integrator's
-descriptions. None is built here.
+descriptions. H137-11 and H137-12 are built on the owner's decisions (below); the others are not built here.
 
 - **H137-11, SMTP and IMAP do not verify TLS (real).** `services/mail_gateway/outbound.py:75,83` and
   `services/mail_gateway/gateway.py:452` pass no TLS context, so the standard library uses one with
@@ -86,13 +88,49 @@ descriptions. None is built here.
 One more, seen while checking H137-06 and filed on the integrator's ruling: **H137-16**, the converse of the prefill
 check: an integer 7 is still "shown" by a quote saying 70 (a substring). Not built.
 
+## The owner's two decisions (#639, 7156806411 items 6 and 7)
+
+**Mail TLS, option 2 (H137-11).** The SMTP relay's and the IMAP server's certificates and host names are checked by
+default (`services/mail_gateway/tls.py`: `ssl.create_default_context()`, which reads the bundle `tb_common.extra_ca`
+builds when the hospital's CA is mounted as `TB_EXTRA_CA`). One switch per server turns the check off,
+`SMTP_TLS_VERIFY=false` or `IMAP_TLS_VERIFY=false`. The audit records each start of the mail gateway that runs with a
+switch off (`mail.tls_unverified`, the server and its host) and each start that speaks to a server with no TLS
+(`mail.plaintext`: `SMTP_STARTTLS=false` on a port other than 465, `IMAP_SSL=false`). The switch is read once at the
+start and holds until the next, so "every use" is recorded per start, not per connection (the IMAP poll runs every
+minute). The install check (`preflight` `mail_relay`) tests the relay's certificate as the gateway will, with the
+hospital's CA file when `TB_EXTRA_CA` names one; it fails an untrusted certificate and warns when the switch is off or
+there is no TLS.
+
+**The trusted proxy, option 3 (H137-12).** One named list, `TB_CONSOLE_FORWARDED_ALLOW_IPS`
+(`libs/tb_common/trusted_proxy.py`). On a box behind Caddy the identity overlay gives the internal network a fixed range
+(`TB_NET_SUBNET`, default 172.31.252.0/24) and Caddy a fixed address in it (`TB_PROXY_ADDR`, default 172.31.252.250);
+the installer writes that address into the list, and the console's command trusts it. The base file, without Caddy,
+still trusts only 127.0.0.1, so parallel compose projects without the overlay never meet one fixed range. The install
+check (`preflight` `name_cert`) fails when the fixed range clashes with a range this host is on (its addresses and
+routes, container bridges left out). On the cluster form `apps.yaml` no longer trusts `*`: the console trusts
+`$(TB_CONSOLE_FORWARDED_ALLOW_IPS)`, which the site names in `site.env` (empty trusts no one). "All" (`*`, `all`,
+`0.0.0.0/0`, `::/0`) stops the console at start in PRODUCTION; the doctor's new line `trusted_proxy` fails it there,
+warns elsewhere, and warns behind Caddy when the list lacks Caddy's address. That closes V3-01: its strict-xfail test is
+a plain test now, with Caddy at its configured address. That is an assertion-state change, for the integrator to rule.
+
+Costs, as found: a box behind Caddy needs its internal network recreated once (`docker compose down`, then `up`) for
+the fixed range; a host already on 172.31.252.0/24 sets another range in `deploy/.env`.
+
 ## Files outside the card
 
 `services/model_guard/__init__.py` (lane D); `services/edc_backend/oidc.py`, `events.py`, `config.py`, `linkmap.py`
 (lane E); `services/edc/prefill.py`, `services/adapter/app.py` (lane J); `services/orchestrator/datacore_api.py`,
-`services/console/audit_page.py` (lane C2); `services/console/auth.py` (lane K). Owners from the OCR ledger on #639.
+`services/console/audit_page.py` (lane C2); `services/console/auth.py` (lane K). For the owner's two decisions:
+`libs/tb_common/config.py` (lane N); `services/mail_gateway/gateway.py`, `deploy/docker-compose.yml` (lane U);
+`services/mail_gateway/app.py` (lane C2); `services/mail_gateway/outbound.py`, `deploy/platform/base/site.env` and
+`tools/trialbox/doctor.py` (no owner in the ledger); `tools/trialbox/preflight.py`, `tests/unit/test_preflight.py`
+(lane K: two probe stubs added to its fixture); `deploy/platform/base/apps.yaml` (lane D);
+`tests/console/test_asvs_evidence.py` (lane V: V3-01's test). Lane H's own: the identity overlay, `deploy/install.sh`,
+`services/console/app.py`, `services/console/i18n_audit.py`, and `tests/unit/test_trialbox_doctor.py` (one check name
+added to its expected set: an assertion change, for the integrator to rule). Owners from the OCR ledger on #639.
 
 ## Not done here
 
-The register is not edited (its keeper adds this card's `findings.json`). The highs above are not built. The whole
-unit and integration run was not run.
+The register is not edited (its keeper adds this card's `findings.json`). H137-13 to H137-16 are not built. The whole
+unit and integration run was not run. The installer's new lines and the overlay's fixed range were not run on a box
+(no Docker here): they are shown by reading and by the tests' reading of the files.

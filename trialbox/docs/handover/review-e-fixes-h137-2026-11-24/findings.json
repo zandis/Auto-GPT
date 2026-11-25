@@ -3,7 +3,7 @@
  "title": "the outside review's fixes, checked and written anew",
  "date": "2026-11-24",
  "source": "docs/handover/review-e-fixes-h137-2026-11-24.md",
- "note": "basis 'shown' means shown on master by the card's unit test (H137-01 to H137-10), by a probe in a session container (H137-11, H137-14) or by reading the code (H137-12, H137-15, H137-16); H137-13 was not run. H137-02 is High on the integrator's ruling 7147065106.",
+ "note": "basis 'shown' means shown on master by the card's unit test (H137-01 to H137-10), by a probe in a session container (H137-11, H137-14) or by reading the code (H137-12, H137-15, H137-16); H137-13 was not run. H137-02 is High on the integrator's ruling 7147065106. H137-11 and H137-12 are built on the owner's decisions (#639 7156806411 items 6 and 7) and shown by tests/unit/test_mail_tls_verified.py, tests/unit/test_trusted_proxy_list.py and V3-01's test.",
  "findings": [
   {
    "id": "H137-01",
@@ -88,18 +88,18 @@
   {
    "id": "H137-11",
    "severity": "High",
-   "claim": "SMTP (outbound.py) and IMAP (gateway.py) pass no TLS context, so the certificate and host are never verified (CERT_NONE): the relay password and mail are open to anyone on the path; the owner chooses verify on with a per-relay CA pin, or off",
+   "claim": "SMTP (outbound.py) and IMAP (gateway.py) passed no TLS context, so the certificate and host were never verified (CERT_NONE); built on the owner's option 2: verified by default, a per-server switch to off, each start with it off or without TLS audited, the install check tests the certificate",
    "lane": "U",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed fd3ee97959e4b4f9f68ba1697e1bf1024f5ac3bf"
   },
   {
    "id": "H137-12",
    "severity": "Medium",
-   "claim": "the platform manifest trusts X-Forwarded-For from every sender (--forwarded-allow-ips *), so a client passes the per-address lock (D-279) and writes the audit's source address; compose trusts only 127.0.0.1 (V3-01); the owner chooses the trusted proxy",
+   "claim": "the platform manifest trusted X-Forwarded-For from every sender (--forwarded-allow-ips *) and compose trusted only 127.0.0.1 behind Caddy (V3-01); built on the owner's option 3: one named list, Caddy's fixed address on a box, the site's range on a cluster, all refused in PRODUCTION, a doctor line",
    "lane": "D",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed fd3ee97959e4b4f9f68ba1697e1bf1024f5ac3bf"
   },
   {
    "id": "H137-13",
