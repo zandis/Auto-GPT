@@ -145,7 +145,7 @@ File: [runbook/29-igx-orin-a6000-real-models.md](runbook/29-igx-orin-a6000-real-
 
 ## 30. Several test boxes on one host
 
-File: [runbook/30-several-test-boxes-on-one-host.md](runbook/30-several-test-boxes-on-one-host.md).
+File: [runbook/30-several-test-boxes-on-one-host.md](runbook/30-several-test-boxes-on-one-host.md). In it: [A PRODUCTION box beside the test boxes: the bench mark](runbook/30-several-test-boxes-on-one-host.md#a-production-box-beside-the-test-boxes-the-bench-mark).
 
 <!-- end of the generated index -->
 

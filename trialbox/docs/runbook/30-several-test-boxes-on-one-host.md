@@ -42,3 +42,25 @@ What a test box is, and is not:
 - **The memory cap is the serving engine's,** not the container engine's: each model server's
   `--gpu-memory-utilization` is scaled so that it asks its card for what it would ask of a card of the cap. Docker
   has no per-container card memory limit. The cap is shown only on the bench host's own cards.
+
+## A PRODUCTION box beside the test boxes: the bench mark
+
+On the owner's bench host only (card H-116, D-1357), the host's one PRODUCTION box may carry the **bench mark** and
+then have test boxes beside it. It holds real data and keeps every PRODUCTION protection (encryption at rest, the
+audit chain, no egress, the key handling, retention, the gateway's limits): its environment stays PRODUCTION.
+
+```sh
+# the PRODUCTION box, marked by the installer's option (as root, from the box's folder)
+sudo deploy/install.sh <bundle>.tar --environment PRODUCTION --bench --answers <answers>.yaml
+```
+
+- **It says so** on every console page and in its footer ("PRODUCTION · BENCH (real data, bench host)"), in
+  `trialbox doctor` (a standing WARN line) and in the install's last lines.
+- **The mark is the option's only.** It is written into `deploy/site/bench-box.env` (root's, with the install's
+  trace) and checked at every install, every start and by doctor. `TB_BENCH` in the caller's environment, in
+  `deploy/.env` with no record, or a record written or copied by hand, is refused.
+- **Refused** on a box that is not PRODUCTION, on a test box and on a rehearsal box, and on a box with a sending
+  identity: a bench box sends no mail outside the host (`SMTP_HOST` empty or the host's own, no `SMTP_USER`).
+- **Without the mark nothing changes:** a PRODUCTION box still refuses a host where a test box runs, and a test box
+  still refuses a host with an unmarked PRODUCTION box (or one whose mark is refused).
+- **Taking the mark off:** empty the box and install it again without `--bench`.

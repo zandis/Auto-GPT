@@ -93,6 +93,8 @@ jobs:
             trialbox/tools/testboxes.sh
             trialbox/tools/rehearse_box/box.sh
             trialbox/tools/rehearse_box/rehearse.sh
+            trialbox/tools/trialbox/benchbox.py
+            trialbox/deploy/settings_guard.sh
         run: |
           if [ "$EVENT" != pull_request ]; then echo "test_boxes=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename')"

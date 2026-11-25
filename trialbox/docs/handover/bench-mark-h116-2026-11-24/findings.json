@@ -1,0 +1,65 @@
+{
+ "card": "H116",
+ "title": "the bench mark",
+ "date": "2026-11-24",
+ "source": "docs/handover/bench-mark-h116-2026-11-24.md",
+ "note": "basis 'shown' means shown by the card's local runs (the real installer on H-94's bench, stand-ins for the container engine); the container rehearsal and the bench host were not run.",
+ "findings": [
+  {
+   "id": "H116-01",
+   "severity": "Low",
+   "claim": "the rehearsal's test-boxes step ran on a pull request only when it touched a path in TEST_BOX_PATHS; tools/trialbox/benchbox.py and deploy/settings_guard.sh were not on the list, so a change to the bench mark alone would not run the step that drives its real install path. Fixed under the integrator's ruling 7142529568: both are on the list, STEP_PATHS pins H-106's list plus exactly these two, and a test runs the step's own text for each",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed e5e6dce6"
+  },
+  {
+   "id": "H116-02",
+   "severity": "Low",
+   "claim": "a sending identity the site's settings bring (the wizard's SMTP_HOST, on a first install) is known only once deploy/.env is written, after the bundle is loaded: the install refuses there, before the stack starts, but the record is already written; every start and doctor refuse the box until the relay is taken out or the box is emptied. A relay already in deploy/.env is refused before anything is written. Fixed with H116-04: the record is written at ENV-BENCH after the relay is checked, so this refusal writes nothing",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8b18b5ad"
+  },
+  {
+   "id": "H116-03",
+   "severity": "Low",
+   "claim": "tools/trialbox/update.py starts the stack again after an update through tools/apply_update.sh, which runs deploy/settings_guard.sh first, so the mark is checked there; a start by hand (docker compose up) is not checked, as for every other start check of settings_guard.sh",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H116-04",
+   "severity": "Medium",
+   "claim": "a refused install --bench left the record (deploy/site/bench-box.env) while its last line said nothing was changed: the record was written in the BENCH block, before the KEK passphrase, the install lock, the host check and the bundle's signature; every start passed it and the host listing named the box bench (review of #1484, 1484-1). Fixed: the BENCH block asks benchbox may (no write); TB_BENCH then the record are written at ENV-BENCH",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8b18b5ad"
+  },
+  {
+   "id": "H116-05",
+   "severity": "Low",
+   "claim": "the start's trigger for the bench check read only a TB_BENCH line at the very start of a line; an indented, export or spaced line with no record was not checked at the start (1484-2). Fixed: the start and install triggers read what the check reads",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8b18b5ad"
+  },
+  {
+   "id": "H116-06",
+   "severity": "Low",
+   "claim": "the check looked at the record with lstat and read it by name twice: a file swapped in between was taken as the mark (1484-3). Fixed: one open with O_NOFOLLOW, fstat of that open, and its own bytes parsed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8b18b5ad"
+  },
+  {
+   "id": "H116-07",
+   "severity": "Low",
+   "claim": "the check's own refusal of a test box's folder had no test (1484-4). Fixed: a test",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 8b18b5ad"
+  }
+ ]
+}

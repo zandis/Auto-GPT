@@ -56,7 +56,7 @@
   </div>
 </header>
 <main id="main">
-{% if 'REHEARSAL' in settings.environment_label or 'TEST BOX' in settings.environment_label %}<div class="banner" role="note" data-testid="rehearsal-banner">{{ settings.environment_label }}</div>{% endif %}
+{% if 'REHEARSAL' in settings.environment_label or 'TEST BOX' in settings.environment_label or 'BENCH' in settings.environment_label %}<div class="banner" role="note" data-testid="rehearsal-banner">{{ settings.environment_label }}</div>{% endif %}
 {% if account_notices %}<section class="card attention" role="alert" data-testid="account-notice">{% for line in account_notices %}<p>{{ line }}</p>{% endfor %}</section>{% endif %}
 {% if pi_tasks %}<section class="card attention" data-testid="task-name-pi">
 <p>{{ t('pi.task.lead') }}</p>

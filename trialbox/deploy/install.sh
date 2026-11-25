@@ -78,6 +78,7 @@ BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
 ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
 TEST_BOX=""; TEST_BOX_SET=0; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
+BENCH=0  # H-116: the command line's only (--bench), never a caller's
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
 # (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk,
@@ -189,6 +190,7 @@ while [ $# -gt 0 ]; do
     --port-offset) PORT_OFFSET="${2:-}"; shift ;;
     --gpus) TEST_GPUS="${2:-}"; shift ;;
     --gpu-mem-gb) TEST_GPU_MEM="${2:-}"; shift ;;
+    --bench) BENCH=1 ;;  # H-116: a PRODUCTION box on the bench host, beside test boxes (BENCH below)
     # REHEARSAL-REAL-SERVERS (H-89): a rehearsal's only (refused below without --rehearsal)
     --rehearsal-real-servers) REAL_SERVERS=1 ;;
     --gpu-index) GPU_INDEX="$2"; shift ;;
@@ -253,6 +255,28 @@ else
   fi
 fi
 # ---- end of TEST-BOX
+# BENCH (H-116, D-1357; the integrator's ruling 7124901315): --bench marks a PRODUCTION box on the owner's bench host:
+# every PRODUCTION protection stays (TB_ENV stays PRODUCTION, so no PoC leniency), and test boxes may run beside it,
+# sharing nothing with it. The mark is this option, written into the folder's own deploy/site/bench-box.env (root's,
+# with the install's trace: tools/trialbox/benchbox.py); a later run, start or command reads the record, never a
+# caller's variable. Refused on a box that is not PRODUCTION, on a test box, and with a sending identity (ENV-BENCH)
+[ -z "${TB_BENCH+x}" ] || die "TB_BENCH is set in this run's environment: the bench mark comes only from the install option --bench, written into the box's own record; unset it (nothing was changed)"  # H-94 (3): a caller's variable never puts a PRODUCTION box beside a test box
+BENCH_MARK=""
+if [ "$BENCH" = 1 ]; then
+  [ -z "${TEST_BOX:-}" ] || die "--bench and --test-box: a test box never carries the bench mark, which is a PRODUCTION box's (nothing was changed)"  # H-94 (3)
+  [ "$REHEARSAL" = 0 ] || die "--bench and --rehearsal: a rehearsal box never carries the bench mark, which is a PRODUCTION box's (nothing was changed)"  # H-94 (3)
+  BENCH_ENV="$(printf '%s' "${ENVIRONMENT:-PRODUCTION}" | tr '[:lower:]' '[:upper:]')"; BENCH_NOW="$(tb_env_of "$ROOT/deploy/.env")"
+  [ "$BENCH_ENV" = PRODUCTION ] && { [ -z "$BENCH_NOW" ] || [ "$BENCH_NOW" = PRODUCTION ]; } \
+    || die "--bench marks a PRODUCTION box, not ${BENCH_NOW:-$BENCH_ENV}: the mark keeps every PRODUCTION protection and is never a PoC box's (nothing was changed)"  # H-94 (3)
+  command -v python3 >/dev/null || die "--bench needs python3 on the host (tools/trialbox/benchbox.py writes the box's record)"  # H-94 depends (3): the record is the mark
+  python3 -m tools.trialbox.benchbox may --deploy "$ROOT/deploy" >/dev/null || die "--bench: refused (above)"  # H-94 (3)
+  BENCH_MARK="--bench"  # review 1484-1: the record is written at ENV-BENCH, past every refusal that says nothing was changed
+fi
+if [ "$BENCH" = 0 ] && { [ -e "$ROOT/deploy/site/bench-box.env" ] || [ -L "$ROOT/deploy/site/bench-box.env" ] || { [ -f "$ROOT/deploy/.env" ] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?TB_BENCH[[:space:]]*=' "$ROOT/deploy/.env"; }; }; then
+  command -v python3 >/dev/null || die "this box carries the bench mark, which needs python3 on the host to be checked (tools/trialbox/benchbox.py)"  # H-94 depends (3): an unchecked mark would put a PRODUCTION box beside test boxes
+  BENCH_MARK="$(python3 -m tools.trialbox.benchbox check --deploy "$ROOT/deploy")" || die "the bench mark of this box is refused (above)"  # H-94 (3): a mark the install option did not write never puts a PRODUCTION box beside test boxes
+fi
+# ---- end of BENCH
 # KEK-INPUT (H-96, F-45, H-94 (5); the integrator's ruling 7094934985): never from the environment (refused, before
 # anything); from --kek-passphrase-file FILE (checked here and read again by the seal step, which removes it) or
 # --kek-passphrase-stdin (read here, once). The signed re-run gets a stdin passphrase on a pipe at fd 8
@@ -691,6 +715,8 @@ elif ! tb_poc_box && command -v python3 >/dev/null; then
   [ "$TB_RC" = 0 ] || [ "$TB_RC" = 3 ] || die "the boxes on this host could not be listed (tools/trialbox/testbox.py others, exit $TB_RC): a PRODUCTION box is never installed beside a test box it could not see; nothing was changed"  # H-94 (3)
   if [ "$TB_RC" = 0 ]; then
     TB_TESTS="$(printf '%s\n' "$TB_OTHERS" | awk -F'\t' '$2 == "test" || $1 ~ /^tbt-/ {print $1}' | tr '\n' ' ')"
+    # H-116: a bench box (PRODUCTION, its mark the install option's) may have test boxes beside it
+    [ -z "$BENCH_MARK" ] || { echo "install: note: a bench box (PRODUCTION · BENCH); test boxes beside it on this host: ${TB_TESTS:-none}" >&2; TB_TESTS=""; }
     [ -z "${TB_TESTS// /}" ] || die "this host runs test boxes (${TB_TESTS% }): a PRODUCTION box is installed on a host of its own; remove them first (tools/testboxes.sh remove NAME); nothing was changed"  # H-94 (3): a test box beside the real one takes the real one's patients
   fi
 fi
@@ -1039,6 +1065,14 @@ TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
 TB_ENV_SITE="$(tb_env_raw deploy/.env)"  # H94-08: as compose reads it (the line above is master's; tests pin its place)
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# ENV-BENCH (H-116): deploy/.env says TB_BENCH=1 (the console's banner reads it there), and the mark is checked again
+# now that deploy/.env is the site's (the wizard's mail relay): a bench box sends no mail outside the host
+if [ -n "$BENCH_MARK" ]; then
+  python3 -m tools.trialbox.benchbox may --deploy "$ROOT/deploy" >/dev/null || die "the bench mark of this box is refused (above)"  # H-94 (3)
+  envset TB_BENCH 1  # before the record: a stop between the two leaves TB_BENCH with no record, which is refused
+  [ "$BENCH" = 0 ] || python3 -m tools.trialbox.benchbox write --deploy "$ROOT/deploy" >/dev/null || die "--bench: the record cannot be written (above)"  # H-94 (3)
+  python3 -m tools.trialbox.benchbox check --deploy "$ROOT/deploy" >/dev/null || die "the bench mark of this box is refused (above)"  # H-94 (3)
+fi
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
 # and `trialbox` command reads them there. No unit, timer or cron file of the host's is a test box's (TB_SYSTEMD=0)
 if [ -n "${TEST_BOX:-}" ]; then
@@ -1899,6 +1933,8 @@ if [ -n "${TEST_BOX:-}" ]; then
   echo "  $(python3 -m tools.trialbox.testbox words --deploy "$ROOT/deploy")"
   echo "  Its commands:       sudo trialbox --box ${TEST_BOX:-} doctor   (or tools/testboxes.sh list; remove: tools/testboxes.sh remove ${TEST_BOX:-})"
 fi
+# BENCH (H-116): the summary says what the box is
+[ -z "$BENCH_MARK" ] || echo "  $(python3 -m tools.trialbox.benchbox words --deploy "$ROOT/deploy")"
 # REHEARSAL-REAL-SERVERS (H-89): the summary says what the box is
 if [ "$REAL_SERVERS" = 1 ]; then
   echo "  REHEARSAL BOX:      $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["words"])' deploy/site/rehearsal-real-servers.json)"

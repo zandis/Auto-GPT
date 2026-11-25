@@ -132,6 +132,14 @@ if rehearsal_sign; then
     exit 1  # H-94 (3)
   fi
 fi
+# H-116 (D-1357): a box that carries the bench mark starts only with the mark the install option wrote (the record is
+# root's, with the install's trace) and only as a PRODUCTION box with no sending identity: tools/trialbox/benchbox.py
+if [ -e "$DEPLOY/site/bench-box.env" ] || [ -L "$DEPLOY/site/bench-box.env" ] || grep -Eq '^[[:space:]]*(export[[:space:]]+)?TB_BENCH[[:space:]]*=' "$DEPLOY/.env" 2>/dev/null; then
+  if ! (cd "$DEPLOY/.." && python3 -m tools.trialbox.benchbox check --deploy "$DEPLOY" >/dev/null) >&2; then
+    echo "TrialBox REFUSED to start: this box's bench mark is refused (above), or the check could not run. The mark is written by deploy/install.sh --bench only; run it again, or empty the box (RUNBOOK part 30)" >&2
+    exit 1  # H-94 (3): a mark the install option did not write never keeps a PRODUCTION box beside test boxes
+  fi
+fi
 [ -f "$DEPLOY/settings.yaml" ] || exit 0
 got="${TB_SETTINGS_FILE:-$(sed -n 's/^TB_SETTINGS_FILE=//p' "$DEPLOY/.env" 2>/dev/null | tail -1)}"
 case "$got" in

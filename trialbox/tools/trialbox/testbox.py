@@ -46,6 +46,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 RECORD = Path("site") / "test-box.env"  # under the deploy folder
 OVERRIDE = Path("site") / "test-box.yml"
@@ -310,7 +311,7 @@ def override(deploy: Path, files: Sequence[Path]) -> Path | None:
 @dataclass(frozen=True)
 class Seen:
     project: str
-    kind: str  # test | poc | production
+    kind: str  # test | poc | bench | production
     root: str  # "" when no container says where it was started from
 
 
@@ -326,9 +327,10 @@ def _lines(run: Runner, argv: Sequence[str]) -> list[str]:
 
 def boxes(run: Runner = _run) -> list[Seen]:
     """Every box the engine holds: each compose project with a site-keys volume of its own. Its root is the folder
-    its containers were started from; its kind is its record's (a test box), else its environment's, read as
-    tools/trialbox/stops.py reads it. A box whose folder cannot be found or read counts as PRODUCTION."""
-    from tools.trialbox import stops
+    its containers were started from; its kind is its record's (a test box, or a bench box: H-116, a PRODUCTION box
+    whose bench mark tools/trialbox/benchbox.py holds), else its environment's, read as tools/trialbox/stops.py reads
+    it. A box whose folder cannot be found or read, or whose mark is refused, counts as PRODUCTION."""
+    from tools.trialbox import benchbox, stops
 
     projects = sorted(set(_lines(run, ["docker", "volume", "ls", "--filter", f"label={LABEL_VOLUME}={SECRETS_VOLUME}",
                                        "--format", f'{{{{.Label "{LABEL_PROJECT}"}}}}'])))  # fmt: skip
@@ -349,10 +351,20 @@ def boxes(run: Runner = _run) -> list[Seen]:
                 except Refused:
                     b = None
                 kind = "test" if b is not None and b.project == p else "production"
+        elif root and _bench(benchbox, Path(root) / "deploy"):
+            kind = "bench"
         elif root and stops.poc_box(Path(root) / "deploy"):
             kind = "poc"
         out.append(Seen(p, kind, root))
     return out
+
+
+def _bench(benchbox: ModuleType, deploy: Path) -> bool:
+    """A bench box (H-116): its mark holds; a refused one is no bench box (it counts as PRODUCTION)."""
+    try:
+        return benchbox.check(deploy) is not None
+    except (benchbox.Refused, OSError):
+        return False
 
 
 def others(deploy: Path, run: Runner = _run) -> list[Seen]:

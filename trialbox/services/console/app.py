@@ -170,6 +170,8 @@ def environment_banner(env: Mapping[str, str]) -> str:
     deploy/install.sh --rehearsal only, on TEST or VALIDATION) says REHEARSAL, so it is never taken for a validation
     box."""
     name = environment_name(env)
+    if name == "PRODUCTION" and (env.get("TB_BENCH") or "").strip() == "1":  # H-116: deploy/install.sh --bench only
+        return "PRODUCTION · BENCH (real data, bench host)"
     box = (env.get("TB_TEST_BOX") or "").strip()  # H-106: one of several test boxes on a host says which, every page
     if box and name in ("DEV", "TEST"):
         return f"{name} TEST BOX {box}: one of several boxes on this host; synthetic data only"
