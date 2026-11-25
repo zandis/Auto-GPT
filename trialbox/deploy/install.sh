@@ -215,7 +215,7 @@ alive_start() {
   # it also ends within a minute of the installer's own end (set -e, a signal): it never outlives the install
   ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
     while kill -0 "$installer" 2>/dev/null; do
-      sleep 60 & s=$!; wait "$s"; n=$((n + 1))
+      sleep 60 </dev/null >/dev/null 2>&1 & s=$!; wait "$s"; n=$((n + 1))
       kill -0 "$installer" 2>/dev/null && echo "    ... still $what ($n min)" >&2
     done
   ) >&2 & ALIVE_PID=$!
