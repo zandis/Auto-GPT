@@ -497,3 +497,40 @@ def test_a_signal_after_the_state_line_changes_neither_the_line_nor_the_code(
                            json.dumps({"hold": "released"}), 0, "--restart")  # fmt: skip
     err = capsys.readouterr().err
     assert code == 0 and err.count("restore: the box now:") == 1 and "are healthy" in err, (code, err[-2000:])
+
+
+@pytest.mark.parametrize("where", ["the stop fails", "the container call fails"])
+def test_a_signal_while_a_failure_is_said_ends_130(
+    where: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """OCR 1496-2 (#1496's review): a signal that cut the state line short ("not asked (interrupted again)") while a
+    failure was said ended 1, the failure's code, as _after already did not; it ends 130 on every path. OCR's test."""
+    from typing import Any
+
+    from tests.unit.test_restore_from_the_host_h100 import Recorder, _stand_in
+    from tools.trialbox import __main__ as cli
+    from tools.trialbox import box_restore, update
+
+    failed: list[bool] = []
+
+    class SignalWhileSaid(Recorder):
+        def __call__(self, argv: list[str], **kw: object) -> str:
+            if "ps" in argv and failed:  # the state line asks compose: the signal lands here
+                raise box_restore.HostInterrupted("signal SIGTERM")
+            if "stop" in argv and where == "the stop fails":
+                failed.append(True)
+                raise update.UpdateFailed("compose stop ... exit 1: synthetic")
+            return super().__call__(argv, **kw)
+
+    def call(argv: list[str], values: dict[str, str], base: Any = None) -> tuple[int, str]:
+        failed.append(True)
+        raise ValueError("synthetic failure of the container call")
+
+    deploy = _box(tmp_path)
+    _stand_in(monkeypatch, SignalWhileSaid(running=["db", "console"]))
+    monkeypatch.setattr(box_restore, "_call", call)
+    argv = ["restore", str(tmp_path / "nas" / BACKUP), "--key", str(tmp_path / "usb" / "backup.key"), "--yes",
+            "--restart", "--deploy", str(deploy)]  # fmt: skip
+    code = cli.main(argv, installed=True)
+    assert "not asked (interrupted again)" in capsys.readouterr().err
+    assert code == 130

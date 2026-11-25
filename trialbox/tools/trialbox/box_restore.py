@@ -602,23 +602,25 @@ class BoxRestore:
             why = str(e) or type(e).__name__
             if started and not isinstance(e, RestoreStopped):
                 keep_work = True  # the container may still be putting the box back from it
-                self._say(stopped, f"unknown: the restore's container was started and this step stopped "
-                          f"({type(e).__name__}); its work folder {work} is kept",
-                          "docker ps: wait until no restore container runs, then trialbox doctor; do not start "
-                          "the services before",
-                          {"error": why[-300:], "stopped": stopped, "file": file.name,
-                           "state": "unknown"})  # fmt: skip
-                return 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
+                said = self._say(stopped, f"unknown: the restore's container was started and this step stopped "
+                                 f"({type(e).__name__}); its work folder {work} is kept",
+                                 "docker ps: wait until no restore container runs, then trialbox doctor; do not "
+                                 "start the services before",
+                                 {"error": why[-300:], "stopped": stopped, "file": file.name,
+                                  "state": "unknown"})  # fmt: skip
+                # OCR 1496-2: a signal that cut the state line short ends 130, as in _after
+                return 130 if not said or isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
+            said = True
             if stopped or not isinstance(e, RestoreStopped):
-                self._say(stopped, "not changed by this command (the restore did not start)",
-                          f"start them as they were: {self._start_line(stopped)}; or try again: {again}",
-                          {"error": why[-300:], "stopped": stopped, "file": file.name})  # fmt: skip
+                said = self._say(stopped, "not changed by this command (the restore did not start)",
+                                 f"start them as they were: {self._start_line(stopped)}; or try again: {again}",
+                                 {"error": why[-300:], "stopped": stopped, "file": file.name})  # fmt: skip
             if isinstance(e, RestoreStopped):
                 raise
             if isinstance(e, (KeyboardInterrupt, HostInterrupted)):
                 return 130
             print(f"restore: {type(e).__name__}: {why[-400:]}", file=sys.stderr)
-            return 1
+            return 1 if said else 130  # OCR 1496-2
         finally:
             if not keep_work:  # H-142 (.f): no signal cuts a clean-up short; it is taken after it
                 with sigends.held():

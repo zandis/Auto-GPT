@@ -54,6 +54,9 @@ defaults: a signal in those few milliseconds is the default's death. That window
 - **The entry's own window.** For `restore` and `update`, M's block notes a signal that comes before the command
   takes its handlers (the parsing, the imports). The command's `sigends.replay()` hands it on, so it ends as a
   signal before any change ends.
+- **OCR's two Lows on #1496 (7151560477).** 1496-1 is H138-02, closed by the row above. 1496-2 is taken as OCR
+  wrote it, with its test (`test_a_signal_while_a_failure_is_said_ends_130`). A signal that cuts the state line
+  short ("not asked (interrupted again)") while a failure is being said ends 130, not the failure's 1.
 - **.h.** `update.main_apply` takes the update's `Stops` at its first line and hands them to the run.
   `Stops` is entered twice (the command, the run) and given back once. A signal before the run's first step is said
   and refused ("update REFUSED: stopped by SIGTERM before anything was changed; nothing was changed"), 1. On the
