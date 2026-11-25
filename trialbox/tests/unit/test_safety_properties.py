@@ -739,11 +739,13 @@ def gap_lake() -> _DuckLake:
     con.execute(
         "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, code VARCHAR, system VARCHAR, onset DATE, recorded DATE)"
     )
-    con.execute("CREATE TABLE medication (pid VARCHAR, mid VARCHAR, atc VARCHAR, authored DATE)")
+    con.execute(
+        'CREATE TABLE medication (pid VARCHAR, mid VARCHAR, atc VARCHAR, authored DATE, start DATE, "end" DATE)'
+    )
     for pid, code, system, onset, recorded, _ in GAP_ROWS:
         con.execute("INSERT INTO condition VALUES (?, ?, ?, ?, ?, ?)", [pid, f"c-{pid}", code, system, onset, recorded])
     for pid, atc, authored, _ in MED_ROWS:
-        con.execute("INSERT INTO medication VALUES (?, ?, ?, ?)", [pid, f"m-{pid}", atc, authored])
+        con.execute("INSERT INTO medication VALUES (?, ?, ?, ?, NULL, NULL)", [pid, f"m-{pid}", atc, authored])
     return _DuckLake(con)
 
 

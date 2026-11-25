@@ -85,6 +85,7 @@ same month-end as the DAS28. That is a reading of the code; the single patient w
 | `test_cql_sql_generators.py::test_atoms_cql_snapshot_and_determinism`, `::test_atoms_sql_snapshot_and_determinism` | `ATOMS.cql` and `ATOMS.sql` rewritten with the test's own `UPDATE_SNAPSHOTS=1` |
 | `test_fhir_inbound_contract.py::test_medication_reference_is_resolved_and_statements_are_read` | 4 weeks end on 2026-03-28, the last covered day; was 2026-03-29 |
 | `test_code_coverage.py::test_a_diagnosis_with_an_empty_code_is_unreadable` | its medication table gains empty `start` and `end` columns; its assertions stand |
+| `test_safety_properties.py`, the `gap_lake` fixture | its medication table gains empty `start` and `end` columns; no assertion changed |
 | `test_criteria_safety.py::test_cql_carries_the_same_rules_and_translates` | the new CQL text of the no-end rule; its other assertions stand |
 
 ## Duration criteria ("on drug X for at least N days", ruling 3)
