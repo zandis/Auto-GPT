@@ -15,11 +15,11 @@
   },
   {
    "id": "INTSA-02",
-   "severity": "Medium",
-   "claim": "NAV's likely-eligible sheet needs every inclusion answered yes, so a note answer (or an unknown) on an inclusion still keeps a patient off that sheet; unchanged, and pinned by a test",
+   "severity": "High",
+   "claim": "NAV dropped a patient for a note \"not met\" on an inclusion; fixed: the patient stays on the sheet with the inclusion a row to confirm, and a draft never writes a note exclusion as present",
    "lane": "E",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed",
    "place": "services/orchestrator/scenarios/nav.py classify"
   },
   {
@@ -61,11 +61,20 @@
   {
    "id": "INTSA-07",
    "severity": "Low",
-   "claim": "the installer writes TB_NOTE_BLOCK=both_agree and the doctor reads an unset one as both_agree (its tests pin it); neither can exclude a patient, both decide final only",
+   "claim": "for lane H's card: the installer writes TB_NOTE_BLOCK=both_agree and the doctor reads an unset one as both_agree (its tests pin it); neither can exclude a patient, both decide final only",
    "lane": "H",
    "basis": "shown",
    "state": "open",
    "place": "deploy/install.sh, tools/trialbox/doctor.py check_note_block"
+  },
+  {
+   "id": "INTSA-08",
+   "severity": "Low",
+   "claim": "NAV still keeps a patient off the likely-eligible sheet for a note inclusion answered unknown (disagreement, no quote, weak or cut \"met\"), and for a coded unknown, as before; only the note \"not met\" was ruled",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/orchestrator/scenarios/nav.py classify"
   }
  ]
 }

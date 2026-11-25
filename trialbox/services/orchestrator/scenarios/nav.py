@@ -1,7 +1,8 @@
 """NAV (SPEC §8.4, weekly; or ``NAV <ruleset> dept=<code>`` by mail): NHI reimbursement navigation for patients with
 an appointment in the next 14 days in the department(s).
 
-    likely_eligible  = inclusions pass, no exclusion, no active approval, no application in the last 90 days
+    likely_eligible  = inclusions pass (or only a note speaks against one, D-1072), no exclusion, no active
+                       approval, no application in the last 90 days
     renewal_due      = active approval ending within renewal_lead_days, renewal criteria not failing
     doc_gaps         = rows of the two lists above with documentation criteria missing (+ suggested orders)
     maybe_ineligible = active approval and a renewal criterion fails (note: with confidence ≥ t)
@@ -76,7 +77,8 @@ def classify(
     """Which NAV sheet a patient is on, and what is still to confirm. Each criterion's answer (yes / no / unknown)
     is the one status function's (:func:`matching.decision.answer_of`, T-709, D-478) under the run's policy
     (``t``, ``note_block``): one model's "not met", a weak answer or one with notes left out is unknown, a row to
-    confirm, never a reason to drop the patient (review H2, M1d)."""
+    confirm, never a reason to drop the patient (review H2, M1d); a note "not met" on an inclusion
+    is one too (D-1072)."""
     by = rs.by_id()
     policy = decision.Policy(t, note_block)
     status: dict[str, list[tuple[str, str]]] = {"inclusion": [], "exclusion": [], "renewal": [], "documentation": []}
@@ -107,7 +109,11 @@ def classify(
         return None, missing
     if last_app is not None and last_app >= run_date - timedelta(days=lookback_days):
         return None, missing  # application already in progress
-    if all(ok == "yes" for _, ok in status["inclusion"]) and not any(ok == "no" for _, ok in status["exclusion"]):
+    # D-1072: the one rule's note "not met" keeps the patient, the inclusion a row to confirm (as review in SCREEN)
+    against = {v.id for v in pv.verdicts if decision.reviews_inclusion(by[v.id], v)}
+    if all(ok == "yes" or cid in against for cid, ok in status["inclusion"]) and not any(
+        ok == "no" for _, ok in status["exclusion"]
+    ):
         return "likely_eligible", missing
     return None, missing
 
@@ -330,8 +336,10 @@ def _draft(
     excl = [
         (
             by[v.id].label or by[v.id].text[:30],
-            # D-478: one model's "present" is not written as present in a draft: it is left to fill in
-            {"pass": "無", "fail": "有", "unknown": "[待補]", "pending_human": "[待補]"}[shown_of(v)[0]],
+            # D-478, D-1072: a note "present" is not written as present in a draft: it is left to fill in
+            {"pass": "無", "fail": "有", "unknown": "[待補]", "pending_human": "[待補]"}[
+                "unknown" if v.verdict == "fail" and v.basis in ("pair", "single") else shown_of(v)[0]
+            ],
         )
         for v in row.criteria
         if by[v.id].kind == "exclusion"

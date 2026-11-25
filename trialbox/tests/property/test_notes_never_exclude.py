@@ -24,6 +24,7 @@ from __future__ import annotations
 import itertools
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -31,6 +32,7 @@ from matching import decision
 from matching.cascade import engine as cascade_engine
 from matching.cascade.judge import AgreementJudge, JudgeReply, verify_span
 from matching.note_answer import NoteEffect, note_answer_may
+from orchestrator.reports import docx_draft
 from orchestrator.scenarios import nav
 from orchestrator.scenarios.evaluate import (
     NoteJudge,
@@ -307,6 +309,43 @@ def test_the_default_policy_is_never_and_both_agree_does_not_exclude(monkeypatch
     r = NoteResult("pass", 0.95, STATED, reason="note", dids=["d1"], sentence=STATED, affirmed=True)
     v = not_final(CRITERIA[2], note_verdict(CRITERIA[2], r, True), may)
     assert may and tier(RS, [_coded("pass"), v], 0.75, note_block=may)[0] == "review"
+
+
+def test_nav_never_drops_a_patient_for_a_note_not_met_on_an_inclusion() -> None:
+    """NAV: a note "not met" on an inclusion keeps the patient on the sheet, with the inclusion a row to confirm, for
+    every basis, quote, confidence and policy; a coded "not met" (or no coded answer) still keeps them off it."""
+    for c in (CRITERIA[1], CRITERIA[3]):
+        for basis, conf, quote, policy in itertools.product(("pair", "single", None), (0.5, 0.95), QUOTES, POLICIES):
+            b: Any = basis
+            row = CriterionVerdict(id=c.id, verdict="fail", basis=b, evidence=Evidence(resource_refs=[], quote=quote,
+                                                                                     confidence=conf))  # fmt: skip
+            for coded, want in (("pass", "likely_eligible"), ("fail", None), ("unknown", None)):
+                pv = PatientVerdicts("P-1", [_coded(coded), row], "review", [], 0)
+                name, missing = nav.classify(RS, pv, None, None, date(2026, 10, 5), 30, 90, policy.threshold,
+                                             policy.note_block)  # fmt: skip
+                assert name == want, (c.id, basis, conf, quote, policy, coded)
+                assert c.id in [m.criterion_id for m in missing]
+
+
+@pytest.mark.parametrize("basis", ["pair", "single"])
+def test_a_nav_draft_never_says_a_note_exclusion_is_present(basis: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A patient a note speaks against is on the sheet, so has a draft: the exclusion is left to fill in, never
+    written as present; a coded one is written."""
+    seen: list[Any] = []
+    monkeypatch.setattr(docx_draft, "render", lambda *a: seen.extend([a[7]]))
+    rows = [
+        CriterionVerdict(id="R-EXC-01", verdict="fail", basis=basis, final=True, affirmed=True,
+                         evidence=Evidence(resource_refs=[], quote=STATED, confidence=0.95)),
+        CriterionVerdict(id="R-EXC-02", verdict="fail", basis="coded", evidence=Evidence(resource_refs=["Condition/1"])),
+    ]  # fmt: skip
+    rs: Any = SimpleNamespace(by_id=RS.by_id, id="R", version="1", manifest=SimpleNamespace(
+        docx_template="t.docx", routing=SimpleNamespace(list_to=["crc@hospa.test"])))  # fmt: skip
+    row: Any = SimpleNamespace(pid="P-1", criteria=rows, approval_end=None, practitioner_id=None)
+    ctx: Any = SimpleNamespace(services=SimpleNamespace(llm=None), publish=lambda *a, **kw: None)
+    facts: Any = SimpleNamespace()
+    meta: Any = None
+    nav._draft(ctx, rs, row, facts, meta, "", {}, [])
+    assert [w for _, w in seen[0]] == ["[待補]", "有"]
 
 
 def test_a_stored_row_never_excludes_when_re_tiered() -> None:

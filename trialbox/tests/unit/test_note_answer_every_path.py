@@ -585,7 +585,7 @@ PATHS: dict[str, dict[str, tuple[tuple[str | None, ...], tuple[str | None, ...]]
         "case": (("sheet",), ("sheet",)),
     },
 }
-PATHS["inclusions"] = {**PATHS["exclusions"], "nav": (("-",), ("-",))}
+PATHS["inclusions"] = {**PATHS["exclusions"], "nav": (("likely_eligible",), ("-",))}  # D-1072: the note inclusion stays
 LISTS = [p for p in PATHS["exclusions"] if p not in ("nav", "case")]  # the paths that publish a tier and the rows
 EVERY = [pytest.param(path, i, id=f"{path}-{i.name}") for path in PATHS["exclusions"] for i in [*INPUTS, *I_INPUTS]]
 EVERY_CONTROL = [
@@ -902,12 +902,12 @@ class _IRs:
 
 @pytest.mark.parametrize("case", [pytest.param(i, id=f"nav.classify-{i.name}") for i in I_INPUTS])
 def test_nav_reads_an_inclusion_not_met_from_the_notes_as_a_row_to_confirm(case: Input) -> None:
-    """NAV (line 83: the status rule's answer per criterion): the inclusion is a 確認 row, not a "no". A patient with
-    an inclusion not "yes" is on no NAV list (``nav.lists``), so the row is what NAV's rule changes."""
+    """NAV (line 83: the status rule's answer per criterion): the inclusion is a 確認 row, not a "no", and the patient
+    stays on the sheet (D-1072; a patient with an inclusion not "yes" was on no NAV list before)."""
     v = note_verdict(I_BY_ID[case.cid], _i_note_result(case), pair=True)
     pv = PatientVerdicts("P1", _i_patient(v), "review", [], 0)
     name, missing = nav.classify(cast(Any, _IRs()), pv, None, None, RUN, 42, 90, 0.75, True)
-    assert name is None and [m.criterion_id for m in missing] == [case.cid]
+    assert name == "likely_eligible" and [m.criterion_id for m in missing] == [case.cid]  # D-1072
 
 
 @pytest.mark.parametrize("case", [pytest.param(i, id=f"nav.classify-{i.name}") for i in I_CONTROLS])
