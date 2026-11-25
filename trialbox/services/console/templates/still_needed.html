@@ -1,16 +1,10 @@
 {% extends "base.html" %}
 {# M1 (D-1280): "Information still needed": the open items by the step that needs them, and every install question #}
-{% block title %}{{ t('stillneeded.title') }}{% endblock %}
-{% macro input(name, value) %}
-{% if name == 'source_kind' %}<label for="f-{{ name }}">{{ t('stillneeded.field.' + name) }}</label>
-<select id="f-{{ name }}" name="{{ name }}">{% for k in kinds %}<option value="{{ k }}"{% if value == k %} selected{% endif %}>{{ t('stillneeded.kind.' + k) }}</option>{% endfor %}</select>
-{% elif name == 'chartno_rule' %}<label for="f-{{ name }}">{{ t('stillneeded.field.' + name) }}</label>
-<select id="f-{{ name }}" name="{{ name }}"><option value="">{{ t('stillneeded.rule.unset') }}</option>{% if found.get(name) %}<option value="{{ found[name] }}"{% if value == found[name] %} selected{% endif %}>{{ found[name] }}</option>{% endif %}<option value="asis"{% if value == 'asis' %} selected{% endif %}>{{ t('stillneeded.rule.asis') }}</option></select>
-{% elif name == 'second_disk' %}<label><input type="checkbox" name="{{ name }}" value="yes"{% if value %} checked{% endif %}> {{ t('stillneeded.field.' + name) }}</label>
-{% else %}<label for="f-{{ name }}">{{ t('stillneeded.field.' + name) }}</label>
-<input id="f-{{ name }}" name="{{ name }}" maxlength="255" autocapitalize="none" spellcheck="false" value="{{ value }}">{% endif %}
-{% endmacro %}
+{% import "_fields.html" as fm with context %}
+{% set noauto = {'autocapitalize': 'none', 'spellcheck': 'false', 'maxlength': '255'} %}
+{% block title %}{{ fm.title(fe, t('stillneeded.title')) }}{% endblock %}
 {% block content %}
+{{ fm.error_summary(fe, testid='sn-errors') }}
 <div class="headrow"><h1>{{ t('stillneeded.title') }}</h1><a class="button secondary" href="/admin">{{ t('nav.admin') }}</a></div>
 <p>{{ t('stillneeded.intro') }}</p>
 {% if sent %}<p class="ok" role="status" data-testid="sn-sent">{{ t('stillneeded.sent') }}</p>{% endif %}
@@ -26,12 +20,11 @@
 {% if n.key == 'certificate' %}<p class="hint">{{ t('stillneeded.cert.help') }}</p>{% endif %}
 {% if r.failed %}<p class="error" data-testid="sn-failed-{{ n.key }}">{{ t('stillneeded.failed') }} <span lang="en">{{ r.failed }}</span></p>{% endif %}
 {% if not r.fields %}<p class="hint">{{ t('stillneeded.onhost') }}</p>
-{% elif can and r.state != 'waiting' %}<details{% if item == n.key %} open{% endif %}><summary>{{ t('stillneeded.fill') }}</summary>
-<form method="post" action="/admin/still-needed/{{ n.key }}" autocomplete="off">
+{% elif can %}{% set pre = 'sn-' ~ n.key %}<details{% if fe and item == n.key %} open{% endif %}><summary>{{ t('stillneeded.fill') }}</summary>
+<form method="post" action="/admin/still-needed/{{ n.key }}" autocomplete="off" data-fields="still-needed">
 <input type="hidden" name="csrf" value="{{ csrf }}">
-{% if item == n.key and err %}<p class="error" role="alert" data-testid="sn-err-{{ n.key }}">{{ t('stillneeded.err.' + err) }}</p>{% endif %}
 {% set hits = r.fields|select('in', found)|list %}{% if hits %}<p class="hint" data-testid="sn-found-{{ n.key }}">{{ t('stillneeded.proposed') }} {% for f in hits %}<span class="mono">{{ found[f] }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% else %}<p class="hint">{{ t('stillneeded.notfound') }}</p>{% endif %}
-{% for f in r.fields %}{{ input(f, values.get(f, '') if item == n.key else found.get(f, '')) }}{% endfor %}
+{% for f in r.fields %}{% if f in choices %}{{ fm.field(fe, 'still-needed', pre, f, t('stillneeded.field.' + f), found.get(f, ''), kind='select', options=choices[f]) }}{% elif f == 'second_disk' %}{{ fm.field(fe, 'still-needed', pre, f, t('stillneeded.field.' + f), 'yes', kind='checkbox') }}{% else %}{{ fm.field(fe, 'still-needed', pre, f, t('stillneeded.field.' + f), found.get(f, ''), attrs=noauto) }}{% endif %}{% endfor %}
 <button type="submit" data-testid="sn-save-{{ n.key }}">{{ t('stillneeded.save') }}</button>
 </form></details>{% endif %}
 </article>{% endfor %}

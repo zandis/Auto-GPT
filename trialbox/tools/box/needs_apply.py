@@ -41,6 +41,7 @@ FIELDS: dict[str, tuple[str, ...]] = {
     "certificate": ("tls_root_confirmed_by",),
 }
 SOURCE_KINDS = ("csv", "ssmix2")
+ITEM_FIELDS = tuple(f for fields in FIELDS.values() for f in fields)
 
 
 class NeedsError(ValueError):
@@ -109,9 +110,7 @@ def clean(item: str, given: Mapping[str, str]) -> Change:
         return Change({"SMTP_HOST": got["smtp_host"], "SMTP_PORT": port}, {}, got)
     if item == "request_mailbox":
         auth = host("mta_authserv_id")
-        return Change(
-            {"IMAP_HOST": host("imap_host"), "TB_MAIL_AUTHSERV_ID": auth}, {}, {"mta_authserv_id": auth}
-        )
+        return Change({"IMAP_HOST": host("imap_host"), "TB_MAIL_AUTHSERV_ID": auth}, {}, {"mta_authserv_id": auth})
     if item == "backup_alarm":
         who = person("health_page_person")
         return Change({"TB_BACKUP_ALERT_WATCHER": who}, {}, {"health_page_person": who})

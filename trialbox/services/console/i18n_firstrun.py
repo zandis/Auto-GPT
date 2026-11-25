@@ -11,7 +11,7 @@ EN: dict[str, str] = {
     "firstrun.continue": "Continue",
     "firstrun.code.wrong": "That code is not right. After five wrong codes the box shows a new one on its screen.",
     "firstrun.form.intro": "Answer these questions once. You can change each answer later on the box.",
-    "firstrun.optional": "You can leave everything below as it is. What you leave open is on the page \"Information still needed\" after you sign in, and only the step that needs it waits.",
+    "firstrun.optional": 'You can leave everything below as it is. What you leave open is on the page "Information still needed" after you sign in, and only the step that needs it waits.',
     "firstrun.site": "Your site",
     "firstrun.site_name": "Site name, as your team calls it",
     "firstrun.tz": "Time zone",
@@ -150,7 +150,7 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
-    "firstrun.optional": "ここから下はそのままでかまいません。空けておいた項目は、サインインの後に「まだ必要な情報」ページに表示されます。待つのは、それが必要な手順だけです。",
+    "firstrun.optional": "ここから下はそのままでかまいません。空けておいた項目は、ログインの後に「まだ必要な情報」ページに表示されます。待つのは、それが必要な手順だけです。",
     "firstrun.title": "この TrialBox の初期設定",
     "firstrun.intro": "このページは、アカウントがまだ一つもないときに一度だけ、本体の画面に表示されたコードを入力した場合にのみ使えます。",
     "firstrun.code": "本体の画面に表示されたコード",

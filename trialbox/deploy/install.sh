@@ -449,19 +449,6 @@ ctgov_internet() {
   if command -v curl >/dev/null; then curl -fsS -o /dev/null -m 8 https://clinicaltrials.gov/api/v2/version 2>/dev/null
   else timeout 8 bash -c ': </dev/tcp/clinicaltrials.gov/443' 2>/dev/null; fi
 }
-ctgov_question() {
-  cat <<'EOQ'
-  ClinicalTrials.gov: may this box reach clinicaltrials.gov on the internet?
-    offline = no (default). TrialBox uses the copy that comes with each update: no outbound access; the data are as of the update.
-    live    = yes. TrialBox asks ClinicalTrials.gov directly: always current; one outbound address; no patient data is sent.
-  ClinicalTrials.gov：この機器からインターネット上の clinicaltrials.gov に接続してよいですか？
-    offline = いいえ（既定）。更新のたびに届く写しを使います。外部へは接続しません。データは更新の時点のものです。
-    live    = はい。TrialBox が ClinicalTrials.gov に直接問い合わせます。常に最新。外部への接続先は1か所で、患者データは送りません。
-  ClinicalTrials.gov：本機可以連上網際網路的 clinicaltrials.gov 嗎？
-    offline = 不可以（預設）。使用每次更新附帶的資料副本：不對外連線；資料為該次更新當時的版本。
-    live    = 可以。TrialBox 直接查詢 ClinicalTrials.gov：資料隨時最新；只對外連一個位址；不傳送病人資料。
-EOQ
-}
 if [ "$CTGOV_CHECK" = 1 ]; then
   if ctgov_internet; then echo "internet: yes (live is possible; the default stays offline)"
   else echo "internet: no (offline only)"; fi
@@ -927,19 +914,24 @@ if [ ! -f deploy/settings.yaml ]; then
     stop_or_warn answers-file "the answers file (the questions, when there is a terminal)" "no such answers file: $ANSWERS"
     ANSWERS=""
   fi
+  # FOUR (M1, D-1280): no answers and a terminal: the four questions on the host, the rest derived and at its defaults.
+  # The site's own hardening.conf and mapping are kept; without a TPM the fourth is the passphrase (not shown, twice)
+  if [ -z "$ANSWERS" ] && [ -t 0 ] && [ "$YES" != 1 ] && command -v python3 >/dev/null; then
+    mkdir -p deploy/site/box; BOX_PP="$ROOT/libs:$ROOT"
+    if PYTHONPATH="$BOX_PP" python3 -m tools.box detect --deploy deploy > deploy/site/box/hardware.json \
+       && { [ -f deploy/site/box/owner.json ] || PYTHONPATH="$BOX_PP" python3 -m tools.box ask --hardware deploy/site/box/hardware.json --out deploy/site/box/owner.json --environment "$WIZ_ENV"; } \
+       && PYTHONPATH="$BOX_PP" python3 -m tools.box plan --hardware deploy/site/box/hardware.json --owner deploy/site/box/owner.json \
+         --deploy deploy --out deploy/site/box/answers.json --keep >/dev/null; then ANSWERS=deploy/site/box/answers.json; fi
+    if [ -n "$ANSWERS" ] && [ -z "$KP_VALUE$KP_FILE" ] && grep -q '^KEK_BACKEND=passphrase' deploy/site/hardening.conf; then kp_read_stdin; fi
+  fi
+  # ---- end of FOUR
   if [ -n "$ANSWERS" ]; then
     tree_args
     docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
   else
     # D-1091: protects none of the five; on a PoC box no settings.yaml is made and the services that read it fail
-    if [ -t 0 ]; then
-      tree_args
-      docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
-        python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
-    else
-      stop_or_warn no-settings "the settings wizard (no settings.yaml: the services cannot start)" "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
-    fi
+    stop_or_warn no-settings "the settings wizard (no settings.yaml: the services cannot start)" "no deploy/settings.yaml and no answers (no terminal for the four questions, or they were not answered): pass --answers site.yaml (RUNBOOK §1 step 3)"
   fi
 else
   echo "    keeping deploy/settings.yaml (re-validating)"

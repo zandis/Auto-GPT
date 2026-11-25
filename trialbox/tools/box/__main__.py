@@ -184,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     who.add_argument("--owner", type=Path, help="the owner's answers (JSON)")
     p.add_argument("--deploy", type=Path, default=DEPLOY)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--keep", action="store_true", help="a site file that is there stays as it is (the IT form)")
     q = sub.add_parser("ask", help="the four questions, on this terminal (M1)")
     q.add_argument("--hardware", type=Path, required=True)
     q.add_argument("--out", type=Path, required=True)
@@ -234,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
                 answers, notes = owner_answers(json.loads(args.owner.read_text(encoding="utf-8")),
                                                tuple(x.path for x in hw.disks))  # fmt: skip
             bp = plan(answers, hw, args.deploy)
-            write(bp, args.deploy, args.out)
+            write(bp, args.deploy, args.out, keep=args.keep)
             if not args.provisional:
                 keep_answers(args.deploy, answers)
             for w in [*notes, *bp.warnings]:

@@ -1,6 +1,7 @@
 """Site onboarding wizard (SPEC §12 phase 9): writes a validated ``settings.yaml`` and a matching ``deploy/.env``.
 
-Interactive by default (every question shows its default; Enter keeps it). ``--answers answers.yaml`` runs without
+Interactive by default (every question shows its default; Enter keeps it): the vendor's route, with all 53 questions
+(a hospital's install asks four, D-1280: ``tools/box/ask.py``). ``--answers answers.yaml`` runs without
 questions (automation, tests, re-runs); the answers file uses the same keys as the questions below. The result is
 validated against ``schemas/settings.schema.json`` plus the cross-checks that the schema cannot express (practitioner
 departments exist, mail recipients are inside the internal domains, the MRN regex compiles, the mapping file exists).

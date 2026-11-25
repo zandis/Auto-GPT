@@ -64,7 +64,6 @@ EN: dict[str, str] = {
     "stillneeded.err.chartno": "Type one chart number as printed (digits, or digits and the letters A to F), or choose a form.",
     "stillneeded.err.source": "Choose one of the kinds.",
     "stillneeded.err.unusable": "The box checked it and cannot use it.",
-    "stillneeded.err.busy": "An answer for this item is being applied. Please wait a moment.",
 }
 
 JA: dict[str, str] = {
@@ -114,7 +113,7 @@ JA: dict[str, str] = {
     "stillneeded.field.imap_host": "依頼を受けるメールボックスのサーバーの名前",
     "stillneeded.field.mta_authserv_id": "病院のメールサーバーが送信者を確認したときに書く名前",
     "stillneeded.field.tls_root_confirmed_by": "院内の端末がこの機械を信頼していることを確認した情報システム部門の方",
-    "stillneeded.cert.help": "それまでは、端末で開くとブラウザーが警告を表示します。サインインはできます。",
+    "stillneeded.cert.help": "それまでは、端末で開くとブラウザーが警告を表示します。ログインはできます。",
     "stillneeded.mail.off": "メールは送信していません。一覧は TrialBox の画面に表示され、朝のメールは届きません。",
     "stillneeded.err.item": "この項目はこのページでは入力しません。",
     "stillneeded.err.plain": "一行の文字で入力してください。",
@@ -127,7 +126,6 @@ JA: dict[str, str] = {
     "stillneeded.err.chartno": "患者 ID を一つ印刷どおりに入力するか（数字、または数字と A〜F）、書き方を選んでください。",
     "stillneeded.err.source": "種類を選んでください。",
     "stillneeded.err.unusable": "機械で確認しましたが、使えません。",
-    "stillneeded.err.busy": "この項目の入力を反映しています。少しお待ちください。",
 }
 
 ZH: dict[str, str] = {
@@ -190,5 +188,4 @@ ZH: dict[str, str] = {
     "stillneeded.err.chartno": "請照印出來的樣子填一個病歷號（數字，或數字與 A 到 F），或選擇寫法。",
     "stillneeded.err.source": "請選擇種類。",
     "stillneeded.err.unusable": "本機檢查後無法使用。",
-    "stillneeded.err.busy": "這個項目正在套用，請稍候。",
 }

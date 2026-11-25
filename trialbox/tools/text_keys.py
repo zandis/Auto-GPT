@@ -552,6 +552,9 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "firstrun.ssmix2_order_numbers.": _values("tb_common.site_country", "SSMIX2_ORDER_NUMBERS"),
     "firstrun.printed_dates.": _values("tb_common.dates", "PRINTED_STYLES"),  # 10C-13
     "firstrun.year_basis.": _values("tb_common.dates", "YEAR_BASES"),  # 10C-15
+    "stillneeded.kind.": _values("tools.box.needs_apply", "SOURCE_KINDS"),  # M1
+    "stillneeded.field.": _values("tools.box.needs_apply", "ITEM_FIELDS"),
+    "stillneeded.state.": lambda: ("missing", "unusable", "stand_in", "waiting"),
     # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
     "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
     # J-5 (D-1223): the two lists of people and the views of each, behind the flag layout.people_lists

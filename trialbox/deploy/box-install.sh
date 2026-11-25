@@ -42,7 +42,7 @@
 # TB_BOX_HOST_CHECK (the host check command), TB_FIRSTRUN_HOST_DIR, TB_BOX_POLL_S, TB_BOX_NO_ROOT=1,
 # TB_SYSTEMD=0 (as install.sh), TB_BOX_PREFLIGHT (the python command that runs the first-run page's preflight, even
 # with TB_BOX_PY; 10K-3), TB_BOX_PREFLIGHT_S (its time limit, 90 s) and TB_BOX_DOCKER (the docker command that asks
-# the console's image whether it can read the audit anchor folder; 10K-4).
+# the console's image whether it can read the audit anchor folder; 10K-4), TB_BOX_SEED (the site seed's command; M1).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

@@ -14,8 +14,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from tb_common.audit import AuditLog
 from tb_common import kek as K
+from tb_common.audit import AuditLog
 
 ROOT = Path(__file__).resolve().parents[2]
 SEAL = ROOT / "deploy" / "hardening" / "seal_keys.sh"
@@ -299,7 +299,9 @@ def test_install_fails_and_records_nothing_when_the_tpm_cannot_seal(tmp_path: Pa
 def test_install_does_not_work_the_back_end_out_itself() -> None:
     """Only seal_keys.sh decides: after the seal the installer reads the record and nothing else."""
     after = SEAL_BLOCK[SEAL_BLOCK.index("sh deploy/hardening/seal_keys.sh") :]
-    after = after[after.index("\n", after.index("|| stop_or_warn seal-keys")) :]  # the lines after the seal's own refusal
+    after = after[
+        after.index("\n", after.index("|| stop_or_warn seal-keys")) :
+    ]  # the lines after the seal's own refusal
     assert "< deploy/site/kek-backend)" in after and 'echo "TB_KEK_BACKEND=$KEK_USED" >> deploy/.env' in after
     assert "--record deploy/site/kek-backend" in SEAL_BLOCK
     for blk in (after, _copy_block(BOX_INSTALL)):

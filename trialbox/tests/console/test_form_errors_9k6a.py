@@ -75,6 +75,11 @@ def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
 
 def _client(b: dict[str, Any], case: Case, lang: str) -> Any:
     """The case's user signed in, the page language ``lang`` (the PI named once, through the steward's log)."""
+    if case.role == "admin":  # M1: the administrator's own page
+        c, _ = login(b["app"])
+        r = c.post("/lang", data={"csrf": _csrf(c.get("/").text), "lang": lang, "back": "/"}, follow_redirects=False)
+        assert r.status_code == 303
+        return c
     user, role = ("drsato", "investigator") if case.role == "pi" else ("crc1", "coordinator")
     if b["users"].get(user) is None:
         c = _user(b, user, role)

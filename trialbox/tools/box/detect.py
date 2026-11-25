@@ -18,7 +18,6 @@ import socket
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import Any
 
 from tools.box.plan import Disk, parse_lsblk
 
@@ -26,7 +25,17 @@ RELAY_PORTS, MAILBOX_PORTS = (587, 465, 25), (993, 143)
 NETWORK_FS = ("nfs", "nfs4", "cifs", "smb3")
 PROPOSALS = Path("ops") / "needs-proposals.json"  # under deploy/: the console reads it in its operations folder
 MAX_ROWS = 500  # the first records are enough to see the form of a number
-_CHART_COLUMNS = ("mrn", "chart_no", "chartno", "chart_number", "病歷號", "病歷號碼", "患者id", "患者番号", "カルテ番号")
+_CHART_COLUMNS = (
+    "mrn",
+    "chart_no",
+    "chartno",
+    "chart_number",
+    "病歷號",
+    "病歷號碼",
+    "患者id",
+    "患者番号",
+    "カルテ番号",
+)
 _MX = re.compile(r"\bMX\s+\d+\s+(\S+?)\.?\s*$|mail is handled by\s+\d+\s+(\S+?)\.?\s*$", re.M)
 
 
@@ -145,8 +154,9 @@ def write(deploy: Path) -> dict[str, str]:  # pragma: no cover - the machine
     """This machine's proposals into the operations folder the console reads; a failure writes none and stops
     nothing."""
     from tools.box.__main__ import write_whole
+    from tools.trialbox.finish_check import read_env
 
-    env = _env(deploy / ".env")
+    env = read_env(deploy / ".env")
     domain = (env.get("TB_BACKUP_MAILTO") or "@").split("@", 1)[1]
     mx = mx_hosts(_run(["resolvectl", "query", "--legend=no", "--type=MX", domain])) if domain else []
     src = env.get("TB_SOURCE_DIR") or ""
@@ -161,8 +171,3 @@ def write(deploy: Path) -> dict[str, str]:  # pragma: no cover - the machine
     )
     write_whole(deploy / PROPOSALS, json.dumps(got, ensure_ascii=False) + "\n", 0o644)
     return got
-
-
-def _env(path: Path) -> dict[str, str]:
-    lines: list[Any] = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-    return dict(ln.split("=", 1) for ln in lines if "=" in ln and not ln.startswith("#"))

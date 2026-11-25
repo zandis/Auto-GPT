@@ -1,6 +1,6 @@
 """The site seed (M1; plan 10, 10K-2).
 
-    python3 -m tools.site_seed verify site-seed.json --pub deploy/keys/vendor_ed25519.pub   # the vendor's signed answers
+    python3 -m tools.site_seed verify site-seed.json --pub deploy/keys/vendor_ed25519.pub   # the vendor's signed
     python3 -m tools.site_seed run --deploy deploy                                           # after the install
 
 ``verify``: one JSON file of the hospital's questionnaire answers, made before shipping and signed by the vendor
@@ -32,6 +32,7 @@ if str(ROOT / "libs") not in sys.path:
 from tb_common import box_answers  # noqa: E402
 
 from tools.box.plan import SAMPLE_FEED  # noqa: E402
+from tools.trialbox.finish_check import read_env  # noqa: E402
 
 #: what a seed may answer (tb_common.box_answers.parse's names): the site's, never a person's
 KEYS = ("site_name", "language", "tz", "country", "box_name", "source", "source_dir", "ssmix2_root",
@@ -91,7 +92,8 @@ def verify(path: Path, pub: Path) -> dict[str, Any]:
     if not (pub.is_file() and sig.is_file()):
         raise SeedError(f"{path.name}: the vendor's key or {sig.name} is missing")
     done = subprocess.run(
-        ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(pub), "-rawin", "-in", str(path), "-sigfile", str(sig)],
+        ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(pub), "-rawin", "-in", str(path),
+         "-sigfile", str(sig)],
         capture_output=True, text=True, check=False,
     )  # fmt: skip
     if done.returncode != 0:
@@ -108,17 +110,11 @@ def _run(argv: list[str], text: str | None = None, timeout: int = 3600) -> str:
     return done.stdout
 
 
-def _env(deploy: Path) -> dict[str, str]:
-    path = deploy / ".env"
-    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-    return {k.strip(): v.strip("\"' ") for k, _, v in (ln.partition("=") for ln in lines) if not ln.startswith("#")}
-
-
 def run(deploy: Path, sh: Callable[..., str] = _run) -> list[str]:
     """The steps not done yet, in order; each is written down as it ends. Returns what was done (empty: nothing)."""
     from tools.box.__main__ import write_whole
 
-    env = _env(deploy)
+    env = read_env(deploy / ".env")
     kept = deploy / DONE
     done: dict[str, str] = json.loads(kept.read_text(encoding="utf-8")) if kept.is_file() else {}
     did: list[str] = []
@@ -140,17 +136,50 @@ def run(deploy: Path, sh: Callable[..., str] = _run) -> list[str]:
     folder = deploy / feed
     mount = env.get("TB_SOURCE_MOUNT") or "/data/source/site"
 
+    made = "python -m tools.make_fixtures --out /tmp/s --sites a && cp /tmp/s/site-a/*.csv /out/ && chmod a+r /out/*"
+    today = datetime.now(UTC).date().isoformat()
+    study = (
+        f"cd /app/rulesets && python -m zipfile -c /tmp/{STUDY}.zip {STUDY} && "
+        f"python -m criteria_compiler.import_ruleset /tmp/{STUDY}.zip --by {BY}"
+    )
+
     def make() -> None:
         folder.mkdir(parents=True, exist_ok=True)
-        sh(["docker", "run", "--rm", "--network", "none", "--user", "0", "-v", f"{folder}:/out", image, "sh", "-c",
-            "python -m tools.make_fixtures --out /tmp/s --sites a && cp /tmp/s/site-a/*.csv /out/ && chmod a+r /out/*"])  # fmt: skip
+        sh(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--user",
+                "0",
+                "-v",
+                f"{folder}:/out",
+                image,
+                "sh",
+                "-c",
+                made,
+            ]
+        )
 
     step("sample_hospital", make)
-    step("sample_loaded", lambda: sh([*dc, "adapter", "python", "-m", "adapter.cli", "run", "--source", "csv",
-                                      "--path", mount, "--snapshot", datetime.now(UTC).date().isoformat()]))  # fmt: skip
-    step("sample_study", lambda: sh([*dc, "criteria-compiler", "sh", "-c",
-                                     f"cd /app/rulesets && python -m zipfile -c /tmp/{STUDY}.zip {STUDY} && "
-                                     f"python -m criteria_compiler.import_ruleset /tmp/{STUDY}.zip --by {BY}"]))  # fmt: skip
+    load = [
+        *dc,
+        "adapter",
+        "python",
+        "-m",
+        "adapter.cli",
+        "run",
+        "--source",
+        "csv",
+        "--path",
+        mount,
+        "--snapshot",
+        today,
+    ]
+    step("sample_loaded", lambda: sh(load))
+    step("sample_study", lambda: sh([*dc, "criteria-compiler", "sh", "-c", study]))
     who = (env.get("TB_BACKUP_MAILTO") or "").strip()
     step("sample_list", lambda: sh([*dc, "mail-gateway", "python", "-"], SCREEN % (STUDY, who)))
     return did

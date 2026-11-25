@@ -597,7 +597,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "cohort_rulesets": [],
         "smtp_host": a.smtp_host,
         **({"smtp_port": a.smtp_port} if a.smtp_port else {}),
-        "sae_office_mailbox": a.sae_office_mailbox or ("" if provisional_owner else email),  # D-1280: the administrator's mail stands in
+        "sae_office_mailbox": a.sae_office_mailbox
+        or ("" if provisional_owner else email),  # D-1280: the administrator's mail stands in
         "stand_ins": sorted(stand_ins(a)),
         "imap_host": "",
         "mta_authserv_id": a.mta_authserv_id,  # D-825: the owner's answer; empty: mail stays closed (D-369)
@@ -645,10 +646,13 @@ def provisional(hw: Hardware) -> OwnerAnswers:
     return a
 
 
-def write(p: BoxPlan, deploy: Path, answers_out: Path) -> None:
-    """The site files under ``deploy`` and the wizard's answers file (JSON, which is YAML), 0600."""
+def write(p: BoxPlan, deploy: Path, answers_out: Path, *, keep: bool = False) -> None:
+    """The site files under ``deploy`` (``keep``: one that is there stays as it is) and the wizard's answers file (JSON,
+    which is YAML), 0600."""
     for rel, text in p.files.items():
         f = deploy / rel
+        if keep and f.exists():
+            continue
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(text, encoding="utf-8")
     answers_out.parent.mkdir(parents=True, exist_ok=True)

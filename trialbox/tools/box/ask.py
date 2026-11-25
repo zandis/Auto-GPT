@@ -1,6 +1,6 @@
-"""The four questions of the install, on the terminal (M1; D-1280): the language, the time zone, the first administrator,
-and the key passphrase only without a security chip (``deploy/box-install.sh`` reads that one itself: it is never in a
-file). Everything else is derived, detected or at its default, and shown on "Information still needed".
+"""The four questions of the install, on the terminal (M1; D-1280): the language, the time zone, the first
+administrator, and the key passphrase only without a security chip (``deploy/box-install.sh`` reads that one itself: it
+is never in a file). Everything else is derived, detected or at its default, and shown on "Information still needed".
 
 Standard library only: the host's ``python3`` runs it before any image is loaded. No password is asked: the install
 makes the administrator's first one and its enrolment code, and shows both once.
@@ -44,7 +44,7 @@ TEXT: dict[str, dict[str, str]] = {
         "zh-TW": "第 4 題（共 4 題）：本機沒有安全晶片，請設定解開金鑰的密語。",
     },
     "offered": {
-        "en": 'Nothing more is asked. These have a default now; give them later on the page "Information still needed":',
+        "en": 'Nothing more is asked. These have a default now; change them on the page "Information still needed":',
         "ja": "質問は以上です。次の項目は今は既定値です。後で「まだ必要な情報」ページで入力できます：",
         "zh-TW": "不再提問。以下項目目前為預設值，之後可在「尚需填寫的資料」頁面填寫：",
     },
