@@ -108,6 +108,36 @@ On master 6c73db64, then at this branch's head, the same commands:
   `findings_register --check`, collect-only: clean. `make guard` 1198 passed, 1 skipped, 11 xfailed;
   `make cross-card` 329 passed. `--add-from` on a copy of the register: 9 rows.
 
+### Push 2 (the integrator's 7151749260 and 7152069220)
+
+- **Item 5, ruled (b).** The fixtures make their own folders with explicit modes and never rely on the run's umask.
+  test_host_commands_own_environment: `_explicit_modes` (the folders the fixture makes 0755, `deploy/.env` 0600, as
+  install.sh writes it; the tree copied from the checkout keeps its files' modes). test_serving_engine_h112's `_box`:
+  `deploy` and `deploy/site` 0755. test_kek_env_refused_h97's `_passphrase_box`: its two folders 0700. One test per
+  guard shows that a folder or file the group alone can write is still refused: `tests/unit/test_group_writable_refused_h139.py`
+  (`deploy/.env` at 0620, 0660 and 0664; the settings folder at 0775, 0770 and 2775; the passphrase folder at 0775
+  and 0770).
+- **Item 7, client tools.** `tests/console/test_ops_pages.py`'s `ob` fixture hands the app the cluster's client tools;
+  that also fixes `test_admin_screens_209c`, which takes the same fixture. Both pass with psql off PATH.
+  `tests/integration/test_db_image.py`: first the skip was shown. A test with its line 243's skip, run under this
+  repository's conftest with `TB_STRICT_SKIPS=1` and pg_dump off PATH, fails with "skipped under TB_STRICT_SKIPS=1,
+  which allows no skip: Skipped: pg_dump not on this host", and passes with pg_dump on PATH. Whether the bench host
+  met exactly this needs the walk's line. The fix: the test looks for the cluster's pg_dump and hands it to
+  `dump` and `restore_db`. The skip is neither removed nor added to.
+- **Item 7, the compose project, ruled (a).** `TEST_PROJECT := trialbox-test` in the Makefile, `-p $(TEST_PROJECT)` in
+  `COMPOSE_TEST`; `tools/failure_drill_box.py` builds the same command. Rendered, the project and every network are
+  `trialbox-test*`. `make up-test` first pipes the stack's rendered configuration to `tools/test_stack_free.py`. It
+  refuses, by name, a container of another project that publishes a port the stack would publish. It also refuses a
+  container that has a test-stack container's name in another project, and a port held by something that is not the
+  stack's. The stack's own containers from an earlier run are no reason to refuse. Test:
+  `tests/unit/test_test_stack_project_h139.py`. With no Docker daemon here, the check refuses plainly ("what runs on
+  this host could not be read").
+- **The five other unit files** (the go 7152069220). `test_backup_without_pause` (5) and `test_update_path` (1) take
+  the client tools; the CLI forms take them through the process environment. Both pass with psql off PATH.
+  `test_backup_verifies_itself` and `test_rehearsal_restic` already pass through test_backup's fixtures. They are
+  unchanged. `test_refdata`'s red is not psql: it is `test_the_tar_is_deterministic_and_safe` at umask 0002, the case
+  H-115 left as H115-18 (`pack_tar` keeps each file's mode). It is left for its own card.
+
 ## Owners named in this card
 
 The integrator's go 7152069220: `tests/unit/test_rehearsal_restic.py`, `tests/unit/test_refdata.py` and

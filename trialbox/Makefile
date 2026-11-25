@@ -4,7 +4,11 @@ PY ?= .venv/bin/python
 COMPOSE := docker compose --project-directory deploy -f deploy/docker-compose.yml
 # the test stack uses the example settings with a high per-sender limit: e2e suites run many times a day
 TEST_SETTINGS := .cache/test-settings.yaml
-COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
+# H-139: the test stack's own compose project. The base file's name (trialbox) is a box's, and a box installed on the
+# same host would otherwise share the test stack's containers and networks; `make up-test` refuses when another
+# project or program holds what the stack would publish (tools/test_stack_free.py)
+TEST_PROJECT := trialbox-test
+COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -p $(TEST_PROJECT) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
 # release identity on every image we build (T-110b, ENG-015): the version from pyproject.toml and the commit
 TB_VERSION := $(shell sed -n 's/^version = "\(.*\)"$$/\1/p' pyproject.toml | head -1)
@@ -522,7 +526,9 @@ objects-dir:
 	       "another user): remove it (sudo rm -rf $(OBJECTS_DIR)) and run again" >&2; exit 1; }
 
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
-	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects && $(COMPOSE_TEST) up -d --wait
+	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects
+	set -o pipefail; $(COMPOSE_TEST) config --format json | PYTHONPATH=libs:services:. $(PY) -m tools.test_stack_free $(TEST_PROJECT)
+	$(COMPOSE_TEST) up -d --wait
 
 # load synthetic site A into the running test stack (adapter -> lake + FHIR store)
 ingest-test:

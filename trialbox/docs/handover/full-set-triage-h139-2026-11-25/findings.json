@@ -34,7 +34,7 @@
   {
    "id": "H139-04",
    "severity": "Low",
-   "claim": "lane H's fixtures built box trees under the run's umask, so at umask 0002 the product rightly refused them (deploy/.env, deploy/site, a passphrase folder writable by the group); fixed: the built trees as root makes them (H-115's helper), waiting for the integrator's ruling",
+   "claim": "lane H's fixtures built box trees under the run's umask, so at umask 0002 the product rightly refused them (deploy/.env, deploy/site, a passphrase folder writable by the group); fixed (ruled b): the fixtures make their folders with explicit modes, and one test per guard shows a group-writable one still refused",
    "lane": "H",
    "basis": "shown",
    "state": "open",
@@ -70,20 +70,20 @@
   {
    "id": "H139-08",
    "severity": "Medium",
-   "claim": "the compose test stack and a box installed on the same host share the compose project name trialbox (deploy/docker-compose.yml name:), so make up-test may talk to or re-create the installed box; the compose stage's 401s and its backup red fit this reading, not run here (no Docker daemon)",
-   "lane": "Int",
+   "claim": "the compose test stack and a box installed on the same host shared the compose project name trialbox, so make up-test could reach or re-create the installed box (the compose stage's 401s and its backup red fit this, not run here); fixed (ruled a): the test stack is project trialbox-test, and make up-test refuses by name what another project or program holds of its ports and names",
+   "lane": "H",
    "basis": "hypothesis",
    "state": "open",
-   "place": "deploy/docker-compose.yml name, Makefile COMPOSE_TEST and up-test"
+   "place": "Makefile TEST_PROJECT, COMPOSE_TEST, up-test; tools/test_stack_free.py; tools/failure_drill_box.py"
   },
   {
    "id": "H139-09",
    "severity": "Low",
-   "claim": "more tests run the bare psql or pg_dump from PATH: test_ops_pages and test_admin_screens_209c (shown), test_backup_verifies_itself, test_backup_without_pause, test_rehearsal_restic, test_refdata, test_update_path (shown), test_db_image (hypothesis: its skip without pg_dump is a failure under TB_STRICT_SKIPS)",
+   "claim": "more tests ran the bare psql or pg_dump from PATH: test_ops_pages and test_admin_screens_209c, test_backup_without_pause, test_update_path (fixed here), test_db_image (its skip without pg_dump is a failure under TB_STRICT_SKIPS, shown; fixed here); open: test_backup_vector_store, test_t728_asof_restore_optouts, test_restore_hold, test_restore_roles, test_lane_b_on_the_train, test_backup_licensed_terminology, test_erasure_reach_restore",
    "lane": "Int",
    "basis": "shown",
    "state": "open",
-   "place": "tests/console/test_ops_pages.py, tests/console/test_admin_screens_209c.py, tests/unit/ (five files), tests/integration/test_db_image.py"
+   "place": "tests/console/test_ops_pages.py, tests/unit/test_backup_without_pause.py, tests/unit/test_update_path.py, tests/integration/test_db_image.py; open: seven files in tests/unit/"
   }
  ]
 }

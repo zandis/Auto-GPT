@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.host_modes import as_root_makes_it
 from tests.unit.test_compose_limits import BASE, DEPLOY, DUMMY_ENV, STACKS, _compose, _load, _merge
 from tools import engine_compare as ec
 from tools import images_lock as il
@@ -64,15 +63,16 @@ def _box(tmp: Path, stack: tuple[str, ...], extra: str = "", settings: dict[str,
     """A deploy folder of a box: its .env names the stack's real compose files (absolute, as install.sh writes)."""
     d = tmp / "deploy"
     d.mkdir(parents=True, exist_ok=True)
+    d.chmod(0o755)  # H-139 (item 5, ruled b): explicit modes, never the run's umask
     (d / sp.EXAMPLE).write_text((DEPLOY / sp.EXAMPLE).read_text(encoding="utf-8"), encoding="utf-8")
     files = ":".join(str(DEPLOY / f) for f in stack)
     (d / ".env").write_text(DUMMY_ENV + f"COMPOSE_FILE={files}\n" + extra, encoding="utf-8")
     if settings is not None:
         (d / "site").mkdir(exist_ok=True)
+        (d / "site").chmod(0o755)  # H-139 (item 5, ruled b)
         p = d / sp.SETTINGS
         p.write_text("".join(f"{k}={v}\n" for k, v in settings.items()), encoding="utf-8")
         p.chmod(0o600)
-    as_root_makes_it(d)  # H-139: as the installer leaves it, at any umask of the run
     return d
 
 
