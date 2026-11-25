@@ -142,10 +142,9 @@ The SCREEN job runs the cascade (`services/matching/cascade/`):
 | S4 | the verifier gives a second opinion |
 | S5 | the people: the PI and CRC lists |
 
-A note answer excludes a patient only when both models say "fail" on a verified quote; any disagreement becomes
-"unknown", never an exclusion (D-115). Reasons are 29 codes (`tb_common/reasons.py`) with words in three languages (D-118). The pair canary
-(54 questions in en, ja, zh-TW) runs before the night's model jobs and gates note exclusions: if it fails, notes never
-exclude (D-117). The structured part runs without a model; FEAS never calls one (D-101). Held by
+A note answer never excludes a patient (D-1072): when both models say "fail" on a verified quote the notes may speak
+against the criterion and the patient goes to review; any disagreement becomes "unknown" (D-115). Reasons are 29 codes (`tb_common/reasons.py`) with words in three languages (D-118). The pair canary
+(54 questions in en, ja, zh-TW) runs before the night's model jobs; if it fails, note answers are not final (D-117). The structured part runs without a model; FEAS never calls one (D-101). Held by
 `tests/unit/test_agreement_judge.py`, `tests/unit/test_canary_gate.py` and `e2e_simple` stages 1 and 3.
 
 ## 7. Models and hardware

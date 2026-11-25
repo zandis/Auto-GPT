@@ -494,7 +494,7 @@ def test_the_v1_read_counts_a_window_note_the_retrieval_did_not_return() -> None
     present = _judge(lake, "pass", 20_000, 20_000)  # the control: a pair's final answer on a stated exclusion
     out = evaluate_patients(ruleset([EXC_FLARE]), ["P"], IDX, _NoStructured(), present, 0.75, only={EXC_FLARE.id},
                             all_candidates=True)  # fmt: skip
-    assert out["P"].tier == "excluded"
+    assert out["P"].tier == "review"  # D-1072 (ring 0): a pair's final answer on a stated exclusion is review
 
 
 def test_a_window_with_notes_none_of_which_fits_is_unknown_not_no_notes() -> None:

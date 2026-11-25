@@ -25,8 +25,9 @@ Viewer and CRO accounts never see one (D-143).
 
 **Criteria not matched (PI, CRC).** "Criteria not matched" (ja 基準に合致しない患者, zh-TW 未符合條件之病人) lists every
 patient whose records did not match a criterion in the latest screening run,
-with the criterion, where the answer came from (coded records, a confirmed fact, or the notes with both models
-agreeing) and the evidence. "This is wrong, send to review" is recorded with your name, and the patient is on the
+with the criterion, where the answer came from (coded records or a confirmed fact) and the evidence. The notes
+may speak against a criterion, but they never put a patient on this list: that patient stays on the weekly list for
+review (D-1072). "This is wrong, send to review" is recorded with your name, and the patient is on the
 study's weekly list again, marked "sent back", until the PI marks them (D-446).
 
 **The weekly sample (PI).** Every week TrialBox draws ten of these patients for the study's PI (a sub-investigator

@@ -120,6 +120,7 @@ class OrchestratorJudge(NoteJudge):
             calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
             sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
             affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
+            pair_opinions=list(r.pair_opinions),  # D-1072: both quotes and notes of an agreed answer
         )
 
 

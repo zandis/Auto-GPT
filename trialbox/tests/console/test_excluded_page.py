@@ -55,7 +55,11 @@ def test_the_excluded_list_with_criterion_source_and_evidence(box: dict[str, Any
     page = pi.get("/studies/GZQO/excluded").text
     assert 'data-testid="excluded"' in page and "criteria not matched for 4 patients" in page
     assert 'data-testid="ex-cccccccc"' in page and "history of breast cancer 2019" in page and "2025-03-01" in page
-    assert "the notes, both models agreed" in page and "the coded records" in page and "a confirmed fact" in page
+    assert (
+        "the notes, which may speak against the criterion" in page
+        and "the coded records" in page
+        and "a confirmed fact" in page
+    )
     assert "no research-contact consent" in page and "FHIR Consent" not in page  # a rule, in plain words
     assert "2 records" in page and 'data-testid="to-excluded"' in pi.get("/studies/GZQO/week").text
     only = pi.get("/studies/GZQO/excluded?src=fact").text

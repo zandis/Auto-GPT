@@ -313,7 +313,9 @@ def evaluate_case(
         ev = v.evidence or Evidence(resource_refs=[])
         shown, why = v.verdict, ev.reason
         held = v.verdict == "fail" and decision.answer_of(c, v, policy) == "unknown"
-        if held and decision.reviews_inclusion(c, v) and decision.fail_stands(v, policy):
+        # D-1072 (ring 0): a pair's stated exclusion from the notes is review too, printed as the notes' answer
+        ring0 = ev.reason == Reason.NOTES_SUGGEST_NOT_ELIGIBLE.value
+        if held and (decision.reviews_inclusion(c, v) or ring0) and decision.fail_stands(v, policy):
             # R22-17: an inclusion "not met" from the notes that the policy lets stand is not a weak answer. Its status
             # is review on every list; the sheet, which has no status, prints the notes' answer and its quote
             held = False

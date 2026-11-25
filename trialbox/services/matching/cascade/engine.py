@@ -90,7 +90,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
-from matching.note_answer import note_answer_may
+from matching.note_answer import NOTES_SUGGEST_REASON, note_answer_may
 from matching.notelang import LANGS, family, main_language, notes_language
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.recorded import NO_RECORD, Recorded
@@ -1219,8 +1219,9 @@ class _Run:
         sentence = " ".join(s for s in (sentence, reply.sentence) if s)  # L3: the verifier's too
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16)
         may = note_answer_may(c.kind, reply.verdict == "pass", quoted, c.text, sentence, affirmed=reply.affirmed)
-        # round 5 (#639 7115208555): the stored row says the models affirmed this note exclusion (decision.answer_of)
-        affirmed = True if may.effect == "excludes" and c.kind == "exclusion" else None
+        # round 5 (#639 7115208555): the stored row says the models affirmed this note exclusion (decision.answer_of);
+        # since ring 0 (D-1072) it is review, and the row still says so
+        affirmed = True if may.reason == NOTES_SUGGEST_REASON else None
         if may.effect == "keeps":
             if left_out:
                 # T-603 (review LLM-016, CR-004 flag half): the answer that keeps the patient stands, flagged; the
@@ -1237,9 +1238,14 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
         if may.effect == "review" and may.reading_stands:
             # D-1069: a "not met" from the notes the one rule sends to review (an inclusion, R22-17, the owner's ruling
-            # of 2026-11-22; a renewal or documentation criterion, #639 7107834329 L2) is never a hard fail, whatever
-            # the policy: the patient stays in the cascade, the other criteria are judged, and the tier is review
-            return Outcome(c.id, "fail", stage, hard=False, evidence=[*ev, meta], reason=may.reason)
+            # of 2026-11-22; a renewal or documentation criterion, #639 7107834329 L2; since ring 0, D-1072, an
+            # exclusion's stated "present" both models affirmed) is never a hard fail, whatever the policy: the patient
+            # stays in the cascade, the other criteria are judged (no CAS-3 stop), and the tier is review
+            if reply.pair_opinions:  # D-1072: both models' quotes and both notes (the judge's span first)
+                meta["opinions"] = [{k: v for k, v in o.items() if k != "did"} for o in reply.pair_opinions]
+                others = dict.fromkeys(o["did"] for o in reply.pair_opinions if o["did"] not in (None, span.get("did")))
+                ev += [{"did": d} for d in others]
+            return Outcome(c.id, "fail", stage, hard=False, evidence=[*ev, meta], reason=may.reason, affirmed=affirmed)
         if may.effect == "review":
             # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a
             # negated, a relative's, a suspected condition, a drug, a value, findings counted into one) is the

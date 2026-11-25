@@ -35,7 +35,7 @@ from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.inferred import sentence_of
-from matching.note_answer import affirms, note_answer_may
+from matching.note_answer import NOTES_SUGGEST_REASON, affirms, note_answer_may
 from matching.proposed import Proposed
 from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
@@ -231,6 +231,9 @@ class NoteResult:
     # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
+    # D-1072: on an agreed answer, each model's answer, verified quote and note (``did``), judge first. Published only
+    # on a "not eligible" (``note_verdict``, ``engine._map``), so the investigator reads both quotes
+    pair_opinions: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
@@ -509,6 +512,11 @@ class NoteJudge:
             calls=calls,
             sentence=sentence,
             affirmed=first.affirmed and (second is None or second.affirmed),  # round 5: both models said it
+            pair_opinions=[
+                {**_opinion(role, r), "did": next(iter(r.dids), None)}
+                for role, r in (("judge", first), ("verifier", second))
+                if r is not None and second is not None
+            ],
         )
 
 
@@ -641,7 +649,8 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
     why = r.reason
-    affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
+    affirmed: bool | None = None  # round 5: set on a note exclusion both models affirmed
+    opinions = r.opinions
     if pred is not None:
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
         # exclusion "present" on a quote that does not state its condition is the models' inference: a person looks,
@@ -649,9 +658,15 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
         may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence, affirmed=r.affirmed)
         if may.effect == "review" and not may.reading_stands:
             verdict, why = "unknown", code_of(may.reason, "unknown")
-        affirmed = True if may.effect == "excludes" and c.kind == "exclusion" else None
+        elif may.reason == NOTES_SUGGEST_REASON:  # ring 0 (D-1072): the row says why it is review, for the page
+            why = code_of(may.reason)
+        affirmed = True if may.reason == NOTES_SUGGEST_REASON else None  # D-1072: kept on the row, now review
         # a "not met" the rule sends to review keeps its row: the status rule (``decision.answer_of``) reads the same
-        # function and says review
+        # function and says review. D-1072: with both models' quotes, and both notes (the judge's first)
+        if may.reading_stands and r.pair_opinions:
+            opinions = [{k: v for k, v in o.items() if k != "did"} for o in r.pair_opinions]
+            dids = [*r.dids, *(str(o["did"]) for o in r.pair_opinions if o["did"])]
+            refs = [f"DocumentReference/{d}" for d in dict.fromkeys(dids)]
     return CriterionVerdict(
         id=c.id,
         verdict=verdict,
@@ -661,7 +676,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
             quote_date=r.quote_date,
             confidence=r.confidence,
             reason=why,
-            opinions=[Opinion(**o) for o in r.opinions] or None,
+            opinions=[Opinion(**o) for o in opinions] or None,
         ),
         basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
         prov=note_calls(r),
