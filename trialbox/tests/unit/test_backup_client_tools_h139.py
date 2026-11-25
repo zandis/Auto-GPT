@@ -58,3 +58,21 @@ def test_a_restore_without_pg_restore_is_refused_before_the_database_is_emptied(
     with pytest.raises(bk.BackupError, match=r"pg_restore .*TB_PG_RESTORE_CMD"):
         bk.restore_db(src, dump, {"TB_PG_RESTORE_CMD": _missing(tmp_path, "pg_restore")})
     assert site.fetchall("SELECT pid, mark FROM marks") == [("P1", "approach")]  # the schema and its rows stay
+
+
+def test_a_whole_restore_without_pg_restore_says_nothing_was_changed_never_that_the_box_is_half_restored(
+    tmp_path: Path, db_url: str, site: Database
+) -> None:
+    """OCR 1498-3: the check came after the database was listed as replaced, so the put-back failed the same check
+    and the refusal told the operator the untouched box "may be half restored or empty"."""
+    priv, pub = tmp_path / "k.key", tmp_path / "k.pub"
+    bk.keygen(priv, pub)
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    made = bk.backup([tmp_path / "nas"], pub, env=env, dirs={})
+    with pytest.raises(bk.BackupError) as got:
+        bk.restore(made[0], priv, env={**env, "TB_PG_RESTORE_CMD": _missing(tmp_path, "pg_restore")},
+                   dirs={}, running=lambda: [], no_copy=True)  # fmt: skip
+    said = str(got.value)
+    assert "pg_restore" in said and "TB_PG_RESTORE_CMD" in said, said
+    assert "NOT put back" not in said and "half restored" not in said, said
+    assert site.fetchall("SELECT pid, mark FROM marks") == [("P1", "approach")]

@@ -1356,6 +1356,9 @@ def prepare(set_env: Callable[[Path, str, str], None]) -> list[str]:
         objects_var(): str(d / ".objects"),
         "TB_SETTINGS_FILE": "../.cache/test-settings.yaml",
         "TB_STUB_LATENCY_S": "",
+        # H-139 (OCR 1498-1): the box file names the test stack's project, so the product commands the drill runs
+        # (the nightly backup's host part) read the test stack's volumes, never a box's on the same host
+        "COMPOSE_PROJECT_NAME": TEST_PROJECT,
     }
     for k, v in values.items():
         set_env(envf, k, v)

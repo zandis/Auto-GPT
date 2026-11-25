@@ -2462,6 +2462,9 @@ def restore(
         # H-100 (F2): all or nothing. Each database the backup replaces is first dumped here as it is now; whatever
         # fails or stops the restore from the first change on (an error, an interrupt, a signal) puts the databases
         # and the folders back as they were, takes the hold and audits it. Its space is checked before any change
+        # H-139 (OCR 1498-3): the restore's client tool is found before the first change, so a missing one refuses
+        # with nothing changed, never as a half-restored box
+        _client(env, "TB_PG_RESTORE_CMD", "pg_restore")
         pre = _pre_restore_dumps([srcs[n] for n in manifest["databases"]], work / "pre-restore", env)
         replaced: list[str] = []
         moved: list[tuple[Path, Path | None, bool, tuple[int, int, int] | None]] = []
