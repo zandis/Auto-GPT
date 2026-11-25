@@ -156,7 +156,7 @@ On master 6c73db64, then at this branch's head, the same commands:
   `test_erasure_reach_restore`. The CLI forms and the backup drill's restore take the tools through the process
   environment (`tests/pg_client.py` `setenv`): the drill puts the cluster's folder on its own PATH, but
   `backup.dump` runs with the process's. With psql off PATH: 57 passed, 1 xfailed.
-- **H139-12** (Low): `test_runbook_install_commands.py::test_the_command_runs[cmd2]` ran the installer with the
+- **H139-12** (Low): `test_the_command_runs` (its `cmd2`, in the unit test of the runbook's install commands) ran the installer with the
   caller's PATH. On a host with a card that cannot run the model server's image, the installer refuses ("this GPU
   host cannot run the vLLM image"), rightly. The step now runs with the host's own graphics tool off its PATH. With a
   stand-in `nvidia-smi` that reports another card: master fails cmd2, head passes all 35; without one, 35 passed.
