@@ -134,3 +134,7 @@ added to its expected set: an assertion change, for the integrator to rule). Own
 The register is not edited (its keeper adds this card's `findings.json`). H137-13 to H137-16 are not built. The whole
 unit and integration run was not run. The installer's new lines and the overlay's fixed range were not run on a box
 (no Docker here): they are shown by reading and by the tests' reading of the files.
+
+Outside the diff: `tests/unit/test_site_key.py::test_a_box_from_before_the_record_is_checked_against_its_pid_map` and
+`::test_a_lost_site_key_refuses_the_second_night_and_the_opt_out_survives` fail on master c3a5b2b2 as on this card's
+head, as root and as an ordinary user under CI's conditions; the card touches none of their files.
