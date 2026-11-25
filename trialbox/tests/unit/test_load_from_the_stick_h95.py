@@ -246,8 +246,11 @@ def _apply(b: dict[str, Path], *args: str, dry: bool = False) -> subprocess.Comp
 
 
 def _used(dirs: list[Path]) -> int:
-    """The disk these folders take: allocated blocks, links not followed (the repository behind them is not the box's)."""
-    total = 0
+    """The disk these folders take: allocated blocks, links not followed (the repository behind them is not the box's),
+    each file once (H-124): a walk that has passed its link check on the staged code's ``deploy`` while it is still a
+    folder goes on through the link ``stage_code`` puts there, into the box's own ``deploy``; those files are on disk
+    once, so they are counted once (by device and inode), never as a third copy of the host tree."""
+    total, seen = 0, set[tuple[int, int]]()
     for d in dirs:
         for top, subdirs, files in os.walk(d, followlinks=False):
             for n in files + subdirs:
@@ -255,7 +258,8 @@ def _used(dirs: list[Path]) -> int:
                     st = os.lstat(os.path.join(top, n))
                 except FileNotFoundError:
                     continue
-                if not stat.S_ISLNK(st.st_mode):
+                if not stat.S_ISLNK(st.st_mode) and (st.st_dev, st.st_ino) not in seen:
+                    seen.add((st.st_dev, st.st_ino))
                     total += st.st_blocks * 512
     return total
 
