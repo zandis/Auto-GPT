@@ -26,10 +26,12 @@ from criteria_compiler.repo import RulesetRepo
 from tb_common import ruleset as ruleset_mod
 from tb_common.ruleset import approved_here, load_approved
 
+import tests.unit.test_compiler_service as compiler_tests
 from tests.rulesets_guard import RULESETS
 
 RID = "NEUR-COH"
 REWRITES = 200
+env = compiler_tests.env  # the compiler fixture of the swap-probe test
 
 
 class _Never(Exception):
@@ -288,3 +290,42 @@ def test_no_caller_screens_on_a_refused_load(tmp_path: Path) -> None:
 def test_the_typed_refusal_is_its_own_type() -> None:
     cls = _incomplete()
     assert cls is not _Never and not issubclass(cls, (ruleset_mod.RulesetNotApproved, OSError, ValueError))
+
+
+# ---------------------------------------------------------------------------------------- the integrator's rulings
+def test_an_approval_where_the_folder_cannot_swap_is_refused_with_nothing_written(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """INTR3A-02: the approval wrote its commit and tag, then found the exchange unsupported. It is now probed
+    before any write: refused by type (``CompileFailed`` from ``SwapUnsupported``), the repository as it was."""
+    import errno
+
+    from criteria_compiler.service import CompileFailed
+
+    _approve, _compile, _decisions = compiler_tests._approve, compiler_tests._compile, compiler_tests._decisions
+
+    res = _compile(env)
+    repo: RulesetRepo = env["deps"].repo
+    before = (repo.tags(), repo.ref("main"), _on_disk(repo.path / "GZQO"))
+
+    def no_exchange(a: Path, b: Path) -> None:
+        raise OSError(errno.EINVAL, "Invalid argument", str(b))
+
+    monkeypatch.setattr(repo_mod, "_exchange", no_exchange, raising=False)
+    with pytest.raises(CompileFailed) as got:
+        _approve(env, _decisions(env["store"], res.review_xlsx_key))
+    assert got.value.step == "approve"
+    assert type(got.value.__cause__).__name__ == "SwapUnsupported"
+    assert (repo.tags(), repo.ref("main"), _on_disk(repo.path / "GZQO")) == before
+    assert sorted(p.name for p in repo.path.iterdir() if p.name.startswith(".") and p.name != ".git") == []
+
+
+def test_list_rulesets_never_lists_a_dot_name(tmp_path: Path) -> None:
+    """INTR3A-04: pathlib's glob matches hidden names, so ``.<ruleset>.tmp`` (a copy being built or swapped out)
+    was listed as a ruleset while a materialisation ran."""
+    from tb_common.ruleset import list_rulesets
+
+    for name in ("RA-JAK", ".RA-JAK.tmp", ".swap-a.tmp"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "manifest.yaml").write_text("id: x\n", encoding="utf-8")
+    assert list_rulesets(tmp_path) == ["RA-JAK"]

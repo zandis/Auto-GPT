@@ -16,15 +16,15 @@
   {
    "id": "INTR3A-02",
    "severity": "Low",
-   "claim": "the swap needs Linux renameat2 with RENAME_EXCHANGE; where the kernel or the file system has none the approval fails after its tag and main commit are written and the old copy stays whole; there is no fallback",
+   "claim": "the swap needs Linux renameat2 with RENAME_EXCHANGE; where the rulesets folder's file system has none, an approval would have written its commit and tag, then failed the swap; RulesetRepo.check_swap now probes the exchange before the approval's FHIR load, commit and tag (and before an offline install's commit and tag), and a folder that cannot swap is refused (CompileFailed step approve, from SwapUnsupported) with nothing written; there is still no fallback swap",
    "lane": "J",
-   "basis": "read",
+   "basis": "shown",
    "state": "open"
   },
   {
    "id": "INTR3A-03",
    "severity": "Low",
-   "claim": "fault type 2 outside the approval path, not fixed: materialize of a ruleset gone from its ref still removes the working copy in place (shutil.rmtree), and seed_working_copy copies the shipped rulesets into the folder in place (copytree)",
+   "claim": "fault type 2 outside the approval path, not fixed: materialize of a ruleset gone from its ref still removes the working copy in place (shutil.rmtree), and seed_working_copy copies the shipped rulesets into the folder in place (copytree); the tests/rulesets_guard.py docstring that described the old rmtree-then-rename is corrected",
    "lane": "J",
    "basis": "read",
    "state": "open"
@@ -32,9 +32,9 @@
   {
    "id": "INTR3A-04",
    "severity": "Low",
-   "claim": "list_rulesets globs */manifest.yaml with pathlib, which matches hidden names: while a materialisation runs, .<ruleset>.tmp is listed as a ruleset id (load_approved refuses it: no approval tag); not fixed",
+   "claim": "list_rulesets globbed */manifest.yaml with pathlib, which matches hidden names: while a materialisation ran, .<ruleset>.tmp was listed as a ruleset id (load_approved refused it: no approval tag); list_rulesets now skips every dot-name",
    "lane": "J",
-   "basis": "read",
+   "basis": "shown",
    "state": "open"
   },
   {
@@ -43,6 +43,14 @@
    "claim": "omop.vocab_load.mark_rulesets reads each working copy with Ruleset.load, unchecked against the approval tag, to mark rulesets for recompilation; it uses only the manifest, which the swap now keeps whole, but a read that meets a swap can end in a FileNotFoundError, caught as OSError, and that ruleset is not marked on that load; not fixed",
    "lane": "J",
    "basis": "read",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-06",
+   "severity": "Low",
+   "claim": "fail-open on a DEV or TEST box by an existing test's design: load_approved does not hold a read against an approval tag that points at nothing (tests/unit/test_new_life_1_no_preapproved_ruleset.py::test_a_broken_repository_stops_no_timer asserts such a ruleset is still listed on a TEST box); a site box refuses it in seeded_approval; left as is by the integrator's ruling",
+   "lane": "J",
+   "basis": "shown",
    "state": "open"
   }
  ]

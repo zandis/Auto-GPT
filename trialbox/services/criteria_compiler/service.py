@@ -54,7 +54,7 @@ from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
 from criteria_compiler.equivalence.gate import run_gate, unproven, without_pseudonyms
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, hold_reused_negated, postprocess
-from criteria_compiler.repo import RulesetRepo
+from criteria_compiler.repo import RulesetRepo, SwapUnsupported
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
 from criteria_compiler.semantics import FILTERED, CompileError, atoms, class_split, compiled
 from criteria_compiler.terminology.installed import SITE_PREFIX
@@ -1286,6 +1286,14 @@ class Compiler:
         clock.lap("compiler.checks")
         files = self._files(manifest, updated, valuesets, art, tests)
         clock.lap("compiler.files")
+        # INT-R3A (INTR3A-02): the working copy is swapped in one rename; a folder that cannot is refused here, before
+        # the FHIR load, the commit and the tag, so the refusal changes nothing
+        try:
+            self.d.repo.check_swap()
+        except SwapUnsupported as exc:
+            raise CompileFailed(
+                "approve", "the rulesets folder cannot swap a ruleset's copy in one rename; nothing was approved"
+            ) from exc
         # G3 of the P1b review (D-952): the FHIR load ran after the tag and the promotion, unguarded; a server that
         # refused it (FhirEvalError) left the ruleset approved and released while the job failed with an HTTP 500. It
         # runs first: a refusal changes nothing in the repo and fails the approval by its step, with the server's text

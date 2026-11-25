@@ -60,6 +60,11 @@ def _exchange(a: Path, b: Path) -> None:
         raise OSError(err, os.strerror(err), str(b))
 
 
+class SwapUnsupported(RuntimeError):
+    """INT-R3A: the rulesets folder's file system cannot exchange two folders in one rename, so an approval could
+    not swap a ruleset's working copy whole (:meth:`RulesetRepo.check_swap`)."""
+
+
 class RulesetRepo:
     def __init__(self, path: Path, seed: Path | None = None) -> None:
         self.path = path
@@ -250,6 +255,21 @@ class RulesetRepo:
         else:
             os.rename(tmp, target)
         _fsync_dir(self.path)
+
+    def check_swap(self) -> None:
+        """INT-R3A (INTR3A-02): exchange two empty folders in the rulesets folder; :class:`SwapUnsupported` when its
+        file system cannot. An approval asks before it writes its commit and tag, so a refusal changes nothing."""
+        pair = (self.path / ".swap-a.tmp", self.path / ".swap-b.tmp")
+        try:
+            for p in pair:
+                shutil.rmtree(p, ignore_errors=True)
+                p.mkdir()
+            _exchange(*pair)
+        except OSError as exc:
+            raise SwapUnsupported(f"the rulesets folder cannot swap two folders in one rename: {exc}") from exc
+        finally:
+            for p in pair:
+                shutil.rmtree(p, ignore_errors=True)
 
     def _clean_left_overs(self) -> None:
         """A copy a kill left part way (``.<ruleset>.tmp``, built or swapped out): removed, and said."""

@@ -376,7 +376,8 @@ def approved_here(rulesets_dir: Path, ruleset_id: str) -> bool:
 
 
 def list_rulesets(rulesets_dir: Path) -> list[str]:
-    return sorted(p.parent.name for p in rulesets_dir.glob("*/manifest.yaml"))
+    # INT-R3A (INTR3A-04): never a dot-name, a copy being built or swapped out (``.<ruleset>.tmp``)
+    return sorted(p.parent.name for p in rulesets_dir.glob("*/manifest.yaml") if not p.parent.name.startswith("."))
 
 
 def seed_working_copy(dest: Path, seed: Path = SEED_RULESETS) -> bool:

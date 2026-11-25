@@ -1,7 +1,7 @@
 """T-650c: the committed ``rulesets/`` folder is read-only for the tests.
 
-The criteria-compiler's ruleset repository re-materialises a ruleset in place (``.<id>.tmp`` then rmtree + rename).
-Pointed at the committed folder, it broke a parallel test that was copying the folder (``.RA-BIO.tmp`` vanished in the
+The criteria-compiler's ruleset repository re-materialised a ruleset in place (``.<id>.tmp`` then rmtree + rename;
+since INT-R3A it builds ``.<id>.tmp`` and exchanges it with the working copy in one rename). Pointed at the committed folder, it broke a parallel test that was copying the folder (``.RA-BIO.tmp`` vanished in the
 middle of ``copytree``). Every test that needs rulesets it can write copies them with :func:`copy_rulesets`, and
 ``tests/conftest.py`` fails any test after which the folder is not as it was (:func:`snapshot`).
 """

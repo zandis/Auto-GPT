@@ -66,6 +66,7 @@ def install(repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98
                 repo.retag(tag, f"{tag} (offline update, {by})")
             return tag
         raise ImportRefused(f"{tag} already exists with different content; bump the version")
+    repo.check_swap()  # INT-R3A (INTR3A-02): SwapUnsupported before the commit and the tag, nothing written
     repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
     repo.tag(tag, "main", f"{tag} (offline update, {by})")
     repo.materialize(rid, "main")
