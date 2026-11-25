@@ -127,8 +127,9 @@ closed). Checks:
 A system module (F0, the modules framework section 6) adds its rows from its own file ``tools/trialbox/doctor_m<n>.py``
 (``MODULE_CHECKS``): ``doctor_checks(inp)`` returns rows ``(key, state, text)``, state PASS, WARN or FAIL. A function
 there named like a check this file opened to it (``_supplied``) is that check's body and returns one such row. A file
-that is not there adds nothing; one that cannot be imported, raises, or returns anything else is a FAIL that says so,
-and every other row stays. A check that cannot look returns WARN with the reason.
+that is not there adds nothing; one that raises or returns anything else is a FAIL that says so, and every other row
+stays. One whose import fails (a package this python lacks) is a WARN "cannot look": nothing was found wrong, nothing
+was looked at. A check that cannot look returns WARN with the reason.
 
 ``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
@@ -253,7 +254,11 @@ def module_rows(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     for name in MODULE_CHECKS:
         own = name.rpartition(".")[2]
         try:
-            mod = _module(name)
+            try:
+                mod = _module(name)
+            except ImportError as e:  # the host's python lacks a package the file needs: not looked at, not wrong
+                out.append(Check(own, "WARN", f"cannot look: {name} does not import ({type(e).__name__}: {e})"))
+                continue
             for c in map(_row, mod.doctor_checks(inp) if mod is not None and hasattr(mod, "doctor_checks") else ()):
                 if any(c.name == o.name for o in out):
                     out.append(Check(own, "FAIL", f"its row {c.name!r} ({c.status}: {c.detail}) takes the name of "
@@ -272,7 +277,10 @@ def _supplied(name: str) -> Callable[[Callable[..., Check]], Callable[..., Check
     def opened(fn: Callable[..., Check]) -> Callable[..., Check]:
         @functools.wraps(fn)
         def check(inp: DoctorInputs, *args: Any, **kwargs: Any) -> Check:
-            body = getattr(_module(name), fn.__name__, None)
+            try:
+                body = getattr(_module(name), fn.__name__, None)
+            except ImportError as e:
+                return Check(fn.__name__.removeprefix("check_"), "WARN", f"cannot look: {name} does not import ({e})")
             if body is None:
                 return fn(inp, *args, **kwargs)
             c = _row(body(inp, *args, **kwargs))
@@ -1384,8 +1392,6 @@ def check_ops_runner(inp: DoctorInputs, now: datetime | None = None) -> Check:
         is_now = f"{OPS_TIMER} is {state}; " if state else ""
         fix = f"{is_now}turn it on: systemctl enable --now {OPS_TIMER} (RUNBOOK §15)"
     return Check("ops_runner", soft, f"{what}: no health facts, and the Operations page's requests wait; {fix}")
-
-
 
 
 @_supplied("tools.trialbox.doctor_m4")

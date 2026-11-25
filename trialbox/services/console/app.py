@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import hashlib
+import importlib
 import io
 import ipaddress
 import logging
@@ -431,8 +432,10 @@ def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
 
 
 def _module_page(name: str) -> bool:
-    """Whether a system module has brought its page file (``MODULE_PAGES``); said in the log when not."""
-    if not (there := (HERE / f"{name}.py").is_file()):
+    """Whether a system module has brought its page file with a ``register(app, helpers, env)`` (``MODULE_PAGES``);
+    said in the log when not."""
+    there = (HERE / f"{name}.py").is_file() and hasattr(importlib.import_module(f"console.{name}"), "register")
+    if not there:
         logging.getLogger(__name__).warning("declared page file not in this tree, its pages are off: console.%s", name)
     return there
 

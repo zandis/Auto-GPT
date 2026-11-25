@@ -29,7 +29,8 @@ if [ "${1:-}" = "--rollback" ]; then  # V-18: the tables kept aside by update BU
   set -- "$@"
 fi
 if [ "${1:-}" = "--scheduled" ]; then  # M2 (V-19): run by trialbox-terminology.timer, before the night
-  STICKS=(); for s in ${TB_TERMINOLOGY_STICK:-}; do STICKS+=(--stick "$s"); done
+  STICKS=(); IFS=: read -ra FOLDERS <<< "${TB_TERMINOLOGY_STICK:-}"  # ":" between folders, as terminology_pack.py reads it
+  for s in "${FOLDERS[@]}"; do if [ -n "$s" ]; then STICKS+=(--stick "$s"); fi; done
   PACK="$(PYTHONPATH=. python3 -m tools.terminology_pack find --update-dir "${TB_TERMINOLOGY_UPDATE_DIR:-}" "${STICKS[@]}")"
   [ -n "$PACK" ] || { echo "terminology-update: no pack waiting"; exit 0; }
   PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' deploy/.env 2>/dev/null | tail -1)"; PROJECT="${PROJECT:-trialbox}"
