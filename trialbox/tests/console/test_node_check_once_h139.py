@@ -20,7 +20,7 @@ from tests.console import test_cjk_layout as cjk
 def fresh(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     """A check not yet made in this process, with node found and every run of it recorded."""
     monkeypatch.setattr(nc, "FOUND", {})
-    monkeypatch.setattr(nc.shutil, "which", lambda name: f"/synthetic/bin/{name}")
+    monkeypatch.setattr("shutil.which", lambda name: f"/synthetic/bin/{name}")
     return []
 
 
@@ -31,7 +31,7 @@ def test_a_node_that_does_not_answer_is_one_plain_failure_asked_once(
         fresh.append(argv)
         raise subprocess.TimeoutExpired(argv, kw["timeout"])
 
-    monkeypatch.setattr(nc.subprocess, "run", slow)
+    monkeypatch.setattr("subprocess.run", slow)
     for _ in range(3):  # three modules asking, in one process
         with pytest.raises(pytest.fail.Exception, match=r"node did not answer require\('playwright'\) within 60 s"):
             cjk._node_playwright()
@@ -46,12 +46,12 @@ def test_an_answer_is_kept_for_the_process(
         fresh.append(argv)
         return subprocess.CompletedProcess(argv, rc, b"", b"")
 
-    monkeypatch.setattr(nc.subprocess, "run", answer)
+    monkeypatch.setattr("subprocess.run", answer)
     assert [cjk._node_playwright() for _ in range(3)] == [want] * 3
     assert len(fresh) == 1
 
 
 def test_no_node_at_all_is_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(nc, "FOUND", {})
-    monkeypatch.setattr(nc.shutil, "which", lambda name: None)
+    monkeypatch.setattr("shutil.which", lambda name: None)
     assert cjk._node_playwright() is False
