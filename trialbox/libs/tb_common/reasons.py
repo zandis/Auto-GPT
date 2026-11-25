@@ -56,10 +56,19 @@ class Reason(StrEnum):
     # conversion (D-275): no value, unknown
     UNIT_MISMATCH = "unit_mismatch"
     UNKNOWN_VALUE = "unknown_value"  # a lab result that is not a readable number ("see note", 陰性; D-142, D-215)
-    ORDER_DATES_MISSING = "order_dates_missing"  # a medicine order with no end date, or no date at all (D-275)
+    # a medicine order that does not say when the last dose was: no end date, no date at all (D-275), or a therapy
+    # period that reaches the criterion's window while the record rule reads the order's date (D-1263)
+    ORDER_DATES_MISSING = "order_dates_missing"
     RULES_CHANGED = "rules_changed"  # an approved answer the current safety rules do not confirm (D-275)
     # the model's quote is a sentence written as an instruction to a model (the guard's screen, T-606, D-359)
     PLANTED_INSTRUCTION = "planted_instruction"
+    # criterion model v3 (D-1263): the date the criterion's window hangs on (the planned start, the screening date,
+    # an event of the record) is not known for this patient: no answer, never a guessed date
+    ANCHOR_DATE_UNKNOWN = "anchor_date_unknown"
+    # the window reaches past the day of the run: what the criterion asks for can still be recorded before the anchor
+    VERIFY_AT_ANCHOR = "verify_at_anchor"
+    # the criterion asks about a kind of record (a device, an allergy) this site's data source does not hold
+    NOT_IN_SOURCE = "not_in_source"
 
 
 CODES = frozenset(r.value for r in Reason)
@@ -238,9 +247,9 @@ LABELS: dict[str, dict[str, str]] = {
         "zh-TW": "有無法讀成數值的結果：未使用，請確認",
     },
     "order_dates_missing": {
-        "en": "a medicine order has no end date or no date: the duration is not known, please check",
-        "ja": "処方に終了日または日付の記録なし：投与期間が不明のため確認してください",
-        "zh-TW": "處方沒有結束日期或沒有日期：用藥期間不明，請確認",
+        "en": "a medicine order does not say when the last dose was: the duration is not known, please check",
+        "ja": "処方から最終投与日がわからない：投与期間が不明のため確認してください",
+        "zh-TW": "處方無法看出最後一次用藥日期：用藥期間不明，請確認",
     },
     "rules_changed": {
         "en": "the approved check and the current safety rules give different answers: please check",
@@ -251,6 +260,21 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the model quoted a sentence written as an instruction to it, not a finding: please check the note",
         "ja": "モデルへの指示のような文を根拠として引用：所見ではないため、記録を確認してください",
         "zh-TW": "模型引用了像是給它的指令的句子，而非臨床發現：請確認病歷",
+    },
+    "anchor_date_unknown": {
+        "en": "the date this criterion counts from is not known for this patient: please check",
+        "ja": "この基準の起算日がこの患者について不明です：確認してください",
+        "zh-TW": "此病人沒有此條件的起算日：請確認",
+    },
+    "verify_at_anchor": {
+        "en": "the period is not over yet: please confirm at the visit",
+        "ja": "対象期間がまだ終わっていません：来院時に確認してください",
+        "zh-TW": "期間尚未結束：請於回診時確認",
+    },
+    "not_in_source": {
+        "en": "this site's data hold no record of this kind: please check",
+        "ja": "この施設のデータにはこの種類の記録がありません：確認してください",
+        "zh-TW": "本院資料沒有此類紀錄：請確認",
     },
 }
 

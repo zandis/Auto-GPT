@@ -112,7 +112,9 @@
       "line_of_therapy",
       "registry",
       "specimen",
-      "genomic"
+      "genomic",
+      "device",
+      "allergy"
      ],
      "title": "Domain",
      "type": "string"
@@ -1951,7 +1953,8 @@
         "index",
         "event",
         "screening",
-        "randomization"
+        "randomization",
+        "planned_start"
        ],
        "type": "string"
       },

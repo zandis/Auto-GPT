@@ -24,8 +24,9 @@ There is no conversion between units of different kinds (mg/dL to mmol/L needs a
 apart, not a factor): those rows are unknown. ``tb_common.labvalue.MOLAR`` holds molar masses for the adapter's check
 only; the engines do not use them.
 
-The same module names the reason of a medication-duration atom that cannot be decided because an order has no end
-date or no date at all (``order_dates_missing``, review S-9).
+The same module names the reason of a medication atom that cannot be decided because an order does not say when the
+last dose was (``order_dates_missing``): no end date or no date at all (review S-9), or, for a criterion of model v3,
+a therapy period that reaches the window while the record rule reads the order's date (D-1263).
 """
 
 from __future__ import annotations

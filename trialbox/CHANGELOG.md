@@ -42,6 +42,11 @@ new heading with the version and date, in the same pull request that sets the ve
   problem" lists each field to fix as a link to it, each field shows its own message, and what was typed stays. First
   on the study's identifiers and its IRB record; the console's other forms follow. Nothing changes on the box: no
   setting, no new file installed.
+- Criterion model v3 runs in screening, step 1 (10A-5, D-1263): a criterion file that declares version 3 may hang a
+  window on the patient's planned start, the screening date or an event of the record, and may name a device or an
+  allergy. Screening answers it with the existing window rules at that date, says "unknown" when the date is not
+  known or the site's data hold no such record, and stores the day a washout or a window would change the answer.
+  No shipped ruleset declares version 3, so every existing study is answered as before; no page shows the new date.
 - The one page for hospital IT (10K-18, D-1378) is made from the box's own preflight list, one page per delivered
   form, in en, ja and zh-TW: for a box its supplier prepared it asks IT for six things (name and certificate, clock,
   mail relay, backup share, audit share, data feed) with the words the box shows on a red line, and names the three

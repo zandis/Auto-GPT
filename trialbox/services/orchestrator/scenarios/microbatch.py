@@ -279,8 +279,14 @@ def recheck_ids(rs: Ruleset) -> set[str]:
     exclusion the compiled SQL decides (structured and mixed), by rule, and a note criterion flagged
     ``time_sensitive``. Before, only the flagged ones: the flag is a model's output at compile time, and a ruleset
     with none (RA-JAK: "serious infection in the last 30 days" unflagged) had no re-check at all."""
+    # D-1263: a criterion written in model v3 that v1 cannot write stands here as a person's (class human); the
+    # re-check cannot evaluate it, so it never re-checks it and the cascade's stored answer stands
     return {
-        c.id for c in rs.active() if c.kind in ("inclusion", "exclusion") and (c.class_ in FILTERED or c.time_sensitive)
+        c.id
+        for c in rs.active()
+        if c.kind in ("inclusion", "exclusion")
+        and (c.class_ in FILTERED or c.time_sensitive)
+        and not (c.id in rs.v3 and c.class_ == "human")
     }
 
 

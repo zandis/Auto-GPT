@@ -24,6 +24,7 @@ from typing import Any
 
 import yaml
 from tb_contracts import CriterionIR, RulesetManifest
+from tb_contracts.criterion_ir import CriterionIRv3, v1_face
 
 from tb_common.config import environment_name
 from tb_common.fhir import library_name
@@ -65,6 +66,10 @@ class Ruleset:
     elm: dict[str, str] = field(default_factory=dict)
     sql: str = ""
     path: Path | None = None
+    #: D-1263 (card 10A-5): the criteria written in criterion model v3 (a file that says ``ir_version`` 3.0.0), by
+    #: id. Each also stands in ``criteria`` as its v1 form (``tb_contracts.criterion_ir.v1_face``), which is what
+    #: every service of before model v3 reads; the engine evaluates the v3 criterion. Empty for a v1 ruleset
+    v3: dict[str, CriterionIRv3] = field(default_factory=dict)
 
     @property
     def id(self) -> str:
@@ -101,11 +106,17 @@ class Ruleset:
     @classmethod
     def from_files(cls, files: dict[str, bytes], path: Path | None = None) -> Ruleset:
         manifest = RulesetManifest.model_validate(yaml.safe_load(files["manifest.yaml"].decode("utf-8")))
-        criteria = [
-            CriterionIR.model_validate(json.loads(b))
-            for p, b in sorted(files.items())
-            if p.startswith("ir/") and p.endswith(".json")
-        ]
+        criteria: list[CriterionIR] = []
+        v3: dict[str, CriterionIRv3] = {}
+        for p, b in sorted(files.items()):
+            if not (p.startswith("ir/") and p.endswith(".json")):
+                continue
+            doc = json.loads(b)
+            if isinstance(doc, dict) and "ir_version" in doc:  # D-1263: the file declares criterion model v3
+                ir = CriterionIRv3.model_validate(doc)
+                v3[ir.id] = ir
+                doc = v1_face(ir)
+            criteria.append(CriterionIR.model_validate(doc))
         valuesets = {
             Path(p).stem: json.loads(b)
             for p, b in sorted(files.items())
@@ -114,7 +125,7 @@ class Ruleset:
         cql = {Path(p).stem: b.decode("utf-8") for p, b in files.items() if p.startswith("cql/") and p.endswith(".cql")}
         elm = {Path(p).stem: b.decode("utf-8") for p, b in files.items() if p.startswith("cql/elm/")}
         sql = next((b.decode("utf-8") for p, b in files.items() if p.startswith("sql/") and p.endswith(".sql")), "")
-        return cls(manifest, criteria, valuesets, cql, elm, sql, path)
+        return cls(manifest, criteria, valuesets, cql, elm, sql, path, v3)
 
     @classmethod
     def load(cls, directory: Path) -> Ruleset:

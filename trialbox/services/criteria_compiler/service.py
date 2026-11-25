@@ -256,6 +256,13 @@ class _Answers(list[Any]):
         self.calls = list(calls) if calls is not None else [""] * len(self)
 
 
+#: D-1263 (card 10A-5): said when a ruleset with criterion files of model v3 is compiled or compared again
+V3_NOT_REWRITTEN = (
+    "{ruleset} has criteria written in criterion model v3; the compiler writes model v1 only and does not rewrite "
+    "this ruleset. Its files are edited by hand until the compiler emits model v3."
+)
+
+
 class CompileFailed(RuntimeError):
     def __init__(self, step: str, message: str) -> None:
         super().__init__(f"{step}: {message}")
@@ -442,6 +449,10 @@ class Compiler:
         if "manifest.yaml" not in files:
             return None
         rs = Ruleset.from_files(files)
+        if rs.v3:
+            # D-1263: the compiler writes v1 criterion files only. A recompile or a diff reuses the approved
+            # criteria and would write each v3 criterion back as the v1 criterion that stands for it, losing it
+            raise CompileFailed("compile", V3_NOT_REWRITTEN.format(ruleset=ruleset))
         return rs if rs.manifest.status == "approved" else None
 
     def _next_version(self, ruleset: str, requested: str | None) -> str:
