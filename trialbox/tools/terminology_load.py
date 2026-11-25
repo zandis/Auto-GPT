@@ -37,6 +37,8 @@ RELEASE_PREFIX = "TL-"
 # the tables loaded at install that are code lists (code, display) of one system; the ICD-10-CM blocks and index are
 # names for the mapper, and a site list maps local codes (each row its own system): neither is a code system release
 CODE_COLUMNS = {"nhi_drug_list": ("nhi_code", "name")}
+# M2 (DB-C2): a loaded table the mapper has no system for yet: its code system in the vocabulary and the FHIR store
+EXTRA_SYSTEMS = {"imaging_list": "https://trialbox.local/fhir/CodeSystem/imaging"}
 
 
 def httpx_error() -> type[Exception]:
@@ -72,7 +74,7 @@ def code_lists(term_dir: Path) -> dict[str, tuple[str, str, list[tuple[str, str]
 
     out: dict[str, tuple[str, str, list[tuple[str, str]]]] = {}
     for name, line in sorted((inst.manifest(term_dir).get("tables") or {}).items()):
-        system = table_system(name)
+        system = table_system(name) or EXTRA_SYSTEMS.get(name, "")
         if not system or system == "site" or name.startswith("icd10cm_"):
             continue
         rows = inst.read_table(term_dir, name) or []  # refused: TerminologyRefused, said by the caller
@@ -128,6 +130,24 @@ def atc_losses(term_dir: Path) -> dict[str, list[str]]:
     from criteria_compiler.terminology.mapper import Terminology
 
     return Terminology(installed=term_dir).atc_losses()
+
+
+def run_here(term_dir: Path, fhir: str = "", wait: float = 900.0) -> dict[str, Any]:
+    """M2: :func:`run` against this box's vocabulary database and FHIR store (the scheduled update's readers)."""
+    from tb_common.config import load_env
+
+    db = None
+    try:
+        from omop import schema
+
+        db = schema.connect()
+    except FAILED:  # said in the report as a problem, which the scheduled update treats as a failed reader
+        db = None
+    try:
+        return run(term_dir, fhir or load_env().fhir_base_url, db, wait)
+    finally:
+        if db is not None:
+            db.close()
 
 
 def skipped(report: dict[str, Any]) -> list[tuple[str, str, bool]]:
@@ -354,20 +374,7 @@ def main(argv: list[str] | None = None) -> int:
         for line in problems:
             print(f"{BY}: {line}")
         return 1 if problems else 0
-    from tb_common.config import load_env
-
-    db = None
-    try:
-        from omop import schema
-
-        db = schema.connect()
-    except FAILED as exc:  # the vocabulary out of reach: said in the report, never a stop
-        print(f"{BY}: warning: the vocabulary database could not be opened ({type(exc).__name__})", file=sys.stderr)
-    try:
-        report = run(where, a.fhir or load_env().fhir_base_url, db, a.wait)
-    finally:
-        if db is not None:
-            db.close()
+    report = run_here(where, a.fhir, a.wait)  # M2: the one place that opens the vocabulary database
     for key, why, fault in skipped(report):
         print(f"{BY}: warning: {key} not loaded: {why}", file=sys.stderr)
         if a.deploy and fault:
