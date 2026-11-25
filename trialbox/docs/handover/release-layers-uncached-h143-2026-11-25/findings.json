@@ -1,0 +1,33 @@
+{
+ "card": "H143",
+ "title": "a release built from a warm cache kept an older day's security-upgrade layer",
+ "date": "2026-11-25",
+ "source": "docs/handover/release-layers-uncached-h143-2026-11-25.md",
+ "note": "basis 'shown' means shown by the card's unit tests (failing on master c3a5b2b2, passing on the branch) and by make -n; no image was built here (no Docker daemon in the session), so the real rebuild and scan are CI's and the bench's.",
+ "findings": [
+  {
+   "id": "H143-01",
+   "severity": "High",
+   "claim": "the release path built trialbox-py (and on it -backup, -jvm, -embed) and the demo image with the build cache, so the unpinned apt-get upgrade layer could come from an older day and ship libzstd1 1.5.7+dfsg-1 (CVE-2026-124851); make release-images, a prerequisite of make release-bundle ahead of its gates, now passes a new UPGRADE_STAMP build argument declared just before that step, and make images (dev) passes none",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H143-02",
+   "severity": "High",
+   "claim": "nothing in the gates held the security-upgraded packages to the fixed version; deploy/images.lock security_floors now records libzstd1 and zlib1g for the five upgraded images and the release gates refuse an image whose SBOM has an older version or none (tools/supply_chain/floors.py, dpkg version order), and fail closed on a lock without floors",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H143-03",
+   "severity": "Low",
+   "claim": "the local security-scan match in eval/bakeoff/results/2026-10-25/predictions_*.csv line 697 does not reproduce on the committed files with the locked scanner (0 findings with every plugin on); the scan reads the working tree, and tools/bakeoff_live.py writes predictions_*.csv into its --out folder, so a local re-run (or a scanner outside the lock) is the likely difference from CI",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}
