@@ -9,7 +9,7 @@ so in one language.
 - **Date:** 2026-11-25
 - **Base:** master 440089e8, merged with master 6d8ad1a6
 - **Findings:** [`h148-load-order-faults-2026-11-25/findings.json`](h148-load-order-faults-2026-11-25/findings.json)
-  (H148-01 to H148-09)
+  (H148-01 to H148-11)
 
 ## The ids
 
@@ -28,6 +28,20 @@ a planted fault, never by the bench's own run.
 | added | `test_list_demo::test_the_demo_day_is_the_real_day` (integration) | its run takes minutes; one that crossed the site's midnight seeded yesterday and was read against today (#1518) | the integrator's line: seed 15:59:29Z, checks at 16:0xZ | the day is read before and after the run; a run that crossed it is made once more in its own folder; assertions unchanged. Demonstration: the first attempt made to look rolled over (the time read before it moved back a day) ran the second and passed (408 s) | passed as written (223 s) |
 | added | box rehearsal (test), train 180, `[18] screen`: "ingest of synthetic hospital A failed" (the integrator's 7170464780) | `tools/rehearse_box/box.sh` ingested under `date -u +%F`; at 18:00Z it is 02:00 the next day at the site, so the box's own nightly ingest had made the site's newer snapshot | held clock (a stand-in `date` at 2026-11-25T18:00:00Z) running the SCREEN step's own ingest lines with the box's compose stood in: Asia/Taipei and Asia/Tokyo got 2026-11-25 before, a missing zone still ingested | the day is the site's: `site_day` reads `TB_TZ` from the box's `deploy/.env` (the product's `site_tz` with no settings object; compose requires it to be `site.tz`, D-315) and refuses no zone; failing-first `tests/unit/test_rehearse_box_site_day_h148.py`: 3 failed, 1 passed before, 4 passed after. The other rehearsal and walk scripts: their `date -u` are timestamps, `imperfect_feed` uses fixed nights, the box-run VM script already takes `TB_TZ` (`acc_today`) | the rehearsal itself was not run here (it needs the box's images and a VM) |
 
+## The review of #1524 (OCR 7176387852 at fcf1ff8a)
+
+- **1524-1 (H148-10):** id 5's ceiling read `SCALED`, which `bound()` makes 9.0 s in every run that measures
+  coverage, so CI's unit shards are one: there a 3 s stall, a 3 s slot wait and a 3 s overwait each passed the test
+  (shown here with `COVERAGE_CORE=sysmon` and `--cov`: 3 of 3 passed). The ceiling is now the call budget as written
+  (`_SECONDS`, 3.0 s), OCR's patch: with coverage on, the three each fail and the product as is passes.
+- **1524-2 (H148-11):** the heartbeat subshell of `alive_start` (both scripts) held the script's output and looked
+  for the script with `kill -0`, which finds a zombie: a script that ended without `alive_stop` (`set -e`, TERM,
+  KILL) and whose caller reads to the end before reaping kept the caller waiting for ever. The heartbeat now looks
+  every second and reads the script's state in `/proc` (a zombie is ended), OCR's patch; the minute line stays a
+  minute. Failing-first `tests/unit/test_alive_ends_with_its_script_1524.py` (OCR's): 6 failed before (each timed
+  out at 30 s), 6 passed after; shellcheck clean.
+- **1524-3 (Low):** not taken here: its follow-up is lane K's box-rehearsal card (a `TB_TZ` that is not a zone).
+
 One more, seen once and not explained: in the policy set as root under CI's conditions,
 `test_g1_box_install_run::test_rehearsal_case[session-ssh]` waited 180 s for its console to answer. It passed three
 times alone under the same conditions (about 10 s each), and in the ordinary user's run; the failed run's folder was
@@ -43,9 +57,10 @@ Changed under the ruling 7167587625 (the gateway, console and rehearsal tests) a
 - `tests/rehearsal/box-run/rehearse-box-run.sh` (lane K): id 4, the session-stop line sets the knob
 - `tests/integration/test_list_demo.py`: the added id
 - `tools/rehearse_box/box.sh` (lane K): the box rehearsal's ingest day (the integrator's go 7170464780)
-- `deploy/poc.sh`, `deploy/install.sh`: id 6, one line each (the lead's go for the product fix)
+- `deploy/poc.sh`, `deploy/install.sh`: id 6, one line each (the lead's go for the product fix), and the heartbeat's
+  loop (1524-2, the lead's relay of OCR 7176387852)
 
-Lane H's own: `tests/rehearsal/box-run/check.py` and `standins/boot.sh` (id 4), the two new tests, this page and its
+Lane H's own: `tests/rehearsal/box-run/check.py` and `standins/boot.sh` (id 4), the three new tests, this page and its
 findings.
 
 ## What ran

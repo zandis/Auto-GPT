@@ -76,6 +76,22 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H148-10",
+   "severity": "Medium",
+   "claim": "id 5's elapsed ceiling read the scaled call budget, 9.0 s in every run with coverage (CI's unit shards), where a 3 s stall, slot wait or overwait passed; now the budget as written, 3.0 s (OCR 1524-1)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H148-11",
+   "severity": "Medium",
+   "claim": "alive_start's heartbeat in deploy/poc.sh and deploy/install.sh held the script's output and took a zombie script for a live one, so a caller that reads to the end before reaping waited for ever after a script that ended without alive_stop; it now ends within a second of its script (OCR 1524-2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }
