@@ -128,8 +128,9 @@ A system module (F0, the modules framework section 6) adds its rows from its own
 (``MODULE_CHECKS``): ``doctor_checks(inp)`` returns rows ``(key, state, text)``, state PASS, WARN or FAIL. A function
 there named like a check this file opened to it (``_supplied``) is that check's body and returns one such row. A file
 that is not there adds nothing; one that raises or returns anything else is a FAIL that says so, and every other row
-stays. One that does not import because a third-party package is missing on a host's own python (never in the box image) is a
-WARN "cannot look here: <package>"; every other import failure is a FAIL. A check that cannot look returns WARN with the reason.
+stays. One that does not import because a third-party package is missing on a host's own python (never in the box
+image) is a WARN "cannot look here: <package>"; every other import failure is a FAIL. A check that cannot look returns
+WARN with the reason.
 
 ``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
@@ -242,11 +243,11 @@ def _module(name: str) -> ModuleType | None:
 
 
 #: the packages of pyproject's dependencies, by import name: a host's own python may lack them (the box image never)
-_THIRD_PARTY = frozenset(
-    "pydantic yaml jsonschema jinja2 httpx fastapi uvicorn multipart duckdb pyarrow sqlglot sqlalchemy psycopg openpyxl "
-    "reportlab matplotlib docxtpl docx pypdf py7zr cryptography apscheduler numpy fhir dateutil tzdata markdown dulwich "
-    "zstandard".split()
-)
+_THIRD_PARTY = frozenset({
+    "pydantic", "yaml", "jsonschema", "jinja2", "httpx", "fastapi", "uvicorn", "multipart", "duckdb", "pyarrow",
+    "sqlglot", "sqlalchemy", "psycopg", "openpyxl", "reportlab", "matplotlib", "docxtpl", "docx", "pypdf", "py7zr",
+    "cryptography", "apscheduler", "numpy", "fhir", "dateutil", "tzdata", "markdown", "dulwich", "zstandard",
+})  # fmt: skip
 
 
 def _host_lacks(e: ModuleNotFoundError) -> bool:
