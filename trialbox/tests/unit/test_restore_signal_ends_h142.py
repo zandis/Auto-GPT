@@ -398,19 +398,19 @@ def test_a_signal_in_a_clean_up_is_taken_after_it_and_said(
     handler took it: a traceback, exit 1, no line, the services stopped. It waits for the clean-up now and the one
     outer handler says the state: 130."""
     import shutil
+    from typing import Any
 
     from tests.unit.test_restore_from_the_host_h100 import Recorder, _restore
-    from tools.trialbox import box_restore
 
     deploy = _box(tmp_path)
-    real = shutil.rmtree
+    real: Any = shutil.rmtree
 
-    def rmtree(path: object, *a: object, **kw: object) -> None:
+    def rmtree(path: Any, *a: Any, **kw: Any) -> None:
         if ".restore-" in str(path):
             os.kill(os.getpid(), signal.SIGTERM)
-        real(path, *a, **kw)  # type: ignore[arg-type]
+        real(path, *a, **kw)
 
-    monkeypatch.setattr(box_restore.shutil, "rmtree", rmtree)
+    monkeypatch.setattr(shutil, "rmtree", rmtree)  # the restore's shutil is this one
     try:
         code: object = _restore(deploy, tmp_path, monkeypatch, Recorder(running=["db", "console"]), "{}", 0,
                                 "--restart")[0]  # fmt: skip
