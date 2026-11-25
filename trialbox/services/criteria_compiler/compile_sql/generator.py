@@ -36,6 +36,7 @@ from criteria_compiler.semantics import (
     check_bool,
     compiled,
     fmt_num,
+    holds_no_atc,
     ident,
     kind,
     window,
@@ -174,16 +175,26 @@ class SqlGenerator:
         )
 
     # ------------------------------------------------------------------ per-atom CTEs; returns (ctes, expr, ev)
+    _hold_no_atc = False  # set per atom by render
+
     def _family_offlist(self, vsname: str, system_col: str, code_col: str) -> str:
         """A code inside one of the grouper's families (D-113) that the ValueSet does not list. INT-R2: an ATC code
         coarser than a family (L04A above L04AC) may be a member too, so it counts as inside."""
         inside = f"starts_with({code_col}, vsf.prefix)"
         if system_col == lit(SYSTEMS["atc"]):
             inside = f"({inside} OR ({code_col} <> '' AND starts_with(vsf.prefix, {code_col})))"
-        return (
+        offlist = (
             f"(EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = {lit(vsname)} AND vsf.system = {system_col} "
             f"AND {inside}) AND NOT {self._vs_match(vsname, system_col, code_col)})"
         )
+        if system_col != lit(SYSTEMS["atc"]) or not self._hold_no_atc:
+            return offlist
+        # an order with no ATC at all, not listed by its own code either, cannot be placed (``holds_no_atc``)
+        own = f"{code_col.split('.', maxsplit=1)[0]}.nhi_code"
+        listed = [self._vs_match(vsname, lit(SYSTEMS["nhi_drug"]), own)]
+        if self.vs.yj_stems(vsname):
+            listed.append(self._vs_match(vsname, lit(YJ_STEM), YJ_STEM_OF.format(col=own)))
+        return f"({offlist} OR (coalesce({code_col}, '') = '' AND NOT ({' OR '.join(listed)})))"
 
     # (table, record id, date, [(system column, code column)]) per presence domain
     PRESENCE: ClassVar[dict[str, tuple[str, str, str, list[tuple[str, str]]]]] = {
@@ -635,6 +646,7 @@ class SqlGenerator:
             for n, atom in enumerate(atoms(c.logic), start=1):
                 k = kind(atom)
                 w = window(atom)
+                self._hold_no_atc = holds_no_atc(c.kind, c.logic, atom)
                 aname = f"a_{ident(c.id)}_{n}".lower()
                 if k is Kind.PRESENCE:
                     cs, expr, ev = self._presence(aname, atom, w)

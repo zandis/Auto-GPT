@@ -3,8 +3,8 @@
 **Reader:** the integrator, the independent reviewer, and the people who build TrialBox
 
 The integrator's builder, 2026-11-25, ordered by the owner (ring 0). The deep check on master `6c73db64`, row R2: a
-drug class was one to three ATC prefixes, and a member outside them read False. Synthetic data only. Decision number
-needed. The owner's decision while it was built: ship what the coding tree proves; what is not certain reads unknown,
+drug class was one to three ATC prefixes, and a member outside them read False. Synthetic data only. Decision
+D-1074. The owner's decision while it was built: ship what the coding tree proves; what is not certain reads unknown,
 never True and never False; the list to confirm does not block the pull request.
 
 ## The fault, on master
@@ -31,6 +31,7 @@ investigator. No member was added (no new True). A code is False only under a br
 
 The existing mechanism, a `family` row (SCR-01) and D-113's unknown. No new verdict, flag or match kind.
 
+- The table for the owner to read is `docs/handover/intr2-drug-class-gaps-2026-11-25/excluded.md`.
 - **The definition is written from the other side.** `EXCLUDED` (in the test) is, per class, the branches certain to
   hold no member. The class's `family` rows in `synonyms.csv` are the complement of that over the ATC grammar, so a
   branch nobody placed, one the tree does not have yet included, is unknown by default. A test holds the rows equal to
@@ -40,6 +41,13 @@ The existing mechanism, a `family` row (SCR-01) and D-113's unknown. No new verd
 - `compile_sql/generator.py`, `compile_cql/generator.py`: a duration atom reads an off-list family order in the window
   as unknown where the listed orders do not reach the days; an ATC code coarser than a family is inside it. In CQL the
   ATC families are one list.
+
+- **An order with no ATC** (`semantics.holds_no_atc`): where D-130's runtime rule does not act (an exclusion, a `none`,
+  a negated atom), an order in the atom's window with no ATC, not listed by its own NHI code or YJ stem, makes the
+  answer unknown unless a listed order settles it. The bound: only a drug-class criterion, only those positions, only
+  the window. An inclusion's compiled answer is unchanged: D-130 holds it. What is left: at a site that maps few drugs
+  to ATC, every patient with such an order in a window reads unknown for that exclusion. The order's own code gives
+  nothing that would narrow it safely.
 
 `EXCLUDED` sits in the test because `synonyms.csv` feeds `tb_term_grouper`, whose `match` allows only `exact`, `prefix`
 and `family`.
@@ -99,9 +107,13 @@ are excluded one by one for the biologic classes rather than left unknown, so th
 
 `tests/unit/test_drug_class_gaps_intr2.py`: the invariants are `test_no_atc_code_at_all_reads_false_unless_its_branch_is_excluded`
 (every string of the ATC grammar) and `test_no_code_of_the_terminology_reads_false_unless_its_branch_is_excluded` (every
-level-5 code of the synthetic NHI list, the groupers and the TW Core value set). On master `6c73db64`: 76 failed, 2
-passed. On the head: 78 passed. SQL runs on DuckDB. The CQL is generated, translated to ELM and checked as text: no
+level-5 code of the synthetic NHI list, the groupers and the TW Core value set). On master `6c73db64` the first 78
+tests gave 76 failed, 2 passed; the head passes them and four more. SQL runs on DuckDB. The CQL is generated, translated to ELM and checked as text: no
 CQL engine was available here, so **no CQL was executed**.
+
+**Why the goldens stand.** On the goldens' own lakes (kept from a run, legacy source): 48,648 medication orders, 22
+distinct ATC codes, 0 orders inside a new family, 0 without ATC. Nothing moved because nothing there is unplaced: the
+goldens do not exercise the new rule.
 
 The deep check's fixture was not available: the misses tested are its two kinds and the same gap elsewhere. The
 synthetic NHI list was not extended; the tests name the codes themselves and read the TW Core list too.
@@ -111,7 +123,7 @@ synthetic NHI list was not extended; the tests name the codes themselves and rea
 The 15 ValueSets with their SQL, CQL and ELM, and RA-JAK's `terminology_release`, re-pinned to TR-db1c7b0d88ae (as D-906 did).
 
 RA-JAK's criteria hash moves with its ValueSets. `test_study_manifest.py` still holds the old one (69ae60cd...); the
-new one is `326a080bf6e9cc5dd04ffdc3f9f7ca76f38714ff1417d2edf60bc0d5a890cf73`. That assertion (and D-1366's copy) is not
+new one is `a97f1c67bfbd83604bc23b0c2cc2be851d379ed238e2eccad81f2b79998a156f`. That assertion (and D-1366's copy) is not
 changed: it waits for the integrator's ruling, and the test is red until then.
 
 ## How this fits with #1439 (V-18b)
@@ -123,7 +135,6 @@ are one block away from its lines. The same generated files change: the second t
 
 ## Found, not fixed
 
-- A medication with no ATC: D-130 turns an inclusion's False into unknown; an exclusion's False stands (unsafe).
 - An ATC code in lower case or malformed is outside the grammar and reads False.
 - The families make every class's answer unknown for a patient on any drug of an unplaced branch: more review work,
   not measured on real data.

@@ -315,3 +315,85 @@ def test_a_japanese_sites_ingredient_stems_never_make_a_family_a_member() -> Non
     )  # fmt: skip
     got = {c["code"] for inc in vs["compose"]["include"] if inc["system"] == YJ_STEM for c in inc["concept"]}
     assert got == {"1111111"}
+
+
+NHI = SYSTEMS["nhi_drug"]
+
+
+@pytest.mark.parametrize("duration", [False, True], ids=["presence", "duration"])
+def test_an_order_with_no_atc_is_unknown_for_an_exclusion_only_in_its_window(duration: bool) -> None:
+    """The bound: an order with no ATC, not listed by its own code, in the atom's window, for an exclusion. An
+    inclusion's compiled answer stays False: D-130's runtime rule holds it (the off-list oracle's ULT-YJ)."""
+    vs = next(v for v in SHIPPED.values() if _cls(v) == "methotrexate")
+    vs = {**vs, "compose": {"include": [*vs["compose"]["include"], {"system": NHI, "concept": [{"code": "OWN1"}]}]}}
+    vsets = ValueSets("INTR", {"VS_X": vs})
+
+    def run(kind: str, start: str) -> dict[str, bool | None]:
+        crit = _crit("x", duration).model_copy(update={"kind": kind})
+        con = duckdb.connect()
+        con.execute(
+            "CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)"
+        )
+        con.execute(
+            "CREATE TABLE medication (pid VARCHAR, mid VARCHAR, atc VARCHAR, nhi_code VARCHAR, authored DATE, "
+            'start DATE, "end" DATE)'
+        )
+        orders = {"local": (None, "LOCAL9"), "empty": ("", None), "own": (None, "OWN1"), "other": ("C10AA05", "Z")}
+        for pid, (atc, own) in orders.items():
+            con.execute("INSERT INTO patient VALUES (?, DATE '1960-01-01', 'female', NULL, NULL)", [pid])
+            con.execute(
+                "INSERT INTO medication VALUES (?, ?, ?, ?, ?::DATE, ?::DATE, ?::DATE + 120)",
+                [pid, pid, atc, own, start, start, start],
+            )
+        con.execute("INSERT INTO patient VALUES ('noorder', DATE '1960-01-01', 'female', NULL, NULL)")
+        sql = SqlGenerator("INTR", "1.0.0", vsets).render([crit])
+        rows = con.execute(sql, [["2026-06-01"], [*orders, "noorder"]]).fetchall()
+        cols = [d[0] for d in con.description]
+        return {r[0]: next(v for k, v in zip(cols, r, strict=True) if k.startswith("C_")) for r in rows}
+
+    still = {"own": True, "other": False, "noorder": False}
+    assert run("exclusion", "2026-01-01") == {"local": None, "empty": None, **still}
+    assert run("inclusion", "2026-01-01") == {"local": False, "empty": False, **still}
+    old = run("exclusion", "2020-01-01")
+    assert old == dict.fromkeys(old, False)  # outside the window
+    for kind in ("exclusion", "inclusion"):
+        cql = CqlGenerator("INTR", "1.0.0", vsets).render([_crit("x", duration).model_copy(update={"kind": kind})])
+        assert (f"not exists (((X.medication as FHIR.CodeableConcept).coding) Cd where Cd.system.value = '{ATC}'" in cql
+                ) == (kind == "exclusion")  # fmt: skip
+
+
+def test_no_class_lost_a_japanese_ingredient_stem() -> None:
+    """Master gave a class the stems of its listed codes and of its prefix rows. Every one is still a member."""
+    from tb_common.refdata_jp import ingredient_atc
+
+    term, stems = Terminology(), ingredient_atc()
+    rows = [r for r in term.synonyms if r["domain"] == "medication"]
+    given = 0
+    for name in sorted({r["name"] for r in rows}):
+        res = term.map("medication", name)
+        listed = {c.code for c in res.concepts if c.system == ATC}
+        prefixes = tuple(r["code"] for r in rows if r["name"] == name and r["match"] == "prefix")
+        master = {s for s, r in stems.items() if r["atc"] in listed or (prefixes and r["atc"].startswith(prefixes))}
+        vs = valueset("X", "VS_X", "x", res.concepts, "1", families=res.families, ingredients=stems,
+                      open_families=res.open_families)  # fmt: skip
+        assert set(ValueSets("X", {"V": vs}).yj_stems("V")) == master, name
+        given += len(master)
+    assert given > 0
+
+
+def test_the_owners_table_is_the_exclusions() -> None:
+    page = ROOT / "docs/handover/intr2-drug-class-gaps-2026-11-25/excluded.md"
+    cells = [ln.split("|") for ln in page.read_text(encoding="utf-8").splitlines() if ln.startswith("| ")][2:]
+    table = {c[1].strip(): set(c[2].split()) for c in cells}
+    assert table == {k: v for k, v in EXCLUDED.items() if k.isascii()}
+    assert all(c[3].strip() for c in cells)
+
+
+def test_the_synthetic_generators_drugs_are_all_placed() -> None:
+    """Why the goldens stand: every drug the generator gives is listed or excluded for every class, none unknown. So
+    the goldens show no recorded answer moved; they do not exercise the new rule."""
+    from tools.synth import catalog
+
+    codes = {d.atc for d in catalog.DRUGS.values()}
+    assert len(codes) >= 20
+    assert [(k, c) for k, vs in SHIPPED.items() for c in sorted(codes) if _read(vs, c) is None] == []

@@ -43,11 +43,11 @@
   {
    "id": "INTR2-05",
    "severity": "Medium",
-   "claim": "an exclusion's False stands for a patient with a medication without ATC (D-130 covers inclusions only)",
+   "claim": "a medication with no ATC, not listed by its own code, read False for a drug exclusion (D-130 covers inclusions only); fixed for exclusions, none and negated atoms, in the window",
    "lane": "V",
    "basis": "shown",
-   "state": "open",
-   "place": "services/matching/coverage.py"
+   "state": "fixed",
+   "place": "services/criteria_compiler/semantics.py"
   },
   {
    "id": "INTR2-06",

@@ -41,6 +41,7 @@ from criteria_compiler.semantics import (
     check_bool,
     compiled,
     fmt_num,
+    holds_no_atc,
     kind,
     window,
 )
@@ -303,12 +304,10 @@ class CqlGenerator:
         if atom.domain not in FAMILY_CODINGS:
             raise CompileError(f"code families are not supported on {atom.domain} atoms")
         on = q("O_" + p)
-        in_family = _in_family(fams, self.vs.codes(atom.valueset))
         for name, when in ((on, f"{date} in {win}"), (q("UO_" + p), f"{date} is null")):
             defs.append(
                 f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"
-                f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
-                f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+                f"    and {self._offlist(atom, fams)}"
             )
         unknown.append(q("UO_" + p))
         if quant == "count>=":
@@ -482,6 +481,26 @@ class CqlGenerator:
         )
         return defs, a, ev
 
+    _hold_no_atc = False  # set per atom by render
+
+    def _offlist(self, atom: Atom, fams: list[tuple[str, str]]) -> str:
+        """The resource ``X`` is coded inside the class's families and off its list (D-113); INT-R2, as the SQL: or it
+        is an order with no ATC whose own code is not listed either (``holds_no_atc``)."""
+        codings, vs = FAMILY_CODINGS[atom.domain][1], q(atom.valueset)
+        out = (
+            f"exists (({codings}) Cd where ({_in_family(fams, self.vs.codes(atom.valueset))}) "
+            f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+        )
+        if not self._hold_no_atc or not any(sy == SYSTEMS["atc"] for sy, _ in fams):
+            return out
+        stems = ", ".join(f"'{s}'" for s in self.vs.yj_stems(atom.valueset))
+        yj = f" or (Matches(Cd.code.value, '{YJ_SHAPE}') and Substring(Cd.code.value, 0, 7) in {{{stems}}})"
+        return (
+            f"({out}\n      or (not exists (({codings}) Cd where Cd.system.value = '{SYSTEMS['atc']}' "
+            f"and Cd.code.value != '')\n      and not exists (({codings}) Cd where FHIRHelpers.ToCode(Cd) in {vs}"
+            f"{yj if stems else ''})))"
+        )
+
     def _med_duration(self, cid: str, n: int, atom: Atom, w: Window) -> tuple[list[str], str, str]:
         p = f"{cid}_{n}"
         assert atom.duration is not None and atom.duration.min_days is not None
@@ -519,8 +538,7 @@ class CqlGenerator:
             defs.append(
                 f"define {fn}:\n  [MedicationRequest] X where ({start} is null or {start} <= {hi})\n"
                 f"    and (X.dispenseRequest.validityPeriod.end is null or {end} >= {lo})\n"
-                f"    and exists (({FAMILY_CODINGS['medication'][1]}) Cd where ({_in_family(fams, self.vs.codes(atom.valueset))}) "
-                f"and not (FHIRHelpers.ToCode(Cd) in {q(atom.valueset)}))"
+                f"    and {self._offlist(atom, fams)}"
             )
             unknown = f"exists ({fn}) or {unknown}"
         a = f"if {dn} >= {atom.duration.min_days} then true else if {unknown} then null as Boolean else false"
@@ -570,6 +588,7 @@ class CqlGenerator:
         names: dict[int, str] = {}
         evs: list[str] = []
         for n, atom in enumerate(atoms(c.logic), start=1):
+            self._hold_no_atc = holds_no_atc(c.kind, c.logic, atom)
             defs, a, ev = self._atom(ctx, c.id, n, atom)
             out.extend(defs)
             aname = f"A_{c.id}_{n}"
