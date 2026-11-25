@@ -337,9 +337,12 @@ def _draft(
         (
             by[v.id].label or by[v.id].text[:30],
             # D-478, D-1072: a note "present" is not written as present in a draft: it is left to fill in
-            {"pass": "無", "fail": "有", "unknown": "[待補]", "pending_human": "[待補]"}[
-                "unknown" if v.verdict == "fail" and v.basis in ("pair", "single") else shown_of(v)[0]
-            ],
+            {
+                "pass": "無",
+                "fail": "[待補]" if decision.is_note_answer(by[v.id], v) and v.basis != "person" else "有",
+                "unknown": "[待補]",
+                "pending_human": "[待補]",
+            }[shown_of(v)[0]],
         )
         for v in row.criteria
         if by[v.id].kind == "exclusion"
