@@ -2,88 +2,70 @@
 
 from __future__ import annotations
 
-import json
+import importlib
 import logging
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
-import yaml
 from console import app as console_app
-from tb_common.config import DECLARED_SETTINGS, ConfigError, load_settings
-from tb_contracts import Settings
+from tb_common.config import DECLARED, ConfigError, load_env
 
 from tools.trialbox import doctor
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
+KEYS = {"TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK", "TB_TERMINOLOGY_NIGHT", "TB_VENDOR_KEYS"}
 
 #: page files their module still owes. A module's pull request takes its own line out (one unchanged line stands
 #: between two entries, so two modules' removals do not touch).
 PENDING = {
     # M1
-    "console.still_needed",
+    "still_needed",
     # M3
-    "console.egress_page",
+    "egress_page",
     # M5
-    "console.health_page",
+    "health_page",
     # M5
-    "console.data_step",
+    "data_step",
     # M5
-    "console.support_page",
+    "support_page",
     # M8
-    "console.screen_now",
+    "screen_now",
     # end
 }
 
 
 # ---------------------------------------------------------------------------------------------- settings keys
-@pytest.mark.parametrize("key", sorted(DECLARED_SETTINGS))
-def test_a_new_key_has_one_default_in_every_place(key: str) -> None:
-    section, name = key.split(".")
-    default = DECLARED_SETTINGS[key].default
-    schema = json.loads((ROOT / "schemas" / "settings.schema.json").read_text(encoding="utf-8"))
-    sec = schema["properties"][section]
-    assert sec["properties"][name]["default"] == default
-    doc = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
-    assert doc[section][name] == default
-    doc[section] = {}  # a section without the key takes the default
-    assert getattr(getattr(Settings.model_validate(doc), section), name) == default
-    assert DECLARED_SETTINGS[key].doc
+def test_a_new_key_has_one_default_and_one_meaning_in_both_places() -> None:
+    said = dict(re.findall(r"^#   (TB_\w+)=(.*)$", EXAMPLE.read_text(encoding="utf-8"), re.MULTILINE))
+    assert set(said) == KEYS
+    for key, line in said.items():
+        default, meaning = re.split(r"\s{2,}", line, maxsplit=1)
+        assert (default, meaning) == (DECLARED[key].default, DECLARED[key].doc)
 
 
-def test_every_key_of_a_declared_section_is_declared() -> None:
-    doc = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
-    for section in {k.split(".")[0] for k in DECLARED_SETTINGS}:
-        assert {f"{section}.{n}" for n in doc[section]} == {k for k in DECLARED_SETTINGS if k.startswith(section + ".")}
-
-
-def _with(tmp_path: Path, terminology: Any) -> Path:
-    doc = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
-    if terminology is None:
-        doc.pop("terminology")
-    else:
-        doc["terminology"] = terminology
-    path = tmp_path / "settings.yaml"
-    path.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
-    return path
-
-
-@pytest.mark.parametrize("bad", [
-    {"update_time": "before the night"}, {"update_time": "25:00"}, {"update_time": ""}, {"update_time": 3},
-    {"update_dir": "packs"}, {"update_dir": None}, {"update_folder": "/packs"}, "nightly",
+@pytest.mark.parametrize(("key", "bad"), [
+    ("TB_TERMINOLOGY_UPDATE_DIR", "packs"), ("TB_TERMINOLOGY_STICK", "/media/a:b"), ("TB_VENDOR_KEYS", "keys"),
+    ("TB_TERMINOLOGY_NIGHT", "before the night"), ("TB_TERMINOLOGY_NIGHT", "25:00-05:00"),
+    ("TB_TERMINOLOGY_NIGHT", "22:00"),
 ])  # fmt: skip
-def test_an_unknown_value_or_name_stops_the_start(tmp_path: Path, bad: Any) -> None:
-    with pytest.raises(ConfigError, match="terminology"):
-        load_settings(_with(tmp_path, bad))
+def test_an_unknown_value_stops_the_start(tmp_path: Path, key: str, bad: str) -> None:
+    with pytest.raises(ConfigError, match=key):
+        load_env(tmp_path / "none", {"TB_TZ": "Asia/Taipei", key: bad})
 
 
-def test_a_known_value_loads_and_a_settings_file_of_before_f0_still_does(tmp_path: Path) -> None:
-    said = load_settings(_with(tmp_path, {"update_dir": "/srv/packs", "update_time": "01:30"})).terminology
-    assert said is not None and (said.update_dir, said.update_time) == ("/srv/packs", "01:30")
-    load_settings(_with(tmp_path, None))
+@pytest.mark.parametrize("env", [
+    {}, {k: "" for k in ("TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK", "TB_TERMINOLOGY_NIGHT", "TB_VENDOR_KEYS")},
+    {"TB_TERMINOLOGY_UPDATE_DIR": "/srv/packs", "TB_TERMINOLOGY_STICK": "/media/a:/media/b", "TB_VENDOR_KEYS": "/keys",
+     "TB_TERMINOLOGY_NIGHT": "22:00-05:30"},
+    {"TB_VENDOR_KEYS": "deploy/keys", "TB_TERMINOLOGY_STICK": "/media/a /media/b"},
+])  # fmt: skip
+def test_a_known_value_loads(tmp_path: Path, env: dict[str, str]) -> None:
+    load_env(tmp_path / "none", {"TB_TZ": "Asia/Taipei", **env})
 
 
 # ------------------------------------------------------------------------------------------------ doctor hook
@@ -184,25 +166,30 @@ def test_a_module_supplies_an_existing_checks_body(monkeypatch: pytest.MonkeyPat
 
 
 # ------------------------------------------------------------------------------------------------ page files
+CONSOLE = ROOT / "services" / "console"
+
+
 def test_every_declared_page_file_is_there_or_still_owed() -> None:
-    there = {n for n in console_app.MODULE_PAGES if console_app._module_page(n) is not None}
+    there = {n for n in console_app.MODULE_PAGES if (CONSOLE / f"{n}.py").is_file()}
     missing = set(console_app.MODULE_PAGES) - there - PENDING
     assert not missing, f"declared in console.app.MODULE_PAGES and not in this tree: {sorted(missing)}"
     done = PENDING - (set(console_app.MODULE_PAGES) - there)
     assert not done, f"brought or no longer declared: take out of PENDING: {sorted(done)}"
+    for name in sorted(there):
+        assert hasattr(importlib.import_module(f"{name}"), "register"), f"{name} has no register()"
+
+
+def test_every_declared_page_file_is_registered_once_before_the_outermost_middleware() -> None:
+    text = (CONSOLE / "app.py").read_text(encoding="utf-8")
+    for n in console_app.MODULE_PAGES:
+        assert text.count(f'if _module_page("{n}"):') == 1
+        assert f"from console.{n} import register as {n}\n\n        {n}(app, helpers, raw_env)" in text
+    assert text.count("if _module_page(") == len(console_app.MODULE_PAGES)
+    assert text.index('_module_page("screen_now")') < text.index("rc1_guard.register(")
 
 
 def test_a_declared_page_file_that_is_not_there_is_logged_by_name(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING):
-        assert console_app._module_page("console.f0_not_there") is None
-    assert "console.f0_not_there" in caplog.text
-
-
-def test_a_page_file_that_is_there_and_does_not_import_is_an_error(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    (tmp_path / "f0_page.py").write_text("import no_such_package_f0\n", encoding="utf-8")
-    monkeypatch.syspath_prepend(str(tmp_path))
-    with pytest.raises(ModuleNotFoundError, match="no_such_package_f0"):
-        console_app._module_page("f0_page")
-    assert all(hasattr(m, "register") for n in console_app.MODULE_PAGES if (m := console_app._module_page(n)))
+        assert console_app._module_page("f0_not_there") is False
+    assert "f0_not_there" in caplog.text
+    assert console_app._module_page("rc1_guard") is True

@@ -47,6 +47,9 @@ calibration_defaults: {reach_rate: 0.6, accept_rate: 0.35}
 # org_id must exist in the TWPAS organization-identifier code system; the synthetic site uses the IG's example code.
 twpas: {enabled: true, dry_run: true, org_id: "0101090517", org_name: "示範醫院A"}
 cohort: {alliance_root: true, root_address: "trialbox@hospa.test", rulesets: ["GOUT-COH", "RA-COH"], ctgov_cache_days: 30}
-# F0 (M2): the code systems' scheduled update. update_dir: the absolute folder a signed pack is looked for in; "" = a
-# stick only. update_time: before_night, or HH:MM on the site's clock. Any other value stops the services at start.
-terminology: {update_dir: "", update_time: before_night}
+# F0: the modules' keys that are set in deploy/.env (TB_*, never in this file), each with its default and meaning; a
+# value of another form stops the services at start (tb_common.config).
+#   TB_TERMINOLOGY_UPDATE_DIR=             M2: folder a signed code-system pack is put in; empty: stick only
+#   TB_TERMINOLOGY_STICK=                  M2: the sticks' folders, where a signed code-system pack may be
+#   TB_TERMINOLOGY_NIGHT=                  M2: HH:MM-HH:MM in which a found pack waits; empty: not checked
+#   TB_VENDOR_KEYS=deploy/keys             M2: folder of the vendor's public keys a pack is checked with
