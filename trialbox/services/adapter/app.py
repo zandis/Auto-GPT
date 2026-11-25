@@ -32,6 +32,7 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from tb_common import ids
 from tb_common import service_auth as sa
 from tb_common.http import make_app
 from tb_contracts import IngestRequest, dump
@@ -191,7 +192,7 @@ def run(req: IngestRequest) -> JSONResponse:
         if not waits:
             gate.release()
         raise
-    rid = os.urandom(8).hex()
+    rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
     state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None,
                              "detail": "waiting for a publish to end" if waits else ""}  # fmt: skip
     _runs[rid] = state
@@ -304,7 +305,7 @@ def publish(body: PublishBody) -> JSONResponse:
             if published(ac, body.snapshot):
                 _accepting.clear()
                 _running.release()
-                rid = os.urandom(8).hex()
+                rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
                 _publishes[rid] = {"run": rid, "state": "done", "started": _now(), "ended": _now(), "detail":
                                    "published already", "snapshot": body.snapshot, "steps": {},
                                    "promoted": True}  # fmt: skip
@@ -327,7 +328,7 @@ def publish(body: PublishBody) -> JSONResponse:
         _accepting.clear()
         _running.release()
         raise
-    rid = os.urandom(8).hex()
+    rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
     state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None, "detail": "",
                              "snapshot": body.snapshot, "steps": {}}  # fmt: skip
     _publishes[rid] = state
