@@ -28,6 +28,30 @@ For every pair of runs:
 never fails. The store state of each run is printed. A file with no `judged_store`, or with no boolean `on`, or runs
 whose state differs, are refused with exit 2 and the missing part named. Exit 1: a rule failed.
 
+## The run file, exactly
+
+```json
+{
+  "judged_store": {"on": true, "read": 0, "live": 12},
+  "rows": [
+    {"pid": "p001", "tier": "high", "actions": [],
+     "criteria": [
+       {"id": "c0", "verdict": "pass", "basis": "coded", "prov": [],
+        "evidence": {"resource_refs": ["Condition/c1"]}},
+       {"id": "c1", "verdict": "pass", "basis": "pair", "prov": ["call-1"],
+        "evidence": {"resource_refs": ["DocumentReference/n1"], "quote": "...", "quote_date": "2026-10-01"}}]}
+  ]
+}
+```
+
+- `judged_store` is the SCREEN summary's block (`on` must be a boolean; `read` and `live` are printed).
+- `rows` has one row for every patient of the run, the excluded ones too (`tier`: `high`, `review` or `excluded`), the
+  product's `CandidateRow` with its `criteria` (`CriterionVerdict`). The tool reads `pid`, `tier`, and per criterion
+  `id`, `verdict`, `basis`, `prov` and `evidence.resource_refs / quote_date`.
+- The candidate list file of a job holds only the listed tiers, so it is not a run file by itself. The walk's step-9
+  script must write this file for each run (the walk will adapt its script); there is no reader of the screen output
+  in this card.
+
 ## Not verified
 
 The shape of a run file is the product's row; no real run's output was read here. Whether the step-9 run kept the
