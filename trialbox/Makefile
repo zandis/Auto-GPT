@@ -4,7 +4,13 @@ PY ?= .venv/bin/python
 COMPOSE := docker compose --project-directory deploy -f deploy/docker-compose.yml
 # the test stack uses the example settings with a high per-sender limit: e2e suites run many times a day
 TEST_SETTINGS := .cache/test-settings.yaml
-COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
+# H-139: the test stack's own compose project. The base file's name (trialbox) is a box's, and a box installed on the
+# same host would otherwise share the test stack's containers and networks; `make up-test` refuses when another
+# project or program holds what the stack would publish (tools/test_stack_free.py). H-139 (H139-14): the test stack is
+# TEST and D0 whatever the caller's shell exports (a TB_ENV of the host's own box made every service refuse the
+# tests' calls, 401): no caller's environment variable decides it
+TEST_PROJECT := trialbox-test
+COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) TB_ENV=TEST TB_DATA_CLASS=D0 $(COMPOSE) -p $(TEST_PROJECT) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
 # release identity on every image we build (T-110b, ENG-015): the version from pyproject.toml and the commit
 TB_VERSION := $(shell sed -n 's/^version = "\(.*\)"$$/\1/p' pyproject.toml | head -1)
@@ -536,7 +542,10 @@ objects-dir:
 	       "another user): remove it (sudo rm -rf $(OBJECTS_DIR)) and run again" >&2; exit 1; }
 
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
-	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects && $(COMPOSE_TEST) up -d --wait
+	@echo "up-test: the test stack is compose project $(TEST_PROJECT), TB_ENV=TEST and TB_DATA_CLASS=D0, whatever this shell exports"
+	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects
+	set -o pipefail; $(COMPOSE_TEST) config --format json | PYTHONPATH=libs:services:. $(PY) -m tools.test_stack_free $(TEST_PROJECT)
+	$(COMPOSE_TEST) up -d --wait
 
 # load synthetic site A into the running test stack (adapter -> lake + FHIR store)
 ingest-test:
@@ -667,12 +676,15 @@ restore-drill:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.restore_drill run --out "$(RESTORE_DRILL_OUT)" \
 		--work "$(TB_TEST_ROOT)/restore-drill/work"
 
+# H139-13: the full set's console and poc stages (tools/full_set.py) allow no skip, as test-compose and test-walks:
+# a browser driver node cannot load is a failure that names it, never a skip that turns the stage green. The unit
+# shards run the console tests without this: there a host with no node still skips them with their own reasons.
 test-console:
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
+	TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
 
 # browser + e-mail end to end against the running POC (make poc first): Playwright (Node) drives the console
 test-console-e2e:
-	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
+	TB_INTEGRATION=1 TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
 
 site:
 	$(PY) tools/build_site.py

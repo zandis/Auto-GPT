@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from tests import pg_client
 from tests.unit.test_backup_without_pause import _lake_files, _sidecar_ok, _swap
 from tests.unit.test_kek import _cli, box  # noqa: F401
 from tests.unit.test_restic_password import _shares, stewards  # noqa: F401
@@ -41,6 +42,7 @@ def site(stewards: dict[str, Path], db_url: str, tmp_path: Path, monkeypatch: py
     bk.keygen(priv, pub)
     rr.make_key(stewards["sec"], os.environ)
     env = {
+        **pg_client.env(),
         "TB_DB_URL": db_url,
         "TB_SITE_ID": "CGMH",
         rr.CMD_ENV: os.environ[rr.CMD_ENV],

@@ -62,6 +62,9 @@ if phase == "run":
             (root / n).write_text(f"{text} {n}\n")
     if case == "copied-link":
         (src / "deploy" / "new.sh").write_text("new deploy/new.sh\n")
+    if case == "copied-statelink":  # review of #1479 (1479-2): the site keeps a STATE file elsewhere, behind a link
+        (t / "site-settings.yaml").write_text("site settings\n")
+        (base / "deploy" / "settings.yaml").symlink_to(t / "site-settings.yaml")
     if case == "host-tree":  # the box is on host tree B1 already; B2 adds two paths where the site keeps its own files
         (stage / "host").mkdir(parents=True)
         ht.pack(src, stage / "host" / ht.HOST_TAR)
@@ -91,6 +94,19 @@ if phase == "run":
 
         Path.symlink_to = link
         after = 10**6  # no kill at a move
+    if case == "copied-rename":  # review of #1479 (1479-1): killed the instant a file is set aside
+        real_rename, renamed = Path.rename, []
+
+        def rename(self, target):
+            out = real_rename(self, target)
+            if ".replaced-" in str(target):
+                renamed.append(str(target))
+                if len(renamed) == after:
+                    os.kill(os.getpid(), signal.SIGKILL)
+            return out
+
+        Path.rename = rename
+        ht._aside = real  # the kill is at the rename itself
     up.Updater(Box(), updates, say=lambda _m: None).run(plan_of(bid))
     print("NOT KILLED")
 else:
@@ -103,7 +119,9 @@ else:
     cur = os.path.normpath(base / "current")
     dangling = [str(p.relative_to(base)) for p in base.rglob("*") if p.is_symlink() and "releases" not in p.parts
                 and os.path.normpath(os.path.join(p.parent, os.readlink(p))).startswith(cur + os.sep)]
-    print(json.dumps({"ok": r["ok"], "not_back": bad, "links_left": dangling if kind == "copied" else [],
+    link = base / "deploy" / "settings.yaml"
+    print(json.dumps({"state_link": os.readlink(link) if link.is_symlink() else None,
+                      "ok": r["ok"], "not_back": bad, "links_left": dangling if kind == "copied" else [],
                       "current": os.readlink(base / "current") if (base / "current").is_symlink() else None,
                       "marker": us.marker(updates)}))
 """
@@ -117,7 +135,17 @@ def _run(script: Path, t: Path, phase: str, case: str, after: int) -> subprocess
 
 
 @pytest.mark.parametrize(
-    ("case", "after"), [("copied", 1), ("copied", 2), ("copied", 4), ("copied-link", 0), ("host-tree", 1)]
+    ("case", "after"),
+    [
+        ("copied", 1),
+        ("copied", 2),
+        ("copied", 4),
+        ("copied-link", 0),
+        ("host-tree", 1),
+        ("copied-rename", 1),
+        ("copied-rename", 3),
+        ("copied-statelink", 1),
+    ],
 )
 def test_a_sigkill_inside_the_switch_is_put_back_whole_by_the_next_rollback(tmp_path: Path, case: str,
                                                                             after: int) -> None:  # fmt: skip
@@ -137,3 +165,5 @@ def test_a_sigkill_inside_the_switch_is_put_back_whole_by_the_next_rollback(tmp_
     assert out["ok"] and out["marker"] is None, out
     assert out["not_back"] == [] and out["links_left"] == [], out
     assert out["current"] == ("releases/B1" if case == "host-tree" else None), out
+    if case == "copied-statelink":  # a link of the site's own, not through current, is never removed
+        assert out["state_link"] == str(t / "site-settings.yaml"), out

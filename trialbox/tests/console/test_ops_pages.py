@@ -21,6 +21,7 @@ from markupsafe import escape
 from tb_common.audit import AuditLog
 from tb_common.authz import ADMIN_ACTIONS, ROLE_ADMIN_ACTIONS, admin_allowed
 
+from tests import pg_client
 from tests.console.test_console_app import (  # noqa: F401 - the fixture is used by name
     ADMIN_PW,
     PILOT_ENV,
@@ -76,6 +77,7 @@ def ob(tmp_path: Path) -> dict[str, Any]:
         "TB_BACKUP_DIRS": f"data={data}",
         "TB_DB_URL": os.environ["TB_DB_URL"],
         "TB_SITE_ID": "TEST",
+        **pg_client.env(),  # H-139: the test cluster's client tools; a host may keep them off PATH
     }
     app = create_app(env, backend=backend, audit=audit, users=users)
     return {"app": app, "audit": tmp_path / "audit", "users": users, "dir": tmp_path, "deploy": deploy,

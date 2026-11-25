@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import struct
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,13 +14,16 @@ from typing import Any
 import pytest
 from tb_common.db import Database
 
+from tests import pg_client
 from tools.backup_drill import write_legacy
 from tools.trialbox import backup as bk
 from tools.trialbox.__main__ import main as cli
 
 
 @pytest.fixture
-def box(tmp_path: Path, db_url: str) -> dict[str, object]:
+def box(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    for var, cmd in pg_client.env().items():  # the CLI forms read the process environment, as TB_DB_URL is set
+        monkeypatch.setenv(var, cmd)
     db = Database.connect(db_url, "site")
     db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT NOT NULL, note TEXT)"])
     db.execute("INSERT INTO marks VALUES (?, ?, ?)", ("P1", "approach", "日本語のメモ"))
@@ -37,11 +41,16 @@ def box(tmp_path: Path, db_url: str) -> dict[str, object]:
     return {"db": db, "auth": other, "dirs": dirs, "priv": priv, "pub": pub, "fp": fp, "url": db_url}
 
 
+def _db_env(box: dict[str, object]) -> dict[str, str]:
+    """The box's database and the test cluster's client tools (H-139: a host may keep them off PATH)."""
+    return {**pg_client.env(), "TB_DB_URL": str(box["url"])}
+
+
 def _backup(box: dict[str, object], tmp_path: Path, **kw: object) -> list[Path]:
     return bk.backup(
         [tmp_path / "nas", tmp_path / "usbdisk"],
         box["pub"],  # type: ignore[arg-type]
-        env={"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"},
+        env={**pg_client.env(), "TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"},
         dirs=box["dirs"],  # type: ignore[arg-type]
         **kw,  # type: ignore[arg-type]
     )
@@ -62,7 +71,7 @@ def test_round_trip_restores_rows_and_files(box: dict[str, object], tmp_path: Pa
     box["auth"].execute("DROP TABLE users")  # type: ignore[attr-defined]
     (dirs["audit"] / "2026" / "log.jsonl").write_text("tampered\n")  # type: ignore[index]
     (dirs["lake"] / "new.parquet").write_bytes(b"x")  # type: ignore[index]
-    out = bk.restore(files[1], box["priv"], env={"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"},  # type: ignore[arg-type]
+    out = bk.restore(files[1], box["priv"], env={**pg_client.env(), "TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"},  # type: ignore[arg-type]
                      dirs=dirs, public_key=box["pub"], keep_to=tmp_path / "kept")  # type: ignore[arg-type]  # fmt: skip
     assert out["ok"] and out["rows"]["trialbox_wf"] == 5 and out["dirs"] == ["audit", "lake"]
     db2 = Database.connect(str(box["url"]), "site")
@@ -169,7 +178,7 @@ def test_a_backup_in_a_previous_format_still_restores(
     (lake / "ndjson" / "2026-01-31").mkdir(parents=True)
     (lake / "ndjson" / "2026-01-31" / "Patient.ndjson").write_text("{}\n")
     (lake / "CURRENT").write_text("2026-11-08")
-    f = write_legacy(tmp_path / "old", box["pub"], {"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"},  # type: ignore[arg-type]
+    f = write_legacy(tmp_path / "old", box["pub"], {**pg_client.env(), "TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"},  # type: ignore[arg-type]
                      box["dirs"], compression, datetime(2026, 1, 2, tzinfo=UTC))  # type: ignore[arg-type]  # fmt: skip
     header, head = _plain_head(f, box["priv"], len(magic))  # type: ignore[arg-type]
     assert "layout" not in header and ("compression" in header) == (compression == "zstd") and head == magic
@@ -177,7 +186,7 @@ def test_a_backup_in_a_previous_format_still_restores(
     assert bk.verify(f, box["priv"])["layout"] == 1  # type: ignore[arg-type]
     box["db"].execute("UPDATE marks SET mark = ? WHERE pid = ?", ("withdrawn", "P1"))  # type: ignore[attr-defined]
     (lake / "ndjson" / "2026-01-31" / "Patient.ndjson").unlink()
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env=_db_env(box), dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
                      now=datetime(2026, 11, 9, tzinfo=UTC), max_age_days=None)  # fmt: skip
     assert (
         out["ok"]
@@ -341,7 +350,7 @@ def test_the_lake_keeps_current_and_the_merge_base_ndjson_and_leaves_out_old_ndj
     f = _backup(box, tmp_path)[0]
     m = bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
     assert m["excluded"]["lake"] == left and m["dirs"]["lake"]["files"] == len(keep)
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env=_db_env(box), dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
                      )  # fmt: skip
     assert out["ok"]
     assert sorted(str(p.relative_to(lake)) for p in (lake / "ndjson").rglob("*.ndjson")) == nd
@@ -380,17 +389,18 @@ def test_rows_are_counted_in_the_dumps_own_snapshot_while_the_box_writes(
 
     dsn = split_url(str(box["url"]))[0]
     wrapper = tmp_path / "pg_dump_late_write.sh"
-    wrapper.write_text(f'#!/bin/sh\npsql -X -q --dbname "$LATE_DSN" -c "INSERT INTO {db.schema}.marks VALUES '
-                       "('P9', 'late', NULL)\" >/dev/null\nexec pg_dump \"$@\"\n")  # fmt: skip
+    psql, pg_dump = shlex.quote(pg_client.tool("psql")), shlex.quote(pg_client.tool("pg_dump"))
+    wrapper.write_text(f'#!/bin/sh\n{psql} -X -q --dbname "$LATE_DSN" -c "INSERT INTO {db.schema}.marks VALUES '
+                       f"('P9', 'late', NULL)\" >/dev/null\nexec {pg_dump} \"$@\"\n")  # fmt: skip
     wrapper.chmod(0o755)
     monkeypatch.setenv("LATE_DSN", dsn)
-    env = {"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH", "TB_PG_DUMP_CMD": str(wrapper)}
+    env = {**pg_client.env(), "TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH", "TB_PG_DUMP_CMD": str(wrapper)}
     f = bk.backup([tmp_path / "nas"], box["pub"], env=env, dirs=box["dirs"])[0]  # type: ignore[arg-type]
     assert db.fetchall("SELECT count(*) FROM marks") == [(3,)]  # the late row is in the live database
     m = bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
     twf = m["databases"]["trialbox_wf"]
     assert twf["rows_from"] == "snapshot" and twf["rows"][f"{db.schema}.marks"][0] == 2
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env=_db_env(box), dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
                      )  # fmt: skip
     assert out["ok"] and out["warnings"] == [] and db.fetchall("SELECT count(*) FROM marks") == [(2,)]
 
@@ -404,7 +414,7 @@ def test_a_snapshot_backup_whose_rows_do_not_come_back_fails_the_restore(
         bk, "row_counts", lambda src, skip=(), scheme="rs1": {**real(src, skip, scheme), "x.lost": [1, "0"]}
     )
     with pytest.raises(bk.BackupError, match="differs from the backup"):
-        bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
+        bk.restore(f, box["priv"], env=_db_env(box), dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
 
 
 def test_a_backup_counted_on_a_live_box_warns_on_a_row_mismatch(box: dict[str, object], tmp_path: Path) -> None:
@@ -412,12 +422,12 @@ def test_a_backup_counted_on_a_live_box_warns_on_a_row_mismatch(box: dict[str, o
     between is a warning on restore, not a failure."""
     pre = tmp_path / "dumps"
     pre.mkdir()
-    src = bk.db_sources({"TB_DB_URL": str(box["url"])})[0]
-    bk.dump(src, pre / "trialbox_wf.dump", {"TB_DB_URL": str(box["url"])})
+    src = bk.db_sources(_db_env(box))[0]
+    bk.dump(src, pre / "trialbox_wf.dump", _db_env(box))
     box["db"].execute("INSERT INTO marks VALUES (?, ?, ?)", ("P9", "late", None))  # type: ignore[attr-defined]
-    env = {"TB_DB_URL": str(box["url"]), "TB_PG_DUMP_DIR": str(pre), "TB_SITE_ID": "CGMH"}
+    env = {**pg_client.env(), "TB_DB_URL": str(box["url"]), "TB_PG_DUMP_DIR": str(pre), "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], box["pub"], env=env, dirs=box["dirs"])[0]  # type: ignore[arg-type]
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env=_db_env(box), dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
     assert out["ok"] and len(out["warnings"]) == 1 and "running box" in out["warnings"][0]
 
 
@@ -514,7 +524,7 @@ def test_vendor_reference_rows_are_left_out_and_loaded_again_on_restore(box: dic
     dump = (tmp_path / "x" / "db" / "trialbox_wf.dump").read_bytes()
     assert b"NCT99000001" not in dump  # the vendor's rows are not
     assert [p["pack_id"] for p in m["refdata_packs"]] == [tar.name.removesuffix(".tar")]
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env=_db_env(box), dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
                      refdata_dir=tar.parent)  # fmt: skip
     assert out["ok"] and out["refdata"] == {"reloaded": [tar.name.removesuffix(".tar")], "missing": []}
     after = _refdata_state(Database.connect(str(box["url"]), "refdata"))
@@ -531,7 +541,7 @@ def test_a_restore_without_the_pack_keeps_the_site_rows_and_says_it_is_not_done(
 
     OptOutRegister(str(box["url"])).close()
     f = _backup(box, tmp_path)[0]
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env=_db_env(box), dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
                      refdata_dir=tmp_path / "empty")  # fmt: skip
     assert not out["ok"] and out["refdata"]["missing"] == [tar.name.removesuffix(".tar")]
     ref2 = Database.connect(str(box["url"]), "refdata")
@@ -551,17 +561,19 @@ def test_a_restore_without_the_pack_keeps_the_site_rows_and_says_it_is_not_done(
 def test_the_update_paths_full_dump_keeps_every_row(box: dict[str, object], tmp_path: Path) -> None:
     """``dump`` (the update path's rollback point) is a full dump, reference rows included."""
     _tar, _ref = _refdata_box(box, tmp_path)
-    src = bk.db_sources({"TB_DB_URL": str(box["url"])})[0]
-    bk.dump(src, tmp_path / "full.dump", {"TB_DB_URL": str(box["url"])})
+    src = bk.db_sources(_db_env(box))[0]
+    bk.dump(src, tmp_path / "full.dump", _db_env(box))
     import subprocess
 
-    listing = subprocess.run(["pg_restore", "-f", "-", str(tmp_path / "full.dump")], capture_output=True, check=True)
+    listing = subprocess.run(
+        [pg_client.tool("pg_restore"), "-f", "-", str(tmp_path / "full.dump")], capture_output=True, check=True
+    )
     assert b"NCT99000001" in listing.stdout
 
 
 # ------------------------------------------------------------------------------------------------ D-274 (FG D-274)
 def _env(box: dict[str, object], **kw: str) -> dict[str, str]:
-    return {"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH", **kw}
+    return {**pg_client.env(), "TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH", **kw}
 
 
 def _marks(box: dict[str, object]) -> list[tuple[object, ...]]:
@@ -647,7 +659,7 @@ def test_a_whole_database_restore_leaves_no_table_the_backup_does_not_hold(pg_cl
             con.execute("INSERT INTO site.marks VALUES ('P1', 'approach')")
         priv, pub = tmp_path / "k.key", tmp_path / "k.pub"
         bk.keygen(priv, pub)
-        env = {"TB_DB_URL": url, "TB_SITE_ID": "CGMH"}
+        env = {"TB_DB_URL": url, "TB_SITE_ID": "CGMH", **pg_client.env()}
         f = bk.backup([tmp_path / "nas"], pub, env=env, dirs={})[0]
         with psycopg.connect(url, autocommit=True) as con:
             con.execute("CREATE SCHEMA later; CREATE TABLE later.t (x int); CREATE TABLE public.extra (x int)")
@@ -697,8 +709,8 @@ def test_the_host_part_is_in_the_backup_and_restored_only_where_named(box: dict[
     folder named ``host`` and otherwise says where they are."""
     pre = tmp_path / "dumps"
     (pre / "host").mkdir(parents=True)
-    src = bk.db_sources({"TB_DB_URL": str(box["url"])})[0]
-    bk.dump(src, pre / "trialbox_wf.dump", {"TB_DB_URL": str(box["url"])})
+    src = bk.db_sources(_db_env(box))[0]
+    bk.dump(src, pre / "trialbox_wf.dump", _db_env(box))
     (pre / "host" / "deploy.env").write_text("TB_SITE_ID=CGMH\n")
     (pre / "host" / "settings.yaml").write_text("site: {tz: Asia/Taipei}\n")
     f = bk.backup([tmp_path / "nas"], box["pub"], env=_env(box, TB_PG_DUMP_DIR=str(pre)), dirs=box["dirs"])[0]  # type: ignore[arg-type]

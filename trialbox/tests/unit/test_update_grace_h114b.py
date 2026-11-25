@@ -77,3 +77,17 @@ def test_the_console_gives_the_update_its_own_limit_as_grace(tmp_path: Path, mon
     runner.do_update_apply({"bundle": "trialbox-2026.11-2.tar"})
     assert calls and calls[0][1] == 4321
     assert os.path.basename(calls[0][0][1]) == "apply_update.sh"
+
+
+def test_a_rollback_that_writes_more_than_a_pipe_holds_is_not_stalled_in_the_grace(tmp_path: Path) -> None:
+    """OCR 1472-1: in the grace the group's output is still read. A put-back that writes more than a pipe holds
+    (here 200 kB of progress) and then takes 3 s ends by itself well inside a 60 s grace."""
+    done = tmp_path / "done"
+    script = (f'trap \'head -c 200000 /dev/zero | tr "\\0" x; sleep 3; echo done > {done}; exit 1\' TERM; '
+              "while :; do sleep 0.1; done")  # fmt: skip
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        procgroup.run(["sh", "-c", script], timeout=0.5, grace=60, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    took = time.monotonic() - started
+    assert done.is_file(), "the put-back was killed: it blocked on its full output pipe for the whole grace"
+    assert took < 30, took

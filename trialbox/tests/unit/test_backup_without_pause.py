@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from tests import pg_client
 from tests.unit.test_backup_schedule import T0, RunningBox, _cfg, _hermetic, _offbox  # noqa: F401 (_hermetic: autouse)
 from tools.trialbox import backup_schedule as bs
 from tools.trialbox import ops as tb_ops
@@ -375,7 +376,7 @@ def test_a_backup_taken_while_the_box_writes_restores_exactly_its_snapshot(tmp_p
     try:
         while written[0] < 5:  # the box is writing before the backup starts
             threading.Event().wait(0.01)
-        env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+        env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
         f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs, now=datetime.now(UTC))[0]
         at_end = written[0]
     finally:
@@ -385,7 +386,7 @@ def test_a_backup_taken_while_the_box_writes_restores_exactly_its_snapshot(tmp_p
     m = bk.unpack(f, priv, tmp_path / "x")
     counted = m["databases"]["trialbox_wf"]["rows"][f"{db.schema}.marks"][0]
     assert 1 <= counted <= at_end + 1
-    out = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs=dirs, no_copy=True)
+    out = bk.restore(f, priv, env={**pg_client.env(), "TB_DB_URL": db_url}, dirs=dirs, no_copy=True)
     assert out["ok"] and out["warnings"] == []
     rows = Database.connect(db_url, "site").fetchall("SELECT n FROM marks ORDER BY n")
     assert [r[0] for r in rows] == list(range(counted))  # a prefix: every row up to the snapshot, none after
@@ -555,7 +556,7 @@ def test_a_rebuild_swap_waits_only_for_the_listing_and_the_restored_lake_passes_
         return real(tar, held, manifest)
 
     monkeypatch.setattr(bk, "_read_held", read_held)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs={"lake": lake})[0]
     assert swapped == [0.0]  # the swap did not wait for the read
     assert (lake / "parquet" / "snapshot=S" / "c.parquet").exists()  # and it did happen
@@ -565,7 +566,9 @@ def test_a_rebuild_swap_waits_only_for_the_listing_and_the_restored_lake_passes_
     files = sorted(p.name for p in (got / "parquet" / "snapshot=S").glob("*.parquet"))
     assert files == ["a.parquet", "b.parquet"]  # one state: all old
     assert all(_sidecar_ok(p) for p in [got / "db" / "S.duckdb", *(got / "parquet" / "snapshot=S").glob("*.parquet")])
-    res = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"lake": tmp_path / "restored"}, no_copy=True)
+    res = bk.restore(
+        f, priv, env={**pg_client.env(), "TB_DB_URL": db_url}, dirs={"lake": tmp_path / "restored"}, no_copy=True
+    )
     assert res["lake_check"] == {"snapshots": 1, "problems": [], "unsigned": 0, "checked": True}
 
 
@@ -584,7 +587,12 @@ def test_without_the_lake_lock_a_swap_mid_read_fails_the_backup(tmp_path: Path, 
     monkeypatch.setattr(bk, "_lake_lock", lambda root: cl.nullcontext(False))  # a lake whose lock cannot be had
     started = _swap_during_read(monkeypatch, lake, bk)
     with pytest.raises(bk.BackupError, match="lake (changed|file)"):
-        bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs={"lake": lake})
+        bk.backup(
+            [tmp_path / "nas"],
+            pub,
+            env={**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"},
+            dirs={"lake": lake},
+        )
     started[0].join()
     assert not list((tmp_path / "nas").glob(f"*{bs.SUFFIX}"))
 
@@ -683,15 +691,22 @@ def test_a_restore_lists_the_events_after_the_snapshot_to_reapply(
         return out
 
     monkeypatch.setattr(bk, "take_snapshot", snapshot_then_events)
-    f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs={"audit": audit})[0]
+    f = bk.backup(
+        [tmp_path / "nas"],
+        pub,
+        env={**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"},
+        dirs={"audit": audit},
+    )[0]
     monkeypatch.setattr(bk, "take_snapshot", real)
-    out = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
+    out = bk.restore(f, priv, env={**pg_client.env(), "TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
     assert [e["event"] for e in out["to_reapply"]] == ["console.opt_out", "console.breakglass_open"]
     assert out["complete"] is False and all(set(e) == {"ts", "event", "where"} for e in out["to_reapply"])
     rows = [json.loads(ln) for p in sorted(audit.rglob("*.jsonl")) for ln in p.read_text().splitlines()
             if '"event"' in ln]  # fmt: skip
     (ev,) = [r for r in rows if r["event"] == "backup.restore_reapply"]
     assert ev["detail"]["count"] == 2 and ev["detail"]["since_from"] == "snapshot_at"
+    for var, cmd in pg_client.env().items():  # H-139: the CLI takes the process environment's client tools
+        monkeypatch.setenv(var, cmd)
     rc = cli(
         ["restore", str(f), "--key", str(priv), "--yes", "--services-stopped", "--no-copy", "--dir", f"audit={audit}"]
     )
@@ -867,7 +882,9 @@ def test_more_lake_files_than_may_be_held_open_are_read_under_the_lock(
     bk.keygen(priv, pub)
     monkeypatch.setattr(bk, "_fds_for", lambda n: False)
     started = _swap_during_read(monkeypatch, lake, bk)
-    f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs={"lake": lake})[0]
+    f = bk.backup(
+        [tmp_path / "nas"], pub, env={**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs={"lake": lake}
+    )[0]
     started[0].join()
     out = tmp_path / "x"
     bk.unpack(f, priv, out)

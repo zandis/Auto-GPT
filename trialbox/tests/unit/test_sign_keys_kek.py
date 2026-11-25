@@ -21,9 +21,17 @@ from tb_common import kek as K
 from tb_common.audit import AuditLog
 from tb_common.crypto import create_key, ed25519_generate
 
+from tests.own_deploy import own_deploy
 from tools import audit_verify
 from tools import keys as keys_cli
 from tools.trialbox import doctor
+
+
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
+
 
 AUDIT = audit.SIGN_KEY_FILE
 EDC = KEY_FILE

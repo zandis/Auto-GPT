@@ -123,6 +123,16 @@ closed). Checks:
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
   ``TB_SITE_PATIENTS``. FAIL when a cap is below the need (the night's ingest or rebuild may be killed); WARN when there
   is no count or no record.
+* ``release_tree`` (H-144): on an installed release, the install folder holds no copy of a folder the box image
+  carries and the signed host tree does not (``services/``, ``models/``, ``rulesets/``, ``catalogue/``, ``eval/``:
+  ``host_tree.IMAGE_ONLY``). An update neither replaces nor checks such a copy: WARN, naming it and the command that
+  removes it (never removed for the operator); FAIL when this command's import path holds it (a caller's PYTHONPATH:
+  a host command run so would import it). PASS on a source checkout; WARN in the box image (not seen there).
+
+On a host's own Python (H-144), the checks of ``IMAGE_CHECKS`` (the ones that import pydantic, httpx or the services'
+code, or read ``models/``) run in a one-off container of the box's own image (``tools/trialbox/doctor_image.py``) and
+their verdicts join the host's in order; a container that does not run, or an import error in it, is that check's
+FAIL with the reason, never a PASS or a skip.
 
 ``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
@@ -2283,6 +2293,36 @@ def check_negated_inclusions(inp: DoctorInputs) -> Check:
                  f"and keep running until recompiled and approved: {named}{more}")  # fmt: skip
 
 
+def check_release_tree(inp: DoctorInputs) -> Check:
+    """H-144 (the integrator's 7159322336): the install folder holds no copy of a folder the box image carries and the
+    signed host tree does not (``services/``, ``models/``, ...: ``host_tree.IMAGE_ONLY``). An update neither replaces
+    nor checks such a copy. WARN, naming it and the command that removes it (it is never removed for the operator: it
+    may hold a change of theirs); FAIL when this command's import path holds it, since a host command run so would
+    import code of another release. Judged on the host; in the box image the install folder is not seen."""
+    from tools import host_tree as ht
+    from tools.trialbox import launch
+
+    name = "release_tree"
+    if launch.in_box_image():
+        return Check(name, "WARN", "not judged in the box image: the install folder is the host's (trialbox doctor on "
+                     "the host judges it)")  # fmt: skip
+    base = ht.install_folder(ROOT)
+    if base is None:
+        return Check(name, "PASS", f"{ROOT} is a source checkout, not an installed release: no install folder to judge")
+    note = ht.loose_note(base)
+    if not note:
+        return Check(name, "PASS", f"{base}: no copy of {', '.join(ht.IMAGE_ONLY)}; the box image carries them")
+    # the integrator's 7159790789: a WARN (no host command imports it: the per-command test holds that), a FAIL only
+    # when this very command's import path holds it (a caller's PYTHONPATH): a host command run so would import it
+    entries = {Path(e or ".").resolve() for e in sys.path}
+    on_path = [p for p in ht.loose(base) if any(e == p.resolve() or p.resolve() in e.parents for e in entries)]
+    if on_path:
+        held = ", ".join(map(str, on_path))
+        return Check(name, "FAIL", f"{note}. This command's import path holds {held} (the caller's PYTHONPATH): a "
+                     "host command run with it would import that code, not the release's")  # fmt: skip
+    return Check(name, "WARN", f"{note}. No host command imports it (the box image carries the release's)")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -2325,6 +2365,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_terminology,
     check_provenance_index,
     check_negated_inclusions,
+    check_release_tree,
 )
 
 
@@ -2400,6 +2441,58 @@ def check_two_device(inp: DoctorInputs) -> Check:
 TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 
 
+#: H-144 (the integrator's ruling 7159506328): the checks that need the box image. On a host's own Python (the standard
+#: library and PyYAML, install.sh HOST-PYTHON) they cannot run: pydantic (``tb_common.config``, ``tb_contracts``),
+#: httpx, the services' own code (``services/``) or the release's ``models/routing.yaml`` and ``models/registry.yaml``
+#: (neither is in the signed host tree; the image carries both). There they run in a one-off container of the box's
+#: own image (``tools/trialbox/doctor_image.py``) and their verdicts join the host's, in this list's order. An import
+#: error or a container that does not run is that check's FAIL with the reason: never a PASS, never a skip.
+IMAGE_CHECKS = (
+    "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "phi_tripwire",
+    "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule", "db_passwords", "wsl2_memory",
+    "update_window", "backup_speed", "terminology",
+)  # fmt: skip
+#: what those checks import beyond the host's Python (the box image has each one)
+IMAGE_MODULES = ("pydantic", "httpx", "gateway", "guard", "registry", "channels", "criteria_compiler", "tb_llm",
+                 "tb_contracts")  # fmt: skip
+
+
+def needs_image() -> bool:
+    """Whether the image checks go to the box image: never inside it; always from an installed release tree (its
+    install folder may hold a loose ``services/`` that a caller's PYTHONPATH reaches: never imported, H-144); from a
+    source checkout only when its interpreter lacks what they import or the checkout lacks ``models/``."""
+    from tools import host_tree as ht
+    from tools.trialbox import launch
+
+    if launch.in_box_image():
+        return False
+    if ht.install_folder(ROOT) is not None:
+        return True
+    if not (ROOT / "models" / "routing.yaml").is_file():
+        return True
+    return any(importlib.util.find_spec(m) is None for m in IMAGE_MODULES)
+
+
+STATUSES: tuple[Status, ...] = ("PASS", "WARN", "FAIL", "SKIP")
+
+
+def _status(word: str) -> Status:
+    return next((s for s in STATUSES if s == word), "FAIL")
+
+
+def image_part(env_file: Path | None, settings: Path | None,
+               routing: Path | None) -> Callable[[tuple[str, ...]], list[Check]]:  # fmt: skip
+    """The image's part of a host's run (``run(image=...)``): ``doctor_image.verdicts`` for the box's own deploy
+    folder, image and runtime."""
+    from tools.trialbox import doctor_image as di
+
+    def ask(names: tuple[str, ...]) -> list[Check]:
+        req = di.Request(names, di.own_deploy(env_file), env_file, settings, routing, di.box_settings())
+        return [Check(v["name"], _status(v["status"]), v["detail"]) for v in di.verdicts(req)]
+
+    return ask
+
+
 # D-837: the checks of a host facility a plain VM has not got (the TPM-sealed keys, the off-box anchor folder): under
 # TB_HOST_PROFILE=poc on a box that is not PRODUCTION their FAIL is a WARN, and one line lists them. D-887 (the box
 # rehearsal on VALIDATION): the ops runner's systemd timer (a poc box installs no units, TB_SYSTEMD=0) and a missing
@@ -2448,14 +2541,42 @@ def tls_old_clients(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     return [*out, Check("tls_old_clients", "WARN", why)]
 
 
-def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
+def run(
+    inp: DoctorInputs,
+    checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS,
+    image: Callable[[tuple[str, ...]], list[Check]] | None = None,
+    extras: bool = True,
+) -> list[Check]:
+    """Each check's verdict, in ``checks``' order. ``image`` (H-144): the checks of ``IMAGE_CHECKS`` are asked of the
+    box image (one call), the rest run here; a check the image gave no verdict for is a FAIL. ``extras``: the lines
+    that judge the whole run (host profile, old TLS clients, the PoC list); off for the image's part of a run."""
     out: list[Check] = [Check("inputs", "FAIL", why) for why in inp.input_errors]
-    for fn in checks:
-        name = fn.__name__.removeprefix("check_")
+    names = [fn.__name__.removeprefix("check_") for fn in checks]
+    away = tuple(n for n in names if n in IMAGE_CHECKS) if image is not None else ()
+    there: dict[str, Check] = {}
+    if away and image is not None:
+        try:
+            answers = image(away)
+        except (
+            Exception
+        ) as e:  # OCR 1512-2, fail closed: an image part that cannot even be prepared is each check's FAIL
+            why = f"not run: the box image's part could not be prepared ({type(e).__name__}: {e})"
+            answers = [Check(n, "FAIL", why) for n in away]
+        for c in answers:
+            if c.name == "inputs":  # the image read a settings file the host read (or not): its own line
+                out.append(replace(c, name="inputs (box image)"))
+            elif c.name in away:
+                there.setdefault(c.name, c)
+    for fn, name in zip(checks, names, strict=True):
+        if name in away:
+            out.append(there.get(name) or Check(name, "FAIL", "the box image gave no verdict for this check"))
+            continue
         try:
             out.append(fn(inp))
         except Exception as e:  # fail closed: a check that cannot run is a failure
             out.append(Check(name, "FAIL", f"check error: {type(e).__name__}: {e}"))
+    if not extras:
+        return out
     return poc_stops(inp, tls_old_clients(inp, host_profile(inp, out)))
 
 
