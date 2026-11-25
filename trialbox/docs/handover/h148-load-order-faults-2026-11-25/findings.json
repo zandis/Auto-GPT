@@ -1,0 +1,73 @@
+{
+ "card": "H148",
+ "title": "six load and order faults of the bench's full set, and one midnight",
+ "date": "2026-11-25",
+ "source": "docs/handover/h148-load-order-faults-2026-11-25.md",
+ "note": "basis 'shown' means shown in a session container (4 CPUs) by a probe, a planted fault or a failing-first test under added CPU load; the bench's own failing lines were not read.",
+ "findings": [
+  {
+   "id": "H148-01",
+   "severity": "Low",
+   "claim": "the console timing test walked the ten real pages at warm-up 1, repeat 3, so one slow answer of a loaded runner in each of a page's two walks failed a fast page; now the shipped 10/60 for them (ruling 7167587625)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H148-02",
+   "severity": "Low",
+   "claim": "test_cloud_run's complete_run rc 1 on the bench did not reproduce in 42 runs here; a lost screenshot alone turns the run FAILED, which is the lead, not shown",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H148-03",
+   "severity": "Low",
+   "claim": "test_criteria_safety's guarded-SQL test did not reproduce under load or after any other test of its file (21 orders); cause not found",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H148-04",
+   "severity": "Low",
+   "claim": "the session-stop rehearsal case gave the bring-up 50 s of 1 s minutes to open the session before the cap less its margin; a bring-up 26 s slower failed it; now 2 s minutes there (ruling 7167587625)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H148-05",
+   "severity": "Low",
+   "claim": "the gateway busy test's `< 1.0` s left 0.5 s beside the product's own 0.5 s slot wait (0.764 s seen under load); now the recorded slot wait and the scaled call budget (ruling 7167587625)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H148-06",
+   "severity": "Medium",
+   "claim": "alive_start in deploy/poc.sh and deploy/install.sh could leave its sleep alive holding the script's stdout and stderr when alive_stop's TERM came before s=$!, so a caller reading the output waited up to the sleep's length (2 in 200 here); the sleep's streams now go to /dev/null",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H148-07",
+   "severity": "Low",
+   "claim": "test_list_demo's demo-day test failed when its run crossed the site's midnight (#1518); the day is now read before and after the run and a run that crossed it is made once more",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H148-08",
+   "severity": "Low",
+   "claim": "the session-ssh rehearsal case waited 180 s for its console once in the policy set as root under CI's conditions; it passed alone three times and in the ordinary user's run; its folder was gone before it was read",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  }
+ ]
+}
