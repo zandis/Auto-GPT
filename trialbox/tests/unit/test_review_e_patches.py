@@ -28,8 +28,10 @@ from edc import prefill
 from edc_backend import events, linkmap, oidc
 from edc_backend.config import load_config
 
-from tests.console.test_console_app import box  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import box
 from tests.console.test_role_pages import _csrf, _user
+
+__all__ = ["box"]  # the console's fixture, used by name
 
 TOKEN_A = "A" * 32
 TOKEN_B = "B" * 32
@@ -157,7 +159,7 @@ def test_a_pseudonym_entered_by_put_is_the_record_every_other_route_reads(tmp_pa
 
 # --------------------------------------------------------------------------------------- 7. console/audit_page.py
 def test_the_audit_report_file_hides_a_disclosure_lookups_pseudonym(
-    box: dict[str, Any],  # noqa: F811
+    box: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from console.backend import Unavailable
