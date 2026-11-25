@@ -206,13 +206,18 @@ class SqlGenerator:
             cols = [*cols, (lit(YJ_STEM), YJ_STEM_OF.format(col="x.nhi_code"))]
         rid_sel = "rid" if rid == "rid" else f"{rid} AS rid"
         # INT-R1: in a look-back with a first day, a dated order also counts when its supply period (the lake's
-        # therapy start to end, ends inclusive) overlaps the window; an order with no end counts by its date alone
+        # therapy start to end, ends inclusive) overlaps the window; one before the window with no end may have
+        # run into it, so it is unknown with the undated ones, never a silent false (the rule of D-275 S-9)
         supply = atom.domain == "medication" and w.from_days is not None
-        placed = in_window("e.d", w)
+        placed, unplaced = in_window("e.d", w), "e.d IS NULL"
         if supply:
             assert w.from_days is not None
             placed = (
                 f"({placed} OR (e.d IS NOT NULL AND e.te >= {date_bound(w.from_days)} "
+                f"AND e.ts <= {date_bound(w.to_days)}))"
+            )
+            unplaced = (
+                f"(e.d IS NULL OR (e.te IS NULL AND e.d < {date_bound(w.from_days)} "
                 f"AND e.ts <= {date_bound(w.to_days)}))"
             )
         cols_sel = f'{d} AS d, coalesce(start, authored) AS ts, "end" AS te' if supply else f"{d} AS d"
@@ -250,10 +255,13 @@ class SqlGenerator:
             fam = f" OR {self._family_offlist(v, sc, cc)}" if self.vs.families(vsn) else ""
             return f"({self._vs_match(v, sc, cc)}{fam})"
 
+        day = "coalesce(strftime(e.d, '%Y-%m-%d'), '')" if supply else ""
+        ref = f"e.rid || '|' || {day}" if supply else "e.rid || '|'"
+        undated_ev = f"string_agg({ref}, ';' ORDER BY e.rid) AS ev"
         undated = (
             f"{nd} AS (\n  SELECT b.pid, b.index_date, count(*) AS n,\n"
-            f"         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev\n"
-            f"  FROM base b JOIN ({src(listed_or_family)}) e ON e.pid = b.pid AND e.d IS NULL\n"
+            f"         {undated_ev}\n"
+            f"  FROM base b JOIN ({src(listed_or_family)}) e ON e.pid = b.pid AND {unplaced}\n"
             f"  GROUP BY b.pid, b.index_date)"
         )
         u = f"coalesce({nd}.n, 0)"

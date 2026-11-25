@@ -470,8 +470,8 @@ a_ra_coh_inc_02_1 AS (
   GROUP BY b.pid, b.index_date),
 a_ra_coh_inc_02_1_nd AS (
   SELECT b.pid, b.index_date, count(*) AS n,
-         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
+         string_agg(e.rid || '|' || coalesce(strftime(e.d, '%Y-%m-%d'), ''), ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND (e.d IS NULL OR (e.te IS NULL AND e.d < (b.index_date + -365) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 -- RA-COH-INC-02 (inclusion): 一年內曾使用 methotrexate。
 c_ra_coh_inc_02 AS (
@@ -617,8 +617,8 @@ a_ra_coh_inc_06_1 AS (
   GROUP BY b.pid, b.index_date),
 a_ra_coh_inc_06_1_nd AS (
   SELECT b.pid, b.index_date, count(*) AS n,
-         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RA_BIOLOGIC' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc))) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RA_BIOLOGIC' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) e ON e.pid = b.pid AND e.d IS NULL
+         string_agg(e.rid || '|' || coalesce(strftime(e.d, '%Y-%m-%d'), ''), ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RA_BIOLOGIC' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc))) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RA_BIOLOGIC' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) e ON e.pid = b.pid AND (e.d IS NULL OR (e.te IS NULL AND e.d < (b.index_date + -365) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 a_ra_coh_inc_06_1_off AS (
   SELECT b.pid, b.index_date, count(*) AS n,

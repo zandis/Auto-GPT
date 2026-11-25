@@ -210,6 +210,31 @@ class CqlGenerator:
         self.library_version = version
 
     # ------------------------------------------------------------------ atoms
+    def _supply(self, p: str) -> tuple[list[str], str, str]:
+        """The functions giving an order's therapy start and last covered day as the lake reads them (``lake.flatten``
+        ``therapy``, INT-R1), and the two names."""
+        tp, sd, ts, te = (q(x + p) for x in ("TP_", "SD_", "TS_", "TE_"))
+        bounds = "(First(X.dosageInstruction).timing.repeat.bounds as FHIR.Period)"
+        dur = "X.dispenseRequest.expectedSupplyDuration"
+        unit = f"Lower(Coalesce({dur}.code.value, {dur}.unit.value))"  # blanks around it are read as the lake does
+        per = (
+            f"case when Matches({unit}, '^ *(d|day|days) *$') then 1.0 "
+            f"when Matches({unit}, '^ *(wk|week|weeks) *$') then 7.0 else null end"
+        )
+        fns = [
+            f"define function {tp}(X FHIR.MedicationRequest):\n"
+            f"  if {bounds}.start is not null or {bounds}.end is not null then {bounds}\n"
+            f"  else X.dispenseRequest.validityPeriod",
+            f"define function {sd}(X FHIR.MedicationRequest):\n"
+            f"  if {dur}.value.value >= 0 then Truncate({dur}.value.value * ({per})) else null",
+            f"define function {ts}(X FHIR.MedicationRequest):\n"
+            f"  Coalesce(date from {tp}(X).start, date from X.authoredOn)",
+            f"define function {te}(X FHIR.MedicationRequest):\n"
+            f"  Coalesce(date from {tp}(X).end, if {sd}(X) is null then null else if {sd}(X) <= 1 then {ts}(X)\n"
+            f"    else {ts}(X) + System.Quantity {{ value: ToDecimal({sd}(X) - 1), unit: 'day' }})",
+        ]
+        return fns, ts, te
+
     def _presence(self, cid: str, n: int, atom: Atom, w: Window) -> tuple[list[str], str, str]:
         p = f"{cid}_{n}"
         vs = q(atom.valueset)
@@ -248,34 +273,20 @@ class CqlGenerator:
                 raise CompileError(f"unsupported domain {atom.domain}")
         joiner = " " if retrieve.endswith(" and") else " where "
         un, qn = q("U_" + p), q("Q_" + p)
-        placed = f"{date} in {win}"
+        placed, unplaced = f"{date} in {win}", f"{date} is null"
         supply_fns: list[str] = []
         if atom.domain == "medication" and w.from_days is not None:
             # INT-R1, as the SQL: a dated order also counts when its supply period overlaps the window, the period as
             # the lake reads it (``lake.flatten`` ``therapy``): the bounds period, else the validity period; its start
             # else the order date; its end else the start plus the expected supply duration in days or weeks
-            tp, sd, ts, te = (q(x + p) for x in ("TP_", "SD_", "TS_", "TE_"))
-            bounds = "(First(X.dosageInstruction).timing.repeat.bounds as FHIR.Period)"
-            dur = "X.dispenseRequest.expectedSupplyDuration"
-            unit = f"Lower(Coalesce({dur}.code.value, {dur}.unit.value))"  # blanks around it are read as the lake does
-            per = (
-                f"case when Matches({unit}, '^ *(d|day|days) *$') then 1.0 "
-                f"when Matches({unit}, '^ *(wk|week|weeks) *$') then 7.0 else null end"
-            )
-            supply_fns = [
-                f"define function {tp}(X FHIR.MedicationRequest):\n"
-                f"  if {bounds}.start is not null or {bounds}.end is not null then {bounds}\n"
-                f"  else X.dispenseRequest.validityPeriod",
-                f"define function {sd}(X FHIR.MedicationRequest):\n"
-                f"  if {dur}.value.value >= 0 then Truncate({dur}.value.value * ({per})) else null",
-                f"define function {ts}(X FHIR.MedicationRequest):\n"
-                f"  Coalesce(date from {tp}(X).start, date from X.authoredOn)",
-                f"define function {te}(X FHIR.MedicationRequest):\n"
-                f"  Coalesce(date from {tp}(X).end, if {sd}(X) is null then null\n"
-                f"    else {ts}(X) + System.Quantity {{ value: ToDecimal({sd}(X)), unit: 'day' }})",
-            ]
+            supply_fns, ts, te = self._supply(p)
             placed = (
                 f"({placed} or ({date} is not null and {te}(X) >= {date_expr(w.from_days)} "
+                f"and {ts}(X) <= {date_expr(w.to_days)}))"
+            )
+            # before the window with no end: it may have run into it, unknown as the SQL says
+            unplaced = (
+                f"({date} is null or ({te}(X) is null and {date} < {date_expr(w.from_days)} "
                 f"and {ts}(X) <= {date_expr(w.to_days)}))"
             )
         # D-917, as the SQL: a condition atom with ``clinical_status`` counts a row whose status (its first coded
@@ -289,7 +300,7 @@ class CqlGenerator:
         defs = [
             *supply_fns,
             f"define {qn}:\n  {retrieve}{joiner}{placed}{counted}",
-            f"define {un}:\n  {retrieve}{joiner}{date} is null",
+            f"define {un}:\n  {retrieve}{joiner}{unplaced}",
         ]
         quant = atom.quantifier or "any"
         unknown = [un]
@@ -319,7 +330,7 @@ class CqlGenerator:
         in_family = " or ".join(
             f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
         )
-        for name, when in ((on, placed), (q("UO_" + p), f"{date} is null")):
+        for name, when in ((on, placed), (q("UO_" + p), unplaced)):
             defs.append(
                 f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"
                 f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
@@ -504,16 +515,14 @@ class CqlGenerator:
         lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days)
         hi = date_expr(w.to_days)
         qn, pn, dn, on = q("Q_" + p), q("P_" + p), q("D_" + p), q("O_" + p)
-        start = "Coalesce(date from X.dispenseRequest.validityPeriod.start, date from X.authoredOn)"
+        fns, ts, te = self._supply(p)  # INT-R1: the period as the lake, and so the SQL, reads it
         defs = [
+            *fns,
             f"define {qn}:\n  [MedicationRequest: {q(atom.valueset)}] X",
             (
-                f"define {pn}:\n  {qn} X\n    let s: Max({{ Coalesce(date from start of "
-                f"FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), date from X.authoredOn), {lo} }}),\n"
-                f"        e: Min({{ Coalesce(date from end of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), "
-                f"date from start of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), date from X.authoredOn), "
-                f"{hi} }})\n    where Coalesce(date from start of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), "
-                f"date from X.authoredOn) is not null and s <= e\n    return Interval[s, e]"
+                f"define {pn}:\n  {qn} X\n    let s: Max({{ {ts}(X), {lo} }}),\n"
+                f"        e: Min({{ Coalesce({te}(X), {ts}(X)), {hi} }})\n"
+                f"    where {ts}(X) is not null and s <= e\n    return Interval[s, e]"
             ),
             (
                 f"define {dn}:\n  Coalesce(Max((collapse ({pn} I return Interval[start of I, end of I + {gap} days]) "
@@ -521,10 +530,7 @@ class CqlGenerator:
             ),
             # D-275 (review S-9), as the SQL: an order with no end date ran for an unknown time and one with no
             # date cannot be placed; where the dated periods do not reach min_days the answer is null (unknown)
-            (
-                f"define {on}:\n  {qn} X\n    where {start} is null\n"
-                f"      or (X.dispenseRequest.validityPeriod.end is null and {start} <= {hi})"
-            ),
+            f"define {on}:\n  {qn} X\n    where {ts}(X) is null\n      or ({te}(X) is null and {ts}(X) <= {hi})",
         ]
         a = f"if {dn} >= {atom.duration.min_days} then true else if exists ({on}) then null as Boolean else false"
         ev = f"{qn} X return X.id + '|' + ToString(date from X.authoredOn)"

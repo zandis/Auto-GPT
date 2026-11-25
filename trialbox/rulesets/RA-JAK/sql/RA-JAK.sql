@@ -5420,8 +5420,8 @@ a_ra_jak_exc_04_2 AS (
   GROUP BY b.pid, b.index_date),
 a_ra_jak_exc_04_2_nd AS (
   SELECT b.pid, b.index_date, count(*) AS n,
-         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
+         string_agg(e.rid || '|' || coalesce(strftime(e.d, '%Y-%m-%d'), ''), ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND (e.d IS NULL OR (e.te IS NULL AND e.d < (b.index_date + -365) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 -- RA-JAK-EXC-04 (exclusion): Positive interferon-gamma release assay (IGRA) within 1 year without tuberculosis preventive therapy.
 c_ra_jak_exc_04 AS (

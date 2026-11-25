@@ -19,8 +19,8 @@ let the patient through, an inclusion ("methotrexate within a year") left the pa
 
 The lake's `medication` table has `authored`, `start` and `end`. `lake.flatten` `therapy` (STD-012, T-616) fills
 `start` and `end` from `dosageInstruction[0].timing.repeat.boundsPeriod`, else `dispenseRequest.validityPeriod`; the
-start falls back to `authoredOn`; with no end, the end is the start plus `dispenseRequest.expectedSupplyDuration` in
-whole days (unit `d`/`day`/`days`, or `wk`/`week`/`weeks` times 7; anything else: no end). The OMOP source keeps the
+start falls back to `authoredOn`; with no end, the end is the last covered day, the start plus
+`dispenseRequest.expectedSupplyDuration` less one day (ruling 2; a supply of 0 days ends on its start), in whole days (unit `d`/`day`/`days`, or `wk`/`week`/`weeks` times 7; anything else: no end). The OMOP source keeps the
 same end (`verbatim_end_date`). The demonstration mapping (`demo_his.yaml`) writes `boundsPeriod` and
 `validityPeriod` from the start and end dates; no other mapping was read.
 
@@ -31,8 +31,11 @@ same end (`verbatim_end_date`). The demonstration mapping (`demo_his.yaml`) writ
   The start is the therapy start, else the order date; the end is the lake's end as above.
 * **Boundary: both ends inclusive**, as the window itself (`BETWEEN`, `Interval[...]`). A supply ending on the
   window's first day counts; one ending the day before does not.
-* **No supply information** (no end): the order counts by its order date, exactly as before. A missing value never
-  turns a met criterion into not met: the old test is one side of an `OR`.
+* **No end** (ruling 1): an order written before the window, with no end, may have run into it, so it makes the answer
+  unknown where nothing else settles it, never a silent no. An order in the window counts by its date, as before.
+  The lake fills `start` from the order date, so an order with a start and no end and an order with only its date are
+  the same row: both read unknown. **This replaces the card's first rule** (no supply information: the order date
+  alone, so "not met"); the integrator is asked to confirm it for an order with only its date.
 * **An undated order** (no order date) stays unknown, as before (DUMP-01), whatever its period: it is not placed by
   its period here.
 * A window with no first day ("ever", "any time before the index date") is not changed: its SQL and CQL are byte for
@@ -58,6 +61,8 @@ owner's re-approval**, as with D-656; no lane approves a ruleset.
 
 ## What moves in the goldens
 
+**Before the rulings** (the first commit; the table below). The rulings move more: see the pull request for the run.
+
 `make goldens-check` (profile ci) differed in 7 of 23 goldens, with the same values on both lake sources (legacy and
 omop). The criteria whose own verdicts or counts moved are GOUT-COH-INC-03, GZQO-EXC-04 and RA-COH-INC-02, all
 look-backs of this card; the other numbers are funnel steps, variants and candidate counts that follow from them.
@@ -78,21 +83,25 @@ same month-end as the DAS28. That is a reading of the code; the single patient w
 
 Written with `make goldens REASON=...`.
 
-## The ATOMS snapshots: not changed here, a ruling is asked
+## Existing tests not changed here, a ruling is asked
 
-`test_atoms_cql_snapshot_and_determinism` and `test_atoms_sql_snapshot_and_determinism`
-(`tests/unit/test_cql_sql_generators.py`) hold the old text of the fixture's three medication look-backs and fail on
-this branch. Proposed: rewrite `tests/fixtures/ir/snapshots/ATOMS.sql` and `ATOMS.cql` with the test's own
-`UPDATE_SNAPSHOTS=1`. Only ATOMS-INC-18, ATOMS-EXC-23 and ATOMS-EXC-25 change, and the CQL library's content version.
+They hold the old text or the old day and fail on this branch:
 
-## Duration criteria ("on drug X for at least N days")
+| Test | Holds | Proposed |
+| --- | --- | --- |
+| `test_cql_sql_generators.py::test_atoms_cql_snapshot_and_determinism`, `::test_atoms_sql_snapshot_and_determinism` | the old text of the fixture's medication atoms | rewrite `ATOMS.cql` and `ATOMS.sql` with the test's own `UPDATE_SNAPSHOTS=1` |
+| `test_fhir_inbound_contract.py::test_medication_reference_is_resolved_and_statements_are_read` | 4 weeks end on 2026-03-29 | 2026-03-28, the last covered day (ruling 2) |
+| `test_criteria_safety.py::test_cql_carries_the_same_rules_and_translates` | the CQL text `X.dispenseRequest.validityPeriod.end is null` | the new text of the same rule, `"TE_<atom>"(X) is null` (ruling 3) |
 
-Checked, not changed. The SQL (`_med_duration`) builds each order's period from the lake's `start` and `end`, so it
-reads the supply. The CQL (`_med_duration`) reads only `dispenseRequest.validityPeriod` and `authoredOn`. Run on
-synthetic orders through both engines ("at least 90 days"): an order of 100 days given only by its supply, or only by
-its bounds period, is met in the SQL and unknown in the CQL; bounds of 10 days beside a validity period of 100 is not
-met in the SQL and met in the CQL; a validity period alone is met in both. The shipped duration criteria are GZQO-INC-06, RA-BIO-INC-03,
-RA-BIO-INC-04 and RA-JAK-INC-03. Those are other lines; reported as INTR1-02.
+## Duration criteria ("on drug X for at least N days", ruling 3)
+
+The SQL built each order's period from the lake's `start` and `end`; the CQL read only the validity period and the
+order date. Shown before the ruling: an order of 100 days given by its supply or its bounds alone was met in the SQL
+and unknown in the CQL; bounds of 10 days beside a validity period of 100 was not met in the SQL and met in the CQL.
+Now the CQL duration reads the period through the same functions as the look-back, and the engines agree on every
+case of `test_a_duration_reads_the_same_period_in_both_engines`. An order with no end is unknown in both (D-275).
+It changes GZQO-INC-06, RA-BIO-INC-03, RA-BIO-INC-04 and RA-JAK-INC-03: a supply of exactly the days short by one
+(ruling 2) no longer reaches the minimum.
 
 ## Found, not fixed
 
@@ -105,10 +114,12 @@ RA-BIO-INC-04 and RA-JAK-INC-03. Those are other lines; reported as INTR1-02.
   day (shown on master with an order date; the supply's end follows it).
 * INTR1-07: the lake keeps an order of status `unknown` undated, the CQL places it (shown on master).
 * INTR1-08: a partial FHIR date (`2026-07`) as a validity period's end stops the lake's rebuild with a ValueError.
-* An order with a start and no end (an open-ended order) has no supply information, so it counts by its order date.
+* INTR1-09: the CQL duration atom does not match a listed ingredient stem (T-610), the SQL's does.
 * An order written after the index date whose supply began before it now counts, as the overlap rule says.
 
 ## Tests
+
+The supply cases' edges are the last covered day (ruling 2); the window's last day and the day after it are cases too.
 
 `tests/unit/test_med_supply_lookback_intr1.py`:
 
@@ -116,11 +127,11 @@ RA-BIO-INC-04 and RA-JAK-INC-03. Those are other lines; reported as INTR1-02.
   patients against "an anticoagulant within 90 days" (`any`, exclusion) and "none within 90 days" (`none`,
   inclusion): ordered inside (met); before, with a 30-day or 4-week supply reaching in (met; not met on master);
   before, with a validity period or a bounds period reaching in (met; not met on master); a supply ended before the
-  window (not met); no supply information, or a unit the lake does not read (not met, unchanged); a unit
-  given as padded text (met); a supply ending on the first day (met) and on the
+  window (not met); no end, or a unit the lake does not read (unknown, ruling 1); a unit
+  given as padded text (met); a supply whose last covered day is the first day (met) or the
   day before (not met); an undated order, with a period or without (unknown, unchanged); no order (not met).
 * `test_an_unbounded_medication_atom_compiles_as_before`.
 * `test_every_shipped_medication_look_back_answers_the_same_in_both_engines` (the invariant): every shipped criterion
   with a medication look-back, through the SQL and the CQL on the same synthetic patients (dated from each
-  criterion's own window), gives the same answers; for the six single-atom ones the supply case is met and the
-  no-supply case not.
+  criterion's own window), gives the same answers; for the six single-atom ones the supply case is met, the
+  no-end case unknown and the ended case not met.

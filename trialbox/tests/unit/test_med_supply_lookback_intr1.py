@@ -5,8 +5,9 @@ order was written before the window but whose supply ran into it was read as not
 in the CQL, a dated order also counts when its supply period, [therapy start, therapy end] as the lake reads it
 (``lake.flatten`` ``therapy``: the bounds period, else the validity period, else the order date plus the expected
 supply duration in days or weeks), overlaps the window. Both ends are inclusive: a supply ending on the window's first
-day counts. With no supply information (no end) the order counts by its order date, as before; an undated order
-stays unknown, as before. Only bounded look-backs (a window with a first day) change.
+day counts. The last covered day of a supply is its start plus its days less one. An order
+before the window with no end may have run into it: unknown (ruled on #639's card INT-R1), never a silent no; an
+undated order stays unknown, as before. Only bounded look-backs (a window with a first day) change.
 
 Synthetic FHIR orders; the lake in-process; the local CQL engine where it is fetched.
 """
@@ -75,13 +76,16 @@ def _orders(system: str, code: str, from_days: int = -90, tag: str = "") -> list
             dosageInstruction=[{"timing": {"repeat": {"boundsPeriod": {"start": at(-97), "end": at(3)}}}}],
         ),
         o("P-ENDED", at(-67), **_supply(30)),  # supply to lo - 37, before the window: not met
-        o("P-NOSUPPLY", at(-17)),  # no supply information: its order date, as before: not met
-        o("P-EDGE", at(-30), **_supply(30)),  # the supply ends on lo, the window's first day: met
-        o("P-EDGE-1", at(-31), **_supply(30)),  # it ends the day before: not met
+        o("P-NOSUPPLY", at(-17)),  # no end: it may have run into the window: unknown (the ruling)
+        o("P-OPEN", at(-67), dispenseRequest={"validityPeriod": {"start": at(-67)}}),  # started, no end: unknown
+        o("P-LASTDAY", IDX.isoformat()),  # ordered on the window's last day: met
+        o("P-AFTER", (IDX + timedelta(days=1)).isoformat()),  # ordered the day after it: not met
+        o("P-EDGE", at(-29), **_supply(30)),  # the last covered day is lo, the window's first day: met
+        o("P-EDGE-1", at(-30), **_supply(30)),  # the last covered day is the day before: not met
         o("P-UNDATED", None, **_supply(30)),  # no order date and no period: unknown, as before
         o("P-UNDATED-PERIOD", None, dispenseRequest={"validityPeriod": {"start": at(-67), "end": at(25)}}),  # the same
         o("P-UNIT", at(-17), dispenseRequest={"expectedSupplyDuration": {"value": 30, "unit": " Days "}}),  # unit text
-        o("P-MONTHS", at(-17), **_supply(3, "mo")),  # a unit the lake does not read: no end, its order date: not met
+        o("P-MONTHS", at(-17), **_supply(3, "mo")),  # a unit the lake does not read: no end: unknown
     ]
 
 
@@ -94,6 +98,9 @@ PIDS = [
     "P-BOUNDS",
     "P-ENDED",
     "P-NOSUPPLY",
+    "P-OPEN",
+    "P-LASTDAY",
+    "P-AFTER",
     "P-EDGE",
     "P-EDGE-1",
     "P-UNDATED",
@@ -111,13 +118,16 @@ MET: dict[str, bool | None] = {
     "P-VALIDITY": True,
     "P-BOUNDS": True,
     "P-ENDED": False,
-    "P-NOSUPPLY": False,
+    "P-NOSUPPLY": None,
+    "P-OPEN": None,
+    "P-LASTDAY": True,
+    "P-AFTER": False,
     "P-EDGE": True,
     "P-EDGE-1": False,
     "P-UNDATED": None,
     "P-UNDATED-PERIOD": None,
     "P-UNIT": True,
-    "P-MONTHS": False,
+    "P-MONTHS": None,
     "P-NONE": False,
 }
 VS = {"VS_ANTICOAG": valueset("MS", "VS_ANTICOAG", "anticoagulant", [Concept(ATC, "B01AF01", "rivaroxaban")], "1.0.0")}
@@ -259,4 +269,67 @@ def test_every_shipped_medication_look_back_answers_the_same_in_both_engines(tmp
         for c in crits:  # a single-atom look-back: the order before the window whose supply reaches in counts
             if isinstance(c.logic, Atom):
                 hit = c.logic.quantifier != "none"
-                assert sql["P-REACH"][c.id] is hit and sql["P-NOSUPPLY"][c.id] is (not hit), c.id
+                assert (
+                    sql["P-REACH"][c.id] is hit
+                    and sql["P-NOSUPPLY"][c.id] is None
+                    and sql["P-ENDED"][c.id] is (not hit)
+                ), c.id
+
+
+def test_the_last_covered_day_is_start_plus_days_less_one(tmp_path: Path) -> None:
+    cases = {"a": _supply(30), "b": _supply(1), "c": _supply(0), "d": _supply(2, "wk")}
+    orders = [_order("P-1", k, ATC, "B01AF01", "2026-08-01", **x) for k, x in cases.items()]
+    lake, _ = _lake(tmp_path, orders, ["P-1"])
+    rows = lake.query('SELECT mid, "end" AS e FROM medication', []).to_pylist()
+    assert {r["mid"]: str(r["e"]) for r in rows} == {
+        "a": "2026-08-30",
+        "b": "2026-08-01",
+        "c": "2026-08-01",
+        "d": "2026-08-14",
+    }
+
+
+DURATION: dict[str, tuple[dict[str, Any], bool | None]] = {  # ordered 2026-06-20; "at least 90 days", 180-day look-back
+    "P-D90": (_supply(90), True),  # the 90th day is covered
+    "P-D89": (_supply(89), False),
+    "P-DB": (
+        {"dosageInstruction": [{"timing": {"repeat": {"boundsPeriod": {"start": "2026-06-20", "end": "2026-09-28"}}}}]},
+        True,
+    ),
+    "P-DBV": (
+        {
+            "dosageInstruction": [
+                {"timing": {"repeat": {"boundsPeriod": {"start": "2026-06-20", "end": "2026-06-30"}}}}
+            ],
+            "dispenseRequest": {"validityPeriod": {"start": "2026-06-20", "end": "2026-09-28"}},
+        },
+        False,
+    ),
+    "P-DV": ({"dispenseRequest": {"validityPeriod": {"start": "2026-06-20", "end": "2026-09-28"}}}, True),
+    "P-DO": ({}, None),  # no end: unknown (D-275)
+}
+
+
+def test_a_duration_reads_the_same_period_in_both_engines(tmp_path: Path) -> None:
+    orders = [_order(p, f"m-{p}", ATC, "B01AF01", "2026-06-20", **x) for p, (x, _) in DURATION.items()]
+    lake, pats = _lake(tmp_path, orders, list(DURATION))
+    crit = CriterionIR.model_validate(
+        {
+            "id": "MS-INC-09",
+            "ruleset": "MS",
+            "kind": "inclusion",
+            "class": "structured",
+            "text": "t",
+            "logic": {
+                "domain": "medication",
+                "valueset": "VS_ANTICOAG",
+                "duration": {"min_days": 90, "gap_days": 30},
+                "window": {"anchor": "index", "from_days": -180, "to_days": 0},
+            },
+        }
+    )
+    vsi = ValueSets("MS", VS, Terminology())
+    want = {p: {"MS-INC-09": v} for p, (_, v) in DURATION.items()}
+    assert _sql(lake, SqlGenerator("MS", "1.0.0", vsi).render([crit]), ["MS-INC-09"]) == want
+    got = _cql(CqlGenerator("MS", "1.0.0", vsi), [crit], VS, [*pats, *map(json.dumps, orders)], list(DURATION))
+    assert got == want

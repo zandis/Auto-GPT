@@ -7,7 +7,7 @@
   {
    "id": "INTR1-01",
    "severity": "High",
-   "claim": "a medication look-back read the order date only in the SQL and the CQL, so an order written before the window whose supply ran into it was not counted (ten compiled shipped criteria); fixed: a dated order also counts when its supply period overlaps the window, both ends inclusive, no end read as before",
+   "claim": "a medication look-back read the order date only in the SQL and the CQL, so an order written before the window whose supply ran into it was not counted (ten compiled shipped criteria); fixed: a dated order also counts when its supply period overlaps the window, both ends inclusive, and one before the window with no end is unknown",
    "lane": "J",
    "basis": "shown",
    "state": "fixed",
@@ -19,7 +19,7 @@
    "claim": "the CQL duration atom reads only dispenseRequest.validityPeriod and authoredOn, not boundsPeriod or expectedSupplyDuration as the lake (and so the SQL) does: an order dated by its supply or bounds alone is met in the SQL and unknown in the CQL, and a short bounds period beside a longer validity period is not met in the SQL and met in the CQL; GZQO-INC-06, RA-BIO-INC-03, RA-BIO-INC-04, RA-JAK-INC-03",
    "lane": "J",
    "basis": "shown",
-   "state": "open",
+   "state": "fixed",
    "place": "services/criteria_compiler/compile_cql/generator.py _med_duration"
   },
   {
@@ -75,6 +75,24 @@
    "basis": "shown",
    "state": "open",
    "place": "services/lake/flatten.py ts"
+  },
+  {
+   "id": "INTR1-09",
+   "severity": "Low",
+   "claim": "the CQL duration atom retrieves by ValueSet code only and does not match a listed ingredient stem (T-610), as the SQL duration atom does",
+   "lane": "J",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "services/criteria_compiler/compile_cql/generator.py _med_duration"
+  },
+  {
+   "id": "INTR1-10",
+   "severity": "Medium",
+   "claim": "flatten.therapy counted one day too many: the end was the start plus the days supplied, read inclusively; fixed: the last covered day is the start plus the days less one",
+   "lane": "J",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/lake/flatten.py therapy"
   }
  ]
 }
