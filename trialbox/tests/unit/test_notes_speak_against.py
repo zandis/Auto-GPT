@@ -220,3 +220,18 @@ def test_the_words_pass_the_claims_lint_and_are_in_the_console(lang: str) -> Non
     assert CATALOGUES[lang]["note.against"].format(criterion="X") == said
     assert CATALOGUES[lang]["note.against.count"].format(n=3) == COUNT[lang].format(n=3)
     assert check(said, lang=lang) == [] and check(COUNT[lang].format(n=3), lang=lang) == []
+
+
+@pytest.mark.parametrize(
+    ("lang", "text"),
+    [("en", "Excluded by the notes."), ("en", "The patient was excluded."), ("zh-TW", "病人已排除。"),
+     ("ja", "病人は除外しました。")],
+)  # fmt: skip
+def test_a_positive_verdict_is_still_refused_beside_the_allowed_denials(lang: str, text: str) -> None:
+    assert check(text, lang=lang) != []
+    assert check(f"{text} {SAID[lang].format(c='X')}", lang=lang) != []
+
+
+def test_the_workbook_print_header_carries_the_count() -> None:
+    ws = sheet([row("P1", "review", "2026-10-07T09:00", against())])
+    assert COUNT["en"].format(n=1) in ws.oddHeader.center.text

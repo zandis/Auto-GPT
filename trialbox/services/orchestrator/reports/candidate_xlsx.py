@@ -117,6 +117,7 @@ def render(
     n_against = sum(1 for r in rows if any(notes_against(v) for v in r.criteria))
     if n_against:  # INT-S-B: below the table, so the header row and the rows keep their places
         ws.append([NOTE_AGAINST_COUNT[lang].format(n=n_against)])
+        ws.oddHeader.center.text = NOTE_AGAINST_COUNT[lang].format(n=n_against)  # print header: moves no row
     ws.append([meta.footer])
     if meta.notice:  # D-442: scores not verified for this snapshot
         ws.append([meta.notice])
