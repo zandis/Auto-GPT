@@ -131,19 +131,27 @@ if [ -n "$PP_FILE" ]; then kp_read_file "$PP_FILE"; elif [ "$PP_STDIN" = 1 ]; th
 # what a host that cannot seal with its TPM does instead (a fresh box has no hardening.conf)
 NO_TPM_FIX="on a host without a usable TPM 2.0 run the installer with TB_KEK_BACKEND=passphrase and --kek-passphrase-file FILE (one line of 12 characters or more, a file only root can read; no hardening.conf needed)"
 RUN_DIR="$HR/run/trialbox"
-KEK_FILE="${TB_KEK_FILE:-$RUN_DIR/kek}"
+# H-118 (the integrator's ruling 7125021924): the unsealed KEK goes to the box's own place, the one the boot unseal
+# unit writes and the services read (/run/trialbox/kek, a tmpfs); a caller's TB_KEK_FILE never moves it
+[ -z "${TB_KEK_FILE:-}" ] || [ "$TB_KEK_FILE" = "$RUN_DIR/kek" ] \
+  || hb_say "TB_KEK_FILE in the environment ($TB_KEK_FILE) is not used: the unsealed KEK goes to $RUN_DIR/kek"
+KEK_FILE="$RUN_DIR/kek"
 TB_KEK_FILE="$KEK_FILE"; export TB_KEK_FILE
 CRED="$HR/etc/credstore.encrypted/trialbox-kek"
 
 tool() {  # tool MODULE ARGS...: the host's python3 when it can, else the image's own copy of the module; stdin goes on
   mod="$1"; shift
+  # review of #1482 (1482-1): the image is given the plain KEK's own folder too, once arm made it (never made by the
+  # engine: a missing folder given to -v is made root's 0755, which the next arm refuses)
+  seal_v=""; [ ! -d "$SEAL_DIR" ] || seal_v="$SEAL_DIR:$SEAL_DIR"
   if python3 -c "import cryptography" 2>/dev/null; then
     (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m "$mod" "$@")
   else
     # the folders keep their host paths inside the container. The passphrase goes through the container's stdin (a
     # pipe), never -e: Docker keeps a container's environment in its config on disk
     docker run --rm -i --network none --user 0:0 -e TB_KEK_FILE -e TB_ENV \
-      -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} \
+      -v "$SECRETS:$SECRETS" -v "$RUN_DIR:$RUN_DIR" ${seal_v:+-v "$seal_v"} \
+      ${KEK_SHARES_OUT:+-v "$KEK_SHARES_OUT:$KEK_SHARES_OUT"} \
       "${TB_IMAGE:-trialbox-py:1.0.0}" python -m "$mod" "$@"
   fi
 }
@@ -167,8 +175,11 @@ audit_key() {
 
 # tpm (H-111): at every instant either the plain keys are there or the KEK that opens the wrapped keys is sealed in
 # $CRED, its final place: the credential is sealed and placed before any key is wrapped, and nothing here removes it.
-# Only the plain copy in /run ($NEW) and an unplaced $CRED.new are removed, at any exit; a signal exits
-NEW="$RUN_DIR/kek.new"
+# Only the plain copy in /run ($NEW) and an unplaced $CRED.new are removed, at any exit; a signal exits.
+# H-118 (#1457's review, 1457-9): $NEW lives in a folder of its own, root's (0700) and never handed over: $RUN_DIR is
+# handed to the services' user (D-887), and a name there could be swapped for a link
+SEAL_DIR="$HR/run/trialbox-seal"
+NEW="$SEAL_DIR/kek.new"
 # review of #1457 (1457-5): once the clean-up starts a further signal neither cuts it short nor kills its shred
 # review of #1457 (1457-9): /run/trialbox is handed to the services' user, so a name there is never followed: a link is
 # removed, not shredded through
@@ -184,6 +195,14 @@ arm() {
   # taken before the trap is set, so a refused run removes nothing of the other run's
   exec 5<"$(dirname "$CRED")"
   flock -n 5 || hb_die "another run of seal_keys.sh on this host holds $(dirname "$CRED"): let it finish, then run this script again; nothing was changed"
+  # H-118: the plain KEK's folder, made by this run under the host lock: a real folder, this user's, mode 0700, or
+  # nothing is done
+  ( umask 077; mkdir -p "$SEAL_DIR" )
+  # (the owner compared with this shell's own, /proc/$$: never `id`, which a test may stand in for)
+  if [ -L "$SEAL_DIR" ] || [ ! -d "$SEAL_DIR" ] \
+    || [ "$(stat -c %u:%a "$SEAL_DIR")" != "$(stat -c %u /proc/$$):700" ]; then
+    hb_die "$SEAL_DIR is not a folder only this user can open (a link, another owner, or not mode 0700): remove it, then run this script again; nothing was changed"
+  fi
   # review of #1457 (1457-9): with the host lock held no other seal runs, so a name at kek.new is a stopped run's (its KEK
   # is in the placed credential, or no key was wrapped under it) or a link: removed before the new KEK is written
   rm -f -- "$NEW"
@@ -264,10 +283,10 @@ case "$KEK_BACKEND" in
       hb_die "$CRED exists but $SECRETS has no kek.json: put kek.json back from the backup, or remove the credential"
     fi
     if [ "$DRY" = 1 ]; then
-      hb_say "would make a KEK in $RUN_DIR/kek.new"
-      hb_say "would run: systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek $RUN_DIR/kek.new $CRED.new; mv $CRED.new $CRED"
-      hb_say "would run: tools.keys init --backend file --kek-in $RUN_DIR/kek.new"
-      hb_say "would run: tools.keys unseal --from $RUN_DIR/kek.new --out $KEK_FILE; shred $RUN_DIR/kek.new"
+      hb_say "would make a KEK in $SEAL_DIR/kek.new"
+      hb_say "would run: systemd-creds encrypt --with-key=host+tpm2 --name=trialbox-kek $SEAL_DIR/kek.new $CRED.new; mv $CRED.new $CRED"
+      hb_say "would run: tools.keys init --backend file --kek-in $SEAL_DIR/kek.new"
+      hb_say "would run: tools.keys unseal --from $SEAL_DIR/kek.new --out $KEK_FILE; shred $SEAL_DIR/kek.new"
       exit 0
     fi
     if [ -f "$CRED" ]; then
