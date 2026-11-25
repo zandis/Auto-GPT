@@ -263,7 +263,8 @@ def test_the_record_holds_one_line_per_try_and_no_identifier() -> None:
         ee.leave("mail.staff", "mail:hosp.example", ee.Message("s", "MRN: 70000054"), audit=audit, actor="job:J")
     assert len(audit.lines) == 2
     d = audit.lines[0]["detail"]
-    assert set(d) == egress_record.FIELDS and (d["items"], d["result"], d["rule"]) == (1, "masked", "mask")
+    assert len(audit.lines[0]["output_sha"]) == 64  # where every audited file's hash stands
+    assert set(d) | {"sha256"} == egress_record.FIELDS and (d["items"], d["result"], d["rule"]) == (1, "masked", "mask")
     assert "70000054" not in json.dumps(audit.lines)
     ee.leave("edc.write", "x", "row", audit=audit, actor="t", named=["x"])
     assert audit.lines[-1]["detail"]["items"] == "unknown"  # not known is said, never 0

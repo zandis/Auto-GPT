@@ -576,6 +576,16 @@ def _bytes_of(p: Any) -> bytes:
     return p.encode() if isinstance(p, str) else json.dumps(p, ensure_ascii=False, sort_keys=True, default=str).encode()
 
 
+def _size(body: bytes) -> int:
+    """The payload's bytes, unpacked for a workbook or a zip (how well a time in it packs is no size of it)."""
+    if body[:4] == b"PK\x03\x04":
+        try:
+            return sum(i.file_size for i in zipfile.ZipFile(io.BytesIO(body)).infolist())
+        except zipfile.BadZipFile:
+            pass
+    return len(body)
+
+
 def _clean(r: _Reader, p: Any) -> Any:
     if isinstance(p, File):
         return File(r.name(p.name), r.file(p.name, p.data))
@@ -640,7 +650,7 @@ def leave(
             kind=type(payload).__name__,
             items=items if items is not None or reader is None else reader.hits,
             rule=rule.mode if rule else "none",
-            size=len(body),
+            size=_size(body),
             sha256=hashlib.sha256(body).hexdigest(),
             result="refused" if why else result,
             reason=why or note,

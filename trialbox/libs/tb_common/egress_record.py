@@ -21,7 +21,9 @@ def write(audit: Any, *, actor: str, **fields: Any) -> None:
     if "@" in str(fields["destination"]):
         raise ValueError("a destination names no person")
     detail = {**fields, "items": "unknown" if fields["items"] is None else fields["items"]}
-    audit.append(EVENT, actor=actor or "unknown", detail=detail)
+    # the payload's hash stands where every audited file's does: two reads of one file that holds its own time differ
+    # there and nowhere else
+    audit.append(EVENT, actor=actor or "unknown", output_sha=detail.pop("sha256"), detail=detail)
 
 
 def by_day(events: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:

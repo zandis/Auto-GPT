@@ -2416,7 +2416,7 @@ def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     # ponytail: called here and not from run(), whose last lines H-144 (#1512) changes; M5 may move it there after.
     # Only for a whole run (its first check is there), never for --weights, --serving or one named check
     if any(c.name == "topology" for c in out):
-        out = module_rows(inp, out)
+        out = sorted(module_rows(inp, out), key=lambda c: c.name == "weights")  # its verdict stays last (--verify-all)
     if (inp.env.get("TB_HOST_PROFILE") or "").strip() != "poc":
         return out
     # tb_common.config's rule, without its import (it needs pydantic, which the host's python3 has not): this runs after

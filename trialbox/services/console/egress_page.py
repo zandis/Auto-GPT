@@ -29,6 +29,7 @@ from console.i18n import CATALOGUES
 from console.rc1_guard import Rc1Guard, _path
 
 DAYS = 30
+PATHSEND = "http.response.pathsend"
 _JOB = re.compile(r"^/pilot/jobs/(?P<job>[^/]+)/files/(?P<name>[^/]+)$")
 #: a JSON answer that carries a file's text
 _SUFFIX = {"application/json": ".json", "text/csv": ".csv", "application/xml": ".xml", "text/html": ".html"}
@@ -127,9 +128,10 @@ class EgressLayer:
                 return
             await self.release(scope, receive, send, path, start, b"".join(body))
 
-        # no file path may be handed to the server: the bytes must pass here
-        inner = {**scope, "extensions": {}}
-        await self.app(inner, receive, held)
+        # no file path may be handed to the server: the bytes must pass here. The scope itself is passed on (a copy
+        # would keep the matched route from the middleware outside this one, whose timing header reads it)
+        scope["extensions"] = {k: v for k, v in (scope.get("extensions") or {}).items() if k != PATHSEND}
+        await self.app(scope, receive, held)
 
     async def release(self, scope: Scope, receive: Receive, send: Send, path: str, start: Message, data: bytes) -> None:
         request = Request(scope, receive)
