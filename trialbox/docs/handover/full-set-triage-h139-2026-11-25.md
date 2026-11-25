@@ -304,6 +304,14 @@ On master 6c73db64, then at this branch's head, the same commands:
     is `trialbox_<vol>`. The drill passes its own `TB_BACKUP_DIRS`, so it does not reach them.
   - `keys.py` `HOST_SECRETS`/`HOST_OBJECTS` and `logs.py` `DEFAULT_AUDIT` are defaults behind a setting.
   - `make up` (the dev stub stack) runs under the base file's `trialbox`.
+- **H139-12 regression (the integrator's 7163415503, item 2): `FileNotFoundError: 'bash'` on the bench's coming
+  master.** Push 3's H139-12 dropped every PATH folder that holds `nvidia-smi`. On a GPU host that folder is
+  `/usr/bin`, beside `bash`, so `test_runbook_install_commands`'s install steps (`--mode stub` and
+  `--kek-passphrase-file`) could not start `bash`. The rider is #1498 (`tests/unit/test_runbook_install_commands.py`,
+  `_install_to_the_host_step`). Fixed: every host folder stays, and a stand-in `nvidia-smi` that finds no card comes
+  first. install.sh and gpu_profile.sh read a failing tool as none. `tests/unit/test_install_step_keeps_path_h139.py`
+  lays out a host whose one `bash` sits beside a card-reporting `nvidia-smi`. At 71868874 it fails with
+  `FileNotFoundError: 'bash'`; at head it passes, and the host's card is never asked.
 - The merge with #1505 (48c66ca7) is clean. The touched tests on the merge: 191 passed.
 
 ## Owners named in this card

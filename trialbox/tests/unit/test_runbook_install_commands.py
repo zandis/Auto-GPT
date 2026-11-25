@@ -96,10 +96,12 @@ def _install_to_the_host_step(tmp: Path, *args: str, **env: str) -> subprocess.C
     state = [box / "deploy" / n for n in (".env", "settings.yaml", "updates", "secrets")]
     before = [p.exists() for p in state]
     # H139-12: the host's own graphics tool is not this step's: a card the run's host has (the bench host's) that
-    # cannot run the model server's image makes the installer refuse, rightly. The step sees the profile it is given.
-    host_path = os.pathsep.join(d for d in _env()["PATH"].split(os.pathsep) if not (Path(d) / "nvidia-smi").exists())
+    # cannot run the model server's image makes the installer refuse, rightly. The step sees the profile it is given:
+    # a stand-in that finds no card comes first, as a host without the tool (install.sh and gpu_profile.sh read a
+    # failing nvidia-smi as none). Every host folder stays on PATH: on a GPU host the tool sits beside bash (/usr/bin).
+    _stand_in(bin_dir, "nvidia-smi", "import sys\nsys.exit(9)\n")
     out = subprocess.run(["bash", "deploy/install.sh", str(bundle), *args], cwd=box, capture_output=True, text=True,
-                         env=_env(**{**env, "PATH": f"{bin_dir}{os.pathsep}{host_path}"}), check=False,
+                         env=_env(**{**env, "PATH": f"{bin_dir}{os.pathsep}{_env()['PATH']}"}), check=False,
                          timeout=300)  # fmt: skip
     assert out.returncode == 1 and "Docker is not running" in out.stderr, out.stderr
     assert "==> host" in out.stdout
