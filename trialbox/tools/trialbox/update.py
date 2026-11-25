@@ -1000,8 +1000,17 @@ class Updater:
     def _history(self, plan: Plan, step: str, ok: bool, detail: str = "") -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         line = {"at": _now(), "bundle": plan.bundle_id, "box": self.box.name, "step": step, "ok": ok, "detail": detail}
-        with (self.dir / "history.jsonl").open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(line, ensure_ascii=False) + "\n")
+        from tools import update_status as us
+        from tools.trialbox.backup_schedule import mode_of
+
+        hist = self.dir / "history.jsonl"  # H-142 (.k): the whole file written beside it and renamed, never in place
+        try:
+            before = hist.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            before = ""
+        if before and not before.endswith("\n"):
+            before += "\n"  # a line an older run left half written stays a line of its own
+        us.write_atomic(hist, before + json.dumps(line, ensure_ascii=False) + "\n", mode_of(hist))
         with contextlib.suppress(OSError, ValueError):  # H-114: a closed terminal never fails a step (the file has it)
             self.say(f"{'ok  ' if ok else 'FAIL'}  {step}" + (f": {detail}" if detail else ""))
 
@@ -2467,13 +2476,16 @@ class ComposeBox(_DockerImages):
             "    detail=s['detail'])\n"
         )
         f = self.deploy / "updates" / plan.bundle_id / f"{event}.json"
-        f.write_text(json.dumps({"event": event, "sha": plan.manifest_sha256, "detail": detail}), encoding="utf-8")
+        from tools import update_status as us
+
+        body = json.dumps({"event": event, "sha": plan.manifest_sha256, "detail": detail})
+        us.write_atomic(f, body, 0o644)  # H-142 (.k): whole or not at all
         try:
             self.run(self._c("exec", "-T", "orchestrator", "python", "-c", code), stdin_file=f)
         except UpdateFailed:  # the orchestrator is down (a failed rollback): install.sh's pending audit takes it
             pend = self.deploy / "updates" / "pending_audit"
             pend.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(f, pend / f"{plan.bundle_id}.{event}.json")
+            us.write_atomic(pend / f"{plan.bundle_id}.{event}.json", body, 0o644)  # H-142 (.k): never half a copy
 
 
 class DemoBox(_DockerImages):
@@ -2995,7 +3007,7 @@ def _main_apply(
                 Updater(box, updates, say=lambda _m: None)._record(plan, live=False)
                 pend = updates / "pending_audit"
                 pend.mkdir(parents=True, exist_ok=True)
-                (pend / f"{plan.bundle_id}.json").write_text(json.dumps(summary), encoding="utf-8")
+                us.write_atomic(pend / f"{plan.bundle_id}.json", json.dumps(summary), 0o644)  # H-142 (.k)
         except us.Busy as exc:
             print(f"update REFUSED: {exc}")
             return 1

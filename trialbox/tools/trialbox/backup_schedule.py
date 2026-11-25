@@ -80,6 +80,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from tools.update_status import write_atomic
+
 SUFFIX = ".tbbak"
 REFDATA = "refdata"
 BULK_REFDATA = ("ctgov_study", "trial", "term")  # the vendor pack's rows: left out, the site-fetch ones copied out
@@ -1067,6 +1069,14 @@ ARCHIVER_SQL = (
 )
 
 
+def mode_of(path: Path, default: int = 0o644) -> int:
+    """The mode a file rewritten whole keeps (H-142 .k): its own, or ``default`` (``open``'s under umask 022)."""
+    try:
+        return path.stat().st_mode & 0o7777
+    except OSError:
+        return default
+
+
 class ComposeOps:
     """The nightly run's steps on a site box (``docker compose --project-directory deploy``)."""
 
@@ -1354,15 +1364,15 @@ class ComposeOps:
                 left.append(ln)
                 continue
             f = state / f".audit-{json.loads(ln)['event']}.json"
-            f.write_text(ln, encoding="utf-8")
+            write_atomic(f, ln)  # H-142 (.k): never a half-written event on the orchestrator's stdin
             try:
                 self.box.run(self.box._c("exec", "-T", "orchestrator", "python", "-c", code), stdin_file=f)
             except Exception:  # the orchestrator is down: keep the event for the admin, never lose it
                 left.append(ln)
             finally:
                 f.unlink(missing_ok=True)
-        if left:
-            pending.write_text("".join(x + "\n" for x in left), encoding="utf-8")
+        if left:  # H-142 (.k): written whole beside it, then renamed: a kill mid-write never empties the kept events
+            write_atomic(pending, "".join(x + "\n" for x in left), mode_of(pending))
         else:
             pending.unlink(missing_ok=True)
 

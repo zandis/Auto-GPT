@@ -16,7 +16,17 @@ fail() { echo "REHEARSAL FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
 dc() { (cd "$BOX" && docker compose --project-directory deploy "$@"); }   # COMPOSE_FILE comes from deploy/.env
 envget() { sed -n "s/^$1=//p" "$BOX/deploy/.env" | tail -1; }
-envset() { sed -i "/^$1=/d" "$BOX/deploy/.env"; [ -z "${2+x}" ] || printf '%s=%s\n' "$1" "$2" >> "$BOX/deploy/.env"; }
+# H-142 (.k): the new file written whole beside deploy/.env (its owner and mode) and renamed over it, never in place
+envset() {
+  local e="$BOX/deploy/.env" t
+  t="$(mktemp "$BOX/deploy/.env.XXXXXX")" || return 1
+  if { sed "/^$1=/d" "$e"; [ -z "${2+x}" ] || printf '%s=%s\n' "$1" "$2"; } > "$t" \
+      && chmod --reference="$e" "$t" && chown --reference="$e" "$t" && mv -f "$t" "$e"; then
+    return 0
+  fi
+  rm -f "$t"
+  return 1
+}
 IMAGE_PY="trialbox-py:1.0.0"
 
 # install_box: the real installer as a site runs it (--rehearsal). The rehearsal box is VALIDATION (D-887, the
@@ -761,7 +771,8 @@ live-restore)
     if [ -f "deploy/site/$f" ]; then cp -p "deploy/site/$f" "$rr/$f.before"; fi
   done
   put_back() {
-    cat "$rr/env.before" > "$BOX/deploy/.env"
+    # H-142 (.k): a copy with its owner and mode beside deploy/.env, renamed over it (never rewritten in place)
+    cp -p "$rr/env.before" "$BOX/deploy/.env.put-back" && mv -f "$BOX/deploy/.env.put-back" "$BOX/deploy/.env"
     for f in backup-last.json backup-verified.json; do
       if [ -f "$rr/$f.before" ]; then cp -p "$rr/$f.before" "$BOX/deploy/site/$f"; else rm -f "$BOX/deploy/site/$f"; fi
     done
