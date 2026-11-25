@@ -1,6 +1,6 @@
 """CI-TIERS (D-564): which job runs when. A push to a draft pull request runs the fast tier; the full tier runs when
-the pull request is not a draft, on a branch named ``train/*``, on a push to master and by hand. ``unit`` is skipped
-on a draft, never success. Every workflow that runs on pull requests cancels the older run of the same pull request.
+the pull request is not a draft, on a branch named ``train/*``, on a push to master and by hand. The unit shards and
+``unit`` run on every pull request, draft or not (H-120, D-1324), and ``unit`` is never a skipped success. Every workflow that runs on pull requests cancels the older run of the same pull request.
 A new job must be put in a tier here."""
 
 from __future__ import annotations
@@ -40,6 +40,9 @@ FOLDED = {
 #: the full tier: not on a draft
 FULL = {"unit-shard", "unit", "property", "goldens", "e2e-simple", "demo-boot", "security", "standards", "images"}
 FULL_GATE = "needs.changes.outputs.full == 'true'"
+#: H-120 (D-1324): the unit shards and `unit` run on every pull request, on the tier code's `unit` output
+UNIT_JOBS = {"unit-shard", "unit"}
+UNIT_GATE = "${{ !cancelled() && needs.changes.outputs.unit != 'false' }}"
 #: D-725: the plain-named checks of the matrix pairs: they run in every tier, after their matrix
 GATES = {"goldens-gate", "e2e-simple-gate"}
 #: the same rule for a workflow with no `changes` job
@@ -69,21 +72,23 @@ def test_every_job_of_the_gate_is_in_exactly_one_tier() -> None:
 
 def test_the_full_tier_waits_for_a_pull_request_that_is_not_a_draft() -> None:
     jobs = _wf(CI)["jobs"]
-    for name in sorted(FULL):
+    for name in sorted(FULL - UNIT_JOBS):
         assert FULL_GATE in str(jobs[name].get("if")), name
         assert "needs.changes.outputs.trialbox == 'true'" in str(jobs[name].get("if")), name
+    for name in sorted(UNIT_JOBS):  # H-120 (D-1324): on every pull request (test_h120_unit_shards_every_pr.py)
+        assert jobs[name].get("if") == UNIT_GATE, name
     for name in sorted(FAST - {"changes"}):
         assert "full" not in str(jobs[name].get("if")), name
         assert jobs[name].get("if") == "needs.changes.outputs.trialbox == 'true'", name
 
 
-def test_unit_is_skipped_on_a_draft_and_never_success() -> None:
-    """The aggregate runs when a shard failed (`!cancelled()`), so it must carry the tier's gate itself: without
-    it a draft's `unit` would run with every shard skipped."""
+def test_unit_runs_on_every_pull_request_and_is_never_skipped_success() -> None:
+    """The aggregate runs when a shard failed (`!cancelled()`) and on the tier code's `unit` output, as the shards
+    do (H-120, D-1324): on a pull request it is never skipped, and a skipped shard turns it red."""
     unit = _wf(CI)["jobs"]["unit"]
     assert unit["needs"] == ["changes", "unit-shard"]
     cond = str(unit["if"])
-    assert "!cancelled()" in cond and FULL_GATE in cond
+    assert "!cancelled()" in cond and "needs.changes.outputs.unit != 'false'" in cond
     first = unit["steps"][0]["run"]
     assert 'needs.unit-shard.result }}" != "success"' in first and "exit 1" in first  # skipped shards are not a pass
 
