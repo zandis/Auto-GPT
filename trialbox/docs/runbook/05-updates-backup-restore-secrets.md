@@ -210,8 +210,8 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    stands: after a restore that is not complete (this step or the next), that failed part-way, or that was run a
    second time, the box stays held. While held, the timer starts no list job (SCREEN, MICROBATCH, COHORT, NAV), a
    list a person asks for fails with a message that says so, and the weekly not-matched sample is not drawn. The
-   ingest and retention run. `trialbox doctor` shows the hold (`restore_hold`). When every listed event is re-applied, the data steward (or the administrator) sets the flag to `released` on
-   `/ops/flags`, with the reason (who re-applied what); the change is in the audit. If the restore prints that the
+   ingest and retention run. `sudo trialbox doctor --env-file deploy/.env` on the host shows the hold (`restore_hold`: HELD, released or UNREADABLE; see "The hold after a restore" below). When every listed event is re-applied, the data steward (or the administrator) sets the flag to `released` on
+   `/ops/flags`, with the reason (who re-applied what), and confirms it on the next page ("Yes, do it"); the change is in the audit. If the restore prints that the
    hold could not be set, keep the services stopped until the events are re-applied.
 5. **Opt-outs recorded after the backup (D-493).** Before the restore empties the trial database it reads the
    box's opt-out register. After the restored rows are checked it **puts back every opt-out** the register held
@@ -345,6 +345,29 @@ readable by root alone) and names it: do not start the services; `pg_restore` th
 the box. `--no-copy` on the host needs `--yes-really`: without the kept copy a failed restore whose putting back also
 fails leaves nothing to go back to. One restore runs at a time (`deploy/site/restore.lock`); a scratch folder
 (`deploy/.restore-*`) left by a restore that was killed is removed by the next one.
+
+**The hold after a restore (step 4).** `sudo trialbox doctor --env-file deploy/.env`, typed on the box's host, shows
+the hold (`restore_hold`, H-136). It reads it through the box (`docker compose exec db`, as the backup asks the job
+count), never with the host's own Python or a database address on the host, so it reads it right after a restore.
+Its line is one of three:
+
+- `WARN restore_hold HELD since <time> by <who>: ...` with the reason the restore gave: the box is held;
+- `PASS restore_hold released ...`: no restore is waiting (or the hold was never set on this box);
+- `FAIL restore_hold UNREADABLE: ... (<cause>)`: the hold could not be read (the `db` service does not run, the
+  box file cannot be trusted, the container engine does not start). Treat the box as held: read the flag on
+  `/ops/flags` and run the doctor again once the cause is fixed. It is never a pass.
+
+The same line shows on every kind of box (PoC or PRODUCTION) and in the host check (`deploy/check_host.sh`, whose
+doctor runs in the box image: the host reads the hold through the box and hands it in). The doctor is a check,
+not an install stop (D-1091): a held or unreadable hold stops no install, start or update. On a PoC box the host
+check's FAIL lines warn and the step goes on; on a PRODUCTION box they are the install's FAIL lines, as before.
+
+**Releasing the hold.** When every listed event is re-applied, the data steward (or the administrator) opens
+`/ops/flags` in the console, chooses `released` for `screening.after_restore`, types the reason (who re-applied
+what) and presses Change. That opens a second page, "Please confirm", that names the flag, its old and its new
+value: the change is made only by its button "Yes, do it" (the form alone changes nothing). The page then shows
+`held → released`, by whom and when, with the reason; the change is in the audit. There is no release command:
+`trialbox model release` is for the models' flag (page 19). Run `trialbox doctor` again: it says `released`.
 
 **What it says.** Every end says the box in one line: `restore: the box now: <what compose says runs>; the data:
 <restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` every service

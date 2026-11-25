@@ -149,7 +149,8 @@ def test_no_passphrase_in_a_sudo_log_an_argument_or_an_environment_through_the_s
     assert not env_file.exists() or PHRASE not in env_file.read_text(encoding="utf-8")
     meta = K.read_meta(tmp_path / "secrets")
     assert meta is not None and meta["backend"] == "passphrase"
-    assert K.derive_from_passphrase(PHRASE, meta) == (tmp_path / "kek.runtime").read_bytes()  # sealed under it
+    kek = b.hostroot / "run" / "trialbox" / "kek"  # type: ignore[attr-defined]  # H-118: the box's own place
+    assert K.derive_from_passphrase(PHRASE, meta) == kek.read_bytes()  # sealed under it
     assert pp.exists() is (given != "file")  # removed after sealing; kept when asked (stdin: never touched)
 
 
@@ -317,12 +318,13 @@ def test_the_file_is_removed_after_sealing_and_kept_when_asked(tmp_path: Path) -
     r = _seal(tmp_path, "--kek-passphrase-file", str(f), "--keep-kek-passphrase-file")
     assert r.returncode == 0 and f.exists() and "is kept (--keep-kek-passphrase-file)" in r.stdout, r.stderr
     meta = K.read_meta(tmp_path / "secrets")
-    assert meta is not None and K.derive_from_passphrase(PHRASE, meta) == (tmp_path / "kek.runtime").read_bytes()
-    (tmp_path / "kek.runtime").unlink()  # a restart since: the box with a KEK is opened from the file, then wrapped
+    kek = tmp_path / "host" / "run" / "trialbox" / "kek"  # H-118: the box's own place, never the caller's
+    assert meta is not None and K.derive_from_passphrase(PHRASE, meta) == kek.read_bytes()
+    kek.unlink()  # a restart since: the box with a KEK is opened from the file, then wrapped
     (tmp_path / "secrets" / "extra.key").write_bytes(b"")  # not a protected key: nothing more to wrap
     r = _seal(tmp_path, "--kek-passphrase-file", str(f))
     assert r.returncode == 0 and not f.exists() and "is removed" in r.stdout, r.stderr
-    assert (tmp_path / "kek.runtime").read_bytes() == K.derive_from_passphrase(PHRASE, meta)
+    assert kek.read_bytes() == K.derive_from_passphrase(PHRASE, meta)
 
 
 def test_a_failed_seal_keeps_the_file_for_the_next_run(tmp_path: Path) -> None:
