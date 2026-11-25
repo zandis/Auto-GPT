@@ -175,10 +175,14 @@ class SqlGenerator:
 
     # ------------------------------------------------------------------ per-atom CTEs; returns (ctes, expr, ev)
     def _family_offlist(self, vsname: str, system_col: str, code_col: str) -> str:
-        """A code inside one of the grouper's families (D-113) that the ValueSet does not list."""
+        """A code inside one of the grouper's families (D-113) that the ValueSet does not list. INT-R2: an ATC code
+        coarser than a family (L04A above L04AC) may be a member too, so it counts as inside."""
+        inside = f"starts_with({code_col}, vsf.prefix)"
+        if system_col == lit(SYSTEMS["atc"]):
+            inside = f"({inside} OR ({code_col} <> '' AND starts_with(vsf.prefix, {code_col})))"
         return (
             f"(EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = {lit(vsname)} AND vsf.system = {system_col} "
-            f"AND starts_with({code_col}, vsf.prefix)) AND NOT {self._vs_match(vsname, system_col, code_col)})"
+            f"AND {inside}) AND NOT {self._vs_match(vsname, system_col, code_col)})"
         )
 
     # (table, record id, date, [(system column, code column)]) per presence domain
@@ -570,6 +574,25 @@ class SqlGenerator:
         ]
         met = f"coalesce({name}.days, 0) >= {atom.duration.min_days}"
         open_ = f"coalesce({name}_o.n, 0) > 0"
+        if self.vs.families(atom.valueset):
+            # INT-R2: as the presence atom (D-113): an order in the window coded inside the class's family and off
+            # its list may be part of the course: unknown where the listed orders do not reach min_days
+            off = self._family_offlist(atom.valueset, lit(SYSTEMS["atc"]), "m.atc")
+            ctes.append(
+                f"{name}_off AS (\n  SELECT b.pid, b.index_date, count(*) AS n, "
+                f"string_agg(m.mid, ';' ORDER BY m.mid) AS ev\n"
+                f"  FROM base b JOIN medication m ON m.pid = b.pid\n  WHERE {off}\n"
+                f"    AND (coalesce(m.start, m.authored) IS NULL OR coalesce(m.start, m.authored) <= {hi})\n"
+                f'    AND (m."end" IS NULL OR m."end" >= {lo})\n'
+                f"  GROUP BY b.pid, b.index_date)"
+            )
+            offn = f"coalesce({name}_off.n, 0) > 0"
+            expr = f"(CASE WHEN {met} THEN TRUE WHEN {offn} OR {open_} THEN NULL ELSE FALSE END)"
+            ev = (
+                f"(CASE WHEN {met} THEN {name}.ev WHEN {offn} THEN {name}_off.ev "
+                f"WHEN {open_} THEN {lit(ORDER_DATES + ';')} || {name}_o.ev ELSE {name}.ev END)"
+            )
+            return ctes, expr, ev
         expr = f"(CASE WHEN {met} THEN TRUE WHEN {open_} THEN NULL ELSE FALSE END)"
         ev = (
             f"(CASE WHEN {met} THEN {name}.ev WHEN {open_} THEN {lit(ORDER_DATES + ';')} || {name}_o.ev "
@@ -631,6 +654,9 @@ class SqlGenerator:
                 if k is Kind.MED_DURATION:  # the orders with no end date or no date
                     o = f"{aname}_o"
                     joins.append(f"LEFT JOIN {o} ON {o}.pid = b.pid AND {o}.index_date = b.index_date")
+                    if self.vs.families(atom.valueset):  # INT-R2: the off-list family orders
+                        x = f"{aname}_off"
+                        joins.append(f"LEFT JOIN {x} ON {x}.pid = b.pid AND {x}.index_date = b.index_date")
                 if k is Kind.PRESENCE:  # the undated records and, for a grouper, the off-list family
                     for extra in cs[1:]:
                         x = extra.split(" AS (", 1)[0]
