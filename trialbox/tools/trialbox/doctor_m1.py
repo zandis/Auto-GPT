@@ -1,5 +1,5 @@
-"""M1's doctor rows (F0's hook): one WARN per item of "Information still needed" that is open, naming the step that waits
-for it. The body is ``tools/box/needs_apply.py``."""
+"""M1's doctor rows (F0's hook): one WARN per open item of "Information still needed", naming the step that
+waits for it. The body is ``tools/box/needs_apply.py``."""
 
 from __future__ import annotations
 

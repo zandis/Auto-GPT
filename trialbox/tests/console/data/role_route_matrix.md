@@ -24,6 +24,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/edc/oidc/authorize` | n | n | n | n | n | n | n | n | n |
 | GET | `/api/edc/oidc/userinfo` | n | n | n | n | n | n | n | n | n |
 | GET | `/api/v1/admin/ops` | Y | - | - | - | - | - | - | - | - |
+| POST | `/api/v1/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/ask` | Y | Y | Y | Y | Y | - | Y | Y | Y |
 | GET | `/api/v1/data/batches` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/api/v1/data/batches/{bid}` | n | - | - | - | - | - | - | n | - |

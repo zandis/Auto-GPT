@@ -24,7 +24,6 @@ KEYS = {"TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK", "TB_TERMINOLOGY_NIG
 #: between two entries, so two modules' removals do not touch).
 PENDING = {
     # M1
-    "still_needed",
     # M3
     "egress_page",
     # M5
@@ -176,7 +175,7 @@ def test_every_declared_page_file_is_there_or_still_owed() -> None:
     done = PENDING - (set(console_app.MODULE_PAGES) - there)
     assert not done, f"brought or no longer declared: take out of PENDING: {sorted(done)}"
     for name in sorted(there):
-        assert hasattr(importlib.import_module(f"{name}"), "register"), f"{name} has no register()"
+        assert hasattr(importlib.import_module(f"console.{name}"), "register"), f"{name} has no register()"
 
 
 def test_every_declared_page_file_is_registered_once_before_the_outermost_middleware() -> None:
