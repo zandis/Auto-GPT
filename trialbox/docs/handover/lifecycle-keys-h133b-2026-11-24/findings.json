@@ -1,0 +1,53 @@
+{
+ "card": "H133b",
+ "title": "the five Lows of the review of #1478 (H-133's key operations)",
+ "date": "2026-11-24",
+ "source": "docs/handover/lifecycle-keys-h133b-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H133b-01",
+   "severity": "Low",
+   "claim": "1478-1: seven unit tests ran rotate-kek against the host's real /etc/credstore.encrypted (stat, and as root flock and decrypt); fixed: an autouse unit fixture puts the credential's place under the test root",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/conftest.py, tools/keys.py CREDENTIAL_FILE"
+  },
+  {
+   "id": "H133b-02",
+   "severity": "Low",
+   "claim": "1478-2: rotate-kek --backend file by an account that cannot look in the credential's folder went on and said done, the credential left on the old KEK; fixed: refused before any change unless --no-tpm, which is refused beside --seal-tpm, where a credential is there and with another back end",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/keys.py cmd_rotate_kek, _seal_here; docs/runbook/25-leavers.md"
+  },
+  {
+   "id": "H133b-03",
+   "severity": "Low",
+   "claim": "1478-3: the exact 0644 and 0600 mode pin of the H-111 re-run test ran only as root, so never in CI; fixed: it runs on every run and asks audit_sign.pub to be there",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_seal_keys_signal_h111.py"
+  },
+  {
+   "id": "H133b-04",
+   "severity": "Low",
+   "claim": "1478-4: as an ordinary user the owner record was keyed by inode and never forgot one, so a folder made again read as the services' with no chown and two hand-over mutants passed; fixed: a freed inode forgets its owner",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_lifecycle_keys_h133.py Owners"
+  },
+  {
+   "id": "H133b-05",
+   "severity": "Low",
+   "claim": "1478-5: the no-tool-check mutant survived (H-133 said 13 of 13 caught) and the 669/667 counts named no file list; fixed: a --seal-tpm new-board test with no tool, and this page names the files and the command",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_lifecycle_keys_h133.py, docs/handover/lifecycle-keys-h133-2026-11-24.md"
+  }
+ ]
+}
