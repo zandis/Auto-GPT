@@ -115,3 +115,68 @@ def test_the_hosts_own_container_bridges_are_not_its_ranges(monkeypatch: pytest.
 
     monkeypatch.setattr(plan, "_run", run)
     assert pf._host_nets() == ["10.20.30.40/24", "10.50.0.0/16"]
+
+
+# ------------------------------------------------------------------------------- test boxes (the rehearsal's red)
+def _ip_runner(addr: list[dict[str, Any]], route: list[dict[str, Any]]) -> Any:
+    import subprocess
+
+    def run(argv: Any) -> subprocess.CompletedProcess[str]:
+        out = json.dumps(addr if "addr" in argv else route)
+        return subprocess.CompletedProcess(list(argv), 0, out, "")
+
+    return run
+
+
+def _deploy_with_overlay(tmp: Path) -> Path:
+    import shutil
+
+    d = tmp / "deploy"
+    d.mkdir()
+    shutil.copy(DEPLOY / "docker-compose.identity.yml", d / "docker-compose.identity.yml")
+    return d
+
+
+def test_every_box_gets_its_own_range_and_proxy_address(tmp_path: Path) -> None:
+    import ipaddress
+
+    from tools.trialbox import testbox
+
+    d = _deploy_with_overlay(tmp_path)
+    seen = [ipaddress.ip_network(testbox.nets(d, n)["TB_NET_SUBNET"]) for n in range(testbox.MAX_OFFSET + 1)]
+    assert str(seen[0]) == "172.31.252.0/24"  # offset 0: the ordinary box's own default
+    assert not any(x.overlaps(y) for i, x in enumerate(seen) for y in seen[i + 1 :])
+    for n in range(testbox.MAX_OFFSET + 1):
+        got = testbox.nets(d, n)
+        assert ipaddress.ip_address(got["TB_PROXY_ADDR"]) in ipaddress.ip_network(got["TB_NET_SUBNET"])
+    assert testbox.nets(tmp_path, 3) == {}  # no overlay: nothing to move
+
+
+def test_a_test_box_whose_range_meets_the_hosts_is_refused(tmp_path: Path) -> None:
+    from tools.trialbox import testbox
+
+    d = _deploy_with_overlay(tmp_path)
+    mine = testbox.nets(d, 2)["TB_NET_SUBNET"]  # 172.31.250.0/24
+    lan = _ip_runner([{"ifname": "eno1", "addr_info": [{"local": "172.31.250.9", "prefixlen": 24}]}], [])
+    why = testbox.range_clash(d, 2, lan)
+    assert why.startswith(f"the box's internal range {mine} (port offset 2)") and "host's 172.31.250.0/24" in why
+    bridge = _ip_runner([{"ifname": "br-9f1c", "addr_info": [{"local": "172.31.250.1", "prefixlen": 24}]}],
+                        [{"dst": "172.31.250.0/24", "dev": "br-9f1c"}])  # fmt: skip
+    assert testbox.range_clash(d, 2, bridge) == ""  # another box's own network: kept apart by the offset
+    assert testbox.range_clash(d, 3, lan) == ""
+
+    def broken(argv: Any) -> Any:
+        raise OSError("no ip here")
+
+    assert testbox.range_clash(d, 2, broken) == ""  # the ranges cannot be read: not compared, as preflight
+
+
+def test_the_record_step_refuses_a_clashing_range(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.trialbox import testbox
+
+    d = _deploy_with_overlay(tmp_path)
+    monkeypatch.setattr(testbox, "_run", _ip_runner([{"ifname": "eno1", "addr_info": [
+        {"local": "172.31.251.20", "prefixlen": 23}]}], []))  # fmt: skip
+    monkeypatch.setattr(testbox, "clashes", lambda *a: [])
+    rc = testbox.main(["record", "--deploy", str(d), "--name", "rh", "--port-offset", "1"])
+    assert rc == 2 and not (d / testbox.RECORD).exists()  # refused: nothing was changed

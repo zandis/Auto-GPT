@@ -120,6 +120,16 @@ a plain test now, with Caddy at its configured address. That is an assertion-sta
 Costs, as found: a box behind Caddy needs its internal network recreated once (`docker compose down`, then `up`) for
 the fixed range; a host already on 172.31.252.0/24 sets another range in `deploy/.env`.
 
+**Test boxes beside a box (the rehearsal's red at 44401b94 and becc7be5, OCR's diagnosis 7167198159).** Every test box
+asked the engine for the same fixed range, which the first box's network already held, so the engine refused every
+container of the test box. Now each box has a range of its own: `tools/trialbox/testbox.py` (`nets`) moves the
+overlay's range and Caddy's address down by the box's port offset (one /24 per offset, 1 to 49 below the ordinary
+box's), and writes both into the box's `deploy/.env` with its ports. The record step refuses a test box whose range
+meets one this host is on (the same reading as preflight `name_cert`; the engine's own bridges, other boxes' networks,
+are kept apart by the offset). The ordinary box keeps the default, which `name_cert` checks. H-106's invariant
+(`test_two_test_boxes_share_no_volume_network_port_or_key`) now also asserts that the two test boxes' and the ordinary
+box's ranges never meet, after OCR's suggested patch. `tools/rehearse_box/box.sh` is unchanged.
+
 ## Files outside the card
 
 `services/model_guard/__init__.py` (lane D); `services/edc_backend/oidc.py`, `events.py`, `config.py`, `linkmap.py`
