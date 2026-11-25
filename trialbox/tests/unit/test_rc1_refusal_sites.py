@@ -14,6 +14,15 @@ import pytest
 from tb_common import rc1_refusals
 from tb_common.audit import AuditLog
 
+from tests.own_deploy import own_deploy
+
+
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy", ceremony=True)
+
+
 ENVS = ("", "PRODUCTION", "PILOT", "DEV", "TEST", "VALIDATION")
 
 

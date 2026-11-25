@@ -18,7 +18,13 @@ from tb_contracts import CriterionIR
 from tests.stack import url
 
 pytestmark = pytest.mark.integration
-FHIR = url("FHIR", "/fhir")
+
+
+def _fhir() -> str:
+    """H-139: read from the running test stack when a test runs, not at import (a collection asks no engine)."""
+    return url("FHIR", "/fhir")
+
+
 UNMAPPED = "synthetic qwerty zxcv syndrome"  # in no shipped table: the mapper finds no code for it
 
 
@@ -51,7 +57,7 @@ def test_a_value_set_with_no_code_does_not_stop_the_equivalence_check(tmp_path: 
     gen = CqlGenerator("OFFL", "1.0.0", vsi)
     cql = gen.render(crit)
     tr = Translator().translate({"FHIRHelpers": fhirhelpers_source(), "TB_Common": render_common(), gen.library: cql})
-    fh = FhirEvaluator(FHIR)
+    fh = FhirEvaluator(_fhir())
     fh.load(
         [
             library_resource("FHIRHelpers", "4.0.1", fhirhelpers_source(), tr.elm["FHIRHelpers"]),

@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from tests import pg_client
 from tests.unit import test_host_commands_own_environment as h88
 from tests.unit.test_backup_schedule import FakeBox
 from tools.trialbox import backup as bk
@@ -487,7 +488,7 @@ def test_the_one_documented_command_restores_the_last_backup_from_a_bare_sudo(
         encoding="utf-8",
     )
     (deploy / ".env").chmod(0o600)
-    made = bk.backup([nas], deploy / "secrets" / "backup.pub", env={"TB_DB_URL": wf, "TB_HAPI_DB_URL": hapi},
+    made = bk.backup([nas], deploy / "secrets" / "backup.pub", env={"TB_DB_URL": wf, "TB_HAPI_DB_URL": hapi, **pg_client.env()},
                      dirs={})[0]  # fmt: skip
     sha = hashlib.sha256(made.read_bytes()).hexdigest()
     (deploy / "site").mkdir(exist_ok=True)
@@ -705,7 +706,7 @@ def _box_db(tmp_path: Path, db_url: str) -> tuple[Any, dict[str, Path], Path, Pa
     t = _t728()
     reg, _jobs, dirs = t._box(db_url, tmp_path)
     priv, pub, keep = t._keys(tmp_path)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", "TB_ENV": "TEST"}
+    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", "TB_ENV": "TEST", **pg_client.env()}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     reg.add("P-LATER-2", "office", "", "office:a", "2026-11-23T10:00:00+00:00")  # the box moved on after the backup
     (dirs["audit"] / "after-the-backup.txt").write_text("synthetic", encoding="utf-8")
@@ -1133,7 +1134,7 @@ def test_r4_an_empty_folder_comes_back_with_its_own_owner_and_mode(
     (tmp_path / "b").mkdir()
     _reg, _j, dirs = t._box(db_url, tmp_path / "b")
     priv, pub, keep = t._keys(tmp_path / "b")
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", "TB_ENV": "TEST"}
+    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", "TB_ENV": "TEST", **pg_client.env()}
     objects = tmp_path / "b" / "objects"
     objects.mkdir()
     (objects / "a.bin").write_bytes(b"synthetic")

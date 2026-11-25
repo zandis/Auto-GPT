@@ -1918,11 +1918,7 @@ def run_cmd(
                 rec = _record_running(proc.pid, argv)
                 out, err = proc.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
-                procgroup._kill(proc.pid, signal.SIGTERM)
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    proc.wait(procgroup.TERM_GRACE_S)
-                procgroup._kill(proc.pid, signal.SIGKILL)
-                proc.communicate()
+                procgroup._stop(proc, procgroup.TERM_GRACE_S)  # H-114d: its pipes read through the grace
                 raise subprocess.TimeoutExpired(list(argv), timeout or 0) from None
             except BaseException:
                 procgroup._kill(proc.pid, signal.SIGKILL)
@@ -3074,7 +3070,9 @@ def first_load_needs(box: Any, plan: Plan, deploy: Path) -> list[tuple[Path, int
     models folder, the host tree unpacked beside deploy/, the other files under deploy/updates. The payloads
     themselves stay on the stick, so nothing is counted for a copy of the bundle."""
     try:
-        root = Path(box.run(["docker", "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
+        # H-139: the box's own engine (TB_DOCKER), as its other calls, never a bare docker of the host
+        engine = list(getattr(box, "docker", None) or ["docker"])
+        root = Path(box.run([*engine, "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
     except (UpdateFailed, OSError):
         root = Path("/var/lib/docker")
     models = Path(getattr(box, "models", deploy / "models"))
@@ -3263,6 +3261,7 @@ def main_apply(
             print(f"update REFUSED: {exc}")
             return 1
         print(f"update {plan.bundle_id} loaded; the box is not running, so install.sh starts it and audits it")
+        _name_loose(deploy)
         return 0
     try:
         Updater(box, updates).run(plan, backup=backup)
@@ -3270,4 +3269,19 @@ def main_apply(
         print(f"update FAILED: {exc}")
         return 1
     print(f"update {plan.bundle_id} applied, checked and audited")
+    _name_loose(deploy)
     return 0
+
+
+def _name_loose(deploy: Path) -> None:
+    """H-144: an image-only folder left in the install folder (``services/``, ``models/``, ...) is named after the
+    update, with the command that removes it; never removed by the update (it did not make it, and it may hold an
+    operator's own change). ``trialbox doctor``'s ``release_tree`` FAILs while it is there."""
+    from tools import host_tree as ht
+
+    base = Path(deploy).absolute().parent
+    if ht.install_folder(base / "current") != base.resolve():  # OCR 1512-1: a source checkout's services/ is its own
+        return
+    note = ht.loose_note(base)
+    if note:
+        print(f"update: note (H-144): {note}")

@@ -25,6 +25,8 @@ from typing import Any
 import pytest
 from tb_common.db import IMAGE_EXTENSIONS, Database, extensions
 
+from tests import pg_client
+
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / "deploy"
 LOCK = DEPLOY / "images.lock"
@@ -241,15 +243,17 @@ def test_the_whole_database_restores_as_trialbox_with_the_backups_flags(
 ) -> None:
     """``tools/trialbox/backup.py``'s own ``dump`` and ``restore_db`` (``--clean --if-exists --no-owner
     --no-privileges --single-transaction --exit-on-error``) on the whole ``trialbox_wf``, as ``trialbox``."""
-    if shutil.which("pg_dump") is None:
+    # H-139: the client tools beside the test cluster's server count, not only those on PATH (a host may keep its
+    # PostgreSQL off PATH, and TB_STRICT_SKIPS=1 turned this skip into a failure there)
+    if shutil.which(pg_client.tool("pg_dump")) is None:
         pytest.skip("pg_dump not on this host")
     from tools.trialbox import backup as bk
 
     _, url = image_container
     _seed(url)
     src = bk.DbSource("trialbox_wf", url, ())
-    bk.dump(src, tmp_path / "wf.dump", {})
-    bk.restore_db(src, tmp_path / "wf.dump", {})
+    bk.dump(src, tmp_path / "wf.dump", pg_client.env())
+    bk.restore_db(src, tmp_path / "wf.dump", pg_client.env())
     assert _seeded_ok(url)
 
 
