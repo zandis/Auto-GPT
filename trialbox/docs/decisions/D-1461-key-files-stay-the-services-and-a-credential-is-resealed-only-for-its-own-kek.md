@@ -36,10 +36,15 @@ after a restart left the services unable to open any key (LR-3, LR-4). `rotate-k
 5. **The credential is the host's.** A rotation that reads, stages or swaps the credential holds the lock
    `seal_keys.sh` holds while it seals (an exclusive flock on the credential's folder, #1457), taken after the
    secrets folder's lock; while another holds it the rotation is refused with nothing changed.
+6. **No TPM credential is assumed but by `--no-tpm`** (H-133b, the review of #1478, 1478-2). `rotate-kek --backend
+   file` by an account that cannot look in the credential's folder is refused before the lock, the journal or any
+   event: whether the box's KEK is sealed there is unknown, so it is run as root, or given `--no-tpm` on a box with
+   no TPM credential. `--no-tpm` looks for no credential and seals none; it is refused beside `--seal-tpm`, on a box
+   whose credential is there, and with any back end but file.
 
 ## Consequences
 
 At every instant each site key either is still as it was or opens with the KEK sealed in the credential in place,
-and every key file the services read stays readable by them. An ordinary user cannot look in the credential folder:
-its `rotate-kek` seals nothing and says so. A rotation from a TPM box to another back end still leaves the
+and every key file the services read stays readable by them. An account that cannot look in the credential folder
+is refused unless it says `--no-tpm` (point 6); no rotation ends "done" with a credential it could not check. A rotation from a TPM box to another back end still leaves the
 credential and unit on the old KEK (H133-05, open).

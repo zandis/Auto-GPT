@@ -349,4 +349,6 @@ class Repo:
 
     def restore(self, snapshot: str, into: Path) -> None:
         into.mkdir(parents=True, exist_ok=True)
-        self._run(["restore", snapshot, "--target", str(into)], what="restore")
+        # H-132 (LR-16): a restore only reads; the repository may be bound read-only (the host's restore and
+        # verify mount the backup's folder so), where restic's lock file cannot be written
+        self._run(["restore", snapshot, "--target", str(into), "--no-lock"], what="restore")

@@ -36,7 +36,7 @@ Everything above, and:
 
 | What they held | Do | Command |
 | --- | --- | --- |
-| a KEK share or the KEK passphrase | rotate the KEK; the old shares stop working | `python -m tools.keys rotate-kek` |
+| a KEK share or the KEK passphrase | rotate the KEK; the old shares stop working | `sudo python -m tools.keys rotate-kek` |
 | the backup private key envelope | a new backup key pair; hand the old private key to the new holder for the old backups | `python -m tools.trialbox backup-keygen` |
 | the pgBackRest cipher copy | hand it over; rotate it only with Aimedics (§5) | |
 
