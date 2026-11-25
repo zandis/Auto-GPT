@@ -68,6 +68,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn, Protocol
 
 from tools import host_tree, image_pins
+from tools.trialbox import sigends
 
 ROOT = Path(__file__).resolve().parents[2]
 PY_SERVICES = (
@@ -115,24 +116,10 @@ class UpdateInterrupted(KeyboardInterrupt):
     """H-114 (ESC-4): SIGINT, SIGTERM or SIGHUP stopped the update; it is rolled back as a Ctrl-C is."""
 
 
-class _Tolerant:
-    """A terminal stream that a closed session cannot break: a write or a flush that fails is dropped, so a rollback
-    that a SIGHUP started is never ended by its own progress line (the history file keeps every line)."""
-
-    def __init__(self, stream: Any) -> None:
-        self._s = stream
-
-    def write(self, text: str) -> int:
-        with contextlib.suppress(OSError, ValueError, RuntimeError):
-            return int(self._s.write(text) or 0)
-        return len(text)
-
-    def flush(self) -> None:
-        with contextlib.suppress(OSError, ValueError, RuntimeError):
-            self._s.flush()
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._s, name)
+#: A terminal stream that a closed session cannot break: a write or a flush that fails is dropped, so a rollback that
+#: a SIGHUP started is never ended by its own progress line (the history file keeps every line). H-142: the
+#: restore's too (``sigends.Tolerant``)
+_Tolerant = sigends.Tolerant
 
 
 class Stops:
@@ -153,24 +140,31 @@ class Stops:
         self._live = False
         self._old: dict[int, Any] = {}
         self._streams: tuple[Any, Any] | None = None
+        self._depth = 0  # H-142 (.h): entered by the command (main_apply) and again by the run it hands it to
+
+    @property
+    def entered(self) -> bool:
+        return self._depth > 0
 
     def __enter__(self) -> Stops:
-        import signal
-        import threading
-
-        if threading.current_thread() is threading.main_thread():
-            for name in self.NAMES:
-                sig = getattr(signal, name)
-                if signal.getsignal(sig) is signal.SIG_IGN:  # review 1461-4: the caller's ignore (nohup) stands
-                    continue
-                self._old[sig] = signal.signal(sig, self._on)
+        self._depth += 1
+        if self._depth == 1:  # review 1461-4: the caller's ignore (nohup) stands
+            self._old = sigends.take(self._on)
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        import signal
-
-        for sig, h in self._old.items():
-            signal.signal(sig, h)
+        """H-142 (.h): on the process's own way out (``sigends.own_exit``) the signals stay ignored to the exit and
+        the streams stay tolerant, flushed first: a signal after the update's last line never turns its 0 or 1 into
+        143, and never loses what it said."""
+        self._depth -= 1
+        if self._depth > 0:
+            return
+        if sigends.owned():
+            sigends.ignore()
+            sigends.flush()
+            self._old = {}
+            return
+        sigends.put_back(self._old)
         self._old = {}
         if self._streams is not None:
             sys.stdout, sys.stderr = self._streams
@@ -1209,7 +1203,8 @@ class Updater:
     def run(self, plan: Plan, backup: bool = True) -> dict[str, Any]:
         from tools import update_status as us
 
-        self.stops = Stops()
+        if not self.stops.entered:  # H-142 (.h): the command's own (main_apply), taken at its first line, else here
+            self.stops = Stops()
         try:
             with self.stops, us.locked(self.dir), _recording(self.dir):
                 if us.marker(self.dir) is not None:
@@ -2855,7 +2850,27 @@ def main_apply(
     install.sh's first load (``TB_SKIP_AUDIT``), only loads the payloads; an installed box that is not running is
     refused (start it, then update: a crashed box never takes the path without marker, backup or compat check); a
     running installed box takes the whole path. The summary must come from a D-210 ``verify_update.py``, sit in
-    the stage folder (0700) and name the staged manifest's sha256: anything else is refused."""
+    the stage folder (0700) and name the staged manifest's sha256: anything else is refused.
+
+    H-142 (.h): the update's signals are taken here, at the command's first line (before, a signal ended it with
+    the default's 143 and no line), and handed to the run: a signal before the run's first step is said and refused
+    (nothing was changed), 1."""
+    with Stops() as stops:
+        sigends.replay()  # a signal the entry noted before these handlers: noted as if it came now (never raised here)
+        return _main_apply(stage, summary_file, target, deploy, backup, no_backup_reason, bundle, stops)
+
+
+def _main_apply(
+    stage: Path,
+    summary_file: Path,
+    target: str,
+    deploy: Path,
+    backup: bool,
+    no_backup_reason: str | None,
+    bundle: Path | None,
+    stops: Stops,
+) -> int:
+    """:func:`main_apply` under its signals (``stops``)."""
     from tools import update_status as us
 
     if summary_file.resolve().parent != stage.resolve():
@@ -2935,7 +2950,11 @@ def main_apply(
             return 1
     elif os.environ.get("TB_SKIP_AUDIT") and in_service:
         print(f"update: the box is installed ({in_service}) and running: the whole update path, not install.sh's load")
+    if stops.pending:  # H-142 (.h): stopped before anything was changed
+        print(f"update REFUSED: stopped by {stops.first} before anything was changed; nothing was changed")
+        return 1
     if os.environ.get("TB_SKIP_AUDIT") and not in_service:
+        stops.hold()  # the first load runs to its end: a signal is said and ignored (no rollback point to undo it)
         try:
             with us.locked(updates):
                 if us.marker(updates) is not None:
@@ -2982,8 +3001,10 @@ def main_apply(
             return 1
         print(f"update {plan.bundle_id} loaded; the box is not running, so install.sh starts it and audits it")
         return 0
+    updater = Updater(box, updates)
+    updater.stops = stops  # its first step stops at its start on a signal that came before it (refused)
     try:
-        Updater(box, updates).run(plan, backup=backup)
+        updater.run(plan, backup=backup)
     except UpdateFailed as exc:
         print(f"update FAILED: {exc}")
         return 1
