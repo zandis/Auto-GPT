@@ -19,3 +19,14 @@ def _no_host_schedule(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.
 
     monkeypatch.setattr(bs, "SYSTEMD_RUN", Path(tmp_path_factory.getbasetemp()) / "no-systemd-here")
     monkeypatch.setattr(bs, "cron_daemon", lambda proc=None: True)
+
+
+@pytest.fixture(autouse=True)
+def _no_host_tpm_credential(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Review of #1478 (1478-1): rotate-kek and status look for the TPM credential at a fixed host place
+    (/etc/credstore.encrypted); a unit test never gets the host's. A test of the credential stands in its own."""
+    from tools import keys
+
+    monkeypatch.setattr(
+        keys, "CREDENTIAL_FILE", Path(tmp_path_factory.getbasetemp()) / "no-credstore-here" / "trialbox-kek"
+    )
