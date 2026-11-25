@@ -1,0 +1,49 @@
+{
+ "card": "H145",
+ "title": "the console stage runs in parallel, under the unit lock, with no skip",
+ "date": "2026-11-25",
+ "source": "docs/handover/h145-console-parallel-2026-11-25.md",
+ "note": "basis 'shown' means shown by the card's runs in a session container (4 cores), as root and as an ordinary user under CI's conditions, and by the card's unit test; no CI run of the new stage.",
+ "findings": [
+  {
+   "id": "H145-01",
+   "severity": "Medium",
+   "claim": "on master make test-console ran tests/console serially, without the test root's lock, with TMPDIR and basetemp outside the root, and let a browser file skip; it now holds make test's lock, runs -n $(PYTEST_N) with --dist worksteal and TB_STRICT_SKIPS=1, and passed 2289 tests with no skip as root and as an ordinary user",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H145-02",
+   "severity": "Medium",
+   "claim": "as root, pglocal gives a parent of TB_TEST_ROOT the search bit once at start; a parent reset to 0700 during the run (the session's scratch folder) stops every worker's cluster (checkpointer aborted, could not stat data directory: Permission denied), and master's make test with the console tests gave 173 failed and 830 errors the same way",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H145-03",
+   "severity": "Low",
+   "claim": "a few console tests hold the stage's time: test_plain_menu's flag-off walk 202 s, test_home_today's role walk 86 s, test_committee_walks_japan 81 s, test_matrix_role_walk's setup 75 s, and 24 cases of test_prefs_10f1 at 67 to 83 s each; splitting them is a follow-up",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H145-04",
+   "severity": "Low",
+   "claim": "with TB_STRICT_SKIPS=1 a host where node cannot load Playwright now fails the stage with 15 errors naming the reason (shown under env -i, where this container's NODE_PATH is gone) instead of skipping the browser files to green",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H145-05",
+   "severity": "Low",
+   "claim": "#1498 (H139-13) sets TB_STRICT_SKIPS=1 on the old serial test-console line; whichever of #1498 and this card lands second conflicts in those Makefile lines and should keep this card's recipe",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
