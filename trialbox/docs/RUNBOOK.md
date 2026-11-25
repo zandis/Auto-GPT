@@ -45,7 +45,7 @@ File: [runbook/04-troubleshooting.md](runbook/04-troubleshooting.md). Parts: [RU
 
 ## 5. Updates, backup, restore, secrets
 
-File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-restore-secrets.md). In it: [The audit chain waits for a person](runbook/05-updates-backup-restore-secrets.md#the-audit-chain-waits-for-a-person), [Secrets (D-128, D-138): the one place to rotate them](runbook/05-updates-backup-restore-secrets.md#secrets-d-128-d-138-the-one-place-to-rotate-them).
+File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-restore-secrets.md). In it: [The audit chain waits for a person](runbook/05-updates-backup-restore-secrets.md#the-audit-chain-waits-for-a-person), [Secrets (D-128, D-138): the one place to rotate them](runbook/05-updates-backup-restore-secrets.md#secrets-d-128-d-138-the-one-place-to-rotate-them), [What an update replaces, and a loose services/ or models/ (H-144, D-1463)](runbook/05-updates-backup-restore-secrets.md#what-an-update-replaces-and-a-loose-services-or-models-h-144-d-1463).
 
 ## 6. Go-live acceptance
 
@@ -101,7 +101,7 @@ File: [runbook/18-site-mapping-without-site-data.md](runbook/18-site-mapping-wit
 
 ## 19. Model misbehaviour: note reading off, the runs a build touched
 
-File: [runbook/19-model-misbehaviour.md](runbook/19-model-misbehaviour.md). In it: [What the hold does](runbook/19-model-misbehaviour.md#what-the-hold-does), [1. Hold note reading](runbook/19-model-misbehaviour.md#1-hold-note-reading), [2. List the runs and patients the build touched](runbook/19-model-misbehaviour.md#2-list-the-runs-and-patients-the-build-touched), [3. Re-review](runbook/19-model-misbehaviour.md#3-re-review), [4. Fix and release](runbook/19-model-misbehaviour.md#4-fix-and-release), [Who does what](runbook/19-model-misbehaviour.md#who-does-what).
+File: [runbook/19-model-misbehaviour.md](runbook/19-model-misbehaviour.md). In it: [What the hold does](runbook/19-model-misbehaviour.md#what-the-hold-does), [1. Hold note reading](runbook/19-model-misbehaviour.md#1-hold-note-reading), [2. List the runs and patients the build touched](runbook/19-model-misbehaviour.md#2-list-the-runs-and-patients-the-build-touched), [3. Re-review](runbook/19-model-misbehaviour.md#3-re-review), [4. Fix and release](runbook/19-model-misbehaviour.md#4-fix-and-release), [Who does what](runbook/19-model-misbehaviour.md#who-does-what), [The model servers' prefix cache (D-1462)](runbook/19-model-misbehaviour.md#the-model-servers-prefix-cache-d-1462).
 
 ## 20. Close-out and decommissioning
 

@@ -32,6 +32,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -472,6 +473,38 @@ def status(base: Path) -> dict[str, Any]:
     if cur:
         out["problems"] = check_dir(base / "releases" / cur)
     return out
+
+
+#: H-144 (the integrator's 7159322336): the folders of the source tree that the box image carries
+#: (deploy/docker/python.Dockerfile copies them to /app) and the host tree does not. An update neither replaces nor
+#: checks a copy of them in the install folder: such a copy is not the release's (one left from an install before the
+#: signed host tree). It is named, never removed: it may hold an operator's own change (the lead's ruling on #1504).
+IMAGE_ONLY = ("services", "models", "rulesets", "catalogue", "eval")
+
+
+def install_folder(release: Path) -> Path | None:
+    """The install folder of an installed release tree (``BASE/releases/<id>`` holding its ``HOST-SHA256SUMS``);
+    None for anything else (a source checkout, the box image's /app)."""
+    release = release.resolve()
+    if (release / SUMS).is_file() and release.parent.name == "releases":
+        return release.parent.parent
+    return None
+
+
+def loose(base: Path) -> list[Path]:
+    """The image-only folders (``IMAGE_ONLY``) found in the install folder ``base``: none is the release's."""
+    return [base / n for n in IMAGE_ONLY if (base / n).is_symlink() or (base / n).exists()]
+
+
+def loose_note(base: Path) -> str | None:
+    """One line naming the loose folders of ``base`` and the command that removes them; None when there are none."""
+    found = loose(base)
+    if not found:
+        return None
+    rm = " ".join(shlex.quote(str(p)) for p in found)
+    return (f"{', '.join(str(p) for p in found)}: not the release's (an update neither replaces nor checks it; this "
+            f"release's services and models are the box image's, a copy here is from before the signed host tree). "
+            f"Look in it for a change of your own first, then remove it: sudo rm -rf -- {rm} (RUNBOOK §5)")  # fmt: skip
 
 
 def main(argv: list[str] | None = None) -> int:

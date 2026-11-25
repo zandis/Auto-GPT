@@ -29,7 +29,18 @@ import httpx
 import pytest
 from tb_common.subject import is_job_mail
 
-from tests.stack import MAILPIT_LIST, host_port, outbound_mail, url
+from tests import stack
+from tests.stack import MAILPIT_LIST
+
+
+#: H-139: the POC stack's ports, read from its own running containers, when a test runs (never at import)
+def url(name: str, path: str = "") -> str:
+    return stack.url(name, path, project=stack.poc_project())
+
+
+def host_port(name: str) -> int:
+    return stack.host_port(name, project=stack.poc_project())
+
 
 pytestmark = pytest.mark.e2e
 ROOT = Path(__file__).resolve().parents[2]
@@ -95,7 +106,7 @@ def browser(mode: str, **args: Any) -> dict[str, Any]:
 
 
 def mailhog() -> list[EmailMessage]:
-    return outbound_mail()  # Mailpit since D-348
+    return stack.outbound_mail(project=stack.poc_project())  # Mailpit since D-348
 
 
 def wait_mail(prefix: str, timeout: float = 900) -> EmailMessage:
@@ -136,8 +147,8 @@ def accounts() -> dict[str, str]:
     try:
         assert httpx.get(f"{CONSOLE}/healthz", timeout=5).json()["pilot"] is True
         httpx.get(url("MAILHOG", MAILPIT_LIST), timeout=5).raise_for_status()
-    except (httpx.HTTPError, AssertionError, KeyError):
-        pytest.skip("POC stack not running (make poc)")
+    except (httpx.HTTPError, AssertionError, KeyError, stack.StackNotRunning) as exc:
+        pytest.skip(f"POC stack not running (make poc): {exc}")
     lake = httpx.get(url("LAKE", "/healthz"), timeout=30).json()
     if lake.get("checks", {}).get("snapshot", "none") == "none":
         assert _cli("ingest").returncode == 0

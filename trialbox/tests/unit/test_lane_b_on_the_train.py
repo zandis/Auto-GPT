@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from tests import pg_client
 from tests.unit.test_restore_hold import FLAG, _backup_and_restore
 
 
@@ -33,7 +34,9 @@ def test_a_restore_without_its_service_roles_keeps_the_hold_on_a_real_box(
     (tmp_path / "second").mkdir()
     audit2 = tmp_path / "second" / "audit"  # a fresh layout: no earlier restore's set-aside chain beside it
     audit2.mkdir()
-    out = bk.restore(f, priv, env={"TB_DB_URL": db_url, "TB_ENV": env_name}, dirs={"audit": audit2}, no_copy=True)
+    out = bk.restore(
+        f, priv, env={**pg_client.env(), "TB_DB_URL": db_url, "TB_ENV": env_name}, dirs={"audit": audit2}, no_copy=True
+    )
     assert out["to_reapply"] == [] and out["service_roles"]["state"] == "not_configured"
     assert out["complete"] is (not held)
     assert out["hold"] == ("held" if held else "released")

@@ -1094,6 +1094,10 @@ if [ -z "$TLS_HOST" ]; then
   echo "    TLS: off ($TB_ENV_SITE, no TB_TLS_HOSTNAME): the console stays on 127.0.0.1"
 else
   grep -q '^TB_TLS_MODE=.' deploy/.env || envset TB_TLS_MODE internal
+  # H-137 (the owner's decision, #639 7156806411 item 7): the console trusts forwarded headers from Caddy's fixed
+  # address only (deploy/docker-compose.identity.yml); the install check fails a range that clashes with this host's
+  PROXY_ADDR="$(envget TB_PROXY_ADDR)"
+  envset TB_CONSOLE_FORWARDED_ALLOW_IPS "${PROXY_ADDR:-172.31.252.250}"
   # D-887: reached at https only, so the session cookie is Secure in every environment (doctor secure_cookie FAILs it
   # off on VALIDATION); a value the site wrote is kept
   grep -q '^TB_CONSOLE_SECURE_COOKIE=' deploy/.env || envset TB_CONSOLE_SECURE_COOKIE 1

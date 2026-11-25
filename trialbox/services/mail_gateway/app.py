@@ -19,6 +19,7 @@ from tb_common.http import make_app
 from tb_common.objstore import from_config
 from tb_contracts import SendRequest, SendResult
 
+from mail_gateway import tls
 from mail_gateway.gateway import (
     PER_RECIPIENT_PER_DAY,
     Gateway,
@@ -49,7 +50,9 @@ def gateway() -> Gateway:
             store=from_config(),
             db=MailDB(),  # schema "mail" of the trial database (TB_DB_URL, D-126)
             audit=open_audit(env.audit_path, env.tz),
-            transport=smtp_transport(env.smtp_host, env.smtp_port, env.smtp_user, env.smtp_pass, env.smtp_starttls),
+            transport=smtp_transport(
+                env.smtp_host, env.smtp_port, env.smtp_user, env.smtp_pass, env.smtp_starttls, env.smtp_tls_verify
+            ),
             jobs=http_job_sink(env.orchestrator_url),
             outputs_current=http_outputs_current(env.orchestrator_url),  # D-863: asked before a patient file leaves
             mail_rights=http_mail_rights(env.orchestrator_url),  # M3: the same, of its recipients
@@ -59,6 +62,8 @@ def gateway() -> Gateway:
             allow_phi_zip=environment_name(os.environ) in ("DEV", "TEST"),
             per_recipient_per_day=int(os.environ.get("TB_MAIL_PER_RECIPIENT_PER_DAY", "") or PER_RECIPIENT_PER_DAY),
         )
+        # H-137: a start that speaks to a mail server without a verified certificate says so in the audit
+        tls.audit_modes(_gw.audit, env, imap_used=bool(env.imap_user))
     return _gw
 
 

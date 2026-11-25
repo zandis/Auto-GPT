@@ -302,8 +302,11 @@ def test_a_terminal_that_hung_up_never_swallows_the_code(tmp_path: Path) -> None
 #: on the pty: TOSTOP set, then the run in a process group of its own whose parent has exited (orphaned, in the
 #: background): /dev/tty opens, and every write to it fails (EIO), as on a terminal the run can no longer write
 _ORPHANED = """
-import os, sys, termios, time
+import os, signal, sys, termios, time
 log, pidfile, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
+# H-139: the write below fails (EIO) only while SIGTTOU has its default action; a caller that ignores it (the bench
+# host's runner) let the write through and the code was taken as shown. Reset here, as on any host
+signal.signal(signal.SIGTTOU, signal.SIG_DFL)
 a = termios.tcgetattr(0)
 a[3] |= termios.TOSTOP
 termios.tcsetattr(0, termios.TCSANOW, a)

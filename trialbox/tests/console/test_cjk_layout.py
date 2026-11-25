@@ -27,6 +27,7 @@ import pytest
 from console.i18n import CATALOGUES
 from console.i18n_layout import EN as LAYOUT_EN
 
+from tests import node_check
 from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - the fixture is used by name
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,11 +39,8 @@ LANGS = ("ja", "zh-TW", "en")
 
 
 def _node_playwright() -> bool:
-    node = shutil.which("node")
-    if not node:
-        return False
-    r = subprocess.run([node, "-e", "require('playwright')"], cwd=ROOT, capture_output=True, timeout=60, check=False)
-    return r.returncode == 0
+    """Whether Node Playwright is installed: H-139's check, made once per test process (:mod:`tests.node_check`)."""
+    return node_check.node_playwright(ROOT)
 
 
 def _rule(css: str, selector: str) -> str:

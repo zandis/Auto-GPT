@@ -89,3 +89,14 @@ on `/ops/flags` skips that check: use the command.
 | Report | the administrator |
 | Re-review | the PI of each study, or the investigator the PI delegates |
 | Release | the administrator, after the canary |
+
+## The model servers' prefix cache (D-1462)
+
+The judge and verifier servers start with their prefix cache off. With it on, the same calls gave different answers
+from one run to the next on the bench; with it off, the same answers every run. Off is the default: nothing to set.
+`trialbox doctor` says which on its `prefix_cache` line.
+
+Turn the cache on only as a recorded choice, knowing that **runs may then differ** on the same charts: set
+`TB_LLM_PREFIX_CACHING=enable` in `deploy/.env`, then restart the two servers. doctor's line stays a WARN while it is
+on. To turn it off again, delete the line (or set `no-enable`) and restart the two servers. Any other value stops the
+servers at start, and doctor FAILs it.

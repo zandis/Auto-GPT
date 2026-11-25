@@ -76,6 +76,30 @@ class OpsFailed(RuntimeError):
     pass
 
 
+LIMIT_LINES = 20  # H-114e: the update's last lines a result keeps when its time limit stopped it
+
+
+class _LimitReached(OpsFailed):
+    """H-114e (review 1472-2; the integrator's ruling 7139911468): the update's time limit stopped it. ``lines`` are
+    its last :data:`LIMIT_LINES` lines, each scrubbed (``tb_common.logging.redact``): the outcome its rollback said
+    ("rolled back", or "ROLLBACK FAILED") reaches the console's result, which a failure's summary of 300 characters
+    would cut."""
+
+    def __init__(self, limit: int | None, out: Any, err: Any) -> None:
+        super().__init__(f"the update's time limit ({limit} s) was reached; it was stopped. Its last output:")
+        from tb_common.logging import redact
+
+        def text(v: Any) -> str:
+            return v.decode("utf-8", "replace") if isinstance(v, bytes) else (v or "")
+
+        # the progress (stderr) first, then what it printed last (stdout: "update FAILED: ... rolled back"), so a
+        # long rollback's progress does not push the outcome out of the lines kept
+        said = [ln for ln in (text(err) + "\n" + text(out)).splitlines() if ln.strip()]
+        # a result's line is cut at 300 characters; the outcome ends the updater's line ("update FAILED: ... failed
+        # (<the reason>); rolled back; <the box's state>"), so a long line keeps its start and its end
+        self.lines = [ln if len(ln) <= 290 else f"{ln[:110]} … {ln[-170:]}" for ln in map(redact, said[-LIMIT_LINES:])]
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -520,6 +544,8 @@ class OpsRunner:
             ok = True
         except Exception as exc:  # every failure is a result the console shows, never a crash of the timer
             summary, lines, ok = f"{type(exc).__name__}: {exc}"[:300], [], False
+            if isinstance(exc, _LimitReached):  # H-114e: its last lines are the result's lines
+                lines = exc.lines
         self.ops.write_result(req, ok, summary, lines, started)
         with contextlib.suppress(OSError):
             self.ops.marker(str(req["id"])).unlink()
@@ -669,8 +695,11 @@ class OpsRunner:
         # be killed part way. The rollback redoes at most what the update did (the same restores, models, host tree
         # and restart, each command under its own limit), so it gets the update's own limit again before the SIGKILL;
         # no limit (sizes not readable): no SIGKILL at all, the updater ends by itself
-        r = procgroup.run(argv, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=limit,
-                          grace=limit)  # fmt: skip
+        try:
+            r = procgroup.run(argv, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                              timeout=limit, grace=limit)  # fmt: skip
+        except subprocess.TimeoutExpired as exc:  # H-114e: the result says what the stopped update said last
+            raise _LimitReached(limit, exc.output, exc.stderr) from None
         out = (r.stdout or "") + (r.stderr or "")
         if r.returncode != 0:
             raise OpsFailed(f"exit {r.returncode}: {out.strip()[-600:]}")
