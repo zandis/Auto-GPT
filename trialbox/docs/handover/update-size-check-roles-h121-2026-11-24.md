@@ -87,7 +87,7 @@ reads against the box's real database container (H121-03):
   with the plain line and `db_bytes` is None.
 - `test_h121_an_answer_that_is_not_a_size_stops_the_update_never_counted_zero`.
 
-**Mutants.** Six were planted, and each was caught:
+**Mutants.** Seven were planted, and each was caught:
 - the old role (`hapi` read as `trialbox`): by the invariant test and by
   `test_update_poc_box_h99.py::test_h99_the_size_reads_work_on_the_real_roles`;
 - the walk box's read (every size asked as `trialbox` on `trialbox_wf`): by the same two;

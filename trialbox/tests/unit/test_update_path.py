@@ -8,6 +8,7 @@ box are tested against a fake runner (no Docker here); the in-process box runs f
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import shutil
@@ -140,7 +141,9 @@ class FakeRun:
         self.images = images or {}
         # OCR 1469-7: the engine's data root is a folder of the test's own, never the host's /var/lib/docker (an
         # empty answer to `docker info` falls back to it: CI's runner has it, 0710 root, train 167)
-        self.docker_root = Path(tempfile.mkdtemp(prefix="docker-root-"))
+        # OCR 1469-9: removed with the stand-in (a mkdtemp folder stayed in the host's temp folder after every test)
+        self._docker_root = tempfile.TemporaryDirectory(prefix="docker-root-")
+        self.docker_root = Path(self._docker_root.name)
 
     def __call__(self, argv: list[str], stdin_file: Path | None = None, stdout_file: Path | None = None,
                  env: dict[str, str] | None = None, timeout: float | None = None) -> str:  # fmt: skip
@@ -290,3 +293,13 @@ def test_in_process_box_migrates_and_rolls_back_the_database(tmp_path: Path, db_
         json.loads(x)["event"] for f in sorted((work / "box/audit").glob("*.jsonl")) for x in f.read_text().splitlines()
     ]
     assert events == ["update.applied", "update.rolled_back"]
+
+
+def test_ocr_1469_9_the_stand_ins_engine_root_goes_with_the_stand_in() -> None:
+    """OCR 1469-9 (escape check (i)): FakeRun's engine root is its own, and nothing of it stays behind."""
+    run = FakeRun()
+    root = run.docker_root
+    assert root.is_dir() and not str(root).startswith("/var/lib/docker")
+    del run
+    gc.collect()
+    assert not root.exists(), root

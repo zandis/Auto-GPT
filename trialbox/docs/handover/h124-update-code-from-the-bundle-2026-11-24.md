@@ -10,6 +10,8 @@
 - **Files:** `tools/apply_update.sh` (the hand-off and the one constant), `tools/host_tree.py` (`stage_code`, the
   `stage-code` command), the new test `tests/unit/test_update_code_from_the_bundle_h124.py`, three rows in the H-94 page's
   `tools/apply_update.sh` table, `tools/trialbox/update.py` (`update_code` in two audit events).
+- **Files outside the card** (bodies only): `tests/unit/test_update_path.py` (`FakeRun`'s engine root, OCR 1469-9 on
+  #1469, the lead's split 2026-11-24).
 
 ## 1. What runs from where
 
@@ -62,9 +64,10 @@ code that fails at once.
   removed. The installed tree's `apply_update.sh status` names R2, and its `rollback R2` clears the marker.
 - The order of the hand-off; and the staged `deploy/` is the box's own.
 
-**Mutants:** two planted, two caught. They are the hand-off back to the installed code (`CODE` left at `$ROOT`), and
-the installed `PYTHONPATH` with `cd "$ROOT"`. Each fails the invariant, the control, the environment case and the
-SIGTERM case. A mutant that drops `stage_code`'s own `check_tar` is not caught: the installed verifier refuses first.
+**Mutants:** two planted, two caught, again after master c3a5b2b2 was merged. They are the hand-off back to the
+installed code (`CODE` left at `$ROOT`), and the installed `PYTHONPATH` with `cd "$ROOT"`. Each fails the invariant,
+the control, the environment case and the SIGTERM case (the first 4 of the file's 32, the second 5: the hand-off's
+order case too). The hand-off back to the installed code is master before H-124, so the invariant fails first there. A mutant that drops `stage_code`'s own `check_tar` is not caught: the installed verifier refuses first.
 The second check is defence in depth.
 
 ## 3. No caller's environment steers the trust (H124-01, the ruling's point 2)
@@ -164,3 +167,15 @@ matrix (`docs/reviews/lifecycle-deep-review-2026-11-24.md`).
 - **Files written whole:** the stage's code is unpacked to `.code.partial` and renamed (`host_tree._unpack`).
   A separate commit (H124-03) fsyncs each file and each folder before the rename, and the parent after it.
 - **Value sets and date windows:** not in this code.
+
+## 8. After #1469 merged (train 176, master c3a5b2b2)
+
+- Master merged once. H-132's finish-forward (`Updater._finish_forward`) and H-124's `close_after_restore` sit side by
+  side: `close` takes only a marker whose step is `rollback`, so a marker in `finish forward failed` is refused by it
+  and goes on through `rollback <bundle>`, as H-132 says. `host_tree.switch` takes master's `on_record`.
+- **OCR 1469-9 (Low, from #1469's re-review 7147049360):** `FakeRun` held a `mkdtemp` folder that stayed in the
+  temp folder after every test. It now holds a `TemporaryDirectory`, removed with the stand-in.
+  `test_update_path.py::test_ocr_1469_9_the_stand_ins_engine_root_goes_with_the_stand_in` failed first (1 failed),
+  then passed; `test_update_path.py` and `test_update_size_roles_h121.py` (29 passed) leave no `docker-root-*` folder.
+- OCR 1469-4 (the role pairs written out at `update.py`'s rollback point and restore and in `box_restore.py`) is not
+  here: it goes to H-129 with H121-08 (the lead's split).
