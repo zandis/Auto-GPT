@@ -958,9 +958,19 @@ def _gb(n: float) -> str:
     return f"{n / 1e9:.2f} GB"
 
 
+def _there(p: Path) -> bool:
+    """Whether ``p`` is there; below a folder this user may not search (the container engine's 0710 root, a 0700
+    parent) it is taken as not there, so a walk up stops at the last folder it can see (escape check (i): never
+    PermissionError)."""
+    try:
+        return p.exists()
+    except PermissionError:
+        return False
+
+
 def _existing(p: Path) -> Path:
     p = p.absolute()
-    while not p.exists() and p != p.parent:
+    while not _there(p) and p != p.parent:
         p = p.parent
     return p
 
@@ -1569,6 +1579,10 @@ class Updater:
 # ------------------------------------------------------------------------------------------------ commands
 APPLY_FIXED_S = 3 * 3600  # the update's steps with fixed limits: the 3 h the whole update had before T-695
 UP_WAIT_BEFORE_S = 900  # the wait before T-695, kept only where the compose files cannot be read (no PyYAML)
+# H-99, H-121: whose size is read as whom, each on the database itself: `trialbox` owns `trialbox_wf`; `hapi` is the
+# db image's POSTGRES_USER (the superuser). `trialbox` may not connect to `hapi` (30-service-roles.sh in
+# deploy/docker/db-init), and pg_database_size of a database needs CONNECT on it: `trialbox` never asks for `hapi`'s
+DB_SIZE_ROLES = (("trialbox_wf", "trialbox"), ("hapi", "hapi"))
 #: T-695 (D-921): the services whose stores are opened at start (each has ``<package>.migrate_stores``), in the
 #: order the stack starts them; the host reads no service code, so the list is kept equal by a test
 STORE_SERVICES = ("orchestrator", "mail-gateway", "gateway", "criteria-compiler", "console")
@@ -1863,16 +1877,26 @@ class ComposeBox(_DockerImages):
         """The preflight's part of the backup: the key and a target exist (nothing is stopped yet)."""
         return "backup to " + ", ".join(self._backup_where()[1])
 
-    def db_bytes(self, db: str, user: str) -> int | None:
-        """``pg_database_size`` of ``db`` (D-455: a backup step's limit comes from it), or None when not known."""
+    def db_size(self, db: str, user: str) -> int | None:
+        """``pg_database_size`` of ``db``, read on ``db`` itself as ``user`` (``DB_SIZE_ROLES``): the one size reader
+        of the box (H-121: ``db_bytes`` and ``space_needs``). None when the answer is not a size; a read that fails
+        raises ``UpdateFailed`` naming the database and the role."""
         try:
             from tools.trialbox import backup_schedule as bsch
 
             out = self.run(self._c("exec", "-T", "db", "psql", "-X", "-At", "-U", user, "-d", db, "-c",
                                    "SELECT pg_database_size(current_database())"),
-                           timeout=bsch.query_timeout(self.env))  # fmt: skip
-            return int(out.strip())
-        except Exception:  # no answer: no size, so no limit (never a fixed guess)
+                           timeout=bsch.query_timeout(self.env)).strip()  # fmt: skip
+        except Exception as exc:  # the command's own error (no secret is on its command line)
+            said = str(exc)[-400:]
+            raise UpdateFailed(f"the size of database {db} could not be read as role {user}: {said}") from exc
+        return int(out) if out.isdecimal() else None  # OCR 1469-2: isdigit() also takes '²', which int() refuses
+
+    def db_bytes(self, db: str, user: str) -> int | None:
+        """``pg_database_size`` of ``db`` (D-455: a backup step's limit comes from it), or None when not known."""
+        try:
+            return self.db_size(db, user)
+        except UpdateFailed:  # no answer: no size, so no limit (never a fixed guess)
             return None
 
     def apply_limit_s(self) -> int | None:
@@ -1883,7 +1907,7 @@ class ComposeBox(_DockerImages):
         from tools.trialbox import backup_schedule as bsch
 
         cfg = bsch.config(self.deploy, self.env)
-        sizes = [self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))]
+        sizes = [self.db_bytes(db, user) for db, user in DB_SIZE_ROLES]
         vols = bsch.volume_bytes(self.env, None)
         if None in sizes or vols is None:
             return None
@@ -1926,7 +1950,7 @@ class ComposeBox(_DockerImages):
 
         pub, targets = self._backup_where()
         cfg = bsch.config(self.deploy, self.env)
-        sizes = {db: self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))}
+        sizes = {db: self.db_bytes(db, user) for db, user in DB_SIZE_ROLES}
         # T-695 (D-752, F-09): never a stop under a running job; a count that cannot be taken refuses too (D-455)
         jobs = self.running_jobs()
         if jobs != 0:
@@ -1938,7 +1962,7 @@ class ComposeBox(_DockerImages):
         # a quiet box: the services stop (the database stays up), so the dump, the files and the row counts agree
         self.run(self._c("stop", *PY_SERVICES), timeout=600)
         try:
-            for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
+            for db, user in DB_SIZE_ROLES:  # OCR 1469-4: each database dumped as the role that reads its size
                 self._dump(db, user, rb / f"{db}.dump", timeout=cfg.timeout(sizes[db]))
             # D-455: the container reads the dumps and the volumes; without a size for the volumes, no limit
             vols = bsch.volume_bytes(self.env, None)
@@ -2019,11 +2043,16 @@ class ComposeBox(_DockerImages):
         decrypted copy during a rollback) under deploy/updates, and the backup on each target (at least the
         databases)."""
         sizes = largest = 0
-        # H-99: each size on its own database as the role that dumps it (``_dump``): `trialbox` may not connect to
-        # `hapi` (deploy/docker/db-init/30-service-roles.sh), and pg_database_size of another database needs that
-        for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
-            rows = self._psql("SELECT pg_database_size(current_database())", user=user, db=db)
-            n = int(rows[0][0]) if rows and rows[0][0].isdigit() else 0
+        # H-99, H-121: each size on its own database as the role that may read it (``DB_SIZE_ROLES``); a size that
+        # cannot be read stops the update before anything is changed, naming the database and the role (never 0)
+        for db, user in DB_SIZE_ROLES:
+            try:
+                n = self.db_size(db, user)
+                if n is None:  # psql answered, but not a size: never counted 0
+                    raise UpdateRefused(f"the size of database {db} could not be read as role {user}: no size in "
+                                        "the answer")  # fmt: skip
+            except UpdateFailed as exc:  # OCR 1469-3: a preflight refusal, nothing on the box was changed
+                raise UpdateRefused(f"{exc}; the space check needs it, nothing was changed") from exc
             sizes, largest = sizes + n, max(largest, n)
         try:
             root = Path(self.run(["docker", "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")

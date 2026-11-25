@@ -376,6 +376,20 @@ doctor)
   # D-887: the pins are the media's placeholders, and the doctor says so where it shows them
   echo "$out" | grep -q "^PASS  serving.*rehearsal placeholder" || fail "the serving line does not name the rehearsal placeholder"
   ok "trialbox doctor --live: passed"
+  # H-121: the update's size check (tools/trialbox/update.py db_size, as space_needs and the backup read it) on this
+  # box's own database roles, through the box's own command line. The roles are a site's: `trialbox` may not connect
+  # to `hapi` (30-service-roles.sh), so a read of `hapi` as `trialbox` fails here as on a site's box
+  if dc exec -T db psql -X -At -U trialbox -d hapi -c 'SELECT 1' >/dev/null 2>&1; then
+    fail "trialbox connects to hapi: the rehearsal's database roles are not a site's"
+  fi
+  sizes="$(cd "$BOX" && python3 -c 'from pathlib import Path
+from tools.trialbox import update as up
+box = up.ComposeBox(Path("deploy"))
+sizes = {db: box.db_size(db, user) for db, user in up.DB_SIZE_ROLES}
+print(" ".join(f"{db}={n}" for db, n in sizes.items()))
+raise SystemExit(0 if all(isinstance(n, int) and n > 0 for n in sizes.values()) else 1)' 2>&1)" \
+    || fail "the update's size check failed on the box's own roles (H-121): $sizes"
+  ok "the update's size check read both databases on a site's roles (H-121): $sizes"
   ;;
 
 # ------------------------------------------------------------------------------------------------ served names
