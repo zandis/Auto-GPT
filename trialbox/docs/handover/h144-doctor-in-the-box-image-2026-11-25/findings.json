@@ -1,0 +1,63 @@
+{
+ "card": "H144",
+ "title": "the doctor's image checks run in the box image, and a loose services/ is named",
+ "date": "2026-11-25",
+ "source": "docs/handover/h144-doctor-in-the-box-image-2026-11-25.md",
+ "note": "basis 'shown' means shown by the card's local runs: this repository's host tree installed twice in a temporary folder, the installed wrapper on a Python where pydantic, httpx and the services' packages cannot be imported, and a stand-in container engine that runs this checkout as the box image. The bench host, a real box image and the box rehearsal were not run.",
+ "findings": [
+  {
+   "id": "H144-01",
+   "severity": "High",
+   "claim": "trialbox doctor on a host's own Python reported 16 of its 41 checks as import errors (pydantic, httpx, the services' code; models/routing.yaml and models/registry.yaml are not in the signed host tree): a false red that hid real ones; reproduced at master c3a5b2b2 on the test's installed box (15 import-error FAILs; note_block did not reach its import on that box's settings)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed",
+   "fix": "doctor.IMAGE_CHECKS run in a one-off container of the box image (tools/trialbox/doctor_image.py), merged in order; a check the image did not answer is a FAIL with the reason (D-1463)"
+  },
+  {
+   "id": "H144-02",
+   "severity": "High",
+   "claim": "the signed host tree carries deploy, tools, libs and schemas only; a services/ or models/ in the install folder (from an install before the host tree) is neither replaced nor checked by an update, and a module run with services/ on its PYTHONPATH would import it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed",
+   "fix": "release_tree FAILs naming each loose folder and the command that removes it; the update names it at its end; from an installed tree the image's checks never run on the host (needs_image); it is never removed by the update (the lead's ruling on #1504)"
+  },
+  {
+   "id": "H144-03",
+   "severity": "Medium",
+   "claim": "the host commands' function-level imports reach pydantic, httpx and most of services/ (a static count: 93 files of tools/ import a services package); module-level loading is clean for all 24 host commands (tested), but which function-level paths a host command really takes on a box is not shown",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a lane H card: run each host command's real paths on a host's own Python in the box rehearsal (the installed wrapper), and route a command that needs a service's code to the image as launch.COMMANDS does for mail and eval"
+  },
+  {
+   "id": "H144-04",
+   "severity": "Low",
+   "claim": "perimeter_addresses runs on the box's model network (<project>-model-net, launch's name for eval's container), shown only with a stand-in engine; deploy/check_host.sh runs the whole doctor with --network none, where an endpoint that does not resolve is shown as a compose service and passes",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "fix": "a follow-up: check_host.sh's install-time doctor with the host's network for that check, or the host's resolution handed in"
+  },
+  {
+   "id": "H144-05",
+   "severity": "Low",
+   "claim": "the walk's five remaining FAILs with the libraries on the path: four read models/*.yaml (now the image's copy) and audit_heads is the box's own setting (no off-box anchor folder); the four are expected to pass with the image's models/ on the walk's box",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the walk's next doctor run on the box"
+  },
+  {
+   "id": "H144-06",
+   "severity": "Low",
+   "claim": "the box rehearsal's doctor phase on an installed box now takes the image path (needs_image is true for an installed release tree); it was not run",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the rehearsal job in CI on this card's pull request"
+  }
+ ]
+}
