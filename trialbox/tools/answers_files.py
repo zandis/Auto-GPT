@@ -4,9 +4,9 @@ that is nowhere stopped the install only at its settings step, after an hour of 
     python3 -m tools.answers_files ANSWERS --deploy deploy [--environment PRODUCTION]
 
 Exit 1 names each missing file and where to put it, in the words of the step that would stop later. The mapping stops
-every box, as the settings step does; a certificate file stops a PRODUCTION box only (elsewhere the later
-step warns). The feed folder is a mount, not a file: it stays with its own step. The shipped mappings are named by the country table (``tb_common.site_country``), since the image
-that holds them is not loaded yet. Standard library and the host's python3-yaml.
+every box, as the settings step does; a certificate file stops a PRODUCTION box only (elsewhere the later step warns).
+The feed folder is a mount, not a file: it stays with its own step. The shipped mappings are named by the country table
+(``tb_common.site_country``), since the image that holds them is not loaded yet. Standard library and python3-yaml.
 """
 
 from __future__ import annotations
