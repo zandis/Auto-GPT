@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 import shlex
 
+import pytest
+
 TOOLS = {"psql": "TB_PSQL_CMD", "pg_dump": "TB_PG_DUMP_CMD", "pg_restore": "TB_PG_RESTORE_CMD"}
 
 
@@ -29,3 +31,9 @@ def tool(name: str) -> str:
 def env() -> dict[str, str]:
     """The product's settings for the three client tools, each one command line (``shlex``) as the product reads it."""
     return {var: shlex.quote(tool(name)) for name, var in TOOLS.items()}
+
+
+def setenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same three settings in the process environment, for code that reads it (the CLI, the drills)."""
+    for var, cmd in env().items():
+        monkeypatch.setenv(var, cmd)
