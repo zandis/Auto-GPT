@@ -318,7 +318,35 @@ def test_lr13_the_restore_container_has_one_fixed_name(tmp_path: Path, monkeypat
 
 # ----------------------------------------------------------------------------------------------------------- LR-15
 # Matrix: "restore, on the host | Docker root not the default | none".
-def _box_without_the_volume_setting(tmp_path: Path) -> Path:
+HOST_ENGINE = "/var/lib/docker"
+
+
+def _no_host_engine_folder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every path under the host's real engine folder that the code under test stats, lists or opens (none may be):
+    a unit test never reaches a real host path (CI's runner has one, 0710 root; a session's container may not)."""
+    import builtins
+    import os
+
+    touched: list[str] = []
+
+    def guard(real: Any) -> Any:
+        def wrapped(path: Any, *a: Any, **kw: Any) -> Any:
+            if isinstance(path, (str, os.PathLike)) and os.fspath(path).startswith(HOST_ENGINE):
+                touched.append(os.fspath(path))
+            return real(path, *a, **kw)
+
+        return wrapped
+
+    for mod, name in ((os, "stat"), (os, "lstat"), (os, "listdir"), (os, "scandir"), (builtins, "open")):
+        monkeypatch.setattr(mod, name, guard(getattr(mod, name)))
+    return touched
+
+
+def _box_without_the_volume_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A box file with no TB_DOCKER_VOLUMES; the engine's default folder is the test's own (empty) stand-in."""
+    from tools.trialbox import box_restore
+
+    monkeypatch.setattr(box_restore, "DEFAULT_VOLUMES", tmp_path / "engine-default" / "volumes")
     deploy = h100._box(tmp_path)
     env = deploy / ".env"
     env.write_text("".join(ln for ln in env.read_text(encoding="utf-8").splitlines(keepends=True)
@@ -340,7 +368,8 @@ def test_lr15_a_data_root_elsewhere_is_asked_of_the_engine(tmp_path: Path, monke
                 raise UpdateFailed(f"no such volume: {vol}")
             return super().__call__(argv, **kw)
 
-    deploy = _box_without_the_volume_setting(tmp_path)
+    touched = _no_host_engine_folder(monkeypatch)
+    deploy = _box_without_the_volume_setting(tmp_path, monkeypatch)
     code, seen = h100._restore(deploy, tmp_path, monkeypatch, Engine(), "{}", 0)
     ((argv, _values),) = seen
     assert code == 0
@@ -348,17 +377,20 @@ def test_lr15_a_data_root_elsewhere_is_asked_of_the_engine(tmp_path: Path, monke
     dirs = [argv[i + 1] for i, x in enumerate(argv) if x == "--dir"]
     assert sorted(dirs) == ["audit=/var/lib/docker/volumes/trialbox_audit-data/_data",
                             "lake=/var/lib/docker/volumes/trialbox_lake-data/_data"]  # fmt: skip
+    assert touched == []  # no path of the host's own engine folder
 
 
 def test_lr15_no_folder_of_the_box_found_is_refused_before_anything_stops(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    deploy = _box_without_the_volume_setting(tmp_path)
+    touched = _no_host_engine_folder(monkeypatch)
+    deploy = _box_without_the_volume_setting(tmp_path, monkeypatch)
     rec = h100.Recorder(running=["db", "console"])
     code, seen = h100._restore(deploy, tmp_path, monkeypatch, rec, "{}", 0, "--restart")
     err = capsys.readouterr().err
     assert code == 2 and not seen and "no data folder of the box was found" in err, err
     assert not [c for c in rec.calls if "stop" in c]  # a refusal stops nothing
+    assert touched == []  # no path of the host's own engine folder
 
 
 # ----------------------------------------------------------------------------------------------------------- LR-16

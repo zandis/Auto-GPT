@@ -75,6 +75,8 @@ WAIT_S = 600  # the services' health wait after the restore (as an update's star
 #: D-724 (DATA-011): the services a restore leaves running: the database it restores into, nothing that writes
 #: a volume the restore renames aside
 RESTORE_MAY_RUN = frozenset({"db"})
+#: the engine's default volume folder, used only when neither the engine nor the box file names one (H-132, LR-15)
+DEFAULT_VOLUMES = Path("/var/lib/docker/volumes")
 #: H-132 (LR-13): the restore container's one name: a second restore is refused while it exists
 RESTORE_NAME = "trialbox-restore"
 #: backup.VOLUME_ROOT: where the box's compose volumes are, inside the restore's container as on a host
@@ -314,7 +316,7 @@ class BoxRestore:
 
     # ------------------------------------------------------------------------------------------- the container
     def volumes_root(self) -> Path:
-        return Path(self.env.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+        return Path(self.env.get("TB_DOCKER_VOLUMES") or DEFAULT_VOLUMES)
 
     def volume_folder(self, vol: str) -> tuple[Path, bool]:
         """H-132 (LR-15): the folder that holds a volume's ``_data``, asked of the engine (a data root elsewhere, a
@@ -350,11 +352,16 @@ class BoxRestore:
             if name in given:
                 continue
             folder, known = self.volume_folder(vol)
-            if folder.is_dir():
+            try:
+                there = folder.is_dir()
+            except OSError:  # a folder this user cannot look into is not one the restore can write
+                there = False
+            if there:
                 volumes[name] = (vol, folder)
             elif known:
                 raise RestoreStopped(f"the engine names volume trialbox_{vol} but its folder {folder} is not there "
-                                     f"(pass --dir {name}=<folder>). Nothing was changed")  # fmt: skip
+                                     f"or cannot be read here (pass --dir {name}=<folder>). Nothing was "
+                                     "changed")  # fmt: skip
         if not given and not volumes:
             raise RestoreStopped("no data folder of the box was found (the engine names none of its volumes, and "
                                  f"{self.volumes_root()} holds none): pass --dir name=<folder> for each. Nothing "
