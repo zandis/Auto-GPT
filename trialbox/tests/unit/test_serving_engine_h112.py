@@ -63,11 +63,13 @@ def _box(tmp: Path, stack: tuple[str, ...], extra: str = "", settings: dict[str,
     """A deploy folder of a box: its .env names the stack's real compose files (absolute, as install.sh writes)."""
     d = tmp / "deploy"
     d.mkdir(parents=True, exist_ok=True)
+    d.chmod(0o755)  # H-139 (item 5, ruled b): explicit modes, never the run's umask
     (d / sp.EXAMPLE).write_text((DEPLOY / sp.EXAMPLE).read_text(encoding="utf-8"), encoding="utf-8")
     files = ":".join(str(DEPLOY / f) for f in stack)
     (d / ".env").write_text(DUMMY_ENV + f"COMPOSE_FILE={files}\n" + extra, encoding="utf-8")
     if settings is not None:
         (d / "site").mkdir(exist_ok=True)
+        (d / "site").chmod(0o755)  # H-139 (item 5, ruled b)
         p = d / sp.SETTINGS
         p.write_text("".join(f"{k}={v}\n" for k, v in settings.items()), encoding="utf-8")
         p.chmod(0o600)

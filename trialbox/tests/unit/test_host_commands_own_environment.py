@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 import yaml
 
+from tests import pg_client
 from tests.unit.test_doctor_serving import KEY, _inputs, _pins, servers  # noqa: F401 (the fixture)
 from tools.trialbox import backup_schedule as bs
 from tools.trialbox import launch
@@ -169,6 +170,16 @@ def system_python(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return py
 
 
+def _explicit_modes(top: Path, root: Path) -> None:
+    """H-139 (item 5, the integrator's 7151749260: ruled b): the folders a fixture makes get explicit modes, never the
+    run's umask. ``top``, the folders from it down to the install folder ``root`` and the install's own folders are
+    0755, as root makes them on the box; ``deploy/.env`` is 0600, as install.sh writes it (``deploy/.env:`` in the
+    Makefile). The copied tree below keeps the modes of the files it was copied from."""
+    for folder in (top, *[p for p in root.parents if top in p.parents], root, root / "deploy"):
+        folder.chmod(0o755)
+    (root / "deploy" / ".env").chmod(0o600)
+
+
 @pytest.fixture(scope="module")
 def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluster_url: str) -> Iterator[dict[str, Any]]:
     """A copy of the install folder (tools, libs, deploy) with a box's deploy/.env and backup key, the stand-in bin
@@ -205,7 +216,7 @@ def box(tmp_path_factory: pytest.TempPathFactory, system_python: Path, pg_cluste
     settings = {"TB_ENV": "TEST", "TB_DB_URL": DSN, "TB_HAPI_DB_URL": HAPI, "TB_IMAGE": PY_IMAGE, "TB_BACKUP_TARGETS": str(nas),
                 "TB_BACKUP_OFFBOX": str(nas), "TB_DOCKER_VOLUMES": str(d / "volumes")}  # fmt: skip
     (root / "deploy" / ".env").write_text("".join(f"{k}={v}\n" for k, v in settings.items()), encoding="utf-8")
-    (root / "deploy" / ".env").chmod(0o600)  # H-110 (e): the box file is root's alone, as the install writes it
+    _explicit_modes(d, root)  # H-139 (item 5, ruled b): the folders this fixture makes, whatever the run's umask
     (root / "deploy" / "secrets").mkdir(exist_ok=True)
     bk.keygen(d / "usb" / "backup.key", root / "deploy" / "secrets" / "backup.pub")  # this test's own key pair
     pgwrap = d / "pgwrap"
@@ -467,7 +478,7 @@ def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_env
     url = box["env"]["STANDIN_DB_URL"]
     hapi = make_conninfo(box["admin"], dbname=box["dbs"]["hapi"])
     made = bk.backup([tmp_path / "nas"], box["deploy"] / "secrets" / "backup.pub",
-                     env={"TB_DB_URL": url, "TB_HAPI_DB_URL": hapi}, dirs={})[0]  # fmt: skip
+                     env={"TB_DB_URL": url, "TB_HAPI_DB_URL": hapi, **pg_client.env()}, dirs={})[0]  # fmt: skip
     root = tmp_path / "opt" / "trialbox"  # an install folder of its own: the box's URL names this server's owner
     skip = shutil.ignore_patterns("__pycache__", "*.pyc", "site", ".env")
     for sub in ("tools", "libs", "deploy"):
@@ -477,9 +488,10 @@ def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_env
         f"TB_ENV=TEST\nTB_IMAGE={PY_IMAGE}\nTB_DB_URL=postgresql://{box['user']}@db:5432/{box['dbs']['trialbox_wf']}\n"
     )
     (root / "deploy" / ".env").write_text(env_text, encoding="utf-8")
-    (root / "deploy" / ".env").chmod(0o600)  # H-110 (e): the box file is root's alone, as the install writes it
+    _explicit_modes(tmp_path, root)  # H-139 (item 5, ruled b)
     bindir = tmp_path / "sudo-bin"
     bindir.mkdir()
+    bindir.chmod(0o755)
     secure = f"{bindir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     exports = "".join(f"export {k}={shlex.quote(v)}\n" for k, v in box["env"].items() if k.startswith("STANDIN_"))
     (bindir / "sudo").write_text(SUDO.format(path=secure), encoding="utf-8")
@@ -488,6 +500,7 @@ def test_the_drill_typed_with_sudo_as_the_runbook_writes_it_runs_from_a_bare_env
         (bindir / name).chmod(0o755)
     link = tmp_path / "usr-local-bin" / "trialbox"  # install.sh's link
     link.parent.mkdir()
+    link.parent.chmod(0o755)  # H-139 (item 5, ruled b)
     link.symlink_to(root / "tools" / "trialbox" / "__main__.py")
     # its shebang's interpreter (`python3 -I`), the stand-in system python, not the test host's /usr/bin/python3
     (bindir / "trialbox").write_text(f'#!/bin/sh\nexec {box["python"]} -I {link} "$@"\n', encoding="utf-8")
@@ -518,7 +531,7 @@ def test_the_box_file_wins_except_for_the_module_forms_drill(tmp_path: Path, mon
     restore-drill`` keeps the caller's connection (#1305, review item 12); the installed ``trialbox restore-drill``
     takes the box's."""
     (tmp_path / ".env").write_text(f"TB_DB_URL={DSN}\nTB_IMAGE={PY_IMAGE}\n", encoding="utf-8")
-    (tmp_path / ".env").chmod(0o600)  # H-110 (e): the box file is root's alone, as the install writes it
+    (tmp_path / ".env").chmod(0o600)  # H-139 (item 5, ruled b): as install.sh makes it, whatever the umask
     monkeypatch.setattr(launch, "DEPLOY", tmp_path)
     monkeypatch.setattr(sys, "path", list(sys.path))
     caller = "postgresql://x@caller-host:5432/x"

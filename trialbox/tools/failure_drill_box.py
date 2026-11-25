@@ -65,18 +65,23 @@ def sh(cmd: Sequence[str], timeout: float = 900, check: bool = False, env: dict[
     return res.stdout
 
 
+#: H-139: the Makefile's TEST_PROJECT, the test stack's own compose project
+TEST_PROJECT = "trialbox-test"
+
+
 def compose(*args: str, disk: bool = False) -> list[str]:
     """The test stack's compose command as the Makefile's ``COMPOSE_TEST`` builds it, with the drill's settings."""
     files = ["-f", "deploy/docker-compose.yml", "-f", "deploy/docker-compose.test.yml"]
     if disk and DISK_OVERRIDE.exists():
         files += ["-f", str(DISK_OVERRIDE)]
-    return ["docker", "compose", "--project-directory", "deploy", *files, "--profile", "stub", "--profile", "test",
-            *args]  # fmt: skip
+    return ["docker", "compose", "--project-directory", "deploy", "-p", TEST_PROJECT, *files, "--profile", "stub",
+            "--profile", "test", *args]  # fmt: skip
 
 
 def compose_env() -> dict[str, str]:
     # the test file's object folder defaults to ${PWD}/deploy/.objects, as `make up-test` binds it
-    return {"PWD": str(ROOT), "TB_SETTINGS_FILE": str(SETTINGS)}
+    # H139-14: TEST and D0, as COMPOSE_TEST pins them, whatever the caller's shell exports
+    return {"PWD": str(ROOT), "TB_SETTINGS_FILE": str(SETTINGS), "TB_ENV": "TEST", "TB_DATA_CLASS": "D0"}
 
 
 def dc(*args: str, disk: bool = False, timeout: float = 900, check: bool = False) -> str:

@@ -10,7 +10,7 @@ language.
 - **Date:** 2026-11-24
 - **Install page:** [RUNBOOK §13 part: the bench host's CI runner](../runbook/13-bench-ci-runner.md)
 - **Findings:** [`bench-ci-runner-h105-2026-11-24/findings.json`](bench-ci-runner-h105-2026-11-24/findings.json)
-  (H105-01 to H105-09)
+  (H105-01 to H105-10)
 - **Files:** `tools/bench_ci/` (new: the launcher, the gate, the cards' check, the egress proxy, the one-job
   configuration's unpacker, the job image, the units, the install script, the example settings), the tests
   `tests/unit/test_bench_ci_{workflow,launcher,gate,unpack_jit,review}_h105.py`, the install page, this page and its
@@ -83,7 +83,7 @@ Named here as the rule asks (each change is the card's own, or a line a ruling a
 | The CI cards' check | a stand-in for the card query tool | the real tool's output on the bench's cards |
 | The token's way | the code host's API host only, whatever a caller's proxy says; the configuration on stdin | the code host's answer (no call was made) |
 | The egress proxy | the allow-list and a loopback socket (403 for plain HTTP, an unlisted host, a private address) | the allow-list being enough (H105-05) |
-| Install, token, verify, remove | shellcheck and the script's text | every step: the walk runs them first |
+| Install, token, verify, remove | shellcheck; the install's image and scratch steps, the token step and verify before the token, run with stand-ins (`tests/unit/test_bench_ci_host_h105.py`) | every step on the host: the walk's run of `host_test.sh` |
 
 ## Questions
 
@@ -170,3 +170,157 @@ The re-review (#639, 7123982226; the integrator's line 7123983927) found no High
 - **Left for the follow-up card H-105b:** L-1448-15, L-1448-16, L-1448-19 (2: the evaluator models no cancel; a
   structural rule refuses `always()` instead) and (3), and the question 1448-14 raised: do the CI weights need to be
   secret (a GPU job reads the weights folder, and its code can send what it reads through an allowed host)?
+
+## H-105b: the GPU box rehearsal, and the Lows of the review at bfc1408
+
+The integrator sent the review's six open Lows (7126710814: 1448-14, 1448-15, 1448-16, 1448-19, 1448-26, 1448-27) to
+this follow-up, with the GPU box rehearsal (the lead's part b). Each is held by a test in
+`tests/unit/test_bench_ci_review_h105.py` (or the workflow and launcher tests):
+
+- **The GPU box rehearsal:** the job `rehearse-gpu-box` (a GPU slot; a train or the owner's run by hand) runs
+  `tools/bench_ci/gpu_box.sh`: the TPM fact, the GPU record (no serial or UUID), the weights folder mounted read-only
+  (read from the mount's options, which holds for root as for any user), the job's own engine; NOT RUN for the box
+  install under a real init, the first-run step and the unit start (H105-10) and for the serving step (H105-03).
+- **1448-15:** a GPU job waits up to 30 minutes for busy CI cards, checking every 30 seconds, before it refuses;
+  wrong cards are refused at once (`test_1448_15_*`).
+- **1448-16:** a run by hand is scheduled only on master or an allowed branch, as the gate requires
+  (`test_bench_ci_workflow_h105.py`: the owner's run on a lane branch, on another branch, on a tag).
+- **1448-19 (2):** the schedule test models a cancelled run: only the hosted times table starts
+  (`test_after_a_cancel_no_bench_job_starts_and_only_the_times_table_does`). **(3):** the token step and the scratch
+  folders' check now run in tests; the units, verify and remove are shown on the bench host by the real-host test
+  (the integrator's ruling: below).
+- **1448-26:** a signal after the token was moved into place says the new token is kept and the slots may not all
+  be restarted; before the move it says no token was kept (`test_1448_26_a_signal_says_whether_the_token_was_kept`,
+  every line of the step, INT, TERM and HUP).
+- **1448-27:** a failed chown or chmod (not only a failed move) ends the step (`test_1448_27_any_failed_step_of_the_keep_is_a_failure`);
+  the scratch folders' check is run on a shared sticky folder, a link and root's own folders
+  (`test_1448_27_the_scratch_check_*`). The wall-time test counts the bench jobs instead of a fixed five.
+- **1448-14:** ruled by the integrator (7129040734): not secret. The CI weights are public and mounted read-only; it
+  rides with a follow-up.
+
+## The walk's red on the bench host (7129020102, 7129040734): the first real install, at 1fc6579e
+
+The walk's first install on the bench host found faults the text tests passed (H105-11). Each is fixed and held by a
+test that runs the step (`tests/unit/test_bench_ci_host_h105.py`); none is shown on the host until the walk's
+real-host test is clean:
+
+- **The scratch folder:** the install refused any folder whose name starts with `/var/lib/tb-bench` (a folder
+  beside the user's home); it now refuses only the home and what is in it.
+- **"ctx: unbound variable" after "installed":** the image step's clean-up trap stayed set after the step and fired
+  again when the install returned, with the step's folder gone; the trap now clears itself.
+- **The runtime folder:** a system unit's `%U` is 0, so the units sent the engine to root's runtime folder. The units
+  name none; each step of the `tb-bench` user sets it from its own user id, with its home from the user database, and
+  drops the variables that would point the engine at another store.
+- **The proxy's network (integrator 7129534370, walk 7129516517):** reproduced in the card's container on the same
+  distribution's packages (engine 4.9.3, netavark 1.4, a system user with its home under `/var/lib`, the runtime
+  folder a tmpfs as the service manager makes it): every network the user made is "not found" (exit 127) while the
+  default network works. The cause: without `/var/lib/cni`, the engine mounts an empty folder over `/var/lib` while it
+  sets up the user's network, hiding the user's home and its network files. With an empty `/var/lib/cni` the same
+  runs pass: the proxy on `tb-bench-egress`, a job on an internal network reaching the proxy at its fixed address,
+  and the job's direct way out refused. Setting pasta in the user's own `containers.conf` changed nothing either way,
+  so the install does not set it; no engine build is pinned. The install makes `/var/lib/cni` (and remove takes it
+  away if it made it and it is empty); the proxy's step refuses to start the engine without it; the proxy's own
+  step also makes `tb-bench-egress` if its engine does not see it. The jobs never fall back to the default network.
+  Not reproduced here: the service manager's units themselves (the container has none); the real-host test shows
+  them.
+- **The prerequisites:** the runbook names the two packages a fresh host lacks (the rootless engine and `uidmap`),
+  and the install's refusal says to install them from the distribution.
+- **Found here as well:** `install.sh` was committed without its execute bit, though the runbook runs it by path; it
+  now has it, and a test holds every script of the runner executable.
+- **Verify before the token:** the token's lines and the slots' say NOT RUN (no token, no runner), and are counted in
+  verify's last line, instead of failing; with a token they run as before. Before, a missing token file also passed
+  the "cannot read the token file" line.
+
+The integrator's ruling on 1448-19 (3): #1466 rides only after a clean real-host test of install, verify and remove.
+`tools/bench_ci/host_test.sh FOLDER...` is that test, one command for the walk: install, the proxy started and
+holding with no restart in the user's own store and runtime folder, verify, remove, and nothing left; a line of
+counts; exit 1 on any failure. It uses no token and refuses to start while one is installed; its report names no
+folder, path or host, so it can be posted as it is. Its report's own parts are tested here; the run itself is the
+walk's.
+
+## The external review of #1466 at d48a56e (fix first): the Highs, the Medium, the Lows
+
+The review (7132109781, verdict 7132117189) and the integrator's ruling (7132140169). Each is held by a test in
+`tests/unit/test_bench_ci_host_h105.py` (the GPU box's in `test_bench_ci_launcher_h105.py`):
+
+- **1466-1 (High):** a step's log was named after the step, and the CNI folder's step name holds a "/": the redirect
+  failed, the step said FAIL with the folder there, and the failed tail ended the test before verify and remove. Each
+  step's log is now named by its number (`test_a_step_whose_name_holds_a_slash_is_run_and_the_test_goes_on`).
+- **1466-2 (High), as ruled:** remove deletes only what install recorded that it made. The record
+  (`/etc/tb-bench-ci/made`, root's, 0600) gets each thing's line before the thing is made, always written whole
+  (a copy, synced, renamed). A scratch folder install refused, the operator's settings, a user or folder of the same
+  name that was there before, all stay; with no record remove deletes nothing and exits 1. The host test never runs
+  remove (or anything else) after a failed install
+  (`test_a_planted_folder_of_another_owner_survives_install_and_remove`,
+  `test_remove_without_a_record_deletes_nothing_and_says_so`,
+  `test_the_host_test_never_runs_remove_after_a_failed_install`).
+- **1466-3 (Medium), H105-11:** stays open until the walk's run of `host_test.sh` at a head the review says rides is
+  clean.
+- **1466-4:** the GPU record is a FAIL when the card tool's answer cannot be read, names no card or has a short row.
+- **1466-5:** the report also stands in for the checkout's path, the operator's user name and home, and every
+  address (a time of day is kept).
+- **1466-6:** the units' check fails when no unit was laid out; "nothing left" reads the record; verify's NOT RUN lines
+  are counted as not run.
+- **1466-7:** a signal ends the host test with the step it stopped in and what to run next; the record line comes
+  before the thing, so a cut install leaves nothing unrecorded.
+- **1466-8:** remove keeps the settings file (and gives it back to root's own group when the user goes).
+- **1466-9:** install no longer takes an existing folder of another owner, even empty, as scratch; an existing one is
+  taken only if install recorded it, or it is `tb-bench`'s and empty (an earlier install's, then not recorded: kept
+  by remove).
+- **1466-10:** the pull request's body is the lead's: the corrected lines are in the report to the lead.
+
+Not shown here: any of it on the bench host. An install made before the record (the walk's first, at 1fc6579) has no
+record, so the new remove deletes none of it. The integrator's ruling (7133000201): by hand, no "adopt" step; runbook
+13 has the section "Removing a runner installed before H-105b" (a read-only listing first, then each piece deleted by
+its own named command, only what the walk's install log ties to that install, both lists posted). The same ruling
+takes the remove test's change (only `$OPT` goes; the settings folder with a planted settings file survives, run).
+
+## The re-review of #1466 at ee78d84 (fix first): 1466-11, 1466-12, 1466-13
+
+The re-review (7135144815, verdict 7135149037); each is held by a test in `tests/unit/test_bench_ci_host_h105.py`:
+
+- **1466-11 (Medium):** on a host with an install from before the record, install recorded almost nothing, remove
+  took almost nothing, and "nothing left" passed. The host test now refuses to start when there is no record and the
+  user, `/opt/tb-bench-ci`, its home or a unit is there, and points at runbook 13's section for such an install
+  (`test_the_host_test_refuses_a_host_with_an_install_that_left_no_record`).
+- **1466-12:** an id range in only one of the two id files (a by-hand line) stops the install before any change;
+  install records and adds the ranges only when neither file has one
+  (`test_an_id_range_in_only_one_file_stops_the_install`).
+- **1466-13:** a user or host name is replaced only as a word of its own; paths still wherever they stand
+  (`test_a_short_user_or_host_name_is_redacted_only_as_a_word`).
+- **1466-3 (Medium), H105-11:** open; the walk confirms (7135160993) it never ran the host test and its only install
+  is the one at 1fc6579e, which runbook 13's section removes first.
+
+## The re-review of #1466 at 23f95b9 (fix first): 1466-11 (the rest), 1466-14, 1466-15
+
+The re-review (7138769020, verdict 7138774947), with lane LR's LR-46, LR-47 and LR-49; each is held by a test in
+`tests/unit/test_bench_ci_host_h105.py`:
+
+- **1466-11 (Medium; LR-46):** one check in `install.sh` (`unrecorded_pieces`) names every piece of an install that is
+  here and not in the record (the user, its home, `/opt/tb-bench-ci`, a unit, its linger, its id range), whatever the
+  record holds. Install refuses before any change, and the host test refuses before it starts.
+- **1466-14 (Medium; LR-49):** the scratch setting may not name the code folder or the CNI folder, or a folder in
+  them: "install made it" skipped the owner check and handed the folder to the jobs' user.
+- **1466-15 (LR-47):** remove shreds the token, and any copy a cut token step left, whenever they are there.
+- **1466-3 (Medium), H105-11:** open, as before.
+
+My own earlier test `test_remove_without_a_record_deletes_nothing_and_says_so` now asserts that the token goes (it
+kept it before): the change 1466-15 asks for.
+
+## The re-review of #1466 at 5eb1937 (fix first): 1466-16 to 1466-20
+
+The re-review (7141356976); each is held by a test in `tests/unit/test_bench_ci_host_h105.py`:
+
+- **1466-16:** the review's table test, as given: each of the six pieces is named once when it is here and not
+  recorded, and not named once the record has its line (`test_ocr_1466_16_each_piece_is_named_unless_the_record_names_it`).
+- **1466-17:** the host test reads the CNI folder from `$CNI_DIR`, the system's name from `OS_RELEASE`, and the service
+  manager's version through `manager_version`; the tests point all three at stand-ins, and one asserts the report names
+  the stand-in's folder, system and version (`test_ocr_1466_17_the_host_tests_tests_reach_no_path_of_the_host`).
+- **1466-18:** remove never takes the CNI folder as scratch (a slip in today's settings); it goes only by its own
+  empty-only rule, so another tool's file in it stays (the review's patch and test).
+- **1466-19:** runbook 13's section for an older install says that install and the host test refuse while a kept
+  piece is there, and that the owner rules on each kept piece before the next install; the pull request's body is the
+  lead's.
+- **1466-20:** the report to the lead names the policy and card files the counts come from, and the ordinary user's
+  failing test by its full id with its run on master.
+

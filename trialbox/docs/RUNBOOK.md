@@ -45,7 +45,7 @@ File: [runbook/04-troubleshooting.md](runbook/04-troubleshooting.md). Parts: [RU
 
 ## 5. Updates, backup, restore, secrets
 
-File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-restore-secrets.md). In it: [The audit chain waits for a person](runbook/05-updates-backup-restore-secrets.md#the-audit-chain-waits-for-a-person), [Secrets (D-128, D-138): the one place to rotate them](runbook/05-updates-backup-restore-secrets.md#secrets-d-128-d-138-the-one-place-to-rotate-them).
+File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-restore-secrets.md). In it: [The audit chain waits for a person](runbook/05-updates-backup-restore-secrets.md#the-audit-chain-waits-for-a-person), [Secrets (D-128, D-138): the one place to rotate them](runbook/05-updates-backup-restore-secrets.md#secrets-d-128-d-138-the-one-place-to-rotate-them), [What an update replaces, and a loose services/ or models/ (H-144, D-1463)](runbook/05-updates-backup-restore-secrets.md#what-an-update-replaces-and-a-loose-services-or-models-h-144-d-1463).
 
 ## 6. Go-live acceptance
 

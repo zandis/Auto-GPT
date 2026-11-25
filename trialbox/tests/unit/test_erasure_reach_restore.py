@@ -19,6 +19,8 @@ from typing import Any
 
 import pytest
 
+from tests import pg_client
+
 P, Q = "e7a5e0f0c0de1180", "e7a5e0f0c0de1181"  # P opts out after the backup; Q never does
 SNAP = "2026-10-04"
 T0 = "2026-10-05T09:00:00+00:00"
@@ -80,7 +82,7 @@ def restored(db_url: str, tmp_path: Path) -> dict[str, Any]:
     priv, pub = tmp_path / "it.key", tmp_path / "box.pub"
     bk.keygen(priv, pub)
     # TB_ENV DEV: the service-role step counts as done (on a real box it is configured); the restore can be complete
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", "TB_ENV": "DEV"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", "TB_ENV": "DEV"}
     assert _held(db_url, P) == {"orch.pool", "orch.candidates", "omop.person", "profile.tb_patient_profile"}
     backup = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]  # the patient is in it
     time.sleep(1.1)  # the register's times and the snapshot's are a second apart at least

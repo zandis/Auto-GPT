@@ -16,11 +16,18 @@ from pathlib import Path
 import pytest
 from tb_common import kek as K
 
+from tests.own_deploy import own_deploy
 from tests.unit.test_kek import _cli, box  # noqa: F401
 from tests.unit.test_key_escrow import _escrow, _files, tpm  # noqa: F401
 from tools import keys as keys_cli
 from tools import support_bundle
 from tools.trialbox import restic_repo as rr
+
+
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
 
 
 @pytest.fixture

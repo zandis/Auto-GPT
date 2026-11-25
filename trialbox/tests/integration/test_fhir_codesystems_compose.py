@@ -14,7 +14,13 @@ import pytest
 from tests.stack import url
 
 pytestmark = pytest.mark.integration
-FHIR = url("FHIR", "/fhir")
+
+
+def _fhir() -> str:
+    """H-139: read from the running test stack when a test runs, not at import (a collection asks no engine)."""
+    return url("FHIR", "/fhir")
+
+
 TERM = Path("/nonexistent-terminology")  # nothing loaded at install: the shipped tables answer
 
 
@@ -32,7 +38,7 @@ def _params(body: dict[str, Any]) -> dict[str, Any]:
 def test_the_store_validates_names_and_places_a_loaded_code() -> None:
     from tools import fhir_codesystems as fc
 
-    store = fc.Store(FHIR)
+    store = fc.Store(_fhir())
     keys = ("icd10cm", "department", "atc")
     out = {o.key: o for o in fc.load(store, TERM, [s for s in fc.SOURCES if s.key in keys], wait=600)}
     assert out["icd10cm"].state in ("loaded", "unchanged") and out["department"].state in ("loaded", "unchanged")
@@ -41,19 +47,21 @@ def test_the_store_validates_names_and_places_a_loaded_code() -> None:
     # "not found" is cached (the store keeps a validation answer for minutes)
     http = httpx.Client(timeout=60)
     ask = {"system": fc.ICD10CM, "code": "A00.0", "property": "parent"}
-    got = _params(http.get(f"{FHIR}/CodeSystem/$lookup", params=ask).json())
+    got = _params(http.get(f"{_fhir()}/CodeSystem/$lookup", params=ask).json())
     assert got.get("display") == "Cholera due to Vibrio cholerae 01, biovar cholerae"
     assert got.get("property", {}).get("parent") == "A00" and str(got.get("version")).startswith("FY2026+")
-    ok = _params(http.get(f"{FHIR}/CodeSystem/$validate-code", params={"url": fc.ICD10CM, "code": "M10.0"}).json())
+    ok = _params(http.get(f"{_fhir()}/CodeSystem/$validate-code", params={"url": fc.ICD10CM, "code": "M10.0"}).json())
     assert ok.get("result") is True and ok.get("display") == "Idiopathic gout"
-    bad = _params(http.get(f"{FHIR}/CodeSystem/$validate-code", params={"url": fc.ICD10CM, "code": "SYN.ZZ9"}).json())
+    bad = _params(
+        http.get(f"{_fhir()}/CodeSystem/$validate-code", params={"url": fc.ICD10CM, "code": "SYN.ZZ9"}).json()
+    )
     assert bad.get("result") is False
 
 
 def test_an_update_and_its_rollback_in_the_store() -> None:
     from tools import fhir_codesystems as fc
 
-    store = fc.Store(FHIR)
+    store = fc.Store(_fhir())
     dept = next(s for s in fc.SOURCES if s.key == "department")
     fc.load(store, TERM, [dept])
     before = store.get("CodeSystem", "tb-department")

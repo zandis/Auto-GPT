@@ -1,0 +1,134 @@
+{
+ "card": "H139",
+ "title": "full-set triage: why the bench host is red where CI is green",
+ "date": "2026-11-25",
+ "source": "docs/handover/full-set-triage-h139-2026-11-25.md",
+ "findings": [
+  {
+   "id": "H139-03",
+   "severity": "Low",
+   "claim": "lane H's backup and restore tests ran the bare psql and pg_dump from PATH, red on a host whose PostgreSQL is not on PATH; fixed: the tests hand in the test cluster's own client tools",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_backup_schedule.py, tests/unit/test_restore_from_the_host_h100.py, tests/unit/test_host_commands_own_environment.py, tests/pg_client.py"
+  },
+  {
+   "id": "H139-04",
+   "severity": "Low",
+   "claim": "lane H's fixtures built box trees under the run's umask, so at umask 0002 the product rightly refused them (deploy/.env, deploy/site, a passphrase folder writable by the group); fixed (ruled b): the fixtures make their folders with explicit modes, and one test per guard shows a group-writable one still refused",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_host_commands_own_environment.py, tests/unit/test_serving_engine_h112.py, tests/unit/test_kek_env_refused_h97.py"
+  },
+  {
+   "id": "H139-05",
+   "severity": "Low",
+   "claim": "lane D's backup tests ran the bare psql and pg_dump from PATH (58 reds on the bench host), and backup.py met a missing client tool with a bare FileNotFoundError, a restore after it had emptied the schemas; fixed: the tests hand in the cluster's client tools, backup.py refuses the tool by name and setting before any change",
+   "lane": "D",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_backup.py, test_backup_restic.py, test_backup_busy_night.py, test_restore_drill.py; tools/trialbox/backup.py _client, dump, take_snapshot, restore_db"
+  },
+  {
+   "id": "H139-06",
+   "severity": "Low",
+   "claim": "the console's Node Playwright check ran at import inside a skipif, once per importing module, so a node slower than 60 s made every importing module a TimeoutExpired traceback, in every xdist worker (112 on the bench host); fixed: checked once per test process, a timeout one plain line, never a skip",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/console/test_cjk_layout.py _node_playwright, tests/node_check.py"
+  },
+  {
+   "id": "H139-07",
+   "severity": "Medium",
+   "claim": "test_erasure_reach errored at setup on the bench host (226): the test server's vector extension was older than the db image's pin (public.halfvec missing; the integrator's 7155060416), not XML; fixed: the test cluster's fixture stops the run once, plainly, on a vector older than the pin",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/conftest.py pg_cluster_url, tools/pglocal.py vector_check"
+  },
+  {
+   "id": "H139-08",
+   "severity": "Medium",
+   "claim": "the compose test stack and a box installed on the same host shared the compose project name trialbox, so make up-test could reach or re-create the installed box (the compose stage's 401s and its backup red fit this, not run here); fixed (ruled a): the test stack is project trialbox-test, and make up-test refuses by name what another project or program holds of its ports and names",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "Makefile TEST_PROJECT, COMPOSE_TEST, up-test; tools/test_stack_free.py; tools/failure_drill_box.py"
+  },
+  {
+   "id": "H139-09",
+   "severity": "Low",
+   "claim": "more tests ran the bare psql or pg_dump from PATH: test_ops_pages and test_admin_screens_209c, test_backup_without_pause, test_update_path, test_db_image (its skip under TB_STRICT_SKIPS shown), and seven more (test_backup_vector_store, test_t728_asof_restore_optouts, test_restore_hold, test_restore_roles, test_lane_b_on_the_train, test_backup_licensed_terminology, test_erasure_reach_restore); fixed: each hands in the test cluster's client tools",
+   "lane": "Int",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/console/test_ops_pages.py, tests/integration/test_db_image.py, nine files in tests/unit/, tests/pg_client.py"
+  },
+  {
+   "id": "H139-10",
+   "severity": "Medium",
+   "claim": "about 30 key and KEK tests read the checkout's deploy/.env as the box's: make up-test copies it from .env.example, which names no TB_ENV, so after a compose stage the checkout is a PRODUCTION box and the key commands refuse; fixed: each key test gives the code a deploy folder of its own, and a test keeps the PRODUCTION default under test",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/own_deploy.py; seven tests/unit key files; tests/unit/test_box_env_production_h139.py"
+  },
+  {
+   "id": "H139-12",
+   "severity": "Low",
+   "claim": "test_runbook_install_commands' installer step depended on the caller's graphics tool on PATH: a host card that cannot run the model server's image made the installer refuse, rightly; fixed: the step runs with the host's nvidia-smi off its PATH",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/unit/test_runbook_install_commands.py _install_to_the_host_step"
+  },
+  {
+   "id": "H139-13",
+   "severity": "Medium",
+   "claim": "the full set's console and poc stages allowed skips, so with no browser driver poc passed with all 7 tests skipped and console with 15; fixed: make test-console and make test-console-e2e run with TB_STRICT_SKIPS=1, as test-compose and test-walks, while the unit shards keep the browser tests' own skips",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "Makefile test-console, test-console-e2e"
+  },
+  {
+   "id": "H139-14",
+   "severity": "Low",
+   "claim": "the compose test stack took TB_ENV and TB_DATA_CLASS from the caller's shell (every test-stack service has ${TB_ENV:-TEST}, and the full set passes its whole environment); the walk found TB_ENV not exported on the bench, so it was not the 401s' cause; kept as a guard: COMPOSE_TEST and the failure drill set TB_ENV=TEST and TB_DATA_CLASS=D0",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "Makefile COMPOSE_TEST, tools/failure_drill_box.py compose_env"
+  },
+  {
+   "id": "H139-15",
+   "severity": "Low",
+   "claim": "three pure tests reached the host they ran on (LR-3 its KEK file under /run/trialbox, release-dirty its engine and a real stack's volumes, first-run its runner's ignored SIGTTOU), and update.first_load_needs ran a bare docker info that skipped the box's TB_DOCKER; fixed: own KEK, stub engine, SIGTTOU reset, the box's own engine, and an escape check that fails a test which looks at the host's run folder or engine",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/host_escape.py, tests/unit/test_lifecycle_keys_h133.py, tests/unit/test_release_dirty_refused.py, tests/unit/test_first_run_code_h97.py, tools/trialbox/update.py first_load_needs"
+  },
+  {
+   "id": "H139-16",
+   "severity": "Medium",
+   "claim": "the compose tests took each port from a constant or a variable, so on a host with another stack they could talk to it (the bench's 401 at 127.0.0.1:8016/run), and after push 5 the restore drill brought up trialbox-test but ran its compose commands and its volume removal against project trialbox, a box's own on such a host; fixed: every port from the running test stack's containers, another project's port refused by name, the drill on trialbox-test",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tests/stack.py, tools/restore_drill.py ComposeDrill and shell, tests/conftest.py _stack_up, the compose e2e and integration modules"
+  },
+  {
+   "id": "H139-17",
+   "severity": "Medium",
+   "claim": "the nightly backup's host part read trialbox_<volume> written into the code, so the restore drill's backup, run on a host with a box, copied the box's caddy and authelia data (TLS keys among them) instead of the test stack's (OCR 1498-1); fixed: host_volume takes the box file's COMPOSE_PROJECT_NAME, else trialbox, never a caller's; the drill's box file names trialbox-test; one guard file checks the behaviour, every compose command the suite runs, and the engine-driving files",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/backup_schedule.py host_volume, tools/restore_drill.py prepare, tests/unit/test_no_test_names_the_box_project_h139.py"
+  }
+ ]
+}

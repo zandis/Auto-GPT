@@ -224,19 +224,31 @@ def _raise(e: OSError) -> None:
     raise e
 
 
+def volumes_root(env: Mapping[str, str]) -> Path:
+    return Path(env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+
+
+def host_volume(env: Mapping[str, str], vol: str) -> Path:
+    """The host folder of this box's compose volume ``vol``. H-139 (OCR 1498-1): the box's own project, from its
+    deploy/.env (``env``: COMPOSE_PROJECT_NAME), else ``trialbox``. A caller's exported project is never read (F1): on a
+    host that also runs a test stack, the box's backup reads the box's volumes, and the test stack's backup its own."""
+    project = (env.get("COMPOSE_PROJECT_NAME") or "").strip() or "trialbox"
+    return volumes_root(env) / f"{project}_{vol}" / "_data"
+
+
 def volume_bytes(env: Mapping[str, str], fallback: int | None) -> int | None:
     """What the backup container reads besides the dumps: the box's volumes, walked on the host (D-455). A volume the
     host cannot read counts as ``fallback`` (the last good backup's size) once; None when nothing is known."""
     from tools.trialbox import update
 
-    root = Path(env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+    root = volumes_root(env)
     total, unknown = 0, False
     try:
         readable = root.is_dir() and os.access(root, os.R_OK | os.X_OK)
     except OSError:
         readable = False
     for vol in update.BACKUP_VOLUMES.values():
-        d = root / f"trialbox_{vol}" / "_data"
+        d = host_volume(env, vol)
         n = (0 if not d.parent.exists() else tree_bytes(d)) if readable else None  # a volume never made: 0 bytes
         if n is None:
             unknown = True
@@ -1236,8 +1248,7 @@ class ComposeOps:
                 shutil.copytree(self.deploy / sub, dest / sub, symlinks=True, ignore=skip, dirs_exist_ok=True)
                 taken.append(sub)
         for vol in HOST_VOLUMES:
-            root = self.env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes"
-            src = Path(root) / f"trialbox_{vol}" / "_data"
+            src = host_volume(self.env, vol)
             try:
                 if not src.is_dir():
                     continue
@@ -1790,8 +1801,7 @@ def copy_night_length(env: Mapping[str, str], deploy: Path) -> str:
     from tools import night_length
     from tools.trialbox import update
 
-    root = Path(env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
-    src = root / f"trialbox_{update.BACKUP_VOLUMES['lake']}" / "_data" / "night_runs.json"
+    src = host_volume(env, update.BACKUP_VOLUMES["lake"]) / "night_runs.json"
     dst = deploy / "site" / night_length.FILE
     tmp = dst.with_name(f"{dst.name}.tmp")
     try:
@@ -1806,8 +1816,8 @@ def copy_night_length(env: Mapping[str, str], deploy: Path) -> str:
     # count. A box whose scheduler does not run has none: not a failure of the copy. A part that cannot be read
     # keeps the earlier copy of that part.
     days = {n.get("snapshot") for n in got["nights"] if isinstance(n, dict) and isinstance(n.get("snapshot"), str)}
-    for part, key in ((root / f"trialbox_{update.BACKUP_VOLUMES['orchestrator']}" / "_data" / "night_work.json",
-                       "nights"), (dst, "work")):  # fmt: skip
+    for part, key in ((host_volume(env, update.BACKUP_VOLUMES["orchestrator"]) / "night_work.json", "nights"),
+                      (dst, "work")):  # fmt: skip
         try:
             work = json.loads(part.read_bytes())[key]
             if not isinstance(work, list):

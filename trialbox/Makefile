@@ -4,7 +4,13 @@ PY ?= .venv/bin/python
 COMPOSE := docker compose --project-directory deploy -f deploy/docker-compose.yml
 # the test stack uses the example settings with a high per-sender limit: e2e suites run many times a day
 TEST_SETTINGS := .cache/test-settings.yaml
-COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
+# H-139: the test stack's own compose project. The base file's name (trialbox) is a box's, and a box installed on the
+# same host would otherwise share the test stack's containers and networks; `make up-test` refuses when another
+# project or program holds what the stack would publish (tools/test_stack_free.py). H-139 (H139-14): the test stack is
+# TEST and D0 whatever the caller's shell exports (a TB_ENV of the host's own box made every service refuse the
+# tests' calls, 401): no caller's environment variable decides it
+TEST_PROJECT := trialbox-test
+COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) TB_ENV=TEST TB_DATA_CLASS=D0 $(COMPOSE) -p $(TEST_PROJECT) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
 # release identity on every image we build (T-110b, ENG-015): the version from pyproject.toml and the commit
 TB_VERSION := $(shell sed -n 's/^version = "\(.*\)"$$/\1/p' pyproject.toml | head -1)
@@ -19,7 +25,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 
 
 .PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline console-timing e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch buildx-check two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
-	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates vocab-bundle-check release-bundle security-contact-check supply-chain release-version release-tag media-linux
+	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates vocab-bundle-check release-images release-bundle security-contact-check supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
@@ -308,7 +314,7 @@ demo:
 # the same as one image file for the demo VM (docs/RUNBOOK.md §11): dist/trialbox-demo.tar.gz
 # T-501: the jar the compiler reads FHIRHelpers from comes from jvm-deps (the Dockerfile fetches it on a fresh clone)
 demo-bundle: jvm-deps vocab-bundle-check
-	docker build $(CA_SECRET) -f demo/Dockerfile -t trialbox-demo:step5 .
+	docker build $(CA_SECRET) $(NO_CACHE_ARG) -f demo/Dockerfile -t trialbox-demo:step5 .
 	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
 	@ls -l dist/trialbox-demo.tar.gz
 
@@ -441,15 +447,29 @@ PLATFORM_ARG := $(if $(PLATFORM),--platform $(PLATFORM),)
 buildx-check:
 	@docker buildx version >/dev/null 2>&1 || { echo "images: Docker's buildx plugin is missing (docker buildx version failed); install docker-buildx-plugin (Docker's packages) or docker-buildx (Ubuntu's), then run make again" >&2; exit 1; }
 
+# H-143: the Debian security-upgrade layer (python.Dockerfile, demo/Dockerfile) is unpinned, so a warm cache keeps
+# an older day's libraries (the bench's bundle at c3a5b2b2: libzstd1 in trialbox-py, -backup, -jvm and -embed).
+# Dev builds keep the cache. `make release-images` (and so `make release-bundle`, ahead of its gates) first pulls
+# every outside base the Dockerfiles pin by digest, then builds every image with --no-cache and without --pull:
+# --pull would send the FROM of trialbox-py (backup, jvm, embed) to a registry, where it is not. The gates then hold
+# each image to deploy/images.lock security_floors (tools/supply_chain/floors.py).
+RELEASE_DOCKERFILES := deploy/docker/python.Dockerfile deploy/docker/backup.Dockerfile deploy/docker/jvm.Dockerfile \
+	deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile demo/Dockerfile
+RELEASE_BASES = $(sort $(shell grep -hoE '[a-z0-9./_-]+:[^ @"]*@sha256:[0-9a-f]{64}' $(RELEASE_DOCKERFILES)))
+NO_CACHE_ARG = $(if $(RELEASE_NO_CACHE),--no-cache,)
+release-images:
+	for b in $(RELEASE_BASES); do docker pull $(PLATFORM_ARG) "$$b" || exit 1; done
+	$(MAKE) images demo-bundle RELEASE_NO_CACHE=1
+
 images: buildx-check jvm-deps $(FONTS)
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
-		-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/backup.Dockerfile \
-		-t trialbox-backup:1.0.0 .
-	docker build $(PLATFORM_ARG) $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/embed.Dockerfile \
-		-t trialbox-embed:1.0.0 .
-	deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS)  # the db build of deploy/poc.sh too (card 24-2)
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
+		--build-arg TB_REVISION=$(TB_REVISION) -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
+		-f deploy/docker/backup.Dockerfile -t trialbox-backup:1.0.0 .
+	docker build $(PLATFORM_ARG) $(OCI_LABELS) $(NO_CACHE_ARG) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
+		-f deploy/docker/embed.Dockerfile -t trialbox-embed:1.0.0 .
+	deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS) $(NO_CACHE_ARG)  # the db build of deploy/poc.sh too (card 24-2)
 
 # ENG-003 (D-563): a PRODUCTION box starts its embed service. The box's compose file, the trialbox-embed image,
 # TB_ENV=PRODUCTION, a tiny model made on the spot (no download), pinned by the installer's own call; one
@@ -522,7 +542,10 @@ objects-dir:
 	       "another user): remove it (sudo rm -rf $(OBJECTS_DIR)) and run again" >&2; exit 1; }
 
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
-	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects && $(COMPOSE_TEST) up -d --wait
+	@echo "up-test: the test stack is compose project $(TEST_PROJECT), TB_ENV=TEST and TB_DATA_CLASS=D0, whatever this shell exports"
+	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects
+	set -o pipefail; $(COMPOSE_TEST) config --format json | PYTHONPATH=libs:services:. $(PY) -m tools.test_stack_free $(TEST_PROJECT)
+	$(COMPOSE_TEST) up -d --wait
 
 # load synthetic site A into the running test stack (adapter -> lake + FHIR store)
 ingest-test:
@@ -653,12 +676,15 @@ restore-drill:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.restore_drill run --out "$(RESTORE_DRILL_OUT)" \
 		--work "$(TB_TEST_ROOT)/restore-drill/work"
 
+# H139-13: the full set's console and poc stages (tools/full_set.py) allow no skip, as test-compose and test-walks:
+# a browser driver node cannot load is a failure that names it, never a skip that turns the stage green. The unit
+# shards run the console tests without this: there a host with no node still skips them with their own reasons.
 test-console:
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
+	TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
 
 # browser + e-mail end to end against the running POC (make poc first): Playwright (Node) drives the console
 test-console-e2e:
-	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
+	TB_INTEGRATION=1 TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
 
 site:
 	$(PY) tools/build_site.py
@@ -738,7 +764,8 @@ trivy-db: scanners
 
 # the release gates: each image pinned (a local one by image id, registry:REF=os/arch by digest), then offline
 # Trivy, Syft SBOM, licences, one record (build/supply-chain/gates.json, dist/sbom/index.json). Needs make trivy-db.
-release-gates: lock-sbom sc-images
+# under `make release-bundle` the gates wait for release-images (the images they scan); alone they scan what is there
+release-gates: lock-sbom sc-images $(if $(filter release-bundle,$(MAKECMDGOALS)),release-images,)
 	PATH=$(SCANNERS):$$PATH $(SC) release-gates --cache-dir $(TRIVY_CACHE) --out $(SC_DIR) --sbom-dir dist/sbom \
 		--lock-sbom dist/sbom/requirements.lock.cdx.json $(RELEASE_GATES_ARGS) $(foreach i,$(SC_IMAGES),--image $(i))
 
@@ -794,7 +821,7 @@ hadolint-report:
 # inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
 # 10G-9 (D-1239): no release bundle while the public security contact (deploy/security/contact.json) is not set; a
 # --rehearsal or --allow-dirty bundle, which is no release, passes with a warning
-release-bundle: security-contact-check release-gates vocab-bundle-check
+release-bundle: security-contact-check release-images release-gates vocab-bundle-check
 	tools/make_bundle.sh --gates $(SC_DIR)/gates.json --sbom-dir dist/sbom $(BUNDLE_ARGS)
 
 # OPS-006 (D-966): the offline media of a bare Ubuntu box from a signed bundle and the packages of
