@@ -151,6 +151,22 @@ def _stage(bundle: Path, pub: Path, stage: Path, updates: Path | None = None, do
     return Plan.load(stage, s)
 
 
+def _plant(url: str, seq: int) -> bool:
+    """H-132 (LR-10): one row the box writes after the update's check (``release_note``, id ``9000 + seq``)."""
+    from tb_common.db import Database
+
+    with Database.connect(url, "release") as db:
+        db.execute("INSERT INTO release_note (id, text) VALUES (?, ?)", (9000 + seq, "written after the check"))
+    return _planted(url, seq)
+
+
+def _planted(url: str, seq: int) -> bool:
+    from tb_common.db import Database
+
+    with Database.connect(url, "release") as db:
+        return db.fetchone("SELECT text FROM release_note WHERE id = ?", (9000 + seq,)) is not None
+
+
 def _tables(url: str) -> list[str]:
     from tb_common.db import Database
 
@@ -203,7 +219,7 @@ def kill_case(
     base: Path, work: Path, url: str, pub: Path, priv: Path, step: str, seq: int
 ) -> list[tuple[str, bool, str]]:
     from tools import update_status as us
-    from tools.trialbox.update import STEPS, InProcessBox, UpdateFailed, Updater
+    from tools.trialbox.update import AFTER_CHECK, STEPS, InProcessBox, UpdateFailed, Updater
 
     updates = base / "updates"
     bid = f"2026.11-kill-{STEPS.index(step)}"
@@ -233,6 +249,7 @@ def kill_case(
     except UpdateFailed as exc:
         refused = "unfinished" in str(exc)
     out.append((f"kill -9 at '{step}': another update is refused while the marker exists", refused, ""))
+    planted = step in AFTER_CHECK and _plant(url, seq)  # H-132 (LR-10): a row the new release wrote after its check
     lines: list[str] = []
     try:
         Updater(InProcessBox(work, url, base / "backups"), updates, say=lines.append).recover(bid)
@@ -242,6 +259,15 @@ def kill_case(
     box2 = InProcessBox(work, url, base / "backups")
     box2._open_stores()  # the box starts: every store opens and runs its own migrations
     after = (box2.state(), (work / "RELEASE").read_text(encoding="utf-8"), _tables(url), box2.schema_version())
+    if step in AFTER_CHECK:  # H-132 (LR-10, ruling 7136669077 item 2): the checked release was in service: finished
+        # forward, never rolled back over what it wrote
+        out.append((f"kill -9 at '{step}': rollback <bundle> finishes the checked release, the marker is gone, the "
+                    "box starts",
+                    recovered and us.marker(updates) is None and after[1] != before[1] and after[1].split()[:1] == [bid]
+                    and planted and _planted(url, seq)
+                    and not (updates / bid / "rollback").exists() and not plaintext_dumps([updates, work], t0),
+                    "; ".join(lines[-3:])[:300]))  # fmt: skip
+        return out
     out.append((f"kill -9 at '{step}': rollback <bundle> puts the box back, the marker is gone, the box starts",
                 recovered and us.marker(updates) is None and after == before
                 and not (updates / bid / "rollback").exists() and not plaintext_dumps([updates, work], t0),
@@ -331,7 +357,7 @@ def run(base: Path) -> dict[str, Any]:
     from tools import e2e_simple, pglocal
     from tools import update_status as us
     from tools.sign_bundle import keygen
-    from tools.trialbox.update import STEPS, InProcessBox, UpdateFailed, Updater, UpdateRefused
+    from tools.trialbox.update import AFTER_CHECK, STEPS, InProcessBox, UpdateFailed, Updater, UpdateRefused
     from tools.verify_update import Rejected
 
     t0 = time.perf_counter()
@@ -464,7 +490,7 @@ def run(base: Path) -> dict[str, Any]:
         events += [json.loads(x)["event"] for x in f.read_text(encoding="utf-8").splitlines() if x.strip()]
     upd = [e for e in events if e.startswith("update.")]
     want = ["update.applied", "update.downgrade", "update.applied", "update.rolled_back", "update.rolled_back",
-            *["update.rolled_back"] * len(STEPS)]  # fmt: skip
+            *["update.applied" if s in AFTER_CHECK else "update.rolled_back" for s in STEPS]]  # fmt: skip
     checks.append(("the audit chain verifies, with every update event in order",
                    audit_verify(audit_dir).ok and upd == want, ", ".join(upd)))  # fmt: skip
     history = (updates / "history.jsonl").read_text(encoding="utf-8")

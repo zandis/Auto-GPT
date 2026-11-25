@@ -1,0 +1,33 @@
+{
+ "card": "H141",
+ "title": "zstd and libzstd1 held at the security fix in the PostgreSQL image",
+ "date": "2026-11-25",
+ "source": "docs/handover/zstd-pin-h141-2026-11-25.md",
+ "note": "basis 'shown' means shown by an image built and scanned by the card in a session container (amd64), with the scanner's database downloaded fresh, and by the card's unit test; arm64 was not built.",
+ "findings": [
+  {
+   "id": "H141-01",
+   "severity": "High",
+   "claim": "with today's scanner database the release gates fail trialbox-postgres:16-1 built from master 6c73db64 on CVE-2026-124851 in libzstd1 and zstd 1.5.7+dfsg-1, which stops rehearse step 3 on every head; db.Dockerfile installs exact versions without an upgrade, so the image kept the base's version",
+   "lane": "D",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H141-02",
+   "severity": "Medium",
+   "claim": "the image held at 1.5.7+dfsg-1+deb13u1 (trixie-security, DSA-6657-1) builds on amd64, has both packages installed and held, and passes the gate's scan; arm64 resolves the same version from the suite's index but was not built",
+   "lane": "D",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H141-03",
+   "severity": "Low",
+   "claim": "nothing runs the release gates against a fresh scanner database on master between trains, so a new advisory on a held package surfaces first as a red train (third time after SC-1b and H-93)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}
