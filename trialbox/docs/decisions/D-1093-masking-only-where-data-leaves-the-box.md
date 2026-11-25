@@ -23,6 +23,11 @@
    destination, the count, the rule, the size, the sha256 and the result, and no identifier. The page "What left this
    box" (`/admin/egress`) reads it.
 
+8. **What is not a patient's stays readable on a mail or an export**: an address of the site's own mail domain, a
+   doctor's name with a title or the box's staff code after it (never after a patient's label), a study's own subject
+   number, and the telephone, mail and address in a consent form, which a patient must be able to read. The log and
+   the support bundle hide these too.
+
 ## What it does not do
 
 The rules find named forms: a labelled name, a chart number, a date of birth, a national id, a phone, an address, an

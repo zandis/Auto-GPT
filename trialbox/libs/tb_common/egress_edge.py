@@ -270,24 +270,56 @@ _FREE = frozenset(
 )
 
 
+#: a field that holds a study's own number of a person, which is no identifier outside the site
+_STUDY_NO = re.compile(
+    r"(?i)^(?:subject|screening|record|participant|randomi[sz]ation)[ _-]?(?:id|no|number|nr)?\b|^record_?id$|"
+    r"受試者編號|篩選編號|被験者番号|被験者識別|スクリーニング番号|症例番号|登録番号"
+)
+
+
 def _norm(label: str) -> str:
     return re.sub(r"[^a-z0-9\u3040-\u9fff]", "", label.lower())
+
+
+_TITLE = r"(?:醫師|医師|醫生|護理師|看護師|藥師|薬剤師|技師)"
+#: a title, or the staff code the box prints after a doctor's name (a letter first: no chart number)
+_TITLE_AFTER = re.compile(rf"{_TITLE}|[ \u3000]?\([A-Z]{{1,3}}\d{{3,6}}\)")
+_TITLE_BEFORE = re.compile(rf"(?:{_TITLE}|主治医|担当医|\bDrs?\.?)[ :：(（/]*$")
+_PATIENT_BEFORE = re.compile(r"(?i)(?:姓名|氏名|名前|患者|病患|病人|個案|受試者|patient(?: name)?|name|\bpt)[\s:：]*$")
+
+
+def _staff(text: str, s: int, e: int) -> bool:
+    before = text[max(s - 16, 0) : s]
+    if _PATIENT_BEFORE.search(before):
+        return False
+    return bool(_TITLE_AFTER.match(text, e) or _TITLE_BEFORE.search(before))
+
+
+#: a consent form is read by patients: the hospital's own telephone, mail and address in it must stay readable
+_SITE_DOCUMENT = re.compile(r"^consent_[\w-]+\.(?:html|json)$")
+
+
+def _kept_in(name: str) -> frozenset[str]:
+    return frozenset({"phone", "email", "address"}) if _SITE_DOCUMENT.match(name) else frozenset()
 
 
 class _Reader:
     """One payload on its way out: the count of identifiers found, and the masked copy."""
 
     def __init__(self, rule: Route, where: Site) -> None:
-        self.rule, self.site = rule, where
+        self.rule, self.site, self.keep = rule, where, rule.keep
         self.hits = 0
 
     # -------------------------------------------------------------------------------- text
     def find(self, text: str) -> list[tuple[int, int]]:
-        """The identifiers in ``text``; an address of the site's own mail domain is a member of staff's."""
+        """The identifiers in ``text``. An address of the site's own mail domain, and a name written with a member of
+        staff's title and no patient's label, is no patient's: a report names its doctors."""
         out = []
         for k, s, e in spans(text, self.site.mrn, own_ids=True):
             at = text[s:e].rpartition("@")
-            if not (at[1] and at[2].lower().rstrip(".") in self.site.domains) and k not in self.rule.keep:
+            if not (at[1] and at[2].lower().rstrip(".") in self.site.domains) and not (
+                k in self.keep or (k == "name" and _staff(text, s, e))
+            ):
                 out.append((s, e))
         return out
 
@@ -307,7 +339,7 @@ class _Reader:
             self.hits += key in _DIRECT
             return _cover(value, [(0, len(value))])
         got = self.find(value)
-        if label and len(label) <= 60:
+        if label and len(label) <= 60 and not _STUDY_NO.search(label):
             pre = f"{label}: "
             got += [(max(s - len(pre), 0), e - len(pre)) for s, e in self.find(pre + value) if e > len(pre)]
         self.hits += len(got)
@@ -329,6 +361,13 @@ class _Reader:
 
     # -------------------------------------------------------------------------------- files
     def file(self, name: str, data: bytes, depth: int = 0) -> bytes:
+        before, self.keep = self.keep, self.keep | _kept_in(name)
+        try:
+            return self._file(name, data, depth)
+        finally:
+            self.keep = before
+
+    def _file(self, name: str, data: bytes, depth: int) -> bytes:
         if len(data) > MAX_BYTES:
             raise Refused("", "too_large")
         kind = Path(name.lower()).suffix

@@ -4,6 +4,7 @@
  "commit": {
   "master": "440089e864fb2032b6d4e5983da742fc76fcf2ed",
   "measured_files_differ": [
+   "libs/tb_common/egress_edge.py",
    "libs/tb_common/logging.py",
    "tools/masking_leaks.py",
    "tools/masking_sheet.py"
@@ -11,12 +12,12 @@
  },
  "blobs": {
   "libs/tb_common/phi_guard.py": "84a72d1b4741b80b6ed2ac78a0b55930f2add977",
-  "libs/tb_common/egress_edge.py": "e50beff4a517a806128a48e49273c8df65aed458",
+  "libs/tb_common/egress_edge.py": "80f93f0b780d9fe0eecd6836c5df7063e49a086d",
   "tools/masking_leaks.py": "634b52bc74cf865d618125705fdd8c663558e65a",
   "libs/tb_common/logging.py": "aa546c9157bb54e9e66f35f8d3f3832eaeda37be"
  },
  "site_mrn_regex": "^\\d{8}$",
- "date": "2026-11-25",
+ "date": "2026-11-26",
  "command": "PYTHONPATH=libs:services:. .venv/bin/python -m tools.masking_sheet --write",
  "entry_point": "tb_common.egress_edge.mask_text(text, site_mrn_regex()), the one rule set of what leaves the box (D-1093)",
  "harness": {

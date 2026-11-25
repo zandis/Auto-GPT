@@ -178,6 +178,32 @@ def test_a_staff_address_stays_and_any_other_is_masked() -> None:
     assert got.startswith("pi@hosp.example ") and "home" not in got
 
 
+@pytest.mark.parametrize(
+    ("line", "stays"),
+    [("示範醫師甲 (P12345)", True), ("佐藤 健一 (P12345)", True), ("氏名:佐藤 健一 (P12345)", False),
+     ("病患 王小明 (70000054)", False), ("主治醫師 王大明", True), ("山田太郎医師", True), ("Dr. Smith", True),
+     ("病患姓名:王小明醫師", False), ("氏名:山田太郎 医師より", False), ("Patient name: Dr. Smith", False)],
+)  # fmt: skip
+def test_a_report_names_its_doctors_and_never_a_patient(line: str, stays: bool) -> None:
+    assert (ee.leave("download.aggregate", "x", line, audit=Audit(), actor="t") == line) is stays
+
+
+def test_a_study_s_own_number_stays_and_a_chart_number_under_its_head_does_not() -> None:
+    f = ee.File("a.csv", b"Subject ID,record_id\nGZQO-0001,17\n")
+    assert ee.leave("download.study", "x", f, audit=Audit(), actor="t") == f
+    got = ee.leave("download.study", "x", ee.File("a.csv", b"Subject ID\n70000054\n"), audit=Audit(), actor="t")
+    assert b"70000054" not in got.data
+
+
+def test_a_consent_form_keeps_the_hospital_s_own_telephone_and_nothing_of_a_patient() -> None:
+    page = b"<p>Emergency line 02-2312-3456. MRN: 70000054</p>"
+    audit = Audit()
+    form = ee.leave("mail.staff", "x", ee.Message("s", "b", (("consent_RA01_zh-TW.html", page),)), audit=audit, actor="t")
+    assert b"02-2312-3456" in form.files[0][1] and b"70000054" not in form.files[0][1]
+    other = ee.leave("mail.staff", "x", ee.Message("s", "b", (("report.html", page),)), audit=audit, actor="t")
+    assert b"02-2312-3456" not in other.files[0][1]
+
+
 # ------------------------------------------------------------------------------------------------ the record
 def test_the_record_holds_one_line_per_try_and_no_identifier() -> None:
     audit = Audit()
