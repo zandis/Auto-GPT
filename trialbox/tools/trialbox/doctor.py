@@ -1588,11 +1588,18 @@ def check_prefix_cache(inp: DoctorInputs) -> Check:
     names."""
     from tools import prefix_cache
 
+    env = dict(inp.env)
+    if inp.deploy is not None and prefix_cache.SETTING not in os.environ:
+        # review 1514-1: deploy/.env as compose reads it (an "export", a comment after an unquoted value)
+        from tools import rehearsal_real
+
+        env.pop(prefix_cache.SETTING, None)
+        env.update({k: v for k, v in rehearsal_real.env_file(inp.deploy / ".env").items() if k == prefix_cache.SETTING})
     try:
-        word = prefix_cache.state(inp.env)
+        word = prefix_cache.state(env)
     except ValueError as exc:
-        detail = f"{exc}: the model servers refuse to start with it; set {prefix_cache.SETTING} to no-enable (off)"
-        return Check("prefix_cache", "FAIL", detail + " in deploy/.env (D-1462)")
+        detail = f"{exc}: the model servers may refuse to start or run another option; set {prefix_cache.SETTING}"
+        return Check("prefix_cache", "FAIL", detail + " to no-enable (off) in deploy/.env (D-1462)")
     if inp.compose_config is not None:
         want = prefix_cache.flag(word)
         services = inp.compose_config.get("services") or {}
@@ -1609,7 +1616,12 @@ def check_prefix_cache(inp: DoctorInputs) -> Check:
     if word == "on":
         return Check("prefix_cache", "WARN", f"prefix caching on ({prefix_cache.SETTING}=enable): runs may differ "
                                              "from run to run on the same calls (D-1462)")  # fmt: skip
-    return Check("prefix_cache", "PASS", "prefix caching off on the judge and verifier servers (D-1462)")
+    seen = (
+        "the rendered servers"
+        if inp.compose_config is not None
+        else "the setting (--compose-config checks the servers)"
+    )
+    return Check("prefix_cache", "PASS", f"prefix caching off on the judge and verifier servers: {seen} (D-1462)")
 
 
 def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:

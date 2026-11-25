@@ -18,7 +18,7 @@
    "claim": "the cluster manifests (deploy/platform/components/gpu-pair/llm.yaml) start both servers with no prefix-cache flag; the same change there needs the trialbox-serving config map to carry the value",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "card issued #1514"
   },
   {
    "id": "H146-03",
@@ -34,6 +34,38 @@
    "claim": "the time the prefix cache saves or costs is not measured by this card; the integrator measures it on the bench copy before the box takes the update",
    "lane": "H",
    "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H146-05",
+   "severity": "Low",
+   "claim": "on a single box doctor's prefix_cache line judges the setting, not the servers COMPOSE_FILE renders; a site override giving a server its command without the line is not caught (review 1514-2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H146-06",
+   "severity": "Low",
+   "claim": "nothing refuses a TB_LLM_PREFIX_CACHING other than empty, no-enable or enable before a start; a value with = renders another option of the server (review 1514-3)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H146-07",
+   "severity": "Low",
+   "claim": "spec 04 still says the prefix cache is on and LLM-23 assumes it; D-1462 names the amendment but the spec has no note (review 1514-4)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H146-08",
+   "severity": "Low",
+   "claim": "deploy/gcp/complete-run-vm.sh and gpu-pro6000-run.sh start the judge and verifier without the prefix-cache flag, so their runs keep the cache on (review 1514-5)",
+   "lane": "G",
+   "basis": "shown",
    "state": "open"
   }
  ]

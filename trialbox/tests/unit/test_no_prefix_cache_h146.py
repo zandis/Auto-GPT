@@ -180,3 +180,123 @@ def test_doctor_reads_the_rendered_servers_when_it_has_them(tmp_path: Path) -> N
 
 def test_doctor_runs_the_line() -> None:
     assert doctor.check_prefix_cache in doctor.CHECKS
+
+
+# ------------------------------------------------------------------------- the cluster manifests (H146-02, 7165504439)
+def _cluster_servers(overlay: str, serving: dict[str, str | None] | None = None) -> dict[str, list[str]]:
+    """Each server's args in the overlay as the cluster runs them: ``kustomize build`` (or the test's stand-in when
+    kustomize is not installed), then ``$(VAR)`` filled from the ConfigMaps the container reads (envFrom), as the
+    kubelet does: a variable that is not defined stays as written. ``serving`` changes trialbox-serving's data first
+    (None removes a key), as a site overlay's merge would."""
+    import yaml
+
+    from tests.unit.test_platform_manifests import _rendered
+
+    objs = [o for o in yaml.safe_load_all(_rendered(overlay)) if o]
+    maps = {o["metadata"]["name"]: o for o in objs if o["kind"] == "ConfigMap"}
+    for name, cm in maps.items():
+        if name == "trialbox-serving" or (name.startswith("trialbox-serving-") and "record" not in name):
+            for k, v in (serving or {}).items():
+                if v is None:
+                    cm["data"].pop(k, None)
+                else:
+                    cm["data"][k] = v
+    out: dict[str, list[str]] = {}
+    for o in objs:
+        if o["kind"] != "Deployment" and o["kind"] != "StatefulSet":
+            continue
+        for c in o["spec"]["template"]["spec"].get("containers") or []:
+            if c["name"] not in SERVERS:
+                continue
+            env: dict[str, str] = {}
+            for ref in c.get("envFrom") or []:
+                env.update((maps.get((ref.get("configMapRef") or {}).get("name", "")) or {}).get("data") or {})
+            env.update({e["name"]: str(e["value"]) for e in c.get("env") or [] if "value" in e})
+            out[c["name"]] = [_fill(str(a), env) for a in c.get("args") or []]
+    return out
+
+
+def _fill(arg: str, env: dict[str, str]) -> str:
+    """``$(VAR)`` filled as the kubelet fills it: a variable that is not defined stays as written."""
+    return re.sub(r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)", lambda m: env.get(m[1], m[0]), arg)
+
+
+CLUSTER_OVERLAYS = ("shared-quota", "interim-cloud")
+
+
+@pytest.mark.parametrize("overlay", CLUSTER_OVERLAYS)
+def test_the_cluster_servers_start_without_the_prefix_cache(overlay: str) -> None:
+    """The invariant on the cluster: both servers of every overlay run the off flag once, never the on."""
+    servers = _cluster_servers(overlay)
+    assert set(servers) == set(SERVERS)
+    for name, args in servers.items():
+        assert [a for a in args if a.endswith("prefix-caching")] == [OFF], name
+
+
+@pytest.mark.parametrize("overlay", CLUSTER_OVERLAYS)
+def test_the_cluster_choice_alone_turns_the_cache_on(overlay: str) -> None:
+    for name, args in _cluster_servers(overlay, {pc.SETTING: "enable"}).items():
+        assert [a for a in args if a.endswith("prefix-caching")] == [ON], name
+
+
+@pytest.mark.parametrize("overlay", CLUSTER_OVERLAYS)
+def test_the_cluster_without_the_value_never_starts_the_cache(overlay: str) -> None:
+    """A trialbox-serving without the key leaves ``$(TB_LLM_PREFIX_CACHING)`` as written: an argument the model
+    server refuses, never the on flag."""
+    for name, args in _cluster_servers(overlay, {pc.SETTING: None}).items():
+        assert [a for a in args if a.endswith("prefix-caching")] == [f"--$({pc.SETTING})-prefix-caching"], name
+
+
+def test_every_cluster_manifest_of_a_server_is_checked() -> None:
+    """Every platform file that gives a server its args is reached by a checked overlay."""
+    import yaml
+
+    from tests.unit.test_platform_manifests import PLATFORM
+
+    for path in sorted(PLATFORM.rglob("*.yaml")):
+        for o in yaml.safe_load_all(path.read_text(encoding="utf-8")):
+            spec = (((o or {}).get("spec") or {}).get("template") or {}).get("spec") or {}
+            if any(c.get("name") in SERVERS and c.get("args") for c in spec.get("containers") or []):
+                assert path == PLATFORM / "components" / "gpu-pair" / "llm.yaml", path
+    for overlay in CLUSTER_OVERLAYS:
+        k = (PLATFORM / "overlays" / overlay / "kustomization.yaml").read_text(encoding="utf-8")
+        assert "components/gpu-pair" in k, overlay
+
+
+# ------------------------------------------------------------------- doctor reads deploy/.env as compose does (1514-1)
+@pytest.mark.parametrize(
+    "line",
+    ["export TB_LLM_PREFIX_CACHING=enable", "TB_LLM_PREFIX_CACHING=enable  # chosen", "TB_LLM_PREFIX_CACHING=no-enable # off",
+     'TB_LLM_PREFIX_CACHING=" enable"', 'TB_LLM_PREFIX_CACHING="no-enable "'],
+)  # fmt: skip
+def test_doctor_reads_deploy_env_as_compose_does(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, line: str) -> None:
+    """OCR 1514-1: doctor's status follows the flag compose renders from the same deploy/.env: PASS off, WARN on,
+    FAIL anything else (the servers refuse it)."""
+    monkeypatch.delenv(pc.SETTING, raising=False)
+    stack = next(s for s in GPU_STACKS if "docker-compose.gb10.yml" in s)
+    deploy = _box(tmp_path, stack, line + "\n")
+    flags = {tuple(_flags(b)) for b in _rendered(deploy).values()}
+    status_of: dict[tuple[tuple[str, ...], ...], str] = {((OFF,),): "PASS", ((ON,),): "WARN"}
+    want = status_of.get(tuple(flags), "FAIL")  # anything else: the servers refuse it
+    inp = doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, lake=None)
+    assert doctor.check_prefix_cache(inp).status == want, (line, flags)
+
+
+@pytest.mark.parametrize(("line", "want"), [(" enable", "FAIL"), ("no-enable ", "FAIL"), ("enable", "WARN")])
+def test_a_quoted_value_with_a_stray_blank_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, line: str, want: str
+) -> None:
+    """A blank inside the quotes is part of the value compose renders (an argument the server refuses): FAIL, never
+    WARN or PASS."""
+    monkeypatch.delenv(pc.SETTING, raising=False)
+    deploy = _box(tmp_path, GPU_STACKS[0], f'{pc.SETTING}="{line}"\n')
+    inp = doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, lake=None)
+    assert doctor.check_prefix_cache(inp).status == want
+
+
+def test_the_callers_environment_wins_as_it_does_for_compose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(pc.SETTING, "enable")
+    deploy = _box(tmp_path, GPU_STACKS[0], f"{pc.SETTING}=no-enable\n")
+    inp = doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, lake=None)
+    inp.env = {**inp.env, pc.SETTING: "enable"}  # as __main__ hands doctor the caller's value over the file's
+    assert doctor.check_prefix_cache(inp).status == "WARN"

@@ -133,3 +133,10 @@ workload rolled out, the doctor job's report read (`gpu_serving`, `mig_instances
 `SLICES=1 deploy/platform/kind-check.sh` is the one-instance case: the verifier cannot be scheduled and the doctor
 fails `mig_instances` with that reason. It is what the CI job is to run; the job itself is not wired yet (the
 workflow file is owned elsewhere).
+
+**The model servers' prefix cache (D-1462).** On the platform too, the judge and the verifier start with their prefix
+cache off: `TB_LLM_PREFIX_CACHING=no-enable` in the overlay's `serving.env`. With it on, the same calls gave different
+answers from one run to the next on the bench. Turn it on only as a recorded choice, knowing that **runs may then
+differ**: the site overlay merges `TB_LLM_PREFIX_CACHING=enable` into ConfigMap `trialbox-serving`
+(`behavior: merge`), then the two servers are restarted. Any other value, or the key missing, stops the servers at
+start.
