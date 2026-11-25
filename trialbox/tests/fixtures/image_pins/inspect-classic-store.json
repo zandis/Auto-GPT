@@ -1,0 +1,68 @@
+[
+    {
+        "Id": "sha256:1e902b6b5a1b0951e21c6f5ec2ed3170988e4a452d0bfb9aaeacd6cd3b429622",
+        "RepoTags": [
+            "hapiproject/hapi:v8.12.0-2"
+        ],
+        "RepoDigests": [],
+        "Parent": "",
+        "Comment": "",
+        "Created": "2026-01-01T00:00:00Z",
+        "DockerVersion": "",
+        "Author": "",
+        "Config": {
+            "Hostname": "",
+            "Domainname": "",
+            "User": "65532",
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "AttachStderr": false,
+            "ExposedPorts": {
+                "8080/tcp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "JAVA_HOME=/opt/java/openjdk"
+            ],
+            "Cmd": null,
+            "Image": "",
+            "Volumes": null,
+            "WorkingDir": "/app",
+            "Entrypoint": [
+                "java",
+                "--class-path",
+                "/app/main.war",
+                "-Dloader.path=main.war!/WEB-INF/classes/,main.war!/WEB-INF/,/app/extra-classes",
+                "org.springframework.boot.loader.PropertiesLauncher"
+            ],
+            "OnBuild": null,
+            "Labels": null
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 3072,
+        "GraphDriver": {
+            "Data": {
+                "LowerDir": "/var/lib/docker/overlay2/l1/diff",
+                "MergedDir": "/var/lib/docker/overlay2/m1/merged",
+                "UpperDir": "/var/lib/docker/overlay2/u1/diff",
+                "WorkDir": "/var/lib/docker/overlay2/w1/work"
+            },
+            "Name": "overlay2"
+        },
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:ed7370d344074145541b2dfd9425764e5f4328a8edd1db1d652a67e1a4145572",
+                "sha256:c838efb747da5b3d077ac6e3019812e6eda53f444870f0c793a6216875ecbccb",
+                "sha256:4c301e51fd15e5cd4324c916d58431e759d4aa817eb90d4878866c52ecaf5ce5"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-11-20T10:00:00Z"
+        }
+    }
+]
