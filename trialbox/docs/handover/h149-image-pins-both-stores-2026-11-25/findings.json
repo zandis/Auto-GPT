@@ -1,0 +1,45 @@
+{
+ "card": "H149",
+ "title": "a pinned image loaded from the signed bundle is proved on either image store of the container engine",
+ "date": "2026-11-25",
+ "source": "docs/handover/h149-image-pins-both-stores-2026-11-25.md",
+ "note": "basis 'shown' means shown by the card's tests on recorded, synthetic image inspect answers of both image stores and a synthetic save archive; no container engine ran in the card's container. The install walk on hosts with major versions 28 and 29 was not run.",
+ "findings": [
+  {
+   "id": "H149-01",
+   "severity": "High",
+   "claim": "on the containerd image store (the container engine's default from major version 29) a loaded image's id is its manifest digest and the registry digest is not kept, so tools/image_pins.py found every digest-pinned third-party image missing and the install stopped at starting the stack (the integrator's 7168582084; the failure is reproduced on the recorded answer by test_containerd_store_was_missing_before_h149)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the signed image-pins.json carries, read out of the saved archive, the tag, the layer diff ids and the run config; on a store where neither the digest nor the config digest resolves, the image under the tag is proved by them and compose is pointed at the store's own id; any difference is refused"
+  },
+  {
+   "id": "H149-02",
+   "severity": "Medium",
+   "claim": "a bundle made before this card carries pins without layers: on the containerd store it still stops at starting the stack (refused, as before); only a bundle made after this card installs there",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the runbook's install page says so; the next signed bundle carries the layers"
+  },
+  {
+   "id": "H149-03",
+   "severity": "Medium",
+   "claim": "that compose starts a service from an image named by the containerd store's own id (sha256 of the manifest), with no pull, is not shown: no container engine runs in the card's container",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the install walk on a host with major version 29 and one with 28"
+  },
+  {
+   "id": "H149-04",
+   "severity": "Low",
+   "claim": "the inline Python of make_bundle.sh that wrote image-pins.json took the config digest from manifest.json without reading the config, so a pin could name an id the archive's config blob does not hash to; the pin tool now checks the blob against its digest and refuses the bundle",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "tools.image_pins bundle-pins, called by make_bundle.sh"
+  }
+ ]
+}
