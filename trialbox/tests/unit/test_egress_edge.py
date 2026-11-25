@@ -69,6 +69,42 @@ def test_the_bundle_the_log_and_the_tripwire_read_the_one_rule_set(value: str, l
     assert Guard(None).tripwire(line).hit
 
 
+@pytest.mark.parametrize("image", [True, False])
+def test_a_host_without_the_library_asks_the_box_image(
+    image: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H-88's way: one container of the box's own image answers; no image, refused by name."""
+    import sys
+
+    from tools import bundle_scrub as bs
+    from tools.trialbox import launch
+
+    docker = tmp_path / "docker"
+    run = f"cd {ROOT} && PYTHONPATH=libs:services:. exec {sys.executable} -m tools.bundle_scrub"
+    docker.write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/argv\n{run if image else "exit 125"}\n')
+    docker.chmod(0o755)
+    monkeypatch.setattr(launch, "box_file", lambda: {"TB_DOCKER": str(docker), "TB_IMAGE": "box-img:1"})
+    monkeypatch.setitem(sys.modules, "tb_common.egress_edge", None)  # it cannot be imported here
+    bs.egress_rules.cache_clear()
+    try:
+        if not image:
+            with pytest.raises(bs.ScrubError, match="box-img:1"):
+                bs.scrub_text("Patient name: Robin Example.")
+            return
+        assert bs.scrub_text("Patient name: Robin Example.") == "Patient name: [NAME]."
+        got = bs.egress_rules()(op="leave", route="support.bundle", destination="support", actor="t",
+                                files=[["a.txt", "Pt: Robin Example"]])  # fmt: skip
+        assert "Robin" not in str(got) and got["line"]["detail"]["result"] == "masked"
+        argv = (tmp_path / "argv").read_text()
+        assert "--pull never --network none --cap-drop ALL" in argv and "box-img:1 python -m tools.bundle_scrub" in argv
+        assert "-v" not in argv.split() and "Robin" not in argv
+        rules: Any = bs.egress_rules()
+        rules.p.stdin.close()
+        rules.p.wait(10)
+    finally:
+        bs.egress_rules.cache_clear()
+
+
 @pytest.mark.parametrize("extra", [Path("/x/090-1234-5678"), b"090-1234-5678", ValueError("090-1234-5678"), 70000054])
 def test_a_log_extra_that_is_not_text_is_scrubbed(extra: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """R22-21: an object, a path, bytes, an exception, a number went out as written."""
@@ -155,8 +191,22 @@ def test_a_pdf_with_an_identifier_is_refused() -> None:
     assert ee.leave("download.aggregate", "x", ok, audit=Audit(), actor="t") == ok
 
 
-def test_the_registry_export_refuses_a_chart_number() -> None:
-    assert reason("download.registry", ee.File("a.csv", b"no\n70000054\n")) == "identifiers"
+def test_the_registry_export_is_the_fourth_exception_and_counts_its_chart_numbers() -> None:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    for row in (["no", "chart"], ["RA01-0001", "70000054"], ["RA01-0002", "70000062"], ["RA01-0003", "70000054"]):
+        wb.active.append(row)  # type: ignore[union-attr]
+    buf = io.BytesIO()
+    wb.save(buf)
+    path = "/pilot/registry/RA01/export.xlsx"
+    c, audit = _console({path: ("screening_log_RA01.xlsx", buf.getvalue())})
+    assert c.get(path).content == buf.getvalue()
+    d = audit.lines[-1]["detail"]
+    assert (d["route"], d["result"], d["items"]) == ("download.registry", "exception", 2)
+    assert reason("download.registry", ee.File("a.xlsx", buf.getvalue())) == "not_named"
+    assert {r for v in ee.EXCEPTIONS.values() for r in v} == {k for k, r in ee.ROUTES.items() if r.mode == "exception"}
+    assert len(ee.EXCEPTIONS) == 4 and ee.chart_numbers(b"not a workbook") is None
 
 
 # ------------------------------------------------------------------------------------------------ names of files

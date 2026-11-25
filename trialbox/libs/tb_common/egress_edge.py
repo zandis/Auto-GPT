@@ -61,7 +61,7 @@ class Route:
     fields: frozenset[str] | None = None
 
 
-_CONSOLE = ("services/console/app.py", "egress_page.register(")
+_CONSOLE = ("services/console/app.py", "egress_page(app")
 _MAIL = ("services/mail_gateway/gateway.py", "gate_mail(")
 _AUDIT_COLUMNS = frozenset(
     [
@@ -96,7 +96,8 @@ ROUTES: dict[str, Route] = {
     "download.aggregate": Route("mask", _CONSOLE, free_text=False),
     "download.study": Route("mask", _CONSOLE),
     "download.site": Route("mask", _CONSOLE),
-    "download.registry": Route("refuse", _CONSOLE),  # the log with every chart number: ruling (b) names no exception
+    # the study's log with every chart number: the fourth exception (the integrator's default, D-1093 item 4)
+    "download.registry": Route("exception", _CONSOLE, role="a person with the reveal right (D-438)"),
     "model.offbox": Route("refuse", ("services/gateway/core.py", '"model.offbox"')),
     "patient.mail": Route("exception", _MAIL, role=_NAMED),
     "patient.download": Route("exception", _CONSOLE, role=_NAMED),
@@ -105,8 +106,13 @@ ROUTES: dict[str, Route] = {
         "exception", ("services/orchestrator/scenarios/submit.py", '"nhi.submit"'), role="the confirmed SUBMIT"
     ),
 }
-#: the three exceptions of ruling (b); the patient file leaves by mail or by its sign-in link
-EXCEPTIONS = {"patient": ("patient.mail", "patient.download"), "edc": ("edc.write",), "nhi": ("nhi.submit",)}
+#: ruling (b)'s three exceptions (the patient file leaves by mail or by its sign-in link) and the registry's log
+EXCEPTIONS = {
+    "patient": ("patient.mail", "patient.download"),
+    "edc": ("edc.write",),
+    "nhi": ("nhi.submit",),
+    "registry": ("download.registry",),
+}
 
 #: a console address that gives a file, and its route (None: the job's output says, ``console.egress_page``)
 DOWNLOADS: tuple[tuple[re.Pattern[str], str | None], ...] = tuple(
@@ -547,6 +553,19 @@ class File:
     data: bytes
 
 
+def chart_numbers(data: bytes) -> int | None:
+    """How many different chart numbers a workbook's cells hold; None when it cannot be read."""
+    from openpyxl import load_workbook
+
+    rx = re.compile((site().mrn or r"^$").strip("^$"))
+    try:
+        wb = load_workbook(io.BytesIO(data), read_only=True)
+        cells = (str(v) for ws in wb.worksheets for row in ws.iter_rows(values_only=True) for v in row if v is not None)
+        return len({c for c in cells if rx.fullmatch(c)})
+    except Exception:
+        return None
+
+
 def _bytes_of(p: Any) -> bytes:
     if isinstance(p, File):
         return p.data
@@ -580,12 +599,14 @@ def leave(
     unchecked: bool = False,
     refused: str = "",
     note: str = "",
+    where: Site | None = None,
 ) -> Any:
     """The payload as it may leave by ``route`` to ``destination``, or :class:`Refused`. ``payload``: a text, a
     mapping or list, a :class:`File` or a :class:`Message`. ``audit``: the service's audit log; a record that cannot be
     written refuses. ``named``: an exception route's named destinations. ``items``: how many patients it is about, when
     the caller knows. ``unchecked``: the tripwire's development switch, for a model off the box only. ``refused``: an
-    exception's own check already said no, and why; ``note``: what it did not know."""
+    exception's own check already said no, and why; ``note``: what it did not know.
+    ``where``: the site, when the caller holds its settings (else :func:`site`)."""
     rule = ROUTES.get(route)
     out, why, result = payload, "", "sent"
     reader: _Reader | None = None
@@ -600,7 +621,7 @@ def leave(
         elif unchecked and route == "model.offbox":
             result = "unchecked"
         else:
-            reader = _Reader(rule, site())
+            reader = _Reader(rule, where or site())
             out = _clean(reader, payload)
             if rule.mode == "refuse" and reader.hits:
                 why = "identifiers"
@@ -657,7 +678,13 @@ def may_have(delegated: bool | None, sender: bool | None) -> str:
 
 
 def gate_mail(
-    req: Any, store: Any, *, audit: Any, internal: Callable[[str], bool], rights: Rights | None = None
+    req: Any,
+    store: Any,
+    *,
+    audit: Any,
+    internal: Callable[[str], bool],
+    rights: Rights | None = None,
+    site: Site | None = None,
 ) -> tuple[Any, Any]:
     """A send request and its store as they may leave. A patient file goes as it is, to the site's own domains only
     (D-369 names its recipients), by :func:`may_have`; any other mail is read whole, attachments too."""
@@ -679,6 +706,7 @@ def gate_mail(
         named=[where] if patient and to and all(internal(r) for r in to) else (),
         refused=why,
         note=note,
+        where=site,
     )
     if not patient:
         new = [a.model_copy(update={"filename": n}) for a, (n, _d) in zip(atts, msg.files, strict=True)]

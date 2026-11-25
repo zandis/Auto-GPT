@@ -49,6 +49,22 @@ def test_default_install_passes() -> None:
         "channel_engine",
         "secure_cookie",
         "phi_tripwire",  # 9g-11, D-1348
+        "egress.log",  # M3, D-1093
+        "egress.support.bundle",  # M3, D-1093
+        "egress.mail.staff",  # M3, D-1093
+        "egress.mail.reply",  # M3, D-1093
+        "egress.mail.test",  # M3, D-1093
+        "egress.download.audit",  # M3, D-1093
+        "egress.download.aggregate",  # M3, D-1093
+        "egress.download.study",  # M3, D-1093
+        "egress.download.site",  # M3, D-1093
+        "egress.download.registry",  # M3, D-1093
+        "egress.model.offbox",  # M3, D-1093
+        "egress.patient.mail",  # M3, D-1093
+        "egress.patient.download",  # M3, D-1093
+        "egress.edc.write",  # M3, D-1093
+        "egress.nhi.submit",  # M3, D-1093
+        "egress.tripwire",  # M3, D-1093
         "console_mfa",
         "ldap_ca",  # D-722
         "publish_gate",

@@ -179,12 +179,16 @@ def _mrn(text: str, mrn_regex: str | None) -> Iterator[Finding]:
 
 #: the note masker's kinds (``tb_common.phi_guard.note_spans``) as the guard names them
 NOTE_KINDS = {"name": "NAME", "phone": "PHONE", "mrn": "MRN", "id": "ID_NUMBER", "dob": "DOB", "address": "ADDRESS",
-              "email": "EMAIL", "bed": "BED", "room": "ROOM", "twid": "TW_NATIONAL_ID", "mynumber": "JP_MY_NUMBER",
-              "insurance": "ID_NUMBER", "postcode": "ADDRESS"}  # fmt: skip
+              "email": "EMAIL", "bed": "BED", "room": "ROOM"}  # fmt: skip
+#: the log scrubber's kinds (the egress edge reads its forms too): a number's own recogniser above names it
+NUMBER_KINDS = ("twid", "mynumber", "insurance")
 
 
 def _note_spans(text: str, mrn_regex: str | None) -> Iterator[Finding]:
     for kind, s, e in egress_edge.spans(text, mrn_regex):  # M3: the edge's rule set, the note masker's within it
+        if kind in NUMBER_KINDS:  # the number alone, without its label: the recogniser that knows its kind wins
+            s += next((i for i, c in enumerate(text[s:e]) if c.isdigit() or (c.isascii() and c.isalpha())), 0)
+            kind = "id"
         yield Finding(NOTE_KINDS.get(kind, kind.upper()), s, e)
 
 

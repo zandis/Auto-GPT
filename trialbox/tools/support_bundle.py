@@ -638,18 +638,19 @@ def _leave(b: Bundle, deploy: Path) -> bool:
     """M3: the bundle passes the egress edge; its line of the egress record is in the host's own audit chain
     (``updates/audit``, as the updater's). A bundle that may not leave, or is not recorded, is not written. Whether the
     edge still masked something in it."""
-    from tb_common import egress_edge
     from tb_common.audit import AuditLog
 
-    files = tuple((n, t.encode("utf-8")) for n, t in sorted(b.members.items()))
+    files = [[n, t] for n, t in sorted(b.members.items())]
+    got = bs.egress_rules()(op="leave", route="support.bundle", destination="support", files=files,
+                            actor="support-bundle")  # fmt: skip
     try:
-        audit = AuditLog(deploy / "updates" / "audit")
-        out = egress_edge.leave("support.bundle", "support", egress_edge.Message("", "", files), audit=audit,
-                                actor="support-bundle")  # fmt: skip
-    except (OSError, ImportError, egress_edge.Refused) as exc:
-        raise BundleRefused(f"the bundle may not leave or could not be recorded ({exc}): not written") from None
-    b.members = {n: d.decode("utf-8") for n, (_safe, d) in zip(sorted(b.members), out.files, strict=True)}
-    return bool(out.files != files)
+        AuditLog(deploy / "updates" / "audit").append(**got["line"])
+    except (OSError, TypeError) as exc:
+        raise BundleRefused(f"the bundle's departure was not recorded ({type(exc).__name__}): not written") from None
+    if got["refused"]:
+        raise BundleRefused(f"the bundle may not leave ({got['refused']}): not written")
+    b.members = {n: new for (n, _old), (_safe, new) in zip(files, got["files"], strict=True)}
+    return bool([t for _n, t in got["files"]] != [t for _n, t in files])
 
 
 def _write_tar(target: Path, members: Mapping[str, str], at: datetime, scrubber: bs.Scrubber) -> None:

@@ -10,12 +10,15 @@
 2. **What leaves the box** passes one function, `tb_common.egress_edge.leave(route, destination, payload)`. Its rules
    are one table: per route, masked, refused, or an exception. A route that is not in the table, a file it cannot
    read, a masker that fails and a departure that cannot be recorded are refused; nothing leaves.
-3. **Three exceptions**, each to its named destination, each audited: a patient file to its named recipients (by mail,
-   or by its sign-in link), the EDC write-back, and the national-insurance submission. The patient file asks at each
-   send whether every recipient is on the study's delegation log today and whether the person who asked for the job
-   is. A no refuses everywhere. An unknown refuses on a PRODUCTION box and is recorded on any other.
-4. **The screening log with every chart number** (`/pilot/registry/{study}/export.xlsx`) is not one of the three: it is
-   refused when it holds a chart number.
+3. **Four exceptions**, each to its named destination, each audited: a patient file to its named recipients (by mail,
+   or by its sign-in link), the EDC write-back, the national-insurance submission, and the registry's log (item 4).
+   The patient file asks at each send whether every recipient is on the study's delegation log today and whether the
+   person who asked for the job is. A no refuses everywhere. An unknown refuses on a PRODUCTION box and is recorded on
+   any other.
+4. **The study's log with every chart number** (`/pilot/registry/{study}/export.xlsx`) is the fourth exception: a site
+   record the product already gives to a person with the reveal right (D-438). The reveal right, the route's role
+   checks, its reason and its cap stay; one `egress.leave` line holds the count of chart numbers. This is the
+   integrator's default, for the owner to confirm; refusing it would remove a function.
 5. **Aggregate files hold no note text**: a field of note text refuses the file.
 6. **The tripwire** (`TB_GATEWAY_PHI_TRIPWIRE`) cannot be off on a PRODUCTION box: the gateway does not start. On any
    other box it stays a development switch; the doctor shows it.

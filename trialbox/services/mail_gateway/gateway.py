@@ -355,10 +355,12 @@ class Gateway:
 
     def _prepare(self, req: SendRequest, message_id: str | None = None) -> Any:
         store: Any = self.store
+        s = self.cfg.settings
         try:  # M3: what leaves passes the egress edge
             req, store = egress_edge.gate_mail(
                 req, store, audit=self.audit, rights=self.mail_rights,
-                internal=lambda r: is_internal(r, list(self.cfg.settings.internal_domains)))  # fmt: skip
+                internal=lambda r: is_internal(r, list(s.internal_domains)),
+                site=egress_edge.Site(s.mrn_regex, tuple(d.lower() for d in s.internal_domains)))  # fmt: skip
         except egress_edge.Refused as exc:
             if exc.reason != "not_named":  # a patient file to another domain: prepare's own refusal names it
                 raise RoutingRefused(f"the mail may not leave the box ({exc.reason})") from exc

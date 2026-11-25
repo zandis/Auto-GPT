@@ -3,13 +3,14 @@
 Every answer of the console that is a file passes :class:`EgressLayer`: a listed download (``egress_edge.DOWNLOADS``)
 goes through ``egress_edge.leave`` by its route's rule; an attachment no rule lists is refused. The layer is the
 innermost of the console's middleware (as ``console.phone``'s), so a refusal carries the console's headers. A job's
-file is an aggregate (masked) or a patient file (an exception: to its named recipients' own mailbox, D-369).
+file is an aggregate (masked) or a patient file (an exception: to its named recipients' own mailbox, D-369). The
+study's log with every chart number is an exception to the person the reveal right let through (D-438).
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import timedelta
 from email.message import Message as Headers
 from typing import Any
@@ -22,13 +23,10 @@ from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from tb_common import egress_edge, egress_record
 
-from console import audit_page, i18n_egress
+from console import audit_page
 from console.home import Helpers
 from console.i18n import CATALOGUES
 from console.rc1_guard import Rc1Guard, _path
-
-for _lang, _cat in (("en", i18n_egress.EN), ("ja", i18n_egress.JA), ("zh-TW", i18n_egress.ZH)):
-    CATALOGUES[_lang].update(_cat)
 
 DAYS = 30
 _JOB = re.compile(r"^/pilot/jobs/(?P<job>[^/]+)/files/(?P<name>[^/]+)$")
@@ -75,6 +73,8 @@ class Door:
                     user, study = sess.user, getattr(job, "ruleset", None) or ""
                     ok = user.can_view_phi and user.sees_study(study) and self.h.delegated_ok(user, study)
                     refused = egress_edge.may_have(bool(ok), True)
+        elif route == "download.registry" and sess is not None:  # the route has asked the reveal right and the role
+            named = (where,)
         got: egress_edge.File = egress_edge.leave(
             route or "download.unlisted",
             where,
@@ -83,6 +83,7 @@ class Door:
             actor=who,
             named=named,
             refused=refused,
+            items=egress_edge.chart_numbers(data) if route == "download.registry" else None,
         )
         return got
 
@@ -159,7 +160,7 @@ def events(h: Helpers, days: int = DAYS) -> Iterator[dict[str, Any]]:
         yield {"ts": r.ts, "event": r.event, "detail": r.detail}
 
 
-def register(app: FastAPI, h: Helpers) -> None:
+def register(app: FastAPI, h: Helpers, _env: Mapping[str, str] | None = None) -> None:
     app.user_middleware.append(Middleware(EgressLayer, door=Door(h)))  # appended: inside the headers middleware
 
     @app.get("/admin/egress")

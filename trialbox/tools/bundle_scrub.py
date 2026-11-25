@@ -5,7 +5,8 @@
     s = Scrubber.for_bundle(mrn=pattern)          # a bundle's scrubber: a fresh tag key, the site's chart number
     name, text = s.member(name, text)             # a member's name and its text
 
-It is pure: the same text and the same scrubber always give the same result, and it reads nothing but the
+It is pure: the same text and the same scrubber always give the same result, and it reads nothing but the egress
+edge's rules (asked of the box image when the host's python3 cannot load them: :class:`_Image`) and the
 declarations of ``libs/tb_common/config.py`` and ``libs/tb_common/crypto.py`` (parsed, not imported: the bundle is
 made by the host's python3, standard library only). Gate 5's ``prepare_output`` can call :func:`scrub_text` as it is.
 
@@ -35,14 +36,21 @@ import ast
 import hashlib
 import hmac
 import html
+import importlib
 import itertools
+import json
+import os
 import re
 import secrets
+import shlex
+import subprocess
+import sys
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -459,12 +467,7 @@ class Scrubber:
         if self.mrn is not None:
             text, k = self.mrn.subn("[MRN]", text)
             self.found["chart number"] += k
-        try:
-            from tb_common import egress_edge
-        except ImportError as exc:  # no rules, no bundle
-            raise ScrubError(f"the egress rules cannot be loaded ({exc.name}): install python3-cryptography") from None
-
-        for kind, s, e in reversed(egress_edge.spans(text, own_ids=True)):
+        for kind, s, e in reversed(egress_rules()(op="spans", text=text)):
             label = f"[{kind.upper()}]"
             if text[s:e] != label[1:-1] and text[s:e] != label:  # a label already there is not masked again
                 text = text[:s] + label + text[e:]
@@ -551,7 +554,6 @@ class Scrubber:
     def json_text(self, text: str, *, lines: bool = False) -> str:
         """A JSON document (``lines``: one per line) kept JSON: scrubbed value by value, written back in the bundle's
         form, then scrubbed once more as text. Text that is not JSON is scrubbed as text."""
-        import json
 
         def dump(obj: object, indent: int | None) -> str:
             return json.dumps(obj, indent=indent, ensure_ascii=False, sort_keys=True, default=str)
@@ -718,6 +720,89 @@ def scrub_text(text: str, scrubber: Scrubber | None = None) -> str:
     return (scrubber or Scrubber()).text(text)
 
 
+# ------------------------------------------------------------------------------------------------ the egress rules
+class _Line:
+    """The egress record's line, held until the caller writes it."""
+
+    def __init__(self) -> None:
+        self.line: dict[str, Any] = {}
+
+    def append(self, event: str, **fields: Any) -> None:
+        self.line = {"event": event, **fields}
+
+
+def answer(op: str, **ask: Any) -> Any:
+    """One question of the egress edge (``tb_common.egress_edge``), here: ``spans`` of a text, or ``leave`` of a
+    bundle's members (the members as they may leave, why they may not, and the record's line)."""
+    from tb_common import egress_edge
+
+    if op == "spans":
+        return [list(s) for s in egress_edge.spans(ask["text"], own_ids=True)]
+    if op != "leave":
+        raise ValueError(op)
+    files = tuple((n, t.encode("utf-8")) for n, t in ask["files"])
+    held, why = _Line(), ""
+    try:
+        files = egress_edge.leave(
+            ask["route"], ask["destination"], egress_edge.Message("", "", files), audit=held, actor=ask["actor"]
+        ).files
+    except egress_edge.Refused as exc:
+        why = exc.reason
+    return {"files": [[n, d.decode("utf-8")] for n, d in files], "refused": why, "line": held.line}
+
+
+class _Image:
+    """The same questions, asked of one container of the box's own image (H-88, ``tools.trialbox.launch``): the
+    host's python3 lacks a library the rules need. No network, no mount, nothing on a command line; an answer that
+    does not come is a refusal by name."""
+
+    def __init__(self, missing: str) -> None:
+        from tools.trialbox import launch
+
+        try:
+            box = launch.box_file()
+        except launch.BoxFileError as exc:
+            raise ScrubError(str(exc)) from None
+        self.said = (
+            f"the egress rules need {missing}, which this host's python3 does not have, and the box image "
+            f"({box.get('TB_IMAGE') or launch.DEFAULT_IMAGE}) could not run them"
+        )
+        docker = shlex.split(box.get("TB_DOCKER") or "docker")
+        need = launch.Need(launch.IMAGE, (missing,))
+        argv = launch.container_argv([], need, box, Path.cwd(), os.getuid(), os.getgid(), docker)
+        try:
+            self.p = subprocess.Popen(
+                [*argv[:-1], "tools.bundle_scrub"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+                encoding="utf-8",
+            )  # fmt: skip
+        except OSError:
+            raise ScrubError(self.said) from None
+
+    def __call__(self, op: str, **ask: Any) -> Any:
+        assert self.p.stdin is not None and self.p.stdout is not None
+        try:
+            print(json.dumps({"op": op, **ask}), file=self.p.stdin, flush=True)
+            got = json.loads(self.p.stdout.readline())
+        except (OSError, ValueError):
+            raise ScrubError(self.said) from None
+        return got["answer"]
+
+
+@lru_cache(maxsize=1)
+def egress_rules() -> Callable[..., Any]:
+    try:
+        importlib.import_module("tb_common.egress_edge")
+    except ImportError as exc:
+        return _Image(str(exc.name))
+    return answer
+
+
+def serve() -> None:
+    """In the box image: one question a line on standard input, one answer a line on standard output."""
+    for line in sys.stdin:
+        print(json.dumps({"answer": answer(**json.loads(line))}), flush=True)
+
+
 def scrub_lines(lines: Iterable[str], scrubber: Scrubber | None = None) -> list[str]:
     s = scrubber or Scrubber()
     return [s.text(x) for x in lines]
@@ -761,8 +846,6 @@ def error_shape(text: object) -> dict[str, object]:
 def history_text(text: str) -> str:
     """The update history as the bundle holds it: each line's own fields, and every other field (the ``detail``
     the step wrote, often an error's text) as its type and length. A line that is not a JSON object is its length."""
-    import json
-
     out = []
     for line in text.splitlines():
         if not line.strip():
@@ -790,3 +873,7 @@ def free_text_out(obj: object, keys: Iterable[str] = ("detail", "error")) -> obj
     if isinstance(obj, list):
         return [free_text_out(v, wanted) for v in obj]
     return obj
+
+
+if __name__ == "__main__":
+    serve()

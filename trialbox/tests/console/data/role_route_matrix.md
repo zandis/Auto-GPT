@@ -12,6 +12,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/admin` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/accounts` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/edc` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/egress` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/notice` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops/network/{name}` | n | - | - | - | - | - | - | - | - |
@@ -216,8 +217,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/patients/{pid}/reveal` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | - | Y | - | Y | Y | - | - | - | - |
-| POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/setup/consent-ages` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/state/take-back` | - | - | - | Y | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/subjects/{record}/step` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
@@ -301,8 +302,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/sae/{record}/{event}/{what}` | n | n | n | n | n | - | - | n | n |
 | POST | `/studies/{rs}/schedule` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup` | - | Y | - | - | Y | - | - | - | - |
-| POST | `/studies/{rs}/setup/contact` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/consent-ages` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/contact` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/log` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/redcap` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/redcap/test` | - | Y | - | - | Y | - | - | - | - |
