@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
-import subprocess  # nosec B404: fixed argv, no shell
+import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
