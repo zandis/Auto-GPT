@@ -5400,12 +5400,12 @@ a_ra_bio_exc_02_1 AS (
 a_ra_bio_exc_02_2 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND (e.d BETWEEN (b.index_date + -365) AND b.index_date OR (e.d IS NOT NULL AND e.te >= (b.index_date + -365) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 a_ra_bio_exc_02_2_nd AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
   GROUP BY b.pid, b.index_date),
 -- RA-BIO-EXC-02 (exclusion): 一年內丙型干擾素釋放試驗（IGRA）陽性而未接受潛伏結核預防性治療。
 c_ra_bio_exc_02 AS (
@@ -5438,12 +5438,12 @@ a_ra_bio_exc_03_1 AS (
 a_ra_bio_exc_03_2 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBV_ANTIVIRAL_PROPHYLAXIS' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBV_ANTIVIRAL_PROPHYLAXIS' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -180) AND b.index_date
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBV_ANTIVIRAL_PROPHYLAXIS' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBV_ANTIVIRAL_PROPHYLAXIS' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND (e.d BETWEEN (b.index_date + -180) AND b.index_date OR (e.d IS NOT NULL AND e.te >= (b.index_date + -180) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 a_ra_bio_exc_03_2_nd AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBV_ANTIVIRAL_PROPHYLAXIS' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBV_ANTIVIRAL_PROPHYLAXIS' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBV_ANTIVIRAL_PROPHYLAXIS' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBV_ANTIVIRAL_PROPHYLAXIS' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
   GROUP BY b.pid, b.index_date),
 -- RA-BIO-EXC-03 (exclusion): B型肝炎表面抗原（HBsAg）陽性而半年內未併用抗病毒藥物預防。
 c_ra_bio_exc_03 AS (

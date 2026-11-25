@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "2d35403676d1afe8c82724a28b53d0502ddd7a83",
+  "head": "6c73db64a3fcdb82626fce1e691ba67f42f3675e",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-914: an inclusion's FALSE (or an exclusion's TRUE under none) for a patient with no coded record of the atom's kind reads unknown (no_record_of_kind), never an exclusion",
+  "reason": "INT-R1: a medication look-back counts an order whose supply reaches into the window (GOUT-COH-INC-03, GZQO-EXC-04, RA-COH-INC-02 and the steps after them)",
   "ref_date": "2026-11-01",
   "ruleset": "RA-COH",
   "ruleset_version": "1.0.0",
@@ -126,7 +126,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 22,
-   "outcomes_sha": "34ae405abcdc550d33e947c7e86b9122f7e742de927ff963b0d0bd79a83be848",
+   "outcomes_sha": "c900663d52ed1ea047c2c48751df55e3e163a62d908bf7e73d2ec8a1a8a34a34",
    "patients": 400,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -143,8 +143,8 @@
      "unknown": 33
     },
     "RA-COH-INC-02": {
-     "met": 74,
-     "not_met": 209,
+     "met": 75,
+     "not_met": 208,
      "unknown": 117
     },
     "RA-COH-INC-03": {
@@ -280,7 +280,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 107,
-   "outcomes_sha": "c85529b2df58ff4e2b493cd59ab30ccf060a036bd23c456ecb3e07857a649630",
+   "outcomes_sha": "c7448d7d5c2ab447ef94cfdaf3e762f31406ee0a9ff3dfff47c74fd4850a9230",
    "patients": 2500,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -297,8 +297,8 @@
      "unknown": 177
     },
     "RA-COH-INC-02": {
-     "met": 511,
-     "not_met": 1160,
+     "met": 513,
+     "not_met": 1158,
      "unknown": 829
     },
     "RA-COH-INC-03": {
@@ -488,7 +488,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 161,
-   "outcomes_sha": "359e4eded70aef6669d6dd4ae905125a7a6213b458bcf471061c78e94195a2ee",
+   "outcomes_sha": "e23f6d3dad833a45248a9ccfab135bfc467a96a4a40fe4bc632bdcfea9b11a68",
    "patients": 2500,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -505,8 +505,8 @@
      "unknown": 243
     },
     "RA-COH-INC-02": {
-     "met": 492,
-     "not_met": 1166,
+     "met": 498,
+     "not_met": 1160,
      "unknown": 842
     },
     "RA-COH-INC-03": {
@@ -665,7 +665,7 @@
     "fec1d0bb1e95d78621123a7dcbfa6024"
    ],
    "candidates": 130,
-   "outcomes_sha": "5b81c762c796a17e885ac71275942702d434dca36ea0f9c4304f8f8c71fcb9c6",
+   "outcomes_sha": "00133b5b4834db3bda92850a8b17d42ef67ee8430888b353ade22d770c6d529f",
    "patients": 2500,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -682,8 +682,8 @@
      "unknown": 193
     },
     "RA-COH-INC-02": {
-     "met": 507,
-     "not_met": 1196,
+     "met": 510,
+     "not_met": 1193,
      "unknown": 797
     },
     "RA-COH-INC-03": {

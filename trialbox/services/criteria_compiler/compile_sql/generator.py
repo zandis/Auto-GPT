@@ -205,11 +205,22 @@ class SqlGenerator:
         if atom.domain == "medication" and self.vs.yj_stems(vsn):
             cols = [*cols, (lit(YJ_STEM), YJ_STEM_OF.format(col="x.nhi_code"))]
         rid_sel = "rid" if rid == "rid" else f"{rid} AS rid"
+        # INT-R1: in a look-back with a first day, a dated order also counts when its supply period (the lake's
+        # therapy start to end, ends inclusive) overlaps the window; an order with no end counts by its date alone
+        supply = atom.domain == "medication" and w.from_days is not None
+        placed = in_window("e.d", w)
+        if supply:
+            assert w.from_days is not None
+            placed = (
+                f"({placed} OR (e.d IS NOT NULL AND e.te >= {date_bound(w.from_days)} "
+                f"AND e.ts <= {date_bound(w.to_days)}))"
+            )
+        cols_sel = f'{d} AS d, coalesce(start, authored) AS ts, "end" AS te' if supply else f"{d} AS d"
 
         def src(match: Callable[[str, str, str], str], status: str = "") -> str:
             cond = " OR ".join(match(vsn, sc, cc) for sc, cc in cols)
             where = f"({cond}){status}" if status else cond  # a shipped atom's SQL stays byte for byte what it was
-            return f"SELECT pid, {rid_sel}, {d} AS d FROM {table} x WHERE {where}"
+            return f"SELECT pid, {rid_sel}, {cols_sel} FROM {table} x WHERE {where}"
 
         # D-917: a condition atom with ``clinical_status`` counts a row whose status is listed or not recorded; a row
         # recorded with another status (resolved, in remission) cannot settle it and makes the answer unknown, as an
@@ -224,7 +235,7 @@ class SqlGenerator:
             return (
                 f"{n} AS (\n  SELECT b.pid, b.index_date, count(*) AS n,\n"
                 f"         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev\n"
-                f"  FROM base b JOIN ({source}) e ON e.pid = b.pid AND {in_window('e.d', w)}\n"
+                f"  FROM base b JOIN ({source}) e ON e.pid = b.pid AND {placed}\n"
                 f"  GROUP BY b.pid, b.index_date)"
             )
 

@@ -1,0 +1,80 @@
+{
+ "card": "INTR1",
+ "title": "a medication look-back counts an order whose supply reaches into the window",
+ "date": "2026-11-25",
+ "source": "docs/handover/med-supply-lookback-intr1-2026-11-25.md",
+ "findings": [
+  {
+   "id": "INTR1-01",
+   "severity": "High",
+   "claim": "a medication look-back read the order date only in the SQL and the CQL, so an order written before the window whose supply ran into it was not counted (ten compiled shipped criteria); fixed: a dated order also counts when its supply period overlaps the window, both ends inclusive, no end read as before",
+   "lane": "J",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/criteria_compiler/compile_sql/generator.py; services/criteria_compiler/compile_cql/generator.py"
+  },
+  {
+   "id": "INTR1-02",
+   "severity": "Medium",
+   "claim": "the CQL duration atom reads only dispenseRequest.validityPeriod and authoredOn, not boundsPeriod or expectedSupplyDuration as the lake (and so the SQL) does: an order dated by its supply or bounds alone is met in the SQL and unknown in the CQL, and a short bounds period beside a longer validity period is not met in the SQL and met in the CQL; GZQO-INC-06, RA-BIO-INC-03, RA-BIO-INC-04, RA-JAK-INC-03",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/criteria_compiler/compile_cql/generator.py _med_duration"
+  },
+  {
+   "id": "INTR1-03",
+   "severity": "Low",
+   "claim": "the CQL medication presence atom retrieves MedicationRequest only; the lake's medication table, and so the SQL, also holds MedicationStatement rows",
+   "lane": "J",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "services/criteria_compiler/compile_cql/generator.py _presence"
+  },
+  {
+   "id": "INTR1-04",
+   "severity": "Medium",
+   "claim": "the uncoded medication rows that make an inclusion unknown are placed by authored alone, so an uncoded order whose supply reaches into the look-back does not make it unknown",
+   "lane": "J",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "services/matching/coverage.py SQL and Coverage.refs"
+  },
+  {
+   "id": "INTR1-05",
+   "severity": "High",
+   "claim": "SQL a site approved before INT-R1 carries the D-275 mark and compile_sql.overlay runs it alone, so it keeps the order-date-only look-back until it is recompiled and approved again",
+   "lane": "J",
+   "basis": "hypothesis",
+   "state": "open",
+   "place": "services/criteria_compiler/compile_sql/overlay.py guarded"
+  },
+  {
+   "id": "INTR1-06",
+   "severity": "Medium",
+   "claim": "the SQL reads a date and time in the site's zone and the CQL in its own offset, so an order date in a UTC evening falls on another day in the two engines; shown on 6c73db64",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/criteria_compiler/compile_cql/generator.py _presence; services/lake/flatten.py ts"
+  },
+  {
+   "id": "INTR1-07",
+   "severity": "Medium",
+   "claim": "an order of status unknown is kept undated by the lake (SQL: unknown) and placed by its date in the CQL (met); shown on 6c73db64",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/criteria_compiler/compile_cql/generator.py _presence; services/lake/flatten.py medication"
+  },
+  {
+   "id": "INTR1-08",
+   "severity": "Low",
+   "claim": "a partial FHIR date (year and month) as a validity period's end stops the lake rebuild with a ValueError; whether the ingest validator refuses it first was not checked",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/lake/flatten.py ts"
+  }
+ ]
+}

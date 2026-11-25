@@ -248,6 +248,36 @@ class CqlGenerator:
                 raise CompileError(f"unsupported domain {atom.domain}")
         joiner = " " if retrieve.endswith(" and") else " where "
         un, qn = q("U_" + p), q("Q_" + p)
+        placed = f"{date} in {win}"
+        supply_fns: list[str] = []
+        if atom.domain == "medication" and w.from_days is not None:
+            # INT-R1, as the SQL: a dated order also counts when its supply period overlaps the window, the period as
+            # the lake reads it (``lake.flatten`` ``therapy``): the bounds period, else the validity period; its start
+            # else the order date; its end else the start plus the expected supply duration in days or weeks
+            tp, sd, ts, te = (q(x + p) for x in ("TP_", "SD_", "TS_", "TE_"))
+            bounds = "(First(X.dosageInstruction).timing.repeat.bounds as FHIR.Period)"
+            dur = "X.dispenseRequest.expectedSupplyDuration"
+            unit = f"Lower(Coalesce({dur}.code.value, {dur}.unit.value))"  # blanks around it are read as the lake does
+            per = (
+                f"case when Matches({unit}, '^ *(d|day|days) *$') then 1.0 "
+                f"when Matches({unit}, '^ *(wk|week|weeks) *$') then 7.0 else null end"
+            )
+            supply_fns = [
+                f"define function {tp}(X FHIR.MedicationRequest):\n"
+                f"  if {bounds}.start is not null or {bounds}.end is not null then {bounds}\n"
+                f"  else X.dispenseRequest.validityPeriod",
+                f"define function {sd}(X FHIR.MedicationRequest):\n"
+                f"  if {dur}.value.value >= 0 then Truncate({dur}.value.value * ({per})) else null",
+                f"define function {ts}(X FHIR.MedicationRequest):\n"
+                f"  Coalesce(date from {tp}(X).start, date from X.authoredOn)",
+                f"define function {te}(X FHIR.MedicationRequest):\n"
+                f"  Coalesce(date from {tp}(X).end, if {sd}(X) is null then null\n"
+                f"    else {ts}(X) + System.Quantity {{ value: ToDecimal({sd}(X)), unit: 'day' }})",
+            ]
+            placed = (
+                f"({placed} or ({date} is not null and {te}(X) >= {date_expr(w.from_days)} "
+                f"and {ts}(X) <= {date_expr(w.to_days)}))"
+            )
         # D-917, as the SQL: a condition atom with ``clinical_status`` counts a row whose status (its first coded
         # clinicalStatus, as the lake keeps it) is listed or missing; a row of another status only makes it unknown
         statuses = atom.clinical_status if atom.domain == "condition" else None
@@ -257,7 +287,8 @@ class CqlGenerator:
         # an undated record cannot be placed in the window: unknown where the dated ones do not settle the atom, as
         # the SQL says (scenario run DUMP-01)
         defs = [
-            f"define {qn}:\n  {retrieve}{joiner}{date} in {win}{counted}",
+            *supply_fns,
+            f"define {qn}:\n  {retrieve}{joiner}{placed}{counted}",
             f"define {un}:\n  {retrieve}{joiner}{date} is null",
         ]
         quant = atom.quantifier or "any"
@@ -288,7 +319,7 @@ class CqlGenerator:
         in_family = " or ".join(
             f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
         )
-        for name, when in ((on, f"{date} in {win}"), (q("UO_" + p), f"{date} is null")):
+        for name, when in ((on, placed), (q("UO_" + p), f"{date} is null")):
             defs.append(
                 f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"
                 f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
