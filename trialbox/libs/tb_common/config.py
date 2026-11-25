@@ -449,6 +449,7 @@ DECLARED: dict[str, Declared] = {
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
     "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
+    "TB_DOCTOR_RESTORE_HOLD": Declared("str", "", "doctor in the image: the hold the host read through the box (JSON)"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_CHARTNO_RULE_ANSWERED": Declared("str", "", "yes: a person chose TB_CHARTNO_RULE, asis included (D-1365)"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared(

@@ -16,13 +16,24 @@ image (``TB_BACKUP_IMAGE``: the box image, restic and the database client tools)
    of compose again after the stop, and the restore runs only when ``db`` alone runs.
 3. **The container.** The backup file's folder, the key and the box's public key read-only; the folder for the copy
    and each data volume's folder read-write (the volume's ``_data`` is moved aside within it); the service-role
-   script of the box read-only. The URLs and passwords travel as ``-e NAME`` without a value (never on a command
-   line); the restore runs the role script itself (``python -m tools.trialbox.box_restore roles``) over the database
-   network as the superuser, with each role's password as compose gives it to the ``db`` container.
+   script of the box read-only. Each volume's folder is asked of the engine (H-132, LR-15); the container has one
+   name (``trialbox-restore``), and a second restore is refused while it exists (LR-13). The URLs and passwords
+   travel as ``-e NAME`` without a value (never on a command line); the restore runs the role script itself
+   (``python -m tools.trialbox.box_restore roles``) over the database network as the superuser, with each role's
+   password as compose gives it to the ``db`` container.
 4. **After it.** Its JSON and its lines are the command's own, and so is its exit code. With ``--restart`` the
    services start again and are waited for until healthy only when the restore ended complete (exit 0) or held
    (exit 4 with ``hold: held``, D-522: the box screens nobody until a person releases it); otherwise they stay
    stopped and the command says why.
+5. **Every service the box defines (H-126).** After a restore that ran (complete, or held), ``--restart`` starts
+   the whole of the box's compose project, not only what this run stopped: a run interrupted earlier may have left
+   services stopped that this run never saw running. Afterwards the full expected set (``compose config
+   --services``, less the one-shot services) is checked to run and be healthy; the line names both counts (``16 of
+   16``) and a shortfall is exit 1 (a restore's own 4 stays 4), never "healthy". **LR-14:** after a restore refused
+   before any change, only what this run stopped is started (``--no-deps``) and checked with db, and the services
+   it found stopped are named and left stopped: an earlier run may have left them so on data that is not as it
+   was. No start line it prints ever names no service (compose reads that as the whole project). The hold on the
+   list jobs is said either way: released by the restore, or held until a person releases it.
 
 ``--last``: the newest backup ``backup-nightly`` recorded good (``deploy/site/backup-last.json``) and found on a
 target with the same size and sha256.
@@ -64,8 +75,13 @@ WAIT_S = 600  # the services' health wait after the restore (as an update's star
 #: D-724 (DATA-011): the services a restore leaves running: the database it restores into, nothing that writes
 #: a volume the restore renames aside
 RESTORE_MAY_RUN = frozenset({"db"})
+#: the engine's default volume folder, used only when neither the engine nor the box file names one (H-132, LR-15)
+DEFAULT_VOLUMES = Path("/var/lib/docker/volumes")
+#: H-132 (LR-13): the restore container's one name: a second restore is refused while it exists
+RESTORE_NAME = "trialbox-restore"
 #: backup.VOLUME_ROOT: where the box's compose volumes are, inside the restore's container as on a host
 VOLUME_ROOT = "/var/lib/docker/volumes/trialbox_{}/_data"
+HOLD_FLAG = "screening.after_restore"  # backup.HOLD_FLAG (D-522): the hold on the list jobs a restore leaves
 
 
 def _backup_error() -> type[Exception]:
@@ -219,12 +235,67 @@ class BoxRestore:
             self.box.run(self.box._c("stop", *others), timeout=900)
             print(f"restore: stopped {', '.join(others)} (--restart); db keeps running", file=sys.stderr)
 
-    def start_and_wait(self, stopped: Sequence[str]) -> list[str]:
-        """H-100 (F6): only the services this command stopped, started again and waited for until healthy."""
-        if stopped:
-            self.box.run(self.box._c("up", "-d", "--no-deps", "--wait", "--wait-timeout", str(WAIT_S), *stopped),
-                         timeout=WAIT_S + 120)  # fmt: skip
-        return self.running() or []
+    def expected(self, stopped: Sequence[str]) -> set[str]:
+        """H-126: the services the box's compose defines (its files and profiles, ``config --services``), less the
+        one-shot ones (``restart: "no"``: they run to the end and exit); with ``db`` and whatever this run stopped,
+        whatever compose says. Never the set that happened to run before (an interrupted run may have stopped some)."""
+        names = set(self.box.run(self.box._c("config", "--services"), timeout=120).split())
+        try:  # the files as written: no value of deploy/.env is put into this output
+            spec = json.loads(self.box.run(self.box._c("config", "--no-interpolate", "--format", "json"), timeout=120))
+        except ValueError:
+            spec = {}
+        services = spec.get("services") if isinstance(spec, dict) else None
+        for name, svc in (services if isinstance(services, dict) else {}).items():
+            if isinstance(svc, dict) and str(svc.get("restart", "")).strip().strip("\"'") == "no":
+                names.discard(name)
+        return names | RESTORE_MAY_RUN | set(stopped)
+
+    def healthy(self, expected: set[str]) -> tuple[set[str], set[str]]:
+        """H-126: of ``expected``, the services that run (``running``, not restarting or paused) and are healthy
+        (no health check, or ``healthy``), asked of compose; and the rest."""
+        runs = set(self.box.run(self.box._c("ps", "--status", "running", "--services"), timeout=120).split())
+        fmt = "{{.Service}} {{.Health}}"
+        out = self.box.run(self.box._c("ps", "--status", "running", "--format", fmt), timeout=120)
+        sick = {f[0] for f in (ln.split() for ln in out.splitlines()) if len(f) > 1 and f[1] != "healthy"}
+        ok = (expected & runs) - sick
+        return ok, expected - ok
+
+    def start_and_wait(self, stopped: Sequence[str], whole: bool = True) -> tuple[set[str], set[str], str]:
+        """H-126 (in place of H-100's F6): after a restore that ran (``whole``), every service the box defines,
+        started and waited for until healthy, as an update starts the box (``up -d --wait``); then the full expected
+        set checked, whatever the wait said: (healthy, not healthy, the wait's error). LR-14: after a restore refused
+        before any change, only what this run stopped (and db): an earlier run may have left the rest stopped on
+        data that is not as it was. An interrupt is raised to the caller."""
+        if not whole:
+            want: set[str] | None = set(stopped) | RESTORE_MAY_RUN
+        else:
+            try:
+                want = self.expected(stopped)
+            except Exception as e:  # started all the same; never said healthy
+                want, why = None, str(e)[-300:] or type(e).__name__
+        err = ""
+        try:
+            if whole or stopped:
+                self.box.run(self._up(stopped, whole), timeout=WAIT_S + 120)
+        except Exception as e:  # a service that did not come up: counted below, and said
+            err = str(e)[-400:] or type(e).__name__
+        if want is None:
+            raise RestoreStopped(f"compose cannot say which services the box defines ({why}): they were started, "
+                                 "whether each runs and is healthy is not known")  # fmt: skip
+        ok, short = self.healthy(want)
+        return ok, short, err
+
+    def _up(self, stopped: Sequence[str], whole: bool) -> list[str]:
+        """The start: the whole project, or (LR-14) only the services named, without their dependencies."""
+        # OCR 1470-6: never ``--no-deps`` alone, which compose reads as every service of the project
+        names = [] if whole else ["--no-deps", *(stopped or sorted(RESTORE_MAY_RUN))]
+        return self.box._c("up", "-d", "--pull", self.pull(), "--wait", "--wait-timeout", str(WAIT_S), *names)
+
+    def pull(self) -> str:
+        """OCR 1470-2 (D-176): the start pulls as the update's start does (``update.ComposeBox._pull``): every image
+        from the bundle (``never``) unless the box file says ``TB_INSTALL_PULL=missing``. The box file's word, never
+        the caller's; any other value is ``never``."""
+        return "missing" if (self.env.get("TB_INSTALL_PULL") or "").strip() == "missing" else "never"
 
     def state(self) -> str:
         """What compose says runs now (asked, never assumed)."""
@@ -245,12 +316,61 @@ class BoxRestore:
 
     # ------------------------------------------------------------------------------------------- the container
     def volumes_root(self) -> Path:
-        return Path(self.env.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+        return Path(self.env.get("TB_DOCKER_VOLUMES") or DEFAULT_VOLUMES)
+
+    def volume_folder(self, vol: str) -> tuple[Path, bool]:
+        """H-132 (LR-15): the folder that holds a volume's ``_data``, asked of the engine (a data root elsewhere, a
+        rootless engine); the box file's ``TB_DOCKER_VOLUMES`` (else the engine's default) only when the engine
+        names none. Also whether the engine knows the volume."""
+        from tools.trialbox.update import UpdateFailed
+
+        try:
+            where = self.box.run([*self.box.docker, "volume", "inspect", "-f", "{{.Mountpoint}}", f"trialbox_{vol}"],
+                                 timeout=60).strip()  # fmt: skip
+        except (UpdateFailed, OSError):
+            return self.volumes_root() / f"trialbox_{vol}", False
+        if where.startswith("/") and "\n" not in where:
+            return Path(where).parent, True
+        return self.volumes_root() / f"trialbox_{vol}", bool(where)
+
+    def data_folders(self, a: Any) -> tuple[dict[str, Path], dict[str, tuple[str, Path]]]:
+        """The folders the restore writes: ``--dir name=path`` as given, and each volume's folder (``name: (volume,
+        folder)``) as the engine names it (H-132, LR-15). Asked before anything stops; refused, nothing changed, when
+        a volume the engine knows has no folder, or when no folder of the box is found at all (the databases alone
+        restored and the folders written into the container's own layer, "restored" all the same)."""
+        from tools.trialbox.backup_schedule import absolute
+        from tools.trialbox.update import BACKUP_VOLUMES
+
+        given: dict[str, Path] = {}
+        for pair in a.dir:
+            name, _, path = str(pair).partition("=")
+            if not name or not path:
+                raise RestoreStopped(f"bad directory {pair!r}: use name=path. Nothing was changed")
+            given[name] = absolute(Path(path))
+        volumes: dict[str, tuple[str, Path]] = {}
+        for name, vol in BACKUP_VOLUMES.items():
+            if name in given:
+                continue
+            folder, known = self.volume_folder(vol)
+            try:
+                there = folder.is_dir()
+            except OSError:  # a folder this user cannot look into is not one the restore can write
+                there = False
+            if there:
+                volumes[name] = (vol, folder)
+            elif known:
+                raise RestoreStopped(f"the engine names volume trialbox_{vol} but its folder {folder} is not there "
+                                     f"or cannot be read here (pass --dir {name}=<folder>). Nothing was "
+                                     "changed")  # fmt: skip
+        if not given and not volumes:
+            raise RestoreStopped("no data folder of the box was found (the engine names none of its volumes, and "
+                                 f"{self.volumes_root()} holds none): pass --dir name=<folder> for each. Nothing "
+                                 "was changed")  # fmt: skip
+        return given, volumes
 
     def container(self, a: Any, file: Path, work: Path, sha: str) -> tuple[list[str], dict[str, str]]:
         """The restore's one container and the values its ``-e NAME`` options take (never on its command line)."""
         from tools.trialbox.backup_schedule import absolute
-        from tools.trialbox.update import BACKUP_VOLUMES
 
         image = self.env.get("TB_BACKUP_IMAGE") or "trialbox-backup:1.0.0"
         file, key = absolute(file), absolute(a.key)
@@ -284,28 +404,22 @@ class BoxRestore:
         if roles.is_file():
             bind(roles, ROLES_IN, True)
         dirs: list[str] = []
-        given: dict[str, Path] = {}
-        for pair in a.dir:  # --dir name=path (the host part among them): its folder, moved aside within its parent
-            name, _, path = str(pair).partition("=")
-            if not name or not path:
-                raise RestoreStopped(f"bad directory {pair!r}: use name=path. Nothing was changed")
-            given[name] = absolute(Path(path))
-            given[name].parent.mkdir(parents=True, exist_ok=True)
-            bind(given[name].parent, given[name].parent, False)
-            dirs += ["--dir", f"{name}={given[name]}"]
-        root = self.volumes_root()
-        for name, vol in BACKUP_VOLUMES.items():  # each volume's own folder: its _data is moved aside within it
-            folder = root / f"trialbox_{vol}"
-            if name not in given and folder.is_dir():
-                inside = Path(VOLUME_ROOT.format(vol)).parent
-                bind(folder, inside, False)
-                dirs += ["--dir", f"{name}={inside / '_data'}"]
+        given, volumes = self.data_folders(a)
+        for name, path in given.items():  # --dir name=path (the host part among them): moved aside within its parent
+            path.parent.mkdir(parents=True, exist_ok=True)
+            bind(path.parent, path.parent, False)
+            dirs += ["--dir", f"{name}={path}"]
+        for name, (vol, folder) in volumes.items():  # each volume's own folder: its _data is moved aside within it
+            inside = Path(VOLUME_ROOT.format(vol)).parent
+            bind(folder, inside, False)
+            dirs += ["--dir", f"{name}={inside / '_data'}"]
         if a.restic_from_box:  # D-968: the box's restic.key under its unsealed KEK, read-only
             kek_dir = self.env.get("TB_KEK_HOST_DIR") or "/run/trialbox"
             bind(Path(kek_dir), "/run/trialbox", True)
             values["TB_SECRETS_DIR"] = str(Path(VOLUME_ROOT.format("tb-secrets")))
         names = sorted(values)
-        argv = [*self.box.docker, "run", "--rm", "-i", "--pull", "never", "--network", "trialbox-net", "--user", "0",
+        argv = [*self.box.docker, "run", "--rm", "-i", "--name", RESTORE_NAME, "--pull", "never", "--network",
+                "trialbox-net", "--user", "0",
                 "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER", "--cap-add", "DAC_OVERRIDE",
                 "--security-opt", "no-new-privileges:true", "-e", "PYTHONDONTWRITEBYTECODE=1",
                 *[x for n in names for x in ("-e", n)], *mounts, image,
@@ -327,6 +441,25 @@ class BoxRestore:
         print(f"restore: the box now: {self.state()}{stop}; the data: {data}; next: {nxt} (RUNBOOK §5)",
               file=sys.stderr)  # fmt: skip
 
+    def _say(self, stopped: Sequence[str], data: str, nxt: str, detail: dict[str, Any] | None = None) -> bool:
+        """The audit event (``detail``) and the state line, said whatever signal comes next (OCR 1470-1, the walk's
+        double Ctrl-C): a second signal while compose is asked ends the asking, never the line. False: not asked."""
+        try:
+            if detail is not None:
+                self.audit(detail)
+            self._state_line(stopped, data, nxt)
+            return True
+        except (KeyboardInterrupt, HostInterrupted):
+            old = _ignore_signals()
+            try:
+                stop = f"; stopped by --restart: {', '.join(stopped)}" if stopped else ""
+                kept = "" if detail is None else " (interrupted again: the audit event may not be kept)"
+                print(f"restore: the box now: not asked (interrupted again){stop}; the data: {data}; next: {nxt} "
+                      f"(RUNBOOK §5){kept}", file=sys.stderr)  # fmt: skip
+            finally:
+                _put_back_signals(old)
+            return False
+
     def _start_line(self, stopped: Sequence[str]) -> str:
         return shlex.join(self.box._c("up", "-d", "--no-deps", *stopped)) if stopped else "nothing to start"
 
@@ -337,7 +470,8 @@ class BoxRestore:
     @contextlib.contextmanager
     def lock(self) -> Iterator[None]:
         """``deploy/site/restore.lock`` held for the whole run; a second restore is refused. Under it, a scratch
-        folder another run left (``deploy/.restore-*``: a killed host step's decrypted backup and copies) is removed.
+        folder another run left (``deploy/.restore-*``: a killed host step's decrypted backup and copies) is removed
+        (:meth:`sweep`, after the checks that come before anything stops).
         H-114 (1421-3): ``deploy/site/backup.lock`` too, the lock every backup run takes
         (``backup_schedule.run_backup``): no backup writes over the folders while they are restored, and a restore
         never starts under a running one."""
@@ -359,15 +493,35 @@ class BoxRestore:
             except OSError:
                 raise RestoreStopped("a backup of this box is running (deploy/site/backup.lock): run the restore again "
                                      "when it has ended; nothing was changed") from None  # fmt: skip
-            for old in self.deploy.glob(".restore-*"):
-                if old.is_dir() and not old.is_symlink():
-                    shutil.rmtree(old, ignore_errors=True)
-                    print(f"restore: removed {old.name}, left by a restore that did not finish", file=sys.stderr)
             yield
         finally:
             if bfd >= 0:
                 os.close(bfd)
             os.close(fd)
+
+    def sweep(self) -> None:
+        """Review R7: what a killed run left (``deploy/.restore-*``) is removed, under the lock; H-132 (LR-13): only
+        once no restore container of an earlier run exists (its put-back reads its dumps from that folder)."""
+        self.no_restore_container()
+        for old in self.deploy.glob(".restore-*"):
+            if old.is_dir() and not old.is_symlink():
+                shutil.rmtree(old, ignore_errors=True)
+                print(f"restore: removed {old.name}, left by a restore that did not finish", file=sys.stderr)
+
+    def no_restore_container(self) -> None:
+        """H-132 (LR-13): a restore container left running by a host step that ended (a closed session, a kill)
+        still puts the box back from its work folder. Refused while one exists; nothing is removed or started."""
+        from tools.trialbox.update import UpdateFailed
+
+        try:
+            status = self.box.run([*self.box.docker, "container", "inspect", "-f", "{{.State.Status}}", RESTORE_NAME],
+                                  timeout=60).strip()  # fmt: skip
+        except (UpdateFailed, OSError):  # no such container (or no engine: then none runs either)
+            return
+        if status:
+            raise RestoreStopped(f"a restore container ({RESTORE_NAME}, {status}) of an earlier run still exists: "
+                                 f"wait until it has ended (docker ps -a), then run the restore again. Nothing was "
+                                 "changed")  # fmt: skip
 
     def _restore(self, a: Any) -> int:
         file = absolute_path(last_good(self.deploy, self.env) if a.last else Path(a.file))
@@ -377,6 +531,8 @@ class BoxRestore:
         sha = self.checked_sha(file, a.last)  # F4: the file itself, before anything stops
         again = shlex.join(["trialbox", "restore", *(["--last"] if a.last else [str(file)]), "--key", str(a.key),
                             "--yes", *(["--restart"] if a.restart else [])])  # fmt: skip
+        self.data_folders(a)  # H-132 (LR-15): where each folder goes, asked of the engine before anything stops
+        self.sweep()
         work = self.work_dir(file)  # the space the restore needs, before anything stops
         stopped: list[str] = []
         started = keep_work = False
@@ -396,17 +552,17 @@ class BoxRestore:
                 why = str(e) or type(e).__name__
                 if started and not isinstance(e, RestoreStopped):
                     keep_work = True  # the container may still be putting the box back from it
-                    self.audit({"error": why[-300:], "stopped": stopped, "file": file.name, "state": "unknown"})
-                    self._state_line(stopped, f"unknown: the restore's container was started and this step stopped "
-                                     f"({type(e).__name__}); its work folder {work} is kept",
-                                     "docker ps: wait until no restore container runs, then trialbox doctor; do not "
-                                     "start the services before")  # fmt: skip
+                    self._say(stopped, f"unknown: the restore's container was started and this step stopped "
+                              f"({type(e).__name__}); its work folder {work} is kept",
+                              "docker ps: wait until no restore container runs, then trialbox doctor; do not start "
+                              "the services before",
+                              {"error": why[-300:], "stopped": stopped, "file": file.name,
+                               "state": "unknown"})  # fmt: skip
                     return 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
                 if stopped or not isinstance(e, RestoreStopped):
-                    self.audit({"error": why[-300:], "stopped": stopped, "file": file.name})
-                    self._state_line(stopped, "not changed by this command (the restore did not start)",
-                                     f"start them as they were: {self._start_line(stopped)}; or try again: "
-                                     f"{again}")  # fmt: skip
+                    self._say(stopped, "not changed by this command (the restore did not start)",
+                              f"start them as they were: {self._start_line(stopped)}; or try again: {again}",
+                              {"error": why[-300:], "stopped": stopped, "file": file.name})  # fmt: skip
                 if isinstance(e, RestoreStopped):
                     raise
                 if isinstance(e, (KeyboardInterrupt, HostInterrupted)):
@@ -416,7 +572,13 @@ class BoxRestore:
             finally:
                 if not keep_work:
                     shutil.rmtree(work, ignore_errors=True)
-            return self._after(a, code, out, stopped, again)
+            try:
+                return self._after(a, code, out, stopped, again)
+            except (KeyboardInterrupt, HostInterrupted) as e:  # H-126: between the container's end and the start
+                self._say(stopped, f"the restore's container ended {code} (its lines above say the data); this step "
+                          f"was interrupted after it ({type(e).__name__})",
+                          f"look at docker compose ps; run this command again: {again}")  # fmt: skip
+                return 130
         finally:
             stop_signals()
 
@@ -434,36 +596,99 @@ class BoxRestore:
         hold = str(said.get("hold") or "")
         state = str(said.get("state") or ("restored" if code in (0, 3, 4) else "unknown"))
         if code == 0 or (code == 4 and hold == "held") or (code != 0 and state == "unchanged"):
-            # complete, or held (D-522), or refused before any change (the data is as it was): F6, the services
-            # this command stopped, and only those
+            # complete, or held (D-522): H-126, every service the box defines is started and the full expected set
+            # checked. Refused before any change (the data is as this run found it): LR-14, only what this run
+            # stopped, never what an earlier run left stopped
             data = "restored" if code in (0, 4) else "not changed"
+            whole = state != "unchanged"
+            start = shlex.join(self._up(stopped, whole))
             try:
-                up = self.start_and_wait(stopped)
+                ok, short, err = self.start_and_wait(stopped, whole)
             except BaseException as e:  # review R7: an interrupt here is said too, never a silent end
-                self._state_line(stopped, data, f"look at docker compose ps; then {self._start_line(stopped)}")
-                print(f"restore: the services did not all come back healthy: {str(e)[-400:] or type(e).__name__}",
-                      file=sys.stderr)  # fmt: skip
-                return 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
+                rc = 130 if isinstance(e, (KeyboardInterrupt, HostInterrupted)) else 1
+                if not self._say(stopped, data, f"look at docker compose ps; then {start}, or run this command "
+                                 f"again: {again}"):  # fmt: skip
+                    rc = 130
+                old = _ignore_signals()  # OCR 1470-1: lines only from here; no further signal cuts them short
+                try:
+                    print(f"restore: the services did not all come back healthy: {str(e)[-400:] or type(e).__name__}",
+                          file=sys.stderr)  # fmt: skip
+                    if not whole:
+                        self._left_stopped(stopped)
+                    self._hold_line(hold, state)
+                finally:
+                    _put_back_signals(old)
+                return rc
+            n = f"{len(ok)} of {len(ok) + len(short)}"
+            if short:  # H-126: a shortfall is never "healthy"; OCR 1470-3: a restore's own non-zero code (4: NOT
+                # complete, held) stays the exit code, a complete one ends 1
+                self._say(stopped, data, f"look at docker compose ps and the services' logs; then {start}")
+                print(f"restore: the services did not all come back healthy: {n}; not running or not healthy: "
+                      f"{', '.join(sorted(short))}" + (f" ({err})" if err else ""), file=sys.stderr)  # fmt: skip
+                if not whole:  # OCR 1470-6: the ones found stopped are named here too
+                    self._left_stopped(stopped)
+                self._hold_line(hold, state)
+                return code or 1
             what = "not changed (the restore was refused before any change)" if state == "unchanged" else "restored"
-            print(f"restore: the data {what}; the services run again and are healthy: {len(up)} "
-                  f"({', '.join(sorted(up))})", file=sys.stderr)  # fmt: skip
+            if not whole and not stopped:  # OCR 1470-7: nothing was stopped, nothing was started
+                print(f"restore: the data {what}; this run stopped nothing and started nothing; "
+                      f"{', '.join(sorted(ok))} runs and is healthy ({n})", file=sys.stderr)  # fmt: skip
+                self._left_stopped(stopped)
+            elif not whole:  # LR-14: what this run stopped, and only that
+                print(f"restore: the data {what}; the services this run stopped run again and are healthy: {n} "
+                      f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
+                self._left_stopped(stopped)
+            else:
+                print(f"restore: the data {what}; the services run again and are healthy: {n} "
+                      f"({', '.join(sorted(ok))})", file=sys.stderr)  # fmt: skip
+            self._hold_line(hold, state)
             return code
         if code == 3:
-            self._state_line(stopped, "the databases and folders are restored; a reference pack is missing",
-                             f"put the pack named above in --refdata and run {again}")  # fmt: skip
+            self._say(stopped, "the databases and folders are restored; a reference pack is missing",
+                      f"put the pack named above in --refdata and run {again}")  # fmt: skip
         elif code == 4:
-            self._state_line(stopped, f"restored, NOT complete; the hold on the list jobs is {hold or 'unknown'}",
-                             "keep the services stopped until the lines above are dealt with")  # fmt: skip
+            self._say(stopped, f"restored, NOT complete; the hold on the list jobs is {hold or 'unknown'}",
+                      "keep the services stopped until the lines above are dealt with")  # fmt: skip
         elif state == "rolled_back":  # F2: the restore put the box back as it was and holds its list jobs
-            self._state_line(stopped, "put back as it was before the restore (the restore failed); list jobs held",
-                             f"read the error above; start them as they were: {self._start_line(stopped)}; "
-                             f"or try again: {again}")  # fmt: skip
+            self._say(stopped, "put back as it was before the restore (the restore failed); list jobs held",
+                      f"read the error above; start them as they were: {self._start_line(stopped)}; "
+                      f"or try again: {again}")  # fmt: skip
         else:  # F2: half restored or unknown: never a start line
-            self._state_line(stopped, "NOT as it was: the restore failed and could not put everything back "
-                             "(the lines above say what, and where the copy of the databases taken first is kept)",
-                             "do not start the services; put the databases back from that copy, or restore the "
-                             "kept copy of the box (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
+            self._say(stopped, "NOT as it was: the restore failed and could not put everything back "
+                      "(the lines above say what, and where the copy of the databases taken first is kept)",
+                      "do not start the services; put the databases back from that copy, or restore the "
+                      "kept copy of the box (trialbox restore <kept copy> --key <key> --yes)")  # fmt: skip
         return code
+
+    def _left_stopped(self, stopped: Sequence[str]) -> None:
+        """LR-14: after a refused restore, the services the box defines that this run did not start (all but db and
+        what it stopped), named: an earlier run may have left them stopped on data that is not as it was. Never
+        started here."""
+        try:
+            rest = sorted(self.expected([]) - set(stopped) - RESTORE_MAY_RUN)
+        except Exception:
+            print("restore: compose cannot say which other services the box defines: trialbox doctor says what "
+                  "runs", file=sys.stderr)  # fmt: skip
+            return
+        if rest:
+            print(f"restore: not started by this run, as it found them stopped: {', '.join(rest)}. An earlier run may "
+                  "have left them stopped on purpose: read what it said (or the audit's backup.restore_failed) and "
+                  "trialbox doctor before starting them (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+
+    @staticmethod
+    def _hold_line(hold: str, state: str) -> None:
+        """H-126: the hold on the list jobs (``screening.after_restore``, D-522) after the services' start, as RUNBOOK
+        §5 step 4 says it is released: by the restore itself, or by a person."""
+        if hold == "released":
+            print(f"restore: the hold {HOLD_FLAG}: released by the restore (it ended complete)", file=sys.stderr)
+        elif hold == "held":
+            print(f"restore: the hold {HOLD_FLAG} stays held: this restore did not end complete, or a hold or an "
+                  "earlier restore's set-aside audit chain stood before it. No patient list is made until the data "
+                  "steward or the administrator re-applies the events the restores listed and sets it to released on "
+                  "/ops/flags with the reason (RUNBOOK §5, step 4)", file=sys.stderr)  # fmt: skip
+        elif state != "unchanged":
+            print(f"restore: the hold {HOLD_FLAG}: the restore said {hold or 'nothing'}; trialbox doctor shows it "
+                  "(restore_hold)", file=sys.stderr)  # fmt: skip
 
     def checked_sha(self, file: Path, last: bool) -> str:
         """H-100 (F4): the backup file's own sha256, read here before anything stops, equal to what the nightly
@@ -575,8 +800,24 @@ def _said(out: str) -> dict[str, Any]:
 
 def _ignore_signals() -> dict[int, Any]:
     import signal
+    import threading
 
+    if threading.current_thread() is not threading.main_thread():
+        return {}
     return {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+
+
+def _line(text: str) -> None:
+    """H-132 (LR-13): a line to the person; a terminal that is gone (a closed session) never stops what follows."""
+    with contextlib.suppress(OSError, ValueError):
+        print(text, file=sys.stderr, flush=True)
+
+
+def _put_back_signals(old: Mapping[int, Any]) -> None:
+    import signal
+
+    for sig, h in old.items():
+        signal.signal(sig, h)
 
 
 def _call(argv: list[str], values: dict[str, str], base: Mapping[str, str] | None = None) -> tuple[int, str]:
@@ -601,9 +842,8 @@ def _call(argv: list[str], values: dict[str, str], base: Mapping[str, str] | Non
             except (KeyboardInterrupt, HostInterrupted):
                 if old is None:
                     old = _ignore_signals()  # first: nothing more stops this wait
-                    print("restore: stopping: the restore is told and puts the box back; waiting for it",
-                          file=sys.stderr)  # fmt: skip
-                    proc.send_signal(signal.SIGTERM)
+                    proc.send_signal(signal.SIGTERM)  # H-132 (LR-13): told first, before any line
+                    _line("restore: stopping: the restore is told and puts the box back; waiting for it")
     finally:
         if old is not None:
             for sig, h in old.items():

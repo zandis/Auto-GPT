@@ -191,6 +191,8 @@ def _sealed_and_done(tmp: Path, keys: dict[str, bytes]) -> None:
         assert K.unwrap(kek, K.read_wrapped(sec / name), name) == want
     assert (tmp / "host" / "run" / "trialbox" / "kek").read_bytes() == kek
     assert not (tmp / "host" / "run" / "trialbox" / "kek.new").exists()
+    # H-118 (ruling 7138516776): the twin, kek.new's own folder
+    assert not (tmp / "host" / "run" / "trialbox-seal" / "kek.new").exists()
     assert not cred.with_name("trialbox-kek.new").exists()
     assert (tmp / "units" / "trialbox-unseal.service").is_file()
 
@@ -447,9 +449,12 @@ def test_a_rerun_after_a_stop_hands_the_kek_and_the_new_files_to_the_services_us
         left = sorted(f for f in sec.iterdir() if f.is_file() and os.lstat(f).st_uid == 0)
         unreached = [f.name for f in left if str(f) not in asked]
         assert unreached == [], f"files left root's that the hand-over never reached: {unreached}"
-        modes = {f.name: stat.S_IMODE(os.lstat(f).st_mode) for f in sec.iterdir() if f.is_file()}
-        want = {name: 0o644 if name.endswith(".pub") else 0o600 for name in modes}
-        assert modes == want, f"the hand-over changed a file's mode: { {k: oct(v) for k, v in modes.items()} }"
+    # integrator 7140264985 (review of #1478, 1478-3): modes as written on every run, not only as root; the public key
+    # is there and exactly 0644, never group- or world-writable
+    sec = tmp_path / "secrets"
+    modes = {f.name: stat.S_IMODE(os.lstat(f).st_mode) for f in sec.iterdir() if f.is_file()}
+    want = {name: 0o644 if name.endswith(".pub") else 0o600 for name in modes}
+    assert "audit_sign.pub" in modes and modes == want, f"a file's mode: { {k: oct(v) for k, v in modes.items()} }"
 
 
 def test_a_plain_key_goes_only_once_its_wrapped_copy_is_on_disk(
@@ -542,6 +547,8 @@ def test_a_second_signal_during_the_clean_up_leaves_no_plain_kek(tmp_path: Path)
     time.sleep(1)
     _keys_open(tmp_path, keys)
     assert not (tmp_path / "host" / "run" / "trialbox" / "kek.new").exists(), "the plain KEK copy stayed in /run"
+    # H-118 (ruling 7138516776): the twin, kek.new's own folder
+    assert not (tmp_path / "host" / "run" / "trialbox-seal" / "kek.new").exists(), "the plain KEK copy stayed in /run"
 
 
 def test_the_kek_opened_from_the_credential_is_never_written_through_a_link(tmp_path: Path) -> None:
@@ -557,7 +564,8 @@ def test_the_kek_opened_from_the_credential_is_never_written_through_a_link(tmp_
     assert res.returncode == 143, res.stdout + res.stderr
     target = tmp_path / "elsewhere"
     target.write_bytes(b"")
-    (tmp_path / "host" / "run" / "trialbox" / "kek.new").symlink_to(target)
+    # H-118 (ruling 7138516776): kek.new's own folder, which the stopped run made (0700)
+    (tmp_path / "host" / "run" / "trialbox-seal" / "kek.new").symlink_to(target)
     again = _seal(tmp_path, env)
     assert again.returncode == 0, again.stdout + again.stderr
     _sealed_and_done(tmp_path, keys)
@@ -607,8 +615,10 @@ def test_a_fresh_seal_never_writes_or_shreds_the_kek_through_a_link(tmp_path: Pa
     creds = tmp_path / "bin" / "systemd-creds"
     seen = 'encrypt)\n    [ -L "$4" ] && : > "$STANDIN_DIR/through-a-link";'
     creds.write_text(CREDS.replace("encrypt)", seen, 1))
-    run = tmp_path / "host" / "run" / "trialbox"
+    # H-118 (ruling 7138516776): kek.new's own folder, made as the run makes it (0700)
+    run = tmp_path / "host" / "run" / "trialbox-seal"
     run.mkdir(parents=True)
+    run.chmod(0o700)
     before, during = tmp_path / "before", tmp_path / "during"
     for f in (before, during):
         f.write_bytes(b"kept\n")
