@@ -464,8 +464,9 @@ def build_sponsor_pack(
     if models:
         verifier = f", verifier {models['verifier_model']}" if models.get("verifier_model") else ", no verifier"
         screening = (
-            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers may exclude: "
-            f"{'yes' if models.get('may_block') else 'no'}."
+            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers final: "
+            f"{'yes' if models.get('may_block') else 'no'} (the notes may speak against a criterion; no note answer "
+            "takes a patient off a list)."
         )
     lines = [
         f"TrialBox sponsor pack · {job.ruleset} v{version} · job {job.job_id}",

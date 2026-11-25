@@ -35,7 +35,7 @@ from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.inferred import sentence_of
-from matching.note_answer import affirms, note_answer_may
+from matching.note_answer import NOTES_SUGGEST_REASON, affirms, note_answer_may
 from matching.proposed import Proposed
 from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
@@ -231,6 +231,9 @@ class NoteResult:
     # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
+    # D-1072: on an agreed answer, each model's answer, verified quote and note (``did``), judge first. Published only
+    # on a "not eligible" (``note_verdict``, ``engine._map``), so the investigator reads both quotes
+    pair_opinions: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
@@ -509,6 +512,11 @@ class NoteJudge:
             calls=calls,
             sentence=sentence,
             affirmed=first.affirmed and (second is None or second.affirmed),  # round 5: both models said it
+            pair_opinions=[
+                {**_opinion(role, r), "did": next(iter(r.dids), None)}
+                for role, r in (("judge", first), ("verifier", second))
+                if r is not None and second is not None
+            ],
         )
 
 
@@ -649,9 +657,15 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
         may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence, affirmed=r.affirmed)
         if may.effect == "review" and not may.reading_stands:
             verdict, why = "unknown", code_of(may.reason, "unknown")
-        affirmed = True if may.effect == "excludes" and c.kind == "exclusion" else None
+        elif may.reason == NOTES_SUGGEST_REASON:  # ring 0 (D-1072): the row says why it is review, for the page
+            why = code_of(may.reason)
+        affirmed = True if may.reason == NOTES_SUGGEST_REASON else None  # D-1072: kept on the row, now review
         # a "not met" the rule sends to review keeps its row: the status rule (``decision.answer_of``) reads the same
-        # function and says review
+        # function and says review. D-1072: with both models' quotes, and both notes (the judge's first)
+        if may.reading_stands and r.pair_opinions:
+            r = replace(r, opinions=[{k: v for k, v in o.items() if k != "did"} for o in r.pair_opinions])
+            dids = [*r.dids, *(str(o["did"]) for o in r.pair_opinions if o["did"])]
+            refs = [f"DocumentReference/{d}" for d in dict.fromkeys(dids)]
     return CriterionVerdict(
         id=c.id,
         verdict=verdict,
@@ -745,10 +759,9 @@ NOTE_BLOCK_POLICIES = ("both_agree", "never")
 
 
 def note_block_policy() -> str:
-    """``TB_NOTE_BLOCK`` (D-95): ``both_agree`` (default) lets a note criterion exclude a patient, which with a verifier
-    configured means both models agreed (D-89); ``never`` (single-model boxes such as one RTX 4090) never lets a note
-    answer exclude: a note ``fail`` keeps its verdict and quote but sends the patient to review."""
-    v = os.environ.get("TB_NOTE_BLOCK", "both_agree").strip().lower() or "both_agree"
+    """``TB_NOTE_BLOCK`` (D-95): ``never`` (default, D-1072) or ``both_agree``, which only says a pair's note "not met"
+    is final. No note answer excludes a patient under either: it keeps its verdict and quote and goes to review."""
+    v = os.environ.get("TB_NOTE_BLOCK", "never").strip().lower() or "never"
     if v not in NOTE_BLOCK_POLICIES:
         raise ValueError(f"TB_NOTE_BLOCK must be one of {', '.join(NOTE_BLOCK_POLICIES)}, not {v!r}")
     return v
@@ -801,7 +814,7 @@ def note_block_why(judge: NoteJudge | None) -> tuple[bool, str, str, str]:
 
 
 def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
-    """Whether a confident note ``fail`` may exclude a patient on this run (D-95, D-97).
+    """Whether a confident note ``fail`` is final on this run (D-95, D-97); none excludes a patient (D-1072).
 
     ``both_agree`` promises that two models agreed; without a verifier that promise cannot be kept, so the run falls
     back to ``never`` (a single model may send a patient to review, never out) and says so. The same holds when the
@@ -817,7 +830,7 @@ def tier(
     (:func:`matching.decision.status_of`, T-709, D-478), under this run's policy.
 
     high: every structured and note criterion says yes, only criteria a person decides are open; excluded: an
-    answer says no (a note answer only when a pair gave it, it is final, sure enough and ``note_block``); review
+    answer says no (never a note answer, D-1072); review
     otherwise. ``note_block`` is required and comes from the job's decision context (D-477): the configured policy
     alone is not enough (no verifier, one model twice, the canary gate; D-276, review F-01)."""
     st = decision.status_of(rs.by_id(), verdicts, decision.Policy(threshold, note_block))

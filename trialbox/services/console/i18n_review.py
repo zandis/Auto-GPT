@@ -17,7 +17,7 @@ EN: dict[str, str] = {
     "ex.col.evidence": "Evidence",
     "ex.src.coded": "the coded records",
     "ex.src.fact": "a confirmed fact",
-    "ex.src.notes": "the notes, both models agreed",
+    "ex.src.notes": "the notes, which may speak against the criterion",
     "ex.src.rule": "a rule of the run",
     "ex.src.records": "the records (whether a person confirmed them could not be read)",
     "ex.unread.facts": "For this run it could not be read whether an answer came from a fact that a person "
@@ -81,7 +81,7 @@ JA: dict[str, str] = {
     "ex.col.evidence": "根拠",
     "ex.src.coded": "コード化データ（病名・検査・処方）",
     "ex.src.fact": "確認済みの情報",
-    "ex.src.notes": "カルテ記載（2 つのモデルが一致）",
+    "ex.src.notes": "カルテ記載（基準に反する可能性）",
     "ex.src.rule": "処理の規則",
     "ex.src.records": "記録（人が確認したかどうかは読めませんでした）",
     "ex.unread.facts": "この処理では、判断が人が確認した情報によるものかどうかを読めませんでした。"
@@ -142,7 +142,7 @@ ZH: dict[str, str] = {
     "ex.col.evidence": "依據",
     "ex.src.coded": "編碼病歷",
     "ex.src.fact": "已確認的資料",
-    "ex.src.notes": "病歷文字（兩個模型一致）",
+    "ex.src.notes": "病歷文字（可能不利於該條件）",
     "ex.src.rule": "作業的規則",
     "ex.src.records": "病歷紀錄（是否經人員確認，無法讀取）",
     "ex.unread.facts": "這次作業無法讀取判斷是否來自人員確認的資料；這類判斷標示為「病歷紀錄」。",
