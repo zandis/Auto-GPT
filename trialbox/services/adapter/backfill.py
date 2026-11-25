@@ -70,6 +70,7 @@ from adapter.pipeline import (
     merge_base,
     reference_maps,
     refuse_future_night,
+    refuse_site_needs,
 )
 from adapter.sources.base import has_table
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required
@@ -478,6 +479,7 @@ def backfill(
     zone = ZoneInfo(cfg.tz)
     snap = snapshot or datetime.now(zone).date().isoformat()
     refuse_future_night(snap, datetime.now(zone).date())  # D-529
+    refuse_site_needs(cfg, snap, source_kind)  # U-5 (D-1280): a back-fill is a run on real data
     key = cfg.site_key()
     check_site_key(cfg, key)
     work = work_dir or cfg.lake_dir / "backfill" / snap
