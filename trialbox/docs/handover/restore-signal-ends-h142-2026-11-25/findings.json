@@ -59,7 +59,7 @@
    "claim": "tools/update_status.py write_atomic writes with one os.write and never checks a short write: on a nearly full disk it fsyncs and renames a cut file over the original (the kept audit events cut in half, exit 0)",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 87666f1ce3368ab7df830fb44c924dacc7cc82df"
   },
   {
    "id": "H142-08",

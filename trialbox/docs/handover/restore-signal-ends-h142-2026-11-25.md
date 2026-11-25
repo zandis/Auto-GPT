@@ -65,6 +65,19 @@ defaults: a signal in those few milliseconds is the default's death. That window
   `shutil.copy2`) and the first load's pending summary. Each keeps its mode. The rehearsal's `box.sh` (Low) writes
   `deploy/.env` through a file renamed over it: `envset` keeps the file's owner and mode, and the live-restore
   put-back uses `cp -p` and then `mv`.
+- **.k, `write_atomic` (High; the integrator's go, 7156586707).** `tools/update_status.py` is lane H's from this
+  card on. `write_atomic` (body only, same signature) did one `os.write` and never checked a short write. On a full
+  disk or under a file-size limit it fsynced half the file and renamed it over the whole one: the kept audit events
+  were cut in half and the run ended 0. It now writes every byte in a loop (raising when nothing is written),
+  fsyncs the file, renames, then fsyncs the folder. On any failure it removes the temp file and leaves the original
+  untouched.
+- **Every caller of `write_atomic`.** In `update_status.py`: `create_marker` (the temp file it links) and `set_step`
+  (the marker). In U: `save_point` (`point.json`), the state before (`record_state`), `history.jsonl`,
+  `model-pack.json`, `trust.json` and `installed.json` (the release's record, and its put-back), the running
+  command's record (`_record_running`), the audit event file and its pending copy, and the first load's pending
+  summary. In S: the kept audit events and the event file handed to the orchestrator. Each lets the error rise,
+  except `_record_running`. It swallowed an `OSError` and returned no record: the command ran on, and a recovery
+  started meanwhile would not wait for it. It still runs on, but now says so on stderr.
 
 ## The invariant and its mutants
 
@@ -76,9 +89,30 @@ change, the services' start, the health check. Each mark is swept at three delay
 and print no traceback. It must not say "healthy" on data it changed and did not finish. It must leave no scratch
 folder it did not name. That makes 21 cases and 63 runs.
 
-The mutants (each fix taken out alone, against the card's three test files) are listed in the pull request with
-the tests that catch each. The sweep runs a stand-in container, so .d, .e and .g are caught by their own tests,
-not by the sweep.
+The mutants: each fix was taken out alone and run against the card's three test files. Every mutant fails at least
+one test:
+
+| mutant (fix taken out) | caught by |
+|---|---|
+| M-a: the handlers taken after the space check (.a) | the space-check test (TERM, HUP) |
+| M-b: no ignore on the way out and no entry note (H138-02, .b) | the sweep (health-check phase, 3 signals), the way-out test (4), the closed-terminal test |
+| M-said: no ignore after the state line | the signal-after-the-state-line test |
+| M-c: the engine's raw code (.c) | the engine-client test |
+| M-d: no handlers at backup.restore's start (.d) | the in-container test (TERM, HUP, INT) |
+| M-e: the container's output through a pipe (.e) | the wait-loses-nothing test |
+| M-f: no outer handler (.f) | the sweep (space-check phase, 3 signals), the clean-up test, the space-check test |
+| M-f2: clean-ups not held (.f) | the clean-up test |
+| M-g: no tolerant streams (.g) | the closed-terminal test |
+| M-j: an ignored signal taken (.j) | the nohup test |
+| M-h1: no refusal before the run (.h) | the before-the-run test (3 signals) |
+| M-h2: no ignore after the update and no entry note (.h) | the update's two way-out tests (4) |
+| M-k: the kept events rewritten in place (.k) | the kill -9 test |
+| M-k2: box.sh's put-back in place | the put-back test |
+| M-wa: write_atomic's one write | the full-disk test, the short-write and file-size-limit tests |
+
+M-b and M-h2 take the entry's note out as well. With the note in, the handlers given back on the way out are the
+note's own, which keep a signal from ending the process, so the note alone also closes that window. The sweep runs
+a stand-in container, so .d and .e are caught by their own tests, not by the sweep.
 
 ## The walk's run on the bench (the two things H-140 did not run)
 
@@ -113,11 +147,21 @@ From the release folder of the bench's box (`trialbox/` in the repository; repo-
 Here, in this container (no engine, no bench), the counts for root and for an ordinary user under CI's conditions
 are in the pull request body.
 
-- On master+#1496 (49a256de) with the card's test files copied into a worktree: 31 of the 38 restore tests, 7 of
-  the 8 update tests and the 3 `.k` tests fail (143, 129, 241, 120; the kill -9 left an empty file: 0 of 20000
-  kept events). The ones that pass there are the .i test (#1496's 130 holds) and sweep cases whose signal only
-  reaches the services' stop or start.
+- On master+#1496 (49a256de), with the card's test files copied into a worktree: 32 of the 39 restore tests, 8 of
+  the 9 update tests and 6 of the 7 `.k` tests fail. They fail with 143, 129, 241 and 120, and the kill -9 left
+  an empty file: 0 of 20000 kept events. The ones that pass there are:
+  - the .i test (#1496's 130 holds);
+  - the sweep cases whose signal only reaches the services' stop or start;
+  - the update's run with no signal;
+  - the kill between `write_atomic`'s write and its rename (a guard: the old body also left the original whole
+    there).
 - At this branch's head, all of them pass.
+
+## Files outside the card
+
+None. `tools/update_status.py` is lane H's from the integrator's 7156586707. Lane H owns R, M, U, B, S and
+`tools/rehearse_box/box.sh` (H-139 works on `update.py`'s `SCHEMA_SQL`, `box.sh:794` and B's `_client()`; this card
+does not touch them).
 
 ## Not run, not verified
 
