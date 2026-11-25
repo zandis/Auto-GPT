@@ -721,14 +721,31 @@ def test_the_runner_archive_is_checked_and_the_proxy_has_its_way_out() -> None:
     assert "network create tb-bench-egress" in INSTALL and "tb-bench-jobs" not in INSTALL
 
 
-def test_removal_takes_away_everything_it_made_and_says_what_is_left_to_the_owner() -> None:
+def test_removal_takes_away_everything_it_made_and_says_what_is_left_to_the_owner(tmp_path: Path) -> None:
     body = INSTALL[INSTALL.index("cmd_remove() {") : INSTALL.index("\n}\n", INSTALL.index("cmd_remove() {"))]
     for want in ("systemctl disable --now", 'rm -f "$UNITS/tb-bench-runner@.service" "$UNITS/tb-bench-proxy.service"',
                  "rm --all --force", 'network rm --force "$net"', "system reset --force",
-                 'shred -u "$TOKEN"', 'rm -rf "$ETC" "$OPT"', 'loginctl disable-linger "$USER_NAME"',
+                 'shred -u "$TOKEN"', 'rm -rf "$OPT"', 'loginctl disable-linger "$USER_NAME"',
                  'userdel --remove "$USER_NAME"', 'sed -i "/^$USER_NAME:/d" /etc/subuid /etc/subgid',
                  "remove any", "revoke the minting token", "LEFT"):  # fmt: skip
         assert want in body, want
+    # the integrator's ruling (7133000201): remove takes $OPT, and the operator's settings folder with its planted
+    # settings file survives, run with stand-ins for root's commands
+    etc, opt = tmp_path / "etc", tmp_path / "opt"
+    etc.mkdir()
+    (etc / "settings.env").write_text("BENCH_REPO=o/r\n", encoding="utf-8")
+    (opt / "tools").mkdir(parents=True)
+    run = (
+        f'set -euo pipefail\nsource "{BENCH_CI / "install.sh"}"\n'
+        f'ETC="{etc}"; SETTINGS="$ETC/settings.env"; TOKEN="$ETC/token"; MADE="$ETC/made"; OPT="{opt}"\n'
+        f'UNITS="{tmp_path}/units"; HOME_DIR="{tmp_path}/home-dir"\n'
+        "need_root() { :; }; systemctl() { :; }; id() { return 1; }; sed() { :; }; get() { :; }; chown() { :; }\n"
+        'record_made dir "$OPT"\ncmd_remove\n'
+    )
+    got = subprocess.run(["bash", "-c", run], check=False, capture_output=True, text=True)
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert not opt.exists() and etc.is_dir()
+    assert (etc / "settings.env").read_text(encoding="utf-8") == "BENCH_REPO=o/r\n"
 
 
 def test_verify_checks_the_named_folders_as_the_runners_user_and_runs_the_probe() -> None:
@@ -774,3 +791,98 @@ def test_no_bench_host_detail_in_the_committed_files() -> None:
             # a home folder is named only where install.sh refuses it as the scratch folder
             kept = [ln for ln in text.splitlines() if not ln.lstrip().startswith('case "$scratch" in')]
             assert not HOST_HOME.search("\n".join(kept)), f.name
+
+
+# --- part b: the GPU box rehearsal's script, with stand-ins for the card query tool and the engine -------------
+
+GPU_BOX = BENCH_CI / "gpu_box.sh"
+
+
+def _gpu_box(
+    tmp_path: Path, *, tool_ok: bool = True, engine: str = "true", tool_in_file: bool = True, weights: str = "ro"
+) -> Any:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    tool = tmp_path / "cardquery"
+    body = 'echo "Card Model X, 183000, 580.1"\necho "Card Model X, 183000, 580.1"\n' if tool_ok else "exit 7\n"
+    tool.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+    # a working tool on PATH too: the script must never find it there (only by the job's card file)
+    (bin_dir / "cardquery").write_text('#!/bin/sh\necho "Card Model X, 183000, 580.1"\n', encoding="utf-8")
+    (bin_dir / "cardquery").chmod(0o755)
+    engine_stand_in = bin_dir / "podman"
+    engine_stand_in.write_text(f"#!/bin/sh\necho {engine}\n", encoding="utf-8")
+    for f in (tool, engine_stand_in):
+        f.chmod(0o755)
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps({"profile": "gpu", "tool": str(tool) if tool_in_file else ""}), encoding="utf-8")
+    out = tmp_path / "out"
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    folder = tmp_path / "weights"
+    mounts = tmp_path / "mounts"
+    lines = ["overlay / overlay ro,relatime 0 0"]  # a stand-in for the container's mount table
+    if weights != "none":
+        folder.mkdir()
+        if weights in ("ro", "rw"):
+            lines.append(f"/dev/sdz1 {folder} ext4 {weights},nosuid,nodev,relatime 0 0")
+    mounts.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    args = ["bash", str(GPU_BOX), str(out), str(job), str(folder), str(mounts)]
+    proc = subprocess.run(args, check=False, capture_output=True, text=True, env=env)
+    return proc, out
+
+
+def test_the_gpu_box_says_each_step_and_never_counts_a_step_not_run_as_passed(tmp_path: Path) -> None:
+    proc, out = _gpu_box(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    steps = json.loads((out / "report.json").read_text())["steps"]
+    assert steps == {"tpm": "PASS", "gpu": "PASS", "weights": "PASS", "engine": "PASS", "install": "NOT RUN",
+                     "serving": "NOT RUN"}  # fmt: skip
+    report = (out / "report.md").read_text()
+    if not Path("/dev/tpmrm0").exists() and not Path("/dev/tpm0").exists():
+        assert "no TPM: the passphrase path" in report
+    assert "H-94 (3)" in report and "H105-03" in report  # why each step is not run
+    record = json.loads((out / "gpu-record.json").read_text())
+    assert record == {"count": 2, "cards": [{"model": "Card Model X", "memory_mib": 183000, "driver": "580.1"}] * 2}
+
+
+def test_the_gpu_record_holds_no_serial_or_uuid() -> None:
+    text = GPU_BOX.read_text(encoding="utf-8")
+    query = re.search(r"--query-gpu=(\S+)", text)
+    assert query and query.group(1) == "name,memory.total,driver_version"
+    assert "uuid" not in query.group(1) and "serial" not in query.group(1)
+
+
+@pytest.mark.parametrize(
+    ("kw", "step"),
+    [
+        ({"tool_ok": False}, "gpu"),
+        ({"tool_in_file": False}, "gpu"),
+        ({"engine": "false"}, "engine"),
+        ({"weights": "none"}, "weights"),
+        ({"weights": "rw"}, "weights"),
+        ({"weights": "plain"}, "weights"),
+    ],
+)
+def test_the_gpu_box_fails_on_a_failed_step(tmp_path: Path, kw: dict[str, Any], step: str) -> None:
+    proc, out = _gpu_box(tmp_path, **kw)
+    assert proc.returncode == 1
+    assert json.loads((out / "report.json").read_text())["steps"][step] == "FAIL"
+    if not kw.get("tool_in_file", True):
+        assert "no card query tool in the job's card file" in (out / "report.md").read_text()
+    why = {"none": "no readable weights folder", "rw": "mounted writable", "plain": "is not a mount of its own"}
+    if "weights" in kw:
+        assert why[kw["weights"]] in (out / "report.md").read_text()
+
+
+@pytest.mark.parametrize("answer", ['echo "Card Model X, [N/A], 580.1"', "exit 0", 'echo "Card Model X, 183000"'])
+def test_the_gpu_box_fails_when_the_tools_answer_gives_no_record(tmp_path: Path, answer: str) -> None:
+    """OCR 1466-4: a field the tool cannot read, no card at all, or a short row said PASS with an empty note."""
+    tool = tmp_path / "cardquery"
+    tool.write_text(f"#!/bin/sh\n{answer}\n", encoding="utf-8")
+    tool.chmod(0o755)
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps({"profile": "gpu", "tool": str(tool)}), encoding="utf-8")
+    out = tmp_path / "out"
+    args = ["bash", str(GPU_BOX), str(out), str(job), str(tmp_path / "none"), str(tmp_path / "none")]
+    subprocess.run(args, check=False, capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+    assert json.loads((out / "report.json").read_text())["steps"]["gpu"] == "FAIL"
+    assert not (out / "gpu-record.json").exists()
