@@ -16,8 +16,9 @@
    banner and the footer), in `trialbox doctor` (a standing WARN line no setting turns off) and in the install's last
    lines.
 3. **The mark is the install option's only.** `deploy/install.sh --bench` writes it into the box's own record,
-   `deploy/site/bench-box.env` (`tools/trialbox/benchbox.py`), then `TB_BENCH=1` to `deploy/.env` beside
-   `TB_ENV=PRODUCTION`. The record is written by root (the installer), mode 0644, fsynced and renamed into place, and
+   `deploy/site/bench-box.env` (`tools/trialbox/benchbox.py`), after `TB_BENCH=1` in `deploy/.env` beside
+   `TB_ENV=PRODUCTION`, and only once the install is past every refusal that says nothing was changed: a refused
+   install leaves no mark. The record is written by root (the installer), mode 0644, fsynced and renamed into place, and
    carries the install's trace: its first line, the folder it was written for, the time. It is checked at every
    install, at every start (`deploy/settings_guard.sh`, before the systemd unit and `tools/apply_update.sh` start
    the stack) and by doctor. A mark the option did not write is refused: `TB_BENCH` in the caller's environment (the
