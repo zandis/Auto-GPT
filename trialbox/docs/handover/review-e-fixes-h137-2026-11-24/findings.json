@@ -1,0 +1,137 @@
+{
+ "card": "H137",
+ "title": "the outside review's fixes, checked and written anew",
+ "date": "2026-11-24",
+ "source": "docs/handover/review-e-fixes-h137-2026-11-24.md",
+ "note": "basis 'shown' means shown on master by the card's unit test (H137-01 to H137-10), by a probe in a session container (H137-11, H137-14) or by reading the code (H137-12, H137-15, H137-16); H137-13 was not run. H137-02 is High on the integrator's ruling 7147065106. H137-11 and H137-12 are built on the owner's decisions (#639 7156806411 items 6 and 7) and shown by tests/unit/test_mail_tls_verified.py, tests/unit/test_trusted_proxy_list.py and V3-01's test.",
+ "findings": [
+  {
+   "id": "H137-01",
+   "severity": "High",
+   "claim": "model_guard read the first of two Content-Length headers and forwarded the last, so an unkeyed request's body could carry a second request the model server ran with no key",
+   "lane": "D",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-02",
+   "severity": "High",
+   "claim": "the EDC OIDC issuer signed and accepted tokens under an empty HMAC key when TB_EDC_OIDC=1 and the client secret was empty",
+   "lane": "E",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-03",
+   "severity": "Low",
+   "claim": "an EDC event signature header with non-ASCII text raised in hmac.compare_digest (a 500, not a refusal)",
+   "lane": "E",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-04",
+   "severity": "Medium",
+   "claim": "REDCAP_TOKEN_<ref> overrode TB_REDCAP_TOKEN_<ref> and TB_REDCAP_PROJECT_TOKENS, against docs/data/13 (the shorter name only when the TB_ one is empty)",
+   "lane": "E",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-05",
+   "severity": "Medium",
+   "claim": "the EDC link map was created 0644 and chmodded after, and rewritten in place: a failed write left the saved map torn, read back as empty",
+   "lane": "E",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-06",
+   "severity": "Medium",
+   "claim": "the prefill quote check stripped an integer's trailing zeros: 70 was shown by a quote saying 7, 100 by 1, 0 by any quote",
+   "lane": "J",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-07",
+   "severity": "Low",
+   "claim": "the adapter's /publish and /$validate joined the snapshot name to the lake unchecked: .., ../outside and a/b reached folders outside ndjson/",
+   "lane": "J",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-08",
+   "severity": "Medium",
+   "claim": "PUT /studies/{rs}/data/{record} keyed a pseudonym in upper case while every other route keys it in lower case, so its values went to another record",
+   "lane": "C2",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-09",
+   "severity": "Low",
+   "claim": "the audit report file (report.csv) skipped the page's pseudonym rule (D-380, D-771): a disclosure lookup's line showed the pseudonym",
+   "lane": "C2",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-10",
+   "severity": "Low",
+   "claim": "csrf_ok raised in hmac.compare_digest on a submitted value with non-ASCII text (a 500 instead of the refusal)",
+   "lane": "K",
+   "basis": "shown",
+   "state": "fixed 625f4afc23a6c167a309e568eee1ce4d656e203d"
+  },
+  {
+   "id": "H137-11",
+   "severity": "High",
+   "claim": "SMTP (outbound.py) and IMAP (gateway.py) passed no TLS context, so the certificate and host were never verified (CERT_NONE); built on the owner's option 2: verified by default, a per-server switch to off, each start with it off or without TLS audited, the install check tests the certificate",
+   "lane": "U",
+   "basis": "shown",
+   "state": "fixed fd3ee97959e4b4f9f68ba1697e1bf1024f5ac3bf"
+  },
+  {
+   "id": "H137-12",
+   "severity": "Medium",
+   "claim": "the platform manifest trusted X-Forwarded-For from every sender (--forwarded-allow-ips *) and compose trusted only 127.0.0.1 behind Caddy (V3-01); built on the owner's option 3: one named list, Caddy's fixed address on a box, the site's range on a cluster, all refused in PRODUCTION, a doctor line",
+   "lane": "D",
+   "basis": "shown",
+   "state": "fixed fd3ee97959e4b4f9f68ba1697e1bf1024f5ac3bf"
+  },
+  {
+   "id": "H137-13",
+   "severity": "Low",
+   "claim": "edc.sent writes opted_out: n beside one named record, so n = 1 says that patient opted out (D-147)",
+   "lane": "J",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H137-14",
+   "severity": "Medium",
+   "claim": "phi_guard's twelve-digit pattern misses a number in fours joined by two spaces or by an underscore",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H137-15",
+   "severity": "Medium",
+   "claim": "the console mails the job of an account with no mailbox to the administrator's mailbox (D-280); what the mail holds per job type is not verified",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H137-16",
+   "severity": "Low",
+   "claim": "the prefill quote check still takes an integer as shown by a longer number holding it (7 by a quote saying 70)",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

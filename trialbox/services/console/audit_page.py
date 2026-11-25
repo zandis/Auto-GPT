@@ -596,8 +596,10 @@ def register(app: FastAPI, h: Hooks) -> None:
         h.au.append("console.audit_report", actor=h.actor(sess), detail={**f.audit_detail(), "format": "csv"})
         lang = sess.lang if sess.lang in CATALOGUES else "en"
         name = f"audit-{f.pid[:8]}.csv"
+        ids = permit(sess.user.role, "audit.ids")  # H-137: the file leaving the box keeps the page's rule (shown_to)
+        rows = (r if ids and not from_chart(r) else hide_pids(r) for r in iter_events(directory(), f))
         return StreamingResponse(
-            stream_for_spreadsheet(csv_lines(iter_events(directory(), f), label_of(lang))),
+            stream_for_spreadsheet(csv_lines(rows, label_of(lang))),
             media_type="text/csv; charset=utf-8",
             headers={"content-disposition": f'attachment; filename="{name}"', "cache-control": "no-store"},
         )

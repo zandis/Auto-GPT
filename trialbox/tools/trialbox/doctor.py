@@ -128,6 +128,9 @@ closed). Checks:
   ``host_tree.IMAGE_ONLY``). An update neither replaces nor checks such a copy: WARN, naming it and the command that
   removes it (never removed for the operator); FAIL when this command's import path holds it (a caller's PYTHONPATH:
   a host command run so would import it). PASS on a source checkout; WARN in the box image (not seen there).
+* ``prefix_cache`` (H-146, D-1462): the judge and verifier servers' prefix cache (``TB_LLM_PREFIX_CACHING``). PASS
+  off (the default), WARN on (``enable``: runs may differ), FAIL another value; with ``--compose-config``, FAIL a
+  server whose rendered command does not carry the flag the setting names.
 
 On a host's own Python (H-144), the checks of ``IMAGE_CHECKS`` (the ones that import pydantic, httpx or the services'
 code, or read ``models/``) run in a one-off container of the box's own image (``tools/trialbox/doctor_image.py``) and
@@ -455,6 +458,47 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
+
+
+def check_mail_tls(inp: DoctorInputs) -> Check:
+    """H-137 (the owner's decision, #639 7156806411 item 6; the integrator's ruling 7165038321 item 4): a WARN in every
+    environment while a mail server is spoken to without a verified certificate, naming the server and the setting
+    (``mail_gateway.tls``: SMTP_TLS_VERIFY, SMTP_STARTTLS, IMAP_TLS_VERIFY, IMAP_SSL); the gateway audits each start
+    so. The IMAP server counts only when a mailbox is polled (IMAP_USER)."""
+    from pathlib import Path as _Path
+
+    from mail_gateway import tls
+    from tb_common.config import load_env
+
+    env = load_env(_Path("/nonexistent"), {k: str(v) for k, v in inp.env.items()})
+    off = tls.unverified(env, imap_used=bool(env.imap_user))
+    if not off:
+        return Check("mail_tls", "PASS", "the mail servers' certificates are verified")
+    said = "; ".join(f"{s} {h}: {setting}" for s, h, _m, setting in off)
+    return Check("mail_tls", "WARN", f"mail without a verified certificate ({said}): each start is audited")
+
+
+def check_trusted_proxy(inp: DoctorInputs) -> Check:
+    """H-137 (the owner's decision, #639 7156806411 item 7): the one list of proxies the console trusts for forwarded
+    headers (``tb_common.trusted_proxy``). "All" is a FAIL in PRODUCTION (the console refuses to start with it) and a
+    WARN elsewhere; behind Caddy (``TB_TLS_HOSTNAME`` set) a list without Caddy's fixed address is a WARN: every browser
+    is then one address to the sign-in lock (ASVS V3-01)."""
+    from tb_common import trusted_proxy as tp
+    from tb_common.config import environment_name
+
+    env = environment_name(inp.env)
+    value = (inp.env.get(tp.NAME) or "").strip()
+    if tp.trusts_all(value):
+        status: Status = "FAIL" if env == "PRODUCTION" else "WARN"
+        return Check("trusted_proxy", status, f"{tp.NAME}={value!r} trusts every sender's X-Forwarded-For: a client "
+                     "chooses its own address for the sign-in lock and the audit")  # fmt: skip
+    proxy = (inp.env.get("TB_PROXY_ADDR") or "").strip() or tp.DEFAULT_PROXY_ADDR
+    if (inp.env.get("TB_TLS_HOSTNAME") or "").strip() and proxy not in tp.entries(value):
+        return Check("trusted_proxy", "WARN", f"behind Caddy ({proxy}) the console trusts {value or 'no proxy'}: every "
+                     "browser is Caddy's one address to the sign-in lock; re-run the installer")  # fmt: skip
+    if not value:
+        return Check("trusted_proxy", "PASS", "no proxy trusted: each browser is the address it connects from")
+    return Check("trusted_proxy", "PASS", f"forwarded headers trusted from {value} only")
 
 
 def check_phi_tripwire(inp: DoctorInputs) -> Check:
@@ -1587,6 +1631,50 @@ def check_bench_serving(inp: DoctorInputs) -> Check:
                                           "to current and take the file out of COMPOSE_FILE (H-112)")  # fmt: skip
 
 
+def check_prefix_cache(inp: DoctorInputs) -> Check:
+    """H-146 (D-1462): the judge and verifier servers' prefix cache, off unless the box chooses it. Off (the
+    default: ``TB_LLM_PREFIX_CACHING`` absent, empty or ``no-enable``) is a PASS; ``enable`` a standing WARN (the
+    same calls may then answer differently from run to run); another value a FAIL (the servers refuse to start).
+    With the box's rendered compose (``--compose-config``), each server there must carry the flag the setting
+    names."""
+    from tools import prefix_cache
+
+    env = dict(inp.env)
+    if inp.deploy is not None and prefix_cache.SETTING not in os.environ:
+        # review 1514-1: deploy/.env as compose reads it (an "export", a comment after an unquoted value)
+        from tools import rehearsal_real
+
+        env.pop(prefix_cache.SETTING, None)
+        env.update({k: v for k, v in rehearsal_real.env_file(inp.deploy / ".env").items() if k == prefix_cache.SETTING})
+    try:
+        word = prefix_cache.state(env)
+    except ValueError as exc:
+        detail = f"{exc}: the model servers may refuse to start or run another option; set {prefix_cache.SETTING}"
+        return Check("prefix_cache", "FAIL", detail + " to no-enable (off) in deploy/.env (D-1462)")
+    if inp.compose_config is not None:
+        want = prefix_cache.flag(word)
+        services = inp.compose_config.get("services") or {}
+        bad = [
+            name
+            for name in ("llm-service", "llm-verifier")
+            if isinstance(services.get(name), Mapping)
+            and [a for a in services[name].get("command") or [] if str(a).endswith("prefix-caching")] != [want]
+        ]
+        if bad:
+            return Check("prefix_cache", "FAIL", f"{', '.join(bad)}: the rendered command does not carry {want} "
+                                                 f"({prefix_cache.SETTING}); a GPU overlay without the line runs "
+                                                 "the model server's own default (D-1462)")  # fmt: skip
+    if word == "on":
+        return Check("prefix_cache", "WARN", f"prefix caching on ({prefix_cache.SETTING}=enable): runs may differ "
+                                             "from run to run on the same calls (D-1462)")  # fmt: skip
+    seen = (
+        "the rendered servers"
+        if inp.compose_config is not None
+        else "the setting (--compose-config checks the servers)"
+    )
+    return Check("prefix_cache", "PASS", f"prefix caching off on the judge and verifier servers: {seen} (D-1462)")
+
+
 def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:
     """H-89: (where, what the box says) when this box ran the real model servers as a rehearsal, else None."""
     from tools import rehearsal_real
@@ -2331,6 +2419,8 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_trusted_proxy,
+    check_mail_tls,
     check_phi_tripwire,
     check_sae_mailbox,
     check_named_choices,
@@ -2355,6 +2445,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_anchor_mount,
     check_rehearsal,
     check_bench_serving,
+    check_prefix_cache,
     check_memory_caps,
     check_postgres_memory,
     check_db_passwords,
@@ -2448,13 +2539,13 @@ TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 #: own image (``tools/trialbox/doctor_image.py``) and their verdicts join the host's, in this list's order. An import
 #: error or a container that does not run is that check's FAIL with the reason: never a PASS, never a skip.
 IMAGE_CHECKS = (
-    "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "phi_tripwire",
-    "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule", "db_passwords", "wsl2_memory",
-    "update_window", "backup_speed", "terminology",
+    "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "trusted_proxy",
+    "mail_tls", "phi_tripwire", "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule",
+    "db_passwords", "wsl2_memory", "update_window", "backup_speed", "terminology",
 )  # fmt: skip
 #: what those checks import beyond the host's Python (the box image has each one)
 IMAGE_MODULES = ("pydantic", "httpx", "gateway", "guard", "registry", "channels", "criteria_compiler", "tb_llm",
-                 "tb_contracts")  # fmt: skip
+                 "tb_contracts", "mail_gateway")  # fmt: skip
 
 
 def needs_image() -> bool:

@@ -49,6 +49,8 @@ def test_default_install_passes() -> None:
         "perimeter_addresses",
         "channel_engine",
         "secure_cookie",
+        "trusted_proxy",  # H-137: the owner's decision, #639 7156806411 item 7
+        "mail_tls",  # H-137: the owner's decision, #639 7156806411 item 6; ruling 7165038321 (4), 7161211237
         "phi_tripwire",  # 9g-11, D-1348
         "console_mfa",
         "ldap_ca",  # D-722
@@ -71,6 +73,7 @@ def test_default_install_passes() -> None:
         "anchor_mount",  # D-638
         "rehearsal",  # D-726
         "bench_serving",  # H-112: the second serving profile, never on a PRODUCTION box
+        "prefix_cache",  # H-146 (D-1462): the model servers' prefix cache, off unless chosen
         "sae_mailbox",  # D-736
         "named_choices",  # D-1365
         "mail_auth",  # D-825

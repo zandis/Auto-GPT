@@ -12,9 +12,11 @@ caller could plant).
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -125,12 +127,23 @@ def _published(env: dict[str, str]) -> set[int]:
     return out
 
 
+def _subnet(env: dict[str, str]) -> ipaddress.IPv4Network:
+    """The range the TLS proxy's overlay gives the box's trialbox-net (H-137), as the box's .env sets it: the engine
+    refuses a second network on a range another network holds."""
+    f = (ROOT / "deploy" / "docker-compose.identity.yml").read_text(encoding="utf-8")
+    m = re.search(r'subnet:\s*"\$\{TB_NET_SUBNET:-([^}]+)\}"', f)
+    assert m, "the overlay's trialbox-net range is not ${TB_NET_SUBNET:-...}"
+    return ipaddress.IPv4Network(env.get("TB_NET_SUBNET") or m.group(1))
+
+
 # ------------------------------------------------------------------------------------------------ the invariant
 def test_two_test_boxes_share_no_volume_network_port_or_key(tmp_path: Path) -> None:
     """Two test boxes, each by the real installer: each install's every compose and docker command ran under its own
     project (none under the other's or the ordinary box's), and the projects' volumes (the site keys' tb-secrets
     among them), networks and published ports never meet. Each says what it is in its last lines."""
     a, b = H106Box(tmp_path / "a"), H106Box(tmp_path / "b")
+    for box in (a, b):  # the TLS proxy's overlay, whose fixed range (H-137) each box's record moves
+        shutil.copy(ROOT / "deploy" / "docker-compose.identity.yml", box.deploy / "docker-compose.identity.yml")
     ra = a.run("--test-box", "a", "--port-offset", "1", *TEST_ARGS)
     assert ra.rc == 0 and "TrialBox is running." in ra.out, ra.text[-4000:]
     pa = a.dotenv()["COMPOSE_PROJECT_NAME"]
@@ -160,6 +173,11 @@ def test_two_test_boxes_share_no_volume_network_port_or_key(tmp_path: Path) -> N
     assert not va & _compose_names("trialbox")[0] and not na & _compose_names("trialbox")[1]
     ports_a, ports_b, first = _published(a.dotenv()), _published(b.dotenv()), _published({})
     assert not ports_a & ports_b and not ports_a & first and not ports_b & first, (ports_a, ports_b)
+    # H-137: the fixed internal ranges never meet either, and each box's proxy address is in its own range
+    ranges = [_subnet(a.dotenv()), _subnet(b.dotenv()), _subnet({})]
+    assert not any(x.overlaps(y) for i, x in enumerate(ranges) for y in ranges[i + 1 :]), ranges
+    for box, net in ((a, ranges[0]), (b, ranges[1])):
+        assert ipaddress.IPv4Address(box.dotenv()["TB_PROXY_ADDR"]) in net
     # the keys: each box's deploy/secrets is its own folder, and no secret of a test box goes to the host's KEK folder
     assert (a.deploy / "secrets").resolve() != (b.deploy / "secrets").resolve()
     for box in (a, b):
