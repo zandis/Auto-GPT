@@ -16,6 +16,10 @@ fail() { echo "REHEARSAL FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
 dc() { (cd "$BOX" && docker compose --project-directory deploy "$@"); }   # COMPOSE_FILE comes from deploy/.env
 envget() { sed -n "s/^$1=//p" "$BOX/deploy/.env" | tail -1; }
+# H-148 (7170464780): the site's day, as the product reads it with no settings object (tb_common.config.site_tz: TB_TZ,
+# which compose requires to be site.tz, D-315); no zone is no day, never UTC's (an ingest after the site's midnight
+# under UTC's day is older than the box's own nightly snapshot)
+site_day() { local z; z="$(envget TB_TZ)"; [ -n "$z" ] || fail "TB_TZ is not set in deploy/.env (the site's zone, D-315)"; TZ="$z" date +%F; }
 envset() { sed -i "/^$1=/d" "$BOX/deploy/.env"; [ -z "${2+x}" ] || printf '%s=%s\n' "$1" "$2" >> "$BOX/deploy/.env"; }
 IMAGE_PY="trialbox-py:1.0.0"
 
@@ -596,8 +600,10 @@ EOF
 screen)
   tag="${2:-first}"
   if [ ! -f "$W/ingested" ]; then
-    # D-887: today's snapshot, as the nightly ingest makes it (a fixed date grew older than the box accepts, D-383)
-    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot "$(date -u +%F)" \
+    # D-887: today's snapshot, as the nightly ingest makes it (a fixed date grew older than the box accepts, D-383),
+    # in the site's day (H-148: UTC's day is the day before from the site's midnight until UTC's)
+    snap="$(site_day)" || exit 1
+    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot "$snap" \
       | tail -5 || fail "ingest of synthetic hospital A failed"
     touch "$W/ingested"
   fi

@@ -68,6 +68,14 @@
    "lane": "H",
    "basis": "not_run",
    "state": "open"
+  },
+  {
+   "id": "H148-09",
+   "severity": "Low",
+   "claim": "the box rehearsal's SCREEN step ingested under UTC's day (date -u +%F), a day older than the box's own nightly snapshot between the site's midnight and UTC's (train 180, 18:00Z); it now takes the site's day from TB_TZ and refuses no zone",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }

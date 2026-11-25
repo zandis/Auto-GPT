@@ -9,7 +9,7 @@ so in one language.
 - **Date:** 2026-11-25
 - **Base:** master 440089e8, merged with master 6d8ad1a6
 - **Findings:** [`h148-load-order-faults-2026-11-25/findings.json`](h148-load-order-faults-2026-11-25/findings.json)
-  (H148-01 to H148-08)
+  (H148-01 to H148-09)
 
 ## The ids
 
@@ -26,6 +26,7 @@ a planted fault, never by the bench's own run.
 | 5 | `test_gateway_under_load::test_an_interactive_call_without_a_slot_is_busy_at_once` | the call waits the product's slot wait on purpose (`INTERACTIVE_SLOT_WAIT_S` 0.5 s), so `< 1.0` left 0.5 s for the runner | `gw.chat` timed: idle 0.511 to 0.521 s (20); 16 busy loops 0.533 to 0.764 s (30), with sysmon coverage up to 0.758 s | ruled (item 1): the slot waits the call asked for are `[INTERACTIVE_SLOT_WAIT_S]` and the call ends within the scaled call budget (3.0 s, `bound`); 503, `model_busy`, Retry-After 5 kept. Planted: a 3 s overwait in the slot wait, a 3 s stall before it and a 3 s slot wait each fail the new test; the product as it is passes | 0 of 20 under 8 busy loops before; after: see "What ran" |
 | 6 | `test_poc_real_embedder::test_without_the_switch_nothing_changes` (subprocess timeout) | a product race: `alive_start` (`deploy/poc.sh`, `deploy/install.sh`) runs `sleep N &` in a subshell; `alive_stop`'s TERM that lands before `s=$!` leaves the sleep alive with the script's stdout and stderr, so the caller's pipe stays open for N s (600 s in the test, its timeout 120 s) | the bare pair `alive_start; alive_stop`, 200 times: 2 held the pipe | the sleep's streams go to `/dev/null`; failing-first `tests/unit/test_alive_sleep_holds_no_pipe_h148.py` (the subshell killed while its sleep sleeps): 2 failed before, 2 passed after | the new test: 2 failed before (both scripts), 2 passed after; `test_poc_real_embedder` and the install tests pass with the fix |
 | added | `test_list_demo::test_the_demo_day_is_the_real_day` (integration) | its run takes minutes; one that crossed the site's midnight seeded yesterday and was read against today (#1518) | the integrator's line: seed 15:59:29Z, checks at 16:0xZ | the day is read before and after the run; a run that crossed it is made once more in its own folder; assertions unchanged. Demonstration: the first attempt made to look rolled over (the time read before it moved back a day) ran the second and passed (408 s) | passed as written (223 s) |
+| added | box rehearsal (test), train 180, `[18] screen`: "ingest of synthetic hospital A failed" (the integrator's 7170464780) | `tools/rehearse_box/box.sh` ingested under `date -u +%F`; at 18:00Z it is 02:00 the next day at the site, so the box's own nightly ingest had made the site's newer snapshot | held clock (a stand-in `date` at 2026-11-25T18:00:00Z) running the SCREEN step's own ingest lines with the box's compose stood in: Asia/Taipei and Asia/Tokyo got 2026-11-25 before, a missing zone still ingested | the day is the site's: `site_day` reads `TB_TZ` from the box's `deploy/.env` (the product's `site_tz` with no settings object; compose requires it to be `site.tz`, D-315) and refuses no zone; failing-first `tests/unit/test_rehearse_box_site_day_h148.py`: 3 failed, 1 passed before, 4 passed after. The other rehearsal and walk scripts: their `date -u` are timestamps, `imperfect_feed` uses fixed nights, the box-run VM script already takes `TB_TZ` (`acc_today`) | the rehearsal itself was not run here (it needs the box's images and a VM) |
 
 One more, seen once and not explained: in the policy set as root under CI's conditions,
 `test_g1_box_install_run::test_rehearsal_case[session-ssh]` waited 180 s for its console to answer. It passed three
@@ -41,9 +42,10 @@ Changed under the ruling 7167587625 (the gateway, console and rehearsal tests) a
 - `tests/console/test_console_timing.py` (lane K): id 1
 - `tests/rehearsal/box-run/rehearse-box-run.sh` (lane K): id 4, the session-stop line sets the knob
 - `tests/integration/test_list_demo.py`: the added id
+- `tools/rehearse_box/box.sh` (lane K): the box rehearsal's ingest day (the integrator's go 7170464780)
 - `deploy/poc.sh`, `deploy/install.sh`: id 6, one line each (the lead's go for the product fix)
 
-Lane H's own: `tests/rehearsal/box-run/check.py` and `standins/boot.sh` (id 4), the new test, this page and its
+Lane H's own: `tests/rehearsal/box-run/check.py` and `standins/boot.sh` (id 4), the two new tests, this page and its
 findings.
 
 ## What ran
