@@ -22,8 +22,8 @@
    "severity_basis": "a 500's error id is not found in the log about 1 time in 160",
    "lane": "H",
    "basis": "shown",
-   "state": "open",
-   "fix": "not in this card: services/criteria_compiler/app.py is another lane's file; tb_common.ids.log_safe_id is the fix there (a question to the integrator)",
+   "state": "fixed 4eb0c2b1",
+   "fix": "the integrator's ruling 7166734383: services/criteria_compiler/app.py draws error_id with tb_common.ids.log_safe_id(); the length assertion of tests/unit/test_compiler_answers_every_failure.py::test_a_bug_is_a_500_with_an_id_and_its_trace_in_the_audit changes from 12 to 16 under that ruling; tests/unit/test_h147_ids_unmasked.py::test_the_compilers_error_id_is_logged_whole (fails at fab3329f)",
    "from": "lane H, while finding every draw site for H-147, 2026-11-25"
   },
   {
@@ -33,8 +33,8 @@
    "severity_basis": "rare; the run is found by its trial and time as well",
    "lane": "H",
    "basis": "shown",
-   "state": "open",
-   "fix": "not in this card: services/console/cascade.py and the ULID are other lanes'; a question to the integrator",
+   "state": "fixed 4eb0c2b1",
+   "fix": "the integrator's ruling 7166734383: services/console/cascade.py draws the run id with tb_common.ids.log_safe_id() (one line and its import); tests/unit/test_h147_ids_unmasked.py::test_a_cascade_runs_id_is_logged_whole (fails at fab3329f)",
    "from": "lane H, while finding every draw site for H-147, 2026-11-25"
   },
   {
@@ -58,6 +58,28 @@
    "state": "open",
    "fix": "not in this card: runs.py is another lane's file and its behaviour is right",
    "from": "lane H, checking that older ids are still read back, 2026-11-25"
+  },
+  {
+   "id": "H147-06",
+   "severity": "Low",
+   "claim": "the card page named the repository's agent-instructions file by its file name, a vendor product name, where the repo rule allows none in docs (review 1515-3)",
+   "severity_basis": "the words of a doc, not behaviour",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed fab3329f",
+   "fix": "the page says the repository's checks",
+   "from": "the external review of #1515 at b7fc5914 (7166485201), 2026-11-25"
+  },
+  {
+   "id": "H147-07",
+   "severity": "Medium",
+   "claim": "log_safe_id() redrew with no bound: a site chart-number pattern that reads letters (^[A-Za-z0-9]{6,20}$, which the settings take) changed every draw, so POST /run and POST /publish spun for ever while they held the adapter's run gate (review 1515-1; not on master)",
+   "severity_basis": "on such a site no night runs and no publish ends; the shipped default reads digits only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed fab3329f",
+   "fix": "at most ATTEMPTS (32) draws, then the last draw is handed out (a valid id whose log line shows the rule's kind); tests/unit/test_h147_ids_unmasked.py::test_a_site_rule_that_reads_letters_does_not_hang_the_draw, ::test_a_run_is_started_under_a_site_rule_that_reads_letters (both fail at b7fc5914)",
+   "from": "the external review of #1515 at b7fc5914 (7166485201), 2026-11-25"
   }
  ]
 }
