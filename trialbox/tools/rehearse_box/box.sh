@@ -1081,9 +1081,9 @@ test-boxes)
   out="$(cd "$B3" && deploy/install.sh "$NB" --bench --environment PRODUCTION --mode stub --yes 2>&1)"; rc=$?
   [ "$rc" = 1 ] && echo "$out" | grep -q "a bench box (PRODUCTION · BENCH); test boxes beside it on this host: $P2" \
     && echo "$out" | grep -q "the bundle is not a valid signed TrialBox release" && [ ! -e "$B3/current" ] \
-    && [ "$(stat -c '%u %a' "$B3/deploy/site/bench-box.env")" = "0 644" ] \
-    || fail "a bench install did not go past the host check beside the test box (exit $rc): $out"
-  ok "BENCH: a caller's TB_BENCH, --bench on TEST and a hand-written mark refused; --bench on PRODUCTION goes on beside the test box (its mark root's, 0644), nothing loaded"
+    && [ ! -e "$B3/deploy/site/bench-box.env" ] && ! grep -q 'TB_BENCH' "$B3/deploy/.env" 2>/dev/null \
+    || fail "a bench install did not go past the host check beside the test box, or a refused one left its mark (exit $rc): $out"
+  ok "BENCH: a caller's TB_BENCH, --bench on TEST and a hand-written mark refused; --bench on PRODUCTION goes on beside the test box, nothing loaded and no mark left (review 1484-1)"
   # remove the test box: its own objects and folder only; the first box whole
   (cd "$BOX" && python3 -m tools.trialbox.testbox remove --name rh2 --yes) || fail "the test box could not be removed"
   left="$(docker ps -aq --filter label=com.docker.compose.project="$P2"; docker volume ls -q --filter label=com.docker.compose.project="$P2"; docker network ls -q --filter label=com.docker.compose.project="$P2")"
