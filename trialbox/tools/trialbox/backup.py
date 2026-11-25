@@ -2204,6 +2204,23 @@ def _pre_restore_dumps(srcs: Sequence[DbSource], into: Path, env: Mapping[str, s
     return out
 
 
+def _set_aside_refusal(dests: Sequence[Path]) -> None:
+    """H-132 (LR-1): a folder the restore replaces is first renamed aside within its parent. A mount point (or a
+    folder on another filesystem than its parent) cannot be renamed: refused here, before the first change, never
+    found out halfway with the databases already replaced."""
+    for dest in dests:
+        try:
+            other = dest.is_dir() and dest.stat().st_dev != dest.parent.stat().st_dev
+        except OSError:
+            other = False
+        if other or os.path.ismount(dest):
+            raise BackupError(
+                f"{dest} is a mount point (or on another filesystem than {dest.parent}): the restore sets a folder "
+                "aside by renaming it within its parent, which cannot be done here. Restore into a folder inside "
+                "the mount (--dir name=<mount>/<folder>). Nothing was changed"
+            )
+
+
 def _put_back(
     srcs: Mapping[str, DbSource],
     replaced: Sequence[str],
@@ -2216,6 +2233,10 @@ def _put_back(
     bad: list[str] = []
     for dest, aside, existed, top in reversed(list(moved)):
         try:  # each step on its own: whatever stops one (BaseException included), the others still go back
+            if aside is not None and not aside.exists():
+                # H-132 (LR-1): the rename aside never happened (it failed, or a signal came first): what is in the
+                # folder is the box's own data, untouched. Never removed
+                continue
             if dest.exists():
                 shutil.rmtree(dest)
             if aside is not None and aside.exists():
@@ -2346,6 +2367,7 @@ def restore(
         missing = set(manifest["dirs"]) - set(targets) - {HOST}
         if missing:
             raise BackupError(f"no place to restore directories {sorted(missing)}: pass --dir name=path")
+        _set_aside_refusal([targets[d] for d in manifest["dirs"] if d in targets])  # H-132 (LR-1): before any change
         srcs = {s.name: s for s in db_sources(env)}
         for name in manifest["databases"]:
             if name not in srcs:

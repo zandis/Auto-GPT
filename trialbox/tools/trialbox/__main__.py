@@ -756,6 +756,18 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         return 1
 
 
+def _exit_code(code: int) -> int:
+    """1494 CI (job 138877998556): a command that said its interrupt (130) ends with that code. The walk's second
+    signal may arrive after the restore put its own handlers back; from here to the exit it is ignored, never the
+    default action (143). Only on the process's own way out: in-process callers (the tests) keep their handlers."""
+    if code == 130:
+        import signal
+
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
+    return code
+
+
 if __name__ == "__main__":
     # install.sh links this signed file onto PATH. Keep relative input paths relative to the operator's shell.
     if not __package__:
@@ -764,4 +776,4 @@ if __name__ == "__main__":
     from tools.trialbox import launch  # H-88 (D-1089): its own import path, the box's settings, the box image
 
     _code = launch.enter(sys.argv[1:], installed=not __package__)
-    raise SystemExit(main(installed=not __package__) if _code is None else _code)
+    raise SystemExit(_exit_code(main(installed=not __package__) if _code is None else _code))
