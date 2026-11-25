@@ -16,7 +16,7 @@ import threading
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from cryptography import x509
@@ -208,7 +208,7 @@ def test_the_imap_poll_checks_the_certificate(monkeypatch: pytest.MonkeyPatch) -
     for verify, mode in ((True, ssl.CERT_REQUIRED), (False, ssl.CERT_NONE)):
         gw = SimpleNamespace(cfg=SimpleNamespace(env=Env(imap_host="imap.hospital.test", imap_tls_verify=verify)))
         with pytest.raises(Stop):
-            Gateway.poll_once(gw)  # type: ignore[arg-type]
+            Gateway.poll_once(cast(Gateway, gw))  # the poll reads only cfg.env before it connects
         assert seen[-1] is not None and seen[-1].verify_mode == mode
 
 
