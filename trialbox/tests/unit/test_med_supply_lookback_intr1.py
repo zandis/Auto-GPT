@@ -21,7 +21,8 @@ from typing import Any
 
 import pytest
 from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
-from criteria_compiler.compile_sql.generator import SqlGenerator
+from criteria_compiler.compile_sql.generator import MARK, SqlGenerator
+from criteria_compiler.compile_sql.overlay import safe_sql
 from criteria_compiler.semantics import Kind, atoms, compiled, kind, window
 from criteria_compiler.terminology.mapper import SYSTEMS, Concept, Terminology, ValueSets, valueset
 from embed_service.embedder import HashEmbedder
@@ -333,3 +334,22 @@ def test_a_duration_reads_the_same_period_in_both_engines(tmp_path: Path) -> Non
     assert _sql(lake, SqlGenerator("MS", "1.0.0", vsi).render([crit]), ["MS-INC-09"]) == want
     got = _cql(CqlGenerator("MS", "1.0.0", vsi), [crit], VS, [*pats, *map(json.dumps, orders)], list(DURATION))
     assert got == want
+
+
+def test_sql_approved_before_this_rule_is_not_run_alone(setup: tuple[LakeLocal, list[str]]) -> None:
+    """INTR1-05: stored SQL with the D-275 mark alone reads the order date only; the overlay leaves its differences
+    unknown. SQL with today's mark runs as stored."""
+    lake, _ = setup
+    now = SqlGenerator("MS", "1.0.0", ValueSets("MS", VS, Terminology())).render(CRIT)
+    old = now.replace(MARK, "-- Safety rules: D-275 (units, sex, order dates).")
+    old = old.replace("e.te >=", "FALSE AND e.te >=").replace("e.te IS NULL", "FALSE")  # the order date only
+    assert old != now and _sql(lake, old, IDS)["P-REACH"]["MS-EXC-01"] is False  # the old fault
+    base = Ruleset.load(ROOT / "rulesets" / "GOUT-COH").manifest
+    manifest = base.model_copy(update={"id": "MS", "library": None, "criteria": IDS})
+    rs = Ruleset(manifest=manifest, criteria=CRIT, valuesets=VS, sql=old)
+    got = _sql(lake, safe_sql(rs), IDS)
+    for pid in ("P-REACH", "P-EDGE", "P-NOSUPPLY", "P-OPEN"):
+        assert got[pid] == {"MS-EXC-01": None, "MS-INC-01": None}, pid
+    for pid in ("P-IN", "P-ENDED", "P-NONE"):  # both agree: the stored answer stands
+        assert got[pid] == EXPECTED[pid], pid
+    assert safe_sql(Ruleset(manifest=manifest, criteria=CRIT, valuesets=VS, sql=now)) == now

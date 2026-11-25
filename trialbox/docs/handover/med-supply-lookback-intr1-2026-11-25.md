@@ -4,7 +4,7 @@
 
 Ordered by the owner through the integrator, 2026-11-25 (High, a ring-0 condition). The deep check on master
 6c73db64, row R1 ("confirmed, run on synthetic data"). The files are lane J's and lane A2's (decisions register).
-Synthetic data only. Decision number needed (the decision is stated here and in the pull request).
+Synthetic data only. The decision is D-1073.
 
 ## The fault
 
@@ -34,8 +34,8 @@ same end (`verbatim_end_date`). The demonstration mapping (`demo_his.yaml`) writ
 * **No end** (ruling 1): an order written before the window, with no end, may have run into it, so it makes the answer
   unknown where nothing else settles it, never a silent no. An order in the window counts by its date, as before.
   The lake fills `start` from the order date, so an order with a start and no end and an order with only its date are
-  the same row: both read unknown. **This replaces the card's first rule** (no supply information: the order date
-  alone, so "not met"); the integrator is asked to confirm it for an order with only its date.
+  the same row: both read unknown. It replaces the card's first rule (the order date
+  alone, so "not met"), as the integrator ruled; there is no bound on its age for ring 0 (a later owner parameter).
 * **An undated order** (no order date) stays unknown, as before (DUMP-01), whatever its period: it is not placed by
   its period here.
 * A window with no first day ("ever", "any time before the index date") is not changed: its SQL and CQL are byte for
@@ -56,42 +56,35 @@ change.
 
 The shipped rulesets' SQL carries the D-275 mark and is run as stored, so the fix reaches them only through a
 recompile: `python -m tools.build_rulesets --recompile` rewrote the SQL, CQL and ELM of AD-MAB, GOUT-COH, GZQO,
-ONC-OSI, RA-BIO, RA-COH and RA-JAK (`--check` is equal afterwards). NEUR-COH does not change. **These seven need the
+ONC-OSI, RA-BIO, RA-COH and RA-JAK (`--check` is equal afterwards). NEUR-COH's only change is the mark line. **All eight need the
 owner's re-approval**, as with D-656; no lane approves a ruleset.
 
 ## What moves in the goldens
 
-**Before the rulings** (the first commit; the table below). The rulings move more: see the pull request for the run.
+`make goldens` (profile ci, both lake sources) changes 7 of 23 goldens. No golden row moves to unknown (0 of the screen's set and criterion rows, 0 verdicts), so the goldens do not exercise
+the no-end rule: `tests/unit/test_med_supply_lookback_intr1.py` does. The count at a site is not known from this.
 
-`make goldens-check` (profile ci) differed in 7 of 23 goldens, with the same values on both lake sources (legacy and
-omop). The criteria whose own verdicts or counts moved are GOUT-COH-INC-03, GZQO-EXC-04 and RA-COH-INC-02, all
-look-backs of this card; the other numbers are funnel steps, variants and candidate counts that follow from them.
-
-| Golden | Why |
+| Golden | What moves |
 | --- | --- |
-| `feas/basis@ci.json` | GOUT-COH-INC-03 coded +2, +2, +1 on three sets; RA-COH-INC-03 coded +1 on one set (see the funnel) |
-| `funnels/GOUT-COH@ci.json` | remaining at GOUT-COH-INC-03 +2, +2, +1; one `unknown_as_pass` variant +1 |
-| `funnels/GZQO@ci.json` | one patient of one set excluded by GZQO-EXC-04: every later step one fewer, and the variants and prevalence |
-| `funnels/RA-COH@ci.json` | remaining at RA-COH-INC-03 +1 on one set, its unknown -1; RA-COH-INC-02's count there is the same |
+| `feas/basis@ci.json` | GOUT-COH-INC-03 coded, and RA-COH-INC-03 coded on one set (see the funnel) |
+| `funnels/GOUT-COH@ci.json` | remaining at GOUT-COH-INC-03, and one `unknown_as_pass` variant |
+| `funnels/GZQO@ci.json` | one patient of one set excluded by GZQO-EXC-04: later steps, variants, prevalence 8 to 7 |
+| `funnels/RA-COH@ci.json` | remaining and unknown at RA-COH-INC-03 on one set |
 | `screen/GOUT-COH@ci.candidates.json` | the outcomes hashes only |
-| `screen/GZQO@ci.candidates.json` | GZQO-EXC-04 met +1, +4, +2, +2 over the four sets; one candidate fewer on one set |
+| `screen/GZQO@ci.candidates.json` | GZQO-EXC-04 met +1, +4, +2, +2 over the four sets; candidates 13 to 12 on one set |
 | `screen/RA-COH@ci.candidates.json` | RA-COH-INC-02 met +1, +2, +6, +3 over the four sets |
 
 RA-COH-INC-03 (a DAS28) reads no medication. The funnel asks whether a patient passes every step so far at any one
 month-end (`feas_compute.funnel_query`, `bool_or`), so a patient already counted at INC-02 can now pass INC-02 at the
 same month-end as the DAS28. That is a reading of the code; the single patient was not traced.
 
-Written with `make goldens REASON=...`.
+## Existing tests changed, each ruled by the integrator
 
-## Existing tests not changed here, a ruling is asked
-
-They hold the old text or the old day and fail on this branch:
-
-| Test | Holds | Proposed |
-| --- | --- | --- |
-| `test_cql_sql_generators.py::test_atoms_cql_snapshot_and_determinism`, `::test_atoms_sql_snapshot_and_determinism` | the old text of the fixture's medication atoms | rewrite `ATOMS.cql` and `ATOMS.sql` with the test's own `UPDATE_SNAPSHOTS=1` |
-| `test_fhir_inbound_contract.py::test_medication_reference_is_resolved_and_statements_are_read` | 4 weeks end on 2026-03-29 | 2026-03-28, the last covered day (ruling 2) |
-| `test_criteria_safety.py::test_cql_carries_the_same_rules_and_translates` | the CQL text `X.dispenseRequest.validityPeriod.end is null` | the new text of the same rule, `"TE_<atom>"(X) is null` (ruling 3) |
+| Test | Change |
+| --- | --- |
+| `test_cql_sql_generators.py::test_atoms_cql_snapshot_and_determinism`, `::test_atoms_sql_snapshot_and_determinism` | `ATOMS.cql` and `ATOMS.sql` rewritten with the test's own `UPDATE_SNAPSHOTS=1` |
+| `test_fhir_inbound_contract.py::test_medication_reference_is_resolved_and_statements_are_read` | 4 weeks end on 2026-03-28, the last covered day; was 2026-03-29 |
+| `test_criteria_safety.py::test_cql_carries_the_same_rules_and_translates` | the new CQL text of the no-end rule; its other assertions stand |
 
 ## Duration criteria ("on drug X for at least N days", ruling 3)
 
@@ -106,14 +99,17 @@ It changes GZQO-INC-06, RA-BIO-INC-03, RA-BIO-INC-04 and RA-JAK-INC-03: a supply
 ## Found, not fixed
 
 * INTR1-03: the CQL retrieves `MedicationRequest` only; the lake's table also holds `MedicationStatement` rows.
-* INTR1-04: `services/matching/coverage.py` (the uncoded medication rows that make an inclusion unknown) still places
-  an order by `authored` alone: an uncoded order whose supply reaches into the window does not make it unknown.
-* INTR1-05: SQL that a site approved before this change carries the D-275 mark, so `compile_sql.overlay` runs it
-  alone, with the old fault, until it is recompiled. The mark is not raised here.
+* INTR1-04 (open, Medium): `services/matching/coverage.py` (the uncoded medication rows that make an inclusion unknown)
+  still places an order by `authored` alone. The change is small, but the fixture table of
+  `test_code_coverage.py::test_a_diagnosis_with_an_empty_code_is_unreadable` has no `start` and `end` columns, so that
+  test's set-up (not its assertions) must change, which is not ruled.
+* INTR1-05 (fixed here): the mark names D-1073, so SQL approved before it is guarded by the overlay, never run alone.
 * INTR1-06: the SQL reads a date and time in the site's zone, the CQL in its own offset; a UTC evening differs by a
   day (shown on master with an order date; the supply's end follows it).
 * INTR1-07: the lake keeps an order of status `unknown` undated, the CQL places it (shown on master).
-* INTR1-08: a partial FHIR date (`2026-07`) as a validity period's end stops the lake's rebuild with a ValueError.
+* INTR1-08 (a separate card): a partial FHIR date stops the lake's rebuild. Reproduction: one `MedicationRequest` with
+  `dispenseRequest.validityPeriod.end` = `2026-07`, then `Lake(...).rebuild(...)`: `flatten.ts`
+  raises `ValueError: Invalid isoformat string: '2026-07'`.
 * INTR1-09: the CQL duration atom does not match a listed ingredient stem (T-610), the SQL's does.
 * An order written after the index date whose supply began before it now counts, as the overlap rule says.
 
