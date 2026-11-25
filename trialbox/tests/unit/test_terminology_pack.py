@@ -107,8 +107,9 @@ def test_a_good_pack_is_applied_audited_and_the_doctor_says_current(box: Path, t
 @pytest.mark.parametrize("what", ["hash", "older", "licence", "unsigned", "licensed"])
 def test_a_bad_pack_is_refused_by_name_and_nothing_changes(box: Path, tmp_path: Path, what: str) -> None:
     (box / tp.STATE).write_text(json.dumps({"version": "2026.12.1"}))
-    kw: dict[str, Any] = {"hash": {"bad_hash": True}, "older": {}, "licence": {"register_id": "atc-index"},
-                          "unsigned": {"sign": False}, "licensed": {"tables": {"atc_index": ["A"]}}}[what]  # fmt: skip
+    kws: dict[str, dict[str, Any]] = {"hash": {"bad_hash": True}, "older": {}, "licence": {"register_id": "atc-index"},
+                          "unsigned": {"sign": False}, "licensed": {"tables": {"atc_index": ["A"]}}}  # fmt: skip
+    kw = kws[what]
     pack = make_pack(tmp_path, "2026.12.1" if what == "older" else "2026.12.2", **kw)
     before = _tree(box)
     (out, text), log = _go(pack, box, tmp_path)
