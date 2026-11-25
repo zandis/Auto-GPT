@@ -23,7 +23,6 @@ from tests.unit import test_site_inputs
 site = test_site_inputs.site  # the fixture: a site as the box holds it
 
 ROOT = Path(__file__).resolve().parents[2]
-CI_DRAW = "d6d8b0974142441a"  # the id CI drew in job 139204992870: "0974142441" reads as a phone number
 DRAWS = 100_000
 TEMPLATES = ("ingest run {} failed: ValueError", "publish {} failed: ValueError", '{{"run": "{}"}}')
 
@@ -41,11 +40,20 @@ def _changed(drawn: list[str]) -> list[str]:
     return out
 
 
+def _cut_draw() -> str:
+    """A draw of the old kind (8 random bytes in hex, seeded) that the scrubber cuts, as CI's did in job
+    139204992870 (logged as ``d6d8b[PHONE]a``)."""
+    rng = random.Random(147)
+    return next(
+        h for h in (rng.randbytes(8).hex() for _ in range(5_000)) if redact(f"run {h} failed") != f"run {h} failed"
+    )
+
+
 def test_a_planted_digit_run_id_is_masked_today() -> None:
-    """The mechanism: the hex id CI drew is cut by the scrubber, so the line no longer holds it."""
-    line = f"ingest run {CI_DRAW} failed: ValueError"
-    assert redact(line) == "ingest run d6d8b[PHONE]a failed: ValueError"
-    assert CI_DRAW not in redact(line)
+    """The mechanism: an old-kind id with a digit run is cut by the scrubber, so the line no longer holds it."""
+    cut = _cut_draw()
+    line = f"ingest run {cut} failed: ValueError"
+    assert cut not in redact(line)  # cut: "[PHONE]" or "[ID]" in its place
     rng = random.Random(147)  # the old draw, seeded
     hex_draws = [rng.randbytes(8).hex() for _ in range(5_000)]
     assert len(_changed(hex_draws)) > 10  # about 1 in 130 (38 expected): the old draw is cut often
@@ -65,7 +73,7 @@ def test_the_id_is_at_least_as_strong_as_the_hex_id_it_replaces() -> None:
 
     assert ids.ALPHABET == "abcdefghijklmnopqrstuvwxyz" and ids.LENGTH == 16
     assert math.floor(ids.LENGTH * math.log2(len(ids.ALPHABET))) == ids.BITS == 75 > 64
-    assert ids.log_safe_id().isalnum() and CI_DRAW.isalnum()  # an older hex id is still read back (runs.read)
+    assert ids.log_safe_id().isalnum() and _cut_draw().isalnum()  # an older hex id is still read back (runs.read)
 
 
 def test_a_draw_the_scrubber_would_change_is_drawn_again(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,19 +106,19 @@ def _boom(*_a: Any, **_k: Any) -> Any:
     raise ValueError("could not convert string to float: 'WANG XIAOMING'")
 
 
-def test_the_log_line_of_a_failed_run_holds_the_whole_id_with_cis_draw_planted(
+def test_the_log_line_of_a_failed_run_holds_the_whole_id_with_a_cut_draw_planted(
     site: dict[str, Path],
     monkeypatch: pytest.MonkeyPatch,
     capfd: pytest.CaptureFixture[str],
 ) -> None:
-    """CI's draw made the 8-byte draw of the process: the service's line must still hold the run's id whole."""
+    """Every 8-byte draw of the process is one the scrubber cuts: the service's line must still hold the run's id whole."""
     from adapter import app as adapter_app
     from adapter import cli
     from fastapi.testclient import TestClient
 
     assert cli.main(["keys-init"]) == 0
-    real = os.urandom
-    monkeypatch.setattr(os, "urandom", lambda n: bytes.fromhex(CI_DRAW) if n == 8 else real(n))
+    real, planted = os.urandom, bytes.fromhex(_cut_draw())
+    monkeypatch.setattr(os, "urandom", lambda n: planted if n == 8 else real(n))
     monkeypatch.setenv("TB_ADAPTER_RUN", "thread")
     monkeypatch.setattr(adapter_app, "_runs", {})
     monkeypatch.setattr(adapter_app, "_running", threading.Lock())

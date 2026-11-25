@@ -2,7 +2,7 @@
 
 A run record sends its reader to the log by the run's id (``failure.words``: "...; run <id>"). A hex id holds a run
 of digits often enough (about 1 draw in 130) for the scrubber to read it as a phone number or an ID number and mask
-it, and then no log line holds the id (``d6d8b0974142441a`` was logged as ``d6d8b[PHONE]a``).
+it, and then no log line holds the id (CI's draw was logged as ``d6d8b[PHONE]a``).
 
 The rule, from the scrubber's own patterns (``tb_common.logging`` and the note masker in ``tb_common.phi_guard``):
 each identifier rule needs a digit; each masker rule needs a digit, a capital letter, an ``@`` or a label word with
