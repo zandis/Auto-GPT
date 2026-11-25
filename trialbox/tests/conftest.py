@@ -50,6 +50,7 @@ _DB_COUNTER = iter(range(1, 10**9))
 def pg_cluster_url(request: pytest.FixtureRequest) -> Iterator[str]:
     given = os.environ.get("TB_TEST_DB_URL")
     if given:
+        _vector_or_stop(request, given)
         yield given
         return
     import atexit
@@ -88,9 +89,23 @@ def pg_cluster_url(request: pytest.FixtureRequest) -> Iterator[str]:
         url = pglocal.ensure(root)
     except (OSError, RuntimeError) as exc:
         _stop(request, exc)
+    _vector_or_stop(request, url)
     yield url
     if not keep:
         pglocal.remove(root)
+
+
+def _vector_or_stop(request: pytest.FixtureRequest, url: str) -> None:
+    """H-139: a test server whose vector extension is older than the db image's pin stops the run with one plain
+    message (``shouldstop`` stops every xdist worker), not one error per test (the bench host's halfvec errors)."""
+    from tb_common.db import split_url
+
+    from tools import pglocal
+
+    why = pglocal.vector_check(split_url(url)[0])
+    if why:
+        request.session.shouldstop = why
+        pytest.fail(why, pytrace=False)
 
 
 def _stop(request: pytest.FixtureRequest, exc: BaseException) -> NoReturn:

@@ -5,24 +5,6 @@
  "source": "docs/handover/full-set-triage-h139-2026-11-25.md",
  "findings": [
   {
-   "id": "H139-01",
-   "severity": "Medium",
-   "claim": "the update path read every store's schema version through query_to_xml and xpath, which a PostgreSQL built without libxml refuses (unsupported XML feature), so installed_state stopped on such a server; fixed: two reads with no XML, the statements quoted by the server",
-   "lane": "H",
-   "basis": "shown",
-   "state": "open",
-   "place": "tools/trialbox/update.py SCHEMA_SQL, ComposeBox.installed_state, InProcessBox.installed_state"
-  },
-  {
-   "id": "H139-02",
-   "severity": "Low",
-   "claim": "the rehearsal's row count before and after a failing restore used the same query_to_xml and xpath way; fixed: psql's gexec runs each table's count statement made by the server",
-   "lane": "H",
-   "basis": "shown",
-   "state": "open",
-   "place": "tools/rehearse_box/box.sh rows()"
-  },
-  {
    "id": "H139-03",
    "severity": "Low",
    "claim": "lane H's backup and restore tests ran the bare psql and pg_dump from PATH, red on a host whose PostgreSQL is not on PATH; fixed: the tests hand in the test cluster's own client tools",
@@ -61,11 +43,11 @@
   {
    "id": "H139-07",
    "severity": "Medium",
-   "claim": "test_erasure_reach errors at setup on the bench host (226), read by the walk as unsupported XML feature; not reproduced: the module passes here and its fixture sends no XML statement",
-   "lane": "B2",
-   "basis": "hypothesis",
+   "claim": "test_erasure_reach errored at setup on the bench host (226): the test server's vector extension was older than the db image's pin (public.halfvec missing; the integrator's 7155060416), not XML; fixed: the test cluster's fixture stops the run once, plainly, on a vector older than the pin",
+   "lane": "H",
+   "basis": "shown",
    "state": "open",
-   "place": "tests/unit/test_erasure_reach.py reach fixture"
+   "place": "tests/conftest.py pg_cluster_url, tools/pglocal.py vector_check"
   },
   {
    "id": "H139-08",

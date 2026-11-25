@@ -20,7 +20,7 @@ Item 7 is triaged below.
 | umask 0002 | `umask 0002` in the runner, compared with `umask 0022` |
 | no `psql` on PATH; PostgreSQL server binaries from a package of their own | a PATH folder holding every system tool except `psql`, `pg_dump`, `pg_restore`, `pg_dumpall` (the server still from `pglocal.bindir()`) |
 | `node` through a wrapper in a container (slow) | a `node` on PATH that waits 65 s before it runs the real one |
-| a PostgreSQL without libxml | **not recreated**: the source build of one was refused in this session; a stand-in instead (below) |
+| a PostgreSQL without libxml (the walk's first reading) | **not recreated**: the source build of one was refused in this session. The reading was wrong: the bench host's server had an older vector extension (7155060416) |
 | `-n auto`, a long `TB_TEST_ROOT` marked with `python -m tools.pglocal mark`, `TMPDIR` 0700 inside it | `-n 4 --dist worksteal`, a test root of over 100 characters, marked; `TMPDIR` 0700 inside it |
 
 ## The sorted list
@@ -30,9 +30,8 @@ no assertion changed, nothing skipped); (c) the bench host's own setup (the walk
 
 | File (walk's count) | Reproduced here | Cause | Kind | Fix | Lane |
 | --- | --- | --- | --- | --- | --- |
-| `tests/unit/test_erasure_reach.py` (226) | **no**: the module passes on master (55 passed, 183 skipped, 21 xfailed); a log of every statement its fixture sends, from a fresh database, holds no XML function or type | the walk reads its setup error as "unsupported XML feature" (a server without libxml); the statement that raised it is not known | open | wait for the walk's traceback frames and its server's `pg_config --configure` | B2 (erasure) |
-| `tools/trialbox/update.py` `SCHEMA_SQL` (found in the search for the above) | yes, with a stand-in | `installed_state` (both boxes) read every store's version through `query_to_xml` and `xpath`, which a server without libxml refuses | (a) | the first read lists, per schema, the statement that reads its version (quoted by the server's `format`); the second runs them as one `UNION ALL`; no XML | H (this card) |
-| `tools/rehearse_box/box.sh` (the failing restore's row count) | by its text | the same `query_to_xml`/`xpath` way of counting each table's rows | (a) | psql's `\gexec` runs each table's count statement, made by the server's `format`; the output is the same as before (checked on a test schema with a quote in a table's name) | H (this card) |
+| `tests/unit/test_erasure_reach.py` (226) | not here: the module passes on master (55 passed, 183 skipped, 21 xfailed). The integrator's 7155060416: the bench host's test server had an older vector extension (`public.halfvec` missing); the walk had read the setup error as "unsupported XML feature" | the test server's vector extension older than the db image's pin (0.8.7, `deploy/images.lock`) | (b)/(c) | push 2: the test cluster's fixture stops the run once, plainly, when the server's vector is older than the pin (`tools/pglocal.py` `vector_check`, `tests/conftest.py`; `tests/unit/test_vector_pin_h139.py`); the bench host installs pgvector 0.8.7 or newer | H |
+| `tools/trialbox/update.py` `SCHEMA_SQL`, `tools/rehearse_box/box.sh:794` | — | they read through `query_to_xml` and `xpath`, which a server without libxml refuses | **dropped** in push 2 | the product's server has libxml: the db image is `postgres:16-trixie` (`deploy/docker/db.Dockerfile`), the official Debian image of the PGDG packages, built `--with-libxml` (the Debian-family package here shows `--with-libxml` and links `libxml2.so.2`); and the erasure reds were not XML. Push 1's change and its test are taken out in a forward commit | — |
 | `tests/console/test_button_targets_9k3.py` (112 errors) | yes | `node` takes over 60 s; `_node_playwright()` (`tests/console/test_cjk_layout.py:44`) runs at import inside a `skipif`, so collecting the module raises `TimeoutExpired`, once per xdist worker (112 is the bench host's worker count) | (c); a (b) part | the walk installs node and Playwright as CI has them. Built here (item 2): the check is made once per test process (`tests/node_check.py`, kept there because a module whose import fails is not kept), and a timeout is one plain line, never a skip | J (band 9k), bodies only |
 | `tests/unit/test_backup.py` (27), `test_backup_restic.py` (19), `test_backup_busy_night.py` (12) | yes, the same counts | the backup runs the bare `psql` and `pg_dump` from PATH (`TB_PSQL_CMD`, `TB_PG_DUMP_CMD` unset) | (b); an (a) part | built (item 3): the tests hand in the test cluster's own client tools (`tests/pg_client.py`, also to the CLI forms through the process environment, and in test_backup.py's late-write wrapper). `backup.py` refuses a client tool it cannot run, naming the tool and its setting, before any change: a restore had emptied the schemas before it found `pg_restore` missing (`tests/unit/test_backup_client_tools_h139.py`) | D, bodies only |
 | `tests/unit/test_restore_drill.py` (10) | yes | the same | (b) | built (item 4): the same, and the docker stand-in runs the db image's client tool as the cluster's copy | D, bodies only |
@@ -52,14 +51,13 @@ no assertion changed, nothing skipped); (c) the bench host's own setup (the walk
 | `tests/unit/test_backup_verifies_itself.py`, `test_backup_without_pause.py`, `test_rehearsal_restic.py`, `test_refdata.py`, `test_update_path.py` | yes (below) | the bare `psql` | (b) | `tests/pg_client.py` | to be found |
 | gpu (2) | not run | the suites' own path | — | stays with J-R20 and E2-11 (the integrator) | J, E2 |
 
-## The stand-in for a server without libxml
+## The skips of test_erasure_reach, by design
 
-PostgreSQL built without libxml raises `unsupported XML feature` (SQLSTATE 0A000) from the XML type's input and
-every XML function. `tests/unit/test_schema_versions_no_xml_h139.py` refuses any statement that names one, as that
-server would, and passes every other statement to the test cluster. The in-process box gets it on its `_pg`. The
-compose box gets it on its runner, where the test cluster plays `psql` in the db container. Both boxes must read each
-store's version. On master's `update.py` and `box.sh`, three of the four tests fail (`unsupported XML feature` twice,
-and the rehearsal's count names `xpath`). At this head all four pass. A real server without libxml was not run.
+Run on master here: 55 passed, 183 skipped, 21 xfailed (the bench host's run: 182 skipped). Each skip says why. 169
+are "the patient never reached this store in the unit box: its absence proves nothing". 14 are "not searched in the
+unit box (compose only, or the store is not made here)". Both are the module's design (its docstring: "A store P
+never reached is skipped as 'not reached'"). The unit box stands up only what the unit tier can. A store the patient
+never reached proves nothing by being clean. The compose-only stores are searched on a live box (`tools/erasure_reach.py live`).
 
 ## What was run
 
@@ -98,7 +96,7 @@ On master 6c73db64, then at this branch's head, the same commands:
   not change: `test_backup_without_pause` (5), `test_refdata` (1), `test_update_path` (1), and seven more:
   `test_backup_vector_store` (7), `test_t728_asof_restore_optouts` (7), `test_restore_hold` (4), `test_restore_roles`
   (4), `test_lane_b_on_the_train` (3), `test_backup_licensed_terminology` (1), `test_erasure_reach_restore` (1 error).
-- The new tests on master's code: `test_schema_versions_no_xml_h139` 3 of 4 fail, `test_backup_client_tools_h139`
+- The new tests on master's code: `test_schema_versions_no_xml_h139` (dropped in push 2) 3 of 4 fail, `test_backup_client_tools_h139`
   4 of 4 fail. With a node that waits 61 s, collecting the six console files that ask the check: master calls node 6
   times in 363 s, with a TimeoutExpired traceback per module; head calls it once in 62 s, with one plain line per
   module and no skip.
@@ -153,7 +151,5 @@ Changed in bodies only, after each lane's go: lane D's `tests/unit/test_backup.p
 ## Not verified
 
 - The erasure module's red on the bench host: its cause is not found.
-- A PostgreSQL built without libxml was not run; a stand-in was.
+- The db image was not pulled (no Docker daemon here): its libxml is read from its base and its packaging.
 - The compose stage was not run (no Docker daemon here); its rows are read from the code.
-- `box.sh`'s new count runs only on a real rehearsal box, and was not run on one. Its statement was compared with the
-  old one on the test cluster.

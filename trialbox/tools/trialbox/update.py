@@ -938,19 +938,11 @@ def _last_json(out: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-#: D-204: the first of two reads of every store's applied schema version. Each schema that keeps a
-#: ``_schema_version`` table gives the statement that reads its version, its name quoted by the server (``%L``, ``%I``).
-#: H-139: no XML function. A PostgreSQL built without libxml refuses ``query_to_xml`` and ``xpath`` ("unsupported XML
-#: feature"), and a box's server may be one.
 SCHEMA_SQL = (
-    "SELECT format('SELECT %L, max(version)::text FROM %I._schema_version', table_schema, table_schema) "
-    "FROM information_schema.tables WHERE table_name = '_schema_version' ORDER BY table_schema"
+    "SELECT table_schema, (xpath('/row/m/text()', query_to_xml(format('SELECT max(version) AS m FROM %I."
+    "_schema_version', table_schema), false, true, '')))[1]::text FROM information_schema.tables "
+    "WHERE table_name = '_schema_version'"
 )
-
-
-def schema_versions_sql(reads: Sequence[str]) -> str:
-    """The second read: the statements :data:`SCHEMA_SQL` gave, as one (empty when no schema keeps a version)."""
-    return " UNION ALL ".join(r for r in reads if r)
 
 
 def _schema_rows(lines: Sequence[tuple[str, str | None]], prefix: str = "") -> dict[str, int]:
@@ -2019,8 +2011,7 @@ class ComposeBox(_DockerImages):
 
     def installed_state(self) -> dict[str, int]:
         """Every store's applied schema version (``_schema_version`` per schema of trialbox_wf, D-204)."""
-        both = schema_versions_sql(["|".join(r) for r in self._psql(SCHEMA_SQL)])
-        rows = self._psql(both) if both else []
+        rows = self._psql(SCHEMA_SQL)
         return _schema_rows([(r[0], r[1] if len(r) > 1 else None) for r in rows])
 
     def space_needs(self, plan: Plan, updates: Path) -> list[tuple[Path, int, str]]:
@@ -2654,8 +2645,7 @@ class InProcessBox:
         from tb_common.db import split_url
 
         prefix = split_url(self.url)[1]
-        both = schema_versions_sql([str(r[0]) for r in self._pg(SCHEMA_SQL)])
-        return _schema_rows([(str(r[0]), r[1]) for r in (self._pg(both) if both else [])], prefix)
+        return _schema_rows([(str(r[0]), r[1]) for r in self._pg(SCHEMA_SQL)], prefix)
 
     def _migration_dir(self, plan: Plan) -> Path:
         return plan.kind("other") / "migrations"
