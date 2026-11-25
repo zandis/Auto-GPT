@@ -27,6 +27,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -38,7 +39,7 @@ from tools import host_tree, keys, sign_bundle
 from tools.trialbox import backup_schedule as bs
 from tools.trialbox import launch
 
-pytestmark = [pytest.mark.nodb, pytest.mark.skipif(sys.platform != "linux", reason="bash and GNU tools")]
+pytestmark = pytest.mark.nodb
 
 ROOT = Path(__file__).resolve().parents[2]
 BOOT = ROOT / "deploy" / "bootstrap.sh"
@@ -739,9 +740,9 @@ def _opens(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, int]]:
     seen: list[tuple[str, int, int]] = []
     real = os.open
 
-    def spy(path: str | Path, flags: int, mode: int = 0o777, **kw: object) -> int:
-        seen.append((str(path), flags, mode))
-        return real(path, flags, mode, **kw)  # type: ignore[arg-type]
+    def spy(path: str | os.PathLike[str], flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
+        seen.append((os.fspath(path), flags, mode))
+        return real(path, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr(os, "open", spy)
     return seen
@@ -773,7 +774,7 @@ def test_the_backup_private_key_is_made_0600_and_only_once(tmp_path: Path, monke
 
 
 # ------------------------------------------------------------------------------------------------ M-SC-1
-def _egress() -> object:
+def _egress() -> ModuleType:
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("tb_egress_h110", ROOT / "deploy" / "egress.py")
@@ -804,13 +805,13 @@ def test_two_applies_at_once_never_break_the_state_file(tmp_path: Path) -> None:
     reader (the boot's restore) could find no usable state. Each run's temp file is its own and on disk first."""
     state = tmp_path / "egress-state.json"
     eg = _egress()
-    eg.save_state(state, eg.Box(subnets={"172.30.0.0/24"}), "# synthetic\n")  # type: ignore[attr-defined]
+    eg.save_state(state, eg.Box(subnets={"172.30.0.0/24"}), "# synthetic\n")
     procs = [subprocess.Popen([sys.executable, "-c", SAVER, str(ROOT / "deploy" / "egress.py"), str(state)],
                               stdout=subprocess.PIPE, text=True) for _ in range(2)]  # fmt: skip
     unreadable = 0
     while any(p.poll() is None for p in procs):
         try:
-            eg.load_state(state)  # type: ignore[attr-defined]
+            eg.load_state(state)
         except (OSError, ValueError):
             unreadable += 1
     errors = [int((p.communicate()[0] or "0").strip()) for p in procs]
@@ -831,7 +832,7 @@ def test_apply_and_save_take_the_one_lock_before_anything(tmp_path: Path, monkey
     monkeypatch.setattr(eg, "allowlist", lambda *a, **k: pytest.fail("read before the lock"))
     for action in ("apply", "save"):
         with pytest.raises(Taken):
-            eg.main([action, "--state", str(tmp_path / "s.json"), "--env", str(tmp_path / ".env")])  # type: ignore[attr-defined]
+            eg.main([action, "--state", str(tmp_path / "s.json"), "--env", str(tmp_path / ".env")])
 
 
 def test_a_second_apply_waits_for_the_first(tmp_path: Path) -> None:
@@ -841,7 +842,7 @@ def test_a_second_apply_waits_for_the_first(tmp_path: Path) -> None:
             f"e = importlib.util.module_from_spec(s); import sys; sys.modules['e'] = e; s.loader.exec_module(e); "
         f"from pathlib import Path; "
             f"e.state_lock(Path({str(state)!r})); print('got it')")  # fmt: skip
-    fd = eg.state_lock(state)  # type: ignore[attr-defined]
+    fd = eg.state_lock(state)
     p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
     with pytest.raises(subprocess.TimeoutExpired):
         p.wait(timeout=1.5)

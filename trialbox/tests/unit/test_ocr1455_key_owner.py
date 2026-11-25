@@ -93,8 +93,8 @@ class _Seen:
     def getuid() -> int:
         return 0
 
-    def stat(self, path: object) -> os.stat_result:
-        st = os.stat(path)  # type: ignore[arg-type]
+    def stat(self, path: str | os.PathLike[str]) -> os.stat_result:
+        st = os.stat(path)
         return os.stat_result((st.st_mode, st.st_ino, st.st_dev, st.st_nlink, self.uid, self.uid, *st[6:10]))
 
 
