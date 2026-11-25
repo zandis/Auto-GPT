@@ -64,7 +64,6 @@ OCTET_BASE = {"cpu": 0, "engine": 100, "gpu": 150, "probe": 240}  # the slot's /
 API_SECONDS = 60
 POLL_SECONDS = 5  # how often the run step looks for the gate's mark (the job accepted)
 REATTACH_SECONDS = 30  # how often a slot joins the egress proxy to its network again (a restarted proxy is on none)
-GPU_WAIT_SECONDS = 1800  # 1448-15: how long a GPU job waits for busy CI cards before it refuses (a bench state)
 STARTED = "started"  # the gate's mark in the job's .tb-bench folder: the job was accepted
 DIGITS = re.compile(r"[0-9]+")  # ASCII digits only (str.isdigit also takes superscripts, which int() refuses)
 PRIVATE_16 = re.compile(r"10\.(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})|172\.(1[6-9]|2[0-9]|3[01])|192\.168")
@@ -355,7 +354,6 @@ def gpu_spec(s: Settings) -> tuple[list[str], dict[str, object]]:
         "uuids": uuids,
         "cap_mib": s.num("BENCH_GPU_CAP_MIB"),
         "cap_util": s.num("BENCH_GPU_CAP_UTIL"),
-        "wait_seconds": GPU_WAIT_SECONDS,
     }
     return problems, spec
 
@@ -448,46 +446,6 @@ def cleanup(s: Settings, slot: str, token_file: Path = TOKEN, state: Path = STAT
     if path.exists() and not path.is_symlink():
         shutil.rmtree(path, ignore_errors=True)
     return 0
-
-
-ENGINE_ENV_DROPPED = (
-    "XDG_DATA_HOME",
-    "XDG_CONFIG_HOME",
-    "CONTAINERS_CONF",
-    "CONTAINERS_STORAGE_CONF",
-    "CONTAINER_HOST",
-)
-
-
-def own_engine_env() -> None:
-    """The jobs' user's own rootless engine, whatever the caller's environment says (the walk's red at 1fc6579e).
-
-    A system unit's ``%U`` is 0, so the units name no runtime folder: this sets it from the process's own id, with the
-    home folder from the user database, and drops the variables that would point the engine at another store.
-    """
-    uid = os.getuid()
-    os.environ["XDG_RUNTIME_DIR"] = f"/run/user/{uid}"
-    os.environ["HOME"] = pwd.getpwuid(uid).pw_dir
-    for key in ENGINE_ENV_DROPPED:
-        os.environ.pop(key, None)
-
-
-CNI_DIR = Path("/var/lib/cni")  # without it the engine hides /var/lib (the user's home) while it sets up a network
-
-
-def egress_net(s: Settings) -> int:
-    """The proxy's way out, made by the proxy's own step if it is missing: in the store its engine reads."""
-    if not CNI_DIR.is_dir():
-        why = "the engine would hide /var/lib, and with it this user's networks, while it sets them up"
-        print(f"bench CI: proxy: {CNI_DIR} is missing: {why} (run install.sh install again)", file=sys.stderr)
-        return 1
-    if _engine(s, "network", "exists", EGRESS_NET) == 0:
-        return 0
-    if _engine(s, "network", "create", EGRESS_NET) == 0:
-        print(f"bench CI: proxy: the network {EGRESS_NET} was missing for this user and is made", flush=True)
-        return 0
-    print(f"bench CI: proxy: the network {EGRESS_NET} could not be made for this user", file=sys.stderr)
-    return 1
 
 
 def _engine(s: Settings, *args: str) -> int:
@@ -613,13 +571,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cmd == "get":
         print(s.values.get(args.key, ""))
         return 0
-    if os.geteuid() != 0:  # the jobs' user's steps run the engine; root's steps (mint, cleanup) never do
-        own_engine_env()
     if args.cmd == "check":
         return check(s)
     if args.cmd == "proxy":
-        if egress_net(s) != 0:
-            return 1
         os.execv(s["BENCH_ENGINE"], proxy_args(s))
     try:
         if args.cmd == "probe":

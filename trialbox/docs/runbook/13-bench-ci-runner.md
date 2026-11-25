@@ -79,16 +79,8 @@ missing host shows it there.
 
 - The distribution release of the job image's base (or newer), with a service manager of version 248 or newer
   (`systemctl --version`), `python3` 3.10 or newer, `curl`, `sha256sum`, `runuser`.
-- Two packages a fresh host lacks, installed first from the host's own distribution (the walk's first install had to
-  add both): the rootless container engine that `tools/bench_ci/runner.Dockerfile` installs in the job image,
-  version 4.4 or newer, and `uidmap` (`newuidmap`, `newgidmap`). Its network helpers (`netavark`, `aardvark-dns`, and
-  `slirp4netns` or `passt`) come with it from the distribution. `install.sh install` stops before any change if
-  any is missing, and says which.
-- The folder `/var/lib/cni` (the install makes it, empty and root's, if it is not there, and remove takes it away
-  again if it made it and it is still empty). Without it the distribution's engine 4.9 mounts an empty folder over
-  `/var/lib` while it sets up a rootless user's own network, which hides `tb-bench`'s home and its networks: "network
-  not found" for every network the user made, while the default network works (the walk's red, reproduced on 4.9.3
-  with netavark 1.4). The jobs never use the default network: the egress-limited network is the boundary.
+- The rootless container engine that `tools/bench_ci/runner.Dockerfile` installs in the job image, from the host's
+  own distribution, version 4.4 or newer, with `uidmap` (`newuidmap`, `newgidmap`).
 - For the GPU slots: the card query tool, and the engine's device description of the cards (written by the card
   vendor's container toolkit). Choose the CI cards (never card 1, the walk's; never a card of the bench) and their
   cap: the most memory and load a CI card may already carry when a GPU job starts. The GPU jobs share the CI cards.
@@ -114,33 +106,16 @@ missing host shows it there.
 2. `sudo trialbox/tools/bench_ci/install.sh install`: checks the prerequisites and the settings, makes the
    `tb-bench` user and its id range, lays out `/opt/tb-bench-ci`, the units and the scratch folder, downloads the
    runner archive and checks its SHA-256, builds the job image as `tb-bench`, makes the proxy's network (each job's
-   own network is made at its start) and starts the egress proxy. The proxy's own start makes its network again if
-   `tb-bench`'s engine does not see it, and every step of `tb-bench` sets the engine's runtime folder from its own
-   user id (a system unit's `%U` is 0, so the units name none). It prints each step; it stops at the first problem.
+   own network is made at its start) and starts the egress proxy. It prints each step; it stops at the first problem.
 3. The token: the owner makes it (above) and gives it to the operator by hand. The operator runs
    `sudo trialbox/tools/bench_ci/install.sh token` and pastes it at the prompt (nothing is shown). Never pass it as an
    argument or a variable, and never paste it into a chat or a file anywhere else. The runner slots start.
-
-## The real-host test (before the token, and after any change to these files)
-
-`sudo trialbox/tools/bench_ci/host_test.sh FOLDER...`, with the settings filled in and no token given: it runs
-install, checks that the egress proxy starts and stays up with no restart in `tb-bench`'s own store and runtime
-folder, runs verify (the token's lines and the slots' say NOT RUN: there is no token, and they are counted as not
-run), then remove, and checks that nothing install recorded is left and that the settings are kept. It ends with one
-line of counts and exits 1 on any failure. When the install step fails, nothing after it runs, remove least of all:
-read the install's lines first. A signal (Ctrl-C) ends it with the step it stopped in and what to run next. Its
-report names no folder, path, user, address or host (each is a stand-in such as `<folder 1>`, `<scratch>`,
-`<checkout>`, `<user>` or `<address>`), so the walk posts it on the pull request as it is; the whole logs stay on the
-host in a root-only folder under `/var/tmp`. It refuses to start while a token is installed, because its last step
-removes what install made, the token too. A change to `install.sh`, the units or the launcher rides only after this
-run is clean on the bench host (the integrator's ruling on 1448-19 (3)).
 
 ## Verify
 
 `sudo trialbox/tools/bench_ci/install.sh verify FOLDER...`, naming each folder a job must never see: the owner's home,
 the keys, the datasets, the integration folder, the bench's and the walk's working folders. The names are typed here
-and go nowhere else. Every line says PASS or FAIL (or NOT RUN, before the token step: the token's lines and the
-slots'):
+and go nowhere else. Every line says PASS or FAIL:
 
 - the token file is root's and 0600, `tb-bench` cannot read it, and no unit holds a copy of it; `tb-bench` is in no
   other group;
@@ -176,86 +151,20 @@ gets the unit shards and the integration run (the CPU profile, the hardest); the
 minutes) and the box rehearsal run only for a train and the owner's run by hand (harm 2). The GPU slots share the
 CI cards. A GPU job does not start when a CI card is busy beyond its cap (more memory or load than the settings
 allow, or a reading the tool cannot give): the launcher registers no GPU runner while one is, and the job itself
-checks again before its first step (the runner's job-started hook): it waits up to 30 minutes for busy cards to come
-within the cap, checking every 30 seconds, then refuses with a message naming the card and why (wrong cards are
-refused at once). The GPU box rehearsal (`tools/bench_ci/gpu_box.sh`, a GPU slot, a train or the owner's run by hand)
-records the TPM ("no TPM: the passphrase path" in a container), the GPU record of its cards (model, memory, driver,
-count; no serial or UUID), that the weights folder is mounted read-only, and that its own engine answers; the box
-install under a real init, the first-run step, the unit start and the serving step say NOT RUN (a NOT RUN is never
-counted as a pass). A run by hand is scheduled only on master or an allowed branch. The
+checks again before its first step (the runner's job-started hook), with a message naming the card and why. The
 workflow is separate and no branch rule requires it, so its jobs show red when they fail and block nothing; nothing moves off
 the hosted runners until the owner's ruling says so.
 
 ## Remove it completely
 
 1. The owner unsets the repository variable `TB_BENCH_CI` first, so that no new job asks for the runners.
-2. `sudo trialbox/tools/bench_ci/install.sh remove`: stops every slot unit and the proxy, then removes only what
-   install recorded that it made (`/etc/tb-bench-ci/made`, root's, written before each thing is made): the units,
-   every container, network and image of `tb-bench`, the scratch folder, `/opt/tb-bench-ci`,
-   `/var/lib/cni` if it is still empty, the user, its linger, its home and its id range. What was there before stays:
-   the settings file (the operator's), a scratch folder install refused, a user or folder of the same name. With no
-   record (an install from before the record) it stops the units, deletes nothing and exits 1: the owner decides what
-   goes. The token, and any copy a cut token step left, are shredded whenever they are there, recorded or not. It
-   prints a `LEFT` line for anything recorded that is still there and exits 1 if any is. Install, and the real-host
-   test, refuse to start while a piece of an install is here that the record does not name (the user, its home,
-   `/opt/tb-bench-ci`, a unit, its linger or its id range): remove would leave it. Remove such pieces first (below).
+2. `sudo trialbox/tools/bench_ci/install.sh remove`: stops and removes every slot unit and the proxy, every container,
+   network and image of `tb-bench`, the scratch folder, the token (shredded), `/etc/tb-bench-ci`, `/opt/tb-bench-ci`,
+   the user, its home and its id range. It prints a `LEFT` line for anything still there and exits 1 if any is.
 3. On the code host, by the owner: the repository's Settings, Actions, Runners: remove any runner named
    `tb-bench-*`; and revoke the token where it was made.
 4. If the runner is not to come back, the workflow stays harmless: with the variable unset its jobs are skipped, and
    nothing else depends on them.
-
-## Removing a runner installed before H-105b
-
-An install made before H-105b (the walk's, at 1fc6579e) left no record of what it made, so `install.sh remove`
-stops its units and deletes none of it (the integrator's ruling 7133000201: by hand, no "adopt" step). The walk, with
-its sudo grant, removes only the pieces its own install made, matched against that install's log, and posts the list
-before and after on the pull request (with the stand-ins of the real-host test: no path, user or host).
-
-1. List, read-only. For each piece: is it there, its owner, and its creation and change times:
-
-   ```
-   getent passwd tb-bench
-   sudo stat -c '%n %U:%G %w %y' /var/lib/tb-bench /opt/tb-bench-ci
-   sudo stat -c '%n %U:%G %w %y' /etc/systemd/system/tb-bench-proxy.service
-   sudo stat -c '%n %U:%G %w %y' /etc/systemd/system/tb-bench-runner@.service
-   grep '^tb-bench:' /etc/subuid /etc/subgid
-   ls -l /var/lib/systemd/linger
-   systemctl list-units --all --plain --no-legend 'tb-bench*'
-   sudo grep '^BENCH_SCRATCH=' /etc/tb-bench-ci/settings.env
-   ```
-
-   Then the scratch folder the settings name (`sudo stat -c '%n %U:%G %w %y' <it>`). Match each piece against the
-   install's log: a piece its log shows it made (useradd, the files' and the units' lines, usermod's id range, the
-   scratch folder made empty) may go. Anything the log does not tie to that install stays, and is named in the post.
-   `/etc/tb-bench-ci` and its settings are the operator's and stay; `/var/lib/cni` was not made by that install.
-2. Stop first, each unit by its own name from the listing (no pattern), then the proxy:
-
-   ```
-   sudo systemctl disable --now tb-bench-runner@cpu-1.service
-   sudo systemctl disable --now tb-bench-proxy.service
-   ```
-
-3. Delete, each piece by its own command, only for the pieces matched in step 1:
-
-   ```
-   sudo rm /etc/systemd/system/tb-bench-proxy.service
-   sudo rm /etc/systemd/system/tb-bench-runner@.service
-   sudo systemctl daemon-reload
-   sudo rm -r /opt/tb-bench-ci
-   sudo loginctl disable-linger tb-bench
-   sudo loginctl terminate-user tb-bench
-   sudo usermod --del-subuids <first>-<last> --del-subgids <first>-<last> tb-bench
-   sudo userdel tb-bench
-   sudo rm -r /var/lib/tb-bench
-   ```
-
-   The id range is the one the listing showed (`<first>-<last>`). The scratch folder goes only if the log shows the
-   install made it, by its own `sudo rm -r <it>`, one folder named in full.
-4. List again (step 1's commands) and post both lists: what went, what stayed and why.
-
-Install and the real-host test refuse to start while any kept piece is there (the user, its home,
-`/opt/tb-bench-ci`, a unit, its linger or its id range, not in a record): the owner rules on each kept piece, either
-delete it or keep the runner off this host, before the next install.
 
 ## What the tests hold, and what only the install can show
 
@@ -264,8 +173,7 @@ Held by tests in the repository: the gate's decision for a fork's pull request a
 container arguments and network, the CI cards' check with a stand-in for the card query tool, the token's way (read
 by the root mint step only, sent to the code host's API only, whatever a caller's proxy settings say), the one-job
 configuration as a file (`tests/unit/test_bench_ci_unpack_jit_h105.py`), the egress proxy's allow-list on a loopback
-socket, the install script's token step and its scratch and image steps as run with stand-ins, its verify and
-remove steps as text (`tests/unit/test_bench_ci_workflow_h105.py`,
+socket, and the install script's token, verify and remove steps as text (`tests/unit/test_bench_ci_workflow_h105.py`,
 `tests/unit/test_bench_ci_launcher_h105.py`).
 
 Shown only on the bench host: that the runner hands the hook the `GITHUB_*` variables and the payload the gate
@@ -273,6 +181,5 @@ reads; that the one-job configuration has the three-file form `unpack_jit.py` ex
 the rootless engine honours every argument (no name service with `--dns none`, the proxy's fixed address, the
 read-only root); that the nested engine runs with only the set-id pair, plain-folder storage and no tun device, and
 runs the repository's compose, POC and rehearsal paths; that the cards pass through; that the allow-list is enough
-for every job; that the units start and a stop cleans up; and the times. The real-host test (above) shows the install,
-the proxy, verify and remove on the host. The card page:
+for every job; that the units start and a stop cleans up; and the times. The card page:
 `docs/handover/bench-ci-runner-h105-2026-11-24.md`.

@@ -47,7 +47,7 @@ jobs:
   # the unit suite in the hosted run's eight shards (trialbox-ci.yml unit-shard), on the bench's CPU slots
   unit-shard:
     name: bench unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
-    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))))
+    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-cpu]
     timeout-minutes: 60
     strategy:
@@ -108,7 +108,7 @@ jobs:
   # the integration run (CPU)
   integration:
     name: bench integration
-    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))))
+    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-cpu]
     timeout-minutes: 60
     steps:
@@ -158,7 +158,7 @@ jobs:
   # A train and the owner's run by hand only: the GPU profile keeps the set-id pair for a nested engine
   gpu-suites:
     name: bench gpu-suites
-    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))))
+    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-gpu]
     timeout-minutes: 90  # D-537; no bench measurement yet
     steps:
@@ -200,7 +200,7 @@ jobs:
     name: bench full-set
     needs: gpu-suites
     # !cancelled(), not always(): always() would also start this ten-hour job after the run was cancelled
-    if: ${{ !cancelled() && (vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))))) }}
+    if: ${{ !cancelled() && (vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))) }}
     runs-on: [self-hosted, tb-bench, tb-bench-gpu]
     timeout-minutes: 600  # named under D-537 (ruling 7119929149): tests/unit/test_ci_jobs_inside_ninety.py
     steps:
@@ -250,7 +250,7 @@ jobs:
   # by hand only: the engine profile keeps the set-id pair
   rehearse-box:
     name: bench rehearse-box
-    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))))
+    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner))
     runs-on: [self-hosted, tb-bench, tb-bench-engine]
     timeout-minutes: 60  # D-537; the hosted rehearse job's limit (about 20 min measured, D-995)
     steps:
@@ -295,52 +295,11 @@ jobs:
           path: ${{ runner.temp }}/bench-time/
           retention-days: 30
 
-  # H-105b: the GPU box rehearsal (tools/bench_ci/gpu_box.sh) on a GPU slot: the TPM fact, the GPU record, the weights
-  # folder and the job's own engine; the install under a real init, the first-run step, the unit start and the real
-  # servers say NOT RUN until they are ruled and built. A train and the owner's run by hand only: not a lane
-  rehearse-gpu-box:
-    name: bench rehearse-gpu-box
-    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/')) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))))
-    runs-on: [self-hosted, tb-bench, tb-bench-gpu]
-    timeout-minutes: 60  # D-537; no bench measurement yet
-    steps:
-      - name: Start the clock
-        working-directory: .
-        run: echo "TB_BENCH_T0=$(date +%s)" >> "$GITHUB_ENV"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - name: GPU box rehearsal
-        run: tools/bench_ci/gpu_box.sh "$RUNNER_TEMP/gpu-box"
-      - name: Report in the job summary
-        if: always()
-        run: |
-          r="$RUNNER_TEMP/gpu-box/report.md"
-          if [ -f "$r" ]; then cat "$r" >> "$GITHUB_STEP_SUMMARY"
-          else echo "No report was written: the GPU box rehearsal stopped before its end." >> "$GITHUB_STEP_SUMMARY"; fi
-      - name: Wall time
-        if: always()
-        working-directory: .
-        env:
-          JOB: rehearse-gpu-box
-          RESULT: ${{ job.status }}
-        run: |
-          s=$(( $(date +%s) - ${TB_BENCH_T0:-$(date +%s)} ))  # cancelled before the clock: 0, not 56 years
-          echo "| $JOB | $((s / 60)) min $((s % 60)) s | $RESULT |" >> "$GITHUB_STEP_SUMMARY"
-          mkdir -p "$RUNNER_TEMP/bench-time"
-          printf '{"job": "%s", "seconds": %d, "result": "%s"}\n' "$JOB" "$s" "$RESULT" > "$RUNNER_TEMP/bench-time/$JOB.json"
-      - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
-        with:
-          name: bench-time-rehearse-gpu-box
-          path: ${{ runner.temp }}/bench-time/
-          retention-days: 30
-
   # one table of every bench job's wall time and result, on a hosted runner (it needs no bench)
   bench-times:
     name: bench times
-    needs: [unit-shard, integration, gpu-suites, full-set, rehearse-box, rehearse-gpu-box]
-    if: always() && (vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-')))))
+    needs: [unit-shard, integration, gpu-suites, full-set, rehearse-box]
+    if: always() && (vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/agent/') || startsWith(github.ref, 'refs/heads/claude/') || startsWith(github.ref, 'refs/heads/lane-'))) || (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner)))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

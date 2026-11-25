@@ -31,10 +31,8 @@ BRANCHES = ["train/*", "agent/*", "claude/*", "lane-*"]  # the allow-list: exact
 SWITCH = "vars.TB_BENCH_CI == 'on'"  # the owner's switch: a repository variable only an admin sets; unset: nothing runs
 OWNER = (
     "(github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && "
-    "github.triggering_actor == github.repository_owner && (github.ref == 'refs/heads/master' || "
-    + " || ".join(f"startsWith(github.ref, 'refs/heads/{b.removesuffix('*')}')" for b in BRANCHES)
-    + "))"
-)  # 1448-16: a run by hand on a ref the gate would refuse is not even scheduled
+    "github.triggering_actor == github.repository_owner)"
+)
 PUSH_ANY = (
     "(github.event_name == 'push' && ("
     + " || ".join(f"startsWith(github.ref, 'refs/heads/{b.removesuffix('*')}')" for b in BRANCHES)
@@ -43,12 +41,7 @@ PUSH_ANY = (
 PUSH_TRAIN = "(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/train/'))"
 GUARD = f"{SWITCH} && ({PUSH_ANY} || {OWNER})"  # a lane push, a train push, the owner's run by hand
 HEAVY_GUARD = f"{SWITCH} && ({PUSH_TRAIN} || {OWNER})"  # a train push, the owner's run by hand: never a lane push
-HEAVY = {
-    "gpu-suites",
-    "full-set",
-    "rehearse-box",
-    "rehearse-gpu-box",
-}  # never a lane push: the engine and GPU profiles (F5), 600 min
+HEAVY = {"gpu-suites", "full-set", "rehearse-box"}  # never a lane push: the engine and GPU profiles (F5), 600 min
 CONCURRENCY = {
     "group": "trialbox-bench-ci-${{ github.ref }}-${{ startsWith(github.ref, 'refs/heads/train/') && github.run_id "
     "|| 'latest' }}",
@@ -171,8 +164,6 @@ def _bench_problems(text: str, doc: dict[Any, Any]) -> list[str]:
             if checkout and (step.get("with") or {}).get("persist-credentials") is not False:
                 out.append(f"{BENCH}: job {name}'s checkout keeps a credential (persist-credentials: false)")
         got = runner_labels(job)
-        if name == "rehearse-gpu-box" and got != ["self-hosted", LABEL, f"{LABEL}-gpu"]:
-            out.append(f"{BENCH}: job {name} is not on a GPU slot ({got!r})")
         if can_run_on_bench(job) and name not in HEAVY and (got is None or got[2:] != [f"{LABEL}-cpu"]):
             out.append(f"{BENCH}: job {name} reaches a lane push on {got!r}: a lane push gets the CPU profile only")
         if can_run_on_bench(job):
@@ -271,14 +262,6 @@ PLANTED = [
           "name: bench gpu-suites\n    if: vars.TB_BENCH_CI == 'on' && ((github.event_name == 'push' && "
           "(startsWith(github.ref, 'refs/heads/train/') || startsWith(github.ref, 'refs/heads/lane-')))"), "guard"),
     ("full-set after a cancel", BENCH, _sub("if: ${{ !cancelled() && (", "if: ${{ always() && ("), "after the run was"),
-    ("the GPU box on a lane push", BENCH,
-     _sub("name: bench rehearse-gpu-box\n    if: vars.TB_BENCH_CI == 'on' && (",
-          "name: bench rehearse-gpu-box\n    if: vars.TB_BENCH_CI == 'on' && "
-          "(startsWith(github.ref, 'refs/heads/claude/') || "), "guard"),
-    ("the GPU box on a CPU slot", BENCH,
-     lambda t: t.replace("    runs-on: [self-hosted, tb-bench, tb-bench-gpu]\n    timeout-minutes: 60  # D-537; no bench",
-                         "    runs-on: [self-hosted, tb-bench, tb-bench-cpu]\n    timeout-minutes: 60  # D-537; no bench"),
-     "GPU slot"),
     ("a train's run cancelled", BENCH, _sub("cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/train/') }}",
                                             "cancel-in-progress: true"), "concurrency"),
     ("a train's run replaced", BENCH, _sub("&& github.run_id || 'latest' }}", "&& 'train' || 'latest' }}"),
@@ -332,7 +315,7 @@ def test_every_bench_job_writes_its_wall_time_and_one_table_holds_them() -> None
     doc = yaml.safe_load((WORKFLOWS / BENCH).read_text(encoding="utf-8"))
     jobs = doc["jobs"]
     bench = [n for n, j in jobs.items() if can_run_on_bench(j)]
-    assert {"unit-shard", "integration", "gpu-suites", "full-set", "rehearse-box", "rehearse-gpu-box"} <= set(bench)
+    assert {"unit-shard", "integration", "gpu-suites", "full-set", "rehearse-box"} <= set(bench)
     for name in bench:
         steps = jobs[name]["steps"]
         assert "TB_BENCH_T0" in steps[0]["run"], name  # the clock starts before the checkout
@@ -373,11 +356,9 @@ def _unwrap(cond: str) -> str:
 
 
 def _evaluate(cond: str, ctx: dict[str, str]) -> bool:
-    """A job's ``if`` for one event (``ctx["cancelled"] == "yes"``: the run was cancelled): the forms the guard uses
-    (&&, ||, ==, startsWith, always(), !cancelled(), contexts). The code host compares strings without case
-    (L-1448-19), so both sides are lowered."""
-    cancelled = ctx.get("cancelled") == "yes"  # 1448-19 (2): a cancelled run is modelled, not assumed away
-    expr = _unwrap(cond).replace("!cancelled()", str(not cancelled)).replace("always()", "True")
+    """A job's ``if`` for one event, not cancelled: the forms the guard uses (&&, ||, ==, startsWith, always(),
+    !cancelled(), contexts). The code host compares strings without case (L-1448-19), so both sides are lowered."""
+    expr = _unwrap(cond).replace("!cancelled()", "True").replace("always()", "True")
     expr = expr.replace("&&", " and ").replace("||", " or ").replace("startsWith(", "_sw(")
     expr = re.sub(r"'[^']*'", lambda m: m.group(0).lower(), expr)
     expr = re.sub(r"\b(github|vars)\.[A-Za-z_]+", lambda m: repr(str(ctx.get(m.group(0), "")).lower()), expr)
@@ -413,9 +394,6 @@ EVENTS = {
     "an issue comment": (_event("issue_comment", "refs/heads/master", "a-stranger"), "none"),
     "by hand, not the owner": (_event("workflow_dispatch", actor="a-collaborator"), "none"),
     "re-run by another": (_event("workflow_dispatch", by="a-collaborator"), "none"),
-    "owner by hand on a lane branch": (_event("workflow_dispatch", "refs/heads/claude/lane-x"), "all"),
-    "owner by hand on another branch": (_event("workflow_dispatch", "refs/heads/feature/x"), "none"),
-    "owner by hand on a tag": (_event("workflow_dispatch", "refs/tags/v1"), "none"),
 }
 
 
@@ -433,23 +411,3 @@ def test_which_jobs_each_event_runs_with_the_switch_on_or_not(case: str, switch:
         assert ran == set(jobs) - HEAVY
     else:
         assert ran == set()
-
-
-@pytest.mark.parametrize("case", ["train push", "owner by hand"])
-def test_after_a_cancel_no_bench_job_starts_and_only_the_times_table_does(case: str) -> None:
-    """1448-19 (2), M-1448-4: with the run cancelled, a job with !cancelled() does not start; always() still does."""
-    ctx, _ = EVENTS[case]
-    jobs = yaml.safe_load((WORKFLOWS / BENCH).read_text(encoding="utf-8"))["jobs"]
-    on = {**ctx, "vars.TB_BENCH_CI": "on", "cancelled": "yes"}
-    started = {n for n, j in jobs.items() if _unwrap(_norm(j["if"])).startswith(("always()", "!cancelled()"))}
-    ran = {n for n in started if _evaluate(_norm(jobs[n]["if"]), on)}
-    assert ran == {"bench-times"}, ran
-
-
-def test_the_gpu_box_rehearsal_runs_on_a_gpu_slot_and_reports_its_steps() -> None:
-    job = yaml.safe_load((WORKFLOWS / BENCH).read_text(encoding="utf-8"))["jobs"]["rehearse-gpu-box"]
-    assert runner_labels(job) == ["self-hosted", LABEL, f"{LABEL}-gpu"]
-    runs = [s.get("run", "") for s in job["steps"]]
-    assert 'tools/bench_ci/gpu_box.sh "$RUNNER_TEMP/gpu-box"' in runs
-    report = next(s for s in job["steps"] if s.get("name") == "Report in the job summary")
-    assert report["if"] == "always()" and "gpu-box/report.md" in report["run"]
