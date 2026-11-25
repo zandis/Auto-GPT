@@ -1,0 +1,40 @@
+{
+ "card": "H146",
+ "title": "the model servers start without the prefix cache",
+ "date": "2026-11-25",
+ "source": "docs/handover/h146-no-prefix-cache-2026-11-25.md",
+ "findings": [
+  {
+   "id": "H146-01",
+   "severity": "High",
+   "claim": "no judge or verifier server command named the prefix cache, so the model server's own default (on) applied on every box; the integrator's bench saw runs differ with it on and agree with it off",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H146-02",
+   "severity": "Medium",
+   "claim": "the cluster manifests (deploy/platform/components/gpu-pair/llm.yaml) start both servers with no prefix-cache flag; the same change there needs the trialbox-serving config map to carry the value",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H146-03",
+   "severity": "Low",
+   "claim": "the bench-only second engine's overlay (docker-compose.serving-second.yml) replaces the command with another engine's; whether that engine caches prefixes, and its flag, is not covered",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H146-04",
+   "severity": "Medium",
+   "claim": "the time the prefix cache saves or costs is not measured by this card; the integrator measures it on the bench copy before the box takes the update",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  }
+ ]
+}
