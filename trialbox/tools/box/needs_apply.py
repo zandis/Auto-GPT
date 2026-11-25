@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common import box_answers as ba
-from tb_common import host_folders, site_needs
+from tb_common import host_folders, site_country, site_needs
 
 from tools.box.plan import BOX_SOURCE_MOUNT, chart_pattern
 
@@ -40,7 +40,7 @@ FIELDS: dict[str, tuple[str, ...]] = {
     "request_mailbox": ("imap_host", "mta_authserv_id"),
     "certificate": ("tls_root_confirmed_by",),
 }
-SOURCE_KINDS = ("csv", "ssmix2")
+SOURCE_KINDS = ("csv", ba.SourceKind.SSMIX2.value)
 ITEM_FIELDS = tuple(f for fields in FIELDS.values() for f in fields)
 
 
@@ -141,9 +141,10 @@ def clean(item: str, given: Mapping[str, str]) -> Change:
     if kind not in SOURCE_KINDS:
         raise NeedsError("source")
     settings = {"data_source.type": kind, "data_source.path": BOX_SOURCE_MOUNT}
-    if kind == "ssmix2":
-        settings["data_source.mapping"] = "mapping/jp_core/ssmix2_site.yaml"
-        owner = {"source": "ssmix2", "country": "jp", "ssmix2_root": where}
+    if kind == ba.SourceKind.SSMIX2:  # the country whose shipped mapping reads it (the country layer)
+        country = next(c for c in site_country.COUNTRIES if site_country.reads_ssmix2(c))
+        settings["data_source.mapping"] = str(site_country.defaults(country).mapping)
+        owner = {"source": kind, "country": country, "ssmix2_root": where}
     else:
         owner = {"source": "spreadsheet", "source_dir": where}
     return Change({"TB_SOURCE_DIR": where, "TB_SOURCE_MOUNT": BOX_SOURCE_MOUNT}, settings, owner)

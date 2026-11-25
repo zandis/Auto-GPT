@@ -23,7 +23,6 @@ host's ``python3`` before any image is loaded. :func:`detect` reads the machine 
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import ipaddress
 import json
@@ -60,7 +59,7 @@ FIRSTRUN_DIR = "/run/trialbox-firstrun"  # tmpfs: the answers (and a passphrase)
 BOX_MAPPING = "mapping/tw_core/box_site.yaml"
 PROVISIONAL_MAIL = "owner@box.invalid"
 SAMPLE_FEED = "./site/sample"  # M1: the sample hospital (synthetic, tools/site_seed.py)
-DEPARTMENTS = ROOT / "services" / "criteria_compiler" / "terminology" / "src" / "department.csv"
+SHIPPED_DEPARTMENTS = "shipped"  # the wizard reads the shipped list (M2's): it is in the image, not on the host
 BOX_SOURCE_MOUNT = "/data/source/site"  # where compose mounts the feed folder, read-only (TB_SOURCE_MOUNT)
 # OD-10: below half of the compose files' own caps the services were never measured: such a machine is refused
 MIN_SERVICE_SHARE = 0.5
@@ -586,7 +585,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "alliance_sites": [],
         **ds,
         "registry_type": "none",
-        "departments": departments(a.language),
+        "departments": SHIPPED_DEPARTMENTS,
         "practitioners": {},
         "llm_mode": mode,
         "cloud_enabled": "no",
@@ -621,14 +620,6 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
             "sets, typed after every restart"
         )
     return BoxPlan(profile, mode, wizard, env, files, warnings, stand_ins(a))
-
-
-def departments(lang: str, table: Path = DEPARTMENTS) -> dict[str, str]:
-    """The shipped department list (M2's), as the site's first departments: the seed. The records' own replace it."""
-    if not table.is_file():
-        return {}
-    with table.open(encoding="utf-8", newline="") as f:
-        return {r["code"]: r["display_zh" if lang == "zh-TW" else "display"] for r in csv.DictReader(f)}
 
 
 def provisional(hw: Hardware) -> OwnerAnswers:

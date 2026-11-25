@@ -50,7 +50,7 @@ find out itself. If the screen and this page differ, the screen is right: tell t
    made the computers trust the box; you can sign in all the same.
 2. Sign in as admin with the first password, and choose your own.
 3. Add the box to your authenticator app with the enrolment code. It works for 24 hours.
-4. On the administration page, open "Information still needed".
+4. On the administration page open Operations, then "Information still needed".
 5. Fill in what you know. Each item says why it is needed and who usually knows it. The box checks it, and the item
    leaves the list within a minute or two.
 6. Leave the rest for later. Only the step that needs an item waits for it. A demonstration box never needs real

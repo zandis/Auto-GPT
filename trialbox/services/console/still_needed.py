@@ -25,11 +25,7 @@ from console.api_first import before_body
 from console.auth import Session
 from console.form_errors import FAILED, FieldError, FormErrors, kept_values
 from console.home import Helpers
-from console.i18n import CATALOGUES, translate
-from console.i18n_stillneeded import EN, JA, ZH
-
-for _lang, _cat in (("en", EN), ("ja", JA), ("zh-TW", ZH)):
-    CATALOGUES[_lang].update(_cat)
+from console.i18n import translate
 
 PATH = "/admin/still-needed"
 ACTION = "site_needs"  # tools/trialbox/ops.py

@@ -517,3 +517,52 @@ def test_the_runbooks_host_commands_bring_their_own_libraries() -> None:
         done = subprocess.run([sys.executable, "-m", mod, "--help"], cwd=ROOT, env=ri.BARE_ENV, capture_output=True,
                               text=True, check=False, timeout=60)  # fmt: skip
         assert done.returncode == 0, (mod, done.stderr[-300:])
+
+
+def test_no_entry_of_the_box_ever_says_its_source_is_synthetic() -> None:
+    """The run gate's only way round is in code, and only the in-process box of the tools and tests takes it."""
+    said = {str(f.relative_to(ROOT)) for d in ("services", "tools", "libs", "deploy") for f in (ROOT / d).rglob("*.*")
+            if f.suffix in (".py", ".sh", ".yml", ".yaml") and "synthetic_source" in f.read_text(encoding="utf-8")}  # fmt: skip
+    assert said == {"services/adapter/pipeline.py"}
+
+
+# ------------------------------------------------------------------------------------------------ before the load
+def test_a_mapping_the_answers_name_that_is_nowhere_stops_before_the_bundle_is_loaded(tmp_path: Path) -> None:
+    """Found on the bench: it stopped only at the settings step, after the images were loaded."""
+    import shutil
+
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    kit = tmp_path / "kit"
+    kit.mkdir()
+    answers = kit / "site.yaml"
+    answers.write_text("mapping: mapping/tw_core/site_c.yaml\n", encoding="utf-8")
+
+    def run() -> subprocess.CompletedProcess[str]:
+        argv = [sys.executable, "-m", "tools.answers_files", str(answers), "--deploy", str(deploy), "--environment",
+                "VALIDATION"]  # fmt: skip
+        return subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, check=False)
+
+    got = run()
+    assert got.returncode == 1 and "nothing was loaded or changed" in got.stderr
+    with pytest.raises(settings_wizard.WizardError) as later:  # the same words as the settings step's
+        settings_wizard.build({"tz": "Asia/Taipei", "mapping": "mapping/tw_core/site_c.yaml"})
+    assert next(x for x in str(later.value).split("; ") if x.startswith("mapping file")) in got.stderr
+    for place in (kit / "mapping" / "tw_core", deploy / "site" / "mapping" / "tw_core"):
+        place.mkdir(parents=True)
+        (place / "site_c.yaml").write_text("tz: Asia/Taipei\n", encoding="utf-8")
+        assert run().returncode == 0
+        shutil.rmtree(place)
+    install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    assert install.index("python3 -m tools.answers_files") < install.index('say "bundle: verify and load')
+
+
+def test_the_other_files_stop_a_box_in_use_and_the_shipped_mappings_are_the_trees(tmp_path: Path) -> None:
+    from tools import answers_files as af
+
+    given = {"tls_hostname": "a.b.test", "tls_cert_file": "/no/c.pem", "tls_key_file": "/no/k.pem"}
+    assert len(af.missing(given, tmp_path, tmp_path, production=True)) == 2
+    assert af.missing(given, tmp_path, tmp_path, production=False) == []
+    base = ROOT / "services" / "adapter"
+    tree = {str(f.relative_to(base)) for d in ("jp_core", "tw_core") for f in (base / "mapping" / d).glob("*.yaml")}
+    assert af.shipped_mappings() == tree

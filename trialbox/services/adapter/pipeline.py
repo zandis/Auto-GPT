@@ -104,6 +104,9 @@ class AdapterConfig:
     profile_standards: dict[str, str] = field(default_factory=dict)
     # U-5 (D-1280): settings.yaml as loaded, for the run gate's items answered there (site.name, data_source.type)
     site_settings: dict[str, Any] = field(default_factory=dict)
+    # M1: the in-process box of the tools and tests says its source is synthetic: the run gate is for real data. In code
+    # only, from no setting; the box's own entries (cli, app, run_job) never set it
+    synthetic_source: bool = False
 
     def __post_init__(self) -> None:
         from tb_common.config import site_tz
@@ -1623,7 +1626,7 @@ def refuse_site_needs(cfg: AdapterConfig, snap: str, source_kind: str) -> None:
 
     g = site_needs.gate(
         "first_real_run",
-        production=environment_name(os.environ) not in POC_ENVS,
+        production=environment_name(os.environ) not in POC_ENVS and not cfg.synthetic_source,
         env=os.environ,
         settings=cfg.site_settings,
         files=site_needs.mounted_files(),

@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import install_questions, site_country
+from tb_common import derived, install_questions, site_country
 from tb_common.box_answers import LANGUAGES, MAILBOX, PLACEHOLDER_NAME, person_name
 
 from tools.box.plan import Hardware, PlanError
@@ -59,13 +59,8 @@ def host_language(env: Mapping[str, str]) -> str:
 
 def country_of_zone(tz: str) -> str:
     """The country of a zone, where a country has one zone (Japan, Taiwan); any other zone names none."""
-    for c in site_country.COUNTRIES:
-        try:
-            if tz and site_country.defaults(c).tz == tz:
-                return c
-        except ValueError:  # that country's layer cannot be used: no defaults of it are offered
-            continue
-    return ""
+    found = (derived.country_of(tz) or "").lower()
+    return found if found in site_country.COUNTRIES else ""
 
 
 def user_name(mail: str) -> str:

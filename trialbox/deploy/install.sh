@@ -76,7 +76,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
+ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
 TEST_BOX=""; TEST_BOX_SET=0; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
@@ -181,6 +181,7 @@ while [ $# -gt 0 ]; do
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
     --rehearsal) REHEARSAL=1 ;;
+    --all-questions) ALL_QUESTIONS=1 ;;  # the vendor's: the settings wizard's every question, in place of the four (M1)
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
     --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
@@ -785,6 +786,13 @@ if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ "$SIGNED_RUN" != 1 ] &&
   fi
 fi
 # ---- end of FINISH-EARLY
+# ANSWERS-FILES (M1): every file the answers name is looked for before the bundle is loaded, not after an hour of
+# images. It ends the run as the settings step would (set -e), in the same words; a re-run keeps its settings
+if [ -n "$ANSWERS" ] && [ -f "$ANSWERS" ] && [ ! -f deploy/settings.yaml ] && [ "$SIGNED_RUN" != 1 ] \
+    && [ -d "$ROOT/libs/tb_common" ] && [ -f "$ROOT/tools/answers_files.py" ] && python3 -c 'import yaml' 2>/dev/null; then
+  PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.answers_files "$ANSWERS" --deploy "$ROOT/deploy" ${GATE_ENV:+--environment "$GATE_ENV"}
+fi
+# ---- end of ANSWERS-FILES
 
 # ------------------------------------------------------------------------------------------------ 2. bundle
 # D-888: a re-run on a box installed before deploy/.env named its settings: the update's guard (and compose) see them
@@ -916,7 +924,7 @@ if [ ! -f deploy/settings.yaml ]; then
   fi
   # FOUR (M1, D-1280): no answers and a terminal: the four questions on the host, the rest derived and at its defaults.
   # The site's own hardening.conf and mapping are kept; without a TPM the fourth is the passphrase (not shown, twice)
-  if [ -z "$ANSWERS" ] && [ -t 0 ] && [ "$YES" != 1 ] && command -v python3 >/dev/null; then
+  if [ -z "$ANSWERS" ] && [ -t 0 ] && [ "$YES$ALL_QUESTIONS" = 00 ] && command -v python3 >/dev/null; then
     mkdir -p deploy/site/box; BOX_PP="$ROOT/libs:$ROOT"
     if PYTHONPATH="$BOX_PP" python3 -m tools.box detect --deploy deploy > deploy/site/box/hardware.json \
        && { [ -f deploy/site/box/owner.json ] || PYTHONPATH="$BOX_PP" python3 -m tools.box ask --hardware deploy/site/box/hardware.json --out deploy/site/box/owner.json --environment "$WIZ_ENV"; } \
@@ -931,7 +939,13 @@ if [ ! -f deploy/settings.yaml ]; then
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
   else
     # D-1091: protects none of the five; on a PoC box no settings.yaml is made and the services that read it fail
-    stop_or_warn no-settings "the settings wizard (no settings.yaml: the services cannot start)" "no deploy/settings.yaml and no answers (no terminal for the four questions, or they were not answered): pass --answers site.yaml (RUNBOOK §1 step 3)"
+    if [ "$ALL_QUESTIONS" = 1 ] && [ -t 0 ]; then  # the vendor's route, every question of the wizard
+      tree_args
+      docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+        python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
+    else
+      stop_or_warn no-settings "the settings wizard (no settings.yaml: the services cannot start)" "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
+    fi
   fi
 else
   echo "    keeping deploy/settings.yaml (re-validating)"

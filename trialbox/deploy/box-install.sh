@@ -656,6 +656,7 @@ if [ -n "$OWNER" ]; then
 else
   printf '\n  TrialBox is ready: https://%s  (sign in with the account you made in the set-up)\n' "$HOST"
 fi
+printf '  Information still needed: https://%s/admin/still-needed\n' "$HOST"
 # H-94: the host check's FAIL lines (above) end the run with its code; on a PoC box a warning and a line of the list
 [ "$rc" = 0 ] || [ -z "$SECRET_FAIL" ] || exit "$rc"  # H-94 (5): a secret's file or key where others can read it
 [ "$rc" = 0 ] || stop_or_warn --rc "$rc" --silent host-check "" "the host check reported FAIL lines (above)"

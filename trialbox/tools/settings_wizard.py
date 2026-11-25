@@ -24,6 +24,7 @@ hardware; its ``env_extra`` (declared ``TB_*`` settings only: the memory caps, t
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import re
 import secrets
@@ -229,6 +230,12 @@ def _practitioners(v: Any) -> dict[str, dict[str, Any]]:
             p["license"] = lic.strip()
         out[pid.strip()] = p
     return out
+
+
+def shipped_departments(locale: str) -> dict[str, str]:
+    """M1: the shipped department list (M2's), a new box's first departments; the records' own replace it."""
+    with (ROOT / "services/criteria_compiler/terminology/src/department.csv").open(encoding="utf-8", newline="") as f:
+        return {r["code"]: r["display_zh" if locale == "zh-TW" else "display"] for r in csv.DictReader(f)}
 
 
 def defaults() -> dict[str, Any]:
@@ -518,7 +525,8 @@ def build(
             "mrn_regex was not answered: nothing checks what a chart number looks like, and a chart number written "
             "in a note without its label is not masked. Answer mrn_regex (or a chart-number rule with a width)"
         )
-    depts = _map(get("departments"))
+    dep = get("departments")
+    depts = shipped_departments(str(a.get("locale") or "")) if dep == "shipped" else _map(dep)
     prac = _practitioners(get("practitioners"))
     for pid, p in prac.items():
         if p.get("department") and p["department"] not in depts:

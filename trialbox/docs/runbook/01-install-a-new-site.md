@@ -86,7 +86,7 @@ installed that way rotates its passphrase (§23, "Rotate the KEK passphrase").
 重新執行安裝程式時，版本檢查（pre-start）通過後、資料庫啟動前，只有當此專案的所有容器都來自本 `deploy` 資料夾且堆疊並非健康運行（先前執行失敗）時，才會對本專案執行 `down --remove-orphans`。健康運行的堆疊與其日誌會保留。若 shell 的 `COMPOSE_PROJECT_NAME` 不是本安裝的專案，或專案中有來自其他資料夾的容器，安裝程式會停止且不移除任何項目。資料卷與資料一律保留。
 再実行時は、リリースの確認（pre-start）が通った後、データベースの起動前に、プロジェクトの全コンテナがこの `deploy` フォルダーから起動され、かつスタックが正常稼働していない場合（以前の失敗した実行）に限り `down --remove-orphans` を実行します。正常稼働中のスタックはログとともに保持されます。シェルの `COMPOSE_PROJECT_NAME` がこのインストールのプロジェクトでない場合や、別フォルダーから起動されたコンテナがある場合は、何も削除せずに停止します。ボリュームとデータは常に保持されます。
 
-**The questions it asks** (M1, D-1280). Four, before anything is changed: the language, the time zone, the first
+**The questions it asks** (M1, D-1280). On a terminal, answer the questions it asks: four, before anything is changed: the language, the time zone, the first
 administrator (mail address and full name), and the key passphrase only on a machine without a usable TPM. The machine's
 card, memory and security chip are read and shown, never asked. After the fourth answer nothing is asked: the rest is
 detected, derived or at its default (`libs/tb_common/install_questions.py` is the one table, shown on the page

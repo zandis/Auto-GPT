@@ -133,4 +133,4 @@ def test_only_the_administrator_and_only_with_the_forms_token(sn: dict[str, Any]
     assert c.post(f"{PATH}/site_name", data={"site_name": "x", "csrf": "no"}).status_code == 400
     assert c.post(f"{PATH}/backup_key", data={"csrf": csrf}).status_code == 404
     assert "site_name" in _items(c.get(PATH).text)
-    assert 'data-testid="still-needed-link"' in c.get("/admin").text
+    assert 'data-testid="still-needed-link"' in c.get("/admin/ops").text
