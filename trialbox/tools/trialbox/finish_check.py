@@ -74,6 +74,7 @@ if str(ROOT / "libs") not in sys.path:
     sys.path.insert(0, str(ROOT / "libs"))  # the host's python3 (logs.py, ops.py do the same): standard library only
 
 from tb_common import host_folders as hf  # noqa: E402
+from tb_common import site_needs  # noqa: E402
 
 ANCHOR_ENV = "TB_AUDIT_ANCHOR_TARGETS"
 LOCAL_FS = ("ext4", "xfs", "btrfs", "exfat", "vfat", "ntfs3")
@@ -638,7 +639,10 @@ def problems(deploy: Path, env: dict[str, str], host: Host | None = None, anchor
     install = base[INSTALL]
     targets = backup_targets(env)
     log = env.get("TB_LOG_DIR", "")
-    if not anchor_folders(env):
+    # M1 (D-1280): an item the host marked as a stand-in is open on "Information still needed", and the step that
+    # needs it refuses on this box; a folder that is named and wrong still stops here
+    open_items = site_needs.read_stand_ins(deploy)[0]
+    if not anchor_folders(env) and "audit_share" not in open_items:
         out.append(f"no audit anchor folder: set {ANCHOR_ENV} in deploy/.env to the mount point of the hospital's "
                    "audit share")  # fmt: skip
     if log:
@@ -651,6 +655,9 @@ def problems(deploy: Path, env: dict[str, str], host: Host | None = None, anchor
         if why:
             out.append(f"the log folder {log} {why}: set TB_LOG_DIR in deploy/.env to a folder of its own, or "
                        "remove the line (the install writes deploy/logs)")  # fmt: skip
+    own = f"{install}/deploy/backups"  # install.sh's own default: on this machine for now
+    if "backup_target" in open_items and all(t == own for t in targets):
+        return out
     if not targets:
         out.append("no backup target: set TB_BACKUP_TARGETS in deploy/.env to the folder where the second disk or "
                    "the hospital's share is mounted")  # fmt: skip

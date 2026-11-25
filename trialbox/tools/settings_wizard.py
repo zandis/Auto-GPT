@@ -504,7 +504,9 @@ def build(
         errors.append(f"mrn_regex does not compile: {exc}")
     chart_rule = chartno_rule(a.get("chartno_rule"), mrn_regex, errors, warnings)
     chart_answered = bool(str(a.get("chartno_rule") or "").strip())  # 10K-21: asis typed is an answer
-    if prod and not chart_answered:
+    # M1 (D-1280): an item the install marked as a stand-in; its refusal is the gate of the step that needs it
+    marked = set(_split(a.get("stand_ins")))
+    if prod and not chart_answered and "chart_number" not in marked:
         errors.append(
             "chartno_rule is required in PRODUCTION: the rule cannot be changed once patients are loaded. Answer "
             "digits:<width> or hex:<width> with the hospital's chart-number format, or asis where chart numbers are "
