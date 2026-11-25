@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from tests import host_escape
 from tests.unit.test_update_safety import Recorder, _main_apply_stage, _plan
 from tools import update_status as us
 from tools.trialbox import update as up
@@ -131,6 +132,12 @@ def _first_install(
     (tmp_path / "models" / "judge" / "config.json").write_text("old")
     monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
     monkeypatch.setenv("TB_COMPOSE", "false")
+    # H-139: a stub engine (it answers nothing) and no caller's project: never the host's Docker or its volumes
+    engine = tmp_path / "engine-stand-in"
+    engine.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    engine.chmod(0o755)
+    monkeypatch.setenv("TB_DOCKER", str(engine))
+    monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
     monkeypatch.setenv("TB_SKIP_AUDIT", "1")
     stage, summary = _main_apply_stage(tmp_path)
     doc = json.loads(summary.read_text())
@@ -158,6 +165,7 @@ def test_review_a_first_install_refuses_it_too(
 def test_review_a_first_install_on_a_dev_box_takes_it_and_a_clean_release_goes_on_a_site_box(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    host = host_escape.watch(monkeypatch)  # H-139: the stub engine only, never the host's
     stage, summary, deploy = _first_install(tmp_path, monkeypatch, _release(True))
     deploy.mkdir()
     (deploy / ".env").write_text("TB_ENV=DEV\n", encoding="utf-8")
@@ -168,6 +176,7 @@ def test_review_a_first_install_on_a_dev_box_takes_it_and_a_clean_release_goes_o
     stage, summary, deploy = _first_install(other, monkeypatch, _release(False))
     assert up.main_apply(stage, summary, "compose", deploy) == 0
     assert us.installed(deploy / "updates")["dirty"] is False
+    assert host == [], host
 
 
 def test_review_a_bundle_with_no_release_record_and_a_host_tree_is_still_taken_and_the_record_says_so(

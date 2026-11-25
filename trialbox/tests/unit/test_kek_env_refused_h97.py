@@ -34,6 +34,8 @@ PHRASE = "synthetic-h97-" + "kek-passphrase-for-tests"  # synthetic
 def _passphrase_box(tmp: Path, capsys: pytest.CaptureFixture[str]) -> Path:
     sec = tmp / "sec"
     sec.mkdir(parents=True)
+    for folder in (tmp, sec):  # H-139 (item 5, ruled b): explicit modes, never the run's umask
+        folder.chmod(0o700)
     (sec / "site_hmac.key").write_bytes(os.urandom(32))
     pp = tmp / "init.pass"
     pp.write_text(PHRASE + "\n", encoding="utf-8")

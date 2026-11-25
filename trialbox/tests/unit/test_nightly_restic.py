@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from tb_common import kek as K
 
+from tests.own_deploy import own_deploy
 from tests.unit.test_backup_schedule import T0, FakeBox, _cfg, _offbox
 from tests.unit.test_kek import _cli, box  # noqa: F401
 from tests.unit.test_key_escrow import _escrow, tpm  # noqa: F401
@@ -30,7 +31,15 @@ from tools.trialbox import backup_schedule as bs
 from tools.trialbox import restic_repo as rr
 
 
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
+
+
 # ------------------------------------------------------------------------------------------------ do shares cover it
+
+
 def test_a_shamir_kek_is_covered(stewards: dict[str, Path]) -> None:  # noqa: F811
     assert rr.shares_cover(stewards["sec"]) == ""
 

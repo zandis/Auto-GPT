@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Protocol
 
 import pytest
 
@@ -50,6 +50,7 @@ _DB_COUNTER = iter(range(1, 10**9))
 def pg_cluster_url(request: pytest.FixtureRequest) -> Iterator[str]:
     given = os.environ.get("TB_TEST_DB_URL")
     if given:
+        _vector_or_stop(request, given)
         yield given
         return
     import atexit
@@ -88,9 +89,34 @@ def pg_cluster_url(request: pytest.FixtureRequest) -> Iterator[str]:
         url = pglocal.ensure(root)
     except (OSError, RuntimeError) as exc:
         _stop(request, exc)
+    _vector_or_stop(request, url)
     yield url
     if not keep:
         pglocal.remove(root)
+
+
+class _Stoppable(Protocol):
+    shouldstop: bool | str
+
+
+class _InSession(Protocol):
+    """What :func:`_vector_or_stop` uses of a fixture request: its session's stop flag."""
+
+    @property
+    def session(self) -> _Stoppable: ...
+
+
+def _vector_or_stop(request: _InSession, url: str) -> None:
+    """H-139: a test server whose vector extension is older than the db image's pin stops the run with one plain
+    message (``shouldstop`` stops every xdist worker), not one error per test (the bench host's halfvec errors)."""
+    from tb_common.db import split_url
+
+    from tools import pglocal
+
+    why = pglocal.vector_check(split_url(url)[0])
+    if why:
+        request.session.shouldstop = why
+        pytest.fail(why, pytrace=False)
 
 
 def _stop(request: pytest.FixtureRequest, exc: BaseException) -> NoReturn:
@@ -438,12 +464,12 @@ def _stack_up() -> bool:
     """The compose test stack answers on the lake's host port (tests/stack.py)."""
     import socket
 
-    from tests.stack import host_port
+    from tests.stack import StackNotRunning, host_port
 
-    try:
+    try:  # H-139: the port the test stack's own lake container publishes, never another project's
         with socket.create_connection(("127.0.0.1", host_port("LAKE")), timeout=1):
             return True
-    except OSError:
+    except (OSError, StackNotRunning):
         return False
 
 

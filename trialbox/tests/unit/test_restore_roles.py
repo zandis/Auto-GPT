@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tests import pg_client
 from tools import backup_drill, pglocal
 from tools.trialbox import backup as bk
 
@@ -86,7 +87,10 @@ def test_both_copies_of_the_script_are_the_same_and_move_functions() -> None:
 
 
 # ------------------------------------------------------------------------------------------------ the whole round
-def test_after_a_restore_every_service_opens_its_stores_as_its_own_role(tmp_path: Path) -> None:
+def test_after_a_restore_every_service_opens_its_stores_as_its_own_role(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pg_client.setenv(monkeypatch)  # H-139: the drill's restore runs the cluster's client tools
     """The drill's check, on a cluster of its own with the real script. It fails on the script without the
     function move ("must be owner of function") and without the roles command (the stores stay trialbox's)."""
     _pg()
@@ -95,7 +99,10 @@ def test_after_a_restore_every_service_opens_its_stores_as_its_own_role(tmp_path
     assert "every service" in name and "function" in detail
 
 
-def test_the_check_fails_when_the_script_does_not_move_functions(tmp_path: Path) -> None:
+def test_the_check_fails_when_the_script_does_not_move_functions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pg_client.setenv(monkeypatch)  # H-139: the drill's restore runs the cluster's client tools
     """The same round with the script as it was (tables, views and sequences only)."""
     _pg()
     text = BOX.read_text(encoding="utf-8")
@@ -107,7 +114,10 @@ def test_the_check_fails_when_the_script_does_not_move_functions(tmp_path: Path)
     assert not ok and "function" in detail
 
 
-def test_the_check_fails_when_an_owned_schemas_function_stays_the_restorers(tmp_path: Path) -> None:
+def test_the_check_fails_when_an_owned_schemas_function_stays_the_restorers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pg_client.setenv(monkeypatch)  # H-139: the drill's restore runs the cluster's client tools
     """D-486 meets D-573 (lane D's review of T-718's hunk): in a schema with an owner role the service is a writer
     and can replace no function either way, so the check asks who owns the restored function and table."""
     _pg()
@@ -146,7 +156,7 @@ def test_the_restore_itself_runs_the_command_after_the_trial_database(pg_cluster
             con.execute("INSERT INTO site.marks VALUES ('P1', 'approach')")
         priv, pub = tmp_path / "k.key", tmp_path / "k.pub"
         bk.keygen(priv, pub)
-        env = {"TB_DB_URL": url, "TB_SITE_ID": "CGMH"}
+        env = {**pg_client.env(), "TB_DB_URL": url, "TB_SITE_ID": "CGMH"}
         f = bk.backup([tmp_path / "nas"], pub, env=env, dirs={})[0]
         ran = tmp_path / "ran"
         cmd = f"{sys.executable} -c \"open(r'{ran}', 'a').write('x')\""

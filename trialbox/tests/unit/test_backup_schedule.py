@@ -14,6 +14,7 @@ import pytest
 import yaml
 from tb_common.db import Database
 
+from tests import pg_client
 from tools.backup_drill import DEPLOY, compose_pg_settings
 from tools.trialbox import backup as bk
 from tools.trialbox import backup_schedule as bs
@@ -118,7 +119,7 @@ def _maker(tmp_path: Path, url: str, fail: bool = False, when: datetime = T0, on
     def make(targets: list[Path]) -> list[Path]:
         if fail:
             raise RuntimeError("pg_dump of trialbox_wf failed: connection refused")
-        out = bk.backup(targets, tmp_path / "keys" / "box.pub", env={"TB_DB_URL": url, "TB_SITE_ID": "CGMH"},
+        out = bk.backup(targets, tmp_path / "keys" / "box.pub", env={"TB_DB_URL": url, "TB_SITE_ID": "CGMH", **pg_client.env()},
                         dirs={"audit": tmp_path / "audit"}, now=when)  # fmt: skip
         return out[:1] if only_first else out
 
@@ -510,10 +511,10 @@ def test_the_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_url: str) 
     db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT)"])
     db.execute("INSERT INTO marks VALUES (?, ?)", ("P1", "approach"))
     dsn, prefix = split_url(db_url)
-    script = bs.snapshot_script(str(tmp_path), "trialbox_wf", "pg_dump", f'--dbname "{dsn}"', [f"{prefix}*"],
+    script = bs.snapshot_script(str(tmp_path), "trialbox_wf", shlex.quote(pg_client.tool("pg_dump")), f'--dbname "{dsn}"', [f"{prefix}*"],
                                 f"{prefix}refdata")  # fmt: skip
     (tmp_path / "s.sql").write_text(script)
-    subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "-f", str(tmp_path / "s.sql")],
+    subprocess.run([pg_client.tool("psql"), "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "-f", str(tmp_path / "s.sql")],
                    check=True, capture_output=True)  # fmt: skip
     snap = bs.parse_snapshot(tmp_path, "trialbox_wf")
     assert snap["rows"][f"{db.schema}.marks"][0] == 1 and snap["packs"] == []
@@ -540,11 +541,11 @@ def test_the_streamed_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_u
     spool.mkdir()
     work.mkdir()
     (spool / "emit").write_text(bs.EMIT_SH)
-    script = bs.snapshot_script(str(spool), "trialbox_wf", "pg_dump", f'--dbname "{dsn}"', [f"{prefix}*"],
+    script = bs.snapshot_script(str(spool), "trialbox_wf", shlex.quote(pg_client.tool("pg_dump")), f'--dbname "{dsn}"', [f"{prefix}*"],
                                 f"{prefix}refdata", stream=True)  # fmt: skip
     (spool / "s.sql").write_text(script)
     with (work / "trialbox_wf.stream").open("wb") as out:
-        subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "-f", str(spool / "s.sql")],
+        subprocess.run([pg_client.tool("psql"), "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", dsn, "-f", str(spool / "s.sql")],
                        check=True, stdout=out, stderr=subprocess.PIPE)  # fmt: skip
     # nothing proportional to the data in the spool (the db container's tmpfs): only these few bytes
     left = {f.name: f.stat().st_size for f in spool.iterdir()}
@@ -556,7 +557,10 @@ def test_the_streamed_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_u
     assert {"trialbox_wf.rows", "trialbox_wf.packs"} <= set(names) and not (work / "trialbox_wf.stream").exists()
     assert (work / "trialbox_wf.dump").read_bytes()[:5] == b"PGDMP"
     listed = subprocess.run(
-        ["pg_restore", "--list", str(work / "trialbox_wf.dump")], check=False, capture_output=True, text=True
+        [pg_client.tool("pg_restore"), "--list", str(work / "trialbox_wf.dump")],
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert listed.returncode == 0 and "marks" in listed.stdout, listed.stderr
     snap = bs.parse_snapshot(work, "trialbox_wf")

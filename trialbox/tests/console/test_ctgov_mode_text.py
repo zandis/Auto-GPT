@@ -137,6 +137,10 @@ def test_only_the_one_sentence_depends_on_the_mode(box: dict[str, Any], monkeypa
     """Every other page, and the rest of the feasibility page, render the same bytes in every mode."""
     _done_feas(box["backend"])
     c = _crc(box, "en")
+    # H-139 (7158058588): the session's clock held still. Every page carries the idle warning's seconds left
+    # (data-idle-left, data-abs-left); on a slow worker the twenty renders crossed a second and /home differed
+    still = box["users"].clock()
+    monkeypatch.setattr(box["users"], "clock", lambda: still)
     paths = ("/home", "/reports", "/studies/GZQO/feasibility?view=sponsor", "/studies/GZQO/feasibility")
     seen: dict[str, set[str]] = {p: set() for p in paths}
     for mode in (*MODES, "online"):

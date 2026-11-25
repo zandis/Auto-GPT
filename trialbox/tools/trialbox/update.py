@@ -3074,7 +3074,9 @@ def first_load_needs(box: Any, plan: Plan, deploy: Path) -> list[tuple[Path, int
     models folder, the host tree unpacked beside deploy/, the other files under deploy/updates. The payloads
     themselves stay on the stick, so nothing is counted for a copy of the bundle."""
     try:
-        root = Path(box.run(["docker", "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
+        # H-139: the box's own engine (TB_DOCKER), as its other calls, never a bare docker of the host
+        engine = list(getattr(box, "docker", None) or ["docker"])
+        root = Path(box.run([*engine, "info", "-f", "{{.DockerRootDir}}"]).strip() or "/var/lib/docker")
     except (UpdateFailed, OSError):
         root = Path("/var/lib/docker")
     models = Path(getattr(box, "models", deploy / "models"))

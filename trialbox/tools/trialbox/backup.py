@@ -341,6 +341,17 @@ def _cmd(env: Mapping[str, str], var: str, default: str) -> list[str]:
     return shlex.split(env.get(var) or default)
 
 
+def _client(env: Mapping[str, str], var: str, default: str) -> list[str]:
+    """A PostgreSQL client tool's command (``var``, else ``default``), refused with its name and its setting when it
+    cannot be run here. H-139: a host whose PostgreSQL is not on PATH met a bare FileNotFoundError, after a restore had
+    already emptied the database's schemas."""
+    cmd = _cmd(env, var, default)
+    if not cmd or shutil.which(cmd[0]) is None:
+        raise BackupError(f"the PostgreSQL client tool {default} cannot be run here ({cmd[0] if cmd else var!r} is not "
+                          f"found): install the PostgreSQL client tools, or set {var} to its command")  # fmt: skip
+    return cmd
+
+
 def _libpq(dsn: str) -> tuple[list[str], dict[str, str]]:
     """pg_dump/pg_restore take the database as ``--dbname``; a ``host=`` socket in the query is passed through."""
     return ["--dbname", dsn], {}
@@ -358,7 +369,7 @@ def dump(src: DbSource, out: Path, env: Mapping[str, str], keep_owners: bool = F
     args, extra = _libpq(src.dsn)
     # H-100: a restore's own copy of the box keeps the owners and grants (the service roles' own schemas)
     plain = [] if keep_owners else ["--no-owner", "--no-privileges"]
-    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", *plain, *args]
+    cmd = [*_client(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", *plain, *args]
     for s in src.schemas:
         cmd += ["--schema", s]
     with out.open("wb") as fh:
@@ -389,10 +400,10 @@ def take_snapshot(src: DbSource, work: Path, env: Mapping[str, str]) -> dict[str
     else:
         at = datetime.now(UTC).isoformat(timespec="milliseconds")  # D-455 (M3): the snapshot is taken right after this
         script = work / f"{src.name}.sql"
-        pg_dump = " ".join(shlex.quote(a) for a in _cmd(env, "TB_PG_DUMP_CMD", "pg_dump"))
+        pg_dump = " ".join(shlex.quote(a) for a in _client(env, "TB_PG_DUMP_CMD", "pg_dump"))
         script.write_text(_sched.snapshot_script(str(work), src.name, pg_dump, f'--dbname "{src.dsn}"', src.schemas,
                                                  src.refdata), encoding="utf-8")  # fmt: skip
-        psql = [*_cmd(env, "TB_PSQL_CMD", "psql"), "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", src.dsn]
+        psql = [*_client(env, "TB_PSQL_CMD", "psql"), "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", src.dsn]
         old = os.umask(0o077)
         try:
             r = subprocess.run([*psql, "-f", str(script)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
@@ -412,7 +423,7 @@ def take_snapshot(src: DbSource, work: Path, env: Mapping[str, str]) -> dict[str
 def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str], keep_owners: bool = False) -> None:
     args, extra = _libpq(src.dsn)
     plain = [] if keep_owners else ["--no-owner", "--no-privileges"]  # H-100: a put-back keeps them
-    cmd = [*_cmd(env, "TB_PG_RESTORE_CMD", "pg_restore"), "--clean", "--if-exists", *plain,
+    cmd = [*_client(env, "TB_PG_RESTORE_CMD", "pg_restore"), "--clean", "--if-exists", *plain,
            "--single-transaction", "--exit-on-error", *args]  # fmt: skip
     # D-274 (CR-056): the database is emptied first, so a box that holds tables the backup does not (a later
     # migration, a newer schema) is not left with them, and the row check after the restore compares like with like
@@ -2451,6 +2462,9 @@ def restore(
         # H-100 (F2): all or nothing. Each database the backup replaces is first dumped here as it is now; whatever
         # fails or stops the restore from the first change on (an error, an interrupt, a signal) puts the databases
         # and the folders back as they were, takes the hold and audits it. Its space is checked before any change
+        # H-139 (OCR 1498-3): the restore's client tool is found before the first change, so a missing one refuses
+        # with nothing changed, never as a half-restored box
+        _client(env, "TB_PG_RESTORE_CMD", "pg_restore")
         pre = _pre_restore_dumps([srcs[n] for n in manifest["databases"]], work / "pre-restore", env)
         replaced: list[str] = []
         moved: list[tuple[Path, Path | None, bool, tuple[int, int, int] | None]] = []
