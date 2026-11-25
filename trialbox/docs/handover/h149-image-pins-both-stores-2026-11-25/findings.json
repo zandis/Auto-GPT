@@ -35,11 +35,11 @@
   {
    "id": "H149-04",
    "severity": "Low",
-   "claim": "the inline Python of make_bundle.sh that wrote image-pins.json took the config digest from manifest.json without reading the config, so a pin could name an id the archive's config blob does not hash to; the pin tool now checks the blob against its digest and refuses the bundle",
+   "claim": "the inline Python of make_bundle.sh that wrote image-pins.json took the config digest from manifest.json without reading the config; the pin tool now reads and hashes the config blob, and pins layers only when the blob is the content its digest names (else today's id-only pin and a WARNING: the bundle then installs on the classic store only). A refusal there would need the shared fake engine of tests/unit/test_release_bundle.py to write a real config, which changes that file's image ids: asked of the integrator",
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "tools.image_pins bundle-pins, called by make_bundle.sh"
+   "fix": "tools.image_pins bundle-pins, called by make_bundle.sh; the refusal on the integrator's ruling"
   }
  ]
 }

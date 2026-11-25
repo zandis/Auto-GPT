@@ -293,9 +293,11 @@ def write_env(path: Path, changes: dict[str, str | None]) -> None:
 
 
 # --------------------------------------------------------------------------------- the bundle's side (make_bundle.sh)
-def archive_pin(archive: Path, ref: str, tag: str) -> dict[str, Any]:
-    """The pin record of a digest reference saved as ``tag`` in ``archive`` (a ``save`` archive): read out of the
-    archive itself, its config blob checked against its own digest."""
+def archive_pin(archive: Path, ref: str, tag: str) -> tuple[dict[str, Any], str]:
+    """The pin record of a digest reference saved as ``tag`` in ``archive`` (a ``save`` archive), read out of the
+    archive itself, and a warning (empty when none). The image id is the config's name, as before H-149. The layers
+    and config are added only when the config blob is the content its digest names and carries the layer diff ids;
+    otherwise the pin is today's, which proves the image on the classic store only, and the warning says so."""
     with tarfile.open(archive) as tf:
         m = tf.extractfile("manifest.json")
         entries = json.loads(m.read()) if m else []
@@ -308,23 +310,28 @@ def archive_pin(archive: Path, ref: str, tag: str) -> dict[str, Any]:
             raise ValueError(f"{archive.name}: no image id in the saved archive ({path or 'no Config'})")
         blob = tf.extractfile(path)
         raw = blob.read() if blob else b""
+    pin: dict[str, Any] = {"ref": ref, "image": f"sha256:{name}"}
     if hashlib.sha256(raw).hexdigest() != name:
-        raise ValueError(f"{archive.name}: its config {path} is not the content its digest names")
+        return pin, f"{ref}: its config {path} is not the content its digest names: no layers pinned"
     cfg = json.loads(raw)
-    layers = list((cfg.get("rootfs") or {}).get("diff_ids") or [])
+    layers = list(_obj(cfg.get("rootfs")).get("diff_ids") or [])
     if not layers or not all(isinstance(x, str) and IMAGE_ID.match(x) for x in layers):
-        raise ValueError(f"{archive.name}: its config names no layer diff ids")
-    return {"ref": ref, "image": f"sha256:{name}", "tag": tag, "layers": layers, "config": config_fields(cfg)}
+        return pin, f"{ref}: its config names no layer diff ids: no layers pinned"
+    pin.update({"tag": tag, "layers": layers, "config": config_fields(cfg)})
+    return pin, ""
 
 
-def bundle_pins(out: Path, items: Iterable[str]) -> int:
-    """Write the bundle's ``image-pins.json`` from ``REF=TAG=ARCHIVE`` items; the count written."""
-    pins = []
+def bundle_pins(out: Path, items: Iterable[str]) -> tuple[int, list[str]]:
+    """Write the bundle's ``image-pins.json`` from ``REF=TAG=ARCHIVE`` items; the count written and the warnings."""
+    pins, warnings = [], []
     for item in items:
         ref, tag, archive = item.split("=", 2)
-        pins.append(archive_pin(Path(archive), ref, tag))
+        pin, warn = archive_pin(Path(archive), ref, tag)
+        pins.append(pin)
+        if warn:
+            warnings.append(warn)
     out.write_text(json.dumps({"pins": pins}, indent=1) + "\n", encoding="utf-8")
-    return len(pins)
+    return len(pins), warnings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -346,10 +353,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "bundle-pins":
         try:
-            count = bundle_pins(a.out, a.items)
+            count, warnings = bundle_pins(a.out, a.items)
         except (OSError, ValueError, KeyError, tarfile.TarError) as e:
             print(f"make_bundle: image pins: {e}", file=sys.stderr)
             return 1
+        for w in warnings:
+            print(
+                f"make_bundle: WARNING image pins: {w}; this bundle's {w.split(':', 1)[0]} installs on the classic "
+                "image store only (H-149)",
+                file=sys.stderr,
+            )
         print(f"    image pins: {count} digest references (image-pins.json)")
         return 0
     files = [Path(f) for f in a.files.split(":") if f]

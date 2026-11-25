@@ -103,7 +103,11 @@ def test_the_bundle_pin_is_read_out_of_the_saved_archive(tmp_path: Path) -> None
     assert pin["config"]["Entrypoint"] == cfg["config"]["Entrypoint"] and pin["config"]["User"] == "65532"
 
 
-def test_an_archive_whose_config_is_not_its_digest_makes_no_pin(tmp_path: Path) -> None:
+def test_an_archive_whose_config_is_not_its_digest_pins_no_layers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A config that is not the content its name says, or one without layers, gives today's pin (the id only) and
+    a warning: such a pin proves nothing on the containerd store, where the box refuses it."""
     bad = _archive(tmp_path, CONFIG, "bad.tar")
     swapped = tmp_path / "swapped.tar"
     with tarfile.open(bad) as src, tarfile.open(swapped, "w") as dst:
@@ -115,8 +119,13 @@ def test_an_archive_whose_config_is_not_its_digest_makes_no_pin(tmp_path: Path) 
                 data = data.replace(b'"65532"', b'"0"')
                 m.size = len(data)
             dst.addfile(m, io.BytesIO(data))
-    assert ip.main(["bundle-pins", str(tmp_path / "out.json"), f"{HAPI}={TAG}={swapped}"]) == 1
-    assert not (tmp_path / "out.json").exists()
+    out = tmp_path / "out.json"
+    assert ip.main(["bundle-pins", str(out), f"{HAPI}={TAG}={swapped}"]) == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["pins"] == [{"ref": HAPI, "image": CONFIG_ID}]
+    assert "is not the content its digest names" in capsys.readouterr().err
+    deploy, files = _box(tmp_path / "box", {"ref": HAPI, "image": CONFIG_ID})
+    has, inspect = _store(_inspect("containerd"))
+    assert ip.resolve(deploy, files, has=has, inspect=inspect)[2] == [f"HAPI_IMAGE: {HAPI}"]
 
 
 def test_make_bundle_writes_the_pins_with_the_pin_tool() -> None:

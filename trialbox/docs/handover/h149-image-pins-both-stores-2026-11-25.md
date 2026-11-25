@@ -23,10 +23,14 @@ the archive carried, and `RepoDigests` names that manifest, not the registry's.
 ## 2. What changed
 
 `make_bundle.sh` now writes `image-pins.json` with `python3 -m tools.image_pins bundle-pins`. Each pin is read out of
-the saved archive: the config blob is hashed against its digest (a mismatch refuses the bundle), and the pin carries
-the config digest (`image`), the tag the image was saved under, the layer diff ids (`rootfs.diff_ids`) and the config
-fields a container runs by (architecture, OS, variant, entrypoint, command, environment, user, working directory,
-volumes, ports, stop signal, labels, health check, shell, on-build). The file stays a signed member of the bundle.
+the saved archive and carries the config digest (`image`), the tag the image was saved under, the layer diff ids
+(`rootfs.diff_ids`) and the config fields a container runs by (architecture, OS, variant, entrypoint, command, environment, user, working directory,
+volumes, ports, stop signal, labels, health check, shell, on-build). The layers and config are pinned only when the
+config blob is the content its digest names and carries diff ids; otherwise the pin is today's (the id only) and
+`make_bundle` prints a WARNING that the bundle installs on the classic store only. Refusing there instead is a
+question for the integrator: the shared fake engine of `tests/unit/test_release_bundle.py` writes `{}` as every
+config, under a name that is not its hash, and a faithful fake changes the image ids those tests assert (H149-04).
+The file stays a signed member of the bundle.
 
 `resolve` tries, in order: the digest reference (nothing to set); the config digest (the classic store, as before);
 then the image under the pin's tag, whose `RootFS.Layers` must equal the signed diff ids in order and whose config
@@ -67,7 +71,7 @@ file system; no id) nothing is set and the image is `MISSING`. Mutants run again
 | M7 the tag written | the invariant (and two more) |
 | M8 a pin without layers accepted by its tag | `test_a_pin_from_before_h149_is_not_enough_on_the_containerd_store` |
 
-Failing first: on master's `tools/image_pins.py` the new file has 9 of 12 failing; the three that pass are the
+Failing first: on master's `tools/image_pins.py` the new file had 9 of 12 failing; the three that pass are the
 recorded bench failure, update's load check (already both stores) and the make_bundle text check.
 
 ## 5. Not shown
