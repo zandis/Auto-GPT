@@ -25,7 +25,6 @@ KEYS = {"TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK", "TB_TERMINOLOGY_NIG
 PENDING = {
     # M1
     # M3
-    "egress_page",
     # M5
     "health_page",
     # M5

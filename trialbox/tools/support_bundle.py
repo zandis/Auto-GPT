@@ -634,6 +634,25 @@ def clean_lines(b: Bundle, say: Callable[[str], None]) -> None:
             say(f"removed {sum(removed.values())} line(s) from {name}: {', '.join(sorted(removed))}")
 
 
+def _leave(b: Bundle, deploy: Path) -> bool:
+    """M3: the bundle passes the egress edge; its line of the egress record is in the host's own audit chain
+    (``updates/audit``, as the updater's). A bundle that may not leave, or is not recorded, is not written. Whether the
+    edge still masked something in it."""
+    from tb_common.audit import AuditLog
+
+    files = [[n, t] for n, t in sorted(b.members.items())]
+    got = bs.egress_rules()(op="leave", route="support.bundle", destination="support", files=files,
+                            actor="support-bundle")  # fmt: skip
+    try:
+        AuditLog(deploy / "updates" / "audit").append(**got["line"])
+    except (OSError, TypeError) as exc:
+        raise BundleRefused(f"the bundle's departure was not recorded ({type(exc).__name__}): not written") from None
+    if got["refused"]:
+        raise BundleRefused(f"the bundle may not leave ({got['refused']}): not written")
+    b.members = {n: new for (n, _old), (_safe, new) in zip(files, got["files"], strict=True)}
+    return bool([t for _n, t in got["files"]] != [t for _n, t in files])
+
+
 def _write_tar(target: Path, members: Mapping[str, str], at: datetime, scrubber: bs.Scrubber) -> None:
     """The one function that writes into the archive (H-71, D-1354; a test finds every writer). A member the scrub
     would still change is refused before anything is written."""
@@ -719,6 +738,8 @@ def _build(deploy: Path, out_dir: Path, *, days: int, add: Iterable[Path], runne
         b.note(name, "secrets_hidden", k)
         hidden += k
     b.seal()  # H-71: the scrub once more, after every pass that changed a member in place
+    if _leave(b, deploy):
+        b.seal()
     manifest = {
         "made": now.isoformat(timespec="seconds"),
         "tool": "tools/support_bundle.py (T-209b, D-405)",

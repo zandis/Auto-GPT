@@ -97,6 +97,30 @@ def log_standing(username: str, study: str, today: date, url: str | None = None)
     return Standing(is_pi=pi is not None and pi.username == username, tasks=ticked, log_names_pi=pi is not None)
 
 
+def mailbox_right(mailbox: str, study: str, today: date, url: str | None = None) -> bool | None:
+    """M3 (PR1239-H2, H3): whether the person at ``mailbox`` is on the study's delegation log today. The staff
+    directory says whose address it is; an address it does not hold (a shared clinic list), or a log that cannot be
+    read, is unknown, never a yes."""
+    from console.teamstore import TeamStore
+
+    try:
+        team = TeamStore(url)
+        try:
+            names = {s.username for s in team.staff() if s.username and s.contact.strip().lower() == mailbox}
+            return any(e.username in names and e.active_on(today) for e in team.entries(study)) if names else None
+        finally:
+            team.close()
+    except Exception:
+        return None
+
+
+def all_of(answers: list[bool | None]) -> bool | None:
+    """No when one is no, unknown when one is unknown, else yes; nobody is unknown."""
+    if False in answers:
+        return False
+    return None if None in answers or not answers else True
+
+
 def person_right(role: str, username: str, study: str, today: date, url: str | None = None) -> str:
     """Why this person may not receive a chart number of ``study`` by their own rights ("" when they may). The
     delegation log is read only for a role whose right it decides, so a coordinator's reveal needs no log; a log

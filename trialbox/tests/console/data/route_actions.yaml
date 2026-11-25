@@ -17,6 +17,7 @@ routes:
   "POST /admin/jobs/{job_id}/cancel": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /admin/jobs/{job_id}/retry": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /admin/models/canary": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "GET /admin/egress": {actions: ["ops.view"], mode: all, why: "D-1093 (M3): what left the box, for the administrator, as the operations pages"}
   "GET /admin/notice": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /admin/ops": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /admin/ops/network/{name}": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}

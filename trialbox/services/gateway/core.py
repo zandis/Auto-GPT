@@ -74,6 +74,7 @@ from typing import Any
 import httpx
 from guard.guard import Guard
 from registry.registry import Registry, RegistryError, Resolved, check_served, provider_routing
+from tb_common import egress_edge
 from tb_common.audit import AuditLog, canonical
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_text
@@ -283,6 +284,8 @@ class Gateway:
         self.registry = registry
         self.audit = audit
         self.config = config or GatewayConfig()
+        if not self.config.phi_tripwire and self.config.environment.value == "PRODUCTION":  # M3: refused at start
+            raise ValueError("TB_GATEWAY_PHI_TRIPWIRE=off is refused on a PRODUCTION box: set it to on")
         if not self.config.phi_tripwire:  # D-792: the owner's setting; said once at start, and on every call's audit
             log.warning(
                 "the PHI tripwire is off (TB_GATEWAY_PHI_TRIPWIRE=off): D0-D2 calls may leave the box unchecked "
@@ -616,6 +619,12 @@ class Gateway:
                 registry_refusals.append(RegistryError("provider_unpinned", msg))
                 call.fallbacks += 1
                 continue
+            if ep.zone != "perimeter":  # M3: a call that leaves the box passes the egress edge
+                try:
+                    egress_edge.leave("model.offbox", ep.name, _content_text(messages), audit=self.audit,
+                                      actor=call.caller, unchecked=not cfg.phi_tripwire)  # fmt: skip
+                except egress_edge.Refused as e:
+                    raise Refusal("phi_tripwire", f"the call may not leave the box ({e.reason})") from e
             out = self._try(call, cand, res, label, body, free_form, upstream_errors)
             if out is not None:
                 return out

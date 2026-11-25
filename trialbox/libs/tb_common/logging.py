@@ -140,7 +140,8 @@ def redact(text: str) -> str:
 
 def redact_value(value: Any, depth: int = 0) -> Any:
     """``value`` with every text inside it scrubbed: a dict's keys and values, a list's or tuple's items (the
-    review's HIGH-1: an extra field that is not a text went out as written); other values as they are."""
+    review's HIGH-1: an extra field that is not a text went out as written); any other value by the text it prints
+    as."""
     if isinstance(value, str):
         return redact(value)
     if depth > 8:  # deeper than any log field: withheld, not walked
@@ -149,7 +150,12 @@ def redact_value(value: Any, depth: int = 0) -> Any:
         return {redact_value(k, depth + 1): redact_value(v, depth + 1) for k, v in value.items()}
     if isinstance(value, list | tuple | set | frozenset):
         return [redact_value(v, depth + 1) for v in value]
-    return value
+    if value is None or isinstance(value, bool):
+        return value
+    # R22-21 (M3): a path, bytes, an exception, a number: what would be printed is scrubbed (bytes as their text: an
+    # escape hides a name from the rules, not from a reader)
+    text = redact(value.decode("utf-8", "replace") if isinstance(value, bytes | bytearray) else str(value))
+    return value if isinstance(value, int | float) and text == str(value) else text
 
 
 def _redact(text: str) -> str:
@@ -157,7 +163,7 @@ def _redact(text: str) -> str:
     review's HIGH-2: applied one after another, a secret's token took the label a name was found by, and the
     masker, run first, could cut a secret value so that its exact match no longer held). A span the secret rules
     found says ``[SECRET]``; else the identifier rule's or the masker's kind."""
-    from tb_common.phi_guard import note_spans  # here, not at import: nearly every module imports logging
+    from tb_common.egress_edge import spans  # here, not at import: nearly every module imports logging (M3)
 
     found: list[tuple[int, int, int, str]] = []  # (start, end, rank, label): 0 secret, 1 identifier rule, 2 masker
     for v in _SECRET_VALUES:
@@ -174,7 +180,7 @@ def _redact(text: str) -> str:
     for pat in _EXTRA_MRN:
         for m in pat.finditer(text):
             found.append((m.start(), m.end(), 1, "MRN"))
-    for kind, start, end in note_spans(text):
+    for kind, start, end in spans(text):
         found.append((start, end, 2, kind.upper()))
     merged: list[list[Any]] = []  # [start, end, rank, label]
     for start, end, rank, label in sorted(f for f in found if f[1] > f[0]):
@@ -223,6 +229,7 @@ def setup_logging(service: str, level: str = "INFO") -> logging.Logger:
     import importlib
 
     importlib.import_module("tb_common.phi_guard")  # loaded now, loudly, not at the first line
+    importlib.import_module("tb_common.egress_edge")  # M3: the rule set the scrubber reads
 
     site_rule_on()
     register_process_secrets()
