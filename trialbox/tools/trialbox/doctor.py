@@ -2539,13 +2539,13 @@ TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 #: own image (``tools/trialbox/doctor_image.py``) and their verdicts join the host's, in this list's order. An import
 #: error or a container that does not run is that check's FAIL with the reason: never a PASS, never a skip.
 IMAGE_CHECKS = (
-    "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "phi_tripwire",
-    "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule", "db_passwords", "wsl2_memory",
-    "update_window", "backup_speed", "terminology",
+    "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "trusted_proxy",
+    "mail_tls", "phi_tripwire", "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule",
+    "db_passwords", "wsl2_memory", "update_window", "backup_speed", "terminology",
 )  # fmt: skip
 #: what those checks import beyond the host's Python (the box image has each one)
 IMAGE_MODULES = ("pydantic", "httpx", "gateway", "guard", "registry", "channels", "criteria_compiler", "tb_llm",
-                 "tb_contracts")  # fmt: skip
+                 "tb_contracts", "mail_gateway")  # fmt: skip
 
 
 def needs_image() -> bool:
