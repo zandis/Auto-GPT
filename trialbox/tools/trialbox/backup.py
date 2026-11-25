@@ -129,6 +129,12 @@ class BackupError(RuntimeError):
     pass
 
 
+class _NotPutBack(BackupError):
+    """H-142 (.d): a restore stopped during its change whose putting back did not run; the command says its state."""
+
+    state = "not_rolled_back"
+
+
 class _HashReader:
     """A read-only file wrapper that hashes and counts every byte read through it (the stream hash)."""
 
@@ -2342,9 +2348,7 @@ def restore(
         sigends.ignore()
         why = str(e) or "the restore was stopped by an interrupt (Ctrl-C)"
         if changing:  # never said "unchanged" once a change may have begun (an interrupt inside the put-back's start)
-            err = BackupError(f"{why} during the restore, and its putting back did not run: NOT as it was")
-            err.state = "not_rolled_back"  # type: ignore[attr-defined]
-            raise err from None
+            raise _NotPutBack(f"{why} during the restore, and its putting back did not run: NOT as it was") from None
         raise BackupError(f"{why} before any change: nothing was changed") from None
     finally:
         stop()
