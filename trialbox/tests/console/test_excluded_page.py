@@ -78,7 +78,7 @@ def test_the_excluded_list_with_criterion_source_and_evidence(box: dict[str, Any
     ja, jcsrf = login(box["app"], "pi", PW)
     ja.post("/lang", data={"csrf": jcsrf, "lang": "ja", "back": "/"})
     jp = ja.get("/studies/GZQO/excluded").text
-    assert "基準に合致しない患者" in jp and "カルテ記載（2 つのモデルが一致）" in jp and "確認に回しました" in jp
+    assert "基準に合致しない患者" in jp and "カルテ記載（基準に反する可能性）" in jp and "確認に回しました" in jp
     # roles: a viewer and a CRO account never see it
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get("/studies/GZQO/excluded").status_code == 403
