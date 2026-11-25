@@ -1094,6 +1094,11 @@ def test_the_restore_container_is_removed_when_it_ends_and_its_passwords_are_on_
     (deploy / ".env").chmod(0o600)
     for name in ("backup.tbbak", "it.key", "box.pub"):
         (tmp_path / name).write_text("synthetic\n", encoding="utf-8")
+    # the box's data folders, as a box has them (H-132 refuses a restore that finds none)
+    from tools.trialbox.update import BACKUP_VOLUMES
+
+    for vol in BACKUP_VOLUMES.values():
+        (tmp_path / "volumes" / f"trialbox_{vol}").mkdir(parents=True)
     a = SimpleNamespace(key=tmp_path / "it.key", public=tmp_path / "box.pub", keep_to=tmp_path / "keep",
                         refdata=tmp_path / "refdata", restic_share=[], dir=[], restic_from_box=False, no_copy=False,
                         other_site=False, older_ok=False)  # fmt: skip
