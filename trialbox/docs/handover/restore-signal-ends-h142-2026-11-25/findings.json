@@ -1,0 +1,73 @@
+{
+ "card": "H142",
+ "title": "a restore or an update ends 0, 1 or 130 and says its state, whatever signal comes",
+ "date": "2026-11-25",
+ "source": "docs/handover/restore-signal-ends-h142-2026-11-25.md",
+ "note": "basis 'shown' means shown by the card's tests on the real entry run as a script (a stand-in engine and compose, real signals), failing on master+#1496 (49a256de) and passing at the branch; the real engine, the backup image and the bench host were not run here (the walk runs them).",
+ "findings": [
+  {
+   "id": "H142-01",
+   "severity": "High",
+   "claim": "H138-02 and H-140 2a .a, .b: the restore took its handlers after the lock, key, hash and space check, and gave the defaults back before the exit; a signal there or after its end was 143 or 129 with no line; the handlers are taken at restore()'s first line, and from the state line to the exit the signals stay ignored, for every code",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed a1a12740418dbb196799a7c0c3d22f6de9b00b56"
+  },
+  {
+   "id": "H142-02",
+   "severity": "High",
+   "claim": "H-140 2a .c, .d: an engine client's raw code (241 for -15) left the restore, and the container dropped or died of a signal before its first change while the host said told; the container now takes its handlers first and refuses (unchanged), and a client that died of a signal is a container that did not run, 130",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 5fe7d2619d4bd3cc29a7e2fc2820159cdf6abf8f"
+  },
+  {
+   "id": "H142-03",
+   "severity": "High",
+   "claim": "H-140 2a .e, .f, .g: an interrupted pipe read lost the container's JSON, an interrupt no handler took (in a finally) ended in a traceback with no line, and a closed terminal made the host leave without waiting (120); the output goes to a file, one outer handler says the state, clean-ups run whole, streams are tolerant from the first signal",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 5fe7d2619d4bd3cc29a7e2fc2820159cdf6abf8f"
+  },
+  {
+   "id": "H142-04",
+   "severity": "Medium",
+   "claim": "H-140 2a .j: the restore replaced a SIGHUP its caller ignored (nohup), so a hang-up still stopped it; a signal ignored at the start stays ignored",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed a1a12740418dbb196799a7c0c3d22f6de9b00b56"
+  },
+  {
+   "id": "H142-05",
+   "severity": "High",
+   "claim": "H-140 2a .h: the update path had the same two windows (143 with no line before Updater.run's Stops; 143 in place of 0 or 1 after them, lines lost); main_apply takes the Stops at its first line and the signals stay ignored to the exit",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 4509419e01187c337fb0b1647d9b02ce64162fdd"
+  },
+  {
+   "id": "H142-06",
+   "severity": "High",
+   "claim": "H-140 2a .k: the kept audit events (deploy/site/backup-audit-pending.jsonl) were rewritten in place and a kill -9 mid-write emptied the file; written with write_atomic now, as are the update's records and the rehearsal's deploy/.env",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2f5f48dbb0d7ee1bdbe0d14002b8b8b8eb037725"
+  },
+  {
+   "id": "H142-07",
+   "severity": "High",
+   "claim": "tools/update_status.py write_atomic writes with one os.write and never checks a short write: on a nearly full disk it fsyncs and renames a cut file over the original (the kept audit events cut in half, exit 0)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H142-08",
+   "severity": "Low",
+   "claim": "a signal during Python's own start, before the entry's first line, still has the default action (143 or 129, no line); the entry notes one from its first line on",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}
