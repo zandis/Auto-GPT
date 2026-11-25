@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+import ctypes
+import logging
+import os
 import shutil
 import time
 from pathlib import Path
@@ -21,6 +24,40 @@ from tb_common.ruleset import SEEDED_TAG
 
 AUTHOR = b"TrialBox criteria-compiler <trialbox@localhost>"
 FILE_MODE = 0o100644
+_AT_FDCWD = -100
+_RENAME_EXCHANGE = 2
+
+log = logging.getLogger(__name__)
+
+
+def _write_synced(path: Path, data: bytes) -> None:
+    """Write ``path`` whole and fsync it. Its own write loop: ``os.write`` may write less than it is given."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view) :]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _exchange(a: Path, b: Path) -> None:
+    """Swap folders ``a`` and ``b`` in one rename (Linux ``renameat2`` RENAME_EXCHANGE). Where the kernel or the
+    file system has no exchange the approval fails and the old copy stays whole: never a moment with no copy."""
+    # ponytail: Linux only (the box runs in Linux containers); a pointer-file swap if another OS must write here
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.renameat2(_AT_FDCWD, os.fsencode(a), _AT_FDCWD, os.fsencode(b), _RENAME_EXCHANGE) != 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err), str(b))
 
 
 class RulesetRepo:
@@ -30,6 +67,7 @@ class RulesetRepo:
         if (path / ".git").exists():
             self.repo = Repo(str(path))
             self.refs: Any = self.repo.refs
+            self._clean_left_overs()
         else:
             self.repo = Repo.init(str(path))
             self.refs = self.repo.refs
@@ -188,16 +226,37 @@ class RulesetRepo:
         return sha
 
     def materialize(self, ruleset: str, ref: str = "main") -> None:
+        """INT-R3A: the new copy is built whole beside the old one and fsynced, then the two folders are exchanged
+        in one rename, so a reader finds the whole old copy or the whole new one, never none or a mix of files
+        written in place. The old copy is removed after the swap; a kill leaves ``.<ruleset>.tmp``, removed at the
+        next start (:meth:`_clean_left_overs`)."""
         target = self.path / ruleset
         tmp = self.path / f".{ruleset}.tmp"
         shutil.rmtree(tmp, ignore_errors=True)
-        for p, data in self.files(ref, f"{ruleset}/").items():
+        files = self.files(ref, f"{ruleset}/")
+        if not files:  # the ruleset is gone from ``ref``
+            shutil.rmtree(target, ignore_errors=True)
+            return
+        for p, data in files.items():
             dest = tmp / p[len(ruleset) + 1 :]
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-        shutil.rmtree(target, ignore_errors=True)
-        if tmp.exists():
-            tmp.rename(target)
+            _write_synced(dest, data)
+        for d in sorted((x for x in tmp.rglob("*") if x.is_dir()), key=lambda x: len(x.parts), reverse=True):
+            _fsync_dir(d)
+        _fsync_dir(tmp)
+        if target.exists():
+            _exchange(tmp, target)
+            shutil.rmtree(tmp)
+        else:
+            os.rename(tmp, target)
+        _fsync_dir(self.path)
+
+    def _clean_left_overs(self) -> None:
+        """A copy a kill left part way (``.<ruleset>.tmp``, built or swapped out): removed, and said."""
+        for p in sorted(self.path.glob(".*.tmp")):
+            if p.is_dir() and not p.is_symlink():
+                log.warning("rulesets: removing %s, left by an interrupted materialisation", p.name)
+                shutil.rmtree(p)
 
     def materialize_all(self, ref: str = "main") -> None:
         rulesets = {p.split("/", 1)[0] for p in self.files(ref) if "/" in p}

@@ -1,0 +1,49 @@
+{
+ "card": "INTR3A",
+ "title": "an approval swaps the rulesets' working copy whole, and the reader refuses a read that is not whole",
+ "date": "2026-11-25",
+ "source": "docs/handover/ruleset-approval-swap-int-r3a-2026-11-25.md",
+ "note": "basis 'shown' means shown by tests/unit/test_ruleset_swap_int_r3a.py at master 6c73db64 (the file copied in) and at the card's head, in a session container; 'read' means read in the code, not run.",
+ "findings": [
+  {
+   "id": "INTR3A-01",
+   "severity": "High",
+   "claim": "RulesetRepo.materialize removed a ruleset's working copy, then renamed the new one in, and load_approved returned whatever it had read: with two reader processes and 200 approvals, 20 reads found no file, 15 loads were partial rulesets and 16 found no manifest; the copy is now exchanged in one rename and a read that differs from the approval tag's tree is refused as RulesetReadIncomplete (0 of each in three runs)",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-02",
+   "severity": "Low",
+   "claim": "the swap needs Linux renameat2 with RENAME_EXCHANGE; where the kernel or the file system has none the approval fails after its tag and main commit are written and the old copy stays whole; there is no fallback",
+   "lane": "J",
+   "basis": "read",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-03",
+   "severity": "Low",
+   "claim": "fault type 2 outside the approval path, not fixed: materialize of a ruleset gone from its ref still removes the working copy in place (shutil.rmtree), and seed_working_copy copies the shipped rulesets into the folder in place (copytree)",
+   "lane": "J",
+   "basis": "read",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-04",
+   "severity": "Low",
+   "claim": "list_rulesets globs */manifest.yaml with pathlib, which matches hidden names: while a materialisation runs, .<ruleset>.tmp is listed as a ruleset id (load_approved refuses it: no approval tag); not fixed",
+   "lane": "J",
+   "basis": "read",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-05",
+   "severity": "Low",
+   "claim": "omop.vocab_load.mark_rulesets reads each working copy with Ruleset.load, unchecked against the approval tag, to mark rulesets for recompilation; it uses only the manifest, which the swap now keeps whole, but a read that meets a swap can end in a FileNotFoundError, caught as OSError, and that ruleset is not marked on that load; not fixed",
+   "lane": "J",
+   "basis": "read",
+   "state": "open"
+  }
+ ]
+}
