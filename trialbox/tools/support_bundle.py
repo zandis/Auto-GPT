@@ -146,6 +146,7 @@ NOT_SECRETS = {
     "TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)",
     "TB_OIDC_CLIENT_SECRET": "the path of the client secret's file (its value is read from deploy/secrets/authelia)",
     "TB_VENDOR_KEY_SM_NAME": "the name of a Secret Manager secret (box run, R2), not key material",
+    "TB_VENDOR_KEYS": "the folder of the vendor's public keys (M2), not key material",
 }
 #: a setting not in the list whose name says it holds a secret's value: looked for too (a site's own setting)
 _SECRET_VALUE_NAME = re.compile(r"PASS|_PW_|SECRET|TOKEN|PHRASE|API_KEY|_DSN$|CREDENTIAL|PRIVATE_KEY", re.I)

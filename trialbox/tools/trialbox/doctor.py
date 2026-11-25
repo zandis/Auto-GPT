@@ -124,6 +124,12 @@ closed). Checks:
   ``TB_SITE_PATIENTS``. FAIL when a cap is below the need (the night's ingest or rebuild may be killed); WARN when there
   is no count or no record.
 
+A system module (F0, the modules framework section 6) adds its rows from its own file ``tools/trialbox/doctor_m<n>.py``
+(``MODULE_CHECKS``): ``doctor_checks(inp)`` returns rows ``(key, state, text)``, state PASS, WARN or FAIL. A function
+there named like a check this file opened to it (``_supplied``) is that check's body and returns one such row. A file
+that is not there adds nothing; one that cannot be imported, raises, or returns anything else is a FAIL that says so,
+and every other row stays. A check that cannot look returns WARN with the reason.
+
 ``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
 
@@ -158,6 +164,8 @@ runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it 
 from __future__ import annotations
 
 import contextlib
+import functools
+import importlib
 import importlib.util
 import json
 import os
@@ -221,6 +229,60 @@ def _egress() -> ModuleType:
     sys.modules["tb_egress_doctor"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+# ------------------------------------------------------------------------------------- module checks (F0)
+MODULE_CHECKS: tuple[str, ...] = tuple(f"tools.trialbox.doctor_m{n}" for n in range(1, 10))  # M1 to M9; M10 has none
+
+
+def _module(name: str) -> ModuleType | None:
+    """A module's check file, or None while the module has not brought it."""
+    return None if importlib.util.find_spec(name) is None else importlib.import_module(name)
+
+
+def _row(row: Any) -> Check:
+    key, state, text = row
+    if state not in ("PASS", "WARN", "FAIL") or not (isinstance(key, str) and key and isinstance(text, str)):
+        raise ValueError(f"not a row (key, PASS, WARN or FAIL, text): {row!r}")
+    return Check(key, state, text)
+
+
+def module_rows(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    """``out`` with each module's rows after it. A row that takes another row's key is a FAIL, never a replacement."""
+    out = list(out)
+    for name in MODULE_CHECKS:
+        own = name.rpartition(".")[2]
+        try:
+            mod = _module(name)
+            for c in map(_row, mod.doctor_checks(inp) if mod is not None and hasattr(mod, "doctor_checks") else ()):
+                if any(c.name == o.name for o in out):
+                    out.append(Check(own, "FAIL", f"its row {c.name!r} ({c.status}: {c.detail}) takes the name of "
+                                     "another row"))  # fmt: skip
+                else:
+                    out.append(c)
+        except Exception as e:  # fail closed, and the other modules' rows still come
+            out.append(Check(own, "FAIL", f"check error: {type(e).__name__}: {e}"))
+    return out
+
+
+def _supplied(name: str) -> Callable[[Callable[..., Check]], Callable[..., Check]]:
+    """The check keeps its place and its name; its body is the module's function of the same name once the module's
+    file has one (framework section 6: M2 and M4 change these checks without editing this file)."""
+
+    def opened(fn: Callable[..., Check]) -> Callable[..., Check]:
+        @functools.wraps(fn)
+        def check(inp: DoctorInputs, *args: Any, **kwargs: Any) -> Check:
+            body = getattr(_module(name), fn.__name__, None)
+            if body is None:
+                return fn(inp, *args, **kwargs)
+            c = _row(body(inp, *args, **kwargs))
+            if c.name != fn.__name__.removeprefix("check_"):
+                raise ValueError(f"{name}.{fn.__name__} returned the row of {c.name!r}")
+            return c
+
+        return check
+
+    return opened
 
 
 # ------------------------------------------------------------------------------------------------ checks
@@ -1327,6 +1389,7 @@ def check_ops_runner(inp: DoctorInputs, now: datetime | None = None) -> Check:
 HEAD_MAX_AGE_H = 36.0  # TB_AUDIT_HEAD_MAX_AGE_H: the job is nightly; 36 h is where the nightly backup is old (D-274)
 
 
+@_supplied("tools.trialbox.doctor_m4")
 def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     """NEW-STD-2 (STD-002, LIFE-010, D-562): the signed audit heads of D-355 are in force only when a folder off the
     audit volume takes one every night. FAIL in VALIDATION and PRODUCTION (WARN elsewhere) when no anchor folder is
@@ -2187,6 +2250,7 @@ def check_chartno_rule(
     return Check(name, "PASS", said)
 
 
+@_supplied("tools.trialbox.doctor_m2")
 def check_terminology(inp: DoctorInputs) -> Check:
     """D-1028, D-1029, D-858 (lane E's hunk): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its
     rows and version. A table without its manifest line, or whose bytes differ from it, is FAIL (it is never read).
@@ -2409,6 +2473,10 @@ HOST_FACILITY_ONLY: dict[str, str] = {"audit_heads": "no anchor folder"}  # ease
 
 
 def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    # ponytail: called here and not from run(), whose last lines H-144 (#1512) changes; M5 may move it there after.
+    # Only for a whole run (its first check is there), never for --weights, --serving or one named check
+    if any(c.name == "topology" for c in out):
+        out = module_rows(inp, out)
     if (inp.env.get("TB_HOST_PROFILE") or "").strip() != "poc":
         return out
     # tb_common.config's rule, without its import (it needs pydantic, which the host's python3 has not): this runs after
