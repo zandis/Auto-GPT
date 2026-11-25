@@ -1,0 +1,25 @@
+{
+ "card": "H138",
+ "title": "a restore that said its interrupt ends 130, whatever signal comes next",
+ "date": "2026-11-25",
+ "source": "docs/handover/live-restore-signal-h138-2026-11-25.md",
+ "note": "basis 'shown' means shown in train 176's job log (job 138877998556) and by the card's unit tests on master 6c73db64 and on the branch; the rehearsal itself runs only in CI and was not run here.",
+ "findings": [
+  {
+   "id": "H138-01",
+   "severity": "Medium",
+   "claim": "trialbox restore said its interrupt and returned 130, then its finally put the default SIGTERM handler back; the walk's second SIGTERM before the exit killed it (143, train 176 step 28); the installed command now ignores further signals on its own way out after a said 130, in-process callers keep their handlers",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed ee38d8d678b74fac24bd5a38e73bafb813ef60c6"
+  },
+  {
+   "id": "H138-02",
+   "severity": "Low",
+   "claim": "between _restore's stop_signals() and the __main__ block's _exit_code (the lock's release and the returns) a second signal still gets the default action; closing it needs _restore to know it runs as the process",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}

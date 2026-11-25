@@ -1,0 +1,80 @@
+{
+ "card": "H132",
+ "title": "the lifecycle review's data-loss findings, fixed",
+ "date": "2026-11-24",
+ "source": "docs/handover/lifecycle-data-loss-h132-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H132-01",
+   "severity": "High",
+   "claim": "LR-1: a restore whose rename aside fails (a mount point, EBUSY, or a signal between the two lines) had its put-back delete the live data folder, and on a folder that is not a mount point say \"put back as it was\" (OCR 1474-5); fixed: the put-back removes a folder only when its aside exists, and a mount-point target is refused before the first change",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/backup.py (_put_back, _set_aside_refusal)"
+  },
+  {
+   "id": "H132-02",
+   "severity": "High",
+   "claim": "LR-11: the undo of a failed streamed image load removed every image and moved every tag another user of the engine had changed; fixed: the undo is scoped to the archive's tags and digests, what the load printed and what the bytes handed on name",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/update.py (undo_load, load_scope, TarWatch, stream_image)"
+  },
+  {
+   "id": "H132-03",
+   "severity": "High",
+   "claim": "LR-13: a hang-up with the terminal gone stopped the host step before the restore container was told, and the re-run swept the running restore's work folder; fixed: the signal is passed on first, the container has one name, and a second restore is refused while it exists",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/box_restore.py (_call, sweep, no_restore_container)"
+  },
+  {
+   "id": "H132-04",
+   "severity": "High",
+   "claim": "LR-15: with the engine's data root elsewhere the host restore passed no folder, restored the databases only and reported success; fixed: each volume's folder is asked of the engine and a missing one is refused before anything stops",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/box_restore.py (volume_folder, data_folders)"
+  },
+  {
+   "id": "H132-05",
+   "severity": "High",
+   "claim": "LR-16: a box whose lake is in restic could not be restored or verified by the documented commands (options not named, verify saw the file alone, restore locked a read-only repository); fixed: both runbook pages name the options, verify mounts the folder, the restore passes --no-lock",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/restic_repo.py, tools/trialbox/launch.py, docs/runbook/05, docs/runbook/22"
+  },
+  {
+   "id": "H132-07",
+   "severity": "High",
+   "claim": "LR-2: deploy/poc.sh, in every box's host tree, ran compose down -v on the installed site's project at reset (and acted on it at every other action); fixed: every action is refused before anything runs when deploy/updates/installed.json exists",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/poc.sh"
+  },
+  {
+   "id": "H132-08",
+   "severity": "High",
+   "claim": "LR-10: rollback after a kill in refdata or finish restored the pre-update databases over a checked release in service, losing every row written since; fixed: those two steps are finished forward with the full health check, and a failure stops in a named state without a rollback",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/update.py (Updater._finish_forward, Updater.run), tools/update_drill.py (kill_case)"
+  },
+  {
+   "id": "H132-06",
+   "severity": "Low",
+   "claim": "LR-16 (c): the restore with --no-lock against a real restic binary on a read-only bind is not run here (no restic in this container); shown only against a stand-in that models the lock rule",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "tools/trialbox/restic_repo.py (Repo.restore)"
+  }
+ ]
+}
