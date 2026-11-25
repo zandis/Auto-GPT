@@ -652,11 +652,19 @@ def test_ocr1481_1_an_oversized_manifest_in_the_stream_is_never_held_and_never_h
     eng = SharedEngine({"app:1": A})
     written: list[int] = []
 
+    class Pipe(io.BytesIO):
+        """The load's input: what is handed on is counted, never kept; closing it ends nothing."""
+
+        def write(self, b: Any) -> int:
+            written.append(len(b))
+            return len(b)
+
+        def close(self) -> None:
+            pass
+
     class Load:
         def __init__(self, *a: object, **kw: object) -> None:
-            self.stdin = io.BytesIO()
-            self.stdin.write = lambda b: written.append(len(b)) or len(b)  # type: ignore[method-assign]
-            self.stdin.close = lambda: None  # type: ignore[method-assign]
+            self.stdin = Pipe()
             self.stdout = io.BytesIO(b"")
 
         def wait(self, timeout: float | None = None) -> int:
