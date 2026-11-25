@@ -653,8 +653,21 @@ restore-drill:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.restore_drill run --out "$(RESTORE_DRILL_OUT)" \
 		--work "$(TB_TEST_ROOT)/restore-drill/work"
 
-test-console:
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
+# H-145 (#1504): the console tests run as `make test` runs the unit suite: the same marked TB_TEST_ROOT and its lock,
+# the xdist workers with --dist worksteal, TMPDIR and basetemp under the root. TB_STRICT_SKIPS=1 (tests/conftest.py):
+# a browser file that cannot start node or Chromium fails with its reason, it never turns the stage green by skipping.
+test-console: venv-check
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-console-locked; rc=$$?; \
+	if [ $$rc = 75 ]; then echo "test-console: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
+
+.PHONY: test-console-locked
+test-console-locked:
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -m 0700 -p "$(TB_TEST_ROOT)/tmp"
+	TB_STRICT_SKIPS=1 TB_ENV=TEST TMPDIR="$(TB_TEST_ROOT)/tmp" PYTHONPATH=libs:services:. $(PY) -m pytest -q -n $(PYTEST_N) $(XDIST_DIST) \
+		--basetemp "$(TB_TEST_ROOT)/pytest" tests/console; rc=$$?; \
+	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
+	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
 
 # browser + e-mail end to end against the running POC (make poc first): Playwright (Node) drives the console
 test-console-e2e:
