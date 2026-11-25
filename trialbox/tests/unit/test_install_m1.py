@@ -566,3 +566,9 @@ def test_the_other_files_stop_a_box_in_use_and_the_shipped_mappings_are_the_tree
     base = ROOT / "services" / "adapter"
     tree = {str(f.relative_to(base)) for d in ("jp_core", "tw_core") for f in (base / "mapping" / d).glob("*.yaml")}
     assert af.shipped_mappings() == tree
+
+
+def test_a_tree_without_the_department_list_is_not_stopped_by_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert settings_wizard.shipped_departments("ja")["RHEU"] == "Rheumatology"
+    monkeypatch.setattr("importlib.util.find_spec", lambda _name: None)
+    assert settings_wizard.shipped_departments("ja") == {}
