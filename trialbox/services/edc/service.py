@@ -20,7 +20,9 @@ the signer. The rules are enforced here even when a page already checked them (d
   and one REDCap's import would refuse, each listed with its reason; values go in the format of the field's
   validation (``number_1dp``, decimal comma). A REDCap connection is one study's target (T-115, D-368);
 * the switch goes on with the stored blind re-entry result, recorded by another person (T-115, E-14);
-* a patient on the opt-out register is never drafted, decided, signed, sent or exported (D-162).
+* a patient on the opt-out register is never drafted, decided, signed, sent or exported (D-162); nor is a subject
+  who withdrew and said their data may not be used (``wd_data_use`` "0", V15-06): each such step is refused, and a
+  send or export that would hold only their values is refused too (others' values go, theirs are listed).
 
 Every step writes one audit event (``edc.*``) with who, the study and what changed (never a clinical value); a refusal
 writes one too, with its code. The decision and the signature write theirs inside their transaction (D-281).
@@ -130,6 +132,20 @@ class EdcService:
         if pids & set(self.optouts()):
             self._audit(event, rs, by, {**detail, "refused": "edc.opted_out"})
             raise EdcError("edc.opted_out", "the patient opted out; nothing is drafted, signed or sent")
+        if (pids | {str(detail.get("record") or "")}) & self._withdrawn(rs):
+            self._audit(event, rs, by, {**detail, "refused": "edc.withdrawn"})
+            raise EdcError("edc.withdrawn", WITHDRAWN_SAYS)
+
+    def _withdrawn(self, rs: str) -> frozenset[str]:
+        """V15-06 (M7): the records and pseudonyms of the subjects of ``rs`` whose withdrawal form says the data may
+        not be used (``wd_data_use`` "0" on any event). Read from the data core at every call, never cached."""
+        rows = self.dc.db.fetchdicts(
+            "SELECT v.record, s.pid FROM value v LEFT JOIN subject s ON s.study = v.study AND s.record = v.record "
+            "WHERE v.study = ? AND v.field = 'wd_data_use' AND v.value = '0'", (rs,))  # fmt: skip
+        return frozenset(str(x) for r in rows for x in (r["record"], r["pid"]) if x)
+
+    def _is_withdrawn(self, d: dict[str, Any], withdrawn: frozenset[str]) -> bool:
+        return str(d["pid"]) in withdrawn or str(d["record"]) in withdrawn
 
     # ------------------------------------------------------------------ status and switch
     def status(self, rs: str) -> dict[str, Any]:
@@ -357,7 +373,7 @@ class EdcService:
         except EdcError as exc:
             self._audit("edc.decide", rs, by, {"draft": draft_id, "action": action, "refused": exc.code})
             raise
-        self._not_opted_out(rs, by, "edc.decide", {str(d["pid"])}, {"draft": draft_id})
+        self._not_opted_out(rs, by, "edc.decide", {str(d["pid"]), str(d["record"])}, {"draft": draft_id})
 
         def audited(out: dict[str, Any]) -> None:
             self._audit("edc.decide", rs, by, {"draft": draft_id, "record": out["record"], "visit": out["visit"],
@@ -478,8 +494,12 @@ class EdcService:
         calc_out: list[dict[str, Any]] = []
         hidden_out: list[dict[str, Any]] = []
         at = self.stamp()
-        gone = set(self.optouts())
+        gone, withdrawn = set(self.optouts()), self._withdrawn(rs)
         for d in self.store.held_source_changed(rs, record):  # NEW-EDC-4: a person keeps or changes it first
+            if self._is_withdrawn(d, withdrawn):
+                out["withdrawn"].append(_brief(d))
+                self.store.record_sent(rs, d, "redcap", "", "withdrawn", WITHDRAWN_SAYS, by, at)
+                continue
             if str(d["pid"]) in gone:
                 out["opted_out"].append(_brief(d))
                 self.store.record_sent(rs, d, "redcap", "", "opted_out", "the patient opted out; not sent", by, at)
@@ -489,11 +509,18 @@ class EdcService:
                                    "decided; not sent until a person keeps or changes it", by, at)  # fmt: skip
         todo = []
         for d in self.store.sendable(rs, record):
-            if str(d["pid"]) in gone:
+            if self._is_withdrawn(d, withdrawn):
+                out["withdrawn"].append(_brief(d))
+                self.store.record_sent(rs, d, "redcap", "", "withdrawn", WITHDRAWN_SAYS, by, at)
+            elif str(d["pid"]) in gone:
                 out["opted_out"].append(_brief(d))
                 self.store.record_sent(rs, d, "redcap", "", "opted_out", "the patient opted out; not sent", by, at)
             else:
                 todo.append(d)
+        if not todo and out["withdrawn"]:  # V15-06: all that was left is a withdrawn subject's: refused, by name
+            self._audit("edc.sent", rs, by, {"record": record or "*", "sent": 0, "withdrawn": len(out["withdrawn"]),
+                                             "refused": "edc.withdrawn"})  # fmt: skip
+            raise EdcError("edc.withdrawn", WITHDRAWN_SAYS)
         if not todo:
             self._audit(
                 "edc.sent",
@@ -1017,8 +1044,13 @@ class EdcService:
     @audits_refusals("edc.export")
     def export_odm(self, rs: str, by: str, meaning_text: str = ODM_MEANING) -> str:
         self.store.require_on(rs)
-        gone = set(self.optouts())
+        gone, withdrawn = set(self.optouts()), self._withdrawn(rs)
         values = [d for d in self.store.signed(rs) if str(d["pid"]) not in gone]  # never an opted-out patient
+        held = [d for d in values if self._is_withdrawn(d, withdrawn)]  # V15-06: nor a withdrawn subject's
+        values = [d for d in values if not self._is_withdrawn(d, withdrawn)]
+        if held and not values:
+            self._audit("edc.export", rs, by, {"format": "odm", "withdrawn": len(held), "refused": "edc.withdrawn"})
+            raise EdcError("edc.withdrawn", WITHDRAWN_SAYS)
         changed = sorted({f"{d['record']} {d['item']}" for d in values if d.get("source_changed")})
         if changed:  # NEW-EDC-4: a copy a person can import into REDCap waits, never a silent gap (E-22)
             self._audit("edc.export", rs, by, {"format": "odm", "refused": "edc.source_changed", "items": changed})
@@ -1067,6 +1099,7 @@ class EdcService:
                          if d["fate"] == "retired" and str(d["pid"]) not in gone)  # fmt: skip
         self._audit("edc.export", rs, by, {"format": "odm", "values": len(values),
                                            "sha": hashlib.sha256(text.encode()).hexdigest()[:16],
+                                           **({"withdrawn": len(held)} if held else {}),
                                            **({"retired": retired} if retired else {})})  # fmt: skip
         return text
 
@@ -1218,7 +1251,9 @@ class EdcService:
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
                 "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken", "refused",
-                "source_changed", "changed_in_redcap", "direct_source")  # fmt: skip
+                "source_changed", "changed_in_redcap", "direct_source", "withdrawn")  # fmt: skip
+#: V15-06 (M7): why nothing of a subject who withdrew the use of their data is drafted, decided, signed or sent
+WITHDRAWN_SAYS = "the subject withdrew and the data may not be used; nothing is drafted, signed, sent or exported"
 #: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
 ATTEMPT = "about to be written; REDCap's answer not read yet"  # NEW-EDC-8: closed by the next read-back
 ATTEMPT_HELD = ("REDCap holds the value of a TrialBox send whose answer was lost, or a person's equal entry; TrialBox "
