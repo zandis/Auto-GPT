@@ -44,6 +44,15 @@ steward's record that the site's check (the dry run) passed (`/studies/{rs}/not-
 on in VALIDATION and PRODUCTION; `on` forces it in DEV or TEST; `off` is refused in VALIDATION and PRODUCTION. Set it
 the same for the console and the orchestrator.
 
+## What left this box (D-1093)
+
+Masking is on wherever data leaves the box and cannot be turned off there. `/admin/egress` (administrator) lists, by day
+and route, what left and what was refused; `trialbox doctor` has one `egress.` line per route: masked, refused, or one
+of the three exceptions (a patient file to its named recipients, the EDC write-back, the national-insurance
+submission). A FAIL line names a route whose door does not go through the masking: stop using that route and call
+support. A refused file says why on its page; it is never passed unmasked. Pictures are not read; a name that stands
+free in running text is not found (`docs/validation/masking-sheet.md`).
+
 ## Logs (D-138)
 
 | Log | Where | Kept | How |

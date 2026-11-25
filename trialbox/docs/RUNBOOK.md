@@ -33,7 +33,7 @@ File: [runbook/01-install-a-new-site.md](runbook/01-install-a-new-site.md).
 
 ## 2. Daily operation
 
-File: [runbook/02-daily-operation.md](runbook/02-daily-operation.md). In it: [Logs (D-138)](runbook/02-daily-operation.md#logs-d-138), [EDC prefill (D-160)](runbook/02-daily-operation.md#edc-prefill-d-160).
+File: [runbook/02-daily-operation.md](runbook/02-daily-operation.md). In it: [What left this box (D-1093)](runbook/02-daily-operation.md#what-left-this-box-d-1093), [Logs (D-138)](runbook/02-daily-operation.md#logs-d-138), [EDC prefill (D-160)](runbook/02-daily-operation.md#edc-prefill-d-160).
 
 ## 3. Accounts
 

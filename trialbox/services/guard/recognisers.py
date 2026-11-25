@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
-from tb_common import dates, phi_guard
+from tb_common import dates, egress_edge, phi_guard
 
 # ------------------------------------------------------------------------------------------------ check digits
 _TW_LETTER = {
@@ -105,10 +105,7 @@ PHONE_JP = re.compile(
 )
 EMAIL = phi_guard.EMAIL  # D-745: the masker reads the same form
 PASSPORT_JP = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{7}(?![0-9])")
-PASSPORT_CTX = re.compile(
-    r"(?:護照(?:號碼|号码|號)?|旅券(?:番号)?|パスポート(?:番号)?|(?i:passport)(?:\s*(?:no\.?|number|#))?)"
-    r"[\s:：#]*(?P<v>[A-Z0-9]{6,9})(?![A-Za-z0-9])"
-)
+PASSPORT_CTX = egress_edge.PASSPORT_CTX  # M3: the egress edge's, not a copy
 # D-745: the chart label, the addresses and the date of birth are the v1 guard's (tb_common.phi_guard), not copies
 MRN_CTX = phi_guard.MRN_LABELLED
 ADDRESS_ZH = phi_guard.ADDRESS_ZH
@@ -131,10 +128,7 @@ NAME_ZH_CTX = re.compile(rf"{_LABEL}(?P<v>(?:{_SURNAMES_ROC})[{_CJK}]{{1,2}})")
 NAME_JA_CTX = re.compile(rf"{_LABEL}(?P<v>(?:{_SURNAMES_JP})[\s　]?[{_CJK}{_KANA}]{{1,3}})")
 NAME_JA_HON = re.compile(rf"(?P<v>(?:{_SURNAMES_JP})[\s　]?[{_CJK}{_KANA}]{{1,3}}?)\s?{phi_guard.HONORIFIC}")
 NAME_ZH_SEX = re.compile(rf"(?P<v>(?:{_SURNAMES_ROC})[{_CJK}]{{1,2}})[，,、\s]*[（(]?(?:男|女)[)）]?")
-NAME_EN_CTX = re.compile(
-    r"(?:\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+|\b(?:Patient(?: name)?|Name|Pt)\s*[:：]\s*)"
-    r"(?P<v>[A-Z][a-z]+(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-z]+)?)"
-)
+NAME_EN_CTX = egress_edge.NAME_EN_CTX  # M3: the egress edge's, not a copy
 
 
 @dataclass(frozen=True)
@@ -185,11 +179,12 @@ def _mrn(text: str, mrn_regex: str | None) -> Iterator[Finding]:
 
 #: the note masker's kinds (``tb_common.phi_guard.note_spans``) as the guard names them
 NOTE_KINDS = {"name": "NAME", "phone": "PHONE", "mrn": "MRN", "id": "ID_NUMBER", "dob": "DOB", "address": "ADDRESS",
-              "email": "EMAIL", "bed": "BED", "room": "ROOM"}  # fmt: skip
+              "email": "EMAIL", "bed": "BED", "room": "ROOM", "twid": "TW_NATIONAL_ID", "mynumber": "JP_MY_NUMBER",
+              "insurance": "ID_NUMBER", "postcode": "ADDRESS"}  # fmt: skip
 
 
 def _note_spans(text: str, mrn_regex: str | None) -> Iterator[Finding]:
-    for kind, s, e in phi_guard.note_spans(text, mrn_regex):
+    for kind, s, e in egress_edge.spans(text, mrn_regex):  # M3: the edge's rule set, the note masker's within it
         yield Finding(NOTE_KINDS.get(kind, kind.upper()), s, e)
 
 
@@ -229,6 +224,7 @@ def recognisers(mrn_regex: str | None = None) -> list[tuple[str, Recogniser]]:
         ("name_honorific", lambda t: _spans(phi_guard.NAME_HONORIFIC, t, "NAME", "v")),
         ("id_label", lambda t: _spans(phi_guard.ID_LABELLED, t, "ID_NUMBER", "v")),
         ("room_number", lambda t: _spans(phi_guard.ROOM_NUMBER, t, "ROOM", "v")),
-        # D-756: every span the note masker finds, so the guard never lets through what the lake's notes hide
+        # D-756: every span the note masker finds, so the guard never lets through what the lake's notes hide; M3:
+        # and every span of the egress edge
         ("note_spans", lambda t: _note_spans(t, mrn_regex)),
     ]

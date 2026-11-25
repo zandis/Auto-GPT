@@ -2,20 +2,23 @@
  "card": "F-3",
  "rc1_row": 9,
  "commit": {
-  "master": "72a293ad3ded88f52c32cd0570b11866db27b7a3",
+  "master": "440089e864fb2032b6d4e5983da742fc76fcf2ed",
   "measured_files_differ": [
+   "libs/tb_common/logging.py",
+   "tools/masking_leaks.py",
    "tools/masking_sheet.py"
   ]
  },
  "blobs": {
   "libs/tb_common/phi_guard.py": "84a72d1b4741b80b6ed2ac78a0b55930f2add977",
-  "tools/masking_leaks.py": "94843748867e83915b7ab49ae6877272a48d7a1c",
-  "libs/tb_common/logging.py": "d6f1fae4b1ccaa775be15896af46e3cc0fdf833c"
+  "libs/tb_common/egress_edge.py": "e50beff4a517a806128a48e49273c8df65aed458",
+  "tools/masking_leaks.py": "634b52bc74cf865d618125705fdd8c663558e65a",
+  "libs/tb_common/logging.py": "aa546c9157bb54e9e66f35f8d3f3832eaeda37be"
  },
  "site_mrn_regex": "^\\d{8}$",
- "date": "2026-11-22",
+ "date": "2026-11-25",
  "command": "PYTHONPATH=libs:services:. .venv/bin/python -m tools.masking_sheet --write",
- "entry_point": "tb_common.phi_guard.mask_note(text, site_mrn_regex()), as lake.store.Lake.rebuild runs it before a note is chunked, indexed and embedded",
+ "entry_point": "tb_common.egress_edge.mask_text(text, site_mrn_regex()), the one rule set of what leaves the box (D-1093)",
  "harness": {
   "tool": "tools/masking_leaks.py",
   "seed": 20261117,
@@ -283,8 +286,8 @@
    },
    "line_break": {
     "probes": 3,
-    "masked": 0,
-    "partly": 3,
+    "masked": 3,
+    "partly": 0,
     "leaked": 0,
     "tripwire_missed": 0,
     "leaked_per_1000": 0.0
@@ -415,11 +418,11 @@
    "example": "ddd-dd-dddd",
    "in": {
     "probes": 18,
-    "masked": 9,
+    "masked": 18,
     "partly": 0,
-    "leaked": 9,
-    "tripwire_missed": 9,
-    "leaked_per_1000": 500.0
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
    },
    "line_break": {
     "probes": 3,
@@ -1505,8 +1508,8 @@
    "example": "Ａｄｄｄｄｄｄｄｄｄ",
    "in": {
     "probes": 18,
-    "masked": 0,
-    "partly": 18,
+    "masked": 18,
+    "partly": 0,
     "leaked": 0,
     "tripwire_missed": 0,
     "leaked_per_1000": 0.0
@@ -1835,11 +1838,11 @@
    "example": "ｄｄｄｄ－ｄｄｄ－ｄｄｄ",
    "in": {
     "probes": 18,
-    "masked": 6,
+    "masked": 18,
     "partly": 0,
-    "leaked": 12,
-    "tripwire_missed": 12,
-    "leaked_per_1000": 666.7
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
    },
    "line_break": {
     "probes": 3,
@@ -2407,11 +2410,11 @@
    "example": "ddddddd出生",
    "in": {
     "probes": 18,
-    "masked": 0,
+    "masked": 18,
     "partly": 0,
-    "leaked": 18,
-    "tripwire_missed": 18,
-    "leaked_per_1000": 1000.0
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
    },
    "line_break": {
     "probes": 3,
@@ -2771,11 +2774,11 @@
    },
    "line_break": {
     "probes": 3,
-    "masked": 0,
+    "masked": 3,
     "partly": 0,
-    "leaked": 3,
-    "tripwire_missed": 3,
-    "leaked_per_1000": 1000.0
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
    }
   },
   {
@@ -3093,16 +3096,16 @@
    "example": "〒ddd-dddd 漢漢漢漢漢漢漢漢漢漢漢d漢漢dd漢dd漢",
    "in": {
     "probes": 18,
-    "masked": 6,
-    "partly": 12,
+    "masked": 18,
+    "partly": 0,
     "leaked": 0,
     "tripwire_missed": 0,
     "leaked_per_1000": 0.0
    },
    "line_break": {
     "probes": 3,
-    "masked": 0,
-    "partly": 3,
+    "masked": 3,
+    "partly": 0,
     "leaked": 0,
     "tripwire_missed": 0,
     "leaked_per_1000": 0.0
@@ -3575,11 +3578,11 @@
   "en": {
    "in": {
     "probes": 768,
-    "masked": 693,
+    "masked": 702,
     "partly": 21,
-    "leaked": 54,
-    "tripwire_missed": 36,
-    "leaked_per_1000": 70.3
+    "leaked": 45,
+    "tripwire_missed": 27,
+    "leaked_per_1000": 58.6
    },
    "in|name": {
     "probes": 102,
@@ -3607,27 +3610,27 @@
    },
    "line_break": {
     "probes": 144,
-    "masked": 12,
-    "partly": 12,
+    "masked": 15,
+    "partly": 9,
     "leaked": 120,
     "tripwire_missed": 93,
     "leaked_per_1000": 833.3
    },
    "line_break|name": {
     "probes": 33,
-    "masked": 0,
-    "partly": 9,
+    "masked": 3,
+    "partly": 6,
     "leaked": 24,
     "tripwire_missed": 24,
     "leaked_per_1000": 727.3
    },
    "in|national_id": {
     "probes": 72,
-    "masked": 63,
+    "masked": 72,
     "partly": 0,
-    "leaked": 9,
-    "tripwire_missed": 9,
-    "leaked_per_1000": 125.0
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
    },
    "line_break|national_id": {
     "probes": 12,
@@ -3721,11 +3724,11 @@
   "zh-TW": {
    "in": {
     "probes": 942,
-    "masked": 850,
-    "partly": 30,
-    "leaked": 62,
-    "tripwire_missed": 34,
-    "leaked_per_1000": 65.8
+    "masked": 898,
+    "partly": 12,
+    "leaked": 32,
+    "tripwire_missed": 4,
+    "leaked_per_1000": 34.0
    },
    "in|name": {
     "probes": 96,
@@ -3769,8 +3772,8 @@
    },
    "in|national_id": {
     "probes": 72,
-    "masked": 54,
-    "partly": 18,
+    "masked": 72,
+    "partly": 0,
     "leaked": 0,
     "tripwire_missed": 0,
     "leaked_per_1000": 0.0
@@ -3801,11 +3804,11 @@
    },
    "in|phone": {
     "probes": 162,
-    "masked": 136,
+    "masked": 148,
     "partly": 12,
-    "leaked": 14,
-    "tripwire_missed": 14,
-    "leaked_per_1000": 86.4
+    "leaked": 2,
+    "tripwire_missed": 2,
+    "leaked_per_1000": 12.3
    },
    "line_break|phone": {
     "probes": 27,
@@ -3849,11 +3852,11 @@
    },
    "in|dob": {
     "probes": 396,
-    "masked": 378,
+    "masked": 396,
     "partly": 0,
-    "leaked": 18,
-    "tripwire_missed": 18,
-    "leaked_per_1000": 45.5
+    "leaked": 0,
+    "tripwire_missed": 0,
+    "leaked_per_1000": 0.0
    },
    "line_break|dob": {
     "probes": 66,
@@ -3867,8 +3870,8 @@
   "ja": {
    "in": {
     "probes": 792,
-    "masked": 771,
-    "partly": 13,
+    "masked": 783,
+    "partly": 1,
     "leaked": 8,
     "tripwire_missed": 8,
     "leaked_per_1000": 10.1
@@ -3899,11 +3902,11 @@
    },
    "line_break": {
     "probes": 144,
-    "masked": 26,
-    "partly": 16,
-    "leaked": 102,
-    "tripwire_missed": 75,
-    "leaked_per_1000": 708.3
+    "masked": 32,
+    "partly": 13,
+    "leaked": 99,
+    "tripwire_missed": 72,
+    "leaked_per_1000": 687.5
    },
    "line_break|name": {
     "probes": 30,
@@ -3923,11 +3926,11 @@
    },
    "line_break|national_id": {
     "probes": 15,
-    "masked": 0,
+    "masked": 3,
     "partly": 3,
-    "leaked": 12,
-    "tripwire_missed": 9,
-    "leaked_per_1000": 800.0
+    "leaked": 9,
+    "tripwire_missed": 6,
+    "leaked_per_1000": 600.0
    },
    "in|chart": {
     "probes": 90,
@@ -3963,16 +3966,16 @@
    },
    "in|address": {
     "probes": 54,
-    "masked": 42,
-    "partly": 12,
+    "masked": 54,
+    "partly": 0,
     "leaked": 0,
     "tripwire_missed": 0,
     "leaked_per_1000": 0.0
    },
    "line_break|address": {
     "probes": 9,
-    "masked": 0,
-    "partly": 6,
+    "masked": 3,
+    "partly": 3,
     "leaked": 3,
     "tripwire_missed": 3,
     "leaked_per_1000": 333.3
@@ -4150,7 +4153,7 @@
     "passport"
    ],
    "probes": 2,
-   "missed": 2
+   "missed": 0
   },
   "J10C1-06": {
    "kinds": [
@@ -4435,7 +4438,7 @@
  "r22_23": {
   "en": {
    "probes": 21,
-   "missed": 18,
+   "missed": 15,
    "categories": {
     "label": {
      "probes": 3,
@@ -4469,8 +4472,8 @@
     },
     "fullwidth_number": {
      "probes": 3,
-     "missed": 3,
-     "tripwire_missed": 3,
+     "missed": 0,
+     "tripwire_missed": 0,
      "example": "SSN ｄｄｄ－ｄｄ－ｄｄｄｄ. History of diabetes."
     },
     "phone_zero_width_joiner": {
@@ -4483,7 +4486,7 @@
   },
   "zh-TW": {
    "probes": 21,
-   "missed": 19,
+   "missed": 16,
    "categories": {
     "label": {
      "probes": 3,
@@ -4517,7 +4520,7 @@
     },
     "fullwidth_number": {
      "probes": 3,
-     "missed": 3,
+     "missed": 0,
      "tripwire_missed": 0,
      "example": "身分證號：Ａｄｄｄｄｄｄｄｄｄ。既往有糖尿病。"
     },
@@ -4591,19 +4594,19 @@
   },
   "object": {
    "probes": 6,
-   "leaked": 6
+   "leaked": 1
   },
   "path": {
    "probes": 6,
-   "leaked": 6
+   "leaked": 0
   },
   "exception": {
    "probes": 6,
-   "leaked": 6
+   "leaked": 0
   },
   "bytes": {
    "probes": 6,
-   "leaked": 6
+   "leaked": 0
   }
  }
 }

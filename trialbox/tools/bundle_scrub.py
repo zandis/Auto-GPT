@@ -25,7 +25,8 @@ not catch):
    least four digits), each as ``[pseudonym]`` / ``[screening-no]``; a bundle's scrubber adds a tag (``#bcdfg``)
    from a key made for that bundle and never stored, so lines of one patient can be read together in one bundle and
    in no other.
-4. The log scrubber's patterns (``tb_common.logging._PHI_PATTERNS``) and the site's chart number, when given.
+4. The log scrubber's patterns (``tb_common.logging._PHI_PATTERNS``), the site's chart number, when given, and
+   every named form of the egress edge (``tb_common.egress_edge.spans``, M3: the one rule set of what leaves).
 """
 
 from __future__ import annotations
@@ -458,6 +459,16 @@ class Scrubber:
         if self.mrn is not None:
             text, k = self.mrn.subn("[MRN]", text)
             self.found["chart number"] += k
+        try:
+            from tb_common import egress_edge
+        except ImportError as exc:  # no rules, no bundle
+            raise ScrubError(f"the egress rules cannot be loaded ({exc.name}): install python3-cryptography") from None
+
+        for kind, s, e in reversed(egress_edge.spans(text, own_ids=True)):
+            label = f"[{kind.upper()}]"
+            if text[s:e] != label[1:-1] and text[s:e] != label:  # a label already there is not masked again
+                text = text[:s] + label + text[e:]
+                self.found[f"egress edge {label}"] += 1
         return text
 
     # -------------------------------------------------------------------------------- the one function
