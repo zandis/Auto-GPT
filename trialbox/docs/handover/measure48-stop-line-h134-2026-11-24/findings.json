@@ -8,7 +8,7 @@
   {
    "id": "H134-01",
    "severity": "Low",
-   "claim": "the stop-line test of tests/unit/test_measure48_host_h67.py ran the host form on the real clock with a second counted as 150 and the line at 64 min: stage 4's gate (high 1.05 h) had 60 scaled seconds, 0.4 s of wall time, from the start of the steps, and the ladder's (stage 6, high 0.80 h) 6.4 s; on a loaded machine either was used up, a stage was not started and the line never reached the hang (CI job 138687984359; 7 of 30 runs here)",
+   "claim": "the stop-line test of tests/unit/test_measure48_host_h67.py ran the host form on the real clock with a second counted as 150 and the line at 64 min: the clock counts whole seconds, so stage 4's gate (high 1.05 h, 60 scaled seconds, less than one 150 s step) failed at the first second boundary after the start of the steps (from milliseconds to 1 s of wall time), and the ladder's (stage 6, high 0.80 h, 960 scaled seconds) at the seventh (between 6 and 7 s); on a loaded machine either was used up, a stage was not started and the line never reached the hang (CI job 138687984359; 7 of 30 runs here)",
    "lane": "H",
    "basis": "shown",
    "state": "open"

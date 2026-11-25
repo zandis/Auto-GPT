@@ -49,6 +49,8 @@ closed). Checks:
   FAIL when none is set, one is not a zone, or two differ; the host is not compared when it cannot be read;
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
+* ``restore_hold`` (D-522, H-136): the hold after a restore, read through the box (``compose exec db``, never the
+  host's own Python): held is a WARN with the reason, released a PASS, a hold that cannot be read a FAIL with the cause;
 * ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
   (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD``,
   ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no schedule that fires (H-92: the
@@ -203,6 +205,8 @@ class DoctorInputs:
     backup_timers: Callable[[str], str | None] | None = None  # D-1090: each backup timer's word; None: not asked
     proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
     gpu_query: Callable[[], tuple[str, str] | None] | None = None  # NEW-WIN-5: (card, driver); None: nvidia-smi
+    box: Path | None = None  # H-136: the box whose hold is read through compose on its host; None: ``deploy``
+    in_image: bool | None = None  # H-136: doctor runs in the box image; None: asked (``launch.in_box_image``)
 
 
 def _site_dir(inp: DoctorInputs) -> Path:
@@ -949,26 +953,86 @@ def check_flags(inp: DoctorInputs) -> Check:
 
 
 def check_restore_hold(inp: DoctorInputs) -> Check:
-    """NEW-B-3 (D-522): a restore that was not complete holds the box's list jobs until a person releases the hold
-    (the flag ``screening.after_restore``). A held box makes no patient list, which an operator must know: WARN,
-    with the reason the restore gave (counts and times)."""
-    url = inp.env.get("TB_DB_URL", "")
-    if not url:
-        return Check("restore_hold", "PASS", "no trial database configured here (TB_DB_URL): the hold was not read")
-    try:
-        from tb_common.flags import Flags
+    """NEW-B-3 (D-522), H-136: a restore that was not complete holds the box's list jobs until a person releases the
+    hold (the flag ``screening.after_restore``) on ``/ops/flags``. Three readings, each its own line: held is a WARN
+    with who held it, when and the reason the restore gave (counts and times); released (or never set) is a PASS; a
+    hold that cannot be read is a FAIL naming the cause, never a pass: an operator told nothing is held while the
+    screening hold is on would wait for lists that never come.
 
-        flags = Flags(url=url)
-        if flags.row("screening.after_restore") != "held":
-            return Check("restore_hold", "PASS", "no restore is waiting for its events to be re-applied")
-        why = next((str(e.get("reason") or "") for e in flags.events("screening.after_restore", limit=1)), "")
-    except Exception as e:  # the flag lives on the box: unreadable from here is worth a look, not a failure
-        return Check("restore_hold", "WARN", f"cannot read the hold after a restore ({type(e).__name__})")
+    Where it is read (H-136): on the box's host, through the box (``box_hold.read``: ``compose exec db psql``, with
+    the box file's runtime and project, never the host's own Python, a host database address or a caller's
+    variable). In the box image (the host check, the rehearsal), what the host read that way and handed in
+    (``TB_DOCTOR_RESTORE_HOLD``); without it, the image's own database address, as the console reads it (a hospital
+    platform's doctor job). A process with no box at all (no ``deploy/.env``: a developer's tree, the test cluster)
+    reads its own ``TB_DB_URL`` the same way; where there is a box, its compose project decides, never that."""
+    from tools.trialbox import box_hold, launch
+
+    name = "restore_hold"
+    asked = getattr(inp, "in_image", None)
+    in_image = launch.in_box_image() if asked is None else asked
+    box = getattr(inp, "box", None) or getattr(inp, "deploy", None)
+    if not in_image and box is not None:  # a box's host: through the box, whatever TB_DB_URL or a hand-in says
+        got = box_hold.read(box)
+    elif in_image and inp.env.get("TB_DOCTOR_RESTORE_HOLD", "").strip():  # the host check's reading, through the box
+        try:
+            handed = json.loads(inp.env["TB_DOCTOR_RESTORE_HOLD"])
+        except ValueError:
+            handed = None
+        got = handed if isinstance(handed, dict) else box_hold.unread("the host's reading of the hold is not one")
+        if got.get("state") not in ("held", "released", "unread"):
+            got = box_hold.unread("the host's reading of the hold is not one")
+    elif inp.env.get("TB_DB_URL", ""):
+        try:
+            from tb_common.flags import Flags
+
+            flags = Flags(url=inp.env["TB_DB_URL"])
+            value = flags.row(box_hold.FLAG)
+            got = {"state": "released", "stored": value is not None}
+            if value == "held":
+                last = next(iter(flags.events(box_hold.FLAG, limit=1)), {})
+                got = {
+                    "state": "held",
+                    "stored": True,
+                    "by": str(last.get("actor") or ""),
+                    "at": str(last.get("at") or ""),
+                    "reason": str(last.get("reason") or ""),
+                }
+            elif value not in (None, "released"):
+                got = box_hold.unread(f"the hold holds {str(value)[:40]!r}, not a value the box declares")
+        except Exception as e:  # never a pass: the hold may be on
+            got = box_hold.unread(f"{type(e).__name__} from the trial database (TB_DB_URL)")
+    else:
+        return Check(name, "PASS", "no trial database configured here (TB_DB_URL): there is no hold to read")
+    return _hold_line(got)
+
+
+def _hold_line(got: Mapping[str, Any]) -> Check:
+    """H-136: one line per reading of the hold (``box_hold.read``)."""
+    name = "restore_hold"
+    release = "set screening.after_restore to released on /ops/flags with the reason, then confirm"
+    if got.get("state") == "held":
+        since = " ".join(
+            x for x in (f"since {got['at']}" if got.get("at") else "", f"by {got['by']}" if got.get("by") else "") if x
+        )
+        return Check(
+            name,
+            "WARN",
+            f"HELD{f' {since}' if since else ''}: the box's list jobs are held after a restore "
+            f"({got.get('reason') or 'no reason recorded'}): no patient list is made. Re-apply the events "
+            f"the restore listed, then {release} (RUNBOOK §5, step 4)",
+        )
+    if got.get("state") == "released":
+        if not got.get("stored"):
+            return Check(name, "PASS", "released: the hold after a restore was never set on this box")
+        since = f" (last change {got.get('at') or '?'} by {got.get('by') or '?'})"
+        return Check(name, "PASS", f"released{since}: no restore is waiting for its events to be re-applied")
+    cause = got.get("cause") or "no cause"
     return Check(
-        "restore_hold",
-        "WARN",
-        f"the box's list jobs are held after a restore ({why}): re-apply the events the restore listed, then set "
-        "screening.after_restore to released on /ops/flags with the reason (RUNBOOK §5)",
+        name,
+        "FAIL",
+        f"UNREADABLE: the hold after a restore cannot be read ({cause}); "
+        "the box may be held (no patient list). Read screening.after_restore on /ops/flags, then run "
+        "trialbox doctor again on the box's host (RUNBOOK §5, step 4)",
     )
 
 
@@ -2467,12 +2531,18 @@ def inputs_from(
                 errors.append(f"settings file {settings} is not a mapping")
     wd = lake or (Path(env["TB_LAKE_DIR"]) if env.get("TB_LAKE_DIR") else None)
     deploy = env_file.resolve().parent if env_file is not None and env_file.exists() else None
+    from tools.trialbox import launch
+
+    # H-136: the hold is read through the box: --env-file's folder, else, on a host, the install folder's own box
+    # (deploy/.env, the file the launcher took the settings from); never a folder a variable names
+    own = launch.DEPLOY if (launch.DEPLOY / ".env").is_file() and not launch.in_box_image() else None
     return DoctorInputs(
         env=env,
         settings=doc,
         routing_path=routing or ROOT / "models" / "routing.yaml",
         ingest_lake=wd,
         deploy=deploy,
+        box=deploy or own,
         input_errors=tuple(errors),
         cron_running=_cron_running,
         backup_timers=_backup_timer,
