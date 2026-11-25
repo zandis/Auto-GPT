@@ -353,10 +353,21 @@ def _remove(tmp_path: Path, extra: str = "") -> subprocess.CompletedProcess[str]
     return _bash(INSTALL, REMOVE_STAND_INS.format(root=tmp_path) + extra + "cmd_remove\n")
 
 
-def test_a_planted_folder_of_another_owner_survives_install_and_remove(tmp_path: Path) -> None:
+@pytest.fixture
+def outside_home() -> Any:
+    """A fresh folder the scratch case list does not refuse. CI's base temp sits under the runner's home folder
+    (TB_SCRATCH is the workspace's ../tb-scratch), and install refuses /home/* before the owner check is reached."""
+    parent = next(p for p in ("/var/tmp", "/tmp") if os.path.isdir(p))
+    made = Path(tempfile.mkdtemp(prefix="tb-h105-", dir=parent))
+    assert not str(made).startswith(("/home/", "/root/", "/etc/"))  # the owner check, not the case list, decides
+    yield made
+    shutil.rmtree(made, ignore_errors=True)
+
+
+def test_a_planted_folder_of_another_owner_survives_install_and_remove(tmp_path: Path, outside_home: Path) -> None:
     """The settings name, by a slip, a folder another owner fills (the datasets): install refuses it, and remove, run
     after that failed install, leaves it whole."""
-    data = tmp_path / "datasets"
+    data = outside_home / "datasets"
     data.mkdir()
     (data / "study.csv").write_text("synthetic\n", encoding="utf-8")
     (tmp_path / "etc").mkdir()
@@ -418,9 +429,9 @@ def test_the_record_is_written_before_the_thing_is_made_and_whole(tmp_path: Path
     assert sorted(p.name for p in etc.iterdir()) == ["made"]  # no copy left behind
 
 
-def test_an_empty_folder_of_another_owner_is_not_taken_as_scratch(tmp_path: Path) -> None:
+def test_an_empty_folder_of_another_owner_is_not_taken_as_scratch(outside_home: Path) -> None:
     """OCR 1466-9: install handed an existing empty folder of any owner to the jobs' user, and remove deleted it."""
-    empty = tmp_path / "empty"
+    empty = outside_home / "empty"
     empty.mkdir()
     pick = f'get() {{ case "$1" in BENCH_SCRATCH) echo "{empty}" ;; *) echo 0 ;; esac; }}\n'
     got = _bash(INSTALL, "install() { :; }; chmod() { :; }\n" + pick + "install_files")

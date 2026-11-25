@@ -687,10 +687,28 @@ def test_1448_27_the_scratch_check_refuses_a_folder_others_can_change(tmp_path: 
     assert _scratch_loop(link / "ci-scratch").returncode != 0  # a link above it
 
 
-def test_1448_27_the_scratch_check_takes_a_folder_under_roots_own_folders() -> None:
-    """Every folder above /usr/share/<name> is root's and written by root only on any host this runs on."""
-    got = _scratch_loop(Path("/usr/share/tb-bench-ci-scratch"))
-    assert got.returncode == 0 and "FOLDERS-OK" in got.stdout, got.stderr
+def _above_is_roots(scratch: Path) -> bool:
+    """The rule as written, read in Python: every folder above is no link, root's, and not group- or world-writable."""
+    up = scratch
+    while str(up) != "/":
+        up = up.parent
+        st = os.lstat(up)
+        if stat.S_ISLNK(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+            return False
+    return True
+
+
+@pytest.mark.parametrize(
+    "scratch", ["/usr/share/tb-bench-ci-scratch", "/usr/tb-bench-ci-scratch", "/tb-bench-ci-scratch"]
+)
+def test_1448_27_the_scratch_check_takes_a_folder_under_roots_own_folders(scratch: str) -> None:
+    """The loop takes a folder exactly when every folder above it is root's and written by root only on this host
+    (a hosted runner's /usr/share need not be: the check then refuses it, as it must)."""
+    got = _scratch_loop(Path(scratch))
+    ok = _above_is_roots(Path(scratch))
+    assert (got.returncode == 0 and "FOLDERS-OK" in got.stdout) is ok, got.stderr
+    if not ok:
+        assert "must be root's, not a link, and writable by root only" in got.stderr
 
 
 def _cards_tool(tmp_path: Path, busy_reads: int, uuids: tuple[str, ...] = ("GPU-4", "GPU-5")) -> Path:
