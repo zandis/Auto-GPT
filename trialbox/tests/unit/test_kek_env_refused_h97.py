@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from tb_common import kek as K
 
+from tests.host_modes import as_root_makes_it
 from tests.unit.test_audit_heads_nightly import box as signer_box  # noqa: F401
 from tests.unit.test_kek import box  # noqa: F401  (the stewards fixture stands on it)
 from tests.unit.test_nightly_restic import _ops
@@ -38,6 +39,7 @@ def _passphrase_box(tmp: Path, capsys: pytest.CaptureFixture[str]) -> Path:
     pp = tmp / "init.pass"
     pp.write_text(PHRASE + "\n", encoding="utf-8")
     pp.chmod(0o600)
+    as_root_makes_it(tmp)  # H-139: as the installer leaves it, at any umask of the run
     assert keys.main(["init", "--backend", "passphrase", "--secrets", str(sec), "--scrypt-n", "1024",
                       "--passphrase-file", str(pp)], env={}) == 0  # fmt: skip
     capsys.readouterr()

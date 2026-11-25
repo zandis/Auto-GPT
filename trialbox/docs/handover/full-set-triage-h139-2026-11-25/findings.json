@@ -34,7 +34,7 @@
   {
    "id": "H139-04",
    "severity": "Low",
-   "claim": "lane H's fixtures build box trees under the run's umask, so at umask 0002 the product rightly refuses them (deploy/.env, deploy/site, a passphrase folder writable by the group); held for the integrator's ruling, proposed fix: the built trees as root makes them (H-115's helper)",
+   "claim": "lane H's fixtures built box trees under the run's umask, so at umask 0002 the product rightly refused them (deploy/.env, deploy/site, a passphrase folder writable by the group); fixed: the built trees as root makes them (H-115's helper), waiting for the integrator's ruling",
    "lane": "H",
    "basis": "shown",
    "state": "open",

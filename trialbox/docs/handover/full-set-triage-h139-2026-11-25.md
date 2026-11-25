@@ -8,9 +8,9 @@ difference is the host. Each failing file was run again on master 6c73db64 in a 
 described the bench host. The cause was found by turning one condition on at a time. The data is synthetic only.
 
 Round 2 follows the integrator's ruling (7151161624). Items 3 and 4 (the client tools, lane D's files included) are
-built, then item 1 (no XML), then item 2 (lane J's node check). Item 5 (the umask fixtures) waits for the integrator's
-ruling once the (b) list is complete. Round 1 had built it, and this round backs it out (see "Held"). Item 7 is
-triaged below.
+built, then item 1 (no XML), then item 2 (lane J's node check). Item 5 (the umask fixtures) was built in round 1 and is kept as it
+is. It waits for the integrator's ruling, made once the (b) list is complete. A "no" takes it out in a later commit.
+Item 7 is triaged below.
 
 ## The bench host's conditions, recreated
 
@@ -37,10 +37,10 @@ no assertion changed, nothing skipped); (c) the bench host's own setup (the walk
 | `tests/unit/test_backup.py` (27), `test_backup_restic.py` (19), `test_backup_busy_night.py` (12) | yes, the same counts | the backup runs the bare `psql` and `pg_dump` from PATH (`TB_PSQL_CMD`, `TB_PG_DUMP_CMD` unset) | (b); an (a) part | built (item 3): the tests hand in the test cluster's own client tools (`tests/pg_client.py`, also to the CLI forms through the process environment, and in test_backup.py's late-write wrapper). `backup.py` refuses a client tool it cannot run, naming the tool and its setting, before any change: a restore had emptied the schemas before it found `pg_restore` missing (`tests/unit/test_backup_client_tools_h139.py`) | D, bodies only |
 | `tests/unit/test_restore_drill.py` (10) | yes | the same | (b) | built (item 4): the same, and the docker stand-in runs the db image's client tool as the cluster's copy | D, bodies only |
 | `tests/unit/test_backup_schedule.py` (12) | 10 of 12 | the same | (b) | fixed here: `tests/pg_client.py` | H |
-| `tests/unit/test_restore_from_the_host_h100.py` (17) | 16 + 1 | 16: the same; 1: umask (below) | (b) | the 16: fixed here (item 4); the 1: held with item 5 | H |
-| `tests/unit/test_host_commands_own_environment.py` (39) | yes, 39 of 39 | umask 0002: the box tree the fixture builds, `deploy/.env` among it, is group-writable and the product rightly refuses it ("can be written by group or others (chmod 600 it): nothing was run"); with psql off PATH one more | (b) | the psql one: fixed here (item 4); the 39: held (item 5), proposed fix `as_root_makes_it` (H-115's `tests/host_modes.py`) on the built trees | H |
-| `tests/unit/test_serving_engine_h112.py` (14, unit and pure) | 13 of 14 | umask 0002: "deploy/site is not root's or this user's alone (chmod go-w)" | (b) | held (item 5): `as_root_makes_it` in `_box` | H |
-| `tests/unit/test_kek_env_refused_h97.py` (1) | yes | umask 0002: the test's passphrase folder is 0775 and `keys init` rightly refuses it | (b) | held (item 5): `as_root_makes_it` in `_passphrase_box` | H |
+| `tests/unit/test_restore_from_the_host_h100.py` (17) | 16 + 1 | 16: the same; 1: umask (below) | (b) | the 16: fixed here (item 4); the 1: item 5, built in round 1, waiting for the ruling | H |
+| `tests/unit/test_host_commands_own_environment.py` (39) | yes, 39 of 39 | umask 0002: the box tree the fixture builds, `deploy/.env` among it, is group-writable and the product rightly refuses it ("can be written by group or others (chmod 600 it): nothing was run"); with psql off PATH one more | (b) | the psql one: fixed here (item 4); the 39: item 5, `as_root_makes_it` (H-115's `tests/host_modes.py`) on the built trees, built in round 1, waiting for the ruling | H |
+| `tests/unit/test_serving_engine_h112.py` (14, unit and pure) | 13 of 14 | umask 0002: "deploy/site is not root's or this user's alone (chmod go-w)" | (b) | item 5: `as_root_makes_it` in `_box`, waiting for the ruling | H |
+| `tests/unit/test_kek_env_refused_h97.py` (1) | yes | umask 0002: the test's passphrase folder is 0775 and `keys init` rightly refuses it | (b) | item 5: `as_root_makes_it` in `_passphrase_box`, waiting for the ruling | H |
 | `tests/unit/test_lifecycle_keys_h133.py` (5) | no (passes at both umasks as uid 1003) | the walk's "assert 0 >= 8" is `test_lifecycle_keys_h133.py:396`: `rotate-kek` refused before its first rename | open | wait for the walk's captured stderr | H |
 | `tests/unit/test_release_dirty_refused.py` (1), `tests/unit/test_first_run_code_h97.py` (1) | no | first-run: the output had begun, so probably the test's 60 s pty deadline on a loaded host | open | wait for the walk's captured stderr | H |
 | `tests/e2e/test_mail_compose.py` (5), `tests/integration/test_compose_data.py` (4), `tests/integration/test_compile_compose.py` (2) | not run (no Docker daemon in this container) | the 401s: services that answer an unauthenticated call with 401 are PRODUCTION or hold a token, unlike CI's TEST stack; mail_compose iterates the 401's JSON body (`test_mail_compose.py:112-115`), hence `'str' object has no attribute 'get'`. Hypothesis: `deploy/docker-compose.yml:9` pins `name: trialbox`, so `make up-test` shares the project, the container names and the ports of a box installed on the same host | (a)/(b), to rule on | the test stack under a project name of its own, or `make up-test` refusing while another stack holds the name | to be found (git log: 9i-1 for mail_compose) |
