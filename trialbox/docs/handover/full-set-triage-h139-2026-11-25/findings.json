@@ -84,6 +84,15 @@
    "basis": "shown",
    "state": "open",
    "place": "tests/unit/test_runbook_install_commands.py _install_to_the_host_step"
+  },
+  {
+   "id": "H139-13",
+   "severity": "Medium",
+   "claim": "the full set's console and poc stages allowed skips, so with no browser driver poc passed with all 7 tests skipped and console with 15; fixed: make test-console and make test-console-e2e run with TB_STRICT_SKIPS=1, as test-compose and test-walks, while the unit shards keep the browser tests' own skips",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "Makefile test-console, test-console-e2e"
   }
  ]
 }

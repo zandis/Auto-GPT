@@ -659,12 +659,15 @@ restore-drill:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.restore_drill run --out "$(RESTORE_DRILL_OUT)" \
 		--work "$(TB_TEST_ROOT)/restore-drill/work"
 
+# H139-13: the full set's console and poc stages (tools/full_set.py) allow no skip, as test-compose and test-walks:
+# a browser driver node cannot load is a failure that names it, never a skip that turns the stage green. The unit
+# shards run the console tests without this: there a host with no node still skips them with their own reasons.
 test-console:
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
+	TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
 
 # browser + e-mail end to end against the running POC (make poc first): Playwright (Node) drives the console
 test-console-e2e:
-	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
+	TB_INTEGRATION=1 TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
 
 site:
 	$(PY) tools/build_site.py

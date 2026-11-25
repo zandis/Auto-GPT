@@ -185,6 +185,14 @@ On master 6c73db64, then at this branch's head, the same commands:
   the same countdown. It is fixed the same way (the store's clock held still; body only, no assertion change), and
   the file is lane H's now. With the ticking clock: master fails, the fixed test passes. Alone, the file passes (9
   passed).
+- **H139-13 (the integrator's 7158672355): a skipped stage read as passed.** In the walk's diagnostic run node could
+  not load the browser driver. The walks stage (TB_STRICT_SKIPS=1) failed at once. The poc stage "passed" with its 7
+  tests skipped, and the console stage with 15 skipped. `make test-console` and `make test-console-e2e`, which the full
+  set's console and poc stages run, now set `TB_STRICT_SKIPS=1` as `test-compose` and `test-walks` do (CI's own poc
+  step already did). A browser test without its driver is a plain failure there ("skipped under TB_STRICT_SKIPS=1,
+  which allows no skip: Node Playwright is not available"). The unit shards keep lane J's terms: with no node, the
+  browser tests skip with their own reasons. Test: `tests/unit/test_browser_stages_strict_h139.py` (the recipes, and a
+  probe run with no node on PATH, strict and plain). On master's Makefile its two console and poc cases fail.
 - master c3a5b2b2 (train 176) merged once.
 
 ## Owners named in this card
