@@ -14,6 +14,7 @@ import yaml
 from console import app as console_app
 from tb_common.config import DECLARED_SETTINGS, ConfigError, load_settings
 from tb_contracts import Settings
+
 from tools.trialbox import doctor
 
 ROOT = Path(__file__).resolve().parents[2]
