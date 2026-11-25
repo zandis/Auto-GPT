@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.util
 import os
 import re
 import secrets
@@ -233,8 +234,14 @@ def _practitioners(v: Any) -> dict[str, dict[str, Any]]:
 
 
 def shipped_departments(locale: str) -> dict[str, str]:
-    """M1: the shipped department list (M2's), a new box's first departments; the records' own replace it."""
-    with (ROOT / "services/criteria_compiler/terminology/src/department.csv").open(encoding="utf-8", newline="") as f:
+    """M1: the shipped department list (M2's), a new box's first departments; the records' own replace it. Read from the
+    package the interpreter has (the image's); with none there the box starts with no department, never stopped."""
+    spec = importlib.util.find_spec("criteria_compiler")
+    table = Path(next(iter(spec.submodule_search_locations))) / "terminology/src/department.csv" if (
+        spec and spec.submodule_search_locations) else None  # fmt: skip
+    if table is None or not table.is_file():
+        return {}
+    with table.open(encoding="utf-8", newline="") as f:
         return {r["code"]: r["display_zh" if locale == "zh-TW" else "display"] for r in csv.DictReader(f)}
 
 
