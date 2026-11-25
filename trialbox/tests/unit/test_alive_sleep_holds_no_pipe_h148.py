@@ -12,6 +12,7 @@ The race itself cannot be timed from a test, so each case takes the worst of it 
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -62,10 +63,8 @@ def test_a_left_over_keep_alive_sleep_holds_no_output(script: str, tmp_path: Pat
         held = True
     finally:
         for pid in (int(p) for p in pids.read_text(encoding="utf-8").split()) if pids.exists() else ():
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.kill(pid, signal.SIGKILL)  # the sleep first: while it lives, the streams stay open
-            except ProcessLookupError:
-                pass
     if held:
         proc.kill()
         out, _err = proc.communicate()
