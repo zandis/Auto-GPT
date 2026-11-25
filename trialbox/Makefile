@@ -308,7 +308,7 @@ demo:
 # the same as one image file for the demo VM (docs/RUNBOOK.md §11): dist/trialbox-demo.tar.gz
 # T-501: the jar the compiler reads FHIRHelpers from comes from jvm-deps (the Dockerfile fetches it on a fresh clone)
 demo-bundle: jvm-deps vocab-bundle-check
-	docker build $(CA_SECRET) $(UPGRADE_ARG) -f demo/Dockerfile -t trialbox-demo:step5 .
+	docker build $(CA_SECRET) $(NO_CACHE_ARG) -f demo/Dockerfile -t trialbox-demo:step5 .
 	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
 	@ls -l dist/trialbox-demo.tar.gz
 
@@ -442,23 +442,28 @@ buildx-check:
 	@docker buildx version >/dev/null 2>&1 || { echo "images: Docker's buildx plugin is missing (docker buildx version failed); install docker-buildx-plugin (Docker's packages) or docker-buildx (Ubuntu's), then run make again" >&2; exit 1; }
 
 # H-143: the Debian security-upgrade layer (python.Dockerfile, demo/Dockerfile) is unpinned, so a warm cache keeps
-# an older day's libraries. Dev builds keep the cache (UPGRADE_STAMP unset). `make release-images` (and so
-# `make release-bundle`) sets it to the build's own time in nanoseconds, a value no cache holds: that layer and
-# every image built on trialbox-py (backup, jvm, embed) run afresh. The gates then hold each image to
-# deploy/images.lock security_floors (tools/supply_chain/floors.py).
-UPGRADE_ARG = $(if $(UPGRADE_STAMP),--build-arg UPGRADE_STAMP=$(UPGRADE_STAMP),)
+# an older day's libraries (the bench's bundle at c3a5b2b2: libzstd1 in trialbox-py, -backup, -jvm and -embed).
+# Dev builds keep the cache. `make release-images` (and so `make release-bundle`, ahead of its gates) first pulls
+# every outside base the Dockerfiles pin by digest, then builds every image with --no-cache and without --pull:
+# --pull would send the FROM of trialbox-py (backup, jvm, embed) to a registry, where it is not. The gates then hold
+# each image to deploy/images.lock security_floors (tools/supply_chain/floors.py).
+RELEASE_DOCKERFILES := deploy/docker/python.Dockerfile deploy/docker/backup.Dockerfile deploy/docker/jvm.Dockerfile \
+	deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile demo/Dockerfile
+RELEASE_BASES = $(sort $(shell grep -hoE '[a-z0-9./_-]+:[^ @"]*@sha256:[0-9a-f]{64}' $(RELEASE_DOCKERFILES)))
+NO_CACHE_ARG = $(if $(RELEASE_NO_CACHE),--no-cache,)
 release-images:
-	$(MAKE) images demo-bundle UPGRADE_STAMP=$$(date -u +%Y%m%dT%H%M%S%N)
+	for b in $(RELEASE_BASES); do docker pull $(PLATFORM_ARG) "$$b" || exit 1; done
+	$(MAKE) images demo-bundle RELEASE_NO_CACHE=1
 
 images: buildx-check jvm-deps $(FONTS)
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(UPGRADE_ARG) \
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
 		--build-arg TB_REVISION=$(TB_REVISION) -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/backup.Dockerfile \
-		-t trialbox-backup:1.0.0 .
-	docker build $(PLATFORM_ARG) $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/embed.Dockerfile \
-		-t trialbox-embed:1.0.0 .
-	deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS)  # the db build of deploy/poc.sh too (card 24-2)
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
+		-f deploy/docker/backup.Dockerfile -t trialbox-backup:1.0.0 .
+	docker build $(PLATFORM_ARG) $(OCI_LABELS) $(NO_CACHE_ARG) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
+		-f deploy/docker/embed.Dockerfile -t trialbox-embed:1.0.0 .
+	deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS) $(NO_CACHE_ARG)  # the db build of deploy/poc.sh too (card 24-2)
 
 # ENG-003 (D-563): a PRODUCTION box starts its embed service. The box's compose file, the trialbox-embed image,
 # TB_ENV=PRODUCTION, a tiny model made on the spot (no download), pinned by the installer's own call; one

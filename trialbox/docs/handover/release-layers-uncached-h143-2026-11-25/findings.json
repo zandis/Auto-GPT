@@ -3,12 +3,12 @@
  "title": "a release built from a warm cache kept an older day's security-upgrade layer",
  "date": "2026-11-25",
  "source": "docs/handover/release-layers-uncached-h143-2026-11-25.md",
- "note": "basis 'shown' means shown by the card's unit tests (failing on master c3a5b2b2, passing on the branch) and by make -n; no image was built here (no Docker daemon in the session), so the real rebuild and scan are CI's and the bench's.",
+ "note": "basis 'shown' means shown by the card's unit tests (failing on master c3a5b2b2, passing on the branch) and by make -n; no image was built here (no Docker daemon in the session); the walk (7159322336) showed an uncached build passing the gate.",
  "findings": [
   {
    "id": "H143-01",
    "severity": "High",
-   "claim": "the release path built trialbox-py (and on it -backup, -jvm, -embed) and the demo image with the build cache, so the unpinned apt-get upgrade layer could come from an older day and ship libzstd1 1.5.7+dfsg-1 (CVE-2026-124851); make release-images, a prerequisite of make release-bundle ahead of its gates, now passes a new UPGRADE_STAMP build argument declared just before that step, and make images (dev) passes none",
+   "claim": "the release path built trialbox-py (and on it -backup, -jvm, -embed) and the demo image with the build cache, so the unpinned apt-get upgrade layer could come from an older day and ship libzstd1 1.5.7+dfsg-1 (CVE-2026-124851); make release-images, ahead of the gates in make release-bundle, now pulls every digest-pinned outside base and then builds all six images with --no-cache and without --pull (which would send FROM trialbox-py to a registry); make images (dev) keeps its cache",
    "lane": "H",
    "basis": "shown",
    "state": "open"

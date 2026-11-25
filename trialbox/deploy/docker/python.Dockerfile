@@ -13,10 +13,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_
     TB_FONTS_DIR=/opt/trialbox/fonts
 # Debian security updates for the packages the base already has (no new package, D-23): the pinned base may lag a
 # fix (zlib1g, Nov 2026); the release gates scan the result by image id (D-186)
-# H-143: `make release-images` sets UPGRADE_STAMP to a new value, so the release path runs this step afresh (a
-# builder's cache cannot keep an older day's upgrade); a dev build leaves it empty and keeps the cache.
-# deploy/images.lock security_floors is the lowest the release gates accept.
-ARG UPGRADE_STAMP=
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin tb \
     && mkdir -p /app /data/lake /data/audit /data/orchestrator /data/rulesets /data/mail /data/traces /data/objects \

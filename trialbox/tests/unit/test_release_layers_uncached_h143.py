@@ -4,8 +4,9 @@ The signed bundle at c3a5b2b2 failed its gate on a builder with a warm cache: tr
 still held libzstd1 1.5.7+dfsg-1 (CVE-2026-124851), which they get fixed only through the unpinned
 ``apt-get upgrade`` of deploy/docker/python.Dockerfile (and demo/Dockerfile). Two halves, both here:
 
-* the release path (``make release-images``, a prerequisite of ``make release-bundle``) builds that layer with a
-  new ``UPGRADE_STAMP``, a value no cache holds; ``make images`` (dev) passes none and keeps the cache;
+* the release path (``make release-images``, a prerequisite of ``make release-bundle``) pulls the outside bases the
+  Dockerfiles pin by digest, then builds every image with ``--no-cache`` and without ``--pull`` (which would look
+  for trialbox-py in a registry); ``make images`` (dev) keeps the cache;
 * deploy/images.lock ``security_floors`` records the fixed versions, and the release gates refuse an image whose SBOM
   has an older one, or none (tools/supply_chain/floors.py). The gate is shown refusing with a stand-in SBOM and
   stand-in scanners; a real build and scan are CI's.
@@ -168,27 +169,50 @@ def test_the_release_gates_fail_closed_on_a_lock_without_floors(
 
 
 # -------------------------------------------------------------------------- the release path builds afresh
+DOCKERFILES = (
+    "deploy/docker/python.Dockerfile", "deploy/docker/backup.Dockerfile", "deploy/docker/jvm.Dockerfile",
+    "deploy/docker/embed.Dockerfile", "deploy/docker/db.Dockerfile", "demo/Dockerfile",
+)  # fmt: skip
+PINNED = re.compile(r"[a-z0-9./_-]+:[^\s@\"]*@sha256:[0-9a-f]{64}")
 
 
-def _dry_run(*goals: str) -> str:
+def _dry_run(*goals: str) -> list[str]:
+    """The commands ``make -n`` prints, one per line (continuations joined)."""
     proc = subprocess.run(
         ["make", "--no-print-directory", "-n", *goals, "FONTS=pyproject.toml", "TB_REVISION=x"],
         cwd=ROOT, capture_output=True, text=True, check=False, timeout=120,
     )  # fmt: skip
     assert proc.returncode == 0, proc.stderr[-2000:]
-    return proc.stdout
+    return re.sub(r"\\\n\s*", " ", proc.stdout).splitlines()
 
 
-def test_the_release_build_busts_the_upgrade_layer_and_a_dev_build_keeps_it() -> None:
-    dev = _dry_run("images", "demo-bundle")
+def _builds(lines: list[str]) -> list[str]:
+    return [ln for ln in lines if ln.lstrip().startswith(("docker build ", "deploy/build_db_image.sh "))]
+
+
+def test_the_release_path_pulls_the_pinned_bases_then_builds_without_cache_or_pull() -> None:
+    """The walk (7159322336): --no-cache --pull together sends FROM trialbox-py to a registry; so the release path
+    pulls the outside bases by digest first, then builds every image without cache and without --pull."""
     rel = _dry_run("release-images")
-    for out in (dev, rel):
-        assert "-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0" in out
-        assert "-f demo/Dockerfile -t trialbox-demo:step5" in out
-    assert "UPGRADE_STAMP" not in dev  # the dev build keeps its cache
-    stamps = set(re.findall(r"--build-arg UPGRADE_STAMP=(\d{8}T\d{15})\b", rel))
-    assert len(stamps) == 1, rel[-3000:]
-    assert rel.count(f"--build-arg UPGRADE_STAMP={stamps.pop()}") == 2  # trialbox-py and the demo image
+    builds = _builds(rel)
+    assert len(builds) == 6, builds  # py, backup, jvm, embed, db, demo
+    first = rel.index(builds[0])
+    pulls = [ln for ln in rel[:first] if "docker pull" in ln]
+    assert len(pulls) == 1, rel[:first]
+    pulled = set(PINNED.findall(pulls[0]))
+    bases = {m for f in DOCKERFILES for m in PINNED.findall((ROOT / f).read_text(encoding="utf-8"))}
+    assert bases and pulled == bases  # every outside base, by digest, before any build
+    for b in builds:
+        assert "--no-cache" in b.split(), b
+        assert "--pull" not in b.split() and "--pull=" not in b, b
+
+
+def test_a_dev_build_keeps_its_cache() -> None:
+    dev = _dry_run("images", "demo-bundle")
+    builds = _builds(dev)
+    assert len(builds) == 6, builds
+    assert not any("--no-cache" in b for b in builds)
+    assert not any("docker pull" in ln for ln in dev)
 
 
 def test_release_bundle_builds_the_images_before_its_gates() -> None:
@@ -198,14 +222,3 @@ def test_release_bundle_builds_the_images_before_its_gates() -> None:
     assert prereqs.index("release-images") < prereqs.index("release-gates")
     gates = re.search(r"^release-gates:(.*)$", MAKEFILE, re.M)
     assert gates and "$(if $(filter release-bundle,$(MAKECMDGOALS)),release-images,)" in gates.group(1)
-
-
-@pytest.mark.parametrize("dockerfile", ["deploy/docker/python.Dockerfile", "demo/Dockerfile"])
-def test_the_stamp_is_declared_before_the_upgrade(dockerfile: str) -> None:
-    lines = (ROOT / dockerfile).read_text(encoding="utf-8").splitlines()
-    arg = lines.index("ARG UPGRADE_STAMP=")
-    upgrade = next(i for i, ln in enumerate(lines) if "apt-get upgrade" in ln and not ln.startswith("#"))
-    run = max(i for i in range(upgrade + 1) if lines[i].startswith("RUN"))  # the instruction that upgrades
-    assert arg < run
-    between = lines[arg + 1 : run]
-    assert not any(ln.startswith(("FROM", "RUN")) for ln in between), between  # nothing cached runs in between

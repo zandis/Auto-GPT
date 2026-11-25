@@ -18,14 +18,15 @@ fixed version either.
 
 ## The change
 
-- **Build the layer afresh on the release path only.** Both Dockerfiles declare `ARG UPGRADE_STAMP=` just before the
-  upgrade step. A changed build argument misses the cache for every `RUN` after it. `make release-images` runs
-  `make images demo-bundle` with `UPGRADE_STAMP` set to the build's own UTC time in nanoseconds, a value no cache
-  holds. That reruns the upgrade layer of trialbox-py and the demo image, and so every image built on trialbox-py.
-  `make images` and `make demo-bundle` alone pass no stamp, so dev builds keep their cache.
+- **Build afresh on the release path only.** `make release-images` first pulls, by digest, every outside base that
+  the six Dockerfiles pin. Those are the python, temurin, golang and postgres bases (one `docker pull` loop,
+  `$(PLATFORM_ARG)` when given). It then runs `make images demo-bundle` with `--no-cache` on every build: py, backup,
+  jvm, embed, db and demo. It does not pass `--pull`. The walk (the integrator's 7159322336) showed that
+  `--no-cache --pull` together cannot work. `--pull` sends the `FROM trialbox-py` of backup, jvm and embed to a
+  registry, which refuses it. `make images` and `make demo-bundle` alone add neither, so dev builds keep their cache.
   `make release-bundle` now lists `release-images` before `release-gates`. Under that goal, `release-gates` also
   waits for `release-images`, so `-j` cannot scan before the build. Run alone, `release-gates` still scans what is
-  on the host (CI's gate job builds fresh and is unchanged).
+  on the host. CI's gate job builds fresh and is unchanged.
 - **Record the fixed versions and refuse an older one.** `deploy/images.lock` gains `security_floors`. For
   trialbox-py, -backup, -jvm, -embed and -demo it gives the lowest libzstd1 (1.5.7+dfsg-1+deb13u1) and zlib1g
   (1:1.3.dfsg+really1.3.1-1+deb13u1). These are the versions the db image already pins and holds.
@@ -36,21 +37,24 @@ fixed version either.
 
 ## What was run
 
-- `tests/unit/test_release_layers_uncached_h143.py`, 21 tests: on the branch, 21 passed.
-  Copied onto master c3a5b2b2: it fails at collection (no `floors`). With only `floors.py` and the lock copied in,
-  7 fail: the three gate tests, the dry-run build, the bundle order and the two Dockerfile checks.
+- `tests/unit/test_release_layers_uncached_h143.py`, 20 tests: on the branch, 20 passed.
+  Copied onto master c3a5b2b2, it fails at collection (no `floors`). With only `floors.py` and the lock copied in,
+  5 fail: the three gate tests, the pull-then-build test and the bundle order. The dev-cache test passes on both, as
+  it should. The pull-then-build test reads `make -n release-images`. It fails if the pull step goes, if it misses a
+  digest-pinned base, if it comes after a build, if a build lacks `--no-cache`, or if a build has `--pull`.
   The gate tests use a stand-in SBOM and stand-in scanners.
-- The image and lock tests and the policy set (the card's two greps, `.py` files only) and the touched files'
-  tests: see the pull request for the counts as root and as an ordinary user under CI's conditions.
-- `make lint`, `make guard`, `make cross-card`, and the CLAUDE.md checks: see the pull request.
+- The image and lock tests, the policy set (the card's two greps, `.py` files only) and the touched files' tests:
+  the counts are in the pull request, as root and as an ordinary user under CI's conditions.
+- `make lint`, `make guard`, `make cross-card` and the CLAUDE.md checks: see the pull request.
 - No shell script changed, so shellcheck had nothing to check.
 
 ## Not verified
 
-- **No image was built here.** The session has no Docker daemon. So the real rebuild of the upgrade layer under
-  `make release-images`, next to a dev build that reuses it, is not shown here. `make -n` shows the stamp on the
-  trialbox-py and demo builds of the release path and on no build of `make images`. That the floors match what a
-  fresh build installs is not shown here either. The bench's next release run and CI's image jobs show both.
+- **No image was built here.** The session has no Docker daemon. So the real pull and the uncached rebuild under
+  `make release-images`, next to a dev build that reuses its cache, are not shown here. `make -n` shows the pull, then
+  `--no-cache` on all six release builds and on none of `make images`. The walk (7159322336) showed that an uncached
+  build has the fixed libzstd1 in all four images and passes the gate. That the floors match what a fresh build
+  installs is not shown here. The bench's next release run shows it.
 - The floor check reads the SBOM's Debian components. An SBOM tool that wrote Debian packages in another form
   would read as "missing" and fail closed, not pass.
 
@@ -67,8 +71,8 @@ this card's. Nothing was changed for it.
 
 ## Files outside the card
 
-Lane D's files, lane H's for this card under the integrator's ruling: `deploy/docker/python.Dockerfile`,
-`deploy/images.lock`, `tools/supply_chain/release.py`, `tools/supply_chain/floors.py` (new). Also `demo/Dockerfile`
-and the `images`, `demo-bundle`, `release-gates` and `release-bundle` lines of `Makefile`.
+Lane D's files, lane H's for this card under the integrator's ruling: `deploy/images.lock`,
+`tools/supply_chain/release.py`, `tools/supply_chain/floors.py` (new). Also the `images`, `demo-bundle`,
+`release-gates` and `release-bundle` lines of `Makefile`, and its new `release-images`. No Dockerfile changed.
 
 Findings: `release-layers-uncached-h143-2026-11-25/findings.json` (H143-01 to H143-03).
