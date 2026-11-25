@@ -188,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--hardware", type=Path, required=True)
     q.add_argument("--out", type=Path, required=True)
     q.add_argument("--environment", default="")
+    q.add_argument("--seed", type=Path, help="a site seed the vendor signed (verified before: tools.site_seed verify)")
     pr = sub.add_parser("propose", help="what this machine's network, disks and records suggest (read-only)")
     pr.add_argument("--deploy", type=Path, default=DEPLOY)
     sp = sub.add_parser("settings-patch")
@@ -206,7 +207,12 @@ def main(argv: list[str] | None = None) -> int:
             from tools.box import ask
 
             hw = Hardware.from_json(json.loads(args.hardware.read_text(encoding="utf-8")))
-            got = ask.four(hw, environment=args.environment)
+            seed: dict[str, Any] = {}
+            if args.seed is not None:
+                from tools import site_seed
+
+                seed = site_seed.answers(args.seed)
+            got = ask.four(hw, environment=args.environment, seed=seed)
             write_whole(args.out, json.dumps(got, ensure_ascii=False, indent=1) + "\n")
             print(ask.offered_text(str(got["language"])))
         elif args.cmd == "propose":

@@ -66,6 +66,7 @@
     <h2>{{ t('ops.title') }}</h2>
     <p class="big mono" data-testid="tile-ops-version">{{ ops.version.trialbox or ops.console_version }}</p>
     <p class="hint">{{ t('ops.version.bundle') }}: <span class="mono">{{ ops.version.bundle or t('ops.version.none') }}</span></p>
+    <a href="/admin/still-needed" data-testid="still-needed-link">{{ t('stillneeded.title') }}</a>
     <a href="/admin/ops" data-testid="ops-link">{#J7#}{% if pm %}{{ t('ops.title') }}{% else %}{#/J7#}{{ t('ops.open') }}{#J7#}{% endif %}{#/J7#}</a>
   </section>{% endif %}
   {# T-209c (D-406, ROLE-022): backup and update, each one click from the operations screens #}

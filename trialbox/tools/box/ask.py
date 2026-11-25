@@ -49,7 +49,6 @@ TEXT: dict[str, dict[str, str]] = {
         "zh-TW": "不再提問。以下項目目前為預設值，之後可在「尚需填寫的資料」頁面填寫：",
     },
 }
-#: the country of a zone, where a country has one zone (Japan, Taiwan); any other zone names none
 _USER_BAD = re.compile(r"[^a-z0-9._-]+")
 
 
@@ -59,6 +58,7 @@ def host_language(env: Mapping[str, str]) -> str:
 
 
 def country_of_zone(tz: str) -> str:
+    """The country of a zone, where a country has one zone (Japan, Taiwan); any other zone names none."""
     for c in site_country.COUNTRIES:
         try:
             if tz and site_country.defaults(c).tz == tz:
@@ -96,15 +96,27 @@ def _one(prompt: Callable[[str], str], text: str, default: str, ok: Callable[[st
 
 
 def four(
-    hw: Hardware, prompt: Callable[[str], str] = input, env: Mapping[str, str] | None = None, environment: str = ""
+    hw: Hardware,
+    prompt: Callable[[str], str] = input,
+    env: Mapping[str, str] | None = None,
+    environment: str = "",
+    seed: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The answers (as ``tb_common.box_answers.parse`` reads them) of the first three questions; the fourth is the
-    passphrase. Nothing is written here."""
+    passphrase. Nothing is written here. ``seed``: a verified site seed (``tools.site_seed``), which answers all but
+    the person."""
     env = os.environ if env is None else env
+    seed = seed or {}
     start = host_language(env)
-    lang = _one(prompt, TEXT["language"]["en"], start, lambda v: v in LANGUAGES, TEXT["again"][start])
+    lang = str(seed.get("language") or "") or _one(
+        prompt, TEXT["language"]["en"], start, lambda v: v in LANGUAGES, TEXT["again"][start]
+    )
     again = TEXT["again"][lang]
-    tz = _one(prompt, TEXT["tz"][lang], hw.host_tz if _zone(hw.host_tz) else "", _zone, again)
+    tz = str(seed.get("tz") or "") or _one(
+        prompt, TEXT["tz"][lang], hw.host_tz if _zone(hw.host_tz) else "", _zone, again
+    )
+    for k, v in seed.items():
+        print(f"    {k}: {v}")
     mail = _one(prompt, TEXT["mail"][lang], "", lambda v: bool(MAILBOX.fullmatch(v)) and len(v) <= 254, again)
     name = _one(prompt, TEXT["name"][lang], "", lambda v: bool(person_name(v)), again)
     country = country_of_zone(tz)
@@ -121,6 +133,7 @@ def four(
         "backup_kind": "later",
         "source": "later",
         **({"country": country} if country else {}),
+        **seed,
         **({"environment": environment.upper()} if environment else {}),
     }
 

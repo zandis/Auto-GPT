@@ -950,11 +950,7 @@ fi
 if [ -z "$CTGOV" ]; then CTGOV="$(sed -n 's/^TB_CTGOV_MODE=//p' deploy/.env | tail -1)"; fi
 case "$CTGOV" in
   live|offline) ;;
-  *) CTGOV=offline
-     if [ "$YES" != 1 ] && [ -t 0 ]; then
-       ctgov_question; printf '  offline / live [offline]: '; read -r ans
-       case "${ans:-offline}" in live|offline) CTGOV="${ans:-offline}" ;; *) stop_or_warn ctgov-answer "the answer $ans (offline)" "answer offline or live" ;; esac
-     fi ;;
+  *) CTGOV=offline ;;  # M1: never asked; live only by --ctgov (it lets the box reach one outside address)
 esac
 if [ "$CTGOV" = live ] && ! ctgov_internet; then
   echo "install: clinicaltrials.gov does not answer from this host: ClinicalTrials.gov set to offline (re-run with --ctgov live once it does)" >&2
@@ -1087,10 +1083,6 @@ else
 fi
 # T-632 (OPS-013): TLS on. The console is reached only at https://TB_TLS_HOSTNAME through Caddy (RUNBOOK §12)
 TLS_HOST="$(envget TB_TLS_HOSTNAME)"
-if [ -z "$TLS_HOST" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf '  The console'"'"'s DNS name for https (from hospital IT, e.g. trialbox.hospital.tw): '; read -r TLS_HOST
-  [ -z "$TLS_HOST" ] || envset TB_TLS_HOSTNAME "$TLS_HOST"
-fi
 if [ -z "$TLS_HOST" ]; then
   [ "$TB_ENV_SITE" != PRODUCTION ] || stop_or_warn tls-production "" "no TLS host name: a PRODUCTION box runs only behind https. Put TB_TLS_HOSTNAME (and TB_TLS_MODE) in deploy/.env or the answers file (tls_hostname), then re-run (RUNBOOK §12)"
   echo "    TLS: off ($TB_ENV_SITE, no TB_TLS_HOSTNAME): the console stays on 127.0.0.1"
@@ -1113,9 +1105,6 @@ esac
 # SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"
 [ -n "$SAE_TO" ] || SAE_TO="${TB_SAE_OFFICE_MAILBOX:-}"   # exported for this run
-if [ -z "$SAE_TO" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf '  The trial office'"'"'s mailbox, told at once when a serious adverse event is entered (e.g. trial-office@hospital.tw): '; read -r SAE_TO || SAE_TO=""
-fi
 SAE_TO="$(printf '%s' "$SAE_TO" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 case "$SAE_TO" in \"*\") SAE_TO="${SAE_TO#\"}"; SAE_TO="${SAE_TO%\"}" ;; \'*\') SAE_TO="${SAE_TO#\'}"; SAE_TO="${SAE_TO%\'}" ;; esac
 if [ -n "$SAE_TO" ] && ! printf '%s\n' "$SAE_TO" | grep -Eqx "[A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+"; then
@@ -1376,9 +1365,6 @@ if [ "${TB_BOX:-0}" != 1 ]; then
 fi
 # ---- end of FINISH-GATE
 UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)
-if [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac  # H-94 not a stop: the operator's own answer (D-1091)
-fi
 say "starting the stack (profile $MODE)"
 "${COMPOSE[@]}" config -q
 # D-176: every image the stack runs comes from the bundle, none from a registry. A digest-pinned image is found by its
@@ -1466,7 +1452,7 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   # KEK-INPUT (H-96): the passphrase this run read goes to the seal step by a pipe (never an argument's value, an
   # environment or the file's name again); the operator's file is removed here once the keys are sealed (rm: a link
   # is taken away, never what it names), kept with --keep-kek-passphrase-file or when the seal failed
-  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" "$@"; }
+  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" --record deploy/site/kek-backend "$@"; }
   sealed=0
   if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | seal --kek-passphrase-stdin && sealed=1
   else seal </dev/null && sealed=1; fi
@@ -1477,6 +1463,21 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   [ "$sealed" = 1 ] \
     || stop_or_warn seal-keys "the sealing of the site keys (they stay plain files; the host check lists it)" "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
   PP_FILE=""; KP_FILE=""
+  # H-77 (F-22): the back end is the one seal_keys.sh recorded (deploy/site/kek-backend, kept when the wizard rewrites
+  # deploy/.env), copied as it is (never worked out here) to deploy/.env, where the host check reads it. Without a
+  # record: deploy/.env is left as it is. The same block is in install.sh and in
+  # box-install.sh's deferred seal; a test keeps the two identical
+  KEK_USED=""; [ -f deploy/site/kek-backend ] && KEK_USED="$(tr -d ' \r\t\n' < deploy/site/kek-backend)"
+  case "$KEK_USED" in
+    tpm|shamir|passphrase)
+      { [ -f deploy/.env ] && [ ! -L deploy/.env ]; } \
+        || die "deploy/.env is missing or a link: TB_KEK_BACKEND=$KEK_USED was not written (put the file back, then run this again)"  # H-94 (5): the file that holds the box's secrets
+      [ -z "$(tail -c 1 deploy/.env)" ] || echo >> deploy/.env  # a last line without its newline is not joined
+      { sed -i '/^[[:space:]]*\(export[[:space:]]\+\)\?TB_KEK_BACKEND=/d' deploy/.env \
+          && echo "TB_KEK_BACKEND=$KEK_USED" >> deploy/.env; } || die "deploy/.env: TB_KEK_BACKEND=$KEK_USED could not be written"  # H-94 (5): the file that holds the box's secrets
+      echo "    the KEK back end that sealed the keys: $KEK_USED (recorded by seal_keys.sh; deploy/.env TB_KEK_BACKEND)" ;;
+    *) echo "    note: no record of the KEK back end in deploy/site/kek-backend (above): deploy/.env not changed" >&2 ;;
+  esac
 fi
 KP_VALUE=""
 [ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
