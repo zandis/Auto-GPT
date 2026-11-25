@@ -687,28 +687,31 @@ def test_1448_27_the_scratch_check_refuses_a_folder_others_can_change(tmp_path: 
     assert _scratch_loop(link / "ci-scratch").returncode != 0  # a link above it
 
 
-def _above_is_roots(scratch: Path) -> bool:
-    """The rule as written, read in Python: every folder above is no link, root's, and not group- or world-writable."""
-    up = scratch
-    while str(up) != "/":
-        up = up.parent
-        st = os.lstat(up)
-        if stat.S_ISLNK(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
-            return False
-    return True
+def _scratch_loop_on(scratch: Path, top: Path, owners: dict[str, tuple[int, str]]) -> subprocess.CompletedProcess[str]:
+    """The same loop, on a folder chain the test makes: ``stat`` answers each folder's owner and mode from ``owners``
+    (the test's own facts, whatever account it runs as), and ``dirname`` of ``top`` is ``/``, so no folder of the host
+    above the chain is read (``/`` itself is never a link)."""
+    assert LOOP is not None
+    facts = "".join(f'    "{path}") answer {uid} {mode} "$2" ;;\n' for path, (uid, mode) in owners.items())
+    stand_ins = (
+        'answer() { if [ "$3" = %u ]; then echo "$1"; else echo "$2"; fi; }\n'
+        f'stat() {{ case "$3" in\n{facts}    *) echo "stat: no stand-in for $3" >&2; return 1 ;;\n  esac; }}\n'
+        f'dirname() {{ if [ "$1" = "{top}" ]; then echo /; else command dirname "$1"; fi; }}\n'
+    )
+    script = 'set -euo pipefail\ndie() { echo "die: $*" >&2; exit 1; }\nscratch="$1"\n' + stand_ins
+    script += '  local_up() {\n  local up="$scratch"\n' + LOOP.group(1) + "}\nlocal_up\necho FOLDERS-OK\n"
+    return subprocess.run(["bash", "-c", script, "loop", str(scratch)], check=False, capture_output=True, text=True)
 
 
-@pytest.mark.parametrize(
-    "scratch", ["/usr/share/tb-bench-ci-scratch", "/usr/tb-bench-ci-scratch", "/tb-bench-ci-scratch"]
-)
-def test_1448_27_the_scratch_check_takes_a_folder_under_roots_own_folders(scratch: str) -> None:
-    """The loop takes a folder exactly when every folder above it is root's and written by root only on this host
-    (a hosted runner's /usr/share need not be: the check then refuses it, as it must)."""
-    got = _scratch_loop(Path(scratch))
-    ok = _above_is_roots(Path(scratch))
-    assert (got.returncode == 0 and "FOLDERS-OK" in got.stdout) is ok, got.stderr
-    if not ok:
-        assert "must be root's, not a link, and writable by root only" in got.stderr
+def test_1448_27_the_scratch_check_takes_a_folder_under_roots_own_folders(tmp_path: Path) -> None:
+    """Every folder above <root>/usr/share/<name> is root's and written by root only: the test makes the chain and
+    says so itself (the integrator's ruling 7157261830: a test sets what it depends on, the account it runs as too)."""
+    top = tmp_path / "root"
+    share = top / "usr" / "share"
+    share.mkdir(parents=True)
+    owners = {str(share): (0, "755"), str(top / "usr"): (0, "755"), str(top): (0, "755"), "/": (0, "755")}
+    got = _scratch_loop_on(share / "tb-bench-ci-scratch", top, owners)
+    assert got.returncode == 0 and "FOLDERS-OK" in got.stdout, got.stderr
 
 
 def _cards_tool(tmp_path: Path, busy_reads: int, uuids: tuple[str, ...] = ("GPU-4", "GPU-5")) -> Path:
