@@ -25,6 +25,7 @@ import io
 import json
 import os
 import re
+import struct
 import unicodedata
 import zipfile
 from collections.abc import Callable, Iterable, Mapping
@@ -168,6 +169,22 @@ _SSN = re.compile(r"(?<![0-9A-Za-z\-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000
 _BORN_ROC = re.compile(r"(?<!\d)\d{2,3}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?=\s*出生)")
 #: an office document's parts that hold no text to read: its pictures and the printer's settings (OCR 1523-3)
 _OPAQUE = re.compile(r"(?:\.(?:png|jpe?g|gif|bmp|tiff?|emf|wmf)|/printerSettings/[^/]+\.bin)$", re.I)
+#: what a picture's own bytes begin with (OCR 1523-3: a part called a picture is skipped only when it is one)
+_PICTURE = (
+    b"\x89PNG\r\n\x1a\n",
+    b"\xff\xd8\xff",
+    b"GIF87a",
+    b"GIF89a",
+    b"BM",
+    b"II*\x00",
+    b"MM\x00*",
+    b"\xd7\xcd\xc6\x9a",
+    b"\x01\x00\x09\x00",
+)
+#: the zip extra fields that hold no more than a time, an owner or a size (OCR 1523-18)
+_EXTRA_OK = {0x0001, 0x000A, 0x5455, 0x5855, 0x7855, 0x7875}
+#: a sheet's cells, which :meth:`_Reader.workbook` reads with their columns (OCR 1523-19: the rest of the sheet as text)
+_CELL_DATA = re.compile(rb"<(?:\w+:)?sheetData\b[^>]*/>|<(?:\w+:)?sheetData\b.*?</(?:\w+:)?sheetData>", re.S)
 #: a workbook's parts that :meth:`_Reader.workbook` reads as cells
 _CELLS = re.compile(r"xl/(?:worksheets/[^/]+|sharedStrings|styles|theme/[^/]+|workbook)\.xml$|docProps/app\.xml$")
 _FRACTION = re.compile(r"\d\.$")  # the digits after a decimal point are no phone number
@@ -435,9 +452,13 @@ class _Reader:
         try:
             r = PdfReader(io.BytesIO(data))
             body = "\n".join(p.extract_text() or "" for p in r.pages)
-            texts, files = _pdf_parts(r.trailer)
+            seen: set[int] = set()
+            texts, files = _pdf_parts(r.trailer, seen)
+            hidden = _pdf_earlier(r, data, seen)
         except Exception:
             raise Refused("", "unreadable") from None
+        if hidden:  # OCR 1523-20: an earlier revision's objects stay in the bytes, unread
+            raise Refused("", "unreadable")
         if not body.strip():  # a scan: nothing in it can be read
             raise Refused("", "unreadable")
         self.none_in("\n".join([body, *texts]))
@@ -467,7 +488,7 @@ class _Reader:
             check_infos(infos)
         except (zipfile.BadZipFile, ZipRefused):
             raise Refused("", "unreadable") from None
-        if any(i.flag_bits & 1 for i in infos):  # encrypted
+        if any(i.flag_bits & 1 for i in infos) or not _accounted(data, z, infos):  # encrypted; bytes no member holds
             raise Refused("", "unreadable")
         # OCR 1523-3: the archive's comment and its members' comments leave with it
         self.none_in("\n".join(c.decode("utf-8", "replace") for c in (z.comment, *(i.comment for i in infos)) if c))
@@ -494,13 +515,17 @@ class _Reader:
         XML (an embedded file, a list that a member named ``[Content_Types].xml`` sits beside) is read as a file of its
         own (OCR 1523-3); a picture is not looked at. ``cells``: a workbook's cells are read by :meth:`workbook`."""
         for i in z.infolist():
-            if i.is_dir() or (cells and _CELLS.match(i.filename)):
+            if i.is_dir():
+                continue
+            if cells and _CELLS.match(i.filename):  # OCR 1523-19: what a sheet, the book or a format says beside cells
+                if i.filename != "xl/sharedStrings.xml":  # its strings: workbook(), once the cells are known
+                    self.markup(_CELL_DATA.sub(b"", z.read(i)))
                 continue
             part = z.read(i)
             markup = i.filename.endswith((".xml", ".rels", ".vml")) and part.lstrip(b"\xef\xbb\xbf \t\r\n")[:1] == b"<"
             if markup:
                 self.markup(part)
-            elif not _OPAQUE.search(i.filename) or _plain(part) is not None or part[:4] in (b"PK\x03\x04", b"%PDF"):
+            elif not (_OPAQUE.search(i.filename) and _opaque(i.filename, part) and _plain(part) is None):
                 self.whole(i.filename, part, depth)
         return data
 
@@ -508,7 +533,8 @@ class _Reader:
         raw = _plain(part)
         if raw is None:
             raise Refused("", "unreadable")
-        links = re.findall(r"""\bTarget\s*=\s*["']([^"']*)""", raw)  # a link's address stands in an attribute
+        # a link's address, a picture's description, a name and a number format stand in attributes (OCR 1523-19)
+        links = re.findall(r"""\b(?:Target|descr|title|name|formatCode)\s*=\s*["']([^"']*)""", raw)
         raw = re.sub(r"</(?:\w+:)?(?:p|tr|si)>", "\n", raw)  # a paragraph's runs read together
         self.none_in(html.unescape("\n".join([re.sub(r"<[^>]+>", "", raw), *links])))
 
@@ -517,13 +543,13 @@ class _Reader:
         (properties, comments, drawings) as text."""
         from openpyxl import load_workbook
 
-        self.parts(data, z, depth, cells=True)
         try:
             wb = load_workbook(io.BytesIO(data))
         except Exception:
             raise Refused("", "unreadable") from None
-        if sum(bool(re.match(r"xl/worksheets/[^/]+$", n)) for n in z.namelist()) > len(wb.worksheets):
+        if sum(bool(re.match(r"xl/worksheets/[^/]+\.xml$", n)) for n in z.namelist()) > len(wb.worksheets):
             raise Refused("", "unreadable")  # a sheet the book does not list: its cells are not read below
+        self.parts(data, z, depth, cells=True)
         changed = False
         for ws in wb.worksheets:
             self.none_in(ws.title)
@@ -563,6 +589,45 @@ class _Reader:
         return out
 
 
+def _opaque(name: str, part: bytes) -> bool:
+    """A part that is what its name says: a picture by its own first bytes, printer settings by their own size."""
+    if name.lower().endswith(".bin"):  # DEVMODE: its size and its driver's bytes are in it
+        return len(part) >= 72 and len(part) == sum(struct.unpack("<HH", part[68:72]))
+    return part.startswith(_PICTURE) or part[40:44] == b" EMF"
+
+
+def _extras_ok(extra: bytes) -> bool:
+    while extra:
+        if len(extra) < 4:
+            return False
+        kind, size = struct.unpack("<HH", extra[:4])
+        if kind not in _EXTRA_OK or len(extra) < 4 + size:
+            return False
+        extra = extra[4 + size :]
+    return True
+
+
+def _accounted(data: bytes, z: zipfile.ZipFile, infos: list[zipfile.ZipInfo]) -> bool:
+    """Every byte of the archive is a member's record, the directory or the end record (OCR 1523-18): bytes between
+    them, after them, or in an extra field are never read, and would leave with the file."""
+    pos = 0
+    for i in sorted(infos, key=lambda i: i.header_offset):
+        head = data[pos : pos + 30]
+        if i.header_offset != pos or len(head) < 30 or head[:4] != b"PK\x03\x04" or not _extras_ok(i.extra):
+            return False
+        n, e = struct.unpack("<HH", head[26:30])
+        if not _extras_ok(data[pos + 30 + n : pos + 30 + n + e]):
+            return False
+        pos += 30 + n + e + i.compress_size
+        if i.flag_bits & 8:  # a data descriptor follows the data
+            pos += 16 if data[pos : pos + 4] == b"PK\x07\x08" else 12
+    end = data.rfind(b"PK\x05\x06")
+    if pos != z.start_dir or end < 0:
+        return False
+    size = struct.unpack("<I", data[end + 12 : end + 16])[0]
+    return z.start_dir + size == end and end + 22 + len(z.comment) == len(data)
+
+
 def _plain(data: bytes) -> str | None:
     """``data`` as text; None when it is not text."""
     try:
@@ -572,13 +637,14 @@ def _plain(data: bytes) -> str | None:
     return None if re.search(r"[\x00-\x08\x0e-\x1f]", raw) else raw
 
 
-def _pdf_parts(trailer: Any) -> tuple[list[str], list[tuple[str, bytes]]]:
-    """Every text a PDF's objects hold, and the files it carries with their names."""
+def _pdf_parts(trailer: Any, seen: set[int] | None = None) -> tuple[list[str], list[tuple[str, bytes]]]:
+    """Every text a PDF's objects hold, and the files it carries with their names. A script, or a note drawn by its own
+    picture of text (its appearance), is not read: ``Refused`` (OCR 1523-20)."""
     from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject, StreamObject, TextStringObject
 
     texts: list[str] = []
     files: list[tuple[str, bytes]] = []
-    seen: set[int] = set()
+    seen = set() if seen is None else seen
     todo: list[Any] = [trailer]
     while todo:
         o = todo.pop()
@@ -593,6 +659,8 @@ def _pdf_parts(trailer: Any) -> tuple[list[str], list[tuple[str, bytes]]]:
             todo.extend(list.__iter__(o))
         elif isinstance(o, DictionaryObject):
             todo.extend(dict.values(o))
+            if "/JS" in o or ("/AP" in o and o.get("/Subtype") not in ("/Link", "/Popup")):
+                raise Refused("", "unreadable")
             if "/EF" in o:
                 name = str(o.get("/UF") or o.get("/F") or "")
                 kept: Any = o["/EF"]
@@ -600,6 +668,23 @@ def _pdf_parts(trailer: Any) -> tuple[list[str], list[tuple[str, bytes]]]:
             elif isinstance(o, StreamObject) and o.get("/Subtype") == "/XML":  # its description of itself
                 texts.append(html.unescape(re.sub(r"<[^>]+>", "\n", o.get_data().decode("utf-8", "replace"))))
     return texts, files
+
+
+def _pdf_earlier(r: Any, data: bytes, seen: set[int]) -> bool:
+    """Whether the bytes hold an object no reader shows: one written twice (an edit appended to the file), or a stream
+    nothing points at (a page's text replaced by a later revision)."""
+    from pypdf.generic import StreamObject
+
+    defined = re.findall(rb"(?<![0-9])(\d+)\s+\d+\s+obj\b", data)
+    if len(defined) != len(set(defined)):
+        return True
+    for n in {n for table in r.xref.values() for n in table} | set(r.xref_objStm) - seen:
+        if n in seen:
+            continue
+        o = r.get_object(n)
+        if isinstance(o, StreamObject) and o.get("/Type") not in ("/ObjStm", "/XRef") and "/S" not in o:
+            return True
+    return False
 
 
 def _a_day(text: str) -> bool:
