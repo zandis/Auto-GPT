@@ -100,6 +100,10 @@ start and holds until the next, so "every use" is recorded per start, not per co
 minute). The install check (`preflight` `mail_relay`) tests the relay's certificate as the gateway will, with the
 hospital's CA file when `TB_EXTRA_CA` names one; it fails an untrusted certificate and warns when the switch is off or
 there is no TLS.
+Each audit line names the server, its host and the setting (`SMTP_TLS_VERIFY=false`, `SMTP_STARTTLS=false`,
+`IMAP_TLS_VERIFY=false`, `IMAP_SSL=false`), and the doctor's line `mail_tls` warns in every environment while one is so
+(the integrator's ruling 7165038321, item 4: auditing per start is enough; `mail_tls` joins the doctor test's set under
+7161211237).
 
 **The trusted proxy, option 3 (H137-12).** One named list, `TB_CONSOLE_FORWARDED_ALLOW_IPS`
 (`libs/tb_common/trusted_proxy.py`). On a box behind Caddy the identity overlay gives the internal network a fixed range

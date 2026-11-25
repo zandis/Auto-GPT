@@ -447,6 +447,24 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     return Check("secure_cookie", status, why)
 
 
+def check_mail_tls(inp: DoctorInputs) -> Check:
+    """H-137 (the owner's decision, #639 7156806411 item 6; the integrator's ruling 7165038321 item 4): a WARN in every
+    environment while a mail server is spoken to without a verified certificate, naming the server and the setting
+    (``mail_gateway.tls``: SMTP_TLS_VERIFY, SMTP_STARTTLS, IMAP_TLS_VERIFY, IMAP_SSL); the gateway audits each start
+    so. The IMAP server counts only when a mailbox is polled (IMAP_USER)."""
+    from pathlib import Path as _Path
+
+    from mail_gateway import tls
+    from tb_common.config import load_env
+
+    env = load_env(_Path("/nonexistent"), {k: str(v) for k, v in inp.env.items()})
+    off = tls.unverified(env, imap_used=bool(env.imap_user))
+    if not off:
+        return Check("mail_tls", "PASS", "the mail servers' certificates are verified")
+    said = "; ".join(f"{s} {h}: {setting}" for s, h, _m, setting in off)
+    return Check("mail_tls", "WARN", f"mail without a verified certificate ({said}): each start is audited")
+
+
 def check_trusted_proxy(inp: DoctorInputs) -> Check:
     """H-137 (the owner's decision, #639 7156806411 item 7): the one list of proxies the console trusts for forwarded
     headers (``tb_common.trusted_proxy``). "All" is a FAIL in PRODUCTION (the console refuses to start with it) and a
@@ -2315,6 +2333,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_channel_engine,
     check_secure_cookie,
     check_trusted_proxy,
+    check_mail_tls,
     check_phi_tripwire,
     check_sae_mailbox,
     check_named_choices,

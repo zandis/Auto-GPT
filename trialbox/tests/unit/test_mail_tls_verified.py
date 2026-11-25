@@ -224,22 +224,41 @@ class _Audit:
     ("fields", "imap", "want"),
     [
         ({}, True, []),
-        ({"smtp_tls_verify": False}, False, [("mail.tls_unverified", "smtp")]),
-        ({"smtp_starttls": False}, False, [("mail.plaintext", "smtp")]),
+        ({"smtp_tls_verify": False}, False, [("mail.tls_unverified", "smtp", "SMTP_TLS_VERIFY=false")]),
+        ({"smtp_starttls": False}, False, [("mail.plaintext", "smtp", "SMTP_STARTTLS=false")]),
         ({"smtp_port": 465, "smtp_starttls": False}, False, []),  # 465 is TLS from the first byte
-        ({"imap_ssl": False, "imap_tls_verify": False}, True, [("mail.plaintext", "imap")]),
-        ({"imap_tls_verify": False}, True, [("mail.tls_unverified", "imap")]),
+        ({"imap_ssl": False, "imap_tls_verify": False}, True, [("mail.plaintext", "imap", "IMAP_SSL=false")]),
+        ({"imap_tls_verify": False}, True, [("mail.tls_unverified", "imap", "IMAP_TLS_VERIFY=false")]),
         ({"imap_tls_verify": False}, False, []),  # no mailbox polled: nothing spoken to
     ],
 )
 def test_each_start_without_a_verified_certificate_is_audited(
-    fields: dict[str, Any], imap: bool, want: list[tuple[str, str]]
+    fields: dict[str, Any], imap: bool, want: list[tuple[str, str, str]]
 ) -> None:
     from mail_gateway import tls
 
     audit = _Audit()
     tls.audit_modes(audit, Env(**fields), imap_used=imap)
-    assert [(e, d["server"]) for e, d in audit.events] == want
+    assert [(e, d["server"], d["setting"]) for e, d in audit.events] == want  # the line names the setting
+    assert all(d["host"] for _e, d in audit.events)
+
+
+def _mail_tls(env: dict[str, str]) -> doctor.Check:
+    return next(c for c in doctor.CHECKS if c.__name__ == "check_mail_tls")(doctor.DoctorInputs(env=env))
+
+
+def test_the_doctor_warns_while_a_mail_check_is_switched_off() -> None:
+    assert _mail_tls({"TB_ENV": "PRODUCTION"}).status == "PASS"
+    off = _mail_tls({"TB_ENV": "DEV", "SMTP_HOST": "relay.hospital.test", "SMTP_TLS_VERIFY": "false"})
+    assert off.status == "WARN" and "smtp relay.hospital.test: SMTP_TLS_VERIFY=false" in off.detail
+    plain = _mail_tls({"TB_ENV": "PRODUCTION", "SMTP_STARTTLS": "false", "SMTP_PORT": "25"})
+    assert plain.status == "WARN" and "SMTP_STARTTLS=false" in plain.detail
+    imap = {"TB_ENV": "PRODUCTION", "IMAP_HOST": "imap.hospital.test", "IMAP_TLS_VERIFY": "false"}
+    assert _mail_tls(imap).status == "PASS"  # no mailbox polled
+    polled = _mail_tls({**imap, "IMAP_USER": "intake"})
+    assert polled.status == "WARN" and "imap imap.hospital.test: IMAP_TLS_VERIFY=false" in polled.detail
+    both = _mail_tls({**imap, "IMAP_USER": "intake", "IMAP_SSL": "false", "SMTP_TLS_VERIFY": "0"})
+    assert "IMAP_SSL=false" in both.detail and "SMTP_TLS_VERIFY=false" in both.detail
 
 
 def test_the_gateway_start_writes_the_audit(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -44,17 +44,30 @@ def imap_mode(use_ssl: bool, verify: bool) -> str:
     return "verified" if verify else "unverified"
 
 
-def audit_modes(audit: _Audit, env: Any, *, imap_used: bool) -> list[str]:
-    """One audit event per server the gateway speaks to without a verified certificate; returns the events written.
-    Called once at each start of the gateway (the switch is read then, and holds until the next start)."""
-    written = []
+#: the setting that leaves a server unverified or without TLS (the integrator's ruling 7165038321, item 4)
+SETTING = {
+    ("smtp", "unverified"): "SMTP_TLS_VERIFY=false",
+    ("smtp", "plaintext"): "SMTP_STARTTLS=false",
+    ("imap", "unverified"): "IMAP_TLS_VERIFY=false",
+    ("imap", "plaintext"): "IMAP_SSL=false",
+}
+
+
+def unverified(env: Any, *, imap_used: bool) -> list[tuple[str, str, str, str]]:
+    """(server, host, mode, setting) for each server spoken to without a verified certificate."""
     servers = [("smtp", env.smtp_host, smtp_mode(env.smtp_port, env.smtp_starttls, env.smtp_tls_verify))]
     if imap_used:
         servers.append(("imap", env.imap_host, imap_mode(env.imap_ssl, env.imap_tls_verify)))
-    for server, host, mode in servers:
-        if mode == "verified":
-            continue
+    return [(s, h, m, SETTING[(s, m)]) for s, h, m in servers if m != "verified"]
+
+
+def audit_modes(audit: _Audit, env: Any, *, imap_used: bool) -> list[str]:
+    """One audit event per server the gateway speaks to without a verified certificate, naming the server, its host
+    and the setting that caused it; returns the events written. Called once at each start of the gateway (the switch
+    is read then, and holds until the next start)."""
+    written = []
+    for server, host, mode, setting in unverified(env, imap_used=imap_used):
         event = "mail.tls_unverified" if mode == "unverified" else "mail.plaintext"
-        audit.append(event, detail={"server": server, "host": host})
+        audit.append(event, detail={"server": server, "host": host, "setting": setting})
         written.append(event)
     return written
