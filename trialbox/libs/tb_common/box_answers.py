@@ -31,6 +31,9 @@ from tb_common.retention import MAX_DAYS, OVERRIDABLE
 LANGUAGES = ("en", "ja", "zh-TW")  # the console's three catalogues
 # M1 (D-1280): the marked name a box carries until the hospital's is given
 PLACEHOLDER_NAME = "TrialBox (site name needed)"
+#: the site id the install derives from it (``tools.box.plan.site_id``): go-live and a backup are refused while the
+#: box carries it, since a backup tagged with it fails restore's same-site check once the name is given
+PLACEHOLDER_SITE_ID = "TRIALBOX-SITE-NAME-NEEDE"
 
 
 class SourceKind(StrEnum):

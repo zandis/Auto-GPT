@@ -13,6 +13,7 @@
     python tools/acceptance.py capacity   --jobs <one night's jobs, JSON list> [--night <name>] [--tz <zone>]
     python tools/acceptance.py power-cycle --doctor <doctor --json, after the power came back> --audit-dir <dir>
     python tools/acceptance.py key-escrow --secrets <the secrets folder> [--deploy deploy]
+    python tools/acceptance.py site-name  [--deploy deploy]
     python tools/acceptance.py report     [--out acceptance/]
 
 ``screen-sample`` draws the blinded adjudication set (≥100 patients in four strata: high, review, excluded, scoped but
@@ -51,6 +52,8 @@ TARGETS = {
     "power_cycle": "after a power cut: trialbox doctor has no FAIL and the audit chain verifies",
     # INT-M5 (R22-33, D-894): a TPM-sealed KEK opens on new hardware only through its escrow set
     "key_escrow": "the KEK opens on new hardware: a TPM-sealed KEK has an escrow set on the newest ceremony record",
+    # the integrator's ruling: the install's stand-in site id never goes live
+    "site_name": "the hospital's name is given: the site id is not the install's stand-in",
 }
 SPARE_H = 1.0  # T-317a (D-730): the capacity criterion's margin before the first morning notice
 TERMINAL = ("done", "failed")
@@ -342,6 +345,22 @@ def check_key_escrow(secrets: Path, deploy: Path) -> dict[str, Any]:
     return {"passed": ok, "summary": why}
 
 
+def check_site_name(deploy: Path) -> dict[str, Any]:
+    """Go-live is refused while the box's site id (``TB_SITE_ID`` of ``deploy/.env``) is the install's stand-in, or is
+    not there (fails closed): the reports, the mail and every backup carry it."""
+    from tb_common import box_answers as ba
+
+    from tools.trialbox.finish_check import read_env
+
+    sid = read_env(deploy / ".env").get("TB_SITE_ID", "")
+    if not sid:
+        return {"passed": False, "summary": f"no TB_SITE_ID in {deploy / '.env'}: the site id was not read"}
+    if sid == ba.PLACEHOLDER_SITE_ID:
+        return {"passed": False, "summary": f'site name not set: the site id is the stand-in {sid}; give the '
+                                            'hospital\'s name on the page "Information still needed"'}  # fmt: skip
+    return {"passed": True, "summary": f"site id {sid}"}
+
+
 def report(out: Path) -> str:
     lines = [
         "# TrialBox site acceptance (SPEC §11.2)",
@@ -408,6 +427,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("key-escrow")
     s.add_argument("--secrets", type=Path, required=True, help="the box's secrets folder (on the host: its volume)")
     s.add_argument("--deploy", type=Path, default=Path("deploy"), help="the deploy folder (its site/ records)")
+    s = sub.add_parser("site-name")
+    s.add_argument("--deploy", type=Path, default=Path("deploy"), help="the deploy folder (its .env)")
     sub.add_parser("report")
     a = ap.parse_args(argv)
     out: Path = a.out
@@ -498,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
         return _save(out, "power_cycle", check_power_cycle(doctor, chain_ok=verify(a.audit_dir).ok))
     if a.cmd == "key-escrow":
         return _save(out, "key_escrow", check_key_escrow(a.secrets, a.deploy))
+    if a.cmd == "site-name":
+        return _save(out, "site_name", check_site_name(a.deploy))
     print(report(out))
     return 0
 

@@ -486,6 +486,8 @@ def test_a_signal_at_any_phase_ends_0_1_or_130_and_says_the_state(tmp_path: Path
         # "healthy" only after a complete restore, or a refused one whose data is as it was (LR-14)
         assert code == 0 or "are healthy" not in err or "the data not changed" in err, where
         assert "is kept" in err or not list(deploy.glob(".restore-*")), where
+        # the swept point past the step (once 0.2 s) still lands in this phase: the run reached it and its step ended
+        assert delay is not None or marks(state, "passed").count(phase) >= n, where
 
 
 def test_a_signal_after_the_state_line_changes_neither_the_line_nor_the_code(

@@ -269,6 +269,9 @@ def doctor_checks(deploy: Path, env: Mapping[str, str], settings: Mapping[str, A
     stand, problems = site_needs.read_stand_ins(deploy)
     files = [f for f in ("secrets/backup.pub",) if (deploy / f).is_file()]
     rows = [("site_needs_list", "WARN", p) for p in problems]
+    if ba.PLACEHOLDER_SITE_ID in (env.get("TB_SITE_ID"), (settings.get("site") or {}).get("id")):
+        rows.append(("site_id", "WARN", "site name not set: the site id is the install's stand-in; go-live and the "
+                     'first backup are refused until it is given on the page "Information still needed"'))  # fmt: skip
     for n, state in site_needs.still_needed(env=env, settings=settings, files=files, stand_ins=stand):
         steps = ", ".join(site_needs.STEPS[s]["en"] for s in n.before)
         rows.append((f"still_needed:{n.key}", "WARN",
