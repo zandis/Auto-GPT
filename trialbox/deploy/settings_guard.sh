@@ -88,8 +88,26 @@ TB_STOP_REHEARSAL=0
 # H-110 (M-LH-2): every file COMPOSE_FILE names is read by root's compose at this start: the file and each folder above
 # it owned by root (or the user that runs this) and writable by no one else (a shared folder with the sticky bit above
 # the file's own folder is allowed, as the installer's passphrase file rule allows it). Prints the problem, or nothing
+given_path() {  # review 7186452446 R3: the path as written, before any link is followed: each link in it is root's
+  # (or this user's), and each folder in it passes owned_path's rule, so no other user can point any part of it elsewhere
+  _d="$1"; _lvl=2
+  while :; do
+    _st="$(stat -c '%u %a %F' -- "$_d" 2>/dev/null)" || { echo "$_d cannot be read"; return 0; }
+    _u="${_st%% *}"; _r="${_st#* }"; _m="${_r%% *}"; _t="${_r#* }"
+    case "$_u" in 0|"$(id -u)") ;; *) echo "$_d is owned by uid $_u, not root"; return 0 ;; esac
+    if [ "$_t" != "symbolic link" ]; then
+      case "${_m#"${_m%??}"}" in
+        [0145][0145]) ;;
+        *) case "$_lvl:${#_m}:$_m" in 0:4:[1357]*) ;; *) echo "$_d can be written by group or others (mode $_m)"; return 0 ;; esac ;;
+      esac
+    fi
+    [ "$_d" != / ] || return 0
+    _d="$(dirname -- "$_d")"; [ "$_lvl" = 0 ] || _lvl=$((_lvl - 1))
+  done
+}
 owned_path() {
   [ -e "$1" ] || return 0  # a file not there is compose's own error
+  _why="$(given_path "$1")"; [ -z "$_why" ] || { echo "$_why"; return 0; }
   _p="$(readlink -f -- "$1" 2>/dev/null)" || { echo "$1 cannot be resolved"; return 0; }
   _d="$_p"; _lvl=2
   while :; do

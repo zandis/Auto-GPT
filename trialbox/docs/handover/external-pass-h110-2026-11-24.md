@@ -336,3 +336,26 @@ fixtures changed (their modes only, no assertion): `tests/unit/test_host_command
 **Not run here.** The rehearsal job (no Docker daemon in this session), so its three new cases have not run. A real
 systemd host for the retention timer: the test runs install.sh's own lines with a systemctl stand-in. The whole unit
 and integration runs, which CI runs.
+
+## The integrator's review at 57bc0542 (7186452446)
+
+Rows H110-45 to H110-50. Each new test failed on the merge before these fixes (c345c6a6) and passes now; R5 adds an
+assertion that the test lacked.
+
+- **H-1 (High).** The bootstrap's walk skipped every `.pyc` and `.pyo` not in the signed list, so a bare one under
+  `tools/` or `libs/` was never counted. It is now counted like any file the release does not hold (the cache folders
+  are removed before the walk). Test: `test_h110_review_7186452446.py`, a planted `tools/evil.pyc`.
+- **H-2 (High).** After a changed tree is staged, the check of the box's own tree ("tops") kept only its top-level
+  findings, so unsigned code beside a signed script outside `tools/` and `libs/` went unreported. Those findings are
+  now reported there too. Test: a planted module named json beside the signed script in the hardening folder stops the run.
+- **R2 (Medium).** `host_tree.stage` refuses when the drifted release it would set aside is the one `current` names.
+  A drifted release the box does not run is still set aside and unpacked again.
+- **R3 (Medium).** `settings_guard.sh` checks the compose file's path as written, before links are followed: each
+  link in it is root's (or the user's), and each folder passes the owner and mode rule. Refusing every link would
+  refuse every installed box, whose `deploy/docker-compose.yml` is the release's link through `current`; a link no
+  other user can change or move is kept, and a test holds both cases.
+- **R4 (Medium).** The cron branch of `install.sh` disables and removes a retention timer an earlier install made, as
+  the timer branch removes the cron file. Only an installed timer is touched.
+- **R5 (Medium).** The concurrent-save test asserts each worker's exit code.
+
+L-2 and L-4 were not taken.

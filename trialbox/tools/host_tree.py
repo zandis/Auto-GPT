@@ -339,6 +339,12 @@ def stage(tar: Path, base: Path, release_id: str) -> bool:
     dest = rels / release_id
     fresh = False
     if dest.exists() and check_dir(dest):  # left over and changed: set aside, unpack again
+        cur = base / "current"
+        if cur.is_dir() and os.path.realpath(cur) == os.path.realpath(dest):
+            # review 7186452446 R2: the release the box runs is never moved from under it; the update path's rollback
+            # point and the box's links name it
+            raise HostTreeError(f"{dest} is the release the box runs ({cur}) and it is not as signed: it is not "
+                                "replaced here. Run the update step for this release, or move the box to another first")
         dest.rename(rels / f".changed-{release_id}-{int(time.time())}")
     if not dest.exists():
         _unpack(tar, dest)

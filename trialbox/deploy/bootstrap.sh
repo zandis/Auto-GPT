@@ -165,7 +165,9 @@ for top in ("tools", "libs"):
         dirs[:] = [x for x in dirs if x not in ("__pycache__", ".cache", ".venv")]
         for f in files:
             rel = os.path.relpath(os.path.join(d, f), root).replace(os.sep, "/")
-            if rel not in signed and not f.endswith((".pyc", ".pyo")):
+            # review 7186452446 H-1: a .pyc or .pyo outside a cache folder is a module python3 imports with no source
+            # (a bare one): it is counted like any file the release does not hold (the cache folders went above)
+            if rel not in signed:
                 bad.append(rel + ": not in the release")
 # OCR 1455-1: anything at the top that a python3 started there would import (a module of any suffix, a package
 # folder, a .pth, a cache folder) and the release does not hold is code of the kept tree
@@ -189,6 +191,7 @@ for d in sorted({os.path.dirname(n) for n in signed if n.endswith(".py") and n.s
         pkg = any(os.path.exists(os.path.join(p, "__init__" + x)) for x in sfx)
         if rel not in signed and (f.endswith(sfx) or f == "__pycache__" or pkg):
             bad.append(rel + ": not in the release")
+            top_bad.append(rel + ": not in the release")  # review 7186452446 H-2: reported on the kept tree too
 # the folders above the tree: owned by root alone, or shared only with the sticky bit (as /tmp is)
 up = os.path.dirname(rroot)
 while True:

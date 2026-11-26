@@ -184,13 +184,18 @@ def test_a_vendor_key_that_cannot_be_read_stops_the_launcher_with_its_reason(tmp
 
 
 # ------------------------------------------------------------------------------------------------ (c) the retention
-def _retention_part(tmp: Path, *, cron_dir: bool, cron_daemon: bool, anchor_unsafe: bool = False) -> dict[str, str]:
+def _retention_part(
+    tmp: Path, *, cron_dir: bool, cron_daemon: bool, anchor_unsafe: bool = False, timer: bool = False
+) -> dict[str, str]:
     """install.sh's own lines from the systemd-host test to the retention's end, as root on a systemd host."""
     a = INSTALL.index("# H-92 (D-1090): a systemd host")
     b = INSTALL.index('if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]', a)
     run, units, cron, stub = tmp / "run-systemd", tmp / "units", tmp / "cron.d", tmp / "bin"
     for d in (run, units, stub):
         d.mkdir()
+    if timer:  # the retention timer an earlier install made (no cron daemon ran then)
+        for f in ("trialbox-retention.service", "trialbox-retention.timer"):
+            (units / f).write_text("# Written by deploy/install.sh (H-110)\n", encoding="utf-8")
     if cron_dir:  # with the file an earlier install wrote there
         cron.mkdir()
         (cron / "trialbox-retention").write_text("SHELL=/bin/sh\n20 0 * * * root cd /opt/trialbox && true\n")
@@ -232,6 +237,14 @@ def test_a_systemd_host_without_a_cron_daemon_runs_the_retention_from_a_timer(tm
 def test_a_host_whose_cron_daemon_runs_keeps_the_cron_file_and_no_timer(tmp_path: Path) -> None:
     got = _retention_part(tmp_path, cron_dir=True, cron_daemon=True)
     assert "audit-sign" in got["cron"] and got["trialbox-retention.service"] == "" and "enable" not in got["systemctl"]
+
+
+def test_a_host_whose_cron_daemon_runs_again_has_one_schedule_the_timer_goes(tmp_path: Path) -> None:
+    """Review 7186452446 R4: the cron branch leaves no retention timer an earlier install made: both never run."""
+    got = _retention_part(tmp_path, cron_dir=True, cron_daemon=True, timer=True)
+    assert "audit-sign" in got["cron"], got
+    assert got["trialbox-retention.timer"] == "" and got["trialbox-retention.service"] == "", got
+    assert "disable --now trialbox-retention.timer" in got["systemctl"], got
 
 
 def test_a_warned_anchor_folder_takes_the_signed_head_out_of_the_timer_too(tmp_path: Path) -> None:
@@ -815,6 +828,7 @@ def test_two_applies_at_once_never_break_the_state_file(tmp_path: Path) -> None:
         except (OSError, ValueError):
             unreadable += 1
     errors = [int((p.communicate()[0] or "0").strip()) for p in procs]
+    assert [p.returncode for p in procs] == [0, 0]  # review 7186452446 R5: each worker ran to its end
     assert errors == [0, 0] and unreadable == 0
     assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
 

@@ -487,6 +487,72 @@
    "state": "open",
    "fix": "the bootstrap stages the release and switches nothing; the staged installer runs, and only its update step switches, with its rollback point",
    "from": "LR-18: Lane LR's lifecycle review (routed by the integrator's 7136231344)"
+  },
+  {
+   "id": "H110-45",
+   "severity": "High",
+   "claim": "the bootstrap's walk skipped every .pyc and .pyo not in the signed list: a bare one under tools/ or libs/ (outside a cache folder) is a module python3 imports with no source, and it was never counted",
+   "severity_basis": "kept code that runs as root under the signed installer",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a .pyc or .pyo outside a cache folder is counted like any file the release does not hold",
+   "from": "H-1: the integrator's review of #1455 at 57bc0542 (7186452446)"
+  },
+  {
+   "id": "H110-46",
+   "severity": "High",
+   "claim": "after a kept tree was staged, the check of the box's own tree kept only its top-level findings: unsigned code beside a signed script outside tools/ and libs/ (deploy/hardening) went unreported",
+   "severity_basis": "kept code imported by a signed script root runs after the switch",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "those findings are reported on the box's own tree too: nothing runs until they are moved aside",
+   "from": "H-2: the integrator's review of #1455 at 57bc0542 (7186452446)"
+  },
+  {
+   "id": "H110-47",
+   "severity": "Medium",
+   "claim": "host_tree.stage set aside the folder current points to when the same bundle id was staged again over a drifted release",
+   "severity_basis": "the running box loses its tree from under it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "stage refuses when the drifted release is the one current names; the update step or a move of the box comes first",
+   "from": "R2: the integrator's review of #1455 at 57bc0542 (7186452446)"
+  },
+  {
+   "id": "H110-48",
+   "severity": "Medium",
+   "claim": "settings_guard.sh checked only the resolved compose file: a link in a folder others can write passed and could be pointed elsewhere before the start",
+   "severity_basis": "a compose file another user can redirect, read by root's start",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the path as written is checked too: each link in it is root's (or the user's), each folder in it passes the owner and mode rule",
+   "from": "R3: the integrator's review of #1455 at 57bc0542 (7186452446)"
+  },
+  {
+   "id": "H110-49",
+   "severity": "Medium",
+   "claim": "the cron branch of install.sh left a retention timer an earlier install made enabled: both schedules ran",
+   "severity_basis": "the nightly retention and signed audit head run twice",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the cron branch disables and removes trialbox-retention.timer and its service, as the timer branch removes the cron file",
+   "from": "R4: the integrator's review of #1455 at 57bc0542 (7186452446)"
+  },
+  {
+   "id": "H110-50",
+   "severity": "Medium",
+   "claim": "the concurrent-save test ignored each worker's exit code: a worker that died early passed",
+   "severity_basis": "a test that cannot fail on the fault it names",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the test asserts each worker's exit code is 0",
+   "from": "R5: the integrator's review of #1455 at 57bc0542 (7186452446)"
   }
  ]
 }
