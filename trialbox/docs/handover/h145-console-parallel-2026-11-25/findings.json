@@ -44,6 +44,14 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "H145-06",
+   "severity": "Low",
+   "claim": "pglocal stop-idle exits 0 when it leaves the shared cluster running because clients remain (it only prints 'has clients; left running'), so test-console-locked, which now fails a green run on a failed cleanup step, still passes in that case",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }

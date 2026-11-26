@@ -9,7 +9,7 @@ language.
   with int/system 0894674f once, on the integrator's 7184086631)
 - **Change:** `make test-console` only; no test changed
 - **Findings:** [`h145-console-parallel-2026-11-25/findings.json`](h145-console-parallel-2026-11-25/findings.json)
-  (H145-01 to H145-05)
+  (H145-01 to H145-06)
 
 ## What changed
 
@@ -68,6 +68,17 @@ As the ordinary user under the same conditions: the policy set 6157 passed and 1
 or root needed); `make cross-card` 329 passed; `make guard` 1199 passed, 1 skipped, 11 xfailed; collect-only 29678,
 rc 0. As root: lint, doclint, data-scan, security-scan, limits_lint, decisions_index and the findings register's
 check clean.
+
+## R1 (the integrator's review of #1539, 7186855564)
+
+`test-console-locked` exited with pytest's status only, so a failed cleanup after a green run still passed. Now
+every cleanup step runs (empty `TMPDIR`, `pglocal stop-idle`, and on a green run the basetemp's removal); a green run
+exits with the first cleanup step that failed, and a red run keeps pytest's status. The pytest line is unchanged.
+Two tests in the card's file run the target with a stand-in `PY` (no cluster): pytest green and stop-idle exiting 3
+fails with `Error 3`; pytest red and stop-idle red fails with pytest's `Error 1`. The first fails on the recipe
+before the fix. `pglocal stop-idle` itself exits 0 when it leaves a cluster running because clients remain, so that
+case is still not a failure of the stage (H145-06, shown by calling its `main` with `stop_idle` reporting clients:
+it prints "has clients; left running" and returns 0; `tools/pglocal.py` is not this card's file).
 
 ## The long console tests (H145-03, a follow-up)
 

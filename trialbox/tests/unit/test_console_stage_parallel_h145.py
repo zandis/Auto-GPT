@@ -9,6 +9,7 @@ can write without the sticky bit. Synthetic data only.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import signal
@@ -59,6 +60,58 @@ def _preflight(root: Path, hup: signal.Handlers) -> subprocess.CompletedProcess[
         check=False,
         preexec_fn=lambda: signal.signal(signal.SIGHUP, hup),
     )
+
+
+#: a stand-in for $(PY): `-m pytest` exits PYTEST_RC, `-m tools.pglocal stop-idle` exits STOP_RC; no cluster, no test
+STANDIN = """#!/bin/sh
+case "$*" in
+  *"-m pytest"*) exit "$PYTEST_RC" ;;
+  *"stop-idle"*) echo "stand-in stop-idle exits $STOP_RC" >&2; exit "$STOP_RC" ;;
+esac
+exit 99
+"""
+
+
+def _locked(tmp_path: Path, pytest_rc: int, stop_rc: int) -> tuple[subprocess.CompletedProcess[str], Path]:
+    make = shutil.which("make")
+    if make is None:
+        pytest.fail("make is not installed")
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    py = tmp_path / "standin-python"
+    py.write_text(STANDIN, encoding="utf-8")
+    py.chmod(0o755)
+    root = tmp_path / "root"
+    (root / "pytest").mkdir(parents=True)
+    env = {**os.environ, "PYTEST_RC": str(pytest_rc), "STOP_RC": str(stop_rc)}
+    r = subprocess.run(
+        [make, "--no-print-directory", "test-console-locked", f"TB_TEST_ROOT={root}", f"PY={py}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        env=env,
+    )
+    return r, root
+
+
+def test_h145_a_failed_cleanup_fails_a_green_console_run(tmp_path: Path) -> None:
+    """R1 (#1539, 7186855564): pytest green, stop-idle red: the target fails with the cleanup's status, after every
+    cleanup step ran."""
+    r, root = _locked(tmp_path, pytest_rc=0, stop_rc=3)
+    assert r.returncode != 0, r.stderr
+    assert "stand-in stop-idle exits 3" in r.stderr and "Error 3" in r.stderr
+    assert not (root / "tmp").exists() and not (root / "pytest").exists()
+    r, root = _locked(tmp_path / "green", pytest_rc=0, stop_rc=0)
+    assert r.returncode == 0, r.stderr
+    assert not (root / "pytest").exists()
+
+
+def test_h145_a_red_console_run_keeps_pytests_status_when_cleanup_also_fails(tmp_path: Path) -> None:
+    r, root = _locked(tmp_path, pytest_rc=1, stop_rc=3)
+    assert r.returncode != 0
+    assert "stand-in stop-idle exits 3" in r.stderr and "Error 1" in r.stderr and "Error 3" not in r.stderr
+    assert not (root / "tmp").exists() and (root / "pytest").is_dir()  # a red run keeps its basetemp
 
 
 def test_h145_the_console_stage_takes_the_unit_lock() -> None:

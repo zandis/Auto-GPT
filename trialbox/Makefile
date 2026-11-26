@@ -685,6 +685,8 @@ restore-drill:
 # The lead's bench (#1504): a run under nohup (SIGHUP ignored) is refused, since its workers, servers and browsers
 # would outlive a closed session; so is a root that group or others can write into, or that lies under such a folder
 # without the sticky bit (pglocal mark closes the folders this user owns; this refuses the ones it cannot close).
+# R1 (#1539): every cleanup step after pytest runs; a green run fails with the first cleanup step that failed, and a
+# red run keeps pytest's status.
 test-console: venv-check test-console-preflight
 	@TB_STRICT_SKIPS=1 flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-console-locked; rc=$$?; \
 	if [ $$rc = 75 ]; then echo "test-console: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
@@ -704,8 +706,10 @@ test-console-locked:
 	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -m 0700 -p "$(TB_TEST_ROOT)/tmp"
 	TB_STRICT_SKIPS=1 TB_ENV=TEST TMPDIR="$(TB_TEST_ROOT)/tmp" PYTHONPATH=libs:services:. $(PY) -m pytest -q -n $(PYTEST_N) $(XDIST_DIST) \
 		--basetemp "$(TB_TEST_ROOT)/pytest" tests/console; rc=$$?; \
-	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
-	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
+	c=0; rm -rf "$(TB_TEST_ROOT)/tmp"; s=$$?; [ $$c != 0 ] || c=$$s; \
+	PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; s=$$?; [ $$c != 0 ] || c=$$s; \
+	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; s=$$?; [ $$c != 0 ] || c=$$s; fi; \
+	if [ $$rc != 0 ]; then exit $$rc; fi; exit $$c
 
 # browser + e-mail end to end against the running POC (make poc first): Playwright (Node) drives the console
 test-console-e2e:
