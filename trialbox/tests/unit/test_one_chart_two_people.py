@@ -176,6 +176,11 @@ def test_another_person_under_a_served_chart_on_the_next_night_is_held(good: Any
     # a change against the served night is the steward's: a confirmed correction of one person is accepted, audited
     # by the decision (datacore.dataops.decide), and only then served
     assert publish_held(cfg, NEXT).promoted and rb.calls == [NEXT]
+    # both versions kept: the night served before still holds the first person; tonight serves the corrected one
+    assert _served_patient(cfg, pid)[0]["birthDate"] == first["birth_date"]
+    assert [r["birthDate"] for r in read_type(snapshot_dir(cfg.lake_dir, NEXT), "Patient") if r["id"] == pid] == [
+        "1999-09-09"
+    ]
 
 
 def test_one_persons_row_twice_and_a_clean_night_are_unchanged(good: Any, tmp_path: Path) -> None:
