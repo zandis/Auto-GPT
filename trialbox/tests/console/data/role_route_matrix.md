@@ -165,6 +165,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/rescreen` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/sae/{record}/{event}` | - | n | - | n | n | - | - | - | - |
 | GET | `/studies/{rs}/schedule` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/screen-now` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/studies/{rs}/screening-log` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/screening-log.xlsx` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/setup` | - | Y | Y | Y | Y | - | - | - | - |
@@ -304,6 +305,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/sae/{record}/{event}/ack` | - | n | - | n | n | - | - | - | - |
 | POST | `/studies/{rs}/sae/{record}/{event}/{what}` | n | n | n | n | n | - | - | n | n |
 | POST | `/studies/{rs}/schedule` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/screen-now` | Y | Y | - | Y | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/consent-ages` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/setup/contact` | - | Y | - | - | Y | - | - | - | - |

@@ -49,6 +49,13 @@ def the_site(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ee, "site", lambda: ee.Site(r"^\d{8}$", ("hosp.example",)))
 
 
+@pytest.fixture(autouse=True)
+def the_box_made_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1523 ruling (round 3): these tests read the second layer, the reading of a file the box made, so every file in
+    them is taken as the box's own; ``tests/unit/test_egress_made.py`` tests the record and the refusal of any other."""
+    monkeypatch.setattr(ee, "_box_made", lambda _digest, _vouched: True)
+
+
 def reason(route: str, payload: Any, **kw: Any) -> str:
     with pytest.raises(ee.Refused) as got:
         ee.leave(route, "x", payload, **{"audit": Audit(), "actor": "t", **kw})
@@ -626,6 +633,19 @@ def _twice() -> bytes:
     return buf.getvalue()
 
 
+def _png(*chunks: tuple[bytes, bytes]) -> bytes:
+    """A real 1x1 PNG, with ``chunks`` before its pixels."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    head = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 0, 0, 0, 0))
+    more = b"".join(chunk(k, b) for k, b in chunks)
+    return b"\x89PNG\r\n\x1a\n" + head + more + chunk(b"IDAT", zlib.compress(b"\x00\x00")) + chunk(b"IEND", b"")
+
+
 UNREAD: dict[str, tuple[str, bytes]] = {
     "content_types_beside_a_list": ("a.zip", _office({"notes.txt": b"MRN: 70000054\n"})),
     "office_embedded_list": ("a.docx", _office({"word/embedded/list.csv": LIST})),
@@ -670,7 +690,7 @@ _CLEAN = {"word/document.xml": b"<w:p>hi</w:p>", "word/_rels/a.rels": b'<R Targe
 @pytest.mark.parametrize(
     ("name", "data"),
     [
-        ("a.docx", _office({**_CLEAN, "word/media/image1.png": b"\x89PNG\r\n\x1a\n\x00\x00", "word/a/": b""})),
+        ("a.docx", _office({**_CLEAN, "word/media/image1.png": _png(), "word/a/": b""})),
         ("a.docx", _office({"word/document.xml": b"\xef\xbb\xbf<w:p>hi</w:p>", "word/e/list.csv": b"n\n3\n"})),
         ("a.xlsx", _book()),
         ("a.pdf", _pdf(attached=b"n\n3\n", field="yes", note="a clean note")),
@@ -868,3 +888,246 @@ def _sheet_part(xml: bytes) -> bytes:
 def test_a_part_that_only_looks_like_one_the_reader_skips_is_read(name: str, data: bytes) -> None:
     """The review's patch skipped a part by its first bytes, and read a sheet's text only beside its cells."""
     assert reason("download.study", ee.File(name, data)) in ("identifiers", "unreadable")
+
+
+# ------------------------------------------------------------------------------------------------ 1523 review: fail closed
+def _raw_zip(body: bytes, size: int, method: int = 0, extra: bytes = b"") -> bytes:
+    """One member ``a.txt`` written by hand: ``body`` as its data, ``size`` as what a reader takes from it."""
+    import struct
+    import zlib
+
+    crc = zlib.crc32(b"hello")
+    local = struct.pack("<4sHHHHHIIIHH", b"PK\x03\x04", 20, 0, method, 0, 0x21, crc, len(body), size, 5, len(extra))
+    central = struct.pack(
+        "<4sHHHHHHIIIHHHHHII", b"PK\x01\x02", 20, 20, 0, method, 0, 0x21, crc, len(body), size, 5, len(extra), 0, 0,
+        0, 0, 0,
+    )  # fmt: skip
+    members = local + b"a.txt" + extra + body
+    cd = central + b"a.txt" + extra
+    return members + cd + struct.pack("<4sHHHHIIH", b"PK\x05\x06", 0, 0, 1, 1, len(cd), len(members), 0)
+
+
+def _descriptor() -> bytes:
+    """A member followed by a data descriptor whose bytes are a list's, not the member's check sum and sizes."""
+
+    class Pipe(io.RawIOBase):
+        def __init__(self) -> None:
+            self.out = bytearray()
+
+        def writable(self) -> bool:
+            return True
+
+        def write(self, b: Any) -> int:
+            self.out += b
+            return len(b)
+
+    p = Pipe()
+    with zipfile.ZipFile(p, "w") as z:  # not seekable: the sizes follow the data
+        z.writestr("a.txt", b"hello")
+    data = bytes(p.out)
+    at = data.index(b"PK\x07\x08") + 4
+    return data[:at] + b"70000054Robi" + data[at + 12 :]
+
+
+def _devmode(extra: bytes) -> bytes:
+    import struct
+
+    head = bytearray(220)
+    head[68:72] = struct.pack("<HH", 220, len(extra))
+    return bytes(head) + extra
+
+
+_LISTED = (
+    b'<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>MRN 70000054 Robin Example</t></is></c></row>'
+    b"</sheetData></worksheet>"
+)
+
+
+def _sheet_at_another_place() -> bytes:
+    """The book lists its one sheet at ``xl/other/s.xml``; ``xl/worksheets/sheet1.xml`` holds a list no sheet shows."""
+    src = zipfile.ZipFile(io.BytesIO(_book()))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for i in src.infolist():
+            part = src.read(i)
+            if i.filename == "xl/_rels/workbook.xml.rels":
+                part = part.replace(b"worksheets/sheet1.xml", b"other/s.xml")
+            if i.filename == "xl/worksheets/sheet1.xml":
+                z.writestr("xl/other/s.xml", part)
+                part = _LISTED
+            z.writestr(i, part)
+    return buf.getvalue()
+
+
+_CACHED = (
+    b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+    b'<row r="1"><c r="A1" t="inlineStr"><is><t>mrn</t></is></c><c r="B1" t="inlineStr"><is><t>n</t></is></c></row>'
+    b'<row r="2"><c r="A2" t="str"><f>"x"</f><v>70000054</v></c><c r="B2"><v>3</v></c></row>'
+    b"</sheetData></worksheet>"
+)
+
+
+def _pdf_with(edit: Any) -> bytes:
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    c.drawString(72, 700, "12 of 85 patients")
+    c.save()
+    w = PdfWriter(clone_from=PdfReader(io.BytesIO(buf.getvalue())))
+    edit(w)
+    out = io.BytesIO()
+    w.write(out)
+    return out.getvalue()
+
+
+def _as_is(_w: Any) -> None:
+    pass
+
+
+def _orphan(w: Any) -> None:
+    from pypdf.generic import DictionaryObject, NameObject, TextStringObject
+
+    w._add_object(DictionaryObject({NameObject("/X"): TextStringObject("MRN 70000054 Robin Example")}))
+
+
+def _orphan_stream_with_s(w: Any) -> None:
+    from pypdf.generic import DecodedStreamObject, NameObject, NumberObject
+
+    s = DecodedStreamObject()
+    s.set_data(b"BT /F1 12 Tf 72 700 Td (MRN 70000054 Robin Example) Tj ET")
+    s[NameObject("/S")] = NumberObject(0)
+    w._add_object(s)
+
+
+def _page_comment(w: Any) -> None:
+    from pypdf.generic import DecodedStreamObject, NameObject
+
+    page = w.pages[0]
+    s = DecodedStreamObject()
+    s.set_data(b"% MRN 70000054 Robin Example\n" + page.get_contents().get_data())
+    w._objects[page.raw_get(NameObject("/Contents")).idnum - 1] = s  # in its place: nothing is left unpointed at
+
+
+def _form(w: Any) -> None:
+    from pypdf.generic import ArrayObject, DictionaryObject, NameObject, NumberObject, TextStringObject
+
+    look = DictionaryObject({NameObject("/N"): w._add_object(DictionaryObject())})
+    field = DictionaryObject({
+        NameObject("/Type"): NameObject("/Annot"), NameObject("/Subtype"): NameObject("/Widget"),
+        NameObject("/FT"): NameObject("/Tx"), NameObject("/T"): TextStringObject("a"),
+        NameObject("/V"): TextStringObject("yes"), NameObject("/AP"): look,
+        NameObject("/Rect"): ArrayObject([NumberObject(10)] * 2 + [NumberObject(90)] * 2)})  # fmt: skip
+    ref = w._add_object(field)
+    w.pages[0][NameObject("/Annots")] = ArrayObject([ref])
+    form = DictionaryObject({NameObject("/Fields"): ArrayObject([ref])})
+    w._root_object[NameObject("/AcroForm")] = w._add_object(form)
+
+
+def _word(xml: bytes) -> bytes:
+    return _office({"word/document.xml": b"<w:p>hi</w:p>", "word/settings.xml": xml})
+
+
+def _gz(data: bytes) -> bytes:
+    import gzip
+
+    return gzip.compress(data)
+
+
+def _deflated(data: bytes) -> bytes:
+    import zlib
+
+    return zlib.compress(data)[2:-4]
+
+
+_UT = b"UT" + bytes([5 + len(LIST), 0]) + b"\x01\x00\x00\x00\x00" + LIST  # a time field, and a list after the time
+_JPEG_NOTE = b"\xff\xd8\xff\xfe" + (2 + len(LIST)).to_bytes(2, "big") + LIST + b"\xff\xd9"
+_TRAILER_NOTE = b"trailer\n<<\n% MRN 70000054 Robin Example\n"
+_UNNAMED = b"99 0 obj\n(MRN 70000054 Robin Example)\nendobj\n"
+
+FAIL_CLOSED: dict[str, tuple[str, bytes, str]] = {
+    # H1: an extra field of a kind once let be, carrying a list
+    "zip_time_field_with_a_list": ("a.zip", _raw_zip(b"hello", 5, extra=_UT), "unreadable"),
+    # H2: a data descriptor's bytes
+    "zip_data_descriptor": ("a.zip", _descriptor(), "unreadable"),
+    # H3: bytes inside a member's compressed size that no reader takes
+    "zip_stored_slack": ("a.zip", _raw_zip(b"hello" + LIST, 5), "unreadable"),
+    "zip_deflated_slack": ("a.zip", _raw_zip(_deflated(b"hello") + LIST, 5, method=8), "unreadable"),
+    # H4: a part called a picture whose first bytes only are one
+    "picture_bitmap_mark_then_gzip": ("a.docx", _office({"word/media/image1.png": b"BM" + _gz(LIST)}), "unreadable"),
+    "picture_bitmap_mark_then_list": ("a.docx", _office({"word/media/image1.bmp": b"BM\x00" + LIST}), "unreadable"),
+    "picture_png_text_chunk": (
+        "a.docx",
+        _office({"word/media/image1.png": _png((b"tEXt", b"who\x00" + LIST))}),
+        "unreadable",
+    ),
+    "picture_png_then_bytes": ("a.docx", _office({"word/media/image1.png": _png() + _gz(LIST)}), "unreadable"),
+    "picture_jpeg_comment_is_read": ("a.docx", _office({"word/media/image1.jpg": _JPEG_NOTE}), "identifiers"),
+    "picture_jpeg_then_bytes": ("a.docx", _office({"word/media/image1.jpg": _JPEG_NOTE + _gz(LIST)}), "unreadable"),
+    # H5: the printer driver's own bytes
+    "printer_settings_driver_bytes": (
+        "a.xlsx",
+        _book({"xl/printerSettings/printerSettings1.bin": _devmode(_gz(LIST))}),
+        "unreadable",
+    ),
+    # H6, H7: a PDF object nothing points at, of any kind, and a stream that says /S
+    "pdf_object_nothing_points_at": ("a.pdf", _pdf_with(_orphan), "unreadable"),
+    "pdf_stream_nothing_points_at_with_s": ("a.pdf", _pdf_with(_orphan_stream_with_s), "unreadable"),
+    # H8: a sheet the book reads at another place, and a formula's last value
+    "workbook_sheet_behind_its_rels": ("a.xlsx", _sheet_at_another_place(), "identifiers"),
+    "workbook_formula_last_value": ("a.xlsx", _sheet_part(_CACHED), "identifiers"),
+    # H9: attributes once not read
+    "office_document_variable": (
+        "a.docx",
+        _word(b'<w:docVars><w:docVar w:name="who" w:val="MRN 70000054 Robin Example"/></w:docVars>'),
+        "identifiers",
+    ),
+    "office_field_default": (
+        "a.docx",
+        _word(b'<w:ffData><w:textInput><w:default w:val="MRN 70000054"/></w:textInput></w:ffData>'),
+        "identifiers",
+    ),
+    "office_link_tooltip": (
+        "a.docx",
+        _word(b'<w:hyperlink w:tooltip="Robin Example MRN 70000054"><w:r/></w:hyperlink>'),
+        "identifiers",
+    ),
+    "office_change_author": (
+        "a.docx",
+        _word(b'<w:ins w:author="MRN 70000054 Robin Example"><w:r/></w:ins>'),
+        "identifiers",
+    ),
+    "office_vml_alt_text": ("a.docx", _word(b'<v:shape alt="MRN 70000054 Robin Example"/>'), "identifiers"),
+    # M1: a PDF's comments, bytes after its end, an object its table does not name
+    "pdf_comment_in_the_trailer": (
+        "a.pdf",
+        _pdf_with(_as_is).replace(b"trailer\n<<", _TRAILER_NOTE, 1),
+        "identifiers",
+    ),
+    "pdf_comment_in_what_a_page_draws": ("a.pdf", _pdf_with(_page_comment), "identifiers"),
+    "pdf_bytes_after_the_end": ("a.pdf", _pdf_with(_as_is) + b"MRN 70000054 Robin Example\n", "unreadable"),
+    "pdf_object_its_table_does_not_name": ("a.pdf", _pdf_with(_as_is) + _UNNAMED, "unreadable"),
+    # M3: a form's fields as they are drawn: refused, and said so
+    "pdf_form": ("a.pdf", _pdf_with(_form), "form_pdf"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FAIL_CLOSED))
+def test_a_structure_the_edge_cannot_read_whole_is_refused(case: str) -> None:
+    name, data, why = FAIL_CLOSED[case]
+    assert reason("download.study", ee.File(name, data)) == why
+
+
+def test_a_real_picture_a_formula_and_a_revision_id_still_leave() -> None:
+    """The allow-list lets an ordinary document by: a real PNG, a formula whose last value names no one, a revision's
+    id of eight digits, and a PDF as the writer wrote it."""
+    rsid = _word(b'<w:rsids><w:rsid w:val="00123456"/></w:rsids><w:p w:rsidR="00123456"/>')
+    for name, data in (
+        ("a.docx", _office({**_CLEAN, "word/media/image1.png": _png()})),
+        ("a.xlsx", _sheet_part(_CACHED.replace(b"<v>70000054</v>", b"<v>x</v>").replace(b"mrn", b"what"))),
+        ("a.docx", rsid),
+        ("a.pdf", _pdf_with(_as_is)),
+    ):
+        f = ee.File(name, data)
+        assert ee.leave("download.study", "x", f, audit=Audit(), actor="t") == f
