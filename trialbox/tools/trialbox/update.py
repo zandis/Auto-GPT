@@ -122,16 +122,13 @@ def host_architecture() -> str:
     return _ARCH.get(machine, machine)
 
 
-def architecture_mismatch(release: Mapping[str, Any] | None, arch: str) -> list[str]:
-    """Each image of ``release`` (release.json) whose ``platform`` (``os/arch[/variant]``) is not ``arch``, as
-    ``name (platform)``. An image that names no platform, or a host that cannot say, is not compared."""
-    images = (release or {}).get("images") if arch else None
-    out = []
-    for name, img in sorted((images or {}).items()):
-        plat = str((img or {}).get("platform") or "")
-        if plat.count("/") >= 1 and plat.split("/")[1] != arch:
-            out.append(f"{name} ({plat})")
-    return out
+def architecture_mismatch(release: Mapping[str, Any] | None, arch: str) -> str:
+    """The platform ``release`` (release.json) was built for (its top-level ``platform``, ``os/arch``, recorded by
+    tools/release.py build --platform) when it is not ``arch``; "" otherwise. A release that records none (every
+    bundle built before it) is not compared, nor are its images' own ``platform`` (from images.lock, which may name
+    another manifest of a multi-architecture image), nor a host that cannot say."""
+    plat = str((release or {}).get("platform") or "")
+    return plat if arch and plat.count("/") >= 1 and plat.split("/")[1] != arch else ""
 
 
 class UpdateInterrupted(KeyboardInterrupt):
@@ -1352,13 +1349,14 @@ class Updater:
         return []
 
     def _same_architecture(self, plan: Plan) -> list[str]:
-        """A bundle whose images are for another architecture than the host (release.json's per-image ``platform``,
-        recorded from each archive by tools/make_bundle.sh --platform) is refused: the box could load none of them."""
+        """A bundle built for another architecture than the host (release.json's top-level ``platform``, recorded by
+        tools/make_bundle.sh --platform, every image checked against it) is refused: the box could load none of
+        them. A bundle that records no platform is not refused here."""
         other = architecture_mismatch(plan.release, host_architecture())
         if other:
             raise UpdateRefused(
                 f"{plan.bundle_id} is built for another architecture than this host ({host_architecture()}): "
-                f"{', '.join(other)}. Ask for the bundle of this machine (tools/make_bundle.sh --platform)"
+                f"{other}. Ask for the bundle of this machine (tools/make_bundle.sh --platform)"
             )
         return []
 

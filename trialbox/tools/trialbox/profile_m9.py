@@ -125,16 +125,17 @@ def caps_row(env: dict[str, str] | Any, rec: dict[str, Any]) -> tuple[str, str, 
 
 def context_row(profile: str, inp: Any) -> list[tuple[str, str, str]]:
     """The profile pair's pinned context against the length its servers run with (``pin_model.context_problems``):
-    FAIL before the night, where the gateway would refuse every call ``model_mismatch``."""
+    FAIL before the night, where the gateway would refuse every call ``model_mismatch``. Pins that do not load are a
+    FAIL too: the gateway screens with them."""
     from tools import pin_model
     from tools.trialbox import doctor
 
     if profile not in pin_model.PROFILE_PAIRS:
         return []
     try:
-        bad = pin_model.context_problems(profile, doctor._override(inp), inp.env)
+        bad = pin_model.context_problems(profile, doctor._override(inp), inp.env, deploy=inp.deploy)
     except Exception as e:  # the pins unreadable here (a bad site pin, no YAML module): said, the other rows stay
-        return [("profile_context", "WARN", f"cannot look: the pins did not load ({type(e).__name__}: {e})")]
+        return [("profile_context", "FAIL", f"cannot look: the pins did not load ({type(e).__name__}: {e})")]
     if bad:
         return [("profile_context", "FAIL", "; ".join(bad))]
     return [("profile_context", "PASS", f"the {profile} pair's pinned context is the length its servers run with")]

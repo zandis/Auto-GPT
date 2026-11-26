@@ -10,8 +10,8 @@
 #       [--allow-dirty "<reason>"]   (a rehearsal or a test only: builds from a working tree, D-631)
 #       [--rehearsal]                (a bundle for a rehearsal box: release.json says so; a site box refuses it, D-726)
 #       [--platform linux/arm64]     (the box's architecture, default linux/amd64: every image is pulled and checked
-#                                    for it, release.json records it per image, and the update path refuses a bundle
-#                                    whose images are not the host's architecture)
+#                                    for it, release.json records it, and the update path refuses the bundle on a
+#                                    host of another architecture)
 #       [--model-pack-out DIR/trialbox-models-<id>.pack [--model-id ID] [--model-release-seq N]]
 #       [--model-pack DIR/trialbox-models-<id>.pack]   (H-95: see below)
 #

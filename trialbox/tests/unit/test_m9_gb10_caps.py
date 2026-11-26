@@ -4,10 +4,11 @@
 2. The orchestrator's cap is at least 6 GiB on both profiles (a 48,000-patient SCREEN peaked near 4.0 GiB), the
    installer's memcaps never writes a value under the profile's default, and the GB10 limits still fit its memory.
 3. The pinned context is the length each profile's servers run with: a stale site pin is put back to the registry's,
-   and the install and doctor refuse a pin that is not the profile's length (the gateway's model_mismatch).
+   and the install and doctor refuse a pin that is not the profile's length (the gateway's model_mismatch), a length
+   that is set and is no length, and a length they cannot read (never a silent pass).
 4. Preflight's gpu_tier accepts a unified-memory device, which reports no card memory.
-5. A bundle's images are checked for its --platform when it is built, and an update refuses images of another
-   architecture than the host.
+5. A bundle's images are checked for its --platform when it is built, release.json records it, and an update refuses
+   a bundle recorded for another architecture than the host (one that records none is not refused).
 Synthetic weights, archives and counts only.
 """
 
@@ -18,6 +19,7 @@ import io
 import json
 import math
 import os
+import re
 import subprocess
 import tarfile
 from pathlib import Path
@@ -79,7 +81,7 @@ def test_memcaps_never_writes_an_orchestrator_cap_under_the_profile_default(
     assert memcaps.main(["--env-file", str(env), "--overlay", str(PRO), "--write"]) == 0
     assert "TB_MEM_ORCH" not in memcaps._parse_env(env.read_text(encoding="utf-8"))
     env.write_text("TB_ENV=PRODUCTION\nTB_SITE_PATIENTS=100000\n", encoding="utf-8")
-    memcaps.main(["--env-file", str(env), "--overlay", str(GB10), "--write"])
+    assert memcaps.main(["--env-file", str(env), "--overlay", str(GB10), "--write"]) == 0
     assert (
         memcaps._parse_env(env.read_text(encoding="utf-8"))["TB_MEM_ORCH"] == f"{math.ceil(500 + 80 * 100_000 / 1024)}m"
     )
@@ -88,6 +90,43 @@ def test_memcaps_never_writes_an_orchestrator_cap_under_the_profile_default(
 def test_the_installer_gives_memcaps_the_profile_overlay() -> None:
     install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
     assert '${OVERLAY:+--overlay "$OVERLAY"}' in install and 'OVERLAY="deploy/docker-compose.$GPU.yml"' in install
+
+
+def test_the_overlay_compose_runs_is_the_last_file_that_names_the_orchestrator_default(tmp_path: Path) -> None:
+    base = DEPLOY / "docker-compose.yml"
+    assert memcaps.profile_overlay([base, PRO]) == PRO
+    assert memcaps.profile_overlay([PRO, base]) == base  # a later file overrides an earlier one
+    assert memcaps.profile_overlay([base, DEPLOY / "docker-compose.monitoring.yml", tmp_path / "gone.yml"]) == base
+    assert memcaps.profile_overlay([]) is None
+
+
+def _caps_deploy(tmp: Path) -> Path:
+    deploy = tmp / "deploy"
+    (deploy / "measured").mkdir(parents=True)
+    for f in ("measured/ingest_memory.json", "measured/orchestrator_memory.json", "docker-compose.yml", PRO.name):
+        (deploy / f).write_text((DEPLOY / f).read_text(encoding="utf-8"), encoding="utf-8")
+    return deploy
+
+
+def test_doctor_judges_the_orchestrator_cap_by_the_profile_default(tmp_path: Path) -> None:
+    """48,000 synthetic patients need about 4.3 GiB: above the base file's 4 GiB, under the profile's 6, which is
+    what compose runs on that box. A lower cap this tool wrote before the profile's default rose is a FAIL, and the
+    installer's memcaps (with the overlay) removes it."""
+    deploy = _caps_deploy(tmp_path)
+    env = {"TB_ENV": "PRODUCTION", "TB_SITE_PATIENTS": "48000"}
+    base = doctor.check_memory_caps(doctor.DoctorInputs(env=env, deploy=deploy))
+    assert base.status == "FAIL" and "TB_MEM_ORCH 4096 MB <" in base.detail, base  # the base file alone
+    env["COMPOSE_FILE"] = f"docker-compose.yml:{PRO.name}"
+    ok = doctor.check_memory_caps(doctor.DoctorInputs(env=env, deploy=deploy))
+    assert ok.status == "PASS" and "TB_MEM_ORCH 6144 MB (needs 6144)" in ok.detail, ok
+    stale = doctor.check_memory_caps(doctor.DoctorInputs(env={**env, "TB_MEM_ORCH": "4400m"}, deploy=deploy))
+    assert stale.status == "FAIL" and "TB_MEM_ORCH 4400 MB < 6144 MB" in stale.detail, stale
+    text = "TB_MEM_ORCH=4400m\n# memcaps: TB_MEM_ORCH=4400m n=48000 (TB_SITE_PATIENTS)\n"
+    caps = memcaps.plan(text, 48000, memcaps.load_record(deploy / "measured" / "ingest_memory.json"),
+                        deploy / "docker-compose.yml",
+                        memcaps.load_orch_record(deploy / "measured" / "orchestrator_memory.json"),
+                        overlay=deploy / PRO.name)  # fmt: skip
+    assert caps["TB_MEM_ORCH"] is None  # the tool's own value under the profile's default: removed
 
 
 def test_the_gb10_limits_still_fit_its_unified_memory() -> None:
@@ -111,6 +150,24 @@ def test_each_profile_s_servers_run_at_its_own_length() -> None:
     assert pin_model.profile_context("rtxpro6000", "serving", {}) == 32768
     assert pin_model.profile_context("gb10", "serving", {"JUDGE_MAX_LEN": "8192"}) == 8192  # deploy/.env moves it
     assert pin_model.profile_context("shared-quota", "serving", {}) is None  # measured on the partition: no default
+
+
+@pytest.mark.parametrize(
+    ("value", "length"), [("", 16384), ("  ", 16384), ('"8192"', 8192), ("'8192'", 8192), ("unmeasured", None)]
+)
+def test_an_empty_or_quoted_length_is_read_as_compose_reads_it(value: str, length: int | None) -> None:
+    assert pin_model.profile_context("gb10", "serving", {"JUDGE_MAX_LEN": value}) == length
+    assert pin_model.profile_context("rtx4090", "serving", {}) == 8192  # the rtx5090 file, as install.sh runs it
+
+
+def test_the_installer_reads_a_quoted_length_as_compose_does(tmp_path: Path) -> None:
+    install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    read = next(ln.strip() for ln in install.splitlines() if "compose drops quotes" in ln)
+    (tmp_path / "deploy").mkdir()
+    (tmp_path / "deploy" / ".env").write_text("JUDGE_MAX_LEN=\"8192\"\nVERIFIER_MAX_LEN='4096'\n", encoding="utf-8")
+    script = f'for v in JUDGE_MAX_LEN VERIFIER_MAX_LEN; do {read}\nprintf "%s=%s\\n" "$v" "$val"; done'
+    r = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert r.stdout == "JUDGE_MAX_LEN=8192\nVERIFIER_MAX_LEN=4096\n", r.stdout + r.stderr
 
 
 def _gb10_box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
@@ -164,17 +221,77 @@ def test_the_install_refuses_servers_set_to_another_length_than_the_pin(
     assert "-e JUDGE_MAX_LEN -e VERIFIER_MAX_LEN" in install  # the length the servers run with reaches the pin step
 
 
+@pytest.mark.parametrize("value", ["bogus", "0", "16k", "8192.5"])
+def test_a_length_that_is_set_and_is_no_length_is_refused_not_defaulted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """Compose passes the value to the server, which does not start: never read as the default length."""
+    with pytest.raises(pin_model.PinError, match=re.escape(f"JUDGE_MAX_LEN is {value!r}")):
+        pin_model.profile_context("gb10", "serving", {"JUDGE_MAX_LEN": value})
+    models, out = _gb10_box(tmp_path, monkeypatch)
+    ok, lines = pin_model.install_pins("gb10", models, out, {"JUDGE_MAX_LEN": value})
+    assert not ok and any(ln.startswith(JUDGE) and "not a length" in ln for ln in lines), lines
+    inp = doctor.DoctorInputs(env={"TB_REGISTRY_OVERRIDE": str(out), "JUDGE_MAX_LEN": value})
+    (row,) = profile_m9.context_row("gb10", inp)
+    assert row[:2] == ("profile_context", "FAIL") and "not a length" in row[2], row
+
+
+def test_the_length_is_read_from_the_box_s_deploy_folder_never_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The image carries no profile compose file: the install reads the mounted site folder, and a folder without
+    the file, or a file that names no length, is a refusal, not a silent pass."""
+    models, out = _gb10_box(tmp_path, monkeypatch)
+    site = tmp_path / "site-deploy"
+    site.mkdir()
+    ok, lines = pin_model.install_pins("gb10", models, out, {}, deploy=site)
+    assert not ok and sum("cannot be read" in ln for ln in lines) == 2, lines
+    inp = doctor.DoctorInputs(env={"TB_REGISTRY_OVERRIDE": str(out)}, deploy=site)
+    (row,) = profile_m9.context_row("gb10", inp)
+    assert row[:2] == ("profile_context", "FAIL") and "cannot be read" in row[2], row
+    (site / GB10.name).write_text("services: {}\n", encoding="utf-8")
+    ok, lines = pin_model.install_pins("gb10", models, out, {}, deploy=site)
+    assert not ok and any("gives JUDGE_MAX_LEN no length" in ln for ln in lines), lines
+    (site / GB10.name).write_text(GB10.read_text(encoding="utf-8"), encoding="utf-8")
+    ok, lines = pin_model.install_pins("gb10", models, out, {}, deploy=site)
+    assert ok, lines
+    assert profile_m9.context_row("gb10", inp)[0][1] == "PASS"
+    install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    assert "--models-root /d/models --deploy /d" in install
+
+
+def test_the_pin_command_reads_the_folder_above_its_models_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    models, out = _gb10_box(tmp_path, monkeypatch)
+    args = ["--install", "gb10", "--models-root", str(models), "--out", str(out)]
+    assert pin_model.main(args) == 1  # the folder above the models holds no docker-compose.gb10.yml
+    (tmp_path / GB10.name).write_text(GB10.read_text(encoding="utf-8"), encoding="utf-8")
+    assert pin_model.main(args) == 0
+
+
 def test_no_context_row_for_a_profile_without_a_pair() -> None:
     assert profile_m9.context_row("stub", doctor.DoctorInputs()) == []
 
 
-def test_pins_that_do_not_load_are_a_warning_not_the_loss_of_the_profile_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pins_that_do_not_load_are_a_failure_not_the_loss_of_the_profile_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(*_a: object, **_k: object) -> list[str]:
         raise ValueError("registry: build x context_length '16k' is not a whole number above 0")
 
     monkeypatch.setattr(pin_model, "context_problems", broken)
     (row,) = profile_m9.context_row("gb10", doctor.DoctorInputs())
-    assert row[:2] == ("profile_context", "WARN") and "cannot look" in row[2]
+    assert row[:2] == ("profile_context", "FAIL") and "cannot look" in row[2]
+
+
+def test_a_site_pin_that_does_not_validate_fails_the_context_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _models, out = _gb10_box(tmp_path, monkeypatch)
+    doc = yaml.safe_load(out.read_text(encoding="utf-8"))
+    doc["builds"][JUDGE]["context_length"] = "16k"
+    out.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    (row,) = profile_m9.context_row("gb10", doctor.DoctorInputs(env={"TB_REGISTRY_OVERRIDE": str(out)}))
+    assert row[:2] == ("profile_context", "FAIL") and "cannot look" in row[2] and "context_length" in row[2], row
 
 
 # ------------------------------------------------------------------------------------------------ 4. preflight
@@ -205,8 +322,8 @@ def test_gpu_tier_accepts_a_unified_memory_device(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ 5. the bundle
-def _archive(tmp: Path, arch: str) -> Path:
-    cfg = json.dumps({"architecture": arch, "os": "linux"}).encode()
+def _archive(tmp: Path, arch: str, **more: object) -> Path:
+    cfg = json.dumps({"architecture": arch, "os": "linux", **more}, sort_keys=True).encode()
     name = hashlib.sha256(cfg).hexdigest()
     manifest = json.dumps([{"Config": f"{name}.json", "RepoTags": ["trialbox-py:1.0.0"], "Layers": []}]).encode()
     path = tmp / f"img-{arch}.tar"
@@ -257,16 +374,40 @@ def test_the_host_architecture_is_named_as_an_image_platform_names_it(
     assert update.host_architecture() == arch
 
 
-def test_an_update_refuses_images_of_another_architecture(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_update_refuses_a_bundle_built_for_another_architecture(monkeypatch: pytest.MonkeyPatch) -> None:
     from tools.trialbox import update  # a POSIX host's module (its signals)
 
-    rel = {"images": {"py": {"platform": "linux/amd64"}, "vllm": {"platform": "linux/arm64/v8"}, "x": {}}}
-    assert update.architecture_mismatch(rel, "arm64") == ["py (linux/amd64)"]
-    assert update.architecture_mismatch(rel, "") == []  # a host that cannot say is not compared
-    assert update.architecture_mismatch(None, "arm64") == []
+    # every bundle shipped before the record: its images' platforms come from images.lock and may be mixed
+    mixed = {"images": {"py": {"platform": "linux/amd64"}, "vllm": {"platform": "linux/arm64/v8"}, "x": {}}}
+    assert update.architecture_mismatch(mixed, "arm64") == "" and update.architecture_mismatch(mixed, "amd64") == ""
+    amd = {**mixed, "platform": "linux/amd64"}  # built with --platform linux/amd64
+    assert update.architecture_mismatch(amd, "arm64") == "linux/amd64"
+    assert update.architecture_mismatch(amd, "amd64") == ""
+    assert update.architecture_mismatch(amd, "") == ""  # a host that cannot say is not compared
+    assert update.architecture_mismatch(None, "arm64") == ""
     monkeypatch.setattr(update, "host_architecture", lambda: "arm64")
     updater = update.Updater.__new__(update.Updater)
-    with pytest.raises(update.UpdateRefused, match=r"another architecture than this host \(arm64\): py"):
-        updater._same_architecture(SimpleNamespace(release=rel, bundle_id="2026.11-9"))  # type: ignore[arg-type]
-    same = {"images": {"py": {"platform": "linux/arm64"}}}
-    assert updater._same_architecture(SimpleNamespace(release=same, bundle_id="2026.11-9")) == []  # type: ignore[arg-type]
+    with pytest.raises(update.UpdateRefused, match=r"another architecture than this host \(arm64\): linux/amd64"):
+        updater._same_architecture(SimpleNamespace(release=amd, bundle_id="2026.11-9"))  # type: ignore[arg-type]
+    for ok in (mixed, {**mixed, "platform": "linux/arm64"}):  # an old release (a rollback) and this host's
+        plan = SimpleNamespace(release=ok, bundle_id="2026.11-9")
+        assert updater._same_architecture(plan) == []  # type: ignore[arg-type]
+
+
+def test_a_bundle_built_for_a_platform_records_it(tmp_path: Path) -> None:
+    from tests.unit.test_release_bundle import _gate_record, _iid
+
+    ref = "trialbox-py:1.0.0"
+    gates, sbom = _gate_record(tmp_path, [ref])
+    repo = release.repository(ref)
+    layer = "sha256:" + hashlib.sha256(repo.encode()).hexdigest()
+    rootfs = {"type": "layers", "diff_ids": [layer]}
+    arch = _archive(tmp_path, "amd64", config={"Labels": {"repo": repo}}, rootfs=rootfs)
+    assert release.archive_identities(arch) == (_iid(ref),)  # the image the gate record passed
+    kw = {"release_id": "2026.11-9", "release_seq": 9, "gates": gates, "sbom_dir": sbom,
+          "images": [(ref, arch)], "items": [("image", arch, arch.name)]}  # fmt: skip
+    rel = release.build(out_dir=tmp_path / "o", platform="linux/amd64", **kw)  # type: ignore[arg-type]
+    assert rel["platform"] == "linux/amd64" and rel["images"]["py"]["platform"] == "linux/amd64"
+    assert "platform" not in release.build(out_dir=tmp_path / "p", **kw)  # type: ignore[arg-type]
+    schema = json.loads((ROOT / "schemas" / "release.schema.json").read_text(encoding="utf-8"))
+    assert "platform" not in schema["required"]  # a bundle from before it still validates

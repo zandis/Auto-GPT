@@ -16,9 +16,9 @@ store tests. PASS means every step passed and every answer came from the pinned 
 **Prerequisites.** Driver 580.142 held (`apt-mark hold`; later 580.x builds break vLLM on GB10, D-79);
 `nvidia-container-toolkit`; amd64 emulation for MailHog (test profile only); weights (safetensors or GGUF, never
 pickle or Python files) in `deploy/models/gemma-4-26b-a4b-it-4bit` and `deploy/models/qwen3.5-9b-4bit`; about 55 GB of
-disk. Spark memory as set, measured on a B200 with GB10-like limits, not yet on a Spark: `JUDGE_GPU_MEM_UTIL` 0.30,
-`VERIFIER_GPU_MEM_UTIL` 0.12 (15.36 GiB: the verifier model 7.8 GiB with overhead plus about 4.3 GiB of KV for 8
-sequences x 16k, about 12.1 GiB), and a memory limit per service (`deploy/gb10-profile.yaml`, D-373). The driver hold is re-tested every 28 days (D-373).
+disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.30, `VERIFIER_GPU_MEM_UTIL` 0.12
+(measured on a B200 with GB10-like limits: 15.36 GiB holds the verifier model 7.8 GiB with overhead plus about 4.3 GiB
+of KV for 8 sequences x 16k, about 12.1 GiB), and a memory limit per service (`deploy/gb10-profile.yaml`, D-373). The driver hold is re-tested every 28 days (D-373).
 
 **A 64 GB Spark is refused.** These settings are for the 128 GB Spark. On a Spark with under 96 GiB of memory
 (`MemTotal`), `deploy/install.sh`, `deploy/poc.sh` and `make spark-e2e` stop in GPU mode and say why, and the box plan
