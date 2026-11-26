@@ -107,10 +107,9 @@ def test_an_update_asked_for_now_still_runs_now_and_still_expires_after_the_hour
     assert [x["id"] for x in r.run_pending()] == [rid] and len(r.applied) == 1  # as before: the person waits by it
     r2 = Runner(tmp_path / "b", now=NOT_QUIET)
     rid2 = _ask(r2)
-    import os
-
-    old = time.time() - (tb_ops.MAX_AGE_MIN + 1) * 60
-    os.utime(tmp_path / "b" / "ops" / "requests" / f"{rid2}.json", (old, old))
+    # the runner's clock is set against the file's own time as the file system reports it (faketime moves that)
+    queued = (tmp_path / "b" / "ops" / "requests" / f"{rid2}.json").lstat().st_mtime
+    r2._now = datetime.fromtimestamp(queued + (tb_ops.MAX_AGE_MIN + 1) * 60, UTC)
     assert [x["state"] for x in r2.run_pending()] == ["expired"]
 
 

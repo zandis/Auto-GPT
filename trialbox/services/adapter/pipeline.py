@@ -22,6 +22,7 @@ from tb_common import chartno, feedguard, labvalue, refdata, site_needs
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.generation import Generation, site_today
 from tb_common.site_profile import Profile as SiteProfile
 from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
@@ -537,7 +538,7 @@ def run_ingest(
                 night_event(
                     cfg,
                     "ingest.failed",
-                    snapshot=snapshot or datetime.now(ZoneInfo(cfg.tz)).date().isoformat(),
+                    snapshot=snapshot or site_today(cfg.tz).isoformat(),
                     source=source_kind,
                     passed=False,
                     held=False,
@@ -575,9 +576,11 @@ def _run_ingest(
 ) -> IngestReport:
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
-    snap = snapshot or started.date().isoformat()
+    today = site_today(cfg.tz)
+    snap = snapshot or today.isoformat()
     try:  # D-529: before a row, a folder or a lake build exists for it
-        refuse_future_night(snap, started.date())
+        refuse_future_night(snap, today)
+        refuse_older_night(cfg, snap, today)  # R1+1 walk: a night the box is past never runs part-way
     except FutureNight as exc:
         log.error("night refused: %s", exc)
         if cfg.audit_dir:  # as a refused site key: the reason is in the audit, not only in the caller's hands
@@ -585,7 +588,15 @@ def _run_ingest(
                 "ingest.failed",
                 snapshot=snap,
                 actor="adapter",
-                detail={"source": source_kind, "refused": "future_night", "reason": str(exc)},
+                detail={
+                    "source": source_kind,
+                    "reason": str(exc),
+                    "refused": "older_night"
+                    if isinstance(exc, OlderNight)
+                    else "held_night_unread"
+                    if isinstance(exc, HeldNightUnread)
+                    else "future_night",
+                },
             )
         raise
     try:  # NEW-B-38 (D-679): before anything is read or written, the room for tonight's snapshot
@@ -1657,6 +1668,62 @@ def refuse_site_needs(cfg: AdapterConfig, snap: str, source_kind: str) -> None:
             },
         )
     raise SiteNeeded(msg)
+
+
+class OlderNight(FutureNight):
+    """A night given by hand older than a night the box already holds: refused as a future night is, before anything
+    is read or written (``FutureNight``'s handlers say "refused, nothing was read or written")."""
+
+
+class HeldNightUnread(FutureNight):
+    """A night given by hand that cannot be judged: the box has a trial database and its generation ledger could not be
+    read. Refused as a future night is, before anything is read or written (review R2: a read that failed is not a
+    FHIR store that holds nothing; the FHIR load's own check would refuse it only after the run had begun)."""
+
+
+def held_night(cfg: AdapterConfig) -> tuple[str, str] | None:
+    """The newest night the box holds and where: the lake's served one (``CURRENT``) or the FHIR store's (the
+    generation ledger, when there is a trial database to ask). None: neither holds a night. A ledger that cannot be
+    read raises ``HeldNightUnread`` (logged), never "nothing held"."""
+    held: list[tuple[Generation, str]] = []
+    with contextlib.suppress(OSError, ValueError):
+        held.append((Generation.parse((cfg.lake_dir / "CURRENT").read_text(encoding="utf-8").strip()), "the lake"))
+    if os.environ.get(DB_URL_ENV):
+        try:
+            from datacore.generations import Built
+
+            with Built() as book:
+                st = book.state("fhir")
+        except Exception as exc:  # an ImportError too: an image without datacore cannot judge the night either
+            log.warning("older-night check: FHIR generation not read: %s", exc)
+            raise HeldNightUnread(
+                f"the FHIR store's newest night could not be read ({type(exc).__name__}: {exc}), so a night given by "
+                f"hand that is not the site's date cannot be judged: leave --snapshot out (the site's date is taken), "
+                f"or run it again when the trial database answers"
+            ) from exc
+        if st is not None:
+            held.append((st[0], "the FHIR store"))
+    if not held:
+        return None
+    gen, where = max(held)
+    return gen.snapshot, where
+
+
+def refuse_older_night(cfg: AdapterConfig, snap: str, today: date) -> None:
+    """A night named by hand (``--snapshot``) that is not the site's today, and older than a night the box holds, is
+    refused here, before any step. Before, it ran part-way: the FHIR load refused it ("fhir is built from <site date>;
+    a build from the older <date> is refused"), the lake step took it, and the run died on the publish record. The
+    usual cause is a date written in UTC (``date -u +%F``) before midnight UTC at a site east of it. The same night
+    again (a re-run of the served night) and a name that is not a date are not judged."""
+    if snap == today.isoformat() or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", snap):
+        return
+    held = held_night(cfg)
+    if held is not None and snap < held[0]:
+        raise OlderNight(
+            f"--snapshot {snap} is not the site's date ({today.isoformat()} in {cfg.tz}) and {held[1]} already holds "
+            f"the newer night {held[0]}: a night older than one the box holds is never published. Leave --snapshot "
+            f"out (the site's date is taken), or give {today.isoformat()}; never a UTC date (date -u)"
+        )
 
 
 def refuse_future_night(snap: str, today: date) -> None:
