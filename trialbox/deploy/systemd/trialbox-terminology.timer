@@ -1,0 +1,11 @@
+# Daily at 01:00 site time: before the weights check (01:30) and the night's runs (settings.schedule). A pack found
+# during a night waits for the next run (TB_TERMINOLOGY_NIGHT). Installed and enabled by deploy/install.sh.
+[Unit]
+Description=TrialBox code-system update before the night's runs
+
+[Timer]
+OnCalendar=*-*-* 01:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

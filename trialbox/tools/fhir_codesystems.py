@@ -51,6 +51,7 @@ BY = "fhir_codesystems"
 ICD10CM, LOINC, ATC = "http://hl7.org/fhir/sid/icd-10-cm", "http://loinc.org", "http://www.whocc.no/atc"
 ICD10_WHO, PCS = "http://hl7.org/fhir/sid/icd-10", "http://www.cms.gov/Medicare/Coding/ICD10"
 NHI_ORDER, DEPARTMENT = f"{TB}/CodeSystem/nhi-order", f"{TB}/CodeSystem/department"
+IMAGING = f"{TB}/CodeSystem/imaging"  # M2 (DB-C2): the hospital's own imaging list
 SNOMED, UMLS = "http://snomed.info/sct", "http://www.nlm.nih.gov/research/umls"
 
 
@@ -98,7 +99,7 @@ SOURCES: tuple[Source, ...] = (
         "icd10cm", "CodeSystem", ICD10CM, "ICD-10-CM", _rel(TERM / "icd10cm_full.parquet"), _parquet, hierarchy=True
     ),
     Source("loinc", "CodeSystem", LOINC, "LOINC", _rel(TERM / "loinc_tw.parquet"), _parquet, loaded="loinc_table"),
-    Source("atc", "CodeSystem", ATC, "ATC", _rel(TERM / "atc.parquet"), _parquet, loaded="atc_index"),
+    Source("atc", "CodeSystem", ATC, "ATC", "", _parquet, loaded="atc_index"),  # V-18b (D-1183): nothing ships
     Source(
         "nhi-order",
         "CodeSystem",
@@ -110,6 +111,7 @@ SOURCES: tuple[Source, ...] = (
     ),
     Source("department", "CodeSystem", DEPARTMENT, "Departments", _rel(TERM / "department.parquet"), _parquet),
     Source("icd10pcs", "CodeSystem", PCS, "ICD-10-PCS", "", _parquet, loaded="icd10pcs"),
+    Source("imaging", "CodeSystem", IMAGING, "Imaging codes", "", _parquet, loaded="imaging_list"),
     Source("icd10-who", "CodeSystem", ICD10_WHO, "WHO ICD-10", "", _parquet, loaded="icd10_who"),
     # V-18: the hospital's own licensed copies (installed.install_snomed, install_umls), never shipped
     Source("snomed", "CodeSystem", SNOMED, "SNOMED CT", "", _parquet, loaded="snomed_ct", parents=True),

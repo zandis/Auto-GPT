@@ -5,23 +5,23 @@
     "concept": [
      {
       "code": "B01AA03",
-      "display": "warfarin"
+      "display": "B01AA03"
      },
      {
       "code": "B01AE07",
-      "display": "dabigatran etexilate"
+      "display": "B01AE07"
      },
      {
       "code": "B01AF01",
-      "display": "rivaroxaban"
+      "display": "B01AF01"
      },
      {
       "code": "B01AF02",
-      "display": "apixaban"
+      "display": "B01AF02"
      },
      {
       "code": "B01AF03",
-      "display": "edoxaban"
+      "display": "B01AF03"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -48,5 +48,5 @@
  "status": "active",
  "title": "anticoagulant",
  "url": "http://trialbox.local/fhir/ValueSet/AD-MAB-VS-ANTICOAGULANT",
- "version": "1.0.0-v32caeb77"
+ "version": "1.0.0-v250d9088"
 }

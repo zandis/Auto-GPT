@@ -20,7 +20,14 @@ from tb_common.objstore import from_config
 from tb_contracts import SendRequest, SendResult
 
 from mail_gateway import tls
-from mail_gateway.gateway import PER_RECIPIENT_PER_DAY, Gateway, http_job_sink, http_outputs_current, log
+from mail_gateway.gateway import (
+    PER_RECIPIENT_PER_DAY,
+    Gateway,
+    http_job_sink,
+    http_mail_rights,
+    http_outputs_current,
+    log,
+)
 from mail_gateway.outbound import EncryptionError, RoutingRefused, smtp_transport
 from mail_gateway.store import MailDB, SendUncertain
 
@@ -48,6 +55,7 @@ def gateway() -> Gateway:
             ),
             jobs=http_job_sink(env.orchestrator_url),
             outputs_current=http_outputs_current(env.orchestrator_url),  # D-863: asked before a patient file leaves
+            mail_rights=http_mail_rights(env.orchestrator_url),  # M3: the same, of its recipients
             secrets_dir=Path(env.secrets_dir),
             authserv_id=authserv,
             # D-369 (OD-1): a password zip for patient files only on a synthetic box

@@ -21,6 +21,12 @@
 9. `power-cycle --doctor doctor-after.json --audit-dir <audit copy>` (T-317a, D-730): during the planned power cut
    of §22, or a test of it before go-live. After the power comes back, run `trialbox doctor --json > doctor-after.json`:
    no FAIL, and the audit chain verifies.
+10. `key-escrow --secrets <the secrets folder> [--deploy deploy]` (INT-M5, R22-33, D-894): the box's KEK opens on new
+    hardware. A TPM-sealed KEK (back end `file`) needs its escrow set (`python -m tools.keys escrow-shares`) on the
+    newest signed ceremony record; no KEK, no set, a set of an older KEK or a record that does not list it is a FAIL,
+    and `report` says NOT YET until this criterion has passed. On the host the secrets folder is the box's
+    `tb-secrets` volume (`TB_SECRETS_HOST_DIR`). `trialbox doctor` shows the same as `key_escrow`, a WARN naming
+    `[go-live gate key-escrow: open]`.
 
 Also run `make test-egress` (§1 of [Security](../SECURITY.md)) and keep the host check output.
 

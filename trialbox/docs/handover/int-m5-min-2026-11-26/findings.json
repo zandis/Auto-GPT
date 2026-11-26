@@ -1,0 +1,63 @@
+{
+ "card": "INTM5",
+ "title": "the doctor on an installed box, go-live and key escrow, the backup's audit queue",
+ "date": "2026-11-26",
+ "source": "docs/handover/int-m5-min-2026-11-26.md",
+ "note": "basis 'shown' means shown by the card's local tests with a stand-in engine and the real psql on the test cluster; no real installed box, no engine daemon",
+ "findings": [
+  {
+   "id": "INTM5-01",
+   "severity": "High",
+   "claim": "trialbox doctor on an installed box's host read the secrets folder at the containers' path and the box's database at the compose network's address: site_key and key_custody said the folder is not here, flags, provenance_index and the pid-map half of site_key that the database did not answer, on every installed box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "this card: the volumes where the engine keeps them, the database through compose exec (box_hold.query)"
+  },
+  {
+   "id": "INTM5-02",
+   "severity": "High",
+   "claim": "the doctor's key_ceremony line passed with no KEK yet on an installed box's host without looking: it read the secrets folder at the containers' path, so a TPM box's missing escrow was never seen there",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "this card: the host's secrets volume; the key_escrow row names the open go-live gate"
+  },
+  {
+   "id": "INTM5-03",
+   "severity": "High",
+   "claim": "ComposeOps.audit held a new backup audit event only in memory while it sent the kept ones: a signal partway through (SIGTERM, SIGHUP, the service manager's stop) lost the event",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "this card: the queue with the new event written whole before any send, under backup-audit.lock"
+  },
+  {
+   "id": "INTM5-04",
+   "severity": "Medium",
+   "claim": "the key ceremony record of a TPM box is still made with no escrow set (key_ceremony._escrow returns None) and the doctor's key_ceremony line passes it; the gate is now at go-live (acceptance key_escrow), not at the record",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a ruling: whether the record step refuses a TPM box with no set on a strict box (TB-SOP-03's order)"
+  },
+  {
+   "id": "INTM5-05",
+   "severity": "Medium",
+   "claim": "trialbox provenance is a host command (launch.COMMANDS Need()) that connects to TB_DB_URL, whose host db only the compose network resolves: run on an installed box's host as its page types it, it cannot reach the database",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the command runs in the box (as the doctor now asks it, compose exec orchestrator) or in the image on the database network"
+  },
+  {
+   "id": "INTM5-06",
+   "severity": "Low",
+   "claim": "no expected time is shown before backup, restore or update (10E-15): none of the three records how long a run took, so there is no basis for the line yet",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a record of each run's duration per box, then the line before each; with 10E-15's timed runs per tier"
+  }
+ ]
+}

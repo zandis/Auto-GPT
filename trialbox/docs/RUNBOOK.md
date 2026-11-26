@@ -33,7 +33,7 @@ File: [runbook/01-install-a-new-site.md](runbook/01-install-a-new-site.md).
 
 ## 2. Daily operation
 
-File: [runbook/02-daily-operation.md](runbook/02-daily-operation.md). In it: [Logs (D-138)](runbook/02-daily-operation.md#logs-d-138), [EDC prefill (D-160)](runbook/02-daily-operation.md#edc-prefill-d-160).
+File: [runbook/02-daily-operation.md](runbook/02-daily-operation.md). In it: [What left this box (D-1093)](runbook/02-daily-operation.md#what-left-this-box-d-1093), [Logs (D-138)](runbook/02-daily-operation.md#logs-d-138), [EDC prefill (D-160)](runbook/02-daily-operation.md#edc-prefill-d-160).
 
 ## 3. Accounts
 
@@ -133,7 +133,7 @@ File: [runbook/26-platform-day-2.md](runbook/26-platform-day-2.md). In it: [What
 
 ## 27. Installing on a workstation with an RTX PRO 6000-class card
 
-File: [runbook/27-workstation-rtx-pro-6000.md](runbook/27-workstation-rtx-pro-6000.md). In it: [The weights (step 10)](runbook/27-workstation-rtx-pro-6000.md#the-weights-step-10), [On Windows instead (not verified anywhere)](runbook/27-workstation-rtx-pro-6000.md#on-windows-instead-not-verified-anywhere), [Every day after](runbook/27-workstation-rtx-pro-6000.md#every-day-after).
+File: [runbook/27-workstation-rtx-pro-6000.md](runbook/27-workstation-rtx-pro-6000.md). In it: [The weights (step 10)](runbook/27-workstation-rtx-pro-6000.md#the-weights-step-10), [On Windows instead (not verified anywhere)](runbook/27-workstation-rtx-pro-6000.md#on-windows-instead-not-verified-anywhere), [Every day after](runbook/27-workstation-rtx-pro-6000.md#every-day-after), [The profile's limits and how they are proven (M9)](runbook/27-workstation-rtx-pro-6000.md#the-profiles-limits-and-how-they-are-proven-m9).
 
 ## 28. An IGX Orin developer kit with an RTX A6000: the product without a model
 

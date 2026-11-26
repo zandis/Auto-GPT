@@ -5,19 +5,19 @@
     "concept": [
      {
       "code": "A10BJ02",
-      "display": "liraglutide"
+      "display": "A10BJ02"
      },
      {
       "code": "A10BJ05",
-      "display": "dulaglutide"
+      "display": "A10BJ05"
      },
      {
       "code": "A10BJ06",
-      "display": "semaglutide"
+      "display": "A10BJ06"
      },
      {
       "code": "A10BX16",
-      "display": "tirzepatide"
+      "display": "A10BX16"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -36,5 +36,5 @@
  "status": "active",
  "title": "glp-1 receptor agonist",
  "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-GLP-1-RECEPTOR-AGONIST",
- "version": "1.0.0-v989ffd24"
+ "version": "1.0.0-v4e97b670"
 }

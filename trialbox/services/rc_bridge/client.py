@@ -220,6 +220,7 @@ class RedcapClient:
         declare_host: bool = False,
     ) -> None:
         self.url = api_url(base_url, loopback_http=loopback_http)
+        self.on_leave: Callable[[str], None] | None = None  # M3: the egress edge, before each write is sent
         self.sleep: Callable[[float], None] = time.sleep  # EDC-018: the one wait on a rate limit (tests replace it)
         self.token = check_token(token)
         self._own = http is None
@@ -268,6 +269,8 @@ class RedcapClient:
         writes = (files is not None or "data" in data or content in ("file",)
                   or bool(data.get("action") in ("delete", "rename", "import")))  # fmt: skip
         for attempt in (1, 2):
+            if writes and self.on_leave is not None:
+                self.on_leave(str(data.get("data") or content))
             try:
                 if files is None:  # omit the argument: a record call stays an ordinary form post
                     resp = self.http.post(url, data=data)

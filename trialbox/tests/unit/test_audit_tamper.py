@@ -354,8 +354,6 @@ def test_a_torn_last_line_fails_the_check_and_the_next_write_repairs_it_visibly(
     assert after["cli"]["ok"], after["cli"]["errors"]  # D-127: the writer moves the torn bytes aside, chained
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-01: a torn last line is reported as tampering, never named a write cut short")  # fmt: skip
 def test_a_torn_last_line_is_told_apart_from_tampering(results: dict[str, dict[str, Any]]) -> None:
     """A write cut short (power, disk) is not an attack: the person reading the check must be told which it is. The
     torn line is the file's last and has no newline; any wording that names it as such passes."""
@@ -371,8 +369,6 @@ def test_without_signed_heads_a_rechained_forgery_passes(results: dict[str, dict
         assert results[name]["cli_no_heads"]["ok"], name
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-02: audit_verify without --heads says PASS on a forged chain, with no word")  # fmt: skip
 def test_a_check_without_signed_heads_says_so(results: dict[str, dict[str, Any]]) -> None:
     """The console says "only the chain and its head anchor were checked" when no anchor folder is set; the tool that
     ``make audit-verify`` runs prints PASS on a fully re-chained forgery with no word that nothing signed was read."""
@@ -391,7 +387,8 @@ def test_the_window_after_the_last_signed_head_is_open(results: dict[str, dict[s
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-05: a re-signed forgery passes both verifiers as the runbook runs them")  # fmt: skip
+                   reason="V8-05: no verifier can tell a re-signed forgery without a key pinned outside the box "
+                          "(--pubkey); M4 leaves it open: the nightly signer refuses it, see the next test")  # fmt: skip
 def test_a_re_signed_forgery_fails_both_verifiers(results: dict[str, dict[str, Any]]) -> None:
     """The forger emptied the anchor folder and signed with a key of their own. The check must not trust a key the
     same person could write. Shown control: with the box's key pinned (``--pubkey``) the CLI fails it."""
@@ -401,8 +398,6 @@ def test_a_re_signed_forgery_fails_both_verifiers(results: dict[str, dict[str, A
     assert not r["console"]["ok"], "the console's Verify passed a re-signed forgery"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-05: with the anchor folder emptied the nightly signer signs a forgery with the box key")  # fmt: skip
 def test_the_nightly_signer_refuses_a_forgery_after_its_heads_were_removed(results: dict[str, dict[str, Any]]) -> None:
     """tools/trialbox/audit_heads.py:113 reads the earlier heads from the folder; none left, it checks the chain only
     against its own HEAD.json (:127) and signs. Afterwards the forgery carries a genuine signature."""
@@ -410,8 +405,6 @@ def test_the_nightly_signer_refuses_a_forgery_after_its_heads_were_removed(resul
     assert not r["night_ok"], "the nightly signer signed the forged chain with the box's own key"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-06: the newest signed head deleted from the anchor folder is not noticed")  # fmt: skip
 def test_a_deleted_signed_head_is_noticed(results: dict[str, dict[str, Any]]) -> None:
     """The chain's own ``audit.head_signed`` events name every head published; one missing from the folder widens
     the rollback window to the night before, and must be said (an error, or a note naming it)."""

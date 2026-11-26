@@ -76,7 +76,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
+ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
 TEST_BOX=""; TEST_BOX_SET=0; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
@@ -181,6 +181,7 @@ while [ $# -gt 0 ]; do
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
     --rehearsal) REHEARSAL=1 ;;
+    --all-questions) ALL_QUESTIONS=1 ;;  # the vendor's: the settings wizard's every question, in place of the four (M1)
     --environment) ENVIRONMENT="$2"; shift ;;
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
     --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
@@ -455,19 +456,6 @@ ctgov_internet() {
   if command -v curl >/dev/null; then curl -fsS -o /dev/null -m 8 https://clinicaltrials.gov/api/v2/version 2>/dev/null
   else timeout 8 bash -c ': </dev/tcp/clinicaltrials.gov/443' 2>/dev/null; fi
 }
-ctgov_question() {
-  cat <<'EOQ'
-  ClinicalTrials.gov: may this box reach clinicaltrials.gov on the internet?
-    offline = no (default). TrialBox uses the copy that comes with each update: no outbound access; the data are as of the update.
-    live    = yes. TrialBox asks ClinicalTrials.gov directly: always current; one outbound address; no patient data is sent.
-  ClinicalTrials.gov：この機器からインターネット上の clinicaltrials.gov に接続してよいですか？
-    offline = いいえ（既定）。更新のたびに届く写しを使います。外部へは接続しません。データは更新の時点のものです。
-    live    = はい。TrialBox が ClinicalTrials.gov に直接問い合わせます。常に最新。外部への接続先は1か所で、患者データは送りません。
-  ClinicalTrials.gov：本機可以連上網際網路的 clinicaltrials.gov 嗎？
-    offline = 不可以（預設）。使用每次更新附帶的資料副本：不對外連線；資料為該次更新當時的版本。
-    live    = 可以。TrialBox 直接查詢 ClinicalTrials.gov：資料隨時最新；只對外連一個位址；不傳送病人資料。
-EOQ
-}
 if [ "$CTGOV_CHECK" = 1 ]; then
   if ctgov_internet; then echo "internet: yes (live is possible; the default stays offline)"
   else echo "internet: no (offline only)"; fi
@@ -540,6 +528,13 @@ NO_DOCKER="every step that runs Docker (each fails where it runs)"
 command -v docker >/dev/null || stop_or_warn docker-missing "$NO_DOCKER" "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"
 docker info >/dev/null 2>&1 || stop_or_warn docker-not-running "$NO_DOCKER" "Docker is not running (sudo systemctl start docker)"
 docker compose version >/dev/null 2>&1 || stop_or_warn compose-missing "$NO_DOCKER" "the docker compose plugin is missing"
+# M9 (consult 10, section 4): the installer never depends on what an Engine version happens to do; the one range is
+# tools/trialbox/profile_m9.py ENGINE_TESTED. A version read and outside it is a warning here (and a doctor FAIL: a new stop
+# is registered the H-94 way, which is not done); one that cannot be read says nothing here (doctor's docker_engine row warns), so no refusal's text moves.
+if command -v python3 >/dev/null && docker info >/dev/null 2>&1; then
+  ENGINE_RC=0; ENGINE_LINE="$(cd "$ROOT" && python3 -m tools.trialbox.profile_m9 engine 2>&1)" || ENGINE_RC=$?
+  [ "$ENGINE_RC" != 2 ] || echo "install: warning: $ENGINE_LINE (doctor FAILs it too)" >&2  # a note, not a stop: the H-94 stops are registered
+fi
 # HOST-PYTHON (D-831): the host steps run python3 -m tools.... (anchors, pre-start, doctor, the secrets); the modules
 # they import at the top are checked here, before anything loads, not 20 minutes in. module:Debian package, one per
 # word. Not cryptography: the host python3 may lack it (libs/tb_common/kek.py). Without python3 those steps say so.
@@ -804,6 +799,13 @@ if [ "${TB_BOX:-0}" != 1 ] && [ "$REHEARSAL" != 1 ] && [ "$SIGNED_RUN" != 1 ] &&
   fi
 fi
 # ---- end of FINISH-EARLY
+# ANSWERS-FILES (M1): every file the answers name is looked for before the bundle is loaded, not after an hour of
+# images. It ends the run as the settings step would (set -e), in the same words; a re-run keeps its settings
+if [ -n "$ANSWERS" ] && [ -f "$ANSWERS" ] && [ ! -f deploy/settings.yaml ] && [ "$SIGNED_RUN" != 1 ] \
+    && [ -d "$ROOT/libs/tb_common" ] && [ -f "$ROOT/tools/answers_files.py" ] && python3 -c 'import yaml' 2>/dev/null; then
+  PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.answers_files "$ANSWERS" --deploy "$ROOT/deploy" ${GATE_ENV:+--environment "$GATE_ENV"}
+fi
+# ---- end of ANSWERS-FILES
 
 # ------------------------------------------------------------------------------------------------ 2. bundle
 # D-888: a re-run on a box installed before deploy/.env named its settings: the update's guard (and compose) see them
@@ -933,13 +935,25 @@ if [ ! -f deploy/settings.yaml ]; then
     stop_or_warn answers-file "the answers file (the questions, when there is a terminal)" "no such answers file: $ANSWERS"
     ANSWERS=""
   fi
+  # FOUR (M1, D-1280): no answers and a terminal: the four questions on the host, the rest derived and at its defaults.
+  # The site's own hardening.conf and mapping are kept; without a TPM the fourth is the passphrase (not shown, twice)
+  if [ -z "$ANSWERS" ] && [ -t 0 ] && [ "$YES$ALL_QUESTIONS" = 00 ] && command -v python3 >/dev/null; then
+    mkdir -p deploy/site/box; BOX_PP="$ROOT/libs:$ROOT"
+    if PYTHONPATH="$BOX_PP" python3 -m tools.box detect --deploy deploy > deploy/site/box/hardware.json \
+       && { [ -f deploy/site/box/owner.json ] || PYTHONPATH="$BOX_PP" python3 -m tools.box ask --hardware deploy/site/box/hardware.json --out deploy/site/box/owner.json --environment "$WIZ_ENV"; } \
+       && PYTHONPATH="$BOX_PP" python3 -m tools.box plan --hardware deploy/site/box/hardware.json --owner deploy/site/box/owner.json \
+         --deploy deploy --out deploy/site/box/answers.json --keep >/dev/null; then ANSWERS=deploy/site/box/answers.json
+    else echo "install: the four questions did not finish (above), so no settings were written: run the installer again and answer them" >&2; fi
+    if [ -n "$ANSWERS" ] && [ -z "$KP_VALUE$KP_FILE" ] && grep -q '^KEK_BACKEND=passphrase' deploy/site/hardening.conf; then kp_read_stdin; fi
+  fi
+  # ---- end of FOUR
   if [ -n "$ANSWERS" ]; then
     tree_args
     docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
   else
     # D-1091: protects none of the five; on a PoC box no settings.yaml is made and the services that read it fail
-    if [ -t 0 ]; then
+    if [ "$ALL_QUESTIONS" = 1 ] && [ -t 0 ]; then  # the vendor's route, every question of the wizard
       tree_args
       docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
         python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env ${WIZ_ARGS[@]+"${WIZ_ARGS[@]}"}
@@ -956,11 +970,7 @@ fi
 if [ -z "$CTGOV" ]; then CTGOV="$(sed -n 's/^TB_CTGOV_MODE=//p' deploy/.env | tail -1)"; fi
 case "$CTGOV" in
   live|offline) ;;
-  *) CTGOV=offline
-     if [ "$YES" != 1 ] && [ -t 0 ]; then
-       ctgov_question; printf '  offline / live [offline]: '; read -r ans
-       case "${ans:-offline}" in live|offline) CTGOV="${ans:-offline}" ;; *) stop_or_warn ctgov-answer "the answer $ans (offline)" "answer offline or live" ;; esac
-     fi ;;
+  *) CTGOV=offline ;;  # M1: never asked; live only by --ctgov (it lets the box reach one outside address)
 esac
 if [ "$CTGOV" = live ] && ! ctgov_internet; then
   echo "install: clinicaltrials.gov does not answer from this host: ClinicalTrials.gov set to offline (re-run with --ctgov live once it does)" >&2
@@ -1093,10 +1103,6 @@ else
 fi
 # T-632 (OPS-013): TLS on. The console is reached only at https://TB_TLS_HOSTNAME through Caddy (RUNBOOK §12)
 TLS_HOST="$(envget TB_TLS_HOSTNAME)"
-if [ -z "$TLS_HOST" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf '  The console'"'"'s DNS name for https (from hospital IT, e.g. trialbox.hospital.tw): '; read -r TLS_HOST
-  [ -z "$TLS_HOST" ] || envset TB_TLS_HOSTNAME "$TLS_HOST"
-fi
 if [ -z "$TLS_HOST" ]; then
   [ "$TB_ENV_SITE" != PRODUCTION ] || stop_or_warn tls-production "" "no TLS host name: a PRODUCTION box runs only behind https. Put TB_TLS_HOSTNAME (and TB_TLS_MODE) in deploy/.env or the answers file (tls_hostname), then re-run (RUNBOOK §12)"
   echo "    TLS: off ($TB_ENV_SITE, no TB_TLS_HOSTNAME): the console stays on 127.0.0.1"
@@ -1123,9 +1129,6 @@ esac
 # SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"
 [ -n "$SAE_TO" ] || SAE_TO="${TB_SAE_OFFICE_MAILBOX:-}"   # exported for this run
-if [ -z "$SAE_TO" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf '  The trial office'"'"'s mailbox, told at once when a serious adverse event is entered (e.g. trial-office@hospital.tw): '; read -r SAE_TO || SAE_TO=""
-fi
 SAE_TO="$(printf '%s' "$SAE_TO" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 case "$SAE_TO" in \"*\") SAE_TO="${SAE_TO#\"}"; SAE_TO="${SAE_TO%\"}" ;; \'*\') SAE_TO="${SAE_TO#\'}"; SAE_TO="${SAE_TO%\'}" ;; esac
 if [ -n "$SAE_TO" ] && ! printf '%s\n' "$SAE_TO" | grep -Eqx "[A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+"; then
@@ -1386,9 +1389,6 @@ if [ "${TB_BOX:-0}" != 1 ]; then
 fi
 # ---- end of FINISH-GATE
 UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)
-if [ "$YES" != 1 ] && [ -t 0 ]; then
-  printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac  # H-94 not a stop: the operator's own answer (D-1091)
-fi
 say "starting the stack (profile $MODE)"
 "${COMPOSE[@]}" config -q
 # D-176: every image the stack runs comes from the bundle, none from a registry. A digest-pinned image is found by its
@@ -1476,7 +1476,7 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   # KEK-INPUT (H-96): the passphrase this run read goes to the seal step by a pipe (never an argument's value, an
   # environment or the file's name again); the operator's file is removed here once the keys are sealed (rm: a link
   # is taken away, never what it names), kept with --keep-kek-passphrase-file or when the seal failed
-  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" "$@"; }
+  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" --record deploy/site/kek-backend "$@"; }
   sealed=0
   if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | seal --kek-passphrase-stdin && sealed=1
   else seal </dev/null && sealed=1; fi
@@ -1487,6 +1487,21 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   [ "$sealed" = 1 ] \
     || stop_or_warn seal-keys "the sealing of the site keys (they stay plain files; the host check lists it)" "the site keys are not sealed (above): for TB_KEK_BACKEND=passphrase without a usable TPM, use the hidden-input example in deploy/install.sh --help; docs/security/01-the-host.md"
   PP_FILE=""; KP_FILE=""
+  # H-77 (F-22): the back end is the one seal_keys.sh recorded (deploy/site/kek-backend, kept when the wizard rewrites
+  # deploy/.env), copied as it is (never worked out here) to deploy/.env, where the host check reads it. Without a
+  # record: deploy/.env is left as it is. The same block is in install.sh and in
+  # box-install.sh's deferred seal; a test keeps the two identical
+  KEK_USED=""; [ -f deploy/site/kek-backend ] && KEK_USED="$(tr -d ' \r\t\n' < deploy/site/kek-backend)"
+  case "$KEK_USED" in
+    tpm|shamir|passphrase)
+      { [ -f deploy/.env ] && [ ! -L deploy/.env ]; } \
+        || die "deploy/.env is missing or a link: TB_KEK_BACKEND=$KEK_USED was not written (put the file back, then run this again)"  # H-94 (5): the file that holds the box's secrets
+      [ -z "$(tail -c 1 deploy/.env)" ] || echo >> deploy/.env  # a last line without its newline is not joined
+      { sed -i '/^[[:space:]]*\(export[[:space:]]\+\)\?TB_KEK_BACKEND=/d' deploy/.env \
+          && echo "TB_KEK_BACKEND=$KEK_USED" >> deploy/.env; } || die "deploy/.env: TB_KEK_BACKEND=$KEK_USED could not be written"  # H-94 (5): the file that holds the box's secrets
+      echo "    the KEK back end that sealed the keys: $KEK_USED (recorded by seal_keys.sh; deploy/.env TB_KEK_BACKEND)" ;;
+    *) echo "    note: no record of the KEK back end in deploy/site/kek-backend (above): deploy/.env not changed" >&2 ;;
+  esac
 fi
 KP_VALUE=""
 [ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
@@ -1572,14 +1587,14 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     # trialbox-ops.timer (NEW-OPS-8, D-561): the runner that writes the host's health facts every minute and runs
     # the Operations page's requests; without it the health line is red (OPS-009)
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
-      trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer >/dev/null 2>&1 \
+      trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer trialbox-terminology.timer >/dev/null 2>&1 \
       || { stop_or_warn systemd-units "the start of the units" "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"; SYSTEMD_OK=0; }
     if [ "$SYSTEMD_OK" = 1 ]; then  # H-94: units a PoC box could not enable are not started
       systemctl start trialbox.service
       systemctl start trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
-        trialbox-egress-watch.service trialbox-ops.timer >/dev/null 2>&1 || true
+        trialbox-egress-watch.service trialbox-ops.timer trialbox-terminology.timer >/dev/null 2>&1 || true
     fi
-    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer"
+    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer, trialbox-terminology.timer"
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
   fi

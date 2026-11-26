@@ -29,6 +29,8 @@ from tb_common.dates import PRINTED_STYLES, YEAR_BASES
 from tb_common.retention import MAX_DAYS, OVERRIDABLE
 
 LANGUAGES = ("en", "ja", "zh-TW")  # the console's three catalogues
+# M1 (D-1280): the marked name a box carries until the hospital's is given
+PLACEHOLDER_NAME = "TrialBox (site name needed)"
 
 
 class SourceKind(StrEnum):
@@ -125,6 +127,12 @@ class OwnerAnswers:
     backup_dir: str = ""
     anchor_dir: str = ""
     log_dir: str = ""
+    # M1 (D-1280): what is offered while the install runs or filled in on "Information still needed". ``source_dir``:
+    # the host folder of the records (a CSV or spreadsheet source); empty: not given
+    source_dir: str = ""
+    sae_office_mailbox: str = ""
+    smtp_host: str = ""
+    smtp_port: str = ""
 
     @property
     def hostname(self) -> str:
@@ -139,6 +147,7 @@ class OwnerAnswers:
         # wrote before
         named = ("health_page_person", "tls_root_confirmed_by", "tls_root_confirmed_on")
         folders = ("backup_dir", "anchor_dir", "log_dir")  # 10K-4: only when chosen
+        later = ("source_dir", "sae_office_mailbox", "smtp_host", "smtp_port")  # M1: only when given
         for k in (
             "country",
             "ssmix2_root",
@@ -148,6 +157,7 @@ class OwnerAnswers:
             "year_basis",
             *named,
             *folders,
+            *later,
         ):
             if not d[k]:
                 del d[k]
@@ -156,6 +166,11 @@ class OwnerAnswers:
 
 BOX_ENVIRONMENTS = ("PRODUCTION", "VALIDATION")  # D-822
 # D-825: one host name (labels of letters, digits and inner hyphens, at least one dot), as an MTA names itself
+# D-736: one plain mail address, as deploy/install.sh and tools.settings_wizard check it
+MAILBOX = re.compile(
+    r"[A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*"
+    r"@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+"
+)
 _HOST = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
 
 
@@ -336,6 +351,19 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
     pair = host_folders.overlapping_pair(folders)  # three separate folders, none inside another
     if pair:
         problems.append(Problem(pair[1], "host_dir_overlap"))
+    # M1 (D-1280): optional; a malformed one is named, never written
+    source_dir = _s(raw.get("source_dir"), 255)
+    if source_dir and (host_folders.allowed(source_dir) is None or not _ROOT_DIR.fullmatch(source_dir)):
+        problems.append(Problem("source_dir", "host_dir"))
+    office = _s(raw.get("sae_office_mailbox"), 254)
+    if office and not MAILBOX.fullmatch(office):
+        problems.append(Problem("sae_office_mailbox", "email"))
+    relay = _s(raw.get("smtp_host"), 253).lower()
+    if relay and not _HOST.fullmatch(relay):
+        problems.append(Problem("smtp_host", "mta_authserv_id"))
+    port = _s(raw.get("smtp_port"), 5)
+    if port and not (port.isascii() and port.isdigit() and 1 <= int(port) <= 65535):
+        problems.append(Problem("smtp_port", "port"))
     if problems or kind is None or rule is None:
         return None, problems
     backup = Backup(kind, disk if kind is BackupKind.SECOND_DISK else "", share if kind is BackupKind.SHARE else "")
@@ -363,9 +391,44 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
             folders["backup_dir"],
             folders["anchor_dir"],
             folders["log_dir"],
+            source_dir,
+            office,
+            relay,
+            port,
         ),
         [],
     )
+
+
+def fill(raw: dict[str, Any]) -> dict[str, Any]:
+    """M1 (D-1280): the answers with every question nobody answered at its default: the marked name, backups later.
+    Only a key that is not there is filled; an answer that is there and wrong stays, and :func:`parse` names it."""
+    out = dict(raw)
+    out.setdefault("site_name", PLACEHOLDER_NAME)
+    if "backup" not in out:
+        out.setdefault("backup_kind", BackupKind.LATER.value)
+    return out
+
+
+def without_backup(raw: dict[str, Any]) -> dict[str, Any]:
+    """``raw`` with backups left for later: a disk the answers name that this machine does not have."""
+    out = {k: v for k, v in raw.items() if k not in ("backup", "backup_disk", "backup_share", "backup_dir")}
+    return {**out, "backup_kind": BackupKind.LATER.value}
+
+
+def stand_ins(a: OwnerAnswers) -> frozenset[str]:
+    """M1 (D-1280): the items of ``site_needs`` the box runs on a value of its own for, until the hospital gives one.
+    The install marks them; the step that needs one refuses it on a PRODUCTION box and warns elsewhere."""
+    open_ = {
+        "site_name": a.site_name == PLACEHOLDER_NAME,
+        "chart_number": not a.chartno_rule,
+        "data_source": a.source is SourceKind.LATER,
+        "backup_target": a.backup.kind is BackupKind.LATER,
+        "backup_alarm": not a.health_page_person,
+        "audit_share": not a.anchor_dir,
+        "office_mailbox": not a.sae_office_mailbox,
+    }
+    return frozenset(k for k, v in open_.items() if v)
 
 
 def production_gaps(a: OwnerAnswers, *, chartno_asked: bool = True) -> list[Problem]:

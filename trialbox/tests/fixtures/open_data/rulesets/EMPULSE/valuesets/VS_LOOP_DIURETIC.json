@@ -5,15 +5,15 @@
     "concept": [
      {
       "code": "C03CA01",
-      "display": "furosemide"
+      "display": "C03CA01"
      },
      {
       "code": "C03CA02",
-      "display": "bumetanide"
+      "display": "C03CA02"
      },
      {
       "code": "C03CA04",
-      "display": "torasemide"
+      "display": "C03CA04"
      }
     ],
     "system": "http://www.whocc.no/atc"

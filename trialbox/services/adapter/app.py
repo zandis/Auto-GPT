@@ -39,7 +39,7 @@ from tb_contracts import IngestRequest, dump
 
 from adapter import failure, runs
 from adapter.cli import build_config
-from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
+from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
 
 log = logging.getLogger("adapter")
 
@@ -227,7 +227,8 @@ def run(req: IngestRequest) -> JSONResponse:
                 validate=req.validate_,
             )
             end.update(state="done", report=dump(report))
-        except (SiteKeyError, NoRoomForNight, LakeBudgetError) as exc:  # T-612, D-679: refused before anything was read
+        # T-612, D-679, U-5 (D-1280): refused before anything was read
+        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError) as exc:
             end.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)

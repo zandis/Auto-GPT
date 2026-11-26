@@ -2027,6 +2027,40 @@ def hold_standing(env: Mapping[str, str]) -> bool:
         return True
 
 
+def restore_id(sha: str, started: datetime) -> str:
+    """INT-M5 (ruling 7178128292): a restore's id, the backup's sha256 and the run's start (UTC): written first in the
+    reason of the hold the restore sets, so a rerun of the same restore can know the hold as its own."""
+    return f"{sha}@{started.astimezone(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+
+
+def _id_in(reason: str) -> tuple[str, str] | None:
+    """The ``(backup sha256, restore id)`` a hold's reason names first (``[restore <id>] ...``), or None."""
+    head, sep, _ = reason.partition("] ")
+    rid = head.removeprefix("[restore ") if sep and head.startswith("[restore ") else ""
+    sha, at, start = rid.partition("@")  # "<id> carried" (review 1534) is no restore's own: its start is not one
+    ok = len(sha) == 64 and all(c in "0123456789abcdef" for c in sha) and at and len(start) == 16 and " " not in rid
+    return (sha, rid) if ok else None
+
+
+def own_rerun_hold(env: Mapping[str, str], sha: str) -> str | None:
+    """INT-M5 (ruling 7178128292): the id of the earlier restore whose hold stands, when a rerun of the same restore
+    may take it off: the hold is held; its latest change is that restore's own setting of it (its actor, its id first
+    in the reason), so nothing else changed it since; and that restore's backup is this one (``sha``). Else None: the
+    hold stays for a person, as does one that cannot be read. Read before the trial database is replaced."""
+    try:
+        flags = _hold_flags(env, None)
+        if flags.row(HOLD_FLAG) != "held":
+            return None
+        last = next(iter(flags.events(HOLD_FLAG, limit=1)), None)
+    except Exception:
+        return None
+    actor = env.get("TB_RESTORE_ACTOR") or "trialbox restore"
+    if not last or last.get("new_value") != "held" or last.get("actor") != actor:
+        return None
+    named = _id_in(str(last.get("reason") or ""))
+    return named[1] if named is not None and named[0] == sha else None
+
+
 def hold_screening(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
     """NEW-B-3 (D-522): hold the box's list jobs (the audited flag ``screening.after_restore``, set to ``held``)
     until the restore ends complete or a person releases the hold with a reason. Returns ``held``, or ``NOT set:
@@ -2501,13 +2535,20 @@ def _restore_inside(
         # earlier restore's set-aside audit chain on the box (its events may not be re-applied yet, and this run
         # will not see them), is never taken off by this restore: only a person releases it
         hold_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
-        carried = hold_standing(env) or bool(
+        # INT-M5 (ruling 7178128292): a hold this same restore set on an earlier run (same backup, its id on the
+        # hold, nothing changed it since) is not carried: this run, ending complete, takes it off, audited
+        rerun_of = own_rerun_hold(env, sha)
+        carried = (rerun_of is None and hold_standing(env)) or bool(
             hold_dir is not None and list(Path(hold_dir).parent.glob(f"{Path(hold_dir).name}.pre-restore-*"))
         )
+        rid = restore_id(sha, when)
         hold = "not needed"
+        # review 1534: a hold this run keeps as carried (a person's, another restore's) is marked so, and is never
+        # taken as this restore's own by a later rerun (own_rerun_hold refuses the mark)
+        mark = f"[restore {rid} carried]" if carried else f"[restore {rid}]"
         hold_reason = (
-            f"restore of the backup of {manifest['created_at']}: held until the restore ends complete or a person "
-            "releases it (audit: backup.restored, backup.restore_reapply)"
+            f"{mark} restore of the backup of {manifest['created_at']}: held until the restore ends complete "
+            "or a person releases it (audit: backup.restored, backup.restore_reapply)"
         )
         if changing is not None:
             changing.append(True)
@@ -2627,15 +2668,18 @@ def _restore_inside(
             # a person releases the hold. The restore takes its own hold off only when it is complete and nothing was
             # carried (a hold that stood before, an earlier restore's set-aside chain)
             if hold == "held" and complete and not carried:
+                again = f"; the rerun of restore {rerun_of} of the same backup {sha}" if rerun_of else ""
                 hold = release_own_hold(
                     env,
                     audit_dir,
-                    f"the restore of the backup of {manifest['created_at']} is complete: nothing to re-apply",
+                    f"[restore {rid}] the restore of the backup of {manifest['created_at']} is complete: nothing to "
+                    f"re-apply{again}",
                 )
             audited = _audit(targets, env, "backup.restored", sha, {
                 **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
                 "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed),
-                "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"]})  # fmt: skip
+                "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"], "restore_id": rid,
+                **({"rerun_of": rerun_of} if rerun_of else {})})  # fmt: skip
             for dname, (dest, top) in placed.items():  # D-724: the restore's own audit events were written as root
                 _give_back_owners(dest, dname, manifest.get("_owners") or {}, top, asides.get(dname))
         except BaseException as e:
