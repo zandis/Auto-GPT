@@ -1896,6 +1896,8 @@ def check_postgres_memory(inp: DoctorInputs) -> Check:
     return Check("postgres_memory", status, detail)
 
 
+# No check here warns on last night's peak against 80 % of a cap: the box keeps no per-container peak record (only
+# `docker stats` by hand and the test VM's sampler), and doctor does not invent one.
 def check_memory_caps(inp: DoctorInputs) -> Check:
     """T-692 (D-473, scale review F-05): the adapter's, the lake's and (H23b-01, D-1005) the orchestrator's memory
     caps against the patient count (``tools.trialbox.memcaps``)."""
