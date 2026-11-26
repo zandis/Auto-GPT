@@ -122,9 +122,9 @@ def test_the_report_is_not_yet_until_the_escrow_criterion_passed(tmp_path: Path)
     assert rc == 0 and "Overall: PASS" in acc.report(out)
 
 
-@pytest.mark.parametrize(("env", "status"), [("PRODUCTION", "WARN"), ("VALIDATION", "WARN"), ("TEST", "PASS")])
+@pytest.mark.parametrize(("env", "status"), [("PRODUCTION", "WARN"), ("VALIDATION", "WARN"), ("TEST", None)])
 def test_the_doctor_row_names_the_open_gate_through_the_hook_and_never_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str, status: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str, status: str | None
 ) -> None:
     from tools.trialbox import doctor
 
@@ -133,7 +133,9 @@ def test_the_doctor_row_names_the_open_gate_through_the_hook_and_never_fails(
     _record(tmp_path / "deploy")
     inp = doctor.DoctorInputs(env={"TB_ENV": env, "TB_SECRETS_DIR": str(sec)}, deploy=tmp_path / "deploy")
     rows = [c for c in doctor.module_rows(inp, []) if c.name == "key_escrow"]
-    assert [c.status for c in rows] == [status], rows
+    assert [c.status for c in rows] == ([status] if status else []), rows  # no row on a DEV or TEST box
+    if status is None:
+        return
     if status == "WARN":
         assert "[go-live gate key-escrow: open]" in rows[0].detail and "escrow-shares" in rows[0].detail, rows
     _secrets(tmp_path, escrow=SET)
