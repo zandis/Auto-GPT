@@ -230,9 +230,7 @@ def make_box(
         outputs_current=lambda job_id, files: _outputs_current(
             holder["o"], job_id, files
         ),  # D-863: the orchestrator's answer
-        outputs_made=lambda job_id: {  # 1523 ruling: the job's record of its files, as outputs-current?made=1 answers
-            o.minio_key: o.sha256 for o in holder["o"].db.get(job_id).outputs or []
-        },
+        outputs_made=lambda job_id: _outputs_made(holder["o"], job_id),  # 1523 ruling: the job's record of its files
     )
     services = Services(
         lake=LakeLocal(lake_dir, HashEmbedder()), parser=InprocParser(store), compiler=comp, mail=gw, llm=llm
@@ -312,6 +310,14 @@ def unzip_phi(box: Box, mail: Sent) -> dict[str, bytes]:
     with tempfile.TemporaryDirectory() as td, py7zr.SevenZipFile(io.BytesIO(data), password=password) as z:
         z.extractall(td)
         return {p.name: p.read_bytes() for p in Path(td).rglob("*") if p.is_file()}
+
+
+def _outputs_made(orch: Any, job_id: str) -> dict[str, str]:
+    """1523 ruling: what ``GET /jobs/{job_id}/outputs-current?made=1`` answers, in process."""
+    job = orch.db.get(job_id)
+    if job is None:
+        raise KeyError(job_id)
+    return {o.minio_key: o.sha256 for o in job.outputs or []}
 
 
 def _outputs_current(orch: Any, job_id: str, keys: list[str]) -> bool:
