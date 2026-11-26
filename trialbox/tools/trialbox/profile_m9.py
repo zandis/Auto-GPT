@@ -102,14 +102,14 @@ def detect(
         return {"profile": "", "ok": False, "seen": seen,
                 "line": f"unknown machine ({seen}): install only with --gpu {'|'.join(OVERRIDES)}"}  # fmt: skip
     rec = record(word, root)
-    if word == "rtxpro6000" and rec:
+    if rec:
         c = rec["concurrency"]
         m = rec["measured"]["patients_per_night"]
         return {
             "profile": word,
             "ok": True,
             "seen": seen,
-            "line": f"profile rtxpro6000 (96 GB card): {c['judge_max_seqs']} concurrent judge calls and "
+            "line": f"profile {word} ({rec['class']} class): {c['judge_max_seqs']} concurrent judge calls and "
             f"{c['verifier_max_seqs']} verifier calls, patients a night: {m or 'not yet measured'}",
         }
     return {"profile": word, "ok": True, "seen": seen, "line": f"profile {word} (another class: no record here)"}
@@ -137,6 +137,8 @@ def _card(inp: Any) -> str | None:
 
 
 def doctor_checks(inp: Any) -> list[tuple[str, str, str]]:
+    if inp.deploy is None:  # not a box's own files (as M1's rows): nothing to look at
+        return []
     rows = [engine_row(*server_info())]
     if inp.env.get("TB_LLM_MODE") != "gpu":
         return rows

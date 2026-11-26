@@ -523,10 +523,11 @@ command -v docker >/dev/null || stop_or_warn docker-missing "$NO_DOCKER" "Docker
 docker info >/dev/null 2>&1 || stop_or_warn docker-not-running "$NO_DOCKER" "Docker is not running (sudo systemctl start docker)"
 docker compose version >/dev/null 2>&1 || stop_or_warn compose-missing "$NO_DOCKER" "the docker compose plugin is missing"
 # M9 (consult 10, section 4): the installer never depends on what an Engine version happens to do; the one range is
-# tools/trialbox/profile_m9.py ENGINE_TESTED. Outside it, or unreadable: the install stops before changing anything.
+# tools/trialbox/profile_m9.py ENGINE_TESTED. A version read and outside it is a warning here (and a doctor FAIL: a new stop
+# is registered the H-94 way, which is not done); one that cannot be read says nothing here (doctor's docker_engine row warns), so no refusal's text moves.
 if command -v python3 >/dev/null && docker info >/dev/null 2>&1; then
   ENGINE_RC=0; ENGINE_LINE="$(cd "$ROOT" && python3 -m tools.trialbox.profile_m9 engine 2>&1)" || ENGINE_RC=$?
-  [ "$ENGINE_RC" = 0 ] || stop_or_warn docker-engine-range "$NO_DOCKER" "$ENGINE_LINE"
+  [ "$ENGINE_RC" != 2 ] || echo "install: warning: $ENGINE_LINE (doctor FAILs it too)" >&2  # a note, not a stop: the H-94 stops are registered
 fi
 # HOST-PYTHON (D-831): the host steps run python3 -m tools.... (anchors, pre-start, doctor, the secrets); the modules
 # they import at the top are checked here, before anything loads, not 20 minutes in. module:Debian package, one per

@@ -97,5 +97,5 @@ installer accepts is in `tools/trialbox/profile_m9.py` (`ENGINE_TESTED`); outsid
 changes anything, and doctor shows the same range. On a larger card the bench runs `tools/prove_profile_96gb.sh`:
 it holds the card down to the class's memory, scales both utilisations to it, pins the servers to that card, runs
 the night, screen-now, backup and restore, and writes the rows (peak memory, kills by the memory cap, other cards
-touched). On a Windows 10 or 11 PC with WSL2 the same proof is started by `tools\prove_profile_96gb.ps1` (it checks the Windows driver, the card size and `.wslconfig` first); the engine range covers the one in WSL and Docker Desktop's. A real 96 GB machine is the owner's proof.
+touched). The 128 GB Linux Spark class has its own record (`deploy/measured/profile_record.gb10.json`, unmeasured until a Spark runs it) and the same doctor rows. A Windows 10 or 11 PC with WSL2 as the GPU host is the secondary path (the site box is Linux; Windows is the users' browser side): its proof is started by `tools\prove_profile_96gb.ps1` (it checks the Windows driver, the card size and `.wslconfig` first); the engine range covers the one in WSL and Docker Desktop's. A real 96 GB machine is the owner's proof.
 

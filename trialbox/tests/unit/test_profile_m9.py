@@ -44,6 +44,16 @@ def test_mig_card_is_refused_and_an_override_is_the_only_way_past_an_unknown_one
     assert not pm.detect("x86_64", "NVIDIA L4", override="nonsense")["ok"]
 
 
+def test_the_gb10_record_is_its_overlay_and_unmeasured() -> None:
+    rec = pm.record("gb10")
+    assert rec is not None and rec["measured"]["patients_per_night"] is None and rec["status"] == "unmeasured"
+    text = (ROOT / "deploy" / "docker-compose.gb10.yml").read_text(encoding="utf-8")
+    for key, value in rec["caps"].items():
+        assert key == "TB_LLM_PREFIX_CACHING" or f"${{{key}:-{value}}}" in text, key
+    assert pm.caps_row({"TB_MEM_VERIFIER": "64g"}, rec)[1] == "FAIL"
+    assert "gb10 (128 GB unified class)" in pm.detect("aarch64", "NVIDIA GB10", "", "125000000")["line"]
+
+
 def test_the_record_is_the_overlay_it_describes() -> None:
     rec = pm.record()
     assert rec is not None and rec["measured"]["seconds_per_1000_patients"] is None  # never filled by hand
@@ -92,7 +102,7 @@ def test_doctor_rows_come_through_the_hook(monkeypatch: pytest.MonkeyPatch, tmp_
     rec = pm.record()
     assert rec is not None
     inp = doctor.DoctorInputs(
-        env={"TB_LLM_MODE": "gpu", "TB_MEM_LLM": "64g"}, proc=tmp_path, gpu_query=lambda: (PRO, "580")
+        env={"TB_LLM_MODE": "gpu", "TB_MEM_LLM": "64g"}, deploy=tmp_path, proc=tmp_path, gpu_query=lambda: (PRO, "580")
     )
     rows = {c.name: c for c in doctor.module_rows(inp, [])}
     assert (
@@ -101,7 +111,7 @@ def test_doctor_rows_come_through_the_hook(monkeypatch: pytest.MonkeyPatch, tmp_
         and rows["profile"].status == "PASS"
     )
     assert rows["profile_caps"].status == "FAIL" and "hand-edited" in rows["profile_caps"].detail
-    stub = doctor.DoctorInputs(env={"TB_LLM_MODE": "stub"})
+    stub = doctor.DoctorInputs(env={"TB_LLM_MODE": "stub"}, deploy=tmp_path)
     assert {c.name for c in doctor.module_rows(stub, [])} >= {"docker_engine"}
 
 
@@ -115,3 +125,7 @@ def test_proof_script_is_runnable_and_refuses_without_its_steps() -> None:
 def test_windows_proof_runs_the_same_script_inside_wsl() -> None:
     ps = (ROOT / "tools/prove_profile_96gb.ps1").read_text(encoding="utf-8")
     assert "prove_profile_96gb.sh" in ps and "wsl.exe" in ps and ".wslconfig" in ps
+
+
+def test_no_rows_without_a_boxs_own_files() -> None:
+    assert pm.doctor_checks(doctor.DoctorInputs()) == []
