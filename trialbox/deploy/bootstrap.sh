@@ -103,6 +103,7 @@ kept_diff() {
 import hashlib, importlib.machinery, os, shutil, stat, sys, tarfile
 tar, root = sys.argv[1], sys.argv[2]
 only_tops = len(sys.argv) > 3 and sys.argv[3] == "tops"  # LR-18: what the switch of the update step leaves in place
+only_nested = len(sys.argv) > 3 and sys.argv[3] == "nested"  # review 7186452446 H-2: the residuals of the kept tree
 rroot = os.path.realpath(root)
 uids = (0, os.getuid())
 def inside(p):
@@ -120,7 +121,7 @@ with tarfile.open(tar, "r:") as tf:
     for m in tf:
         if m.isfile() and m.name != "HOST-SHA256SUMS":
             signed[m.name] = sha(tf.extractfile(m))
-bad, top_bad = [], []
+bad, top_bad, nested = [], [], []
 for name, want in sorted(signed.items()):
     try:
         with open(os.path.join(root, name), "rb") as f:
@@ -191,7 +192,7 @@ for d in sorted({os.path.dirname(n) for n in signed if n.endswith(".py") and n.s
         pkg = any(os.path.exists(os.path.join(p, "__init__" + x)) for x in sfx)
         if rel not in signed and (f.endswith(sfx) or f == "__pycache__" or pkg):
             bad.append(rel + ": not in the release")
-            top_bad.append(rel + ": not in the release")  # review 7186452446 H-2: reported on the kept tree too
+            nested.append(rel + ": not in the release")  # review 7186452446 H-2: reported on the kept tree too
 # the folders above the tree: owned by root alone, or shared only with the sticky bit (as /tmp is)
 up = os.path.dirname(rroot)
 while True:
@@ -200,7 +201,7 @@ while True:
     if up == os.path.dirname(up):
         break
     up = os.path.dirname(up)
-bad = top_bad if only_tops else bad
+bad = top_bad if only_tops else nested if only_nested else bad
 print(", ".join(bad[:5]) + (f" and {len(bad) - 5} more" if len(bad) > 5 else ""))
 ' "$WORK/files/$HOST_NAME" "${1:-$ROOT}" ${2:+"$2"}
 }
@@ -247,6 +248,10 @@ print(f"staged: the signed release {bid} at {root}/releases/{bid}, switched to o
     # .pth or cache at the top of the box is imported by every root job started there after the switch
     KEPT_TOPS="$(kept_diff "$ROOT" tops)" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
     [ -z "$KEPT_TOPS" ] || die "the tree at $ROOT holds code at its top that the release does not ($KEPT_TOPS): nothing was run. Move what it names aside, then run this command again"  # H-94 (1): only the signed files run
+    # review 7186452446 H-2: code of the kept tree beside a signed script outside tools/ and libs/ (deploy/hardening): the
+    # staged release runs, never it; the update step's switch sets those folders aside. Said, every one of them
+    KEPT_NESTED="$(kept_diff "$ROOT" nested)" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
+    [ -z "$KEPT_NESTED" ] || echo "kept: $ROOT holds code beside its scripts that the release does not ($KEPT_NESTED): it is not run, and the update step sets it aside"
   else
     echo "kept: $ROOT already holds this release's host tree (every file as signed)"
   fi

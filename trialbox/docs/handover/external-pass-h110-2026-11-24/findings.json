@@ -507,7 +507,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "those findings are reported on the box's own tree too: nothing runs until they are moved aside",
+   "fix": "those findings are said on their own line on the box's own tree, every one; only the staged release runs, and the update step's switch sets those folders aside",
    "from": "H-2: the integrator's review of #1455 at 57bc0542 (7186452446)"
   },
   {

@@ -59,15 +59,20 @@ def test_a_bare_bytecode_file_in_the_kept_tree_is_counted(release: dict[str, Pat
 
 
 # ------------------------------------------------------------------------------------------------ H-2
-def test_unsigned_code_beside_a_signed_script_of_the_kept_tree_stops_the_staged_run(release: dict[str, Path]) -> None:
-    """A changed tree is staged; a module beside a signed script python3 runs by path (deploy/hardening) is imported
-    by that script on the box after the switch: it is named and nothing runs."""
+def test_unsigned_code_beside_a_signed_script_of_the_kept_tree_is_reported_after_the_stage(
+    release: dict[str, Path],
+) -> None:
+    """A changed tree is staged; a module beside a signed script python3 runs by path (deploy/hardening) in the kept
+    tree is named on the kept tree's own line (the "tops" check dropped it), and only the staged release runs."""
     assert _boot(release).returncode == 0
     (release["opt"] / "tools" / "x.py").write_text("X = 2\n", encoding="utf-8")  # the kept tree is not the release's
+    for i in range(6):  # more than the first line's five
+        (release["opt"] / "tools" / f"extra{i}.txt").write_text("x\n", encoding="utf-8")
     (release["opt"] / "deploy" / "hardening" / "json.py").write_text("raise SystemExit(9)\n", encoding="utf-8")
     got = _boot(release)
-    assert got.returncode != 0 and "signed installer ran" not in got.stdout, got.stdout + got.stderr
-    assert "deploy/hardening/json.py: not in the release" in got.stdout + got.stderr
+    assert got.returncode == 0 and "signed installer ran" in got.stdout, got.stdout + got.stderr
+    nested = [ln for ln in got.stdout.splitlines() if "holds code beside its scripts" in ln]
+    assert nested and "deploy/hardening/json.py: not in the release" in nested[0], got.stdout
 
 
 # ------------------------------------------------------------------------------------------------ R2

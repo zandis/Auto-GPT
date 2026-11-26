@@ -1695,14 +1695,6 @@ if [ "$CAN_CRON" = 1 ] && [ "$NO_CRON_DAEMON" = 0 ]; then
   printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1" \
     > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
   echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
-  # review 7186452446 R4: one schedule, never both: a retention timer an earlier install made (no cron daemon then)
-  # goes, as the timer branch removes the cron file
-  RET_UNIT="${SYSTEMD_DIR:+$SYSTEMD_DIR/trialbox-retention}"
-  if [ "$SYSTEMD_HOST" = 1 ] && [ -n "$RET_UNIT" ] && { [ -e "$RET_UNIT.timer" ] || [ -L "$RET_UNIT.timer" ]; }; then
-    systemctl disable --now trialbox-retention.timer >/dev/null 2>&1 || true
-    rm -f "$RET_UNIT.timer" "$RET_UNIT.service" && systemctl daemon-reload >/dev/null 2>&1 || true
-    echo "    removed: trialbox-retention.timer (the cron file is the one schedule)"
-  fi
 elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "$SYSTEMD_HOST" != 1 ]; then
   stop_or_warn cron-production "" "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 elif [ "$SYSTEMD_HOST" = 1 ] && [ -z "${TEST_BOX:-}" ]; then  # H-106: a test box writes nothing on the host's schedules
@@ -1724,6 +1716,15 @@ elif [ "$SYSTEMD_HOST" = 1 ] && [ -z "${TEST_BOX:-}" ]; then  # H-106: a test bo
     # OCR 1455-8 (the integrator's ruling 7128436810): PRODUCTION stops; a PoC box warns and lists it
     stop_or_warn retention-timer "the nightly log retention and signed audit head (until the timer is installed)" "no cron daemon here, and trialbox-retention.timer could not be installed: the log retention and the signed audit head do not run. See systemctl status trialbox-retention.timer, then re-run"
   fi
+fi
+# review 7186452446 R4: one schedule, never both: with the cron file in place (a cron daemon runs), a retention timer
+# an earlier install made (no cron daemon then) goes, as the timer branch removes the cron file
+RET_UNIT="${SYSTEMD_DIR:+$SYSTEMD_DIR/trialbox-retention}"
+if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" = 1 ] && [ "$NO_CRON_DAEMON" = 0 ] && [ -n "$RET_UNIT" ] \
+    && { [ -e "$RET_UNIT.timer" ] || [ -L "$RET_UNIT.timer" ]; }; then
+  systemctl disable --now trialbox-retention.timer >/dev/null 2>&1 || true
+  rm -f "$RET_UNIT.timer" "$RET_UNIT.service" && systemctl daemon-reload >/dev/null 2>&1 || true
+  echo "    removed: trialbox-retention.timer (the cron file is the one schedule)"
 fi
 # H-110 (M-SC-3): a cron folder is not a cron daemon (a systemd host without one got the timer above)
 if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" != 1 ] && ! command -v pgrep >/dev/null; then

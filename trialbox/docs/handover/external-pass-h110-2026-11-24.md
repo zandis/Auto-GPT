@@ -347,7 +347,9 @@ assertion that the test lacked.
   are removed before the walk). Test: `test_h110_review_7186452446.py`, a planted `tools/evil.pyc`.
 - **H-2 (High).** After a changed tree is staged, the check of the box's own tree ("tops") kept only its top-level
   findings, so unsigned code beside a signed script outside `tools/` and `libs/` went unreported. Those findings are
-  now reported there too. Test: a planted module named json beside the signed script in the hardening folder stops the run.
+  now said on their own line, every one of them, and only the staged release runs (the update step's switch sets those
+  folders aside; an existing test holds that the run goes on). Test: a planted module named json beside the signed
+  script in the hardening folder is named, behind more than five other differences.
 - **R2 (Medium).** `host_tree.stage` refuses when the drifted release it would set aside is the one `current` names.
   A drifted release the box does not run is still set aside and unpacked again.
 - **R3 (Medium).** `settings_guard.sh` checks the compose file's path as written, before links are followed: each
