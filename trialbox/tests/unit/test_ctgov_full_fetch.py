@@ -47,7 +47,9 @@ class Registry:
         self.page_calls += 1
         self.urls.append(url)
         i = int(url.split("pageToken=t")[1].split("&", maxsplit=1)[0]) if "pageToken=t" in url else 0
-        out: dict[str, Any] = {"studies": PAGES[i], "totalCount": 5}
+        out: dict[str, Any] = {"studies": PAGES[i]}
+        if i == 0:
+            out["totalCount"] = 5  # the registry counts on the first page only
         if i + 1 < len(PAGES):
             out["nextPageToken"] = f"t{i + 1}"
         return out

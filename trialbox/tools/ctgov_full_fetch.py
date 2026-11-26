@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import http.client
 import json
 import sys
 import time
@@ -56,7 +57,7 @@ def _get(url: str, tries: int = 6) -> Any:
         except urllib.error.HTTPError as e:
             if e.code not in (429, 500, 502, 503, 504) or i == tries - 1:
                 raise
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        except (OSError, http.client.HTTPException, ValueError):  # a dropped or cut-short response, bad JSON included
             if i == tries - 1:
                 raise
         time.sleep(5 * 2**i)
@@ -95,7 +96,8 @@ def fetch(
             q["pageToken"] = st["tok"]
         r = get(f"{API}/studies?{urllib.parse.urlencode(q)}")
         n = st["pages"] + 1
-        st.setdefault("expected", int(r["totalCount"]))  # the slice's size as the registry counted it on page 1
+        if n == 1:
+            st["expected"] = int(r["totalCount"])  # the slice's size as the registry counts it; later pages omit it
         _write_atomic(out / f"p{n:04d}.json.gz", gzip.compress(json.dumps({"studies": r["studies"]}).encode(), 6))
         st.update(pages=n, tok=r.get("nextPageToken"), records=st["records"] + len(r["studies"]))
         st["done"] = not st["tok"]
