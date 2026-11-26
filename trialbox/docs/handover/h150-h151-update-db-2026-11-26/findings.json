@@ -1,0 +1,27 @@
+{
+ "card": "H150",
+ "title": "the update's database step keeps every service's name on the box's networks",
+ "date": "2026-11-26",
+ "source": "docs/handover/h150-h151-update-db-2026-11-26.md",
+ "note": "basis 'shown' means shown on a local container engine (compose 5.7.1, engine 29.9.3) with a two-service project and a stand-in image, and by the card's tests on inspect answers recorded there; the walk on a box (a fresh install, then the candidate to a later bundle) was not run by the card.",
+ "findings": [
+  {
+   "id": "H150-01",
+   "severity": "High",
+   "claim": "a release that changes a network's settings (H-137 gave trialbox-net an address range in deploy/docker-compose.identity.yml) makes compose remove and make that network again at the first up of the whole project, and compose reconnects every container that was on it without its service's name: db then had no name on trialbox-net and the orchestrator could not resolve it (the bench's red; no raw engine call recreates the container, db-up's 'made again' is not the cause)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the database step of db-up (run by the release being installed) first puts the networks on the release's settings with the box's own compose (up --no-start --no-recreate), then recreates through the same compose (up --no-start --no-deps --force-recreate) each service whose container lacks its name on a network; a service still without it stops the update"
+  },
+  {
+   "id": "H150-03",
+   "severity": "Medium",
+   "claim": "the database step read every container that compose ps -a -q lists, and compose 5.7.1 lists a stopped one-off container of compose run (it answers to its run's name), so a one-off a killed run left failed every update at the database step (the integrator's review 7181403737, 1535-3)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the inspect format carries the com.docker.compose.oneoff label and a one-off container is skipped; the tests' inspect lines were recorded again on the local engine, one-off included"
+  }
+ ]
+}

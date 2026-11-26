@@ -58,6 +58,7 @@ services:
       - --max-num-seqs=${JUDGE_MAX_SEQS:-8}
       - --enforce-eager
       - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.30}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
     # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
     # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
@@ -90,6 +91,7 @@ services:
       - --max-num-seqs=${VERIFIER_MAX_SEQS:-8}
       - --enforce-eager
       - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.15}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"video":0}
       - --default-chat-template-kwargs={"enable_thinking":false}
     # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with

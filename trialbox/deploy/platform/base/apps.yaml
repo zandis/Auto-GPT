@@ -446,7 +446,7 @@ spec:
       containers:
         - name: console
           image: trialbox-py
-          command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090", "--proxy-headers", "--forwarded-allow-ips", "*"]
+          command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090", "--proxy-headers", "--forwarded-allow-ips", "$(TB_CONSOLE_FORWARDED_ALLOW_IPS)"]
           envFrom: [{configMapRef: {name: trialbox-env}}]
           env:
             - {name: PORT, value: "8090"}

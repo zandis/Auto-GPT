@@ -42,6 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from tb_common import trusted_proxy
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
@@ -106,6 +107,11 @@ from console.refusals import localize as localize_refusal
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
+#: F0: the system modules' page files (framework section 4), one registration line each in create_app. Each has
+#: register(app, helpers, env) for its own routes and joins its own i18n_<module>.py there, as instruments_page does. A
+#: file that is not there yet is logged and passed over, so the console starts; tests/unit/test_framework_f0.py stops on
+#: one missing that no module still owes
+MODULE_PAGES = ("still_needed", "egress_page", "health_page", "data_step", "support_page", "screen_now")
 #: D-1245: how far back a protocol's audit rows are read while it is compiled (the model answers since its start)
 COMPILE_ROWS = 5000
 COOKIE = "tb_console"
@@ -268,6 +274,10 @@ class ConsoleSettings:
             studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
             identity=IdentitySettings.from_env(env, environment, Path(env.get("TB_CONSOLE_DIR") or "/data/console")),
         )
+        # H-137 (the owner's decision, #639 7156806411 item 7): "all" trusted proxies are refused in PRODUCTION
+        why = trusted_proxy.refusal(env, environment)
+        if why:
+            raise PilotRefused(why)
         if obj.sso_header and not obj.sso_trusted:
             raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
         if obj.sso_default_role not in ROLES:
@@ -423,6 +433,13 @@ def job_line(job: Job) -> str:
 
 def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
     return dict(env if env is not None else os.environ)
+
+
+def _module_page(name: str) -> bool:
+    """Whether a system module has brought its page file (``MODULE_PAGES``); said in the log when not."""
+    if not (there := (HERE / f"{name}.py").is_file()):
+        logging.getLogger(__name__).warning("declared page file not in this tree, its pages are off: console.%s", name)
+    return there
 
 
 def _provenance_db(env: Mapping[str, str]) -> Callable[[], Any] | None:
@@ -1614,6 +1631,30 @@ def create_app(
 
     twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
     people_lists.register(app, helpers, templates.env)  # J-5 (D-1223): Candidates and Participants, behind a flag
+    if _module_page("still_needed"):
+        from console.still_needed import register as still_needed
+
+        still_needed(app, helpers, raw_env)  # M1: "Information still needed"
+    if _module_page("egress_page"):
+        from console.egress_page import register as egress_page
+
+        egress_page(app, helpers, raw_env)  # M3: "What left this box"
+    if _module_page("health_page"):
+        from console.health_page import register as health_page
+
+        health_page(app, helpers, raw_env)  # M5: the health page
+    if _module_page("data_step"):
+        from console.data_step import register as data_step
+
+        data_step(app, helpers, raw_env)  # M5: the data step
+    if _module_page("support_page"):
+        from console.support_page import register as support_page
+
+        support_page(app, helpers, raw_env)  # M5: the support session
+    if _module_page("screen_now"):
+        from console.screen_now import register as screen_now
+
+        screen_now(app, helpers, raw_env)  # M8: "Screen now"
     from console import rc1_guard
 
     # R22-34 (D-1072): the last middleware added, so the outermost: it reads the address before any rewrite

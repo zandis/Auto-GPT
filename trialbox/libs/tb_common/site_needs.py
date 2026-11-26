@@ -27,6 +27,12 @@ folder holds nothing else, so the services mount it read-only at :data:`MOUNTED`
 installer and the page's apply step write it (:func:`write_stand_ins`, :func:`mark`); ``doctor`` and the page read it
 (:func:`read_stand_ins`). It lives in ``deploy/site``, so the nightly backup's host part carries it.
 
+A service cannot see every answer: the backup key, ``deploy/secrets/backup.pub``, is on the host only. The host's
+writers (the installer, the apply step and ``backup-keygen``) also keep :data:`HOST_GIVEN`,
+``deploy/site/needs/host-given.json`` (the integrator's go on #639): the keys of the items answered by a file that is
+there on the host, under the same rules as the stand-ins list and in the same folder. A service reads it through the
+same mount (:func:`mounted_files`) and passes what it names as ``files`` to :func:`gate`.
+
 Standard library only: the console, the services and the host's ``python3`` all import it.
 """
 
@@ -47,6 +53,9 @@ MOUNTED = Path("/run/tb-needs")  # not under /run/trialbox, which the KEK's read
 #: the uid the services run as (``user: "10001:10001"`` in ``deploy/docker-compose.yml``): the list is theirs to read
 SERVICE_UID = 10001
 STAND_INS_FORMAT = "tb-stand-ins/1"
+#: the items answered by a file on the host that is there, for the services that cannot see the file (#639)
+HOST_GIVEN = Path("site") / "needs" / "host-given.json"
+HOST_GIVEN_FORMAT = "tb-host-given/1"
 STATES = ("missing", "unusable", "stand_in", "given")
 
 #: the steps an item is needed before, in the order a site meets them
@@ -56,10 +65,10 @@ STEPS: dict[str, dict[str, str]] = {
         "ja": "院内の端末から使う",
         "zh-TW": "院內電腦使用",
     },
-    "first_real_night": {
-        "en": "The first night on real data",
-        "ja": "実データの最初の夜間処理",
-        "zh-TW": "真實資料的第一個夜間作業",
+    "first_real_run": {
+        "en": "The first run on real data",
+        "ja": "実データでの最初の処理",
+        "zh-TW": "以真實資料進行的第一次作業",
     },
     "study_open": {
         "en": "A study opens for real patients",
@@ -106,7 +115,7 @@ class Need:
 NEEDS: tuple[Need, ...] = (
     Need(
         key="data_source",
-        before=("first_real_night",),
+        before=("first_real_run",),
         answers=(("settings:data_source.type",), ("env:TB_SOURCE_DIR", "env:TB_SOURCE_DSN")),
         who="it",
         title={
@@ -115,9 +124,9 @@ NEEDS: tuple[Need, ...] = (
             "zh-TW": "醫院病歷資料的來源",
         },
         why={
-            "en": "The night reads them.",
-            "ja": "夜間処理が読み込みます。",
-            "zh-TW": "夜間作業要讀取它。",
+            "en": "The run reads them.",
+            "ja": "処理が読み込みます。",
+            "zh-TW": "作業時要讀取它。",
         },
         stand_in={
             "en": "A PoC box reads the sample hospital; a live box reads nothing yet.",
@@ -127,7 +136,7 @@ NEEDS: tuple[Need, ...] = (
     ),
     Need(
         key="chart_number",
-        before=("first_real_night",),
+        before=("first_real_run",),
         answers=(("env:TB_CHARTNO_RULE",),),
         who="records",
         title={
@@ -148,7 +157,7 @@ NEEDS: tuple[Need, ...] = (
     ),
     Need(
         key="backup_target",
-        before=("first_real_night",),
+        before=("first_real_run",),
         answers=(("env:TB_BACKUP_TARGETS",),),
         who="it",
         title={
@@ -169,7 +178,7 @@ NEEDS: tuple[Need, ...] = (
     ),
     Need(
         key="backup_key",
-        before=("first_real_night",),
+        before=("first_real_run",),
         answers=(("file:secrets/backup.pub",),),
         who="it",
         title={
@@ -190,7 +199,7 @@ NEEDS: tuple[Need, ...] = (
     ),
     Need(
         key="backup_alarm",
-        before=("first_real_night",),
+        before=("first_real_run",),
         answers=(("env:TB_BACKUP_MAILTO", "env:TB_BACKUP_ALERT_WATCHER", "env:TB_BACKUP_ALERT_CMD"),),
         who="it",
         title={
@@ -211,7 +220,7 @@ NEEDS: tuple[Need, ...] = (
     ),
     Need(
         key="audit_share",
-        before=("first_real_night",),
+        before=("first_real_run",),
         answers=(("env:TB_AUDIT_ANCHOR_TARGETS",),),
         who="it",
         title={
@@ -232,7 +241,7 @@ NEEDS: tuple[Need, ...] = (
     ),
     Need(
         key="site_name",
-        before=("first_real_night", "mail_out"),
+        before=("first_real_run", "mail_out"),
         answers=(("settings:site.name",),),
         who="trial_office",
         title={
@@ -488,7 +497,7 @@ def read_mounted_stand_ins(folder: Path | None = None) -> frozenset[str]:
     return _read((folder or MOUNTED) / STAND_INS.name, STAND_INS.name)[0]
 
 
-def _read(path: Path, label: str) -> tuple[frozenset[str], list[str]]:
+def _read(path: Path, label: str, fmt: str = STAND_INS_FORMAT) -> tuple[frozenset[str], list[str]]:
     if path.is_symlink():
         return frozenset(), [f"{label} is a link: not read"]
     try:
@@ -497,8 +506,8 @@ def _read(path: Path, label: str) -> tuple[frozenset[str], list[str]]:
         return frozenset(), []
     except (OSError, ValueError) as e:
         return frozenset(), [f"{label} cannot be read ({type(e).__name__})"]
-    if not isinstance(data, dict) or data.get("format") != STAND_INS_FORMAT or not isinstance(data.get("keys"), list):
-        return frozenset(), [f"{label} is not a stand-ins list ({STAND_INS_FORMAT})"]
+    if not isinstance(data, dict) or data.get("format") != fmt or not isinstance(data.get("keys"), list):
+        return frozenset(), [f"{label} is not a list of the format {fmt}"]
     keys = [k for k in data["keys"] if isinstance(k, str)]
     unknown = sorted(k for k in keys if k not in BY_KEY)
     problems = [f"{label} names an item the list does not know: {k}" for k in unknown]
@@ -510,16 +519,19 @@ def write_stand_ins(deploy: Path, keys: Iterable[str]) -> None:
     of mode 0600 beside it and moved into place, so a reader sees the old list or the new one; a link in its place is
     refused, never followed. Written as root, the file is given to :data:`SERVICE_UID`, the uid the services read it
     as through their read-only mount. Raises ValueError for an unknown key and OSError when it cannot be written."""
+    _write(deploy / STAND_INS, STAND_INS_FORMAT, keys)
+
+
+def _write(path: Path, fmt: str, keys: Iterable[str]) -> None:
     wanted = sorted(set(keys))
     unknown = [k for k in wanted if k not in BY_KEY]
     if unknown:
         raise ValueError(f"not items of the list: {', '.join(unknown)}")
-    path = deploy / STAND_INS
     if path.is_symlink():
         raise OSError(f"{path} is a link: not written")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    body = json.dumps({"format": STAND_INS_FORMAT, "keys": wanted}, indent=1) + "\n"
+    body = json.dumps({"format": fmt, "keys": wanted}, indent=1) + "\n"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         try:
@@ -544,3 +556,40 @@ def mark(deploy: Path, key: str, *, stand_in: bool) -> frozenset[str]:
     if new != keys or not (deploy / STAND_INS).is_file():
         write_stand_ins(deploy, new)
     return frozenset(new)
+
+
+def _file_answers(need: Need) -> list[str]:
+    return [n[len("file:") :] for group in need.answers for n in group if n.startswith("file:")]
+
+
+def host_given(deploy: Path) -> frozenset[str]:
+    """On the host: the keys of the items answered by a file under ``deploy`` that is there (a regular file, not a
+    link). Only the items a file can answer are named."""
+    out = set()
+    for n in NEEDS:
+        files = [f for f in _file_answers(n) if (deploy / f).is_file() and not (deploy / f).is_symlink()]
+        if files and state(n, env={}, files=files) != "missing":
+            out.add(n.key)
+    return frozenset(out)
+
+
+def write_host_given(deploy: Path) -> frozenset[str]:
+    """Rewrite :data:`HOST_GIVEN` from what is on the host now, under the stand-ins list's rules (keys only, mode
+    0600, a link refused, the services' uid when root writes it), and return it. The installer, the apply step and
+    ``backup-keygen`` call it."""
+    keys = host_given(deploy)
+    _write(deploy / HOST_GIVEN, HOST_GIVEN_FORMAT, keys)
+    return keys
+
+
+def read_host_given(deploy: Path) -> tuple[frozenset[str], list[str]]:
+    """On the host: the keys :data:`HOST_GIVEN` names, and what could not be read (as :func:`read_stand_ins`)."""
+    return _read(deploy / HOST_GIVEN, str(HOST_GIVEN), HOST_GIVEN_FORMAT)
+
+
+def mounted_files(folder: Path | None = None) -> frozenset[str]:
+    """In a service: the ``file:`` answers of the items the host's list (read-only mount, :data:`MOUNTED`) names as
+    there, for :func:`gate`'s ``files``. No mount, or a list that cannot be read, names none: the gate then reads the
+    item as missing, and a PRODUCTION step that needs it is refused."""
+    keys = _read((folder or MOUNTED) / HOST_GIVEN.name, HOST_GIVEN.name, HOST_GIVEN_FORMAT)[0]
+    return frozenset(f for k in keys for f in _file_answers(BY_KEY[k]))

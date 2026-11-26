@@ -32,7 +32,9 @@
         "libk5crypto3": "1.21.3-5+deb13u2",
         "libgssapi-krb5-2": "1.21.3-5+deb13u2",
         "libzstd1": "1.5.7+dfsg-1+deb13u1",
-        "zstd": "1.5.7+dfsg-1+deb13u1"
+        "zstd": "1.5.7+dfsg-1+deb13u1",
+        "login.defs": "1:4.17.4-2+deb13u1",
+        "passwd": "1:4.17.4-2+deb13u1"
       },
       "keys": {
         "groonga": {

@@ -119,6 +119,7 @@ def test_the_doctor_fails_when_the_terminology_changed_after_the_load(
     deploy = tmp_path / "deploy"
     (deploy / "site").mkdir(parents=True)
     report = tl.run(term_dir, "http://fhir.invalid/fhir", omop, wait=0)
+    report = tl.restarted(report, True, 38, "2026-11-23T00:00:00+00:00")  # V-18b: as deploy/terminology-update.sh
     (deploy / "site" / tl.REPORT).write_text(json.dumps(report), encoding="utf-8")
     inp = doctor.DoctorInputs(env={"TB_TERMINOLOGY_DIR": str(term_dir)}, deploy=deploy)
     ok = doctor.check_terminology(inp)

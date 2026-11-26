@@ -15,6 +15,8 @@ writes ``status.json``, which is what the console's screens show. No operation i
                     ``when: quiet`` (T-730b, D-731) it waits for the quiet hour and for no job running
 ``logs_collect``    ``trialbox logs collect`` (yesterday's service logs)
 ``network_sheet``   ``tools/network_sheet.py`` into ``<ops>/network/`` (en, ja, zh-TW)
+``site_needs``      one answer of "Information still needed" into ``deploy/.env`` and ``settings.yaml``
+                    (``tools/box/needs_apply.py``), then the services on it
 ==================  ==========================================================================================
 
 The status and the results never hold a secret: secrets are listed by name, presence and age
@@ -54,6 +56,7 @@ ACTIONS: tuple[str, ...] = (
     "update_apply",
     "logs_collect",
     "network_sheet",
+    "site_needs",  # M1 (D-1280): one item of "Information still needed" into the box's settings
 )
 COMPOSE_ONLY = frozenset({"update_apply", "logs_collect"})
 REQ_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
@@ -551,6 +554,11 @@ class OpsRunner:
         return out
 
     # -------------------------------------------------------------------------------------------- actions
+    def do_site_needs(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        from tools.box import needs_apply
+
+        return needs_apply.run(self.box.deploy, args, restart=self.box.kind == "compose")
+
     def do_backup(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
         targets = self.box.targets()
         if not targets:

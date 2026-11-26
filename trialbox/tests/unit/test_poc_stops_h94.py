@@ -409,11 +409,11 @@ def test_a_poc_install_goes_through_every_converted_point(tmp_path: Path) -> Non
     r = first.install("--mode", "stub", "--yes", force=("finish-early-did-not-run",))
     seen |= _check("third install", r, {"finish-early-did-not-run"})
     assert not {"install.sh/project-cleanup-refused", "install.sh/finish-early"} & r.listed_keys()
-    # the questions on a terminal: no answers file, a ClinicalTrials.gov answer that is neither
+    # the questions on a terminal: no answers file, and the four questions not answered (M1: nothing else is asked)
     tty = Box(tmp_path / "tty", env="TB_ENV=TEST\n")
     r = tty.install("--environment", "TEST", "--mode", "stub", "--answers", str(tmp_path / "none.yaml"),
-                    answers=False, tty="bogus\n\n\ny\n")  # fmt: skip
-    seen |= _check("questions", r, {"answers-file", "ctgov-answer"})
+                    answers=False, tty="bogus\n" * 5)  # fmt: skip
+    seen |= _check("questions", r, {"answers-file", "no-settings"})
     # no answers and no terminal: no settings are written (the services cannot start), the install goes on
     r = Box(tmp_path / "no-settings").install("--environment", "TEST", "--mode", "stub", "--yes", answers=False)
     seen |= _check("no settings", r, {"no-settings"})

@@ -139,7 +139,7 @@ def test_a_bug_is_a_500_with_an_id_and_its_trace_in_the_audit(monkeypatch: pytes
     resp, fake = _post(monkeypatch, KeyError("a value that must never be shown"))
     assert resp.status_code == 500
     detail = resp.json()["detail"]
-    assert detail["error"] == "internal error" and len(detail["error_id"]) == 12
+    assert detail["error"] == "internal error" and len(detail["error_id"]) == 16  # H-147: ids.log_safe_id
     assert "never be shown" not in resp.text
     [(event, kw)] = fake.audit.events
     d = kw["detail"]

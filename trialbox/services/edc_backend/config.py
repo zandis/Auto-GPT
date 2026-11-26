@@ -92,7 +92,8 @@ def _pairs(text: str) -> dict[str, str]:
     return out
 
 
-def _prefixed(env: Mapping[str, str], prefix: str, into: dict[str, str]) -> None:
+def _prefixed(env: Mapping[str, str], prefix: str, into: dict[str, str], *, fill_only: bool = False) -> None:
+    """The tokens named ``<prefix><ref>``. ``fill_only``: a ref already set keeps its token (the short alias)."""
     for key, val in env.items():
         if not key.startswith(prefix):
             continue
@@ -100,9 +101,11 @@ def _prefixed(env: Mapping[str, str], prefix: str, into: dict[str, str]) -> None
         if not _REF.fullmatch(ref):
             raise EdcConfigError("a project token name is lower-case letters, digits, _ and -")
         try:
-            into[ref] = check_token(val)
+            token = check_token(val)
         except RcError as exc:
             raise EdcConfigError(exc.message) from exc
+        if not (fill_only and ref in into):
+            into[ref] = token
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> EdcConfig:
@@ -122,7 +125,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> EdcConfig:
         return EdcConfig("", "", "", {}, *caps, False)
     tokens = _pairs(_first(env, "TB_REDCAP_PROJECT_TOKENS"))
     _prefixed(env, _TOKEN_PREFIX, tokens)
-    _prefixed(env, _TOKEN_ALIAS, tokens)
+    _prefixed(env, _TOKEN_ALIAS, tokens, fill_only=True)  # H-137: the short name only when no TB_ one names the ref
     if kind == "internal":
         url = _first(env, "TB_EDC_INTERNAL_URL", "EDC_INTERNAL_URL")
         default = _first(env, "TB_EDC_INTERNAL_TOKEN", "EDC_INTERNAL_TOKEN")

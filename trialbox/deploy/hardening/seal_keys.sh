@@ -2,7 +2,7 @@
 # The site keys sealed at install (T-634, D-408, D-347; OPS-043). install.sh runs it right after the keys are made
 # and before the stack starts; safe to run again.
 #
-#   deploy/hardening/seal_keys.sh --secrets DIR [--conf deploy/site/hardening.conf] [--dry-run]
+#   deploy/hardening/seal_keys.sh --secrets DIR [--conf deploy/site/hardening.conf] [--record FILE] [--dry-run]
 #       [--kek-passphrase-file FILE [--keep-kek-passphrase-file] | --kek-passphrase-stdin]
 #
 # A box with a KEK already (kek.json in the secrets folder): any key still plain is wrapped (tools.keys wrap), which
@@ -112,11 +112,12 @@ kp_remove_file() {  # unlinked, never written through its name (a link is taken 
 }
 # ---- end of KEK-INPUT functions
 kp_refuse_env  # H-96: before anything is read or made
-CONF="$ROOT/deploy/site/hardening.conf"; SECRETS=""; PP_FILE=""; PP_STDIN=0; PP_KEEP=0
+CONF="$ROOT/deploy/site/hardening.conf"; SECRETS=""; PP_FILE=""; PP_STDIN=0; PP_KEEP=0; REC=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --secrets) SECRETS="$2"; shift ;;
     --conf) CONF="$2"; shift ;;
+    --record) REC="$2"; shift ;;
     --dry-run) DRY=1 ;;
     --kek-passphrase-file) [ -n "${2:-}" ] || hb_die "--kek-passphrase-file needs a file"; PP_FILE="$2"; shift ;;  # H-94 (5)
     --keep-kek-passphrase-file) PP_KEEP=1 ;;
@@ -255,6 +256,16 @@ if [ "$DRY" != 1 ]; then
   flock -n 6 || hb_die "another run of seal_keys.sh or a key command holds $SECRETS: let it finish, then run this script again; nothing was changed"
 fi
 
+# H-77 (F-22): record WORD: --record FILE gets the back end the seal in place uses, the name only and owner only, whole
+# (a temp file, then renamed). install.sh copies it to deploy/.env (TB_KEK_BACKEND), where the host check reads it
+record() {
+  [ -n "$REC" ] || return 0
+  mkdir -p "$(dirname "$REC")"
+  ( umask 077; printf '%s\n' "$1" > "$REC.tmp" )
+  mv -f "$REC.tmp" "$REC"
+  hb_say "the KEK back end is recorded: $1 ($REC)"
+}
+
 if [ -f "$SECRETS/kek.json" ]; then
   hb_say "the KEK exists ($SECRETS/kek.json): wrapping any key still plain"
   [ "$DRY" = 1 ] && { hb_say "would run: tools.keys wrap"; exit 0; }
@@ -274,6 +285,14 @@ if [ -f "$SECRETS/kek.json" ]; then
   audit_key
   pp_done
   hand_over
+  # H-77: the record follows the seal in place as kek.json names it (after a rotate-kek, or a seal whose closing check
+  # failed once); kek.json's file back end is tpm's KEK (tools.keys init --backend file --kek-in, above)
+  WAS="$(sed -n 's/^ "backend": "\([a-z]*\)",\{0,1\}$/\1/p' "$SECRETS/kek.json")"
+  [ "$WAS" = file ] && WAS=tpm
+  case "$WAS" in
+    ""|*[!a-z]*) hb_say "kek.json names no back end: nothing recorded" ;;
+    *) record "$WAS" ;;
+  esac
   exit 0
 fi
 
@@ -340,3 +359,6 @@ keys check --secrets "$SECRETS"
 audit_key
 pp_done
 hand_over
+# H-77 (F-22): the back end this run sealed with, recorded only now that every step above passed (a dry run and a failed
+# seal never get here: an earlier record stays as it was)
+record "$KEK_BACKEND"

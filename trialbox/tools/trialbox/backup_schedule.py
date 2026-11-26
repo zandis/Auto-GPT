@@ -80,6 +80,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from tools.update_status import write_atomic
+
 SUFFIX = ".tbbak"
 REFDATA = "refdata"
 BULK_REFDATA = ("ctgov_study", "trial", "term")  # the vendor pack's rows: left out, the site-fetch ones copied out
@@ -1089,6 +1091,14 @@ ARCHIVER_SQL = (
 )
 
 
+def mode_of(path: Path, default: int = 0o644) -> int:
+    """The mode a file rewritten whole keeps (H-142 .k): its own, or ``default`` (``open``'s under umask 022)."""
+    try:
+        return path.stat().st_mode & 0o7777
+    except OSError:
+        return default
+
+
 class ComposeOps:
     """The nightly run's steps on a site box (``docker compose --project-directory deploy``)."""
 
@@ -1234,7 +1244,7 @@ class ComposeOps:
             if src.is_file():
                 shutil.copy2(src, dest / name)
                 taken.append(name)
-        patterns = shutil.ignore_patterns("backup.lock", ".audit-*", "*.tmp")
+        patterns = shutil.ignore_patterns("backup.lock", AUDIT_LOCK, ".audit-*", "*.tmp")
         licensed = self.deploy / "site" / "terminology"
 
         def skip(folder: str, names: list[str]) -> set[str]:
@@ -1359,7 +1369,11 @@ class ComposeOps:
 
     def audit(self, event: str, detail: dict[str, Any]) -> None:
         """Append ``event`` to the box's audit log through the orchestrator. Events kept while it was down
-        (``deploy/site/backup-audit-pending.jsonl``) go first, in order (D-274, DI-10); what cannot be sent stays."""
+        (``deploy/site/backup-audit-pending.jsonl``) go first, in order (D-274, DI-10); what cannot be sent stays.
+        INT-M5 (PR1305-H6): the whole read, send and write holds ``deploy/site/backup-audit.lock`` (callers outside
+        ``backup.lock`` too: the nightly's alert, ``backup-status``, the host restore), and the queue with the new
+        event is written whole before anything is sent: a signal partway through loses no event (one sent and not
+        yet struck may be sent again; never one dropped)."""
         code = (
             "import json, sys\nfrom tb_common.audit_writer import open_audit\ns = json.load(sys.stdin)\n"
             "open_audit().append(s['event'], actor='backup', input_sha=s['sha'], detail=s['detail'])\n"
@@ -1367,25 +1381,50 @@ class ComposeOps:
         state = self.deploy / "site"
         state.mkdir(parents=True, exist_ok=True)
         pending = state / "backup-audit-pending.jsonl"
-        lines = [ln for ln in (pending.read_text(encoding="utf-8").splitlines() if pending.is_file() else []) if ln]
-        lines.append(json.dumps({"event": event, "sha": detail.get("sha256") or "", "detail": detail}))
-        left: list[str] = []
-        for ln in lines:
-            if left:  # keep the order: after one fails, the rest wait too
-                left.append(ln)
-                continue
-            f = state / f".audit-{json.loads(ln)['event']}.json"
-            f.write_text(ln, encoding="utf-8")
-            try:
-                self.box.run(self.box._c("exec", "-T", "orchestrator", "python", "-c", code), stdin_file=f)
-            except Exception:  # the orchestrator is down: keep the event for the admin, never lose it
-                left.append(ln)
-            finally:
-                f.unlink(missing_ok=True)
-        if left:
-            pending.write_text("".join(x + "\n" for x in left), encoding="utf-8")
-        else:
-            pending.unlink(missing_ok=True)
+        with _audit_lock(state):
+            lines = [ln for ln in (pending.read_text(encoding="utf-8").splitlines() if pending.is_file() else [])
+                     if ln]  # fmt: skip
+            lines.append(json.dumps({"event": event, "sha": detail.get("sha256") or "", "detail": detail}))
+            with contextlib.suppress(OSError):  # kept first; a full disk still lets the events be sent
+                write_atomic(pending, "".join(x + "\n" for x in lines), mode_of(pending))
+            left: list[str] = []
+            for ln in lines:  # a signal here: the queue on disk already holds this event and every later one
+                if left:  # keep the order: after one fails, the rest wait too
+                    left.append(ln)
+                    continue
+                f = state / f".audit-{json.loads(ln)['event']}.json"
+                write_atomic(f, ln)  # H-142 (.k): never a half-written event on the orchestrator's stdin
+                try:
+                    self.box.run(
+                        self.box._c("exec", "-T", "orchestrator", "python", "-c", code),
+                        stdin_file=f,
+                        timeout=query_timeout(getattr(self, "env", {})),
+                    )  # review 1534: bounded under the lock
+                except Exception:  # the orchestrator is down: keep the event for the admin, never lose it
+                    left.append(ln)
+                finally:
+                    f.unlink(missing_ok=True)
+            if left:  # H-142 (.k): written whole beside it, then renamed: a kill mid-write never empties the queue
+                write_atomic(pending, "".join(x + "\n" for x in left), mode_of(pending))
+            else:
+                pending.unlink(missing_ok=True)
+
+
+AUDIT_LOCK = "backup-audit.lock"  # INT-M5 (PR1305-H6): its own file, so a caller inside backup.lock never waits on it
+
+
+@contextlib.contextmanager
+def _audit_lock(state: Path) -> Iterator[None]:
+    """``deploy/site/backup-audit.lock`` held (``flock``, waiting for the holder: each holder's sends are bounded by
+    their own timeouts); released when the process ends, however it ends."""
+    import fcntl
+
+    fd = os.open(state / AUDIT_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
 
 
 @contextlib.contextmanager

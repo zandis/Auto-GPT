@@ -1,0 +1,40 @@
+{
+ "card": "V18b",
+ "title": "ATC only from the site's own copy; the FHIR store restarted after a terminology change (lane V, 2026-11-23)",
+ "date": "2026-11-23",
+ "source": "docs/handover/v18b-atc-only-from-the-site-2026-11-23.md",
+ "findings": [
+  {
+   "id": "V18b-01",
+   "severity": "Medium",
+   "claim": "A box that loaded the vocabulary from the shipped atc.parquet keeps those ATC concepts, with WHOCC's English names, in omop.concept after this card: a vocabulary load upserts and never removes a concept; only the term:atc attribute rows are emptied on the next load",
+   "lane": "V",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "V18b-02",
+   "severity": "Low",
+   "claim": "Without the site's own ATC copy, every shipped medication ValueSet names its ATC codes by the code itself (M04AA01), not by a drug name: the reviewer of a rule set sees codes only until the site loads its index",
+   "lane": "V",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "V18b-03",
+   "severity": "Medium",
+   "claim": "Each terminology change now restarts the FHIR store (38 s on the test machine, up to 15 minutes allowed): a compile's equivalence check or an approval's load asked during it refuses with a reason; screening is SQL only and never calls the store, so no answer moves; install, the manual update and a bundle update are the only callers of the restart",
+   "lane": "V",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "V18b-04",
+   "severity": "Medium",
+   "claim": "RA-JAK-EXC-01 (any prior biologic DMARD or JAK inhibitor) and RA-COH-INC-06 (a biologic within a year) read biologics from TrialBox's groupers 'ra biologic' and 'biologic dmard or jak inhibitor': the TNF inhibitors (L04AB), tocilizumab (L04AC07) and, for RA-JAK, the JAK inhibitors (L04AF). Abatacept, sarilumab, rituximab and the other interleukin inhibitors are in none of them, so a patient on one is not excluded (RA-JAK) or not counted (RA-COH), silently, without even an unknown; found while checking the OCR pass's tocilizumab item (pre-existing on master, not changed by V-18b)",
+   "lane": "V",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

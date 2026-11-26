@@ -70,6 +70,7 @@ CUT_END = "# T-612 (DATA-004): the site keys are made here"
 CUT_IN = """id() { if [ "${1:-}" = -u ]; then echo 0; else command id "$@"; fi; }
 HOST_PROFILE=site; TB_ENV_SITE=VALIDATION; COMPOSE=(echo compose)
 echo "CUT: the steps between the run from the signed release and the site keys"
+[ -f deploy/.env ] || (umask 077; : > deploy/.env)  # the settings step made it; H-77 names the back end there
 """
 SEALED = "SEALED BY THE RUN FROM THE SIGNED RELEASE"
 

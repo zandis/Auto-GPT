@@ -22,6 +22,7 @@ from typing import Any, Protocol
 from urllib.parse import urlencode
 
 import httpx
+from tb_common import egress_edge
 from tb_common.audit import AuditLog
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
@@ -640,6 +641,10 @@ class HttpBackend:
         if not self.test_smtp:
             raise Unavailable("no test mail server configured (TB_CONSOLE_TEST_SMTP)")
         host, _, port = self.test_smtp.partition(":")
+        if "." in host and host != "127.0.0.1":  # M3: a test server off the box (a service of the box has no dot)
+            out = egress_edge.leave("mail.test", host, egress_edge.Message(subject, body, tuple(files)),
+                                    audit=self.audit_log, actor="console")  # fmt: skip
+            subject, body, files = out.subject, out.body, list(out.files)
         m = EmailMessage()
         domain = sender.rsplit("@", 1)[-1]
         m["From"] = sender

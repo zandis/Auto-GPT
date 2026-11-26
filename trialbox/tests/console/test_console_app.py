@@ -37,6 +37,19 @@ from tb_contracts import (
     RegistryUpdate,
 )
 
+
+def one_page_pdf(text: str) -> bytes:
+    """A real one-page PDF: the egress edge reads what it lets out (M3)."""
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, invariant=1)
+    c.drawString(72, 700, text)
+    c.save()
+    return buf.getvalue()
+
+
+ONE_PAGE_PDF = one_page_pdf("synthetic")
 ADMIN_PW = "correct-horse-battery-1"
 VIEWER_PW = "viewer-password-0001"
 PILOT_ENV = {
@@ -379,7 +392,7 @@ def _done_feas(backend: FakeBackend) -> Job:
     stem = "feasibility_GZQO_v1.0.0_2026-10-04"
     outs = []
     for name, data, tag in (
-        (f"{stem}.pdf", b"%PDF-1.4 synthetic", "aggregate"),
+        (f"{stem}.pdf", ONE_PAGE_PDF, "aggregate"),
         (f"{stem}.json", json.dumps(FEAS_JSON).encode(), "aggregate"),
         (f"{stem}.raw.json", b'{"exact": 3}', "phi"),
     ):
@@ -426,7 +439,7 @@ def box(tmp_path: Path) -> dict[str, Any]:
             "headline": {"projection_12m": {"p10": 2, "p50": 5}, "recall_sentence": "x"},
         }
         (out / "dl1" / f"DL1_{trial}.json").write_text(json.dumps({"object": obj, "sha256": "0" * 64}))
-        (out / "dl1" / f"DL1_{trial}.pdf").write_bytes(b"%PDF-1.4 dl1")
+        (out / "dl1" / f"DL1_{trial}.pdf").write_bytes(ONE_PAGE_PDF)
         (out / "recall" / "recall_certificate.json").write_text('{"alpha": 0.05}')
         (out / "cascade" / "final_list.json").write_text('{"patients": ["p1"]}')
         (out / "e2e_summary.json").write_text(
@@ -453,6 +466,7 @@ def box(tmp_path: Path) -> dict[str, Any]:
         "TB_CONSOLE_DIR": str(tmp_path / "console"),
         "TB_CONSOLE_SAMPLES_DIR": str(samples),
         "TB_CONSOLE_CONSENT_SAMPLE": str(samples / "GZQO_ICF_v2.md"),
+        "TB_OPS_DIR": str(tmp_path / "ops"),  # M1: never the machine's own /data/ops
     }
     app = create_app(env, backend=backend, audit=audit, users=users, classify=classify, cascades=cascades)
 

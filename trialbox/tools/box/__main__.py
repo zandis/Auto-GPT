@@ -3,6 +3,8 @@
     python3 -m tools.box detect [--deploy deploy]                       # this machine, as JSON
     python3 -m tools.box plan --hardware hw.json --provisional --deploy deploy --out deploy/site/box/answers.json
     python3 -m tools.box plan --hardware hw.json --owner owner.json --deploy deploy --out ...
+    python3 -m tools.box ask --hardware hw.json --out owner.json        # the four questions, on this terminal (M1)
+    python3 -m tools.box propose --deploy deploy                         # what the network, disks and records suggest
     python3 -m tools.box code --firstrun /run/trialbox-firstrun          # a new one-time code (printed once)
     python -m tools.box apply --firstrun DIR --hardware hw.json --deploy deploy   # in the trialbox-py image
 
@@ -17,6 +19,7 @@ service passwords and tokens the install made are kept), and removes the answers
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import shlex
@@ -24,9 +27,10 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from tb_common import firstrun
-from tb_common.box_answers import OwnerAnswers, parse
+from tb_common.box_answers import OwnerAnswers, fill, parse, without_backup
 
 from tools.box.plan import DEPLOY, Hardware, PlanError, detect, plan, provisional, write
 from tools.trialbox.private_file import replace_private
@@ -107,6 +111,50 @@ def merge_env(env_file: Path, new: dict[str, str]) -> list[str]:
     return changed
 
 
+def write_whole(path: Path, text: str, mode: int = 0o600) -> None:
+    """``text`` to ``path`` by a new file beside it renamed over it: an interrupted write leaves the old file. The
+    owner of a file that is there is kept (as root)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            if os.geteuid() == 0 and path.exists():
+                os.fchown(f.fileno(), path.stat().st_uid, path.stat().st_gid)
+            os.fchmod(f.fileno(), mode)
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+    folder = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(folder)  # the rename too
+    finally:
+        os.close(folder)
+
+
+def owner_answers(raw: dict[str, Any], disks: tuple[str, ...]) -> tuple[OwnerAnswers, list[str]]:
+    """The answers of a file: what it does not name at its default. A second disk this machine does not have (the
+    answers of another box, replayed) is left for later and said; any other wrong answer is refused."""
+    raw, notes = fill(raw), []
+    answers, problems = parse(raw, disks=disks)
+    if answers is None and {p.field for p in problems} == {"backup_disk"}:
+        notes.append("backups: the disk the answers name is not on this machine; they stay on it for now")
+        answers, problems = parse(without_backup(raw), disks=disks)
+    if answers is None:
+        raise PlanError("; ".join(map(str, problems)))
+    return answers, notes
+
+
+def keep_answers(deploy: Path, a: OwnerAnswers) -> None:
+    """The replay file: the same answers on another machine give the same settings (no password, no passphrase)."""
+    write_whole(deploy / "site" / "box" / "owner.json", json.dumps(a.to_json(), ensure_ascii=False, indent=1) + "\n")
+
+
 def apply(folder: Path, hw: Hardware, deploy: Path) -> list[str]:
     """The owner's answers into the box's settings (needs the image: ``tools.settings_wizard`` validates)."""
     import tempfile
@@ -114,9 +162,10 @@ def apply(folder: Path, hw: Hardware, deploy: Path) -> list[str]:
     from tools import settings_wizard
 
     raw = firstrun.read(folder / firstrun.ANSWERS)
-    answers, problems = parse(raw, disks=tuple(d.path for d in hw.disks))
-    if answers is None:
-        raise PlanError("the first-run answers do not parse: " + "; ".join(map(str, problems)))
+    try:
+        answers, notes = owner_answers(raw, tuple(d.path for d in hw.disks))
+    except PlanError as exc:
+        raise PlanError(f"the first-run answers do not parse: {exc}") from None
     p = plan(answers, hw, deploy)
     write(p, deploy, deploy / "site" / "box" / "answers.json")
     settings, env, warnings = settings_wizard.build(p.wizard_answers, [deploy / "site" / "mapping"])
@@ -124,8 +173,9 @@ def apply(folder: Path, hw: Hardware, deploy: Path) -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         settings_wizard.write(settings, env, deploy / "settings.yaml", Path(tmp) / ".env")
     merge_env(deploy / ".env", env)
+    keep_answers(deploy, answers)
     (folder / firstrun.ANSWERS).unlink(missing_ok=True)
-    return [*p.warnings, *warnings]
+    return [*notes, *p.warnings, *warnings]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -140,6 +190,16 @@ def main(argv: list[str] | None = None) -> int:
     who.add_argument("--owner", type=Path, help="the owner's answers (JSON)")
     p.add_argument("--deploy", type=Path, default=DEPLOY)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--keep", action="store_true", help="a site file that is there stays as it is (the IT form)")
+    q = sub.add_parser("ask", help="the four questions, on this terminal (M1)")
+    q.add_argument("--hardware", type=Path, required=True)
+    q.add_argument("--out", type=Path, required=True)
+    q.add_argument("--environment", default="")
+    q.add_argument("--seed", type=Path, help="a site seed the vendor signed (verified before: tools.site_seed verify)")
+    pr = sub.add_parser("propose", help="what this machine's network, disks and records suggest (read-only)")
+    pr.add_argument("--deploy", type=Path, default=DEPLOY)
+    sp = sub.add_parser("settings-patch")
+    sp.add_argument("--deploy", type=Path, default=DEPLOY)
     c = sub.add_parser("code")
     c.add_argument("--firstrun", type=Path, required=True)
     a = sub.add_parser("apply")
@@ -150,21 +210,43 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.cmd == "detect":
             print(json.dumps(detect(args.deploy).to_json(), ensure_ascii=False, indent=1))
+        elif args.cmd == "ask":
+            from tools.box import ask
+
+            hw = Hardware.from_json(json.loads(args.hardware.read_text(encoding="utf-8")))
+            seed: dict[str, Any] = {}
+            if args.seed is not None:
+                from tools import site_seed
+
+                seed = site_seed.answers(args.seed)
+            got = ask.four(hw, environment=args.environment, seed=seed)
+            write_whole(args.out, json.dumps(got, ensure_ascii=False, indent=1) + "\n")
+            print(ask.offered_text(str(got["language"])))
+        elif args.cmd == "propose":
+            from tools.box import detect as found
+
+            found.write(args.deploy)
+        elif args.cmd == "settings-patch":  # in the image: the settings are YAML
+            from tools.box import needs_apply
+
+            needs_apply.patch_settings(args.deploy, json.load(sys.stdin))
         elif args.cmd == "code":
             print(firstrun.make_code(args.firstrun))
         elif args.cmd == "plan":
             hw = Hardware.from_json(json.loads(args.hardware.read_text(encoding="utf-8")))
-            answers: OwnerAnswers | None
+            notes: list[str] = []
             if args.provisional:
                 answers = provisional(hw)
             else:
-                answers, problems = parse(json.loads(args.owner.read_text(encoding="utf-8")),
-                                          disks=tuple(x.path for x in hw.disks))  # fmt: skip
-                if answers is None:
-                    raise PlanError("; ".join(map(str, problems)))
+                answers, notes = owner_answers(json.loads(args.owner.read_text(encoding="utf-8")),
+                                               tuple(x.path for x in hw.disks))  # fmt: skip
             bp = plan(answers, hw, args.deploy)
-            write(bp, args.deploy, args.out)
-            for w in bp.warnings:
+            if args.keep:  # the IT form: install.sh writes the environment itself (D-837)
+                bp.wizard_answers["env_extra"] = {k: v for k, v in bp.env_extra.items() if k != "TB_ENV"}
+            write(bp, args.deploy, args.out, keep=args.keep)
+            if not args.provisional:
+                keep_answers(args.deploy, answers)
+            for w in [*notes, *bp.warnings]:
                 print(f"note: {w}", file=sys.stderr)
             print("install-args: " + " ".join(bp.install_args))
         else:
