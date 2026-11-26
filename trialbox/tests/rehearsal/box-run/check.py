@@ -813,7 +813,8 @@ if case == "session":
 if case == "session-stop":
     opened_at = session_vm.demo_vm.instant(rec["opened_at"])
     stop_at = session_vm.demo_vm.instant(rec["planned_stop"])
-    ok(opened_at is not None and stop_at is not None and (stop_at - opened_at).total_seconds() < 60,
+    minute = float((S / "knobs" / "minute-s").read_text().strip()) if (S / "knobs" / "minute-s").exists() else 1.0
+    ok(opened_at is not None and stop_at is not None and (stop_at - opened_at).total_seconds() < 60 * minute,
        "asked 600 minutes, the session stopped within the cost cap less its margin")  # fmt: skip
     ok(rec["closed_by"] == "the session's stop" and "done, results in the bucket" in poweroff,
        "its accounts disabled before the cap: the VM went off on its own, not by the cap")  # fmt: skip

@@ -33,6 +33,7 @@ from urllib.parse import quote, urlencode
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common import egress_edge
 from tb_common.authz import permit
 from tb_common.verdict_word import shown_of
 
@@ -755,7 +756,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         out = get(f"/setup/templates/{name}?lang={lang_of(sess)}&ws={ws_of(ws)}")
         au.append("console.export", actor=h.actor(sess), detail={"filename": str(out["name"])})
         return Response(
-            base64.b64decode(out["b64"]),
+            egress_edge.made(base64.b64decode(out["b64"])),  # built by the orchestrator for this call (1523)
             media_type=str(out["media_type"]),
             headers={"Content-Disposition": f'attachment; filename="{out["name"]}"'},
         )

@@ -52,6 +52,13 @@ def the_site(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ee, "site", lambda: ee.Site(r"^\d{8}$", ("hosp.example",)))
 
 
+@pytest.fixture(autouse=True)
+def the_box_made_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1523 ruling (round 3): these tests read the second layer, the reading of a file the box made, so every file in
+    them is taken as the box's own; ``tests/unit/test_egress_made.py`` tests the record and the refusal of any other."""
+    monkeypatch.setattr(ee, "_box_made", lambda _digest, _vouched: True)
+
+
 def _xlsx(label: str, value: str, line: str) -> bytes:
     from openpyxl import Workbook
 

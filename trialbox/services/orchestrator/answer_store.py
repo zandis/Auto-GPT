@@ -30,7 +30,7 @@ Class D3: in the orchestrator's trial database, never exported, never in a suppo
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -43,6 +43,8 @@ log = logging.getLogger(__name__)
 
 #: an answer nobody gave (MICROBATCH's ``NOT_ASKED``, D-642)
 NOT_ASKED = (Reason.NOT_EVALUATED.value, Reason.MODEL_DOWN.value)
+#: patients whose answers are written at a time (a whole hospital's are never held at once as rows)
+BATCH = 500
 
 
 def shown(row: Mapping[str, Any]) -> tuple[str, str | None]:
@@ -107,17 +109,25 @@ def record(ctx: Any, ruleset: str, version: str, results: Mapping[str, Any], ind
         log.warning("answer store: the opt-out register did not answer; nothing stored")
         return 0
     try:
-        kept = {p: pv for p, pv in results.items() if p not in gone}
-        rows = rows_of(ruleset, version, kept, index_date, snapshot, str(ctx.job.job_id), _now(ctx))
-        db.answer_store_put([r for r in rows if asked(r)], [r for r in rows if not asked(r)])
+        kept = [p for p in results if p not in gone]
+        job_id, at = str(ctx.job.job_id), _now(ctx)
+
+        def batches() -> Iterator[tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]]:
+            for i in range(0, len(kept), BATCH):
+                rows = rows_of(ruleset, version, {p: results[p] for p in kept[i : i + BATCH]}, index_date, snapshot,
+                               job_id, at)  # fmt: skip
+                yield [r for r in rows if asked(r)], [r for r in rows if not asked(r)]
+
+        db.answer_store_put(batches())
     except Exception:
         log.warning("answer store: the write failed; the run's answers are not stored")
         return 0
+    late: frozenset[str] = frozenset()
     try:
-        late = sorted(frozenset(ctx.decision.register_now()) & set(kept))
-        if late:  # opted out while the run wrote: their rows go now
-            db.answer_store_drop_pids(late)
-            rows = [r for r in rows if r[0] not in set(late)]
+        now_gone = frozenset(ctx.decision.register_now()) & frozenset(kept)
+        if now_gone:  # opted out while the run wrote: their rows go now
+            db.answer_store_drop_pids(sorted(now_gone))
+            late = now_gone
     except Exception:  # the register did not answer: the opt-out worker deletes them at its next tick (every tick
         # clears every patient on the register)
         log.warning("answer store: the opt-out check after the write failed")
@@ -125,7 +135,7 @@ def record(ctx: Any, ruleset: str, version: str, results: Mapping[str, Any], ind
         retain(db, snapshot, ctx.today(), *_retention(ctx))
     except Exception:
         log.warning("answer store: the retention sweep failed; it runs again at the next write")
-    return len(rows)
+    return sum(len(results[p].verdicts) for p in kept if p not in late)
 
 
 def retain(db: Any, snapshot: str, today: date, nightly: int, months: int) -> int:

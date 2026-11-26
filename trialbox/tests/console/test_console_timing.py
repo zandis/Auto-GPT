@@ -176,8 +176,12 @@ def planted(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> ct.Page:
 
 def test_a_planted_slow_page_fails_the_walk_and_the_ten_pages_pass(box: dict[str, Any], planted: ct.Page,
                                                                    tmp_path: Any) -> None:  # fmt: skip
-    pages = [*ten_pages(box), planted]
-    rep = ct.walk(pages, warmup=1, repeat=3)  # the rule, not the statistics: few answers keep this test short
+    # H-148 (ruling 7167587625): the ten real pages at the shipped walk's own warm-up and repeat (a loaded runner's
+    # burst is one slow answer, which 3 answers of 3 cannot absorb and 3 of 60 can); the planted page, slow every
+    # time, at 1 and 3 (the rule, not the statistics: few answers keep this test short); one report of the eleven
+    real = ct.walk(ten_pages(box))
+    slow_walk = ct.walk([planted], warmup=1, repeat=3)
+    rep = ct.Report(real.pages + slow_walk.pages, real.budget_ms, real.warmup, real.repeat)
     assert [t.name for t in rep.failed()] == ["planted"], rep.markdown()
     slow = rep.pages[-1]
     assert slow.again is not None and min(slow.times + slow.again) >= ct.BUDGET_MS  # walked twice, slow both times

@@ -123,6 +123,24 @@ def caps_row(env: dict[str, str] | Any, rec: dict[str, Any]) -> tuple[str, str, 
     return ("profile_caps", "PASS", "memory caps, card split and concurrency are the measured ones")
 
 
+def context_row(profile: str, inp: Any) -> list[tuple[str, str, str]]:
+    """The profile pair's pinned context against the length its servers run with (``pin_model.context_problems``):
+    FAIL before the night, where the gateway would refuse every call ``model_mismatch``. Pins that do not load are a
+    FAIL too: the gateway screens with them."""
+    from tools import pin_model
+    from tools.trialbox import doctor
+
+    if profile not in pin_model.PROFILE_PAIRS:
+        return []
+    try:
+        bad = pin_model.context_problems(profile, doctor._override(inp), inp.env, deploy=inp.deploy)
+    except Exception as e:  # the pins unreadable here (a bad site pin, no YAML module): said, the other rows stay
+        return [("profile_context", "FAIL", f"cannot look: the pins did not load ({type(e).__name__}: {e})")]
+    if bad:
+        return [("profile_context", "FAIL", "; ".join(bad))]
+    return [("profile_context", "PASS", f"the {profile} pair's pinned context is the length its servers run with")]
+
+
 def _card(inp: Any) -> str | None:
     if inp.gpu_query is not None:
         got = inp.gpu_query()
@@ -163,6 +181,7 @@ def doctor_checks(inp: Any) -> list[tuple[str, str, str]]:
             ln.split()[1] for ln in (inp.proc / "meminfo").read_text().splitlines() if ln.startswith("MemTotal:")
         )
     d = detect(os.uname().machine, card, _mig(inp), kib)
+    rows += context_row(d["profile"], inp) if d["ok"] else []
     rec = record(d["profile"]) if d["ok"] else None
     if rec is None:
         return [*rows, ("profile", "PASS" if d["ok"] else "FAIL", d["line"])]

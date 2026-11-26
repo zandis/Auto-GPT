@@ -440,6 +440,9 @@ def box(tmp_path: Path) -> dict[str, Any]:
         }
         (out / "dl1" / f"DL1_{trial}.json").write_text(json.dumps({"object": obj, "sha256": "0" * 64}))
         (out / "dl1" / f"DL1_{trial}.pdf").write_bytes(ONE_PAGE_PDF)
+        # as tools/cascade_e2e.py: the run's record of the files it built (1523 ruling), by which they leave
+        made = {f"dl1/DL1_{trial}.pdf": hashlib.sha256(ONE_PAGE_PDF).hexdigest()}
+        (out / "made.json").write_text(json.dumps(made))
         (out / "recall" / "recall_certificate.json").write_text('{"alpha": 0.05}')
         (out / "cascade" / "final_list.json").write_text('{"patients": ["p1"]}')
         (out / "e2e_summary.json").write_text(
@@ -1912,3 +1915,90 @@ def test_healthz_touches_the_database(tmp_path: Path, monkeypatch: pytest.Monkey
     users.db._con.close()  # lost, and nowhere to reopen it: the container must not look healthy
     r = c.get("/healthz")
     assert r.status_code == 503 and r.json()["status"] == "degraded"
+
+
+# ---------------------------------------------------------------------------------------------- 1523 ruling, round 3
+def _planted_pdf(line: str) -> bytes:
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    cv = canvas.Canvas(buf)
+    cv.drawString(72, 700, line)
+    cv.save()
+    return buf.getvalue()
+
+
+def _job_pdf(box: dict[str, Any], data: bytes) -> tuple[Job, str]:
+    """A done FEAS job whose PDF in the store is now ``data``, not the bytes the job recorded."""
+    job = _done_feas(box["backend"])
+    name = "feasibility_GZQO_v1.0.0_2026-10-04.pdf"
+    box["backend"].objects[f"outputs/{job.job_id}/{name}"] = data
+    return job, f"/pilot/jobs/{job.job_id}/files/{name}"
+
+
+def test_a_job_file_whose_bytes_are_not_its_record_is_refused(box: dict[str, Any]) -> None:
+    _job, url = _job_pdf(box, _planted_pdf("MRN: 70000054 Robin Example"))
+    c, _ = login(box["app"])
+    r = c.get(url)
+    assert r.status_code == 409 and b"70000054" not in r.content
+
+
+def test_a_pdf_behind_a_leading_space_does_not_leave_by_the_layer(box: dict[str, Any]) -> None:
+    """The review's High probe 1: one leading space before ``%PDF-``, an MRN in it, no record."""
+    _job, url = _job_pdf(box, b" " + _planted_pdf("MRN: 70000054 Robin Example"))
+    c, _ = login(box["app"])
+    for path in (url, url + "?rebuild=1"):
+        r = c.get(path)
+        assert r.status_code in (200, 409) and b"70000054" not in r.content, path
+    assert c.get(url).status_code == 409
+
+
+def test_a_rebuild_through_the_layer_masks_the_planted_identifier(box: dict[str, Any]) -> None:
+    from pypdf import PdfReader
+
+    _job, url = _job_pdf(box, _planted_pdf("MRN: 70000054 / site Alpha"))
+    c, _ = login(box["app"])
+    r = c.get(url + "?rebuild=1")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    shown = "".join(p.extract_text() for p in PdfReader(io.BytesIO(r.content)).pages)
+    assert "70000054" not in shown and "site Alpha" in shown
+
+
+def test_a_workbook_with_a_name_column_is_not_rebuilt_by_the_layer(box: dict[str, Any]) -> None:
+    """The review's High probe 2: a "Patient name" column, ?rebuild=1: refused, no byte of it sent."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.append(["Patient name", "n"])  # type: ignore[union-attr]
+    wb.active.append(["Robin Example", 3])  # type: ignore[union-attr]
+    buf = io.BytesIO()
+    wb.save(buf)
+    _job, url = _job_pdf(box, buf.getvalue())
+    c, _ = login(box["app"])
+    r = c.get(url + "?rebuild=1")
+    assert r.status_code == 409 and b"Robin" not in r.content
+
+
+def test_a_cascade_file_without_its_run_s_record_is_refused_and_the_record_never_reaches_the_client(
+    box: dict[str, Any],
+) -> None:
+    c, csrf = login(box["app"])
+    run_url = c.post("/pilot/cascade", data={"csrf": csrf, "trial": "GZQO"}, follow_redirects=False).headers["location"]
+    import time
+
+    for _ in range(50):
+        if 'data-testid="cascade-state" data-state="done"' in c.get(run_url).text:
+            break
+        time.sleep(0.05)
+    r = c.get(f"{run_url}/files/dl1_pdf")
+    assert r.status_code == 200 and not any(k.lower().startswith("x-tb-made") for k in r.headers)
+    for record in box["dir"].glob("cascade/*/out/made.json"):
+        record.unlink()
+    assert c.get(f"{run_url}/files/dl1_pdf").status_code == 409
+
+
+def test_a_sponsor_pack_with_a_file_that_is_not_its_record_is_refused(box: dict[str, Any]) -> None:
+    job, _url = _job_pdf(box, _planted_pdf("MRN: 70000054 Robin Example"))
+    c, _ = login(box["app"])
+    r = c.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip")
+    assert r.status_code == 409 and b"70000054" not in r.content
