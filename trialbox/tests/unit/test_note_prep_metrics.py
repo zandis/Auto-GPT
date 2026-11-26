@@ -16,7 +16,9 @@ written to do on this kind of text; they are not a measure on a hospital's notes
 from __future__ import annotations
 
 import random
+from collections.abc import Iterator
 from datetime import date, timedelta
+from typing import Any
 
 import pytest
 from adapter.note_prep import prepare
@@ -102,7 +104,7 @@ def write_date(rng: random.Random, lang: str, t: date) -> tuple[str, str]:
     name, n = era_name(t)
     y = "元" if n == 1 and rng.random() < 0.5 else str(n)
     letter = {"令和": "R", "平成": "H", "昭和": "S", "大正": "T"}[name]
-    forms = {
+    table: dict[str, list[tuple[str, str]]] = {
         "en": [(f"{t:%Y-%m-%d}", "day"), (f"{t.year}/{t.month}/{t.day}", "day"), (f"{mon} {t.day}, {t.year}", "day"),
                (f"{t.day} {full} {t.year}", "day"), (f"{full} {t.year}", "month"), (f"in {t.year}", "year")],
         "ja": [(f"{t.year}年{t.month}月{t.day}日", "day"), (f"{t:%Y.%m.%d}", "day"), (f"{name}{y}年{t.month}月{t.day}日", "day"),
@@ -112,8 +114,8 @@ def write_date(rng: random.Random, lang: str, t: date) -> tuple[str, str]:
                (f"{t.year}年{t.month}月", "month"), (f"民國{t.year - 1911}年", "year")]
         + ([(f"{t.year - 1911}/{t.month:02d}/{t.day:02d}", "day"), (f"{t.year - 1911}年{t.month}月{t.day}日", "day"),
             (f"{t.year - 1911}年{t.month}月", "month")] if t.year >= 2011 else []),  # a bare two-digit year is no ROC date
-    }[lang]  # fmt: skip
-    return rng.choice(forms)
+    }  # fmt: skip
+    return rng.choice(table[lang])
 
 
 def write_relative(rng: random.Random, lang: str, nd: date) -> tuple[str, date]:
@@ -139,7 +141,7 @@ def write_relative(rng: random.Random, lang: str, nd: date) -> tuple[str, date]:
 class Gold:
     def __init__(self) -> None:
         self.text = ""
-        self.sentences: list[dict] = []
+        self.sentences: list[dict[str, Any]] = []
 
     def add(self, s: str) -> tuple[int, int]:
         a = len(self.text)
@@ -147,12 +149,12 @@ class Gold:
         return a, len(self.text)
 
 
-def build(rng: random.Random, lang: str) -> tuple[str, str, list[dict]]:
+def build(rng: random.Random, lang: str) -> tuple[str, str, list[dict[str, Any]]]:
     """``(note, note_date, gold sentences)``; a gold sentence has start, end, section, cues, dates, numbers."""
     nd = date(2020, 1, 1) + timedelta(days=rng.randint(0, 2400))
     g = Gold()
     stop = STOP[lang]
-    blocks = [("unlabelled", None)] if rng.random() < 0.3 else []
+    blocks: list[tuple[str, str | None]] = [("unlabelled", None)] if rng.random() < 0.3 else []
     blocks += [(sec, h) for h, sec in rng.sample(HEADERS[lang], rng.randint(3, 6))]
     for section, header in blocks:
         inline = header is not None and rng.random() < 0.4
@@ -163,7 +165,11 @@ def build(rng: random.Random, lang: str) -> tuple[str, str, list[dict]]:
         bullets = rng.random() < 0.5
         count = rng.randint(1, 4)
         for i in range(count):
-            slots: dict = {"sym": rng.choice(SYM[lang]), "dx": rng.choice(DX[lang]), "drug": rng.choice(DRUG[lang])}
+            slots: dict[str, str] = {
+                "sym": rng.choice(SYM[lang]),
+                "dx": rng.choice(DX[lang]),
+                "drug": rng.choice(DRUG[lang]),
+            }
             dates: list[tuple[str, str]] = []
             numbers: list[tuple[float, str]] = []
             roll = rng.random()
@@ -210,7 +216,7 @@ def build(rng: random.Random, lang: str) -> tuple[str, str, list[dict]]:
     return g.text, nd.isoformat(), g.sentences
 
 
-def corpus(n: int = 400):
+def corpus(n: int = 400) -> Iterator[tuple[str, str, str, list[dict[str, Any]]]]:
     rng = random.Random(20261127)
     for k in range(n):
         lang = ("en", "ja", "zh")[k % 3]
@@ -218,17 +224,17 @@ def corpus(n: int = 400):
         yield lang, text, nd, gold
 
 
-def f1(pred: set, gold: set) -> float:
+def f1(pred: set[Any], gold: set[Any]) -> float:
     tp = len(pred & gold)
     return 0.0 if not tp else 2 * tp / (len(pred) + len(gold))
 
 
 # ---------------------------------------------------------------------------------------------- the metrics
-def test_sentence_and_section_f1():
-    pred_all: set = set()
-    gold_all: set = set()
-    pred_s: set = set()
-    gold_s: set = set()
+def test_sentence_and_section_f1() -> None:
+    pred_all: set[Any] = set()
+    gold_all: set[Any] = set()
+    pred_s: set[Any] = set()
+    gold_s: set[Any] = set()
     for k, (_lang, text, nd, gold) in enumerate(corpus()):
         segs = prepare(f"n{k}", text, nd)
         pred_all |= {(k, s.start, s.end, s.section) for s in segs}
@@ -239,9 +245,9 @@ def test_sentence_and_section_f1():
     assert f1(pred_all, gold_all) >= 0.95, (f1(pred_all, gold_all), sorted(gold_all - pred_all)[:5])
 
 
-def test_cue_precision_and_recall():
+def test_cue_precision_and_recall() -> None:
     tp = fp = fn = 0
-    misses: list = []
+    misses: list[Any] = []
     for k, (_lang, text, nd, gold) in enumerate(corpus()):
         by_span = {(g["start"], g["end"]): g for g in gold}
         for s in prepare(f"n{k}", text, nd):
@@ -259,9 +265,9 @@ def test_cue_precision_and_recall():
     assert recall >= 0.95, (recall, misses)
 
 
-def test_date_interval_holds_the_day_written():
+def test_date_interval_holds_the_day_written() -> None:
     total = held = 0
-    wrong: list = []
+    wrong: list[Any] = []
     for k, (_lang, text, nd, gold) in enumerate(corpus(600)):
         by_span = {(g["start"], g["end"]): g for g in gold}
         for s in prepare(f"n{k}", text, nd):
@@ -280,7 +286,7 @@ def test_date_interval_holds_the_day_written():
     assert held / total >= 0.95, (held / total, wrong)
 
 
-def test_numbers_and_units_are_exact():
+def test_numbers_and_units_are_exact() -> None:
     total = held = extra = 0
     for k, (_lang, text, nd, gold) in enumerate(corpus()):
         by_span = {(g["start"], g["end"]): g for g in gold}
@@ -295,7 +301,7 @@ def test_numbers_and_units_are_exact():
     assert total > 50 and held == total and extra == 0, (total, held, extra)
 
 
-def test_nothing_is_dropped_only_headers_and_marks_stay_outside_the_segments():
+def test_nothing_is_dropped_only_headers_and_marks_stay_outside_the_segments() -> None:
     for k, (lang, text, nd, _gold) in enumerate(corpus()):
         rest = list(text)
         for s in prepare(f"n{k}", text, nd):
@@ -307,14 +313,14 @@ def test_nothing_is_dropped_only_headers_and_marks_stay_outside_the_segments():
 
 
 # ---------------------------------------------------------------------------------------------- wareki, 100 %
-def era_cases():
+def era_cases() -> Iterator[tuple[str, int, date, date | None, date]]:
     for name, (base, first, last) in ERAS.items():
         last = last or date(2100, 12, 31)
         for t in (first, last, first + timedelta(days=(last - first).days // 2)):
             yield name, base, first, last, t
 
 
-def test_wareki_full_dates_every_era_every_form():
+def test_wareki_full_dates_every_era_every_form() -> None:
     letters = {"令和": "R", "平成": "H", "昭和": "S", "大正": "T"}
     n = 0
     for name, base, _first, _last, t in era_cases():
@@ -333,7 +339,7 @@ def test_wareki_full_dates_every_era_every_form():
     assert n >= 30
 
 
-def test_wareki_partial_dates_are_the_era_clipped_interval():
+def test_wareki_partial_dates_are_the_era_clipped_interval() -> None:
     for name, base, first, last, t in era_cases():
         last = last or date(2100, 12, 31)
         y = t.year - base
@@ -363,5 +369,5 @@ def test_wareki_partial_dates_are_the_era_clipped_interval():
         "20260724 order number",  # a run of eight digits is no date
     ],
 )
-def test_wareki_and_other_impossible_dates_give_nothing(text):
+def test_wareki_and_other_impossible_dates_give_nothing(text: str) -> None:
     assert prepare("w", text)[0].dates == ()

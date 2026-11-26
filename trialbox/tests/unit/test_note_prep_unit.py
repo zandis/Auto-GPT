@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from typing import Any
 
 import pytest
 from adapter import note_cues, note_prep
 from adapter.note_dates import dates_in
-from adapter.note_prep import NotePrepCache, prepare
+from adapter.note_prep import prepare
 
 pytestmark = pytest.mark.nodb
 
@@ -23,7 +24,7 @@ def spans(text: str, note_date: object = None) -> list[tuple[str, str]]:
 
 # ------------------------------------------------------------------------------------------ offsets and text
 @pytest.mark.parametrize("nl", ["\n", "\r\n"])
-def test_offsets_are_exact_in_the_raw_note_and_text_is_nfkc(nl):
+def test_offsets_are_exact_in_the_raw_note_and_text_is_nfkc(nl: str) -> None:
     note = nl.join(["Chief complaint: ＡＬＴ １２０ Ｕ/Ｌ。", "- 令和６年１月１０日 受診", "・ 咳なし。 熱なし。"])
     segs = prepare("d", note)
     assert [s.raw for s in segs] == ["ＡＬＴ １２０ Ｕ/Ｌ。", "令和６年１月１０日 受診", "咳なし。", "熱なし。"]
@@ -35,17 +36,17 @@ def test_offsets_are_exact_in_the_raw_note_and_text_is_nfkc(nl):
     assert [(d.lo, d.hi) for d in segs[1].dates] == [("2024-01-10", "2024-01-10")]
 
 
-def test_empty_and_blank_notes_give_no_segments():
+def test_empty_and_blank_notes_give_no_segments() -> None:
     assert prepare("d", "") == [] and prepare("d", " \n\t\n") == [] and prepare("d", "Allergies:\n\n") == []
 
 
-def test_every_sentence_is_kept_whatever_it_says():
+def test_every_sentence_is_kept_whatever_it_says() -> None:
     note = "No fever. Denies cough. No chest pain. Never smoked."
     assert [s.raw for s in prepare("d", note)] == ["No fever.", "Denies cough.", "No chest pain.", "Never smoked."]
 
 
 # ------------------------------------------------------------------------------------------ sections
-def test_headers_in_three_languages_and_forms():
+def test_headers_in_three_languages_and_forms() -> None:
     note = "\n".join(
         [
             "Visit note",
@@ -76,13 +77,13 @@ def test_headers_in_three_languages_and_forms():
     ]
 
 
-def test_a_line_that_only_starts_like_a_header_is_text():
+def test_a_line_that_only_starts_like_a_header_is_text() -> None:
     assert spans("Plan to start metformin: 500 mg") == [("unlabelled", "Plan to start metformin: 500 mg")]
     assert spans("History of MI: 2019") == [("unlabelled", "History of MI: 2019")]
 
 
 # ------------------------------------------------------------------------------------------ sentences
-def test_sentence_marks_and_the_dots_that_are_not_marks():
+def test_sentence_marks_and_the_dots_that_are_not_marks() -> None:
     note = "Seen by Dr. Lee. J. Smith agrees. Dose 2.5 mg. ALT 40 U/L. Next. Go on. approx. 5 mg qd.　次へ。終わり！"
     assert [s.raw for s in prepare("d", note)] == [
         "Seen by Dr. Lee.",
@@ -96,7 +97,7 @@ def test_sentence_marks_and_the_dots_that_are_not_marks():
     ]
 
 
-def test_bullets_and_numbering_leave_the_sentence():
+def test_bullets_and_numbering_leave_the_sentence() -> None:
     note = "1. aspirin\n2) metformin\n(3) statin\n・ x\n- ***\n* 12 mg"
     assert [s.raw for s in prepare("d", note)] == ["aspirin", "metformin", "statin", "x", "12 mg"]
 
@@ -127,11 +128,11 @@ def kinds(text: str) -> list[tuple[str, str, str]]:
         "歩行可能",
     ],
 )
-def test_pseudo_cues_and_neutral_words_carry_no_cue(text):
+def test_pseudo_cues_and_neutral_words_carry_no_cue(text: str) -> None:
     assert kinds(text) == []
 
 
-def test_cues_of_every_kind_and_language():
+def test_cues_of_every_kind_and_language() -> None:
     assert kinds("Patient denies cough") == [("negation", "absent", "denies")]
     assert kinds("HIV was negative") == [("negation", "absent", "was negative")]
     assert kinds("Allergies: NKDA") == [("negation", "absent", "NKDA")]
@@ -154,7 +155,7 @@ def test_cues_of_every_kind_and_language():
     assert kinds("可能是肺炎") == [("uncertainty", "uncertain", "可能")]
 
 
-def test_the_longer_cue_wins_an_overlap_and_directions_are_tagged():
+def test_the_longer_cue_wins_an_overlap_and_directions_are_tagged() -> None:
     assert kinds("Family history of MI") == [("experiencer", "family", "Family history")]
     assert [(c.kind, c.value) for c in note_cues.tag("cannot be excluded")] == [("uncertainty", "uncertain")]
     assert [(c.kind, c.value) for c in note_cues.tag("否定できない")] == [("uncertainty", "uncertain")]
@@ -167,7 +168,7 @@ def day(text: str, nd: object = None) -> list[tuple[str, str, str]]:
     return [(d.lo, d.hi, d.kind) for d in dates_in(unicodedata.normalize("NFKC", text), nd)]
 
 
-def test_gregorian_forms_and_partial_dates_are_intervals():
+def test_gregorian_forms_and_partial_dates_are_intervals() -> None:
     assert day("seen 2026-07-24") == [("2026-07-24", "2026-07-24", "day")]
     assert day("seen 2026/7/4") == [("2026-07-04", "2026-07-04", "day")]
     assert day("2026.07.24") == [("2026-07-24", "2026-07-24", "day")]
@@ -184,11 +185,11 @@ def test_gregorian_forms_and_partial_dates_are_intervals():
 @pytest.mark.parametrize(
     "text", ["2026.07", "2026-02-30", "20260724", "Order 2019", "July 24", "12/31", "2020-20", "5 mg in 2 days"]
 )
-def test_a_date_that_is_not_one_gives_nothing(text):
+def test_a_date_that_is_not_one_gives_nothing(text: str) -> None:
     assert day(text, "2026-08-01") == []
 
 
-def test_roc_forms():
+def test_roc_forms() -> None:
     assert day("民國113年3月5日") == [("2024-03-05", "2024-03-05", "day")]
     assert day("民国113年") == [("2024-01-01", "2024-12-31", "year")]
     assert day("113/03/05") == [("2024-03-05", "2024-03-05", "day")]
@@ -198,7 +199,7 @@ def test_roc_forms():
     assert day("113年") == []
 
 
-def test_relative_dates_resolve_only_with_a_note_date():
+def test_relative_dates_resolve_only_with_a_note_date() -> None:
     for phrase in ("3 days ago", "yesterday", "last month", "3か月前", "先月", "3個月前", "昨天"):
         assert day(phrase) == [], phrase
     nd = "2026-08-15"
@@ -218,11 +219,11 @@ def test_relative_dates_resolve_only_with_a_note_date():
     assert day("0 days ago", nd) == []
 
 
-def test_a_note_date_that_cannot_be_read_resolves_nothing():
+def test_a_note_date_that_cannot_be_read_resolves_nothing() -> None:
     assert day("3 days ago", "yesterday") == [] and day("3 days ago", "2026-13-40") == [] and day("3 days ago", 5) == []
 
 
-def test_a_date_inside_a_wareki_phrase_is_read_once_or_not_at_all():
+def test_a_date_inside_a_wareki_phrase_is_read_once_or_not_at_all() -> None:
     assert day("令和6年1月10日") == [("2024-01-10", "2024-01-10", "day")]
     assert day("令和7年2月30日") == []  # not also read as 7年2月30日 of another calendar
     assert day("令和0年") == [] and day("平成31年5月") == []
@@ -236,7 +237,7 @@ def nums(text: str) -> list[tuple[float, str | None, str]]:
     return [(q.value, q.comparator, q.ucum) for q in seg.numbers]
 
 
-def test_numbers_with_units_comparators_and_width():
+def test_numbers_with_units_comparators_and_width() -> None:
     assert nums("ALT ５０ Ｕ/Ｌ") == [(50.0, None, "U/L")]
     assert nums("Cr <0.3 mg/dL, K ≧5.5 mmol/L") == [(0.3, "<", "mg/dL"), (5.5, ">=", "mmol/L")]
     assert nums("WBC 1,200 /uL") == [(1200.0, None, "/uL")]
@@ -249,28 +250,26 @@ def test_numbers_with_units_comparators_and_width():
     assert nums("HbA1c 6.9 %") == [(6.9, None, "%")]
 
 
-def test_an_unknown_unit_or_a_date_digit_is_no_number():
+def test_an_unknown_unit_or_a_date_digit_is_no_number() -> None:
     assert nums("3 days later, 5 cups, 2 foo/bar, 10 mg/kg") == []
     assert nums("Seen 2026-07-24 and 令和6年1月10日") == []
     assert nums("room 12b, A1c") == []
 
 
 # ------------------------------------------------------------------------------------------ cache and determinism
-def test_the_cache_returns_what_was_prepared_and_prepares_nothing_twice(tmp_path, monkeypatch):
+def test_the_cache_returns_what_was_prepared_and_prepares_nothing_twice(monkeypatch: pytest.MonkeyPatch) -> None:
     note = "Chief complaint: cough 3 days ago. ALT 45 U/L, mother had MI。令和6年1月10日。"
-    cache = NotePrepCache(tmp_path / "np.sqlite")
+    cache: dict[str, list[dict[str, Any]]] = {}
     first = prepare("a", note, "2026-08-15", cache=cache)
+    assert list(cache) == [note_prep.cache_key(note, "2026-08-15")]
     monkeypatch.setattr(note_prep, "_prepare", lambda *a: pytest.fail("prepared a cached note again"))
     again = prepare("b", note, "2026-08-15", cache=cache)
     assert [s.row() | {"did": ""} for s in first] == [s.row() | {"did": ""} for s in again]
     assert {s.did for s in again} == {"b"}
-    cache.close()
-    cache = NotePrepCache(tmp_path / "np.sqlite")  # a new connection sees the file
-    assert prepare("c", note, "2026-08-15", cache=cache)[0].cues == first[0].cues
-    cache.close()
+    assert first[0].cues == again[0].cues
 
 
-def test_the_key_changes_with_text_note_date_and_table_version(monkeypatch):
+def test_the_key_changes_with_text_note_date_and_table_version(monkeypatch: pytest.MonkeyPatch) -> None:
     base = note_prep.cache_key("x 3 days ago", "2026-08-15")
     assert base == note_prep.cache_key("x 3 days ago", "2026-08-15")
     assert base != note_prep.cache_key("x 3 days ago", "2026-08-16")
@@ -280,7 +279,7 @@ def test_the_key_changes_with_text_note_date_and_table_version(monkeypatch):
     assert base != note_prep.cache_key("x 3 days ago", "2026-08-15")
 
 
-def test_the_same_note_gives_the_same_bytes_and_the_row_is_json():
+def test_the_same_note_gives_the_same_bytes_and_the_row_is_json() -> None:
     note = "【主訴】咳なし。\n家族史：母親有高血壓。民國113年3月5日。\nPlan: r/o TB? 3 months ago, 40 mg/day."
     a = json.dumps([s.row() for s in prepare("d", note, "2026-08-15")], sort_keys=True, ensure_ascii=False)
     b = json.dumps([s.row() for s in prepare("d", note, "2026-08-15")], sort_keys=True, ensure_ascii=False)

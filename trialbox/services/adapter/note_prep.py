@@ -24,19 +24,19 @@ stretch with no letter or digit in it are the only text no segment holds. A cue 
 a quote can be checked against the note byte for byte; ``text`` is the NFKC form and the offsets of cues, dates and
 numbers are in that ``text``.
 
-``NotePrepCache`` keys a note's segments by the sha256 of (``PREP_VERSION``, note date, note text), so a note that
-did not change is never prepared twice and a new table version (a bump of ``PREP_VERSION``) misses every old row.
+``cache_key`` is the sha256 of (``PREP_VERSION``, note date, note text): a note that did not change is never
+prepared twice and a new table version (a bump of ``PREP_VERSION``) misses every old row. The cache is a mapping the
+caller passes in. A prepared note holds the note's text, so where it is kept is the lake's to decide (its store, its
+``phi`` label and its row in the record inventory); this module writes nothing to disk.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import re
-import sqlite3
 import unicodedata
+from collections.abc import MutableMapping
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any
 
 from tb_common import labvalue
@@ -219,38 +219,22 @@ def _prepare(text: str, note_date: object) -> list[dict[str, Any]]:
     return body
 
 
-class NotePrepCache:
-    """A SQLite file of prepared notes keyed by sha256(version, note date, text)."""
-
-    def __init__(self, path: str | Path) -> None:
-        self._db = sqlite3.connect(str(path))
-        self._db.execute("CREATE TABLE IF NOT EXISTS note_prep (key TEXT PRIMARY KEY, body TEXT NOT NULL)")
-
-    def close(self) -> None:
-        self._db.close()
-
-    def get(self, key: str) -> list[dict[str, Any]] | None:
-        row = self._db.execute("SELECT body FROM note_prep WHERE key = ?", (key,)).fetchone()
-        return None if row is None else json.loads(row[0])
-
-    def put(self, key: str, body: list[dict[str, Any]]) -> None:
-        self._db.execute("INSERT OR REPLACE INTO note_prep VALUES (?, ?)", (key, json.dumps(body, sort_keys=True)))
-        self._db.commit()
-
-
 def cache_key(text: str, note_date: object = None) -> str:
     nd = note_dates.parse_note_date(note_date)
     return hashlib.sha256(f"{PREP_VERSION}\0{nd.isoformat() if nd else ''}\0{text}".encode()).hexdigest()
 
 
-def prepare(did: str, text: str, note_date: object = None, *, cache: NotePrepCache | None = None) -> list[Segment]:
-    """The ``note_segment`` rows of one note. ``note_date`` (a date or ``YYYY-MM-DD``) lets a relative date resolve."""
+def prepare(
+    did: str, text: str, note_date: object = None, *, cache: MutableMapping[str, list[dict[str, Any]]] | None = None
+) -> list[Segment]:
+    """The ``note_segment`` rows of one note. ``note_date`` (a date or ``YYYY-MM-DD``) lets a relative date resolve.
+    ``cache`` is any mapping the caller owns (``cache_key`` is its key); this module opens no store of its own."""
     key = cache_key(text, note_date)
-    body = cache.get(key) if cache else None
+    body = cache.get(key) if cache is not None else None
     if body is None:
         body = _prepare(text, note_date)
-        if cache:
-            cache.put(key, body)
+        if cache is not None:
+            cache[key] = body
     return [
         Segment(
             did,
