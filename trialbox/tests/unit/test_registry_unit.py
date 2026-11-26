@@ -253,7 +253,12 @@ def test_registry_promote_reports_a_damaged_approved_copy(tmp_path: Path, monkey
     monkeypatch.setenv("TB_ENV", "TEST")
     monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
     called: list[Any] = []
-    reg = SimpleNamespace(promote=lambda *a: called.append(a) or 0)
+
+    def promote(*a: Any) -> int:
+        called.append(a)
+        return 0
+
+    reg = SimpleNamespace(promote=promote)
     site = SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(tz="Asia/Taipei")))
     fake = SimpleNamespace(rulesets_dir=tmp_path / "rulesets", today=NOW.date, cfg=site)
     monkeypatch.setattr(oapp, "orch", lambda: fake)

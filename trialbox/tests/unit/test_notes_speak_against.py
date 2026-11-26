@@ -248,5 +248,5 @@ def test_a_final_pair_ring0_not_met_is_said_as_a_note_against_too() -> None:
     assert COUNT["en"].format(n=1) in [c.value for r in sheet(rows).iter_rows() for c in r]
     assert [r.pid for r in sort_rows(rows)] == ["P2", "P1"]
     assert st.patient_rows([stored(fin)], meta_of())[0]["against"] is True
-    plain_fail = fin.model_copy(update={"evidence": fin.evidence.model_copy(update={"reason": "note"})})
+    plain_fail = fin.model_copy(update={"evidence": Evidence(reason="note", quote=JUDGE_Q, confidence=0.9)})
     assert st.patient_rows([stored(plain_fail)], meta_of())[0]["against"] is False  # only the ring-0 reason
