@@ -503,7 +503,7 @@ class OpsRunner:
             self.ops.write_result(req, False, msg, [], str(begun), state="interrupted")
         else:
             queued = req.get("queued")
-            if not isinstance(queued, int | float) or time.time() - queued <= MAX_AGE_MIN * 60:
+            if not isinstance(queued, int | float) or self.now().timestamp() - queued <= MAX_AGE_MIN * 60:
                 return None
             msg = f"not run: asked more than {MAX_AGE_MIN} minutes before the runner reached it; ask again"
             self.ops.write_result(req, False, msg, [], _now(), state="expired")
