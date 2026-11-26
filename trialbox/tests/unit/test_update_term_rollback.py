@@ -54,6 +54,7 @@ class Engine:
         self.lake = lake
         self.images = {NEW_TAG}
         self.calls: list[str] = []
+        self.inspect_error = ""  # set: ``image inspect`` fails with it whether or not the tag is there
 
     def __call__(self, argv: list[str], stdin_file: Path | None = None, **_kw: Any) -> str:
         argv = list(argv)
@@ -70,6 +71,8 @@ class Engine:
                 raise up.UpdateFailed(f"restore exit {r.returncode}: {r.stderr.decode(errors='replace')[-600:]}")
             return ""
         if argv[:3] == ["docker", "image", "inspect"]:
+            if self.inspect_error:
+                raise up.UpdateFailed(f"docker image inspect ... exit 1: {self.inspect_error}")
             if argv[-1] not in self.images:
                 raise up.UpdateFailed(f"docker image inspect ... exit 1: No such image: {argv[-1]}")
             return "sha256:" + "a" * 64
@@ -219,3 +222,18 @@ def test_a_failed_in_process_rollback_is_finished_by_rollback_bundle(term: tuple
     assert tb.lake.state() == at_dump
     assert tb.lake.databases() == [tb.lake.db]
     assert tb.host_restored == 1
+
+
+def test_a_daemon_error_on_image_inspect_fails_the_rollback(term: tuple[TermBox, up.Updater], tmp_path: Path) -> None:
+    """R1: only docker's "No such image" means the update's tag is gone already. Any other failure of
+    ``image inspect`` (the daemon not answering) on a tag that is still there fails the rollback: the marker stays at
+    "rollback failed" and the tag is not skipped as if it were removed."""
+    tb, updater = term
+    tb.engine.inspect_error = "Cannot connect to the Docker daemon at unix:///var/run/docker.sock"
+    with pytest.raises(up.UpdateFailed) as exc:
+        updater.run(_plan(tmp_path), backup=False)
+    assert "ROLLBACK FAILED" in str(exc.value), str(exc.value)
+    assert (us.marker(updater.dir) or {}).get("step") == "rollback failed"
+    failed = [h for h in _history(updater.dir) if h["step"] == "rollback" and not h["ok"]]
+    assert failed and "Cannot connect to the Docker daemon" in failed[-1]["detail"], failed
+    assert NEW_TAG in tb.engine.images and f"rm {NEW_TAG}" not in tb.engine.calls

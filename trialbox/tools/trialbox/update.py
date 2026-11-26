@@ -2111,7 +2111,9 @@ class _DockerImages:
                 continue
             try:
                 self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag])
-            except UpdateFailed:
+            except UpdateFailed as exc:
+                if not re.search(r"(?i)no such image", str(exc)):
+                    raise  # termfix R1: a daemon error is not proof the tag is gone
                 continue  # termfix: already removed by a rollback that failed later; this one finishes it
             self.run(["docker", "image", "rm", "-f", tag])
 
