@@ -61,10 +61,10 @@ def _record(profile: str) -> dict[str, Any]:
     )
 
 
-def _caps(profile: str) -> dict[str, float]:
+def _caps(profile: str, compose_profiles: str = "gpu") -> dict[str, float]:
     """Each service's effective cap in GiB: the base file with the profile's overlay over it, as compose merges them."""
     files = [DEPLOY / "docker-compose.yml", _overlay(profile)]
-    caps, _, problems = doctor._service_caps(files, {"COMPOSE_PROFILES": "gpu"})  # the model servers are in it
+    caps, _, problems = doctor._service_caps(files, {"COMPOSE_PROFILES": compose_profiles})  # gpu: the model servers
     assert problems == []
     return caps
 
@@ -75,9 +75,7 @@ def registry_rows() -> dict[str, dict[str, Any]]:
     return {b["build_id"]: b for b in doc["builds"]}
 
 
-def _site_pins(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, stale_context: int | None
-) -> dict[str, Any]:
+def _site_pins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, stale_context: int) -> dict[str, Any]:
     """The registry the installer writes for a site (``pin_model.install_pins``) over synthetic weights, from a site pin
     that already names ``stale_context`` for the pair (a box pinned for another profile), as the registry's rows."""
     models = tmp_path / "models"
@@ -90,12 +88,12 @@ def _site_pins(
     out = tmp_path / "site" / "registry.site.yaml"
     ok, lines = pin_model.install_pins(profile, models, out, {})
     assert ok, lines
-    if stale_context is not None:
-        doc = yaml.safe_load(out.read_text(encoding="utf-8"))
-        for build in folders:
-            doc["builds"][build]["context_length"] = stale_context
-        out.write_text(yaml.safe_dump(doc), encoding="utf-8")
-        ok, lines = pin_model.install_pins(profile, models, out, {})  # the install again over the stale pin
+    doc = yaml.safe_load(out.read_text(encoding="utf-8"))
+    for build in folders:
+        doc["builds"][build]["context_length"] = stale_context
+    out.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    ok, lines = pin_model.install_pins(profile, models, out, {})  # the install again over the stale pin
+    assert ok, lines
     promote_pins(out)
     return cast(dict[str, Any], yaml.safe_load(out.read_text(encoding="utf-8"))["builds"])
 
@@ -107,13 +105,13 @@ def test_context_length_is_one_number_in_every_place(
 ) -> None:
     text = _overlay(profile).read_text(encoding="utf-8")
     record = _record(profile)["concurrency"]["context_tokens"]
-    # a site pinned before (32768 on a Spark): the install puts the pair's pin back to the registry's
-    site = _site_pins(tmp_path, monkeypatch, profile, stale_context=32768 if profile == "gb10" else None)
+    # a site pinned before for the other profile: the install puts the pair's pin back to the registry's
+    site = _site_pins(tmp_path, monkeypatch, profile, stale_context=32768 if profile == "gb10" else 16384)
     for build, endpoint, *_ in pin_model.PROFILE_PAIRS[profile]:
         length_var = SERVERS[endpoint][1]
         served_with = int(_default(text, length_var))
         assert registry_rows[build]["context_length"] == served_with == record, (build, length_var)
-        assert site[build].get("context_length", served_with) == served_with, (build, "the site registry")
+        assert site[build]["context_length"] == served_with, (build, "the site registry")
         assert pin_model.profile_context(profile, endpoint, {}) == served_with
 
 
@@ -158,9 +156,10 @@ def test_memory_fractions_and_caps_agree_with_the_profile_record(profile: str) -
 
 def test_the_gb10_caps_in_the_profile_data_are_the_compose_caps() -> None:
     profile = td.load_profile()
-    caps = _caps("gb10")
+    caps = _caps("gb10", "gpu,stub")  # `llm-stub` is behind the stub profile, never beside the model servers
     for svc, row in profile["memory"].items():
-        if svc in caps:  # `link` is the two-device form's, in its own file
+        if svc != "link":  # `link` is the two-device form's, in its own file
+            assert svc in caps, svc
             assert row["limit_gib"] == caps[svc], svc
     record = _record("gb10")
     assert record["fixed_in_overlay"]["llm_service_mem_limit"].startswith(f"{caps['llm-service']:g}g")
