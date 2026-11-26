@@ -18,9 +18,11 @@ pytestmark = pytest.mark.nodb
 @pytest.mark.parametrize(
     ("named", "linked", "want"),
     [
-        ("Asia/Tokyo\n", "Asia/Taipei", "Asia/Tokyo"),  # both name one: the file first
+        ("Asia/Taipei\n", "Asia/Tokyo", "Asia/Tokyo"),  # they differ: the active link, never a stale file
         (None, "Asia/Taipei", "Asia/Taipei"),  # no file: the link
         ("\n", "Europe/Paris", "Europe/Paris"),  # an empty file names none: the link
+        (None, "posix/Asia/Tokyo", "Asia/Tokyo"),  # zoneinfo's other trees name the same zone
+        (None, "right/Europe/Paris", "Europe/Paris"),
     ],
 )
 def test_the_install_and_the_host_check_read_the_same_zone(

@@ -76,7 +76,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from tb_common import box_answers as _ba
 from tb_common import kek as _K
 from tb_common.crypto import KeyMissingError
 
@@ -1443,11 +1442,8 @@ def backup(
     now: datetime | None = None,
     compression: str = "zstd",
     restic_secrets: Path | None = None,
-    stand_in_ok: bool = False,
 ) -> list[Path]:
-    """Write one encrypted backup to every target directory; return the files written. Refused while the site id is
-    the install's stand-in (``PLACEHOLDER_SITE_ID``), unless ``stand_in_ok`` (a restore's kept copy, which goes back
-    onto this same box). With ``restic_secrets`` (the
+    """Write one encrypted backup to every target directory; return the files written. With ``restic_secrets`` (the
     secrets folder holding ``restic.key`` under the unsealed KEK; PERF-010, D-968), the lake's served files go to a
     restic repository on each target (``trialbox-restic``, with the escrow file beside it) and the sealed file keeps
     their manifest; the other targets' repositories are filled by ``restic copy``, and ``keep`` applies to the
@@ -1464,10 +1460,6 @@ def backup(
     when = now or datetime.now(UTC)
     stamp = when.strftime("%Y%m%dT%H%M%SZ")
     site = site or env.get("TB_SITE_ID") or socket.gethostname()
-    if site == _ba.PLACEHOLDER_SITE_ID and not stand_in_ok:
-        raise BackupError("site name not set: the site id is the install's stand-in, and a backup tagged with it is "
-                          "refused by restore's same-site check once the name is given. Give the hospital's name "
-                          'on the page "Information still needed" first')  # fmt: skip
     prefix = f"trialbox-{_sched.safe(site)}-"
     name = f"{prefix}{stamp}{SUFFIX}"
     recipient = load_public(public_key)
@@ -1808,7 +1800,7 @@ def keep_copy(env: Mapping[str, str], dirs: Mapping[str, Path], public_key: Path
         for src in srcs:
             dump(src, work / f"{src.name}.dump", env)
         out = backup([keep_to], public_key, env={**env, "TB_PG_DUMP_DIR": str(work)},
-                     dirs={k: v for k, v in dirs.items() if k != HOST}, keep=0, now=now, stand_in_ok=True)  # fmt: skip
+                     dirs={k: v for k, v in dirs.items() if k != HOST}, keep=0, now=now)  # fmt: skip
     return out[0]
 
 

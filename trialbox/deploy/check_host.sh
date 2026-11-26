@@ -395,7 +395,9 @@ for c in trialbox-retention trialbox-backup; do
   if [ -f "$HR/etc/cron.d/$c" ]; then pass "cron file /etc/cron.d/$c"; else facility strict "cron file /etc/cron.d/$c missing (re-run install.sh)" "cron $c"; fi
 done
 # the host's time zone (doctor compares it with the site's, D-315): read as the install's questions read it, one source
-HOST_TZ_NAME="$(python3 "$ROOT_DIR/libs/tb_common/host_zone.py" "${HR:-/}" 2>/dev/null || true)"
+HOST_TZ_NAME="$(python3 -I "$ROOT_DIR/libs/tb_common/host_zone.py" "${HR:-/}" 2>/dev/null || true)"
+# no python3, or a copied /etc/localtime with no /etc/timezone: timedatectl still answers
+[ -n "$HOST_TZ_NAME" ] || HOST_TZ_NAME="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
 if [ -n "$HOST_TZ_NAME" ]; then pass "host time zone $HOST_TZ_NAME"; else warn "host time zone not set (timedatectl set-timezone)"; fi
 
 # OS patches (tools/apply_update.sh ospatch; OPS-024)

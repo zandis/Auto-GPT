@@ -424,7 +424,10 @@ changes:
    backup key yet, `--no-copy --yes-really` goes on without the copy.
 4. **The same site.** The backup's site must be this box's `TB_SITE_ID`. A box installed by the four questions takes
    its site id from the hospital's name: give it the first box's name on "Information still needed" first, then
-   compare `grep '^TB_SITE_ID=' deploy/.env` on both boxes. `--other-site` is for moving a site to new hardware only.
+   compare `grep '^TB_SITE_ID=' deploy/.env` on both boxes. The id is set once, from the first name given: a later
+   name changes the display name only. A backup taken while the box still ran on the stand-in name carries the
+   stand-in id (`TRIALBOX-SITE-NAME-NEEDE`): once the name is given, it restores, on this box or another, only with
+   `--other-site`. Otherwise `--other-site` is for moving a site to new hardware only.
 
 The command, from the install folder of the second box:
 

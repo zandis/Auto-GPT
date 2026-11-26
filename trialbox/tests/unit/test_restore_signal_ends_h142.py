@@ -110,25 +110,34 @@ def test_the_entry_keeps_the_said_130_when_the_walks_second_signal_lands_on_its_
 #: state folder, and ``run`` is the restore's container. Each step it reaches writes its mark (``marks``) and then
 #: waits ``PAUSE`` s, the window a sweep's signal lands in. The container's start is the python's start: until it
 #: takes its own handlers (``started``), a signal is the default's death, as a real one's is. A step is over
-#: (``passed``) when the stand-in reaches its next mark or its exit: the sweep's point past the step, never a sleep.
+#: (``passed``: its mark and 0, or its invocation's pid) when the stand-in reaches its next mark or exits. The step
+#: ``hold`` names (mark, n) ends in the host: its invocation leaves a ``hold`` file at exit, and the next invocation
+#: waits until the sweep, once it has signalled the host, takes it away.
 STANDIN = r"""
 import atexit, json, os, signal, sys, time
 state, args = sys.argv[1], sys.argv[2:]
 cfg = json.load(open(os.path.join(state, "cfg.json")))
 ALL = ["caddy", "console", "db", "orchestrator"]
+HOLD = os.path.join(state, "hold")
+t0 = time.monotonic()
+while os.path.exists(HOLD) and time.monotonic() - t0 < 30:
+    time.sleep(0.002)
 done = []
 
-def passed():
+def passed(pid=0):
     if done:
+        name = done.pop()
+        if pid and cfg.get("hold") == [name, open(os.path.join(state, "marks")).read().split().count(name)]:
+            open(HOLD, "w").close()
         with open(os.path.join(state, "passed"), "a") as fh:
-            fh.write(done.pop() + "\n")
+            fh.write(f"{name} {pid}\n")
 
-atexit.register(passed)
+atexit.register(lambda: passed(os.getpid()))
 
 def mark(name):
-    passed()
     with open(os.path.join(state, "marks"), "a") as fh:
         fh.write(name + "\n")
+    passed()
     done.append(name)
     time.sleep(cfg.get("pause", 0.15))
 
@@ -205,28 +214,59 @@ def stand_in_box(tmp_path: Path, **cfg: object) -> tuple[Path, Path]:
     return deploy, state
 
 
-def marks(state: Path, log: str = "marks") -> list[str]:
+def marks(state: Path) -> list[str]:
     try:
-        return (state / log).read_text(encoding="utf-8").split()
+        return (state / "marks").read_text(encoding="utf-8").split()
     except OSError:
         return []
 
 
-def at_mark(p: subprocess.Popen[str], state: Path, mark: str, delay: float | None, sig: str, n: int = 1) -> bool:
-    """``sig`` sent ``delay`` s after the stand-in's ``n``-th ``mark``, or (``delay`` None) once that step is over;
-    False: the run ended before it."""
+def step_end(state: Path, mark: str, n: int) -> int | None:
+    """How the stand-in's ``n``-th ``mark`` step ended: 0 at its next mark, else its invocation's pid; None: not yet."""
+    try:
+        lines = (state / "passed").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    ends = [int(pid) for name, pid in (ln.split() for ln in lines) if name == mark]
+    return ends[n - 1] if len(ends) >= n else None
+
+
+def _gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def at_mark(
+    p: subprocess.Popen[str], state: Path, mark: str, delay: float | None, sig: str, n: int = 1
+) -> list[str] | None:
+    """``sig`` sent ``delay`` s after the stand-in's ``n``-th ``mark``, or (``delay`` None) once that step is over: at
+    its next mark, or, its invocation's last, in the host once the invocation has returned (``hold`` keeps the host
+    from the next one). The stand-in's marks at the signal; None: the run ended before it."""
     import time
 
+    def reached() -> bool:
+        if delay is not None:
+            return marks(state).count(mark) >= n
+        end = step_end(state, mark, n)
+        return end is not None and (end == 0 or _gone(end))
+
     t = time.monotonic()
-    while marks(state, "marks" if delay is not None else "passed").count(mark) < n:
-        if p.poll() is not None or time.monotonic() - t > 30:
-            return False
-        time.sleep(0.002)
-    time.sleep(delay or 0)
-    if p.poll() is not None:
-        return False
-    p.send_signal(getattr(signal, sig))
-    return True
+    try:
+        while not reached():
+            if p.poll() is not None or time.monotonic() - t > 30:
+                return None
+            time.sleep(0.002)
+        time.sleep(delay or 0)
+        if p.poll() is not None:
+            return None
+        seen = marks(state)
+        p.send_signal(getattr(signal, sig))
+        return seen
+    finally:
+        (state / "hold").unlink(missing_ok=True)
 
 
 def test_a_complete_restore_on_the_real_entry_ends_0_and_says_its_state(tmp_path: Path) -> None:
@@ -454,8 +494,9 @@ def test_a_closed_terminal_after_the_signal_breaks_no_line_and_the_host_waits(tm
 #: the stand-in's marks, in the order a restore reaches them: the space check, the stop, the container's start,
 #: its handlers, its change, the services' start, the health check
 PHASES = [("db-size", 1), ("stop", 1), ("container", 1), ("started", 1), ("change", 1), ("up", 1), ("ps", 4)]
-#: inside the stand-in's step (it waits 0.15 s at each mark), and (None) past it into the host's: once the stand-in
-#: has reached its next mark or its exit, a known point, never a fixed sleep a loaded machine outruns
+#: inside the stand-in's step (it waits 0.15 s at each mark), and (None) the point the old 0.2 s aimed past it: the
+#: step's next mark, or, after its invocation's last mark, the host once that invocation returned (the next one held)
+#: a known point, never a fixed sleep a loaded machine outruns
 DELAYS = (0.0, 0.07, None)
 
 
@@ -472,10 +513,10 @@ def test_a_signal_at_any_phase_ends_0_1_or_130_and_says_the_state(tmp_path: Path
     for i, delay in enumerate(DELAYS):
         run = tmp_path / str(i)
         run.mkdir()
-        deploy, state = stand_in_box(run)
+        deploy, state = stand_in_box(run, **({"hold": [phase, n]} if delay is None else {}))
         p = start_entry(run, REAL, deploy, "SIGTERM")
         sent = at_mark(p, state, phase, delay, sig, n)
-        if sent:
+        if sent is not None:
             time.sleep(0.03)
             if p.poll() is None:
                 p.send_signal(signal.SIGTERM)
@@ -486,8 +527,13 @@ def test_a_signal_at_any_phase_ends_0_1_or_130_and_says_the_state(tmp_path: Path
         # "healthy" only after a complete restore, or a refused one whose data is as it was (LR-14)
         assert code == 0 or "are healthy" not in err or "the data not changed" in err, where
         assert "is kept" in err or not list(deploy.glob(".restore-*")), where
-        # the swept point past the step (once 0.2 s) still lands in this phase: the run reached it and its step ended
-        assert delay is not None or marks(state, "passed").count(phase) >= n, where
+        # never a silent skip: a signal not sent is a run whose last step this was, with no next invocation to hold
+        last = marks(state)[-1:] == [phase] and marks(state).count(phase) == n
+        assert sent is not None or (delay is None and last), where
+        if delay is None and sent is not None:
+            # the point the old 0.2 s aimed at, and no later: the step's next mark, or the host before the next call
+            end = step_end(state, phase, n)
+            assert sent.count(phase) == n and sent[-1 if end else -2] == phase, (end, sent, *where)
 
 
 def test_a_signal_after_the_state_line_changes_neither_the_line_nor_the_code(

@@ -1,7 +1,8 @@
-"""The host's time zone, read one way by the install's questions (``tools.box.plan.detect``) and by
-``deploy/check_host.sh``: ``/etc/timezone``, else the zone the ``/etc/localtime`` link names. Empty: neither names one.
+"""The host's time zone, read one way by the install's questions (``tools.box.plan.detect``), by
+``deploy/check_host.sh`` and by doctor on the host: the zone the active ``/etc/localtime`` link names (what the
+processes run on, and what ``timedatectl set-timezone`` changes), else ``/etc/timezone``. Empty: neither names one.
 
-Standard library only, and run as a script by check_host.sh (``python3 libs/tb_common/host_zone.py [host root]``):
+Standard library only, and run as a script by check_host.sh (``python3 -I libs/tb_common/host_zone.py [host root]``):
 the host's ``python3`` reads it before any image is loaded.
 """
 
@@ -13,17 +14,18 @@ from pathlib import Path
 
 
 def read(host_root: Path = Path("/")) -> str:
-    named = host_root / "etc/timezone"
-    if named.is_file():
-        name = named.read_text(encoding="utf-8").strip()
-        if name:
-            return name
     link = host_root / "etc/localtime"
-    if link.is_symlink():
-        target = os.readlink(link)
+    try:
+        target = os.readlink(link) if link.is_symlink() else ""
         if "zoneinfo/" in target:
-            return target.split("zoneinfo/", 1)[1]
-    return ""
+            name = target.split("zoneinfo/", 1)[1]
+            for tree in ("posix/", "right/"):  # the same zone in zoneinfo's other trees
+                name = name.removeprefix(tree)
+            return name
+        named = host_root / "etc/timezone"
+        return named.read_text(encoding="utf-8").strip() if named.is_file() else ""
+    except OSError:
+        return ""
 
 
 if __name__ == "__main__":
