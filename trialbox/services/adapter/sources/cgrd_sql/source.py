@@ -70,7 +70,7 @@ class SqlSource:
         with self.engine.connect() as con:
             for view in sorted(inspect(self.engine).get_view_names()):
                 if view.lower() not in named and _IDENT.match(view):
-                    found[view] = int(con.execute(text(f"SELECT COUNT(*) FROM {view}")).scalar_one())
+                    found[view] = int(con.execute(select(func.count()).select_from(table(view))).scalar_one())
         return found
 
     def _columns(self, source_name: str) -> set[str]:
