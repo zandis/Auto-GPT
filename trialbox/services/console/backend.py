@@ -28,7 +28,7 @@ from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
-from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
+from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, list_rulesets, load_approved, seed_working_copy
 from tb_common.service_auth import actor_header
 from tb_contracts import (
     Job,
@@ -195,7 +195,7 @@ def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, Any]]:
     exactly this text (``console.ruleset_labels``)."""
     try:
         rs = load_approved(rulesets_dir, ruleset)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         return []
     shipped = ruleset_labels.shipped(ruleset, rulesets_dir)
     return [
@@ -221,7 +221,7 @@ def approval_state_of(rulesets_dir: Path, ruleset: str) -> dict[str, Any] | None
 
     try:
         rs = load_approved(rulesets_dir, ruleset)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         return None
     try:
         from criteria_compiler.terminology import resolver
@@ -313,7 +313,7 @@ def ruleset_infos(rulesets_dir: Path) -> list[RulesetInfo]:
         try:
             rs = load_approved(rulesets_dir, rid)
             out.append(RulesetInfo(rid, rs.version, "approved", str(rs.manifest.kind or "")))
-        except (RulesetNotApproved, FileNotFoundError, ValueError):
+        except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
             out.append(RulesetInfo(rid, None, "draft", ""))
     return out
 
