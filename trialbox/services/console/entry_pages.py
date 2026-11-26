@@ -30,6 +30,7 @@ from datacore.lifecycle import icf_check
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common import egress_edge
 from tb_common.authz import permit
 
 from console import actor, s28
@@ -219,6 +220,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(404, "notfound")
         out = s28.call(bk, "GET", f"/studies/{rid}/export/{fmt}")  # signed by the account (D-717): no typed name
         data = base64.b64decode(out["b64"]) if "b64" in out else str(out.get("text") or "").encode("utf-8")
+        data = egress_edge.made(data)  # built by the data core for this signed call, never a stored file (1523)
         au.append("console.data_export", ruleset=rid, actor=h.actor(sess), detail={"format": fmt})
         return str(out["name"]), str(out["media_type"]), data
 

@@ -26,6 +26,7 @@ from mail_gateway.gateway import (
     http_job_sink,
     http_mail_rights,
     http_outputs_current,
+    http_outputs_made,
     log,
 )
 from mail_gateway.outbound import EncryptionError, RoutingRefused, smtp_transport
@@ -56,6 +57,7 @@ def gateway() -> Gateway:
             jobs=http_job_sink(env.orchestrator_url),
             outputs_current=http_outputs_current(env.orchestrator_url),  # D-863: asked before a patient file leaves
             mail_rights=http_mail_rights(env.orchestrator_url),  # M3: the same, of its recipients
+            outputs_made=http_outputs_made(env.orchestrator_url),  # 1523 ruling: what the job built, by sha256
             secrets_dir=Path(env.secrets_dir),
             authserv_id=authserv,
             # D-369 (OD-1): a password zip for patient files only on a synthetic box

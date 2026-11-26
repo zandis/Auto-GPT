@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from edc.service import EdcService
+from edc.service import WITHDRAWN_SAYS, EdcService
 from edc.store import SIG_VERSION, EdcError
 
 FORMATS = ("page", "csv", "api")
@@ -28,9 +28,9 @@ FORMATS = ("page", "csv", "api")
 
 def _values(svc: EdcService, rs: str, record: str | None) -> list[dict[str, Any]]:
     """The values a person may copy: decided, signed (version 2, intact), unchanged since; never an opted-out
-    patient's."""
+    patient's, nor of a subject who withdrew the use of their data (V15-06)."""
     sigs = {int(s["id"]): s for s in svc.store.signatures(rs, record)}
-    gone = set(svc.optouts())
+    gone, withdrawn = set(svc.optouts()), svc._withdrawn(rs)
     direct = svc.store.direct_source(rs)
     out = []
     for d in svc.store.signed(rs, record):
@@ -39,7 +39,7 @@ def _values(svc: EdcService, rs: str, record: str | None) -> list[dict[str, Any]
         s = sigs.get(int(d["signature_id"]))
         if s is None or int(s.get("sig_version") or 1) != SIG_VERSION:
             continue  # a version-1 row is never a source here (D-434)
-        if str(d["pid"]) in gone:
+        if str(d["pid"]) in gone or svc._is_withdrawn(d, withdrawn):
             continue
         if d.get("source_changed"):
             continue  # NEW-EDC-4 (D-694): its source changed since; a person keeps or changes it first
@@ -70,6 +70,8 @@ def sheet(svc: EdcService, rs: str, record: str | None, by: str, fmt: str = "pag
             pids = {str(d["pid"]) for d in svc.store.drafts(rs, record, current=False)}
             if pids & set(svc.optouts()):
                 raise EdcError("edc.opted_out", "the patient opted out; nothing is shown")
+            if (pids | {record}) & svc._withdrawn(rs):
+                raise EdcError("edc.withdrawn", WITHDRAWN_SAYS)
     except EdcError as exc:
         svc._audit("edc.copy_view", rs, by, {**detail, "refused": exc.code})
         raise
@@ -82,11 +84,11 @@ def sheet(svc: EdcService, rs: str, record: str | None, by: str, fmt: str = "pag
     changed = svc.store.redcap_changes(rs, record)  # NEW-EDC-5c (D-801): what REDCap holds since, while open
     ok = {int(d["id"]) for d in values}
     ticks = svc.store.ticks(rs, record)
-    gone = set(svc.optouts())
+    gone, withdrawn = set(svc.optouts()), svc._withdrawn(rs)
     direct = svc.store.direct_source(rs)
     records: dict[str, dict[str, dict[str, Any]]] = {}
     for d in svc.store.drafts(rs, record):  # every current draft names its visit; only the sheet's carry a value
-        if str(d["pid"]) in gone or str(d["item"]) in direct:
+        if str(d["pid"]) in gone or svc._is_withdrawn(d, withdrawn) or str(d["item"]) in direct:
             continue
         v = records.setdefault(str(d["record"]), {}).setdefault(
             str(d["visit"]), {"visit": d["visit"], "visit_date": d["visit_date"], "waiting": 0, "forms": {}}
@@ -132,6 +134,8 @@ def tick(svc: EdcService, rs: str, record: str, ids: list[int], action: str, by:
         pids = {str(d["pid"]) for d in svc.store.drafts(rs, record, current=False)}
         if pids & set(svc.optouts()):
             raise EdcError("edc.opted_out", "the patient opted out; nothing is ticked")
+        if (pids | {record}) & svc._withdrawn(rs):
+            raise EdcError("edc.withdrawn", WITHDRAWN_SAYS)
         by_id = {int(d["id"]): d for d in _values(svc, rs, record)}
         missing = sorted(set(ids) - set(by_id))
         if missing:

@@ -11,7 +11,7 @@ import socket
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -55,6 +55,23 @@ def http_mail_rights(base_url: str) -> egress_edge.Rights:
             log.warning("mail rights not known (%s)", type(exc).__name__)
             return None, None
         return got.get("delegated"), got.get("sender")
+
+    return ask
+
+
+#: 1523 ruling (review round 3, M1): ``job_id -> {object key: sha256}``, the job's own record of the files it built
+OutputsMade = Callable[[str], Mapping[str, str]]
+
+
+def http_outputs_made(base_url: str) -> OutputsMade:
+    """The orchestrator's record (``GET /jobs/{job_id}/outputs-current?made=1``), asked before a mail with files
+    leaves."""
+    client = _orchestrator(base_url)
+
+    def ask(job_id: str) -> Mapping[str, str]:
+        got = client._request("GET", f"/jobs/{job_id}/outputs-current?made=1").json()
+        made = got.get("made") if isinstance(got, dict) else None
+        return {str(k): str(v) for k, v in made.items()} if isinstance(made, dict) else {}
 
     return ask
 
@@ -180,6 +197,8 @@ class Gateway:
     #: D-863: asked before a job's patient-level files are sent; None (not wired) holds every such mail (fail closed)
     outputs_current: OutputsCurrent | None = None
     mail_rights: egress_edge.Rights | None = None  # M3: who a patient file may go to now, and who asked for it
+    #: 1523 ruling: the job's record of the files it built; None (not wired) or no answer: no file is vouched for
+    outputs_made: OutputsMade | None = None
 
     @property
     def sender(self) -> str:
@@ -373,11 +392,18 @@ class Gateway:
     def _prepare(self, req: SendRequest, message_id: str | None = None) -> Any:
         store: Any = self.store
         s = self.cfg.settings
+        recorded: Mapping[str, str] = {}
+        if req.job_id and req.attachments and self.outputs_made is not None:
+            try:
+                recorded = self.outputs_made(req.job_id)
+            except Exception as exc:  # no answer: nothing is vouched for, and a file of the job is refused
+                log.warning("the job's record of its files is not known (%s)", type(exc).__name__)
         try:  # M3: what leaves passes the egress edge
             req, store = egress_edge.gate_mail(
                 req, store, audit=self.audit, rights=self.mail_rights,
                 internal=lambda r: is_internal(r, list(s.internal_domains)),
-                site=egress_edge.Site(s.mrn_regex, tuple(d.lower() for d in s.internal_domains)))  # fmt: skip
+                site=egress_edge.Site(s.mrn_regex, tuple(d.lower() for d in s.internal_domains)),
+                recorded=recorded)  # fmt: skip
         except egress_edge.Refused as exc:
             if exc.reason != "not_named":  # a patient file to another domain: prepare's own refusal names it
                 raise RoutingRefused(f"the mail may not leave the box ({exc.reason})") from exc

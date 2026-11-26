@@ -408,7 +408,8 @@ def job_outputs_current(
     job_id: str,
     key: Annotated[list[str] | None, Query()] = None,
     to: Annotated[list[str] | None, Query()] = None,
-) -> dict[str, bool | None]:
+    made: bool = False,
+) -> dict[str, Any]:
     """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``key``, by object
     key; every output when none is named) are still current against the opt-out register, asked by the mail gateway just
     before it sends them (at publish, a queued try, a person's resend). ``current`` false: one names a patient opted
@@ -420,6 +421,8 @@ def job_outputs_current(
     job = o.db.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
+    if made:  # 1523 ruling (review round 3, M1): the sha256 the job recorded of each file it built, by object key
+        return {"made": {out.minio_key: out.sha256 for out in job.outputs or []}}
     try:
         gone = frozenset(register_now())
     except Exception as exc:
@@ -884,6 +887,8 @@ def edc_of(o: Orchestrator) -> Any:
     from edc.store import EdcStore, sign_key_of
     from tb_common.optout import opted_out
 
+    from orchestrator.scheduler import recorded_study_state  # M7 (R1-E6): the console's recorded state, none = not open
+
     key = o.db.url or str(o.data_dir)
     if key not in _edcs:  # the signature key lives with the orchestrator alone (D-281)
         _edcs[key] = EdcStore(o.db.url, sign_key_of(os.environ, Path(o.cfg.env.secrets_dir)))
@@ -891,7 +896,7 @@ def edc_of(o: Orchestrator) -> Any:
     return EdcService(_edcs[key], core_of(o), o.audit, lambda: _now(o), o.today, study_service_of(o).client,
                       lambda: LakeFacts(o.services.lake),
                       (lambda job: gateway_drafter(llm, job)) if llm is not None else (lambda _job: None),
-                      opted_out)  # fmt: skip
+                      opted_out, study_open=lambda rs: recorded_study_state(rs, o.db.url) == "open")  # fmt: skip
 
 
 app.include_router(edc_router(lambda: edc_of(orch()), _claim))  # the person from the signed assertion (D-162)

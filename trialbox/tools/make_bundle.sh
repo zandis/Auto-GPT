@@ -9,6 +9,9 @@
 #       [--job-image trialbox-backup:1.0.0]   (an image the box runs as a one-off job: release.json `runs: job`, D-968)
 #       [--allow-dirty "<reason>"]   (a rehearsal or a test only: builds from a working tree, D-631)
 #       [--rehearsal]                (a bundle for a rehearsal box: release.json says so; a site box refuses it, D-726)
+#       [--platform linux/arm64]     (the box's architecture, default linux/amd64: every image is pulled and checked
+#                                    for it, release.json records it, and the update path refuses the bundle on a
+#                                    host of another architecture)
 #       [--model-pack-out DIR/trialbox-models-<id>.pack [--model-id ID] [--model-release-seq N]]
 #       [--model-pack DIR/trialbox-models-<id>.pack]   (H-95: see below)
 #
@@ -41,7 +44,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""; DIRTY=0; DIRTY_WHY=""; REHEARSAL=()
-IMAGES=(); REFDATA=(); JOBS=(); MODEL_OUT=""; MODEL_HAVE=""; MODEL_ID=""; MODEL_SEQ=""
+IMAGES=(); REFDATA=(); JOBS=(); MODEL_OUT=""; MODEL_HAVE=""; MODEL_ID=""; MODEL_SEQ=""; PLATFORM="linux/amd64"
 while [ $# -gt 0 ]; do
   case "$1" in
     --key) KEY="$2"; shift ;;
@@ -64,7 +67,8 @@ while [ $# -gt 0 ]; do
     --model-pack) MODEL_HAVE="$2"; shift ;;
     --model-id) MODEL_ID="$2"; shift ;;
     --model-release-seq) MODEL_SEQ="$2"; shift ;;
-    -h|--help) sed -n 2,38p "$0"; exit 0 ;;
+    --platform) PLATFORM="$2"; shift ;;
+    -h|--help) sed -n 2,41p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -78,6 +82,8 @@ GATES="$(cd "$(dirname "$GATES")" && pwd)/$(basename "$GATES")"
 SBOM_DIR="${SBOM_DIR:-$ROOT/dist/sbom}"
 [ -d "$SBOM_DIR" ] || { echo "make_bundle: no SBOM folder $SBOM_DIR (make release-gates writes it)" >&2; exit 2; }
 [ -f "$KEY" ] || { echo "make_bundle: no such key $KEY" >&2; exit 2; }
+case "$PLATFORM" in linux/amd64|linux/arm64) ;; *)
+  echo "make_bundle: --platform is linux/amd64 or linux/arm64, not $PLATFORM" >&2; exit 2 ;; esac
 # H-95: the two packs' options
 if [ -n "$MODEL_OUT" ] && [ -n "$MODEL_HAVE" ]; then
   echo "make_bundle: --model-pack-out builds a model pack, --model-pack names an existing one: one of the two" >&2; exit 2
@@ -202,8 +208,21 @@ if [ -n "$MODEL_HAVE" ] && [ ${#ENGINE[@]} -gt 0 ]; then
   IMAGES=("${KEEP[@]}")
 fi
 
+# the box's architecture, not this machine's: an image here for another one is pulled again for --platform (one of
+# ours is built for it: make images PLATFORM=...); tools/release.py build refuses an archive of another platform
+have_platform() {
+  [ "$(docker image inspect "$1" 2>/dev/null | "$PY" -c 'import json, sys
+d = json.load(sys.stdin)[0]
+print(str(d.get("Os")) + "/" + str(d.get("Architecture")))' 2>/dev/null)" = "$PLATFORM" ]
+}
+pull_platform() {
+  have_platform "$1" && return 0
+  echo "    pulling $1 ($PLATFORM)"
+  DOCKER_DEFAULT_PLATFORM="$PLATFORM" docker pull -q "$1" >/dev/null && have_platform "$1" \
+    || { echo "make_bundle: $1 is not here for $PLATFORM and cannot be pulled for it (one of ours: make images PLATFORM=$PLATFORM)" >&2; exit 2; }
+}
 for img in "${IMAGES[@]}"; do
-  docker image inspect "$img" >/dev/null 2>&1 || { echo "    pulling $img"; docker pull -q "$img" >/dev/null; }
+  pull_platform "$img"
 done
 echo "==> release gates ($GATES)"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.supply_chain bundle-check --gates "$GATES" \
@@ -234,7 +253,7 @@ mkdir -p "$(dirname "$OUT")"
 ITEMS=(); PINS=(); SAVED=(); M_ITEMS=(); M_SAVED=()
 echo "==> images"
 for img in "${IMAGES[@]}"; do
-  docker image inspect "$img" >/dev/null 2>&1 || { echo "    pulling $img"; docker pull -q "$img" >/dev/null; }
+  pull_platform "$img"
   f="$STAGE/$(printf '%s' "$img" | tr '/:' '__').tar"
   ref="$img"
   case "$img" in *@sha256:*)
@@ -306,7 +325,7 @@ if [ -n "$MODEL_OUT" ]; then
   M_META=()
   if [ ${#M_SAVED[@]} -gt 0 ]; then
     (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release build --id "$MODEL_ID" \
-      --release-seq "$MODEL_SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta-model" \
+      --release-seq "$MODEL_SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta-model" --platform "$PLATFORM" \
       ${REHEARSAL[@]+"${REHEARSAL[@]}"} "${M_SAVED[@]}" "${M_ITEMS[@]}") \
       || { echo "make_bundle: no release record for the model pack: nothing is built" >&2; exit 1; }
     while IFS= read -r it; do [ -n "$it" ] && M_ITEMS+=("$it"); done < "$STAGE/meta-model/items.txt"
@@ -327,7 +346,7 @@ elif [ -n "$MODEL_HAVE" ]; then
 fi
 echo "==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release build --id "$ID" \
-  --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" ${REHEARSAL[@]+"${REHEARSAL[@]}"} ${JOBS[@]+"${JOBS[@]}"} "${SAVED[@]}" "${ITEMS[@]}") \
+  --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" --platform "$PLATFORM" ${REHEARSAL[@]+"${REHEARSAL[@]}"} ${JOBS[@]+"${JOBS[@]}"} "${SAVED[@]}" "${ITEMS[@]}") \
   || { echo "make_bundle: no release record: the bundle is not built" >&2; exit 1; }
 while IFS= read -r it; do [ -n "$it" ] && ITEMS+=("$it"); done < "$STAGE/meta/items.txt"
 mkdir -p "$(dirname "$OUT")"

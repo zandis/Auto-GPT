@@ -144,13 +144,20 @@ def _reach(host: str, port: int, timeout: float) -> str:
         return "open"
 
 
-def _gpus() -> list[tuple[str, float]]:
-    """Every card: (name, memory MiB)."""
+#: what nvidia-smi says for the card memory of a unified-memory device (it shares the host's memory)
+NO_CARD_MEMORY = ("[N/A]", "[Not Supported]")
+
+
+def _gpus() -> list[tuple[str, float | None]]:
+    """Every card: (name, memory MiB); memory None on a unified-memory device, which reports no card memory."""
     from tools.box.plan import _run
 
-    out = []
+    out: list[tuple[str, float | None]] = []
     for line in _run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]).splitlines():
         name, _, mem = line.partition(",")
+        if name.strip() and mem.strip() in NO_CARD_MEMORY:
+            out.append((name.strip(), None))
+            continue
         with contextlib.suppress(ValueError):
             out.append((name.strip(), float(mem.strip())))
     return out
@@ -192,7 +199,7 @@ class Probes:
     banner: Callable[[str, int, float], str] = _banner  # the mail relay's greeting
     mail_cert: Callable[[str, int, str, float], str] = _mail_cert  # the mail relay's certificate (H-137)
     reach: Callable[[str, int, float], str] = _reach  # a Tang server's port
-    gpus: Callable[[], list[tuple[str, float]]] = _gpus  # every card: (name, memory MiB)
+    gpus: Callable[[], list[tuple[str, float | None]]] = _gpus  # every card: (name, memory MiB or None: unified)
     tpm: Callable[[], bool] = _tpm
     disk_usage: Callable[[Path], Any] = shutil.disk_usage
     docker_root: Callable[[], Path | None] = _docker_root
@@ -630,11 +637,12 @@ def check_gpu_tier(inp: DoctorInputs, p: Probes) -> Check:
     names = [str(n) for n in stated("card_names") or ()]
     want = stated("card_memory_mib")
 
-    def fits(card: str, mem: float) -> list[str]:
+    def fits(card: str, mem: float | None) -> list[str]:
         why = []
         if names and not any(n.lower() in card.lower() for n in names):
             why.append(f"the card is {card!r}, the record names {' or '.join(names)}")
-        if isinstance(want, int | float) and want and abs(mem - want) / want > GPU_MEM_TOLERANCE:
+        # a unified-memory device has no card memory to compare: the host's memory (below) is its memory
+        if mem is not None and isinstance(want, int | float) and want and abs(mem - want) / want > GPU_MEM_TOLERANCE:
             why.append(f"{card!r} has {mem:.0f} MiB, the record {want} MiB")
         return why
 
@@ -648,7 +656,8 @@ def check_gpu_tier(inp: DoctorInputs, p: Probes) -> Check:
             bad.append(f"the host has {ram:.0f} GiB, the record asks {ram_min} GiB or more")
         return Check("gpu_tier", "FAIL", f"tier record {profile}: " + "; ".join(bad))
     card, mem = good[0]
-    facts = f"{card}, {mem:.0f} MiB: as the tier record {profile} states"
+    size = "unified memory (no card memory reported)" if mem is None else f"{mem:.0f} MiB"
+    facts = f"{card}, {size}: as the tier record {profile} states"
     soft = [f"another card does not match: {'; '.join(bad)}"] if bad else []
     if ram is None:
         soft.append(f"the host's memory could not be read ({inp.proc / 'meminfo'}): not compared")

@@ -31,6 +31,7 @@ audit chain), ``e2e_summary.json`` and ``e2e_summary.md``.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -554,8 +555,12 @@ def run_end_to_end(
     obj = frozen["object"]
     lowered = lower(d3, "privacy_accountant", certificate=frozen["sha256"])  # the only way an aggregate leaves D3
     checks["pack_lowered_to_d1"] = lowered.data_class is DataClass.D1 and obj["data_class"] == "D1"
-    for name, path in render_all(frozen, out_dir / "dl1", f"DL1_{trial_id}").items():
+    built = render_all(frozen, out_dir / "dl1", f"DL1_{trial_id}")
+    for name, path in built.items():
         artefacts[f"dl1_{name}"] = str(path)
+    # 1523 ruling: the run's own record of the files it built, by which the console lets them leave
+    record = {str(p.relative_to(out_dir)): hashlib.sha256(p.read_bytes()).hexdigest() for p in built.values()}
+    (out_dir / "made.json").write_text(json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     released = all_released_counts(obj)
     checks["small_cells_released"] = all(released_ok(v, profile) for v in released)
     if not checks["small_cells_released"]:
