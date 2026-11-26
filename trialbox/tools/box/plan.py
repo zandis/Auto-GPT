@@ -38,7 +38,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from tb_common import site_country, site_needs
+from tb_common import host_zone, site_country, site_needs
 from tb_common.box_answers import BackupKind, OwnerAnswers, SourceKind, person_name, stand_ins
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -168,12 +168,6 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
     )[:3]
     meminfo = (host_root / "proc/meminfo").read_text(encoding="utf-8") if (host_root / "proc/meminfo").exists() else ""
     kib = re.search(r"MemTotal:\s+(\d+)", meminfo)
-    tz = ""
-    with_tz = host_root / "etc/timezone"
-    if with_tz.is_file():
-        tz = with_tz.read_text(encoding="utf-8").strip()
-    elif (host_root / "etc/localtime").is_symlink():
-        tz = str(os.readlink(host_root / "etc/localtime")).split("zoneinfo/")[-1]
     return Hardware(
         arch=platform.machine(),
         cpu_count=os.cpu_count() or 1,
@@ -190,7 +184,7 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
             _run(["ip", "-j", "-6", "route", "show", "default"]),
         ),
         hostname=socket.gethostname().split(".")[0].lower() or "trialbox",
-        host_tz=tz,
+        host_tz=host_zone.read(host_root),  # the one reading check_host.sh does too
         mem_total_kib=int(kib.group(1)) if kib else 0,
     )
 

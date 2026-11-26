@@ -25,7 +25,7 @@ from typing import Any
 from tb_common import box_answers as ba
 from tb_common import host_folders, site_country, site_needs
 
-from tools.box.plan import BOX_SOURCE_MOUNT, chart_pattern
+from tools.box.plan import BOX_SOURCE_MOUNT, chart_pattern, site_id
 
 #: the fields the page asks for each item; an item that is not here is given on the host (the backup key's ceremony)
 FIELDS: dict[str, tuple[str, ...]] = {
@@ -97,7 +97,8 @@ def clean(item: str, given: Mapping[str, str]) -> Change:
     if item == "site_name":
         if not v["site_name"] or v["site_name"] == ba.PLACEHOLDER_NAME:
             raise NeedsError("required")
-        return Change(settings={"site.name": v["site_name"]}, owner={"site_name": v["site_name"]})
+        sid = site_id(v["site_name"])  # the id is the hospital's name's, never the stand-in's the install derived
+        return Change({"TB_SITE_ID": sid}, {"site.name": v["site_name"], "site.id": sid}, {"site_name": v["site_name"]})
     if item == "office_mailbox":
         if not ba.MAILBOX.fullmatch(v["sae_office_mailbox"]):
             raise NeedsError("mail")

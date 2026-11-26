@@ -394,8 +394,8 @@ else pass "free space on $DOCKER_ROOT: $free%"; fi
 for c in trialbox-retention trialbox-backup; do
   if [ -f "$HR/etc/cron.d/$c" ]; then pass "cron file /etc/cron.d/$c"; else facility strict "cron file /etc/cron.d/$c missing (re-run install.sh)" "cron $c"; fi
 done
-# the host's time zone (doctor compares it with the site's, D-315)
-HOST_TZ_NAME="$(timedatectl show -p Timezone --value 2>/dev/null || cat "$HR/etc/timezone" 2>/dev/null || true)"
+# the host's time zone (doctor compares it with the site's, D-315): read as the install's questions read it, one source
+HOST_TZ_NAME="$(python3 "$ROOT_DIR/libs/tb_common/host_zone.py" "${HR:-/}" 2>/dev/null || true)"
 if [ -n "$HOST_TZ_NAME" ]; then pass "host time zone $HOST_TZ_NAME"; else warn "host time zone not set (timedatectl set-timezone)"; fi
 
 # OS patches (tools/apply_update.sh ospatch; OPS-024)
@@ -468,8 +468,7 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   [ "$(cd "$(dirname "$ENV_FILE")" && pwd)" = "$(cd "$ROOT_DIR/deploy" && pwd)" ] \
     && [ "$(basename "$ENV_FILE")" = .env ] && set -- "$@" --env-file /app/deploy/.env
   # the host's zone for doctor's site_tz check (D-315): the container's /etc is the image's, not the host's
-  HOST_TZ="$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null \
-    || readlink /etc/localtime 2>/dev/null | sed 's|.*zoneinfo/||')"
+  HOST_TZ="$HOST_TZ_NAME"
   # the KEK the unseal writes (tb_common.kek, D-347), read-only, when this host has one
   KEK_DIR="${TB_KEK_HOST_DIR:-/run/trialbox}"; KEK_MOUNT=""
   [ -d "$KEK_DIR" ] && KEK_MOUNT="$KEK_DIR:/run/trialbox:ro"

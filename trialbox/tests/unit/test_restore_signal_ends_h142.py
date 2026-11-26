@@ -109,16 +109,27 @@ def test_the_entry_keeps_the_said_130_when_the_walks_second_signal_lands_on_its_
 #: The box's engine and compose, stood in for by one script (``TB_DOCKER`` of the box file): compose answers from a
 #: state folder, and ``run`` is the restore's container. Each step it reaches writes its mark (``marks``) and then
 #: waits ``PAUSE`` s, the window a sweep's signal lands in. The container's start is the python's start: until it
-#: takes its own handlers (``started``), a signal is the default's death, as a real one's is.
+#: takes its own handlers (``started``), a signal is the default's death, as a real one's is. A step is over
+#: (``passed``) when the stand-in reaches its next mark or its exit: the sweep's point past the step, never a sleep.
 STANDIN = r"""
-import json, os, signal, sys, time
+import atexit, json, os, signal, sys, time
 state, args = sys.argv[1], sys.argv[2:]
 cfg = json.load(open(os.path.join(state, "cfg.json")))
 ALL = ["caddy", "console", "db", "orchestrator"]
+done = []
+
+def passed():
+    if done:
+        with open(os.path.join(state, "passed"), "a") as fh:
+            fh.write(done.pop() + "\n")
+
+atexit.register(passed)
 
 def mark(name):
+    passed()
     with open(os.path.join(state, "marks"), "a") as fh:
         fh.write(name + "\n")
+    done.append(name)
     time.sleep(cfg.get("pause", 0.15))
 
 def running():
@@ -194,23 +205,24 @@ def stand_in_box(tmp_path: Path, **cfg: object) -> tuple[Path, Path]:
     return deploy, state
 
 
-def marks(state: Path) -> list[str]:
+def marks(state: Path, log: str = "marks") -> list[str]:
     try:
-        return (state / "marks").read_text(encoding="utf-8").split()
+        return (state / log).read_text(encoding="utf-8").split()
     except OSError:
         return []
 
 
-def at_mark(p: subprocess.Popen[str], state: Path, mark: str, delay: float, sig: str, n: int = 1) -> bool:
-    """``sig`` sent ``delay`` s after the stand-in's ``n``-th ``mark``; False: the run ended before it."""
+def at_mark(p: subprocess.Popen[str], state: Path, mark: str, delay: float | None, sig: str, n: int = 1) -> bool:
+    """``sig`` sent ``delay`` s after the stand-in's ``n``-th ``mark``, or (``delay`` None) once that step is over;
+    False: the run ended before it."""
     import time
 
     t = time.monotonic()
-    while marks(state).count(mark) < n:
+    while marks(state, "marks" if delay is not None else "passed").count(mark) < n:
         if p.poll() is not None or time.monotonic() - t > 30:
             return False
         time.sleep(0.002)
-    time.sleep(delay)
+    time.sleep(delay or 0)
     if p.poll() is not None:
         return False
     p.send_signal(getattr(signal, sig))
@@ -442,7 +454,9 @@ def test_a_closed_terminal_after_the_signal_breaks_no_line_and_the_host_waits(tm
 #: the stand-in's marks, in the order a restore reaches them: the space check, the stop, the container's start,
 #: its handlers, its change, the services' start, the health check
 PHASES = [("db-size", 1), ("stop", 1), ("container", 1), ("started", 1), ("change", 1), ("up", 1), ("ps", 4)]
-DELAYS = (0.0, 0.07, 0.2)  # inside the stand-in's step (it waits 0.15 s at each mark), and past it into the host's
+#: inside the stand-in's step (it waits 0.15 s at each mark), and (None) past it into the host's: once the stand-in
+#: has reached its next mark or its exit, a known point, never a fixed sleep a loaded machine outruns
+DELAYS = (0.0, 0.07, None)
 
 
 @pytest.mark.parametrize("sig", ["SIGTERM", "SIGINT", "SIGHUP"])
