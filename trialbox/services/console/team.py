@@ -368,7 +368,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             return None, []
         names = (wk["summary"] or {}).get("practitioner_names") or {}
         reg = h.registry_map(rid) if h.registry_map else {}
-        rows = st.weekly_rows(wk["cl"], h.crit_of(rid, sess.lang) if h.crit_of else {}, reg, store.latest_marks(rid),
+        crit = h.crit_of(rid, sess.lang) if h.crit_of else {}
+        rows = st.weekly_rows(wk["cl"], crit, reg, store.latest_marks(rid),
                               {}, wk["job"].job_id, names, include_closed=True, today=today())  # fmt: skip
         refs = team.latest_referrals(rid)
         staff = {s.practitioner_id: s for s in team.staff() if s.practitioner_id}
@@ -377,6 +378,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             r["referral"] = refs.get(r["pid"])
             r["doctor"] = suggestion(r, names, staff)
             r["n_open"] = st.n_open(r)
+            r["closeness"] = st.closeness_key(r, crit)
+            r["coded"] = st.coded_complete(r, crit)
             r["screening_no"] = nos.get(r["pid"])
             r["person"] = wk["people"].of(r["pid"])  # D-1221: the same state as on every other list
         return wk, rows
@@ -459,11 +462,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return rid, ctx
 
     @app.get("/studies/{rs}/candidates")
-    def candidates(request: Request, rs: str, page: int = 1, show: str = "") -> Response:
+    def candidates(request: Request, rs: str, page: int = 1, show: str = "", order: str = "") -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         need_task(sess, rid, "screen", request.url.path)
         wk, rows = candidate_rows(sess, rid)
+        order = "closest" if order == "closest" else ""  # the one other order (MATCH-ARCH 1(e)); else the next visit
+        if order:
+            rows = sorted(rows, key=lambda r: r["closeness"])
         if show == "unknown":
             rows = [r for r in rows if not r["doctor"]["known"]]
         elif show == "open":
@@ -472,7 +478,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         shown, page_no, pages = st.paged(rows, page)
         removed = len((wk or {}).get("removed") or ())  # only the count: who opted out is itself private
         return h.page(request, "team_candidates.html", sess, rs=rid, wk=wk, rows=shown, n_all=n_all, page_no=page_no,
-                      pages=pages, show=show, removed=removed, standing=stand(sess.user, rid),
+                      pages=pages, show=show, order=order, removed=removed, standing=stand(sess.user, rid),
                       purposes=VIEW_PURPOSES, view_open=view_open(rid))  # fmt: skip
 
     @app.get("/studies/{rs}/candidates/{pid}")

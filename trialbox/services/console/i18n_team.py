@@ -8,6 +8,19 @@ delegation. Joined into ``console.i18n`` last."""
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "team.cand.order": "Order",
+    "team.cand.order.visit": "Next visit",
+    "team.cand.order.closest": "Closest to eligible",
+    "team.cand.order.help": "Fewest open criteria first, then the easier gaps to close, then the more evidence in favour. An order to read, not a chance of enrolling.",
+    "team.cand.coded": "Answered from the records",
+    "team.cand.coded.n": "{k} of {n}",
+    "evfa.title": "Evidence for and against",
+    "evfa.help": "For each criterion: what speaks for eligibility and what speaks against it, newest first. The coded records and the quotes from the notes are kept apart. A criterion with evidence on both sides is marked and a person looks.",
+    "evfa.for": "For eligibility",
+    "evfa.against": "Against eligibility",
+    "evfa.coded": "Coded records",
+    "evfa.notes": "Notes",
+    "evfa.conflict": "Evidence on both sides",
     "team.scope.hospital": "This run screened the whole hospital: every doctor's patients are here.",
     "team.scope.pract": "This run screened only these doctors' patients: {ids}.",
     "team.scope.change": "Choose the whole hospital under Who to screen",
@@ -235,6 +248,19 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "team.cand.order": "並び順",
+    "team.cand.order.visit": "次回受診日",
+    "team.cand.order.closest": "適格に近い順",
+    "team.cand.order.help": "未確認の基準が少ない順、次に埋めやすい欠落の順、次に支持する根拠が多い順です。参加の確率ではなく、読むための並び順です。",
+    "team.cand.coded": "記録から回答済み",
+    "team.cand.coded.n": "{n} 件中 {k} 件",
+    "evfa.title": "適格性を支持する根拠と否定する根拠",
+    "evfa.help": "基準ごとに、適格性を支持するものと否定するものを新しい順に示します。コード化された記録と記録の文章からの引用は分けています。両側に根拠がある基準には印が付き、人が確認します。",
+    "evfa.for": "適格性を支持",
+    "evfa.against": "適格性を否定",
+    "evfa.coded": "コード化された記録",
+    "evfa.notes": "記録の文章",
+    "evfa.conflict": "両側に根拠があります",
     "team.scope.hospital": "この実行は病院全体をスクリーニングしました。すべての医師の患者さんが載っています。",
     "team.scope.pract": "この実行はこの医師たちの患者さんだけをスクリーニングしました：{ids}。",
     "team.scope.change": "「スクリーニングの対象」で病院全体を選ぶ",
@@ -462,6 +488,19 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "team.cand.order": "排序",
+    "team.cand.order.visit": "下次就診日",
+    "team.cand.order.closest": "最接近符合資格",
+    "team.cand.order.help": "待確認條件最少者在前，其次為較易補齊的缺口，再其次為支持證據較多者。此為供閱讀的排序，並非收案機率。",
+    "team.cand.coded": "依紀錄已回答",
+    "team.cand.coded.n": "{n} 項中 {k} 項",
+    "evfa.title": "支持與不支持符合資格的證據",
+    "evfa.help": "每項條件分別列出支持符合資格與不支持符合資格的證據，由新到舊。結構化紀錄與病歷文字引文分開呈現。兩側皆有證據的條件會加註記，並由人員確認。",
+    "evfa.for": "支持符合資格",
+    "evfa.against": "不支持符合資格",
+    "evfa.coded": "結構化紀錄",
+    "evfa.notes": "病歷文字",
+    "evfa.conflict": "兩側皆有證據",
     "team.scope.hospital": "本次執行篩選了全院：所有醫師的病人都在這裡。",
     "team.scope.pract": "本次執行只篩選了這些醫師的病人：{ids}。",
     "team.scope.change": "在「篩選對象」中選擇全院",
