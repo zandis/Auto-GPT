@@ -25,7 +25,7 @@ from typing import Any
 from tb_common import box_answers as ba
 from tb_common import host_folders, site_country, site_needs
 
-from tools.box.plan import BOX_SOURCE_MOUNT, chart_pattern
+from tools.box.plan import BOX_SOURCE_MOUNT, chart_pattern, site_id
 
 #: the fields the page asks for each item; an item that is not here is given on the host (the backup key's ceremony)
 FIELDS: dict[str, tuple[str, ...]] = {
@@ -97,7 +97,12 @@ def clean(item: str, given: Mapping[str, str]) -> Change:
     if item == "site_name":
         if not v["site_name"] or v["site_name"] == ba.PLACEHOLDER_NAME:
             raise NeedsError("required")
-        return Change(settings={"site.name": v["site_name"]}, owner={"site_name": v["site_name"]})
+        sid = site_id(v["site_name"])  # the id is the hospital's name's, never the stand-in's (``run`` keeps a set one)
+        return Change(
+            env={"TB_SITE_ID": sid},
+            settings={"site.name": v["site_name"], "site.id": sid},
+            owner={"site_name": v["site_name"]},
+        )
     if item == "office_mailbox":
         if not ba.MAILBOX.fullmatch(v["sae_office_mailbox"]):
             raise NeedsError("mail")
@@ -241,9 +246,15 @@ def run(
     """One item's answer into the box, then the services on the new settings (``restart``). Returns the summary and the
     keys that changed: never a value."""
     from tools.box.__main__ import merge_env, write_whole
+    from tools.trialbox import finish_check as fc
 
     item = str(args.get("item") or "")
     change = clean(item, args)
+    if fc.read_env(deploy / ".env").get("TB_SITE_ID") not in (None, "", ba.PLACEHOLDER_SITE_ID):
+        # the site id is set once, from the first real name: a later name is the display name only, so the box's
+        # backups, reports and audit keep the id they carry (restore's same-site check)
+        change.env.pop("TB_SITE_ID", None)
+        change.settings.pop("site.id", None)
     check_on_host(item, change, deploy, rows)
     if change.settings:
         _patch(deploy, change.settings)
@@ -268,6 +279,10 @@ def doctor_checks(deploy: Path, env: Mapping[str, str], settings: Mapping[str, A
     stand, problems = site_needs.read_stand_ins(deploy)
     files = [f for f in ("secrets/backup.pub",) if (deploy / f).is_file()]
     rows = [("site_needs_list", "WARN", p) for p in problems]
+    if ba.PLACEHOLDER_SITE_ID in (env.get("TB_SITE_ID"), (settings.get("site") or {}).get("id")):
+        rows.append(("site_id", "WARN", "site name not set: the site id is the install's stand-in; go-live is refused "
+                     "and a backup taken now needs --other-site to restore, until the name is given on the page "
+                     '"Information still needed"'))  # fmt: skip
     for n, state in site_needs.still_needed(env=env, settings=settings, files=files, stand_ins=stand):
         steps = ", ".join(site_needs.STEPS[s]["en"] for s in n.before)
         rows.append((f"still_needed:{n.key}", "WARN",

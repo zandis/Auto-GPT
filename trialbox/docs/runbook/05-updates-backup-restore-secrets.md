@@ -411,6 +411,30 @@ SIGKILL, or by a power loss (held on the restored database). Every other hold st
 person set or changed, one of another backup, one of a restore that did not end complete, and one with an earlier
 restore's set-aside audit chain on the box. Read `trialbox doctor` (`restore_hold`) after the rerun.
 
+**Restoring into a second, empty box.** A box newly installed beside the first (new hardware, a stand-by) takes the
+first box's backup with the one command above, given four things. Each one missing is refused before anything
+changes:
+
+1. **The backup file, by name.** `--last` reads this box's own nightly record, and a new box has none. Copy the first
+   box's backup file and its `.sha256` sidecar into one folder on this box and name the file; the sidecar must match.
+2. **The key, owned by root, mode 0600.** `--key` names a file owned by root and readable by root alone, not a link:
+   copy it from the stick first, as above.
+3. **`--no-copy` with `--yes-really`, or a target for the copy.** A box that holds data is kept as an encrypted copy
+   first, which needs this box's public key and a folder (`--public <key> --keep-to <folder>`). On a box that has no
+   backup key yet, `--no-copy --yes-really` goes on without the copy.
+4. **The same site.** The backup's site must be this box's `TB_SITE_ID`. A box installed by the four questions takes
+   its site id from the hospital's name: give it the first box's name on "Information still needed" first, then
+   compare `grep '^TB_SITE_ID=' deploy/.env` on both boxes. The id is set once, from the first name given: a later
+   name changes the display name only. A backup taken while the box still ran on the stand-in name carries the
+   stand-in id (`TRIALBOX-SITE-NAME-NEEDE`): once the name is given, it restores, on this box or another, only with
+   `--other-site`. Otherwise `--other-site` is for moving a site to new hardware only.
+
+The command, from the install folder of the second box:
+
+    sudo install -m 0600 -o root -g root /media/usb/trialbox-backup.key /root/trialbox-backup.key
+    sudo trialbox restore /srv/restore/trialbox-<site id>-<time>.tbbak --key /root/trialbox-backup.key --yes --restart --no-copy --yes-really
+    sudo rm /root/trialbox-backup.key
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |

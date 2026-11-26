@@ -1014,24 +1014,17 @@ ETC = Path("/etc")
 
 
 def _host_zone(inp: DoctorInputs) -> str | None:
-    """The host's zone name: given, ``TB_HOST_TZ``, else /etc/timezone or the /etc/localtime link. None inside a
-    container (its /etc is the image's, not the host's) or when it cannot be read."""
+    """The host's zone name: given, ``TB_HOST_TZ``, else the shared host reading (``tb_common.host_zone``: the
+    /etc/localtime link, else /etc/timezone). None inside a container (its /etc is the image's, not the host's) or
+    when it cannot be read."""
+    from tb_common import host_zone
+
     given = inp.host_tz or inp.env.get("TB_HOST_TZ")
     if given:
         return given.strip()
     if inp.platform or Path("/.dockerenv").exists() or os.environ.get("KUBERNETES_SERVICE_HOST"):
         return None
-    try:
-        name = (ETC / "timezone").read_text(encoding="utf-8").strip()
-        if name:
-            return name
-    except OSError:
-        pass
-    try:
-        link = str((ETC / "localtime").readlink())
-    except (OSError, ValueError):
-        return None
-    return link.split("zoneinfo/", 1)[1] if "zoneinfo/" in link else None
+    return host_zone.read(ETC.parent) or None
 
 
 def _mapping_zone(settings: Mapping[str, Any], site_dir: Path = ROOT / "deploy" / "site") -> tuple[str | None, str]:
