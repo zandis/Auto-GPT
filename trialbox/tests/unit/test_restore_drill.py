@@ -221,7 +221,9 @@ def test_box_restore_with_the_installers_nocreatedb_owner(
     run_cmd = update.run_cmd
     installed = box_drill.BoxDrill(settings)
 
-    def docker(argv: list[str], stdin_file: Path | None = None, env: dict[str, str] | None = None) -> str:
+    def docker(
+        argv: list[str], stdin_file: Path | None = None, env: dict[str, str] | None = None, timeout: float | None = None
+    ) -> str:  # run_cmd's signature (the audit send is bounded, review 1534)
         if argv[:2] == [*installed.box.docker, "inspect"]:
             assert argv[-1] == "synthetic-container-id"
             return json.dumps([{"Destination": "/var/lib/postgresql/data", "Source": str(tmp_path)}])
