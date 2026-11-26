@@ -641,6 +641,7 @@ def _run_ingest(
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}  # NEW-DIN-6: table -> look-up -> code -> rows
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
+    unlisted_views: dict[str, int] = {}  # M6-TW: views the source offers that the mapping does not name -> rows
     current_before = _current(cfg.lake_dir)
     # T-659b (D-370): the controls moved from the retired data platform: contracts, row quarantine, control totals
     contracts = (
@@ -896,6 +897,10 @@ def _run_ingest(
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
+        if callable(told := getattr(source, "unlisted", None)):  # M6-TW: named and counted, never read
+            unlisted_views = told({str(t["source"]) for t in mapping.tables.values()})
+            for name, n in unlisted_views.items():
+                log.warning("view %s (%d rows) is not in the mapping: not read", name, n)
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if mapping is not None else _bulk_unit_defaults(cfg.mapping_path)
     counts = spool.counts()
@@ -1014,6 +1019,8 @@ def _run_ingest(
     # T-611: the completeness gate. A missing or emptied table, a table that shrank past the band, or a patient who
     # left the feed while their records stayed holds the night; D-271's override for this night lets it through
     gaps, completeness = completeness_check(cfg, tables, out_dir, last_good, full=not since)
+    if unlisted_views:  # M6-TW
+        completeness["unlisted"] = unlisted_views
     (out_dir / COMPLETENESS).write_text(
         json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
