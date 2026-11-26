@@ -563,6 +563,16 @@ class SqlGenerator:
             )
             + ")"
         )
+
+        def orders(cte: str, where: str) -> str:
+            """The medication orders that meet ``where``, counted per patient with their ids (``_o``, ``_off``)."""
+            return (
+                f"{cte} AS (\n  SELECT b.pid, b.index_date, count(*) AS n, "
+                f"string_agg(m.mid, ';' ORDER BY m.mid) AS ev\n"
+                f"  FROM base b JOIN medication m ON m.pid = b.pid\n  WHERE {where}\n"
+                f"  GROUP BY b.pid, b.index_date)"
+            )
+
         ctes = [
             (
                 f"{name}_p AS (\n  SELECT b.pid, b.index_date, m.mid, greatest(coalesce(m.start, m.authored), {lo}) AS s,\n"
@@ -593,13 +603,10 @@ class SqlGenerator:
             # D-275 (review S-9): an order whose end is not recorded ran for an unknown time, and one with no date
             # at all cannot be placed: where the dated periods do not reach min_days the answer is unknown (NULL),
             # never "1 day" and FALSE
-            (
-                f"{name}_o AS (\n  SELECT b.pid, b.index_date, count(*) AS n, "
-                f"string_agg(m.mid, ';' ORDER BY m.mid) AS ev\n"
-                f"  FROM base b JOIN medication m ON m.pid = b.pid\n  WHERE {match}\n"
-                f"    AND (coalesce(m.start, m.authored) IS NULL\n"
-                f'         OR (m."end" IS NULL AND coalesce(m.start, m.authored) <= {hi}))\n'
-                f"  GROUP BY b.pid, b.index_date)"
+            orders(
+                f"{name}_o",
+                f"{match}\n    AND (coalesce(m.start, m.authored) IS NULL\n"
+                f'         OR (m."end" IS NULL AND coalesce(m.start, m.authored) <= {hi}))',
             ),
         ]
         met = f"coalesce({name}.days, 0) >= {atom.duration.min_days}"
@@ -609,12 +616,11 @@ class SqlGenerator:
             # its list may be part of the course: unknown where the listed orders do not reach min_days
             off = self._family_offlist(atom.valueset, lit(SYSTEMS["atc"]), "m.atc")
             ctes.append(
-                f"{name}_off AS (\n  SELECT b.pid, b.index_date, count(*) AS n, "
-                f"string_agg(m.mid, ';' ORDER BY m.mid) AS ev\n"
-                f"  FROM base b JOIN medication m ON m.pid = b.pid\n  WHERE {off}\n"
-                f"    AND (coalesce(m.start, m.authored) IS NULL OR coalesce(m.start, m.authored) <= {hi})\n"
-                f'    AND (m."end" IS NULL OR m."end" >= {lo})\n'
-                f"  GROUP BY b.pid, b.index_date)"
+                orders(
+                    f"{name}_off",
+                    f"{off}\n    AND (coalesce(m.start, m.authored) IS NULL OR coalesce(m.start, m.authored) <= {hi})\n"
+                    f'    AND (m."end" IS NULL OR m."end" >= {lo})',
+                )
             )
             offn = f"coalesce({name}_off.n, 0) > 0"
             expr = f"(CASE WHEN {met} THEN TRUE WHEN {offn} OR {open_} THEN NULL ELSE FALSE END)"
