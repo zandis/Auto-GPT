@@ -142,7 +142,7 @@ def test_a_large_scopes_result_stays_under_a_ceiling_far_below_the_old_peak(monk
     4.5 MiB); this code: 10.3 MiB. What stays is the bytes of the files themselves."""
     monkeypatch.setattr(screen, "opted_out_now", lambda ctx, pids, where: frozenset())  # nobody on the register
     srun = _run(2000)
-    db, sent = _Db(), {}
+    db, sent = _Db(), dict[str, int]()
     ctx = _ctx(db, sent)
     cl = screen.candidate_list(srun)
     held: list[bytes] = []
