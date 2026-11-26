@@ -93,9 +93,14 @@ def test_a_delta_night_reads_only_what_changed_and_ends_equal_to_a_full_read(
     tables = _report(cfg, DELTA)["tables"]
     assert {t: tables[t]["rows"] for t in edited} == {t: len(ks) for t, ks in edited.items()}
     assert tables["note"]["rows"] == 0 and tables["encounter"]["rows"] == 0
-    for t, ks in edited.items():  # the edited value itself arrived, once per edited row
+    for t, ks in edited.items():  # the edited value itself arrived, once per edited row that maps to a resource
         got = _lines(cfg, DELTA)[f"{TYPES[t]}.ndjson"]
-        assert sum(standin_tw.EDIT_VALUE[t][1] in ln for ln in got) == len(ks)
+        assert sum(standin_tw.EDIT_VALUE[t][1] in ln for ln in got) == len(
+            [k for k in ks if k != standin_tw.UNMAPPED_LAB]
+        )
+    # the row with no code was read (counted above) and written as nothing: the exclusion is the mapping's own
+    assert standin_tw.UNMAPPED_LAB in edited["lab"]
+    assert not [ln for ln in _lines(cfg, DELTA)["Observation.ndjson"] if standin_tw.LOCAL_CODE in ln]
     _night(cfg, dsn, REDO)  # a full re-read of the same database
     assert _lines(cfg, DELTA) == _lines(cfg, REDO)
 
@@ -106,7 +111,8 @@ def test_a_night_cut_half_way_then_a_good_one_leaves_no_duplicate_and_no_gap(
     db, _ = site
     cfg, dsn = _cfg(tmp_path), f"sqlite:///{db}"
     _night(cfg, dsn, FULL)
-    standin_tw.touch(db, "lab", _keys(db, "lab", 5), EDITED)
+    keys = _keys(db, "lab", 5)
+    standin_tw.touch(db, "lab", keys, EDITED)
     real = SqlSource.rows
 
     def cut(self: SqlSource, table: str, *a: Any, **kw: Any) -> Iterator[dict[str, Any]]:
@@ -123,7 +129,8 @@ def test_a_night_cut_half_way_then_a_good_one_leaves_no_duplicate_and_no_gap(
     rep = _night(cfg, dsn, DELTA, since=f"{FULL} 00:00:00")  # the next night repeats what the failed one missed
     assert rep.passed, rep.errors
     lab = _lines(cfg, DELTA)["Observation.ndjson"]  # the edited value is there after the retry, once per row
-    assert sum(standin_tw.EDIT_VALUE["lab"][1] in ln for ln in lab) == 5
+    mapped = [k for k in keys if k != standin_tw.UNMAPPED_LAB]  # the row with no code is never an Observation
+    assert sum(standin_tw.EDIT_VALUE["lab"][1] in ln for ln in lab) == len(mapped)
     _night(cfg, dsn, REDO)
     got = _lines(cfg, DELTA)
     assert got == _lines(cfg, REDO)

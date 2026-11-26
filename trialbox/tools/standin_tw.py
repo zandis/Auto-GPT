@@ -26,6 +26,7 @@ TEMPLATE = MAPPING / "templates/cgrd_sql_site.yaml"
 NO_CHANGE_TIME = {"patient", "practitioner", "appointment", "registry"}  # tables the template reads whole
 TABLES_KEY = {"diagnosis": "diag_no", "lab": "lab_no", "medication": "rx_no", "encounter": "enc_no", "note": "note_no"}
 LOCAL_CODE = "ZZ-LOCAL"  # a lab code no look-up knows
+UNMAPPED_LAB = "L-ZZ"  # the lab row with LOCAL_CODE: read every night, never an Observation (no code to give it)
 EDIT_VALUE = {
     "lab": ("result_value", "77.7"),
     "medication": ("daily_dose", "77.5"),
@@ -55,7 +56,7 @@ def build(path: Path, *, seed: int = 7, patients: int = 60, ref_date: date = dat
     for name in TABLES:
         rows = [dict(r) for r in data.tables[name]]
         if name == "lab":  # one row with a local code the look-up lacks, so the night has something to count
-            rows.append({**rows[0], "lab_no": "L-ZZ", "local_code": LOCAL_CODE})
+            rows.append({**rows[0], "lab_no": UNMAPPED_LAB, "local_code": LOCAL_CODE})
         counts[name] = len(rows)
         if not rows:
             continue
