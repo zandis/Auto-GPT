@@ -406,3 +406,25 @@ def test_a_share_not_mounted_one_night_is_not_tampered_once_mounted_again(box: d
     server.rename(point)
     own = audit_heads.own_keys(box["secrets"])
     assert audit.anchor_state(point, box["audit"], own, NIGHT + timedelta(days=1, hours=1))[0] == "ok"
+
+
+def test_a_folder_added_after_the_upgrade_is_not_held_to_events_that_name_no_folder(
+    box: dict[str, Path], tmp_path: Path
+) -> None:
+    """1523 review M2: a head event written before the events named their folders does not hold a folder set up since:
+    it is no head yet, and the next night writes its first."""
+    log = AuditLog(box["audit"])
+    _events(log, 3)
+
+    def before(event: str, actor: str, detail: dict[str, Any]) -> None:  # the event as it was before OCR 1523-21
+        log.append(event, actor=actor, detail={k: v for k, v in detail.items() if k != "to"})
+
+    log.append("test.event", ts=NIGHT - timedelta(minutes=5), actor="tester", detail={"n": 1})
+    assert audit_heads.sign_night(box["audit"], box["secrets"], [box["share"]], record=before, now=NIGHT).ok
+    new = tmp_path / "new"
+    new.mkdir()
+    own = audit_heads.own_keys(box["secrets"])
+    assert audit.anchor_state(new, box["audit"], own, NIGHT + timedelta(hours=1))[0] == "missing"
+    assert _sign_at(box, [box["share"], new], log, NIGHT + timedelta(days=1)).ok
+    assert list((new / "heads").iterdir())
+    assert audit.anchor_state(new, box["audit"], own, NIGHT + timedelta(days=1, hours=1))[0] == "ok"

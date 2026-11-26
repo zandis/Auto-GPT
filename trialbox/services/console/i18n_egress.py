@@ -19,6 +19,8 @@ EN: dict[str, str] = {
     "egress.reason.identifiers": "it holds a patient identifier that cannot be masked in it",
     "egress.reason.free_text": "it holds note text, which an aggregate file may not",
     "egress.reason.unreadable": "the box cannot read it to check it",
+    "egress.reason.form_pdf": "it is a PDF form or a signed PDF: what its fields show is drawn, not text the box "
+    "can read; print it to a plain PDF and send that",
     "egress.reason.too_large": "it is too large to check",
     "egress.reason.mask_failed": "the check failed",
     "egress.reason.not_recorded": "the departure could not be recorded",
@@ -49,6 +51,8 @@ JA: dict[str, str] = {
     "egress.reason.identifiers": "マスクできない患者識別情報が含まれています",
     "egress.reason.free_text": "集計ファイルに含められないカルテ本文があります",
     "egress.reason.unreadable": "ボックスが内容を読み取って確認できません",
+    "egress.reason.form_pdf": "PDF フォームまたは署名付き PDF です。欄の内容は描画されたもので、"
+    "ボックスは文字として読み取れません。通常の PDF に印刷してから送ってください",
     "egress.reason.too_large": "大きすぎて確認できません",
     "egress.reason.mask_failed": "確認に失敗しました",
     "egress.reason.not_recorded": "持ち出しを記録できませんでした",
@@ -78,6 +82,8 @@ ZH: dict[str, str] = {
     "egress.reason.identifiers": "內含無法遮蔽的病人識別資料",
     "egress.reason.free_text": "內含彙總檔案不得包含的病歷內文",
     "egress.reason.unreadable": "本機無法讀取以進行檢查",
+    "egress.reason.form_pdf": "這是 PDF 表單或已簽章的 PDF：欄位內容是繪製的，"
+    "本機無法當作文字讀取；請先列印成一般 PDF 再傳送",
     "egress.reason.too_large": "檔案過大，無法檢查",
     "egress.reason.mask_failed": "檢查失敗",
     "egress.reason.not_recorded": "無法記錄這次傳出",

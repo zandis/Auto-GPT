@@ -643,9 +643,12 @@ class VerifyResult:
         """The heads (lines, hash) the chain says were written, without those ``target`` is named not to have taken
         (OCR 1523-4): by the signer (``<folder>: <why>``) or by the host before it (``sign_on_box``)."""
         missed = (f"{target}: ", f"the anchor folder {target} is not there")
+        # 1523 review M2: an event from before the folders were named does not hold a folder that holds no head (one
+        # added after the upgrade); an event that names its folders still does
+        bare = not ((target / _HEADS_DIR).is_dir() and read_signed_heads(target))
         return [(n, h) for n, h, took, failed, to in self.signed_events
                 if took >= 1 and (str(target) in to if to is not None  # OCR 1523-21: the folders that took it
-                                  else not any(f.startswith(missed) for f in failed))]  # fmt: skip
+                                  else not bare and not any(f.startswith(missed) for f in failed))]  # fmt: skip
 
 
 def verify(

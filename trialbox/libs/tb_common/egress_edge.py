@@ -28,6 +28,7 @@ import re
 import struct
 import unicodedata
 import zipfile
+import zlib
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -169,24 +170,31 @@ _SSN = re.compile(r"(?<![0-9A-Za-z\-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000
 _BORN_ROC = re.compile(r"(?<!\d)\d{2,3}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?=\s*出生)")
 #: an office document's parts that hold no text to read: its pictures and the printer's settings (OCR 1523-3)
 _OPAQUE = re.compile(r"(?:\.(?:png|jpe?g|gif|bmp|tiff?|emf|wmf)|/printerSettings/[^/]+\.bin)$", re.I)
-#: what a picture's own bytes begin with (OCR 1523-3: a part called a picture is skipped only when it is one)
-_PICTURE = (
-    b"\x89PNG\r\n\x1a\n",
-    b"\xff\xd8\xff",
-    b"GIF87a",
-    b"GIF89a",
-    b"BM",
-    b"II*\x00",
-    b"MM\x00*",
-    b"\xd7\xcd\xc6\x9a",
-    b"\x01\x00\x09\x00",
-)
-#: the zip extra fields that hold no more than a time, an owner or a size (OCR 1523-18)
-_EXTRA_OK = {0x0001, 0x000A, 0x5455, 0x5855, 0x7855, 0x7875}
+#: the PNG chunks a picture that is skipped may hold: none holds text (1523 review H4: tEXt, zTXt, iTXt, iCCP and
+#: any chunk not named here refuse the part)
+_PNG_CHUNKS = {b"IHDR", b"PLTE", b"IDAT", b"IEND", b"tRNS", b"gAMA", b"cHRM", b"sRGB", b"pHYs", b"bKGD", b"sBIT"}
+#: the JPEG segments a picture that is skipped may hold: frames, tables, JFIF, Adobe, the scan (no comment, no EXIF)
+_JPEG_SEGMENTS = {*range(0xC0, 0xC4), *range(0xC5, 0xC8), *range(0xC9, 0xCC), *range(0xCD, 0xD0), 0xC4, 0xDB, 0xDD,
+                  0xDA, 0xE0, 0xEE}  # fmt: skip
+#: what a PDF's bytes may hold between its objects: white space and comments (which are read)
+_PDF_GAP = re.compile(rb"(?:[\x00\t\n\x0c\r ]+|%[^\r\n]*)*")
+#: a PDF's cross-reference table to its trailer's dictionary, and the pointer to the table, as they stand between
+#: objects
+_PDF_XREF = re.compile(rb"xref\s+(?:\d+\s+\d+\s+(?:\d{10} \d{5} [fn](?: \r| \n|\r\n))*)+trailer")
+_PDF_START = re.compile(rb"startxref\s+\d+\s*%%EOF")
 #: a sheet's cells, which :meth:`_Reader.workbook` reads with their columns (OCR 1523-19: the rest of the sheet as text)
 _CELL_DATA = re.compile(rb"<(?:\w+:)?sheetData\b[^>]*/>|<(?:\w+:)?sheetData\b.*?</(?:\w+:)?sheetData>", re.S)
 #: a workbook's parts that :meth:`_Reader.workbook` reads as cells
 _CELLS = re.compile(r"xl/(?:worksheets/[^/]+|sharedStrings|styles|theme/[^/]+|workbook)\.xml$|docProps/app\.xml$")
+#: an attribute of office markup, and those whose value is no one's words: a revision's, a paragraph's or a drawing's
+#: id, a colour, an angle, a place or a size of a drawing, a cell's place and type, a font's signature, a GUID; and the
+#: elements whose value is an id (a revision's, a list's, a list template's, the document's)
+_ATTR = re.compile(r"""([\w:.-]+)\s*=\s*["']([^"']*)""")
+_NOT_READ = re.compile(
+    r"(?:\w+:)?(?:rsid\w*|paraId|textId|anchorId|editId|rgb|ang|rot|cx|cy|[xylrtb]|dist[TBLR]|relativeHeight|[uc]sb\d)"
+)
+_ID_ELEMENT = re.compile(r"<(?:\w+:)?(?:rsid|nsid|tmpl|docId)\b[^>]*>")
+_GUID = re.compile(r"\{?[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}?")
 _FRACTION = re.compile(r"\d\.$")  # the digits after a decimal point are no phone number
 Span = tuple[str, int, int]
 
@@ -455,6 +463,14 @@ class _Reader:
             seen: set[int] = set()
             texts, files = _pdf_parts(r.trailer, seen)
             hidden = _pdf_earlier(r, data, seen)
+            texts += _pdf_bytes(r, data)  # 1523 review M1: its comments; a byte outside its objects refuses it
+            for p in r.pages:  # and the comments in what a page draws
+                if (shown := p.get_contents()) is not None:
+                    texts += _pdf_drawn(shown.get_data())
+        except Refused as exc:
+            if exc.reason != "form_pdf":
+                raise Refused("", "unreadable") from None
+            raise
         except Exception:
             raise Refused("", "unreadable") from None
         if hidden:  # OCR 1523-20: an earlier revision's objects stay in the bytes, unread
@@ -510,54 +526,72 @@ class _Reader:
                     out.writestr(info, new[i.filename])
         return buf.getvalue()
 
-    def parts(self, data: bytes, z: zipfile.ZipFile, depth: int = 0, cells: bool = False) -> bytes:
+    def parts(self, data: bytes, z: zipfile.ZipFile, depth: int = 0, cells: frozenset[str] = frozenset()) -> bytes:
         """An office document's text, part by part. It is not rewritten: an identifier refuses it. A part that is not
         XML (an embedded file, a list that a member named ``[Content_Types].xml`` sits beside) is read as a file of its
-        own (OCR 1523-3); a picture is not looked at. ``cells``: a workbook's cells are read by :meth:`workbook`."""
+        own (OCR 1523-3); a picture is not looked at. ``cells``: the sheets whose cells :meth:`workbook` reads."""
         for i in z.infolist():
             if i.is_dir():
                 continue
             if cells and _CELLS.match(i.filename):  # OCR 1523-19: what a sheet, the book or a format says beside cells
                 if i.filename != "xl/sharedStrings.xml":  # its strings: workbook(), once the cells are known
-                    self.markup(_CELL_DATA.sub(b"", z.read(i)))
+                    # 1523 review H8: a sheet's cells are left to workbook() only when it read that sheet
+                    self.markup(_CELL_DATA.sub(b"", z.read(i)) if i.filename in cells else z.read(i))
                 continue
             part = z.read(i)
             markup = i.filename.endswith((".xml", ".rels", ".vml")) and part.lstrip(b"\xef\xbb\xbf \t\r\n")[:1] == b"<"
+            said = _opaque(i.filename, part) if _OPAQUE.search(i.filename) and _plain(part) is None else None
             if markup:
                 self.markup(part)
-            elif not (_OPAQUE.search(i.filename) and _opaque(i.filename, part) and _plain(part) is None):
+            elif said is None:
                 self.whole(i.filename, part, depth)
+            else:  # a picture whose every byte is one, or the printer's settings: their names only
+                self.none_in(said)
         return data
 
     def markup(self, part: bytes) -> None:
         raw = _plain(part)
         if raw is None:
             raise Refused("", "unreadable")
-        # a link's address, a picture's description, a name and a number format stand in attributes (OCR 1523-19)
-        links = re.findall(r"""\b(?:Target|descr|title|name|formatCode)\s*=\s*["']([^"']*)""", raw)
+        # every attribute's value is read (OCR 1523-19; 1523 review H9: a document variable, a tooltip, an author, a
+        # picture's alternative text), but the ids, sizes and signatures that hold no one's words (_NOT_READ)
+        listed = _ID_ELEMENT.sub("", raw)
+        links = [v for k, v in _ATTR.findall(listed) if not _NOT_READ.fullmatch(k) and not _GUID.fullmatch(v)]
         raw = re.sub(r"</(?:\w+:)?(?:p|tr|si)>", "\n", raw)  # a paragraph's runs read together
-        self.none_in(html.unescape("\n".join([re.sub(r"<[^>]+>", "", raw), *links])))
+        # each value read apart: a table's widths one after another are no telephone number
+        self.none_in(html.unescape("\n;\n".join([re.sub(r"<[^>]+>", "", raw), *links])))
 
     def workbook(self, data: bytes, z: zipfile.ZipFile, depth: int = 0) -> bytes:
         """A workbook's cells, each read with its column's head and with the cell to its left; every other part
         (properties, comments, drawings) as text."""
         from openpyxl import load_workbook
+        from openpyxl.reader.excel import ExcelReader
 
         try:
-            wb = load_workbook(io.BytesIO(data))
+            book = ExcelReader(io.BytesIO(data))  # load_workbook(), and the parts it read
+            book.read()
+            wb = book.wb
+            read = frozenset(rel.target for _s, rel in book.parser.find_sheets()
+                             if rel.target in book.valid_files and "chartsheet" not in rel.Type)  # fmt: skip
+            cached = load_workbook(io.BytesIO(data), data_only=True).worksheets  # a formula's last value (review H8)
         except Exception:
             raise Refused("", "unreadable") from None
         if sum(bool(re.match(r"xl/worksheets/[^/]+\.xml$", n)) for n in z.namelist()) > len(wb.worksheets):
             raise Refused("", "unreadable")  # a sheet the book does not list: its cells are not read below
-        self.parts(data, z, depth, cells=True)
+        self.parts(data, z, depth, cells=read)
         changed = False
-        for ws in wb.worksheets:
+        for ws, last in zip(wb.worksheets, cached, strict=True):
             self.none_in(ws.title)
             head: list[str] = []
             for row in ws.iter_rows():
                 left = ""
                 for k, c in enumerate(row):
                     v = c.value
+                    if c.data_type == "f":  # the value it showed last leaves in the file as it is
+                        shown = last[c.coordinate].value
+                        for label in (head[k] if k < len(head) else "", left):
+                            if self.scalar(label, shown) != shown:
+                                raise Refused("", "identifiers")
                     new: Any = v
                     for label in (head[k] if k < len(head) else "", left):
                         new = self.scalar(label, new)
@@ -589,38 +623,113 @@ class _Reader:
         return out
 
 
-def _opaque(name: str, part: bytes) -> bool:
-    """A part that is what its name says: a picture by its own first bytes, printer settings by their own size."""
-    if name.lower().endswith(".bin"):  # DEVMODE: its size and its driver's bytes are in it
-        return len(part) >= 72 and len(part) == sum(struct.unpack("<HH", part[68:72]))
-    return part.startswith(_PICTURE) or part[40:44] == b" EMF"
+def _opaque(name: str, part: bytes) -> str | None:
+    """What a part named a picture or the printer's settings says as text ("" for a picture), when every byte of it is
+    what its name says (OCR 1523-3; 1523 review H4, H5: a prefix proves nothing); None when it is not."""
+    if name.lower().endswith(".bin"):  # DEVMODE: its own size, no driver's bytes; the printer's and the form's names
+        if len(part) < 72 or struct.unpack("<HH", part[68:72]) != (len(part), 0):
+            return None
+        return "\n".join(part[a:b].decode("utf-16-le", "replace").strip("\x00") for a, b in ((0, 64), (102, 166)))
+    if (said := _jpeg(part)) is not None:
+        return said
+    return "" if _png(part) or _bmp(part) else None
 
 
-def _extras_ok(extra: bytes) -> bool:
-    while extra:
-        if len(extra) < 4:
+def _png(b: bytes) -> bool:
+    """A PNG whose chunks are all of :data:`_PNG_CHUNKS`, each with its own check sum, and nothing after its end."""
+    if not b.startswith(b"\x89PNG\r\n\x1a\n"):
+        return False
+    pos = 8
+    while pos + 12 <= len(b):
+        size, kind = struct.unpack(">I4s", b[pos : pos + 8])
+        end = pos + 12 + int(size)
+        if (
+            kind not in _PNG_CHUNKS
+            or end > len(b)
+            or zlib.crc32(b[pos + 4 : end - 4]) != int.from_bytes(b[end - 4 : end])
+        ):
             return False
-        kind, size = struct.unpack("<HH", extra[:4])
-        if kind not in _EXTRA_OK or len(extra) < 4 + size:
-            return False
-        extra = extra[4 + size :]
-    return True
+        pos = end
+        if kind == b"IEND":
+            return pos == len(b)
+    return False
+
+
+def _jpeg(b: bytes) -> str | None:
+    """The text a JPEG holds beside its picture (its comments, EXIF, colour profile and other application segments, as
+    single bytes and as UTF-16), when its segments are all of :data:`_JPEG_SEGMENTS` or those, ending at its end marker
+    with nothing after it; None when it is not one."""
+    if not b.startswith(b"\xff\xd8"):
+        return None
+    pos, said = 2, list[str]()
+    while pos + 2 <= len(b):  # the end marker is two bytes; a segment says its size
+        if b[pos] != 0xFF:
+            return None
+        marker = b[pos + 1]
+        if marker == 0xD9:
+            return "\n".join(said) if not b[pos + 2 :].strip(b"\x00") else None  # zeros after it (a writer's padding)
+        size = int.from_bytes(b[pos + 2 : pos + 4])
+        if (
+            size < 2
+            or pos + 2 + size > len(b)
+            or (marker not in _JPEG_SEGMENTS and not (0xE1 <= marker <= 0xEF or marker == 0xFE))
+        ):
+            return None
+        if marker not in _JPEG_SEGMENTS:
+            body = b[pos + 4 : pos + 2 + size]
+            said += [body.decode(c, "replace") for c in ("latin-1", "utf-16-le", "utf-16-be")]
+        pos += 2 + size
+        while marker == 0xDA:  # the scan's data, to the next marker that is no stuffed byte and no restart
+            pos = b.find(b"\xff", pos)
+            if pos < 0 or pos + 1 >= len(b):
+                return None
+            if b[pos + 1] != 0 and not 0xD0 <= b[pos + 1] <= 0xD7:
+                break
+            pos += 2
+    return None
+
+
+def _bmp(b: bytes) -> bool:
+    """An uncompressed bitmap: its header, its palette and its rows, and not one byte more."""
+    if len(b) < 54 or b[:2] != b"BM":
+        return False
+    size, r1, r2, at, hdr, width, height, _planes, bits, packed = struct.unpack("<IHHIIiiHHI", b[2:34])
+    if size != len(b) or r1 or r2 or hdr not in (40, 108, 124) or packed not in (0, 3) or not 0 < bits <= 32:
+        return False
+    colours = struct.unpack("<I", b[46:50])[0] or (1 << bits if bits <= 8 else 0)
+    masks = 12 if packed == 3 and hdr == 40 else 0
+    rows = (bits * width + 31) // 32 * 4 * abs(height)
+    return bool(width > 0 and at == 14 + hdr + masks + 4 * colours and at + rows == len(b))
 
 
 def _accounted(data: bytes, z: zipfile.ZipFile, infos: list[zipfile.ZipInfo]) -> bool:
-    """Every byte of the archive is a member's record, the directory or the end record (OCR 1523-18): bytes between
-    them, after them, or in an extra field are never read, and would leave with the file."""
+    """Every byte of the archive is a member's record, the directory or the end record (OCR 1523-18), and a member's
+    data is exactly what a reader takes from it (1523 review H1 to H3): no extra field, no data descriptor, no bytes
+    after a stored member's end or a compressed member's stream, no method but stored and deflated."""
     pos = 0
     for i in sorted(infos, key=lambda i: i.header_offset):
         head = data[pos : pos + 30]
-        if i.header_offset != pos or len(head) < 30 or head[:4] != b"PK\x03\x04" or not _extras_ok(i.extra):
+        if i.header_offset != pos or len(head) < 30 or head[:4] != b"PK\x03\x04" or i.extra or i.flag_bits & 8:
             return False
         n, e = struct.unpack("<HH", head[26:30])
-        if not _extras_ok(data[pos + 30 + n : pos + 30 + n + e]):
+        if e:
             return False
-        pos += 30 + n + e + i.compress_size
-        if i.flag_bits & 8:  # a data descriptor follows the data
-            pos += 16 if data[pos : pos + 4] == b"PK\x07\x08" else 12
+        raw = data[pos + 30 + n : pos + 30 + n + i.compress_size]
+        if i.compress_type == zipfile.ZIP_STORED:
+            if i.compress_size != i.file_size:
+                return False
+        elif i.compress_type == zipfile.ZIP_DEFLATED:
+            d = zlib.decompressobj(-15)
+            if (
+                len(d.decompress(raw, i.file_size + 1)) != i.file_size
+                or not d.eof
+                or d.unused_data
+                or d.unconsumed_tail
+            ):
+                return False
+        else:
+            return False
+        pos += 30 + n + i.compress_size
     end = data.rfind(b"PK\x05\x06")
     if pos != z.start_dir or end < 0:
         return False
@@ -659,6 +768,8 @@ def _pdf_parts(trailer: Any, seen: set[int] | None = None) -> tuple[list[str], l
             todo.extend(list.__iter__(o))
         elif isinstance(o, DictionaryObject):
             todo.extend(dict.values(o))
+            if "/AP" in o and o.get("/Subtype") == "/Widget":  # a form's field, or a signature, as it is drawn
+                raise Refused("", "form_pdf")
             if "/JS" in o or ("/AP" in o and o.get("/Subtype") not in ("/Link", "/Popup")):
                 raise Refused("", "unreadable")
             if "/EF" in o:
@@ -671,20 +782,138 @@ def _pdf_parts(trailer: Any, seen: set[int] | None = None) -> tuple[list[str], l
 
 
 def _pdf_earlier(r: Any, data: bytes, seen: set[int]) -> bool:
-    """Whether the bytes hold an object no reader shows: one written twice (an edit appended to the file), or a stream
-    nothing points at (a page's text replaced by a later revision)."""
-    from pypdf.generic import StreamObject
+    """Whether the bytes hold an object no reader shows: one written twice (an edit appended to the file), or one
+    nothing points at (a page's text replaced by a later revision; 1523 review H6, H7: of any kind, and only the
+    linearized file's own dictionary and its hint stream are let be)."""
+    from pypdf.generic import DictionaryObject, StreamObject
 
     defined = re.findall(rb"(?<![0-9])(\d+)\s+\d+\s+obj\b", data)
     if len(defined) != len(set(defined)):
         return True
+    at = {o: n for table in r.xref.values() for n, o in table.items()}
+    free: set[int] = set()
+    first = re.match(rb"%PDF-\d\.\d" + _PDF_GAP.pattern + rb"(\d+)\s+\d+\s+obj\b", data)
+    if first and isinstance(lin := r.get_object(int(first[1])), DictionaryObject) and "/Linearized" in lin:
+        hint: Any = lin["/H"]  # where the hint stream stands
+        free = {int(first[1]), at.get(int(hint[0]), -1)}
     for n in {n for table in r.xref.values() for n in table} | set(r.xref_objStm) - seen:
-        if n in seen:
+        if n in seen or n in free:
             continue
         o = r.get_object(n)
-        if isinstance(o, StreamObject) and o.get("/Type") not in ("/ObjStm", "/XRef") and "/S" not in o:
+        if not (isinstance(o, StreamObject) and o.get("/Type") in ("/ObjStm", "/XRef")):
             return True
     return False
+
+
+def _pdf_bytes(r: Any, data: bytes) -> list[str]:
+    """The comments in a PDF's bytes, to be read as its text is (1523 review M1). Every other byte is its header, an
+    object at the place its cross-reference table names, the table and its trailer, or the pointer to the table: a
+    byte after the end, or an object the table does not name, is shown by no reader and refuses the file."""
+    at: dict[int, int | None] = {o: n for table in r.xref.values() for n, o in table.items()}
+    if (start := re.findall(rb"startxref\s+(\d+)", data)) and data[int(start[-1]) : int(start[-1]) + 4] != b"xref":
+        at.setdefault(int(start[-1]), None)  # a table that is a stream object of its own
+    notes: list[str] = []
+    head = re.match(rb"%PDF-\d\.\d", data)
+    if head is None:
+        raise Refused("", "unreadable")
+    pos = _pdf_gap(data, head.end(), notes)
+    while pos < len(data):
+        if pos in at:
+            pos = _pdf_object(r, data, pos, at[pos], notes)
+        elif m := _PDF_XREF.match(data, pos):  # the table, and its trailer's dictionary read as an object's is
+            pos = _pdf_gap(data, _pdf_value(data, m.end(), notes), notes)
+            if (m := _PDF_START.match(data, pos)) is None:
+                raise Refused("", "unreadable")
+            pos = m.end()
+        elif m := _PDF_START.match(data, pos):
+            pos = m.end()
+        else:
+            raise Refused("", "unreadable")
+        pos = _pdf_gap(data, pos, notes)
+    return notes
+
+
+def _pdf_object(r: Any, data: bytes, pos: int, n: int | None, notes: list[str]) -> int:
+    """Where the object at ``pos`` ends: its number, one value, its stream of the length it says, ``endobj``."""
+    m = re.compile(rb"(\d+)\s+\d+\s+obj\b").match(data, pos)
+    if m is None or (n is not None and int(m[1]) != n):
+        raise Refused("", "unreadable")
+    pos = _pdf_gap(data, _pdf_value(data, m.end(), notes), notes)
+    if data.startswith(b"stream", pos):
+        body = re.compile(rb"stream\r?\n").match(data, pos)
+        if body is None:
+            raise Refused("", "unreadable")
+        size = re.search(rb"/Length\s+(\d+)(?:\s+\d+\s+R\b)?", data[m.end() : body.start()])
+        if size is None:
+            raise Refused("", "unreadable")
+        pos = body.end() + int(r.get_object(int(size[1])) if size[0].endswith(b"R") else size[1])
+        if (end := re.compile(rb"\s*endstream").match(data, pos)) is None:
+            raise Refused("", "unreadable")
+        pos = _pdf_gap(data, end.end(), notes)
+    if not data.startswith(b"endobj", pos):
+        raise Refused("", "unreadable")
+    return pos + 6
+
+
+def _pdf_gap(data: bytes, pos: int, notes: list[str]) -> int:
+    """Past the white space and the comments at ``pos``; the comments to ``notes``."""
+    m = _PDF_GAP.match(data, pos)
+    assert m is not None  # it matches nothing at worst
+    notes += [c.decode("utf-8", "replace") for c in re.findall(rb"%([^\r\n]*)", m[0])]
+    return m.end()
+
+
+_PDF_WORD = re.compile(rb"/?[^\x00\t\n\x0c\r ()<>\[\]{}/%]+|/")
+
+
+def _pdf_value(data: bytes, pos: int, notes: list[str]) -> int:
+    """Where the one value at ``pos`` ends (a dictionary, an array, a string, a name, a number or a word); the
+    comments inside it to ``notes``."""
+    pos = _pdf_gap(data, pos, notes)
+    if data.startswith(b"<<", pos):
+        pos += 2
+        while not data.startswith(b">>", pos := _pdf_gap(data, pos, notes)):
+            pos = _pdf_value(data, pos, notes)
+        return pos + 2
+    if data.startswith(b"[", pos):
+        pos += 1
+        while not data.startswith(b"]", pos := _pdf_gap(data, pos, notes)):
+            pos = _pdf_value(data, pos, notes)
+        return pos + 1
+    if data.startswith(b"(", pos):
+        depth, pos = 1, pos + 1
+        while depth:
+            if pos >= len(data):
+                raise Refused("", "unreadable")
+            c, pos = data[pos], pos + 1
+            if c == 0x5C:  # an escaped byte
+                pos += 1
+            depth += (c == 0x28) - (c == 0x29)
+        return pos
+    if data.startswith(b"<", pos):
+        if (m := re.compile(rb"<[0-9A-Fa-f\x00\t\n\x0c\r ]*>").match(data, pos)) is None:
+            raise Refused("", "unreadable")
+        return m.end()
+    if (m := _PDF_WORD.match(data, pos)) is None:
+        raise Refused("", "unreadable")
+    return m.end()
+
+
+def _pdf_drawn(content: bytes) -> list[str]:
+    """The comments in what a page draws (its operators and their values; a picture in it is skipped)."""
+    notes: list[str] = []
+    pos = _pdf_gap(content, 0, notes)
+    while pos < len(content):
+        if (m := re.compile(rb"ID[\x00\t\n\x0c\r ]").match(content, pos)) is not None:
+            if (
+                end := re.compile(rb"[\x00\t\n\x0c\r ]EI(?![^\x00\t\n\x0c\r ()<>\[\]{}/%])").search(content, m.end())
+            ) is None:
+                raise Refused("", "unreadable")
+            pos = end.end()
+        else:
+            pos = _pdf_value(content, pos, notes)
+        pos = _pdf_gap(content, pos, notes)
+    return notes
 
 
 def _a_day(text: str) -> bool:
