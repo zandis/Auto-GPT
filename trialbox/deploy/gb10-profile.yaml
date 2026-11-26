@@ -40,7 +40,7 @@ memory:
   llm-service:       {limit_gib: 42, measured_peak_gib: null, basis: "0.30 of 128 GiB (38.4) + vLLM host process"}
   # 0.12 of 128 GiB = 15.36 GiB: the model takes 7.8 GiB with overhead; its KV cache held about 804k tokens in 26 GiB,
   # so 8 sequences x 16k context (131k tokens) need about 4.3 GiB of KV, about 12.1 GiB in all, inside 15.36 with margin
-  llm-verifier:      {limit_gib: 28, measured_peak_gib: null, basis: "0.12 of 128 GiB (15.36: model 7.8 + KV 4.3 for 8 x 16k, about 12.1) + vLLM host process"}
+  llm-verifier:      {limit_gib: 27, measured_peak_gib: null, basis: "0.12 of 128 GiB (15.36: model 7.8 + KV 4.3 for 8 x 16k, about 12.1) + vLLM host process"}
   gateway:           {limit_gib: 2, measured_peak_gib: null, basis: "one Python service with the trace store"}
   model-guard:       {limit_gib: 1, measured_peak_gib: null, basis: "standard library proxy"}
   link:              {limit_gib: 1, measured_peak_gib: null, basis: "two-device form only: the TLS relay"}
@@ -49,7 +49,7 @@ memory:
   lake:              {limit_gib: 6, measured_peak_gib: null, basis: "DuckDB over the 50,000-patient synthetic lake"}
   embed-service:     {limit_gib: 6, measured_peak_gib: null, basis: "bge-m3 on CPU or CUDA: one load about 3.5 GB (D-890)"}
   orchestrator:      {limit_gib: 6, measured_peak_gib: null, basis: "the night's SCREEN fan-out: a 48,000-patient SCREEN peaked near 4.0 GiB (the machine-profile finding; 3 was too small)"}
-  adapter:           {limit_gib: 5, measured_peak_gib: null, basis: "ingest with the validator (TB_VALIDATOR_XMX 3g shares it): a 50,000-patient ingest peaked at 3,842 MiB, 3 was killed (the machine-profile finding)"}
+  adapter:           {limit_gib: 6, measured_peak_gib: null, basis: "ingest with the validator (TB_VALIDATOR_XMX 3g shares it): a 50,000-patient ingest peaked at 3,842 MiB, 1.5 x that (5,763 MiB) must fit, 3 was killed (the machine-profile finding)"}
   doc-parser:        {limit_gib: 2, measured_peak_gib: null, basis: "PDF and Office parsing"}
   criteria-compiler: {limit_gib: 1, measured_peak_gib: null, basis: "one Python service"}
   console:           {limit_gib: 2, measured_peak_gib: null, basis: "one Python service"}
