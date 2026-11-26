@@ -175,7 +175,10 @@ def test_the_database_is_reported_not_restarted_and_vllm_is_restarted() -> None:
     for stack, _ in LINTED_STACKS:
         for svc, body in _merge(stack).items():
             if svc.startswith("llm-") and svc != "llm-stub":
-                assert _bytes(body["mem_limit"]) >= 32 * 2**30, (stack, svc)  # a sleeping judge's weights fit
+                # the unified-memory profile's verifier only: its measured need is 7.8 GiB of weights plus ~12.1 GiB of
+                # KV for 8 seqs x 16k (rounded up to 20 GiB); a judge and every other stack keep 32 GiB
+                floor = 20 if ("docker-compose.gb10.yml" in stack and svc == "llm-verifier") else 32
+                assert _bytes(body["mem_limit"]) >= floor * 2**30, (stack, svc)  # a sleeping judge's weights fit
 
 
 def test_the_jvm_caps_are_above_their_heaps() -> None:
