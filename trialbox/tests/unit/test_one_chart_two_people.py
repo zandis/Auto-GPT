@@ -12,6 +12,7 @@ a clean night is unchanged. Every row here is synthetic (site A's fixture and ma
 from __future__ import annotations
 
 import csv
+import itertools
 import json
 import os
 import shutil
@@ -30,6 +31,7 @@ SITE_A = ROOT / "tests/fixtures/synthetic_patients/site-a"
 MAPPING = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
 KEY = b"k" * 32
 GOOD, NEXT = "2026-11-01", "2026-11-02"
+_MAP = itertools.count()  # one pid map per test: a test that accepts a correction writes the map's identity
 
 
 class _Rebuild:
@@ -93,12 +95,12 @@ def _served_patient(cfg: AdapterConfig, pid: str) -> list[dict[str, Any]]:
     return [r for r in read_type(snapshot_dir(cfg.lake_dir, GOOD), "Patient") if r["id"] == pid]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def good(tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str) -> tuple[Path, str, dict[str, str]]:
-    """One good night of synthetic site A, promoted; each test copies it and shares its pid map."""
+    """One good night of synthetic site A, promoted, with its own pid map; the test copies it."""
     tmp = tmp_path_factory.mktemp("good")
     sep = "&" if "?" in pg_cluster_url else "?"
-    db_url = f"{pg_cluster_url}{sep}tb_prefix=twopeople{os.getpid()}_"
+    db_url = f"{pg_cluster_url}{sep}tb_prefix=twopeople{os.getpid()}_{next(_MAP)}_"
     cfg, _rb = _cfg(tmp, db_url)
     rep = _night(cfg, _feed(tmp), GOOD)
     assert rep.passed and not rep.held
@@ -181,6 +183,55 @@ def test_another_person_under_a_served_chart_on_the_next_night_is_held(good: Any
     assert [r["birthDate"] for r in read_type(snapshot_dir(cfg.lake_dir, NEXT), "Patient") if r["id"] == pid] == [
         "1999-09-09"
     ]
+
+
+@pytest.mark.parametrize(("field", "value"), [("birth_date", "1999-09-09"), ("name", "Synthetic Other")])
+def test_a_first_row_leaving_a_value_out_does_not_hide_two_later_ones(
+    good: Any, tmp_path: Path, field: str, value: str
+) -> None:
+    """Review R1: missing, then A, then B under one chart number is two people (each row is compared with all the
+    chart number gave before it, not only with its first row)."""
+    cfg, rb = _from_good(good, tmp_path)
+    feed = _feed(tmp_path)
+    first = good[2]
+    pid = pid_for_mrn(KEY, first["mrn"])
+    rows = _rows(feed / "patient.csv")
+    _write(feed / "patient.csv", [{**rows[0], field: ""}, *rows, {**rows[0], field: value}])
+    rep = _night(cfg, feed, NEXT)
+    assert "1 within this night, 0 against" in " ".join(rep.errors), rep.errors
+    assert rep.counts["Patient"] == len(rows) + 2  # the row leaving the value out was read too
+    said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
+    assert said["tonight"] == [pid]
+    _assert_held_and_kept(cfg, rb, rep, first, pid)
+    with pytest.raises(TwoPeopleOneChart):
+        publish_held(cfg, NEXT)
+
+
+@pytest.mark.parametrize(("field", "value"), [("id_no", "A123456789"), ("name", "Synthetic Other")])
+def test_a_later_night_changing_only_the_name_or_national_id_is_held(
+    good: Any, tmp_path: Path, field: str, value: str
+) -> None:
+    """Review R2: the served night's name and national id (the pid map's identity) are compared too, not only the
+    birth date and sex the served Patient carries. Held for the steward, who may accept it as a correction."""
+    cfg, rb = _from_good(good, tmp_path)
+    feed = _feed(tmp_path)
+    first = good[2]
+    pid = pid_for_mrn(KEY, first["mrn"])
+    rows = _rows(feed / "patient.csv")
+    _write(feed / "patient.csv", [{**rows[0], field: value}, *rows[1:]])
+    rep = _night(cfg, feed, NEXT)
+    text = " ".join(rep.errors)
+    assert f"0 within this night, 1 against the served night {GOOD}" in text, text
+    assert first[field] not in text and value not in text  # counts only
+    said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
+    assert said["tonight"] == [] and said["against"] == {"snapshot": GOOD, "pids": [pid]}
+    _assert_held_and_kept(cfg, rb, rep, first, pid)
+    pm = cfg.pidmap()
+    try:
+        assert (pm.identity(pid) or {}).get("national_id") == first["id_no"]
+    finally:
+        pm.close()
+    assert publish_held(cfg, NEXT).promoted and rb.calls == [NEXT]  # steward-acceptable as ruled
 
 
 def test_one_persons_row_twice_and_a_clean_night_are_unchanged(good: Any, tmp_path: Path) -> None:

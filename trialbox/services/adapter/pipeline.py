@@ -631,9 +631,10 @@ def _run_ingest(
         spool.add(r)
         if r["resourceType"] == "Patient":
             patient_ids.append(pid := str(r.get("id")))
-            if _two_people(patient_who.setdefault(pid, _who(r)), _who(r)):
+            if _two_people_seen(patient_who, pid, _who(r)):
                 identity_conflicts.add(pid)
 
+    against_served: set[str] = set()  # H34-06: chart numbers whose name or national id differ from the served one
     patient_pairs: list[tuple[str, str]] = []
     identities: list[tuple[str, dict[str, str]]] = []
     fhir_profiles = ""
@@ -854,7 +855,7 @@ def _run_ingest(
                     ]
                     names: dict[str, dict[str, str]] = {}  # H34-06: one chart number, two names or national ids
                     for pid, said in identities:
-                        if _two_people(names.setdefault(pid, said), said):
+                        if _two_people_seen(names, pid, said):
                             identity_conflicts.add(pid)
             # STD-025 (T-615a): a row the mapping cannot read is rejected and counted by reason (its values left out);
             # the table goes on, and the night is held only when rejects pass REJECT_MAX_PCT % of the table's rows
@@ -945,6 +946,12 @@ def _run_ingest(
                 served_now = _current(cfg.lake_dir)
                 pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
             pm.stage(snap, patient_pairs, identities or [])
+            # H34-06: tonight's name and national id against the served ones (the pid map's identity is written
+            # only when a night is published); the served NDJSON carries neither
+            # ponytail: one look-up per patient; a bulk read if it ever shows in the night's timings
+            for pid, said in identities:
+                if _two_people(pm.identity(pid) or {}, said):
+                    against_served.add(pid)
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
@@ -1077,7 +1084,7 @@ def _run_ingest(
     # night is held and the pseudonymous ids go to a file in its folder. Two people within the night cannot be
     # accepted (adapter.publish.refuse_two_people: an accept would serve one under the other's chart); a change
     # against the served night is the steward's to accept (a correction of one person) or reject (another person)
-    against: set[str] = set()
+    against: set[str] = set(against_served)
     if last_good is not None and patient_who:
         # one read of the served night's Patient file per night (an index if it ever shows in the night's timings)
         for r in read_type(snapshot_dir(cfg.lake_dir, last_good), "Patient"):
@@ -1763,6 +1770,15 @@ _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of 
 
 def _who(r: Resource) -> dict[str, str]:
     return {k: str(r[k]) for k in _WHO if r.get(k)}
+
+
+def _two_people_seen(seen: dict[str, dict[str, str]], pid: str, said: dict[str, str]) -> bool:
+    """H34-06: :func:`_two_people` of ``said`` against everything ``pid`` gave so far this night, then keep its values
+    not given before: a first row that leaves a value out does not let two later rows differ unseen."""
+    kept = seen.setdefault(pid, {})
+    differs = _two_people(kept, said)
+    kept.update({k: v for k, v in said.items() if v and not kept.get(k)})
+    return differs
 
 
 def _two_people(a: dict[str, str], b: dict[str, str]) -> bool:

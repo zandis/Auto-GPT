@@ -82,7 +82,7 @@ class NothingToPublish(RuntimeError):
     """No held night of that date is on the box."""
 
 
-class TwoPeopleOneChart(NothingToPublish):
+class TwoPeopleOneChart(RuntimeError):  # review M2: never caught as no held night
     """H34-06: the held night has a chart number that arrived as two people; it is never published as it stands."""
 
 
