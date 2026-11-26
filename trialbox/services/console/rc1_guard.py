@@ -70,6 +70,7 @@ ALLOWED: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"^/admin$", "admin: the administrator's page"),
         (r"^/admin/(?:accounts|edc|notice|redcap|ops)$", "admin pages: accounts, EDC, notice, REDCap, operations"),
         (r"^/admin/jobs/[^/]+/(?:cancel|retry)$", "admin: a job cancelled or retried, by its id"),
+        (r"^(?:/api/v1)?/admin/still-needed(?:/[^/]+)?$", "admin: the site information still needed, by its keys"),
         (r"^/admin/models/canary$", "admin: the models' canary"),
         (r"^/admin/ops/network/[^/]+$", "admin: hospital IT's network sheet"),
         (r"^/admin/ops/[^/]+$", "admin: an operations request (backup, update, logs)"),

@@ -246,7 +246,7 @@ class FakeSMTP:
         if step in self.fail:
             raise self.fail[step]
 
-    def starttls(self) -> None:
+    def starttls(self, context: object = None) -> None:  # H-137: the gateway passes its TLS context
         self._maybe("starttls")
 
     def login(self, _u: str, _p: str) -> None:

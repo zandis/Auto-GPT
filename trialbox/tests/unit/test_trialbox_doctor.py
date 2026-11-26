@@ -40,15 +40,36 @@ def test_default_install_passes() -> None:
     assert {c.name for c in checks} == {
         "topology",
         "terminology",  # D-858 (lane E's hunk): the code systems loaded on the box
+        "terminology_update",  # M2
+        "terminology_tables",  # M2
         "provenance_index",  # D-989 step 2c: the index against the audit chain (NOT CHECKED with no database)
         "negated_inclusions",  # card 10A-1: approved negated inclusions (NOT CHECKED with no ruleset repository)
+        "release_tree",  # H-144 (D-1463): a loose services/ or models/ in an install folder (PASS on a checkout)
         "env_class_ceiling",
         "routing_perimeter",
         "gateway_only_model_reach",
         "perimeter_addresses",
         "channel_engine",
         "secure_cookie",
+        "trusted_proxy",  # H-137: the owner's decision, #639 7156806411 item 7
+        "mail_tls",  # H-137: the owner's decision, #639 7156806411 item 6; ruling 7165038321 (4), 7161211237
         "phi_tripwire",  # 9g-11, D-1348
+        "egress.log",  # M3, D-1093
+        "egress.support.bundle",  # M3, D-1093
+        "egress.mail.staff",  # M3, D-1093
+        "egress.mail.reply",  # M3, D-1093
+        "egress.mail.test",  # M3, D-1093
+        "egress.download.audit",  # M3, D-1093
+        "egress.download.aggregate",  # M3, D-1093
+        "egress.download.study",  # M3, D-1093
+        "egress.download.site",  # M3, D-1093
+        "egress.download.registry",  # M3, D-1093
+        "egress.model.offbox",  # M3, D-1093
+        "egress.patient.mail",  # M3, D-1093
+        "egress.patient.download",  # M3, D-1093
+        "egress.edc.write",  # M3, D-1093
+        "egress.nhi.submit",  # M3, D-1093
+        "egress.tripwire",  # M3, D-1093
         "console_mfa",
         "ldap_ca",  # D-722
         "publish_gate",
@@ -70,6 +91,7 @@ def test_default_install_passes() -> None:
         "anchor_mount",  # D-638
         "rehearsal",  # D-726
         "bench_serving",  # H-112: the second serving profile, never on a PRODUCTION box
+        "prefix_cache",  # H-146 (D-1462): the model servers' prefix cache, off unless chosen
         "sae_mailbox",  # D-736
         "named_choices",  # D-1365
         "mail_auth",  # D-825

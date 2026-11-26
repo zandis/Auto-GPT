@@ -80,13 +80,23 @@ def write_atomic(path: Path, data: Mapping[str, Any] | str, mode: int = 0o600) -
     path.parent.mkdir(parents=True, exist_ok=True)
     text = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    try:
-        os.write(fd, text.encode("utf-8"))
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    os.replace(tmp, path)
+    body = memoryview(text.encode("utf-8"))
+    try:  # H-142 (.k): every byte, or the original stays as it was and the temp file goes
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+        try:
+            while body:  # a full disk or a file-size limit writes part of it: never a cut file renamed over a whole one
+                n = os.write(fd, body)
+                if n <= 0:
+                    raise OSError(f"{tmp}: nothing written ({len(body)} bytes left)")
+                body = body[n:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
     with contextlib.suppress(OSError):  # the rename itself survives a power cut
         dfd = os.open(path.parent, os.O_RDONLY)
         try:

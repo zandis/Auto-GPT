@@ -159,11 +159,12 @@ def test_the_extract_answers_newest_periods_ended_codes_and_shared_names(nhi: Pa
 
 
 def test_the_extract_moves_only_what_its_made_up_names_happen_to_match(nhi: Path) -> None:
-    """A mechanism test, not a coverage figure (D-1127): 266 of 1,273 with committed data only, 281 with the extract."""
+    """A mechanism test, not a coverage figure (D-1127): 261 of 1,273 with committed data only, 276 with the extract
+    (266 and 281 before V-18b: five drug names were WHOCC's, which no longer ship, D-1183)."""
     before, after = _measure(NOTHING), _measure(nhi)
-    assert _resolved(before) == {"claim": 0, "condition": 255, "encounter": 0, "medication": 6, "observation": 5,
+    assert _resolved(before) == {"claim": 0, "condition": 255, "encounter": 0, "medication": 1, "observation": 5,
                                  "procedure": 0}  # fmt: skip
-    assert _resolved(after) == {**_resolved(before), "medication": 13, "procedure": 8}
+    assert _resolved(after) == {**_resolved(before), "medication": 8, "procedure": 8}
     assert after["methods"]["loaded"] == 15
     assert after["for_review"]["medication"] == 7 and after["for_review"]["procedure"] == 8  # every service answer
 
@@ -269,15 +270,15 @@ def test_the_site_list_is_fifty_synthetic_lines_with_checked_codes() -> None:
 
 
 def test_a_fifty_line_site_list_moves_the_share_by_its_lines(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
-    """Measured through the real ``site-list`` subcommand and the coverage tool (D-1128): 266 of 1,273 before, 396
-    after. Every newly mapped concept comes from the list (method ``site``); those whose code no table holds (the
+    """Measured through the real ``site-list`` subcommand and the coverage tool (D-1128): 261 of 1,273 before, 391
+    after (266 and 396 before V-18b, D-1183: five drug names were WHOCC's). Every newly mapped concept comes from the list (method ``site``); those whose code no table holds (the
     made-up LOINC, ATC and NHI codes) answer for review."""
     where = tmp_path / "terminology"
     assert terminology_install.main(["site-list", str(SITE), "--name", "synthetic", "--dir", str(where)]) == 0
     assert "site_synthetic: 50 rows loaded" in capsys.readouterr().out
     before, after = _measure(NOTHING), _measure(where)
-    assert sum(_resolved(before).values()) == 266 and sum(_resolved(after).values()) == 396
-    assert _resolved(after) == {"claim": 0, "condition": 302, "encounter": 0, "medication": 28, "observation": 50,
+    assert sum(_resolved(before).values()) == 261 and sum(_resolved(after).values()) == 391
+    assert _resolved(after) == {"claim": 0, "condition": 302, "encounter": 0, "medication": 23, "observation": 50,
                                 "procedure": 16}  # fmt: skip
     assert after["methods"] == {**before["methods"], "site": 130}
     new_review = {d: after["for_review"].get(d, 0) - before["for_review"].get(d, 0) for d in after["by_domain"]}
@@ -289,14 +290,16 @@ def test_a_fifty_line_site_list_moves_the_share_by_its_lines(tmp_path: Path, cap
 
 def test_the_concept_list_reproduces_the_launch_figures() -> None:
     """The committed concept list (derived by ``--write-concepts`` from P1b's raw-traces.json, archive sha256
-    667d92f5...) gives the archive's own figures: 1,273 concepts, 266 resolved with committed data only."""
+    667d92f5...) gives the archive's own figures: 1,273 concepts, 266 resolved with committed data only then; 261
+    since V-18b (D-1183): six drug names matched WHOCC's names, which no longer ship, and one of them (methotrexate)
+    resolves through TrialBox's own grouper instead."""
     rows = list(csv.DictReader(io.StringIO(CONCEPTS.read_text(encoding="utf-8"))))
     assert len(rows) == 1045 and sum(int(r["count"]) for r in rows) == 1273
     result = _measure(NOTHING)
     assert {d: v[0] for d, v in result["by_domain"].items()} == {"claim": 4, "condition": 588, "encounter": 51,
                                                                  "medication": 177, "observation": 308,
                                                                  "procedure": 145}  # fmt: skip
-    assert result["methods"] == {"exact": 9, "icd10cm": 208, "synonym": 49}
+    assert result["methods"] == {"exact": 3, "icd10cm": 208, "synonym": 50}
     assert terminology_coverage.write_concepts(rows) == CONCEPTS.read_text(encoding="utf-8")
 
 

@@ -6,6 +6,7 @@
 {% macro res(r) %}{% if r %}<span class="pill {{ 'ok' if r.ok else 'bad' }}" data-result-state="{{ r.state or '' }}" data-testid="ops-result">{{ t('ops.ok') if r.ok else (t('ops.state.' ~ r.state) if r.state in ('interrupted', 'expired') else t('ops.failed')) }}</span> <span class="hint">{{ (r.finished or '')|local }} · {{ r.by|who }}</span>{% if r.summary %}<br><span class="hint mono" data-src="ops">{{ r.summary }}</span>{% endif %}{% endif %}{% endmacro %}
 {% block content %}
 <div class="headrow"><h1>{{ t('ops.title') }}</h1><a class="button secondary" href="/admin">{{ t('nav.admin') }}</a></div>
+<p><a href="/admin/still-needed" data-testid="still-needed-link">{{ t('stillneeded.title') }}</a></p>
 <nav class="tabs" aria-label="{{ t('ops.title') }}" data-testid="ops-tabs">{% for tb in tabs %}<a href="/admin/ops?tab={{ tb }}" class="{{ 'active' if tb == tab else '' }}" data-testid="opstab-{{ tb }}"{% if tb == tab %} aria-current="page"{% endif %}>{{ t('ops.tab.' + tb) }}</a>{% endfor %}</nav>
 {% if mine %}<section class="card" role="status" data-testid="ops-request" data-action="{{ mine.action }}" data-state="{{ 'done' if mine.result else 'waiting' }}">
 <h2>{{ t('ops.action.' + mine.action) }}</h2>

@@ -4,6 +4,7 @@ separately mailed password (PPAP; refused for patient files outside DEV and TEST
 
 from __future__ import annotations
 
+import functools
 import html as html_lib
 import io
 import re
@@ -23,6 +24,8 @@ from tb_common.routing import is_internal
 from tb_common.timeutil import now
 from tb_common.wording import statement, text_lang
 from tb_contracts import SendRequest
+
+from mail_gateway import tls
 
 Transport = Callable[[str, list[str], bytes], None]
 HTML_WRAP = (
@@ -66,21 +69,24 @@ class Prepared:
     password_mails: list[tuple[str, bytes]]  # (recipient, message bytes)
 
 
-def smtp_transport(host: str, port: int, user: str = "", password: str = "", starttls: bool = True) -> Transport:
+def smtp_transport(
+    host: str, port: int, user: str = "", password: str = "", starttls: bool = True, verify: bool = True
+) -> Transport:
     """SMTP that says which phase failed (T-108c, CR-085). Everything up to the end of the message body is
     :class:`NotSent` (nothing can have been accepted); a failure while the body and its final dot are on the wire or
     the answer is awaited propagates as it is: the message may have arrived."""
 
     def send(sender: str, to: list[str], data: bytes) -> None:
-        cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
-        try:
-            s = cls(host, port, timeout=60)  # DNS, connect, the TLS handshake on 465, the greeting
+        ctx = tls.context(verify)  # H-137: the relay's certificate checked unless SMTP_TLS_VERIFY is off
+        try:  # DNS, connect, the TLS handshake on 465, the greeting
+            cls = functools.partial(smtplib.SMTP_SSL, context=ctx) if port == 465 else smtplib.SMTP
+            s = cls(host, port, timeout=60)
         except (OSError, smtplib.SMTPException) as exc:
             raise NotSent(exc) from exc
         with s:
             try:
-                if starttls and cls is smtplib.SMTP:
-                    s.starttls()
+                if starttls and port != 465:
+                    s.starttls(context=ctx)
                 if user:
                     s.login(user, password)
                 s.ehlo_or_helo_if_needed()

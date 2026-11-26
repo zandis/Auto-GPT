@@ -49,6 +49,11 @@ volume.
    than `TB_AUDIT_HEAD_MAX_AGE_H`. A folder with no head yet is a WARN while the audit key is younger than that
    limit (the first night has not run), a FAIL after. `check_host.sh` shows the in-image `doctor` the secrets volume
    and the anchor folders read-only. On a platform the check is a WARN: nothing signs heads there yet.
+   *Amended by M4 (the integrator's ruling, design `install-first-information-after` 3.2 and 3.3):* losing the anchor
+   (no folder set, not reachable, on the audit volume, no head yet, the newest head old, the last night refused) is a
+   WARN on every profile, and PRODUCTION names the open go-live gate; it never stops the box. FAIL on every profile: no
+   signing key, a head this box did not sign, a trail that does not agree with a signed head, a head the chain records
+   as written to a folder and gone from it, all of them or the newest. The nightly signer does not sign over the last.
 5. **The period is a setting.** `TB_AUDIT_HEAD_MAX_AGE_H`, default 36: the job is nightly, and 36 hours is the age
    at which the nightly backup is already called old (D-274), so one missed night is seen the next morning. Events
    written after the newest signed head are protected by the chain and its anchor only, until the next night.

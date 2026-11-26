@@ -237,7 +237,9 @@ def test_doctor_passes_a_box_with_a_fresh_head(box: dict[str, Path]) -> None:
     assert (c.name, c.status) == ("audit_heads", "PASS"), c.detail
 
 
-@pytest.mark.parametrize(("env", "status"), [("PRODUCTION", "FAIL"), ("VALIDATION", "FAIL"), ("DEV", "WARN")])
+@pytest.mark.parametrize(
+    ("env", "status"), [("PRODUCTION", "WARN"), ("VALIDATION", "WARN"), ("DEV", "WARN")]
+)  # M4: losing the anchor warns
 def test_doctor_fails_a_box_with_no_anchor_folder(box: dict[str, Path], env: str, status: str) -> None:
     c = _doctor(box, env, NIGHT)
     assert c.status == status and "TB_AUDIT_ANCHOR_TARGETS" in c.detail
@@ -249,16 +251,16 @@ def test_doctor_fails_an_old_head_a_folder_with_none_and_a_missing_key(box: dict
     os.utime(box["secrets"] / audit.SIGN_PUB_FILE, (old, old))
     targets = {"TB_AUDIT_ANCHOR_TARGETS": str(box["share"])}
     c = _doctor(box, "PRODUCTION", NIGHT, **targets)
-    assert c.status == "FAIL" and "no signed head" in c.detail
+    assert c.status == "WARN" and "no signed head" in c.detail  # M4: warns
     assert _night(box, Recorder()).ok
     assert _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=35), **targets).status == "PASS"
     c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=37), **targets)
-    assert c.status == "FAIL" and "37 h" in c.detail
+    assert c.status == "WARN" and "37 h" in c.detail
     c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=37), TB_AUDIT_HEAD_MAX_AGE_H="48", **targets)
     assert c.status == "PASS"
     both = {"TB_AUDIT_ANCHOR_TARGETS": os.pathsep.join([str(box["share"]), str(box["share2"])])}
     c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1), **both)
-    assert c.status == "FAIL" and str(box["share2"]) in c.detail  # every folder, not the best one
+    assert c.status == "WARN" and str(box["share2"]) in c.detail  # every folder, not the best one
     (box["secrets"] / audit.SIGN_KEY_FILE).unlink()
     c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1), **targets)
     assert c.status == "FAIL" and "audit signing key" in c.detail
@@ -268,7 +270,7 @@ def test_doctor_fails_an_anchor_folder_on_the_audit_volume(box: dict[str, Path])
     inside = box["audit"] / "anchors"
     inside.mkdir()
     c = _doctor(box, "PRODUCTION", NIGHT, TB_AUDIT_ANCHOR_TARGETS=str(inside))
-    assert c.status == "FAIL" and "audit volume" in c.detail
+    assert c.status == "WARN" and "audit volume" in c.detail
 
 
 def test_the_check_is_one_of_doctors_and_the_age_is_a_declared_setting() -> None:
@@ -410,7 +412,7 @@ def test_no_head_yet_is_a_warning_only_while_the_key_is_new(box: dict[str, Path]
     c = _doctor(box, "PRODUCTION", made + timedelta(hours=3), **targets)
     assert c.status == "WARN" and "no signed head" in c.detail
     c = _doctor(box, "PRODUCTION", made + timedelta(hours=37), **targets)
-    assert c.status == "FAIL" and "no signed head" in c.detail
+    assert c.status == "WARN" and "no signed head" in c.detail
 
 
 def test_a_platform_is_told_that_nothing_signs_there() -> None:

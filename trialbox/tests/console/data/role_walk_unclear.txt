@@ -232,6 +232,7 @@ POST /account/password viewer
 POST /admin/jobs/{job_id}/cancel admin
 POST /admin/jobs/{job_id}/retry admin
 POST /admin/ops/{action} admin
+POST /admin/still-needed/{item} admin
 POST /api/edc/events/v1 admin
 POST /api/edc/events/v1 crc
 POST /api/edc/events/v1 cro_in
@@ -260,6 +261,7 @@ POST /api/edc/oidc/token sub
 POST /api/edc/oidc/token viewer
 POST /api/edc/tools admin
 POST /api/edc/tools/{proposal_id}/confirm admin
+POST /api/v1/admin/still-needed/{item} admin
 POST /api/v1/audit/patients/by-chart privacy
 POST /api/v1/audit/patients/by-chart steward
 POST /api/v1/site/charts crc

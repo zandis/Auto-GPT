@@ -123,6 +123,27 @@ closed). Checks:
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
   ``TB_SITE_PATIENTS``. FAIL when a cap is below the need (the night's ingest or rebuild may be killed); WARN when there
   is no count or no record.
+* ``release_tree`` (H-144): on an installed release, the install folder holds no copy of a folder the box image
+  carries and the signed host tree does not (``services/``, ``models/``, ``rulesets/``, ``catalogue/``, ``eval/``:
+  ``host_tree.IMAGE_ONLY``). An update neither replaces nor checks such a copy: WARN, naming it and the command that
+  removes it (never removed for the operator); FAIL when this command's import path holds it (a caller's PYTHONPATH:
+  a host command run so would import it). PASS on a source checkout; WARN in the box image (not seen there).
+* ``prefix_cache`` (H-146, D-1462): the judge and verifier servers' prefix cache (``TB_LLM_PREFIX_CACHING``). PASS
+  off (the default), WARN on (``enable``: runs may differ), FAIL another value; with ``--compose-config``, FAIL a
+  server whose rendered command does not carry the flag the setting names.
+
+On a host's own Python (H-144), the checks of ``IMAGE_CHECKS`` (the ones that import pydantic, httpx or the services'
+code, or read ``models/``) run in a one-off container of the box's own image (``tools/trialbox/doctor_image.py``) and
+their verdicts join the host's in order; a container that does not run, or an import error in it, is that check's
+FAIL with the reason, never a PASS or a skip.
+
+A system module (F0, the modules framework section 6) adds its rows from its own file ``tools/trialbox/doctor_m<n>.py``
+(``MODULE_CHECKS``): ``doctor_checks(inp)`` returns rows ``(key, state, text)``, state PASS, WARN or FAIL. A function
+there named like a check this file opened to it (``_supplied``) is that check's body and returns one such row. A file
+that is not there adds nothing; one that raises or returns anything else is a FAIL that says so, and every other row
+stays. One that does not import because a third-party package is missing on a host's own python (never in the box
+image) is a WARN "cannot look here: <package>"; every other import failure is a FAIL. A check that cannot look returns
+WARN with the reason.
 
 ``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
@@ -158,6 +179,8 @@ runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it 
 from __future__ import annotations
 
 import contextlib
+import functools
+import importlib
 import importlib.util
 import json
 import os
@@ -214,6 +237,41 @@ def _site_dir(inp: DoctorInputs) -> Path:
     return (inp.deploy or ROOT / "deploy") / "site"
 
 
+def _box_host(inp: DoctorInputs) -> Path | None:
+    """INT-M5: the box's deploy folder when doctor runs on that box's own host (not in its image, a ``deploy/.env``
+    there). What lives in the box's volumes and its database is then read where the host sees it (the volume's folder,
+    ``compose exec``), never at a container's path or the compose network's address: read there, every installed box
+    showed a WARN that was no fault (the secrets folder "not here", the database "did not answer")."""
+    asked = inp.in_image
+    if asked is None:
+        from tools.trialbox import launch
+
+        asked = launch.in_box_image()
+    box = inp.box or inp.deploy
+    return box if not asked and box is not None and (box / ".env").is_file() else None
+
+
+def _volume(inp: DoctorInputs, name: str, inside: str) -> Path:
+    """A box volume's folder as this process sees it: ``inside`` (its path in a container), except on the box's host,
+    where it is the engine's folder of the project's volume (``TB_DOCKER_VOLUMES``, ``COMPOSE_PROJECT_NAME``; as
+    ``audit_heads.host_dirs`` reads the audit and secrets volumes)."""
+    if _box_host(inp) is None:
+        return Path(inside)
+    from tools.trialbox import audit_heads as ah
+
+    project = inp.env.get("COMPOSE_PROJECT_NAME") or ah.PROJECT
+    return Path(inp.env.get("TB_DOCKER_VOLUMES") or ah.VOLUMES) / f"{project}_{name}" / "_data"
+
+
+SECRETS_VARS = "TB_SECRETS_DIR; on the host TB_SECRETS_HOST_DIR or TB_DOCKER_VOLUMES"
+
+
+def _secrets_dir(inp: DoctorInputs) -> Path:
+    """The secrets folder: ``TB_SECRETS_DIR``; on the box's host ``TB_SECRETS_HOST_DIR``, else its volume's folder."""
+    raw = inp.env.get("TB_SECRETS_DIR") or (inp.env.get("TB_SECRETS_HOST_DIR") if _box_host(inp) else "")
+    return Path(raw) if raw else _volume(inp, "tb-secrets", "/run/secrets/trialbox")
+
+
 def _egress() -> ModuleType:
     spec = importlib.util.spec_from_file_location("tb_egress_doctor", ROOT / "deploy" / "egress.py")
     assert spec is not None and spec.loader is not None
@@ -221,6 +279,87 @@ def _egress() -> ModuleType:
     sys.modules["tb_egress_doctor"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+# ------------------------------------------------------------------------------------- module checks (F0)
+MODULE_CHECKS: tuple[str, ...] = tuple(f"tools.trialbox.doctor_m{n}" for n in range(1, 10))  # M1 to M9; M10 has none
+
+
+def _module(name: str) -> ModuleType | None:
+    """A module's check file, or None while the module has not brought it."""
+    return None if importlib.util.find_spec(name) is None else importlib.import_module(name)
+
+
+#: the packages of pyproject's dependencies, by import name: a host's own python may lack them (the box image never)
+_THIRD_PARTY = frozenset({
+    "pydantic", "yaml", "jsonschema", "jinja2", "httpx", "fastapi", "uvicorn", "multipart", "duckdb", "pyarrow",
+    "sqlglot", "sqlalchemy", "psycopg", "openpyxl", "reportlab", "matplotlib", "docxtpl", "docx", "pypdf", "py7zr",
+    "cryptography", "apscheduler", "numpy", "fhir", "dateutil", "tzdata", "markdown", "dulwich", "zstandard",
+})  # fmt: skip
+
+
+def _host_lacks(e: ModuleNotFoundError) -> bool:
+    """A third-party package missing on a host's own python (not the box image): the check could not look, nothing is
+    wrong. Anything else that does not import (syntax, the box's own module, any error in the image) stays a FAIL."""
+    from tools.trialbox import launch
+
+    return (e.name or "").partition(".")[0] in _THIRD_PARTY and not launch.in_box_image()
+
+
+def _row(row: Any) -> Check:
+    key, state, text = row
+    if state not in ("PASS", "WARN", "FAIL") or not (isinstance(key, str) and key and isinstance(text, str)):
+        raise ValueError(f"not a row (key, PASS, WARN or FAIL, text): {row!r}")
+    return Check(key, state, text)
+
+
+def module_rows(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    """``out`` with each module's rows after it. A row that takes another row's key is a FAIL, never a replacement."""
+    out = list(out)
+    for name in MODULE_CHECKS:
+        own = name.rpartition(".")[2]
+        try:
+            try:
+                mod = _module(name)
+            except ModuleNotFoundError as e:
+                if not _host_lacks(e):
+                    raise
+                out.append(Check(own, "WARN", f"cannot look here: {e.name}"))
+                continue
+            for c in map(_row, mod.doctor_checks(inp) if mod is not None and hasattr(mod, "doctor_checks") else ()):
+                if any(c.name == o.name for o in out):
+                    out.append(Check(own, "FAIL", f"its row {c.name!r} ({c.status}: {c.detail}) takes the name of "
+                                     "another row"))  # fmt: skip
+                else:
+                    out.append(c)
+        except Exception as e:  # fail closed, and the other modules' rows still come
+            out.append(Check(own, "FAIL", f"check error: {type(e).__name__}: {e}"))
+    return out
+
+
+def _supplied(name: str) -> Callable[[Callable[..., Check]], Callable[..., Check]]:
+    """The check keeps its place and its name; its body is the module's function of the same name once the module's
+    file has one (framework section 6: M2 and M4 change these checks without editing this file)."""
+
+    def opened(fn: Callable[..., Check]) -> Callable[..., Check]:
+        @functools.wraps(fn)
+        def check(inp: DoctorInputs, *args: Any, **kwargs: Any) -> Check:
+            try:
+                body = getattr(_module(name), fn.__name__, None)
+            except ModuleNotFoundError as e:
+                if not _host_lacks(e):
+                    raise
+                return Check(fn.__name__.removeprefix("check_"), "WARN", f"cannot look here: {e.name}")
+            if body is None:
+                return fn(inp, *args, **kwargs)
+            c = _row(body(inp, *args, **kwargs))
+            if c.name != fn.__name__.removeprefix("check_"):
+                raise ValueError(f"{name}.{fn.__name__} returned the row of {c.name!r}")
+            return c
+
+        return check
+
+    return opened
 
 
 # ------------------------------------------------------------------------------------------------ checks
@@ -445,6 +584,47 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
+
+
+def check_mail_tls(inp: DoctorInputs) -> Check:
+    """H-137 (the owner's decision, #639 7156806411 item 6; the integrator's ruling 7165038321 item 4): a WARN in every
+    environment while a mail server is spoken to without a verified certificate, naming the server and the setting
+    (``mail_gateway.tls``: SMTP_TLS_VERIFY, SMTP_STARTTLS, IMAP_TLS_VERIFY, IMAP_SSL); the gateway audits each start
+    so. The IMAP server counts only when a mailbox is polled (IMAP_USER)."""
+    from pathlib import Path as _Path
+
+    from mail_gateway import tls
+    from tb_common.config import load_env
+
+    env = load_env(_Path("/nonexistent"), {k: str(v) for k, v in inp.env.items()})
+    off = tls.unverified(env, imap_used=bool(env.imap_user))
+    if not off:
+        return Check("mail_tls", "PASS", "the mail servers' certificates are verified")
+    said = "; ".join(f"{s} {h}: {setting}" for s, h, _m, setting in off)
+    return Check("mail_tls", "WARN", f"mail without a verified certificate ({said}): each start is audited")
+
+
+def check_trusted_proxy(inp: DoctorInputs) -> Check:
+    """H-137 (the owner's decision, #639 7156806411 item 7): the one list of proxies the console trusts for forwarded
+    headers (``tb_common.trusted_proxy``). "All" is a FAIL in PRODUCTION (the console refuses to start with it) and a
+    WARN elsewhere; behind Caddy (``TB_TLS_HOSTNAME`` set) a list without Caddy's fixed address is a WARN: every browser
+    is then one address to the sign-in lock (ASVS V3-01)."""
+    from tb_common import trusted_proxy as tp
+    from tb_common.config import environment_name
+
+    env = environment_name(inp.env)
+    value = (inp.env.get(tp.NAME) or "").strip()
+    if tp.trusts_all(value):
+        status: Status = "FAIL" if env == "PRODUCTION" else "WARN"
+        return Check("trusted_proxy", status, f"{tp.NAME}={value!r} trusts every sender's X-Forwarded-For: a client "
+                     "chooses its own address for the sign-in lock and the audit")  # fmt: skip
+    proxy = (inp.env.get("TB_PROXY_ADDR") or "").strip() or tp.DEFAULT_PROXY_ADDR
+    if (inp.env.get("TB_TLS_HOSTNAME") or "").strip() and proxy not in tp.entries(value):
+        return Check("trusted_proxy", "WARN", f"behind Caddy ({proxy}) the console trusts {value or 'no proxy'}: every "
+                     "browser is Caddy's one address to the sign-in lock; re-run the installer")  # fmt: skip
+    if not value:
+        return Check("trusted_proxy", "PASS", "no proxy trusted: each browser is the address it connects from")
+    return Check("trusted_proxy", "PASS", f"forwarded headers trusted from {value} only")
 
 
 def check_phi_tripwire(inp: DoctorInputs) -> Check:
@@ -912,18 +1092,62 @@ def check_site_tz(inp: DoctorInputs) -> Check:
     return Check("site_tz", "PASS", f"{first} ({', '.join(given)}){unread}")
 
 
+#: every flag's value as one JSON object, read-only; ``{}`` while no service has made the table
+FLAGS_SQL = """SET default_transaction_read_only = on;
+SET statement_timeout = '20s';
+SELECT to_regclass('app.flag') IS NOT NULL AS tb_has_flag \\gset
+\\if :tb_has_flag
+SELECT coalesce(json_object_agg(name, value), '{}'::json)::text FROM app.flag;
+\\else
+SELECT '{}';
+\\endif
+"""
+
+
+def flag_drift(env: Mapping[str, str], rows: Mapping[str, Any]) -> list[str]:
+    """``tb_common.flags.env_drift``'s lines from the flags read through the box (``rows``: name to value)."""
+    from tb_common.flags import DECLARED  # standard library only: it imports on the host's python3
+
+    out = []
+    for name, d in sorted(DECLARED.items()):
+        raw = (env.get(d.seed_env) or "").strip() if d.seed_env else ""
+        if not raw:
+            continue
+        have = rows.get(name)
+        if have is None:
+            out.append(f"{d.seed_env}={raw} still decides: the flag {name} was never seeded (no console start yet)")
+        elif str(have) != raw.lower():
+            out.append(f"{d.seed_env}={raw} is ignored: the flag {name} is {have} (change it on /ops/flags)")
+    return out
+
+
 def check_flags(inp: DoctorInputs) -> Check:
     """T-008 (D-207): a seed variable (``TB_LAKE_SOURCE``) seeds its flag at the first start only; one that now says
     something else than the flag is ignored, which an operator must know: WARN."""
     url = inp.env.get("TB_DB_URL", "")
-    if not url:
-        return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
-    try:
-        from tb_common.flags import env_drift
+    host = _box_host(inp)
+    if host is not None:  # INT-M5: the box's database through the box (its address is the compose network's)
+        from tools.trialbox import box_hold
 
-        drift = env_drift(dict(inp.env), url)
-    except Exception as e:  # the flags live on the box: unreadable from here is worth a look, not a failure
-        return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
+        got, cause = box_hold.query(host, FLAGS_SQL)
+        if got is None:
+            return Check("flags", "WARN", f"cannot read the feature flags ({cause})")
+        try:
+            rows = json.loads(got.strip().splitlines()[-1]) if got.strip() else {}
+        except ValueError:
+            rows = None
+        if not isinstance(rows, dict):
+            return Check("flags", "WARN", "cannot read the feature flags (the box's database gave no reading)")
+        drift = flag_drift(inp.env, rows)
+    elif not url:
+        return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
+    else:
+        try:
+            from tb_common.flags import env_drift
+
+            drift = env_drift(dict(inp.env), url)
+        except Exception as e:  # the flags live on the box: unreadable from here is worth a look, not a failure
+            return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
     if drift:
         return Check("flags", "WARN", "; ".join(drift))
     return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
@@ -1013,15 +1237,27 @@ def _hold_line(got: Mapping[str, Any]) -> Check:
     )
 
 
+#: the pid map's fingerprint for the site (``:'site'``), read-only; nothing while no night has made the table
+PIDMAP_SQL = """SET default_transaction_read_only = on;
+SET statement_timeout = '20s';
+SELECT to_regclass('pidmap.site_key') IS NOT NULL AS tb_has_pidmap \\gset
+\\if :tb_has_pidmap
+SELECT coalesce((SELECT fingerprint FROM pidmap.site_key WHERE site_id = :'site'), '');
+\\else
+SELECT '';
+\\endif
+"""
+
+
 def check_site_key(inp: DoctorInputs) -> Check:
     """T-612 (DATA-004): the site key is in the secrets folder and is the key the box's data was made with (the
     fingerprint in ``<lake>/site_key.json`` and in the pid map's ``site_key`` table). Shows the fingerprint, never
     the key."""
     from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key
 
-    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    sec = _secrets_dir(inp)
     if not sec.is_dir():
-        return Check("site_key", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): the key was not read")
+        return Check("site_key", "WARN", f"the secrets folder {sec} is not here ({SECRETS_VARS}): the key was not read")
     try:
         key = load_key(sec / SITE_KEY_FILE)
     except KeyMissingError as exc:
@@ -1034,7 +1270,8 @@ def check_site_key(inp: DoctorInputs) -> Check:
     except PermissionError:
         return Check("site_key", "WARN", f"{sec / SITE_KEY_FILE} cannot be read by this user: the key was not checked")
     fp = key_fingerprint(key)
-    lake = Path(inp.env.get("TB_LAKE_DIR") or Path(inp.env.get("TB_DATA_DIR") or "/data") / "lake")
+    inside = f"{inp.env.get('TB_DATA_DIR') or '/data'}/lake"
+    lake = Path(inp.env.get("TB_LAKE_DIR") or _volume(inp, "lake-data", inside))
     seen: list[str] = []
     record = lake / "site_key.json"  # adapter.pipeline.SITE_KEY_RECORD
     if record.is_file():
@@ -1044,7 +1281,19 @@ def check_site_key(inp: DoctorInputs) -> Check:
         seen.append("the lake")
     site_id = str((inp.settings.get("site") or {}).get("id") or "")
     url = inp.env.get("TB_DB_URL", "")
-    if url and site_id:
+    host = _box_host(inp)
+    if host is not None and site_id:  # INT-M5: the box's database through the box, as the hold is read
+        from tools.trialbox import box_hold
+
+        got, cause = box_hold.query(host, PIDMAP_SQL, variables={"site": site_id})
+        if got is None:
+            return Check("site_key", "WARN", f"key {fp}; the pid map's record cannot be read ({cause})")
+        stored = got.strip().splitlines()[-1].strip() if got.strip() else ""
+        if stored and stored != fp:
+            return Check("site_key", "FAIL", f"key {fp} is not the pid map's {stored}: the ingest refuses every night")
+        if stored:
+            seen.append("the pid map")
+    elif url and site_id:
         try:
             from tb_common.db import Database
 
@@ -1178,9 +1427,9 @@ def check_key_custody(inp: DoctorInputs) -> Check:
     """T-210b (CR-041, D-347): the site keys are kept under a KEK held outside the secrets folder."""
     from tb_common import kek
 
-    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    sec = _secrets_dir(inp)
     if not sec.is_dir():
-        return Check("key_custody", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): not checked")
+        return Check("key_custody", "WARN", f"the secrets folder {sec} is not here ({SECRETS_VARS}): not checked")
     c = kek.custody(sec, {**os.environ, **inp.env})
     if c.problems:
         return Check("key_custody", "FAIL", "; ".join(c.problems))
@@ -1209,8 +1458,11 @@ def check_key_custody_record(inp: DoctorInputs) -> Check:
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
     if env not in kek.STRICT_ENVS:
         return Check(name, "PASS", f"{env}: no key ceremony record is asked for")
-    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
-    c = kek.custody(sec, {**os.environ, **inp.env}) if sec.is_dir() else None
+    sec = _secrets_dir(inp)
+    if not sec.is_dir():  # review 1534: a wrong path is no "no KEK yet" on a strict box
+        return Check(name, "WARN", f"the secrets folder {sec} is not here ({SECRETS_VARS}): the KEK and its key "
+                     "ceremony record were not checked")  # fmt: skip
+    c = kek.custody(sec, {**os.environ, **inp.env})
     if c is None or c.backend is None:
         return Check(name, "PASS", "no KEK yet: the ceremony comes with python -m tools.keys init")
     from tools import key_escrow as ke
@@ -1324,106 +1576,18 @@ def check_ops_runner(inp: DoctorInputs, now: datetime | None = None) -> Check:
     return Check("ops_runner", soft, f"{what}: no health facts, and the Operations page's requests wait; {fix}")
 
 
-HEAD_MAX_AGE_H = 36.0  # TB_AUDIT_HEAD_MAX_AGE_H: the job is nightly; 36 h is where the nightly backup is old (D-274)
-
-
+@_supplied("tools.trialbox.doctor_m4")
 def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
-    """NEW-STD-2 (STD-002, LIFE-010, D-562): the signed audit heads of D-355 are in force only when a folder off the
-    audit volume takes one every night. FAIL in VALIDATION and PRODUCTION (WARN elsewhere) when no anchor folder is
-    set, a folder is on the audit volume, the audit signing key is missing, or the newest signed head of any folder
-    is older than ``TB_AUDIT_HEAD_MAX_AGE_H``. The signatures are checked by ``trialbox audit-sign`` each night and
-    by ``tools/audit_verify.py --heads``; this check reads each head's date and that this box's key signed it."""
+    """NEW-STD-2 (STD-002, D-562) and M4: the signed audit heads of D-355 against the chain, in the four states of
+    the anchor (ok, missing, stale, tampered; a restored trail is named apart). FAIL only for a trail that does not
+    agree with a signed head and a missing signing key; losing the anchor is a WARN (PRODUCTION names the gate).
+    The body is ``tools.trialbox.audit_heads.doctor_checks``."""
     if inp.platform:  # nothing signs heads on a platform yet: said, not passed (the review's M6)
         return Check("audit_heads", "WARN", "on a platform no host cron signs the audit head: STD-002 is open there")
-    from tb_common import audit, kek
-
     from tools.trialbox import audit_heads
 
-    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
-    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
-    audit_dir, secrets, targets = audit_heads.host_dirs(inp.env)
-    if not targets:
-        why = (
-            f"no anchor folder: set {audit.ANCHOR_TARGETS_ENV} in deploy/.env to a folder off the box (the hospital's "
-            "share); `trialbox audit-sign` then keeps a signed head of the audit chain there every night. Without it "
-            "a removed audit event leaves no trace (D-562)"
-        )
-        return Check("audit_heads", soft, why)
-    try:
-        limit = float(inp.env.get("TB_AUDIT_HEAD_MAX_AGE_H") or HEAD_MAX_AGE_H)
-    except ValueError:
-        limit = HEAD_MAX_AGE_H
-    now = now or datetime.now(UTC)
-    problems: list[str] = []
-    waiting: list[str] = []
-    key_age: float | None = None  # how long the box could have signed: a new key has no head until the first night
-    if not kek.key_present(secrets / audit.SIGN_KEY_FILE):
-        problems.append(
-            f"no audit signing key in {secrets}: sh deploy/hardening/seal_keys.sh --secrets {secrets} makes it once "
-            "(TB_SECRETS_HOST_DIR names the folder)"
-        )
-    else:
-        try:
-            made = datetime.fromtimestamp((secrets / audit.SIGN_PUB_FILE).stat().st_mtime, UTC)
-            key_age = (now - made).total_seconds() / 3600
-        except OSError:
-            key_age = None
-    # the night's own result (tools.trialbox.audit_heads.write_state): a refused night is a FAIL here, the same day
-    state = audit_heads.state_file(inp.deploy or ROOT / "deploy", inp.env)
-    try:
-        last = json.loads(state.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        last = None
-    if isinstance(last, dict) and last.get("ok") is False:
-        said = "; ".join(str(x) for x in (last.get("problems") or [])[:2])[:500]
-        problems.append(f"the last audit-sign ({last.get('at')}) was refused or failed: {said}")
-    try:
-        own: dict[str, bytes] | None = audit_heads.own_keys(secrets)
-    except (OSError, ValueError):
-        own = None
-    newest: list[str] = []
-    for t in targets:
-        if audit._inside(t, audit_dir):
-            problems.append(f"the anchor folder {t} is on the audit volume: it must be off it")
-            continue
-        stamps, foreign = [], 0
-        for h in audit.read_signed_heads(t) if (t / "heads").is_dir() else []:
-            try:
-                ts = datetime.fromisoformat(str(h.get("ts")))
-            except ValueError:
-                foreign += 1
-                continue
-            if own is not None:  # only a head this box's own key signed counts: a file with a date is not a head
-                try:
-                    pub = own.get(str(h.get("key_id")))
-                    if pub is None or audit.signed_head_problem(h, pub):
-                        foreign += 1
-                        continue
-                except ImportError:  # a host python3 without the crypto library: dates only
-                    own = None
-            stamps.append(ts if ts.tzinfo else ts.replace(tzinfo=UTC))
-        if foreign:
-            problems.append(f"{foreign} file(s) in {t}/heads are not signed by this box's audit key")
-        if not stamps:
-            none = f"no signed head in {t} yet (python3 -m tools.trialbox audit-sign)"
-            if key_age is not None and abs(key_age) <= limit and not foreign:
-                waiting.append(f"{none}: the audit key is {key_age:.0f} h old, the first night has not signed")
-            else:
-                problems.append(none)
-            continue
-        age = (now - max(stamps)).total_seconds() / 3600
-        if abs(age) > limit:  # dated ahead of the clock is not fresh either
-            problems.append(
-                f"the newest signed head in {t} is {age:.0f} h old (limit {limit:g} h): the nightly audit-sign did "
-                "not run or did not reach the folder (/var/log/trialbox-retention.log)"
-            )
-        else:
-            newest.append(f"{t}: {age:.0f} h")
-    if problems:
-        return Check("audit_heads", soft, "; ".join(problems + waiting))
-    if waiting:
-        return Check("audit_heads", "WARN", "; ".join(waiting))
-    return Check("audit_heads", "PASS", "newest signed head " + ", ".join(newest))
+    _, status, detail = audit_heads.doctor_checks(inp.env, inp.deploy or ROOT / "deploy", now)[0]
+    return Check("audit_heads", status, detail)  # type: ignore[arg-type]
 
 
 def _public_roots() -> frozenset[bytes]:
@@ -1575,6 +1739,50 @@ def check_bench_serving(inp: DoctorInputs) -> Check:
     return Check("bench_serving", "FAIL", f"the second serving profile is on for a {env} box ({found}): its engine "
                                           "is in no signed bundle and checks no key of its own. Set SERVING_ENGINE "
                                           "to current and take the file out of COMPOSE_FILE (H-112)")  # fmt: skip
+
+
+def check_prefix_cache(inp: DoctorInputs) -> Check:
+    """H-146 (D-1462): the judge and verifier servers' prefix cache, off unless the box chooses it. Off (the
+    default: ``TB_LLM_PREFIX_CACHING`` absent, empty or ``no-enable``) is a PASS; ``enable`` a standing WARN (the
+    same calls may then answer differently from run to run); another value a FAIL (the servers refuse to start).
+    With the box's rendered compose (``--compose-config``), each server there must carry the flag the setting
+    names."""
+    from tools import prefix_cache
+
+    env = dict(inp.env)
+    if inp.deploy is not None and prefix_cache.SETTING not in os.environ:
+        # review 1514-1: deploy/.env as compose reads it (an "export", a comment after an unquoted value)
+        from tools import rehearsal_real
+
+        env.pop(prefix_cache.SETTING, None)
+        env.update({k: v for k, v in rehearsal_real.env_file(inp.deploy / ".env").items() if k == prefix_cache.SETTING})
+    try:
+        word = prefix_cache.state(env)
+    except ValueError as exc:
+        detail = f"{exc}: the model servers may refuse to start or run another option; set {prefix_cache.SETTING}"
+        return Check("prefix_cache", "FAIL", detail + " to no-enable (off) in deploy/.env (D-1462)")
+    if inp.compose_config is not None:
+        want = prefix_cache.flag(word)
+        services = inp.compose_config.get("services") or {}
+        bad = [
+            name
+            for name in ("llm-service", "llm-verifier")
+            if isinstance(services.get(name), Mapping)
+            and [a for a in services[name].get("command") or [] if str(a).endswith("prefix-caching")] != [want]
+        ]
+        if bad:
+            return Check("prefix_cache", "FAIL", f"{', '.join(bad)}: the rendered command does not carry {want} "
+                                                 f"({prefix_cache.SETTING}); a GPU overlay without the line runs "
+                                                 "the model server's own default (D-1462)")  # fmt: skip
+    if word == "on":
+        return Check("prefix_cache", "WARN", f"prefix caching on ({prefix_cache.SETTING}=enable): runs may differ "
+                                             "from run to run on the same calls (D-1462)")  # fmt: skip
+    seen = (
+        "the rendered servers"
+        if inp.compose_config is not None
+        else "the setting (--compose-config checks the servers)"
+    )
+    return Check("prefix_cache", "PASS", f"prefix caching off on the judge and verifier servers: {seen} (D-1462)")
 
 
 def _real_servers(inp: DoctorInputs) -> tuple[str, str] | None:
@@ -2187,6 +2395,7 @@ def check_chartno_rule(
     return Check(name, "PASS", said)
 
 
+@_supplied("tools.trialbox.doctor_m2")
 def check_terminology(inp: DoctorInputs) -> Check:
     """D-1028, D-1029, D-858 (lane E's hunk): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its
     rows and version. A table without its manifest line, or whose bytes differ from it, is FAIL (it is never read).
@@ -2215,6 +2424,13 @@ def check_terminology(inp: DoctorInputs) -> Check:
     return _with_readers(inp, where, "; ".join(said) + rest)
 
 
+def check_terminology_tables(inp: DoctorInputs) -> Check:
+    """M2: every table of the code systems, shipped and loaded, with its rows, version and hash."""
+    from tools import terminology_pack
+
+    return _row(terminology_pack.tables_row(inp.env))
+
+
 def _with_readers(inp: DoctorInputs, where: Path, said: str) -> Check:
     """V-18 (D-1182, DB-C1): the vocabulary and the FHIR store against the same manifest: FAIL when they hold another
     release than the terminology now or one was not loaded; WARN when the folder cannot be read here; else each
@@ -2225,11 +2441,32 @@ def _with_readers(inp: DoctorInputs, where: Path, said: str) -> Check:
     return Check("terminology", status, f"{said}; vocabulary and FHIR store: {readers}" if readers else said)
 
 
+PROVENANCE_TIMEOUT_S = 120.0  # the chain is read whole: a large box takes a while, a hung one is no reading
+
+
 def check_provenance_index(inp: DoctorInputs) -> Check:
     """D-989 step 2c: the provenance index (``provenance.model_calls``, ``provenance.model_uses``) against the audit
     chain it is derived from. A difference is FAIL: the chain wins, and ``trialbox provenance --rebuild`` writes the
     index again. Not installed yet (the role script creates the tables) is WARN; no database named here is NOT
     CHECKED."""
+    host = _box_host(inp)
+    if host is not None:  # INT-M5: the check run by the box itself, where its database and its chain are
+        from tools.trialbox import box_hold
+
+        rc, said = box_hold.run_in(host, "orchestrator", ["python", "-m", "tools.trialbox", "provenance", "--check"],
+                                   timeout=PROVENANCE_TIMEOUT_S)  # fmt: skip
+        if rc is None:
+            return Check("provenance_index", "WARN", f"the box was not asked ({said})")
+        if rc == 0:
+            return Check("provenance_index", "PASS", "equal to the audit chain (trialbox provenance --check)")
+        first = " ".join((said.splitlines() or [""])[0].split())[:300]
+        if rc == 1 and first.startswith("provenance index: not installed"):
+            return Check("provenance_index", "WARN", "not installed: the role script creates provenance.model_calls "
+                         "and provenance.model_uses (D-989 step 2c); until then the chain is written without the "
+                         "index")  # fmt: skip
+        if rc == 1:  # review 1534: any other exit 1 is a difference (or the box could not run it): never a pass
+            return Check("provenance_index", "FAIL", f"trialbox provenance --check in the box ended 1: {first}")
+        return Check("provenance_index", "WARN", f"trialbox provenance --check in the box ended {rc}: {first}")
     from tb_common import provenance_index as idx
 
     url = str(inp.env.get("TB_DB_URL") or "")
@@ -2283,6 +2520,36 @@ def check_negated_inclusions(inp: DoctorInputs) -> Check:
                  f"and keep running until recompiled and approved: {named}{more}")  # fmt: skip
 
 
+def check_release_tree(inp: DoctorInputs) -> Check:
+    """H-144 (the integrator's 7159322336): the install folder holds no copy of a folder the box image carries and the
+    signed host tree does not (``services/``, ``models/``, ...: ``host_tree.IMAGE_ONLY``). An update neither replaces
+    nor checks such a copy. WARN, naming it and the command that removes it (it is never removed for the operator: it
+    may hold a change of theirs); FAIL when this command's import path holds it, since a host command run so would
+    import code of another release. Judged on the host; in the box image the install folder is not seen."""
+    from tools import host_tree as ht
+    from tools.trialbox import launch
+
+    name = "release_tree"
+    if launch.in_box_image():
+        return Check(name, "WARN", "not judged in the box image: the install folder is the host's (trialbox doctor on "
+                     "the host judges it)")  # fmt: skip
+    base = ht.install_folder(ROOT)
+    if base is None:
+        return Check(name, "PASS", f"{ROOT} is a source checkout, not an installed release: no install folder to judge")
+    note = ht.loose_note(base)
+    if not note:
+        return Check(name, "PASS", f"{base}: no copy of {', '.join(ht.IMAGE_ONLY)}; the box image carries them")
+    # the integrator's 7159790789: a WARN (no host command imports it: the per-command test holds that), a FAIL only
+    # when this very command's import path holds it (a caller's PYTHONPATH): a host command run so would import it
+    entries = {Path(e or ".").resolve() for e in sys.path}
+    on_path = [p for p in ht.loose(base) if any(e == p.resolve() or p.resolve() in e.parents for e in entries)]
+    if on_path:
+        held = ", ".join(map(str, on_path))
+        return Check(name, "FAIL", f"{note}. This command's import path holds {held} (the caller's PYTHONPATH): a "
+                     "host command run with it would import that code, not the release's")  # fmt: skip
+    return Check(name, "WARN", f"{note}. No host command imports it (the box image carries the release's)")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -2291,6 +2558,8 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_trusted_proxy,
+    check_mail_tls,
     check_phi_tripwire,
     check_sae_mailbox,
     check_named_choices,
@@ -2315,6 +2584,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_anchor_mount,
     check_rehearsal,
     check_bench_serving,
+    check_prefix_cache,
     check_memory_caps,
     check_postgres_memory,
     check_db_passwords,
@@ -2323,8 +2593,10 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_wsl2_versions,
     check_backup_speed,
     check_terminology,
+    check_terminology_tables,
     check_provenance_index,
     check_negated_inclusions,
+    check_release_tree,
 )
 
 
@@ -2400,6 +2672,59 @@ def check_two_device(inp: DoctorInputs) -> Check:
 TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 
 
+#: H-144 (the integrator's ruling 7159506328): the checks that need the box image. On a host's own Python (the standard
+#: library and PyYAML, install.sh HOST-PYTHON) they cannot run: pydantic (``tb_common.config``, ``tb_contracts``),
+#: httpx, the services' own code (``services/``) or the release's ``models/routing.yaml`` and ``models/registry.yaml``
+#: (neither is in the signed host tree; the image carries both). There they run in a one-off container of the box's
+#: own image (``tools/trialbox/doctor_image.py``) and their verdicts join the host's, in this list's order. An import
+#: error or a container that does not run is that check's FAIL with the reason: never a PASS, never a skip.
+IMAGE_CHECKS = (
+    "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "trusted_proxy",
+    "mail_tls", "phi_tripwire", "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule",
+    "db_passwords", "wsl2_memory", "update_window", "backup_speed", "terminology",
+    "terminology_tables",
+)  # fmt: skip
+#: what those checks import beyond the host's Python (the box image has each one)
+IMAGE_MODULES = ("pydantic", "httpx", "gateway", "guard", "registry", "channels", "criteria_compiler", "tb_llm",
+                 "tb_contracts", "mail_gateway")  # fmt: skip
+
+
+def needs_image() -> bool:
+    """Whether the image checks go to the box image: never inside it; always from an installed release tree (its
+    install folder may hold a loose ``services/`` that a caller's PYTHONPATH reaches: never imported, H-144); from a
+    source checkout only when its interpreter lacks what they import or the checkout lacks ``models/``."""
+    from tools import host_tree as ht
+    from tools.trialbox import launch
+
+    if launch.in_box_image():
+        return False
+    if ht.install_folder(ROOT) is not None:
+        return True
+    if not (ROOT / "models" / "routing.yaml").is_file():
+        return True
+    return any(importlib.util.find_spec(m) is None for m in IMAGE_MODULES)
+
+
+STATUSES: tuple[Status, ...] = ("PASS", "WARN", "FAIL", "SKIP")
+
+
+def _status(word: str) -> Status:
+    return next((s for s in STATUSES if s == word), "FAIL")
+
+
+def image_part(env_file: Path | None, settings: Path | None,
+               routing: Path | None) -> Callable[[tuple[str, ...]], list[Check]]:  # fmt: skip
+    """The image's part of a host's run (``run(image=...)``): ``doctor_image.verdicts`` for the box's own deploy
+    folder, image and runtime."""
+    from tools.trialbox import doctor_image as di
+
+    def ask(names: tuple[str, ...]) -> list[Check]:
+        req = di.Request(names, di.own_deploy(env_file), env_file, settings, routing, di.box_settings())
+        return [Check(v["name"], _status(v["status"]), v["detail"]) for v in di.verdicts(req)]
+
+    return ask
+
+
 # D-837: the checks of a host facility a plain VM has not got (the TPM-sealed keys, the off-box anchor folder): under
 # TB_HOST_PROFILE=poc on a box that is not PRODUCTION their FAIL is a WARN, and one line lists them. D-887 (the box
 # rehearsal on VALIDATION): the ops runner's systemd timer (a poc box installs no units, TB_SYSTEMD=0) and a missing
@@ -2409,6 +2734,10 @@ HOST_FACILITY_ONLY: dict[str, str] = {"audit_heads": "no anchor folder"}  # ease
 
 
 def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    # ponytail: called here and not from run(), whose last lines H-144 (#1512) changes; M5 may move it there after.
+    # Only for a whole run (its first check is there), never for --weights, --serving or one named check
+    if any(c.name == "topology" for c in out):
+        out = sorted(module_rows(inp, out), key=lambda c: c.name == "weights")  # its verdict stays last (--verify-all)
     if (inp.env.get("TB_HOST_PROFILE") or "").strip() != "poc":
         return out
     # tb_common.config's rule, without its import (it needs pydantic, which the host's python3 has not): this runs after
@@ -2448,14 +2777,42 @@ def tls_old_clients(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     return [*out, Check("tls_old_clients", "WARN", why)]
 
 
-def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
+def run(
+    inp: DoctorInputs,
+    checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS,
+    image: Callable[[tuple[str, ...]], list[Check]] | None = None,
+    extras: bool = True,
+) -> list[Check]:
+    """Each check's verdict, in ``checks``' order. ``image`` (H-144): the checks of ``IMAGE_CHECKS`` are asked of the
+    box image (one call), the rest run here; a check the image gave no verdict for is a FAIL. ``extras``: the lines
+    that judge the whole run (host profile, old TLS clients, the PoC list); off for the image's part of a run."""
     out: list[Check] = [Check("inputs", "FAIL", why) for why in inp.input_errors]
-    for fn in checks:
-        name = fn.__name__.removeprefix("check_")
+    names = [fn.__name__.removeprefix("check_") for fn in checks]
+    away = tuple(n for n in names if n in IMAGE_CHECKS) if image is not None else ()
+    there: dict[str, Check] = {}
+    if away and image is not None:
+        try:
+            answers = image(away)
+        except (
+            Exception
+        ) as e:  # OCR 1512-2, fail closed: an image part that cannot even be prepared is each check's FAIL
+            why = f"not run: the box image's part could not be prepared ({type(e).__name__}: {e})"
+            answers = [Check(n, "FAIL", why) for n in away]
+        for c in answers:
+            if c.name == "inputs":  # the image read a settings file the host read (or not): its own line
+                out.append(replace(c, name="inputs (box image)"))
+            elif c.name in away:
+                there.setdefault(c.name, c)
+    for fn, name in zip(checks, names, strict=True):
+        if name in away:
+            out.append(there.get(name) or Check(name, "FAIL", "the box image gave no verdict for this check"))
+            continue
         try:
             out.append(fn(inp))
         except Exception as e:  # fail closed: a check that cannot run is a failure
             out.append(Check(name, "FAIL", f"check error: {type(e).__name__}: {e}"))
+    if not extras:
+        return out
     return poc_stops(inp, tls_old_clients(inp, host_profile(inp, out)))
 
 

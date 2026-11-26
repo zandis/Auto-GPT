@@ -364,15 +364,11 @@ def test_the_wizard_defaults_to_offline_and_takes_live_or_the_install_answer(mon
         assert "offline" in wiz.CTGOV_QUESTION[lang] and "live" in wiz.CTGOV_QUESTION[lang]
 
 
-def test_install_asks_in_three_languages_and_defaults_to_offline() -> None:
+def test_install_never_asks_and_defaults_to_offline() -> None:
+    """M1 (D-1280): the question is gone from the install; live is a choice of the command line only."""
     text = (ROOT / "deploy/install.sh").read_text(encoding="utf-8")
-    assert "--ctgov) CTGOV=" in text and "offline / live [offline]" in text
-    for line in (
-        "may this box reach clinicaltrials.gov",
-        "clinicaltrials.gov に接続してよいですか",
-        "本機可以連上網際網路的 clinicaltrials.gov 嗎",
-    ):
-        assert line in text
+    assert "--ctgov) CTGOV=" in text and "offline / live" not in text and "ctgov_question" not in text
+    assert "  *) CTGOV=offline ;;" in text
     env = {**os.environ, "TB_CTGOV_PROBE": "fail"}
     out = subprocess.run(
         ["bash", str(ROOT / "deploy/install.sh"), "--ctgov-check"], env=env, capture_output=True, text=True, check=False

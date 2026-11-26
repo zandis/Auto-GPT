@@ -68,6 +68,9 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     d.add_argument("--routing", type=Path, default=None)
     d.add_argument("--lake-dir", type=Path, default=None, help="the adapter's lake (default TB_LAKE_DIR)")
     d.add_argument("--json", action="store_true")
+    d.add_argument(
+        "--only", default=None, help="H-144: only these checks (comma-separated names): the box image's part of a run"
+    )
     d.add_argument("--live", action="store_true", help="also ask the model servers (served names, key; D-177)")
     d.add_argument("--serving", action="store_true", help="only the live model-server check (install.sh)")
     d.add_argument(
@@ -389,8 +392,18 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
             inp.compose_config = td.compose_config_for(
                 inp.env.get("TB_LINK_ROLE", ""), a.compose_config, inp.deploy or td.ROOT / "deploy"
             )
-        if not a.platform:
-            checks = doctor.run(inp, which)
+        if a.only is not None:  # H-144: the box image's part of a host's run (doctor_image.py): these checks alone
+            wanted = [n for n in a.only.split(",") if n]
+            known = {fn.__name__.removeprefix("check_"): fn for fn in which}
+            unknown = [n for n in wanted if n not in known]
+            if unknown or not wanted:
+                print(f"doctor: --only names no check of this run: {', '.join(unknown) or '(none)'}", file=sys.stderr)
+                return 2
+            checks = doctor.run(inp, tuple(known[n] for n in wanted), extras=False)
+        elif not a.platform:
+            # H-144: on a host's own Python the image checks run in the box image, their verdicts joined in order
+            image = doctor.image_part(a.env_file, a.settings, a.routing) if doctor.needs_image() else None
+            checks = doctor.run(inp, which, image=image)
         else:
             from tools.trialbox import platform as pf
 
@@ -653,6 +666,14 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                 raise bk.BackupError(exc.say()) from None
             fp = bk.keygen(a.private, a.public)
             print(f"backup key {fp}: give {a.private} to hospital IT in a sealed envelope; the box keeps {a.public}")
+            deploy = Path(__file__).resolve().parents[2] / "deploy"
+            if a.public.resolve() == (deploy / "secrets" / "backup.pub").resolve():
+                from tb_common import site_needs  # U-5 (D-1280): the services see that the box's key is there
+
+                try:
+                    site_needs.write_host_given(deploy)
+                except OSError as exc:
+                    print(f"note: {site_needs.HOST_GIVEN} not written ({exc}); run `trialbox doctor`", file=sys.stderr)
             return 0
         if a.cmd == "backup":
             dirs = bk.layout(os.environ, a.dir)
@@ -772,8 +793,13 @@ if __name__ == "__main__":
     # install.sh links this signed file onto PATH. Keep relative input paths relative to the operator's shell.
     if not __package__:
         root = Path(__file__).resolve().parents[2]
-        sys.path[:0] = [str(root), str(root / "libs"), str(root / "services")]
-    from tools.trialbox import launch  # H-88 (D-1089): its own import path, the box's settings, the box image
+        # H-144: never root/services: the box image carries the services' code (a copy here is not the release's)
+        sys.path[:0] = [str(root), str(root / "libs")]
+    # H-88 (D-1089): launch: its own import path, the box's settings, the box image
+    from tools.trialbox import launch, sigends
 
+    # H-142: this process ends when the command returns (a restore or an update keeps its signals ignored to the
+    # exit); for those two a signal before they take their own handlers is noted and given to them
+    sigends.own_exit(note=launch.command_of(sys.argv[1:]) in ("restore", "update"))
     _code = launch.enter(sys.argv[1:], installed=not __package__)
     raise SystemExit(_exit_code(main(installed=not __package__) if _code is None else _code))

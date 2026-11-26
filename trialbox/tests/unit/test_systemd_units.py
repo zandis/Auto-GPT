@@ -111,6 +111,11 @@ def test_install_renders_and_enables_the_units() -> None:
     for unit in (EGRESS_UNIT, STACK_UNIT, "trialbox-egress-refresh.timer", "trialbox-watchdog.timer"):
         assert unit in enable
     assert "trialbox-ops.timer" in enable  # NEW-OPS-8 (D-561): the runner is on, or the health facts are never written
+    # OCR 1523-2: every timer the loop copies is enabled and started, or its job never runs (the code-system update)
+    start = text.split("systemctl start trialbox-egress-refresh.timer", 1)[1].split(">/dev/null", 1)[0]
+    for timer in sorted(t.name for t in UNITS.glob("*.timer")):
+        assert timer in enable, timer
+        assert timer in start or timer == "trialbox-egress-refresh.timer", timer
     assert "s#@TB_ROOT@#$ROOT#g" in text
     # the units are enabled only once `apply` wrote the state file a boot restores from
     assert text.index("deploy/network.sh apply") < text.index("systemctl enable")

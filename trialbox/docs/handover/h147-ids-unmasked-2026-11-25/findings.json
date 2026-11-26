@@ -1,0 +1,107 @@
+{
+ "card": "H147",
+ "title": "run and publish ids the log's scrubber leaves whole",
+ "date": "2026-11-25",
+ "source": "docs/handover/h147-ids-unmasked-2026-11-25.md",
+ "findings": [
+  {
+   "id": "H147-01",
+   "severity": "Medium",
+   "claim": "the adapter drew a run's and a publish's id as 8 random bytes in hex; about 1 draw in 130 holds a digit run the log's scrubber reads as a phone number (CI's draw in job 139204992870 was logged as d6d8b[PHONE]a), so no log line held the id the run record sends its reader to (CI-1, the 1-in-140 flake of test_adapter_failure_words.py)",
+   "severity_basis": "not a leak: the reader cannot find a failed run's log lines by its id, and every counted full-set run can meet the flake",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 30a53d74",
+   "fix": "tb_common.ids.log_safe_id: 16 lower-case letters (75 bits, against 64), a draw the scrubber would still change drawn again; the three draw sites of services/adapter/app.py use it; tests/unit/test_h147_ids_unmasked.py (2 of its tests fail at master 440089e8)",
+   "from": "the integrator's 7164002927 and the external review's 7163988253 on #1513, 2026-11-25"
+  },
+  {
+   "id": "H147-02",
+   "severity": "Low",
+   "claim": "the criteria compiler's error_id (uuid4().hex[:12]) is logged with the error and given to the caller to find it by; the scrubber changes 1251 of 200000 such draws (about 1 in 160), the same defect as H147-01",
+   "severity_basis": "a 500's error id is not found in the log about 1 time in 160",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 4eb0c2b1",
+   "fix": "the integrator's ruling 7166734383: services/criteria_compiler/app.py draws error_id with tb_common.ids.log_safe_id(); the length assertion of tests/unit/test_compiler_answers_every_failure.py::test_a_bug_is_a_500_with_an_id_and_its_trace_in_the_audit changes from 12 to 16 under that ruling; tests/unit/test_h147_ids_unmasked.py::test_the_compilers_error_id_is_logged_whole (fails at fab3329f)",
+   "from": "lane H, while finding every draw site for H-147, 2026-11-25"
+  },
+  {
+   "id": "H147-03",
+   "severity": "Low",
+   "claim": "the console's cascade run id (a ULID, digits and capitals) is logged when a cascade run fails; the scrubber changes 59 of 200000 ULIDs (about 1 in 3400)",
+   "severity_basis": "rare; the run is found by its trial and time as well",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 4eb0c2b1",
+   "fix": "the integrator's ruling 7166734383: services/console/cascade.py draws the run id with tb_common.ids.log_safe_id() (one line and its import); tests/unit/test_h147_ids_unmasked.py::test_a_cascade_runs_id_is_logged_whole (fails at fab3329f)",
+   "from": "lane H, while finding every draw site for H-147, 2026-11-25"
+  },
+  {
+   "id": "H147-04",
+   "severity": "Low",
+   "claim": "the integrator and the external review name the defect open finding CI-1, but the findings register holds no CI-1 row",
+   "severity_basis": "the register does not show an open defect that two comments call open",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "not in this card: the register's keeper adds or names the row; H147-01 is the defect",
+   "from": "lane H, reading the register for H-147, 2026-11-25"
+  },
+  {
+   "id": "H147-05",
+   "severity": "Low",
+   "claim": "the comment in services/adapter/runs.py read() says a run id is hex; from H-147 it is letters (an older hex id is still read: the check is str.isalnum)",
+   "severity_basis": "a comment, not the behaviour",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "not in this card: runs.py is another lane's file and its behaviour is right",
+   "from": "lane H, checking that older ids are still read back, 2026-11-25"
+  },
+  {
+   "id": "H147-06",
+   "severity": "Low",
+   "claim": "the card page named the repository's agent-instructions file by its file name, a vendor product name, where the repo rule allows none in docs (review 1515-3)",
+   "severity_basis": "the words of a doc, not behaviour",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed fab3329f",
+   "fix": "the page says the repository's checks",
+   "from": "the external review of #1515 at b7fc5914 (7166485201), 2026-11-25"
+  },
+  {
+   "id": "H147-07",
+   "severity": "Medium",
+   "claim": "log_safe_id() redrew with no bound: a site chart-number pattern that reads letters (^[A-Za-z0-9]{6,20}$, which the settings take) changed every draw, so POST /run and POST /publish spun for ever while they held the adapter's run gate (review 1515-1; not on master)",
+   "severity_basis": "on such a site no night runs and no publish ends; the shipped default reads digits only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed fab3329f",
+   "fix": "at most ATTEMPTS (32) draws, then the last draw is handed out (a valid id whose log line shows the rule's kind); tests/unit/test_h147_ids_unmasked.py::test_a_site_rule_that_reads_letters_does_not_hang_the_draw, ::test_a_run_is_started_under_a_site_rule_that_reads_letters (both fail at b7fc5914)",
+   "from": "the external review of #1515 at b7fc5914 (7166485201), 2026-11-25"
+  },
+  {
+   "id": "H147-08",
+   "severity": "Low",
+   "claim": "the changed assertion of test_compiler_answers_every_failure.py pins only the length (16), so a 16-character error id not drawn by the helper (os.urandom(8).hex(), uuid4().hex[:16]) passes it; the compiler and the cascade are not pinned to the helper as the adapter is (review 1515-5)",
+   "severity_basis": "a test's reach, not behaviour; a return to the old 12-hex id is still caught",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "not in this push: pin the characters (ids.ALPHABET) or extend the AST pin to criteria_compiler/app.py and console/cascade.py",
+   "from": "the external review of #1515 at 6229578d (7169788597), 2026-11-25"
+  },
+  {
+   "id": "H147-09",
+   "severity": "Medium",
+   "claim": "the nightly browser walk (tests/e2e/console_poc.js) waited for /pilot/cascade/[0-9A-Z]+ after Run cascade; a cascade run id is lower-case letters since 4eb0c2b1, so the nightly's console test, which allows no skip, would time out at the cascade step after the merge (review 1515-4; not on master)",
+   "severity_basis": "a nightly red after the merge; the PR's CI does not run the walk",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed ae92db6a",
+   "fix": "the wait takes [0-9A-Za-z]+ (the letter id and an older ULID); tests/unit/test_h147_ids_unmasked.py::test_the_browser_walk_waits_for_the_address_of_a_cascade_run_the_console_names (fails at 6229578d); no other walk, console test or e2e helper reads these ids by shape",
+   "from": "the external review of #1515 at 6229578d (7169788597), 2026-11-25"
+  }
+ ]
+}

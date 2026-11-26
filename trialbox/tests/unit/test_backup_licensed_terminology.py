@@ -13,6 +13,7 @@ import pytest
 from criteria_compiler.terminology import installed as inst
 from tb_common.db import Database
 
+from tests import pg_client
 from tools.trialbox import backup as bk
 from tools.trialbox import backup_schedule as bs
 
@@ -51,7 +52,7 @@ def test_a_restored_box_has_no_licensed_table_and_the_doctor_names_it(
     Database.connect(db_url, "site").migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY)"])
     priv, pub = tmp_path / "usb" / "backup.key", tmp_path / "box" / "backup.pub"
     bk.keygen(priv, pub)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "SYN"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "SYN"}
     (made,) = bk.backup([tmp_path / "nas"], pub, env=env, dirs={"terminology": terminology})
     assert b"V99SY01" not in made.read_bytes() and b"synthetic substance" not in made.read_bytes()
     restored = tmp_path / "restored"

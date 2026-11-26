@@ -32,13 +32,14 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from tb_common import ids
 from tb_common import service_auth as sa
 from tb_common.http import make_app
 from tb_contracts import IngestRequest, dump
 
 from adapter import failure, runs
 from adapter.cli import build_config
-from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
+from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
 
 log = logging.getLogger("adapter")
 
@@ -191,7 +192,7 @@ def run(req: IngestRequest) -> JSONResponse:
         if not waits:
             gate.release()
         raise
-    rid = os.urandom(8).hex()
+    rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
     state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None,
                              "detail": "waiting for a publish to end" if waits else ""}  # fmt: skip
     _runs[rid] = state
@@ -226,7 +227,8 @@ def run(req: IngestRequest) -> JSONResponse:
                 validate=req.validate_,
             )
             end.update(state="done", report=dump(report))
-        except (SiteKeyError, NoRoomForNight, LakeBudgetError) as exc:  # T-612, D-679: refused before anything was read
+        # T-612, D-679, U-5 (D-1280): refused before anything was read
+        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError) as exc:
             end.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)
@@ -264,6 +266,12 @@ def latest_run() -> dict[str, Any]:
     return {"state": "none"}
 
 
+def _plain_snapshot(snap: str) -> None:
+    """H-137: a snapshot is named by a plain folder name under the lake, never a path that leaves it (400)."""
+    if snap in (".", "..") or any(c in snap for c in "/\\\x00"):
+        raise HTTPException(status_code=400, detail="a snapshot is a plain folder name")
+
+
 class PublishBody(BaseModel):
     snapshot: str
     source: str = ""
@@ -284,6 +292,7 @@ def publish(body: PublishBody) -> JSONResponse:
 
     from adapter.publish import NothingToPublish, held_folder, publish_held, published
 
+    _plain_snapshot(body.snapshot)
     if not _running.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
     _accepting.set()  # second review (L1): from here a night's run waits, also while the accept is still checked
@@ -297,7 +306,7 @@ def publish(body: PublishBody) -> JSONResponse:
             if published(ac, body.snapshot):
                 _accepting.clear()
                 _running.release()
-                rid = os.urandom(8).hex()
+                rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
                 _publishes[rid] = {"run": rid, "state": "done", "started": _now(), "ended": _now(), "detail":
                                    "published already", "snapshot": body.snapshot, "steps": {},
                                    "promoted": True}  # fmt: skip
@@ -320,7 +329,7 @@ def publish(body: PublishBody) -> JSONResponse:
         _accepting.clear()
         _running.release()
         raise
-    rid = os.urandom(8).hex()
+    rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
     state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None, "detail": "",
                              "snapshot": body.snapshot, "steps": {}}  # fmt: skip
     _publishes[rid] = state
@@ -381,6 +390,7 @@ def validate(body: ValidateBody) -> dict[str, Any]:
             return {"ok": one.ok, "resource": one.resource, "profile": one.profile, "outcome": one.operation_outcome()}
         rep = v.validate(sample_per_type(body.resources, body.per_type))
     else:
+        _plain_snapshot(body.snapshot)
         lake = Path(os.environ.get("TB_LAKE_DIR") or build_config()[0].lake_dir)
         snap = body.snapshot or (list_snapshots(lake) or [""])[-1]
         if not snap or not snapshot_dir(lake, snap).is_dir():

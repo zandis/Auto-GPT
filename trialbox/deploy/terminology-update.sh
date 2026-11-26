@@ -11,6 +11,7 @@
 #
 #   deploy/terminology-update.sh                      # after the files changed, or a system was added to the folder
 #   deploy/terminology-update.sh --rollback BUNDLE    # the tables an update's code systems replaced, put back
+#   deploy/terminology-update.sh --scheduled          # M2 (V-19): a signed pack from TB_TERMINOLOGY_UPDATE_DIR or a stick
 #   deploy/terminology-update.sh --readers-only       # step 2 only (deploy/terminology.sh, after it loaded a system)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,6 +27,27 @@ if [ "${1:-}" = "--rollback" ]; then  # V-18: the tables kept aside by update BU
     || { echo "terminology-update: the kept tables were not put back (above); nothing changed" >&2; exit 2; }
   shift 2
   set -- "$@"
+fi
+if [ "${1:-}" = "--scheduled" ]; then  # M2 (V-19): run by trialbox-terminology.timer, before the night
+  # OCR 1523-2: the unit has no environment of its own: the settings come from deploy/.env (quotes removed, as compose
+  # reads it), as the project's name does
+  for k in TB_TERMINOLOGY_UPDATE_DIR TB_TERMINOLOGY_STICK TB_TERMINOLOGY_NIGHT; do
+    [ -n "${!k:-}" ] || export "$k=$(sed -n "s/^$k=//p" deploy/.env 2>/dev/null | tail -1 | sed "s/^[\"']//; s/[\"']\$//")"
+  done
+  STICKS=(); IFS=: read -ra FOLDERS <<< "${TB_TERMINOLOGY_STICK:-}"  # ":" between folders, as terminology_pack.py reads it
+  for s in "${FOLDERS[@]}"; do if [ -n "$s" ]; then STICKS+=(--stick "$s"); fi; done
+  PACK="$(PYTHONPATH=. python3 -m tools.terminology_pack find --update-dir "${TB_TERMINOLOGY_UPDATE_DIR:-}" "${STICKS[@]}")"
+  [ -n "$PACK" ] || { echo "terminology-update: no pack waiting"; exit 0; }
+  PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' deploy/.env 2>/dev/null | tail -1)"; PROJECT="${PROJECT:-trialbox}"
+  mkdir -p deploy/terminology/previous
+  # exit: 0 applied or waits, 3 refused (by name, nothing changed), 4 a reader failed (the old release is back)
+  # as deploy/terminology.sh: root, the volume's owner, with the volume writable (the service's own mount of it is
+  # read-only); the service's audit journal, never the audit volume (D-394)
+  exec docker compose --project-directory deploy run --rm --no-deps -T --user 0:0 -v "$PACK:/pack:ro" \
+    -v "$ROOT/deploy/terminology/previous:/keep" -v "$ROOT/deploy/keys:/keys:ro" \
+    -v "${PROJECT}_tb-terminology:/data/terminology-rw" -e TB_VENDOR_KEYS=/keys \
+    -e "TB_TERMINOLOGY_NIGHT=${TB_TERMINOLOGY_NIGHT:-}" criteria-compiler python -m tools.terminology_pack run \
+    --pack /pack --keep /keep --terminology /data/terminology-rw
 fi
 READERS_ONLY=0
 [ "${1:-}" != "--readers-only" ] || READERS_ONLY=1
@@ -48,7 +70,29 @@ docker rm -f tb-terminology-load >/dev/null 2>&1 || true
 COMPOSE=(docker compose --project-directory deploy)  # the files and profile of deploy/.env (COMPOSE_FILE), as installed
 if "${COMPOSE[@]}" run --rm --no-deps -T --name tb-terminology-load criteria-compiler \
     python -m tools.terminology_load load --report - >"$REPORT.new"; then
+  # review 1439-4: the systems an earlier load changed and no restart served stay pending in the new report
+  PYTHONPATH=. python3 -m tools.terminology_load carry --old "$REPORT" --new "$REPORT.new" || true
   mv -f "$REPORT.new" "$REPORT"
+  # V-18b (D-1183, V18-01): the store keeps its $lookup and $validate-code answers for minutes and no operation of
+  # it clears them, so after a load that changed a system it is restarted, and waited for until it is healthy
+  if PYTHONPATH=. python3 -m tools.terminology_load changed --report "$REPORT" >/dev/null; then
+    echo "code systems: restarting the FHIR store, so it answers from the new versions at once"
+    start=$(date +%s)
+    answered=no
+    if "${COMPOSE[@]}" restart fhir-store >/dev/null 2>&1; then
+      for _ in $(seq "${TB_FHIR_RESTART_TRIES:-60}"); do  # 15 s apart: the store's own start period is 90 s
+        cid="$("${COMPOSE[@]}" ps -q fhir-store 2>/dev/null)"
+        if [ -n "$cid" ] && [ "$(docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null)" = healthy ]; then
+          answered=yes
+          break
+        fi
+        sleep "${TB_FHIR_RESTART_STEP:-15}"
+      done
+    fi
+    PYTHONPATH=. python3 -m tools.terminology_load restarted --report "$REPORT" --answered "$answered" \
+      --seconds "$(( $(date +%s) - start ))"
+    [ "$answered" = yes ] || echo "terminology-update: warning: the FHIR store did not answer after its restart" >&2
+  fi
 else
   echo "terminology-update: warning: the vocabulary and the FHIR store were not loaded (above); run this again" >&2
   rm -f "$REPORT"

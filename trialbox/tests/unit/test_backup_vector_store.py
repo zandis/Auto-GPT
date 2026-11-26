@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from tests import pg_client
 from tests.unit.test_backup_without_pause import _lake_files
 from tools.trialbox import backup as bk
 
@@ -32,7 +33,7 @@ def site(db_url: str, tmp_path: Path) -> dict[str, Any]:
     (lake / "embed_cache.duckdb").write_bytes(b"vectors " * 512)
     priv, pub = tmp_path / "it.key", tmp_path / "box.pub"
     bk.keygen(priv, pub)
-    return {"lake": lake, "priv": priv, "pub": pub, "env": {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"},
+    return {"lake": lake, "priv": priv, "pub": pub, "env": {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"},
             "nas": tmp_path / "nas", "tmp": tmp_path}  # fmt: skip
 
 

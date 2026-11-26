@@ -5,7 +5,7 @@
     "concept": [
      {
       "code": "L04AX03",
-      "display": "methotrexate"
+      "display": "L04AX03"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -18,5 +18,5 @@
  "status": "active",
  "title": "methotrexate",
  "url": "http://trialbox.local/fhir/ValueSet/RA-COH-VS-METHOTREXATE",
- "version": "1.0.0-v972d8650"
+ "version": "1.0.0-v9b363a5f"
 }

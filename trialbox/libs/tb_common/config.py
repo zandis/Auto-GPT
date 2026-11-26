@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -105,6 +106,10 @@ class Env:
     smtp_user: str = ""
     smtp_pass: str = ""
     smtp_starttls: bool = True
+    # H-137 (the owner's decision, #639 7156806411 item 6): the mail servers' certificates are verified unless the
+    # server's switch is off; every start with a switch off is audited (mail_gateway.tls)
+    smtp_tls_verify: bool = True
+    imap_tls_verify: bool = True
     mail_intake_addr: str = "trialbox@localhost"
     mail_from_addr: str = "trialbox@localhost"
     fhir_base_url: str = "http://fhir-store:8080/fhir"
@@ -176,6 +181,8 @@ _ENV_MAP: dict[str, str] = {
     "SMTP_USER": "smtp_user",
     "SMTP_PASS": "smtp_pass",
     "SMTP_STARTTLS": "smtp_starttls",
+    "SMTP_TLS_VERIFY": "smtp_tls_verify",
+    "IMAP_TLS_VERIFY": "imap_tls_verify",
     "MAIL_INTAKE_ADDR": "mail_intake_addr",
     "MAIL_FROM_ADDR": "mail_from_addr",
     "FHIR_BASE_URL": "fhir_base_url",
@@ -248,7 +255,21 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
         raise ConfigError("TB_LLM_MODE must be vllm, llamacpp, openai or stub")
+    _check_module_keys(env.extra)
     return env
+
+
+def _check_module_keys(extra: Mapping[str, str]) -> None:
+    """F0: the keys of the system modules; unset or empty is the default, another form stops the start."""
+    for var in ("TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK"):
+        if any(not part.startswith("/") for part in re.split(r"[:\s]+", extra.get(var, "")) if part):
+            raise ConfigError(f"{var} must be empty or absolute folders, got {extra[var]!r}")
+    keys = extra.get("TB_VENDOR_KEYS", "")
+    if keys not in ("", DECLARED["TB_VENDOR_KEYS"].default) and not keys.startswith("/"):
+        raise ConfigError(f"TB_VENDOR_KEYS must be an absolute folder, got {keys!r}")
+    night = extra.get("TB_TERMINOLOGY_NIGHT", "")
+    if night and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d", night):
+        raise ConfigError(f"TB_TERMINOLOGY_NIGHT must be HH:MM-HH:MM or empty, got {night!r}")
 
 
 def load_settings(path: Path) -> Settings:
@@ -645,6 +666,9 @@ DECLARED: dict[str, Declared] = {
         "float", "40", "compiler: tokens a second the model writes, sizing an extraction part to the timeout (D-981)"
     ),
     "TB_EXTRA_CA_FILE": Declared("path", "", "extra CA bundle the services trust"),
+    "TB_EXTRA_CA": Declared("path", "", "host path of the hospital's CA file, mounted as TB_EXTRA_CA_FILE"),
+    "TB_NET_SUBNET": Declared("str", "172.31.252.0/24", "the box's internal range behind Caddy (H-137)"),
+    "TB_PROXY_ADDR": Declared("str", "172.31.252.250", "Caddy's fixed address, the console's one trusted proxy"),
     "TB_FEED_DROP_OVERRIDE": Declared("str", "", "allow one feed load that drops too many rows"),
     "TB_FEED_MAX_DROP_PCT": Declared("float", "", "largest row drop a feed load may make"),
     "TB_FHIR_PACKAGE_HOME": Declared("str", "/opt/hl7/home", "FHIR validator package folder"),
@@ -801,6 +825,11 @@ DECLARED: dict[str, Declared] = {
         "float",
         "1800",
         "jobs: seconds a job waits in model outages in all; a server reloads in minutes (0: no wait; D-456)",
+    ),
+    "TB_LLM_PREFIX_CACHING": Declared(
+        "str",
+        "no-enable",
+        "compose: model servers' prefix cache, no-enable (off) or enable (on: runs may differ; D-1462)",
     ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
     "TB_JOBS_PER_SENDER_PER_DAY": Declared(
@@ -1102,7 +1131,12 @@ DECLARED: dict[str, Declared] = {
         "/data/terminology",
         "compiler (D-1028, D-858): code systems loaded on the box, each with its manifest line",
     ),
+    "TB_TERMINOLOGY_NIGHT": Declared("str", "", "M2: HH:MM-HH:MM in which a found pack waits; empty: not checked"),
     "TB_TERMINOLOGY_SOURCE": Declared("str", "", "compiler: terminology source"),
+    "TB_TERMINOLOGY_STICK": Declared("str", "", "M2: the sticks' folders, where a signed code-system pack may be"),
+    "TB_TERMINOLOGY_UPDATE_DIR": Declared(
+        "path", "", "M2: folder a signed code-system pack is put in; empty: stick only"
+    ),
     "TB_TESTBENCH_E2E": Declared("str", "", "testbench: run the e2e entry point"),
     "TB_TESTBENCH_E2E_STRICT": Declared("bool", "", "testbench: a failing entry point fails the run"),
     "TB_TESTBENCH_HOST": Declared("str", "127.0.0.1", "testbench: address"),
@@ -1151,6 +1185,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_VALIDATOR_IGS": Declared("str", "tw.gov.mohw.twcore#1.0.0", "FHIR validator: guides loaded"),
     "TB_VALIDATOR_XMX": Declared("str", "4g", "FHIR validator: Java heap"),
+    "TB_VENDOR_KEYS": Declared("path", "deploy/keys", "M2: folder of the vendor's public keys a pack is checked with"),
     "TB_VAULT_DIR": Declared("path", "", "testbench: vault folder"),
     "TB_VAULT_URL": Declared("str", "", "testbench: vault URL"),
     "TB_WEIGHTS_FLAG": Declared("path", "", "doctor --verify-all: where the weights flag file goes (D-393)"),

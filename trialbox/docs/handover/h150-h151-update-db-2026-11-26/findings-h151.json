@@ -1,0 +1,54 @@
+{
+ "card": "H151",
+ "title": "the rollback restores each database into a fresh one and swaps the names",
+ "date": "2026-11-26",
+ "source": "docs/handover/h150-h151-update-db-2026-11-26.md",
+ "note": "basis 'shown' means shown on the local test cluster (PostgreSQL 16, tools/pglocal.py) by the card's tests and by the old restore script run there; pg_trgm stands in for the box's vector and pgroonga extensions, which the test cluster here does not have; no db container ran.",
+ "findings": [
+  {
+   "id": "H151-01",
+   "severity": "High",
+   "claim": "the rollback's restore (update.RESTORE_SH, pg_restore --clean over the database in place) exits 3 on a lake whose tables are partitioned: --clean drops the key of a partition child, which PostgreSQL refuses ('cannot drop inherited constraint visit_occurrence_ydefault_pkey'), and the rollback failed with the box between two releases (the bench's red, reproduced exactly)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the dump loads, without --clean, into a database made fresh beside the one in place (template0, its owner, encoding, collation, connection limit and grants, its extensions made by the superuser), in one transaction; the two names are swapped in one transaction only after the whole load, and the replaced database is dropped; a failure or a signal drops the fresh one and leaves the database in place untouched"
+  },
+  {
+   "id": "H151-02",
+   "severity": "High",
+   "claim": "the old restore also fails on any database holding an extension the restoring role does not own (--clean drops the extension: 'must be owner of extension'); trialbox_wf holds vector and pgroonga, made by the image's superuser, so its rollback could not have succeeded on a box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the superuser makes the dump's extensions and their comments in the fresh database from the archive's own list (pg_restore -l, -L); the role's load holds every other entry"
+  },
+  {
+   "id": "H151-03",
+   "severity": "Low",
+   "claim": "the fresh database needs room for the largest database a second time on the db volume while the rollback runs",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the update's space check counts it on Docker's volumes beside the rollback script"
+  },
+  {
+   "id": "H151-04",
+   "severity": "High",
+   "claim": "the first version of the fix made the extensions with grep '^CREATE EXTENSION ' over the whole plain script, COPY data included, so a stored text value at the start of a row (CREATE EXTENSION ...; <SQL>; --) ran as the superuser (the integrator's review 7181403737, 1535-1; reproduced by the card's regression test)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the archive's own list (pg_restore -l) is split by each entry's kind and each part restored with -L; no line of generated SQL is picked out"
+  },
+  {
+   "id": "H151-05",
+   "severity": "High",
+   "claim": "the first version left out grep -v '^COMMENT ON EXTENSION ' lines from the role's load, so a COPY row with that prefix was dropped, the load committed and the swap put the short database in place (the integrator's review 7181403737, 1535-2; reproduced by the card's regression test)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the same: extension comments are entries of the superuser's list, and the role's load is every other entry of the archive, whole"
+  }
+ ]
+}
