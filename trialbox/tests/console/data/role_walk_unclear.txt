@@ -62,11 +62,13 @@ GET /api/v1/studies/{rs}/candidates/{pid} pi
 GET /api/v1/studies/{rs}/candidates/{pid} smo_in
 GET /api/v1/studies/{rs}/candidates/{pid} sub
 GET /api/v1/studies/{rs}/edc/copy crc
+GET /api/v1/studies/{rs}/edc/copy pi
 GET /api/v1/studies/{rs}/edc/copy smo_in
 GET /api/v1/studies/{rs}/edc/drafts crc
 GET /api/v1/studies/{rs}/edc/drafts pi
 GET /api/v1/studies/{rs}/edc/drafts smo_in
 GET /api/v1/studies/{rs}/edc/export/odm crc
+GET /api/v1/studies/{rs}/edc/export/odm pi
 GET /api/v1/studies/{rs}/edc/export/odm smo_in
 GET /api/v1/studies/{rs}/edc/trail/{record} crc
 GET /api/v1/studies/{rs}/edc/trail/{record} pi
@@ -298,6 +300,7 @@ POST /api/v1/studies/{rs}/edc/import/odm crc
 POST /api/v1/studies/{rs}/edc/import/odm pi
 POST /api/v1/studies/{rs}/edc/import/odm smo_in
 POST /api/v1/studies/{rs}/edc/send crc
+POST /api/v1/studies/{rs}/edc/send pi
 POST /api/v1/studies/{rs}/edc/send smo_in
 POST /api/v1/studies/{rs}/edc/sign crc
 POST /api/v1/studies/{rs}/edc/sign pi
@@ -445,14 +448,12 @@ POST /studies/{rs}/edc/copy/{record}/tick smo_in
 POST /studies/{rs}/edc/decide/{draft_id} crc
 POST /studies/{rs}/edc/decide/{draft_id} pi
 POST /studies/{rs}/edc/decide/{draft_id} smo_in
-POST /studies/{rs}/edc/dictionary pi
 POST /studies/{rs}/edc/drafts crc
 POST /studies/{rs}/edc/drafts pi
 POST /studies/{rs}/edc/drafts smo_in
 POST /studies/{rs}/edc/import crc
 POST /studies/{rs}/edc/import pi
 POST /studies/{rs}/edc/import smo_in
-POST /studies/{rs}/edc/map pi
 POST /studies/{rs}/edc/send crc
 POST /studies/{rs}/edc/send pi
 POST /studies/{rs}/edc/send smo_in

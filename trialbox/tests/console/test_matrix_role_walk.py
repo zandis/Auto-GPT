@@ -314,11 +314,7 @@ VALIDATES_FIRST: set[str] = {
 
 
 #: answers against the declared row that a finding names: (method, path, column) -> finding id
-KNOWN: dict[tuple[str, str, str], str] = {
-    ("GET", "/api/v1/studies/{rs}/edc/copy", "pi"): "V2-05",
-    ("GET", "/api/v1/studies/{rs}/edc/export/odm", "pi"): "V2-05",
-    ("POST", "/api/v1/studies/{rs}/edc/send", "pi"): "V2-05",
-}
+KNOWN: dict[tuple[str, str, str], str] = {}
 
 
 @pytest.fixture

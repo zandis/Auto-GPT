@@ -107,7 +107,7 @@ CRITERIA: dict[int, dict[str, Any]] = {
         "files": r"edc|redcap|withdraw|signing",
         "rest": "lane E's REDCap container, the owner's EDC, CGRD on the owner's PC (V14, V15)",
         "bears": "drafting, signing and sending against stubs; not the round trip",
-        "note": "the withdrawal rule fails: test_v15_withdrawal_data_use.py, strict xfail, V15-06",
+        "note": "the withdrawal rule holds in-process: test_v15_withdrawal_data_use.py (V15-06, fixed in M7)",
     },
     7: {
         "files": r"help|role_guide|journey",
