@@ -799,7 +799,7 @@ class EdcService:
                         got = back.value(rec, slot, str(d["item"]))
                         if got == fmt[int(d["id"])]:
                             out["sent"].append(_brief(d))
-                            ref = refs.get((rec, str(d["item"])))
+                            ref = refs.get((rec, str(d["item"]), slot.instance or 1))
                             linked.extend([ref] if ref else [])
                             self.store.record_sent(rs, d, "redcap", rec, "sent", "read back equal", by, at,
                                                    redcap_log=ref or "")  # fmt: skip
@@ -1294,7 +1294,9 @@ POC_ENVS = ("DEV", "TEST", "VALIDATION")  # M7 (R1-E6): the boxes the PRODUCTION
 LOG_REFS_MAX = 200  # the references one send's audit line carries at most
 
 
-def _log_refs(c: RedcapClient, today: date, done: list[tuple[str, str, int]]) -> tuple[dict[tuple[str, str], str], str]:
+def _log_refs(
+    c: RedcapClient, today: date, done: list[tuple[str, str, int]]
+) -> tuple[dict[tuple[str, str, int], str], str]:
     """M7 (R1-E5): REDCap's own log line (``content=log``, the record writes since yesterday, so a server clock in
     another zone is still covered) for each (record, field, repeat instance) just written: "<time> <user> <action>"
     of the newest line that names the field in TrialBox's kind of write (an import or the API: a person's own edit
@@ -1304,7 +1306,7 @@ def _log_refs(c: RedcapClient, today: date, done: list[tuple[str, str, int]]) ->
         rows = c.project_log(logtype="record", begin_time=f"{today - timedelta(days=1)} 00:00")
     except RcError as exc:
         return {}, exc.code
-    hits: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    hits: dict[tuple[str, str, int], list[dict[str, Any]]] = {}  # by (record, field, instance): one line each
     for e in sorted(rows, key=lambda e: str(e.get("timestamp") or "")):
         rec, details = str(e.get("record") or ""), str(e.get("details") or "")
         action = str(e.get("action") or "")
@@ -1314,7 +1316,7 @@ def _log_refs(c: RedcapClient, today: date, done: list[tuple[str, str, int]]) ->
         there = int(m.group(1)) if m else 1
         for r, f, inst in done:
             if rec == r and there == (inst or 1) and re.search(rf"(^|[\s,]){re.escape(f)}(\(\w+\))? = ", details):
-                hits.setdefault((r, f), []).append(e)
+                hits.setdefault((r, f, inst or 1), []).append(e)
     refs = {
         key: " ".join(str(es[-1].get(k) or "") for k in ("timestamp", "username", "action")).strip()
         for key, es in hits.items()

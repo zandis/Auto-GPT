@@ -153,10 +153,27 @@ def test_the_log_line_kept_is_only_trialboxs_own_on_that_instance() -> None:
         ([mine, _line("2026-11-09 10:05", "other_api", "Update record (import) 1", "w = '71'")], None),
     ):  # fmt: skip
         refs, unread = _log_refs(_LogOf(rows), date(2026, 11, 9), [("1", "w", 0)])  # type: ignore[arg-type]
-        assert unread == "" and refs.get(("1", "w")) == want
+        assert unread == "" and refs.get(("1", "w", 1)) == want
     refs, _ = _log_refs(_LogOf([mine, _line("2026-11-09 10:06", "tb_api", "Update record (import) 1",
                                             "w = '72', [instance = 2]")]), date(2026, 11, 9), [("1", "w", 2)])  # type: ignore[arg-type]  # fmt: skip
-    assert refs[("1", "w")].endswith("Update record (import) 1") and refs[("1", "w")].startswith("2026-11-09 10:06")
+    assert refs[("1", "w", 2)].endswith("Update record (import) 1") and refs[("1", "w", 2)].startswith(
+        "2026-11-09 10:06"
+    )
+
+
+@pytest.mark.nodb
+def test_one_send_of_a_field_on_two_instances_keeps_each_instances_own_line() -> None:
+    """1530 review round 2: the same field of one record written on instance 1 and 2 in one send: each ledger row
+    gets the line of its own instance, never the newest of both."""
+    from datetime import date
+
+    from edc.service import _log_refs
+
+    one = _line("2026-11-09 10:00", "tb_api", "Update record (import) 1", "w = '70'")
+    two = _line("2026-11-09 10:01", "tb_api", "Update record (import) 1", "w = '71', [instance = 2]")
+    refs, unread = _log_refs(_LogOf([one, two]), date(2026, 11, 9), [("1", "w", 1), ("1", "w", 2)])  # type: ignore[arg-type]
+    assert unread == ""
+    assert refs[("1", "w", 1)].startswith("2026-11-09 10:00") and refs[("1", "w", 2)].startswith("2026-11-09 10:01")
 
 
 # ------------------------------------------------------------------------------------------------- R1-E6
