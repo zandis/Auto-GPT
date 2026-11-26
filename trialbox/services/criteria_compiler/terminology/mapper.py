@@ -504,7 +504,11 @@ class Terminology:
         """The concept's codes. E-TERM-3 (D-1048): while a site list is refused, every answer says it was not read."""
         res = self._map(domain, name, synonyms, llm)
         opened = {(SYSTEMS.get(s["table"], ""), s["code"]) for s in self.synonyms if s["match"] == "family"}
-        res.open_families = sorted(set(res.families) & opened)
+        # V-18b (D-1183) x INT-R2 (D-1074): an ATC ``family`` row is unknown, never a member family, so it leaves
+        # ``families`` (the grouper's prefix families) for ``open_families``; the ValueSet writes both
+        atc_open = {f for f in res.families if f in opened and f[0] == SYSTEMS["atc"]}
+        res.families = [f for f in res.families if f not in atc_open]
+        res.open_families = sorted((set(res.families) & opened) | atc_open)
         for r in self.refused_site_lists():
             res.notes.append(f"site list {r['table']} was not read; the shipped tables answered")
         return res
@@ -1035,8 +1039,9 @@ def valueset(
         "status": status,
         "compose": compose,
     }
-    if families:
-        vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{sy}|{pre}"} for sy, pre in sorted(set(families))]
+    if families or open_families:
+        every = set(families or []) | set(open_families or [])
+        vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{sy}|{pre}"} for sy, pre in sorted(every)]
     if needs_review:
         vs["meta"] = {"tag": [{"system": REVIEW_TAG_SYSTEM, "code": "needs_review"}]}
     return vs
