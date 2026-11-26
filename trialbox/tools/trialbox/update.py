@@ -1038,13 +1038,54 @@ REFDATA_SWEEP_SH = 'rm -rf -- "${TMPDIR:?}"/tb-refdata-*'
 # own under PGDATA (the volume's mount point is PGDATA itself, so no sibling exists; the only other postgres-owned
 # mount, the pgBackRest repository, is the hospital's off-box share when archiving is on, no place for a plaintext
 # script). 0700, emptied first (a killed rollback's leftover) and removed on every exit. ``space_needs`` counts it.
+# H-151: never ``--clean`` over the database in place: on a partitioned lake it drops the key of a partition child,
+# which PostgreSQL refuses ("cannot drop inherited constraint"), and the rollback failed half way. The dump loads into
+# a database made fresh beside it (``<db>_tbrb``: template0, the owner, encoding, collation, connection limit and
+# grants of the one in place; the dump's extensions made by the superuser first, as the image's init script makes
+# them, which also gives each its comment, a line the role, not their owner, may not run), as the role, in one
+# transaction. Only when the whole load committed are the two names swapped, in one transaction (``<db>`` becomes
+# ``<db>_tbold``, then dropped). Until then the database in place is untouched: a failure or a signal drops the
+# fresh one on the way out, and the marker stays (the rollback can run again, and drops a fresh or a replaced
+# database a killed run left). The superuser is the container's POSTGRES_USER (the role itself where none is named:
+# it needs CREATEDB then). ``space_needs`` counts the fresh database too.
 RESTORE_DIR = "${PGDATA:?}/tb-rollback"
+RESTORE_MAKE_SQL = (
+    'DROP DATABASE IF EXISTS :"n" WITH (FORCE);\n'
+    'DROP DATABASE IF EXISTS :"o" WITH (FORCE);\n'
+    "SELECT format('CREATE DATABASE %I WITH TEMPLATE template0 OWNER %I ENCODING %L LC_COLLATE %L LC_CTYPE %L "
+    "CONNECTION LIMIT %s', :'n', pg_get_userbyid(datdba), pg_encoding_to_char(encoding), datcollate, datctype, "
+    "datconnlimit) FROM pg_database WHERE datname = :'db' \\gexec\n"
+    "SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'n') \\gexec\n"
+    "SELECT format('GRANT %s ON DATABASE %I TO %s%s', a.privilege_type, :'n', CASE a.grantee WHEN 0 THEN 'PUBLIC' "
+    "ELSE quote_ident(pg_get_userbyid(a.grantee)) END, CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' "
+    "END) FROM pg_database d CROSS JOIN LATERAL aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a "
+    "WHERE d.datname = :'db' \\gexec\n"
+)
+RESTORE_SWAP_SQL = (
+    "SELECT count(pg_terminate_backend(pid)) AS ended FROM pg_stat_activity\n"
+    "  WHERE datname IN (:'db', :'n') AND pid <> pg_backend_pid() \\gset\n"
+    "BEGIN;\n"
+    'ALTER DATABASE :"db" RENAME TO :"o";\n'
+    'ALTER DATABASE :"n" RENAME TO :"db";\n'
+    "COMMIT;\n"
+)
 RESTORE_SH = (
-    f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1; '
-    "trap 'rm -rf -- \"$d\"' EXIT; trap 'exit 1' HUP INT TERM; "
-    't=$(mktemp -p "$d") || exit 1; '
-    'pg_restore --clean --if-exists --no-owner -f "$t" || exit 1; '
-    '{ printf "%s\\n" "$3"; cat "$t"; } | psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$1" -d "$2"'
+    f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1\n'
+    'r="$1"; db="$2"; reset="$3"; n="${db}_tbrb"; o="${db}_tbold"; made=\n'
+    'adm() { psql -X -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-$r}" -v db="$db" -v n="$n" -v o="$o" "$@"; }\n'
+    "gone() { [ -z \"$made\" ] || printf '%s\\n' 'DROP DATABASE IF EXISTS :\"n\" WITH (FORCE);' | adm -d postgres; }\n"
+    "trap 'gone; rm -rf -- \"$d\"' EXIT; trap 'exit 1' HUP INT TERM\n"
+    't=$(mktemp -p "$d") || exit 1\n'
+    'pg_restore --no-owner -f "$t" || exit 1\n'
+    "made=1\n"
+    f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_MAKE_SQL}TBSQL\n"
+    'grep \'^CREATE EXTENSION \' "$t" | adm -d "$n" || exit 1\n'
+    '{ printf "%s\\n" "$reset"; grep -v "^COMMENT ON EXTENSION " "$t"; } '
+    '| psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$r" -d "$n" || exit 1\n'
+    f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_SWAP_SQL}TBSQL\n"
+    "made=\n"
+    "printf '%s\\n' 'DROP DATABASE IF EXISTS :\"o\" WITH (FORCE);' | adm -d postgres "
+    '|| echo "restore: $db is restored; the database it replaced is left as $o (the next rollback drops it)" >&2\n'
 )
 # Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
 # its relations in public (not an extension's). D-541: and what the database's owner owns (the FHIR store's own role
@@ -2323,7 +2364,11 @@ class ComposeBox(_DockerImages):
                  (self.deploy.parent, 2 * plan.payload_bytes("host"), "host tree (unpacked)"),
                  # H10G1-05: a rollback writes one database's plain script on the db volume (RESTORE_DIR), under
                  # Docker's root on a box; a plain script is about the database's size or less (no indexes)
-                 (root / "volumes", largest, "rollback script (largest database) on the db volume")]  # fmt: skip
+                 (root / "volumes", largest, "rollback script (largest database) on the db volume"),
+                 # H-151: the rollback loads the dump into a fresh database beside the one in place (RESTORE_SH), on
+                 # the same volume; a restored database is about the size it had (indexes included)
+                 (root / "volumes", largest,
+                  "fresh database during a rollback (largest database) on the db volume")]  # fmt: skip
         for t in [t for t in (self.env.get("TB_BACKUP_TARGETS") or "").replace(",", " ").split() if t]:
             needs.append((Path(t), sizes, "backup (at least the databases)"))
         return needs
@@ -2410,6 +2455,56 @@ class ComposeBox(_DockerImages):
             return False
         return bool(src) and src == os.path.realpath(self.deploy / "docker" / "db-init")
 
+    #: H-150: the format of ``docker inspect`` for :meth:`lacking_names`: a container's compose service, then each of
+    #: its networks with the names it answers to there
+    NAMES_FMT = (
+        '{{index .Config.Labels "com.docker.compose.service"}}'
+        '{{range $k, $v := .NetworkSettings.Networks}} {{$k}}={{join $v.Aliases ","}}{{end}}'
+    )
+    #: the engine's own networks, which carry no service names
+    ENGINE_NETWORKS = frozenset({"host", "none", "bridge"})
+
+    @classmethod
+    def lacking_names(cls, inspected: str) -> dict[str, list[str]]:
+        """H-150: ``{service: [network, ...]}`` for each container (a line of :data:`NAMES_FMT`) that does not answer
+        to its service's name on one of its networks; the engine's own networks are left out."""
+        out: dict[str, list[str]] = {}
+        for line in inspected.splitlines():
+            svc, *nets = line.split()
+            for net in nets:
+                name, _, names = net.partition("=")
+                if name not in cls.ENGINE_NETWORKS and svc not in names.split(","):
+                    out.setdefault(svc, []).append(name)
+        return out
+
+    def _names(self) -> dict[str, list[str]]:
+        ids = self.run(self._c("ps", "-a", "-q")).split()
+        if not ids:
+            return {}
+        return self.lacking_names(self.run([*self.docker, "inspect", "-f", self.NAMES_FMT, *ids]))
+
+    def keep_names(self) -> list[str]:
+        """H-150: compose makes a network again when its settings changed (a release's new address range, H-137),
+        but only when every container on it is in the command's selection, and it reconnects the containers that
+        were there without their service's name: the next ``up`` of the whole project left ``db`` with no name on
+        trialbox-net, and nothing could find the database. So, before the database starts, the networks are put on
+        this release's settings by the box's own compose (``up --no-start --no-recreate``: nothing is started and
+        no container is recreated), and each service whose container lacks its name on one of its networks is
+        recreated by the same compose (``up --no-start --no-deps --force-recreate``), never by a raw engine call.
+        Returns the services recreated; one still without its name stops the update."""
+        t = self.up_wait()
+        self.run(self._c("up", "--no-start", "--no-recreate", "--pull", self._pull()), timeout=t + 120)
+        lacking = self._names()
+        if not lacking:
+            return []
+        self.run(self._c("up", "--no-start", "--no-deps", "--force-recreate", "--pull", self._pull(), *sorted(lacking)),
+                 timeout=t + 120)  # fmt: skip
+        still = self._names()
+        if still:
+            said = "; ".join(f"{svc}: no name on {', '.join(nets)}" for svc, nets in sorted(still.items()))
+            raise UpdateFailed(f"recreated through compose, still without their service's name: {said}")
+        return sorted(lacking)
+
     def db_on_new_settings(self) -> str:
         """D-624: the ``db`` service as the release now in force makes it, before anything is run in it. Two things
         of the container are still the previous release's until here. Its environment: the role script reads each
@@ -2418,14 +2513,17 @@ class ComposeBox(_DockerImages):
         Compose recreates a container when its settings changed and leaves it otherwise; when the folder it holds
         is not this release's (or Docker cannot say), it is made again here. The final ``up`` recreated it before;
         what is still running then (``fhir-store`` always, every service with ``--no-backup``) loses its
-        connections a little earlier and is recreated by that ``up``."""
+        connections a little earlier and is recreated by that ``up``. H-150: first the networks are put on this
+        release's settings and every service keeps its name on them (:meth:`keep_names`)."""
         if not self.env.get("TB_DB_URL", ""):  # as set_roles
             return "no database step on this box"
+        renamed = self.keep_names()  # H-150: before the database's own check and start
+        note = f"; {', '.join(renamed)} recreated through compose (no service name on a network)" if renamed else ""
         t = str(self.up_wait())
         again = [] if self._db_scripts_are_this_releases() else ["--force-recreate"]
         self.run(self._c("up", "-d", "--pull", self._pull(), *again, "--wait", "--wait-timeout", t, "db"),
                  timeout=int(t) + 120)  # fmt: skip
-        return "made again: it held another release's scripts" if again else "on this release's settings"
+        return ("made again: it held another release's scripts" if again else "on this release's settings") + note
 
     def fhir_password_set(self) -> bool:
         """Whether ``.env`` holds a password for the FHIR store's role: not empty and not the example file's

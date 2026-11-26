@@ -470,3 +470,34 @@ command would import it). Look in the folder for a change of your own first, the
 The doctor's checks that need the box image's libraries, the services' code or `models/` (`doctor.IMAGE_CHECKS`) run
 in a one-off container of the box's own image when `trialbox doctor` is typed on the host; a check that cannot run
 there is a FAIL that says why, never a pass.
+
+**The update's networks (H-150).** Before the database starts, an update's database step (`python3 -m tools.trialbox
+db-up`, run by the release being installed) puts the box's networks on that release's settings with the box's own
+compose, then recreates through compose every container that does not answer to its service's name on one of its
+networks; the line says so ("db, orchestrator recreated through compose (no service name on a network)"). A container
+still without its name stops the update, which is then rolled back. Before H-150, a release that changed a network's
+settings (H-137's address range behind Caddy) left `db` with no name on trialbox-net, and the services could not find
+it ("failed to resolve host 'db'").
+
+**The rollback's database restore (H-151).** A release that carries H-151 puts each database back by loading the
+dump into a database made fresh beside the one in place (`<db>_tbrb`, with its owner, encoding, collation and grants),
+and swaps the two names in one transaction only when the whole load is in; the replaced database (`<db>_tbold`) is
+then dropped. A restore that fails or is stopped leaves the database in place as it was and the marker in place: run
+the rollback again. The volume needs room for the largest database twice while it runs; the update's space check
+counts it.
+
+**A rollback to a release from before H-150 and H-151.** The rollback runs the code of the release it goes back to,
+so these two fixes do not help it. It can stop in two ways; the marker stays in both.
+
+- `cannot drop inherited constraint "..._ydefault_pkey"` (a partitioned lake: every box whose lake has been loaded)
+  or `must be owner of extension`: that release's restore cannot put the databases back, and running
+  `tools/apply_update.sh rollback <bundle>` again stops the same way. The failed restore changed nothing: the
+  databases are still the update's. Leave the services stopped and the marker in place. Put the data back with
+  **Restore** above (`trialbox restore <file> --key <private key> --yes`), from the backup the update took before it
+  changed anything (the newest backup on the targets that `deploy/updates/history.jsonl` names at its
+  `backup (D-126)` step), and call the vendor: no command of that release removes the marker after it.
+- `failed to resolve host 'db'` after the database step passed: from the install folder, run once
+
+      docker compose --project-directory deploy up -d --force-recreate
+
+  then `tools/apply_update.sh rollback <bundle>` again: the network then matches that release's files.

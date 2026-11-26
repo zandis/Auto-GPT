@@ -220,7 +220,7 @@ def test_compose_box_rolls_back_images_models_and_database(tmp_path: Path, deplo
     lines = [" ".join(c) for c in run.calls]
     assert "docker tag trialbox-py:rollback-B1 trialbox-py:1.0.0" in lines
     restores = [ln for ln in lines if "pg_restore" in ln]
-    assert len(restores) == 2 and all("--clean" in ln for ln in restores)
+    assert len(restores) == 2 and not any("--clean" in ln for ln in restores) and all("_tbrb" in ln for ln in restores)
     assert (tmp_path / "models/judge/config.json").read_text() == "old"
     assert not (tmp_path / "models/judge/new.bin").exists()
 

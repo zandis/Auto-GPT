@@ -1,0 +1,45 @@
+{
+ "card": "H151",
+ "title": "the rollback restores each database into a fresh one and swaps the names",
+ "date": "2026-11-26",
+ "source": "docs/handover/h150-h151-update-db-2026-11-26.md",
+ "note": "basis 'shown' means shown on the local test cluster (PostgreSQL 16, tools/pglocal.py) by the card's tests and by the old restore script run there; pg_trgm stands in for the box's vector and pgroonga extensions, which the test cluster here does not have; no db container ran.",
+ "findings": [
+  {
+   "id": "H151-01",
+   "severity": "High",
+   "claim": "the rollback's restore (update.RESTORE_SH, pg_restore --clean over the database in place) exits 3 on a lake whose tables are partitioned: --clean drops the key of a partition child, which PostgreSQL refuses ('cannot drop inherited constraint visit_occurrence_ydefault_pkey'), and the rollback failed with the box between two releases (the bench's red, reproduced exactly)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the dump loads, without --clean, into a database made fresh beside the one in place (template0, its owner, encoding, collation, connection limit and grants, its extensions made by the superuser), in one transaction; the two names are swapped in one transaction only after the whole load, and the replaced database is dropped; a failure or a signal drops the fresh one and leaves the database in place untouched"
+  },
+  {
+   "id": "H151-02",
+   "severity": "High",
+   "claim": "the old restore also fails on any database holding an extension the restoring role does not own (--clean drops the extension: 'must be owner of extension'); trialbox_wf holds vector and pgroonga, made by the image's superuser, so its rollback could not have succeeded on a box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the superuser makes the dump's extensions in the fresh database (which also gives each its comment) and the role's load leaves out the COMMENT ON EXTENSION lines it may not run"
+  },
+  {
+   "id": "H151-03",
+   "severity": "High",
+   "claim": "the rollback runs in the process of the release installed before the update, so a box on c3a5b2b2 or 440089e8 still rolls back with the old --clean restore and still fails on a partitioned lake; only a rollback from a release that carries H-151 is fixed",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "runbook page 05 says so: no shipped command of those releases completes that rollback; keep the marker, put the data back from the backup the update took (trialbox restore), call the vendor; the fixed restore is proved by an update from the candidate to a later bundle and a forced rollback"
+  },
+  {
+   "id": "H151-04",
+   "severity": "Low",
+   "claim": "the fresh database needs room for the largest database a second time on the db volume while the rollback runs",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the update's space check counts it on Docker's volumes beside the rollback script"
+  }
+ ]
+}
