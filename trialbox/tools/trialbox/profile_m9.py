@@ -136,6 +136,18 @@ def _card(inp: Any) -> str | None:
     return r.stdout.splitlines()[0].strip() if r.returncode == 0 and r.stdout.strip() else None
 
 
+def _mig(inp: Any) -> str:
+    if inp.gpu_query is not None:
+        return ""
+    smi = shutil.which("nvidia-smi") or "/usr/lib/wsl/lib/nvidia-smi"
+    try:
+        r = subprocess.run([smi, "--query-gpu=mig.mode.current", "--format=csv,noheader"], capture_output=True,
+                           text=True, timeout=15, check=False)  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.splitlines()[0].strip() if r.returncode == 0 and r.stdout.strip() else ""
+
+
 def doctor_checks(inp: Any) -> list[tuple[str, str, str]]:
     if inp.deploy is None:  # not a box's own files (as M1's rows): nothing to look at
         return []
@@ -150,7 +162,7 @@ def doctor_checks(inp: Any) -> list[tuple[str, str, str]]:
         kib = next(
             ln.split()[1] for ln in (inp.proc / "meminfo").read_text().splitlines() if ln.startswith("MemTotal:")
         )
-    d = detect(os.uname().machine, card, mem_kib=kib)
+    d = detect(os.uname().machine, card, _mig(inp), kib)
     rec = record(d["profile"]) if d["ok"] else None
     if rec is None:
         return [*rows, ("profile", "PASS" if d["ok"] else "FAIL", d["line"])]

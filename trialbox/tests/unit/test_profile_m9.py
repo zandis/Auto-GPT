@@ -115,6 +115,15 @@ def test_doctor_rows_come_through_the_hook(monkeypatch: pytest.MonkeyPatch, tmp_
     assert {c.name for c in doctor.module_rows(stub, [])} >= {"docker_engine"}
 
 
+def test_doctor_refuses_the_profile_with_mig_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(pm, "server_info", lambda: ("26.0.0", "Docker Engine"))
+    monkeypatch.setattr(pm, "_mig", lambda inp: "Enabled")
+    (tmp_path / "meminfo").write_text("MemTotal:  527000000 kB\n", encoding="utf-8")
+    inp = doctor.DoctorInputs(env={"TB_LLM_MODE": "gpu"}, deploy=tmp_path, proc=tmp_path, gpu_query=lambda: (PRO, "580"))
+    rows = {c.name: c for c in doctor.module_rows(inp, [])}
+    assert rows["profile"].status == "FAIL" and "refused" in rows["profile"].detail
+
+
 def test_proof_script_is_runnable_and_refuses_without_its_steps() -> None:
     f = ROOT / "tools/prove_profile_96gb.sh"
     assert os.access(f, os.X_OK)

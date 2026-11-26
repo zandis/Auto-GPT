@@ -30,7 +30,17 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 TARGET_MIB=97887   # deploy/measured/profile_record.rtxpro6000.json hardware_seen.memory_total_mib
 CAP_BYTES=$((48 * 1024 * 1024 * 1024))   # TB_MEM_LLM and TB_MEM_VERIFIER of the record
+python3 - "$DEPLOY/.env" <<'PY' || exit 2   # a PRODUCTION box is never touched: restore and compose down run here
+import sys
+from pathlib import Path
+from tools import ballast
+try:
+    ballast.refuse_production(Path(sys.argv[1]))
+except ballast.Refused as e:
+    sys.exit(f"refused: {e.code}: {e.text}")
+PY
 mkdir -p "$OUT"; ROWS="$OUT/rows.tsv"; : > "$ROWS"
+rm -f "$OUT"/mem.samples "$OUT"/step-*.json
 row() { printf '%s\t%s\n' "$1" "$2" | tee -a "$ROWS"; }
 SMI="$(command -v nvidia-smi || echo /usr/lib/wsl/lib/nvidia-smi)"
 smi() { "$SMI" -i "$GPU" "$@"; }
@@ -73,8 +83,8 @@ print(ballast48.pin_text('$UUID'), end='')" > "$OUT/gpu-pin.yml"
 COMPOSE=(docker compose --project-directory "$DEPLOY" --env-file "$DEPLOY/.env" --env-file "$OUT/run.env"
   -f "$DEPLOY/docker-compose.yml" -f "$DEPLOY/docker-compose.secrets.yml" -f "$DEPLOY/docker-compose.rtxpro6000.yml"
   -f "$OUT/gpu-pin.yml" --profile gpu)
+COMPOSE_UP=1   # before the up: a failed --wait leaves containers holding the card, and cleanup takes them down
 "${COMPOSE[@]}" up -d --wait
-COMPOSE_UP=1
 
 ( while :; do docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' >> "$OUT/mem.samples"; sleep 5; done ) &
 SAMPLER=$!
@@ -121,4 +131,5 @@ row oom_kills "$OOM"
 row other_cards_touched "$(comm -13 <(printf '%s\n' "$OTHERS_BEFORE") <(others) | wc -l)"
 [ "$WSL2" = 0 ] || row host "WSL2 (compute processes and other cards are not listed by this driver: other_cards_touched above is not a proof)"
 row real_machine OWNER
-[ "$ENF" = PASS ] && [ "$OOM" = 0 ] && [ "$FAILED" = 0 ]
+[ "$ENF" = PASS ] && [ "$OOM" = 0 ] && [ "$FAILED" = 0 ] \
+  && ! grep -qE $'^(card_changed\tTrue|card_within_class\tFalse|other_cards_touched\t[1-9])' "$ROWS"
