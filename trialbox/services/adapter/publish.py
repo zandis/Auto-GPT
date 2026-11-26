@@ -82,6 +82,22 @@ class NothingToPublish(RuntimeError):
     """No held night of that date is on the box."""
 
 
+class TwoPeopleOneChart(NothingToPublish):
+    """H34-06: the held night has a chart number that arrived as two people; it is never published as it stands."""
+
+
+def refuse_two_people(folder: Path) -> None:
+    """H34-06: :class:`TwoPeopleOneChart` when the held night's folder lists a chart number that arrived as two
+    people (``adapter.pipeline.IDENTITY_CONFLICT``): an accept would serve one of them under the other's chart."""
+    from adapter.pipeline import IDENTITY_CONFLICT
+
+    if (folder / IDENTITY_CONFLICT).is_file():
+        raise TwoPeopleOneChart(
+            f"a chart number of this night arrived as two different people ({IDENTITY_CONFLICT}): it cannot be "
+            "accepted as it stands. Reject it, correct the chart at the source and run the night again"
+        )
+
+
 @dataclass
 class Published:
     snapshot: str
@@ -577,6 +593,7 @@ def publish_held(
     from adapter.pipeline import merge_base
 
     folder = held_folder(cfg, snap)
+    refuse_two_people(folder)  # H34-06
     try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
         since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
         full: bool | None = not since
@@ -595,6 +612,7 @@ __all__ = [
     "STEPS",
     "NothingToPublish",
     "Published",
+    "TwoPeopleOneChart",
     "fingerprint",
     "finish_served",
     "holders",
@@ -604,4 +622,5 @@ __all__ = [
     "read_record",
     "recover",
     "recover_all",
+    "refuse_two_people",
 ]
