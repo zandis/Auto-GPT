@@ -42,7 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common import trusted_proxy
+from tb_common import egress_edge, trusted_proxy
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
@@ -2651,11 +2651,16 @@ def create_app(
             raise _Problem(404, "notfound")
         if job.type != "FEAS" or job.state != "done":
             raise _Problem(404, "notfound")
-        files = [(o.filename, bk.get_object(o.minio_key)) for o in job.outputs or [] if o.tag == "aggregate"]
+        outs = [o for o in job.outputs or [] if o.tag == "aggregate"]
+        files = [(o.filename, bk.get_object(o.minio_key)) for o in outs]
+        if any(sha256_bytes(d) != o.sha256 for o, (_n, d) in zip(outs, files, strict=True)):  # review round 3, M3
+            raise _Problem(
+                409, "request.refused", reason="a file of the job is not what the job recorded when it built it"
+            )
         if not files:
             raise _Problem(404, "notfound")
         detail = bk.ruleset_detail(job.ruleset or "") or {}
-        data = build_sponsor_pack(job, files, detail, bk.models())
+        data = egress_edge.made(build_sponsor_pack(job, files, detail, bk.models()))  # built here (1523 ruling)
         au.append(
             "console.export",
             job_id=job_id,
@@ -2791,7 +2796,10 @@ def create_app(
                       approval=f"released (D1) cascade numbers of run {run.run_id}; console role {sess.user.role}",
                       actor=actor(sess), ruleset=run.trial)  # fmt: skip
         media = {".pdf": "application/pdf", ".json": "application/json"}.get(path.suffix, "application/octet-stream")
-        return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{path.name}"'})
+        headers = {"Content-Disposition": f'attachment; filename="{path.name}"'}
+        if (sha := runs.made_sha(run, name)) is not None:  # the run's record of the file it built (1523 ruling)
+            headers["x-tb-made-sha256"] = sha
+        return Response(data, media_type=media, headers=headers)
 
     @app.get("/pilot/mailbox", response_class=HTMLResponse)
     def mailbox_form(request: Request) -> Response:

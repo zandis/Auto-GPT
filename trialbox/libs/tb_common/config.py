@@ -1086,6 +1086,9 @@ DECLARED: dict[str, Declared] = {
         "int", "1000", "SCREEN: patients whose notes the note stage reads at a time (same answers; T-694, D-794)"
     ),
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
+    "TB_SCREEN_TIMING": Declared(
+        "str", "off", "SCREEN: on times each stage of a measured run (M8; the flag screen.timing does the same)"
+    ),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),
     "TB_SECRETS_DIR": Declared("path", "/run/secrets/trialbox", "folder of the services' secrets"),
     "TB_SECRETS_HOST_DIR": Declared("path", "", "support bundle: host secrets folder it must never include (T-209b)"),

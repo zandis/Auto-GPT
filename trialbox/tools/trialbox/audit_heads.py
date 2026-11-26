@@ -151,8 +151,9 @@ def check_and_sign(audit_dir: Path, secrets_dir: Path, targets: Sequence[Path], 
         except audit.AuditSignError as exc:
             return Night(False, [str(exc)])
     written, failed, took = 0, [], []
+    holding = sum(audit.holds_heads(t) for t in targets)  # 1523 review M2: a folder added since, or one emptied
     for t in targets:  # after the lock: a slow share does not hold the box's audit writer
-        if res.told(t) and not ((t / "heads").is_dir() and audit.read_signed_heads(t)):
+        if res.told(t, holding) and not audit.holds_heads(t):
             # OCR 1523-17, 1523-4: emptied, replaced, or a share not mounted (its mount point is there and empty):
             # never signed over; named, so that the share mounted again is not held to this night's head
             failed.append(
@@ -372,9 +373,10 @@ def doctor_checks(env: Mapping[str, str], deploy: Path, now: datetime | None = N
         own = {}
     except ImportError:  # OCR 1523-14: a host python3 without the crypto library: the dates and the chain
         own = None
+    holding = sum(audit.holds_heads(t) for t in targets)
     for t in targets:
         try:
-            state, text = audit.anchor_state(t, audit_dir, own, now, limit)
+            state, text = audit.anchor_state(t, audit_dir, own, now, limit, holding)
         except PermissionError as exc:  # an ordinary user's doctor: not looked at, never a FAIL for it
             warn.append(f"cannot look at {t} here ({exc.filename}: not readable by this user)")
             continue

@@ -296,6 +296,8 @@ routes:
   "POST /studies/{rs}/sae/{record}/{event}/{what}": {actions: ["sae.record"], mode: all, why: "D-191: only the coordinator records a report sent, a receipt or a follow-up"}
   "GET /studies/{rs}/schedule": {actions: ["task.screen"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /studies/{rs}/schedule": {actions: ["study.setup"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "GET /studies/{rs}/screen-now": {actions: ["!report.aggregate_only"], mode: all, why: "M8: screen now"}
+  "POST /studies/{rs}/screen-now": {actions: ["command.SCREEN"], mode: all, why: "M8: the request page's own right"}
   "GET /studies/{rs}/screening-log": {actions: ["task.screen"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /studies/{rs}/screening-log.xlsx": {actions: ["task.screen"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /studies/{rs}/setup": {actions: ["phi.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}

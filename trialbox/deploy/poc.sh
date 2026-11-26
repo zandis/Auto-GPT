@@ -78,16 +78,19 @@ docker compose version >/dev/null 2>&1 || die "the docker compose plugin is miss
 ALIVE_PID=""
 alive_start() {
   local what="$1" me=$$
-  ( s=""; self=$BASHPID; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
-    # OCR 1455-4: alive while the script is this ticker's parent. kill -0 is not enough: a script a signal ended is a
-    # zombie that kill -0 still finds until its caller reaps it, and a caller that reads the output first never does
-    up() { if [ -r "/proc/$self/stat" ]; then read -r _ _ _ pp _ < "/proc/$self/stat" && [ "$pp" = "$me" ]; else kill -0 "$me" 2>/dev/null; fi; }
+  # OCR 1524-2: the heartbeat holds the script's output while it lives, so it looks for the script every second and
+  # ends within a second of a script that ended without alive_stop (set -e, a signal). H-110: the sleep holds none of
+  # the caller's pipes
+  ( s=""; self=$BASHPID; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0; t=0
+    # OCR 1455-4 and 1524-2: alive while the script is this ticker's parent and not a zombie (kill -0 still finds one
+    # its caller has not reaped; Linux: its state in /proc). No command substitution here: a TERM that lands in one is lost
+    up() { kill -0 "$me" 2>/dev/null || return 1
+      if [ -r "/proc/$self/stat" ]; then read -r _ _ _ pp _ < "/proc/$self/stat" || return 1; [ "$pp" = "$me" ] || return 1; fi
+      read -r _ _ st _ 2>/dev/null <"/proc/$me/stat" || return 0; [ "$st" != Z ]; }
     while up; do
-      # H-110: the sleep holds none of the caller's pipes: one a stop orphans (its TERM before s=$!) never keeps a
-      # caller that reads this output waiting
-      # one-second sleeps, each followed by a look at the script: a signal that ends it frees the caller in a second
-      i=0; while [ "$i" -lt "${TB_POC_ALIVE_S:-60}" ] && up; do
-        sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; i=$((i + 1)); done; n=$((n + 1))
+      sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; s=""; t=$((t + 1))
+      [ "$t" -lt "${TB_POC_ALIVE_S:-60}" ] && continue
+      t=0; n=$((n + 1))
       up && echo "    ... still $what ($n)" >&2
     done ) 9>&- 6>&- & ALIVE_PID=$!  # 1452-12: the ticker and its sleep hold no lock fd of the caller (9, 6)
 }

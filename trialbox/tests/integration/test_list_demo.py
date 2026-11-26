@@ -179,16 +179,24 @@ def test_the_demo_day_is_the_real_day(tmp_path: Path, monkeypatch: pytest.Monkey
     from console.timefmt import local_time, local_today, site_zone
 
     monkeypatch.setenv(list_demo.DAY_ENV, "today")
-    res = list_demo.run(tmp_path, "pw-" + "x" * 16, "ja")
-    box, h, pi, crc = res["box"], res["app"].state.helpers, res["pi"], res["crc"]
-    zone = site_zone(h.bk)
-    today = local_today(datetime.now(UTC), zone)
+    # H-148 (7167784716): the run takes minutes; one that crosses the site's midnight seeded yesterday and is read
+    # against today (#1518: seed 15:59:29Z, the checks at 16:0xZ). The day is read before and after the run, and a
+    # run that crossed it is made once more, in a folder of its own
+    for attempt in ("run", "again"):
+        out = tmp_path / attempt
+        before = datetime.now(UTC)
+        res = list_demo.run(out, "pw-" + "x" * 16, "ja")
+        box, h, pi, crc = res["box"], res["app"].state.helpers, res["pi"], res["crc"]
+        zone = site_zone(h.bk)
+        today = local_today(datetime.now(UTC), zone)
+        if local_today(before, zone) == today:
+            break
     day = list_demo.seed_day(today)
     assert res["live"] and res["day"] == day
     assert box.orch.today() == h.today() == local_today(h.clock(), zone) == day  # one clock while seeding
     shift = (day - fd.data_day()).days
-    assert (tmp_path / "hospital" / fd.SHIFT_FILE).read_text().strip() == str(shift)
-    with (tmp_path / "hospital" / "appointment.csv").open(encoding="utf-8") as fh:
+    assert (out / "hospital" / fd.SHIFT_FILE).read_text().strip() == str(shift)
+    with (out / "hospital" / "appointment.csv").open(encoding="utf-8") as fh:
         visits = {r["appt_datetime"][:10] for r in csv.DictReader(fh)}
     # pages that record what happened: nothing after today
     for c, path in ((pi, "/studies/GZQO/excluded"), (pi, "/notices/received"), (crc, "/notices/received"),

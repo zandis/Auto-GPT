@@ -61,7 +61,7 @@ import sys
 import tarfile
 import time
 import urllib.request
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -110,6 +110,25 @@ STRICT_ENVS = ("PRODUCTION", "VALIDATION")
 
 class UpdateRefused(UpdateFailed):
     """A preflight refusal: nothing on the box was changed (no marker, no backup, no service stopped)."""
+
+
+#: the kernel's machine name as an image platform names the architecture
+_ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
+
+
+def host_architecture() -> str:
+    """This host's architecture as an image platform names it (``amd64``, ``arm64``); "" when it cannot say."""
+    machine = os.uname().machine.lower() if hasattr(os, "uname") else ""
+    return _ARCH.get(machine, machine)
+
+
+def architecture_mismatch(release: Mapping[str, Any] | None, arch: str) -> str:
+    """The platform ``release`` (release.json) was built for (its top-level ``platform``, ``os/arch``, recorded by
+    tools/release.py build --platform) when it is not ``arch``; "" otherwise. A release that records none (every
+    bundle built before it) is not compared, nor are its images' own ``platform`` (from images.lock, which may name
+    another manifest of a multi-architecture image), nor a host that cannot say."""
+    plat = str((release or {}).get("platform") or "")
+    return plat if arch and plat.count("/") >= 1 and plat.split("/")[1] != arch else ""
 
 
 class UpdateInterrupted(KeyboardInterrupt):
@@ -1329,6 +1348,18 @@ class Updater:
             )
         return []
 
+    def _same_architecture(self, plan: Plan) -> list[str]:
+        """A bundle built for another architecture than the host (release.json's top-level ``platform``, recorded by
+        tools/make_bundle.sh --platform, every image checked against it) is refused: the box could load none of
+        them. A bundle that records no platform is not refused here."""
+        other = architecture_mismatch(plan.release, host_architecture())
+        if other:
+            raise UpdateRefused(
+                f"{plan.bundle_id} is built for another architecture than this host ({host_architecture()}): "
+                f"{other}. Ask for the bundle of this machine (tools/make_bundle.sh --platform)"
+            )
+        return []
+
     def _tls_old_clients(self) -> list[str]:
         """H-48 (D-1328): a site box's update recreates Caddy from deploy/.env (``up -d``), so a TB_TLS_OLD_CLIENTS
         that is not off or cbc, or not the value deploy/install.sh last audited, is refused before anything changes:
@@ -1372,6 +1403,7 @@ class Updater:
         notes: list[str] = []
         notes += self._tls_old_clients()
         notes += self._from_a_commit(plan)
+        notes += self._same_architecture(plan)
         notes += self._audit_waits()
         if plan.release_seq is not None:
             inst = us.installed(self.dir)
@@ -3373,6 +3405,7 @@ def _main_apply(
     # bundle by installing it again
     try:
         Updater(box, updates, say=print)._from_a_commit(plan)
+        Updater(box, updates, say=print)._same_architecture(plan)  # install.sh's first load too
     except UpdateRefused as exc:
         print(f"update REFUSED: {exc}; nothing was changed")
         return 1

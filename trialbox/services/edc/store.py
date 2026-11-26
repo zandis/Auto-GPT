@@ -132,7 +132,11 @@ CREATE TABLE IF NOT EXISTS direct_source_event (id BIGINT GENERATED ALWAYS AS ID
 SCHEMA_V8 = """
 ALTER TABLE draft ADD COLUMN IF NOT EXISTS prov TEXT
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8)
+# M7 (R1-E5): REDCap's own log line ("<time> <user> <action>") of a value sent and read back, written with its row
+SCHEMA_V9 = """
+ALTER TABLE sent ADD COLUMN IF NOT EXISTS redcap_log TEXT NOT NULL DEFAULT ''
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9)
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick", "direct_source_event")  # fmt: skip
@@ -1008,12 +1012,12 @@ class EdcStore:
                 and d["final"] and self._covered(d, sigs)]  # fmt: skip
 
     def record_sent(self, study: str, d: dict[str, Any], target: str, target_record: str, result: str, detail: str,
-                    by: str, at: str) -> None:  # fmt: skip
+                    by: str, at: str, redcap_log: str = "") -> None:  # fmt: skip
         with self._db.transaction() as tx:
             tx.execute("INSERT INTO sent (study, record, visit, item, draft_id, value, target, target_record, result, "
-                       "detail, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                       "detail, by_user, at, redcap_log) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (study, d["record"], d["visit"], d["item"], int(d["id"]), d["final"] or "", target,
-                        target_record, result, detail[:DETAIL_MAX], by, at))  # fmt: skip
+                        target_record, result, detail[:DETAIL_MAX], by, at, redcap_log[:DETAIL_MAX]))  # fmt: skip
             if result in ("sent", "already_there"):
                 tx.execute("UPDATE draft SET sent_value = ?, sent_at = ? WHERE id = ?", (d["final"], at, int(d["id"])))
 

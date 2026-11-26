@@ -12,14 +12,18 @@
 #
 # Unified-memory budget (128 GB shared by CPU and GPU). Not measured on a Spark: the Spark is measured only when a
 # site orders one (owner decision 4, 2026-11-08), and install.sh starts this profile only on a record from
-# tools/serving_config.py measured gb10, or with TB_ACCEPT_UNMEASURED_GPU=1 for that first boot.
+# tools/serving_config.py measured gb10, or with TB_ACCEPT_UNMEASURED_GPU=1 for that first boot. The verifier's share,
+# the adapter's and the orchestrator's caps were measured on a B200 with GB10-like limits; the rest are planning values.
 #   llm-service   JUDGE_GPU_MEM_UTIL 0.30     weights 17.1 GiB + KV at 16k
-#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.15  weights 7.5 GiB + KV at 16k
+#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.12  15.36 GiB: the model 7.8 GiB with overhead; its KV cache held about
+#                                             804k tokens in 26 GiB, so 8 sequences x 16k (131k tokens) need about
+#                                             4.3 GiB of KV, about 12.1 GiB in all (measured on a B200)
 #   rest (~55%)                               OS, HAPI (HAPI_XMX 6g), Postgres, DuckDB, embedder, services
 # vLLM sizes its pool as a fraction of the whole device and checks free memory at start, so llm-verifier starts only
 # after llm-service is healthy.
 # Every service has a memory limit (mem_limit, GiB), so no one service can starve the models of unified memory
-# (OPS-063). The limits are deploy/gb10-profile.yaml's, unmeasured until a Spark run records each peak (D-373);
+# (OPS-063). The limits are deploy/gb10-profile.yaml's, unmeasured on a Spark until a Spark run records each peak
+# (D-373);
 # tests/unit/test_two_device_config.py keeps the two equal. The two-device form: deploy/two-device/ (T-214).
 #
 # Host prerequisites (deploy/check_host.sh --gb10 checks them):
@@ -77,7 +81,7 @@ services:
     # H-58 (D-1337): no privilege gain, as llm-service (the same image); read_only, user and cap_drop are written
     # exceptions with llm-service's reasons (H10G1-02)
     security_opt: ["no-new-privileges:true"]
-    mem_limit: ${TB_MEM_VERIFIER:-32g}   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: ${TB_MEM_VERIFIER:-27g}   # deploy/gb10-profile.yaml (the 0.12 share + the host process; D-373)
     logging:
       driver: json-file
       options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
@@ -90,7 +94,9 @@ services:
       - --max-model-len=${VERIFIER_MAX_LEN:-16384}
       - --max-num-seqs=${VERIFIER_MAX_SEQS:-8}
       - --enforce-eager
-      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.15}
+      # 0.12 of 128 GiB = 15.36 GiB: the model 7.8 GiB with overhead + about 4.3 GiB of KV for 8 x 16k (131k tokens,
+      # from about 804k tokens in 26 GiB), about 12.1 GiB, with margin (deploy/gb10-profile.yaml)
+      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.12}
       - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"video":0}
       - --default-chat-template-kwargs={"enable_thinking":false}
@@ -126,12 +132,15 @@ services:
   mail-gateway: {<<: *arm, mem_limit: 1g}
   orchestrator:
     <<: *arm
-    mem_limit: 3g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    # deploy/gb10-profile.yaml: a 48,000-patient SCREEN peaked near 4.0 GiB (the machine-profile finding); memcaps
+    # (install.sh --overlay) writes TB_MEM_ORCH only above this, for a larger hospital
+    # measured 50k peak: 3,973 MiB (the SCREEN of 50,000 synthetic patients, before the orchestrator result-memory fix)
+    mem_limit: ${TB_MEM_ORCH:-6g}
     environment:
       TB_MODEL_SWAP: "off"   # one pass per run with both models (orchestrator/twophase.py)
       TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-8}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)
   criteria-compiler: {<<: *arm, mem_limit: 1g}
-  adapter: {<<: *arm, mem_limit: 3g}
+  adapter: {<<: *arm, mem_limit: 6g}   # gb10-profile.yaml: a 50,000-patient ingest peaked at 3,842 MiB (x 1.5 = 5,763); 3g was killed
   lake: {<<: *arm, mem_limit: 6g}
   embed-service:
     <<: *arm

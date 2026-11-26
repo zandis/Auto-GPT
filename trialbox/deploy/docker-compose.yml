@@ -284,7 +284,7 @@ services:
   adapter:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
-    mem_limit: ${TB_MEM_ADAPTER:-6g}   # the validator's heap (TB_VALIDATOR_XMX, 3g) plus the service
+    mem_limit: ${TB_MEM_ADAPTER:-6g}   # the validator's heap (TB_VALIDATOR_XMX, 3g) plus the service; measured 50k peak 3,842 MiB
     pids_limit: 1024   # JVM threads
     # 10G-1 exception (D-1323): the root filesystem stays writable. The HL7 validator (adapter.validate.validator, run
     # here) writes indexes into, and renames packages in, its package cache /opt/hl7/home, an image path; it fails on

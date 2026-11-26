@@ -147,6 +147,17 @@ class CascadeRuns:
         path = self.root / run.run_id / "out" / rel.format(trial=run.trial)
         return path if path.is_file() else None
 
+    def made_sha(self, run: CascadeRun, name: str) -> str | None:
+        """The sha256 the run recorded when it built the served file ``name`` (``out/made.json``, 1523 ruling); None
+        when it recorded none (a run from before the record: its PDF and workbook are refused, run it again)."""
+        rel = SERVED.get(name)
+        try:
+            got = json.loads((self.root / run.run_id / "out" / "made.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        sha = got.get(rel.format(trial=run.trial)) if rel and isinstance(got, dict) else None
+        return sha if isinstance(sha, str) else None
+
     def summary(self, run: CascadeRun) -> dict[str, Any]:
         """Released (D1) numbers only: the DL-1 cascade block and headline, the certificate status and statement."""
         out: dict[str, Any] = {}

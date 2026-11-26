@@ -273,6 +273,7 @@ SEND_RESULTS = (
     "source_changed",  # NEW-EDC-4 (D-694): the source changed since the value was decided
     "changed_in_redcap",  # NEW-EDC-5 (D-695): a value TrialBox sent that REDCap now holds differently
     "direct_source",  # EDC-023 (D-859): the protocol names the field as recorded directly in the EDC
+    "withdrawn",  # V15-06 (M7): the subject withdrew and the data may not be used
 )  # T-115: held back, with the reason
 
 

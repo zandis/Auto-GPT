@@ -13,8 +13,9 @@ The orchestrator's SCREEN and FEAS hold the whole hospital's rows (the size test
 over the peaks of the size ladder (``tools/size_ladder.py``), recorded in ``deploy/measured/orchestrator_memory.json``
 by ``--from-ladder``. The line's slope is the least-squares slope of the peaks, and its fixed part is raised until the
 line lies on or above every measured peak; a run killed at its cap is left out (its peak is the cap, not the need).
-``TB_MEM_ORCH`` is written only when the need is above the compose default (4 GiB), so a small hospital keeps the
-shipped shape (the two-device workstation's 3 GiB included); one this tool wrote and no longer needs is removed.
+``TB_MEM_ORCH`` is written only when the need is above the compose default (4 GiB; the 96 GB class's overlays give
+6 GiB, read with ``--overlay``), so a small hospital keeps the shipped shape (the two-device workstation's 3 GiB
+included); one this tool wrote and no longer needs is removed.
 
 The patient count is the lake's ``CURRENT`` snapshot (its ``Patient.ndjson``) when there is one, else
 ``TB_SITE_PATIENTS`` (the hospital's size, set before the first night). ``deploy/install.sh`` calls ``--write``: it
@@ -22,7 +23,7 @@ writes ``TB_MEM_ADAPTER``, ``TB_MEM_LAKE`` and (above the default) ``TB_MEM_ORCH
 operator set one by hand (a value that is not the one this tool wrote, recorded in its marker line). ``trialbox
 doctor`` (``check_memory_caps``) fails when a cap is below what the patient count needs.
 
-    python -m tools.trialbox.memcaps --env-file deploy/.env [--lake DIR] [--write]
+    python -m tools.trialbox.memcaps --env-file deploy/.env [--lake DIR] [--overlay COMPOSE_FILE] [--write]
     python -m tools.trialbox.memcaps --measure [--sizes 500 2000]
     python -m tools.trialbox.memcaps --from-ladder docs/plan/measurements/size-test-2026-11-17.json
 """
@@ -38,7 +39,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import IO, Any
 
@@ -80,6 +81,21 @@ def compose_default(var: str, compose: Path = COMPOSE) -> str:
     return m.group(1)
 
 
+def orch_default(compose: Path = COMPOSE, overlay: Path | None = None) -> str:
+    """The orchestrator's default cap: the machine profile's overlay's (``--overlay``, the 96 GB class gives 6g) when
+    it names one, else the base file's."""
+    if overlay is not None and overlay.is_file() and f"${{{ORCH_VAR}:-" in overlay.read_text(encoding="utf-8"):
+        return compose_default(ORCH_VAR, overlay)
+    return compose_default(ORCH_VAR, compose)
+
+
+def profile_overlay(files: Sequence[Path]) -> Path | None:
+    """The box's compose file (of ``COMPOSE_FILE``, in order) whose orchestrator default compose uses: the last one
+    that names one, as a later file overrides an earlier one; None when none does."""
+    named = [f for f in files if f.is_file() and f"${{{ORCH_VAR}:-" in f.read_text(encoding="utf-8")]
+    return named[-1] if named else None
+
+
 def load_record(path: Path = RECORD) -> dict[str, Any]:
     doc = json.loads(path.read_text(encoding="utf-8"))
     if doc.get("format") != FORMAT or not all(s in doc.get("services", {}) for s in CAPS):
@@ -117,15 +133,16 @@ def need_mb(
     env: Mapping[str, str],
     compose: Path = COMPOSE,
     orch: Mapping[str, Any] | None = None,
+    overlay: Path | None = None,
 ) -> dict[str, int]:
     """The cap each service needs for ``n`` patients, in MB, never below its compose default (the orchestrator's
-    too, when its record ``orch`` is given)."""
+    too, when its record ``orch`` is given; its default the profile ``overlay``'s when that names one)."""
     out: dict[str, int] = {}
     orch_mb: int | None = None
     if orch is not None:
         part = orch["services"][ORCH]
         mb = float(part["fixed_mb"]) + float(part["per_patient_kb"]) * n / 1024
-        orch_mb = max(math.ceil(mb), size_mb(compose_default(ORCH_VAR, compose)))
+        orch_mb = max(math.ceil(mb), size_mb(orch_default(compose, overlay)))
     for svc, var in CAPS.items():
         part = record["services"][svc]
         python = float(part["fixed_mb"]) + float(part["per_patient_kb"]) * n / 1024
@@ -153,18 +170,24 @@ def _marker(env_text: str) -> dict[str, str]:
 
 
 def plan(
-    env_text: str, n: int, record: Mapping[str, Any], compose: Path = COMPOSE, orch: Mapping[str, Any] | None = None
+    env_text: str,
+    n: int,
+    record: Mapping[str, Any],
+    compose: Path = COMPOSE,
+    orch: Mapping[str, Any] | None = None,
+    overlay: Path | None = None,
 ) -> dict[str, str | None]:
     """The caps ``--write`` sets: each service's need, except a cap the operator set by hand (kept). The orchestrator's
-    only above its compose default; ``None``: a value this tool wrote that is no longer needed, removed."""
+    only above its default (the profile ``overlay``'s when it names one: a value under it would lower the cap);
+    ``None``: a value this tool wrote that is no longer needed, removed."""
     env = _parse_env(env_text)
     ours = _marker(env_text)
-    need = need_mb(n, record, env, compose, orch)
+    need = need_mb(n, record, env, compose, orch, overlay)
     out: dict[str, str | None] = {}
     if ORCH in need:
         have = env.get(ORCH_VAR)
         mine = have is not None and ours.get(ORCH_VAR) == have
-        if need[ORCH] > size_mb(compose_default(ORCH_VAR, compose)):
+        if need[ORCH] > size_mb(orch_default(compose, overlay)):
             if have is None or mine:
                 out[ORCH_VAR] = f"{need[ORCH]}m"
         elif mine:
@@ -204,17 +227,21 @@ def check(
     record_path: Path = RECORD,
     compose: Path = COMPOSE,
     orch_path: Path | None = None,
+    overlay: Path | None = None,
 ) -> tuple[str, str]:
     """``(status, detail)`` for ``trialbox doctor``: FAIL when a cap is below what the patient count needs (the
-    orchestrator's too when ``orch_path``, its record, is given)."""
+    orchestrator's too when ``orch_path``, its record, is given; its default the profile ``overlay``'s, as compose
+    runs it)."""
     n, source = patients(env, lake)
     if n is None:
         return "WARN", f"{source}: the memory caps were not compared with the hospital's size"
     record = load_record(record_path)
     orch = load_orch_record(orch_path) if orch_path is not None else None
-    need = need_mb(n, record, env, compose, orch)
+    need = need_mb(n, record, env, compose, orch, overlay)
     names = {**CAPS, **({ORCH: ORCH_VAR} if orch is not None else {})}
-    have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in names.items()}
+    have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in CAPS.items()}
+    if orch is not None:
+        have[ORCH] = size_mb(env.get(ORCH_VAR) or orch_default(compose, overlay))
     low = [f"{names[s]} {have[s]} MB < {need[s]} MB" for s in names if have[s] < need[s]]
     facts = f"{n} patients ({source}); measured record {record_path.name} ({record.get('measured_at', '?')})"
     if low:
@@ -402,6 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="memcaps", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--env-file", type=Path, default=ROOT / "deploy" / ".env")
     ap.add_argument("--lake", type=Path, default=None)
+    ap.add_argument("--overlay", type=Path, default=None, help="the machine profile's compose file (its TB_MEM_ORCH)")
     ap.add_argument("--write", action="store_true", help="write the caps into --env-file")
     ap.add_argument("--measure", action="store_true", help="measure and write deploy/measured/ingest_memory.json")
     ap.add_argument("--sizes", type=int, nargs=2, default=(5000, 10000), help="patients (above INSERT_BATCH notes)")
@@ -426,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"memcaps: {source}: the compose defaults stay (set TB_SITE_PATIENTS to size them)")
         return 0
     orch = load_orch_record(ORCH_RECORD) if ORCH_RECORD.is_file() else None
-    caps = plan(text, n, load_record(), orch=orch)
+    caps = plan(text, n, load_record(), orch=orch, overlay=a.overlay)
     gone = "removed (the compose default fits)"
     said = ", ".join(f"{k}={v}" if v is not None else f"{k} {gone}" for k, v in caps.items())
     print(f"memcaps: {n} patients ({source}): " + (said or "set by hand"))

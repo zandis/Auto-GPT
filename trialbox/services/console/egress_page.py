@@ -30,6 +30,9 @@ from console.rc1_guard import Rc1Guard, _path
 
 DAYS = 30
 PATHSEND = "http.response.pathsend"
+#: a handler that serves a file the box recorded when it built it names the record's sha256 here (1523 ruling); the
+#: layer takes it off the answer and hands it to the edge
+MADE_HEADER = b"x-tb-made-sha256"
 _JOB = re.compile(r"^/pilot/jobs/(?P<job>[^/]+)/files/(?P<name>[^/]+)$")
 #: a JSON answer that carries a file's text
 _SUFFIX = {"application/json": ".json", "text/csv": ".csv", "application/xml": ".xml", "text/html": ".html"}
@@ -56,6 +59,7 @@ class Door:
 
     def leave(self, request: Request, path: str, name: str, data: bytes) -> egress_edge.File:
         listed, route = egress_edge.download_route(path)
+        made: tuple[str, ...] = getattr(request.state, "tb_made", ())  # the handler's record (MADE_HEADER)
         sess = self.session(request)
         who = self.h.actor(sess) if sess is not None else ""
         where, refused = "download", ""
@@ -64,6 +68,9 @@ class Door:
             m = _JOB.match(path)
             job = self.h.bk.get_job(m["job"]) if m else None
             out = next((o for o in (job.outputs or []) if m and o.filename == m["name"]), None) if job else None
+            made = (
+                (*made, str(out.sha256)) if out is not None and getattr(out, "sha256", None) else made
+            )  # the job's record of the file it built
             if out is not None and out.tag == "aggregate":
                 route = "download.aggregate"
             elif out is not None:  # a patient file: to the mailbox of a named recipient who may read patient data
@@ -85,6 +92,8 @@ class Door:
             named=named,
             refused=refused,
             items=egress_edge.chart_numbers(data) if route == "download.registry" else None,
+            made=made,
+            rebuild=request.query_params.get("rebuild") == "1",  # a plain PDF of its text, asked for by name
         )
         return got
 
@@ -137,12 +146,14 @@ class EgressLayer:
 
     async def release(self, scope: Scope, receive: Receive, send: Send, path: str, start: Message, data: bytes) -> None:
         request = Request(scope, receive)
-        headers = [(k, v) for k, v in start["headers"] if k.lower() != b"content-length"]
+        made = tuple(v.decode("latin-1") for k, v in start["headers"] if k.lower() == MADE_HEADER)
+        headers = [(k, v) for k, v in start["headers"] if k.lower() not in (b"content-length", MADE_HEADER)]
         head = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in headers}
         disposition = head.get("content-disposition", "")
         media = head.get("content-type", "").partition(";")[0].strip().lower()
         name = filename_of(disposition) or "answer" + _SUFFIX.get(media, "")
         try:
+            request.state.tb_made = made
             got = await run_in_threadpool(self.door.leave, request, path, name, data)
         except egress_edge.Refused as exc:
             resp = await run_in_threadpool(self.door.refusal, request, path, exc.reason)
@@ -151,6 +162,9 @@ class EgressLayer:
         if disposition and got.name != name:
             headers = [(k, v) for k, v in headers if k.lower() != b"content-disposition"]
             headers.append((b"content-disposition", f"attachment; filename*=UTF-8''{quote(got.name)}".encode()))
+        if got.name.lower().endswith(".pdf") and not name.lower().endswith(".pdf"):  # rebuilt: a plain PDF
+            headers = [(k, v) for k, v in headers if k.lower() != b"content-type"]
+            headers.append((b"content-type", b"application/pdf"))
         headers.append((b"content-length", str(len(got.data)).encode()))
         await send({**start, "headers": headers})
         await send({"type": "http.response.body", "body": got.data})

@@ -39,6 +39,8 @@ EXEMPT: dict[str, str] = {
     "/feedback": "the feedback control about the page on screen (D-331); its comment names that page",
     "/role": "the session's acting role on a test box (D-877), switched in the browser's top bar like /lang; an API "
     "token starts in the account's own role",
+    "/studies/{rs}/screen-now": "starts the same SCREEN job as /pilot/request (itself without a twin: NO_TWIN_YET); the "
+    "page adds the one-per-study join and the wait, M8",
     "/account/prefs": "the look of the person's own pages and the language of their next page sessions (10F-1, "
     "D-1387), like /lang: the API draws no page and an API token keeps its own language",
 }

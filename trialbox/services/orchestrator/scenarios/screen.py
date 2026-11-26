@@ -5,6 +5,7 @@ candidate pool persisted for MICROBATCH."""
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -748,6 +749,30 @@ def candidate_list(run: ScreenRun) -> CandidateList:
     )
 
 
+def json_rows(doc: dict[str, Any], key: str, rows: Iterable[Any]) -> bytes:
+    """``json.dumps({**doc, key: list(rows)}, ensure_ascii=False, indent=1, sort_keys=True)`` in UTF-8, byte for byte,
+    written one row at a time: with ``indent`` the encoder holds every small piece of the whole document at once
+    (a whole-hospital run's list took gigabytes so), here only one row's. Only the bytes of the file stay."""
+    marker = f'\n "{key}": null'
+    head = json.dumps({**doc, key: None}, ensure_ascii=False, indent=1, sort_keys=True)
+    before, after = head.split(marker)  # a raw newline is never inside a JSON string: the marker is the key's line
+    out = io.BytesIO()
+    out.write(f'{before}\n "{key}": ['.encode())
+    sep = ""
+    for r in rows:
+        text = json.dumps(r, ensure_ascii=False, indent=1, sort_keys=True).replace("\n", "\n  ")
+        out.write(f"{sep}\n  {text}".encode())
+        sep = ","
+    out.write((f"\n ]{after}" if sep else f"]{after}").encode())
+    return out.getvalue()
+
+
+def candidate_list_json(cl: CandidateList) -> bytes:
+    """``candidate_list_<ruleset>_v<version>.json``: the list as its contract dumps it, a row at a time
+    (:func:`json_rows`)."""
+    return json_rows(dump(cl.model_copy(update={"rows": []})), "rows", (dump(r) for r in cl.rows))
+
+
 def values_not_read(rows: list[CandidateRow]) -> int | None:
     """How many rows of the list say the values behind their coded answers were not read (D-653): the rows of the
     list itself, so the figure can be checked against it. None for none, so a run that read everything writes its
@@ -815,8 +840,7 @@ def publish_excluded(ctx: Ctx, rs: Ruleset, srun: ScreenRun) -> None:
     doc = excluded_doc(ctx, srun)
     rows = doc.pop("rows")
     ctx.publish(f"excluded_{rs.id}_v{rs.version}.jsonl", excluded_lines.write_jsonl(doc, rows), "phi", [])
-    old = json.dumps({**doc, "rows": rows}, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
-    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", old, "phi", [])
+    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", json_rows(doc, "rows", rows), "phi", [])
 
 
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
@@ -825,7 +849,7 @@ def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
     ctx.orch.db.pool_upsert(
         rs.id,
         rs.version,
-        [
+        (  # one row's verdicts at a time, never the whole list's as dicts
             {
                 "pid": r.pid,
                 "tier": r.tier,
@@ -835,7 +859,7 @@ def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
                 "verdicts": [v.model_dump(mode="json", exclude_none=True) for v in r.criteria],
             }
             for r in rows
-        ],
+        ),
         ctx.job.job_id,
         ctx.orch._now().isoformat(),
     )
@@ -959,7 +983,7 @@ def run(ctx: Ctx) -> Outcome:
     if unverified:
         meta = replace(meta, notice=t(job_language(ctx), "screen.scores_unverified", snapshot=snapshot))
     stem = f"candidates_{rs.id}_v{rs.version}_{run_date.isoformat()}"
-    body = json.dumps(dump(cl), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
+    body = candidate_list_json(cl)
     deliveries, info = deliver_lists(
         ctx, rs, srun.rows, meta, stem, extra=(f"candidate_list_{rs.id}_v{rs.version}.json", body)
     )
