@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -47,15 +48,17 @@ def _default(text: str, var: str) -> str:
     """The default compose gives ``var`` (``${VAR:-default}``); exactly one default, or the test names the variable."""
     found = set(re.findall(r"\$\{" + re.escape(var) + r":-([^}]*)\}", text))
     assert len(found) == 1, f"{var}: {len(found)} different defaults {sorted(found)}"
-    return found.pop()
+    return cast(str, found.pop())
 
 
-def _services(profile: str) -> dict[str, dict]:
-    return yaml.safe_load(_overlay(profile).read_text(encoding="utf-8"))["services"]
+def _services(profile: str) -> dict[str, dict[str, Any]]:
+    return cast(dict[str, dict[str, Any]], yaml.safe_load(_overlay(profile).read_text(encoding="utf-8"))["services"])
 
 
-def _record(profile: str) -> dict:
-    return json.loads((DEPLOY / "measured" / f"profile_record.{profile}.json").read_text(encoding="utf-8"))
+def _record(profile: str) -> dict[str, Any]:
+    return cast(
+        dict[str, Any], json.loads((DEPLOY / "measured" / f"profile_record.{profile}.json").read_text(encoding="utf-8"))
+    )
 
 
 def _caps(profile: str) -> dict[str, float]:
@@ -67,12 +70,14 @@ def _caps(profile: str) -> dict[str, float]:
 
 
 @pytest.fixture(scope="module")
-def registry_rows() -> dict[str, dict]:
+def registry_rows() -> dict[str, dict[str, Any]]:
     doc = yaml.safe_load((ROOT / "models" / "registry.yaml").read_text(encoding="utf-8"))
     return {b["build_id"]: b for b in doc["builds"]}
 
 
-def _site_pins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, stale_context: int | None) -> dict:
+def _site_pins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, stale_context: int | None
+) -> dict[str, Any]:
     """The registry the installer writes for a site (``pin_model.install_pins``) over synthetic weights, from a site pin
     that already names ``stale_context`` for the pair (a box pinned for another profile), as the registry's rows."""
     models = tmp_path / "models"
@@ -92,13 +97,13 @@ def _site_pins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str, st
         out.write_text(yaml.safe_dump(doc), encoding="utf-8")
         ok, lines = pin_model.install_pins(profile, models, out, {})  # the install again over the stale pin
     promote_pins(out)
-    return yaml.safe_load(out.read_text(encoding="utf-8"))["builds"]
+    return cast(dict[str, Any], yaml.safe_load(out.read_text(encoding="utf-8"))["builds"])
 
 
 # ------------------------------------------------------------------------------------------------ 1. the pins
 @pytest.mark.parametrize("profile", PROFILES)
 def test_context_length_is_one_number_in_every_place(
-    profile: str, registry_rows: dict[str, dict], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    profile: str, registry_rows: dict[str, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     text = _overlay(profile).read_text(encoding="utf-8")
     record = _record(profile)["concurrency"]["context_tokens"]
@@ -113,7 +118,7 @@ def test_context_length_is_one_number_in_every_place(
 
 
 @pytest.mark.parametrize("profile", PROFILES)
-def test_served_names_and_model_folders_agree(profile: str, registry_rows: dict[str, dict]) -> None:
+def test_served_names_and_model_folders_agree(profile: str, registry_rows: dict[str, dict[str, Any]]) -> None:
     text = _overlay(profile).read_text(encoding="utf-8")
     for build, endpoint, folder_var, folder, name_var, name in pin_model.PROFILE_PAIRS[profile]:
         _svc, _len, _frac, compose_name_var, compose_folder_var = SERVERS[endpoint]
@@ -125,7 +130,7 @@ def test_served_names_and_model_folders_agree(profile: str, registry_rows: dict[
 
 
 @pytest.mark.parametrize("profile", PROFILES)
-def test_the_registry_rows_name_one_release_per_build(profile: str, registry_rows: dict[str, dict]) -> None:
+def test_the_registry_rows_name_one_release_per_build(profile: str, registry_rows: dict[str, dict[str, Any]]) -> None:
     for build, *_ in pin_model.PROFILE_PAIRS[profile]:
         row = registry_rows[build]
         prov = row["provenance"]
