@@ -156,7 +156,7 @@ Qwen3.5-9B AWQ 4-bit (`v-verifier`, endpoint `verifier`, thinking off).
 | Tier | `--gpu` | Box | Layout | Context |
 | --- | --- | --- | --- | --- |
 | `large` | `rtxpro6000` | RTX PRO 6000 96 GB | both resident, 0.40 + 0.20 of the card | 32k |
-| `medium` | `gb10` | DGX Spark | both resident, 0.30 + 0.15 of memory | 16k |
+| `medium` | `gb10` | DGX Spark | both resident, 0.30 + 0.12 of memory | 16k |
 | `small` | `rtx5090` | one RTX 5090 32 GB | sleep swap, one model awake | 8k |
 
 On the 5090 a screening run holds the card, the judge answers first, then the gateway swaps to the verifier, then
