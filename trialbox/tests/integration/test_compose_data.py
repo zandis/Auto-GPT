@@ -12,7 +12,18 @@ from tb_common.crypto import pid_for_mrn
 from tests.stack import ensure_ingested, url
 
 pytestmark = pytest.mark.integration
-ADAPTER, LAKE, FHIR = url("ADAPTER"), url("LAKE"), url("FHIR", "/fhir")
+
+
+# H-139: each address is read from the running test stack when a test runs, not at import (a collection asks
+# no engine)
+def _lake() -> str:
+    return url("LAKE")
+
+
+def _fhir() -> str:
+    return url("FHIR", "/fhir")
+
+
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "synthetic_patients" / "site-a"
 
 
@@ -36,22 +47,22 @@ def test_adapter_run_passes(ingest_report: dict[str, object]) -> None:
     loaded, total = ingest_report["fhir_loaded"], sum(counts.values())
     assert isinstance(loaded, int) and 0 <= loaded <= total, (loaded, total)
     for rtype, n in counts.items():
-        held = httpx.get(f"{FHIR}/{rtype}", params={"_summary": "count"}, timeout=60).json()["total"]
+        held = httpx.get(f"{_fhir()}/{rtype}", params={"_summary": "count"}, timeout=60).json()["total"]
         assert held >= n, (rtype, held, n)  # at least: other modules of this stack may add to the store
 
 
 def test_fhir_store_has_patients(ingest_report: dict[str, object]) -> None:
-    total = httpx.get(f"{FHIR}/Patient", params={"_summary": "count"}, timeout=60).json()["total"]
+    total = httpx.get(f"{_fhir()}/Patient", params={"_summary": "count"}, timeout=60).json()["total"]
     assert total >= 500
 
 
 def test_lake_http_query_arrow(ingest_report: dict[str, object]) -> None:
     import pyarrow as pa
 
-    resp = httpx.post(f"{LAKE}/query", json={"sql": "SELECT count(*) AS n FROM patient"}, timeout=60)
+    resp = httpx.post(f"{_lake()}/query", json={"sql": "SELECT count(*) AS n FROM patient"}, timeout=60)
     assert resp.status_code == 200 and resp.headers["content-type"].startswith("application/vnd.apache.arrow")
     assert pa.ipc.open_stream(resp.content).read_all().to_pylist()[0]["n"] >= 500
-    bad = httpx.post(f"{LAKE}/query", json={"sql": "DELETE FROM patient"}, timeout=60)
+    bad = httpx.post(f"{_lake()}/query", json={"sql": "DELETE FROM patient"}, timeout=60)
     assert bad.status_code == 400
 
 
@@ -60,7 +71,7 @@ def test_lake_http_seeded_queries(ingest_report: dict[str, object]) -> None:
     needles = json.loads((FIXTURES / "needles.json").read_text(encoding="utf-8"))
     for n in needles:
         hits = httpx.post(
-            f"{LAKE}/chunks/search",
+            f"{_lake()}/chunks/search",
             json={"pid": pid_for_mrn(key, n["mrn"]), "query": n["query"], "k": 5},
             timeout=60,
         ).json()["hits"]

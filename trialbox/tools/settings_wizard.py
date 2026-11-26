@@ -1,6 +1,7 @@
 """Site onboarding wizard (SPEC §12 phase 9): writes a validated ``settings.yaml`` and a matching ``deploy/.env``.
 
-Interactive by default (every question shows its default; Enter keeps it). ``--answers answers.yaml`` runs without
+Interactive by default (every question shows its default; Enter keeps it): the vendor's route, with all 53 questions
+(a hospital's install asks four, D-1280: ``tools/box/ask.py``). ``--answers answers.yaml`` runs without
 questions (automation, tests, re-runs); the answers file uses the same keys as the questions below. The result is
 validated against ``schemas/settings.schema.json`` plus the cross-checks that the schema cannot express (practitioner
 departments exist, mail recipients are inside the internal domains, the MRN regex compiles, the mapping file exists).
@@ -23,6 +24,8 @@ hardware; its ``env_extra`` (declared ``TB_*`` settings only: the memory caps, t
 from __future__ import annotations
 
 import argparse
+import csv
+import importlib.util
 import os
 import re
 import secrets
@@ -228,6 +231,18 @@ def _practitioners(v: Any) -> dict[str, dict[str, Any]]:
             p["license"] = lic.strip()
         out[pid.strip()] = p
     return out
+
+
+def shipped_departments(locale: str) -> dict[str, str]:
+    """M1: the shipped department list (M2's), a new box's first departments; the records' own replace it. Read from the
+    package the interpreter has (the image's); with none there the box starts with no department, never stopped."""
+    spec = importlib.util.find_spec("criteria_compiler")
+    table = Path(next(iter(spec.submodule_search_locations))) / "terminology/src/department.csv" if (
+        spec and spec.submodule_search_locations) else None  # fmt: skip
+    if table is None or not table.is_file():
+        return {}
+    with table.open(encoding="utf-8", newline="") as f:
+        return {r["code"]: r["display_zh" if locale == "zh-TW" else "display"] for r in csv.DictReader(f)}
 
 
 def defaults() -> dict[str, Any]:
@@ -504,7 +519,9 @@ def build(
         errors.append(f"mrn_regex does not compile: {exc}")
     chart_rule = chartno_rule(a.get("chartno_rule"), mrn_regex, errors, warnings)
     chart_answered = bool(str(a.get("chartno_rule") or "").strip())  # 10K-21: asis typed is an answer
-    if prod and not chart_answered:
+    # M1 (D-1280): an item the install marked as a stand-in; its refusal is the gate of the step that needs it
+    marked = set(_split(a.get("stand_ins")))
+    if prod and not chart_answered and "chart_number" not in marked:
         errors.append(
             "chartno_rule is required in PRODUCTION: the rule cannot be changed once patients are loaded. Answer "
             "digits:<width> or hex:<width> with the hospital's chart-number format, or asis where chart numbers are "
@@ -515,7 +532,8 @@ def build(
             "mrn_regex was not answered: nothing checks what a chart number looks like, and a chart number written "
             "in a note without its label is not masked. Answer mrn_regex (or a chart-number rule with a width)"
         )
-    depts = _map(get("departments"))
+    dep = get("departments")
+    depts = shipped_departments(str(a.get("locale") or "")) if dep == "shipped" else _map(dep)
     prac = _practitioners(get("practitioners"))
     for pid, p in prac.items():
         if p.get("department") and p["department"] not in depts:

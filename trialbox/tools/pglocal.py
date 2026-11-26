@@ -43,6 +43,38 @@ SLUG_MAX = 40
 SLUG_HASH = 8  # hex characters of the whole name's sha256 that a cut slug ends with
 
 
+#: H-139: the db image's pinned extensions (deploy/images.lock): the test server's vector may not be older
+IMAGES_LOCK = Path(__file__).resolve().parents[1] / "deploy" / "images.lock"
+
+
+def _version(text: str) -> tuple[int, ...]:
+    return tuple(int(n) for n in re.findall(r"\d+", text.split("-", maxsplit=1)[0])[:3])
+
+
+def vector_behind_pin(offered: str | None, pinned: str) -> str:
+    """Why a test server's vector extension cannot stand in for the db image's: older than ``pinned``. Empty when
+    the server offers none (the tests that need it say so themselves) or one at least as new."""
+    if not offered or _version(offered) >= _version(pinned):
+        return ""
+    return (
+        f"the test PostgreSQL offers the vector extension {offered}, older than the db image's {pinned} "
+        f"(deploy/images.lock): its types (halfvec among them) are missing, so the tests would fail for the host, "
+        f"not for the code. Install pgvector {pinned} or newer for this server, or give one in TB_TEST_DB_URL"
+    )
+
+
+def vector_check(url: str, lock: Path = IMAGES_LOCK) -> str:
+    """:func:`vector_behind_pin` for the server at ``url`` (its ``vector`` default version) and the image's pin."""
+    import json
+
+    import psycopg
+
+    pinned = str(json.loads(lock.read_text(encoding="utf-8"))["images"]["db"]["extensions"]["vector"])
+    with psycopg.connect(url, autocommit=True, connect_timeout=10) as con:
+        row = con.execute("SELECT default_version FROM pg_available_extensions WHERE name = 'vector'").fetchone()
+    return vector_behind_pin(str(row[0]) if row and row[0] else None, pinned)
+
+
 def bindir() -> Path:
     env = os.environ.get("TB_PG_BIN")
     if env:

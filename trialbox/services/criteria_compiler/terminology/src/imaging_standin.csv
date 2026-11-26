@@ -1,0 +1,4 @@
+code,display,modality
+STAND-CT-HEAD,Stand-in: CT of the head (synthetic),CT
+STAND-MR-KNEE,Stand-in: MR of the knee (synthetic),MR
+STAND-XR-CHEST,Stand-in: chest X-ray (synthetic),XR

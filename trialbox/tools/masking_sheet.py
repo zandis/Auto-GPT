@@ -1,5 +1,5 @@
-"""The masking sheet of rc1 (card F-3, ring 0 piece 25, rc1 checklist row 9): which identifier forms the note masker
-masks in each language, at what measured rate, and which it does not.
+"""The masking sheet of rc1 (card F-3, ring 0 piece 25, rc1 checklist row 9): which identifier forms the masking at
+egress (M3: the egress edge's one rule set) masks in each language, at what measured rate, and which it does not.
 
     python -m tools.masking_sheet --write    # run on this checkout, write results.json and the sheet's tables
     python -m tools.masking_sheet --render   # the sheet's tables from the committed results.json, no run
@@ -7,7 +7,7 @@ masks in each language, at what measured rate, and which it does not.
 
 The run reuses card V-5's harness (``tools.masking_leaks``: synthetic notes with one planted identifier each, its
 leak rule and its scopes) and adds four small probe sets, each through the same entry point
-(``tb_common.phi_guard.mask_note(text, site_mrn_regex())``, as the lake runs it):
+(``tb_common.egress_edge.mask_text(text, site_mrn_regex())``, the rules of what leaves the box):
 
 * V5-01's remainder: a kanji surname outside the masker's list directly before 様, 先生 or 殿;
 * the J10C1 known gaps of ``eval/phi_synth/ja_guard_probes.json``;
@@ -345,6 +345,7 @@ def r22_21() -> dict[str, Any]:
 #: the files whose code the run measures: the masker, the harness and its base notes, the guard, the log formatter
 MEASURED = (
     "libs/tb_common/phi_guard.py",
+    "libs/tb_common/egress_edge.py",
     "libs/tb_common/logging.py",
     "services/guard/guard.py",
     "tools/masking_leaks.py",
@@ -352,10 +353,14 @@ MEASURED = (
     "tools/synth/generator.py",
     "eval/phi_synth/ja_guard_probes.json",
 )
-BLOBS = ("libs/tb_common/phi_guard.py", "tools/masking_leaks.py", "libs/tb_common/logging.py")
+BLOBS = (
+    "libs/tb_common/phi_guard.py",
+    "libs/tb_common/egress_edge.py",
+    "tools/masking_leaks.py",
+    "libs/tb_common/logging.py",
+)
 ENTRY_POINT = (
-    "tb_common.phi_guard.mask_note(text, site_mrn_regex()), as lake.store.Lake.rebuild runs it before a note is "
-    "chunked, indexed and embedded"
+    "tb_common.egress_edge.mask_text(text, site_mrn_regex()), the one rule set of what leaves the box (D-1093)"
 )
 
 
@@ -596,7 +601,11 @@ def row_figures(res: dict[str, Any]) -> dict[str, tuple[str, str]]:
     )
     nt = [c for k, c in r21.items() if k != "text"]
     by = "; ".join(f"{lg} {r23[lg]['missed']} of {r23[lg]['probes']}" for lg in SHEET_LANGS)
-    j = {row: f"{jr[row]['missed']} of {jr[row]['probes']} lines readable" for row in J10C1_ROWS}
+    j = {
+        row: f"{jr[row]['missed']} of {jr[row]['probes']} "
+        + ("lines readable" if jr[row]["missed"] else "leaked on this run")
+        for row in J10C1_ROWS
+    }
     return {
         "V5-01": (
             "Japanese names in scope; what is left: a kanji surname outside the masker's list before 様, 先生 or 殿",

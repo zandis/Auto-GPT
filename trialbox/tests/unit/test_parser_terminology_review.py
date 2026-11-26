@@ -48,7 +48,9 @@ def test_items_split() -> None:
 def test_terminology_steps() -> None:
     t = Terminology()
     assert t.map("condition", "Gout").method == "synonym"
-    assert t.map("medication", "allopurinol").method == "exact"
+    assert t.map("encounter", "rheumatology").method == "exact"
+    # V-18b (D-1183): no ATC name ships; a drug's name is found only in the site's own ATC copy (or the NHI lists)
+    assert t.map("medication", "allopurinol").method == "none"
     unmapped = t.map("condition", "psoriatic arthritis")
     assert unmapped.method == "none" and unmapped.needs_review
     via_llm = t.map(

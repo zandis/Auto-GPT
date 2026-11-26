@@ -1,0 +1,25 @@
+{
+  "card": "H77",
+  "title": "the seal step records the KEK back end it used; install.sh copies it to deploy/.env",
+  "date": "2026-11-22",
+  "source": "docs/handover/seal-records-its-back-end-h77-2026-11-22.md",
+  "note": "basis 'shown' means shown by the card's unit tests with the stand-in systemd-creds of the existing seal tests; not run on a real box or TPM.",
+  "findings": [
+    {
+      "id": "H77-01",
+      "severity": "Medium",
+      "claim": "after an install nothing on the box recorded which KEK back end sealed the site keys (install-test F-22); seal_keys.sh --record now writes it (install.sh: deploy/site/kek-backend) only after its last step passed, and install.sh copies it to deploy/.env TB_KEK_BACKEND without working it out itself",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed fb82e0c45513a8c435fd99a14863ed8674236d65"
+    },
+    {
+      "id": "H77-02",
+      "severity": "Low",
+      "claim": "the box's deferred seal (TB_BOX_DEFER_SEAL=1, box-install.sh apply step) ran seal_keys.sh without --record, so nothing recorded the back end there; it now passes the same --record and copies the word with install.sh's block, kept identical by a test",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed 710489fad127dfee822969b5b03b16db25b0916b"
+    }
+  ]
+}

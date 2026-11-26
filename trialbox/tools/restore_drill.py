@@ -248,12 +248,14 @@ Runner = Callable[[str, Mapping[str, str], float | None], tuple[int, str]]
 
 
 def shell(cmd: str, env: Mapping[str, str], timeout: float | None = None, cwd: Path = ROOT) -> tuple[int, str]:
-    """``cmd`` with bash in ``cwd`` (the release folder), the process environment plus ``env``; (exit, output)."""
+    """``cmd`` with bash in ``cwd`` (the release folder), the process environment plus ``env``; (exit, output). The
+    page's ``docker compose`` lines name no project: here they reach the test stack (H-139), whatever the caller's
+    COMPOSE_PROJECT_NAME says."""
     try:
         r = subprocess.run(
             ["bash", "-c", cmd],
             cwd=cwd,
-            env={**os.environ, "PWD": str(cwd), **env},
+            env={**os.environ, "PWD": str(cwd), "COMPOSE_PROJECT_NAME": TEST_PROJECT, **env},
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -678,6 +680,9 @@ VOLUMES = (
 )
 NOT_FILES = ("db-pg",)  # the database's files: compared by its tables, not by its bytes
 DOCKER_VOLUMES = Path(os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+#: H-139: the Makefile's TEST_PROJECT, the compose project `make up-test` brings up. The drill's compose commands and
+#: the volumes it reads or removes are that project's, never the ``trialbox`` project of a box on the same host.
+TEST_PROJECT = "trialbox-test"
 ROLES = (
     ("drill-admin", "admin"),
     ("drill-crc", "coordinator"),
@@ -686,7 +691,15 @@ ROLES = (
     ("drill-steward", "steward"),
 )
 FOUR = ("drill-admin", "drill-crc", "drill-pi", "drill-viewer")  # the card's four roles; the steward keeps opt-outs
-CONSOLE = "http://127.0.0.1:8090"
+
+
+def console() -> str:
+    """H-139: the console's address, from the test stack's own console container (tests/stack.py), never a constant."""
+    from tests.stack import url
+
+    return url("CONSOLE")
+
+
 KEY = Path("/media/usb/trialbox-backup.key")  # where §5's backup-keygen line writes the private key
 RELEASE = Path("/opt/trialbox")  # the hub: commands run on the box from /opt/trialbox as root
 MAIL_AUTH = "mx.hospa.test; spf=pass smtp.mailfrom=hospa.test; dkim=pass header.d=hospa.test; dmarc=pass"
@@ -719,7 +732,7 @@ class ComposeDrill:
     def compose(
         self, args: str, timeout: float | None = 1800, stdin: str | None = None, env: Mapping[str, str] | None = None
     ) -> tuple[int, str]:
-        cmd = f"docker compose --project-directory deploy {args}"
+        cmd = f"docker compose --project-directory deploy -p {TEST_PROJECT} {args}"
         if stdin is None:
             return self.sh(cmd, timeout, env)
         r = subprocess.run(
@@ -750,7 +763,7 @@ class ComposeDrill:
     def vol(self, name: str) -> Path:
         if name == "objects-data":
             return self.objects
-        return DOCKER_VOLUMES / f"trialbox_{name}" / "_data"
+        return DOCKER_VOLUMES / f"{TEST_PROJECT}_{name}" / "_data"
 
     # -- the box
     def up(self) -> tuple[int, str]:
@@ -758,13 +771,13 @@ class ComposeDrill:
 
     def wipe(self) -> dict[str, Any]:
         """Every named volume of the project removed; the bind-mounted object folder emptied. A volume compose does not
-        remove (one a one-off container made first, such as the backup job's ``trialbox_tb-secrets``) is removed by
+        remove (one a one-off container made first, such as the backup job's ``<project>_tb-secrets``) is removed by
         name; ``removed_by_name`` lists them."""
         rc, out = self.compose("down --volumes --remove-orphans", timeout=900)
-        by_name = [v for v in VOLUMES if (DOCKER_VOLUMES / f"trialbox_{v}").exists()]
+        by_name = [v for v in VOLUMES if (DOCKER_VOLUMES / f"{TEST_PROJECT}_{v}").exists()]
         for v in by_name:
-            self.sh(f"docker volume rm -f trialbox_{v}", timeout=120)
-        left = [v for v in VOLUMES if (DOCKER_VOLUMES / f"trialbox_{v}").exists()]
+            self.sh(f"docker volume rm -f {TEST_PROJECT}_{v}", timeout=120)
+        left = [v for v in VOLUMES if (DOCKER_VOLUMES / f"{TEST_PROJECT}_{v}").exists()]
         if self.objects.is_dir():
             for p in self.objects.iterdir():
                 shutil.rmtree(p) if p.is_dir() else p.unlink()
@@ -805,7 +818,7 @@ class ComposeDrill:
         """Password then code, as a browser does; the session cookie is returned (kept in the drill's memory only)."""
         import httpx
 
-        with httpx.Client(base_url=CONSOLE, follow_redirects=False, timeout=30) as c:
+        with httpx.Client(base_url=console(), follow_redirects=False, timeout=30) as c:
             g = c.get("/login")
             csrf = re.search(r'name="login_csrf" value="([^"]+)"', g.text)
             r = c.post(
@@ -836,7 +849,7 @@ class ComposeDrill:
 
         if not cookie:
             return None
-        r = httpx.get(f"{CONSOLE}/account", cookies={"tb_console": cookie}, follow_redirects=False, timeout=30)
+        r = httpx.get(f"{console()}/account", cookies={"tb_console": cookie}, follow_redirects=False, timeout=30)
         return r.status_code
 
     # -- fingerprints
@@ -993,7 +1006,9 @@ class ComposeDrill:
         r = self.sign_in(user)
         if not r.get("ok"):
             raise RuntimeError(f"{user} could not sign in: {r | {'_cookie': None}}")
-        return httpx.Client(base_url=CONSOLE, cookies={"tb_console": r["_cookie"]}, follow_redirects=False, timeout=60)
+        return httpx.Client(
+            base_url=console(), cookies={"tb_console": r["_cookie"]}, follow_redirects=False, timeout=60
+        )
 
     def opt_out(self, pid: str) -> int:
         from tools import feas_demo as fd
@@ -1114,10 +1129,12 @@ class ComposeDrill:
     def wait_healthy(self, timeout: float = 900) -> bool:
         import httpx
 
+        from tests.stack import StackNotRunning
+
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            with contextlib.suppress(httpx.HTTPError):
-                if httpx.get(f"{CONSOLE}/healthz", timeout=5).status_code == 200:
+            with contextlib.suppress(httpx.HTTPError, StackNotRunning):  # H-139: not yet published while it starts
+                if httpx.get(f"{console()}/healthz", timeout=5).status_code == 200:
                     rc, out = self.compose("ps --format '{{.Service}} {{.Health}}'", timeout=60)
                     if rc == 0 and "starting" not in out and "unhealthy" not in out:
                         return True
@@ -1339,6 +1356,9 @@ def prepare(set_env: Callable[[Path, str, str], None]) -> list[str]:
         objects_var(): str(d / ".objects"),
         "TB_SETTINGS_FILE": "../.cache/test-settings.yaml",
         "TB_STUB_LATENCY_S": "",
+        # H-139 (OCR 1498-1): the box file names the test stack's project, so the product commands the drill runs
+        # (the nightly backup's host part) read the test stack's volumes, never a box's on the same host
+        "COMPOSE_PROJECT_NAME": TEST_PROJECT,
     }
     for k, v in values.items():
         set_env(envf, k, v)

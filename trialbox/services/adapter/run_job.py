@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
 
         from adapter import failure
         from adapter.cli import build_config
-        from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
+        from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
 
         setup_logging("adapter")
         prefer_me_when_memory_runs_out()  # a night can be run again; the service's requests cannot
@@ -63,7 +63,8 @@ def main(argv: list[str] | None = None) -> int:
                 validate=bool(req.get("validate", True)),
             )
             end = {"state": "done", "report": dump(report)}
-        except (SiteKeyError, NoRoomForNight, LakeBudgetError) as exc:  # T-612, D-679: refused before anything was read
+        # T-612, D-679, U-5 (D-1280): refused before anything was read
+        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError) as exc:
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except Exception as exc:
             failure.log_failure(log, f"ingest run {state.get('run')} failed", exc)

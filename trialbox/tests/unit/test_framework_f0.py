@@ -24,9 +24,7 @@ KEYS = {"TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK", "TB_TERMINOLOGY_NIG
 #: between two entries, so two modules' removals do not touch).
 PENDING = {
     # M1
-    "still_needed",
     # M3
-    "egress_page",
     # M5
     "health_page",
     # M5
@@ -139,6 +137,20 @@ def test_a_file_that_does_not_import_is_a_fail(monkeypatch: pytest.MonkeyPatch, 
     sys.modules.pop("f0_broken", None)
 
 
+def test_a_third_party_package_missing_on_a_host_is_a_warn(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "f0_host.py").write_text("import pydantic_not_here_f0\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(doctor, "MODULE_CHECKS", ("f0_host",))
+    monkeypatch.setattr(doctor, "_THIRD_PARTY", frozenset({"pydantic_not_here_f0"}))
+    monkeypatch.setattr("tools.trialbox.launch.in_box_image", lambda: False)
+    (c,) = doctor.module_rows(doctor.DoctorInputs(), [])
+    assert (c.name, c.status, c.detail) == ("f0_host", "WARN", "cannot look here: pydantic_not_here_f0")
+    monkeypatch.setattr("tools.trialbox.launch.in_box_image", lambda: True)
+    (c,) = doctor.module_rows(doctor.DoctorInputs(), [])
+    assert (c.name, c.status) == ("f0_host", "FAIL")  # in the box image the same failure is a FAIL
+    sys.modules.pop("f0_host", None)
+
+
 def test_the_rows_are_of_a_whole_run_only(monkeypatch: pytest.MonkeyPatch) -> None:
     _brought(monkeypatch, doctor_m9={"doctor_checks": lambda inp: [("profile", "PASS", "96")]})
 
@@ -176,7 +188,7 @@ def test_every_declared_page_file_is_there_or_still_owed() -> None:
     done = PENDING - (set(console_app.MODULE_PAGES) - there)
     assert not done, f"brought or no longer declared: take out of PENDING: {sorted(done)}"
     for name in sorted(there):
-        assert hasattr(importlib.import_module(f"{name}"), "register"), f"{name} has no register()"
+        assert hasattr(importlib.import_module(f"console.{name}"), "register"), f"{name} has no register()"
 
 
 def test_every_declared_page_file_is_registered_once_before_the_outermost_middleware() -> None:

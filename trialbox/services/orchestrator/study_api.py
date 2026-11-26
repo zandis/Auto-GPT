@@ -23,6 +23,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 from datacore import sync
 from datacore.store import TRIALBOX, DataCore
@@ -31,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from rc_bridge import writeback
 from rc_bridge.client import RcError, RedcapClient, api_url, check_token
 from rc_bridge.link import WRITE_FIELDS, LinkError, ProjectLink, read_back, validate
+from tb_common import egress_edge
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.erased import is_erased
@@ -80,12 +82,22 @@ class StudyService:
 
         chosen = open_client(self.store, token_ref)
         if chosen is not None:
-            return chosen
+            return self._edge(chosen)
         conn = self.store.connection(token_ref)
         token = self.store.token(token_ref)
         if conn is None or token is None:
             raise RcError("RC-TOKEN", f"no REDCap token named {token_ref!r} is set (S36)")
-        return RedcapClient(str(conn["url"]), token)
+        return self._edge(RedcapClient(str(conn["url"]), token))
+
+    def _edge(self, rc: RedcapClient) -> RedcapClient:
+        """M3: every write of the client passes the egress edge first, to this study's own EDC and nowhere else."""
+        host = urlparse(rc.url).hostname or "edc"
+
+        def on_leave(payload: str) -> None:
+            egress_edge.leave("edc.write", host, payload, audit=self.audit, actor="orchestrator", named=[host])
+
+        rc.on_leave = on_leave
+        return rc
 
     def _version(self, rc: RedcapClient) -> str:
         from edc_backend.study import accept_version

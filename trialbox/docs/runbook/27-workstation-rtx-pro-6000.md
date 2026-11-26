@@ -86,3 +86,16 @@ Docker Engine and the toolkit inside Ubuntu as in steps 5 to 7. Steps 8 to 15 ar
 
 Start: `TB_LLM_MODE=gpu deploy/poc.sh` (it keeps the passwords and the data). Stop: `deploy/poc.sh down`. State and
 addresses: `deploy/poc.sh status`. Start again from nothing: `deploy/poc.sh reset`.
+
+## The profile's limits and how they are proven (M9)
+
+The profile record is `deploy/measured/profile_record.rtxpro6000.json`: the card seen, the two servers by registry
+id, concurrency (16 calls each), the host-memory caps (48 GiB each) and the card split (0.40 and 0.20 of the card).
+`trialbox doctor` shows the profile and fails a cap in `deploy/.env` that differs from the record. Patients a night
+and seconds per 1,000 patients stay "not measured" until the 50,000 run fills them. The Docker Engine range the
+installer accepts is in `tools/trialbox/profile_m9.py` (`ENGINE_TESTED`); outside it the install stops before it
+changes anything, and doctor shows the same range. On a larger card the bench runs `tools/prove_profile_96gb.sh`:
+it holds the card down to the class's memory, scales both utilisations to it, pins the servers to that card, runs
+the night, screen-now, backup and restore, and writes the rows (peak memory, kills by the memory cap, other cards
+touched). The 128 GB Linux Spark class has its own record (`deploy/measured/profile_record.gb10.json`, unmeasured until a Spark runs it) and the same doctor rows. A Windows 10 or 11 PC with WSL2 as the GPU host is the secondary path (the site box is Linux; Windows is the users' browser side): its proof is started by `tools\prove_profile_96gb.ps1` (it checks the Windows driver, the card size and `.wslconfig` first); the engine range covers the one in WSL and Docker Desktop's. A real 96 GB machine is the owner's proof.
+

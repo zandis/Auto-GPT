@@ -168,9 +168,19 @@ condition,一過性脳虚血発作,icd10cm,G45.9,exact
 medication,anticoagulant,atc,B01AA,prefix
 medication,anticoagulant,atc,B01AE,prefix
 medication,anticoagulant,atc,B01AF,prefix
+medication,anticoagulant,atc,B01AA03,exact
+medication,anticoagulant,atc,B01AE07,exact
+medication,anticoagulant,atc,B01AF01,exact
+medication,anticoagulant,atc,B01AF02,exact
+medication,anticoagulant,atc,B01AF03,exact
 medication,抗凝固薬,atc,B01AA,prefix
 medication,抗凝固薬,atc,B01AE,prefix
 medication,抗凝固薬,atc,B01AF,prefix
+medication,抗凝固薬,atc,B01AA03,exact
+medication,抗凝固薬,atc,B01AE07,exact
+medication,抗凝固薬,atc,B01AF01,exact
+medication,抗凝固薬,atc,B01AF02,exact
+medication,抗凝固薬,atc,B01AF03,exact
 encounter,memory clinic visit,department,NEUR,exact
 encounter,memory clinic visit,department,PSY,exact
 condition,herpes zoster,icd10cm,B02,prefix
@@ -184,4 +194,10 @@ condition,靜脈血栓栓塞,icd10cm,I82.5,prefix
 medication,biologic dmard or jak inhibitor,atc,L04AB,prefix
 medication,biologic dmard or jak inhibitor,atc,L04AC07,exact
 medication,biologic dmard or jak inhibitor,atc,L04AF,prefix
+medication,biologic dmard or jak inhibitor,atc,L04AF01,exact
+medication,biologic dmard or jak inhibitor,atc,L04AF02,exact
+medication,biologic dmard or jak inhibitor,atc,L04AF03,exact
 medication,jak inhibitor,atc,L04AF,prefix
+medication,jak inhibitor,atc,L04AF01,exact
+medication,jak inhibitor,atc,L04AF02,exact
+medication,jak inhibitor,atc,L04AF03,exact

@@ -6,16 +6,17 @@
 the results: every block between `masking-sheet:` markers (the run line and all tables, the rows table included).
 Written by hand: the prose, the encodings section (the bench's table, quoted) and "What was not measured".*
 
-This sheet says, for English, Traditional Chinese and Japanese notes, which identifier forms the note masker
-(`libs/tb_common/phi_guard.py`, `mask_note`, as the lake runs it before a note is indexed) masks, at what rate on this
-run, and which forms it lets pass. It measures; it fixes nothing, and it states no bound and no promise. Every table
+This sheet says, for English, Traditional Chinese and Japanese notes, which identifier forms the masking at egress
+(`libs/tb_common/egress_edge.py`, `mask_text`: the one rule set of what leaves the box, D-1093; the note masker's forms
+and the log scrubber's and the guard's) masks, at what rate on this run, and which forms it lets pass. Below, "the
+masker" is that rule set. It measures; it fixes nothing, and it states no bound and no promise. Every table
 between the generated markers is the rendering of [`masking-sheet/results.json`](masking-sheet/results.json) by
 `tools/masking_sheet.py`; `tests/unit/test_masking_sheet.py` fails when a table and the results differ.
 
 ## What was measured, on which commit, with which command
 
 <!-- masking-sheet:run:begin -->
-The measured code equals master commit `72a293ad3ded88f52c32cd0570b11866db27b7a3` (the merge base with `origin/master`) except: `tools/masking_sheet.py`. Blobs as read: `libs/tb_common/phi_guard.py` `84a72d1b4741b80b6ed2ac78a0b55930f2add977`; `tools/masking_leaks.py` `94843748867e83915b7ab49ae6877272a48d7a1c`; `libs/tb_common/logging.py` `d6f1fae4b1ccaa775be15896af46e3cc0fdf833c`. Site chart-number pattern in effect: `^\d{8}$`. Run 2026-11-22, command `PYTHONPATH=libs:services:. .venv/bin/python -m tools.masking_sheet --write` (from `trialbox/`). Entry point: `tb_common.phi_guard.mask_note(text, site_mrn_regex()), as lake.store.Lake.rebuild runs it before a note is chunked, indexed and embedded`. Harness seed 20261117, 21 notes per form (three at each of seven places); base notes kept: zh-TW 205, ja 274, en 235.
+The measured code equals master commit `440089e864fb2032b6d4e5983da742fc76fcf2ed` (the merge base with `origin/master`) except: `libs/tb_common/egress_edge.py`, `libs/tb_common/logging.py`, `tools/masking_leaks.py`, `tools/masking_sheet.py`. Blobs as read: `libs/tb_common/phi_guard.py` `84a72d1b4741b80b6ed2ac78a0b55930f2add977`; `libs/tb_common/egress_edge.py` `9a50420af7ab02ddc2fadd0b14c60d6f90d7598d`; `tools/masking_leaks.py` `634b52bc74cf865d618125705fdd8c663558e65a`; `libs/tb_common/logging.py` `aa546c9157bb54e9e66f35f8d3f3832eaeda37be`. Site chart-number pattern in effect: `^\d{8}$`. Run 2026-11-26, command `PYTHONPATH=libs:services:. .venv/bin/python -m tools.masking_sheet --write` (from `trialbox/`). Entry point: `tb_common.egress_edge.mask_text(text, site_mrn_regex()), the one rule set of what leaves the box (D-1093)`. Harness seed 20261117, 21 notes per form (three at each of seven places); base notes kept: zh-TW 205, ja 274, en 235.
 <!-- masking-sheet:run:end -->
 
 - **The planted-identifier run** is card V-5's harness, `tools/masking_leaks.py` (its page:
@@ -43,17 +44,17 @@ The measured code equals master commit `72a293ad3ded88f52c32cd0570b11866db27b7a3
 <!-- masking-sheet:summary:begin -->
 | Language | Scope | Probes | Masked | Partly | Leaked | Masked per 1,000 | Leaked per 1,000 | Tripwire missed |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| en | in scope | 768 | 693 | 21 | 54 | 902.3 | 70.3 | 36 |
+| en | in scope | 768 | 702 | 21 | 45 | 914.1 | 58.6 | 27 |
 | en | free-standing | 96 | 21 | 0 | 75 | 218.8 | 781.2 | 75 |
-| en | line break | 144 | 12 | 12 | 120 | 83.3 | 833.3 | 93 |
+| en | line break | 144 | 15 | 9 | 120 | 104.2 | 833.3 | 93 |
 | en | names in scope | 102 | 68 | 0 | 34 | 666.7 | 333.3 | 25 |
-| zh-TW | in scope | 942 | 850 | 30 | 62 | 902.3 | 65.8 | 34 |
+| zh-TW | in scope | 942 | 898 | 12 | 32 | 953.3 | 34.0 | 4 |
 | zh-TW | free-standing | 84 | 22 | 2 | 60 | 261.9 | 714.3 | 60 |
 | zh-TW | line break | 171 | 25 | 9 | 137 | 146.2 | 801.2 | 89 |
 | zh-TW | names in scope | 96 | 78 | 0 | 18 | 812.5 | 187.5 | 2 |
-| ja | in scope | 792 | 771 | 13 | 8 | 973.5 | 10.1 | 8 |
+| ja | in scope | 792 | 783 | 1 | 8 | 988.6 | 10.1 | 8 |
 | ja | free-standing | 72 | 5 | 0 | 67 | 69.4 | 930.6 | 67 |
-| ja | line break | 144 | 26 | 16 | 102 | 180.6 | 708.3 | 75 |
+| ja | line break | 144 | 32 | 13 | 99 | 222.2 | 687.5 | 72 |
 | ja | names in scope | 108 | 99 | 1 | 8 | 916.7 | 74.1 | 8 |
 <!-- masking-sheet:summary:end -->
 
@@ -76,7 +77,7 @@ The measured code equals master commit `72a293ad3ded88f52c32cd0570b11866db27b7a3
 | national_id | tw_id | `Addddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | national_id | tw_arc_old | `AAdddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | national_id | tw_arc_new | `Addddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
-| national_id | us_ssn | `ddd-dd-dddd` | 18 | 9 | 0 | 9 | 18 probes | 18 probes | - | 3 of 3 | 9 |
+| national_id | us_ssn | `ddd-dd-dddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | chart | bare_8 | `dddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | chart | label_MRN | `MRN dddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | chart | label_MRN_colon | `MRN: dddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
@@ -127,13 +128,12 @@ Forms known to pass in English (in scope):
 | name | mr | `Mr. Aaaaaa Aaaaaaaaaa` | 3 | 0 | 18 | 18 probes |
 | name | ms | `Ms. Aaaaaaaaa` | 3 | 0 | 18 | 18 probes |
 | name | initials | `A.A.` | 6 | 0 | 6 | 6 probes |
-| national_id | us_ssn | `ddd-dd-dddd` | 9 | 0 | 18 | 18 probes |
 | phone | tw_landline_paren | `(dd)ddd-dddd` | 2 | 0 | 18 | 18 probes |
 | phone | tw_landline_ext | `dd-dddd-dddd 漢漢ddd` | 0 | 12 | 18 | 18 probes |
 | address | en_full | `dddd Aaaaaaaaaaa Aaaa, Aaaaaaaaaaa, AA ddddd` | 9 | 0 | 18 | 18 probes |
 | address | en_apt | `dddd Aaaaaaa Aaaaaa, Aaa d` | 0 | 9 | 18 | 18 probes |
 
-In scope, all forms: 54 of 768 leaked (70.3 per 1,000), 21 partly masked. Free-standing names: 75 of 96 leaked. A value split by a line break: 120 of 144 leaked.
+In scope, all forms: 45 of 768 leaked (58.6 per 1,000), 21 partly masked. Free-standing names: 75 of 96 leaked. A value split by a line break: 120 of 144 leaked.
 <!-- masking-sheet:pass-en:end -->
 
 ## Traditional Chinese (zh-TW)
@@ -154,7 +154,7 @@ In scope, all forms: 54 of 768 leaked (70.3 per 1,000), 21 partly masked. Free-s
 | national_id | tw_id | `Addddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | national_id | tw_arc_old | `AAdddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | national_id | tw_arc_new | `Addddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
-| national_id | tw_id_fullwidth | `Ａｄｄｄｄｄｄｄｄｄ` | 18 | 0 | 18 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
+| national_id | tw_id_fullwidth | `Ａｄｄｄｄｄｄｄｄｄ` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | chart | bare_8 | `dddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | chart | label_病歷號_colon | `病歷號：dddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | chart | label_病歷號碼 | `病歷號碼 dddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
@@ -169,7 +169,7 @@ In scope, all forms: 54 of 768 leaked (70.3 per 1,000), 21 partly masked. Free-s
 | phone | tw_landline_paren | `(dd)ddd-dddd` | 18 | 16 | 0 | 2 | 18 probes | 18 probes | - | 3 of 3 | 2 |
 | phone | tw_landline_hyphen | `ddd-ddd-dddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | phone | tw_landline_ext | `ddd-dd-dddd 漢漢ddd` | 18 | 6 | 12 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
-| phone | tw_mobile_fullwidth | `ｄｄｄｄ－ｄｄｄ－ｄｄｄ` | 18 | 6 | 0 | 12 | 18 probes | 18 probes | - | 3 of 3 | 12 |
+| phone | tw_mobile_fullwidth | `ｄｄｄｄ－ｄｄｄ－ｄｄｄ` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | address | tw_full | `ddd漢漢漢漢漢漢漢漢漢漢漢dd漢d漢ddd漢d漢` | 18 | 6 | 0 | 12 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | address | tw_no_postcode | `漢漢漢漢漢漢漢漢漢漢dd漢dd漢` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 2 of 3 | 0 |
 | address | tw_floor_unit | `漢漢漢漢漢漢漢漢漢漢ddd漢dd漢漢d` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
@@ -195,7 +195,7 @@ In scope, all forms: 54 of 768 leaked (70.3 per 1,000), 21 partly masked. Free-s
 | dob | label_roc_dot | `出生日期：dd.d.dd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | dob | born_roc_dot | `dd.d.d出生` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | dob | label_roc_compact | `出生日期：ddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
-| dob | born_roc_compact | `ddddddd出生` | 18 | 0 | 0 | 18 | 18 probes | 18 probes | - | 3 of 3 | 18 |
+| dob | born_roc_compact | `ddddddd出生` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | dob | label_roc_numerals | `出生日期：漢漢漢漢漢漢漢漢漢` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | dob | born_roc_numerals | `漢漢漢漢漢漢漢漢漢漢出生` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 <!-- masking-sheet:forms-zh-TW:end -->
@@ -211,14 +211,11 @@ Forms known to pass in Traditional Chinese (in scope):
 | name | han_3_醫師 | `漢漢漢醫師` | 1 | 0 | 18 | 18 probes |
 | name | pinyin_family_first | `Aaa Aaaaaa` | 6 | 0 | 6 | 6 probes |
 | name | pinyin_given_first | `Aaaaaaa Aaa` | 6 | 0 | 6 | 6 probes |
-| national_id | tw_id_fullwidth | `Ａｄｄｄｄｄｄｄｄｄ` | 0 | 18 | 18 | 18 probes |
 | phone | tw_landline_paren | `(dd)ddd-dddd` | 2 | 0 | 18 | 18 probes |
 | phone | tw_landline_ext | `ddd-dd-dddd 漢漢ddd` | 0 | 12 | 18 | 18 probes |
-| phone | tw_mobile_fullwidth | `ｄｄｄｄ－ｄｄｄ－ｄｄｄ` | 12 | 0 | 18 | 18 probes |
 | address | tw_full | `ddd漢漢漢漢漢漢漢漢漢漢漢dd漢d漢ddd漢d漢` | 12 | 0 | 18 | 18 probes |
-| dob | born_roc_compact | `ddddddd出生` | 18 | 0 | 18 | 18 probes |
 
-In scope, all forms: 62 of 942 leaked (65.8 per 1,000), 30 partly masked. Free-standing names: 60 of 84 leaked. A value split by a line break: 137 of 171 leaked.
+In scope, all forms: 32 of 942 leaked (34.0 per 1,000), 12 partly masked. Free-standing names: 60 of 84 leaked. A value split by a line break: 137 of 171 leaked.
 <!-- masking-sheet:pass-zh-TW:end -->
 
 ## Japanese (ja)
@@ -237,7 +234,7 @@ In scope, all forms: 62 of 942 leaked (65.8 per 1,000), 30 partly masked. Free-s
 | name | hepburn_family_first | `AAAAAAAA Aaaaaa` | 6 | 6 | 0 | 0 | 6 probes | 6 probes | 12 of 12 | 3 of 3 | 0 |
 | name | hepburn_given_first | `Aaaa Aaaaa` | 6 | 6 | 0 | 0 | 6 probes | 6 probes | 12 of 12 | 3 of 3 | 0 |
 | national_id | my_number | `dddddddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
-| national_id | my_number_spaced | `dddd dddd dddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
+| national_id | my_number_spaced | `dddd dddd dddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 0 of 3 | 0 |
 | national_id | my_number_fullwidth | `ｄｄｄｄｄｄｄｄｄｄｄｄ` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | national_id | insurer_no | `保険者番号：dddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | national_id | insurance_symbol_no | `被保険者証 記号・番号：dddd・ddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 0 of 3 | 0 |
@@ -252,7 +249,7 @@ In scope, all forms: 62 of 942 leaked (65.8 per 1,000), 30 partly masked. Free-s
 | phone | jp_intl | `+dd-dd-dddd-dddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | phone | jp_plain | `ddddddddddd` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | phone | jp_fullwidth | `ｄｄｄ－ｄｄｄｄ－ｄｄｄｄ` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
-| address | jp_full | `〒ddd-dddd 漢漢漢漢漢漢漢漢漢漢漢d漢漢dd漢dd漢` | 18 | 6 | 12 | 0 | 18 probes | 18 probes | - | 0 of 3 | 0 |
+| address | jp_full | `〒ddd-dddd 漢漢漢漢漢漢漢漢漢漢漢d漢漢dd漢dd漢` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 0 of 3 | 0 |
 | address | jp_hyphen_building | `漢漢漢漢漢漢漢漢漢漢d-dd-d カカカカカカカddd漢漢` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 0 of 3 | 0 |
 | address | jp_no_postcode | `漢漢漢漢漢漢漢漢漢漢漢d漢漢dd漢d漢` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
 | email | ascii | `aaaadd@aaaaaaa.aaa` | 18 | 18 | 0 | 0 | 18 probes | 18 probes | - | 3 of 3 | 0 |
@@ -284,9 +281,8 @@ Forms known to pass in Japanese (in scope):
 | name | kanji_様 | `漢漢漢漢様` | 5 | 1 | 18 | 18 probes |
 | name | kanji_殿 | `漢漢漢漢殿` | 1 | 0 | 18 | 18 probes |
 | name | kanji_先生 | `漢漢漢漢先生` | 2 | 0 | 18 | 18 probes |
-| address | jp_full | `〒ddd-dddd 漢漢漢漢漢漢漢漢漢漢漢d漢漢dd漢dd漢` | 0 | 12 | 18 | 18 probes |
 
-In scope, all forms: 8 of 792 leaked (10.1 per 1,000), 13 partly masked. Free-standing names: 67 of 72 leaked. A value split by a line break: 102 of 144 leaked.
+In scope, all forms: 8 of 792 leaked (10.1 per 1,000), 1 partly masked. Free-standing names: 67 of 72 leaked. A value split by a line break: 99 of 144 leaked.
 <!-- masking-sheet:pass-ja:end -->
 
 ## Encodings: the bench's fuzz
@@ -306,7 +302,7 @@ mail render (text and HTML)    100 %   (no masking: by design for the study's re
 search index, trace store       15 %   QP 100 %, base64 88 % (note text on the box by design?)
 ```
 
-- The note masker's row is **search index, trace store**: what the masker leaves is what the index holds. The two log
+- These rows are the bench's of before M3. **search index, trace store** is the note masker alone, inside the box. The two log
   rows are the log formatter's (R22-21 below), the bundle row the support bundle's scrub.
 - Correction 7078367269: the support-bundle row ran on a 1-in-10 sample (5,000 of the 50,000 notes); the other rows
   ran on all 50,000.
@@ -347,22 +343,22 @@ when an open masking row is missing here.
 | V5-03 | Chinese names in scope | zh-TW names in scope: 18 of 96 leaked (187.5 per 1,000) |
 | V5-04 | The insurance card's 記号・番号 after its label | 0 of 18 leaked on this run |
 | V5-05 | An e-mail with a full-width ＠ (three languages) | 0 of 54 leaked on this run |
-| V5-06 | Full-width mobiles; landlines with the area code in brackets | 16 of 72 leaked (222.2 per 1,000) |
-| V5-07 | A value split by a hard wrap (all forms) | 359 of 459 leaked (782.1 per 1,000); 37 partly masked |
-| V5-08 | A compact ROC birth date before 出生 | 18 of 18 leaked |
-| V5-09 | A US SSN (no label) | 9 of 18 leaked |
-| V5-10 | The gateway's tripwire on in-scope notes | the tripwire missed 78 of 2502 notes (31.2 per 1,000) |
+| V5-06 | Full-width mobiles; landlines with the area code in brackets | 4 of 72 leaked (55.6 per 1,000) |
+| V5-07 | A value split by a hard wrap (all forms) | 356 of 459 leaked (775.6 per 1,000); 31 partly masked |
+| V5-08 | A compact ROC birth date before 出生 | 0 of 18 leaked on this run |
+| V5-09 | A US SSN (no label) | 0 of 18 leaked on this run |
+| V5-10 | The gateway's tripwire on in-scope notes | the tripwire missed 39 of 2502 notes (15.6 per 1,000) |
 | V5-11 | Over-masking: an 8-digit clinical date | 180 of 180 altered (1000.0 per 1,000) |
-| V5-12 | The postcode of a masked full address | 21 of 54 leaked (388.9 per 1,000); 12 partly masked |
+| V5-12 | The postcode of a masked full address | 21 of 54 leaked (388.9 per 1,000) |
 | V5-13 | Free-standing names (no label, role, title or honorific) | 202 of 252 leaked (801.6 per 1,000); 2 partly masked |
 | J10C1-01 | A Japanese name with no label or honorific | 3 of 3 lines readable |
 | J10C1-02 | A romaji name without a label | 1 of 1 lines readable |
 | J10C1-03 | A name split by a line break after its label | 1 of 1 lines readable |
 | J10C1-04 | An address without 市 | 2 of 2 lines readable |
-| J10C1-05 | A pension number and a passport number | 2 of 2 lines readable |
+| J10C1-05 | A pension number and a passport number | 0 of 2 leaked on this run |
 | J10C1-06 | Over-masking: two ordinary Japanese lines | 1 of 2 lines altered |
-| R22-23 | The review's: names without a label, and identifiers behind an encoding | 55 of 66 rebuilt probes readable (en 18 of 21; zh-TW 19 of 21; ja 18 of 24) |
-| R22-21 | The review's: log extras that are not text (the log formatter, not the note masker) | 24 of 24 leaked (1000.0 per 1,000); text extras 0 of 6 |
+| R22-23 | The review's: names without a label, and identifiers behind an encoding | 49 of 66 rebuilt probes readable (en 15 of 21; zh-TW 16 of 21; ja 18 of 24) |
+| R22-21 | The review's: log extras that are not text (the log formatter, not the note masker) | 1 of 24 leaked (41.7 per 1,000); text extras 0 of 6 |
 <!-- masking-sheet:rows:end -->
 
 - **V5-01's remainder** is 24 probes: the harness's four kanji family names outside the masker's surname list
@@ -370,7 +366,7 @@ when an open masking row is missing here.
   a word. `tests/unit/test_masking_sheet.py` holds them as a strict expected failure, so CI says so the day the
   masker masks them.
 - **J10C1-01 to -05** are the known-gap lines of `eval/phi_synth/ja_guard_probes.json` (by their `kind`), through
-  the masker as the lake runs it; a line counts when any letter or digit of its identifier stays readable.
+  the masker; a line counts when any letter or digit of its identifier stays readable.
   **J10C1-06** is that file's two known over-masked lines; a line counts when the masker alters it.
 - **V5-11** is the harness's clinical 8-digit dates (`date_compact8`, all three languages); a date counts when the
   masker alters it.
@@ -389,14 +385,14 @@ when an open masking row is missing here.
 | en | percent | `Name: Aaaaa%ddAaaaaaa. History of diabetes.` | 3 | 3 | 0 |
 | en | entities | `Name: &#dd;&#ddd;&#ddd;&#ddd;&#ddd;&#dd;&#dd;&#dd;&#ddd;&#dd;&#ddd;&#ddd;&#ddd;&#dd;. History of diabetes.` | 3 | 3 | 3 |
 | en | zero_width_joiner | `Name: A⟨zwj⟩aaaa Aaaaaaaa. History of diabetes.` | 3 | 3 | 3 |
-| en | fullwidth_number | `SSN ｄｄｄ－ｄｄ－ｄｄｄｄ. History of diabetes.` | 3 | 3 | 3 |
+| en | fullwidth_number | `SSN ｄｄｄ－ｄｄ－ｄｄｄｄ. History of diabetes.` | 3 | 0 | 0 |
 | en | phone_zero_width_joiner | `Phone: d⟨zwj⟩dd-ddd-dddd. History of diabetes.` | 3 | 3 | 3 |
 | zh-TW | label | `姓名：漢漢漢。既往有糖尿病。` | 3 | 1 | 0 |
 | zh-TW | no_label | `病人漢漢漢今日回診，既往有糖尿病。` | 3 | 3 | 2 |
 | zh-TW | percent | `姓名：%Ad%Ad%dA%Ad%dd%dd%Ad%dd%dA。既往有糖尿病。` | 3 | 3 | 0 |
 | zh-TW | entities | `姓名：&#ddddd;&#ddddd;&#ddddd;。既往有糖尿病。` | 3 | 3 | 0 |
 | zh-TW | zero_width_joiner | `姓名：漢⟨zwj⟩漢漢。既往有糖尿病。` | 3 | 3 | 0 |
-| zh-TW | fullwidth_number | `身分證號：Ａｄｄｄｄｄｄｄｄｄ。既往有糖尿病。` | 3 | 3 | 0 |
+| zh-TW | fullwidth_number | `身分證號：Ａｄｄｄｄｄｄｄｄｄ。既往有糖尿病。` | 3 | 0 | 0 |
 | zh-TW | phone_zero_width_joiner | `電話：d⟨zwj⟩ddd-ddd-ddd。既往有糖尿病。` | 3 | 3 | 3 |
 | ja | label | `氏名：漢漢漢漢。既往歴に糖尿病。` | 3 | 0 | 0 |
 | ja | no_label | `患者は漢漢漢漢。既往歴に糖尿病。` | 3 | 3 | 3 |
@@ -408,18 +404,18 @@ when an open masking row is missing here.
 | ja | phone_zero_width_joiner | `電話：d⟨zwj⟩dd-dddd-dddd。既往歴に糖尿病。` | 3 | 3 | 3 |
 <!-- masking-sheet:r22-23:end -->
 
-- **R22-21** is the log formatter (`libs/tb_common/logging.py`, `JsonFormatter`), not the note masker: six harness
-  values (a name with an honorific and a phone, per language) put in a log record's extras as each value type. A
+- **R22-21** is the log formatter (`libs/tb_common/logging.py`, `JsonFormatter`), which reads the same rule set
+  (M3: a value that is not text too): six harness values (a name with an honorific and a phone, per language) put in a log record's extras as each value type. A
   probe counts when the identifier, or for bytes its UTF-8 escape, is in a field of the written line.
 
 <!-- masking-sheet:r22-21:begin -->
 | Extras value type | Probes | Identifier written readable |
 |---|---:|---:|
 | text | 6 | 0 |
-| object | 6 | 6 |
-| path | 6 | 6 |
-| exception | 6 | 6 |
-| bytes | 6 | 6 |
+| object | 6 | 1 |
+| path | 6 | 0 |
+| exception | 6 | 0 |
+| bytes | 6 | 0 |
 <!-- masking-sheet:r22-21:end -->
 
 ## What was not measured

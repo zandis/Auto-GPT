@@ -49,7 +49,7 @@
     <input type="hidden" name="country" value="{{ country }}">{% for k, v in kept.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
     <p data-testid="firstrun-country-chosen">{{ t('firstrun.country.chosen', country=t('firstrun.country.' + country)) }} <button type="submit" class="button secondary" formaction="/login/first-run/answers/keep" formnovalidate name="pick_country" value="" data-testid="country-change">{{ t('firstrun.country.change') }}</button></p>{% endif %}
     <label for="site_name">{{ t('firstrun.site_name') }}</label>
-    <input id="site_name" name="site_name" required maxlength="200" value="{{ values.get('site_name', '') }}">{{ err('site_name') }}
+    <input id="site_name" name="site_name" maxlength="200" value="{{ values.get('site_name', '') }}">{{ err('site_name') }}
     <label for="tz">{{ t('firstrun.tz') }}</label>
     <input id="tz" name="tz" list="tz-list" required maxlength="64" value="{{ values.get('tz', '') }}" aria-describedby="tz-help">{{ err('tz') }}
     <datalist id="tz-list">{% for z in timezones %}<option value="{{ z }}">{% endfor %}</datalist>
@@ -89,6 +89,8 @@
     <label for="totp">{{ t('firstrun.mfa.code') }}</label>
     <input id="totp" name="totp" required inputmode="numeric" maxlength="8" autocomplete="one-time-code">{{ err('totp') }}
   </fieldset>
+  {# M1 (D-1280): everything below has a default; what is left empty is on "Information still needed" #}
+  <p class="hint" data-testid="firstrun-optional">{{ t('firstrun.optional') }}</p>
   <fieldset><legend>{{ t('firstrun.box') }}</legend>
     <label for="box_name">{{ t('firstrun.box_name') }}</label>
     <input id="box_name" name="box_name" required maxlength="63" autocapitalize="none" spellcheck="false" value="{{ values.get('box_name', '') }}" aria-describedby="box-help">{{ err('box_name') }}
@@ -111,10 +113,10 @@
     <label for="backup_dir">{{ t('firstrun.backup.dir') }}</label>
     <input id="backup_dir" name="backup_dir" maxlength="255" autocapitalize="none" spellcheck="false" value="{{ values.get('backup_dir', '') }}" aria-describedby="backup-dir-help">{{ err('backup_dir') }}
     <p class="hint" id="backup-dir-help">{{ t('firstrun.backup.dir.help') }}</p>
-    <label><input type="radio" name="backup_kind" value="later"{% if values.get('backup_kind') == 'later' %} checked{% endif %}> {{ t('firstrun.backup.later') }}</label>
+    <label><input type="radio" name="backup_kind" value="later"{% if values.get('backup_kind', 'later') == 'later' %} checked{% endif %}> {{ t('firstrun.backup.later') }}</label>
     {# 10K-21 (D-1365): the box's backup alert route is the health page: who opens it every working day #}
     <label for="health_page_person">{{ t('firstrun.health_page_person') }}</label>
-    <input id="health_page_person" name="health_page_person" maxlength="100"{% if production %} required{% endif %} value="{{ values.get('health_page_person', '') }}" aria-describedby="hpp-help">{{ err('health_page_person') }}
+    <input id="health_page_person" name="health_page_person" maxlength="100" value="{{ values.get('health_page_person', '') }}" aria-describedby="hpp-help">{{ err('health_page_person') }}
     <p class="hint" id="hpp-help">{{ t('firstrun.health_page_person.help') }}</p>
   </fieldset>
   {# 10K-4 (D-1390): the audit record's signed heads and the collected logs; the box checks the folders when it

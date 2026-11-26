@@ -1,0 +1,40 @@
+{
+ "schema": "tb-profile-record/1",
+ "profile": "rtxpro6000",
+ "class": "96 GB",
+ "hardware_seen": {
+  "card": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "memory_total_mib": 97887,
+  "driver": "580.178.04",
+  "source": "deploy/measured/serving_config.rtxpro6000.json (captured_at 2026-11-08T13:37:03+00:00, uncapped card)"
+ },
+ "models": {
+  "judge": {"registry_id": "j-workhorse", "endpoint": "serving"},
+  "verifier": {"registry_id": "v-verifier", "endpoint": "verifier"},
+  "redistribution_terms": "OWNER"
+ },
+ "concurrency": {"judge_max_seqs": 16, "verifier_max_seqs": 16, "context_tokens": 32768},
+ "caps": {
+  "TB_MEM_LLM": "48g",
+  "TB_MEM_VERIFIER": "48g",
+  "JUDGE_GPU_MEM_UTIL": "0.40",
+  "VERIFIER_GPU_MEM_UTIL": "0.20",
+  "JUDGE_MAX_SEQS": "16",
+  "VERIFIER_MAX_SEQS": "16",
+  "TB_LLM_PREFIX_CACHING": "no-enable"
+ },
+ "serving": {
+  "prefix_cache": "off",
+  "cuda_graphs": "off (enforce-eager); on only with the repeat measurement of the same-label rate",
+  "structured_output": "not enabled by the profile; turning it on is a Track-2 decision (it can change verdicts)"
+ },
+ "measured": {
+  "seconds_per_1000_patients": null,
+  "patients_per_night": null,
+  "note": "NOT MEASURED: comes from M8's 50,000 run (tools/prove_profile_96gb.sh); never filled by hand"
+ },
+ "engine_range": "see tools/trialbox/profile_m9.py ENGINE_TESTED",
+ "real_machine": "OWNER",
+ "date": "2026-11-26",
+ "commit": null
+}

@@ -31,9 +31,19 @@ import pytest
 from tb_common import kek as K
 from tb_common.audit import AuditLog
 
+from tests import host_escape
+from tests.own_deploy import own_deploy
 from tools import keys
 
 pytestmark = pytest.mark.nodb
+
+
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
+
+
 OLD = "synthetic-h133-" + "lifecycle-old-passphrase"  # synthetic
 NEW = "synthetic-h133-" + "lifecycle-new-passphrase"  # synthetic
 DEV = {"TB_ENV": "DEV"}  # a key ceremony is refused on a PRODUCTION box (rc1)
@@ -217,6 +227,7 @@ def test_lr3_after_rotate_kek_as_root_the_services_still_open_kek_json_every_key
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Matrix cell "rotate-kek | KEK passphrase, runtime KEK present, services as uid 10001 | none" (LR-3)."""
+    host = host_escape.watch(monkeypatch)  # H-139: the box's own run folder only, never the host's /run/trialbox
     own = Owners(monkeypatch)
     b = _passphrase_box(tmp_path, own)
     served = _served(b["sec"])
@@ -234,12 +245,13 @@ def test_lr3_after_rotate_kek_as_root_the_services_still_open_kek_json_every_key
         real_replace(src, dst)
 
     monkeypatch.setattr(os, "replace", replace)
-    assert keys.main(_rotate_argv(b), env=DEV) == 0
+    assert keys.main(_rotate_argv(b), env={**DEV, "TB_KEK_FILE": str(b["run"] / "kek")}) == 0
     monkeypatch.setattr(os, "replace", real_replace)
     assert late == []
     assert own.services_read(b["sec"], served) == dict.fromkeys(served, True)
     assert own.services_read(b["run"], ["kek"]) == {"kek": True}
     assert _runtime_opens(b)
+    assert host == [], host
 
 
 def test_lr4_unseal_after_a_restart_leaves_a_runtime_kek_and_folder_the_services_open(

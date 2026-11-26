@@ -63,6 +63,7 @@ are one rule.
 from __future__ import annotations
 
 import base64
+import contextlib
 import ctypes
 import fcntl
 import hashlib
@@ -76,7 +77,7 @@ import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -320,6 +321,7 @@ def box_heads(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
     return out
 
 
+FIRST_SIGNING_MAX = timedelta(hours=48)  # M4: a chain this long with no earlier signing is looked at
 RUNBOOK_WAITS = 'docs/runbook/05-updates-backup-restore-secrets.md, "The audit chain waits for a person"'
 
 
@@ -629,6 +631,19 @@ class VerifyResult:
     errors: list[str] = field(default_factory=list)
     head: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)
+    #: M4: the chain's own ``audit.head_signed`` events as (lines, head hash, anchor folders that took it, what
+    #: ``failed`` says of those that did not), and the time of its first and last event, so that a head missing from the
+    #: anchor or an anchor no event speaks of shows
+    signed_events: list[tuple[int, str, int, tuple[str, ...]]] = field(default_factory=list)
+    first_ts: str | None = None
+    last_ts: str | None = None
+
+    def told(self, target: Path) -> list[tuple[int, str]]:
+        """The heads (lines, hash) the chain says were written, without those ``target`` is named not to have taken
+        (OCR 1523-4): by the signer (``<folder>: <why>``) or by the host before it (``sign_on_box``)."""
+        missed = (f"{target}: ", f"the anchor folder {target} is not there")
+        return [(n, h) for n, h, took, failed in self.signed_events
+                if took >= 1 and not any(f.startswith(missed) for f in failed)]  # fmt: skip
 
 
 def verify(
@@ -665,6 +680,7 @@ def verify(
         res.files += 1
         with path.open(encoding="utf-8") as fh:
             for lineno, raw in enumerate(fh, start=1):
+                ended = raw.endswith("\n")
                 raw = raw.rstrip("\n")
                 if not raw:
                     res.errors.append(f"{path.name}:{lineno}: empty line")
@@ -673,12 +689,22 @@ def verify(
                 try:
                     rec = json.loads(raw)
                 except json.JSONDecodeError as exc:
-                    res.errors.append(f"{path.name}:{lineno}: invalid JSON ({exc})")
+                    cut = "" if ended else "; the line has no end: a write that was cut short (power or disk), " \
+                                           "not tampering"  # fmt: skip
+                    res.errors.append(f"{path.name}:{lineno}: invalid JSON ({exc}){cut}")
                     prev = "?"
                     continue
                 if canonical(rec) != raw:
                     res.errors.append(f"{path.name}:{lineno}: not canonical JSON")
                 claimed = rec.pop("hash", None)
+                res.first_ts = res.first_ts or rec.get("ts")
+                res.last_ts = rec.get("ts", res.last_ts)
+                if rec.get("event") == SIGNED_EVENT and isinstance(rec.get("detail"), dict):
+                    d = rec["detail"]
+                    if isinstance(d.get("lines"), int) and isinstance(d.get("head"), str):
+                        failed = d.get("failed") if isinstance(d.get("failed"), list) else []
+                        res.signed_events.append((d["lines"], d["head"], int(d.get("anchors") or 0),
+                                                  tuple(map(str, failed))))  # fmt: skip
                 if rec.get("prev_hash") != prev:
                     res.errors.append(f"{path.name}:{lineno}: prev_hash does not match previous line")
                 expected = line_hash(str(rec.get("prev_hash")), rec)
@@ -889,11 +915,26 @@ def _check_signed_heads(
             res.errors.append(f"{name}: event {n} does not have the signed hash: the chain was rewritten")
         else:
             covered = max(covered, n)
+    have = {(h.get("lines"), h.get("hash")) for h in heads}
+    if written := [e for e in res.signed_events if e[2] >= 1]:
+        # M4: the newest head the chain says a folder took must be there; older ones may be pruned
+        n, last_hash = max(written)[:2]
+        if (n, last_hash) not in have:
+            res.errors.append(f"signed heads: the newest head the chain records as written (event {n}) is not in the "
+                              "folder(s) checked: it was deleted, or the folder was replaced")  # fmt: skip
     if covered:
         res.notes.append(
             f"signed heads: events 1 to {covered} are covered by a valid signature; "
             f"{res.lines - covered} after it are not yet"
         )
+
+
+def _ts(value: Any) -> datetime | None:
+    try:
+        t = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=UTC)
 
 
 def anchor_targets(env: Mapping[str, str] | None = None) -> list[Path]:
@@ -904,18 +945,32 @@ def anchor_targets(env: Mapping[str, str] | None = None) -> list[Path]:
 
 def _write_once(path: Path, data: bytes) -> bool:
     """Write ``data`` to a new file; False when the file is already there with the same bytes. A different file of
-    the same name is never replaced (:class:`AuditSignError`)."""
+    the same name is never replaced (:class:`AuditSignError`). M4: the bytes go to a temporary name first and are
+    renamed into place, so a kill while writing leaves no half head under the real name, and the copy is read back:
+    one that differs is removed and refused, so the next night writes it again."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    except FileExistsError:
+    if path.exists():
         if path.read_bytes() == data:
             return False
-        raise AuditSignError(f"{path} is already there with other content: it is never replaced") from None
-    with os.fdopen(fd, "wb") as fh:
+        raise AuditSignError(f"{path} is already there with other content: it is never replaced")
+    # OCR 1523-8: a leftover of a killed night is removed; a link planted there by another machine is never followed
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.unlink(missing_ok=True)
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644), "wb") as fh:
         fh.write(data)
         fh.flush()
         os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    with contextlib.suppress(OSError):  # the name too (a share may not let a folder be synced)
+        fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    if path.read_bytes() != data:
+        path.unlink(missing_ok=True)
+        raise AuditSignError(f"the copy in {path} differs from what was written (read back): it was removed and "
+                             "will be written again at the next signing")  # fmt: skip
     return True
 
 
@@ -1067,3 +1122,91 @@ def clock_state(env: Mapping[str, str] | None = None) -> ClockState:
         except (OSError, ValueError) as exc:
             error = f"{type(exc).__name__}: {exc}"
     return ClockState(kernel_clock_synced(), offset, server, error)
+
+
+# ---------------------------------------------------------------------------------------------- the anchor's state (M4)
+ANCHOR_STATES = ("ok", "missing", "stale", "restored", "tampered")
+
+
+def _scan(directory: Path, wanted: set[int]) -> tuple[int, dict[int, str], int | None, str | None]:
+    """Lines of the chain, the hash at each wanted line, and where a ``backup.restored`` event first stands (its
+    line number, and the time of the event before it). Reads the chain; verifies nothing (``verify`` does)."""
+    n, at, restored, before, ts = 0, {0: GENESIS}, None, None, None
+    for path in _day_files(directory):
+        with path.open(encoding="utf-8") as fh:
+            for raw in fh:
+                try:
+                    rec = json.loads(raw)
+                except ValueError:
+                    rec = {}
+                n += 1
+                if restored is None and rec.get("event") == "backup.restored":
+                    restored, before = n, ts
+                ts = rec.get("ts", ts)
+                if n in wanted:
+                    at[n] = str(rec.get("hash"))
+    return n, at, restored, before
+
+
+def anchor_state(target: Path, audit_dir: Path, own: Mapping[str, bytes] | None, now: datetime,
+                 limit_h: float = 36.0) -> tuple[str, str]:  # fmt: skip
+    """One anchor folder against the chain: ``(state, sentence)``, state one of :data:`ANCHOR_STATES`.
+
+    missing: the folder is not reachable, is on the audit volume (it protects nothing) or holds no head yet.
+    tampered: a head that no key of this box signed, a head whose signature fails, or a chain that has no event the
+    head names, or another hash there (named by the day the head was signed), or a folder emptied of every head the
+    chain records as written to it. restored: the chain is a shorter
+    copy that a ``backup.restored`` event closes, and every head it disagrees with is later than that event.
+    stale: the newest head is older than ``limit_h``. ok: the chain holds every head and the newest is fresh.
+    ``own`` None: this python3 has no crypto library, so the signatures are not checked here (said in the sentence;
+    the nightly signer checks them)."""
+    if not target.is_dir():
+        return "missing", f"the anchor folder {target} is not reachable (not mounted?)"
+    if _inside(target, audit_dir):
+        return "missing", f"the anchor folder {target} is on the audit volume: it protects nothing"
+    heads = read_signed_heads(target) if (target / _HEADS_DIR).is_dir() else []
+    told = verify(audit_dir, require_head=False).told(target) if audit_dir.is_dir() else []  # what the chain says
+    if not heads and told:  # OCR 1523-17: every head the chain names deleted is tampering, as one deleted head is
+        return "tampered", (f"{target} holds no signed head, but the chain records {len(told)} written to an anchor "
+                           "folder: emptied or replaced; nothing is signed over it until a person looks")  # fmt: skip
+    if not heads:
+        return "missing", f"no signed head in {target} yet (python3 -m tools.trialbox audit-sign)"
+    for h in heads:
+        day = str(h.get("ts") or "?")[:10]
+        if own is None:  # no crypto library here: the record's form only
+            if not (isinstance(h.get("lines"), int) and isinstance(h.get("hash"), str) and _ts(h.get("ts"))):
+                return "tampered", f"a head in {target}/heads (day {day}) is not a {HEAD_FORMAT} record"
+            continue
+        pub = own.get(str(h.get("key_id")))
+        if pub is None:
+            return "tampered", (f"a head in {target}/heads (day {day}) is not signed by this box's audit key "
+                                f"(key id {h.get('key_id')}): not a valid head")  # fmt: skip
+        if (why := signed_head_problem(h, pub)) is not None:
+            return "tampered", (f"the head of {day} in {target}/heads is not valid ({why}): it does not hold as "
+                                "signed by this box's key")  # fmt: skip
+    held = {(h.get("lines"), h.get("hash")) for h in heads}
+    # OCR 1523-4: from the folder's own first head on. One before it was signed before the folder was set up, or pruned;
+    # the newer heads cover the events it covered (_check_signed_heads)
+    first_line = min(int(h["lines"]) for h in heads)
+    if lost := [e for e in told if e[0] >= first_line and e not in held]:
+        return "tampered", (f"the head of event {max(lost)[0]}, which the chain records as written, is not in "
+                           f"{target}: it was deleted, or the folder was replaced")  # fmt: skip
+    n, at, restored, before = _scan(audit_dir, {int(h["lines"]) for h in heads})
+    off = [h for h in heads if int(h["lines"]) > n or at.get(int(h["lines"])) != h["hash"]]
+    if off:
+        first = min(off, key=lambda h: str(h["ts"]))
+        if restored is not None and all(int(h["lines"]) >= restored for h in off):
+            return "restored", (f"the audit trail was restored to {str(before or '?')[:19]} (a backup): "
+                                f"{len(off)} head(s) in {target} are later than it; a person confirms once "
+                                "(tools/audit_verify.py --heads, then --reanchor)")  # fmt: skip
+        return "tampered", (f"the audit trail does not agree with the head signed on {str(first['ts'])[:10]} in "
+                            f"{target} (event {first['lines']}; the trail has {n} events): events were removed or "
+                            "rewritten; nothing was deleted, a person with the audit role looks")  # fmt: skip
+    newest = max(datetime.fromisoformat(str(h["ts"])) for h in heads)
+    newest = newest if newest.tzinfo else newest.replace(tzinfo=UTC)
+    age = (now - newest).total_seconds() / 3600
+    if abs(age) > limit_h:
+        return "stale", (f"the newest signed head in {target} is {age:.0f} h old (limit {limit_h:g} h): the nightly "
+                         "audit-sign did not run or did not reach the folder")  # fmt: skip
+    said = "" if own is not None else " (signatures not checked: this python3 has no crypto library)"
+    return "ok", f"{target}: newest signed head {age:.0f} h old{said}"

@@ -42,6 +42,8 @@ def _probes(**over: object) -> pf.Probes:
         "resolve": lambda host: ["192.0.2.10"],
         "own_addrs": lambda: {"192.0.2.10", "127.0.0.1"},
         "banner": lambda host, port, t: "220 relay.hospital.test ESMTP",
+        "mail_cert": lambda host, port, cafile, t: "verified",  # H-137: the relay's certificate
+        "host_nets": lambda: ["192.0.2.10/24"],  # H-137: the ranges this host is on
         "reach": lambda host, port, t: "open",
         "gpus": lambda: [("NVIDIA GeForce RTX 5090", 32607.0)],
         "tpm": lambda: True,

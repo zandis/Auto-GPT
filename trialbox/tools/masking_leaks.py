@@ -879,11 +879,12 @@ class Engines:
 
 def engines() -> Engines:
     from guard.guard import Guard
-    from tb_common.phi_guard import MASK_CHAR, mask_note, site_mrn_regex
+    from tb_common.egress_edge import MASK_CHAR, mask_text  # M3: what leaves the box is masked by the egress edge
+    from tb_common.phi_guard import site_mrn_regex
 
     rx = site_mrn_regex()
     g = Guard.from_settings()
-    return Engines(lambda t: mask_note(t, rx), lambda t: g.tripwire(t).hit, MASK_CHAR, rx)
+    return Engines(lambda t: mask_text(t, rx), lambda t: g.tripwire(t).hit, MASK_CHAR, rx)
 
 
 def clean_base(eng: Engines) -> Callable[[str], bool]:

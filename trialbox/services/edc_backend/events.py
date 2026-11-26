@@ -11,11 +11,13 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from typing import Any
 
 SPEC = "trialbox.edc.event.v1"
 TYPES = frozenset({"record.saved", "form.completed", "query.opened", "ae.reported"})
 REREAD = frozenset({"record.saved", "form.completed", "ae.reported"})
+_HEX64 = re.compile(r"[0-9a-f]{64}")  # the hex HMAC-SHA256 a signature header carries
 
 
 class EventRejected(Exception):
@@ -48,6 +50,8 @@ def signature_ok(secret: str, body: bytes, header: str) -> bool:
     if not keys or not header.lower().startswith("sha256="):
         return False
     given = header.split("=", 1)[1].strip().lower()
+    if not _HEX64.fullmatch(given):  # H-137: other text (non-ASCII too) is refused before compare_digest sees it
+        return False
     ok = False
     for key in keys:  # every key is tried, so the time taken does not say which one matched
         ok |= hmac.compare_digest(hmac.new(key.encode(), body, hashlib.sha256).hexdigest(), given)

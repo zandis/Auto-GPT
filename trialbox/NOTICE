@@ -96,13 +96,27 @@ WHO ICD-10 to ICD-10-CM category bridge (TrialBox)
 
 ATC (Anatomical Therapeutic Chemical classification)
   Version: not recorded (open item 9.2).
-  Where: services/criteria_compiler/terminology/src/atc.csv (codes and English names), nhi_drug.csv,
+  Where: codes only, as identifiers: nhi_drug.csv,
     rulesets/*/valuesets, catalogue, services/adapter/mapping/mimic/tables/drug_to_atc.csv,
     services/adapter/mapping/jp_core/yj_to_atc.csv, libs/tb_common/refdata_src/jp_yj_atc.csv.
   Licence: WHO Collaborating Centre for Drug Statistics Methodology (WHOCC) copyright,
     https://atcddd.fhi.no/copyright_disclaimer/
   Obligation: credit the WHOCC; WHOCC terms restrict copying and distribution of the ATC/DDD index in a
-    commercial product. Written permission has not been asked (open item 9.2). No DDD values are shipped.
+    commercial product. Written permission has not been asked (open item 9.2). No ATC names and no DDD values
+    are shipped: the names come from the site's own copy, loaded at install (D-1183).
+  Generic names beside ATC codes (D-1183): these files pair an ATC code with a generic drug name (an INN, which
+    is public), never with the index's text; tests/unit/test_v18b_no_atc_names_ship.py fails on any other file:
+    - tools/synth/catalog.py: the synthetic generator's drugs (matching words and synthetic product labels);
+    - tools/synth_charts.py: the synthetic chart writer's drug words (matching text);
+    - tools/imperfect_feed.py: synthetic product labels of a made-up feed;
+    - tools/e2e_simple.py: a check's message;
+    - services/sitesetup/mapping.py: site set-up's drug words (matching text);
+    - services/llm_stub/handlers.py: the model stub's drug words (matching text);
+    - services/adapter/mapping/mimic/tables/drug_to_atc.csv: its pattern column, the words matched in text;
+    - services/criteria_compiler/terminology/src/synonyms.csv: TrialBox's own groupers (a concept name, its codes);
+    - services/criteria_compiler/terminology/src/nhi_drug.csv: synthetic NHI product labels.
+    Synthetic patient records and captured site set-up answers carry a drug's own text beside its code: record
+    text, not the index.
   Attribution: ATC codes: WHO Collaborating Centre for Drug Statistics Methodology, Oslo, Norway.
 
 YJ code stems to ATC (TrialBox)

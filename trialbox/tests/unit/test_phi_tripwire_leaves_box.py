@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from gateway.core import Gateway, GatewayConfig
 from gateway.policy import RoutingPolicy
@@ -165,3 +166,33 @@ def test_a_public_protocols_compound_code_is_not_refused_on_the_box(tmp_path: Pa
     gw = _gw(tmp_path, Environment.TEST)
     v = {**JUDGE_VARS, "excerpts": [{"date": "2026-10-01", "note_type": "x", "text": "Prior treatment with RO7507062"}]}
     assert gw.chat(H(), _judge_body(v)).status == 200
+
+
+@pytest.mark.parametrize("what", ["", "schema", "tool_call", "picture"])
+def test_every_part_of_a_call_that_would_leave_is_read(tmp_path: Path, what: str) -> None:
+    """OCR 1523-13: the edge read the messages' text only. A hosted build pinned to its provider, so the call gets as
+    far as the door; a prompt of no registry (DEV), so its parts are the caller's own."""
+    from tests.unit.test_provider_pin import _registry
+
+    sent: list[dict[str, Any]] = []
+
+    class Http:
+        def post(self, _url: str, **kw: Any) -> Any:
+            sent.append(kw)
+            raise httpx.ConnectError("no network in a test")
+
+    gw = _gw(tmp_path, Environment.DEV, http=Http())
+    gw.registry = _registry()
+    body: dict[str, Any] = {"messages": [{"role": "user", "content": "How many of 85?"}], "model": "j-workhorse",
+                            "response_format": {"type": "json_schema", "json_schema": {
+                                "name": "a", "schema": {"type": "object"}}}}  # fmt: skip
+    if what == "schema":
+        body["response_format"]["json_schema"]["schema"]["description"] = "身分證 A123456789"
+    elif what == "tool_call":
+        body["messages"][0]["tool_calls"] = [{"function": {"name": "f", "arguments": "身分證 A123456789"}}]
+    elif what == "picture":
+        picture = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+        body["messages"][0]["content"] = [{"type": "text", "text": "How many?"}, picture]
+    res = gw.chat(H(Prompt="own@1"), body)
+    assert bool(sent) == (what == ""), res.body  # the clean call goes out
+    assert (res.body["error"]["code"] == "phi_tripwire") == (what != ""), res.body

@@ -52,8 +52,12 @@ def repo(ref):
     ref = ref.split("@", 1)[0]
     head, _, last = ref.rpartition("/")
     return (head + "/" if head else "") + last.split(":", 1)[0]
+def config(ref):
+    layer = "sha256:" + hashlib.sha256(repo(ref).encode()).hexdigest()
+    return json.dumps({"architecture": "amd64", "os": "linux", "config": {"Labels": {"repo": repo(ref)}},
+                       "rootfs": {"type": "layers", "diff_ids": [layer]}}, sort_keys=True).encode()
 def image_id(ref):
-    return hashlib.sha256(repo(ref).encode()).hexdigest()
+    return hashlib.sha256(config(ref)).hexdigest()
 if args[:1] == ["compose"]:
     if os.environ.get("FAKE_COMPOSE_ERR"):
         sys.exit(os.environ["FAKE_COMPOSE_ERR"])
@@ -80,7 +84,7 @@ elif args[:1] == ["save"]:
     ref, out = args[1], args[args.index("-o") + 1]
     manifest = json.dumps([{"Config": image_id(ref) + ".json", "RepoTags": [ref], "Layers": []}]).encode()
     with tarfile.open(out, "w") as tf:
-        for name, data in (("manifest.json", manifest), (image_id(ref) + ".json", b"{}")):
+        for name, data in (("manifest.json", manifest), (image_id(ref) + ".json", config(ref))):
             info = tarfile.TarInfo(name)
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
@@ -90,7 +94,16 @@ else:
 
 
 def _iid(ref: str) -> str:
-    return "sha256:" + hashlib.sha256(release.repository(ref).encode()).hexdigest()
+    """The fake's image id: the digest of the config its save writes (a config that hashes to its name, H-149)."""
+    repo = release.repository(ref)
+    layer = "sha256:" + hashlib.sha256(repo.encode()).hexdigest()
+    cfg = {
+        "architecture": "amd64",
+        "os": "linux",
+        "config": {"Labels": {"repo": repo}},
+        "rootfs": {"type": "layers", "diff_ids": [layer]},
+    }
+    return "sha256:" + hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()
 
 
 def _sbom_name(ref: str) -> str:

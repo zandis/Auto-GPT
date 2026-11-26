@@ -255,3 +255,96 @@ release" with the compose file still set aside (H114-16).
   them apart.
 - A kill between a name's save and its move leaves a name whose file was never moved; `restore` skips it, since the
   file is still in its place.
+
+### The review of #1479: its three Lows (OCR 7142576565)
+
+- 1479-1: every kill in the test landed after the whole `_aside` step, so saving after the rename passed. The
+  reviewer's `copied-rename` cases, taken as written, SIGKILL at the 1st and 3rd rename into the aside folder,
+  inside `_aside`. With the rename moved before the save (the reviewer's M2), both fail.
+- 1479-2: nothing held the removal of unrecorded links to links through `current`. The reviewer's
+  `copied-statelink` case, taken as written: the site keeps `deploy/settings.yaml` as a link to its own file, the
+  switch is killed after its 1st move, and after `recover` the link still points at the site's file. With the
+  through-current check dropped (the reviewer's M5), it fails.
+- 1479-3, the counts of the line on #639:
+  - The 133 files are this set, from `trialbox/`:
+    ```
+    POLICY='rglob\("\*\.sh"\)|glob\("\*\*/\*\.sh"\)|glob\("\*\.sh"\)|\.github/workflows|"Makefile"|Dockerfile'
+    RELATED='trialbox import update|from tools.trialbox.update|host_tree|procgroup|update_status|apply_update|box_restore|h95_probe|trialbox import ops|tb_ops'
+    sort -u <(grep -lE "$POLICY" tests/unit/*.py) <(grep -lE "$RELATED" tests/unit/*.py tests/console/*.py)
+    ```
+  - As root: `pytest -q -p no:cacheprovider -n 8 <the set>`.
+  - As the ordinary user: user `nobody` in a worktree it owns, umask 022, `--cov --cov-report=`,
+    `-n auto --dist worksteal`, and a marked `TB_TEST_ROOT` of 144 characters. HOME is a folder of its own and
+    the proxy's CA variables are unset.
+  - The nine reds as `nobody` come from the account itself: its home in the password file is `/nonexistent`,
+    which H-94's box-install refuses to keep the one-time code in. A user with a real home does not see them.
+    The same nine are red at master under the same run.
+  - M2 in the H-114c line was the separate save of the aside folder before the first move. No test could tell it
+    from the first move's own save, so that code was removed, and the line named the three mutants that remained.
+    The reviewer's M2, saving after the move, is a different mutant. It survived the five cases and is now caught
+    (1479-1).
+
+## H-114d: the group's output is read through the grace (2026-11-24)
+
+The review of #1472 (1472-1, Low) found the grace after the limit's SIGTERM was a bare `wait`. A put-back that
+wrote more than a pipe holds (about 64 KiB) blocked on its write, sat out the whole grace, and was SIGKILLed part
+way. With H-114b the grace is the update's own limit, so that could be hours. The same pattern was in
+`update.run_cmd`, with ten seconds' grace (H114-17).
+
+- `procgroup._stop` is the group's SIGTERM, grace and SIGKILL. Through the grace it reads the pipes in steps of
+  0.2 s. The grace ends when the leader has exited or the time is up, then the group gets its SIGKILL.
+  - The reviewer's one line, `communicate(timeout=grace)`, waits for the pipes' end, not the leader's exit. A child
+    left holding the pipes would then keep the SIGKILL waiting for the whole grace, where `wait` did not.
+- `procgroup.run` and `update.run_cmd` both call `_stop`. Neither signature changes; the default grace is still
+  ten seconds.
+- Interruption case covered (the MVP walk's step 8): the update's time limit, or a signal, reached partway
+  through an update. The put-back is not killed for its output, and the SIGKILL still lands.
+- Tests:
+  - the reviewer's test, kept as written in `tests/unit/test_update_grace_h114b.py`;
+  - `tests/unit/test_update_grace_output_h114d.py`, 5 cases:
+    - a put-back writing 200 kB on both pipes ends inside the grace and is not killed, through `procgroup.run` and
+      through `update.run_cmd`;
+    - a group that ignores the TERM is SIGKILLed when the grace is up;
+    - a child left holding the pipes is SIGKILLed once the leader has exited;
+    - both callers send SIGTERM, then SIGKILL, and nothing else.
+  - At e0ecf6be, 3 of these fail: the reviewer's test and the two put-back cases.
+- Mutants, 3, all caught:
+  - the reviewer's one line in place of the loop: the child case fails;
+  - a grace whose time never ends: the never-exiting case fails at its 30 s bound. H-114b's ten-second test then
+    never ends, as any grace with no end would;
+  - no SIGKILL after a leader that ended by itself: the signals case fails.
+
+## H-114e: the console's result says what the stopped update said (2026-11-24)
+
+The review of #1472 (1472-2, Low) found that after the console's time limit, the result was
+`TimeoutExpired: ... timed out after N seconds` with no lines. The update's own outcome was dropped: whether the
+rollback the limit's SIGTERM started had put the box back ("rolled back") or not ("ROLLBACK FAILED"). Only
+`tools/apply_update.sh status` on the host told (H114-18). The integrator ruled the form on #639 (7139911468).
+
+Interruption case covered (the MVP walk's step 8): the update's time limit, or a signal, reached partway through
+an update. After the grace the output is put back into the result, the SIGKILL still lands (H-114d), and the
+outcome line, "rolled back" or "ROLLBACK FAILED", survives into the console's result.
+
+- `procgroup.run` keeps what `_stop` read and raises `TimeoutExpired` with that output and stderr.
+- `ops.do_update_apply` turns it into `_LimitReached`, a private subclass of `OpsFailed`. Its summary is "the
+  update's time limit (N s) was reached; it was stopped. Its last output:".
+- `run_one` takes `_LimitReached`'s lines as the result's lines. `OpsFailed` and every other failure are unchanged.
+- The lines are the last 20, each through `tb_common.logging.redact`:
+  - stderr (the updater's progress) comes first and stdout (its last word, "update FAILED: ...") last, so a long
+    rollback's progress does not push the outcome out of the 20;
+  - a line over 290 characters keeps its first 110 and last 170, because a result's line is cut at 300 and the
+    outcome ends the updater's line.
+- Test: `tests/unit/test_update_limit_output_h114e.py`, 6 cases, through `run_one` and the real `procgroup`, on a
+  stand-in `apply_update.sh` that rolls back on the TERM:
+  - "rolled back" and "ROLLBACK FAILED", each with a short reason and with a last line far over 300 characters;
+  - a planted `TB_DB_PASSWORD` value is not in the result's file;
+  - a failure inside the limit is as before.
+  At 4dcdf18f (H-114d only) 5 fail; the "as before" case passes, as it should.
+- Mutants, 5, all caught:
+  - no redaction;
+  - stdout before stderr;
+  - no cut in the middle of a long line;
+  - `run_one` dropping the lines;
+  - `procgroup.run` raising without the output.
+- Files outside the card: `tools/trialbox/ops.py` (lane R's; body only, ruled 7139911468) and
+  `tools/trialbox/procgroup.py` (lane B2's; body only, under the same ruling as H-114b's `grace`).
