@@ -2108,8 +2108,12 @@ class _DockerImages:
         for tag, rt in point.images.items():
             if rt:
                 self.run(["docker", "tag", rt, tag])
-            else:
-                self.run(["docker", "image", "rm", "-f", tag])
+                continue
+            try:
+                self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag])
+            except UpdateFailed:
+                continue  # termfix: already removed by a rollback that failed later; this one finishes it
+            self.run(["docker", "image", "rm", "-f", tag])
 
 
 class ComposeBox(_DockerImages):
@@ -2922,8 +2926,11 @@ class ComposeBox(_DockerImages):
         self.run(self._c("stop", *PY_SERVICES, "fhir-store"), timeout=600)  # nobody holds the databases open
         self.restore_images(point)
         restore_models(self.models, rb, point)
-        restore_host(self.deploy.parent, point)  # the previous release's compose files for the restart below
         self.restore_databases(rb, point)
+        # termfix: the host tree (the code the next `tools/apply_update.sh rollback` runs) goes back only after the
+        # databases: a restore that fails leaves the release that wrote the marker in place to finish its rollback,
+        # never the release before it (whose restore may be the pre-H-151 one, as on the bench box)
+        restore_host(self.deploy.parent, point)  # the previous release's compose files for the restart below
         refs = point.extra.get("rulesets_refs")
         if refs:  # rulesets-data back to the tag of the rollback point (imports of this update dropped)
             self.run(self._c("run", "--rm", "--no-deps", "-T", "criteria-compiler", "python", "-c", RULESETS_PY,
