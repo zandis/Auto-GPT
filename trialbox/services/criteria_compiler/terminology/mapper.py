@@ -262,6 +262,8 @@ class MappingResult:
     needs_review: bool
     notes: list[str] = field(default_factory=list)
     families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
+    # INT-R2: the families from ``family`` rows only (unknown, never members): no YJ stem is added for them
+    open_families: list[tuple[str, str]] = field(default_factory=list)
 
 
 ConceptMapLLM = Callable[[str, str, list[Concept]], tuple[list[tuple[str, str, float]], bool]]
@@ -497,6 +499,8 @@ class Terminology:
     ) -> MappingResult:
         """The concept's codes. E-TERM-3 (D-1048): while a site list is refused, every answer says it was not read."""
         res = self._map(domain, name, synonyms, llm)
+        opened = {(SYSTEMS.get(s["table"], ""), s["code"]) for s in self.synonyms if s["match"] == "family"}
+        res.open_families = sorted(set(res.families) & opened)
         for r in self.refused_site_lists():
             res.notes.append(f"site list {r['table']} was not read; the shipped tables answered")
         return res
@@ -544,7 +548,12 @@ class Terminology:
                 return wide
             # V-18b: a name of the site's own ATC copy keeps the method of a table loaded at install
             site = bool(self.rows.get("atc")) and all(c.system == SYSTEMS["atc"] for c in hits)
-            return MappingResult(name, domain, _dedupe(hits), "loaded" if site else "exact", False)
+            # INT-R2: a drug's own name (methotrexate) keeps its curated ``family`` rows: the codes that may hold it
+            # outside its listed ones read unknown, never a silent "not on it"
+            opened = {(SYSTEMS[s["table"]], s["code"]) for s in self.synonyms
+                      if s["domain"] == domain and s["match"] == "family" and norm(s["name"]) == primary}  # fmt: skip
+            method = "loaded" if site else "exact"
+            return MappingResult(name, domain, _dedupe(hits), method, False, families=sorted(opened))
         # 2. curated synonym/grouper table on the name — a grouper such as "urate-lowering therapy" must win over
         #    exact matches of individual example drugs
         hits, fams = grouped([primary])
@@ -988,13 +997,16 @@ def valueset(
     status: str = "draft",
     families: list[tuple[str, str]] | None = None,
     ingredients: dict[str, dict[str, str]] | None = None,
+    open_families: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """A FHIR ValueSet of the concepts. ``ingredients`` (``stem -> {atc, ingredient}``, a Japanese site's
     ingredient-to-ATC table, :func:`tb_common.refdata_jp.ingredient_atc`) adds the YJ stems of its ATC codes and
-    families (:func:`yj_ingredients`)."""
+    families (:func:`yj_ingredients`), never of an ``open_families`` one (INT-R2: such a family is unknown, not a
+    member)."""
     by_system: dict[str, list[Concept]] = {}
     if ingredients:
-        concepts = [*concepts, *yj_ingredients(concepts, families or [], ingredients)]
+        members = [f for f in families or [] if f not in set(open_families or [])]
+        concepts = [*concepts, *yj_ingredients(concepts, members, ingredients)]
     for c in concepts:
         by_system.setdefault(c.system, []).append(c)
     rid = vs_resource_id(ruleset, vs_name)

@@ -41,10 +41,11 @@ from criteria_compiler.semantics import (
     check_bool,
     compiled,
     fmt_num,
+    holds_no_atc,
     kind,
     window,
 )
-from criteria_compiler.terminology.mapper import ValueSets
+from criteria_compiler.terminology.mapper import SYSTEMS, ValueSets
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 _env = Environment(
@@ -60,6 +61,24 @@ FAMILY_CODINGS = {
     "report": ("DiagnosticReport", "X.code.coding"),
     "observation": ("Observation", "X.code.coding"),
 }
+
+
+def _in_family(fams: list[tuple[str, str]], listed: list[tuple[str, str]]) -> str:
+    """A coding ``Cd`` inside one of the code families (D-113), or, for ATC (INT-R2, as the SQL), coarser than one:
+    such a code may be a member too. A drug class has hundreds of ATC families: one list, not a chain of ``or``."""
+    atc_codes = [c for sy, c in listed if sy == SYSTEMS["atc"]]
+    out = [
+        f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))"
+        for sy, pre in sorted(set(fams))
+        if sy != SYSTEMS["atc"] or any(c.startswith(pre) for c in atc_codes)
+    ]
+    atc = ", ".join(f"'{pre}'" for sy, pre in sorted(set(fams)) if sy == SYSTEMS["atc"])
+    if atc:
+        out.append(
+            f"(Cd.system.value = '{SYSTEMS['atc']}' and Cd.code.value != '' "
+            f"and exists (({{ {atc} }}) Fp where StartsWith(Cd.code.value, Fp) or StartsWith(Fp, Cd.code.value)))"
+        )
+    return " or ".join(out)
 
 
 def _cql_dec(x: float) -> str:
@@ -327,14 +346,10 @@ class CqlGenerator:
         if atom.domain not in FAMILY_CODINGS:
             raise CompileError(f"code families are not supported on {atom.domain} atoms")
         on = q("O_" + p)
-        in_family = " or ".join(
-            f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
-        )
         for name, when in ((on, placed), (q("UO_" + p), unplaced)):
             defs.append(
                 f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"
-                f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
-                f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+                f"    and {self._offlist(atom, fams)}"
             )
         unknown.append(q("UO_" + p))
         if quant == "count>=":
@@ -508,6 +523,26 @@ class CqlGenerator:
         )
         return defs, a, ev
 
+    _hold_no_atc = False  # set per atom by render
+
+    def _offlist(self, atom: Atom, fams: list[tuple[str, str]]) -> str:
+        """The resource ``X`` is coded inside the class's families and off its list (D-113); INT-R2, as the SQL: or it
+        is an order with no ATC whose own code is not listed either (``holds_no_atc``)."""
+        codings, vs = FAMILY_CODINGS[atom.domain][1], q(atom.valueset)
+        out = (
+            f"exists (({codings}) Cd where ({_in_family(fams, self.vs.codes(atom.valueset))}) "
+            f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+        )
+        if not self._hold_no_atc or not any(sy == SYSTEMS["atc"] for sy, _ in fams):
+            return out
+        stems = ", ".join(f"'{s}'" for s in self.vs.yj_stems(atom.valueset))
+        yj = f" or (Matches(Cd.code.value, '{YJ_SHAPE}') and Substring(Cd.code.value, 0, 7) in {{{stems}}})"
+        return (
+            f"({out}\n      or (not exists (({codings}) Cd where Cd.system.value = '{SYSTEMS['atc']}' "
+            f"and Cd.code.value != '')\n      and not exists (({codings}) Cd where FHIRHelpers.ToCode(Cd) in {vs}"
+            f"{yj if stems else ''})))"
+        )
+
     def _med_duration(self, cid: str, n: int, atom: Atom, w: Window) -> tuple[list[str], str, str]:
         p = f"{cid}_{n}"
         assert atom.duration is not None and atom.duration.min_days is not None
@@ -532,7 +567,17 @@ class CqlGenerator:
             # date cannot be placed; where the dated periods do not reach min_days the answer is null (unknown)
             f"define {on}:\n  {qn} X\n    where {ts}(X) is null\n      or ({te}(X) is null and {ts}(X) <= {hi})",
         ]
-        a = f"if {dn} >= {atom.duration.min_days} then true else if exists ({on}) then null as Boolean else false"
+        unknown = f"exists ({on})"
+        fams = [f for f in self.vs.families(atom.valueset) if f[0] == SYSTEMS["atc"]]
+        if fams:  # INT-R2, as the SQL: an order in the window inside the class's family and off its list
+            fn = q("OF_" + p)
+            defs.append(
+                f"define {fn}:\n  [MedicationRequest] X where ({ts}(X) is null or {ts}(X) <= {hi})\n"
+                f"    and ({te}(X) is null or {te}(X) >= {lo})\n"
+                f"    and {self._offlist(atom, fams)}"
+            )
+            unknown = f"exists ({fn}) or {unknown}"
+        a = f"if {dn} >= {atom.duration.min_days} then true else if {unknown} then null as Boolean else false"
         ev = f"{qn} X return X.id + '|' + ToString(date from X.authoredOn)"
         return defs, a, ev
 
@@ -579,6 +624,7 @@ class CqlGenerator:
         names: dict[int, str] = {}
         evs: list[str] = []
         for n, atom in enumerate(atoms(c.logic), start=1):
+            self._hold_no_atc = holds_no_atc(c.kind, c.logic, atom)
             defs, a, ev = self._atom(ctx, c.id, n, atom)
             out.extend(defs)
             aname = f"A_{c.id}_{n}"
