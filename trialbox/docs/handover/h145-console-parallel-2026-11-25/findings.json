@@ -40,7 +40,7 @@
   {
    "id": "H145-05",
    "severity": "Low",
-   "claim": "#1498 (H139-13) sets TB_STRICT_SKIPS=1 on the old serial test-console line; whichever of #1498 and this card lands second conflicts in those Makefile lines and should keep this card's recipe",
+   "claim": "#1498 (H139-13) set TB_STRICT_SKIPS=1 on the old serial test-console line; the merge with int/system 0894674f met it there and kept both, the variable now on test-console's own flock line, so test_browser_stages_strict_h139 still passes unchanged",
    "lane": "H",
    "basis": "shown",
    "state": "open"

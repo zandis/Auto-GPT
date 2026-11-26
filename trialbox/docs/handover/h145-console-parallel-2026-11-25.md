@@ -5,7 +5,8 @@ language.
 
 - **Card:** H-145 (the integrator's ruling 7161808787 on #1504; the lead's bench result, from 7163415503 item 3)
 - **Date:** 2026-11-25
-- **Base:** master 440089e8 (the card was begun on 6e502f57 and merged with 440089e8 once)
+- **Base:** int/system 0894674f (the card was begun on master 6e502f57, merged with master 440089e8 once, then
+  with int/system 0894674f once, on the integrator's 7184086631)
 - **Change:** `make test-console` only; no test changed
 - **Findings:** [`h145-console-parallel-2026-11-25/findings.json`](h145-console-parallel-2026-11-25/findings.json)
   (H145-01 to H145-05)
@@ -47,6 +48,26 @@ meets the other in the same lines of the Makefile (H145-05).
 
 The lead's bench gave 62 minutes with 8 and with 16 workers under `loadfile`; the runs above used 4 workers under
 `worksteal` on another host, so the two times are not compared here.
+
+## Again on int/system (2026-11-26)
+
+The merge with int/system 0894674f met #1498's H139-13 line in `test-console`. Both sides were kept: H139-13's
+comment stays, and its `TB_STRICT_SKIPS=1` now stands on `test-console`'s own flock line as well as in
+`test-console-locked`, so `tests/unit/test_browser_stages_strict_h139.py` (unchanged) still finds it in the
+`test-console` recipe. At the merge, 67f6b70e:
+
+| Run | Who | Result | Time |
+|---|---|---|---|
+| card test, `test_browser_stages_strict_h139.py`, `test_xdist_worksteal_h73.py` | root | 14 passed | |
+| `make test-console`, 113-character root, CI's `PYTEST_ADDOPTS` and `COVERAGE_CORE` | root | 2321 passed, 25 xfailed, 0 skipped | 30 min 18 s |
+| the same, own clone, `env -i` with this container's two Playwright variables, umask 022, marked root | ordinary user | 2321 passed, 25 xfailed, 0 skipped | 38 min 56 s, sharing the CPU |
+| the policy set (264 files) | root | 6161 passed, 9 skipped (tools not installed here) | |
+| `make cross-card`; `make guard` | root | 329 passed; 1199 passed, 1 skipped, 11 xfailed | |
+
+As the ordinary user under the same conditions: the policy set 6157 passed and 13 skipped (tools not installed here,
+or root needed); `make cross-card` 329 passed; `make guard` 1199 passed, 1 skipped, 11 xfailed; collect-only 29678,
+rc 0. As root: lint, doclint, data-scan, security-scan, limits_lint, decisions_index and the findings register's
+check clean.
 
 ## The long console tests (H145-03, a follow-up)
 
