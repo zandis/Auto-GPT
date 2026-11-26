@@ -257,6 +257,10 @@ MODEL_PACK_FORMAT = "trialbox-model-pack/1"
 #: H-95: what an image stream holds back from ``docker load`` until its whole sha256 is known
 HOLD_BACK = 1 << 20
 _READ = 1 << 20
+#: a rollback ran (``rollback <bundle>`` after a power cut, or the automatic one) and no apply has ended well since:
+#: the next apply trusts no image a cut load may have left (a tag or an id says nothing of the layers under it)
+IMAGES_SUSPECT = "IMAGES_SUSPECT"
+DANGLING = ["docker", "image", "ls", "-q", "--no-trunc", "-f", "dangling=true"]
 
 
 @dataclass(frozen=True)
@@ -365,6 +369,7 @@ class Plan:
     poc_no_backup: str = ""  # H-99: the preflight's backup refusal, warned on a PoC box; the backup is skipped
     streamed: list[Streamed] = field(default_factory=list)  # H-95: payloads read from the bundle, never staged
     pack: dict[str, Any] | None = None  # H-95: the manifest's pack (None: a whole bundle)
+    reverify: bool = False  # IMAGES_SUSPECT: dangling images go before the load, every image is checked after it
 
     @classmethod
     def load(cls, stage: Path, summary: dict[str, Any]) -> Plan:
@@ -1578,9 +1583,11 @@ class Updater:
         live = self.stops.stoppable  # H-114: a first signal stops the step under way, or the next one at its start
         try:
             enter("apply")
+            plan.reverify = (self.dir / IMAGES_SUSPECT).is_file()
             with live():
                 applied = self.box.apply(plan, rb, point)
                 save_point(rb, point)
+            (self.dir / IMAGES_SUSPECT).unlink(missing_ok=True)  # the images were checked again (a rollback writes it)
             step("apply", True, f"{len(applied)} payloads")
             enter("migrate and restart")
             with live():
@@ -1737,6 +1744,7 @@ class Updater:
         # said as a failed rollback, the marker kept for ``tools/apply_update.sh rollback`` to finish it
         try:
             us.set_step(self.dir, us.marker(self.dir) or {}, "rollback")
+            us.write_atomic(self.dir / IMAGES_SUSPECT, {"bundle_id": plan.bundle_id, "at": _now()})
             with contextlib.suppress(Exception):  # review 1461-1: what the stopped step moved, for a rollback cut short
                 save_point(rb, point)
             self.box.rollback(plan, rb, point)
@@ -2069,6 +2077,8 @@ class _DockerImages:
         done = []
         pins = _image_pins(plan)
         checked: set[str] = set()
+        if plan.reverify:  # a cut load's images: their layers are loaded again, never taken from the store
+            done += self.drop_dangling()
         for tar in plan.images():
             configs, manifests = tar_images(tar)
             tags = sorted(configs)
@@ -2079,16 +2089,46 @@ class _DockerImages:
                 if tag in pins and configs[tag] != pins[tag]:
                     raise UpdateFailed(f"image {tar.name}: {tag} has config {configs[tag] or '(none)'}, "
                                        f"release.json pins {pins[tag]}; nothing loaded")  # fmt: skip
-            if isinstance(tar, Streamed):  # H-95: from the stick, hashed again on the way in
-                stream_image(tar, configs, manifests, self.run, rb, point)
-            else:
-                self.run(["docker", "load", "-i", str(tar)], timeout=3600)
+            self.load_one(tar, configs, manifests, rb, point)
             done.append(f"image {tar.name}")
+            if plan.reverify:  # never a tag alone: each tag's image is the pinned one, and nothing is left dangling
+                wrong = [t for t in tags if t in pins and self.image_id(t) not in {configs[t], *manifests} - {""}]
+                if wrong or self.run(DANGLING).split():  # once more, from nothing of what was there (it moves tags)
+                    done += [f"{tag}: not the pinned image" for tag in wrong] + self.drop_dangling()
+                    self.load_one(tar, configs, manifests, rb, point)
+                    done.append(f"image {tar.name} loaded again")
             for tag in tags:
                 self.check_loaded(plan, tag, {configs[tag], *manifests} - {""})
                 checked.add(tag)
         if done and plan.release is not None and set(pins) - checked:
             raise UpdateFailed(f"release.json pins images this bundle did not load: {sorted(set(pins) - checked)}")
+        return done
+
+    def load_one(
+        self, tar: Path | Streamed, configs: dict[str, str], manifests: set[str], rb: Path | None, point: Point | None
+    ) -> None:
+        if isinstance(tar, Streamed):  # H-95: from the stick, hashed again on the way in
+            stream_image(tar, configs, manifests, self.run, rb, point)
+        else:
+            self.run(["docker", "load", "-i", str(tar)], timeout=3600)
+
+    def image_id(self, tag: str) -> str:
+        try:
+            return self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
+        except UpdateFailed:
+            return ""
+
+    def drop_dangling(self) -> list[str]:
+        """Remove every untagged image (what a load cut by a power loss leaves, layers half written): the next load
+        writes its layers again instead of reusing them. An image a running container uses stays (the engine refuses).
+        """
+        done = []
+        for iid in self.run(DANGLING).split():
+            try:
+                self.run(["docker", "image", "rm", "-f", iid])
+                done.append(f"dangling image {iid} removed")
+            except UpdateFailed as exc:
+                done.append(f"dangling image {iid} kept: {str(exc)[-200:]}")
         return done
 
     def check_loaded(self, plan: Plan, tag: str, accepted: set[str]) -> None:

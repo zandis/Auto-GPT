@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "libs") not in sys.path:
     sys.path.insert(0, str(ROOT / "libs"))  # the host's python3
 
-from tb_common import box_answers  # noqa: E402
+from tb_common import box_answers, generation  # noqa: E402
 
 from tools.box.plan import SAMPLE_FEED  # noqa: E402
 from tools.trialbox.finish_check import read_env  # noqa: E402
@@ -137,7 +137,10 @@ def run(deploy: Path, sh: Callable[..., str] = _run) -> list[str]:
     mount = env.get("TB_SOURCE_MOUNT") or "/data/source/site"
 
     made = "python -m tools.make_fixtures --out /tmp/s --sites a && cp /tmp/s/site-a/*.csv /out/ && chmod a+r /out/*"
-    today = datetime.now(UTC).date().isoformat()
+    try:  # the night's date is the site's (the adapter names the night so): never UTC's
+        today = generation.site_today(env.get("TB_TZ") or "").isoformat()
+    except (ValueError, LookupError) as exc:  # ZoneInfoNotFoundError is a KeyError
+        raise SeedError(f"deploy/.env: {exc}") from None
     study = (
         f"cd /app/rulesets && python -m zipfile -c /tmp/{STUDY}.zip {STUDY} && "
         f"python -m criteria_compiler.import_ruleset /tmp/{STUDY}.zip --by {BY}"
