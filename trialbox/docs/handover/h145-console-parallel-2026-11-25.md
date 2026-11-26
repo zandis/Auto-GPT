@@ -80,6 +80,16 @@ before the fix. `pglocal stop-idle` itself exits 0 when it leaves a cluster runn
 case is still not a failure of the stage (H145-06, shown by calling its `main` with `stop_idle` reporting clients:
 it prints "has clients; left running" and returns 0; `tools/pglocal.py` is not this card's file).
 
+## CI red on #1539 at 503a7039 (7190643794, job 139850083070)
+
+`test_h145_a_root_under_a_folder_others_can_write_is_refused` got rc 0 on the runner. CI sets `TB_SCRATCH`, and
+pytest's tmp_path lies under it; `pglocal mark` takes group and others' write from this user's own folders up to the
+scratch root, so the planted 0777 folder was 0755 before the check looked, and the check rightly found nothing open
+(reproduced as an ordinary user with `env -i`, umask 022, a long `TB_SCRATCH` and `make test PYTEST_N=auto`; my
+earlier runs had no `TB_SCRATCH`). The recipe is unchanged. The test now gives the preflight its own `TB_SCRATCH`,
+so the open folder lies outside the scratch root, and also asserts the folder is still 0777 after the refusal; a new
+test pins CI's case: an open folder of this user under the scratch root is closed to 0755 and the run passes.
+
 ## The long console tests (H145-03, a follow-up)
 
 From `--durations=30` of the root run on the 113-character root (4 workers):

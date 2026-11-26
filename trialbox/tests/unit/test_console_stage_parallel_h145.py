@@ -47,7 +47,10 @@ def _dry(target: str, n: str, tmp_path: Path) -> str:
     return r.stdout
 
 
-def _preflight(root: Path, hup: signal.Handlers) -> subprocess.CompletedProcess[str]:
+def _preflight(root: Path, hup: signal.Handlers, scratch: Path) -> subprocess.CompletedProcess[str]:
+    """`make test-console-preflight` with its own TB_SCRATCH. `pglocal mark` closes the folders this user owns from the
+    root up to the scratch root, so which folders the check can still find open depends on it: CI sets TB_SCRATCH, and
+    pytest's tmp_path lies under it there (#1539, job 139850083070)."""
     make = shutil.which("make")
     if make is None:
         pytest.fail("make is not installed")
@@ -58,6 +61,7 @@ def _preflight(root: Path, hup: signal.Handlers) -> subprocess.CompletedProcess[
         text=True,
         timeout=120,
         check=False,
+        env={**os.environ, "TB_SCRATCH": str(scratch)},
         preexec_fn=lambda: signal.signal(signal.SIGHUP, hup),
     )
 
@@ -127,23 +131,37 @@ def test_h145_the_console_stage_takes_the_unit_lock() -> None:
 
 def test_h145_a_run_that_ignores_sighup_is_refused_before_it_touches_the_root(tmp_path: Path) -> None:
     root = tmp_path / "root"
-    r = _preflight(root, signal.SIG_IGN)
+    r = _preflight(root, signal.SIG_IGN, tmp_path / "scratch")
     assert r.returncode != 0 and "SIGHUP is ignored" in r.stderr
     assert not root.exists()
-    r = _preflight(root, signal.SIG_DFL)
+    r = _preflight(root, signal.SIG_DFL, tmp_path / "scratch")
     assert r.returncode == 0, r.stderr
     assert (root / ".tb-test-root").is_file()
 
 
 def test_h145_a_root_under_a_folder_others_can_write_is_refused(tmp_path: Path) -> None:
+    """The open folder lies outside the scratch root, where `pglocal mark` leaves it as it is: the check refuses it."""
     shared = tmp_path / "open"
     shared.mkdir()
     shared.chmod(0o777)
-    r = _preflight(shared / "root", signal.SIG_DFL)
+    r = _preflight(shared / "root", signal.SIG_DFL, tmp_path / "scratch")
     assert r.returncode != 0 and f"{shared} (drwxrwxrwx) can be written by others" in r.stderr
+    assert shared.stat().st_mode & 0o7777 == 0o777
     shared.chmod(0o1777)  # sticky, as /tmp: others cannot remove or replace what this user made in it
-    r = _preflight(shared / "root", signal.SIG_DFL)
+    r = _preflight(shared / "root", signal.SIG_DFL, tmp_path / "scratch")
     assert r.returncode == 0, r.stderr
+
+
+def test_h145_an_open_folder_of_this_user_under_the_scratch_root_is_closed_first(tmp_path: Path) -> None:
+    """As on CI (TB_SCRATCH above the test's folders): `pglocal mark` takes group and others' write from this user's
+    own folders up to the scratch root, so the check then finds none open."""
+    scratch = tmp_path / "scratch"
+    shared = scratch / "open"
+    shared.mkdir(parents=True)
+    shared.chmod(0o777)
+    r = _preflight(shared / "root", signal.SIG_DFL, scratch)
+    assert r.returncode == 0, r.stderr
+    assert shared.stat().st_mode & 0o7777 == 0o755
 
 
 def test_h145_the_console_stage_runs_the_workers_and_allows_no_skip() -> None:
