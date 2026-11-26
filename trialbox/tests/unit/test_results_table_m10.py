@@ -118,7 +118,8 @@ def test_the_command_refuses_with_exit_2_and_writes_no_table(tmp_path: Path) -> 
 
 @pytest.mark.parametrize("missing", ["failed", "skipped"])
 def test_a_row_whose_evidence_leaves_out_a_count_is_refused(tmp_path: Path, missing: str) -> None:
-    _proof(tmp_path, "1a", **{missing: None})
+    gone: dict[str, Any] = {missing: None}  # None: the evidence leaves the count out
+    _proof(tmp_path, "1a", **gone)
     reasons = _refused(tmp_path)
     assert len(reasons) == 1 and reasons[0].startswith("1a: ") and repr(missing) in reasons[0], reasons
 
@@ -133,4 +134,3 @@ def test_a_title_with_a_pipe_and_a_line_break_stays_in_its_cell(tmp_path: Path) 
     cells = re.split(r"(?<!\\)\|", row)[1:-1]  # a GFM table splits on every pipe not escaped
     assert len(cells) == 8, row
     assert cells[1].strip() == "install \\| update then restore", row
-
