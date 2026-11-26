@@ -414,7 +414,7 @@ def install_context(
         set_context(build_id, int(row["context_length"]), out, registry_path)
         return True, f"; context {row['context_length']} (the registry's for this build; the pin had {have})"
     var = CONTEXT_VARS.get(endpoint, "")
-    raw = (env.get(var) or "").strip()
+    raw = _length_var(env, var)
     if raw.isascii() and raw.isdigit() and int(raw) > 0:
         if have == int(raw):
             return True, ""
@@ -433,33 +433,63 @@ def install_context(
     )
 
 
-def profile_context(gpu: str, endpoint: str, env: dict[str, str] | Any) -> int | None:
-    """The length the profile's server is started with: its variable as compose reads it from deploy/.env, else the
-    default the profile's compose file gives it (``--max-model-len=${JUDGE_MAX_LEN:-16384}``); None when neither
-    says a length."""
+#: a profile served by another profile's compose file (install.sh: the rtx4090 box runs the rtx5090 file)
+PROFILE_COMPOSE = {"rtx4090": "rtx5090"}
+
+
+def _length_var(env: dict[str, str] | Any, var: str) -> str:
+    """A length variable as compose reads it from deploy/.env: blanks and one pair of quotes around it dropped."""
+    return (env.get(var) or "").strip().strip("\"'").strip()
+
+
+def profile_context(gpu: str, endpoint: str, env: dict[str, str] | Any, deploy: Path | None = None) -> int | None:
+    """The length the profile's server is started with: its variable as compose reads it from deploy/.env, else
+    (unset or empty) the default the profile's compose file in ``deploy`` gives it
+    (``--max-model-len=${JUDGE_MAX_LEN:-16384}``). None when the variable is the platform's placeholder or the file
+    asks for it with no default (``${JUDGE_MAX_LEN:?...}``: compose stops without it; install_context says so).
+    PinError when no length can be found: a value that is not a length (compose passes it to the server, which does
+    not start), or no compose file of the profile, or one that does not name the variable."""
     var = CONTEXT_VARS.get(endpoint, "")
-    raw = (env.get(var) or "").strip()
-    if raw.isascii() and raw.isdigit() and int(raw) > 0:
-        return int(raw)
-    f = ROOT / "deploy" / f"docker-compose.{gpu}.yml"
-    if not var or not f.is_file():
+    raw = _length_var(env, var)
+    if raw:
+        if raw.isascii() and raw.isdigit() and int(raw) > 0:
+            return int(raw)
+        if raw in CONTEXT_UNMEASURED:
+            return None
+        raise PinError(f"{var} is {raw!r} in deploy/.env, not a length: the {gpu} server does not start with it")
+    f = (deploy or ROOT / "deploy") / f"docker-compose.{PROFILE_COMPOSE.get(gpu, gpu)}.yml"
+    if not f.is_file():
+        raise PinError(f"no {f}: the length the {gpu} server runs with ({var}) cannot be read")
+    text = f.read_text(encoding="utf-8")
+    if m := re.search(r"\$\{" + re.escape(var) + r":-(\d+)\}", text):
+        return int(m.group(1))
+    if re.search(r"\$\{" + re.escape(var) + r":\?", text):
         return None
-    m = re.search(r"\$\{" + re.escape(var) + r":-(\d+)\}", f.read_text(encoding="utf-8"))
-    return int(m.group(1)) if m else None
+    raise PinError(f"{f} gives {var} no length: the length the {gpu} server runs with cannot be read")
 
 
 def context_problems(
-    gpu: str, out: Path = DEFAULT_OVERRIDE, env: dict[str, str] | Any = None, registry_path: Path | None = None
+    gpu: str,
+    out: Path = DEFAULT_OVERRIDE,
+    env: dict[str, str] | Any = None,
+    registry_path: Path | None = None,
+    deploy: Path | None = None,
 ) -> list[str]:
     """Each build of the profile's pair whose pinned ``context_length`` (the registry with the site pin) is not the
     length the profile's server runs with: the gateway refuses every call ``model_mismatch`` when the server's is
-    the smaller, and sizes prompts for a context nobody serves when it is the larger."""
+    the smaller, and sizes prompts for a context nobody serves when it is the larger. A length that cannot be read
+    (:func:`profile_context`) is a problem too, never a pass. ``deploy``: the box's deploy folder (its compose
+    files)."""
     from registry.registry import DEFAULT_PATH, Registry
 
     builds = {b.build_id: b for b in Registry.load(registry_path or DEFAULT_PATH, out).builds}
     problems = []
     for build, endpoint, *_ in PROFILE_PAIRS.get(gpu, []):
-        want = profile_context(gpu, endpoint, env or {})
+        try:
+            want = profile_context(gpu, endpoint, env or {}, deploy)
+        except PinError as exc:
+            problems.append(f"{build}: {exc}")
+            continue
         have = builds[build].context_length if build in builds else None
         if want and have and want != have:
             problems.append(
@@ -619,6 +649,7 @@ def install_pins(
     *,
     with_embedder: bool = False,
     installed: Path | None = None,
+    deploy: Path | None = None,
 ) -> tuple[bool, list[str]]:
     """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, which
     must be the release's expected manifest (T-012b: a folder of other files is refused and nothing is pinned), the
@@ -627,7 +658,8 @@ def install_pins(
     (``--verify-all`` checks it; a pin that is not the expected manifest is reported and not ok), but
     its served name follows the one compose serves now, so an update that renames the served model does not leave the
     gateway asking vLLM for the old name (HTTP 404). A missing weights directory is reported and nothing is invented,
-    so that model routes nothing until it is pinned."""
+    so that model routes nothing until it is pinned. ``deploy``: the box's deploy folder, whose profile compose file
+    gives the length the servers run with (install.sh: the mounted site folder, not the image's)."""
     e = env or {}
     pairs = PROFILE_PAIRS.get(gpu)
     if pairs is None:
@@ -732,7 +764,7 @@ def install_pins(
         )
     # the pair's pins against the length the profile's servers run with: refused here, before the night, not by the
     # gateway's model_mismatch on every call of it
-    mismatched = context_problems(gpu, out, e, registry_path)
+    mismatched = context_problems(gpu, out, e, registry_path, deploy)
     return ok and not mismatched, lines + mismatched
 
 
@@ -1217,6 +1249,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--registry", type=Path, default=None, help="the release registry (default models/registry.yaml)")
     ap.add_argument("--models-root", type=Path, default=ROOT / "deploy" / "models")
     ap.add_argument(
+        "--deploy",
+        type=Path,
+        default=None,
+        help="--install: the box's deploy folder, whose docker-compose.<gpu>.yml gives the servers' length "
+        "(default: the folder above --models-root, as installed.json is found)",
+    )
+    ap.add_argument(
         "--name-judge", metavar="GPU", help="print the judge GPU profile serves (install.sh); write nothing"
     )
     ap.add_argument("--resolve", action="store_true", help="print the build PRODUCTION routes each role to (D-738)")
@@ -1283,9 +1322,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.install:
         import os
 
+        deploy = args.deploy or args.models_root.parent
         try:
             good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ),
-                                       with_embedder=True)  # fmt: skip
+                                       with_embedder=True, deploy=deploy)  # fmt: skip
         except PinError as exc:
             print(f"pin_model: {exc}", file=sys.stderr)
             return 2

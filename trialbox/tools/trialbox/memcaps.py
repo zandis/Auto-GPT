@@ -39,7 +39,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import IO, Any
 
@@ -85,6 +85,13 @@ def orch_default(compose: Path = COMPOSE, overlay: Path | None = None) -> str:
     if overlay is not None and overlay.is_file() and f"${{{ORCH_VAR}:-" in overlay.read_text(encoding="utf-8"):
         return compose_default(ORCH_VAR, overlay)
     return compose_default(ORCH_VAR, compose)
+
+
+def profile_overlay(files: Sequence[Path]) -> Path | None:
+    """The box's compose file (of ``COMPOSE_FILE``, in order) whose orchestrator default compose uses: the last one
+    that names one, as a later file overrides an earlier one; None when none does."""
+    named = [f for f in files if f.is_file() and f"${{{ORCH_VAR}:-" in f.read_text(encoding="utf-8")]
+    return named[-1] if named else None
 
 
 def load_record(path: Path = RECORD) -> dict[str, Any]:
@@ -218,17 +225,21 @@ def check(
     record_path: Path = RECORD,
     compose: Path = COMPOSE,
     orch_path: Path | None = None,
+    overlay: Path | None = None,
 ) -> tuple[str, str]:
     """``(status, detail)`` for ``trialbox doctor``: FAIL when a cap is below what the patient count needs (the
-    orchestrator's too when ``orch_path``, its record, is given)."""
+    orchestrator's too when ``orch_path``, its record, is given; its default the profile ``overlay``'s, as compose
+    runs it)."""
     n, source = patients(env, lake)
     if n is None:
         return "WARN", f"{source}: the memory caps were not compared with the hospital's size"
     record = load_record(record_path)
     orch = load_orch_record(orch_path) if orch_path is not None else None
-    need = need_mb(n, record, env, compose, orch)
+    need = need_mb(n, record, env, compose, orch, overlay)
     names = {**CAPS, **({ORCH: ORCH_VAR} if orch is not None else {})}
-    have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in names.items()}
+    have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in CAPS.items()}
+    if orch is not None:
+        have[ORCH] = size_mb(env.get(ORCH_VAR) or orch_default(compose, overlay))
     low = [f"{names[s]} {have[s]} MB < {need[s]} MB" for s in names if have[s] < need[s]]
     facts = f"{n} patients ({source}); measured record {record_path.name} ({record.get('measured_at', '?')})"
     if low:

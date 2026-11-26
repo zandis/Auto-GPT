@@ -1909,7 +1909,11 @@ def check_memory_caps(inp: DoctorInputs) -> Check:
         return Check("memory_caps", "WARN", f"{record} or {compose} is not here: the memory caps were not checked")
     lake = inp.ingest_lake or (Path(inp.env["TB_LAKE_DIR"]) if inp.env.get("TB_LAKE_DIR") else None)
     orch = deploy / "measured" / "orchestrator_memory.json"
-    status, detail = memcaps.check(inp.env, lake, record, compose, orch if orch.is_file() else None)
+    # the machine profile's file of COMPOSE_FILE gives the orchestrator's default (6g on the 96 GB class), not the base
+    files = [_compose_file(deploy, e) for e in (inp.env.get("COMPOSE_FILE") or "").split(":") if e]
+    status, detail = memcaps.check(
+        inp.env, lake, record, compose, orch if orch.is_file() else None, memcaps.profile_overlay(files)
+    )
     return Check("memory_caps", "FAIL" if status == "FAIL" else "WARN" if status == "WARN" else "PASS", detail)
 
 

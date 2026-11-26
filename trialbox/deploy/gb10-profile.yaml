@@ -1,7 +1,8 @@
 # The GB10 profile as data (DGX Spark class: aarch64, 128 GB unified memory; T-214, D-373).
 #
-# status: unmeasured (measured on a B200 with GB10-like limits, not yet on a Spark). None of these numbers was taken on
-# a Spark: no Spark is on the bench yet (plan TB-PLAN-06 T-214, OPS-063). The measured fields (unified_memory_measured_gib, measured_peak_gib,
+# status: unmeasured. None of these numbers was taken on a Spark: no Spark is on the bench yet (plan TB-PLAN-06 T-214,
+# OPS-063). The llm-verifier, orchestrator and adapter rows rest on runs on a B200 with GB10-like limits; the others
+# are planning values. The measured fields (unified_memory_measured_gib, measured_peak_gib,
 # decision_gate result) stay null until the benchmark record of a real Spark run fills them; then status becomes
 # measured and `record:` names that record. `python -m tools.two_device profile` and tests/unit/test_two_device_config.py
 # hold this file together:

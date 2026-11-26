@@ -300,8 +300,9 @@ def build(
     """Check the bundle's images against the gate record, collect their SBOMs, write release.json and images.lock.
 
     ``images``: (requested reference, saved archive); the archive must also be one of ``items`` (kind ``image``).
-    ``platform`` (``os/arch``, make_bundle.sh ``--platform``): every archive must be an image of it; each image's
-    ``platform`` in release.json is its archive's own, which the update path compares with the host."""
+    ``platform`` (``os/arch``, make_bundle.sh ``--platform``): every archive must be an image of it, and release.json
+    records it at its top, which the update path compares with the host; each image's ``platform`` is its archive's
+    own."""
     now = now or dt.datetime.now(dt.UTC)
     v = version(pyproject)
     if stray := sorted(set(jobs) - {ref for ref, _ in images}):
@@ -427,6 +428,8 @@ def build(
     }
     if rehearsal:  # D-726: a bundle for a rehearsal box; a PRODUCTION or VALIDATION box refuses it
         rel["rehearsal"] = True
+    if platform:  # every archive was checked against it above; the update path refuses it on another architecture
+        rel["platform"] = platform
     from tb_contracts import validate
 
     validate("release", rel)

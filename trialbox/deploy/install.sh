@@ -1187,7 +1187,8 @@ if [ "$MODE" = gpu ]; then
   mkdir -p deploy/site
   # JUDGE_MAX_LEN and VERIFIER_MAX_LEN: the length the servers run with, which the pin's context must be
   for v in JUDGE_MODEL_DIR JUDGE_MODEL JUDGE_CHAT_TEMPLATE VERIFIER_MODEL_DIR VERIFIER_MODEL JUDGE_MAX_LEN VERIFIER_MAX_LEN; do  # as compose reads them from deploy/.env
-    val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
+    val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; val=${val#[\"\']}; val=${val%[\"\']}  # compose drops quotes
+    [ -z "$val" ] || export "$v=$val"
   done
   say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
   # D-835: as the installer's own user (the image user 10001 cannot write a root-owned deploy/site, and a failed pin
@@ -1198,7 +1199,7 @@ if [ "$MODE" = gpu ]; then
   tree_args
   docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL -e JUDGE_MAX_LEN -e VERIFIER_MAX_LEN \
     -e TB_ENV="$TB_ENV_SITE" -e TB_REHEARSAL="$(envget TB_REHEARSAL)" "$IMAGE_PY" \
-    python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
+    python -m tools.pin_model --install "$GPU" --models-root /d/models --deploy /d --out /d/site/registry.site.yaml \
     || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"  # H-94 (1): the pin hashes the weights against the release's (D-358, D-887)
   alive_stop
 else
