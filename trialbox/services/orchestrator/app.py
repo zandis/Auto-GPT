@@ -884,6 +884,8 @@ def edc_of(o: Orchestrator) -> Any:
     from edc.store import EdcStore, sign_key_of
     from tb_common.optout import opted_out
 
+    from orchestrator.scheduler import recorded_study_state  # M7 (R1-E6): the console's recorded state, none = not open
+
     key = o.db.url or str(o.data_dir)
     if key not in _edcs:  # the signature key lives with the orchestrator alone (D-281)
         _edcs[key] = EdcStore(o.db.url, sign_key_of(os.environ, Path(o.cfg.env.secrets_dir)))
@@ -891,7 +893,7 @@ def edc_of(o: Orchestrator) -> Any:
     return EdcService(_edcs[key], core_of(o), o.audit, lambda: _now(o), o.today, study_service_of(o).client,
                       lambda: LakeFacts(o.services.lake),
                       (lambda job: gateway_drafter(llm, job)) if llm is not None else (lambda _job: None),
-                      opted_out)  # fmt: skip
+                      opted_out, study_open=lambda rs: recorded_study_state(rs, o.db.url) == "open")  # fmt: skip
 
 
 app.include_router(edc_router(lambda: edc_of(orch()), _claim))  # the person from the signed assertion (D-162)

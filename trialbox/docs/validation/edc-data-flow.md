@@ -44,6 +44,8 @@ transferred electronically.
   by default; the principal investigator turns it on, with the sponsor's written acknowledgement and this section's
   reference on file, and the PI or an administrator turns it off at any time.
 - **When.** Only after a value has been signed, and only when a person sends. Nothing is transferred on a schedule.
+  On a production box, only for a study recorded open; otherwise the send is refused by name (RC-RC1, "study_open")
+  and the refusal is in the audit trail.
 
 ## 4. What is never prefilled
 
@@ -56,6 +58,10 @@ TrialBox also never writes to a field someone else already filled in the EDC (th
 left as it is), never fills an empty field with a default value, and never writes a calculated field: the EDC
 computes those.
 
+Nothing of a participant who withdrew and said that the data collected so far may not be used (the withdrawal form's
+"data may be used" answered No) is drafted, decided, signed, sent, exported or shown on the copy-assist sheet. A send
+or export for the study leaves their values out and lists them; one that would hold only theirs is refused.
+
 ## 5. What the data is used for, and how it stays traceable
 
 - **Uses.** Entry into the eCRF; the EDC's own validation checks; reconciliation of the EDC with the source records;
@@ -64,7 +70,8 @@ computes those.
   dictionary entry it was drafted under, who decided it and how (with the reason for an edit), the signature (name,
   role, meaning, time), and each send with the EDC's answer read back from the EDC. A value the EDC holds differently
   afterwards is shown, with both values. Every step is in TrialBox's audit trail; the EDC's own audit trail records
-  the write under the TrialBox connection's user.
+  the write under the TrialBox connection's user. For each value sent and read back, TrialBox keeps the EDC's own
+  log line of that write (time, user, action), read through the EDC's log export, and shows it on the subject's trail.
 - **Reconciliation.** [How often the study reconciles the EDC with TrialBox's sent record, and who does it.]
 
 ## 6. To fill in for the study

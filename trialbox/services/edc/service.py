@@ -35,14 +35,15 @@ import inspect
 import json
 import logging
 import os
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import partial, wraps
 from typing import Any, TypeVar, cast
 
-from datacore import forms
+from datacore import forms, rc1_refused
 from datacore.export import BASE_EVENT
 from datacore.store import DataCore
 from rc_bridge.client import RcError, RedcapClient
@@ -117,6 +118,8 @@ class EdcService:
     facts: Callable[[], prefill.Facts]  # the box's record (the lake), read at the snapshot of the moment
     drafter: Callable[[str], prefill.NoteDrafter | None] = lambda _job: None  # the note drafter, or none
     optouts: Callable[[], frozenset[str]] = frozenset  # the opt-out register's pseudonyms (fails closed)
+    #: M7 (R1-E6): is the study recorded open (for real patients)? None: not known, which a PRODUCTION box refuses
+    study_open: Callable[[str], bool | None] = lambda _rs: None
     #: a DEV or TEST box with no stored re-entry result may switch on with the typed numbers (demos; E-14)
     typed_reentry: Callable[[], bool] = lambda: environment_name(os.environ) in ("DEV", "TEST")
 
@@ -135,6 +138,30 @@ class EdcService:
         if (pids | {str(detail.get("record") or "")}) & self._withdrawn(rs):
             self._audit(event, rs, by, {**detail, "refused": "edc.withdrawn"})
             raise EdcError("edc.withdrawn", WITHDRAWN_SAYS)
+
+    def _production_rule(self, rs: str, by: str, record: str | None) -> None:
+        """M7 (R1-E6): a PRODUCTION box (any environment but DEV, TEST and VALIDATION; unset is PRODUCTION, D-127)
+        writes to the EDC only values a named person confirmed and signed (only those are ever sendable:
+        ``EdcStore.sendable``), on a study recorded open. A study not recorded open, or whose state cannot be read,
+        is refused with rc1's code RC-RC1, by name, and audited. rc1's own row (``datacore.sync``'s push of
+        screening values) is unchanged."""
+        env = environment_name(os.environ)
+        if env in POC_ENVS:
+            return
+        try:
+            is_open = self.study_open(rs)
+        except Exception:  # fail closed: a state that cannot be read is not open
+            log.warning("edc.sent: the study's state could not be read", exc_info=True)
+            is_open = None
+        if is_open is not True:
+            self._audit(
+                "edc.sent",
+                rs,
+                by,
+                {"record": record or "*", "refused": rc1_refused.CODE, "missing": "study_open", "environment": env},
+            )
+            raise EdcError(rc1_refused.CODE, "a PRODUCTION box writes to the EDC only for a study recorded open; "
+                           "missing: study_open", 403)  # fmt: skip
 
     def _withdrawn(self, rs: str) -> frozenset[str]:
         """V15-06 (M7): the records and pseudonyms of the subjects of ``rs`` whose withdrawal form says the data may
@@ -489,8 +516,11 @@ class EdcService:
         target = self.store.target(rs)
         if target is None:
             raise EdcError("edc.target", "no REDCap target is set for this study")
+        self._production_rule(rs, by, record)
         out: dict[str, list[dict[str, Any]]] = {k: [] for k in SEND_RESULTS}
         attempted = 0  # NEW-EDC-8: values whose write was ledgered before the import
+        linked: list[str] = []  # M7 (R1-E5): REDCap's own log line of each value sent and read back
+        unread_log = ""  # or why REDCap's log could not be read
         calc_out: list[dict[str, Any]] = []
         hidden_out: list[dict[str, Any]] = []
         at = self.stamp()
@@ -762,11 +792,15 @@ class EdcService:
                     touched = sorted({k[0] for k in imports if k not in refused})
                     back = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))],
                                                           records=touched), self.today())  # fmt: skip
+                    refs, unread_log = _log_refs(c, self.today(), [(rec, str(d["item"])) for d, rec, _s in planned])
                     for d, rec, slot in planned:
                         got = back.value(rec, slot, str(d["item"]))
                         if got == fmt[int(d["id"])]:
                             out["sent"].append(_brief(d))
-                            self.store.record_sent(rs, d, "redcap", rec, "sent", "read back equal", by, at)
+                            ref = refs.get((rec, str(d["item"])))
+                            linked.extend([ref] if ref else [])
+                            self.store.record_sent(rs, d, "redcap", rec, "sent", "read back equal", by, at,
+                                                   redcap_log=ref or "")  # fmt: skip
                         else:
                             out["readback"].append({**_brief(d), "redcap": got})
                             self.store.record_sent(rs, d, "redcap", rec, "readback", "read back differs", by, at)
@@ -789,7 +823,9 @@ class EdcService:
                                          **{("records_refused" if k == "refused" else k): len(v)
                                             for k, v in out.items()},
                                          "calc_differs": sum(1 for x in calc_out if x["equal"] is False),
-                                         "hidden_in_redcap": len(hidden_out)})  # fmt: skip
+                                         "hidden_in_redcap": len(hidden_out),
+                                         **({"redcap_log": sorted(set(linked))[:LOG_REFS_MAX]} if linked else {}),
+                                         **({"redcap_log_unread": unread_log} if unread_log else {})})  # fmt: skip
         drift, unread = self._reread(rs, by, record)  # NEW-EDC-5: after the send's own audit line
         return {**out, "changed_in_redcap": drift, "reread": unread, "count": len(out["sent"]), "calc": calc_out,
                 "hidden_in_redcap": hidden_out}  # fmt: skip
@@ -1252,6 +1288,27 @@ SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "o
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
                 "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken", "refused",
                 "source_changed", "changed_in_redcap", "direct_source", "withdrawn")  # fmt: skip
+POC_ENVS = ("DEV", "TEST", "VALIDATION")  # M7 (R1-E6): the boxes the PRODUCTION write rule leaves as they were
+LOG_REFS_MAX = 200  # the references one send's audit line carries at most
+
+
+def _log_refs(c: RedcapClient, today: date, done: list[tuple[str, str]]) -> tuple[dict[tuple[str, str], str], str]:
+    """M7 (R1-E5): REDCap's own log line (``content=log``, the record writes since yesterday, so a server clock in
+    another zone is still covered) for each (record, field) just written: "<time> <user> <action>" of the newest line
+    that names the field; and "" or why the log could not be read. The send stands either way."""
+    try:
+        rows = c.project_log(logtype="record", begin_time=f"{today - timedelta(days=1)} 00:00")
+    except RcError as exc:
+        return {}, exc.code
+    refs: dict[tuple[str, str], str] = {}
+    for e in sorted(rows, key=lambda e: str(e.get("timestamp") or "")):
+        rec, details = str(e.get("record") or ""), str(e.get("details") or "")
+        for r, f in done:
+            if rec == r and re.search(rf"(^|[\s,]){re.escape(f)}(\(\w+\))? = ", details):
+                refs[(r, f)] = " ".join(str(e.get(k) or "") for k in ("timestamp", "username", "action")).strip()
+    return refs, ""
+
+
 #: V15-06 (M7): why nothing of a subject who withdrew the use of their data is drafted, decided, signed or sent
 WITHDRAWN_SAYS = "the subject withdrew and the data may not be used; nothing is drafted, signed, sent or exported"
 #: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
