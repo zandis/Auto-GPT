@@ -119,7 +119,9 @@ def test_doctor_refuses_the_profile_with_mig_on(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(pm, "server_info", lambda: ("26.0.0", "Docker Engine"))
     monkeypatch.setattr(pm, "_mig", lambda inp: "Enabled")
     (tmp_path / "meminfo").write_text("MemTotal:  527000000 kB\n", encoding="utf-8")
-    inp = doctor.DoctorInputs(env={"TB_LLM_MODE": "gpu"}, deploy=tmp_path, proc=tmp_path, gpu_query=lambda: (PRO, "580"))
+    inp = doctor.DoctorInputs(
+        env={"TB_LLM_MODE": "gpu"}, deploy=tmp_path, proc=tmp_path, gpu_query=lambda: (PRO, "580")
+    )
     rows = {c.name: c for c in doctor.module_rows(inp, [])}
     assert rows["profile"].status == "FAIL" and "refused" in rows["profile"].detail
 
