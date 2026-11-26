@@ -56,7 +56,7 @@ from orchestrator.scenarios.evaluate import (
     not_in_snapshot,
     row,
     served,
-    sort_key,
+    sort_rows,
 )
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
@@ -695,7 +695,7 @@ def run_screen(
         row(pv, by_pid[p].next_appointment, by_pid[p].practitioner_id, by_pid[p].department, stamp)
         for p, pv in results.items()
     ]
-    rows.sort(key=sort_key)
+    rows = sort_rows(rows)
     return ScreenRun(
         rs, run_date, snapshot, scoped, results, rows, list(practitioners or []), depts, window, judge, judging,
         cascade, whole_hospital=practitioners is None, s2b_sources=s2b_sources, coded_values_read=values_read,

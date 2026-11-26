@@ -49,6 +49,8 @@ EN: dict[str, str] = {
     # T-507 (D-309): criterion words in the page language, the label step at approval, the test model
     "crit.original": "As written in the protocol",
     # T-515 (D-323, review UX-007): where a first or second check came from, and what the two checks are
+    "note.against": "A note may speak against {criterion}. Not excluded. Please check.",
+    "note.against.count": "Patients with a note that may speak against a criterion: {n}. None is excluded.",
     "opinion.explain": "First check and second check: two different models read the same notes, each on its own. "
     "When they disagree the answer stays unknown and a person decides.",
     "opinion.disagree": "the two checks disagree",
@@ -111,6 +113,8 @@ JA: dict[str, str] = {
     "confirm.approve_all": "{n} 件の基準をまとめて承認しますか？各基準があなたの氏名で承認として記録されます。",
     "crit.original": "プロトコルの原文",
     # T-515 (D-323): 1回目・2回目の確認の出どころ
+    "note.against": "記録の文章が{criterion}に反する可能性があります。除外していません。確認してください。",
+    "note.against.count": "記録の文章が基準に反する可能性がある患者：{n}名。いずれも除外していません。",
     "opinion.explain": "1回目の確認と2回目の確認：異なる 2 つのモデルが同じ記録をそれぞれ独立に読みます。"
     "読み取りが分かれたときは「不明」のままとし、担当者が判断します。",
     "opinion.disagree": "2 つの確認で読み取りが分かれています",
@@ -169,6 +173,8 @@ ZH: dict[str, str] = {
     "confirm.approve_all": "要一次核准全部 {n} 項條件嗎？每項條件都會以您的姓名記錄為已核准。",
     "crit.original": "計畫書原文",
     # T-515 (D-323)：第一次與第二次確認的來源
+    "note.against": "病歷文字可能不利於{criterion}。未排除。請確認。",
+    "note.against.count": "病歷文字可能不利於某項條件的病人：{n} 位。皆未排除。",
     "opinion.explain": "第一次確認與第二次確認：兩個不同的模型各自獨立閱讀同一份紀錄。"
     "兩者判斷不一致時，結果維持「不明」，由人員判斷。",
     "opinion.disagree": "兩次確認的判斷不一致",

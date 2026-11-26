@@ -46,6 +46,7 @@ from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, s
 from tb_common.quotes import as_in
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
+from tb_common.verdict_word import against_ids, flagged_last
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
 from tb_llm.budget import shown as shown_excerpt
 
@@ -956,3 +957,14 @@ def sort_key(r: CandidateRow) -> tuple[Any, ...]:
     """Next appointment ascending (none last), then tier (high before review), then pid."""
     nxt = r.next_appointment.isoformat() if r.next_appointment else ""
     return (r.next_appointment is None, nxt, {"high": 0, "review": 1}.get(r.tier, 2), r.pid)
+
+
+def sort_rows(rows: list[CandidateRow]) -> list[CandidateRow]:
+    """:func:`sort_key` order, then (INT-S-B) on each appointment day the review rows with a note that may speak
+    against a criterion last among that day's review rows. The same rows, none hidden; only that order changes."""
+    return flagged_last(
+        sorted(rows, key=sort_key),
+        lambda r: r.next_appointment.isoformat()[:10] if r.next_appointment else "",
+        lambda r: r.tier == "review",
+        lambda r: bool(against_ids(r.criteria)),
+    )
