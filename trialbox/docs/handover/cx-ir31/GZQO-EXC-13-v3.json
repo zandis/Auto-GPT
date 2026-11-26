@@ -1,0 +1,31 @@
+{
+  "ir_version": "3.0.0",
+  "id": "GZQO-EXC-13",
+  "ruleset": "GZQO",
+  "kind": "exclusion",
+  "class": "structured",
+  "text": {
+    "source": "ALT greater than three times the row reference upper limit in the preceding 180 days."
+  },
+  "logic": "a1",
+  "atoms": [
+    {
+      "id": "a1",
+      "domain": "observation",
+      "valueset": "VS_ALT",
+      "quantifier": "latest",
+      "value": {
+        "op": ">",
+        "ref": {
+          "kind": "uln",
+          "multiple": 3
+        }
+      },
+      "window": {
+        "from_days": -180,
+        "to_days": 0,
+        "anchor": "index"
+      }
+    }
+  ]
+}
