@@ -13,6 +13,11 @@ additions are:
   and route with per-ingredient equivalents, the diagnosis role (primary diagnosis), and thresholds that depend on
   another atom (NT-proBNP / BNP cut-offs that differ with atrial fibrillation).
 
+IR 3.1.0 adds, without changing any 3.0.0 meaning: ``card_ref`` (the card and parameters a criterion was instantiated
+from; provenance, outside the canonical hash), ``on_hit`` on atoms (``review`` sends a met atom to a person instead of
+deciding the criterion) and ``Window.unit`` (``h`` counts ``from_days`` / ``to_days`` in hours). A criterion that uses
+none of them stays 3.0.0, and its canonical hash does not move.
+
 The JSON Schema in ``schemas/v4/criterion_ir.schema.json`` is generated from these models::
 
     python -m tb_contracts.criterion_ir            # rewrite the committed schemas
@@ -35,7 +40,8 @@ from typing import Annotated, Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-IR_VERSION: Literal["3.0.0"] = "3.0.0"
+IR_VERSION: Literal["3.1.0"] = "3.1.0"
+IrVersion = Literal["3.0.0", "3.1.0"]
 LIBRARY_SCHEMA_VERSION: Literal["1.0.0"] = "1.0.0"
 SCHEMA_DIR = Path(__file__).resolve().parents[2] / "schemas" / "v4"
 SCHEMA_BASE = "https://trialbox.local/schemas/v4/"
@@ -134,6 +140,9 @@ class Window(_Model):
 
     from_days: int | None = None
     to_days: int | None = None
+    unit: Literal["d", "h"] | None = Field(
+        default=None, description="3.1.0: `h` counts from_days/to_days in hours; absent or `d`: days"
+    )
     anchor: Anchor | None = None
     event_atom: str | None = Field(default=None, pattern=ATOM_ID, description="anchor=event: the atom giving events")
     event_pick: Literal["first", "last", "each"] | None = None
@@ -275,6 +284,11 @@ class Atom(_Model):
     medication: MedicationDetail | None = None
     diagnosis_role: DiagnosisRole | None = None
     clinical_status: list[ClinicalStatus] | None = None
+    on_hit: Literal["exclude", "review"] | None = Field(
+        default=None,
+        description='3.1.0: `review` sends a met atom to a person ("clinically significant X"); absent or `exclude`: '
+        "the atom decides as in 3.0.0",
+    )
 
     @model_validator(mode="after")
     def _shape(self) -> Atom:
@@ -370,6 +384,15 @@ class FlipRule(_Model):
     detail: str | None = None
 
 
+class CardRef(_Model):
+    """3.1.0: the card a criterion was instantiated from. Provenance only: outside the canonical hash, so a card
+    re-version that renders the same atoms never moves an approved criterion's hash."""
+
+    card_id: str = Field(min_length=1)
+    card_version: str = Field(pattern=rf"^{_SEMVER}$")
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class BoolNode(_Model):
     op: Literal["and", "or", "not"]
     args: list[Logic] = Field(min_length=1)
@@ -380,9 +403,9 @@ BoolNode.model_rebuild()
 
 
 class CriterionIRv3(_Model):
-    """One eligibility criterion, IR 3.0.0 (spec v4 §6.2)."""
+    """One eligibility criterion, IR 3.x (spec v4 §6.2): 3.0.0 unless it uses a 3.1.0 construct."""
 
-    ir_version: Literal["3.0.0"] = IR_VERSION
+    ir_version: IrVersion = "3.0.0"
     id: str = Field(pattern=CRITERION_ID)
     ruleset: str
     kind: Literal["inclusion", "exclusion", "renewal", "documentation"]
@@ -410,6 +433,7 @@ class CriterionIRv3(_Model):
     safety_critical: bool | None = None
     index: bool | None = None
     provenance: Provenance | None = None
+    card_ref: CardRef | None = None
 
     @model_validator(mode="after")
     def _refs(self) -> CriterionIRv3:
@@ -427,7 +451,23 @@ class CriterionIRv3(_Model):
             bad = sorted(r for r in refs if r not in known or r == a.id)
             if bad:
                 raise ValueError(f"atom {a.id} references unknown atoms: {', '.join(bad)}")
+        used = uses_3_1(self.model_dump(mode="json", by_alias=True, exclude_none=True))
+        if used and self.ir_version == "3.0.0":
+            raise ValueError(f"{', '.join(used)} need ir_version 3.1.0")
         return self
+
+
+def uses_3_1(d: Mapping[str, Any]) -> list[str]:
+    """The IR 3.1.0 constructs a dumped criterion uses (empty: it is a 3.0.0 criterion)."""
+    used = ["card_ref"] if "card_ref" in d else []
+    windows = []
+    for a in d.get("atoms", []):
+        if "on_hit" in a:
+            used.append(f"{a['id']}.on_hit")
+        windows += [(a["id"], a.get("window")), (a["id"], (a.get("change") or {}).get("baseline", {}).get("window"))]
+    windows += [(m["id"], m.get("window")) for m in d.get("macros", [])]
+    used += [f"{i}.window.unit" for i, w in windows if w and "unit" in w]
+    return used
 
 
 def _logic_refs(node: str | BoolNode) -> list[str]:
@@ -489,7 +529,7 @@ def upgrade_v1(ir: BaseModel | Mapping[str, Any]) -> CriterionIRv3:
     """v1 criterion (dict or generated ``CriterionIR``) -> IR 3.0.0. Lossless: ``downgrade_to_v1`` restores it."""
     src = _as_dict(ir)
     out: dict[str, Any] = {k: src[k] for k in _V1_TOP_PASSTHROUGH if k in src}
-    out["ir_version"] = IR_VERSION
+    out["ir_version"] = "3.0.0"  # v1 expresses nothing of 3.1.0, so the upgrade's hash is the 3.0.0 one
     if "provenance" in src:  # D-989
         out["provenance"] = {"calls": list(src["provenance"]["calls"])}
     text: dict[str, Any] = {"source": src["text"]}
@@ -652,6 +692,7 @@ _DROP_TOP = (
     "filter_class",
     "depends_on",
     "flip_rule",
+    "card_ref",  # 3.1.0 provenance: the hash is the hash of the atoms
 )
 
 
@@ -660,11 +701,25 @@ def normalise(ir: CriterionIRv3, valueset_hashes: Mapping[str, str] | None = Non
     ``id@version``, the note question and keyed checklist items -> their keys, and no free text, language variants,
     provenance or computability.
 
+    ``ir_version`` is the lowest version the hashed form needs, so a 3.0.0 criterion and the same atoms declared
+    3.1.0 (for a ``card_ref``) share one hash.
+
     ``valueset_hashes`` maps ValueSet names to content hashes (``sha256:…``); names without a hash are kept as
     ``name:<id>`` so two criteria only share a hash when they use the same ValueSet ids."""
     d = ir.model_dump(mode="json", by_alias=True, exclude_none=True)
     for k in _DROP_TOP:
         d.pop(k, None)
+    for a in d.get("atoms", []):  # the 3.1.0 defaults written out mean what their absence means
+        if a.get("on_hit") == "exclude":
+            del a["on_hit"]
+        for w in (a.get("window"), (a.get("change") or {}).get("baseline", {}).get("window")):
+            if w and w.get("unit") == "d":
+                del w["unit"]
+    for m in d.get("macros", []):
+        if (m.get("window") or {}).get("unit") == "d":
+            del m["window"]["unit"]
+    # the version a hashed form needs, not the one declared: dropping card_ref must not move the hash of the atoms
+    d["ir_version"] = "3.1.0" if uses_3_1(d) else "3.0.0"
     vsh = dict(valueset_hashes or {})
     order = [a["id"] for a in d.get("atoms", [])] + [m["id"] for m in d.get("macros", [])]
     rename = {

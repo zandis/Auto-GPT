@@ -344,6 +344,23 @@
      ],
      "default": null,
      "title": "Clinical Status"
+    },
+    "on_hit": {
+     "anyOf": [
+      {
+       "enum": [
+        "exclude",
+        "review"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "3.1.0: `review` sends a met atom to a person (\"clinically significant X\"); absent or `exclude`: the atom decides as in 3.0.0",
+     "title": "On Hit"
     }
    },
    "required": [
@@ -511,6 +528,33 @@
     "args"
    ],
    "title": "BoolNode",
+   "type": "object"
+  },
+  "CardRef": {
+   "additionalProperties": false,
+   "description": "3.1.0: the card a criterion was instantiated from. Provenance only: outside the canonical hash, so a card\nre-version that renders the same atoms never moves an approved criterion's hash.",
+   "properties": {
+    "card_id": {
+     "minLength": 1,
+     "title": "Card Id",
+     "type": "string"
+    },
+    "card_version": {
+     "pattern": "^\\d+\\.\\d+\\.\\d+$",
+     "title": "Card Version",
+     "type": "string"
+    },
+    "params": {
+     "additionalProperties": true,
+     "title": "Params",
+     "type": "object"
+    }
+   },
+   "required": [
+    "card_id",
+    "card_version"
+   ],
+   "title": "CardRef",
    "type": "object"
   },
   "Change": {
@@ -1944,6 +1988,23 @@
      "default": null,
      "title": "To Days"
     },
+    "unit": {
+     "anyOf": [
+      {
+       "enum": [
+        "d",
+        "h"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "3.1.0: `h` counts from_days/to_days in hours; absent or `d`: days",
+     "title": "Unit"
+    },
     "anchor": {
      "anyOf": [
       {
@@ -2001,8 +2062,11 @@
  "additionalProperties": false,
  "properties": {
   "ir_version": {
-   "const": "3.0.0",
    "default": "3.0.0",
+   "enum": [
+    "3.0.0",
+    "3.1.0"
+   ],
    "title": "Ir Version",
    "type": "string"
   },
@@ -2308,6 +2372,17 @@
     }
    ],
    "default": null
+  },
+  "card_ref": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/CardRef"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
   }
  },
  "required": [
@@ -2320,5 +2395,5 @@
  ],
  "type": "object",
  "title": "CriterionIRv3",
- "description": "One eligibility criterion (spec v4 §6.2). Schema version 3.0.0. GENERATED from libs/tb_contracts/criterion_ir.py."
+ "description": "One eligibility criterion (spec v4 §6.2). Schema version 3.1.0. GENERATED from libs/tb_contracts/criterion_ir.py."
 }
