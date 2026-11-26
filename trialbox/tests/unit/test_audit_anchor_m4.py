@@ -357,3 +357,52 @@ def test_a_folder_the_doctor_may_not_read_is_a_warn_that_says_so(
     monkeypatch.setattr(audit, "anchor_state", refuse)
     c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1))
     assert c.status == "WARN" and "cannot look" in c.detail
+
+
+def _sign_at(box: dict[str, Path], targets: list[Path], log: AuditLog, now: datetime) -> Any:
+    log.append("test.event", ts=now - timedelta(minutes=5), actor="tester", detail={"n": 1})
+    return audit_heads.sign_night(box["audit"], box["secrets"], targets, record=_recorder(log), now=now)
+
+
+def test_a_folder_just_added_is_no_head_yet_not_tampered(box: dict[str, Path], tmp_path: Path) -> None:
+    """OCR 1523-21: the chain's heads were written to the folders of their night, not to one set up since."""
+    log = AuditLog(box["audit"])
+    _events(log, 3)
+    assert _sign_at(box, [box["share"]], log, NIGHT).ok
+    new = tmp_path / "new"
+    new.mkdir()
+    state = audit.anchor_state(new, box["audit"], audit_heads.own_keys(box["secrets"]), NIGHT + timedelta(hours=1))
+    assert state[0] == "missing" and "no signed head" in state[1]
+
+
+def test_one_of_two_folders_emptied_is_never_signed_over(box: dict[str, Path], tmp_path: Path) -> None:
+    """OCR 1523-17: the other folder's heads do not let the night sign over the emptied one."""
+    log = AuditLog(box["audit"])
+    _events(log, 3)
+    both = [box["share"], tmp_path / "b"]
+    both[1].mkdir()
+    assert _sign_at(box, both, log, NIGHT).ok
+    for f in (both[1] / "heads").iterdir():
+        f.unlink()
+    night = _sign_at(box, both, log, NIGHT + timedelta(days=1))
+    own = audit_heads.own_keys(box["secrets"])
+    assert not night.ok and not list((both[1] / "heads").iterdir())
+    assert audit.anchor_state(both[1], box["audit"], own, NIGHT + timedelta(days=1, hours=1))[0] == "tampered"
+    assert audit.anchor_state(both[0], box["audit"], own, NIGHT + timedelta(days=1, hours=1))[0] == "ok"
+
+
+def test_a_share_not_mounted_one_night_is_not_tampered_once_mounted_again(box: dict[str, Path], tmp_path: Path) -> None:
+    """OCR 1523-4: a share that is not mounted leaves its mount point, an empty folder: the night writes nothing there."""
+    log = AuditLog(box["audit"])
+    _events(log, 3)
+    point = tmp_path / "mnt-b"
+    point.mkdir()
+    both = [box["share"], point]
+    assert _sign_at(box, both, log, NIGHT).ok
+    server = point.rename(tmp_path / "server")
+    point.mkdir()
+    assert not _sign_at(box, both, log, NIGHT + timedelta(days=1)).ok
+    point.rmdir()
+    server.rename(point)
+    own = audit_heads.own_keys(box["secrets"])
+    assert audit.anchor_state(point, box["audit"], own, NIGHT + timedelta(days=1, hours=1))[0] == "ok"

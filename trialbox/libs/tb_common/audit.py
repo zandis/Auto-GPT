@@ -634,7 +634,8 @@ class VerifyResult:
     #: M4: the chain's own ``audit.head_signed`` events as (lines, head hash, anchor folders that took it, what
     #: ``failed`` says of those that did not), and the time of its first and last event, so that a head missing from the
     #: anchor or an anchor no event speaks of shows
-    signed_events: list[tuple[int, str, int, tuple[str, ...]]] = field(default_factory=list)
+    #: (OCR 1523-21) and the folders that took it (None: an event that does not name them)
+    signed_events: list[tuple[int, str, int, tuple[str, ...], tuple[str, ...] | None]] = field(default_factory=list)
     first_ts: str | None = None
     last_ts: str | None = None
 
@@ -642,8 +643,9 @@ class VerifyResult:
         """The heads (lines, hash) the chain says were written, without those ``target`` is named not to have taken
         (OCR 1523-4): by the signer (``<folder>: <why>``) or by the host before it (``sign_on_box``)."""
         missed = (f"{target}: ", f"the anchor folder {target} is not there")
-        return [(n, h) for n, h, took, failed in self.signed_events
-                if took >= 1 and not any(f.startswith(missed) for f in failed)]  # fmt: skip
+        return [(n, h) for n, h, took, failed, to in self.signed_events
+                if took >= 1 and (str(target) in to if to is not None  # OCR 1523-21: the folders that took it
+                                  else not any(f.startswith(missed) for f in failed))]  # fmt: skip
 
 
 def verify(
@@ -703,8 +705,9 @@ def verify(
                     d = rec["detail"]
                     if isinstance(d.get("lines"), int) and isinstance(d.get("head"), str):
                         failed = d.get("failed") if isinstance(d.get("failed"), list) else []
+                        to = tuple(map(str, d["to"])) if isinstance(d.get("to"), list) else None
                         res.signed_events.append((d["lines"], d["head"], int(d.get("anchors") or 0),
-                                                  tuple(map(str, failed))))  # fmt: skip
+                                                  tuple(map(str, failed)), to))  # fmt: skip
                 if rec.get("prev_hash") != prev:
                     res.errors.append(f"{path.name}:{lineno}: prev_hash does not match previous line")
                 expected = line_hash(str(rec.get("prev_hash")), rec)
@@ -918,7 +921,7 @@ def _check_signed_heads(
     have = {(h.get("lines"), h.get("hash")) for h in heads}
     if written := [e for e in res.signed_events if e[2] >= 1]:
         # M4: the newest head the chain says a folder took must be there; older ones may be pruned
-        n, last_hash = max(written)[:2]
+        n, last_hash = max(written, key=lambda e: e[0])[:2]
         if (n, last_hash) not in have:
             res.errors.append(f"signed heads: the newest head the chain records as written (event {n}) is not in the "
                               "folder(s) checked: it was deleted, or the folder was replaced")  # fmt: skip
@@ -1167,8 +1170,10 @@ def anchor_state(target: Path, audit_dir: Path, own: Mapping[str, bytes] | None,
     heads = read_signed_heads(target) if (target / _HEADS_DIR).is_dir() else []
     told = verify(audit_dir, require_head=False).told(target) if audit_dir.is_dir() else []  # what the chain says
     if not heads and told:  # OCR 1523-17: every head the chain names deleted is tampering, as one deleted head is
-        return "tampered", (f"{target} holds no signed head, but the chain records {len(told)} written to an anchor "
-                           "folder: emptied or replaced; nothing is signed over it until a person looks")  # fmt: skip
+        return "tampered", (
+            f"{target} holds no signed head, but the chain records {len(told)} written to it: "
+            "emptied, replaced or not mounted; nothing is signed over it until a person looks"
+        )
     if not heads:
         return "missing", f"no signed head in {target} yet (python3 -m tools.trialbox audit-sign)"
     for h in heads:

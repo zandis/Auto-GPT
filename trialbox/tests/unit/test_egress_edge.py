@@ -708,3 +708,163 @@ def test_a_door_named_in_a_comment_only_is_not_wired(tmp_path: Path) -> None:
     assert ee.wired("model.offbox", tmp_path) is False
     door.write_text('leave("model.offbox")\n')
     assert ee.wired("model.offbox", tmp_path) is True
+
+
+# ------------------------------------------------------------------------------------------------ OCR 1523-3, -18 to -20
+def _gap(data: bytes, extra: bytes) -> bytes:
+    """``extra`` between the members and the directory, the end record pointed past it: every reader still opens it."""
+    import struct
+
+    end = data.rfind(b"PK\x05\x06")
+    cd = struct.unpack("<I", data[end + 16 : end + 20])[0]
+    out = data[:cd] + extra + data[cd:]
+    end += len(extra)
+    return out[: end + 16] + struct.pack("<I", cd + len(extra)) + out[end + 20 :]
+
+
+def _extra_field() -> bytes:
+    import struct
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        info = zipfile.ZipInfo("a.txt")
+        info.extra = struct.pack("<HH", 0x6C74, len(LIST)) + LIST
+        z.writestr(info, b"hello")
+    return buf.getvalue()
+
+
+def _sheet(edit: Any) -> bytes:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws: Any = wb.active
+    ws["A1"], ws["A2"] = "n", 3
+    edit(wb, ws)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _header(_wb: Any, ws: Any) -> None:
+    ws.oddHeader.center.text = "MRN 70000054 Robin Example"
+
+
+def _defined(wb: Any, _ws: Any) -> None:
+    from openpyxl.workbook.defined_name import DefinedName
+
+    wb.defined_names["who"] = DefinedName("who", attr_text='"MRN 70000054 Robin Example"')
+
+
+def _validation(_wb: Any, ws: Any) -> None:
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    v = DataValidation(type="list", formula1='"70000054 Robin Example,b"')
+    ws.add_data_validation(v)
+    v.add("B1")
+
+
+def _number_format(_wb: Any, ws: Any) -> None:
+    ws["A2"].number_format = '"MRN 70000054 Robin Example "0'
+
+
+def _pdf_more(what: str) -> bytes:
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import (
+        ArrayObject,
+        DecodedStreamObject,
+        DictionaryObject,
+        NameObject,
+        NumberObject,
+        TextStringObject,
+    )
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    c.drawString(72, 700, "MRN 70000054 Robin Example" if what == "revision" else "12 of 85 patients")
+    c.save()
+    shown = DecodedStreamObject()
+    if what == "revision":  # the page's text replaced by an edit appended to the file
+        w = PdfWriter(io.BytesIO(buf.getvalue()), incremental=True)
+        shown.set_data(b"BT /F1 12 Tf 72 700 Td (12 of 85 patients) Tj ET")
+        w.pages[0][NameObject("/Contents")] = w._add_object(shown)
+    else:
+        w = PdfWriter(clone_from=PdfReader(io.BytesIO(buf.getvalue())))
+        shown.set_data(b"BT /F1 12 Tf 10 10 Td (MRN 70000054 Robin Example) Tj ET")
+        if what == "stamp":  # a note drawn by its own picture of text
+            shown.update({NameObject("/Type"): NameObject("/XObject"), NameObject("/Subtype"): NameObject("/Form"),
+                          NameObject("/BBox"): ArrayObject([NumberObject(0)] * 2 + [NumberObject(300)] * 2)})  # fmt: skip
+            w.add_annotation(0, DictionaryObject({
+                NameObject("/Type"): NameObject("/Annot"), NameObject("/Subtype"): NameObject("/Stamp"),
+                NameObject("/Rect"): ArrayObject([NumberObject(50)] * 2 + [NumberObject(350)] * 2),
+                NameObject("/AP"): DictionaryObject({NameObject("/N"): w._add_object(shown)})}))  # fmt: skip
+        else:  # a script
+            act = DictionaryObject(
+                {NameObject("/S"): NameObject("/JavaScript"), NameObject("/JS"): w._add_object(shown)}
+            )
+            w._root_object[NameObject("/Names")] = DictionaryObject({NameObject("/JavaScript"): DictionaryObject(
+                {NameObject("/Names"): ArrayObject([TextStringObject("a"), act])})})  # fmt: skip
+    out = io.BytesIO()
+    w.write(out)
+    return out.getvalue()
+
+
+STILL_UNREAD: dict[str, tuple[str, bytes]] = {
+    "picture_name_gzip_list": ("a.docx", _office({"word/media/image1.png": __import__("gzip").compress(LIST)})),
+    "picture_name_big5_list": (
+        "a.docx",
+        _office({"word/media/image1.png": "病歷號,姓名\n70000054,王小明\n".encode("big5")}),
+    ),
+    "picture_name_utf16_list": ("a.docx", _office({"word/media/image1.png": LIST.decode().encode("utf-16")})),
+    "printer_settings_gzip_list": (
+        "a.xlsx",
+        _book({"xl/printerSettings/printerSettings1.bin": __import__("gzip").compress(LIST)}),
+    ),
+    "zip_bytes_before_the_directory": ("a.zip", _gap(_zip_of({"a.txt": b"hello"}), LIST)),
+    "office_bytes_before_the_directory": ("a.docx", _gap(_office({"word/document.xml": b"<w:p>hi</w:p>"}), LIST)),
+    "zip_bytes_after_the_end": ("a.zip", _zip_of({"a.txt": b"hello"}) + LIST),
+    "zip_extra_field": ("a.zip", _extra_field()),
+    "workbook_page_header": ("a.xlsx", _sheet(_header)),
+    "workbook_defined_name": ("a.xlsx", _sheet(_defined)),
+    "workbook_validation_list": ("a.xlsx", _sheet(_validation)),
+    "workbook_number_format": ("a.xlsx", _sheet(_number_format)),
+    "office_picture_description": (
+        "a.docx",
+        _office({"word/document.xml": b'<w:p><wp:docPr id="1" descr="Robin Example MRN 70000054"/>hi</w:p>'}),
+    ),
+    "pdf_stamp_drawn_text": ("a.pdf", _pdf_more("stamp")),
+    "pdf_script": ("a.pdf", _pdf_more("script")),
+    "pdf_earlier_revision": ("a.pdf", _pdf_more("revision")),
+}
+
+
+@pytest.mark.parametrize("case", sorted(STILL_UNREAD))
+def test_what_the_reader_never_looked_at_does_not_leave(case: str) -> None:
+    name, data = STILL_UNREAD[case]
+    assert reason("download.study", ee.File(name, data)) in ("identifiers", "unreadable")
+
+
+def _sheet_part(xml: bytes) -> bytes:
+    """A book whose first sheet is replaced by ``xml``."""
+    src = zipfile.ZipFile(io.BytesIO(_book()))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for i in src.infolist():
+            z.writestr(i, xml if i.filename == "xl/worksheets/sheet1.xml" else src.read(i))
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("name", "data"),
+    [
+        ("a.docx", _office({"word/media/image1.png": b"BMI,MRN,name\n22,70000054,Robin Example\n"})),
+        (
+            "a.xlsx",
+            _sheet_part(b"<worksheet><headerFooter><oddHeader>MRN 70000054</oddHeader></headerFooter></worksheet>"),
+        ),
+    ],
+    ids=["a_list_that_begins_as_a_bitmap", "a_sheet_with_no_cells"],
+)
+def test_a_part_that_only_looks_like_one_the_reader_skips_is_read(name: str, data: bytes) -> None:
+    """The review's patch skipped a part by its first bytes, and read a sheet's text only beside its cells."""
+    assert reason("download.study", ee.File(name, data)) in ("identifiers", "unreadable")

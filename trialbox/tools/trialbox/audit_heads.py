@@ -150,14 +150,29 @@ def check_and_sign(audit_dir: Path, secrets_dir: Path, targets: Sequence[Path], 
                                          public_pem, ts=now)  # fmt: skip
         except audit.AuditSignError as exc:
             return Night(False, [str(exc)])
-    written, failed = 0, []
+    written, failed, took = 0, [], []
     for t in targets:  # after the lock: a slow share does not hold the box's audit writer
+        if res.told(t) and not ((t / "heads").is_dir() and audit.read_signed_heads(t)):
+            # OCR 1523-17, 1523-4: emptied, replaced, or a share not mounted (its mount point is there and empty):
+            # never signed over; named, so that the share mounted again is not held to this night's head
+            failed.append(
+                f"{t}: holds no signed head, but the audit chain records heads written to it (emptied, "
+                "replaced or not mounted): not written; a person looks (tools/audit_verify.py --heads)"
+            )
+            continue
         try:
             audit.publish_head(t, rec, public_pem)
             written += 1
+            took.append(str(t))
         except (OSError, audit.AuditSignError) as exc:
             failed.append(f"{t}: {exc}")
-    detail: dict[str, Any] = {"lines": res.lines, "head": res.last_hash, "key_id": rec["key_id"], "anchors": written}
+    detail: dict[str, Any] = {
+        "lines": res.lines,
+        "head": res.last_hash,
+        "key_id": rec["key_id"],
+        "anchors": written,
+        "to": took,
+    }  # OCR 1523-21: a folder is held only to the heads it took
     if failed:
         detail["failed"] = failed
     problems = [f"the signed head was not written to {f}" for f in failed]
