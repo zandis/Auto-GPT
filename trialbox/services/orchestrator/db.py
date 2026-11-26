@@ -8,7 +8,7 @@ import contextlib
 import hashlib
 import json
 import os
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
 
@@ -654,14 +654,14 @@ class JobDB:
         return int(self._db.fetchval("SELECT count(*) FROM judged_pairs") or 0)
 
     # ------------------------------------------------------------------ the answer store (D-1360, card 10A-4)
-    def answer_store_put(self, rows: list[tuple[Any, ...]], open_only: list[tuple[Any, ...]] | None = None) -> None:
-        """Store answers, one tuple per :data:`ANSWER_COLUMNS`, in one transaction; ``open_only``: answers nobody gave,
-        stored only where no decided answer is (:data:`_ANSWER_PUT_OPEN`)."""
-        if not rows and not open_only:
-            return
+    def answer_store_put(self, batches: Iterable[tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]]) -> None:
+        """Store answers, one tuple per :data:`ANSWER_COLUMNS`, in one transaction, a batch ``(rows, open_only)`` at a
+        time (a whole hospital's answers are never held at once); ``open_only``: answers nobody gave, stored only where
+        no decided answer is (:data:`_ANSWER_PUT_OPEN`)."""
         with self.tx() as con:
-            con.executemany(_ANSWER_PUT, rows)
-            con.executemany(_ANSWER_PUT_OPEN, open_only or [])
+            for rows, open_only in batches:
+                con.executemany(_ANSWER_PUT, rows)
+                con.executemany(_ANSWER_PUT_OPEN, open_only)
 
     def answer_store_of(self, pid: str, ruleset: str, version: str) -> list[dict[str, Any]]:
         """The stored answers of one patient on one ruleset version, by criterion id."""
@@ -724,7 +724,7 @@ class JobDB:
         return (str(row[0]), str(row[1]), str(row[2])) if row else None
 
     # ------------------------------------------------------------------ candidate pool (SPEC §8.2)
-    def pool_upsert(self, ruleset: str, version: str, rows: list[dict[str, Any]], job_id: str, at: str) -> None:
+    def pool_upsert(self, ruleset: str, version: str, rows: Iterable[dict[str, Any]], job_id: str, at: str) -> None:
         with self.tx() as con:
             for r in rows:
                 con.execute(

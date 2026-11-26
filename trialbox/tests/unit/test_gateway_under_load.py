@@ -360,14 +360,32 @@ def test_slots_come_from_the_serving_record(tmp_path: Path) -> None:
     assert record_slots(tmp_path / "missing.json") == {} and record_slots(None) == {}
 
 
-def test_an_interactive_call_without_a_slot_is_busy_at_once(tmp_path: Path) -> None:
+def test_an_interactive_call_without_a_slot_is_busy_at_once(tmp_path: Path,
+                                                            monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """H-148 (ruling 7167587625): "at once" is what the call asked the queue for, the slot wait and never a longer
+    one (D-635's form, as the first test of this file), and an elapsed ceiling at the call budget as written that a
+    stall or an overwait still breaks, with coverage on too (OCR 1524-1); the 0.5 s slot wait under a fixed 1.0 s
+    left only 0.5 s for a loaded runner."""
     gw = _silent_gw(tmp_path, 9)
     gw.http = TestClient(stub)
     lane = gw.load.get("stub")
     held = [lane.acquire(0) for _ in range(lane.slots)]
+    waits: list[float] = []
+    real_acquire = lane.acquire
+
+    def acquire(wait_s: float) -> int | None:
+        waits.append(wait_s)
+        return real_acquire(wait_s)
+
+    monkeypatch.setattr(lane, "acquire", acquire)
     t = time.monotonic()
     res = gw.chat(FRONT, CHAT_BODY)
-    assert res.status == 503 and res.body["error"]["code"] == "model_busy" and time.monotonic() - t < 1.0
+    took = time.monotonic() - t
+    assert res.status == 503 and res.body["error"]["code"] == "model_busy"
+    # OCR 1524-1: the ceiling is the call budget as written (3.0 s), not scaled: CI's unit shards measure coverage
+    # (tools/coverage_shards.register sets TB_COVERAGE_RUN_DIR), so bound() makes it 9.0 s there, where a 3 s stall, a
+    # 3 s slot wait and a 3 s overwait all pass; under sysmon coverage and 16 busy loops the call took up to 0.76 s
+    assert waits == [INTERACTIVE_SLOT_WAIT_S] and took < _SECONDS["TB_GATEWAY_CALL_BUDGET_S"], (waits, took)
     assert res.headers["Retry-After"] == "5"
     for tk in held:
         assert tk is not None
