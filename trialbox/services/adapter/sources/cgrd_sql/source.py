@@ -63,7 +63,7 @@ class SqlSource:
         """M6-TW: the views this account can see that the mapping does not name, with their row counts: said in the
         night's report, never read as data. A view the DBA added for another purpose is told, not dropped silently.
         ponytail: the default schema only, and a COUNT per view; a schema list or a sampled count if a site needs it."""
-        from sqlalchemy import inspect
+        from sqlalchemy import func, inspect, select, table
 
         named = {n.rpartition(".")[2].lower() for n in listed}
         found = {}
