@@ -26,8 +26,11 @@ TEMPLATE = MAPPING / "templates/cgrd_sql_site.yaml"
 NO_CHANGE_TIME = {"patient", "practitioner", "appointment", "registry"}  # tables the template reads whole
 TABLES_KEY = {"diagnosis": "diag_no", "lab": "lab_no", "medication": "rx_no", "encounter": "enc_no", "note": "note_no"}
 LOCAL_CODE = "ZZ-LOCAL"  # a lab code no look-up knows
-EDIT_VALUE = {"lab": ("result_value", "77.7"), "medication": ("daily_dose", "77.5"),
-              "diagnosis": ("diag_date", "2026-09-09")}  # the clinical value a hospital edit changes, per table
+EDIT_VALUE = {
+    "lab": ("result_value", "77.7"),
+    "medication": ("daily_dose", "77.5"),
+    "diagnosis": ("diag_date", "2026-09-09"),
+}  # the clinical value a hospital edit changes, per table
 UNLISTED_VIEW = "ALLERGY_VIEW"  # a view the mapping does not list (allergies: 10B-7, not read)
 
 
