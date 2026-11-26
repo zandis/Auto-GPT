@@ -136,6 +136,49 @@ def stale(meta: Mapping[str, Any] | None) -> bool:
     return esc is not None and esc.get("kek_id") != (meta or {}).get("kek_id")
 
 
+#: the back end whose KEK is bound to the board (a TPM): only an escrow set opens it on new hardware (D-894)
+BOARD_BOUND = "file"
+GATE = "go-live gate key-escrow"  # INT-M5 (R22-33): the doctor names it while open; the acceptance refuses
+
+
+def go_live(sec: Path, deploy: Path) -> tuple[bool, str]:
+    """INT-M5 (R22-33): whether the box's KEK can be opened on new hardware, as go-live asks it: ``(ok, why)``. Fails
+    closed: a secrets folder that is not here or cannot be read, no KEK, a TPM KEK with no escrow set, a set of an
+    older KEK, no ceremony record of the current KEK, a newest record that does not list the set."""
+    from tools import key_ceremony as kc
+
+    how = "python -m tools.keys escrow-shares, then a new ceremony record (TB-SOP-03 §5; docs/security/10)"
+    if not sec.is_dir():
+        return False, f"the secrets folder {sec} is not here: the KEK was not read"
+    try:
+        meta = K.read_meta(sec)
+    except (K.KekError, PermissionError) as exc:
+        return False, f"the KEK's record cannot be read ({exc})"
+    if meta is None:
+        return False, f"no KEK in {sec}: the site keys are not under a KEK (python -m tools.keys init)"
+    kek_id, backend = str(meta.get("kek_id")), str(meta.get("backend"))
+    if backend != BOARD_BOUND:
+        return True, f"KEK {kek_id} ({backend}) is not bound to the board: no escrow set is needed"
+    esc = current(meta)
+    if esc is None:
+        return False, (f"the TPM-sealed KEK {kek_id} has no escrow set: a dead board opens nothing and a restore on "
+                       f"new hardware fails. Make one: {how}")  # fmt: skip
+    if stale(meta):
+        return False, (f"the escrow set {esc.get('set_id')} is of an older KEK ({esc.get('kek_id')}); the KEK is "
+                       f"now {kek_id}: its shares open nothing. A new set: {how}")  # fmt: skip
+    rec = kc.newest(deploy)
+    if rec is None:
+        return False, f"no key ceremony record in {deploy / 'site'} for KEK {kek_id}: {how}"
+    if (rec.get("kek") or {}).get("kek_id") != kek_id:
+        return False, (f"the newest ceremony record is of KEK {(rec.get('kek') or {}).get('kek_id')}, not "
+                       f"{kek_id}: {how}")  # fmt: skip
+    if (rec.get("escrow") or {}).get("set_id") != esc.get("set_id"):
+        return False, (f"the escrow set {esc.get('set_id')} is not on the newest ceremony record: its custodians "
+                       f"have not signed it. {how}")  # fmt: skip
+    return True, (f"escrow set {esc.get('set_id')} ({esc.get('threshold')} of {esc.get('count')}) opens KEK "
+                  f"{kek_id}, on the ceremony record of {str(rec.get('at'))[:10]}")  # fmt: skip
+
+
 def audit_dir(env: Mapping[str, str], arg: str | None) -> Path:
     where = Path(arg) if arg else Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None
     if where is None or not where.is_dir():

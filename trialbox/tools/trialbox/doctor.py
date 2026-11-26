@@ -237,6 +237,41 @@ def _site_dir(inp: DoctorInputs) -> Path:
     return (inp.deploy or ROOT / "deploy") / "site"
 
 
+def _box_host(inp: DoctorInputs) -> Path | None:
+    """INT-M5: the box's deploy folder when doctor runs on that box's own host (not in its image, a ``deploy/.env``
+    there). What lives in the box's volumes and its database is then read where the host sees it (the volume's folder,
+    ``compose exec``), never at a container's path or the compose network's address: read there, every installed box
+    showed a WARN that was no fault (the secrets folder "not here", the database "did not answer")."""
+    asked = inp.in_image
+    if asked is None:
+        from tools.trialbox import launch
+
+        asked = launch.in_box_image()
+    box = inp.box or inp.deploy
+    return box if not asked and box is not None and (box / ".env").is_file() else None
+
+
+def _volume(inp: DoctorInputs, name: str, inside: str) -> Path:
+    """A box volume's folder as this process sees it: ``inside`` (its path in a container), except on the box's host,
+    where it is the engine's folder of the project's volume (``TB_DOCKER_VOLUMES``, ``COMPOSE_PROJECT_NAME``; as
+    ``audit_heads.host_dirs`` reads the audit and secrets volumes)."""
+    if _box_host(inp) is None:
+        return Path(inside)
+    from tools.trialbox import audit_heads as ah
+
+    project = inp.env.get("COMPOSE_PROJECT_NAME") or ah.PROJECT
+    return Path(inp.env.get("TB_DOCKER_VOLUMES") or ah.VOLUMES) / f"{project}_{name}" / "_data"
+
+
+SECRETS_VARS = "TB_SECRETS_DIR; on the host TB_SECRETS_HOST_DIR or TB_DOCKER_VOLUMES"
+
+
+def _secrets_dir(inp: DoctorInputs) -> Path:
+    """The secrets folder: ``TB_SECRETS_DIR``; on the box's host ``TB_SECRETS_HOST_DIR``, else its volume's folder."""
+    raw = inp.env.get("TB_SECRETS_DIR") or (inp.env.get("TB_SECRETS_HOST_DIR") if _box_host(inp) else "")
+    return Path(raw) if raw else _volume(inp, "tb-secrets", "/run/secrets/trialbox")
+
+
 def _egress() -> ModuleType:
     spec = importlib.util.spec_from_file_location("tb_egress_doctor", ROOT / "deploy" / "egress.py")
     assert spec is not None and spec.loader is not None
@@ -1057,18 +1092,62 @@ def check_site_tz(inp: DoctorInputs) -> Check:
     return Check("site_tz", "PASS", f"{first} ({', '.join(given)}){unread}")
 
 
+#: every flag's value as one JSON object, read-only; ``{}`` while no service has made the table
+FLAGS_SQL = """SET default_transaction_read_only = on;
+SET statement_timeout = '20s';
+SELECT to_regclass('app.flag') IS NOT NULL AS tb_has_flag \\gset
+\\if :tb_has_flag
+SELECT coalesce(json_object_agg(name, value), '{}'::json)::text FROM app.flag;
+\\else
+SELECT '{}';
+\\endif
+"""
+
+
+def flag_drift(env: Mapping[str, str], rows: Mapping[str, Any]) -> list[str]:
+    """``tb_common.flags.env_drift``'s lines from the flags read through the box (``rows``: name to value)."""
+    from tb_common.flags import DECLARED  # standard library only: it imports on the host's python3
+
+    out = []
+    for name, d in sorted(DECLARED.items()):
+        raw = (env.get(d.seed_env) or "").strip() if d.seed_env else ""
+        if not raw:
+            continue
+        have = rows.get(name)
+        if have is None:
+            out.append(f"{d.seed_env}={raw} still decides: the flag {name} was never seeded (no console start yet)")
+        elif str(have) != raw.lower():
+            out.append(f"{d.seed_env}={raw} is ignored: the flag {name} is {have} (change it on /ops/flags)")
+    return out
+
+
 def check_flags(inp: DoctorInputs) -> Check:
     """T-008 (D-207): a seed variable (``TB_LAKE_SOURCE``) seeds its flag at the first start only; one that now says
     something else than the flag is ignored, which an operator must know: WARN."""
     url = inp.env.get("TB_DB_URL", "")
-    if not url:
-        return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
-    try:
-        from tb_common.flags import env_drift
+    host = _box_host(inp)
+    if host is not None:  # INT-M5: the box's database through the box (its address is the compose network's)
+        from tools.trialbox import box_hold
 
-        drift = env_drift(dict(inp.env), url)
-    except Exception as e:  # the flags live on the box: unreadable from here is worth a look, not a failure
-        return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
+        got, cause = box_hold.query(host, FLAGS_SQL)
+        if got is None:
+            return Check("flags", "WARN", f"cannot read the feature flags ({cause})")
+        try:
+            rows = json.loads(got.strip().splitlines()[-1]) if got.strip() else {}
+        except ValueError:
+            rows = None
+        if not isinstance(rows, dict):
+            return Check("flags", "WARN", "cannot read the feature flags (the box's database gave no reading)")
+        drift = flag_drift(inp.env, rows)
+    elif not url:
+        return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
+    else:
+        try:
+            from tb_common.flags import env_drift
+
+            drift = env_drift(dict(inp.env), url)
+        except Exception as e:  # the flags live on the box: unreadable from here is worth a look, not a failure
+            return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
     if drift:
         return Check("flags", "WARN", "; ".join(drift))
     return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
@@ -1158,15 +1237,27 @@ def _hold_line(got: Mapping[str, Any]) -> Check:
     )
 
 
+#: the pid map's fingerprint for the site (``:'site'``), read-only; nothing while no night has made the table
+PIDMAP_SQL = """SET default_transaction_read_only = on;
+SET statement_timeout = '20s';
+SELECT to_regclass('pidmap.site_key') IS NOT NULL AS tb_has_pidmap \\gset
+\\if :tb_has_pidmap
+SELECT coalesce((SELECT fingerprint FROM pidmap.site_key WHERE site_id = :'site'), '');
+\\else
+SELECT '';
+\\endif
+"""
+
+
 def check_site_key(inp: DoctorInputs) -> Check:
     """T-612 (DATA-004): the site key is in the secrets folder and is the key the box's data was made with (the
     fingerprint in ``<lake>/site_key.json`` and in the pid map's ``site_key`` table). Shows the fingerprint, never
     the key."""
     from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key
 
-    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    sec = _secrets_dir(inp)
     if not sec.is_dir():
-        return Check("site_key", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): the key was not read")
+        return Check("site_key", "WARN", f"the secrets folder {sec} is not here ({SECRETS_VARS}): the key was not read")
     try:
         key = load_key(sec / SITE_KEY_FILE)
     except KeyMissingError as exc:
@@ -1179,7 +1270,8 @@ def check_site_key(inp: DoctorInputs) -> Check:
     except PermissionError:
         return Check("site_key", "WARN", f"{sec / SITE_KEY_FILE} cannot be read by this user: the key was not checked")
     fp = key_fingerprint(key)
-    lake = Path(inp.env.get("TB_LAKE_DIR") or Path(inp.env.get("TB_DATA_DIR") or "/data") / "lake")
+    inside = f"{inp.env.get('TB_DATA_DIR') or '/data'}/lake"
+    lake = Path(inp.env.get("TB_LAKE_DIR") or _volume(inp, "lake-data", inside))
     seen: list[str] = []
     record = lake / "site_key.json"  # adapter.pipeline.SITE_KEY_RECORD
     if record.is_file():
@@ -1189,7 +1281,19 @@ def check_site_key(inp: DoctorInputs) -> Check:
         seen.append("the lake")
     site_id = str((inp.settings.get("site") or {}).get("id") or "")
     url = inp.env.get("TB_DB_URL", "")
-    if url and site_id:
+    host = _box_host(inp)
+    if host is not None and site_id:  # INT-M5: the box's database through the box, as the hold is read
+        from tools.trialbox import box_hold
+
+        got, cause = box_hold.query(host, PIDMAP_SQL, variables={"site": site_id})
+        if got is None:
+            return Check("site_key", "WARN", f"key {fp}; the pid map's record cannot be read ({cause})")
+        stored = got.strip().splitlines()[-1].strip() if got.strip() else ""
+        if stored and stored != fp:
+            return Check("site_key", "FAIL", f"key {fp} is not the pid map's {stored}: the ingest refuses every night")
+        if stored:
+            seen.append("the pid map")
+    elif url and site_id:
         try:
             from tb_common.db import Database
 
@@ -1323,9 +1427,9 @@ def check_key_custody(inp: DoctorInputs) -> Check:
     """T-210b (CR-041, D-347): the site keys are kept under a KEK held outside the secrets folder."""
     from tb_common import kek
 
-    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    sec = _secrets_dir(inp)
     if not sec.is_dir():
-        return Check("key_custody", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): not checked")
+        return Check("key_custody", "WARN", f"the secrets folder {sec} is not here ({SECRETS_VARS}): not checked")
     c = kek.custody(sec, {**os.environ, **inp.env})
     if c.problems:
         return Check("key_custody", "FAIL", "; ".join(c.problems))
@@ -1354,7 +1458,7 @@ def check_key_custody_record(inp: DoctorInputs) -> Check:
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
     if env not in kek.STRICT_ENVS:
         return Check(name, "PASS", f"{env}: no key ceremony record is asked for")
-    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    sec = _secrets_dir(inp)
     c = kek.custody(sec, {**os.environ, **inp.env}) if sec.is_dir() else None
     if c is None or c.backend is None:
         return Check(name, "PASS", "no KEK yet: the ceremony comes with python -m tools.keys init")
@@ -2334,11 +2438,31 @@ def _with_readers(inp: DoctorInputs, where: Path, said: str) -> Check:
     return Check("terminology", status, f"{said}; vocabulary and FHIR store: {readers}" if readers else said)
 
 
+PROVENANCE_TIMEOUT_S = 120.0  # the chain is read whole: a large box takes a while, a hung one is no reading
+
+
 def check_provenance_index(inp: DoctorInputs) -> Check:
     """D-989 step 2c: the provenance index (``provenance.model_calls``, ``provenance.model_uses``) against the audit
     chain it is derived from. A difference is FAIL: the chain wins, and ``trialbox provenance --rebuild`` writes the
     index again. Not installed yet (the role script creates the tables) is WARN; no database named here is NOT
     CHECKED."""
+    host = _box_host(inp)
+    if host is not None:  # INT-M5: the check run by the box itself, where its database and its chain are
+        from tools.trialbox import box_hold
+
+        rc, said = box_hold.run_in(host, "orchestrator", ["python", "-m", "tools.trialbox", "provenance", "--check"],
+                                   timeout=PROVENANCE_TIMEOUT_S)  # fmt: skip
+        if rc is None:
+            return Check("provenance_index", "WARN", f"the box was not asked ({said})")
+        if rc == 0:
+            return Check("provenance_index", "PASS", "equal to the audit chain (trialbox provenance --check)")
+        if "not installed" in said:
+            return Check("provenance_index", "WARN", "not installed: the role script creates provenance.model_calls "
+                         "and provenance.model_uses (D-989 step 2c); until then the chain is written without the "
+                         "index")  # fmt: skip
+        if rc == 1 and "differs from the chain" in said:
+            return Check("provenance_index", "FAIL", f"{said}"[:400])
+        return Check("provenance_index", "WARN", f"trialbox provenance --check in the box ended {rc}: {said[-240:]}")
     from tb_common import provenance_index as idx
 
     url = str(inp.env.get("TB_DB_URL") or "")
