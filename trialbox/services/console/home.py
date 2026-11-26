@@ -1032,6 +1032,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "listed": listed,
             "elsewhere": elsewhere,
             "fit": fit,
+            "coded": st.coded_complete(row, crit),
             "crits": st.patient_rows(row.get("criteria") or [], crit),
             "practitioner": names.get(row.get("practitioner_id") or "", row.get("practitioner_id") or ""),
             "history": store.mark_history(rid, pid),
