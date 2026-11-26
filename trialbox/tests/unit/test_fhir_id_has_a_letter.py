@@ -5,6 +5,7 @@ pseudonym is all digits with p = 0.625^32; the two below were, under the synthet
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from adapter.load_fhir import _bundle
 from adapter.mapping.engine import resource_id
@@ -37,7 +38,7 @@ def test_the_two_all_digit_ids_now_have_a_letter() -> None:
 
 
 def test_the_two_ids_round_trip_through_the_bulk_mapping_the_store_load_and_the_lake() -> None:
-    export = [
+    export: list[dict[str, Any]] = [
         {"resourceType": "Patient", "id": "10000001"},
         {"resourceType": "Encounter", "id": "E10058808", "subject": {"reference": "Patient/10000001"}},
         {
