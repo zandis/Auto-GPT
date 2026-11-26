@@ -80,7 +80,7 @@ services:
     # H-58 (D-1337): no privilege gain, as llm-service (the same image); read_only, user and cap_drop are written
     # exceptions with llm-service's reasons (H10G1-02)
     security_opt: ["no-new-privileges:true"]
-    mem_limit: ${TB_MEM_VERIFIER:-28g}   # deploy/gb10-profile.yaml (the 0.12 share + the host process; D-373)
+    mem_limit: ${TB_MEM_VERIFIER:-27g}   # deploy/gb10-profile.yaml (the 0.12 share + the host process; D-373)
     logging:
       driver: json-file
       options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
@@ -139,7 +139,7 @@ services:
       TB_MODEL_SWAP: "off"   # one pass per run with both models (orchestrator/twophase.py)
       TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-8}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)
   criteria-compiler: {<<: *arm, mem_limit: 1g}
-  adapter: {<<: *arm, mem_limit: 5g}   # gb10-profile.yaml: measured 50k peak 3,842 MiB (3g was killed); 5g is under 1.5 x
+  adapter: {<<: *arm, mem_limit: 6g}   # gb10-profile.yaml: a 50,000-patient ingest peaked at 3,842 MiB (x 1.5 = 5,763); 3g was killed
   lake: {<<: *arm, mem_limit: 6g}
   embed-service:
     <<: *arm

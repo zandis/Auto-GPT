@@ -16,7 +16,7 @@
  },
  "concurrency": {"judge_max_seqs": 8, "verifier_max_seqs": 8, "context_tokens": 16384},
  "caps": {
-  "TB_MEM_VERIFIER": "28g",
+  "TB_MEM_VERIFIER": "27g",
   "JUDGE_GPU_MEM_UTIL": "0.30",
   "VERIFIER_GPU_MEM_UTIL": "0.12",
   "JUDGE_MAX_SEQS": "8",

@@ -1,6 +1,6 @@
 """M9 machine-profile findings on the unified-memory (GB10) and 96 GB profiles.
 
-1. The GB10 adapter cap is 5 GiB: a 50,000-patient ingest peaked at 3,842 MiB and 3 GiB was killed.
+1. The GB10 adapter cap is 6 GiB: a 50,000-patient ingest peaked at 3,842 MiB (1.5 x must fit); 3 GiB was killed.
 2. The orchestrator's cap is at least 6 GiB on both profiles (a 48,000-patient SCREEN peaked near 4.0 GiB), the
    installer's memcaps never writes a value under the profile's default, and the GB10 limits still fit its memory.
 3. The pinned context is the length each profile's servers run with: a stale site pin is put back to the registry's,
@@ -49,8 +49,8 @@ def _limit(compose: Path, service: str) -> float:
 # ------------------------------------------------------------------------------------------------ 1. the adapter
 def test_the_gb10_adapter_cap_holds_the_measured_ingest_peak() -> None:
     profile = td.load_profile()
-    assert _limit(GB10, "adapter") == 5 == profile["memory"]["adapter"]["limit_gib"]
-    assert _limit(GB10, "adapter") * 1024 > 3842 * 1.2  # the 50,000-patient peak, with headroom
+    assert _limit(GB10, "adapter") == 6 == profile["memory"]["adapter"]["limit_gib"]
+    assert _limit(GB10, "adapter") * 1024 >= 3842 * 1.5  # the 50,000-patient peak, with headroom
 
 
 # ------------------------------------------------------------------------------------------------ 2. the orchestrator
@@ -99,7 +99,7 @@ def test_the_gb10_limits_still_fit_its_unified_memory() -> None:
     assert one + profile["device"]["os_reserve_gib"] == 127.25
     assert _limit(GB10, "db") == limits["db"] == 8
     # the verifier's 0.12 share (15.36 GiB) holds the model (7.8 GiB) and 8 x 16k of KV at 804k tokens per 26 GiB
-    assert _limit(GB10, "llm-verifier") == limits["llm-verifier"] == 28
+    assert _limit(GB10, "llm-verifier") == limits["llm-verifier"] == 27
     assert "--gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.12}" in GB10.read_text(encoding="utf-8")
     assert 7.8 + 26 * 8 * 16384 / 804_000 < 0.12 * 128
 
