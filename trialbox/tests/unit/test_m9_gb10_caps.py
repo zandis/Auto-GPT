@@ -253,7 +253,7 @@ def test_the_host_architecture_is_named_as_an_image_platform_names_it(
 ) -> None:
     from tools.trialbox import update  # a POSIX host's module (its signals)
 
-    monkeypatch.setattr(update.os, "uname", lambda: SimpleNamespace(machine=machine), raising=False)
+    monkeypatch.setattr(os, "uname", lambda: SimpleNamespace(machine=machine), raising=False)
     assert update.host_architecture() == arch
 
 
@@ -267,6 +267,6 @@ def test_an_update_refuses_images_of_another_architecture(monkeypatch: pytest.Mo
     monkeypatch.setattr(update, "host_architecture", lambda: "arm64")
     updater = update.Updater.__new__(update.Updater)
     with pytest.raises(update.UpdateRefused, match=r"another architecture than this host \(arm64\): py"):
-        updater._same_architecture(SimpleNamespace(release=rel, bundle_id="2026.11-9"))
+        updater._same_architecture(SimpleNamespace(release=rel, bundle_id="2026.11-9"))  # type: ignore[arg-type]
     same = {"images": {"py": {"platform": "linux/arm64"}}}
-    assert updater._same_architecture(SimpleNamespace(release=same, bundle_id="2026.11-9")) == []
+    assert updater._same_architecture(SimpleNamespace(release=same, bundle_id="2026.11-9")) == []  # type: ignore[arg-type]
