@@ -79,6 +79,41 @@ def test_a_full_night_reads_every_row_of_every_view(tmp_path: Path, site: tuple[
     assert rep.counts["Patient"] == counts["patient"]
 
 
+def test_ported_codes_land_in_the_night(tmp_path: Path, site: tuple[Path, dict[str, int]]) -> None:
+    """Synthetic rows exercise the shipped mapping and an explicit synthetic drug crosswalk."""
+    db, _ = site
+    cfg = _cfg(tmp_path)
+    drug_file = cfg.mapping_path.parent / "tw_drug_standard.csv"
+    standin_tw.write_mapping_file(
+        drug_file,
+        (
+            b"source_code,target_vocabulary,target_code\n"
+            b"ZZ00000001,ATC,L04AX03\n"
+            b"ZZ00000001,RxNorm,SYNTHETIC-INGREDIENT\n"
+        ),
+    )
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE base_diagnosis SET icd10='I10', diag_date='2026-10-04', recorded_date='2026-10-04'")
+        con.execute("UPDATE base_medication SET nhi_drug_code='ZZ00000001', atc=''")
+        con.execute("UPDATE base_lab SET local_code='CREATININE', unit='MG/DL', result_value='1.2'")
+    rep = _night(cfg, f"sqlite:///{db}", FULL)
+    assert rep.passed, rep.errors
+    records = _lines(cfg, FULL)
+    conditions = [json.loads(r) for r in records["Condition.ndjson"]]
+    assert conditions and all(any(c["code"] == "59621000" for c in r["code"]["coding"]) for r in conditions)
+    drugs = [json.loads(r) for r in records["MedicationRequest.ndjson"]]
+    assert drugs and all(
+        {"L04AX03", "SYNTHETIC-INGREDIENT"} <= {c["code"] for c in r["medicationCodeableConcept"]["coding"]}
+        for r in drugs
+    )
+    labs = [
+        json.loads(r)
+        for r in records["Observation.ndjson"]
+        if any(c["code"] == "2160-0" for c in json.loads(r)["code"]["coding"])
+    ]
+    assert labs and all(r["valueQuantity"]["code"] == "mg/dL" and r["valueQuantity"]["value"] == 1.2 for r in labs)
+
+
 def test_a_delta_night_reads_only_what_changed_and_ends_equal_to_a_full_read(
     tmp_path: Path, site: tuple[Path, dict[str, int]]
 ) -> None:

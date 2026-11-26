@@ -10,6 +10,8 @@ Base tables carry the synthetic hospital's rows with a change time (``updated_at
 from __future__ import annotations
 
 import argparse
+import os
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -93,9 +95,29 @@ def site_mapping(folder: Path) -> Path:
     text = TEMPLATE.read_text(encoding="utf-8").replace(
         "../tw_core/demo_his.yaml", str(MAPPING / "tw_core/demo_his.yaml")
     )
-    (folder / "standin_tw.yaml").write_text(text, encoding="utf-8")
-    (folder / "lab_local_to_loinc.csv").write_bytes((MAPPING / "tw_core/lab_local_to_loinc.csv").read_bytes())
+    write_mapping_file(folder / "standin_tw.yaml", text.encode("utf-8"))
+    for spec in yaml.safe_load(text)["lookups"].values():
+        name = spec["file"]
+        write_mapping_file(folder / name, (TEMPLATE.parent / name).read_bytes())
     return folder / "standin_tw.yaml"
+
+
+def write_mapping_file(path: Path, data: bytes) -> None:
+    """Publish a mapping only after the complete file is durable."""
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+        tmp = Path(stream.name)
+        try:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            stream.close()
+            tmp.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def touch(path: Path, table: str, keys: list[str], stamp: str) -> None:

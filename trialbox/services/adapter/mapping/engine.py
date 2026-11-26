@@ -945,6 +945,7 @@ class Mapper:
             "coding": self._b_coding,
             "period": self._b_period,
             "mapped_coding": self._b_mapped_coding,
+            "crosswalk_coding": self._b_crosswalk_coding,
         }
         # NEW-DIN-6 (D-580): rows a resource's ``where`` dropped because the look-up has no row for their code,
         # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
@@ -1337,6 +1338,14 @@ class Mapper:
         raw = row.get(args["column"])
         if lk is None or raw is None or str(raw).strip() == "":
             return None
+        if lk.get("ucum") == "UNKNOWN":
+            self._note_unmapped(rs.table, "unit_mismatch", self._lab_code(lk, row, args))
+            return {
+                "dataAbsentReason": {
+                    "coding": [{"system": DATA_ABSENT, "code": "error"}],
+                    "text": labvalue.UNIT_MISMATCH,
+                }
+            }
         checked: labvalue.Reading | None = None
         if args.get("unit_column") and lk.get("value_type") != "coded":
             column = args["unit_column"]
@@ -1416,6 +1425,28 @@ class Mapper:
             q["system"] = self.m.systems["ucum"]
             q["code"] = unit
         return {"valueQuantity": q}
+
+    def _b_crosswalk_coding(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
+        """A compact reference crosswalk: exact edition, one target, no guessed mapping."""
+        raw = str(row.get(args["column"]) or "").strip().upper()
+        if not raw:
+            return None
+        key = raw.replace(".", "") if args.get("dotless") else raw
+        targets = {
+            str(hit["target_code"])
+            for hit in self.m.lookups[args["lookup"]].rows.values()
+            if str(hit.get("source_code") or "").strip().upper() == key
+            and hit.get("target_vocabulary") == args["vocabulary"]
+            and (not args.get("source_vocabulary") or hit.get("source_vocabulary") == args["source_vocabulary"])
+            and hit.get("target_code")
+        }
+        name = f"crosswalk:{args['lookup']}"
+        target = next(iter(targets)) if len(targets) == 1 else None
+        if target is None or (args.get("system") == "atc" and not MAPPED_TARGETS["atc5"].fullmatch(target)):
+            self._note_unmapped(rs.table, name, raw)
+            return None
+        self._note_mapped(rs.table, name)
+        return {"system": self.m.systems[args["system"]], "code": target, "userSelected": False}
 
     def _b_coding(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
         """``dotted: icd10cm`` (F6, D-808): a code of the ICD-10-CM shape is written with its dot after the third

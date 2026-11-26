@@ -1,0 +1,20 @@
+{
+  "card": "cxcgrdmap",
+  "title": "Taiwan SQL-view door mapping evidence gaps",
+  "date": "2026-11-26",
+  "source": "docs/plan/cx-cgrd-map.md",
+  "findings": [
+    {
+      "id": "cxcgrdmap-01",
+      "date": "2026-11-26",
+      "source": "docs/plan/cx-cgrd-map.md",
+      "severity": "Medium",
+      "claim": "Source mappings lack ICD-9 rows, drug export rows and lab units; ESR differs from the existing alias.",
+      "lane": "cx-cgrd-map",
+      "basis": "shown",
+      "state": "open",
+      "expected": "Only evidenced mappings are published; unavailable mappings stay unknown.",
+      "from": "Permitted reference files listed on the card page."
+    }
+  ]
+}

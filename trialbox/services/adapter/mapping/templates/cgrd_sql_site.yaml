@@ -3,7 +3,8 @@
 #    mapping comes from the image; the adapter looks in deploy/site/mapping first, T-632).
 # 2. For every table: set `source` (table or view name), `rename` local -> canonical columns (CANONICAL.md),
 #    `values` local -> canonical codes. `source` may name a view the DBA creates for TrialBox (read-only account).
-# 3. Copy lab_local_to_loinc.csv next to it and replace the local lab codes (local_code -> LOINC).
+# 3. Copy the tw_*.csv lookups beside this template; replace local codes with reviewed site mappings.
+#    The drug crosswalk ships empty: populate code pairs using tw_drug_standard.sql and a versioned reference.
 #    The lab table must map the result's own unit column to `unit` (`UNIT: unit` below): every lab row is checked
 #    against the lookup's unit (R-31, D-215) and a row in another unit has no value (`unit_mismatch`). When the
 #    site reports an analyte in another unit, set the lookup's `source_unit` and `factor` (mapping_check proposes
@@ -100,4 +101,199 @@ tables:
     key: mrn
     rename: {CHART_NO: mrn, CONTACT_OK: consent_contact, SIGN_DATE: consent_date}
 lookups:
-  lab: {file: lab_local_to_loinc.csv, key: local_code}
+  lab: {file: tw_lab_local_to_loinc.csv, key: local_code}
+  diagnosis_standard: {file: tw_diagnosis_standard.csv, key: [source_vocabulary, source_code, target_code]}
+  drug_standard: {file: tw_drug_standard.csv, key: [source_code, target_vocabulary, target_code]}
+
+systems:
+  rxnorm: http://www.nlm.nih.gov/research/umls/rxnorm
+overlay:
+- type: Condition
+  table: diagnosis
+  elements:
+    code.coding[5]:
+      builder: crosswalk_coding
+      column: icd10
+      lookup: diagnosis_standard
+      dotless: true
+      source_vocabulary: ICD10CM
+      vocabulary: SNOMED
+      system: snomed
+      when:
+        any:
+        - - column: diag_code_system
+            in:
+            - icd10cm
+        - - column: diag_code_system
+            not_empty: false
+          - column: recorded_date
+            date_from:
+              param: icd9cm_before
+        - - column: diag_code_system
+            not_empty: false
+          - column: recorded_date
+            not_empty: false
+          - column: diag_date
+            date_from:
+              param: icd9cm_before
+    code.coding[6]:
+      builder: crosswalk_coding
+      column: icd10
+      lookup: diagnosis_standard
+      dotless: true
+      source_vocabulary: ICD9CM
+      vocabulary: SNOMED
+      system: snomed
+      when:
+        any:
+        - - column: diag_code_system
+            in:
+            - icd9cm
+        - - column: diag_code_system
+            not_empty: false
+          - column: recorded_date
+            date_before:
+              param: icd9cm_before
+        - - column: diag_code_system
+            not_empty: false
+          - column: recorded_date
+            not_empty: false
+          - column: diag_date
+            date_before:
+              param: icd9cm_before
+- type: MedicationRequest
+  table: medication
+  elements:
+    medicationCodeableConcept.coding[4]:
+      builder: crosswalk_coding
+      column: nhi_drug_code
+      lookup: drug_standard
+      vocabulary: ATC
+      system: atc
+      when:
+        column: atc
+        not_empty: false
+    medicationCodeableConcept.coding[5]:
+      builder: crosswalk_coding
+      column: nhi_drug_code
+      lookup: drug_standard
+      vocabulary: RxNorm
+      system: rxnorm
+      when:
+        column: atc
+        not_empty: false
+
+# Catalogue only: identifiers must be dropped or tokenized in the read-only views.
+source_metadata:
+  guarded_columns: ["ADDR", "BEDNO", "CHTNO", "CSN", "IDCODE", "IDCODE_MA", "IDNO", "LABNO", "NAME", "OPDNO", "OPERNO", "TEL"]
+  tables:
+    RCGRDADMACT: {"domain": "visit", "priority": "later", "resource": "Encounter", "guarded_columns": ["BEDNO", "CSN", "IDCODE"], "column_count": 29}
+    RCGRDADMBEDS: {"domain": "ignore", "priority": "later", "resource": null, "guarded_columns": ["BEDNO", "CSN", "IDCODE"], "column_count": 22}
+    RCGRDCNSERDIS: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 18}
+    RCGRDCNSERNRD: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 14}
+    RCGRDCNSERNUS: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 14}
+    RCGRDCNSERPE: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["CSN", "IDCODE"], "column_count": 17}
+    RCGRDCNSERTR: {"domain": "drug", "priority": "later", "resource": "MedicationRequest", "guarded_columns": ["IDCODE", "LABNO", "OPERNO"], "column_count": 17}
+    RCGRDCNSERVS: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["CSN", "IDCODE"], "column_count": 16}
+    RCGRDCNSIPPABBY: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 19}
+    RCGRDCNSIPPE: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["CSN", "IDCODE"], "column_count": 20}
+    RCGRDCNSIPTR: {"domain": "drug", "priority": "later", "resource": "MedicationRequest", "guarded_columns": ["IDCODE"], "column_count": 10}
+    RCGRDCNSIPTUBM: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 22}
+    RCGRDCNSIPVS: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["CSN", "IDCODE"], "column_count": 30}
+    RCGRDCNSNBREC: {"domain": "observation", "priority": "P2", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE", "IDCODE_MA"], "column_count": 35}
+    RCGRDCNSOPCLOSE: {"domain": "procedure", "priority": "later", "resource": "Procedure", "guarded_columns": ["CHTNO", "IDCODE", "OPERNO"], "column_count": 27}
+    RCGRDCNSOPROOM: {"domain": "procedure", "priority": "later", "resource": "Procedure", "guarded_columns": ["CHTNO", "IDCODE", "OPERNO"], "column_count": 45}
+    RCGRDCNSOPROOMA: {"domain": "procedure", "priority": "later", "resource": "Procedure", "guarded_columns": ["CHTNO", "IDCODE", "OPERNO"], "column_count": 33}
+    RCGRDCNSPREAPD: {"domain": "measurement", "priority": "later", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE", "OPDNO"], "column_count": 16}
+    RCGRDCNSPREAPN: {"domain": "measurement", "priority": "later", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE", "OPDNO"], "column_count": 16}
+    RCGRDCNSPREAPNA: {"domain": "measurement", "priority": "later", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE", "OPDNO"], "column_count": 21}
+    RCGRDERDAF: {"domain": "condition", "priority": "later", "resource": "Condition", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 11}
+    RCGRDERDDRUG: {"domain": "drug", "priority": "later", "resource": "MedicationRequest", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 29}
+    RCGRDERDHBASIC: {"domain": "visit", "priority": "later", "resource": "Encounter", "guarded_columns": ["CSN", "IDCODE", "OPDNO"], "column_count": 38}
+    RCGRDERDOBTM: {"domain": "observation", "priority": "later", "resource": "Observation", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 13}
+    RCGRDERDOPDF: {"domain": "visit", "priority": "later", "resource": "Encounter", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 20}
+    RCGRDERDORMF: {"domain": "drug", "priority": "later", "resource": "MedicationRequest", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 32}
+    RCGRDERDSOFH: {"domain": "note", "priority": "P1", "resource": "DocumentReference", "guarded_columns": ["CHTNO", "IDCODE", "OPDNO"], "column_count": 29}
+    RCGRDHEMOLOGN: {"domain": "observation", "priority": "later", "resource": "Observation", "guarded_columns": ["BEDNO", "CHTNO", "IDCODE", "OPDNO"], "column_count": 243}
+    RCGRDHGIINDX: {"domain": "measurement", "priority": "later", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE", "IDNO", "LABNO"], "column_count": 66}
+    RCGRDHGIRSLT: {"domain": "measurement", "priority": "P1", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE", "LABNO"], "column_count": 44}
+    RCGRDICDSUM: {"domain": "condition", "priority": "P1", "resource": "Condition", "guarded_columns": ["ADDR", "CSN", "IDCODE"], "column_count": 97}
+    RCGRDICRORDF: {"domain": "drug", "priority": "later", "resource": "MedicationRequest", "guarded_columns": ["CSN", "IDCODE"], "column_count": 26}
+    RCGRDICRTOTF: {"domain": "cost", "priority": "P2", "resource": null, "guarded_columns": ["CSN", "IDCODE"], "column_count": 87}
+    RCGRDICUIN: {"domain": "observation", "priority": "later", "resource": "Observation", "guarded_columns": ["BEDNO", "IDCODE"], "column_count": 22}
+    RCGRDICUOUT: {"domain": "observation", "priority": "later", "resource": "Observation", "guarded_columns": ["BEDNO", "IDCODE"], "column_count": 43}
+    RCGRDINDMF: {"domain": "person", "priority": "P0", "resource": "Patient", "guarded_columns": ["IDCODE"], "column_count": 4, "columns": {"BIRTHDAY": "birth_date", "SEX": "sex"}}
+    RCGRDIPBCGBA: {"domain": "cost", "priority": "later", "resource": null, "guarded_columns": ["CSN", "IDCODE"], "column_count": 20}
+    RCGRDIPBCGDA: {"domain": "cost", "priority": "later", "resource": null, "guarded_columns": ["BEDNO", "CSN", "IDCODE"], "column_count": 50}
+    RCGRDIPDADM: {"domain": "visit", "priority": "P1", "resource": "Encounter", "guarded_columns": ["IDCODE"], "column_count": 33}
+    RCGRDIPDDEAD: {"domain": "observation", "priority": "P2", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE"], "column_count": 51}
+    RCGRDIPDDSNT: {"domain": "note", "priority": "P1", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 31}
+    RCGRDIPDORBK: {"domain": "drug", "priority": "P1", "resource": "MedicationRequest", "guarded_columns": ["CSN", "IDCODE"], "column_count": 43}
+    RCGRDIPDUDBK: {"domain": "drug", "priority": "P1", "resource": "MedicationRequest", "guarded_columns": ["CSN", "IDCODE"], "column_count": 50}
+    RCGRDLABINDX: {"domain": "measurement", "priority": "later", "resource": "Observation", "guarded_columns": ["IDCODE", "LABNO"], "column_count": 29}
+    RCGRDLABMRSL: {"domain": "measurement", "priority": "P2", "resource": "Observation", "guarded_columns": ["IDCODE", "LABNO"], "column_count": 29}
+    RCGRDLABMWKT: {"domain": "measurement", "priority": "P2", "resource": "Observation", "guarded_columns": ["IDCODE", "LABNO"], "column_count": 12}
+    RCGRDLABRSLT: {"domain": "measurement", "priority": "P0", "resource": "Observation", "guarded_columns": ["IDCODE", "LABNO"], "column_count": 24, "columns": {"LABNMABV": "local_code", "LABIT": "panel_code"}}
+    RCGRDOCRORDF: {"domain": "drug", "priority": "P0", "resource": "MedicationRequest", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 39}
+    RCGRDOCRTOTF: {"domain": "drug", "priority": "P1", "resource": "MedicationRequest", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 67}
+    RCGRDOPBCGBA: {"domain": "cost", "priority": "later", "resource": null, "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 43}
+    RCGRDOPBCGDA: {"domain": "cost", "priority": "later", "resource": null, "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 49}
+    RCGRDOPDAF: {"domain": "condition", "priority": "P0", "resource": "Condition", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 12, "columns": {"DSSID": "diagnosis_code"}}
+    RCGRDOPDDRUG: {"domain": "drug", "priority": "P0", "resource": "MedicationRequest", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 54}
+    RCGRDOPDEYEM0: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 37}
+    RCGRDOPDEYEM1: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["CHTNO", "IDCODE", "OPDNO"], "column_count": 38}
+    RCGRDOPDEYEM2: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 27}
+    RCGRDOPDEYEM3: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 29}
+    RCGRDOPDEYEM4: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 28}
+    RCGRDOPDEYEM5: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 29}
+    RCGRDOPDMAT: {"domain": "drug", "priority": "later", "resource": "MedicationRequest", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 16}
+    RCGRDOPDOPDF: {"domain": "visit", "priority": "P0", "resource": "Encounter", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 20}
+    RCGRDOPDORMF: {"domain": "drug", "priority": "later", "resource": "MedicationRequest", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 33}
+    RCGRDOPDTPRA: {"domain": "observation", "priority": "later", "resource": "Observation", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 21}
+    RCGRDOPRROOMDYNAMIC: {"domain": "procedure", "priority": "later", "resource": "Procedure", "guarded_columns": ["BEDNO", "CHTNO", "CSN", "IDCODE", "OPERNO"], "column_count": 48}
+    RCGRDRESPMR141: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["BEDNO", "CHTNO", "CSN", "IDCODE"], "column_count": 121}
+    RCGRDRIAINDX: {"domain": "measurement", "priority": "later", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE", "LABNO"], "column_count": 44}
+    RCGRDRIARSLT: {"domain": "measurement", "priority": "later", "resource": "Observation", "guarded_columns": ["CHTNO", "IDCODE", "LABNO"], "column_count": 41}
+    RCGRDRMSERQF: {"domain": "observation", "priority": "later", "resource": "Observation", "guarded_columns": ["BEDNO", "CSN", "IDCODE", "OPDNO"], "column_count": 16}
+    RCGRDRMSHISR: {"domain": "visit", "priority": "later", "resource": "Encounter", "guarded_columns": ["IDCODE", "OPDNO"], "column_count": 35}
+    RCGRDRPT33K1: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTBONE: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTCHEST: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTCOLON: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTCV: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTEMG: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTENT: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTER: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTEYE: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTGS: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTHEGI: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTHEMA: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTIMMUNE: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTMETA: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTNEPHO: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTNERO: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTNMIS: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTOBS: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTOPER: {"domain": "procedure", "priority": "later", "resource": "Procedure", "guarded_columns": ["BEDNO", "CHTNO", "CSN", "IDCODE"], "column_count": 127}
+    RCGRDRPTOPERU: {"domain": "procedure", "priority": "later", "resource": "Procedure", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTPLS: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTPSY: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTPTH: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 19}
+    RCGRDRPTREHAB: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTRHU: {"domain": "note", "priority": "P1", "resource": "DiagnosticReport", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTRT: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTRTO: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTSKIN: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTUROD: {"domain": "note", "priority": "later", "resource": "DocumentReference", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDRPTXRAY: {"domain": "note", "priority": "P1", "resource": "DiagnosticReport", "guarded_columns": ["IDCODE"], "column_count": 45}
+    RCGRDTCDB96_DIAG: {"domain": "condition", "priority": "P2", "resource": "Condition", "guarded_columns": ["IDCODE"], "column_count": 82}
+    RCGRDTCDB96_TREMT: {"domain": "observation", "priority": "P2", "resource": "Observation", "guarded_columns": ["IDCODE"], "column_count": 79}
+    RCGRD_MOHW_DEAD: {"domain": "observation", "priority": "P2", "resource": "Observation", "guarded_columns": ["IDCODE"], "column_count": 11}
+
+vocabulary_versions:
+  ICD9CM: v32
+  ICD10CM: FY2026
+  LOINC: "2.80"
+  ATC: "2026-02-01"
+  RxNorm: "20260105"
+  SNOMED: "2025-02-01; US 2025-03-01; UK 2025-04-09"
