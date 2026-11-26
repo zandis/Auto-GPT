@@ -100,7 +100,8 @@ def _router_as(tmp_path: Path, username: str, pi: str | None) -> Any:
 def test_the_pi_the_log_names_is_not_refused_the_copy_sheet(tmp_path: Path) -> None:
     r = _router_as(tmp_path, "drpi", "drpi")
     assert "edc.role" not in r.text, r.text
-    assert r.status_code == 200, r.text
+    # past the role check to the service itself, whose answer in this kit is the switch that is off
+    assert r.status_code == 409 and "edc.off" in r.text, r.text
 
 
 @pytest.mark.parametrize("pi", [None, "someoneelse"])
