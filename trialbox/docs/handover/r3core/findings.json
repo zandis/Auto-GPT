@@ -1,0 +1,56 @@
+{
+  "card": "R3CORE",
+  "title": "IR 3.1 and the compiler on IR 3",
+  "date": "2026-11-27",
+  "source": "docs/handover/r3core.md",
+  "findings": [
+    {
+      "id": "R3CORE-01",
+      "severity": "High",
+      "claim": "The lake carries no result reference range (no range column in lake/flatten.py, no measurement.range_high from the OMOP load), so value.ref decides from the signed site table in both engines.",
+      "lane": "Int",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "R3CORE-02",
+      "severity": "High",
+      "claim": "No signed site reference-range table exists and none is passed to build_artifacts; every value.ref criterion is unknown with no_reference_range until both exist.",
+      "lane": "Int",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "R3CORE-03",
+      "severity": "Medium",
+      "claim": "No caller supplies study anchor dates (criterion_anchors in SQL, ScreeningDate/RandomizationDate in CQL); a per-patient CQL parameter is not verified.",
+      "lane": "Int",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "R3CORE-04",
+      "severity": "Medium",
+      "claim": "Medication route and dose compile in SQL only (OMOP route concept ids, quantity per exposure); the IR documents SNOMED routes and FHIR a dose per administration, so the CQL twin needs a ruling on the representation.",
+      "lane": "Int",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "R3CORE-05",
+      "severity": "Medium",
+      "claim": "no_reference_range is not in tb_common.labunit.TOKENS, so reason_of reads it as a record reference.",
+      "lane": "Int",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "R3CORE-06",
+      "severity": "Medium",
+      "claim": "SQL against CQL equivalence of the new IR 3 constructs on executed engines is not run (needs the FHIR store); text, DuckDB and translator checks only.",
+      "lane": "Int",
+      "basis": "not_run",
+      "state": "open"
+    }
+  ]
+}
