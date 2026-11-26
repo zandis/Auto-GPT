@@ -14,3 +14,9 @@ week-ja-desktop 9b78d07a1be5b490742b2d7d72fc5018c87c1dfaa88ed926a500496934b7ad51
 week-ja-phone 996c49565fa692a5f8ea1e8c6dacf03059c0c8270e4848b0171466edc2853e46  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved
 week-zh-TW-desktop 875351b96f017d00103ca76843e0b6b2b5273fa30976c560e96e23fdaa58986d  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved
 week-zh-TW-phone ce2df9e64478e3a24294bd65a646ae2a693c1565a1d87b7c143cf3f6fe66f376  # 9k-14 (D-1386): the week list is person cards in place of the table; nothing outside the list moved
+setup-en-desktop 9c954b621d5e9d8b6e78772cb0bacb86b927956c3c78a8c615b31ee4e899c648  # M8: the study set-up page gains the "Screen now" link; nothing else moved
+setup-en-phone 16ab2f8eba69be20ab26fb41a1016fa3271d618c0ef9dd44e7dfe444c0216be3  # M8: the study set-up page gains the "Screen now" link; nothing else moved
+setup-ja-desktop 0129920d9966b3a7170eabdcf60b0feb3f2c917d016b509a605efeb9fc170417  # M8: the study set-up page gains the "Screen now" link; nothing else moved
+setup-ja-phone fd88bfe078a139b1a40788b3c0212bf78a4f484865d527f61e021ef770b059f2  # M8: the study set-up page gains the "Screen now" link; nothing else moved
+setup-zh-TW-desktop 3c4c05cff5ab1a27e3225630acf17e8cd89bbfc8d5c76e142ce7d450a1abc9c1  # M8: the study set-up page gains the "Screen now" link; nothing else moved
+setup-zh-TW-phone f51819bcca1f9d014325be17ebf2b682d8f0d39fce4a4305b592c47c29868371  # M8: the study set-up page gains the "Screen now" link; nothing else moved
