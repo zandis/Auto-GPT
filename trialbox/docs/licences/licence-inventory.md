@@ -1,11 +1,11 @@
 # Licence inventory of a release, and the list for the owner's lawyer
 
 **Reader:** the owner and the owner's lawyer; the vendor who signs a release. It rides in every release bundle as
-`LICENCE-INVENTORY.md` (`tools/make_bundle.sh`), beside the generated report `sbom/licences.md`.
+`sbom/licence-inventory.md` (`tools/make_bundle.sh`), beside the generated report `sbom/licences.md`.
 
 - **Card:** INT-M10-min, item a (the integrator's 7184086631, item 2a). Base `int/system` 0894674f.
 - **Date read:** 2026-11-26. Every licence below was read in its file on that day, or is marked **not verified**.
-  Nothing is filled from memory.
+  Nothing is filled from memory. Only the licence identifier and where it was read are recorded.
 
 ## 1. What a release carries, and which part is generated
 
@@ -14,7 +14,7 @@
 | `sbom/licences.md` | `make release-gates` (the licence report of `tools/supply_chain/licences.py`) | Every Python package of `requirements.lock` and every package of every image, read from the CycloneDX SBOMs (the lock's SBOM and one SBOM per image, written by the scanner the images workflow already runs). Flags LGPL, GPL, AGPL, unknown and dual licences; the gate fails on a flag the allow-list does not accept |
 | `sbom/*.cdx.json`, `sbom/index.json` | `make lock-sbom`, `make release-gates` | The SBOMs themselves |
 | `NOTICE` | the repository | The notices and licence texts the shipped components require |
-| `LICENCE-INVENTORY.md` | this page, by hand | The from-memory licence claims checked against their files (section 3) and the list for the lawyer (section 4) |
+| `sbom/licence-inventory.md` | this page, by hand | The from-memory licence claims checked against their files (section 3) and the list for the lawyer (section 4) |
 
 The generated report is the inventory of record for a release: it is made from that release's own lock and images.
 This page does not repeat its rows.
@@ -29,55 +29,54 @@ This page does not repeat its rows.
   was built or scanned. The images workflow and `make release-gates` write one SBOM per image and add its packages to
   `sbom/licences.md` of each release.
 - **An object-store image (MinIO or one like it):** none found. No compose file or image lock names one; the box
-  keeps attachments and outputs on a filesystem volume (`objects-data`, D-121 removed the object store). The field
-  name `minio_key` in some tools is a leftover name, not an image.
+  keeps attachments and outputs on a filesystem volume (`objects-data`; D-121 removed the object store). A field
+  name in some tools still says so; it is not an image.
 
 ## 3. Licences the reviews took from memory, checked in their files
 
 The lists: the component and ecosystem review of 2026-11-09 (`docs/reviews/2026-11-09-component-review-layer1.md`,
-its list of licences and capabilities marked unverified or from memory) and the build-versus-reuse review of
-2026-11-12 (`docs/reviews/2026-11-12-build-vs-reuse.md`, every licence marked `[M]`). For each: the LICENSE file read
-in the project's repository (the default branch named, the first 12 hex digits of the file's sha256) and the release
-page. A Python package's release page is its PyPI page (version and first upload date of the latest release). A
-GitHub release page could not be read from this session (refused), so those are **not verified**.
+line 324: thirteen items marked unverified or from memory, counted here in their order) and the build-versus-reuse
+review of 2026-11-12 (`docs/reviews/2026-11-12-build-vs-reuse.md`, every licence marked `[M]`, by its line). Each row
+names the claim by where it stands, not by the outside project's name: the review names it. For each, the licence
+identifier of the LICENSE file read in the project's own repository (which file, on which branch) and of its release
+page. A Python package's release page is its PyPI page. A GitHub release page could not be read from this session
+(refused), so those are **not verified**.
 
-| Component | Said from memory | LICENSE file read | Release page | Agrees |
+| Claim | Said | LICENSE file read | Release page | Agrees |
 | --- | --- | --- | --- | --- |
-| OHDSI CommonDataModel | Apache-2.0 | **not verified**: no LICENSE, LICENSE.md, LICENSE.txt or COPYING on main or master | not verified | not verified |
-| Criteria2Query | (unverified) | Apache-2.0 (master/LICENSE, b40930bbcf80) | not verified | read: Apache-2.0 |
-| ohdsi-circepy | (unverified) | Apache-2.0 (main/LICENSE, 81f0ffa823ea) | PyPI 0.3.0, 2026-10-09, Apache-2.0 | read: Apache-2.0 |
-| japanera | (not fetched) | MIT (master/LICENSE, 76cc6290cda6) | PyPI 2.1.3, 2025-06-23, MIT | read: MIT |
-| jeraconv | (not fetched) | MIT (master/LICENSE, 9bd83b9c305a) | PyPI 0.2.1, 2019-06-19, MIT | read: MIT |
-| jpdatetime | (not fetched) | Apache-2.0 (main/LICENSE, c71d239df917) | PyPI 1.5.0, 2024-11-23, Apache-2.0 | read: Apache-2.0 |
-| twdate | (not fetched) | **not verified**: PyPI names no source repository | PyPI 1.1.0, 2026-03-20, metadata says MIT | not verified |
-| synthea-international | (unverified) | Apache-2.0 (master/LICENSE, c71d239df917) | not verified | read: Apache-2.0 |
-| Authelia (LDAP backend, locale list) | capabilities, from its docs | Apache-2.0 (master/LICENSE, 90afa7b9f90f) | not verified; the two capabilities not verified | licence yes; capabilities not verified |
-| Keycloak (locales) | capability | Apache-2.0 (main/LICENSE.txt, cfc7749b96f6) | not verified; capability not verified | licence yes; capability not verified |
-| Trivy (offline database mode) | capability | Apache-2.0 (main/LICENSE, c71d239df917) | not verified; capability not verified | licence yes; capability not verified |
-| PGroonga (offline package) | capability | PostgreSQL-style permissive (main/COPYING, 62f6ecfbc5d3) | not verified; capability not verified | licence read; capability not verified |
-| PaddleOCR (3.x wheels for CUDA on WSL2) | Apache-2.0, capability | Apache-2.0 (main/LICENSE, 3840c5c0c61c) | PyPI paddleocr 3.7.0, 2026-06-11; the CUDA wheel on WSL2 not verified | licence yes; capability not verified |
-| Infinity (embedding server) | MIT | MIT (main/LICENSE, cd7e2c585736) | PyPI infinity-emb 0.0.80, 2026-11-09, MIT | yes |
-| age | BSD-3-Clause | BSD-3-Clause (main/LICENSE, c5d65279d029) | not verified | yes |
-| WhiteRabbit | Apache-2.0 | Apache-2.0 (master/LICENSE, d4e8e3f895c9) | not verified | yes |
-| Usagi | Apache-2.0 | **not verified**: no LICENSE file found on main, master or develop | not verified | not verified |
-| memray | Apache-2.0 | Apache-2.0 (main/LICENSE, c973dd08e490) | PyPI 1.20.0, 2026-08-07, Apache 2.0 | yes |
-| DeepEval | Apache-2.0 | Apache-2.0 (main/LICENSE.md, d004e4b8bbfa) | PyPI 4.3.6, 2026-11-25, Apache-2.0 | yes |
-| Trillian | Apache-2.0 | Apache-2.0 (master/LICENSE, cfc7749b96f6) | not verified | yes |
-| Rekor | Apache-2.0 | Apache-2.0 (main/LICENSE, cfc7749b96f6) | not verified | yes |
-| WAL-G | Apache-2.0 | Apache-2.0 (master/LICENSE.md, 0f352dc56c4f) | not verified | yes |
-| pyotp | MIT | MIT (main/LICENSE, be5964e73ece) | PyPI 2.12.1, 2026-11-19, MIT | yes |
-| Casbin | Apache-2.0 | Apache-2.0, and an MIT notice for an included part (master/LICENSE, 0fa497ee86d2) | not verified | yes, with the MIT part named |
-| OPA | Apache-2.0 | Apache-2.0 (main/LICENSE, c6596eb7be85) | not verified | yes |
-| OpenFGA | Apache-2.0 | Apache-2.0 (main/LICENSE, 1c46d7b2bed9) | not verified | yes |
-| Fluent (the specification) | Apache-2.0 | Apache-2.0 (main/LICENSE, cfc7749b96f6) | not verified | yes |
-| Babel | BSD | BSD-3-Clause (master/LICENSE, 86bad5758c78) | PyPI 2.19.0, 2026-11-24, BSD-3-Clause | yes |
-| gICS and gPAS | AGPL-3.0 | **not verified**: no source repository read | not verified | not verified |
-| Fides | Apache-2.0 | Apache-2.0 (main/LICENSE, c71d239df917) | PyPI ethyca-fides 2.86.2, 2026-06-01, Apache 2.0 (the PyPI name `fides` is another project) | yes |
-| Tesseract | Apache-2.0 | Apache-2.0 (main/LICENSE, cfc7749b96f6) | not verified | yes |
-| pytest-split | MIT | MIT (master/LICENSE, 98c9ba280046) | PyPI 0.11.0, 2026-02-03, MIT | yes |
+| layer 1, line 324, item 1 | Apache-2.0 | **not verified**: no LICENSE, LICENSE.md, LICENSE.txt or COPYING on main or master | not verified | not verified |
+| layer 1, line 324, item 2 | unverified | Apache-2.0 (master/LICENSE) | not verified | read |
+| layer 1, line 324, item 3 | unverified | Apache-2.0 (main/LICENSE) | PyPI: Apache-2.0 | read |
+| layer 1, line 324, item 4 | not fetched | MIT (master/LICENSE) | PyPI: MIT | read |
+| layer 1, line 324, item 5 | not fetched | MIT (master/LICENSE) | PyPI: MIT | read |
+| layer 1, line 324, item 6 | not fetched | Apache-2.0 (main/LICENSE) | PyPI: Apache-2.0 | read |
+| layer 1, line 324, item 7 | not fetched | **not verified**: the PyPI page names no source repository | PyPI metadata: MIT | not verified |
+| layer 1, line 324, item 8 | unverified | Apache-2.0 (master/LICENSE) | not verified | read |
+| layer 1, line 324, item 9 (two capabilities) | from its docs | Apache-2.0 (master/LICENSE) | not verified | licence read; capabilities not verified |
+| layer 1, line 324, item 10 (a capability) | from memory | Apache-2.0 (main/LICENSE.txt) | not verified | licence read; capability not verified |
+| layer 1, line 324, item 11 (a capability) | from memory | Apache-2.0 (main/LICENSE) | not verified | licence read; capability not verified |
+| layer 1, line 324, item 12 (a capability) | from memory | PostgreSQL (main/COPYING) | not verified | licence read; capability not verified |
+| layer 1, line 324, item 13 (a capability) | from memory | Apache-2.0 (main/LICENSE) | PyPI: Apache-2.0; the capability not verified | licence read; capability not verified |
+| build-vs-reuse, line 192 | MIT | MIT (main/LICENSE) | PyPI: MIT | yes |
+| build-vs-reuse, line 220 | BSD-3-Clause | BSD-3-Clause (main/LICENSE) | not verified | yes |
+| build-vs-reuse, line 245, first tool | Apache-2.0 | Apache-2.0 (master/LICENSE) | not verified | yes |
+| build-vs-reuse, line 245, second tool | Apache-2.0 | **not verified**: no LICENSE file on main, master or develop | not verified | not verified |
+| build-vs-reuse, line 293 | Apache-2.0 | Apache-2.0 (main/LICENSE) | PyPI: Apache-2.0 | yes |
+| build-vs-reuse, line 335 | Apache-2.0 | Apache-2.0 (main/LICENSE.md) | PyPI: Apache-2.0 | yes |
+| build-vs-reuse, line 354, both | Apache-2.0 | Apache-2.0 (master/LICENSE; main/LICENSE) | not verified | yes |
+| build-vs-reuse, line 364 | Apache-2.0 | Apache-2.0 (master/LICENSE.md) | not verified | yes |
+| build-vs-reuse, line 399 | MIT | MIT (main/LICENSE) | PyPI: MIT | yes |
+| build-vs-reuse, line 405, first | Apache-2.0 | Apache-2.0, with an MIT notice for an included part (master/LICENSE) | not verified | yes, the MIT part named |
+| build-vs-reuse, line 405, second and third | Apache-2.0 | Apache-2.0 (main/LICENSE, both) | not verified | yes |
+| build-vs-reuse, line 411, first | BSD | BSD-3-Clause (master/LICENSE) | PyPI: BSD-3-Clause | yes |
+| build-vs-reuse, line 411, second | Apache-2.0 | Apache-2.0 (main/LICENSE) | not verified | yes |
+| build-vs-reuse, line 447 (two services) | AGPL-3.0 | **not verified**: no source repository read | not verified | not verified |
+| build-vs-reuse, line 451 | Apache-2.0 | Apache-2.0 (main/LICENSE) | PyPI: Apache-2.0 (its own package name; the bare name on PyPI is another project) | yes |
+| build-vs-reuse, line 463, both | Apache-2.0 | Apache-2.0 (main/LICENSE, both) | one on PyPI: Apache-2.0; the other not verified | yes |
+| build-vs-reuse, line 488 | MIT | MIT (master/LICENSE) | PyPI: MIT | yes |
 
 Not checked: the `[M]` marks of the build-versus-reuse review that state no licence (what a tool does, a hosting
-price, a maintenance state). None of the components above is in a TrialBox image today; the check is for whoever
+price, a maintenance state). None of the projects above is in a TrialBox image today; the check is for whoever
 adopts one.
 
 ## 4. For the owner's lawyer

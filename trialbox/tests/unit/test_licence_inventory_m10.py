@@ -1,7 +1,7 @@
 """INT-M10 (min), item a: the licence inventory page rides in every release bundle, and names its lawyer's list.
 
 The page (``docs/licences/licence-inventory.md``) is the hand-checked half of a release's licences; the generated half
-is ``sbom/licences.md``. Here: the bundle carries the page as ``LICENCE-INVENTORY.md`` beside the generated report,
+is ``sbom/licences.md``. Here: the bundle carries the page as ``sbom/licence-inventory.md`` beside the generated report,
 byte for byte; the lawyer's list names each item the integrator asked for; models appear by their role only, never by
 a build, an alias or a family of ``models/registry.yaml``. The bundle is built with the stand-in docker and the
 synthetic kit of ``test_release_bundle.py``.
@@ -21,7 +21,7 @@ from tests.unit import test_release_bundle as rb
 
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "docs" / "licences" / "licence-inventory.md"
-IN_BUNDLE = "LICENCE-INVENTORY.md"
+IN_BUNDLE = "sbom/licence-inventory.md"
 ROLES = {"judge", "verifier", "embedder"}  # the words the page may use: a role, never a build
 kit = rb.kit  # the synthetic bundle kit (stand-in docker, signing key, registry), as test_release_bundle.py makes it
 

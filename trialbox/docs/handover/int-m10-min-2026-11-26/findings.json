@@ -26,7 +26,7 @@
   {
    "id": "INTM10-03",
    "severity": "Low",
-   "claim": "of the licences the two reviews took from memory, four could not be read in a licence file (the OMOP common data model, Usagi, twdate, gICS and gPAS), the capability claims (directory backends, locales, offline modes, wheels) were not checked, and no GitHub release page could be read from the session; every read licence agreed with what was remembered",
+   "claim": "of the licences the two reviews took from memory, four could not be read in a licence file, the five capability claims were not checked, and no GitHub release page could be read from the session; every read licence agreed with what was remembered",
    "lane": "H",
    "basis": "shown",
    "state": "open",
