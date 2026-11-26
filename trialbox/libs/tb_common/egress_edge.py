@@ -70,15 +70,26 @@ def _box_made(digest: str, vouched: frozenset[str]) -> bool:
         return digest in vouched or digest in _MADE
 
 
-_IMAGE = (b"\x89PNG", b"\xff\xd8\xff", b"GIF8", b"BM", b"II*\x00", b"MM\x00*", b"\x00\x00\x01\x00")
+#: what makes a payload a container wherever it stands in the first 1024 bytes: a reader looks that far for a PDF's
+#: header, and a zip, an SVG or an RTF file is no plain text (1523 review round 3, H1)
+_CONTAINER_MARKS = (b"%pdf-", b"pk\x03\x04", b"pk\x05\x06", b"<svg", b"{\\rtf")
 
 
-def _container(data: bytes) -> bool:
-    """A PDF, an Office file or any zip, or a picture: what the box lets out only as its own or rebuilt."""
-    if data[:4] in (b"PK\x03\x04", b"PK\x05\x06") or data[:5] == b"%PDF-":
+def _is_container(data: bytes) -> bool:
+    """Whether ``data`` is a PDF, an Office file, a zip, a picture or anything else that is no plain text, decided fail
+    closed on its first 1024 bytes: text only when they are UTF-8 (a character cut at the end aside), hold no control
+    character, and none of :data:`_CONTAINER_MARKS` (in any case)."""
+    head = data[:1024]
+    try:
+        text = head.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        if len(head) < 1024 or exc.start < len(head) - 3:
+            return True
+        text = head[: exc.start].decode("utf-8", "replace")
+    if re.search(r"[\x00-\x08\x0e-\x1f]", text):
         return True
-    picture = data.startswith(_IMAGE) or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
-    return picture and _plain(data) is None  # a list that begins "BM" is a list
+    low = head.lower()
+    return any(m in low for m in _CONTAINER_MARKS)
 
 
 class Refused(RuntimeError):
@@ -390,11 +401,21 @@ class _Reader:
 
     def own(self, name: str, data: bytes) -> tuple[str, bytes]:
         """A file as it may go on to be read (1523 ruling): the box's own as it is; another rebuilt into a plain PDF
-        when that was asked, or ``Refused`` (``not_made``)."""
-        if not _container(data) or _box_made(hashlib.sha256(data).hexdigest(), self.vouched):
+        when that was asked, or ``Refused`` (``not_made``). The size and the zip's caps are checked before a rebuild
+        reads a byte of it (review round 3, M4)."""
+        if not _is_container(data) or _box_made(hashlib.sha256(data).hexdigest(), self.vouched):
             return name, data
         if not self.rebuild:
             raise Refused("", "not_made")
+        if len(data) > MAX_BYTES:
+            raise Refused("", "too_large")
+        if b"%PDF-" not in data[:1024]:
+            from tb_common.zipcap import ZipRefused, check_infos
+
+            try:
+                check_infos(zipfile.ZipFile(io.BytesIO(data)).infolist())
+            except (zipfile.BadZipFile, ZipRefused):
+                raise Refused("", "unreadable") from None
         return f"{Path(name).stem or 'file'}.pdf", made(_plain_pdf(self.text(_text_of(data))))
 
     # -------------------------------------------------------------------------------- text
@@ -458,10 +479,13 @@ class _Reader:
         if len(data) > MAX_BYTES:
             raise Refused("", "too_large")
         kind = Path(name.lower()).suffix
-        if data[:4] in (b"PK\x03\x04", b"PK\x05\x06"):  # what it is, not what it is called
-            return self.archive(data, depth)
-        if data[:5] == b"%PDF-":
-            return self.pdf(data, depth)
+        if _is_container(data):  # what it is, not what it is called; wherever its mark stands (review round 3, H1)
+            head = data[:1024]
+            if b"%PDF-" in head:
+                return self.pdf(data, depth)
+            if b"PK\x03\x04" in head or b"PK\x05\x06" in data[-65557:]:
+                return self.archive(data, depth)
+            raise Refused("", "unreadable")
         raw = _plain(data)
         if raw is None:
             raise Refused("", "unreadable")
@@ -966,36 +990,54 @@ def _pdf_drawn(content: bytes) -> list[str]:
     return notes
 
 
-def _text_of(data: bytes) -> str:
-    """The text a PDF or an Office file shows (its pages, its paragraphs, its cells), for a rebuild; ``Refused`` when
-    there is none to read (a scan, a picture, a zip that is no document)."""
-    from pypdf import PdfReader
+#: what a rebuild cannot keep, so refuses (review round 3, M5): a picture, a drawing, deleted or hidden text, and the
+#: parts a plain PDF of the body's text would drop (headers, footers, notes, comments)
+_LOSSY_MARKS = (b"<w:drawing", b"<w:pict", b"<w:del ", b"<w:del>", b"<w:vanish", b"<p:pic", b"<v:imagedata")
+_LOSSY_PARTS = re.compile(
+    r"word/(?:header|footer)\d*\.xml|word/(?:footnotes|endnotes|comments\w*)\.xml|ppt/(?:notesSlides|comments)/.*"
+)
+#: a table's cells read as running text lose their columns: a rebuild refuses tables and workbooks (H2, cut)
+_TABLE_MARKS = (b"<w:tbl", b"<a:tbl")
 
+
+def _text_of(data: bytes) -> str:
+    """The text a PDF or a Word or PowerPoint file shows (its pages, its paragraphs), for a rebuild. ``Refused``
+    (``rebuild_table``) for a workbook or a table, (``rebuild_lossy``) for what :data:`_LOSSY_MARKS` and
+    :data:`_LOSSY_PARTS` name, (``unreadable``) when there is no text to read."""
+    from pypdf import PdfReader
+    from pypdf.generic import StreamObject
+
+    why, text = "", ""
     try:
-        if data[:5] == b"%PDF-":
-            text = "\n\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)
+        if b"%PDF-" in data[:1024]:
+            r = PdfReader(io.BytesIO(data))
+            numbers = {n for table in r.xref.values() for n in table} | set(r.xref_objStm)
+            for n in numbers:
+                o = r.get_object(n)
+                if isinstance(o, StreamObject) and o.get("/Subtype") == "/Image":  # a scanned page, a picture
+                    why = "rebuild_lossy"
+            text = "\n\n".join(p.extract_text() or "" for p in r.pages)
         else:
             z = zipfile.ZipFile(io.BytesIO(data))
             names = z.namelist()
-            if "xl/workbook.xml" in names:
-                from openpyxl import load_workbook
-
-                wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
-                text = "\n\n".join(
-                    ws.title + "\n" + "\n".join("\t".join("" if v is None else str(v) for v in row)
-                                                for row in ws.iter_rows(values_only=True))
-                    for ws in wb.worksheets
-                )  # fmt: skip
-            else:
-                main = [n for n in names if re.fullmatch(r"word/document\.xml|ppt/slides/slide\d+\.xml", n)]
-                parts = sorted(main, key=lambda n: (len(n), n))
-                text = "\n\n".join(
-                    html.unescape(re.sub(r"<[^>]+>", "", re.sub(r"</(?:\w+:)?(?:p|tr)>|<(?:\w+:)?(?:br|tab)\b[^>]*>",
-                                                                  "\n", z.read(n).decode("utf-8"))))
-                    for n in parts
-                )  # fmt: skip
+            main = sorted((n for n in names if re.fullmatch(r"word/document\.xml|ppt/slides/slide\d+\.xml", n)),
+                          key=lambda n: (len(n), n))  # fmt: skip
+            parts = {n: z.read(n) for n in main}
+            if "xl/workbook.xml" in names or any(m in b for b in parts.values() for m in _TABLE_MARKS):
+                why = "rebuild_table"
+            elif any(_LOSSY_PARTS.fullmatch(n) for n in names) or any(
+                m in b for b in parts.values() for m in _LOSSY_MARKS
+            ):
+                why = "rebuild_lossy"
+            text = "\n\n".join(
+                html.unescape(re.sub(r"<[^>]+>", "", re.sub(r"</(?:\w+:)?(?:p|tr)>|<(?:\w+:)?(?:br|tab)\b[^>]*>",
+                                                              "\n", b.decode("utf-8"))))
+                for b in parts.values()
+            )  # fmt: skip
     except Exception:
         raise Refused("", "unreadable") from None
+    if why:
+        raise Refused("", why)
     if not text.strip():
         raise Refused("", "unreadable")
     return text
@@ -1202,11 +1244,14 @@ def gate_mail(
     internal: Callable[[str], bool],
     rights: Rights | None = None,
     site: Site | None = None,
+    recorded: Mapping[str, str] | None = None,
 ) -> tuple[Any, Any]:
     """A send request and its store as they may leave. A patient file goes as it is, to the site's own domains only
     (D-369 names its recipients), by :func:`may_have`; any other mail is read whole, attachments too. An attachment
-    that is a PDF, Office, zip or picture file leaves only with the ``sha256`` the job recorded when it built it (1523
-    ruling): one without it is refused (``not_made``)."""
+    that is a PDF, Office, zip or picture file leaves only when the bytes fetched from the store hash to what the job
+    recorded when it built that object (``recorded``: object key -> sha256, the orchestrator's own record; 1523
+    ruling, review round 3 M1): any sha256 the request carries is ignored, and one with no record is refused
+    (``not_made``)."""
     atts = list(req.attachments or [])
     files = tuple((a.filename, store.get(a.minio_key)) for a in atts)
     to = sorted({str(r).strip().lower() for r in req.to if r})
@@ -1226,7 +1271,7 @@ def gate_mail(
         refused=why,
         note=note,
         where=site,
-        made=[str(a.sha256) for a in atts if getattr(a, "sha256", None)],  # the job's record of what it built
+        made=[str(recorded[a.minio_key]) for a in atts if recorded and a.minio_key in recorded],  # the job's record
     )
     if not patient:
         new = [a.model_copy(update={"filename": n}) for a, (n, _d) in zip(atts, msg.files, strict=True)]

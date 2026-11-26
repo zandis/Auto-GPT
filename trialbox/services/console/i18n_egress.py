@@ -19,6 +19,9 @@ EN: dict[str, str] = {
     "egress.reason.identifiers": "it holds a patient identifier that cannot be masked in it",
     "egress.reason.free_text": "it holds note text, which an aggregate file may not",
     "egress.reason.unreadable": "the box cannot read it to check it",
+    "egress.reason.rebuild_table": "tables and spreadsheets cannot be rebuilt; export from the box instead",
+    "egress.reason.rebuild_lossy": "it cannot be rebuilt faithfully: it holds pictures, hidden or deleted text, "
+    "headers, footers, notes or comments that a plain PDF of its text would drop; export from the box instead",
     "egress.reason.not_made": "the box did not make this file, or no longer remembers making it (a restart "
     "forgets). Two ways out: make it again on the box and download what the box made, or download it rebuilt as "
     "a plain PDF of its text (add ?rebuild=1 to its address)",
@@ -54,6 +57,9 @@ JA: dict[str, str] = {
     "egress.reason.identifiers": "マスクできない患者識別情報が含まれています",
     "egress.reason.free_text": "集計ファイルに含められないカルテ本文があります",
     "egress.reason.unreadable": "ボックスが内容を読み取って確認できません",
+    "egress.reason.rebuild_table": "表とスプレッドシートは作り直せません。ボックスから出力してください",
+    "egress.reason.rebuild_lossy": "正確に作り直せません：図、隠し文字や削除された文字、ヘッダー、フッター、"
+    "注、コメントがあり、本文だけの PDF では失われます。ボックスから出力してください",
     "egress.reason.not_made": "このファイルはボックスが作成したものではないか、作成した記録が残っていません"
     "（再起動で消えます）。方法は二つです：ボックスでもう一度作成してダウンロードする、"
     "または本文だけを通常の PDF に作り直してダウンロードする（アドレスに ?rebuild=1 を付けます）",
@@ -88,6 +94,9 @@ ZH: dict[str, str] = {
     "egress.reason.identifiers": "內含無法遮蔽的病人識別資料",
     "egress.reason.free_text": "內含彙總檔案不得包含的病歷內文",
     "egress.reason.unreadable": "本機無法讀取以進行檢查",
+    "egress.reason.rebuild_table": "表格與試算表無法重新製作；請改由本機匯出",
+    "egress.reason.rebuild_lossy": "無法如實重新製作：其中有圖片、隱藏或已刪除的文字、頁首、頁尾、註解或批註，"
+    "只含文字的 PDF 會遺漏它們；請改由本機匯出",
     "egress.reason.not_made": "此檔案不是本機產生的，或本機已不記得產生過它（重新啟動後會忘記）。"
     "有兩種方式：在本機重新產生後下載本機產生的檔案，或下載只含其文字、重新製成的一般 PDF"
     "（在網址後加上 ?rebuild=1）",

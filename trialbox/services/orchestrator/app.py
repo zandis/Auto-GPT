@@ -440,6 +440,17 @@ def job_outputs_current(
     return {"current": current}
 
 
+@app.get("/jobs/{job_id}/outputs-made")
+def job_outputs_made(job_id: str) -> dict[str, dict[str, str]]:
+    """1523 ruling (review round 3, M1): the sha256 the job recorded when it built each of its files, by object key.
+    The mail gateway hashes the bytes it fetched and lets a PDF, Office, zip or picture attachment leave only when they
+    match this record; it never takes a hash from the send request. Hashes only, never a file or a patient."""
+    job = orch().db.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    return {"made": {o.minio_key: o.sha256 for o in job.outputs or []}}
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> Job:
     job = orch().db.get(job_id)

@@ -183,24 +183,26 @@ def test_a_file_with_no_text_cannot_be_rebuilt() -> None:
 
 
 # ------------------------------------------------------------------------------------------------ the mail
-def _send(sha: str | None, data: bytes) -> Any:
+def _send(data: bytes, recorded: dict[str, str] | None = None) -> Any:
+    """A mail of counts with one job file (object key ``k``); ``recorded``: the job's own record of its files."""
     from tb_contracts import SendRequest
 
-    att = {"filename": "counts.xlsx", "minio_key": "k", "tag": "aggregate", **({"sha256": sha} if sha else {})}
+    att = {"filename": "counts.xlsx", "minio_key": "k", "tag": "aggregate"}
     req = SendRequest.model_validate({"job_id": "01HZZZZZZZZZZZZZZZZZZZZZZZ", "to": ["crc@hosp.example"],
                                       "subject": "S", "body_md": "counts", "tag": "aggregate", "attachments": [att]})  # fmt: skip
-    return ee.gate_mail(req, SimpleNamespace(get=lambda _k: data), audit=Audit(), internal=lambda _r: True)
+    store = SimpleNamespace(get=lambda _k: data)
+    return ee.gate_mail(req, store, audit=Audit(), internal=lambda _r: True, recorded=recorded)
 
 
 def test_a_job_attachment_leaves_by_the_sha256_the_job_recorded() -> None:
     data = _book()
-    _req, held = _send(hashlib.sha256(data).hexdigest(), data)
+    _req, held = _send(data, recorded={"k": hashlib.sha256(data).hexdigest()})
     assert held.get("k") == data
 
 
 def test_a_mail_attachment_without_its_record_is_refused() -> None:
     with pytest.raises(ee.Refused) as got:
-        _send(None, _book())
+        _send(_book())
     assert got.value.reason == "not_made"
 
 
@@ -247,3 +249,116 @@ def test_made_is_called_only_where_the_code_built_the_bytes() -> None:
     assert {(p, f) for p, f, _s in calls} == MADE_AT
     for path, fn, src in calls:  # none of them reads an upload: a person's file never enters the record
         assert not any(u in src for u in UPLOAD), (path, fn)
+
+
+# ------------------------------------------------------------------------------------------------ review round 3
+@pytest.mark.parametrize(
+    ("data", "container"),
+    [(b" %PDF-1.4\n" + bytes(10), True), (b"\n\n%PDF-1.7 x", True), (b"hello <SVG xmlns='x'>", True),
+     (b"{\\rtf1 x", True), (b"x" * 900 + b"PK\x03\x04", True), (b"\x00\x01binary", True),
+     ("病歷".encode("big5"), True), (b"mrn,n\n1,2\n", False), ("﻿name,n\n王,3\n".encode(), False),
+     (("é" * 600).encode()[:1024] + b"rest", False)],
+)  # fmt: skip
+def test_the_container_sniff_reads_the_first_1024_bytes_fail_closed(data: bytes, container: bool) -> None:
+    """H1: a mark anywhere in the first 1024 bytes, a byte that is no UTF-8 text, or a control character."""
+    assert ee._is_container(data) is container
+
+
+def test_a_pdf_behind_a_leading_space_is_a_container_and_refused() -> None:
+    """H1: viewers find ``%PDF-`` within the first 1024 bytes; the edge did only at byte 0."""
+    data = b" " + _pdf("MRN 70000054 Robin Example")
+    assert _reason(ee.File("a.txt", data)) == "not_made"
+
+
+def _sheet(head: list[str], row: list[Any]) -> bytes:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws: Any = wb.active
+    ws.append(head)
+    ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _word(body: str, more: dict[str, bytes] | None = None) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", b"<Types/>")
+        z.writestr("word/document.xml", f"<w:document><w:body>{body}</w:body></w:document>")
+        for n, d in (more or {}).items():
+            z.writestr(n, d)
+    return buf.getvalue()
+
+
+def _pdf_with_picture() -> bytes:
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    c.drawString(72, 700, "12 of 85 patients")
+    c.drawImage(ImageReader(io.BytesIO(_png())), 72, 600, 10, 10)
+    c.save()
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [_sheet(["Patient name", "n"], ["Robin Example", 3]),
+     _word("<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Robin Example</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"),
+     _word("<w:p/>", {"ppt/slides/slide1.xml": b"<a:tbl/>"})],
+    ids=["workbook_name_column", "word_table", "slide_table"],
+)  # fmt: skip
+def test_tables_and_workbooks_are_not_rebuilt(data: bytes) -> None:
+    """H2 (cut): a table's cells read as running text lose their columns, so the column rules would not mask them."""
+    assert _reason(ee.File("a.bin", data), rebuild=True) == "rebuild_table"
+
+
+_P = "<w:p><w:r><w:t>12 of 85 patients</w:t></w:r></w:p>"
+
+
+@pytest.mark.parametrize(
+    ("data", "kind"),
+    [(_pdf_with_picture(), "pdf_image"),
+     (_word(_P + "<w:p><w:r><w:drawing/></w:r></w:p>"), "drawing"),
+     (_word(_P + "<w:p><w:r><w:pict/></w:r></w:p>"), "pict"),
+     (_word(_P + '<w:p><w:del w:id="1"><w:r><w:delText>MRN 70000054</w:delText></w:r></w:del></w:p>'), "deleted"),
+     (_word(_P + "<w:p><w:r><w:rPr><w:vanish/></w:rPr><w:t>MRN 70000054</w:t></w:r></w:p>"), "hidden"),
+     (_word(_P, {"word/header1.xml": b"<w:hdr/>"}), "header"),
+     (_word(_P, {"word/footer1.xml": b"<w:ftr/>"}), "footer"),
+     (_word(_P, {"word/footnotes.xml": b"<w:footnotes/>"}), "footnotes"),
+     (_word(_P, {"word/comments.xml": b"<w:comments/>"}), "comments")],
+    ids=lambda v: v if isinstance(v, str) else "",
+)  # fmt: skip
+def test_what_a_rebuild_cannot_keep_is_refused_not_dropped(data: bytes, kind: str) -> None:
+    """M5: a plain PDF of the body's text would drop it, or show what was hidden or deleted."""
+    assert _reason(ee.File("a.bin", data), rebuild=True) == "rebuild_lossy", kind
+
+
+def test_the_size_and_zip_caps_come_before_a_rebuild_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M4: a rebuild never decompresses what the caps would refuse."""
+
+    def never(_data: bytes) -> str:
+        raise AssertionError("_text_of was called")
+
+    monkeypatch.setattr(ee, "_text_of", never)
+    monkeypatch.setattr(ee, "MAX_BYTES", 100)
+    assert _reason(ee.File("a.docx", _docx("12 of 85 patients")), rebuild=True) == "too_large"
+    monkeypatch.setattr(ee, "MAX_BYTES", 64 * 1024 * 1024)
+    bomb = io.BytesIO()
+    with zipfile.ZipFile(bomb, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", b"<Types/>")
+        z.writestr("word/document.xml", b"0" * (5 * 1024 * 1024))
+    assert _reason(ee.File("a.docx", bomb.getvalue()), rebuild=True) == "unreadable"
+
+
+def test_a_mail_attachment_is_vouched_by_the_job_s_record_of_its_bytes_never_the_request() -> None:
+    """M1: the gateway hashes the bytes it fetched against the job's own record (by object key)."""
+    data = _book()
+    with pytest.raises(ee.Refused) as got:
+        _send(data, recorded={"k": hashlib.sha256(b"other bytes").hexdigest()})  # the record names other bytes
+    assert got.value.reason == "not_made"
+    _req, held = _send(data, recorded={"k": hashlib.sha256(data).hexdigest()})
+    assert held.get("k") == data

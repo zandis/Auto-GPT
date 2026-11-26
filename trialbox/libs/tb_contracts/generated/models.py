@@ -1668,10 +1668,6 @@ class SendAttachment(BaseModel):
     minio_key: str
     filename: str
     tag: Literal["aggregate", "phi"] | None = None
-    sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
-    """
-    The job's record of the file it built (1523 ruling): a PDF, Office, zip or picture attachment without it does not leave the box.
-    """
 
 
 class SendRequest(BaseModel):

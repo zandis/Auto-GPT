@@ -2651,7 +2651,12 @@ def create_app(
             raise _Problem(404, "notfound")
         if job.type != "FEAS" or job.state != "done":
             raise _Problem(404, "notfound")
-        files = [(o.filename, bk.get_object(o.minio_key)) for o in job.outputs or [] if o.tag == "aggregate"]
+        outs = [o for o in job.outputs or [] if o.tag == "aggregate"]
+        files = [(o.filename, bk.get_object(o.minio_key)) for o in outs]
+        if any(sha256_bytes(d) != o.sha256 for o, (_n, d) in zip(outs, files, strict=True)):  # review round 3, M3
+            raise _Problem(
+                409, "request.refused", reason="a file of the job is not what the job recorded when it built it"
+            )
         if not files:
             raise _Problem(404, "notfound")
         detail = bk.ruleset_detail(job.ruleset or "") or {}
