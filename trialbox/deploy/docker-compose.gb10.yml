@@ -10,16 +10,19 @@
 # (tools/pin_model.py, builds gemma-4-26b-a4b-it-spark on endpoint `serving`, qwen3.5-9b-spark on `verifier`) or the
 # gateway routes nothing to them. Knobs: JUDGE_MODEL_DIR, JUDGE_MODEL, JUDGE_CHAT_TEMPLATE, VERIFIER_MODEL_DIR, VERIFIER_MODEL.
 #
-# Unified-memory budget (128 GB shared by CPU and GPU). Not measured on a Spark: the Spark is measured only when a
-# site orders one (owner decision 4, 2026-11-08), and install.sh starts this profile only on a record from
-# tools/serving_config.py measured gb10, or with TB_ACCEPT_UNMEASURED_GPU=1 for that first boot.
+# Unified-memory budget (128 GB shared by CPU and GPU). Measured on a B200 with GB10-like limits, not yet on a Spark:
+# the Spark is measured only when a site orders one (owner decision 4, 2026-11-08), and install.sh starts this profile
+# only on a record from tools/serving_config.py measured gb10, or with TB_ACCEPT_UNMEASURED_GPU=1 for that first boot.
 #   llm-service   JUDGE_GPU_MEM_UTIL 0.30     weights 17.1 GiB + KV at 16k
-#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.15  weights 7.5 GiB + KV at 16k
+#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.12  15.36 GiB: the model 7.8 GiB with overhead; its KV cache held about
+#                                             804k tokens in 26 GiB, so 8 sequences x 16k (131k tokens) need about
+#                                             4.3 GiB of KV, about 12.1 GiB in all
 #   rest (~55%)                               OS, HAPI (HAPI_XMX 6g), Postgres, DuckDB, embedder, services
 # vLLM sizes its pool as a fraction of the whole device and checks free memory at start, so llm-verifier starts only
 # after llm-service is healthy.
 # Every service has a memory limit (mem_limit, GiB), so no one service can starve the models of unified memory
-# (OPS-063). The limits are deploy/gb10-profile.yaml's, unmeasured until a Spark run records each peak (D-373);
+# (OPS-063). The limits are deploy/gb10-profile.yaml's, measured on a B200 with GB10-like limits, not yet on a Spark,
+# until a Spark run records each peak (D-373);
 # tests/unit/test_two_device_config.py keeps the two equal. The two-device form: deploy/two-device/ (T-214).
 #
 # Host prerequisites (deploy/check_host.sh --gb10 checks them):
@@ -42,7 +45,7 @@ x-arm: &arm
 services:
   llm-service:
     <<: *arm
-    mem_limit: 42g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: 42g   # deploy/gb10-profile.yaml (measured on a B200 with GB10-like limits, not yet on a Spark; D-373)
     # D-348: the official vLLM release of every profile (deploy/images.lock), its arm64 manifest. Built for CUDA 13 and
     # sm_120, which runs on the GB10's sm_121 (check_host.sh --gb10 checks the device and the driver against the lock).
     # It replaced a community build for the DGX Station (sm_103a, DEP-003). To be confirmed on a Spark (T-214).
@@ -77,7 +80,7 @@ services:
     # H-58 (D-1337): no privilege gain, as llm-service (the same image); read_only, user and cap_drop are written
     # exceptions with llm-service's reasons (H10G1-02)
     security_opt: ["no-new-privileges:true"]
-    mem_limit: ${TB_MEM_VERIFIER:-32g}   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: ${TB_MEM_VERIFIER:-28g}   # deploy/gb10-profile.yaml (the 0.12 share + the host process; D-373)
     logging:
       driver: json-file
       options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
@@ -90,7 +93,9 @@ services:
       - --max-model-len=${VERIFIER_MAX_LEN:-16384}
       - --max-num-seqs=${VERIFIER_MAX_SEQS:-8}
       - --enforce-eager
-      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.15}
+      # 0.12 of 128 GiB = 15.36 GiB: the model 7.8 GiB with overhead + about 4.3 GiB of KV for 8 x 16k (131k tokens,
+      # from about 804k tokens in 26 GiB), about 12.1 GiB, with margin (deploy/gb10-profile.yaml)
+      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.12}
       - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"video":0}
       - --default-chat-template-kwargs={"enable_thinking":false}
@@ -137,7 +142,7 @@ services:
   lake: {<<: *arm, mem_limit: 6g}
   embed-service:
     <<: *arm
-    mem_limit: 6g   # deploy/gb10-profile.yaml (unmeasured, D-373; 6g since D-890)
+    mem_limit: 6g   # deploy/gb10-profile.yaml (measured on a B200 with GB10-like limits, not yet on a Spark; D-373; 6g since D-890)
     environment:
       # ENG-003 (D-563): trialbox-embed carries torch's CPU build, which stops at start when asked for cuda. A
       # profile that gives the embedder the card needs its own image and lock first
@@ -145,7 +150,7 @@ services:
   doc-parser: {<<: *arm, mem_limit: 2g}
   gateway:
     <<: *arm
-    mem_limit: 2g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: 2g   # deploy/gb10-profile.yaml (measured on a B200 with GB10-like limits, not yet on a Spark; D-373)
     environment:
       TB_MODEL_SWAP: "off"   # both resident (services/gateway/swap.py)
       TB_PROFILE: P-GB10
@@ -154,7 +159,7 @@ services:
   audit-writer: {<<: *arm, mem_limit: 256m}   # D-394; deploy/gb10-profile.yaml
   model-guard: {<<: *arm, mem_limit: 1g}
   # Third-party services: multi-arch digests from docker-compose.yml resolve to their arm64 manifests here.
-  db: {<<: *arm, mem_limit: 4g}   # gb10-profile.yaml: what pgsize sizes PostgreSQL for (TB_MEM_DB's default)
+  db: {<<: *arm, mem_limit: 8g}
   fhir-store:
     <<: *arm
     mem_limit: ${TB_MEM_FHIR:-8g}   # the 6g heap below plus the JVM's own (T-108a, D-360); gb10-profile.yaml (D-373)

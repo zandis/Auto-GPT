@@ -1,7 +1,7 @@
 # The GB10 profile as data (DGX Spark class: aarch64, 128 GB unified memory; T-214, D-373).
 #
-# status: unmeasured. Every number here is a planning value. None of them was taken on a Spark: no Spark is on the
-# bench yet (plan TB-PLAN-06 T-214, OPS-063). The measured fields (unified_memory_measured_gib, measured_peak_gib,
+# status: unmeasured (measured on a B200 with GB10-like limits, not yet on a Spark). None of these numbers was taken on
+# a Spark: no Spark is on the bench yet (plan TB-PLAN-06 T-214, OPS-063). The measured fields (unified_memory_measured_gib, measured_peak_gib,
 # decision_gate result) stay null until the benchmark record of a real Spark run fills them; then status becomes
 # measured and `record:` names that record. `python -m tools.two_device profile` and tests/unit/test_two_device_config.py
 # hold this file together:
@@ -18,7 +18,7 @@ device:
   platform: linux/arm64
   unified_memory_gib: 128      # nominal, from the product sheet; shared by CPU and GPU
   unified_memory_measured_gib: null
-  os_reserve_gib: 8            # the host OS, Docker, the page cache floor; unmeasured
+  os_reserve_gib: 8            # the host OS, Docker, the page cache floor; not yet measured on a Spark
 
 # D-373. The driver is held at one build because later 580.x builds regressed vLLM on the GB10 (D-79). A hold blocks
 # driver security fixes, so it is dated and re-tested: each new 580.x or later build is tried on the bench Spark
@@ -38,11 +38,13 @@ driver_hold:
 # the first Spark run reads it (docker stats against nvidia-smi) and records measured_peak_gib for each.
 memory:
   llm-service:       {limit_gib: 42, measured_peak_gib: null, basis: "0.30 of 128 GiB (38.4) + vLLM host process"}
-  llm-verifier:      {limit_gib: 32, measured_peak_gib: null, basis: "0.15 of 128 GiB (19.2) + vLLM host process, raised to the 32 GiB floor for a sleeping model (T-108a)"}
+  # 0.12 of 128 GiB = 15.36 GiB: the model takes 7.8 GiB with overhead; its KV cache held about 804k tokens in 26 GiB,
+  # so 8 sequences x 16k context (131k tokens) need about 4.3 GiB of KV, about 12.1 GiB in all, inside 15.36 with margin
+  llm-verifier:      {limit_gib: 28, measured_peak_gib: null, basis: "0.12 of 128 GiB (15.36: model 7.8 + KV 4.3 for 8 x 16k, about 12.1) + vLLM host process"}
   gateway:           {limit_gib: 2, measured_peak_gib: null, basis: "one Python service with the trace store"}
   model-guard:       {limit_gib: 1, measured_peak_gib: null, basis: "standard library proxy"}
   link:              {limit_gib: 1, measured_peak_gib: null, basis: "two-device form only: the TLS relay"}
-  db:                {limit_gib: 4, measured_peak_gib: null, basis: "Postgres as tools/trialbox/pgsize.py sizes it from TB_MEM_DB's default 4g (8 left 4 GiB nothing used; it pays for the orchestrator and adapter rises)"}
+  db:                {limit_gib: 8, measured_peak_gib: null, basis: "Postgres, shared_buffers as the db image sets"}
   fhir-store:        {limit_gib: 8, measured_peak_gib: null, basis: "HAPI_XMX 6g + JVM overhead"}
   lake:              {limit_gib: 6, measured_peak_gib: null, basis: "DuckDB over the 50,000-patient synthetic lake"}
   embed-service:     {limit_gib: 6, measured_peak_gib: null, basis: "bge-m3 on CPU or CUDA: one load about 3.5 GB (D-890)"}

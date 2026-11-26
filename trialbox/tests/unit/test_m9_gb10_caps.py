@@ -96,7 +96,12 @@ def test_the_gb10_limits_still_fit_its_unified_memory() -> None:
     one = sum(v for k, v in limits.items() if k != "link")
     assert one + profile["device"]["os_reserve_gib"] <= profile["device"]["unified_memory_gib"]
     assert td.profile_problems(profile) == []
-    assert _limit(GB10, "db") == limits["db"] == 4  # what pgsize sizes PostgreSQL for
+    assert one + profile["device"]["os_reserve_gib"] == 127.25
+    assert _limit(GB10, "db") == limits["db"] == 8
+    # the verifier's 0.12 share (15.36 GiB) holds the model (7.8 GiB) and 8 x 16k of KV at 804k tokens per 26 GiB
+    assert _limit(GB10, "llm-verifier") == limits["llm-verifier"] == 28
+    assert "--gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.12}" in GB10.read_text(encoding="utf-8")
+    assert 7.8 + 26 * 8 * 16384 / 804_000 < 0.12 * 128
 
 
 # ------------------------------------------------------------------------------------------------ 3. the context
