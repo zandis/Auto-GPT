@@ -6,8 +6,8 @@ TrialBox is a box a hospital owns. It finds patients for clinical trials in the 
 site run the trial after that. Nothing leaves the box unless the site says so.
 
 - A coordinator pastes a protocol. The investigator approves the criteria. The box counts the patients who fit.
-- Each night it screens the patients. Rules in SQL go first. Then two local models read the notes. A note answer
-  excludes a patient only when both models agree on a quote.
+- Each night it screens the patients. Rules in SQL go first. Then two local models read the notes. The notes
+  may speak against a criterion; only the coded records or a person take a patient off the list.
 - The investigator and the coordinator work through a list on a desktop or a phone, in Japanese, Chinese or English.
 - The site records consent, enrolment, visits, adverse events and deviations in TrialBox's own forms, and can sync
   them two-way with REDCap or a spreadsheet.

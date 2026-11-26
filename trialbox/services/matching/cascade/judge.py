@@ -110,6 +110,9 @@ class JudgeReply:
     # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
+    # D-1072: on an agreed answer, each model's answer, verified quote and note (``did``), judge first; published only
+    # on a "not eligible" (``engine._map``)
+    pair_opinions: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def all_calls(self) -> tuple[str, ...]:
@@ -292,8 +295,14 @@ class AgreementJudge:
         if d.verdict == first.verdict:
             # L3: the verifier's quote is read too, in its sentence of the excerpts (never published); M1: it was found
             other = next((x for t in texts if found and (x := sentence_of(found, t))), str(found or ""))
+            # D-1072: both quotes and their notes (``verify_span`` checks the judge's own again)
+            pair = [
+                {**_opinion(role, r), "did": next((e.get("did") for e in kw.get("excerpts") or []
+                                                   if r.quote and as_in(r.quote, str(e.get("text", "")))), None)}
+                for role, r in (("judge", first), ("verifier", second))
+            ]  # fmt: skip
             # round 5: the exclusion stands only when both models said the quote affirms it
-            return replace(first, confidence=d.confidence, calls=calls, sentence=other,
+            return replace(first, confidence=d.confidence, calls=calls, sentence=other, pair_opinions=pair,
                            affirmed=first.affirmed and second.affirmed)  # fmt: skip
         return JudgeReply(
             "unknown",

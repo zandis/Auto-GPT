@@ -267,9 +267,15 @@ def test_population_given_by_the_caller(env: dict[str, Any]) -> None:
 @pytest.mark.req("SAFE-13")
 def test_single_model_fail_is_soft_without_note_block(env: dict[str, Any]) -> None:
     blocking = _run(env, StatedFlareJudge(), sample_per_stratum=None)
-    s3_exits = [t for t in blocking.traces.values() if t.exit_stage == "S3"]
-    assert s3_exits, "the stated-flare judge should exclude someone at S3 when note answers may block"
-    assert {t.exit_criterion for t in s3_exits} == {"GZQO-EXC-11"}
+    # D-1072 (ring 0): the stated-flare judge's "not met" excludes nobody at S3, also when note answers may block
+    assert not any(t.exit_stage == "S3" for t in blocking.traces.values())
+    s3_exits = [
+        t for t in blocking.traces.values() if any(o.status == "fail" and o.stage == "S3" for o in t.outcomes.values())
+    ]
+    assert s3_exits, "the stated-flare judge should say not met for someone at S3"
+    assert {c for t in s3_exits for c, o in t.outcomes.items() if o.status == "fail" and o.stage == "S3"} == {
+        "GZQO-EXC-11"
+    }
     # the inclusion case beside it: every inclusion "not met" from the notes is soft, never an S3 exit (R22-17)
     inclusions = _run(env, QuotingJudge(), sample_per_stratum=None)
     assert not any(t.exit_stage in ("S3", "S4") for t in inclusions.traces.values())
