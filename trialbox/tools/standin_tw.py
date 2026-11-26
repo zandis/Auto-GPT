@@ -26,6 +26,8 @@ TEMPLATE = MAPPING / "templates/cgrd_sql_site.yaml"
 NO_CHANGE_TIME = {"patient", "practitioner", "appointment", "registry"}  # tables the template reads whole
 TABLES_KEY = {"diagnosis": "diag_no", "lab": "lab_no", "medication": "rx_no", "encounter": "enc_no", "note": "note_no"}
 LOCAL_CODE = "ZZ-LOCAL"  # a lab code no look-up knows
+EDIT_VALUE = {"lab": ("result_value", "77.7"), "medication": ("daily_dose", "77.5"),
+              "diagnosis": ("diag_date", "2026-09-09")}  # the clinical value a hospital edit changes, per table
 UNLISTED_VIEW = "ALLERGY_VIEW"  # a view the mapping does not list (allergies: 10B-7, not read)
 
 
@@ -99,11 +101,13 @@ def site_mapping(folder: Path) -> Path:
 
 
 def touch(path: Path, table: str, keys: list[str], stamp: str) -> None:
-    """The hospital edits rows ``keys`` of ``table`` at ``stamp``: their change time moves."""
+    """The hospital edits rows ``keys`` of ``table`` at ``stamp``: their change time moves and one mapped clinical
+    value changes (EDIT_VALUE), so a lost update shows in the data and not only in the row count."""
     engine: Engine = create_engine(f"sqlite:///{path}")
     base = Table(f"base_{table}", MetaData(), autoload_with=engine)
     with engine.begin() as con:
-        con.execute(update(base).where(base.c[TABLES_KEY[table]].in_(keys)).values(updated_at=stamp))
+        col, val = EDIT_VALUE[table]
+        con.execute(update(base).where(base.c[TABLES_KEY[table]].in_(keys)).values(updated_at=stamp, **{col: val}))
     engine.dispose()
 
 

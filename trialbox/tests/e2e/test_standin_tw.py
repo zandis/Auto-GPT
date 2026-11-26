@@ -93,6 +93,9 @@ def test_a_delta_night_reads_only_what_changed_and_ends_equal_to_a_full_read(
     tables = _report(cfg, DELTA)["tables"]
     assert {t: tables[t]["rows"] for t in edited} == {t: len(ks) for t, ks in edited.items()}
     assert tables["note"]["rows"] == 0 and tables["encounter"]["rows"] == 0
+    for t, ks in edited.items():  # the edited value itself arrived, once per edited row
+        got = _lines(cfg, DELTA)[f"{TYPES[t]}.ndjson"]
+        assert sum(standin_tw.EDIT_VALUE[t][1] in ln for ln in got) == len(ks)
     _night(cfg, dsn, REDO)  # a full re-read of the same database
     assert _lines(cfg, DELTA) == _lines(cfg, REDO)
 
@@ -119,6 +122,8 @@ def test_a_night_cut_half_way_then_a_good_one_leaves_no_duplicate_and_no_gap(
     assert not (snapshot_dir(cfg.lake_dir, DELTA) / "completeness.json").exists()  # nothing of it is a night
     rep = _night(cfg, dsn, DELTA, since=f"{FULL} 00:00:00")  # the next night repeats what the failed one missed
     assert rep.passed, rep.errors
+    lab = _lines(cfg, DELTA)["Observation.ndjson"]  # the edited value is there after the retry, once per row
+    assert sum(standin_tw.EDIT_VALUE["lab"][1] in ln for ln in lab) == 5
     _night(cfg, dsn, REDO)
     got = _lines(cfg, DELTA)
     assert got == _lines(cfg, REDO)
@@ -189,3 +194,15 @@ def test_a_night_from_the_views_is_screened_in_zh_tw(tmp_path: Path, site: tuple
     (done,) = box.find_job("done", job.job_id)
     pdf = next(v for k, v in done.attachments().items() if k.endswith(".pdf"))
     assert "資格篩選漏斗" in "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+
+
+def test_a_view_the_account_cannot_query_is_told_not_fatal(site: tuple[Path, dict[str, int]]) -> None:
+    db, _ = site
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE gone_base (x TEXT)")
+    con.execute("CREATE VIEW BROKEN_VIEW AS SELECT x FROM gone_base")
+    con.execute("DROP TABLE gone_base")
+    con.commit()
+    con.close()
+    got = SqlSource(f"sqlite:///{db}").unlisted(set())
+    assert got["BROKEN_VIEW"] == -1 and got[standin_tw.UNLISTED_VIEW] == 3
