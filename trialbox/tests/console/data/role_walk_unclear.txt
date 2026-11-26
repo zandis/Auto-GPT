@@ -499,6 +499,10 @@ POST /studies/{rs}/sae/{record}/{event}/{what} privacy
 POST /studies/{rs}/sae/{record}/{event}/{what} smo_in
 POST /studies/{rs}/sae/{record}/{event}/{what} steward
 POST /studies/{rs}/sae/{record}/{event}/{what} sub
+POST /studies/{rs}/screen-now admin  # M8: no job can be made on the walk box (no study set up), as the request page
+POST /studies/{rs}/screen-now crc  # M8: no job can be made on the walk box (no study set up), as the request page
+POST /studies/{rs}/screen-now pi  # M8: no job can be made on the walk box (no study set up), as the request page
+POST /studies/{rs}/screen-now smo_in  # M8: no job can be made on the walk box (no study set up), as the request page
 POST /studies/{rs}/setup/consent-ages crc
 POST /studies/{rs}/setup/consent-ages smo_in
 POST /studies/{rs}/setup/contact crc

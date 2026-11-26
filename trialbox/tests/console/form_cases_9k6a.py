@@ -31,6 +31,20 @@ class Case:
 
 
 CASES: dict[str, Case] = {
+    "screen-now": Case(
+        template="screen_now.html",
+        role="coordinator",
+        page="/studies/GZQO/screen-now",
+        action="/studies/GZQO/screen-now",
+        prefix="sn",
+        bad={"all_dept": "0"},
+        failing=("all_dept",),
+        good={"all_dept": "1"},
+        testid="screennow-errors",
+        saved_event="console.screen_now",
+        title_key="screennow.title",
+        saved_at="/studies/GZQO/screen-now",
+    ),
     "still-needed": Case(
         template="still_needed.html",
         role="admin",

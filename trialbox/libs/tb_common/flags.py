@@ -185,6 +185,14 @@ DECLARED: dict[str, Declared] = {
         "unavailable, not indexed from the run's pinned snapshot or of another model falls back to the on-the-fly "
         "path for that pair, and the patient's trace records it; S2b never excludes in screening either way.",
     ),
+    "screen.timing": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # switched on /ops/flags with a reason for a measured run, then off again (R1-P2)
+        help="The wall time of each screening stage (R1-P2, the time per chart): on, a SCREEN or MICROBATCH run "
+        "publishes cascade_timing_<study>_v<version>.json with each stage's seconds and patients, counts and times "
+        "only. Off: no clock is read and the run's outputs are as before. Read once when a run starts.",
+    ),
     "steps.acting_role": Declared(
         values=("off", "on"),
         default="off",
