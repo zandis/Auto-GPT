@@ -236,8 +236,9 @@ def test_a_path_outside_the_folder_is_refused() -> None:
 
 # ---------------------------------------------------------------------------------------------- the review's cases
 #: RA-JAK's criteria hash as shipped: 10D-3 must reproduce it byte for byte from the canonical form of D-1366.
-#: V-18b (D-1183) recompiled its medication ValueSets (no WHOCC names) and re-pinned its terminology release
-RA_JAK_CRITERIA_SHA256 = "e1e9eed81e7568ae91f8186094bec73a6813e86452975f4c055c04c64dd35737"
+#: V-18b (D-1183) recompiled its medication ValueSets (no WHOCC names) and re-pinned its terminology release;
+#: INT-R1 (D-1073) recompiled its CQL and SQL for the supply period; this is the recompile of both
+RA_JAK_CRITERIA_SHA256 = "e5dd4f891814b5142556e5affaa4aab6cd17372a7d13b348b948d4991c539544"
 
 
 def test_the_criteria_hash_of_a_shipped_study_is_its_golden() -> None:

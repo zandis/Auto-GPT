@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "2d35403676d1afe8c82724a28b53d0502ddd7a83",
+  "head": "6c73db64a3fcdb82626fce1e691ba67f42f3675e",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-914: an inclusion's FALSE (or an exclusion's TRUE under none) for a patient with no coded record of the atom's kind reads unknown (no_record_of_kind), never an exclusion",
+  "reason": "INT-R1: a medication look-back counts an order whose supply reaches into the window (GOUT-COH-INC-03, GZQO-EXC-04, RA-COH-INC-02 and the steps after them)",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -124,7 +124,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 14,
-   "outcomes_sha": "5b1e0b8d69fa4075cdc522ea3c9ac00ab14af6cf3649dce4c1ddef19e0996a01",
+   "outcomes_sha": "bd68494cdfa995ada210b1368f368cbb576af30a436f3924d3c8dbf3a478abc1",
    "patients": 400,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -234,7 +234,7 @@
     "fbf788e6202e52cc9ed43ffa1351cc81"
    ],
    "candidates": 57,
-   "outcomes_sha": "01571582e09a4ce48abf30c65dfc8e5024939f9b0a4e4e8607aad323528b4fd0",
+   "outcomes_sha": "1e88f6f841f3ba1449f0e0061fec32fb45d780d9a08a4571a6e724455058837c",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -369,7 +369,7 @@
     "fbf788e6202e52cc9ed43ffa1351cc81"
    ],
    "candidates": 82,
-   "outcomes_sha": "9a7fc3b0371f083ecf9fd6053ffcdc5a33f556996c0ee51c519607c48217ff0f",
+   "outcomes_sha": "72f032219284a02dcfe25d6adf6cdb4cf8d7db62c25a5207f2a571dede622616",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -499,7 +499,7 @@
     "f9c00ecd7666eb4665f5d59d39abe596"
    ],
    "candidates": 77,
-   "outcomes_sha": "6a8a5db45935e1f638d681dcd7689f19228fd6aecff37791858e3c90673ddde8",
+   "outcomes_sha": "2bc3934385d83669591bbeb20c27530028ddd636cbf62c9a61983716b690d111",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",

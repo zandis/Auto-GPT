@@ -158,7 +158,7 @@ def test_medication_reference_is_resolved_and_statements_are_read() -> None:
     assert (ref["authored"], ref["start"], ref["end"]) == (date(2026, 2, 10), date(2026, 2, 11), date(2026, 5, 11))
     con = rows["by-contained-ref"]
     assert (con["atc"], con["name"]) == ("L04AB01", "etanercept")
-    assert (con["start"], con["end"]) == (date(2026, 3, 1), date(2026, 3, 29))  # authoredOn + 4 weeks of supply
+    assert (con["start"], con["end"]) == (date(2026, 3, 1), date(2026, 3, 28))  # the last day of 4 weeks of supply
     assert rows["dangling-ref"]["atc"] is None and rows["dangling-ref"]["nhi_code"] is None  # kept, drug unknown
     st = rows["stmt"]
     assert (st["atc"], st["authored"], st["start"], st["end"]) == (

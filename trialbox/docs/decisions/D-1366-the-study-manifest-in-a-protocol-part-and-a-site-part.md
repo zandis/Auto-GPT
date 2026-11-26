@@ -90,6 +90,8 @@
      "tb-study-protocol/1", "manifest": {…}, "files": {path: sha256}}` (every key of the protocol part but
      `criteria_sha256`). RA-JAK as shipped hashes to
      `69ae60cdf2d49dd0e903228af12699009b6ed3da5157cda281485d976c7d69d1` (held by a test).
+     *2026-11-25 (INT-R1, D-1073): RA-JAK's SQL and CQL were recompiled; as shipped it now hashes to*
+     `70e2a0479107a55b81570ec627f6a8d0bb46d6e1e76737c89c3360ca7c16ce01`.
 - **Limits for 10D-5, said plainly:**
   - `scopes` is site side (review 14), and it decides who is looked at: two sites with the same criteria hash screen
     different people. That is intended; it is not a difference in who is eligible.
