@@ -81,12 +81,10 @@ def test_v2_01_a_route_answers_as_the_row_it_declares(orch: Any, key: tuple[str,
         raise RoleWalkFinding(f"{method} {template}: the coordinator is refused ({r.status_code})")
 
 
-@pytest.mark.xfail(strict=True, raises=RoleWalkFinding,
-                   reason="V2-05: the EDC router refuses the study's PI the edc.* rows its log gives it")  # fmt: skip
-@pytest.mark.parametrize("step", ["copy", "export/odm"])
-def test_v2_05_the_studys_pi_reads_the_edc_copy_sheet_and_export(tmp_path: Path, step: str) -> None:
-    """The matrix: ``edc.copy`` and ``edc.export`` are the investigator's with ``task:enter_data``, which the log's PI
-    holds (every task). The router asks ``edc_role_may``, which reads the investigator as on no log (D-380: no task)."""
+def _edc_read_as(tmp_path: Path, step: str, logged_pi: bool) -> Any:
+    """GET the copy sheet or the ODM export as the investigator ``drpi``, with or without a delegation log that
+    names them PI of the study (V2-05, D-1480: the router reads the log)."""
+    from console.teamstore import TeamStore
     from fastapi import FastAPI
     from orchestrator.edc_api import router
     from tb_common.authz import Standing, permit
@@ -98,12 +96,31 @@ def test_v2_05_the_studys_pi_reads_the_edc_copy_sheet_and_export(tmp_path: Path,
         "investigator", f"edc.{step.split('/', maxsplit=1)[0]}", Standing(True, frozenset({"enter_data"}), True)
     )
     svc, _, _ = k.service(tmp_path)
+    if logged_pi:
+        team = TeamStore()
+        team.add_entry(k.STUDY, username="drpi", name="Dr Log PI", role="pi", tasks=(), start="2026-01-01", end=None,
+                       training_day="2026-01-01", training_ref=None, by="stw", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+        team.close()
     app = FastAPI()
     app.include_router(router(lambda: svc))
-    r = SignedClient(app, role="investigator").get(f"/studies/{k.STUDY}/edc/{step}",
-                                                   headers=sa.actor_header("drpi", role="investigator"))  # fmt: skip
+    return SignedClient(app, sub="console:drpi", role="investigator").get(
+        f"/studies/{k.STUDY}/edc/{step}", headers=sa.actor_header("drpi", role="investigator"))  # fmt: skip
+
+
+@pytest.mark.parametrize("step", ["copy", "export/odm"])
+def test_v2_05_the_studys_pi_reads_the_edc_copy_sheet_and_export(tmp_path: Path, step: str) -> None:
+    """The matrix: ``edc.copy`` and ``edc.export`` are the investigator's with ``task:enter_data``, which the log's PI
+    holds (every task). The router reads the study's delegation log (D-1480)."""
+    r = _edc_read_as(tmp_path, step, logged_pi=True)
     if r.status_code == 403 and "edc.role" in r.text:
         raise RoleWalkFinding(f"GET /studies/{{rs}}/edc/{step}: the PI is refused (edc.role)")
+
+
+@pytest.mark.parametrize("step", ["copy", "export/odm"])
+def test_v2_05_an_investigator_on_no_log_is_refused(tmp_path: Path, step: str) -> None:
+    """D-380: while the log names no PI, an investigator holds no task, so the router refuses (edc.role)."""
+    r = _edc_read_as(tmp_path, step, logged_pi=False)
+    assert r.status_code == 403 and "edc.role" in r.text, r.text
 
 
 # ------------------------------------------------------------------------------------------- forged and stale claims
