@@ -1,0 +1,87 @@
+"""The full ClinicalTrials.gov fetch: pages are kept as served, a stopped run continues from its state, the held-out
+split is read from the first-post date, and the uploaded documents are listed per MeSH family. No network: the
+registry is a stub that serves three pages."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from tools import ctgov_full_fetch as cf
+
+
+def _study(
+    nct: str, first_post: str | None, mesh: tuple[str, ...] = (), docs: tuple[dict[str, Any], ...] = ()
+) -> dict[str, Any]:
+    status = {"studyFirstPostDateStruct": {"date": first_post}} if first_post else {}
+    return {
+        "protocolSection": {"identificationModule": {"nctId": nct}, "statusModule": status},
+        "derivedSection": {"conditionBrowseModule": {"meshes": [{"term": t} for t in mesh]}},
+        "documentSection": {"largeDocumentModule": {"largeDocs": list(docs)}},
+    }
+
+
+PAGES = [
+    [_study("NCT00000001", "2025-12-31"), _study("NCT00000002", "2026-01-01", ("Gout",))],
+    [
+        _study(
+            "NCT00000003", "2026-03", ("Arthritis, Rheumatoid",), ({"typeAbbrev": "Prot", "filename": "Prot_000.pdf"},)
+        ),
+        _study("NCT00000004", None),
+    ],
+    [_study("NCT00000005", "2026-06-02", ("Neoplasms",))],
+]
+
+
+class Registry:
+    """Serves PAGES by token and counts the page requests."""
+
+    def __init__(self) -> None:
+        self.page_calls = 0
+
+    def __call__(self, url: str) -> Any:
+        if url.endswith("/version"):
+            return {"dataTimestamp": "2026-11-25T10:00:05"}
+        if url.endswith("/stats/size"):
+            return {"totalStudies": 5}
+        self.page_calls += 1
+        i = int(url.split("pageToken=t")[1]) if "pageToken=t" in url else 0
+        out: dict[str, Any] = {"studies": PAGES[i]}
+        if i + 1 < len(PAGES):
+            out["nextPageToken"] = f"t{i + 1}"
+        return out
+
+
+def test_a_stopped_fetch_continues_from_its_state_and_keeps_every_record(tmp_path: Path) -> None:
+    reg = Registry()
+    st = cf.fetch(tmp_path, max_pages=1, pause=0, get=reg)
+    assert (st["pages"], st["records"], st["done"], st["expected"]) == (1, 2, False, 5)
+    st = cf.fetch(tmp_path, pause=0, get=reg)
+    assert (st["pages"], st["records"], st["done"]) == (3, 5, True)
+    assert reg.page_calls == 3  # the second run did not fetch page 1 again
+    assert [s["protocolSection"]["identificationModule"]["nctId"] for s in cf.iter_studies(tmp_path)] == [
+        f"NCT0000000{i}" for i in range(1, 6)
+    ]
+    assert cf.fetch(tmp_path, pause=0, get=reg)["done"] and reg.page_calls == 3  # a finished fetch asks for nothing
+
+
+def test_the_held_out_split_comes_from_the_first_post_date_and_is_diffed_against_the_id_list(tmp_path: Path) -> None:
+    cf.fetch(tmp_path, pause=0, get=Registry())
+    ref = tmp_path / "ref.txt"
+    ref.write_text("NCT00000002\nNCT00000005\nNCT00000009\n")
+    r = cf.heldout(tmp_path, ref)
+    assert (r["records"], r["without_first_post_date"], r["heldout_from_records"]) == (5, 1, 3)
+    assert (r["only_in_ref"], r["only_in_records"]) == (1, 1)  # NCT...09 is not served; NCT...03 (month only) is new
+    assert r["only_in_records_first_post_range"] == ["2026-03-01", "2026-03-01"]
+    assert (tmp_path / "heldout_firstpost.txt").read_text().split() == ["NCT00000002", "NCT00000003", "NCT00000005"]
+
+
+def test_documents_are_listed_per_mesh_family_with_their_url(tmp_path: Path) -> None:
+    cf.fetch(tmp_path, pause=0, get=Registry())
+    r = cf.documents(tmp_path)
+    assert r["rheumatoid_arthritis"] == {"studies": 1, "studies_with_documents": 1, "documents": {"Prot": 1}}
+    assert r["gout"]["studies"] == 1 and r["gout"]["studies_with_documents"] == 0
+    rows = (tmp_path / "documents.csv").read_text().splitlines()
+    assert len(rows) == 2 and rows[1].endswith("https://cdn.clinicaltrials.gov/large-docs/03/NCT00000003/Prot_000.pdf")
+    assert json.loads((tmp_path / "state.json").read_text())["done"]
