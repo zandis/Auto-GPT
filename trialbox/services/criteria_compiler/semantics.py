@@ -27,9 +27,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from tb_common.derived import COMPONENTS, DEFAULT_WINDOW_DAYS
 from tb_contracts import Atom, BoolExpr, CriterionIR
+from tb_contracts.criterion_ir import Atom as Atom3
+from tb_contracts.criterion_ir import CriterionIRv3, NotV1Expressible, downgrade_to_v1, upgrade_v1
 
 UNBOUNDED_PAST = "1900-01-01"
 
@@ -122,6 +125,94 @@ def kind(atom: Atom) -> Kind:
     if atom.valueset in ("", "NONE"):
         raise CompileError(f"{atom.domain} atom needs a ValueSet")
     return Kind.PRESENCE
+
+
+def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int, Atom3]]:
+    """How both generators read a criterion (RULES-ARCH §2.3): a v1 criterion is upgraded to IR 3 at load
+    (``upgrade_v1``), then each atom becomes the v1-shaped atom the shared templates compile, and its v3 atom is kept
+    beside it (keyed by the lowered atom's ``id()``) for the qualifiers a generator compiles itself. A qualifier no
+    generator compiles raises :class:`CompileError` (the criterion goes to a person); none is dropped. ``card_ref`` is
+    provenance and changes nothing; ``on_hit: exclude`` and ``unit: d`` mean what their absence means."""
+    if isinstance(criterion, CriterionIR):
+        criterion = upgrade_v1(criterion)
+    if criterion.macros:
+        raise CompileError("expand macros before SQL compilation")
+    extensions: dict[int, Atom3] = {}
+    by_id = {a.id: a for a in criterion.atoms}
+
+    def walk(node: Any) -> Atom | BoolExpr:
+        if not isinstance(node, str):
+            return BoolExpr.model_construct(op=node.op, args=[walk(arg) for arg in node.args])
+        a = by_id[node]
+        if a.value_if or a.attribute or a.change or a.aggregate or a.lot or a.diagnosis_role:
+            raise CompileError(f"atom {a.id}: unsupported v3 qualifier")
+        if a.on_hit == "review":
+            raise CompileError(f"atom {a.id}: on_hit review is not compiled")
+        if a.window and a.window.unit == "h":
+            raise CompileError(f"atom {a.id}: a window counted in hours is not compiled")
+        data = a.model_dump(exclude_none=True)
+        data.pop("on_hit", None)
+        if "window" in data:
+            data["window"].pop("unit", None)
+        if a.window and a.window.anchor in ("screening", "randomization"):
+            data["window"]["anchor"] = "index"
+        if a.value and a.value.ref:
+            if a.domain != "observation" or a.derived or a.value.op not in (">", ">=", "<", "<=", "="):
+                raise CompileError("value.ref requires a scalar observation comparison")
+            if a.value.num is not None or a.value.num2 is not None:
+                raise CompileError("value.ref cannot also specify an absolute threshold")
+            if not math.isfinite(a.value.ref.multiple):
+                raise CompileError("reference multiple must be finite")
+            data["value"] = {"op": a.value.op, "num": 0}
+        if a.medication:
+            if a.value or a.derived:
+                raise CompileError("medication details cannot also carry an observation value")
+            if a.duration or a.medication.status or (a.medication.dose and a.medication.dose.per_ingredient):
+                raise CompileError("medication duration, status and per-ingredient qualifiers are unsupported")
+            dose = a.medication.dose
+            if dose and dose.basis == "single":
+                raise CompileError("single administration dose cannot be inferred from exposure quantity")
+            if dose and (
+                dose.op not in (">", ">=", "<", "<=", "=", "between")
+                or dose.num is None
+                or (dose.op == "between" and dose.num2 is None)
+            ):
+                raise CompileError("dose requires numeric thresholds")
+            if dose and any(not math.isfinite(n) for n in (dose.num, dose.num2) if n is not None):
+                raise CompileError("dose thresholds must be finite")
+            if a.medication.route == []:
+                raise CompileError("medication.route must not be empty")
+            data.pop("medication")
+            # Reuse observation quantifiers, including latest/all, for row predicates.
+            data["domain"] = "observation"
+            data["value"] = {"op": "=", "num": 1}
+        shell = CriterionIRv3(
+            id=criterion.id,
+            ruleset=criterion.ruleset,
+            kind=criterion.kind,
+            class_=criterion.class_,
+            text=criterion.text,
+            atoms=[Atom3.model_validate(data)],
+            logic=a.id,
+        )
+        try:
+            atom = CriterionIR.model_validate(downgrade_to_v1(shell)).logic
+        except NotV1Expressible as exc:
+            raise CompileError(str(exc)) from exc
+        extensions[id(atom)] = a
+        return atom
+
+    return (
+        CriterionIR.model_construct(
+            id=criterion.id,
+            ruleset=criterion.ruleset,
+            kind=criterion.kind,
+            class_=criterion.class_,
+            text=criterion.text.source,
+            logic=walk(criterion.logic),
+        ),
+        extensions,
+    )
 
 
 def check_value(atom: Atom) -> None:

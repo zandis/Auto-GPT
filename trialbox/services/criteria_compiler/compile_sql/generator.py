@@ -39,7 +39,7 @@ from tb_common.labunit import NOT_ACTIVE, ORDER_DATES, UNIT_MISMATCH, value_sql
 from tb_contracts import Atom, BoolExpr, CriterionIR
 from tb_contracts.criterion_ir import CriterionIRv3
 
-from criteria_compiler.compile_sql.ir3 import AnchoredWindow, detail, lower, medication_source, sql_template
+from criteria_compiler.compile_sql.ir3 import AnchoredWindow, detail, medication_source, sql_template
 from criteria_compiler.semantics import (
     FILTERED,
     CompileError,
@@ -50,6 +50,7 @@ from criteria_compiler.semantics import (
     fmt_num,
     ident,
     kind,
+    lower,
     window,
 )
 from criteria_compiler.terminology.mapper import SYSTEMS, YJ_STEM, ValueSets

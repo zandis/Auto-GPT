@@ -7,6 +7,7 @@ criterion; helper definitions ``Q_/L_/V_/D_/A_/EA_<ID>_<n>`` per atom ``n`` (pre
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,8 +32,10 @@ from tb_common.derived import (
 from tb_common.fhir import library_name
 from tb_common.labunit import ANALYTES, DIGITS, UNITLESS_KEYS, conversion, key, scale_arms
 from tb_contracts import Atom, BoolExpr, CriterionIR
+from tb_contracts.criterion_ir import CriterionIRv3
 
 from criteria_compiler.semantics import (
+    FILTERED,
     UNBOUNDED_PAST,
     CompileError,
     Kind,
@@ -42,6 +45,7 @@ from criteria_compiler.semantics import (
     compiled,
     fmt_num,
     kind,
+    lower,
     window,
 )
 from criteria_compiler.terminology.mapper import ValueSets
@@ -51,6 +55,7 @@ _env = Environment(
     loader=FileSystemLoader(TEMPLATES), undefined=StrictUndefined, keep_trailing_newline=True, autoescape=False
 )
 CS_NAMES = {LOINC: "LOINC", SCORE: "TBSCORE"}
+SQL_ONLY_ANCHORS = ("screening", "randomization")
 YJ_SHAPE = "[0-9]{7}[A-Z][0-9A-Z]{4}"  # a 12-character YJ code (T-610), as compile_sql's YJ_STEM_OF reads it
 # resource type and coding list of a presence atom whose ValueSet is a code-prefix grouper (D-113 families)
 FAMILY_CODINGS = {
@@ -556,7 +561,7 @@ class CqlGenerator:
         out.append(f"define {q('E_' + c.id)}:\n  Flatten({{ {', '.join(evs)} }})")
         return out
 
-    def render(self, criteria: list[CriterionIR]) -> str:
+    def render(self, criteria: Sequence[CriterionIR | CriterionIRv3]) -> str:
         """Library text whose version is ``<semver>-b<sha8 of content>`` (HAPI CR caches compiled libraries by
         name + version, so any content change must change the version)."""
         body = self._render(criteria, "__VERSION__")
@@ -564,11 +569,20 @@ class CqlGenerator:
         self.library_version = f"{self.version}-b{build}"
         return body.replace("__VERSION__", self.library_version)
 
-    def _render(self, criteria: list[CriterionIR], version: str) -> str:
+    def _render(self, criteria: Sequence[CriterionIR | CriterionIRv3], version: str) -> str:
         ctx = _Ctx(self.vs, {})
         defines: list[str] = []
         used_vs: set[str] = set()
-        for c in compiled(criteria):
+        for original in criteria:
+            if original.class_ not in FILTERED:
+                continue
+            c, extensions = lower(original)
+            # compiled in the SQL only: the CQL refuses them, so the criterion goes to a person
+            for x in extensions.values():
+                if (x.value and x.value.ref) or x.medication or (x.window and x.window.anchor in SQL_ONLY_ANCHORS):
+                    raise CompileError(
+                        f"atom {x.id}: reference ranges, study anchors and medication detail are not compiled to CQL"
+                    )
             defines.extend(self.criterion_defines(ctx, c))
             for a in atoms(c.logic):
                 if a.domain != "demographic" and a.derived is None:

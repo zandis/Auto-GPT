@@ -1,21 +1,18 @@
-"""Lower v3 logic into the existing SQL assembly, retaining supported qualifiers.
+"""The SQL of the v3 qualifiers that :func:`criteria_compiler.semantics.lower` keeps beside each lowered atom.
 
 The optional OMOP relations must be visible in the same SQL snapshot as the
 flattened tables. Record and person maps are the existing export mappings;
 duplicate mappings fail as scalar subqueries rather than multiplying evidence.
 """
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 from typing import Any
 
-from tb_contracts import Atom, BoolExpr, CriterionIR
 from tb_contracts.criterion_ir import Atom as Atom3
-from tb_contracts.criterion_ir import CriterionIRv3, NotV1Expressible, downgrade_to_v1
 
-from criteria_compiler.semantics import CompileError, Window, fmt_num
+from criteria_compiler.semantics import Window, fmt_num
 
 
 @dataclass(frozen=True)
@@ -26,82 +23,6 @@ class AnchoredWindow(Window):
 def sql_template(name: str, **parts: str) -> str:
     """Internal SQL templates: identifiers come from code, values are SQL literals."""
     return Template(Path(__file__).with_name(name + ".sql").read_text(encoding="utf-8").strip()).substitute(parts)
-
-
-def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int, Atom3]]:
-    if isinstance(criterion, CriterionIR):
-        return criterion, {}
-    if criterion.macros:
-        raise CompileError("expand macros before SQL compilation")
-    extensions: dict[int, Atom3] = {}
-    by_id = {a.id: a for a in criterion.atoms}
-
-    def walk(node: Any) -> Atom | BoolExpr:
-        if not isinstance(node, str):
-            return BoolExpr.model_construct(op=node.op, args=[walk(arg) for arg in node.args])
-        a = by_id[node]
-        if a.value_if or a.attribute or a.change or a.aggregate or a.lot or a.diagnosis_role:
-            raise CompileError(f"atom {a.id}: unsupported v3 qualifier")
-        data = a.model_dump(exclude_none=True)
-        if a.window and a.window.anchor in ("screening", "randomization"):
-            data["window"]["anchor"] = "index"
-        if a.value and a.value.ref:
-            if a.domain != "observation" or a.derived or a.value.op not in (">", ">=", "<", "<=", "="):
-                raise CompileError("value.ref requires a scalar observation comparison")
-            if a.value.num is not None or a.value.num2 is not None:
-                raise CompileError("value.ref cannot also specify an absolute threshold")
-            if not math.isfinite(a.value.ref.multiple):
-                raise CompileError("reference multiple must be finite")
-            data["value"] = {"op": a.value.op, "num": 0}
-        if a.medication:
-            if a.value or a.derived:
-                raise CompileError("medication details cannot also carry an observation value")
-            if a.duration or a.medication.status or (a.medication.dose and a.medication.dose.per_ingredient):
-                raise CompileError("medication duration, status and per-ingredient qualifiers are unsupported")
-            dose = a.medication.dose
-            if dose and dose.basis == "single":
-                raise CompileError("single administration dose cannot be inferred from exposure quantity")
-            if dose and (
-                dose.op not in (">", ">=", "<", "<=", "=", "between")
-                or dose.num is None
-                or (dose.op == "between" and dose.num2 is None)
-            ):
-                raise CompileError("dose requires numeric thresholds")
-            if dose and any(not math.isfinite(n) for n in (dose.num, dose.num2) if n is not None):
-                raise CompileError("dose thresholds must be finite")
-            if a.medication.route == []:
-                raise CompileError("medication.route must not be empty")
-            data.pop("medication")
-            # Reuse observation quantifiers, including latest/all, for row predicates.
-            data["domain"] = "observation"
-            data["value"] = {"op": "=", "num": 1}
-        shell = CriterionIRv3(
-            id=criterion.id,
-            ruleset=criterion.ruleset,
-            kind=criterion.kind,
-            class_=criterion.class_,
-            text=criterion.text,
-            atoms=[Atom3.model_validate(data)],
-            logic=a.id,
-        )
-        try:
-            atom = CriterionIR.model_validate(downgrade_to_v1(shell)).logic
-        except NotV1Expressible as exc:
-            raise CompileError(str(exc)) from exc
-        extensions[id(atom)] = a
-        return atom
-
-    return (
-        CriterionIR.model_construct(
-            id=criterion.id,
-            ruleset=criterion.ruleset,
-            kind=criterion.kind,
-            class_=criterion.class_,
-            text=criterion.text.source,
-            logic=walk(criterion.logic),
-        ),
-        extensions,
-    )
 
 
 def detail(table: str, row: str, rid: str, fields: dict[str, str]) -> str:
