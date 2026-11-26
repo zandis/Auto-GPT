@@ -172,6 +172,22 @@ def _manifest_entries(archive: Path) -> list[dict[str, Any]]:
     return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
 
 
+def archive_platform(archive: Path) -> str | None:
+    """``os/architecture`` of the image in a ``docker save`` archive, from its config (what the box will load), or
+    None when the config names none."""
+    entries = _manifest_entries(archive)
+    if not entries:
+        return None
+    try:
+        with tarfile.open(archive) as tf:
+            member = tf.extractfile(str(entries[0].get("Config", "")))
+            cfg = json.loads(member.read()) if member is not None else {}
+    except (OSError, KeyError, tarfile.TarError, json.JSONDecodeError):
+        return None
+    arch = cfg.get("architecture") if isinstance(cfg, dict) else None
+    return f"{cfg.get('os') or 'linux'}/{arch}" if arch else None
+
+
 def archive_image_count(archive: Path) -> int:
     """How many images a ``docker save`` archive holds: every ``manifest.json`` entry, tagged or not (an untagged
     second image has no tag for :func:`archive_configs` to see)."""
@@ -279,10 +295,13 @@ def build(
     pyproject: Path = PYPROJECT,
     rehearsal: bool = False,
     jobs: Collection[str] = (),
+    platform: str | None = None,
 ) -> dict[str, Any]:
     """Check the bundle's images against the gate record, collect their SBOMs, write release.json and images.lock.
 
-    ``images``: (requested reference, saved archive); the archive must also be one of ``items`` (kind ``image``)."""
+    ``images``: (requested reference, saved archive); the archive must also be one of ``items`` (kind ``image``).
+    ``platform`` (``os/arch``, make_bundle.sh ``--platform``): every archive must be an image of it; each image's
+    ``platform`` in release.json is its archive's own, which the update path compares with the host."""
     now = now or dt.datetime.now(dt.UTC)
     v = version(pyproject)
     if stray := sorted(set(jobs) - {ref for ref, _ in images}):
@@ -307,6 +326,12 @@ def build(
         if count != 1:
             raise ReleaseError(f"{archive.name}: one image per archive (found {count})")
         tag, digest = sorted(configs.items())[0]
+        got = archive_platform(archive)
+        if platform and got != platform:
+            raise ReleaseError(
+                f"{ref}: its archive is an image for {got or 'no named platform'}, the bundle is for {platform} (a "
+                "local image of another architecture: pull it with --platform)"
+            )
         saved.append((ref, archive, tag, digest))
     problems = gate_problems(record, {f"{ref} ({tag})": archive_identities(a) for ref, a, tag, _ in saved}, now=now)
     if problems:
@@ -349,7 +374,7 @@ def build(
             "image": tag,
             "digest": digest,
             "source": ref,
-            "platform": entry.get("platform"),
+            "platform": archive_platform(archive) or entry.get("platform"),
             "repo_digests": sorted(entry.get("repo_digests") or []),
             "archive": dest_of[archive.resolve()],
             "sbom": f"sbom/{entry['sbom']}",
@@ -547,6 +572,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--image", action="append", default=[], metavar="REF=ARCHIVE")
     b.add_argument("--rehearsal", action="store_true", help="a bundle for a rehearsal box only (D-726)")
     b.add_argument("--job", action="append", default=[], metavar="REF", help="an --image the box runs as a job (D-968)")
+    b.add_argument("--platform", default=None, help="os/arch every image archive must be (make_bundle.sh --platform)")
     b.add_argument("items", nargs="*", help="kind:path[=dest], every payload file of the bundle")
     c = sub.add_parser("check", help="does a built bundle's release.json name every component?")
     c.add_argument("bundle", type=Path)
@@ -574,6 +600,7 @@ def main(argv: list[str] | None = None) -> int:
                 images_lock=args.images_lock,
                 rehearsal=args.rehearsal,
                 jobs=args.job,
+                platform=args.platform,
             )
             print(
                 f"release: {rel['version']} {rel['release_id']} (seq {rel['release_seq']}): {len(rel['images'])} "

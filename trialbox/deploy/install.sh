@@ -1161,7 +1161,9 @@ grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPO
 if command -v python3 >/dev/null; then
   LAKE_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_lake-data" 2>/dev/null || true)"
   # D-832: the die hangs on the pipe (under pipefail a failing pipe ended the script before a PIPESTATUS line)
-  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} --write 2>&1 | indent || stop_or_warn memcaps "the memory caps (the compose defaults)" "the memory caps could not be sized (above): set TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH in deploy/.env, then re-run"
+  # the machine profile's overlay: its orchestrator default (6g on the 96 GB class) is the one a written cap must pass
+  OVERLAY=""; [ "$MODE" != gpu ] || [ ! -f "deploy/docker-compose.$GPU.yml" ] || OVERLAY="deploy/docker-compose.$GPU.yml"
+  python3 -m tools.trialbox.memcaps --env-file deploy/.env ${LAKE_HOST:+--lake "$LAKE_HOST"} ${OVERLAY:+--overlay "$OVERLAY"} --write 2>&1 | indent || stop_or_warn memcaps "the memory caps (the compose defaults)" "the memory caps could not be sized (above): set TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH in deploy/.env, then re-run"
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH keep the compose defaults (doctor memory_caps checks them)" >&2
 fi
@@ -1183,7 +1185,8 @@ if [ "$MODE" = gpu ]; then
   # models/registry.yaml expects (D-358), as candidate; PRODUCTION routes it once `trialbox eval qualify` passes and
   # `pin_model --promote` makes it champion (until then: champion_unqualified / no_eligible_build). Pins are kept.
   mkdir -p deploy/site
-  for v in JUDGE_MODEL_DIR JUDGE_MODEL JUDGE_CHAT_TEMPLATE VERIFIER_MODEL_DIR VERIFIER_MODEL; do  # as compose reads them from deploy/.env
+  # JUDGE_MAX_LEN and VERIFIER_MAX_LEN: the length the servers run with, which the pin's context must be
+  for v in JUDGE_MODEL_DIR JUDGE_MODEL JUDGE_CHAT_TEMPLATE VERIFIER_MODEL_DIR VERIFIER_MODEL JUDGE_MAX_LEN VERIFIER_MAX_LEN; do  # as compose reads them from deploy/.env
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
   done
   say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
@@ -1193,7 +1196,7 @@ if [ "$MODE" = gpu ]; then
   # D-887: the box (TB_ENV, TB_REHEARSAL) goes to the pin, which pins the rehearsal media's placeholders on a
   # rehearsal box only, from a rehearsal bundle (deploy/updates/installed.json), every folder a placeholder
   tree_args
-  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL \
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL -e JUDGE_MAX_LEN -e VERIFIER_MAX_LEN \
     -e TB_ENV="$TB_ENV_SITE" -e TB_REHEARSAL="$(envget TB_REHEARSAL)" "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
     || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"  # H-94 (1): the pin hashes the weights against the release's (D-358, D-887)

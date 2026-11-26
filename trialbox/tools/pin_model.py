@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -404,10 +405,14 @@ def install_context(
 ) -> tuple[bool, str]:
     """The context of a pinned build whose registry row names none, from the profile's variable (LLM-007): (ok, a
     note for the build's line). A row that names its context needs nothing. A length in the variable is written, and
-    replaces another one in the pin (the partition was measured again); the note says both."""
-    if row.get("context_length"):
-        return True, ""
+    replaces another one in the pin (the partition was measured again); the note says both. A pin that carries another
+    length than its row names (a stale site pin: the gateway sizes prompts from it) is put back to the row's."""
     have = (load_override(out)["builds"].get(build_id) or {}).get("context_length")
+    if row.get("context_length"):
+        if have is None or have == row["context_length"]:
+            return True, ""
+        set_context(build_id, int(row["context_length"]), out, registry_path)
+        return True, f"; context {row['context_length']} (the registry's for this build; the pin had {have})"
     var = CONTEXT_VARS.get(endpoint, "")
     raw = (env.get(var) or "").strip()
     if raw.isascii() and raw.isdigit() and int(raw) > 0:
@@ -426,6 +431,43 @@ def install_context(
         "until it is set in the environment of pin_model --install (the platform: serving.env, then the pin job "
         f"again), or by hand: pin_model --build {build_id} --model-dir <folder> --context N"
     )
+
+
+def profile_context(gpu: str, endpoint: str, env: dict[str, str] | Any) -> int | None:
+    """The length the profile's server is started with: its variable as compose reads it from deploy/.env, else the
+    default the profile's compose file gives it (``--max-model-len=${JUDGE_MAX_LEN:-16384}``); None when neither
+    says a length."""
+    var = CONTEXT_VARS.get(endpoint, "")
+    raw = (env.get(var) or "").strip()
+    if raw.isascii() and raw.isdigit() and int(raw) > 0:
+        return int(raw)
+    f = ROOT / "deploy" / f"docker-compose.{gpu}.yml"
+    if not var or not f.is_file():
+        return None
+    m = re.search(r"\$\{" + re.escape(var) + r":-(\d+)\}", f.read_text(encoding="utf-8"))
+    return int(m.group(1)) if m else None
+
+
+def context_problems(
+    gpu: str, out: Path = DEFAULT_OVERRIDE, env: dict[str, str] | Any = None, registry_path: Path | None = None
+) -> list[str]:
+    """Each build of the profile's pair whose pinned ``context_length`` (the registry with the site pin) is not the
+    length the profile's server runs with: the gateway refuses every call ``model_mismatch`` when the server's is
+    the smaller, and sizes prompts for a context nobody serves when it is the larger."""
+    from registry.registry import DEFAULT_PATH, Registry
+
+    builds = {b.build_id: b for b in Registry.load(registry_path or DEFAULT_PATH, out).builds}
+    problems = []
+    for build, endpoint, *_ in PROFILE_PAIRS.get(gpu, []):
+        want = profile_context(gpu, endpoint, env or {})
+        have = builds[build].context_length if build in builds else None
+        if want and have and want != have:
+            problems.append(
+                f"{build}: the pin's context_length is {have}, the {gpu} profile serves {want} "
+                f"({CONTEXT_VARS[endpoint]}): re-run pin_model --install {gpu} for a stale pin, or set "
+                f"{CONTEXT_VARS[endpoint]} to {have} in deploy/.env"
+            )
+    return problems
 
 
 def add_template(build_id: str, path: Path, out: Path = DEFAULT_OVERRIDE, registry_path: Path | None = None) -> None:
@@ -688,7 +730,10 @@ def install_pins(
             f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; "
             f"{after}" + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "") + ctx_note
         )
-    return ok, lines
+    # the pair's pins against the length the profile's servers run with: refused here, before the night, not by the
+    # gateway's model_mismatch on every call of it
+    mismatched = context_problems(gpu, out, e, registry_path)
+    return ok and not mismatched, lines + mismatched
 
 
 def install_embedder(

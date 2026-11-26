@@ -42,12 +42,12 @@ memory:
   gateway:           {limit_gib: 2, measured_peak_gib: null, basis: "one Python service with the trace store"}
   model-guard:       {limit_gib: 1, measured_peak_gib: null, basis: "standard library proxy"}
   link:              {limit_gib: 1, measured_peak_gib: null, basis: "two-device form only: the TLS relay"}
-  db:                {limit_gib: 8, measured_peak_gib: null, basis: "Postgres, shared_buffers as the db image sets"}
+  db:                {limit_gib: 4, measured_peak_gib: null, basis: "Postgres as tools/trialbox/pgsize.py sizes it from TB_MEM_DB's default 4g (8 left 4 GiB nothing used; it pays for the orchestrator and adapter rises)"}
   fhir-store:        {limit_gib: 8, measured_peak_gib: null, basis: "HAPI_XMX 6g + JVM overhead"}
   lake:              {limit_gib: 6, measured_peak_gib: null, basis: "DuckDB over the 50,000-patient synthetic lake"}
   embed-service:     {limit_gib: 6, measured_peak_gib: null, basis: "bge-m3 on CPU or CUDA: one load about 3.5 GB (D-890)"}
-  orchestrator:      {limit_gib: 3, measured_peak_gib: null, basis: "the night's SCREEN fan-out"}
-  adapter:           {limit_gib: 3, measured_peak_gib: null, basis: "ingest with the validator (TB_VALIDATOR_XMX 3g shares it)"}
+  orchestrator:      {limit_gib: 6, measured_peak_gib: null, basis: "the night's SCREEN fan-out: a 48,000-patient SCREEN peaked near 4.0 GiB (the machine-profile finding; 3 was too small)"}
+  adapter:           {limit_gib: 5, measured_peak_gib: null, basis: "ingest with the validator (TB_VALIDATOR_XMX 3g shares it): a 50,000-patient ingest peaked at 3,842 MiB, 3 was killed (the machine-profile finding)"}
   doc-parser:        {limit_gib: 2, measured_peak_gib: null, basis: "PDF and Office parsing"}
   criteria-compiler: {limit_gib: 1, measured_peak_gib: null, basis: "one Python service"}
   console:           {limit_gib: 2, measured_peak_gib: null, basis: "one Python service"}
