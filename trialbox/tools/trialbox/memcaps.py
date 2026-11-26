@@ -43,6 +43,8 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import IO, Any
 
+from tools.trialbox.private_file import replace_private
+
 ROOT = Path(__file__).resolve().parents[2]
 RECORD = ROOT / "deploy" / "measured" / "ingest_memory.json"
 COMPOSE = ROOT / "deploy" / "docker-compose.yml"
@@ -216,7 +218,7 @@ def write(env_file: Path, caps: Mapping[str, str | None], n: int, source: str) -
     recorded = {**_marker(env_file.read_text(encoding="utf-8")), **caps}
     recorded = {k: v for k, v in recorded.items() if v is not None}
     lines.append(f"{MARKER} " + " ".join(f"{k}={v}" for k, v in sorted(recorded.items())) + f" n={n} ({source})")
-    env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    replace_private(env_file, "\n".join(lines) + "\n")  # H-110: whole, 0600, never in place
 
 
 def check(

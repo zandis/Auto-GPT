@@ -53,12 +53,15 @@ model-endpoint rules are skipped with a warning (fail closed: nothing is opened)
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import ipaddress
 import json
 import os
 import socket
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -384,9 +387,34 @@ def save_state(path: Path, box: Box, script: str) -> None:
     """Write what ``restore`` needs (the subnets) and, for a person, the script that was applied. Atomic."""
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = {"table": TABLE, "version": 1, "subnets": sorted(box.subnets), "script": script}
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    # H-110 (M-SC-1): a temp file of this run's own (two runs never share one), on disk before the rename, so a cut at
+    # any moment leaves the old state file or the new one whole: the boot's restore always has a table to load
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(doc, indent=1) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(name, 0o644)
+        os.replace(name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(name)
+        raise
+    dfd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+
+
+def state_lock(state: Path) -> int:
+    """H-110 (M-SC-1): one ``apply`` or ``save`` at a time (the 2-minute timer, the watch on a container start, the
+    install): an exclusive lock beside the state file, held until the process ends. Returns the descriptor."""
+    state.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(state.with_name(state.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
 
 
 def load_state(path: Path) -> dict[str, object]:
@@ -470,6 +498,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.action == "watch":
         again = ["apply", "--if-changed", "--env", str(args.env), "--project", args.project, "--state", str(args.state)]
         return watch(lambda: main(again), docker_events(args.project))
+    if args.action not in ("apply", "save"):
+        return _apply(args)
+    lock = state_lock(args.state)  # held to the end: what is read, loaded and saved is one run's
+    try:
+        return _apply(args)
+    finally:
+        os.close(lock)  # released for the next run (a caller that runs main again in one process included)
+
+
+def _apply(args: argparse.Namespace) -> int:
+    """print, save and apply: the allow list, the box's networks, the table."""
     allows = allowlist(read_env(args.env))  # a refused entry stops here, before docker is asked anything
     box = docker_box(args.project)
     script, warnings = render(box, allows)

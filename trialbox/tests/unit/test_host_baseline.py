@@ -201,6 +201,7 @@ def _box(tmp: Path, *, tpm_only: bool = False, plain: bool = False, crypt: bool 
     (sec / "kek.json").write_text('{"backend": "file"}', encoding="utf-8")
     for k in ("site_hmac.key", "pid_map.key"):
         (sec / (k if plain else f"{k}.wrapped")).write_text("x", encoding="utf-8")
+        (sec / (k if plain else f"{k}.wrapped")).chmod(0o600)  # H-110 (f): root's alone, as the install writes them
     envf = tmp / ".env"
     envf.write_text(f"TB_ENV={env_name}\n", encoding="utf-8")
     envf.chmod(0o600)

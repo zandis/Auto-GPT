@@ -543,6 +543,7 @@ def test_the_box_file_wins_except_for_the_module_forms_drill(tmp_path: Path, mon
         assert env["TB_DB_URL"] == want, (args, installed, env)
     env = {"TB_ENV": "DEV"}  # a TB_ENV the box's file does not set is never the caller's (PRODUCTION applies)
     (tmp_path / ".env").write_text(f"TB_DB_URL={DSN}\n", encoding="utf-8")
+    (tmp_path / ".env").chmod(0o600)
     assert launch.enter(["backup-status"], env) is None and "TB_ENV" not in env
     (tmp_path / ".env").unlink()
     env = {"TB_ENV": "DEV"}

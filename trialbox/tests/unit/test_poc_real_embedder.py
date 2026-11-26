@@ -68,8 +68,11 @@ def _run(tmp: Path, root: Path, *args: str, **env: str) -> tuple[subprocess.Comp
     # no mvn on this PATH: the builder-container path, as on the owner's machine
     full.update(PATH=f"{bindir}:/usr/bin:/bin", TB_TEST_LOG=str(log), TB_POC_SKIP_INGEST="1", TB_POC_ALIVE_S="600",
                 **env)  # fmt: skip
+    # H-110 (the integrator's 7120213053): measured 2026-11-24, one call 0.0-0.1 s alone; under -n auto on the seven poc
+    # test files (3 runs, 111 calls) median 0.1 s, p95 0.1 s, max 0.2 s. The 120 s timeout seen under a whole-run load
+    # was poc.sh's ticker holding this capture open (fixed in poc.sh): 30 s is 150 times the measured maximum
     res = subprocess.run(["bash", str(root / "deploy/poc.sh"), *args], capture_output=True, text=True, env=full,
-                         timeout=120, check=False)  # fmt: skip
+                         timeout=30, check=False)  # fmt: skip
     return res, (log.read_text(encoding="utf-8").splitlines() if log.exists() else [])
 
 

@@ -133,7 +133,10 @@ def test_it_needs_only_what_a_bare_ubuntu_has() -> None:
     """No pip package and no host tree: the bootstrap runs before either is there."""
     sh = BOOT.read_text(encoding="utf-8")
     assert "python3 -I" in sh and not re.search(r"\bimport (yaml|cryptography)\b", sh)
-    assert "tools/" not in sh.replace("$ROOT/deploy/install.sh", "")
+    # H-110 (a; the integrator's ruling 7122559749): the one read under tools/ is the release's own host-tree module,
+    # read from the verified tar (never from the kept tree); nothing else under tools/
+    rest = sh.replace("$ROOT/deploy/install.sh", "").replace('tf.extractfile("tools/host_tree.py")', "", 1)
+    assert "tools/" not in rest
 
 
 # ------------------------------------------------------------------------------------------------- the vendor side

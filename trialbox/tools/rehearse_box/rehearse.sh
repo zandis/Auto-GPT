@@ -283,8 +283,8 @@ clear_images() {  # only the media may bring them back: by id, so every tag and 
 }
 
 swapped_stream() {  # H-95 (the re-review of #1409, F1): the update path's streamed load on the real engine
-  PYTHONPATH="$ROOT/libs:$ROOT" "$PY" -m tools.rehearse_box.h95_probe "$W/h95-probe"; local rc=$?
-  rm -rf "$W/h95-probe"
+  PYTHONPATH="$ROOT/libs:$ROOT" "$PY" -m tools.rehearse_box.h95_probe "$W/run/h95-probe"; local rc=$?
+  rm -rf "$W/run/h95-probe"
   return "$rc"
 }
 
@@ -308,6 +308,10 @@ host_up() {
   local site=(-v "$droot/volumes:$droot/volumes" -v "/run/trialbox:/run/trialbox")
   docker run -d --name "$HOST_CT" --hostname trialbox-rehearsal --network host --restart no \
     -v "$SOCK:/var/run/docker.sock" -v "$W:$W" ${site[@]+"${site[@]}"} "$HOST_IMG" sleep infinity || return 1
+  # OCR 1455-2 (A), the integrator's ruling 7128436810: every start refuses a compose file in a folder that is not
+  # root's alone, on every box. In the box host every folder above the work dir is the container's own (root's); the
+  # work dir is the bind mount, this user's: it is root's (0755) while the box runs and given back at teardown
+  docker exec "$HOST_CT" sh -c "chown 0:0 '$W' && chmod 0755 '$W'" || return 1
   docker exec "$HOST_CT" sh -c '. /etc/os-release; echo "ok: box host $PRETTY_NAME, $(docker compose version)"'
 }
 
@@ -343,9 +347,15 @@ restore_images() {  # a run that stopped before the install loaded them must not
   done < "$W/vendor/bundle-images.txt"
 }
 
+w_back() {  # the work dir back to this user (made root's in host_up), so the report is written and it can be removed
+  [ "$(stat -c %u "$W")" = "$(id -u)" ] && return 0
+  docker run --rm --user 0:0 -v "$W:$W" ubuntu:24.04 sh -c "chown $(id -u):$(id -g) '$W' && chmod 0700 '$W'" \
+    >>"$LOGS/teardown.log" 2>&1 || echo "rehearse: could not give $W back to $(id -un) (it is root's)" >&2
+}
+
 teardown() {
   [ -z "$EVENTS_PID" ] || kill "$EVENTS_PID" 2>/dev/null
-  if [ "${TB_REHEARSE_KEEP:-0}" = 1 ]; then echo "TB_REHEARSE_KEEP=1: box left running, work dir $W"; return 0; fi
+  if [ "${TB_REHEARSE_KEEP:-0}" = 1 ]; then w_back; echo "TB_REHEARSE_KEEP=1: box left running, work dir $W"; return 0; fi
   docker exec "$HOST_CT" sh -c "cd '$BOX' && docker compose --project-directory deploy down -v --remove-orphans" \
     >>"$LOGS/teardown.log" 2>&1 || true
   docker rm -f "$HOST_CT" >/dev/null 2>&1 || true
@@ -356,6 +366,7 @@ teardown() {
   # keep the report and logs; drop the media and the box (gigabytes)
   docker run --rm --user 0:0 -v "$W:$W" "$(docker image inspect trialbox-py:1.0.0 >/dev/null 2>&1 && echo trialbox-py:1.0.0 || echo ubuntu:24.04)" \
     sh -c "rm -rf '$W/media' '$W/box' '$W/vendor/models'" >/dev/null 2>&1 || rm -rf "${W:?}/media" "${W:?}/box" "${W:?}/vendor/models"
+  w_back
 }
 
 # ------------------------------------------------------------------------------------------------ run

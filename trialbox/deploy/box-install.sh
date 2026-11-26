@@ -45,6 +45,13 @@
 # the console's image whether it can read the audit anchor folder; 10K-4), TB_BOX_SEED (the site seed's command; M1).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# LR-18: run from a release the bootstrap staged (BOX/releases/<id>/deploy/box-install.sh), the box is BASE, two
+# folders up; the install step below runs that release's installer, whose update step switches the box to it, and
+# every step after it runs from the box (BASE). Told from this script's own path alone; otherwise BASE is ROOT
+BASE="$ROOT"
+if [ "$(basename "$(dirname "$ROOT")")" = releases ] && [ -d "$(dirname "$(dirname "$ROOT")")/deploy" ]; then
+  BASE="$(dirname "$(dirname "$ROOT")")"
+fi
 cd "$ROOT"
 BUNDLE=""; YES=0; PREPARE=0; FIRSTRUN=0; REHEARSAL=0; OWNER=""; ENVIRONMENT=""
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
@@ -112,12 +119,10 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
   return 0
 }
 tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
-  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
-  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
-  _in="$(cat)"
-  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
-    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
-  } | sort -u || true
+  # (H-110 (g), the integrator's ruling 7119913331): by the kind marker deploy/check_host.sh writes where the line is
+  # made, never by its words: "[H-94 (5)]" a secret's mode (deploy/.env, a plain key); "(2)" what the machine cannot
+  # run (memory class, card, driver, toolkit, disk space); "(3)" the poc profile on a PRODUCTION box. Every other warns
+  grep -E '^FAIL .*\[H-94 \([235]\)\]$' | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: this run's command line (--rehearsal, --environment) is read once before the arguments are (the owner's
@@ -235,8 +240,15 @@ kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened
 kp_read_stdin() {
   KP_VALUE=""
   if [ -t 0 ]; then
+    # H-110 (i): a hang-up, ^C or kill during the prompt gives the terminal its echo back (each caller asks before it
+    # sets a trap of its own, so the traps are reset to the default after)
+    # the echo back, then the signal again with its own default: the same end as before
+    trap 'stty echo 2>/dev/null; trap - HUP; kill -s HUP $$' HUP
+    trap 'stty echo 2>/dev/null; trap - INT; kill -s INT $$' INT
+    trap 'stty echo 2>/dev/null; trap - TERM; kill -s TERM $$' TERM
     stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
     printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    trap - HUP INT TERM
     [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
     kp_again=""
   else
@@ -393,6 +405,9 @@ EOP
     # H-94 depends (1): on a PoC box install.sh stops only for one of the five (D-1091); a box with none is not served
     die "the install stopped (above; $BOX/install.log): nothing for the wizard to serve"
   fi
+  if [ "$BASE" != "$ROOT" ]; then  # LR-18: the install switched the box to this release: the rest runs from the box
+    ROOT="$BASE"; cd "$ROOT"; export PYTHONPATH="$ROOT/libs:$ROOT"; BOX="$ROOT/deploy/site/box"
+  fi
   if [ "$PREPARE" = 1 ]; then
     # ------------------------------------------------------------------------------------------- 4. prepared image
     date -u +%FT%TZ > "$BOX/prepared"
@@ -509,8 +524,10 @@ box_preflight() {  # 10K-3 (D-1361): the live preflight the first-run page shows
   local settings=()
   [ ! -f "$ROOT/deploy/settings.yaml" ] || settings=(--settings "$ROOT/deploy/settings.yaml")
   # one check is bounded in the tool (a hung share, a resolver); the whole run here, killed 5 s after its limit
+  # OCR 1455-1 (residual): the release holds no services/ (tools/host_tree.py TOP_DIRS); one at the top of a kept tree
+  # is never compared, and a path entry comes before the standard library: it is never on root's path here
   # shellcheck disable=SC2086 # a command line on purpose (tests)
-  PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" timeout -k 5 "${TB_BOX_PREFLIGHT_S:-90}" ${py:-python3} -m tools.trialbox \
+  PYTHONPATH="$ROOT/libs:$ROOT" timeout -k 5 "${TB_BOX_PREFLIGHT_S:-90}" ${py:-python3} -m tools.trialbox \
     doctor --preflight --env-file "$ROOT/deploy/.env" ${settings[@]+"${settings[@]}"} --out "$FR/preflight.json" \
     >/dev/null 2>&1 || true
   [ -f "$FR/preflight.json" ] || echo "    the preflight did not finish in ${TB_BOX_PREFLIGHT_S:-90} s: the set-up page says it has not run"
@@ -609,6 +626,10 @@ if [ -z "$OWNER" ]; then
   fi
   if [ "$ANCHOR_UNSAFE" = 1 ] && [ -f "${TB_CRON_DIR:-/etc/cron.d}/trialbox-retention" ]; then  # no head into a refused folder
     sed -i 's/; python3 -m tools.trialbox audit-sign//' "${TB_CRON_DIR:-/etc/cron.d}/trialbox-retention"
+  fi
+  if [ "$ANCHOR_UNSAFE" = 1 ] && [ -f "${TB_SYSTEMD_DIR:-/etc/systemd/system}/trialbox-retention.service" ]; then  # H-110 (c): the timer's job too
+    sed -i 's/; python3 -m tools.trialbox audit-sign//' "${TB_SYSTEMD_DIR:-/etc/systemd/system}/trialbox-retention.service"
+    systemctl daemon-reload 2>/dev/null || true
   fi
 fi
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose

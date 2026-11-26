@@ -94,7 +94,7 @@ measurement pass on master.
 and names any recording a GPU run must still add (none is missing for the deployed pair: EN, JA and zh-TW are all in
 `eval/trialgpt_compare/results/raw`).
 N-12 is the unadjusted figure (D-343, REG-030). The audit-adjusted figure, 3.1 % (95 % 1.8–5.0), is a note and not
-the gate result: the adjustment rests on a sampled check of NIST labels by Claude, not a clinician
+the gate result: the adjustment rests on a sampled check of NIST labels by an automated reviewer, not a clinician
 (`eval/trec_ct/AUDIT.md`). It stays a note until a clinician repeats the sample.
 
 **Model changes** follow the model change protocol (`docs/validation/model-change-protocol.md`): each foreseen change

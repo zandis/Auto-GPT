@@ -72,6 +72,13 @@
 # checks that this host can reach it (D-140).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# LR-18: run from a release the bootstrap staged (BOX/releases/<id>/deploy/install.sh), the code is that release's
+# (ROOT) and the box is BOX, two folders up: its install lock, its `current` and the update's target are the box's.
+# Told from this script's own path alone, never from a caller's variable. Run as deploy/install.sh, BASE is ROOT
+BASE="$ROOT"
+if [ "$(basename "$(dirname "$ROOT")")" = releases ] && [ -d "$(dirname "$(dirname "$ROOT")")/deploy" ]; then
+  BASE="$(dirname "$(dirname "$ROOT")")"
+fi
 cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
@@ -143,12 +150,10 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
   return 0
 }
 tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
-  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
-  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
-  _in="$(cat)"
-  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
-    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
-  } | sort -u || true
+  # (H-110 (g), the integrator's ruling 7119913331): by the kind marker deploy/check_host.sh writes where the line is
+  # made, never by its words: "[H-94 (5)]" a secret's mode (deploy/.env, a plain key); "(2)" what the machine cannot
+  # run (memory class, card, driver, toolkit, disk space); "(3)" the poc profile on a PRODUCTION box. Every other warns
+  grep -E '^FAIL .*\[H-94 \([235]\)\]$' | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: this run's command line is read once before the arguments are, so a stop while they are read knows the box
@@ -165,7 +170,7 @@ done
 # by a run that only checks, and when box-install.sh runs it (--keep-poc-list: box-install.sh empties it itself; the
 # option only keeps more lines, and no variable of a caller's is read for it). rm takes a link away, never what it names
 if [ "$_clear" = 1 ] \
-    && { [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; }; then
+    && { [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$BASE/current" 2>/dev/null)" ]; }; then
   rm -f -- "$TB_STOP_DEPLOY/site/poc-stops.jsonl" 2>/dev/null || true
 fi
 PP_FILE=""; PP_KEEP=0; PP_STDIN=0; PP_FD=""; PP_REMOVE=""  # H-96: the KEK passphrase's two ways in (the KEK-INPUT block)
@@ -214,10 +219,12 @@ ALIVE_PID=""
 alive_start() {
   local what="$1" installer=$$
   # it also ends within a second of the installer's own end (set -e, a signal; OCR 1524-2): while it lives it holds
-  # the installer's stderr; an installer not yet reaped by its caller is a zombie, which kill -0 still finds (its state
-  # in /proc; no command substitution here, a TERM that lands in one is lost)
-  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0; t=0
+  # the installer's stderr. H-110: the sleep holds none of the caller's pipes
+  ( s=""; self=$BASHPID; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0; t=0
+    # OCR 1455-4 and 1524-2: alive while the installer is this ticker's parent and not a zombie (kill -0 still finds one
+    # its caller has not reaped; Linux: its state in /proc). No command substitution here: a TERM that lands in one is lost
     up() { kill -0 "$installer" 2>/dev/null || return 1
+      if [ -r "/proc/$self/stat" ]; then read -r _ _ _ pp _ < "/proc/$self/stat" || return 1; [ "$pp" = "$installer" ] || return 1; fi
       read -r _ _ st _ 2>/dev/null <"/proc/$installer/stat" || return 0; [ "$st" != Z ]; }
     while up; do
       sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; s=""; t=$((t + 1))
@@ -225,7 +232,7 @@ alive_start() {
       t=0; n=$((n + 1))
       up && echo "    ... still $what ($n min)" >&2
     done
-  ) >&2 & ALIVE_PID=$!
+  ) >&2 9>&- 6>&- & ALIVE_PID=$!  # 1452-12: the ticker and its sleep hold neither lock (INSTALL-LOCK fd 9, the host lock fd 6)
 }
 alive_stop() {
   [ -n "$ALIVE_PID" ] || return 0
@@ -332,8 +339,15 @@ kp_read_file() {  # H-94 (5): refused unless its folders are safe and the opened
 kp_read_stdin() {
   KP_VALUE=""
   if [ -t 0 ]; then
+    # H-110 (i): a hang-up, ^C or kill during the prompt gives the terminal its echo back (each caller asks before it
+    # sets a trap of its own, so the traps are reset to the default after)
+    # the echo back, then the signal again with its own default: the same end as before
+    trap 'stty echo 2>/dev/null; trap - HUP; kill -s HUP $$' HUP
+    trap 'stty echo 2>/dev/null; trap - INT; kill -s INT $$' INT
+    trap 'stty echo 2>/dev/null; trap - TERM; kill -s TERM $$' TERM
     stty -echo 2>/dev/null; printf 'KEK passphrase (12 characters or more, not shown): ' >&2; IFS= read -r KP_VALUE || :
     printf '\nthe same again: ' >&2; kp_again=""; IFS= read -r kp_again || :; stty echo 2>/dev/null; printf '\n' >&2
+    trap - HUP INT TERM
     [ "$KP_VALUE" = "$kp_again" ] || { KP_VALUE=""; kp_again=""; kp_die "the two passphrases differ: nothing was changed"; }
     kp_again=""
   else
@@ -442,6 +456,13 @@ tree_args() {
     TREE_D=(-v "$tree:/current:ro"); TREE_APP=(-v "$tree:/app/current:ro")
   fi
 }
+# H-110 (L-IB-2): a caller's TB_VENDOR_PUBKEY never stands in for the key the box was given out of band (placed by the
+# bootstrap after the fingerprint was confirmed): one that is not the same key is refused
+PINNED_KEY="$ROOT/deploy/keys/vendor_ed25519.pub"
+if [ -n "${TB_VENDOR_PUBKEY:-}" ] && [ -f "$PINNED_KEY" ] && ! cmp -s -- "$TB_VENDOR_PUBKEY" "$PINNED_KEY"; then
+  echo "${TB_STOP_WHO:-install}: TB_VENDOR_PUBKEY ($TB_VENDOR_PUBKEY) is not the box's vendor key $PINNED_KEY: refused, nothing was changed (unset it)" >&2
+  exit 1  # H-94 (1): the signature is checked only with the key the box was given
+fi
 PUBKEY="${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}"
 
 if [ "$CHECK" = 1 ]; then exec sh "$ROOT/deploy/check_host.sh" "$@"; fi
@@ -637,7 +658,7 @@ echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), m
 # written, and the lock ends with the installer's process, so a killed run leaves none behind. The run from the signed
 # tree (exec below) keeps the lock it inherits on fd 9: it is not taken twice
 # H-94: on a PoC box with no flock, or a folder that cannot be opened, the warning skips the lock (LOCKED=0)
-INSTALL_LOCK="$(readlink -f "$ROOT/deploy")"
+INSTALL_LOCK="$(readlink -f "$BASE/deploy")"  # LR-18: the box's, also from a staged release
 LOCKED=1; NO_LOCK="the install lock (a second installer on this folder is not kept out)"
 command -v flock >/dev/null || { stop_or_warn install-lock-flock "$NO_LOCK" "flock (util-linux) is missing, so a second installer could not be kept out: install util-linux, then re-run; nothing was changed"; LOCKED=0; }
 if [ "$LOCKED" = 1 ] && [ "$(readlink -f "/proc/$$/fd/9" 2>/dev/null)" != "$INSTALL_LOCK" ]; then
@@ -776,7 +797,7 @@ ANCHOR_SKIPS="the anchor folders: not mounted into the console, no first head, n
 # PRODUCTION, D-127; a value that is none of the four is taken as PRODUCTION) and --environment, so a PRODUCTION
 # box re-run with --environment VALIDATION is refused here, not after the load (M1)
 SIGNED_RUN=0
-if [ -n "${TB_INSTALL_SIGNED:-}" ] && [ "$TB_INSTALL_SIGNED" = "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+if [ -n "${TB_INSTALL_SIGNED:-}" ] && [ "$TB_INSTALL_SIGNED" = "$(readlink "$BASE/current" 2>/dev/null)" ]; then
   SIGNED_RUN=1
 fi
 GATE_ENV="$EARLY_ENV"
@@ -824,7 +845,7 @@ if [ "$SIGNED_RUN" != 1 ]; then  # the same test as FINISH-EARLY's skip (above)
     SPACE_RC=0
     SPACE="$(python3 "$ROOT/tools/packs.py" space "$BUNDLE" ${MODEL_PACK:+--model-pack "$MODEL_PACK"} \
       --docker-root "${DOCKER_ROOT:-/var/lib/docker}" --models "$ROOT/deploy/models" --stage "${TMPDIR:-/tmp}" \
-      --deploy "$ROOT" --updates "$ROOT/deploy/updates" 2>&1)" || SPACE_RC=$?
+      --deploy "$BASE" --updates "$BASE/deploy/updates" 2>&1)" || SPACE_RC=$?
     [ "$SPACE_RC" != 1 ] || die "the disk cannot hold the install at its peak; nothing was loaded: $SPACE"  # H-94 (2)
     [ -z "$SPACE" ] || printf '%s\n' "$SPACE" | indent
   fi
@@ -860,14 +881,14 @@ fi
 # H-94 (1): the signed release does not hold what every later step runs (its image, its host tree, its installer)
 docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $IMAGE_PY image"  # H-94 (1)
 # T-631, D-367: compose files, host tools and configuration come only from the signed release
-[ -L "$ROOT/current" ] && [ -d "$ROOT/current/deploy" ] \
+[ -L "$BASE/current" ] && [ -d "$BASE/current/deploy" ] \
   || die "the bundle carried no host tree (payload kind host, D-367): build the release with tools/make_bundle.sh of T-631 or later"  # H-94 (1)
-RELEASE="$(readlink "$ROOT/current")"
-echo "    release: $ROOT/current -> $RELEASE"
+RELEASE="$(readlink "$BASE/current")"
+echo "    release: $BASE/current -> $RELEASE"
 if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
   # deploy/install.sh is now a link into the signed tree (run by that path, so ROOT stays this folder)
-  [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"  # H-94 (1)
-  say "continuing from the signed release ($ROOT/deploy/install.sh -> $(readlink "$ROOT/deploy/install.sh"))"
+  [ -L "$BASE/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"  # H-94 (1)
+  say "continuing from the signed release ($BASE/deploy/install.sh -> $(readlink "$BASE/deploy/install.sh"))"
   # REHEARSAL-REAL-SERVERS (H-89): the compose override this run exported (above) is never handed on: the run from
   # the signed tree writes it again itself, so any value it is given is a caller's and is refused there
   [ "$REAL_SERVERS" != 1 ] || unset TB_COMPOSE_OVERRIDE
@@ -885,11 +906,11 @@ if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
       PP_ARGS+=("$a")
     done
     [ -z "$KP_FILE" ] || PP_ARGS+=(--kek-passphrase-remove "$KP_FILE")
-    TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
+    TB_INSTALL_SIGNED="$RELEASE" exec bash "$BASE/deploy/install.sh" ${PP_ARGS[@]+"${PP_ARGS[@]}"} --kek-passphrase-fd 8 \
       8< <(printf '%s\n' "$KP_VALUE")
   fi
   # ---- end of KEK-INPUT
-  TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
+  TB_INSTALL_SIGNED="$RELEASE" exec bash "$BASE/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
 fi
 
 # Expose the signed host CLI on PATH. The link follows the release selected by an update or rollback.
@@ -1179,6 +1200,7 @@ if command -v python3 >/dev/null; then
   python3 -m tools.trialbox.pgsize --env-file deploy/.env --write 2>&1 | indent || stop_or_warn pgsize "PostgreSQL's sizes (the compose defaults)" "PostgreSQL could not be sized (above): set the TB_PG_* values in deploy/.env, then re-run"
 fi
 chmod 600 deploy/.env
+[ "$(id -u)" != 0 ] || chown 0:0 deploy/.env  # H-110 (M-LH-1): root's alone, not only its mode
 # the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
 # 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
 [ ! -f deploy/settings.yaml ] || { chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml; }
@@ -1344,9 +1366,33 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
   OVR="$(cd "$(dirname "$TB_COMPOSE_OVERRIDE")" && pwd)/$(basename "$TB_COMPOSE_OVERRIDE")"
   # every later compose command (as root: update, secrets rotate) reads it: only its owner (root or the installer)
   # may change it, and it must stay where it is
+  # OCR 1455-2 (B): the file is opened once (a descriptor bash picks, 10 or above: never fd 6 or 9, the host lock and the
+  # install lock, OCR 1455-9); its owner and mode are those of the open file, and the copy below
+  # is read from that same descriptor, so a file swapped in under its name after the check is never the one copied
   OVR_OK=1
-  [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || { stop_or_warn override-owner "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"; OVR_OK=0; }
-  [ "$OVR_OK" = 0 ] || [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || { stop_or_warn override-mode "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"; OVR_OK=0; }
+  OVR_FD=""; exec {OVR_FD}< "$OVR" || OVR_FD=""
+  OVR_ST="$(stat -L -c '%u %a' "/dev/fd/${OVR_FD:-none}" 2>/dev/null)" || OVR_ST="- 777"
+  [ "${OVR_ST%% *}" = 0 ] || [ "${OVR_ST%% *}" = "$(id -u)" ] || { stop_or_warn override-owner "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"; OVR_OK=0; }
+  [ "$OVR_OK" = 0 ] || [ $((0${OVR_ST#* } & 022)) = 0 ] || { stop_or_warn override-mode "$NO_OVR" "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"; OVR_OK=0; }
+  # H-110 (M-LH-2): root's later compose commands (the start at boot, update, secrets rotate) read a copy in deploy/site
+  # (root's, 0644), never the caller's file where it lies: a folder above it that another user can write would let that
+  # user replace it between this check and any later start
+  case "$OVR" in
+    "$ROOT"/deploy/site/*) ;;
+    *) if [ "$OVR_OK" = 1 ]; then
+         OVR_COPY="$ROOT/deploy/site/compose-override.yml"
+         # written whole beside it, synced, then renamed over it (never written in place)
+         if mkdir -p "$ROOT/deploy/site" && rm -f -- "$OVR_COPY.new" && (umask 077; cat <&"$OVR_FD" > "$OVR_COPY.new") \
+             && { [ "$(id -u)" != 0 ] || chown 0:0 "$OVR_COPY.new"; } && chmod 0644 "$OVR_COPY.new" && sync -- "$OVR_COPY.new" && mv -f -- "$OVR_COPY.new" "$OVR_COPY" \
+             && sync -- "$ROOT/deploy/site"; then
+           echo "install: note: the compose override $OVR copied to $OVR_COPY (the copy is the one used)" >&2
+           OVR="$OVR_COPY"
+         else
+           rm -f -- "$OVR_COPY.new"; echo "install: warning: the compose override could not be copied to $OVR_COPY: not used" >&2; OVR_OK=0
+         fi
+       fi ;;
+  esac
+  [ -z "$OVR_FD" ] || exec {OVR_FD}<&-
   if [ "$OVR_OK" = 1 ]; then
     is_standins "$OVR" && rehearsal_only standins "the model stand-ins ($OVR says x-trialbox-rehearsal-standins)"
     echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
@@ -1373,6 +1419,32 @@ if command -v python3 >/dev/null; then
   python3 -m tools.images_lock check-compose --files "$LOCK_FILES" 2>&1 | sed 's/^/    /' \
     || die "a compose file names a third-party image that deploy/images.lock does not pin (FAIL above)"  # H-94 (1): an image with no digest pin
 fi
+# OCR 1455-2 (A), the integrator's ruling 7128436810: root's later starts read only compose files in this tree. A file
+# of the set that resolves outside it is copied into deploy/site (root's, 0644; opened once, written whole, renamed)
+# and the copy is the one used. A copy that cannot be made is said here; every start then refuses the file (H-94 (1))
+CF_ROOT="$(cd -P -- "$ROOT" && pwd -P)"; CF_NEW=""; CF_IFS="$IFS"; IFS=:
+for cf in $FILES; do
+  IFS="$CF_IFS"
+  cf_real="$(readlink -f -- "$cf" 2>/dev/null)" || cf_real=""
+  case "$cf_real" in
+    "$CF_ROOT"/*) ;;
+    *) cf_copy="$ROOT/deploy/site/compose-$(basename -- "$cf")"; CF_FD=""
+       if mkdir -p "$ROOT/deploy/site" && exec {CF_FD}< "$cf" && rm -f -- "$cf_copy.new" && (umask 077; cat <&"$CF_FD" > "$cf_copy.new") \
+           && { [ "$(id -u)" != 0 ] || chown 0:0 "$cf_copy.new"; } && chmod 0644 "$cf_copy.new" && sync -- "$cf_copy.new" && mv -f -- "$cf_copy.new" "$cf_copy" \
+           && sync -- "$ROOT/deploy/site"; then
+         echo "install: note: the compose file $cf is outside $ROOT: copied to $cf_copy (the copy is the one used)" >&2
+         for i in "${!COMPOSE[@]}"; do [ "${COMPOSE[$i]}" != "$cf" ] || COMPOSE[i]="$cf_copy"; done
+         cf="$cf_copy"
+       else
+         rm -f -- "$cf_copy.new"
+         echo "install: warning: the compose file $cf is outside $ROOT and could not be copied to $cf_copy: it is used where it lies, and every start refuses it unless it and each folder above it are root's alone" >&2
+       fi
+       [ -z "${CF_FD:-}" ] || exec {CF_FD}<&-; CF_FD="" ;;
+  esac
+  CF_NEW="${CF_NEW:+$CF_NEW:}$cf"
+  IFS=:
+done
+IFS="$CF_IFS"; FILES="$CF_NEW"
 # the same file set for every later `docker compose --project-directory deploy ...` (secrets rotate, update, logs)
 sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.env
 # D-138 log retention: where collected service logs and the audit archive go (RUNBOOK §2 "Logs"); the days are in
@@ -1602,13 +1674,21 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
   fi
+elif [ "$EGRESS_OK" = 1 ]; then
+  # H-110 (M-SC-2): no systemd here (or TB_SYSTEMD=0): no unit loads the closed egress table at boot, and nftables keeps
+  # no rule across a reboot, while Docker brings every service back: said, every time
+  stop_or_warn egress-at-boot "the egress rules at boot (restore and apply them after each boot)" "no systemd units here: nothing restores the egress rules after a reboot, and the services start again without them. After every boot run: sudo $ROOT/deploy/network.sh restore && sudo $ROOT/deploy/network.sh apply (the host check FAILs the missing table)"
 fi
 # H-92 (D-1090): a systemd host schedules the backup with timers, so it needs no /etc/cron.d for that
 SYSTEMD_HOST=0; [ "$(id -u)" = 0 ] && [ "${TB_SYSTEMD:-1}" != 0 ] && [ -d /run/systemd/system ] \
   && command -v systemctl >/dev/null && SYSTEMD_HOST=1
+# H-110 (c): a systemd host whose cron daemon does not run (no cron package, or one stopped) runs the job from a timer
+NO_CRON_DAEMON=0
+if [ "$SYSTEMD_HOST" = 1 ] && ! systemctl is-active --quiet cron.service 2>/dev/null \
+    && ! systemctl is-active --quiet crond.service 2>/dev/null; then NO_CRON_DAEMON=1; fi
 CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finished install in PRODUCTION
 CAN_CRON=0; [ -z "${TEST_BOX:-}" ] && { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1  # H-106
-if [ "$CAN_CRON" = 1 ]; then
+if [ "$CAN_CRON" = 1 ] && [ "$NO_CRON_DAEMON" = 0 ]; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
   # NEW-STD-2 (D-562): then the night's signed head of the audit chain into TB_AUDIT_ANCHOR_TARGETS, whatever the
   # first command returned; `trialbox doctor` (audit_heads) FAILs when no folder is set or the newest head is old
@@ -1617,12 +1697,51 @@ if [ "$CAN_CRON" = 1 ]; then
   echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
 elif [ "$TB_ENV_SITE" = PRODUCTION ] && [ "$SYSTEMD_HOST" != 1 ]; then
   stop_or_warn cron-production "" "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
-elif [ "$SYSTEMD_HOST" = 1 ]; then
-  echo "install: warning: no $CRON_DIR: the backup runs from systemd timers; the log retention cron is not installed (H92-02)" >&2
+elif [ "$SYSTEMD_HOST" = 1 ] && [ -z "${TEST_BOX:-}" ]; then  # H-106: a test box writes nothing on the host's schedules
+  # H-110 (c): a systemd host with no cron folder runs the same nightly job from a timer, as the backup's (H-92): the
+  # retention and the signed audit head never wait for a cron daemon the host does not have
+  RET_UNIT="${SYSTEMD_DIR:+$SYSTEMD_DIR/trialbox-retention}"
+  if [ -n "$RET_UNIT" ] && printf '%s\n' "# Written by deploy/install.sh (H-110): the job of /etc/cron.d/trialbox-retention; do not edit." \
+      "[Unit]" "Description=TrialBox log retention and the signed audit head" "After=docker.service trialbox.service" "" \
+      "[Service]" "Type=oneshot" "Environment=PATH=/usr/bin:/bin" \
+      "ExecStart=/bin/sh -c 'cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1'" \
+      > "$RET_UNIT.service" \
+    && printf '%s\n' "# Written by deploy/install.sh (H-110); do not edit." "[Unit]" "Description=TrialBox log retention schedule" "" \
+      "[Timer]" "OnCalendar=*-*-* 00:20:00" "Persistent=true" "" "[Install]" "WantedBy=timers.target" > "$RET_UNIT.timer" \
+    && chmod 644 "$RET_UNIT.service" "$RET_UNIT.timer" && systemctl daemon-reload \
+    && systemctl enable --now trialbox-retention.timer >/dev/null 2>&1; then
+    rm -f "$CRON_DIR/trialbox-retention"  # one schedule, never both (as the backup's, D-1090)
+    echo "install: note: no cron daemon here: the log retention cron is not installed; trialbox-retention.timer runs its job (00:20 daily, H-110)" >&2
+  else
+    # OCR 1455-8 (the integrator's ruling 7128436810): PRODUCTION stops; a PoC box warns and lists it
+    stop_or_warn retention-timer "the nightly log retention and signed audit head (until the timer is installed)" "no cron daemon here, and trialbox-retention.timer could not be installed: the log retention and the signed audit head do not run. See systemctl status trialbox-retention.timer, then re-run"
+  fi
+fi
+# review 7186452446 R4: one schedule, never both: with the cron file in place (a cron daemon runs), a retention timer
+# an earlier install made (no cron daemon then) goes, as the timer branch removes the cron file
+RET_UNIT="${SYSTEMD_DIR:+$SYSTEMD_DIR/trialbox-retention}"
+if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" = 1 ] && [ "$NO_CRON_DAEMON" = 0 ] && [ -n "$RET_UNIT" ] \
+    && { [ -e "$RET_UNIT.timer" ] || [ -L "$RET_UNIT.timer" ]; }; then
+  systemctl disable --now trialbox-retention.timer >/dev/null 2>&1 || true
+  rm -f "$RET_UNIT.timer" "$RET_UNIT.service" && systemctl daemon-reload >/dev/null 2>&1 || true
+  echo "    removed: trialbox-retention.timer (the cron file is the one schedule)"
+fi
+# H-110 (M-SC-3): a cron folder is not a cron daemon (a systemd host without one got the timer above)
+if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" != 1 ] && ! command -v pgrep >/dev/null; then
+  # OCR 1455-8: a host without pgrep is told, never passed in silence
+  stop_or_warn cron-daemon-unknown "the check for a running cron daemon" "this host has no pgrep, so whether a cron daemon runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) cannot be told; install procps (pgrep) or check the host's cron daemon, then re-run"
+fi
+if [ -f "$CRON_DIR/trialbox-retention" ] && [ "$SYSTEMD_HOST" != 1 ] && command -v pgrep >/dev/null \
+    && ! pgrep -x cron >/dev/null && ! pgrep -x crond >/dev/null; then
+  stop_or_warn cron-daemon "the nightly log retention and signed audit head (until a cron daemon runs)" "no cron daemon runs on this host: nothing runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) until one does; start the host's cron daemon, then re-run"
 fi
 # H-94 (D-1091): a finish check warned on a PoC box: the nightly signed head is not written into the refused folder
 [ "${ANCHOR_UNSAFE:-0}" = 0 ] || [ ! -f "$CRON_DIR/trialbox-retention" ] \
   || sed -i 's/; python3 -m tools.trialbox audit-sign//' "$CRON_DIR/trialbox-retention"
+if [ "${ANCHOR_UNSAFE:-0}" = 1 ] && [ -n "${SYSTEMD_DIR:-}" ] && [ -f "$SYSTEMD_DIR/trialbox-retention.service" ]; then  # H-110 (c): the timer's job too
+  sed -i 's/; python3 -m tools.trialbox audit-sign//' "$SYSTEMD_DIR/trialbox-retention.service"
+  systemctl daemon-reload 2>/dev/null || true
+fi
 if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ] && [ -z "${TEST_BOX:-}" ]; then
   # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
   install -m 644 deploy/logrotate/trialbox /etc/logrotate.d/trialbox && echo "    host logs: /etc/logrotate.d/trialbox"
@@ -1633,6 +1752,7 @@ if [ -n "${OVR:-}" ]; then  # the override is outside deploy/: mount it where th
   SHEET_MOUNT=(-v "$OVR:/app/deploy/compose-override.yml:ro"); SHEET_FILES="${SHEET_FILES//$OVR/deploy/compose-override.yml}"
 fi
 FAILS=()   # T-632: a FAIL here does not stop the install half-way; the install ends with exit 1 and the list
+KEPT_FAILS=()  # H-110 (1396-1): FAIL lines of a kept refusal made by this run itself (a PoC box ends 1 on them too)
 # HW-003 (D-569): the shipped qualification record. The pair was pinned as candidate, and PRODUCTION routes a
 # champion only. When a record in deploy/qualification/<profile>/ qualified exactly these weights, this model
 # server image and this chat template, the pair is promoted; the promotion is kept only when the canary passes on
@@ -1671,6 +1791,9 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
       FAILS+=("the model pair was promoted on its shipped record but the canary on this box did not pass (above): it is back to candidate and routes nothing; check the card, the driver and the model servers' logs, then re-run (RUNBOOK §11)")
     else
       FAILS+=("the model pair was promoted on its shipped record, the canary on this box did not pass (above), and the pair could NOT be put back: run python3 -m tools.pin_model --demote-pair $GPU, then restart the gateway, before anything is screened (RUNBOOK §11)")
+      # H-110 (1396-1): a promoted pair that failed this box's canary and stays promoted is a pair the machine cannot
+      # run (H-94 (2)): kept as a FAIL on every box, so a PoC install never ends as if the box were ready
+      KEPT_FAILS+=("${FAILS[-1]}")
     fi
   elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
     echo "    rehearsal box: the pair is the media's placeholder pins (candidate, never promoted); nothing to qualify"
@@ -1873,7 +1996,7 @@ HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | 
 exec 8>&-
 SECRET_FAILS=()
 while IFS= read -r l; do SECRET_FAILS+=("the host check: $l"); done < <(printf '%s\n' "$HOST_OUT" | tb_kept_fails \
-  | sed -E 's/^FAIL +//' || true)
+  | sed -E 's/^FAIL +//; s/ \[H-94 \([235]\)\]$//' || true)
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
 if [ "$MODE" = gpu ]; then
@@ -1944,6 +2067,7 @@ fi
 # H-94 (5): on a PoC box a FAIL line of the host check of a kept refusal (tb_kept_fails: a secret's mode, and (2),
 # (3)) stays a FAIL: the other FAIL lines warn
 # and are listed, then those lines and exit 1. On any other box the lines below stop, with master's words
+SECRET_FAILS+=(${KEPT_FAILS[@]+"${KEPT_FAILS[@]}"})  # H-110 (1396-1): this run's own kept FAIL lines with the host check's
 if [ "${#SECRET_FAILS[@]}" -gt 0 ] && tb_poc_box; then
   for f in "${FAILS[@]}"; do stop_or_warn --silent "fail: $(printf '%s' "$f" | cut -c1-40)" "" "FAIL: $f"; done
   printf 'install: FAIL: %s\n' "${SECRET_FAILS[@]}" >&2

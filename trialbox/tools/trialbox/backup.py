@@ -178,10 +178,16 @@ def keygen(private_out: Path, public_out: Path) -> str:
         p.parent.mkdir(parents=True, exist_ok=True)
     words = base64.b32encode(raw).decode().rstrip("=")
     paper = " ".join(words[i : i + 4] for i in range(0, len(words), 4))
-    private_out.write_text(
-        f"-----BEGIN {KEY_HEADER}-----\n{paper}\nfingerprint {fp}\n-----END {KEY_HEADER}-----\n", encoding="utf-8"
-    )
-    os.chmod(private_out, 0o600)
+    # H-110 (L-BK-1): made 0600 from its first byte and only if no file has that name (O_EXCL: a second keygen at the
+    # same moment cannot overwrite it either)
+    try:
+        fd = os.open(private_out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise BackupError(f"{private_out} exists: a backup key is never overwritten") from None
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(f"-----BEGIN {KEY_HEADER}-----\n{paper}\nfingerprint {fp}\n-----END {KEY_HEADER}-----\n")
+        fh.flush()
+        os.fsync(fh.fileno())
     public_out.write_text(base64.b64encode(pk).decode() + "\n", encoding="utf-8")
     return fp
 

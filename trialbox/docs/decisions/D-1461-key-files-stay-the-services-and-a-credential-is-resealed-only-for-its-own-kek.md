@@ -42,6 +42,16 @@ after a restart left the services unable to open any key (LR-3, LR-4). `rotate-k
    no TPM credential. `--no-tpm` looks for no credential and seals none; it is refused beside `--seal-tpm`, on a box
    whose credential is there, and with any back end but file.
 
+7. **One key-owner rule (the integrator's ruling 7141781119; H-110, PR #1455).** A key file the services read
+   (in the secrets folder: the plain and wrapped keys, `kek.json`, staged keys, the runtime KEK) is root's, the
+   services' (uid 10001: the `user` of every service that mounts the secrets volume in `deploy/docker-compose.yml`),
+   or the account's that runs the command (a developer's or CI's own folder), and no one else's. Its mode is 0600
+   whoever owns it: no group or other bit. The rule is written once in the code, `tb_common.kek.key_owner_allowed`
+   with `SERVICES_UID`, and both checks read it there: `deploy/check_host.sh` (a plain key another owner holds is
+   a kept FAIL, H-94 (5)) and `services_owner()` (a key is handed only to a folder owner the rule allows; otherwise
+   it stays root's). A test holds `SERVICES_UID` equal to the compose file's user. The seal's own folder,
+   `/run/trialbox-seal` (H-118, #1482), is root's only, mode 0700: no key file there is the services'.
+
 ## Consequences
 
 At every instant each site key either is still as it was or opens with the KEK sealed in the credential in place,

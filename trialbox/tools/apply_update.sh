@@ -53,6 +53,14 @@
 #    --target demo: the one-container demo VM (docs/RUNBOOK.md §11), checked by running e2e_simple in the new container.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# LR-18: run from a release the bootstrap staged (BOX/releases/<id>/tools/apply_update.sh), the code is that
+# release's (ROOT) and the box it updates is BOX, two folders up: the update's --deploy is BOX/deploy, so its host
+# tree step records the release the box runs as the one before and switches `current` with its rollback point. Told
+# from this script's own path alone; run as tools/apply_update.sh, BASE is ROOT
+BASE="$ROOT"
+if [ "$(basename "$(dirname "$ROOT")")" = releases ] && [ -d "$(dirname "$(dirname "$ROOT")")/deploy" ]; then
+  BASE="$(dirname "$(dirname "$ROOT")")"
+fi
 UPDATES="$ROOT/deploy/updates"
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
@@ -119,21 +127,19 @@ stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning,
   return 0
 }
 tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
-  # (5) a secret's mode (deploy/.env, a key, a token); (2) what the machine cannot run (memory class, card, driver,
-  # toolkit, disk space); (3) the poc profile on a PRODUCTION box (review H-1 of #1430). Every other FAIL line warns
-  _in="$(cat)"
-  { printf '%s\n' "$_in" | grep -E '^FAIL .*[Mm]ode' | grep -Ei '\.env|secret|key|token|passphrase|password'
-    printf '%s\n' "$_in" | grep -E '^FAIL .*(under 96 GiB|GB10 profile on|NVIDIA driver|nvidia-container-toolkit not configured|but no nvidia-smi|free space on|TB_HOST_PROFILE=poc on a PRODUCTION box)'
-  } | sort -u || true
+  # (H-110 (g), the integrator's ruling 7119913331): by the kind marker deploy/check_host.sh writes where the line is
+  # made, never by its words: "[H-94 (5)]" a secret's mode (deploy/.env, a plain key); "(2)" what the machine cannot
+  # run (memory class, card, driver, toolkit, disk space); "(3)" the poc profile on a PRODUCTION box. Every other warns
+  grep -E '^FAIL .*\[H-94 \([235]\)\]$' | sort -u || true
 }
 # ---- end of STOP-OR-WARN
 # H-94: apply_update.sh has no --environment: its PoC box is the record (deploy/.env, the mark) alone
 TB_STOP_WHO=apply_update; TB_STOP_FILE=apply_update.sh; TB_STOP_DEPLOY="$ROOT/deploy"; TB_STOP_ARG_ENV=""; TB_STOP_REHEARSAL=0
 USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] [--with-model-pack MODEL_PACK (with --dry-run)] [--for-software SOFTWARE_PACK] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
-  status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
-  rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
-  ospatch-check) cd "$ROOT"; shift; exec python3 "$ROOT/deploy/hardening/ospatch.py" check --deploy "$ROOT/deploy" "$@" ;;
+  status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$BASE/deploy" "$1" ;;
+  rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$BASE/deploy" rollback "${2:?$USAGE}" ;;
+  ospatch-check) cd "$ROOT"; shift; exec python3 "$ROOT/deploy/hardening/ospatch.py" check --deploy "$BASE/deploy" "$@" ;;
   ""|-h|--help) echo "$USAGE" >&2; exit 2 ;;  # H-94 not a stop: the usage, asked for or with nothing to do
 esac
 OSPATCH=""; OSCONF=""
@@ -168,6 +174,13 @@ if [ -z "$OSPATCH" ] && [ -n "$NOBACKUP" ] && [ -z "$NOBACKUP_REASON" ]; then
     DEV|TEST|VALIDATION) ;;
     *) TB_STOP_WHO="update REFUSED"; stop_or_warn --rc 2 no-backup-production "" "--no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); nothing was changed"; TB_STOP_WHO=apply_update ;;
   esac
+fi
+# H-110 (L-IB-2): a caller's TB_VENDOR_PUBKEY never stands in for the key the box was given out of band (placed by the
+# bootstrap after the fingerprint was confirmed): one that is not the same key is refused
+PINNED_KEY="$ROOT/deploy/keys/vendor_ed25519.pub"
+if [ -n "${TB_VENDOR_PUBKEY:-}" ] && [ -f "$PINNED_KEY" ] && ! cmp -s -- "$TB_VENDOR_PUBKEY" "$PINNED_KEY"; then
+  echo "${TB_STOP_WHO:-install}: TB_VENDOR_PUBKEY ($TB_VENDOR_PUBKEY) is not the box's vendor key $PINNED_KEY: refused, nothing was changed (unset it)" >&2
+  exit 1  # H-94 (1): the signature is checked only with the key the box was given
 fi
 PUBKEY=${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}
 NEXTKEY="$ROOT/deploy/keys/vendor_ed25519.next.pub"
@@ -263,7 +276,7 @@ echo "verified: $SUMMARY"
 if [ -n "$OSPATCH" ]; then
   STARTED=1  # H-114 (review 1461-2): the host's packages change from here; a signal is never "nothing was changed"
   # shellcheck disable=SC2086
-  python3 "$ROOT/deploy/hardening/ospatch.py" apply --stage "$STAGE" --deploy "$ROOT/deploy" \
+  python3 "$ROOT/deploy/hardening/ospatch.py" apply --stage "$STAGE" --deploy "$BASE/deploy" \
     ${OSCONF:+--conf "$OSCONF"} $DRY
   exit $?  # H-94 not a stop: ospatch.py's own answer
 fi
@@ -288,4 +301,4 @@ cd "$ROOT"
 sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }  # H-94 (3)
 STARTED=1
 python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" --target "$TARGET" \
-  --deploy "$ROOT/deploy" --bundle "$BUNDLE_ABS" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}
+  --deploy "$BASE/deploy" --bundle "$BUNDLE_ABS" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}

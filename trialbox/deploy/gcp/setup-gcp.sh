@@ -108,13 +108,13 @@ if [ -f "$KEY" ]; then
   echo "   $KEY already exists; reusing it (delete it to make a new key)."
 elif ! gcloud iam service-accounts keys create "$KEY" --iam-account="$SA"; then
   echo "Key creation was refused. Your organisation probably enforces"
-  echo "iam.disableServiceAccountKeyCreation. Tell Claude in the thread; do not paste anything."
+  echo "iam.disableServiceAccountKeyCreation. Tell the integrator on the thread; do not paste anything."
   exit 1
 fi
 
 echo
 echo "== DONE. Copy the single line between the markers into the GCP_SA_KEY variable"
-echo "   (Claude project settings > Cloud environment > gear > environment variables)."
+echo "   (the cloud environment's settings: its environment variables; the integrator says where)."
 echo "   Never paste it into chat."
 echo "-----8<-----"
 base64 -w0 "$KEY"; echo

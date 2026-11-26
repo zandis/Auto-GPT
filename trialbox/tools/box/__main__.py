@@ -33,6 +33,7 @@ from tb_common import firstrun
 from tb_common.box_answers import OwnerAnswers, fill, parse, without_backup
 
 from tools.box.plan import DEPLOY, Hardware, PlanError, detect, plan, provisional, write
+from tools.trialbox.private_file import replace_private
 
 # made by the install (or the wizard's first write) and never replaced by an apply: the database and services hold them
 KEEP = frozenset({"POSTGRES_PASSWORD", "IMAP_PASS", "SMTP_PASS", "TB_SERVICE_TOKEN", "CLOUD_LLM_API_KEY"})
@@ -106,7 +107,7 @@ def merge_env(env_file: Path, new: dict[str, str]) -> list[str]:
         else:
             lines.append(line)
             changed.append(k)
-    write_whole(env_file, "\n".join(lines) + "\n")
+    replace_private(env_file, "\n".join(lines) + "\n")  # H-110 (M-IB-2): whole, 0600, never in place
     return changed
 
 
