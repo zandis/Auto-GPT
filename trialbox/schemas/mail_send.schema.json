@@ -81,6 +81,11 @@
             "aggregate",
             "phi"
           ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The job's record of the file it built (1523 ruling): a PDF, Office, zip or picture attachment without it does not leave the box."
         }
       }
     },

@@ -27,7 +27,7 @@ from typing import Any
 from datacore import sponsor
 from datacore.lifecycle import failed_label
 from fastapi import FastAPI, Request, Response
-from tb_common import sheets
+from tb_common import egress_edge, sheets
 from tb_common.authz import permit
 from tb_common.dates import in_year, site_dates, year_of, year_window
 from tb_contracts import Job
@@ -483,7 +483,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             name = f"screening_log_{rid}_sponsor.xlsx"
             au.append("console.export", ruleset=rid, actor=h.actor(sess),
                       detail={"filename": name, "layout": cur.get("id")})  # fmt: skip
-            return Response(buf.getvalue(), media_type=XLSX,
+            return Response(egress_edge.made(buf.getvalue()), media_type=XLSX,
                             headers={"Content-Disposition": f'attachment; filename="{name}"'})  # fmt: skip
         ws.append(list(cols))
         for line in table:
@@ -510,7 +510,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         wb.save(buf)
         au.append("console.export", ruleset=rid, actor=h.actor(sess), detail={"filename": "screening_log.xlsx"})
         return Response(
-            buf.getvalue(),
+            egress_edge.made(buf.getvalue()),  # built here (1523 ruling)
             media_type=XLSX,
             headers={"Content-Disposition": f'attachment; filename="screening_log_{rid}.xlsx"'},
         )
@@ -672,5 +672,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         name = f"research_office_{y}.xlsx"
         au.append("console.export", actor=h.actor(sess), detail={"filename": name})
         return Response(
-            buf.getvalue(), media_type=XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'}
+            egress_edge.made(buf.getvalue()),
+            media_type=XLSX,
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )

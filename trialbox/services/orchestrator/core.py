@@ -638,7 +638,9 @@ class Orchestrator:
             to=to,
             subject=subject,
             body_md=body_md,
-            attachments=[SendAttachment(minio_key=o.minio_key, filename=o.filename, tag=o.tag) for o in outputs],
+            attachments=[
+                SendAttachment(minio_key=o.minio_key, filename=o.filename, tag=o.tag, sha256=o.sha256) for o in outputs
+            ],  # 1523 ruling: the record of what the job built goes with it
             encrypt=tag == "phi",
             tag=tag,
             in_reply_to=job.message_id,

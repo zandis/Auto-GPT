@@ -639,16 +639,21 @@ class VerifyResult:
     first_ts: str | None = None
     last_ts: str | None = None
 
-    def told(self, target: Path) -> list[tuple[int, str]]:
+    def told(self, target: Path, holding: int | None = None) -> list[tuple[int, str]]:
         """The heads (lines, hash) the chain says were written, without those ``target`` is named not to have taken
-        (OCR 1523-4): by the signer (``<folder>: <why>``) or by the host before it (``sign_on_box``)."""
+        (OCR 1523-4): by the signer (``<folder>: <why>``) or by the host before it (``sign_on_box``).
+
+        ``holding``: how many of the box's anchor folders hold a signed head now (None: not known). An event from
+        before the events named their folders says only how many took it. A folder that holds no head is held to it
+        unless the folders that hold one are at least as many as took it: then every folder that took it still holds
+        heads, and this one was added since (1523 review M2, round 2). An emptied folder or an empty mount point is
+        one of those that took it, and is held: tampered."""
         missed = (f"{target}: ", f"the anchor folder {target} is not there")
-        # 1523 review M2: an event from before the folders were named does not hold a folder that holds no head (one
-        # added after the upgrade); an event that names its folders still does
-        bare = not ((target / _HEADS_DIR).is_dir() and read_signed_heads(target))
+        new = holding is not None and not holds_heads(target)
         return [(n, h) for n, h, took, failed, to in self.signed_events
                 if took >= 1 and (str(target) in to if to is not None  # OCR 1523-21: the folders that took it
-                                  else not bare and not any(f.startswith(missed) for f in failed))]  # fmt: skip
+                                  else not (new and holding >= took)  # type: ignore[operator]
+                                  and not any(f.startswith(missed) for f in failed))]  # fmt: skip
 
 
 def verify(
@@ -992,6 +997,14 @@ def publish_head(target: Path, rec: Mapping[str, Any], public_pem: bytes) -> Pat
     return path
 
 
+def holds_heads(target: Path) -> bool:
+    """Whether an anchor folder holds a signed head; a folder that cannot be read holds none."""
+    try:
+        return (target / _HEADS_DIR).is_dir() and bool(read_signed_heads(target))
+    except OSError:
+        return False
+
+
 def read_signed_heads(target: Path) -> list[dict[str, Any]]:
     """Every signed head in an anchor folder, oldest first. An unreadable file is returned as an empty record, so
     that :func:`verify` reports it instead of skipping it."""
@@ -1155,7 +1168,7 @@ def _scan(directory: Path, wanted: set[int]) -> tuple[int, dict[int, str], int |
 
 
 def anchor_state(target: Path, audit_dir: Path, own: Mapping[str, bytes] | None, now: datetime,
-                 limit_h: float = 36.0) -> tuple[str, str]:  # fmt: skip
+                 limit_h: float = 36.0, holding: int | None = None) -> tuple[str, str]:  # fmt: skip
     """One anchor folder against the chain: ``(state, sentence)``, state one of :data:`ANCHOR_STATES`.
 
     missing: the folder is not reachable, is on the audit volume (it protects nothing) or holds no head yet.
@@ -1171,7 +1184,8 @@ def anchor_state(target: Path, audit_dir: Path, own: Mapping[str, bytes] | None,
     if _inside(target, audit_dir):
         return "missing", f"the anchor folder {target} is on the audit volume: it protects nothing"
     heads = read_signed_heads(target) if (target / _HEADS_DIR).is_dir() else []
-    told = verify(audit_dir, require_head=False).told(target) if audit_dir.is_dir() else []  # what the chain says
+    chain = verify(audit_dir, require_head=False) if audit_dir.is_dir() else None
+    told = chain.told(target, holding) if chain is not None else []  # what the chain says (holding: see told())
     if not heads and told:  # OCR 1523-17: every head the chain names deleted is tampering, as one deleted head is
         return "tampered", (
             f"{target} holds no signed head, but the chain records {len(told)} written to it: "

@@ -26,6 +26,7 @@ import json
 import os
 import re
 import struct
+import threading
 import unicodedata
 import zipfile
 import zlib
@@ -39,6 +40,45 @@ from tb_common import egress_record, phi_guard
 
 MASK_CHAR = phi_guard.MASK_CHAR
 MAX_BYTES = 64 * 1024 * 1024  # a larger payload is refused: it cannot be read whole
+MADE_MAX = 4096  # the files this process remembers having built (the oldest is forgotten first)
+
+
+# ------------------------------------------------------------------------------------------------ the box's own files
+# 1523 ruling (round 3): a PDF, Office, zip or picture file leaves only when the box built it, by its hash in the box's
+# own output record (this process's, below, or one the caller holds, as a job's outputs), or when it is rebuilt: its
+# text read, masked, and set in a fresh plain PDF (the original never leaves). Any other is refused (``not_made``).
+# The record is in memory and bounded: a restart forgets it, and a file it forgot is refused (built again, it leaves).
+_MADE: dict[str, None] = {}
+_MADE_LOCK = threading.Lock()
+
+
+def made(data: bytes) -> bytes:
+    """Record that this process built ``data`` itself, and give it back. Only where the code wrote the bytes (a
+    workbook, a zip, a report): never on bytes uploaded, imported or handed in by a person
+    (``tests/unit/test_egress_made.py`` lists every place that calls it)."""
+    digest = hashlib.sha256(data).hexdigest()
+    with _MADE_LOCK:
+        _MADE.pop(digest, None)
+        _MADE[digest] = None
+        while len(_MADE) > MADE_MAX:
+            del _MADE[next(iter(_MADE))]
+    return data
+
+
+def _box_made(digest: str, vouched: frozenset[str]) -> bool:
+    with _MADE_LOCK:
+        return digest in vouched or digest in _MADE
+
+
+_IMAGE = (b"\x89PNG", b"\xff\xd8\xff", b"GIF8", b"BM", b"II*\x00", b"MM\x00*", b"\x00\x00\x01\x00")
+
+
+def _container(data: bytes) -> bool:
+    """A PDF, an Office file or any zip, or a picture: what the box lets out only as its own or rebuilt."""
+    if data[:4] in (b"PK\x03\x04", b"PK\x05\x06") or data[:5] == b"%PDF-":
+        return True
+    picture = data.startswith(_IMAGE) or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+    return picture and _plain(data) is None  # a list that begins "BM" is a list
 
 
 class Refused(RuntimeError):
@@ -343,9 +383,19 @@ def _kept_in(name: str) -> frozenset[str]:
 class _Reader:
     """One payload on its way out: the count of identifiers found, and the masked copy."""
 
-    def __init__(self, rule: Route, where: Site) -> None:
+    def __init__(self, rule: Route, where: Site, vouched: Iterable[str] = (), rebuild: bool = False) -> None:
         self.rule, self.site, self.keep = rule, where, rule.keep
         self.hits = 0
+        self.vouched, self.rebuild = frozenset(str(v).lower() for v in vouched), rebuild
+
+    def own(self, name: str, data: bytes) -> tuple[str, bytes]:
+        """A file as it may go on to be read (1523 ruling): the box's own as it is; another rebuilt into a plain PDF
+        when that was asked, or ``Refused`` (``not_made``)."""
+        if not _container(data) or _box_made(hashlib.sha256(data).hexdigest(), self.vouched):
+            return name, data
+        if not self.rebuild:
+            raise Refused("", "not_made")
+        return f"{Path(name).stem or 'file'}.pdf", made(_plain_pdf(self.text(_text_of(data))))
 
     # -------------------------------------------------------------------------------- text
     def find(self, text: str) -> list[tuple[int, int]]:
@@ -916,6 +966,70 @@ def _pdf_drawn(content: bytes) -> list[str]:
     return notes
 
 
+def _text_of(data: bytes) -> str:
+    """The text a PDF or an Office file shows (its pages, its paragraphs, its cells), for a rebuild; ``Refused`` when
+    there is none to read (a scan, a picture, a zip that is no document)."""
+    from pypdf import PdfReader
+
+    try:
+        if data[:5] == b"%PDF-":
+            text = "\n\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)
+        else:
+            z = zipfile.ZipFile(io.BytesIO(data))
+            names = z.namelist()
+            if "xl/workbook.xml" in names:
+                from openpyxl import load_workbook
+
+                wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+                text = "\n\n".join(
+                    ws.title + "\n" + "\n".join("\t".join("" if v is None else str(v) for v in row)
+                                                for row in ws.iter_rows(values_only=True))
+                    for ws in wb.worksheets
+                )  # fmt: skip
+            else:
+                main = [n for n in names if re.fullmatch(r"word/document\.xml|ppt/slides/slide\d+\.xml", n)]
+                parts = sorted(main, key=lambda n: (len(n), n))
+                text = "\n\n".join(
+                    html.unescape(re.sub(r"<[^>]+>", "", re.sub(r"</(?:\w+:)?(?:p|tr)>|<(?:\w+:)?(?:br|tab)\b[^>]*>",
+                                                                  "\n", z.read(n).decode("utf-8"))))
+                    for n in parts
+                )  # fmt: skip
+    except Exception:
+        raise Refused("", "unreadable") from None
+    if not text.strip():
+        raise Refused("", "unreadable")
+    return text
+
+
+def _plain_pdf(text: str) -> bytes:
+    """``text`` set line by line in a fresh PDF of the box's own: nothing of the file it came from but its text."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfgen import canvas
+
+    font = "HeiseiKakuGo-W5" if re.search(r"[\u3040-\u30ff]", text) else "MSung-Light"  # Japanese kana, else Chinese
+    pdfmetrics.registerFont(UnicodeCIDFont(font))
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4, invariant=True, pageCompression=0)
+    c.setTitle("")
+    c.setAuthor("")
+    c.setSubject("")
+    c.setCreator("")
+    height = A4[1]
+    y = height - 50
+    for line in text.splitlines() or [""]:
+        for k in range(0, max(len(line), 1), 90):  # a long line wraps by characters
+            if y < 50:
+                c.showPage()
+                y = height - 50
+            c.setFont(font, 10)
+            c.drawString(40, y, line[k : k + 90])
+            y -= 14
+    c.save()
+    return buf.getvalue()
+
+
 def _a_day(text: str) -> bool:
     try:
         return len(text) == 8 and 1990 <= date.fromisoformat(text).year < 2100
@@ -975,11 +1089,13 @@ def _size(body: bytes) -> int:
 
 def _clean(r: _Reader, p: Any) -> Any:
     if isinstance(p, File):
-        return File(r.name(p.name), r.file(p.name, p.data))
+        name, data = r.own(p.name, p.data)
+        return File(r.name(name), r.file(name, data))
     if isinstance(p, Message):
-        return Message(r.text(p.subject), r.text(p.body), tuple((r.name(n), r.file(n, d)) for n, d in p.files))
+        files = [r.own(n, d) for n, d in p.files]
+        return Message(r.text(p.subject), r.text(p.body), tuple((r.name(n), r.file(n, d)) for n, d in files))
     if isinstance(p, bytes):
-        return r.file("", p)
+        return r.file(*r.own("", p))
     return r.text(p) if isinstance(p, str) else r.tree(p)
 
 
@@ -997,13 +1113,17 @@ def leave(
     refused: str = "",
     note: str = "",
     where: Site | None = None,
+    made: Iterable[str] = (),
+    rebuild: bool = False,
 ) -> Any:
     """The payload as it may leave by ``route`` to ``destination``, or :class:`Refused`. ``payload``: a text, a
     mapping or list, a :class:`File` or a :class:`Message`. ``audit``: the service's audit log; a record that cannot be
     written refuses. ``named``: an exception route's named destinations. ``items``: how many patients it is about, when
     the caller knows. ``unchecked``: the tripwire's development switch, for a model off the box only. ``refused``: an
     exception's own check already said no, and why; ``note``: what it did not know.
-    ``where``: the site, when the caller holds its settings (else :func:`site`)."""
+    ``where``: the site, when the caller holds its settings (else :func:`site`). ``made``: the sha256 of files the
+    caller's own output record says the box built (a job's outputs); ``rebuild``: a PDF, Office, zip or picture file
+    the box did not build leaves as a plain PDF of its text instead of being refused (1523 ruling)."""
     rule = ROUTES.get(route)
     out, why, result = payload, "", "sent"
     reader: _Reader | None = None
@@ -1018,7 +1138,7 @@ def leave(
         elif unchecked and route == "model.offbox":
             result = "unchecked"
         else:
-            reader = _Reader(rule, where or site())
+            reader = _Reader(rule, where or site(), made, rebuild)
             out = _clean(reader, payload)
             if rule.mode == "refuse" and reader.hits:
                 why = "identifiers"
@@ -1084,7 +1204,9 @@ def gate_mail(
     site: Site | None = None,
 ) -> tuple[Any, Any]:
     """A send request and its store as they may leave. A patient file goes as it is, to the site's own domains only
-    (D-369 names its recipients), by :func:`may_have`; any other mail is read whole, attachments too."""
+    (D-369 names its recipients), by :func:`may_have`; any other mail is read whole, attachments too. An attachment
+    that is a PDF, Office, zip or picture file leaves only with the ``sha256`` the job recorded when it built it (1523
+    ruling): one without it is refused (``not_made``)."""
     atts = list(req.attachments or [])
     files = tuple((a.filename, store.get(a.minio_key)) for a in atts)
     to = sorted({str(r).strip().lower() for r in req.to if r})
@@ -1104,6 +1226,7 @@ def gate_mail(
         refused=why,
         note=note,
         where=site,
+        made=[str(a.sha256) for a in atts if getattr(a, "sha256", None)],  # the job's record of what it built
     )
     if not patient:
         new = [a.model_copy(update={"filename": n}) for a, (n, _d) in zip(atts, msg.files, strict=True)]
