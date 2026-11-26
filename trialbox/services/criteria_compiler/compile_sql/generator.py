@@ -35,15 +35,18 @@ from tb_common.derived import (
     UNIT,
     unit_sql,
 )
-from tb_common.labunit import NOT_ACTIVE, ORDER_DATES, UNIT_MISMATCH, value_sql
+from tb_common.labunit import NOT_ACTIVE, ORDER_DATES, UNIT_MISMATCH, key, key_sql, value_sql
 from tb_contracts import Atom, BoolExpr, CriterionIR
 from tb_contracts.criterion_ir import CriterionIRv3
 
-from criteria_compiler.compile_sql.ir3 import AnchoredWindow, detail, medication_source, sql_template
+from criteria_compiler.compile_sql.ir3 import detail, medication_source, sql_template
 from criteria_compiler.semantics import (
     FILTERED,
+    NO_REFERENCE_RANGE,
+    AnchoredWindow,
     CompileError,
     Kind,
+    SiteRefRanges,
     Window,
     atoms,
     check_bool,
@@ -176,10 +179,27 @@ YJ_STEM_OF = "(CASE WHEN regexp_full_match({col}, '[0-9]{{7}}[A-Z][0-9A-Z]{{4}}'
 
 
 class SqlGenerator:
-    def __init__(self, ruleset: str, version: str, valuesets: ValueSets) -> None:
+    def __init__(
+        self, ruleset: str, version: str, valuesets: ValueSets, ref_ranges: SiteRefRanges | None = None
+    ) -> None:
         self.ruleset = ruleset
         self.version = version
         self.vs = valuesets
+        self.ref_ranges = ref_ranges
+
+    def _site_bound(self, atom: Atom, ref_kind: str) -> str | None:
+        """The signed site table's bound for an observation row (``o``) of the patient (``b``), as a CASE over the
+        rows for the atom's codes; None when the table gives none. Matched on code, unit key and sex, as the CQL."""
+        rows = self.ref_ranges.bounds(ref_kind, self.vs.codes(atom.valueset)) if self.ref_ranges else []  # type: ignore[arg-type]
+        if not rows:
+            return None
+        arms = [
+            f"WHEN o.system = {lit(r.system)} AND o.code = {lit(r.code)} AND {key_sql('o.unit')} = {lit(key(r.unit))}"
+            + (f" AND b.sex = {lit(r.sex)}" if r.sex else "")
+            + f" THEN {fmt_num(bound)}"
+            for r, bound in rows
+        ]
+        return "(CASE " + " ".join(arms) + " END)"
 
     def _vs_match(self, vsname: str, system_col: str, code_col: str) -> str:
         return (
@@ -305,8 +325,13 @@ class SqlGenerator:
             join = "\n  " + detail(
                 "measurement", "o", "oid", {"value_num": "m.value_as_number", "ref_bound": f"m.{bound}"}
             )
-            num, bad = "d.detail.value_num", "FALSE"
-            extra = ", d.detail.ref_bound AS ref_bound"
+            num, ref_bound = "d.detail.value_num", "d.detail.ref_bound"
+            site = self._site_bound(atom, ref_kind)
+            if site is not None:  # the result's own range first, else the signed site table (same row unit)
+                num = "(CASE WHEN d.detail IS NULL THEN o.value_num ELSE d.detail.value_num END)"
+                ref_bound = f"coalesce(d.detail.ref_bound, {site})"
+            bad = f"({num} IS NOT NULL AND {ref_bound} IS NULL)"  # no bound: the reason is no_reference_range
+            extra = f", {ref_bound} AS ref_bound"
         elif v.op == "in":  # a coded answer has no unit
             num, bad = "o.value_num", "FALSE"
         else:
@@ -323,7 +348,13 @@ class SqlGenerator:
         )
 
     def _obs_value(
-        self, name: str, atom: Atom, w: Window, source: str | None = None, comparison: str | None = None
+        self,
+        name: str,
+        atom: Atom,
+        w: Window,
+        source: str | None = None,
+        comparison: str | None = None,
+        bad_token: str = UNIT_MISMATCH,
     ) -> tuple[list[str], str, str]:
         """A value comparison over the rows in the window. SCR-03: an undated row cannot be placed in the window (nor,
         for ``latest``, before or after the dated ones). The dated rows' answer stands only when every undated row,
@@ -341,7 +372,7 @@ class SqlGenerator:
                 f"{name} AS (\n  SELECT d.pid, d.index_date, CASE WHEN {stands} THEN d.v END AS v,\n"
                 f"         CASE WHEN {stands} OR d.v IS NULL THEN d.ev ELSE u.ev END AS ev\n"
                 f"  FROM (SELECT pid, index_date, {c} AS v,\n"
-                f"         CASE WHEN o.unit_bad THEN {lit(UNIT_MISMATCH + ';')} ELSE '' END || {ref} AS ev\n"
+                f"         CASE WHEN o.unit_bad THEN {lit(bad_token + ';')} ELSE '' END || {ref} AS ev\n"
                 f"    FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, "
                 f"oid DESC) AS rn\n          FROM ({src}) WHERE NOT undated) o WHERE rn = 1) d\n"
                 f"  LEFT JOIN (SELECT pid, index_date, count(*) AS n,\n"
@@ -389,7 +420,7 @@ class SqlGenerator:
         cte = (
             f"{name} AS (\n  SELECT pid, index_date, {agg} AS v,\n"
             f"         concat_ws(';', CASE WHEN {agg} IS NULL AND bool_or(o.unit_bad) {dated} THEN "
-            f"{lit(UNIT_MISMATCH)} END,\n"
+            f"{lit(bad_token)} END,\n"
             f"           CASE WHEN {agg} IS NULL THEN {bad_refs} END,\n"
             f"           CASE WHEN {agg} IS NULL THEN {could_refs} END,\n"
             f"           string_agg(CASE WHEN {c} AND NOT o.undated THEN {ref} END, ';' ORDER BY o.effective, o.oid))"
@@ -661,6 +692,7 @@ class SqlGenerator:
                         w,
                         self._obs_source(atom, w, ref.kind),
                         obs_cmp_sql(atom, f"(o.ref_bound * {fmt_num(ref.multiple)})"),
+                        NO_REFERENCE_RANGE,
                     )
                 elif k is Kind.PRESENCE:
                     cs, expr, ev = self._presence(aname, atom, w)
@@ -676,6 +708,8 @@ class SqlGenerator:
                         expr = expr.replace("b.index_date", "b." + anchor)
                 if anchor:
                     expr = f"(CASE WHEN b.{anchor} IS NULL THEN NULL ELSE {expr} END)"
+                if extension and extension.on_hit == "review":  # met goes to a person: TRUE -> NULL, FALSE stays
+                    expr = f"({expr} AND NULL)"
                 if atom.domain != "demographic" and atom.derived is None:
                     used_vs.add(atom.valueset)
                 ctes.extend(cs)

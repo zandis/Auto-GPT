@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -32,13 +32,16 @@ from tb_common.derived import (
 from tb_common.fhir import library_name
 from tb_common.labunit import ANALYTES, DIGITS, UNITLESS_KEYS, conversion, key, scale_arms
 from tb_contracts import Atom, BoolExpr, CriterionIR
-from tb_contracts.criterion_ir import CriterionIRv3
+from tb_contracts.criterion_ir import Atom as Atom3
+from tb_contracts.criterion_ir import CriterionIRv3, RefRange
 
 from criteria_compiler.semantics import (
     FILTERED,
     UNBOUNDED_PAST,
+    AnchoredWindow,
     CompileError,
     Kind,
+    SiteRefRanges,
     Window,
     atoms,
     check_bool,
@@ -55,7 +58,9 @@ _env = Environment(
     loader=FileSystemLoader(TEMPLATES), undefined=StrictUndefined, keep_trailing_newline=True, autoescape=False
 )
 CS_NAMES = {LOINC: "LOINC", SCORE: "TBSCORE"}
-SQL_ONLY_ANCHORS = ("screening", "randomization")
+#: study anchors (§6.2.4) as library parameters: the caller gives each patient's date; none makes the atom unknown,
+#: as the SQL's absent ``criterion_anchors`` row does
+ANCHOR_PARAMS = {"screening": "ScreeningDate", "randomization": "RandomizationDate"}
 YJ_SHAPE = "[0-9]{7}[A-Z][0-9A-Z]{4}"  # a 12-character YJ code (T-610), as compile_sql's YJ_STEM_OF reads it
 # resource type and coding list of a presence atom whose ValueSet is a code-prefix grouper (D-113 families)
 FAMILY_CODINGS = {
@@ -113,15 +118,16 @@ def q(name: str) -> str:
     return '"' + name.replace('"', '\\"') + '"'
 
 
-def date_expr(days: int) -> str:
+def date_expr(days: int, anchor: str = "IndexDate") -> str:
     if days == 0:
-        return "IndexDate"
-    return f"IndexDate - {abs(days)} days" if days < 0 else f"IndexDate + {days} days"
+        return anchor
+    return f"{anchor} - {abs(days)} days" if days < 0 else f"{anchor} + {days} days"
 
 
 def win_expr(w: Window) -> str:
-    lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days)
-    return f"Interval[{lo}, {date_expr(w.to_days)}]"
+    anchor = w.anchor if isinstance(w, AnchoredWindow) else "IndexDate"
+    lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days, anchor)
+    return f"Interval[{lo}, {date_expr(w.to_days, anchor)}]"
 
 
 def unit_function(name: str, want: str | None) -> str:
@@ -171,9 +177,12 @@ _CENSORED: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
-def cmp_expr(atom: Atom, value: str, code: str | None = None, censor: str | None = None) -> str:
+def cmp_expr(
+    atom: Atom, value: str, code: str | None = None, censor: str | None = None, threshold: str | None = None
+) -> str:
     """The comparison of one value. ``censor``: the CQL of the result's ``Quantity.comparator`` (T-619a); with it a
-    censored result is compared as the SQL compares ``value_cmp``."""
+    censored result is compared as the SQL compares ``value_cmp``. ``threshold``: an expression in place of
+    ``value.num`` (a ``value.ref`` bound times its multiple), as the SQL's ``obs_cmp_sql``."""
     v = atom.value
     assert v is not None and v.op is not None
     if v.op == "in":
@@ -184,10 +193,11 @@ def cmp_expr(atom: Atom, value: str, code: str | None = None, censor: str | None
         plain = f"({value} >= {fmt_num(v.num)} and {value} <= {fmt_num(v.num2)})"
     else:
         assert v.num is not None
-        plain = f"({value} {v.op} {fmt_num(v.num)})"
+        plain = f"({value} {v.op} {threshold if threshold is not None else fmt_num(v.num)})"
     if censor is None:
         return plain
-    n, n2 = fmt_num(v.num), fmt_num(v.num2) if v.num2 is not None else ""
+    n = threshold if threshold is not None else fmt_num(v.num)
+    n2 = fmt_num(v.num2) if v.num2 is not None else ""
     side = {}
     for s in ("below", "above"):
         cond, answer = _CENSORED[(s, v.op)]
@@ -203,14 +213,23 @@ def cmp_expr(atom: Atom, value: str, code: str | None = None, censor: str | None
 class _Ctx:
     vs: ValueSets
     codes_used: dict[str, tuple[str, str]]
+    anchors: set[str] = field(default_factory=set)
 
 
 class CqlGenerator:
-    def __init__(self, ruleset: str, version: str, valuesets: ValueSets, lookback_months: int = 36) -> None:
+    def __init__(
+        self,
+        ruleset: str,
+        version: str,
+        valuesets: ValueSets,
+        lookback_months: int = 36,
+        ref_ranges: SiteRefRanges | None = None,
+    ) -> None:
         self.ruleset = ruleset
         self.version = version
         self.vs = valuesets
         self.lookback = lookback_months
+        self.ref_ranges = ref_ranges
         self.library = library_name(ruleset, version)
         self.library_version = version
 
@@ -308,12 +327,32 @@ class CqlGenerator:
         ev = f"if exists ({qn}) then ({ev}) else ({on} X return X.id + '|' + ToString({date}))"
         return defs, a, ev
 
-    def _obs_value(self, cid: str, n: int, atom: Atom, w: Window) -> tuple[list[str], str, str]:
+    def _site_bound(self, atom: Atom, ref_kind: str, o: str) -> str:
+        """The SQL's ``_site_bound`` for observation ``o``: the signed site table's bound for its code, unit key and
+        the patient's sex, else null. The result's own range is not read here: the SQL reads it from the OMOP
+        measurement row, which the lake does not carry for the CQL's FHIR store (a residual of R3 item 3)."""
+        rows = self.ref_ranges.bounds(ref_kind, self.vs.codes(atom.valueset)) if self.ref_ranges else []  # type: ignore[arg-type]
+        if not rows:
+            return "(null as Decimal)"
+        arms = [
+            f"when exists ({o}.code.coding C where C.system.value = '{r.system}' and C.code.value = '{r.code}') "
+            f"and TB.UnitKey({o}.value as FHIR.Quantity) = '{key(r.unit)}'"
+            + (f" and Patient.gender.value = '{r.sex}'" if r.sex else "")
+            + f" then {_cql_dec(float(bound))}"
+            for r, bound in rows
+        ]
+        return "(case " + " ".join(arms) + " else null end)"
+
+    def _obs_value(
+        self, cid: str, n: int, atom: Atom, w: Window, ref: RefRange | None = None
+    ) -> tuple[list[str], str, str]:
         p = f"{cid}_{n}"
         vsname = q(atom.valueset)
         win = win_expr(w)
         comp = self.vs.is_component_set(atom.valueset)
-        numeric = atom.value is not None and atom.value.op != "in"
+        if ref is not None and comp:
+            raise CompileError("a reference-range comparison on panel components is not compiled")
+        numeric = atom.value is not None and atom.value.op != "in" and ref is None
         nf = q("N_" + p)  # the value in the criterion's unit (D-275)
         # SCR-03: undated as the lake reads it (``lake.flatten`` ``effective``: a dateTime, else an instant, else a
         # period's start). A result dated by an instant or a period only is dated in the SQL, never undated here
@@ -338,6 +377,8 @@ class CqlGenerator:
             undated = f"[Observation: {vsname}] X where {no_date}"
 
             def val(o: str) -> str:
+                if ref is not None:  # the result's own number in its own unit, compared with a bound in that unit
+                    return f"({o}.value as FHIR.Quantity).value.value"
                 return f"{nf}({o}.value as FHIR.Quantity, {o}.code.coding)"
 
             def code(o: str) -> str:
@@ -356,13 +397,17 @@ class CqlGenerator:
             defs.insert(0, unit_function("N_" + p, atom.value.unit))
         quant = atom.quantifier or "any"
         qn, un = q("Q_" + p), q("U_" + p)
-        c = cmp_expr(atom, val("X"), code("X"), censor("X"))
+
+        def thr(o: str) -> str | None:
+            return None if ref is None else f"({self._site_bound(atom, ref.kind, o)} * {fmt_num(ref.multiple)})"
+
+        c = cmp_expr(atom, val("X"), code("X"), censor("X"), thr("X"))
         may_true = f"exists ({un} X where ({c}) is not false)"  # an undated record that may meet the comparison
         may_false = f"exists ({un} X where ({c}) is not true)"  # one that may fail it
         if quant == "latest":
             defs.append(f"define {q('L_' + p)}:\n  TB.LatestObs({qn})")
             ln = q("L_" + p)
-            cl = cmp_expr(atom, val(ln), code(ln), censor(ln))
+            cl = cmp_expr(atom, val(ln), code(ln), censor(ln), thr(ln))
             a = (
                 f"if {ln} is null then null as Boolean else if ({cl}) is true and not {may_false} then true "
                 f"else if ({cl}) is false and not {may_true} then false else null as Boolean"
@@ -475,8 +520,9 @@ class CqlGenerator:
         p = f"{cid}_{n}"
         assert atom.duration is not None and atom.duration.min_days is not None
         gap = 30 if atom.duration.gap_days is None else atom.duration.gap_days
-        lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days)
-        hi = date_expr(w.to_days)
+        anchor = w.anchor if isinstance(w, AnchoredWindow) else "IndexDate"
+        lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days, anchor)
+        hi = date_expr(w.to_days, anchor)
         qn, pn, dn, on = q("Q_" + p), q("P_" + p), q("D_" + p), q("O_" + p)
         start = "Coalesce(date from X.dispenseRequest.validityPeriod.start, date from X.authoredOn)"
         defs = [
@@ -520,18 +566,33 @@ class CqlGenerator:
         return [], "(" + " and ".join(conds) + ")", "List<String>{}"
 
     # ------------------------------------------------------------------ criteria
-    def _atom(self, ctx: _Ctx, cid: str, n: int, atom: Atom) -> tuple[list[str], str, str]:
+    def _atom(self, ctx: _Ctx, cid: str, n: int, atom: Atom, ext: Atom3 | None = None) -> tuple[list[str], str, str]:
         k = kind(atom)
         w = window(atom)
-        if k is Kind.PRESENCE:
-            return self._presence(cid, n, atom, w)
-        if k is Kind.OBS_VALUE:
-            return self._obs_value(cid, n, atom, w)
-        if k is Kind.DERIVED:
-            return self._derived(ctx, cid, n, atom, w)
-        if k is Kind.MED_DURATION:
-            return self._med_duration(cid, n, atom, w)
-        return self._demographic(atom)
+        anchor = None
+        if ext is not None and ext.window is not None and ext.window.anchor in ANCHOR_PARAMS:
+            anchor = ANCHOR_PARAMS[ext.window.anchor]
+            ctx.anchors.add(anchor)
+            w = AnchoredWindow(w.from_days, w.to_days, anchor)
+        if ext is not None and ext.value is not None and ext.value.ref is not None:
+            defs, a, ev = self._obs_value(cid, n, atom, w, ext.value.ref)
+        elif k is Kind.PRESENCE:
+            defs, a, ev = self._presence(cid, n, atom, w)
+        elif k is Kind.OBS_VALUE:
+            defs, a, ev = self._obs_value(cid, n, atom, w)
+        elif k is Kind.DERIVED:
+            defs, a, ev = self._derived(ctx, cid, n, atom, w)
+        elif k is Kind.MED_DURATION:
+            defs, a, ev = self._med_duration(cid, n, atom, w)
+        else:
+            defs, a, ev = self._demographic(atom)
+            if anchor:
+                a = a.replace("IndexDate", anchor)
+        if anchor:  # as the SQL: no date for the patient, no answer
+            a = f"if {anchor} is null then null as Boolean else ({a})"
+        if ext is not None and ext.on_hit == "review":  # as the SQL: met goes to a person
+            a = f"({a}) and (null as Boolean)"
+        return defs, a, ev
 
     def _bool(self, expr: Atom | BoolExpr, names: dict[int, str]) -> str:
         if isinstance(expr, Atom):
@@ -541,13 +602,13 @@ class CqlGenerator:
             return f"(not {parts[0]})"
         return "(" + f" {expr.op} ".join(parts) + ")"
 
-    def criterion_defines(self, ctx: _Ctx, c: CriterionIR) -> list[str]:
+    def criterion_defines(self, ctx: _Ctx, c: CriterionIR, extensions: dict[int, Atom3] | None = None) -> list[str]:
         check_bool(c.logic)
         out: list[str] = []
         names: dict[int, str] = {}
         evs: list[str] = []
         for n, atom in enumerate(atoms(c.logic), start=1):
-            defs, a, ev = self._atom(ctx, c.id, n, atom)
+            defs, a, ev = self._atom(ctx, c.id, n, atom, (extensions or {}).get(id(atom)))
             out.extend(defs)
             aname = f"A_{c.id}_{n}"
             out.append(f"define {q(aname)}:\n  {a}")
@@ -577,13 +638,11 @@ class CqlGenerator:
             if original.class_ not in FILTERED:
                 continue
             c, extensions = lower(original)
-            # compiled in the SQL only: the CQL refuses them, so the criterion goes to a person
+            # compiled in the SQL only: the CQL refuses it, so the criterion goes to a person
             for x in extensions.values():
-                if (x.value and x.value.ref) or x.medication or (x.window and x.window.anchor in SQL_ONLY_ANCHORS):
-                    raise CompileError(
-                        f"atom {x.id}: reference ranges, study anchors and medication detail are not compiled to CQL"
-                    )
-            defines.extend(self.criterion_defines(ctx, c))
+                if x.medication:
+                    raise CompileError(f"atom {x.id}: medication route and dose are not compiled to CQL")
+            defines.extend(self.criterion_defines(ctx, c, extensions))
             for a in atoms(c.logic):
                 if a.domain != "demographic" and a.derived is None:
                     used_vs.add(a.valueset)
@@ -599,6 +658,7 @@ class CqlGenerator:
                 for name, (system, code) in sorted(ctx.codes_used.items())
             ],
             valuesets=[{"name": v, "url": self.vs.url(v), "version": self.vs.version(v)} for v in sorted(used_vs)],
+            anchors=sorted(ctx.anchors),
             defines=defines,
         )
 

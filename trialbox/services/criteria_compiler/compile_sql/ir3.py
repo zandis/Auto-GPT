@@ -5,7 +5,6 @@ flattened tables. Record and person maps are the existing export mappings;
 duplicate mappings fail as scalar subqueries rather than multiplying evidence.
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 from typing import Any
@@ -13,11 +12,6 @@ from typing import Any
 from tb_contracts.criterion_ir import Atom as Atom3
 
 from criteria_compiler.semantics import Window, fmt_num
-
-
-@dataclass(frozen=True)
-class AnchoredWindow(Window):
-    anchor: str = "b.index_date"
 
 
 def sql_template(name: str, **parts: str) -> str:
