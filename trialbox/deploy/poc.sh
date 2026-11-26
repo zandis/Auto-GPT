@@ -78,10 +78,18 @@ docker compose version >/dev/null 2>&1 || die "the docker compose plugin is miss
 ALIVE_PID=""
 alive_start() {
   local what="$1" me=$$
-  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
-    while kill -0 "$me" 2>/dev/null; do
-      sleep "${TB_POC_ALIVE_S:-60}" & s=$!; wait "$s"; n=$((n + 1))
-      kill -0 "$me" 2>/dev/null && echo "    ... still $what ($n)" >&2
+  # OCR 1524-2: the heartbeat holds the script's output while it lives, so it looks for the script every second and
+  # ends within a second of a script that ended without alive_stop (set -e, a signal); a script not yet reaped by its
+  # caller (one that reads the output to its end first) is a zombie, which kill -0 still finds (Linux: its state in
+  # /proc; no command substitution here, a TERM that lands in one is lost)
+  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0; t=0
+    up() { kill -0 "$me" 2>/dev/null || return 1
+      read -r _ _ st _ 2>/dev/null <"/proc/$me/stat" || return 0; [ "$st" != Z ]; }
+    while up; do
+      sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; s=""; t=$((t + 1))
+      [ "$t" -lt "${TB_POC_ALIVE_S:-60}" ] && continue
+      t=0; n=$((n + 1))
+      up && echo "    ... still $what ($n)" >&2
     done ) & ALIVE_PID=$!
 }
 alive_stop() { [ -n "$ALIVE_PID" ] || return 0; kill "$ALIVE_PID" 2>/dev/null || true; wait "$ALIVE_PID" 2>/dev/null || true; ALIVE_PID=""; }
