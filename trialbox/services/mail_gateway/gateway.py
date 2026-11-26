@@ -64,11 +64,12 @@ OutputsMade = Callable[[str], Mapping[str, str]]
 
 
 def http_outputs_made(base_url: str) -> OutputsMade:
-    """The orchestrator's record (``GET /jobs/{job_id}/outputs-made``), asked before a mail with files leaves."""
+    """The orchestrator's record (``GET /jobs/{job_id}/outputs-current?made=1``), asked before a mail with files
+    leaves."""
     client = _orchestrator(base_url)
 
     def ask(job_id: str) -> Mapping[str, str]:
-        got = client._request("GET", f"/jobs/{job_id}/outputs-made").json()
+        got = client._request("GET", f"/jobs/{job_id}/outputs-current?made=1").json()
         made = got.get("made") if isinstance(got, dict) else None
         return {str(k): str(v) for k, v in made.items()} if isinstance(made, dict) else {}
 

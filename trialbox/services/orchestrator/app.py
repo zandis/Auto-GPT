@@ -408,7 +408,8 @@ def job_outputs_current(
     job_id: str,
     key: Annotated[list[str] | None, Query()] = None,
     to: Annotated[list[str] | None, Query()] = None,
-) -> dict[str, bool | None]:
+    made: bool = False,
+) -> dict[str, Any]:
     """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``key``, by object
     key; every output when none is named) are still current against the opt-out register, asked by the mail gateway just
     before it sends them (at publish, a queued try, a person's resend). ``current`` false: one names a patient opted
@@ -420,6 +421,8 @@ def job_outputs_current(
     job = o.db.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
+    if made:  # 1523 ruling (review round 3, M1): the sha256 the job recorded of each file it built, by object key
+        return {"made": {out.minio_key: out.sha256 for out in job.outputs or []}}
     try:
         gone = frozenset(register_now())
     except Exception as exc:
@@ -438,17 +441,6 @@ def job_outputs_current(
     # the review of D-863: each ask is audited, by count (a yes or no for so many files; never a name or a patient)
     o.audit.append("optout.outputs_asked", job_id=job_id, detail={"files": len(keys), "current": current})
     return {"current": current}
-
-
-@app.get("/jobs/{job_id}/outputs-made")
-def job_outputs_made(job_id: str) -> dict[str, dict[str, str]]:
-    """1523 ruling (review round 3, M1): the sha256 the job recorded when it built each of its files, by object key.
-    The mail gateway hashes the bytes it fetched and lets a PDF, Office, zip or picture attachment leave only when they
-    match this record; it never takes a hash from the send request. Hashes only, never a file or a patient."""
-    job = orch().db.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="no such job")
-    return {"made": {o.minio_key: o.sha256 for o in job.outputs or []}}
 
 
 @app.get("/jobs/{job_id}")

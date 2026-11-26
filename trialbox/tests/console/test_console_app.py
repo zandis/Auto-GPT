@@ -1956,12 +1956,12 @@ def test_a_pdf_behind_a_leading_space_does_not_leave_by_the_layer(box: dict[str,
 def test_a_rebuild_through_the_layer_masks_the_planted_identifier(box: dict[str, Any]) -> None:
     from pypdf import PdfReader
 
-    _job, url = _job_pdf(box, _planted_pdf("MRN: 70000054 12 of 85 patients"))
+    _job, url = _job_pdf(box, _planted_pdf("MRN: 70000054 / site Alpha"))
     c, _ = login(box["app"])
     r = c.get(url + "?rebuild=1")
     assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
     shown = "".join(p.extract_text() for p in PdfReader(io.BytesIO(r.content)).pages)
-    assert "70000054" not in shown and "12 of 85 patients" in shown
+    assert "70000054" not in shown and "site Alpha" in shown
 
 
 def test_a_workbook_with_a_name_column_is_not_rebuilt_by_the_layer(box: dict[str, Any]) -> None:

@@ -230,6 +230,9 @@ def make_box(
         outputs_current=lambda job_id, files: _outputs_current(
             holder["o"], job_id, files
         ),  # D-863: the orchestrator's answer
+        outputs_made=lambda job_id: {  # 1523 ruling: the job's record of its files, as outputs-current?made=1 answers
+            o.minio_key: o.sha256 for o in holder["o"].db.get(job_id).outputs or []
+        },
     )
     services = Services(
         lake=LakeLocal(lake_dir, HashEmbedder()), parser=InprocParser(store), compiler=comp, mail=gw, llm=llm
