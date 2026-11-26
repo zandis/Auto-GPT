@@ -200,7 +200,7 @@ def test_a_bulk_export_with_two_people_under_one_patient_id_is_held(tmp_path: Pa
                         mapping_path=MAPPING)  # fmt: skip
     exp = tmp_path / "bulk"
     exp.mkdir()
-    feed = {
+    feed: dict[str, list[dict[str, Any]]] = {
         "Patient": [
             {"resourceType": "Patient", "id": "p1", "gender": "female", "birthDate": "1971-03-01"},
             {"resourceType": "Patient", "id": "p1", "gender": "male", "birthDate": "1999-09-09"},
@@ -214,7 +214,7 @@ def test_a_bulk_export_with_two_people_under_one_patient_id_is_held(tmp_path: Pa
         (exp / f"{rtype}.ndjson").write_text("\n".join(json.dumps(r) for r in items) + "\n", encoding="utf-8")
     rep = run_ingest(cfg, "fhir_bulk", str(exp), snapshot=NEXT, load_fhir=False, rebuild_lake=False, validate=False)
     assert rep.held and not rep.passed
-    assert "two different people" in " ".join(rep.errors)
+    assert "two different people" in " ".join(rep.errors or [])
     said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
     assert said["tonight"] == [bulk_id(KEY, "Patient", "p1")]
     assert rep.counts.get("Encounter") == 1  # the rest of the export was read
