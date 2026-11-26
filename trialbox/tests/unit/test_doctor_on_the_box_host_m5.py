@@ -70,7 +70,7 @@ def _installed_box(tmp_path: Path, db_url: str) -> Path:
     env.write_text(
         "TB_ENV=TEST\nCOMPOSE_PROJECT_NAME=tbm5\nCOMPOSE_FILE=docker-compose.yml\n"
         f"TB_DOCKER={_engine(tmp_path, db_url)}\nTB_DOCKER_VOLUMES={volumes}\n"
-        "TB_DB_URL=postgresql://trialbox:synthetic@db:5432/trialbox_wf\n"  # the compose network's address
+        "TB_DB_URL=postgresql://trialbox@db:5432/trialbox_wf\n"  # the compose network's address
     )
     env.chmod(0o600)
     return deploy
