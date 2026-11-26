@@ -65,7 +65,8 @@ def engine(deploy: Path, box: Mapping[str, str]) -> tuple[list[str], dict[str, s
     return compose, env
 
 
-def argv(compose: list[str]) -> list[str]:
+def argv(compose: list[str], variables: Mapping[str, str] | None = None) -> list[str]:
+    named = [x for k, v in (variables or {}).items() for x in ("-v", f"{k}={v}")]
     return [
         *compose,
         "exec",
@@ -77,6 +78,7 @@ def argv(compose: list[str]) -> list[str]:
         "-At",
         "-v",
         "ON_ERROR_STOP=1",
+        *named,
         "-U",
         "trialbox",
         "-d",
@@ -103,30 +105,62 @@ def parse(out: str) -> dict[str, Any]:
     return {"state": value, "stored": True, **{k: str(got.get(k) or "") for k in ("by", "at", "reason")}}
 
 
-def read(deploy: Path, timeout: float = TIMEOUT_S) -> dict[str, Any]:
-    """The hold of the box whose deploy folder is ``deploy``, asked of its ``db`` container; never raises."""
+def query(deploy: Path, sql: str, timeout: float = TIMEOUT_S,
+          variables: Mapping[str, str] | None = None) -> tuple[str | None, str]:  # fmt: skip
+    """``sql`` run by the box's ``db`` container (``compose exec -T db psql``, as :func:`read`), with psql variables
+    ``variables`` (``:'name'`` in the SQL): ``(stdout, "")``, or ``(None, cause)``; never raises (INT-M5: the
+    doctor's other readings of the box's database on its host go this way too)."""
     from tools.trialbox import launch
 
     deploy = Path(os.path.abspath(deploy))
     try:
         box = launch.box_file(deploy)
     except launch.BoxFileError as e:
-        return unread(str(e).replace(": nothing was run", ""))
+        return None, str(e).replace(": nothing was run", "")
     if not box:
-        return unread(f"no box file at {deploy / '.env'}: the box's compose project cannot be named")
+        return None, f"no box file at {deploy / '.env'}: the box's compose project cannot be named"
     compose, env = engine(deploy, box)
     try:
-        r = subprocess.run(
-            argv(compose), input=SQL, capture_output=True, text=True, env=env, timeout=timeout, cwd=deploy, check=False
-        )
+        r = subprocess.run(argv(compose, variables), input=sql, capture_output=True, text=True, env=env,
+                           timeout=timeout, cwd=deploy, check=False)  # fmt: skip
     except subprocess.TimeoutExpired:
-        return unread(f"the box's database did not answer within {timeout:.0f} s (compose exec db)")
+        return None, f"the box's database did not answer within {timeout:.0f} s (compose exec db)"
     except OSError as e:
-        return unread(f"the container engine cannot be started here ({compose[0]}: {e.strerror or type(e).__name__})")
+        return None, f"the container engine cannot be started here ({compose[0]}: {e.strerror or type(e).__name__})"
     if r.returncode != 0:
         err = " ".join((r.stderr or "").split())[-240:] or "no message"
-        return unread(f"compose exec db psql ended {r.returncode}: {err}")
-    return parse(r.stdout or "")
+        return None, f"compose exec db psql ended {r.returncode}: {err}"
+    return r.stdout or "", ""
+
+
+def run_in(deploy: Path, service: str, args: list[str], timeout: float = TIMEOUT_S) -> tuple[int | None, str]:
+    """``args`` run in the box's running ``service`` (``compose exec -T``), as :func:`query` asks ``db``:
+    ``(exit code, its whole output)``, or ``(None, cause)`` when it could not be asked; never raises (INT-M5). Never
+    cut to its tail (review 1534): a command's verdict is its first line, and its list after it can be long."""
+    from tools.trialbox import launch
+
+    deploy = Path(os.path.abspath(deploy))
+    try:
+        box = launch.box_file(deploy)
+    except launch.BoxFileError as e:
+        return None, str(e).replace(": nothing was run", "")
+    if not box:
+        return None, f"no box file at {deploy / '.env'}: the box's compose project cannot be named"
+    compose, env = engine(deploy, box)
+    try:
+        r = subprocess.run([*compose, "exec", "-T", service, *args], capture_output=True, text=True, env=env,
+                           timeout=timeout, cwd=deploy, check=False, stdin=subprocess.DEVNULL)  # fmt: skip
+    except subprocess.TimeoutExpired:
+        return None, f"the box's {service} did not answer within {timeout:.0f} s (compose exec {service})"
+    except OSError as e:
+        return None, f"the container engine cannot be started here ({compose[0]}: {e.strerror or type(e).__name__})"
+    return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()  # whole: its first line is its verdict
+
+
+def read(deploy: Path, timeout: float = TIMEOUT_S) -> dict[str, Any]:
+    """The hold of the box whose deploy folder is ``deploy``, asked of its ``db`` container; never raises."""
+    out, cause = query(deploy, SQL, timeout)
+    return unread(cause) if out is None else parse(out)
 
 
 def main(args: list[str] | None = None) -> int:

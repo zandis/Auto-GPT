@@ -147,7 +147,9 @@ def test_a_restore_that_stops_after_the_database_was_replaced_leaves_the_box_hel
     tmp_path: Path, db_url: str, monkeypatch: Any
 ) -> None:
     """Review H1 and M1: the hold is set as soon as the trial database is replaced, so a restore that fails or is
-    killed after that (here: the running jobs cannot be failed) leaves a held box, and so does its re-run."""
+    killed after that (here: the running jobs cannot be failed) leaves a held box. INT-M5 (ruling 7178128292, this
+    assertion by ruling 7179262165): its re-run of the same backup, ending complete, takes that hold off, audited with
+    both restore ids, since the hold is its own and nothing changed it."""
     from tb_common import flags
     from tb_common.audit import AuditLog
     from tb_common.db import Database
@@ -183,7 +185,11 @@ def test_a_restore_that_stops_after_the_database_was_replaced_leaves_the_box_hel
     out = bk.restore(
         f, priv, env={**pg_client.env(), "TB_DB_URL": db_url, "TB_ENV": "DEV"}, dirs={"audit": audit}, no_copy=True
     )
-    assert out["hold"] == "held" and flags.Flags(url=db_url).row(FLAG) == "held"  # the re-run does not release it
+    assert out["hold"] == "released" and flags.Flags(url=db_url).row(FLAG) == "released"  # the re-run releases it
+    rel = [e for e in _events(audit, "flag.set") if e["detail"]["flag"] == FLAG][-1]
+    assert rel["detail"]["new"] == "released" and rel["actor"] == "trialbox restore"
+    done = _events(audit, "backup.restored")[-1]["detail"]
+    assert done["rerun_of"] in json.dumps(rel) and done["restore_id"] in json.dumps(rel), rel  # both restore ids
 
 
 def test_a_hold_that_cannot_be_read_is_a_hold(db_url: str, tmp_path: Path, monkeypatch: Any) -> None:
