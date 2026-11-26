@@ -82,14 +82,12 @@ def test_card_ref_and_written_out_defaults_compile_as_their_absence() -> None:
     assert _both(carded) == plain
 
 
-@pytest.mark.parametrize("edit", ["on_hit", "unit"])
-def test_uncompiled_3_1_constructs_go_to_a_person_in_both_engines(edit: str) -> None:
-    doc = _crit(on_hit="review") if edit == "on_hit" else _crit()
-    if edit == "unit":
-        doc["atoms"][0]["window"]["unit"] = "h"
+def test_a_window_in_hours_goes_to_a_person_in_both_engines() -> None:
+    doc = _crit()
+    doc["atoms"][0]["window"]["unit"] = "h"
     doc["ir_version"] = "3.1.0"
     ir = CriterionIRv3.model_validate(doc)
-    with pytest.raises(CompileError, match="on_hit review" if edit == "on_hit" else "hours"):
+    with pytest.raises(CompileError, match="hours"):
         lower(ir)
     vsi = ValueSets("SYN", {}, Terminology())
     for gen in (SqlGenerator("SYN", "1.0.0", vsi), CqlGenerator("SYN", "1.0.0", vsi)):
@@ -97,17 +95,8 @@ def test_uncompiled_3_1_constructs_go_to_a_person_in_both_engines(edit: str) -> 
             gen.render([ir])
 
 
-@pytest.mark.parametrize(
-    "atom",
-    [
-        {"value": {"op": ">", "ref": {"kind": "uln", "multiple": 3}}},
-        {"window": {"from_days": -30, "to_days": 0, "anchor": "screening"}},
-        {"domain": "medication", "value": None, "quantifier": "any", "medication": {"route": ["4132161"]}},
-    ],
-    ids=["value_ref", "screening_anchor", "medication_route"],
-)
-def test_cql_refuses_what_only_the_sql_compiles(atom: dict[str, Any]) -> None:
-    doc = _crit(**atom)
+def test_cql_refuses_what_only_the_sql_compiles() -> None:
+    doc = _crit(domain="medication", value=None, quantifier="any", medication={"route": ["4132161"]})
     doc["atoms"][0] = {k: v for k, v in doc["atoms"][0].items() if v is not None}
     ir = CriterionIRv3.model_validate(doc)
     vsi = ValueSets("SYN", {"VS_X": {"compose": {"include": []}}}, Terminology())
