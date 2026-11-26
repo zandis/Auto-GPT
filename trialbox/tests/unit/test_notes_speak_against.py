@@ -235,3 +235,18 @@ def test_a_positive_verdict_is_still_refused_beside_the_allowed_denials(lang: st
 def test_the_workbook_print_header_carries_the_count() -> None:
     ws = sheet([row("P1", "review", "2026-10-07T09:00", against())])
     assert COUNT["en"].format(n=1) in ws.oddHeader.center.text
+
+
+def test_a_final_pair_ring0_not_met_is_said_as_a_note_against_too() -> None:
+    """Review of #1547 M2: a ring-0 row stored ``final: true`` (a run whose pair was allowed to exclude, D-1072 says
+    it never does) is said, counted and sorted as a note speaking against, never as a plain "not met"."""
+    fin = against().model_copy(update={"final": True})
+    assert cell_of(sheet([row("P1", "review", "2026-10-07T09:00", fin)]), "P1").value == SAID["en"].format(
+        c=EXC.label or EXC.id
+    )
+    rows = [row("P1", "review", "2026-10-07T09:00", fin), row("P2", "review", "2026-10-07T10:00", plain())]
+    assert COUNT["en"].format(n=1) in [c.value for r in sheet(rows).iter_rows() for c in r]
+    assert [r.pid for r in sort_rows(rows)] == ["P2", "P1"]
+    assert st.patient_rows([stored(fin)], meta_of())[0]["against"] is True
+    plain_fail = fin.model_copy(update={"evidence": fin.evidence.model_copy(update={"reason": "note"})})
+    assert st.patient_rows([stored(plain_fail)], meta_of())[0]["against"] is False  # only the ring-0 reason

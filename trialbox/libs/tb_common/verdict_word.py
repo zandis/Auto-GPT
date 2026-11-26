@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from tb_common.reasons import Reason
+from tb_common.reasons import Reason, code_of
 
 
 def _get(verdict: Any, key: str) -> Any:
@@ -56,8 +56,14 @@ NOTE_AGAINST_COUNT = {
 
 def notes_against(verdict: Any) -> bool:
     """A pair's note "not met" that was not allowed to exclude (``not_final``): what the page and the sheet print as
-    "a note may speak against" the criterion, with its quotes and dates, instead of ``unknown``."""
-    return held_back(verdict) == "not_final"
+    "a note may speak against" the criterion, with its quotes and dates, instead of ``unknown``. Also a pair's ring-0
+    "not met" stored ``final: true`` (reason ``notes_suggest_not_eligible``): D-1072, no note answer excludes, whatever
+    the run's policy said when it was given."""
+    why = held_back(verdict)
+    if why is not None:
+        return why == "not_final"
+    reason = _get(_get(verdict, "evidence"), "reason")
+    return code_of(str(reason or ""), "fail") == Reason.NOTES_SUGGEST_NOT_ELIGIBLE.value
 
 
 def against_ids(criteria: Any) -> list[str]:

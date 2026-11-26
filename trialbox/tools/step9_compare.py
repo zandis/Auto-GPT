@@ -41,6 +41,9 @@ from pathlib import Path
 from typing import Any
 
 LISTED = ("high", "review")
+#: the contract enums (``CandidateRow.tier``, ``CriterionVerdict.verdict``)
+TIERS = ("high", "review", "excluded")
+VERDICTS = ("pass", "fail", "unknown", "pending_human")
 
 
 class Refused(Exception):
@@ -86,15 +89,21 @@ def load(path: Path) -> dict[str, Any]:
         pid = str(r["pid"])
         if pid in tiers:
             raise Refused(f"{path.name}: row {n}: patient {pid} appears twice")
-        tiers[pid] = str(r.get("tier"))
+        if r.get("tier") not in TIERS:
+            raise Refused(f"{path.name}: row {n} (patient {pid}): tier missing or not one of {', '.join(TIERS)}")
+        tiers[pid] = r["tier"]
         for c in r.get("criteria") or []:
             if not isinstance(c, dict) or "id" not in c:
                 raise Refused(f"{path.name}: row {n} (patient {pid}) has a criterion without an id")
             if (pid, str(c["id"])) in pairs:
                 raise Refused(f"{path.name}: row {n}: pair {pid}/{c['id']} appears twice")
+            if c.get("verdict") not in VERDICTS:
+                raise Refused(
+                    f"{path.name}: row {n}: pair {pid}/{c['id']}: verdict missing or not one of {', '.join(VERDICTS)}"
+                )
             ev = c.get("evidence") or {}
             pairs[(pid, str(c["id"]))] = {
-                "verdict": str(c.get("verdict")),
+                "verdict": c["verdict"],
                 "coded": c.get("basis") == "coded",
                 "model": bool(c.get("prov")),
                 "evidence": (tuple(sorted(ev.get("resource_refs") or [])), ev.get("quote_date")),

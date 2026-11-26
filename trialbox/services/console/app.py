@@ -2047,10 +2047,10 @@ def create_app(
                     # D-478: the words a person reads (one model's "not met" is an open point, not a failing one)
                     words = {v["id"]: shown_of(v)[0] for v in r.get("criteria") or []}
                     unknown = [i for i, w in words.items() if w == "unknown"]
-                    failing = [i for i, w in words.items() if w == "fail"]
                     against = against_ids(
                         r.get("criteria")
                     )  # INT-S-B: still open (above), said as a note speaking against
+                    failing = [i for i, w in words.items() if w == "fail" and i not in against]
                     quotes = [
                         {
                             "id": v["id"],

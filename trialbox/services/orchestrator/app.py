@@ -1041,8 +1041,15 @@ def registry_promote(ruleset: str, body: RegistryPromoteBody, claim: Claim = AS_
     # D-476 (review of T-707): only pool rows evaluated on the criteria version in force are promoted; with no
     # approved version there is none ("": no row matches)
     in_force = ""
-    with contextlib.suppress(RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
+    try:
         in_force = load_approved(o.rulesets_dir, ruleset.upper(), on=o.today()).version
+    except RulesetReadIncomplete as exc:  # INT-R3A: a damaged copy is not "no approved version"; promote nothing
+        log.warning("registry promote: %s approved copy could not be read whole", ruleset.upper())
+        raise HTTPException(
+            status_code=409, detail="the approved ruleset could not be read whole; nothing was promoted"
+        ) from exc
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        pass
     try:
         return {"added": registry_of(o).promote(ruleset, req, _now(o), in_force)}
     except RegistryError as exc:

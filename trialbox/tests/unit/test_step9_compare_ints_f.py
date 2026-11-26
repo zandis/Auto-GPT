@@ -20,6 +20,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tools import step9_compare
 
 
@@ -338,3 +340,23 @@ def test_a_duplicate_patient_or_criterion_is_refused_never_last_wins(tmp_path: P
     files = [str(_write(tmp_path, f"r{i}.json", rows)) for i in (0, 1)]
     assert step9_compare.main(files) == 2
     assert "p000/c1" in capsys.readouterr().err
+
+
+def test_a_missing_or_unknown_tier_or_verdict_is_refused_and_named(tmp_path: Path, capsys: Any) -> None:
+    """Review of #1547 R2: a run whose rows lack their tier or verdict has no screening outcome to compare; read as
+    the string "None" it compared equal and passed."""
+    for bad in ({"tier": None}, {"tier": "listed"}):
+        pop = _population(20)
+        pop[4] = {**pop[4], **bad}
+        rc, _ = _check(tmp_path, [pop, pop], capsys)
+        assert rc == 2, bad
+        with pytest.raises(step9_compare.Refused, match=r"row 4 \(patient p004\): tier"):
+            step9_compare.load(_write(tmp_path, "t.json", pop))
+    for verdict in (None, "maybe"):
+        pop = _population(20)
+        pop[2]["criteria"][1] = {**pop[2]["criteria"][1], "verdict": verdict}
+        if verdict is None:
+            del pop[2]["criteria"][1]["verdict"]
+        assert _check(tmp_path, [pop, pop], capsys)[0] == 2, verdict
+        with pytest.raises(step9_compare.Refused, match="pair p002/c1: verdict"):
+            step9_compare.load(_write(tmp_path, "v.json", pop))
