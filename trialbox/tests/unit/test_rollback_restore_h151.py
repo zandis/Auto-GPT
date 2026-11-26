@@ -243,7 +243,8 @@ def test_a_signal_while_the_dump_loads_leaves_the_database_in_place_and_no_secon
 
 def test_the_update_counts_the_fresh_database_on_the_db_volume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The fresh database sits beside the one in place until the swap: the preflight counts the largest database a
-    second time on the db volume (Docker's volumes), beside the rollback script, so the two are summed there."""
+    second time on the db volume (Docker's volumes), beside the rollback script and the archive the restore reads
+    there (review 1535-1), so the three are summed there."""
     sizes = {"trialbox_wf": 7_000, "hapi": 3_000}
 
     def run(argv: list[str], **_kw: object) -> str:
@@ -261,4 +262,32 @@ def test_the_update_counts_the_fresh_database_on_the_db_volume(tmp_path: Path, m
     plan = up.Plan("B1", "f" * 64, "v", [], tmp_path / "stage")
     volumes = {what: n for p, n, what in box.space_needs(plan, deploy / "updates") if p == tmp_path / "engine/volumes"}
     assert volumes == {"rollback script (largest database) on the db volume": 7_000,
-                       "fresh database during a rollback (largest database) on the db volume": 7_000}  # fmt: skip
+                       "fresh database during a rollback (largest database) on the db volume": 7_000,
+                       "rollback archive (largest database) on the db volume": 7_000}  # fmt: skip
+
+
+# review 1535-1 and 1535-2: stored text whose row in the dump's COPY data begins like the statements the restore once
+# picked out of, or left out of, the plain script with grep: a value is data, never run and never dropped
+PREFIX_ROWS = (
+    "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE TABLE public.h151_ran_as_superuser (x int); --",
+    "COMMENT ON EXTENSION pg_trgm IS 'a stored note, not a comment';",
+)
+
+
+def test_stored_text_that_begins_like_sql_is_data_never_run_and_never_dropped(box: Box, tmp_path: Path) -> None:
+    """A note whose text begins with ``CREATE EXTENSION ...; <SQL>; --`` or ``COMMENT ON EXTENSION`` sits at the start
+    of its row in the dump's COPY data. The restore takes the extensions from the archive's own list
+    (``pg_restore -l`` and ``-L``), never from lines of the script: the statement in the note never runs (as the
+    superuser or at all), and no row is left out, so the swap never puts a short database in place."""
+    rows = "".join(f"({i}, $tbq${t}$tbq$), " for i, t in enumerate(PREFIX_ROWS, 1)).rstrip(", ")
+    box.psql(f"CREATE TABLE public.notes (body text, id int); INSERT INTO public.notes (id, body) VALUES {rows}",
+             user=box.owner)  # fmt: skip
+    notes = "SELECT id || ' ' || body FROM public.notes ORDER BY id"
+    at_dump = {**box.state(), "notes": box.psql(notes)}
+    dump = tmp_path / "wf.dump"
+    box.dump(dump)
+    box.psql(AFTER_SQL, user=box.owner)
+    res = box.restore(dump)
+    assert res.returncode == 0, res.stderr.decode(errors="replace")[-800:]
+    assert {**box.state(), "notes": box.psql(notes)} == at_dump  # every note, whole
+    assert box.psql("SELECT count(*) FROM pg_class WHERE relname = 'h151_ran_as_superuser'") == "0"

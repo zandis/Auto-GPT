@@ -1041,13 +1041,14 @@ REFDATA_SWEEP_SH = 'rm -rf -- "${TMPDIR:?}"/tb-refdata-*'
 # H-151: never ``--clean`` over the database in place: on a partitioned lake it drops the key of a partition child,
 # which PostgreSQL refuses ("cannot drop inherited constraint"), and the rollback failed half way. The dump loads into
 # a database made fresh beside it (``<db>_tbrb``: template0, the owner, encoding, collation, connection limit and
-# grants of the one in place; the dump's extensions made by the superuser first, as the image's init script makes
-# them, which also gives each its comment, a line the role, not their owner, may not run), as the role, in one
-# transaction. Only when the whole load committed are the two names swapped, in one transaction (``<db>`` becomes
-# ``<db>_tbold``, then dropped). Until then the database in place is untouched: a failure or a signal drops the
-# fresh one on the way out, and the marker stays (the rollback can run again, and drops a fresh or a replaced
-# database a killed run left). The superuser is the container's POSTGRES_USER (the role itself where none is named:
-# it needs CREATEDB then). ``space_needs`` counts the fresh database too.
+# grants of the one in place; the dump's extensions, and their comments, made by the superuser first from the
+# archive's list, as the image's init script makes them: the role, not their owner, may not), then the archive's
+# other entries (``-L``) as the role, in one transaction. The archive is kept in that 0700 folder while it is read.
+# Only when the whole load committed are the two names swapped, in one transaction (``<db>`` becomes ``<db>_tbold``,
+# then dropped). Until then the database in place is untouched: a failure or a signal drops the fresh one on the way
+# out, and the marker stays (the rollback can run again, and drops a fresh or a replaced database a killed run
+# left). The superuser is the container's POSTGRES_USER (the role itself where none is named: it needs CREATEDB
+# then). ``space_needs`` counts the fresh database and the archive too.
 RESTORE_DIR = "${PGDATA:?}/tb-rollback"
 RESTORE_MAKE_SQL = (
     'DROP DATABASE IF EXISTS :"n" WITH (FORCE);\n'
@@ -1069,18 +1070,29 @@ RESTORE_SWAP_SQL = (
     'ALTER DATABASE :"n" RENAME TO :"db";\n'
     "COMMIT;\n"
 )
+#: review 1535-1, 1535-2: the archive's own list (``pg_restore -l``) is split by each entry's kind, never a line of the
+#: generated SQL (a stored value begins a line of COPY data): an extension and its comment go to the superuser's
+#: list, every other entry to the role's. A list line is ``<id>; <oid> <oid> <kind> ...``; ``;`` lines are comments.
+RESTORE_SPLIT_AWK = (
+    '$4 == "EXTENSION" || ($4 == "COMMENT" && $5 == "-" && $6 == "EXTENSION") { print > x; next } { print > m }'
+)
 RESTORE_SH = (
     f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1\n'
     'r="$1"; db="$2"; reset="$3"; n="${db}_tbrb"; o="${db}_tbold"; made=\n'
     'adm() { psql -X -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-$r}" -v db="$db" -v n="$n" -v o="$o" "$@"; }\n'
     "gone() { [ -z \"$made\" ] || printf '%s\\n' 'DROP DATABASE IF EXISTS :\"n\" WITH (FORCE);' | adm -d postgres; }\n"
     "trap 'gone; rm -rf -- \"$d\"' EXIT; trap 'exit 1' HUP INT TERM\n"
+    'a="$d/dump"; cat > "$a" || exit 1\n'
+    'pg_restore -l -f "$d/all.list" "$a" || exit 1\n'
+    f'awk -v x="$d/ext.list" -v m="$d/main.list" \'{RESTORE_SPLIT_AWK}\' "$d/all.list" || exit 1\n'
+    ': >> "$d/ext.list"; : >> "$d/main.list"\n'
+    'pg_restore --no-owner -L "$d/ext.list" -f "$d/ext.sql" "$a" || exit 1\n'
     't=$(mktemp -p "$d") || exit 1\n'
-    'pg_restore --no-owner -f "$t" || exit 1\n'
+    'pg_restore --no-owner -L "$d/main.list" -f "$t" "$a" || exit 1\n'
     "made=1\n"
     f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_MAKE_SQL}TBSQL\n"
-    'grep \'^CREATE EXTENSION \' "$t" | adm -d "$n" || exit 1\n'
-    '{ printf "%s\\n" "$reset"; grep -v "^COMMENT ON EXTENSION " "$t"; } '
+    'adm -d "$n" -f "$d/ext.sql" || exit 1\n'
+    '{ printf "%s\\n" "$reset"; cat "$t"; } '
     '| psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$r" -d "$n" || exit 1\n'
     f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_SWAP_SQL}TBSQL\n"
     "made=\n"
@@ -2368,7 +2380,9 @@ class ComposeBox(_DockerImages):
                  # H-151: the rollback loads the dump into a fresh database beside the one in place (RESTORE_SH), on
                  # the same volume; a restored database is about the size it had (indexes included)
                  (root / "volumes", largest,
-                  "fresh database during a rollback (largest database) on the db volume")]  # fmt: skip
+                  "fresh database during a rollback (largest database) on the db volume"),
+                 # review 1535-1: the rollback keeps the dump's archive there while it reads it (at most its size)
+                 (root / "volumes", largest, "rollback archive (largest database) on the db volume")]  # fmt: skip
         for t in [t for t in (self.env.get("TB_BACKUP_TARGETS") or "").replace(",", " ").split() if t]:
             needs.append((Path(t), sizes, "backup (at least the databases)"))
         return needs
@@ -2455,10 +2469,12 @@ class ComposeBox(_DockerImages):
             return False
         return bool(src) and src == os.path.realpath(self.deploy / "docker" / "db-init")
 
-    #: H-150: the format of ``docker inspect`` for :meth:`lacking_names`: a container's compose service, then each of
+    #: H-150: the format of ``docker inspect`` for :meth:`lacking_names`: a container's compose service, whether it is a
+    #: one-off of ``compose run`` (``oneoff:True``; review 1535-3: ``compose ps -a`` lists a stopped one), then each of
     #: its networks with the names it answers to there
     NAMES_FMT = (
-        '{{index .Config.Labels "com.docker.compose.service"}}'
+        '{{index .Config.Labels "com.docker.compose.service"}} '
+        'oneoff:{{index .Config.Labels "com.docker.compose.oneoff"}}'
         '{{range $k, $v := .NetworkSettings.Networks}} {{$k}}={{join $v.Aliases ","}}{{end}}'
     )
     #: the engine's own networks, which carry no service names
@@ -2467,10 +2483,14 @@ class ComposeBox(_DockerImages):
     @classmethod
     def lacking_names(cls, inspected: str) -> dict[str, list[str]]:
         """H-150: ``{service: [network, ...]}`` for each container (a line of :data:`NAMES_FMT`) that does not answer
-        to its service's name on one of its networks; the engine's own networks are left out."""
+        to its service's name on one of its networks; the engine's own networks are left out, and so is a one-off
+        container of ``compose run`` (it answers to its run's name and is no service's container)."""
         out: dict[str, list[str]] = {}
         for line in inspected.splitlines():
-            svc, *nets = line.split()
+            parts = line.split()
+            if len(parts) < 2 or parts[1] == "oneoff:True":
+                continue
+            svc, nets = parts[0], parts[2:]
             for net in nets:
                 name, _, names = net.partition("=")
                 if name not in cls.ENGINE_NETWORKS and svc not in names.split(","):

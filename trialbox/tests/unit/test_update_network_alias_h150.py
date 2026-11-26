@@ -16,7 +16,8 @@ the networks as the files say and every name in place. A service still without i
 
 The inspect lines below are recorded from a local engine (compose 5.7.1, engine 29.9.3), with this module's own
 format, for a project ``trialbox`` whose trialbox-net took an address range: before, after the network was made
-again, and after the recreate."""
+again, and after the recreate; and a stopped one-off container of ``compose run``, which ``compose ps -a`` lists
+too (review 1535-3)."""
 
 from __future__ import annotations
 
@@ -28,8 +29,13 @@ import pytest
 
 from tools.trialbox import update as up
 
-RECORDED_FRESH = "db trialbox-net=trialbox-db-1,db\norchestrator trialbox-net=trialbox-orchestrator-1,orchestrator\n"
-RECORDED_NETWORK_MADE_AGAIN = "db trialbox-net=\norchestrator trialbox-net=\n"
+RECORDED_FRESH = (
+    "db oneoff:False trialbox-net=trialbox-db-1,db\n"
+    "orchestrator oneoff:False trialbox-net=trialbox-orchestrator-1,orchestrator\n"
+)
+RECORDED_NETWORK_MADE_AGAIN = "db oneoff:False trialbox-net=\norchestrator oneoff:False trialbox-net=\n"
+#: review 1535-3: a one-off container a killed `compose run` left stopped (`compose ps -a` lists it), named by its run
+RECORDED_ONE_OFF = "orchestrator oneoff:True trialbox-net=tb-oneoff-test\n"
 RECORDED_RECREATED = RECORDED_FRESH
 
 DB_ENV = "TB_DB_URL=postgresql://trialbox@db:5432/trialbox_wf\nCOMPOSE_FILE=docker-compose.yml\n"
@@ -61,7 +67,7 @@ class Engine:
 
 def _deploy(tmp_path: Path) -> Path:
     deploy = tmp_path / "deploy"
-    (deploy / "docker").mkdir(parents=True)
+    (deploy / "docker").mkdir(parents=True, exist_ok=True)
     (deploy / ".env").write_text(DB_ENV, encoding="utf-8")
     return deploy
 
@@ -112,8 +118,8 @@ def test_containers_that_keep_their_names_are_left_as_they_are(tmp_path: Path) -
 def test_a_service_still_without_its_name_stops_the_update(tmp_path: Path) -> None:
     """Never a box started with a database nobody can find: when the recreate did not give the name back, the step
     fails, naming the service and the network, and the database is not started."""
-    eng = Engine([RECORDED_NETWORK_MADE_AGAIN, "db trialbox-net=\norchestrator trialbox-net=trialbox-orchestrator-1,"
-                                                "orchestrator\n"])  # fmt: skip
+    eng = Engine([RECORDED_NETWORK_MADE_AGAIN, "db oneoff:False trialbox-net=\norchestrator oneoff:False "
+                                                "trialbox-net=trialbox-orchestrator-1,orchestrator\n"])  # fmt: skip
     with pytest.raises(up.UpdateFailed, match=r"db: no name on trialbox-net"):
         up.ComposeBox(_deploy(tmp_path), run=eng).db_on_new_settings()
     assert eng.composed("up", "-d", "--wait") == []
@@ -122,10 +128,13 @@ def test_a_service_still_without_its_name_stops_the_update(tmp_path: Path) -> No
 def test_the_engine_its_own_networks_are_not_compose_networks() -> None:
     """The engine's own networks (host, none, the default bridge) carry no service names: never read as lost."""
     assert (
-        up.ComposeBox.lacking_names("db host=\nweb bridge=\njob none=\ncache trialbox-net=trialbox-cache-1,cache\n")
+        up.ComposeBox.lacking_names(
+            "db oneoff:False host=\nweb oneoff:False bridge=\njob oneoff:False none=\n"
+            "cache oneoff:False trialbox-net=trialbox-cache-1,cache\n"
+        )
         == {}
     )
-    assert up.ComposeBox.lacking_names("db trialbox-net= trialbox-model-net=trialbox-db-1,db\n") == {
+    assert up.ComposeBox.lacking_names("db oneoff:False trialbox-net= trialbox-model-net=trialbox-db-1,db\n") == {
         "db": ["trialbox-net"]
     }
 
@@ -156,3 +165,17 @@ def test_a_test_box_beside_a_box_keeps_its_own_range(tmp_path: Path) -> None:
     assert not any("TB_NET_SUBNET" in " ".join(c) for c in eng.calls)
     named = [kw.get("env") or {} for kw in eng.kwargs]
     assert not any("TB_NET_SUBNET" in e or "COMPOSE_PROJECT_NAME" in e for e in named)
+
+
+def test_a_stopped_one_off_container_is_never_read_as_a_service_without_its_name(tmp_path: Path) -> None:
+    """Review 1535-3: a killed `compose run` leaves a stopped one-off container of the project; `compose ps -a`
+    lists it (shown on compose 5.7.1), and it answers to its run's name, not the service's. It is not a service's
+    container: the update neither recreates it nor stops on it."""
+    assert up.ComposeBox.lacking_names(RECORDED_ONE_OFF) == {}
+    eng = Engine([RECORDED_FRESH + RECORDED_ONE_OFF])
+    line = up.ComposeBox(_deploy(tmp_path), run=eng).db_on_new_settings()
+    assert eng.composed("--force-recreate") == [] and line == "on this release's settings"
+    eng = Engine([RECORDED_NETWORK_MADE_AGAIN + RECORDED_ONE_OFF, RECORDED_RECREATED + RECORDED_ONE_OFF])
+    up.ComposeBox(_deploy(tmp_path), run=eng).db_on_new_settings()
+    again = eng.composed("up", "--no-start", "--no-deps", "--force-recreate")
+    assert len(again) == 1 and again[0][-2:] == ["db", "orchestrator"]

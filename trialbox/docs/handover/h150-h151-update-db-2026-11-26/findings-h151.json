@@ -21,7 +21,7 @@
    "lane": "H",
    "basis": "shown",
    "state": "open",
-   "fix": "the superuser makes the dump's extensions in the fresh database (which also gives each its comment) and the role's load leaves out the COMMENT ON EXTENSION lines it may not run"
+   "fix": "the superuser makes the dump's extensions and their comments in the fresh database from the archive's own list (pg_restore -l, -L); the role's load holds every other entry"
   },
   {
    "id": "H151-03",
@@ -31,6 +31,24 @@
    "basis": "shown",
    "state": "open",
    "fix": "the update's space check counts it on Docker's volumes beside the rollback script"
+  },
+  {
+   "id": "H151-04",
+   "severity": "High",
+   "claim": "the first version of the fix made the extensions with grep '^CREATE EXTENSION ' over the whole plain script, COPY data included, so a stored text value at the start of a row (CREATE EXTENSION ...; <SQL>; --) ran as the superuser (the integrator's review 7181403737, 1535-1; reproduced by the card's regression test)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the archive's own list (pg_restore -l) is split by each entry's kind and each part restored with -L; no line of generated SQL is picked out"
+  },
+  {
+   "id": "H151-05",
+   "severity": "High",
+   "claim": "the first version left out grep -v '^COMMENT ON EXTENSION ' lines from the role's load, so a COPY row with that prefix was dropped, the load committed and the swap put the short database in place (the integrator's review 7181403737, 1535-2; reproduced by the card's regression test)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the same: extension comments are entries of the superuser's list, and the role's load is every other entry of the archive, whole"
   }
  ]
 }
