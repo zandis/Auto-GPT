@@ -35,19 +35,19 @@ PAGES = [
 
 
 class Registry:
-    """Serves PAGES by token and counts the page requests."""
+    """Serves PAGES by token, counts the page requests and keeps their URLs."""
 
     def __init__(self) -> None:
         self.page_calls = 0
+        self.urls: list[str] = []
 
     def __call__(self, url: str) -> Any:
         if url.endswith("/version"):
             return {"dataTimestamp": "2026-11-25T10:00:05"}
-        if url.endswith("/stats/size"):
-            return {"totalStudies": 5}
         self.page_calls += 1
-        i = int(url.split("pageToken=t")[1]) if "pageToken=t" in url else 0
-        out: dict[str, Any] = {"studies": PAGES[i]}
+        self.urls.append(url)
+        i = int(url.split("pageToken=t")[1].split("&", maxsplit=1)[0]) if "pageToken=t" in url else 0
+        out: dict[str, Any] = {"studies": PAGES[i], "totalCount": 5}
         if i + 1 < len(PAGES):
             out["nextPageToken"] = f"t{i + 1}"
         return out
@@ -85,3 +85,14 @@ def test_documents_are_listed_per_mesh_family_with_their_url(tmp_path: Path) -> 
     rows = (tmp_path / "documents.csv").read_text().splitlines()
     assert len(rows) == 2 and rows[1].endswith("https://cdn.clinicaltrials.gov/large-docs/03/NCT00000003/Prot_000.pdf")
     assert json.loads((tmp_path / "state.json").read_text())["done"]
+
+
+def test_slices_fetched_side_by_side_are_read_from_their_parent(tmp_path: Path) -> None:
+    reg = Registry()
+    cf.fetch(tmp_path / "part-a", pause=0, where="AREA[StudyFirstPostDate]RANGE[MIN,2025-12-31]", get=reg)
+    cf.fetch(tmp_path / "part-b", pause=0, max_pages=1, where="AREA[StudyFirstPostDate]RANGE[2026-01-01,MAX]", get=reg)
+    assert "filter.advanced=AREA" in reg.urls[0]
+    s = cf.status(tmp_path)
+    assert (s["slices"], s["all_done"], s["records"], s["expected"]) == (2, False, 7, 10)
+    assert s["unfinished"] == {"part-b": "2/5"}
+    assert len(list(cf.iter_studies(tmp_path))) == 7
