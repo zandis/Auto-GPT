@@ -440,6 +440,9 @@ def box(tmp_path: Path) -> dict[str, Any]:
         }
         (out / "dl1" / f"DL1_{trial}.json").write_text(json.dumps({"object": obj, "sha256": "0" * 64}))
         (out / "dl1" / f"DL1_{trial}.pdf").write_bytes(ONE_PAGE_PDF)
+        # as tools/cascade_e2e.py: the run's record of the files it built (1523 ruling), by which they leave
+        made = {f"dl1/DL1_{trial}.pdf": hashlib.sha256(ONE_PAGE_PDF).hexdigest()}
+        (out / "made.json").write_text(json.dumps(made))
         (out / "recall" / "recall_certificate.json").write_text('{"alpha": 0.05}')
         (out / "cascade" / "final_list.json").write_text('{"patients": ["p1"]}')
         (out / "e2e_summary.json").write_text(
