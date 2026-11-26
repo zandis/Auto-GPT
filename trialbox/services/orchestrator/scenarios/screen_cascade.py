@@ -135,6 +135,7 @@ def vec_s2b_on() -> bool:
     return read(VEC_FLAG) == "on"
 
 
+TIMING_ENV = "TB_SCREEN_TIMING"  # M8: the same switch for a run that has no flag store (tools/speed_50k.sh)
 TIMING_FLAG = "screen.timing"  # R1-P2 (lane DB): each stage's wall time, published with the run (tools.chart_times)
 
 
@@ -142,7 +143,7 @@ def screen_timing_on() -> bool:
     """The flag ``screen.timing`` as stored (``/ops/flags``); off when it has no row or the store cannot be read."""
     from tb_common.flags import read
 
-    return read(TIMING_FLAG) == "on"
+    return os.environ.get(TIMING_ENV) == "on" or read(TIMING_FLAG) == "on"
 
 
 def merged_timing(rounds: list[dict[str, Any]]) -> dict[str, Any] | None:

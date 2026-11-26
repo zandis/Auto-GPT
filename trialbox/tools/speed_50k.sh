@@ -25,8 +25,7 @@ export PYTHONPATH=libs:services:.
 PY=${PY:-.venv/bin/python}
 mkdir -p "$OUT"; ENVF="$OUT/env.txt"
 TB_GPU_KEY=$(<"$TB_GPU_KEY_FILE"); export TB_GPU_KEY  # read here, never printed or written
-# TB_SCREEN_TIMING=on is read only once the F0 key and the one-line hook of INT-M8 exist; until then the stage clock
-# file is not made, the rows say largest_stage=unknown, and the servers' split in chart_times.json is the evidence
+# TB_SCREEN_TIMING=on makes the run publish its stage clock file (declared in config.py; off by default)
 export TB_LLM_PREFIX_CACHING=no-enable TB_SCREEN_LLM_CONCURRENCY=$CONCURRENCY TB_SCREEN_TIMING=on
 
 # 1. refuse a server that has its prefix cache on (the run measures the cold path); say what each reports

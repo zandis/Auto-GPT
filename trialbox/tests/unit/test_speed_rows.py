@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from orchestrator.scenarios import screen_cascade
 
 from tools import speed_rows as sr
 
@@ -66,3 +67,15 @@ def test_the_jobs_wall_stands_in_for_the_stage_clocks_total(tmp_path: Path, caps
     assert sr.main(["--timing", str(f), "--wall", "700", "--patients", "50000"]) == 0
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "GZQO\tscreen_now_seconds=700.0" and json.loads(out[5])["explains_wall"] is False  # 140 s unnamed
+
+
+def test_the_environment_switches_the_stage_clock_on_and_only_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    import tb_common.flags as flags
+
+    monkeypatch.setattr(flags, "read", lambda name, url=None: "off")
+    monkeypatch.delenv(screen_cascade.TIMING_ENV, raising=False)
+    assert screen_cascade.screen_timing_on() is False
+    monkeypatch.setenv(screen_cascade.TIMING_ENV, "off")
+    assert screen_cascade.screen_timing_on() is False
+    monkeypatch.setenv(screen_cascade.TIMING_ENV, "on")
+    assert screen_cascade.screen_timing_on() is True
