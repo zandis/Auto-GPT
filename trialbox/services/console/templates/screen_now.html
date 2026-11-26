@@ -15,7 +15,6 @@
 <p>{% if st.minutes is not none %}{{ t('screennow.time.known', minutes=st.minutes, per=st.per_1000) }}{% else %}{{ t('screennow.time.unknown') }}{% endif %}</p>
 {% if st.stale %}<p data-testid="screennow-stale">{{ t('screennow.stale', day=st.stale) }}</p>{% endif %}
 </section>
-{% if joined %}<p data-testid="screennow-joined">{{ t('screennow.joined') }}</p>{% endif %}
 {% if st.running %}
 <section class="card" data-testid="screennow-running">
 <p>{{ t('screennow.running', state=st.running.state) }}</p><p class="hint">{{ t('screennow.progress') }}</p>

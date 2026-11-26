@@ -32,7 +32,6 @@ PENDING = {
     # M5
     "support_page",
     # M8
-    "screen_now",
     # end
 }
 

@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from orchestrator import scheduler as sch
+from tb_common import screen_now as sch
 from tb_contracts import Job
 
 pytestmark = pytest.mark.nodb

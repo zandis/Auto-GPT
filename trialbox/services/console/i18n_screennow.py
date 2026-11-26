@@ -47,11 +47,12 @@ JA: dict[str, str] = {
     "screennow.start": "今すぐスクリーニング",
     "screennow.running": "この試験のスクリーニングが実行中です(状態: {state})。このページは自動で更新されます。"
     "離れても構いません。",
-    "screennow.progress": "実行中は、処理済みの患者数や読み込んだ記録の数は表示されません。状態はジョブのものです。",
+    "screennow.progress": "実行中は、処理済みの患者数や読み込んだ記録の数"
+    "は表示されません。状態は処理そのものの状態です。",
     "screennow.joined": "この試験のスクリーニングはすでに実行中だったため、依頼はそれに合流しました。",
     "screennow.queued": "夜間の処理が実行中です(先行 {n} 件)。スクリーニングはその後に待機します。",
     "screennow.wait.known": "見込み待ち時間: 約 {minutes} 分。",
-    "screennow.wait.unknown": "待ち時間は不明です。先行するジョブに過去の実行がありません。",
+    "screennow.wait.unknown": "待ち時間は不明です。先行する処理に過去の実行がありません。",
     "screennow.done": "{at} に今すぐスクリーニングを実施しました。",
     "screennow.open_list": "一覧を開く",
     "screennow.stale": "前回の実行のデータは {day} のもので、1 日以上前です。",

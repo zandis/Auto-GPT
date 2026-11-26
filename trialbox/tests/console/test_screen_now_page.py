@@ -143,9 +143,9 @@ def test_a_second_request_for_one_study_joins_the_first() -> None:
     c = s.client()
     c.post(PAGE, data={"csrf": "tok"})
     r = c.post(PAGE, data={"csrf": "tok"})
-    assert r.headers["location"].endswith("joined=1") and len(s.made) == 1  # one job
-    page = c.get(r.headers["location"]).text
-    assert 'data-testid="screennow-joined"' in page and 'data-testid="screennow-running"' in page
+    assert r.headers["location"] == PAGE and len(s.made) == 1  # one job
+    page = c.get(PAGE).text
+    assert 'data-testid="screennow-running"' in page
     assert 'http-equiv="refresh"' in page  # a running page refreshes by itself
     assert s.actions() == ["started", "joined"]
 
@@ -157,8 +157,8 @@ def test_a_request_during_the_night_is_queued_with_the_wait_stated() -> None:
     s.add(3, "MICROBATCH", "running", rs="OTHER")
     c, en = s.client(), i18n_screennow.EN
     r = c.post(PAGE, data={"csrf": "tok"})
-    assert len(s.made) == 1 and r.headers["location"].endswith("queued=1") and s.actions() == ["queued"]
-    page = c.get(PAGE + "?queued=1").text
+    assert len(s.made) == 1 and r.headers["location"] == PAGE and s.actions() == ["queued"]
+    page = c.get(PAGE).text
     assert en["screennow.queued"].format(n=1) in page and "state: received" in page
     assert en["screennow.wait.known"].format(minutes=8.0) in page
 

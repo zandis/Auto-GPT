@@ -21,7 +21,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from orchestrator import scheduler as sched
+from tb_common import screen_now as sched
 from tb_contracts import Job
 
 from console.form_errors import FAILED, FieldError, FormErrors
@@ -95,9 +95,9 @@ def register(app: FastAPI, h: Helpers, _env: Mapping[str, str] | None = None) ->
                       refresh_url=f"/studies/{rs}/screen-now", **extra)  # fmt: skip
 
     @app.get("/studies/{rs}/screen-now", response_class=HTMLResponse)
-    def screen_now_page(request: Request, rs: str, joined: str = "", queued: str = "") -> Response:
+    def screen_now_page(request: Request, rs: str) -> Response:
         sess, rs = study(request)
-        return render(request, sess, rs, joined=joined == "1", queued=queued == "1")
+        return render(request, sess, rs)
 
     @app.post("/studies/{rs}/screen-now")
     def screen_now_start(request: Request, rs: str, csrf: str = Form(""), all_dept: str = Form("")) -> Response:
@@ -120,15 +120,15 @@ def register(app: FastAPI, h: Helpers, _env: Mapping[str, str] | None = None) ->
             plan = st["plan"]
             if plan.action == "join":
                 said("joined", job=plan.job_id)
-                return RedirectResponse(f"/studies/{rs}/screen-now?joined=1", status_code=303)
+                return RedirectResponse(f"/studies/{rs}/screen-now", status_code=303)
             if st["scope"] is None and all_dept != "1":  # a scope that cannot be counted is asked about, never assumed
                 fe = FormErrors("screen-now", "sn", (FieldError("all_dept", "screennow.ask_scope"),))
                 return render(request, sess, rs, FAILED, fe=fe)
             if h.submit is None:
-                raise h.problem(503, "request.refused", reason="this console cannot start a job")
+                raise h.problem(404, "notfound")
             job = h.submit(sess, f"SCREEN {rs} version={version}")
         said("queued" if plan.action == "queue" else "started", job=job.job_id, behind=plan.behind)
-        return RedirectResponse(f"/studies/{rs}/screen-now" + ("?queued=1" if plan.action == "queue" else ""), 303)
+        return RedirectResponse(f"/studies/{rs}/screen-now", 303)
 
 
 def _minutes(seconds: float | None) -> float | None:
