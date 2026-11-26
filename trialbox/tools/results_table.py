@@ -16,10 +16,12 @@ The table is refused (exit 2, one line per row, no table written) when a row:
 
 * names no evidence, or its evidence file is not there;
 * has evidence that names another commit than ``--commit``, or names none;
-* says green while its evidence counts a failure, or passed nothing (every test skipped is not a proof).
+* says green while its evidence counts a failure, or passed nothing (every test skipped is not a proof);
+* has evidence that leaves out any of the counts (a missing count is never read as zero).
 
 Every green row carries its skip and strict-xfail counts beside it ("green, 3 skipped, 1 strict xfail") and in their
-own columns, so a skipped proof is never read as green. Nothing here reads a clock or calls a service. Standard
+own columns, so a skipped proof is never read as green. Text cells have their pipes escaped and line breaks turned
+into spaces, so no proof's text can open a column of its own. Nothing here reads a clock or calls a service. Standard
 library only.
 """
 
@@ -99,7 +101,9 @@ def _row(path: Path, commit: str) -> tuple[Row | None, str | None]:
         return None, f"{crit}: the evidence {ev_name} names commit {named.strip()}, not {commit}"
     counts: dict[str, int] = {}
     for key in COUNTS:
-        val = ev.get(key, 0)
+        if key not in ev:  # a count left out is not a zero: the run did not say
+            return None, f"{crit}: the evidence {ev_name} leaves out the count {key!r}"
+        val = ev[key]
         if not isinstance(val, int) or isinstance(val, bool) or val < 0:
             return None, f"{crit}: the evidence {ev_name} has no count {key!r} (a whole number)"
         counts[key] = val
@@ -136,6 +140,11 @@ def build(proofs: Path, commit: str) -> list[Row]:
     return sorted(rows, key=lambda r: r.criterion)
 
 
+def cell(text: str) -> str:
+    """A text cell of the Markdown table: a pipe escaped, every line break a space, so it stays in its cell."""
+    return re.sub(r"\r\n|\r|\n", " ", text).replace("|", "\\|")
+
+
 def render(rows: list[Row], commit: str) -> str:
     out = [
         f"# Acceptance results at {commit}",
@@ -149,8 +158,8 @@ def render(rows: list[Row], commit: str) -> str:
     for r in rows:
         c = r.counts
         out.append(
-            f"| {r.criterion} | {r.title} | {r.shown()} | {c['passed']} | {c['failed']} | {c['skipped']} "
-            f"| {c['xfail_strict']} | `{r.evidence}` |"
+            f"| {cell(r.criterion)} | {cell(r.title)} | {r.shown()} | {c['passed']} | {c['failed']} | {c['skipped']} "
+            f"| {c['xfail_strict']} | `{cell(r.evidence)}` |"
         )
     return "\n".join(out) + "\n"
 
