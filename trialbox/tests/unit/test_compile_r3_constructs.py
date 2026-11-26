@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import duckdb
 import pytest
@@ -30,7 +30,7 @@ VS = {
 }  # fmt: skip
 
 
-def table(*rows: tuple[str | None, float]) -> SiteRefRanges:
+def table(*rows: tuple[Literal["male", "female"] | None, float]) -> SiteRefRanges:
     """A signed synthetic table for ALT in U/L: (sex, high) per row."""
     return SiteRefRanges("pi@site.test", "2026-11-27", tuple(RefRangeRow(LOINC, "1742-6", "U/L", s, None, h)
                                                                for s, h in rows))  # fmt: skip
