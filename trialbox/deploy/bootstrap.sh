@@ -248,7 +248,7 @@ print(f"staged: the signed release {bid} at {root}/releases/{bid}, switched to o
     # .pth or cache at the top of the box is imported by every root job started there after the switch
     KEPT_TOPS="$(kept_diff "$ROOT" tops)" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
     [ -z "$KEPT_TOPS" ] || die "the tree at $ROOT holds code at its top that the release does not ($KEPT_TOPS): nothing was run. Move what it names aside, then run this command again"  # H-94 (1): only the signed files run
-    # review 7186452446 H-2: code of the kept tree beside a signed script outside tools/ and libs/ (deploy/hardening): the
+    # review 7186452446 H-2: code of the kept tree beside a signed script outside the two library folders (hardening): the
     # staged release runs, never it; the update step's switch sets those folders aside. Said, every one of them
     KEPT_NESTED="$(kept_diff "$ROOT" nested)" || die "the TrialBox tree at $ROOT could not be compared with the signed host tree: nothing was run"  # H-94 (1)
     [ -z "$KEPT_NESTED" ] || echo "kept: $ROOT holds code beside its scripts that the release does not ($KEPT_NESTED): it is not run, and the update step sets it aside"
