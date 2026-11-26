@@ -167,13 +167,15 @@ def test_schemas_carry_the_3_1_constructs() -> None:
     bad["card_ref"]["card_version"] = "v1"
     assert list(crit.iter_errors(bad))
     ir = CriterionIRv3.model_validate(doc)
-    rec = CriterionLibraryRecord(
-        lib_id="cl_01JB7AAAAAAAAAAAAAAAAAAAAA",
-        canonical_hash=canonical_hash(ir),
-        kind="exclusion",
-        **{"class": "structured"},
-        ir=ir,
-        seed_source="site",
+    rec = CriterionLibraryRecord.model_validate(
+        {
+            "lib_id": "cl_01JB7AAAAAAAAAAAAAAAAAAAAA",
+            "canonical_hash": canonical_hash(ir),
+            "kind": "exclusion",
+            "class": "structured",
+            "ir": ir,
+            "seed_source": "site",
+        }
     )
     lib = Draft202012Validator(json.loads((SCHEMA_DIR / "criterion_library_record.schema.json").read_text("utf-8")))
     assert not list(lib.iter_errors(rec.model_dump(mode="json", by_alias=True, exclude_none=True)))
