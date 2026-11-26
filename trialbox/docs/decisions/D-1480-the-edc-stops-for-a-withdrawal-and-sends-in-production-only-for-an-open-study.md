@@ -35,4 +35,5 @@ study, open or not: rc1's RC-RC1 covered only the data core's push of screening 
 - A PRODUCTION study must be opened on its state page before anything is sent to its EDC.
 - Tests: `tests/unit/test_v15_withdrawal_data_use.py`, `tests/unit/test_m7_edc_door.py`,
   `tests/unit/test_matrix_role_walk_orchestrator.py` (V2-05), `tests/console/test_matrix_role_walk.py`, and
-  `tests/e2e/test_edc_real_doors.py` against a REDCap test instance.
+  `tests/e2e/test_edc_real_doors.py` (run by hand against a real REDCap test instance with `TB_EDC_REAL_*` set;
+  no CI job sets them, so CI skips it and it is not evidence from CI).

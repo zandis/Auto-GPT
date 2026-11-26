@@ -792,7 +792,9 @@ class EdcService:
                     touched = sorted({k[0] for k in imports if k not in refused})
                     back = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))],
                                                           records=touched), self.today())  # fmt: skip
-                    refs, unread_log = _log_refs(c, self.today(), [(rec, str(d["item"])) for d, rec, _s in planned])
+                    refs, unread_log = _log_refs(
+                        c, self.today(), [(rec, str(d["item"]), slot.instance) for d, rec, slot in planned]
+                    )
                     for d, rec, slot in planned:
                         got = back.value(rec, slot, str(d["item"]))
                         if got == fmt[int(d["id"])]:
@@ -1292,20 +1294,32 @@ POC_ENVS = ("DEV", "TEST", "VALIDATION")  # M7 (R1-E6): the boxes the PRODUCTION
 LOG_REFS_MAX = 200  # the references one send's audit line carries at most
 
 
-def _log_refs(c: RedcapClient, today: date, done: list[tuple[str, str]]) -> tuple[dict[tuple[str, str], str], str]:
+def _log_refs(c: RedcapClient, today: date, done: list[tuple[str, str, int]]) -> tuple[dict[tuple[str, str], str], str]:
     """M7 (R1-E5): REDCap's own log line (``content=log``, the record writes since yesterday, so a server clock in
-    another zone is still covered) for each (record, field) just written: "<time> <user> <action>" of the newest line
-    that names the field; and "" or why the log could not be read. The send stands either way."""
+    another zone is still covered) for each (record, field, repeat instance) just written: "<time> <user> <action>"
+    of the newest line that names the field in TrialBox's kind of write (an import or the API: a person's own edit
+    is another action) on the same instance; "" when the lines that fit come from more than one user (ambiguous:
+    nobody's line is claimed as TrialBox's); and "" or why the log could not be read. The send stands either way."""
     try:
         rows = c.project_log(logtype="record", begin_time=f"{today - timedelta(days=1)} 00:00")
     except RcError as exc:
         return {}, exc.code
-    refs: dict[tuple[str, str], str] = {}
+    hits: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for e in sorted(rows, key=lambda e: str(e.get("timestamp") or "")):
         rec, details = str(e.get("record") or ""), str(e.get("details") or "")
-        for r, f in done:
-            if rec == r and re.search(rf"(^|[\s,]){re.escape(f)}(\(\w+\))? = ", details):
-                refs[(r, f)] = " ".join(str(e.get(k) or "") for k in ("timestamp", "username", "action")).strip()
+        action = str(e.get("action") or "")
+        if not re.search(r"\((import|API)\)", action) or "(Auto calculation)" in action:
+            continue  # a person's edit, a lock, REDCap's own calculation: not TrialBox's write
+        m = re.search(r"\[instance = (\d+)\]", details)
+        there = int(m.group(1)) if m else 1
+        for r, f, inst in done:
+            if rec == r and there == (inst or 1) and re.search(rf"(^|[\s,]){re.escape(f)}(\(\w+\))? = ", details):
+                hits.setdefault((r, f), []).append(e)
+    refs = {
+        key: " ".join(str(es[-1].get(k) or "") for k in ("timestamp", "username", "action")).strip()
+        for key, es in hits.items()
+        if len({str(e.get("username") or "") for e in es}) == 1
+    }
     return refs, ""
 
 

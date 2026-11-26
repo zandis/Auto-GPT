@@ -114,6 +114,7 @@ def test_v2_05_the_studys_pi_reads_the_edc_copy_sheet_and_export(tmp_path: Path,
     r = _edc_read_as(tmp_path, step, logged_pi=True)
     if r.status_code == 403 and "edc.role" in r.text:
         raise RoleWalkFinding(f"GET /studies/{{rs}}/edc/{step}: the PI is refused (edc.role)")
+    assert r.status_code == 200, (step, r.status_code, r.text[:200])
 
 
 @pytest.mark.parametrize("step", ["copy", "export/odm"])

@@ -100,6 +100,7 @@ def _router_as(tmp_path: Path, username: str, pi: str | None) -> Any:
 def test_the_pi_the_log_names_is_not_refused_the_copy_sheet(tmp_path: Path) -> None:
     r = _router_as(tmp_path, "drpi", "drpi")
     assert "edc.role" not in r.text, r.text
+    assert r.status_code == 200, r.text
 
 
 @pytest.mark.parametrize("pi", [None, "someoneelse"])
@@ -118,6 +119,43 @@ def test_each_value_sent_keeps_redcaps_own_log_line(tmp_path: Path) -> None:
     line = next(e for e in reversed(_audit(svc)) if e.get("event") == "edc.sent")
     assert set(line["detail"]["redcap_log"]) == {r["redcap_log"] for r in sent}
     assert svc.store.trail(k.STUDY, k.RECORD)["sent"][-1]["redcap_log"]
+
+
+class _LogOf:
+    """A REDCap whose log is the given lines (``content=log``)."""
+
+    def __init__(self, rows: list[dict[str, str]]) -> None:
+        self.rows = rows
+
+    def project_log(self, **_kw: Any) -> list[dict[str, str]]:
+        return self.rows
+
+
+def _line(at: str, user: str, action: str, details: str) -> dict[str, str]:
+    return {"timestamp": at, "username": user, "action": action, "record": "1", "details": details}
+
+
+@pytest.mark.nodb
+def test_the_log_line_kept_is_only_trialboxs_own_on_that_instance() -> None:
+    from datetime import date
+
+    from edc.service import _log_refs
+
+    mine = _line("2026-11-09 10:00", "tb_api", "Update record (import) 1", "w = '70'")
+    for rows, want in (
+        ([mine], "2026-11-09 10:00 tb_api Update record (import) 1"),
+        # a person's edit and another instance, both newer: neither is attached as TrialBox's line
+        ([mine, _line("2026-11-09 10:05", "dr_x", "Update record 1", "w = '71'"),
+          _line("2026-11-09 10:06", "tb_api", "Update record (import) 1", "w = '72', [instance = 2]")],
+         "2026-11-09 10:00 tb_api Update record (import) 1"),
+        # another user's import of the same field on the same instance: ambiguous, no line claimed
+        ([mine, _line("2026-11-09 10:05", "other_api", "Update record (import) 1", "w = '71'")], None),
+    ):  # fmt: skip
+        refs, unread = _log_refs(_LogOf(rows), date(2026, 11, 9), [("1", "w", 0)])  # type: ignore[arg-type]
+        assert unread == "" and refs.get(("1", "w")) == want
+    refs, _ = _log_refs(_LogOf([mine, _line("2026-11-09 10:06", "tb_api", "Update record (import) 1",
+                                            "w = '72', [instance = 2]")]), date(2026, 11, 9), [("1", "w", 2)])  # type: ignore[arg-type]  # fmt: skip
+    assert refs[("1", "w")].endswith("Update record (import) 1") and refs[("1", "w")].startswith("2026-11-09 10:06")
 
 
 # ------------------------------------------------------------------------------------------------- R1-E6
