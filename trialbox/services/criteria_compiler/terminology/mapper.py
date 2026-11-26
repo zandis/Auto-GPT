@@ -471,8 +471,12 @@ class Terminology:
         return {k: sorted(set(v)) for k, v in sorted(out.items())}
 
     def _atc_lost(self, fams: set[tuple[str, str]]) -> list[str]:
-        """The ATC families of ``fams`` with no code to list (``atc_losses``)."""
-        return sorted(code for sy, code in fams if sy == SYSTEMS["atc"] and not self.expand("atc", code, "prefix"))
+        """The ATC families of ``fams`` with no code to list (``atc_losses``): prefix rows only, as there. A
+        ``family`` row (INT-R2) lists no code by design, so it is never a loss."""
+        pre = {str(s["code"]) for s in self.synonyms if s["table"] == "atc" and s["match"] == "prefix"}
+        return sorted(
+            code for sy, code in fams if sy == SYSTEMS["atc"] and code in pre and not self.expand("atc", code, "prefix")
+        )
 
     def concept(self, system: str, code: str) -> Concept | None:
         return self._by_code.get((system, code))

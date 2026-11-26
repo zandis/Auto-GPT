@@ -1267,14 +1267,6 @@
   }
  ],
  "id": "RA-JAK-VS-BIOLOGIC-DMARD-OR-JAK-INHIBITOR",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_BIOLOGIC_DMARD_OR_JAK_INHIBITOR",
  "resourceType": "ValueSet",
  "status": "active",

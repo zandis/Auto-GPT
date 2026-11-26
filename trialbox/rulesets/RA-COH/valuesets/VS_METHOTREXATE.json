@@ -779,14 +779,6 @@
   }
  ],
  "id": "RA-COH-VS-METHOTREXATE",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_METHOTREXATE",
  "resourceType": "ValueSet",
  "status": "active",

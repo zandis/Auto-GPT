@@ -1199,14 +1199,6 @@
   }
  ],
  "id": "RA-COH-VS-RA-BIOLOGIC",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_RA_BIOLOGIC",
  "resourceType": "ValueSet",
  "status": "active",

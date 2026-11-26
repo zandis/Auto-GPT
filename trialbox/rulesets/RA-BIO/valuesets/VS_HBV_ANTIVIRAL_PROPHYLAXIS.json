@@ -395,14 +395,6 @@
   }
  ],
  "id": "RA-BIO-VS-HBV-ANTIVIRAL-PROPHYLAXIS",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_HBV_ANTIVIRAL_PROPHYLAXIS",
  "resourceType": "ValueSet",
  "status": "active",

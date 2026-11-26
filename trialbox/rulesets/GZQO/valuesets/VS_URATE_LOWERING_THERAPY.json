@@ -547,14 +547,6 @@
   }
  ],
  "id": "GZQO-VS-URATE-LOWERING-THERAPY",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_URATE_LOWERING_THERAPY",
  "resourceType": "ValueSet",
  "status": "active",

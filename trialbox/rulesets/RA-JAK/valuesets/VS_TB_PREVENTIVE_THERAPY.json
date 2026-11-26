@@ -227,14 +227,6 @@
   }
  ],
  "id": "RA-JAK-VS-TB-PREVENTIVE-THERAPY",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_TB_PREVENTIVE_THERAPY",
  "resourceType": "ValueSet",
  "status": "active",

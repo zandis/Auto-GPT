@@ -479,14 +479,6 @@
   }
  ],
  "id": "AD-MAB-VS-ANTICOAGULANT",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_ANTICOAGULANT",
  "resourceType": "ValueSet",
  "status": "active",

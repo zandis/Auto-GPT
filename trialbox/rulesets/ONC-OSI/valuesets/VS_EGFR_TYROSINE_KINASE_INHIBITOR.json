@@ -347,14 +347,6 @@
   }
  ],
  "id": "ONC-OSI-VS-EGFR-TYROSINE-KINASE-INHIBITOR",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_EGFR_TYROSINE_KINASE_INHIBITOR",
  "resourceType": "ValueSet",
  "status": "active",

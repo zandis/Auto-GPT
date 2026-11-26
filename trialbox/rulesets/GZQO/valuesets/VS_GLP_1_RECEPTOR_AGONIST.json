@@ -791,14 +791,6 @@
   }
  ],
  "id": "GZQO-VS-GLP-1-RECEPTOR-AGONIST",
- "meta": {
-  "tag": [
-   {
-    "code": "needs_review",
-    "system": "https://trialbox.local/fhir/CodeSystem/review-flag"
-   }
-  ]
- },
  "name": "VS_GLP_1_RECEPTOR_AGONIST",
  "resourceType": "ValueSet",
  "status": "active",
