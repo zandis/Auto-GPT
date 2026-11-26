@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
+from matching.cascade.engine import timing_doc
+from matching.cascade.model import StageLog
 from orchestrator.scenarios import screen_cascade
 
 from tools import speed_rows as sr
@@ -19,6 +21,13 @@ def test_the_record_adds_up_to_the_wall_and_names_what_it_cannot() -> None:
     assert [r["stage"] for r in rows] == ["S1", "S2b", "S3", "unaccounted"]
     assert sum(r["seconds"] for r in rows) == pytest.approx(600.0)
     assert rows[-1]["seconds"] == pytest.approx(40.0) and rows[1]["rows"] == 9000 and rows[2]["patients"] == 50000
+
+
+def test_the_record_reads_the_patients_of_the_real_timing_doc() -> None:
+    log = [StageLog("S1", 50000, 9000, 0, 0, "x", "h"), StageLog("S2b", 9000, 700, 0, 0, "x", "h")]
+    doc = timing_doc({"S1": 120.0, "S2b": 40.0, "S3": 400.0}, log, 600.0)
+    rows = sr.timing_record(doc["wall_seconds"], doc["stages"], 50000)
+    assert [r["patients"] for r in rows] == [50000, 9000, 50000, 50000]  # S3 has no stage log: the overall count
 
 
 def test_the_stages_explain_the_wall_within_five_percent() -> None:

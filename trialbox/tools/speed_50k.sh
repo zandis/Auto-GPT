@@ -36,7 +36,7 @@ export TB_LLM_PREFIX_CACHING=no-enable TB_SCREEN_LLM_CONCURRENCY=$CONCURRENCY TB
 } > "$ENVF"
 for pair in "judge=$JUDGE" "verifier=$VERIFIER"; do
   name=${pair%%=*}; url=${pair#*=}
-  line=$(curl -fsS -H "Authorization: Bearer $TB_GPU_KEY" "${url%/v1}/metrics" 2>/dev/null \
+  line=$(curl -fsS -H @<(printf "Authorization: Bearer %s\n" "$TB_GPU_KEY") "${url%/v1}/metrics" 2>/dev/null \
     | grep -m1 'cache_config_info' | grep -o 'enable_prefix_caching="[A-Za-z]*"' || true)
   echo "prefix_cache.$name=${line:-unreported}" >> "$ENVF"
   if [[ "$line" == *'"True"'* ]]; then echo "the $name server has its prefix cache on: restart it with TB_LLM_PREFIX_CACHING=no-enable" >&2; exit 3; fi
@@ -54,7 +54,7 @@ echo "peak_rss_kb_largest_process=${PEAK_KB:-unknown}" >> "$ENVF"
 
 # 3. the figures: the part's result, the stage clock's file, the audit of the calls
 PART=$(find "$OUT/run/parts" -maxdepth 1 -name 'hospital-ja@c*.json' | head -n 1 || true)
-[[ -n "$PART" ]] || { echo "no hospital part result: see $OUT/run.log (exit $rc)" >&2; exit "${rc:-1}"; }
+[[ -n "$PART" ]] || { echo "no hospital part result: see $OUT/run.log (exit $rc)" >&2; exit $(( rc ? rc : 1 )); }
 TIMING=$(find "$OUT/run" -name 'cascade_timing_*_v*.json' | head -n 1 || true)
 read -r WALL SINCE UNTIL < <("$PY" -c 'import json,sys; w=json.load(open(sys.argv[1]))["screen"]["window"]; print(w["to"]-w["from"], w["from_at"], w["to_at"])' "$PART")
 PEAK_GB=$(awk -v k="${PEAK_KB:-}" 'BEGIN { if (k == "") print ""; else printf "%.2f", k/1048576 }')
@@ -63,8 +63,8 @@ rows=("$PY" -m tools.speed_rows --patients "$PATIENTS" --wall "$WALL" --ruleset 
 if [[ -n "$TIMING" ]]; then rows+=(--timing "$TIMING"); else echo "no stage clock file found: largest_stage is unknown" >> "$ENVF"; fi
 "${rows[@]}" > "$OUT/rows.txt"
 sed -n '1,5p' "$OUT/rows.txt" > "$OUT/speed_line.tsv"; sed -n '6p' "$OUT/rows.txt" > "$OUT/speed_line.json"
-AUDIT=$(dirname "$(grep -rl --include='*.jsonl' '"llm.call"' "$OUT/run" 2>/dev/null | head -n 1)" 2>/dev/null || true)
-WATCH=$(dirname "$(find "$OUT/run/parts" -name gpu.csv | head -n 1)" 2>/dev/null || true)
+AUDIT=$(grep -rl --include='*.jsonl' '"llm.call"' "$OUT/run" 2>/dev/null | head -n 1 || true); [[ -n "$AUDIT" ]] && AUDIT=$(dirname "$AUDIT")
+WATCH=$(find "$OUT/run/parts" -name gpu.csv 2>/dev/null | head -n 1 || true); [[ -n "$WATCH" ]] && WATCH=$(dirname "$WATCH")
 if [[ -d "$AUDIT" && -d "$WATCH" ]]; then
   chart=("$PY" -m tools.chart_times report --audit-dir "$AUDIT" --folder "$WATCH" --since "$SINCE" --until "$UNTIL"
          --ingest-patients "$PATIENTS" --out "$OUT/chart_times.json")

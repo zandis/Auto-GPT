@@ -23,8 +23,14 @@ def timing_record(wall: float, stages: Mapping[str, Mapping[str, Any]], patients
     """The record: one row per stage (``seconds``, ``rows`` when the stage counted some, ``patients``) and the rest of
     the wall time as ``unaccounted``, so that the rows add up to ``wall`` (never negative: a stage clock that ran past
     the wall is a fault of the clock, the row is then 0 and :func:`explains_wall` is False)."""
+    # patients_in is the real schema of engine.timing_doc
     rows = [
-        {"stage": name, "seconds": float(v["seconds"]), "rows": v.get("rows"), "patients": v.get("patients", patients)}
+        {
+            "stage": name,
+            "seconds": float(v["seconds"]),
+            "rows": v.get("rows"),
+            "patients": v.get("patients_in", patients),
+        }
         for name, v in stages.items()
         if name != REST
     ]
