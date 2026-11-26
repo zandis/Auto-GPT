@@ -79,7 +79,6 @@ from tb_contracts import (
     Judging,
     ScreenRunScope,
     TierSummary,
-    dump,
 )
 
 from orchestrator import answer_store
@@ -101,6 +100,7 @@ from orchestrator.scenarios.evaluate import (
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     Scoped,
+    candidate_list_json,
     deliver_lists,
     drop_opted_out,
     evaluate_scope,
@@ -833,7 +833,7 @@ def run(ctx: Ctx) -> Outcome:
         ),
         judging=Judging(**judging) if judging else None,
     )
-    body = json.dumps(dump(cl), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
+    body = candidate_list_json(cl)
     ctx.publish(f"candidate_list_{rs.id}_v{rs.version}.json", body, "phi", [])  # the console's week page
     cell = small_cell(ctx, rs)  # summary PDF + mail are aggregate outputs: every count suppressed (SPEC §10.1)
     found = [r for r in new_rows if r.next_appointment and r.next_appointment.date() <= horizon]
