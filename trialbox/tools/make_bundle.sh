@@ -286,10 +286,12 @@ if [ "$DIRTY" != 1 ]; then  # D-631: exporting the images took minutes; the tree
                          show_changes "$AFTER"; } >&2; exit 2; }
 fi
 ITEMS+=("host:$STAGE/trialbox-host.tar=trialbox-host.tar")
-echo "==> installer, runbook, settings example, notices, changelog"
+echo "==> installer, runbook, settings example, notices, licence inventory, changelog"
 for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example NOTICE CHANGELOG.md; do
   ITEMS+=("other:$ROOT/$f=$(basename "$f")")
 done
+# INT-M10 item a: the hand-checked licence inventory and the lawyer's list, beside the generated sbom/licences.md
+ITEMS+=("other:$ROOT/docs/licences/licence-inventory.md=LICENCE-INVENTORY.md")
 # the whole runbook as one RUNBOOK.md: once T-669 makes docs/RUNBOOK.md an index of section files, `doclint --whole
 # RUNBOOK` joins them (its output is used only when it is a Markdown document: an older doclint ignores --whole and
 # prints its summary); until then docs/RUNBOOK.md is itself the whole text

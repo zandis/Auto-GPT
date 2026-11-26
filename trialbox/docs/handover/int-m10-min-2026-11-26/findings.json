@@ -1,0 +1,54 @@
+{
+ "card": "INTM10",
+ "title": "the licence inventory of a release, the acceptance results table, the release bundle's fresh build",
+ "date": "2026-11-26",
+ "source": "docs/handover/int-m10-min-2026-11-26.md",
+ "note": "basis 'shown' means shown by the card's local tests (a stand-in docker, make -n, synthetic proof files) or by a file read on the day; no container engine ran, no image was built or scanned",
+ "findings": [
+  {
+   "id": "INTM10-01",
+   "severity": "Medium",
+   "claim": "make release-bundle: nothing failed when the base-pull loop lost its '|| exit 1' (a refused pull was passed over and the build ran from whatever base the cache held) or when an outside base lost its digest (it then left the pull without a word); H-143's tests pass with either change",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "this card: tests/unit/test_release_bundle_fresh_build_m10.py (the whole release-bundle run, every outside base pinned, a refused pull stops the release)"
+  },
+  {
+   "id": "INTM10-02",
+   "severity": "Medium",
+   "claim": "the acceptance criteria had no results table and no proof-file form: nothing kept a row without evidence, with evidence of another commit, or with every test skipped from reading as green",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "this card: tools/results_table.py and its proof-file form tb-acceptance-proof/1; no proof file exists yet, so no table was made"
+  },
+  {
+   "id": "INTM10-03",
+   "severity": "Low",
+   "claim": "of the licences the two reviews took from memory, four could not be read in a licence file (the OMOP common data model, Usagi, twdate, gICS and gPAS), the capability claims (directory backends, locales, offline modes, wheels) were not checked, and no GitHub release page could be read from the session; every read licence agreed with what was remembered",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "docs/licences/licence-inventory.md section 3 marks each not verified; to read where the release pages can be opened"
+  },
+  {
+   "id": "INTM10-04",
+   "severity": "Medium",
+   "claim": "the image half of the licence inventory was not run by this card: no container engine in the session; the Python half ran (73 components, 8 LGPL, 6 unknown, 1 dual, PASS)",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "fix": "the release's own sbom/licences.md from make release-gates (CI's images job or the bench)"
+  },
+  {
+   "id": "INTM10-05",
+   "severity": "Medium",
+   "claim": "whether a bundle may carry the judge model's, the verifier model's and the embedder's weights is marked OWNER in the profile records, and the judge model's weights source carries no licence file of its own",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the owner's lawyer, from the list in docs/licences/licence-inventory.md section 4"
+  }
+ ]
+}
