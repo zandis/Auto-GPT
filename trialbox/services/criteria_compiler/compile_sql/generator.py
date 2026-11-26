@@ -325,10 +325,14 @@ class SqlGenerator:
             join = "\n  " + detail(
                 "measurement", "o", "oid", {"value_num": "m.value_as_number", "ref_bound": f"m.{bound}"}
             )
-            num, ref_bound = "d.detail.value_num", "d.detail.ref_bound"
+            # the OMOP row's number and range when the result has one, else the lake's number and the signed site
+            # table's bound for its code, unit and the patient's sex (the CQL reads the same)
+            num, ref_bound = (
+                "(CASE WHEN d.detail IS NULL THEN o.value_num ELSE d.detail.value_num END)",
+                "d.detail.ref_bound",
+            )
             site = self._site_bound(atom, ref_kind)
-            if site is not None:  # the result's own range first, else the signed site table (same row unit)
-                num = "(CASE WHEN d.detail IS NULL THEN o.value_num ELSE d.detail.value_num END)"
+            if site is not None:
                 ref_bound = f"coalesce(d.detail.ref_bound, {site})"
             bad = f"({num} IS NOT NULL AND {ref_bound} IS NULL)"  # no bound: the reason is no_reference_range
             extra = f", {ref_bound} AS ref_bound"
