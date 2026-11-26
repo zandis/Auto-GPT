@@ -3,8 +3,9 @@
 Within one night (two patient rows under one chart number) or against the served night (tonight's row is another
 person than the patient the lake serves under that number), the night is held with a line that says so, the audit
 event and the steward's batch row count it, the pseudonymous ids go to ``identity_conflict.json`` in the night's
-folder, and the steward's accept is refused while it is there: the served record and the pid map's identity are not
-overwritten, and the rest of the night is read as usual. One person's row twice is still only DATA-017's count, and
+folder, the served record and the pid map's identity are not overwritten, and the rest of the night is read as usual.
+Two people within one night cannot be accepted (an accept would serve one under the other's chart); a change against
+the served night is the steward's to accept as a correction of one person. One person's row twice is still only DATA-017's count, and
 a clean night is unchanged. Every row here is synthetic (site A's fixture and made-up values).
 """
 
@@ -111,18 +112,14 @@ def _from_good(good: tuple[Path, str, dict[str, str]], tmp: Path) -> tuple[Adapt
 
 
 def _assert_held_and_kept(cfg: AdapterConfig, rb: _Rebuild, rep: Any, first: dict[str, str], pid: str) -> None:
-    """The night is held at the gate, the served night and record untouched, the accept refused, the pid map's
-    identity of the chart the first person's."""
+    """The night is held at the gate, the served night and record untouched, the pid map's identity of the chart the
+    first person's; the accept of two people within one night is refused."""
     assert rep.held and not rep.passed
     assert rb.calls == []
     assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD
     assert (snapshot_dir(cfg.lake_dir, NEXT) / HELD).exists()
     served = _served_patient(cfg, pid)
     assert len(served) == 1 and served[0]["birthDate"] == first["birth_date"]
-    with pytest.raises(TwoPeopleOneChart):
-        publish_held(cfg, NEXT)
-    assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD
-    assert rb.calls == []
     pm = cfg.pidmap()
     try:
         assert (pm.identity(pid) or {}).get("name") == first["name"]
@@ -153,6 +150,10 @@ def test_two_people_under_one_chart_in_one_night_are_held_never_merged(good: Any
     assert event["event"] == "ingest.held"
     assert event["detail"]["identity_conflicts"] == {"tonight": 1, "against_served": 0}
     _assert_held_and_kept(cfg, rb, rep, first, pid)
+    with pytest.raises(TwoPeopleOneChart):  # an accept would serve one person under the other's chart
+        publish_held(cfg, NEXT)
+    assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD and rb.calls == []
+    _assert_held_and_kept(cfg, rb, rep, first, pid)
 
 
 def test_another_person_under_a_served_chart_on_the_next_night_is_held(good: Any, tmp_path: Path) -> None:
@@ -170,7 +171,11 @@ def test_another_person_under_a_served_chart_on_the_next_night_is_held(good: Any
     comp = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / COMPLETENESS).read_text())
     assert comp["tables"]["patient"]["duplicate_keys"] == 0
     assert _audit(tmp_path)[-1]["detail"]["identity_conflicts"] == {"tonight": 0, "against_served": 1}
+    assert "accept it only if each is a correction of the same person's details" in text
     _assert_held_and_kept(cfg, rb, rep, first, pid)
+    # a change against the served night is the steward's: a confirmed correction of one person is accepted, audited
+    # by the decision (datacore.dataops.decide), and only then served
+    assert publish_held(cfg, NEXT).promoted and rb.calls == [NEXT]
 
 
 def test_one_persons_row_twice_and_a_clean_night_are_unchanged(good: Any, tmp_path: Path) -> None:

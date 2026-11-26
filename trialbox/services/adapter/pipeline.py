@@ -1073,9 +1073,10 @@ def _run_ingest(
                 )
                 completeness_msgs.append(errors[-1])
     # H34-06 (T-659b: identity changes are a person's; DATA-017's "last row wins" is for one person's rows): a chart
-    # number that arrives as two people, tonight or against the served night, is never merged into one patient. The
-    # night is held, the pseudonymous ids go to a file in its folder, and the steward's accept is refused while it is
-    # there (adapter.publish.refuse_two_people): the lake keeps the served record, the night's own is never served
+    # number that arrives as two people, tonight or against the served night, is never merged into one patient: the
+    # night is held and the pseudonymous ids go to a file in its folder. Two people within the night cannot be
+    # accepted (adapter.publish.refuse_two_people: an accept would serve one under the other's chart); a change
+    # against the served night is the steward's to accept (a correction of one person) or reject (another person)
     against: set[str] = set()
     if last_good is not None and patient_who:
         # one read of the served night's Patient file per night (an index if it ever shows in the night's timings)
@@ -1092,12 +1093,18 @@ def _run_ingest(
         )  # fmt: skip
         log.error("patient identity: %d chart number(s) arrive as two people tonight, %d against night %s",
                   len(identity_conflicts), len(against), last_good)  # fmt: skip
+        then = (
+            "it cannot be accepted as it stands: correct the chart at the source and run the night again"
+            if identity_conflicts
+            else "accept it only if each is a correction of the same person's details; another person under a "
+            "served chart number is rejected and corrected at the source"
+        )
         errors.append(
             f"patient identity: {len(identity_conflicts) + len(against)} chart number(s) arrive with two different "
             f"people's demographics (birth date, sex, name or national id differ; {len(identity_conflicts)} within "
             f"this night, {len(against)} against the served night {last_good or '-'}): never merged into one "
-            f"patient. The night is held and cannot be accepted as it stands: correct the chart at the source and "
-            f"run the night again (the pseudonymous ids are in {IDENTITY_CONFLICT} in the night's folder)"
+            f"patient. The night is held; {then} (the pseudonymous ids are in {IDENTITY_CONFLICT} in the night's "
+            "folder)"
         )
     else:  # an earlier attempt of this night may have left one
         (out_dir / IDENTITY_CONFLICT).unlink(missing_ok=True)
@@ -1750,7 +1757,7 @@ def check_lookup_factors(mapping: Any) -> None:
 REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)
 UNMAPPED_CODES = "unmapped_codes.json"  # NEW-DIN-6 (D-580): every code no look-up knows, with its row count
 COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
-IDENTITY_CONFLICT = "identity_conflict.json"  # H34-06: the pids that arrived as two people; the night is not accepted
+IDENTITY_CONFLICT = "identity_conflict.json"  # H34-06: the pids that arrived as two people (tonight / against)
 _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of who the person is
 
 

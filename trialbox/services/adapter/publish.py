@@ -88,10 +88,18 @@ class TwoPeopleOneChart(NothingToPublish):
 
 def refuse_two_people(folder: Path) -> None:
     """H34-06: :class:`TwoPeopleOneChart` when the held night's folder lists a chart number that arrived as two
-    people (``adapter.pipeline.IDENTITY_CONFLICT``): an accept would serve one of them under the other's chart."""
+    people within the night (``adapter.pipeline.IDENTITY_CONFLICT``, ``tonight``): an accept would serve one of them
+    under the other's chart. A change against the served night alone (``against``) is the steward's to accept.
+    A file that cannot be read refuses too."""
     from adapter.pipeline import IDENTITY_CONFLICT
 
-    if (folder / IDENTITY_CONFLICT).is_file():
+    try:
+        tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
+    except FileNotFoundError:
+        return
+    except (OSError, ValueError, AttributeError):
+        tonight = True
+    if tonight:
         raise TwoPeopleOneChart(
             f"a chart number of this night arrived as two different people ({IDENTITY_CONFLICT}): it cannot be "
             "accepted as it stands. Reject it, correct the chart at the source and run the night again"
