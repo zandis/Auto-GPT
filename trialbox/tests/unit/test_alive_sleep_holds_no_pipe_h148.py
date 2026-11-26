@@ -31,6 +31,16 @@ exec /bin/sleep "$@"
 """
 
 
+# this test's own sleep (the integrator's M1 on #1524): it sleeps 600 s whatever the heartbeat asks, so a sleep that
+# keeps the script's streams holds them for longer than the test waits, as the heartbeat's 60 s sleep did; with the
+# heartbeat's 1 s tick (OCR 1524-2) a forwarded argument let a held stream go after a second and the test could not fail.
+# SLEEP above stays as it is: test_alive_ends_with_its_script_1524 needs the 1 s tick
+LONG_SLEEP = """#!/bin/sh
+echo $$ >> "$TB_TEST_SLEEP_PIDS"
+exec /bin/sleep 600
+"""
+
+
 def _functions(script: str) -> str:
     text = (ROOT / script).read_text(encoding="utf-8")
     start = text.index("alive_start() {")
@@ -45,7 +55,7 @@ def _functions(script: str) -> str:
 def test_a_left_over_keep_alive_sleep_holds_no_output(script: str, tmp_path: Path) -> None:
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    (bindir / "sleep").write_text(SLEEP, encoding="utf-8")
+    (bindir / "sleep").write_text(LONG_SLEEP, encoding="utf-8")
     (bindir / "sleep").chmod(0o755)
     pids = tmp_path / "sleep.pids"
     body = (

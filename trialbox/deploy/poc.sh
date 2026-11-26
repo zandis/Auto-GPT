@@ -86,7 +86,7 @@ alive_start() {
     up() { kill -0 "$me" 2>/dev/null || return 1
       read -r _ _ st _ 2>/dev/null <"/proc/$me/stat" || return 0; [ "$st" != Z ]; }
     while up; do
-      sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; t=$((t + 1))
+      sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; s=""; t=$((t + 1))
       [ "$t" -lt "${TB_POC_ALIVE_S:-60}" ] && continue
       t=0; n=$((n + 1))
       up && echo "    ... still $what ($n)" >&2

@@ -40,7 +40,7 @@
   {
    "id": "H148-05",
    "severity": "Low",
-   "claim": "the gateway busy test's `< 1.0` s left 0.5 s beside the product's own 0.5 s slot wait (0.764 s seen under load); now the recorded slot wait and the scaled call budget (ruling 7167587625)",
+   "claim": "the gateway busy test's `< 1.0` s left 0.5 s beside the product's own 0.5 s slot wait (0.764 s seen under load); now the recorded slot wait and the call budget as written (3.0 s) (ruling 7167587625, OCR 1524-1)",
    "lane": "H",
    "basis": "shown",
    "state": "open"
