@@ -135,7 +135,8 @@ def query(deploy: Path, sql: str, timeout: float = TIMEOUT_S,
 
 def run_in(deploy: Path, service: str, args: list[str], timeout: float = TIMEOUT_S) -> tuple[int | None, str]:
     """``args`` run in the box's running ``service`` (``compose exec -T``), as :func:`query` asks ``db``:
-    ``(exit code, its output)``, or ``(None, cause)`` when it could not be asked; never raises (INT-M5)."""
+    ``(exit code, its whole output)``, or ``(None, cause)`` when it could not be asked; never raises (INT-M5). Never
+    cut to its tail (review 1534): a command's verdict is its first line, and its list after it can be long."""
     from tools.trialbox import launch
 
     deploy = Path(os.path.abspath(deploy))
@@ -153,7 +154,7 @@ def run_in(deploy: Path, service: str, args: list[str], timeout: float = TIMEOUT
         return None, f"the box's {service} did not answer within {timeout:.0f} s (compose exec {service})"
     except OSError as e:
         return None, f"the container engine cannot be started here ({compose[0]}: {e.strerror or type(e).__name__})"
-    return r.returncode, " ".join(((r.stdout or "") + " " + (r.stderr or "")).split())[-400:]
+    return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()  # whole: its first line is its verdict
 
 
 def read(deploy: Path, timeout: float = TIMEOUT_S) -> dict[str, Any]:

@@ -103,3 +103,36 @@ def test_the_queue_is_written_whole_with_its_mode_and_the_lock_is_its_own_file(t
     _ops(deploy, _Orchestrator()).audit("backup.synthetic", {"n": 1})
     assert pending.stat().st_mode & 0o777 == 0o600
     assert (deploy / "site" / bs.AUDIT_LOCK).is_file() and bs.AUDIT_LOCK != "backup.lock"
+
+
+class _Hung(_Orchestrator):
+    """An orchestrator whose exec never answers: the send's own limit ends it (as ``run_cmd`` does at its timeout)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.limits: list[Any] = []
+
+    def run(self, argv: list[str], stdin_file: Path | None = None, **kw: Any) -> str:
+        self.limits.append(kw.get("timeout"))
+        if kw.get("timeout") is None:
+            raise AssertionError("synthetic: a send with no limit would hang here, holding the lock")
+        raise TimeoutError("synthetic: the orchestrator's exec did not answer in time")
+
+
+def test_review_1534_each_send_under_the_lock_has_the_backups_query_limit(tmp_path: Path) -> None:
+    """Review 1534 (M2): the send under backup-audit.lock had no limit, so a hung exec held the lock for every later
+    caller. Each send now has ``query_timeout`` (``TB_BACKUP_QUERY_TIMEOUT_S``); a send that times out keeps its event
+    and the next caller gets the lock."""
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    hung = _Hung()
+    ops = _ops(deploy, hung)
+    ops.env = {"TB_BACKUP_QUERY_TIMEOUT_S": "7"}
+    ops.audit("backup.synthetic", {"n": 1})
+    assert hung.limits == [7.0], hung.limits
+    second = _Hung()
+    later = _ops(deploy, second)
+    later.env = {"TB_BACKUP_QUERY_TIMEOUT_S": "7"}
+    later.audit("backup.synthetic", {"n": 2})  # the lock was given back: the next caller is not held
+    assert second.limits == [7.0]  # the kept event first, bounded; after it fails the rest wait, in order
+    assert [e["detail"]["n"] for e in _kept(deploy)] == [1, 2]

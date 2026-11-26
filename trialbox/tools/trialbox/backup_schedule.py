@@ -1395,7 +1395,11 @@ class ComposeOps:
                 f = state / f".audit-{json.loads(ln)['event']}.json"
                 write_atomic(f, ln)  # H-142 (.k): never a half-written event on the orchestrator's stdin
                 try:
-                    self.box.run(self.box._c("exec", "-T", "orchestrator", "python", "-c", code), stdin_file=f)
+                    self.box.run(
+                        self.box._c("exec", "-T", "orchestrator", "python", "-c", code),
+                        stdin_file=f,
+                        timeout=query_timeout(getattr(self, "env", {})),
+                    )  # review 1534: bounded under the lock
                 except Exception:  # the orchestrator is down: keep the event for the admin, never lose it
                     left.append(ln)
                 finally:

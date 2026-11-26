@@ -246,3 +246,28 @@ def test_term_kill_and_power_loss_end_the_same_way(
     _complete(monkeypatch)
     out = _restore(f, priv, audit, env, SECOND)
     assert (out["complete"], out["hold"], _flags(db_url).row(FLAG)) == (True, "released", "released"), ending
+
+
+def test_review_1534_two_restores_of_a_person_held_box_never_release_the_persons_hold(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review 1534 (M4): a restore over a box a person held writes its own hold (the restored database has none), and
+    keeps it as carried. That hold was marked as the restore's own: once the set-aside audit folder was removed, a
+    rerun of the same backup released it with no person involved. A carried hold is now marked ``carried`` and never
+    the restore's own."""
+    import shutil
+
+    from tools.trialbox import backup as bk
+
+    (f,), priv, audit, env = _box(tmp_path, db_url)
+    _flags(db_url, audit).set(FLAG, "held", actor="console:steward", reason="synthetic: held by a person")
+    _complete(monkeypatch)
+    first = _restore(f, priv, audit, env, FIRST)
+    assert first["complete"] is True and first["hold"] == "held"
+    reason = str(_flags(db_url).events(FLAG, limit=1)[0]["reason"])
+    assert reason.startswith(f"[restore {bk.restore_id(_sha(f), FIRST)} carried] "), reason
+    for aside in audit.parent.glob(f"{audit.name}.pre-restore-*"):  # the set-aside chain removed later
+        shutil.rmtree(aside)
+    assert bk.own_rerun_hold(env, _sha(f)) is None
+    again = _restore(f, priv, audit, env, SECOND)
+    assert again["complete"] is True and again["hold"] == "held" and _flags(db_url).row(FLAG) == "held"

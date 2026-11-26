@@ -151,3 +151,39 @@ def test_a_seed_variable_that_disagrees_with_its_flag_is_read_through_the_box(
     Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(name, d.default, actor="test", reason="synthetic")
     flags = _doctor_on_host(deploy, monkeypatch)["flags"]
     assert flags.status == "WARN" and "is ignored" in flags.detail and name in flags.detail, flags
+
+
+def test_review_1534_a_mismatch_of_many_rows_stays_a_fail_however_long_its_list(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review 1534 (M1): ``provenance --check`` prints its header first and then one line per differing row; the
+    answer was cut to its tail, so with more than a few rows the header went and a real mismatch read as a WARN."""
+    deploy = _installed_box(tmp_path, db_url)
+    engine = tmp_path / "engine" / "docker"
+    rows = "".join(f"  provenance.model_uses line {i:016x} call synthetic-{i}\\n" for i in range(20))
+    said = ("provenance index differs from the chain: 20 row(s) missing, 0 extra; the chain wins: run trialbox "
+            "provenance --rebuild")  # fmt: skip
+    engine.write_text(
+        engine.read_text().replace(
+            'echo "provenance index: equal to the chain"; exit 0', f"printf '%s\\n' '{said}'; printf '{rows}'; exit 1"
+        )
+    )
+    row = _doctor_on_host(deploy, monkeypatch)["provenance_index"]
+    assert row.status == "FAIL" and "differs from the chain" in row.detail, row
+
+
+def test_review_1534_a_wrong_secrets_folder_is_never_a_pass_of_the_ceremony_on_a_strict_box(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review 1534 (M3): a secrets folder that is not there (a wrong path) read as "no KEK yet", a PASS."""
+    from tools.trialbox import doctor
+
+    monkeypatch.delenv("TB_SECRETS_DIR", raising=False)
+    gone = tmp_path / "no-such-secrets-folder"
+    for env, want in (("PRODUCTION", "WARN"), ("VALIDATION", "WARN"), ("TEST", "PASS")):
+        c = doctor.check_key_custody_record(
+            doctor.DoctorInputs(env={"TB_ENV": env, "TB_SECRETS_DIR": str(gone)}, deploy=tmp_path)
+        )
+        assert c.status == want, (env, c)
+        if want == "WARN":
+            assert str(gone) in c.detail and "not here" in c.detail, c

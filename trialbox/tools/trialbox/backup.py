@@ -2037,8 +2037,8 @@ def _id_in(reason: str) -> tuple[str, str] | None:
     """The ``(backup sha256, restore id)`` a hold's reason names first (``[restore <id>] ...``), or None."""
     head, sep, _ = reason.partition("] ")
     rid = head.removeprefix("[restore ") if sep and head.startswith("[restore ") else ""
-    sha, at, start = rid.partition("@")
-    ok = len(sha) == 64 and all(c in "0123456789abcdef" for c in sha) and at and len(start) == 16
+    sha, at, start = rid.partition("@")  # "<id> carried" (review 1534) is no restore's own: its start is not one
+    ok = len(sha) == 64 and all(c in "0123456789abcdef" for c in sha) and at and len(start) == 16 and " " not in rid
     return (sha, rid) if ok else None
 
 
@@ -2543,8 +2543,11 @@ def _restore_inside(
         )
         rid = restore_id(sha, when)
         hold = "not needed"
+        # review 1534: a hold this run keeps as carried (a person's, another restore's) is marked so, and is never
+        # taken as this restore's own by a later rerun (own_rerun_hold refuses the mark)
+        mark = f"[restore {rid} carried]" if carried else f"[restore {rid}]"
         hold_reason = (
-            f"[restore {rid}] restore of the backup of {manifest['created_at']}: held until the restore ends complete "
+            f"{mark} restore of the backup of {manifest['created_at']}: held until the restore ends complete "
             "or a person releases it (audit: backup.restored, backup.restore_reapply)"
         )
         if changing is not None:

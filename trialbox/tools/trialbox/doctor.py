@@ -1459,7 +1459,10 @@ def check_key_custody_record(inp: DoctorInputs) -> Check:
     if env not in kek.STRICT_ENVS:
         return Check(name, "PASS", f"{env}: no key ceremony record is asked for")
     sec = _secrets_dir(inp)
-    c = kek.custody(sec, {**os.environ, **inp.env}) if sec.is_dir() else None
+    if not sec.is_dir():  # review 1534: a wrong path is no "no KEK yet" on a strict box
+        return Check(name, "WARN", f"the secrets folder {sec} is not here ({SECRETS_VARS}): the KEK and its key "
+                     "ceremony record were not checked")  # fmt: skip
+    c = kek.custody(sec, {**os.environ, **inp.env})
     if c is None or c.backend is None:
         return Check(name, "PASS", "no KEK yet: the ceremony comes with python -m tools.keys init")
     from tools import key_escrow as ke
@@ -2456,13 +2459,14 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
             return Check("provenance_index", "WARN", f"the box was not asked ({said})")
         if rc == 0:
             return Check("provenance_index", "PASS", "equal to the audit chain (trialbox provenance --check)")
-        if "not installed" in said:
+        first = " ".join((said.splitlines() or [""])[0].split())[:300]
+        if rc == 1 and first.startswith("provenance index: not installed"):
             return Check("provenance_index", "WARN", "not installed: the role script creates provenance.model_calls "
                          "and provenance.model_uses (D-989 step 2c); until then the chain is written without the "
                          "index")  # fmt: skip
-        if rc == 1 and "differs from the chain" in said:
-            return Check("provenance_index", "FAIL", f"{said}"[:400])
-        return Check("provenance_index", "WARN", f"trialbox provenance --check in the box ended {rc}: {said[-240:]}")
+        if rc == 1:  # review 1534: any other exit 1 is a difference (or the box could not run it): never a pass
+            return Check("provenance_index", "FAIL", f"trialbox provenance --check in the box ended 1: {first}")
+        return Check("provenance_index", "WARN", f"trialbox provenance --check in the box ended {rc}: {first}")
     from tb_common import provenance_index as idx
 
     url = str(inp.env.get("TB_DB_URL") or "")
