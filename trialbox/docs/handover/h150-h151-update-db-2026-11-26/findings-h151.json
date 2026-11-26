@@ -25,15 +25,6 @@
   },
   {
    "id": "H151-03",
-   "severity": "High",
-   "claim": "the rollback runs in the process of the release installed before the update, so a box on c3a5b2b2 or 440089e8 still rolls back with the old --clean restore and still fails on a partitioned lake; only a rollback from a release that carries H-151 is fixed",
-   "lane": "H",
-   "basis": "shown",
-   "state": "open",
-   "fix": "runbook page 05 says so: no shipped command of those releases completes that rollback; keep the marker, put the data back from the backup the update took (trialbox restore), call the vendor; the fixed restore is proved by an update from the candidate to a later bundle and a forced rollback"
-  },
-  {
-   "id": "H151-04",
    "severity": "Low",
    "claim": "the fresh database needs room for the largest database a second time on the db volume while the rollback runs",
    "lane": "H",

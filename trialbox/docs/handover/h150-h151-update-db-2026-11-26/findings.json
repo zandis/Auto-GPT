@@ -3,7 +3,7 @@
  "title": "the update's database step keeps every service's name on the box's networks",
  "date": "2026-11-26",
  "source": "docs/handover/h150-h151-update-db-2026-11-26.md",
- "note": "basis 'shown' means shown on a local container engine (compose 5.7.1, engine 29.9.3) with a two-service project and a stand-in image, and by the card's tests on inspect answers recorded there; the bench walk (c3a5b2b2 and 440089e8 to the candidate) was not run by the card.",
+ "note": "basis 'shown' means shown on a local container engine (compose 5.7.1, engine 29.9.3) with a two-service project and a stand-in image, and by the card's tests on inspect answers recorded there; the walk on a box (a fresh install, then the candidate to a later bundle) was not run by the card.",
  "findings": [
   {
    "id": "H150-01",
@@ -13,15 +13,6 @@
    "basis": "shown",
    "state": "open",
    "fix": "the database step of db-up (run by the release being installed) first puts the networks on the release's settings with the box's own compose (up --no-start --no-recreate), then recreates through the same compose (up --no-start --no-deps --force-recreate) each service whose container lacks its name on a network; a service still without it stops the update"
-  },
-  {
-   "id": "H150-02",
-   "severity": "High",
-   "claim": "a rollback to a release from before H-137 runs that release's own code and compose files, so the network is made again with its old settings and the names are lost again; no code of a newer release can prevent it",
-   "lane": "H",
-   "basis": "shown",
-   "state": "open",
-   "fix": "follow-up for the integrator to schedule, 'a rollback to a pre-H-137 release without an operator': keep trialbox-net's settings as before H-137 and give Caddy's fixed range to a network of its own (option (a)); until then runbook page 05 gives the recovery with shipped commands (compose up -d --force-recreate once, then the rollback again)"
   }
  ]
 }

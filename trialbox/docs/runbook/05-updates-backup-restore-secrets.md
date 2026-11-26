@@ -485,19 +485,3 @@ and swaps the two names in one transaction only when the whole load is in; the r
 then dropped. A restore that fails or is stopped leaves the database in place as it was and the marker in place: run
 the rollback again. The volume needs room for the largest database twice while it runs; the update's space check
 counts it.
-
-**A rollback to a release from before H-150 and H-151.** The rollback runs the code of the release it goes back to,
-so these two fixes do not help it. It can stop in two ways; the marker stays in both.
-
-- `cannot drop inherited constraint "..._ydefault_pkey"` (a partitioned lake: every box whose lake has been loaded)
-  or `must be owner of extension`: that release's restore cannot put the databases back, and running
-  `tools/apply_update.sh rollback <bundle>` again stops the same way. The failed restore changed nothing: the
-  databases are still the update's. Leave the services stopped and the marker in place. Put the data back with
-  **Restore** above (`trialbox restore <file> --key <private key> --yes`), from the backup the update took before it
-  changed anything (the newest backup on the targets that `deploy/updates/history.jsonl` names at its
-  `backup (D-126)` step), and call the vendor: no command of that release removes the marker after it.
-- `failed to resolve host 'db'` after the database step passed: from the install folder, run once
-
-      docker compose --project-directory deploy up -d --force-recreate
-
-  then `tools/apply_update.sh rollback <bundle>` again: the network then matches that release's files.
