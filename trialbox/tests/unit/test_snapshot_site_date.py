@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 from adapter.ndjson import snapshot_dir
-from adapter.pipeline import FutureNight, OlderNight, refuse_older_night, run_ingest
+from adapter.pipeline import FutureNight, HeldNightUnread, OlderNight, refuse_older_night, run_ingest
 from tb_common import generation
 
 from tests.unit.test_dataflow_lake_p0 import _cfg, _csv, _row
@@ -85,6 +85,32 @@ def test_the_fhir_store_s_newer_night_refuses_a_rerun_of_the_served_night(tmp_pa
     (cfg.lake_dir / "CURRENT").write_text("2026-10-01\n", encoding="utf-8")
     with pytest.raises(OlderNight, match="the FHIR store already holds the newer night 2026-10-02"):
         run_ingest(cfg, "csv", str(tmp_path / "no-feed"), snapshot="2026-10-01", load_fhir=False, validate=False)
+
+
+def test_a_ledger_that_cannot_be_read_refuses_a_hand_given_night_before_any_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review R2 / M1: with a trial database configured, a failed read is not "the FHIR store holds nothing"."""
+    from datacore import generations
+
+    class Down:
+        def __enter__(self) -> Any:
+            raise ConnectionRefusedError("connection refused")
+
+        def __exit__(self, *_a: Any) -> None:
+            return None
+
+    monkeypatch.setattr(generations, "Built", Down)
+    cfg = _cfg(tmp_path)
+    cfg.lake_dir.mkdir(parents=True)
+    (cfg.lake_dir / "CURRENT").write_text("2026-09-30\n", encoding="utf-8")  # the lake alone would let it pass
+    _csv(tmp_path / "feed", [_row("D1", "2026-09-01")])
+    with pytest.raises(HeldNightUnread, match="FHIR store's newest night could not be read") as got:
+        run_ingest(cfg, "csv", str(tmp_path / "feed"), snapshot="2026-10-01", load_fhir=False, validate=False)
+    assert isinstance(got.value, FutureNight) and "ConnectionRefusedError" in str(got.value)
+    assert not snapshot_dir(cfg.lake_dir, "2026-10-01").exists() and not (cfg.lake_dir / "tmp").exists()
+    (ev,) = [e for e in _events(tmp_path) if e.get("detail", {}).get("refused") == "held_night_unread"]
+    assert ev["event"] == "ingest.failed"
 
 
 def test_the_site_seed_loads_the_sample_under_the_site_s_date(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

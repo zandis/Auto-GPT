@@ -591,7 +591,11 @@ def _run_ingest(
                 detail={
                     "source": source_kind,
                     "reason": str(exc),
-                    "refused": "older_night" if isinstance(exc, OlderNight) else "future_night",
+                    "refused": "older_night"
+                    if isinstance(exc, OlderNight)
+                    else "held_night_unread"
+                    if isinstance(exc, HeldNightUnread)
+                    else "future_night",
                 },
             )
         raise
@@ -1671,20 +1675,34 @@ class OlderNight(FutureNight):
     is read or written (``FutureNight``'s handlers say "refused, nothing was read or written")."""
 
 
+class HeldNightUnread(FutureNight):
+    """A night given by hand that cannot be judged: the box has a trial database and its generation ledger could not be
+    read. Refused as a future night is, before anything is read or written (review R2: a read that failed is not a
+    FHIR store that holds nothing; the FHIR load's own check would refuse it only after the run had begun)."""
+
+
 def held_night(cfg: AdapterConfig) -> tuple[str, str] | None:
     """The newest night the box holds and where: the lake's served one (``CURRENT``) or the FHIR store's (the
-    generation ledger, when there is a trial database to ask). None: neither holds a night."""
+    generation ledger, when there is a trial database to ask). None: neither holds a night. A ledger that cannot be
+    read raises ``HeldNightUnread`` (logged), never "nothing held"."""
     held: list[tuple[Generation, str]] = []
     with contextlib.suppress(OSError, ValueError):
         held.append((Generation.parse((cfg.lake_dir / "CURRENT").read_text(encoding="utf-8").strip()), "the lake"))
-    if os.environ.get("TB_DB_URL"):
-        with contextlib.suppress(Exception):  # no database to ask: the FHIR load asks again, under its lock
+    if os.environ.get(DB_URL_ENV):
+        try:
             from datacore.generations import Built
 
             with Built() as book:
                 st = book.state("fhir")
-            if st is not None:
-                held.append((st[0], "the FHIR store"))
+        except Exception as exc:  # an ImportError too: an image without datacore cannot judge the night either
+            log.warning("older-night check: FHIR generation not read: %s", exc)
+            raise HeldNightUnread(
+                f"the FHIR store's newest night could not be read ({type(exc).__name__}: {exc}), so a night given by "
+                f"hand that is not the site's date cannot be judged: leave --snapshot out (the site's date is taken), "
+                f"or run it again when the trial database answers"
+            ) from exc
+        if st is not None:
+            held.append((st[0], "the FHIR store"))
     if not held:
         return None
     gen, where = max(held)
