@@ -1426,15 +1426,12 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
         log,
     )
     stamp = time.strftime("%Y%m%d", time.gmtime())
-    # HYG2-R2: make_bundle.sh publishes into a fresh folder beside media/; it replaces media/ only once it is built, so
-    # a failed build leaves the last media as it was (media.old holds them only between the two renames below)
+    # HYG2-R2: make_bundle.sh publishes media/ inside this build's own folder; that replaces work/media only once it is
+    # built, so a failed build or a failed rename leaves the last media as they were (media.old holds them only between
+    # the two renames below)
     media, old = work / "media", work / "media.old"
-    if old.is_dir() and not media.exists():
-        old.rename(media)  # a cut between the two renames: the last media back first
-    for stale in work.glob(".media-next.*"):
-        shutil.rmtree(stale)
     fresh = Path(tempfile.mkdtemp(prefix=".media-next.", dir=work))
-    bundle = fresh / f"trialbox-runbook-{stamp}.tar"
+    bundle = fresh / "media" / f"trialbox-runbook-{stamp}.tar"
     args = [
         "tools/make_bundle.sh",
         "--key",
@@ -1464,11 +1461,20 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
         raise
     # the images the bundle carries, by id, beside it (as the rehearsal's bundle-images.txt): --bundle reads it
     Path(f"{bundle}.images").write_text("".join(f"{r} {i}\n" for r, i in pairs), encoding="utf-8")
+    if old.is_dir() and not media.exists():
+        old.rename(media)  # a cut between the two renames of an earlier build: the last media back first
     if old.exists():
         shutil.rmtree(old)
     if media.exists():
         media.rename(old)
-    fresh.rename(media)
+    try:
+        bundle.parent.rename(media)
+    except OSError:
+        if old.is_dir() and not media.exists():
+            old.rename(media)
+        raise
+    finally:
+        shutil.rmtree(fresh)
     if old.exists():
         shutil.rmtree(old)
     bundle = media / bundle.name

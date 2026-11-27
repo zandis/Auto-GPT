@@ -854,20 +854,22 @@ print("" if d is None else d)' "$1" "$2" 2>/dev/null; }
 fetch() {  # fetch <gs:// or path> <dest>
   case "$1" in gs://*) gcloud storage cp "$1" "$2" ;; *) cp "$1" "$2" ;; esac
 }
-# fetch_pub <gs:// or path> <dest>: the vendor public key the boxes trust, of which only the parsed public key is
-# written to dest (HYG2-R7, as make_bundle.sh writes the stick's); an object that holds a private key is refused. The
-# fetched bytes stay on tmpfs (0600) and are removed on every way out.
+# fetch_pub <gs:// or path> <dest>: the vendor public key the boxes trust, written to dest only as the parsed public
+# key (HYG2-R7, as make_bundle.sh writes the stick's) and only when the object is that key and nothing more: an object
+# with a private key in it (PEM or DER, before or after the public key) is refused. The fetched bytes stay on tmpfs
+# (0600) and are removed on every way out.
 fetch_pub() {
   local raw rc=0
   raw=$(mktemp "$SHM/tbpub.XXXXXX") || return 1
   if ! fetch "$1" "$raw"; then
     echo "TB-NO-VENDOR-PUB: the vendor public key the boxes trust is not readable from $1"; rc=1
-  elif grep -q 'PRIVATE KEY' "$raw"; then
-    echo "TB-VENDOR-PUB-PRIVATE: $1 holds a private key: refused, nothing of it is written"; rc=3
-  elif ! openssl pkey -pubin -in "$raw" -pubout -out "$2" 2>/dev/null; then
-    echo "TB-VENDOR-PUB-UNREADABLE: $1 is not a public key"; rc=1
+  elif grep -q 'PRIVATE KEY' "$raw" || ! openssl pkey -pubin -in "$raw" -pubout -out "$raw.pem" 2>/dev/null \
+      || ! tr -d '\r' < "$raw" | cmp -s - "$raw.pem"; then
+    echo "TB-VENDOR-PUB-PRIVATE: $1 is not one public key alone (a private key in it, or other bytes): refused, nothing of it is written"; rc=3
+  else
+    cp "$raw.pem" "$2" || rc=1
   fi
-  shred -u "$raw" 2>/dev/null; rm -f "$raw"
+  shred -u "$raw" "$raw.pem" 2>/dev/null; rm -f "$raw" "$raw.pem"
   return $rc
 }
 
@@ -1281,7 +1283,7 @@ d_sign() {  # the key lives only inside this function's process: tmpfs, 0600, sh
   chmod 600 "$k/vendor.key"
   fetch_pub "$VPUB_SRC" "$BUILD/vendor.pub" || return 3
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
-     --pub "$BUILD/vendor.pub" --out "$BNEXT/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
+     --pub "$BUILD/vendor.pub" --out "$BNEXT/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
 }
 # TB_TZ for make_bundle.sh: its compose call that lists the images renders the compose file with a staged .env that
 # names no TB_TZ, and the compose file requires one (T-656, ${TB_TZ:?}); it only lists images (tools/make_bundle.sh:104)
@@ -1295,7 +1297,7 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
   cp "$k/vendor_ed25519.pub" "$BUILD/throwaway-signing-key.pub"
   echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
-     --pub "$k/vendor_ed25519.pub" --out "$BNEXT/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
+     --pub "$k/vendor_ed25519.pub" --out "$BNEXT/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
 }
 # the room make_bundle.sh needs: it stages every image (docker save, ~25 GB with vLLM) and then writes the bundle; its
 # staging goes under the build root (TMPDIR), not /tmp, and the build cache of b03 is dropped first (images are kept)
@@ -1332,12 +1334,12 @@ d_bundle_models() {
 }
 step_b_sign() {
   b_room
-  # HYG2-R2: make_bundle.sh publishes into a fresh folder (BNEXT, which d_sign names); it replaces $BUILD/out only once
-  # it is built and its key check passed, so a failed signing leaves the last good release as it was. out.old holds
-  # that release only between the two renames below; a cut there is undone here on the next attempt.
+  # HYG2-R2: make_bundle.sh publishes $BNEXT/out (d_sign names it) inside this attempt's own folder; that replaces
+  # $BUILD/out only once it is built and its key check passed, so a failed signing leaves the last good release as it
+  # was. out.old holds that release only between the two renames below; a failed rename puts it back, and a cut there
+  # is undone by the next attempt.
   local BNEXT
-  mkdir -p "$BUILD"; rm -rf "$BUILD"/out.next.*
-  [ -e "$BUILD/out" ] || [ ! -d "$BUILD/out.old" ] || mv -T "$BUILD/out.old" "$BUILD/out"
+  mkdir -p "$BUILD"
   BNEXT=$(mktemp -d "$BUILD/out.next.XXXXXX") || return 1
   need "the weights the site bundle carries (the pair, the template, the embedder: make_bundle.sh --models)" \
     d_bundle_models || { rm -rf "$BNEXT"; return 1; }
@@ -1348,9 +1350,14 @@ step_b_sign() {
   fi
   local rc=$?
   if [ "$rc" = 0 ]; then
+    [ -e "$BUILD/out" ] || [ ! -d "$BUILD/out.old" ] || mv -T "$BUILD/out.old" "$BUILD/out"
     rm -rf "$BUILD/out.old"
-    { [ ! -e "$BUILD/out" ] || mv -T "$BUILD/out" "$BUILD/out.old"; } && mv -T "$BNEXT" "$BUILD/out" \
-      && rm -rf "$BUILD/out.old" || { STOP="TB-BUNDLE-NOT-PLACED: the signed bundle could not replace $BUILD/out"; rc=1; }
+    if { [ ! -e "$BUILD/out" ] || mv -T "$BUILD/out" "$BUILD/out.old"; } && mv -T "$BNEXT/out" "$BUILD/out"; then
+      rm -rf "$BUILD/out.old"
+    else
+      [ -e "$BUILD/out" ] || [ ! -d "$BUILD/out.old" ] || mv -T "$BUILD/out.old" "$BUILD/out"
+      STOP="TB-BUNDLE-NOT-PLACED: the signed bundle could not replace $BUILD/out (the last one is kept)"; rc=1
+    fi
   fi
   rm -rf "$BNEXT"
   note mode "\"$MODE\""; [ "$MODE" = validation ] && note not_a_release true
