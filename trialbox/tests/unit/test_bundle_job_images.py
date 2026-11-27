@@ -48,12 +48,12 @@ def test_the_backup_image_is_a_job_image_of_the_bundle(kit: dict[str, Any]) -> N
     gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 0, res.stdout + res.stderr
-    rel = _release_json(kit["tmp"] / "dist" / "out.tar")
+    rel = _release_json(kit["tmp"] / "release" / "out.tar")
     assert {n: i["runs"] for n, i in rel["images"].items()} == {
         "py": "service", "backup": "job", "jvm": "service", "db": "service", "hapi": "service",
         "vllm-openai": "service",
     }  # fmt: skip
-    assert release.check_bundle(kit["tmp"] / "dist" / "out.tar") == []
+    assert release.check_bundle(kit["tmp"] / "release" / "out.tar") == []
 
 
 def test_a_job_image_named_on_the_command_line_is_a_job(kit: dict[str, Any]) -> None:  # noqa: F811
@@ -63,7 +63,7 @@ def test_a_job_image_named_on_the_command_line_is_a_job(kit: dict[str, Any]) -> 
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom), *args,
                 "--job-image", BACKUP)  # fmt: skip
     assert res.returncode == 0, res.stdout + res.stderr
-    rel = _release_json(kit["tmp"] / "dist" / "out.tar")
+    rel = _release_json(kit["tmp"] / "release" / "out.tar")
     assert rel["images"]["backup"]["runs"] == "job"
     assert {i["runs"] for n, i in rel["images"].items() if n != "backup"} == {"service"}
 

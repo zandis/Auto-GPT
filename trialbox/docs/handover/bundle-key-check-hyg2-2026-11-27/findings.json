@@ -24,7 +24,7 @@
   {
    "id": "HYG2-03",
    "severity": "Low",
-   "claim": "the model pack (--model-pack-out) and its .sha256 are written outside the pending folder and are not covered by the stick key check",
+   "claim": "the model pack (--model-pack-out) and its .sha256 were written outside the pending folder, before the stick key check: a refused build had already touched them; they are now staged and published with the release",
    "lane": "H",
    "basis": "shown",
    "state": "open"

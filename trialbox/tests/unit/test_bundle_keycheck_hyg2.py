@@ -173,7 +173,7 @@ def test_a_missing_pub_file_is_refused_before_anything_is_built(kit: dict[str, A
 
 def _dist(kit: dict[str, Any]) -> Path:
     """The fresh folder the helper's --out names: the release is published into it as one directory rename."""
-    return kit["tmp"] / "dist"
+    return kit["tmp"] / "release"
 
 
 def _resign_sums(stick: dict[str, Path], key: Path, text: str) -> None:
@@ -256,7 +256,7 @@ def test_the_files_hashed_are_the_paths_given_not_the_ones_beside_the_sidecar(
     tmp_path: Path, keys: dict[str, Path]
 ) -> None:  # R5
     mine = _stick(tmp_path / "mine", keys["key"])
-    other = _stick(tmp_path / "other", keys["key"], body=b'{"bundle_id": "another"}\n')  # signed, but not mine
+    other = _stick(tmp_path / "second", keys["key"], body=b'{"bundle_id": "another"}\n')  # signed, but not mine
     found = kc.problems(keys["pub"], other["bundle"], mine["bootstrap"], mine["sums"])
     assert found == ["out.tar.sha256: out.tar does not match its line"]
 
