@@ -13,6 +13,7 @@ Every row and passphrase is synthetic.
 from __future__ import annotations
 
 import base64
+import builtins
 import contextlib
 import errno
 import io
@@ -115,10 +116,49 @@ def _offbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (nas / bs.OFFBOX_MARKER).write_text("", encoding="utf-8")
     monkeypatch.setenv("TB_BACKUP_TARGETS", str(nas))
     monkeypatch.setenv("TB_BACKUP_OFFBOX", str(nas))
-    # H-02 (third review): the share is mounted, so the box's own disk is another device; the test's folders share
-    # one device, so the box's is given as none here (the real check refuses: test_an_offbox_target_unmounted...)
-    monkeypatch.setattr(bkc, "_box_devs", lambda _pfd: set(), raising=False)
+    # H-02 (fourth review): the share is mounted exactly at the target (a fake mountinfo line: an NFS mount, its own
+    # device) and the target's descriptor is on that mount; the box's own devices are the real ones
+    _mounted(tmp_path, monkeypatch, (nas, "0:999", "nfs4", "nas.example:/backups", ()))
     return nas
+
+
+def _mounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *mounts: tuple[Path, str, str, str, tuple[Path, ...]]
+) -> None:
+    """H-02: fake mounts. Each ``(mount point, major:minor, filesystem type, source, folders on it)`` is a line added
+    to the real /proc/self/mountinfo, and a descriptor of its mount point or of a folder on it is on that mount."""
+    lines = [bkc.MOUNTINFO.read_text(encoding="utf-8")]
+    ids: list[tuple[int, list[Path]]] = []
+    for i, (point, mm, fstype, src, on) in enumerate(mounts):
+        mid = 2_000_000_000 + i  # no real mount has this id
+        lines.append(f"{mid} 1 {mm} / {point} rw,relatime shared:1 - {fstype} {src} rw\n")
+        ids.append((mid, [point, *on]))
+    fake = tmp_path / "mountinfo.fake"
+    fake.write_text("".join(lines), encoding="utf-8")
+    real = getattr(bkc, "_mount_id", None)
+
+    def mount_id(fd: int) -> int:
+        st = os.fstat(fd)
+        for mid, on in ids:
+            if any(p.exists() and os.path.samestat(st, p.stat()) for p in on):
+                return mid
+        assert real is not None
+        return real(fd)
+
+    monkeypatch.setattr(bkc, "MOUNTINFO", fake)
+    monkeypatch.setattr(bkc, "_mount_id", mount_id, raising=False)
+
+
+def _no_unnamed_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A filesystem without unnamed files (vfat, exFAT): O_TMPFILE is refused (EOPNOTSUPP)."""
+    real = os.open
+
+    def open_(path: Any, flags: int, *a: Any, **k: Any) -> int:
+        if flags & os.O_TMPFILE == os.O_TMPFILE:
+            raise OSError(errno.EOPNOTSUPP, os.strerror(errno.EOPNOTSUPP))
+        return real(path, flags, *a, **k)
+
+    monkeypatch.setattr(os, "open", open_)
 
 
 def _sealed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -525,16 +565,46 @@ def test_an_unseal_input_larger_than_a_sealed_key_is_refused_by_its_size(
     big.write_bytes(sealed.read_bytes() + b" " * (1 << 20))
     out = tmp_path / "k"
 
+    def is_big(fd: int) -> bool:
+        return os.path.samestat(os.fstat(fd), os.stat(big))
+
     def never_big(real: Callable[..., Any]) -> Callable[..., Any]:
-        def read(fd: int, *a: Any) -> Any:  # M-07: a whole read then a refusal is caught at the read
-            assert not os.path.samestat(os.fstat(fd), os.stat(big)), "the oversized file was read"
-            return real(fd, *a)
+        def read(fd: int, *a: Any, **k: Any) -> Any:  # M-07: a whole read then a refusal is caught at the read
+            assert not is_big(fd), "the oversized file was read"
+            return real(fd, *a, **k)
 
         return read
 
+    class Watched:  # M-07 (fourth review): a file object over it (os.fdopen, open, Path.read_bytes) read is caught too
+        def __init__(self, f: Any) -> None:
+            self._f = f
+
+        def __getattr__(self, name: str) -> Any:
+            got = getattr(self._f, name)
+            if name.startswith("read"):  # read, read1, readall, readinto, readinto1, readline, readlines
+                assert not is_big(self._f.fileno()), "the oversized file was read"
+            return got
+
+        def __iter__(self) -> Any:
+            assert not is_big(self._f.fileno()), "the oversized file was read"
+            return iter(self._f)
+
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *_e: object) -> None:
+            self._f.close()
+
+    def opened(real: Callable[..., Any]) -> Callable[..., Any]:
+        return lambda *a, **k: Watched(real(*a, **k))
+
     with monkeypatch.context() as m, pytest.raises(bkc.Stop) as got:
-        for name in ("read", "pread", "readv", "preadv"):
-            m.setattr(os, name, never_big(getattr(os, name)))
+        for name in ("read", "pread", "readv", "preadv", "readinto"):
+            if hasattr(os, name):
+                m.setattr(os, name, never_big(getattr(os, name)))
+        m.setattr(io, "open", opened(io.open))  # os.fdopen and Path.open go through io.open
+        m.setattr(builtins, "open", opened(builtins.open))
+        m.setattr(bkc, "_read", never_big(bkc._read))
         bkc.unseal_to(big, out, PASS)
     assert got.value.text is bkc.NOT_UNSEALED and not out.exists()
 
@@ -554,6 +624,101 @@ def test_an_offbox_target_unmounted_after_it_was_classified_is_refused(
     assert got.value.text is bkc.NO_OFFBOX_COPY and list(nas.iterdir()) == []
     assert not box.pub.exists() and box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
     assert [e for e in box.journal() if e["event"] == bkc.EVENT] == []
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["a folder on a second local disk", "a share's mount point, the share unmounted", "a mount of the box's own disk",
+     "the mount cannot be told"],
+)  # fmt: skip
+def test_an_offbox_target_not_exactly_a_mount_off_the_box_is_refused(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    """H-02 (fourth review): the opened target must be exactly a mount point in /proc/self/mountinfo, found by the
+    mount id of its descriptor, of a filesystem not on the box's own disk; anything else, or a mount that cannot be
+    told, is refused before a key is made: nothing on it, no backup.pub. The box's devices are given as none (but for
+    the box's own disk), so a check that took any mounted device off the box would let each through."""
+    srv = tmp_path / "srv"
+    nas = srv / "backups" / "nas"
+    nas.mkdir(parents=True)
+    monkeypatch.setattr(bkc, "_offbox_targets", lambda _env: [nas])  # classified off the box: mounted then
+    if case == "a folder on a second local disk":  # /srv on another disk of the box; the target a folder in it
+        monkeypatch.setattr(bkc, "_box_devs", lambda _pfd: set())
+        _mounted(tmp_path, monkeypatch, (srv, "8:17", "ext4", "/dev/sdb1", (nas,)))
+    elif case == "a share's mount point, the share unmounted":  # its mount point left, a folder on the box's /srv
+        monkeypatch.setattr(bkc, "_box_devs", lambda _pfd: set())
+        _mounted(tmp_path, monkeypatch, (srv, "8:3", "ext4", "/dev/sda3", (nas,)))
+    elif case == "a mount of the box's own disk":  # exactly a mount point, but of the box's disk (a bind mount)
+        dev = box.pub_dir.stat().st_dev
+        _mounted(tmp_path, monkeypatch, (nas, f"{os.major(dev)}:{os.minor(dev)}", "ext4", "/dev/sda1", ()))
+    else:  # a mount off the box at the target, but its descriptor's mount id cannot be read
+        monkeypatch.setattr(bkc, "_box_devs", lambda _pfd: set())
+        _mounted(tmp_path, monkeypatch, (nas, "0:999", "nfs4", "nas.example:/backups", ()))
+
+        def no_id(_fd: int) -> int:
+            raise OSError(errno.ENOENT, "No such file or directory")
+
+        monkeypatch.setattr(bkc, "_mount_id", no_id, raising=False)
+    with pytest.raises(bkc.Stop) as got:
+        bkc.install_sealed(bkc._env(), PASS)
+    assert got.value.text is bkc.NO_OFFBOX_COPY and list(nas.iterdir()) == []
+    assert not box.pub.exists() and box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
+    assert [e for e in box.journal() if e["event"] == bkc.EVENT] == []
+
+
+def test_an_offbox_target_exactly_a_mount_off_the_box_takes_the_sealed_copy(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H-02 (fourth review): a share mounted exactly at the target (a fake mountinfo line: its own device, no disk of
+    the box), the box's own devices the real ones: the sealed copy is written there and backup.pub is made."""
+    nas = _offbox(tmp_path, monkeypatch)
+    rec = bkc.install_sealed(bkc._env(), PASS)
+    assert (nas / bkc.sealed_name(rec["fingerprint"])).is_file() and box.pub.is_file()
+
+
+@pytest.mark.parametrize("unnamed", [True, False], ids=["unnamed file", "no unnamed files"])
+def test_an_unseal_removes_no_file_it_did_not_make(
+    box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unnamed: bool
+) -> None:
+    """H-06: beside the key file, a user's own ``.restore.key.manual.part`` and the temporary file of another unseal
+    still running (this module's mark, its process alive) are kept byte for byte, with unnamed files or without
+    them (a FAT stick: a named temporary file, and the sweep of those a killed unseal left)."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    usb = tmp_path / "usb"
+    usb.mkdir()
+    out = usb / "restore.key"
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        theirs = {usb / ".restore.key.manual.part": b"the user's own file\n",
+                  usb / f".restore.key.tb-unseal-{other.pid}-0123abcd.part": b"another unseal, still running\n"}  # fmt: skip
+        for p, data in theirs.items():
+            p.write_bytes(data)
+        if not unnamed:
+            _no_unnamed_files(monkeypatch)
+        assert bkc.unseal_to(sealed, out, PASS) == bkc.fingerprint(bkc.public_of(made[-1]))
+    finally:
+        other.kill()
+        other.wait()
+    assert {p: p.read_bytes() for p in theirs} == theirs
+    assert sorted(usb.iterdir()) == sorted([out, *theirs]) and bkc.read_key(out.read_bytes()) == made[-1]
+
+
+def test_without_unnamed_files_the_temporary_file_of_a_killed_unseal_is_removed_by_the_next(
+    box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H-06 / M-03: on a FAT stick (no unnamed files) the key file is written under a temporary name with this
+    module's mark and its process id; one a killed unseal left (its process gone) is removed by the next unseal to
+    that name, which makes the key file."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    usb = tmp_path / "usb"
+    usb.mkdir()
+    out = usb / "trialbox-backup.key"
+    gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True,
+                          check=True).stdout.strip()  # fmt: skip
+    (usb / f".trialbox-backup.key.tb-unseal-{gone}-0123abcd.part").write_bytes(bkc.key_text(made[-1]))
+    _no_unnamed_files(monkeypatch)
+    bkc.unseal_to(sealed, out, PASS)
+    assert list(usb.iterdir()) == [out] and bkc.read_key(out.read_bytes()) == made[-1]
 
 
 def test_two_unseals_to_one_place_at_once_never_replace_each_other(
@@ -593,18 +758,19 @@ KILLED = r"""
 import os, signal, sys
 from pathlib import Path
 from tools import backup_key_ceremony as b
-def kill(*_a, **_k):  # where the key file would get its name: killed, its written temporary file left as it is
+def kill(*_a, **_k):  # where the key file would get its name: killed, its written key bytes left as they are
     os.kill(os.getpid(), signal.SIGKILL)
-os.rename = b._rename_noreplace = kill
+os.rename = os.link = b._rename_noreplace = kill
 b.unseal_to(Path(sys.argv[1]), Path(sys.argv[2]), sys.stdin.readline().rstrip("\n"))
 """
 
 
-def test_an_unseal_killed_after_the_write_leaves_no_key_bytes_after_its_retry(
+def test_an_unseal_killed_after_the_write_leaves_no_key_bytes(
     box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """M-03: an unseal killed (SIGKILL, no handler runs) after the key file's bytes are written leaves its temporary
-    file; the retry to the same place removes it: only the key file is left, no second copy of the key's bytes."""
+    """M-03 (inverted by the integrator's ruling, fourth review; it asserted the left temporary file's key bytes): an
+    unseal killed (SIGKILL, no handler runs) after the key's bytes are written, where the key file would get its name,
+    leaves no plaintext key anywhere in the folder (the file has no name until it is linked); the retry makes it."""
     sealed = _sealed(tmp_path, monkeypatch)
     usb = tmp_path / "usb"
     usb.mkdir()
@@ -612,8 +778,8 @@ def test_an_unseal_killed_after_the_write_leaves_no_key_bytes_after_its_retry(
     r = subprocess.run([sys.executable, "-c", KILLED, str(sealed), str(out)], cwd=ROOT, env=box.env(),
                        input=PASS + "\n", capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
     assert r.returncode == -9, r.stderr
-    (left,) = usb.iterdir()
-    assert left.name.endswith(".part") and bkc.read_key(left.read_bytes()) == made[-1]  # the bytes were written
+    assert [p for p in usb.rglob("*") if bkc.key_text(made[-1]) in p.read_bytes()] == []  # no plaintext key
+    assert list(usb.iterdir()) == []
     bkc.unseal_to(sealed, out, PASS)
     assert list(usb.iterdir()) == [out] and bkc.read_key(out.read_bytes()) == made[-1]
 
