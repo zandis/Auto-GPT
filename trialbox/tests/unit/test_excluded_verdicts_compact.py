@@ -85,14 +85,37 @@ def test_excluded_patients_are_held_compactly() -> None:
     n = 3000
     traces = [_excluded(i) for i in range(n)]
     verdicts_of(RS, traces[0], policy=POLICY)  # the shared answers exist before the count
-    tracemalloc.start()
+    owned = not tracemalloc.is_tracing()  # a session run with -X tracemalloc keeps its own traces (review R2)
+    if owned:
+        tracemalloc.start()
     try:
         before = tracemalloc.take_snapshot()
         results = {t.pid: verdicts_of(RS, t, policy=POLICY) for t in traces}
         grown = sum(s.size_diff for s in tracemalloc.take_snapshot().compare_to(before, "filename"))
     finally:
-        tracemalloc.stop()
+        if owned:
+            tracemalloc.stop()
     assert all(r.tier == "excluded" for r in results.values())
     per = grown / n
     # 21 criteria a patient: one CriterionVerdict and one Evidence each was about 21 x 1.5 KB; now the row's own list
     assert per < 2048, f"{per:.0f} bytes held per excluded patient"
+
+
+def test_a_shared_answer_is_never_another_patients() -> None:
+    """Review of #1594, R1: two patients with the same shared answers (a coded "no record" and a "not evaluated"
+    row); a caller that changes one patient's lists changes nothing for the other, nor for a later patient."""
+    a, b = (verdicts_of(RS, _excluded(i), policy=POLICY) for i in (1, 2))
+    coded, skipped = 1, 15  # T-EXC-00 (no record at S1) and T-EXC-14 (the cascade stopped before it)
+    assert a.verdicts[coded].evidence is not None and a.verdicts[skipped].evidence is not None
+    for i in (coded, skipped):
+        v = a.verdicts[i]
+        assert v.evidence is not None and v.prov is not None
+        v.evidence.resource_refs.append("Condition/pseudo-a")  # type: ignore[union-attr]
+        v.prov.append("call-a")
+    c = verdicts_of(RS, _excluded(3), policy=POLICY)  # a later lookup of the same answers
+    one = verdict_of(Outcome(CRITS[1].id, "pass", "S1", reason="no record"))
+    for pv in (a, b, c):
+        for v in (pv.verdicts[coded], pv.verdicts[skipped]):
+            assert v.evidence is not None and v.evidence.resource_refs == [] and v.prov == []
+    assert one.evidence is not None and one.evidence.resource_refs == [] and one.prov == []
+    assert a.verdicts[coded] is not a.verdicts[coded]  # each read is the reader's own
