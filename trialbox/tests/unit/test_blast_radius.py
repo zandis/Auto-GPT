@@ -78,8 +78,11 @@ def test_a_card_reversion_and_its_rollback_move_nothing(rulesets: Path) -> None:
 def test_canary_reports_each_moved_verdict_and_criteria_on_one_side() -> None:
     rs = Ruleset.load(RS / "RA-COH")
     c1, c2 = rs.criteria[0].id, rs.criteria[1].id
-    base = [{"pid": "a", "C_" + c1: True, "C_" + c2: False}, {"pid": "b", "C_" + c1: None, "C_" + c2: True}]
-    changed = [{"pid": "a", "C_" + c1: False, "C_" + c2: False}, {"pid": "c", "C_" + c1: True}]
+    base: list[dict[str, Any]] = [
+        {"pid": "a", "C_" + c1: True, "C_" + c2: False},
+        {"pid": "b", "C_" + c1: None, "C_" + c2: True},
+    ]
+    changed: list[dict[str, Any]] = [{"pid": "a", "C_" + c1: False, "C_" + c2: False}, {"pid": "c", "C_" + c1: True}]
     calls: list[str] = []
 
     def runner(sql: str, day: str) -> list[dict[str, Any]]:
