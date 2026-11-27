@@ -19,8 +19,9 @@ if bash "$HERE/bundle.sh" "int-$SHA-plus1-p" "$((SEQ + 1))" "$D/next"; then
   mke2fs -q -t ext4 -m 0 -d "$D/next" "$D/next-media.img" "${size}G" && echo "int-$SHA-plus1-p" > "$D/next-media.img.ready"
   rm -rf "$D/next"
 fi
-BASELINE=$(find "$E2E_HOME/runs" -path '*/metrics/journeys.csv' 2> /dev/null | sort | tail -1)
+BASELINE=$(grep -l '^E2E .* GREEN ' "$E2E_HOME"/runs/*/verdict 2> /dev/null | sort | tail -1)
+BASELINE=${BASELINE:+$(dirname "$BASELINE")/metrics/journeys.csv}
 BUNDLE=$D/dist/trialbox-int-$SHA-p.tar NEXT_IMG=$D/next-media.img BASELINE=$BASELINE bash "$TREE/tests/e2e-box/run.sh"
 rc=$?
-rm -rf "$D/dist" "$D/next-media.img" "$D/next-media.img.ready"
+rm -rf "${D:?}/dist" "${D:?}/next-media.img" "${D:?}/next-media.img.ready"
 exit $rc

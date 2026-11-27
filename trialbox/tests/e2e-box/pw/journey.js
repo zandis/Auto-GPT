@@ -20,7 +20,9 @@ async function freshCode(page, user, key) {
   if (lastStep[user] === step || Date.now() % 30000 > 27000) { await page.waitForTimeout(31000 - (Date.now() % 30000)); step = Math.floor(Date.now() / 30000); }
   lastStep[user] = step; return totp(key);
 }
-const sessions = {}; const vars = JSON.parse(process.env.VARS || '{}');
+const sessions = {}; const vars = JSON.parse(process.env.VARS_FILE ? fs.readFileSync(process.env.VARS_FILE, 'utf8') || '{}' : '{}');
+// every secret_* value (a token) is cut out of each printed line, whatever the page echoed back
+const scrub = s => Object.entries(vars).filter(([k, v]) => k.startsWith('secret_') && v).reduce((t, [, v]) => t.split(v).join('<redacted>'), s);
 const sub = s => typeof s === 'string' ? s.replace(/\$\{(\w+)\}/g, (_, k) => vars[k] ?? '') : s;
 let browser;
 async function session(user) {
@@ -111,7 +113,7 @@ async function scan(s, act) {
         if (act.keepBody) out.body = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, act.keepBody);
       }
     } catch (e) { out.error = e.message.slice(0, 200); }
-    console.log(JSON.stringify(out));
+    console.log(scrub(JSON.stringify(out)));
   }
   console.error('VARS ' + JSON.stringify(Object.fromEntries(Object.entries(vars).filter(([k]) => !k.startsWith('secret_')))));
   await browser.close();

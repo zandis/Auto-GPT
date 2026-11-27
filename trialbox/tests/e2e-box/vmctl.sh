@@ -8,6 +8,7 @@
 set -euo pipefail
 cmd=${1:?command}
 name=${2:?name}
+[[ $name =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "bad VM name $name" >&2; exit 2; }
 VMS=${E2E_VMS:-/dev/shm/e2e-box}
 D=$VMS/$name
 BASE=${E2E_BASE_IMG:?the Ubuntu 24.04 cloud image (noble-server-cloudimg-amd64.img)}
@@ -15,6 +16,9 @@ KEY=${E2E_HOME:-$HOME/e2e-box}/keys/id_ed25519
 sshv() {
   ssh -i "$KEY" -p "$(cat "$D/portbase")" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
     -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 tbadmin@127.0.0.1 "$@"
+}
+ours() { # pid : this VM's qemu, not a reused pid
+  [ -n "${1:-}" ] && tr '\0' ' ' < "/proc/$1/cmdline" 2> /dev/null | grep -q -- "qemu-system-x86_64 -name $name "
 }
 qmp() { printf '%s' "$1" | timeout 10 nc -U "$D/qmp"; }
 case $cmd in
@@ -74,6 +78,7 @@ YY
     ;;
   stop)
     p=$(cat "$D/pid")
+    ours "$p" || { echo "$name is not running (pid $p is not its qemu)"; exit 1; }
     if [ "${3:-}" = --kill ]; then # a power cut
       kill -9 "$p"
       for _ in $(seq 1 180); do kill -0 "$p" 2> /dev/null || break; sleep 1; done
@@ -98,10 +103,10 @@ YY
     echo
     ;;
   status)
-    if kill -0 "$(cat "$D/pid" 2> /dev/null)" 2> /dev/null; then echo "$name running"; else echo "$name stopped"; fi
+    if ours "$(cat "$D/pid" 2> /dev/null)"; then echo "$name running"; else echo "$name stopped"; fi
     ;;
   remove)
-    if kill -0 "$(cat "$D/pid" 2> /dev/null)" 2> /dev/null; then echo "stop $name first"; exit 1; fi
+    if ours "$(cat "$D/pid" 2> /dev/null)"; then echo "stop $name first"; exit 1; fi
     rm -rf "${D:?}"
     echo "removed $name"
     ;;

@@ -8,7 +8,7 @@ const fs = require('fs'), crypto = require('crypto'), path = require('path');
 const E = process.env.E2E_OUT, CREDS = E + '/creds', BASE = process.env.TB_URL;
 fs.mkdirSync(CREDS, { recursive: true, mode: 0o700 });
 const load = n => { try { return JSON.parse(fs.readFileSync(path.join(CREDS, n + '.json'))); } catch { return null; } };
-const save = (n, o) => fs.writeFileSync(path.join(CREDS, n + '.json'), JSON.stringify(o), { mode: 0o600 });
+const save = (n, o) => { const f = path.join(CREDS, n + '.json'); fs.writeFileSync(f, JSON.stringify(o), { mode: 0o600 }); fs.chmodSync(f, 0o600); };
 const newPw = () => 'E2e-' + crypto.randomBytes(12).toString('base64url') + '-7q';
 function b32(s) { const a = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = ''; const out = [];
   for (const c of s.replace(/=+$/, '').toUpperCase().replace(/\s/g, '')) bits += a.indexOf(c).toString(2).padStart(5, '0');
@@ -73,7 +73,7 @@ async function login(page, name, out) {
     if (code) { save(user, { enrol: ((await code.inputValue().catch(() => '')) || (await code.textContent())).trim(), role }); out.push(`${user}: enrolment code shown once (kept)`); }
     else if (pw) { save(user, { password: ((await pw.inputValue().catch(() => '')) || (await pw.textContent())).trim(), role }); out.push(`${user}: one-time password shown once (kept)`); }
     else if (req) { out.push(`${user}: request waits for a second person`); ok = 'requested'; }
-    else { out.push('no code, password or request on ' + p(page.url()) + ' : ' + (await page.textContent('main').catch(() => '')).replace(/\s+/g, ' ').slice(0, 200)); ok = false; }
+    else { out.push('no code, password or request on ' + p(page.url())); ok = false; }
   } else if (cmd === 'confirm') { // node acct.js confirm USER BY : BY (a steward) confirms USER's waiting request
     await login(page, role, out);
     await page.goto(BASE + '/ops/accounts/requests'); await page.waitForLoadState('networkidle');
@@ -83,7 +83,7 @@ async function login(page, name, out) {
       const sec = await page.$('[data-testid=request-secret]');
       if (sec) { const v = ((await sec.inputValue().catch(() => '')) || (await sec.textContent())).trim().split(/\s+/).pop();
         save(user, { enrol: v, password: '' }); out.push(`${user}: secret shown once to ${role} (kept)`); }
-      else { out.push('no secret shown: ' + (await page.textContent('main')).replace(/\s+/g, ' ').slice(0, 200)); ok = false; }
+      else { out.push('no secret shown on ' + p(page.url())); ok = false; }
     }
   } else if (cmd === 'enrol') {
     const a = load(user); const np = newPw();
@@ -98,4 +98,4 @@ async function login(page, name, out) {
       ok = !p(page.url()).startsWith('/login') && !p(page.url()).startsWith('/enrol'); out.push('lands on ' + p(page.url())); }
   }
   console.log(out.join('\n')); await browser.close(); process.exit(ok === true ? 0 : ok === 'requested' ? 3 : 1);
-})().catch(e => { console.error('ERR', e.message.slice(0, 300)); process.exit(1); });
+})().catch(e => { console.error('ERR', e.message.split('\n')[0].slice(0, 160)); process.exit(1); });

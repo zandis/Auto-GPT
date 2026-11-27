@@ -33,6 +33,7 @@ BUNDLE=/dev/shm/e2e-box/dist/trialbox-<id>.tar SIZE=50000 E2E_CPUSET=112-175 \
 | `KEEP=1` | leave the VM running for a look; else it is stopped and its folder removed |
 
 `bundle.sh ID SEQ OUTDIR` builds a signed rehearsal bundle of a checkout (`TREE`), as the integration builds do.
+`VENDOR_KEY` must be a rehearsal-only key, never the release key: the build runs the code under test on the host.
 Nightly, from cron on the VM host (one run at a time):
 
 ```
@@ -41,21 +42,26 @@ Nightly, from cron on the VM host (one run at a time):
 
 where `nightly.sh` fetches the newest head of the branch under test into its own checkout, runs `bundle.sh`, makes
 the media of a second bundle of the same tree (seq + 1) for the update journey, and calls `run.sh` with the last
-run's `journeys.csv` as `BASELINE`. The same run, once, on every release candidate before signing.
+GREEN run's `journeys.csv` as `BASELINE`. The same run, once, on every release candidate before signing.
 
 ## Verdict (`verdict.py`)
 
-GREEN only when the install passed, every product failure is listed in `known.tsv` (journey, step, finding, owner,
-release note), no journey regressed against the baseline, and every setting that differs between the box as
-installed and the box before the update journey is named by a DEVIATION row. A failure the driver caused or a
-refusal the product is meant to give at that point is counted apart (`HARNESS`, `BY_DESIGN` in `verdict.py`).
+GREEN only when the install passed, every product failure and every skipped step is listed in `known.tsv` (journey,
+step, finding, owner, release note: all five), the run is conclusive (no driver failure, no deviation that failed to
+apply), no journey of the baseline regressed or vanished, and every setting that differs between the box as
+installed and the box before the update journey is named by an applied DEVIATION row. A refusal the product is meant
+to give at that point is counted apart (`BY_DESIGN` in `verdict.py`: two messages). A refusal the journeys provoke
+(a cut, shrunken or two-person night, a full disk) passes only with the lake's published snapshot unchanged; every
+planned browser action has a row (no result is a failure); every remote command runs with `pipefail`.
 
 ## Deviations (G5)
 
 The gate runs the box as the installer left it. When a step fails on that box and a later journey cannot run
 without a change, the change is made through `deviate()` only, after the failure is in the results, and it is a
-DEVIATION row: P-09 (the site mapping declares no table), P-02 (the adapter's cap), P-10 (no mail relay), the
-served models, the REDCap bench's egress (`EGRESS_EXTRA` and `deploy/network.sh apply`, the product's documented way).
+DEVIATION row: P-09 (the site mapping declares no table), P-02 (the adapter's cap), P-10 (no mail relay), P-01 (no
+backup key from the install), the served models (after the canary ran on the box as installed), the REDCap bench's
+egress (after the EDC journey ran on the box as installed; `EGRESS_EXTRA += orchestrator=host:port` and
+`deploy/network.sh apply`, the product's documented way). A STARTED row precedes each change.
 `verdict.py` compares hashes of the box's settings (never their values) before and after and refuses a change no
 DEVIATION row names.
 
@@ -63,8 +69,12 @@ DEVIATION row names.
 
 The install shows the first administrator's password and enrolment code once on its terminal. `ptyinstall.py` cuts
 them out of every line it writes (`<redacted>`); the transcript and prompts are 0600; the two values go only to a
-root-only file that the harness moves into the run's `creds/` (0700, files 0600) and deletes on the VM. Account
-passwords, authenticator keys and the bench's token live only in `creds/`; no driver prints or screenshots them.
+root-only file that the harness copies into the run's `creds/` (0700, files 0600), checks, and only then deletes on
+the VM. The KEK passphrase is typed only at a prompt that names it (or its repeat) and is cut from every written
+line too. After the install the gate searches the box's transcripts and this run's folder for the two values (by
+value, not by format). Account passwords, authenticator keys and the bench's token live only in `creds/`; the token
+reaches the browser runner as a 0600 file, never an environment variable, and every printed line is scrubbed of it;
+no driver prints page text where a secret is shown, and none takes a screenshot.
 `tests/unit/test_e2e_box_harness.py` holds the redaction and the verdict.
 
 ## Files

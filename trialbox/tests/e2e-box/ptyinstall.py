@@ -19,7 +19,16 @@ import time
 
 # console.cli's two one-time lines: "password (shown once): X" and "enrolment code ... (shown once, valid 24 hours): X"
 SECRET = re.compile(r"(?P<label>(?P<kind>password|enrolment code)[^\n:]*\(shown once[^)\n]*\): )(?P<value>\S+)")
+LABEL_ONLY = re.compile(r"\(shown once[^)\n]*\):\s*$")  # the value has not arrived yet: never a question
 PROMPT_END = (":", "]:", "?", "]")
+BUNDLE = re.compile(r"^trialbox-[A-Za-z0-9._-]+\.tar$")
+
+
+def is_prompt(pending: str, quiet_s: float) -> bool:
+    """A partial line the installer has stopped at for 1.5 s and that ends like a question; a one-time value's label
+    waiting for its value is not one (answering it would write the value, on the next read, without its label)."""
+    line = pending.strip()
+    return bool(line) and line.endswith(PROMPT_END) and quiet_s >= 1.5 and not LABEL_ONLY.search(pending)
 
 
 def redact(line: str) -> tuple[str, dict[str, str]]:
@@ -33,9 +42,12 @@ def redact(line: str) -> tuple[str, dict[str, str]]:
     return SECRET.sub(cut, line), found
 
 
-def answer(prompt: str, passphrase: str, patients: str) -> tuple[str, bool]:
-    """What a person types at this prompt, and whether it may be shown in the prompts file."""
+def answer(prompt: str, passphrase: str, patients: str, after_passphrase: bool = False) -> tuple[str, bool]:
+    """What a person types at this prompt, and whether it may be shown in the prompts file. The passphrase goes only to a
+    prompt that names it, or to the repeat asked straight after one; any other confirm-type question gets Enter."""
     low = prompt.lower()
+    if "passphrase" in low or (after_passphrase and any(w in low for w in ("again", "repeat", "twice", "confirm"))):
+        return passphrase, False
     if "language" in low:
         return "en", True
     if "time zone" in low or "timezone" in low or " tz" in low:
@@ -46,36 +58,39 @@ def answer(prompt: str, passphrase: str, patients: str) -> tuple[str, bool]:
         return "admin@hospa.test", True
     if "name" in low:
         return "Admin Synthetic", True
-    if any(w in low for w in ("passphrase", "again", "repeat", "twice", "confirm")):
-        return passphrase, False
     return "", True
 
 
 def private(path: str) -> int:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    """A new root-only file at path (an old file or a link there is removed first, never followed)."""
+    if os.path.lexists(path):
+        os.unlink(path)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     os.fchmod(fd, 0o600)
     return fd
 
 
 def main(bundle: str, passphrase_file: str, patients: str) -> int:
+    if not BUNDLE.match(bundle):
+        raise SystemExit(f"not a bundle file name: {bundle!r}")
     with open(passphrase_file, encoding="utf-8") as fh:
         passphrase = fh.read().strip()
-    cmd = (
-        "cd /media/usb && export TB_HOST_PROFILE=poc TB_COMPOSE_OVERRIDE=/opt/trialbox/tools/rehearse_box/standins.yml "
-        f"TB_INSTALL_UP_TIMEOUT=900 TB_SITE_PATIENTS={int(patients)} && bash trialbox-bootstrap.sh {bundle} "
-        "--pub /root/vendor_ed25519.pub -- --tier large --ctgov offline --rehearsal"
-    )
+    env = {**os.environ, "TB_HOST_PROFILE": "poc", "TB_INSTALL_UP_TIMEOUT": "900", "TB_SITE_PATIENTS": str(int(patients)),
+           "TB_COMPOSE_OVERRIDE": "/opt/trialbox/tools/rehearse_box/standins.yml"}  # fmt: skip
+    argv = ["bash", "trialbox-bootstrap.sh", bundle, "--pub", "/root/vendor_ed25519.pub", "--", "--tier", "large", "--ctgov",
+            "offline", "--rehearsal"]  # fmt: skip
     pid, fd = pty.fork()
     if pid == 0:
-        os.execvp("bash", ["bash", "-c", cmd])
+        os.chdir("/media/usb")
+        os.execvpe("bash", argv, env)
     log, prompts = private("/var/tmp/install.log"), private("/var/tmp/prompts.txt")
     secrets: dict[str, str] = {}
-    pending, last, asked = "", time.time(), 0
+    pending, last, asked, after = "", time.time(), 0, False
 
     def write(out: int, text: str) -> None:
         clean, found = redact(text)
         secrets.update(found)
-        os.write(out, clean.encode())
+        os.write(out, (clean.replace(passphrase, "<redacted>") if passphrase else clean).encode())
 
     while True:
         r, _, _ = select.select([fd], [], [], 2.0)
@@ -92,11 +107,12 @@ def main(bundle: str, passphrase_file: str, patients: str) -> int:
             for line in done:  # only whole lines are written: a value split across two reads is still cut
                 write(log, line + "\n")
             continue
-        line = pending.strip()
-        if line and line.endswith(PROMPT_END) and time.time() - last >= 1.5:
+        if is_prompt(pending, time.time() - last):
+            line = redact(pending.strip())[0]  # redacted before it is cut to length, so no value loses its label
             write(log, pending)
             write(prompts, f"PROMPT: {line[-160:]}\n")
-            text, shown = answer(line, passphrase, patients)
+            text, shown = answer(line, passphrase, patients, after)
+            after = not shown
             os.write(fd, (text + "\n").encode())
             write(prompts, f"-> answered: {text if shown else '<hidden>'!r}\n")
             asked += not shown

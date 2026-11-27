@@ -15,7 +15,7 @@ DC='cd /opt/trialbox && sudo docker compose --project-directory deploy'
 RS=GOUT-301
 export NAME OUT DC RS
 
-vm() { "$CTL" ssh "$NAME" "$@"; }
+vm() { "$CTL" ssh "$NAME" "set -o pipefail; $*"; } # a pipe's failure is the command's (no `| tail` hides an exit code)
 csvq() { printf '%s' "$1" | tr '\n\r,"' '  ;'"'" | cut -c1-300; }
 rec() { # journey step result seconds detail
   echo "$(date -u +%FT%TZ),$A,$1,$(csvq "$2"),$3,$4,$(csvq "$5")" >> "$STEPS"
@@ -40,6 +40,7 @@ step() { # journey step cmd... : PASS on rc 0; the output goes to evidence/
 deviate() { # id why cmd... : a change to the box as installed, recorded as a DEVIATION row (G5), then made
   local id=$1 why=$2 r=APPLIED
   shift 2
+  rec DEVIATION "$id: $why" STARTED 0 "" # a run cut here leaves a deviation that never applied: inconclusive
   "$@" > "$EV/deviation-$id.txt" 2>&1 || r=FAILED
   rec DEVIATION "$id: $why" "$r" 0 "$(tail -c 160 "$EV/deviation-$id.txt")"
 }
@@ -55,7 +56,7 @@ waitfor() {
 }
 healthy() {
   vm 'n=$(sudo docker ps --format "{{.Names}} {{.Status}}" | grep "^trialbox-" | grep -c "(healthy)")
-      u=$(sudo docker ps -a --format "{{.Names}} {{.Status}}" | grep "^trialbox-" | grep -vc "(healthy)")
+      u=$(sudo docker ps -a --format "{{.Names}} {{.Status}}" | grep "^trialbox-" | grep -v "Exited (0)" | grep -vc "(healthy)")
       echo "healthy=$n other=$u"; [ "$n" -ge 12 ] && [ "$u" = 0 ]'
 }
 unseal() { # runbook 22 step 2 after a boot; a box with no key to unseal says so and the step is a no-op
@@ -63,7 +64,7 @@ unseal() { # runbook 22 step 2 after a boot; a box with no key to unseal says so
 }
 psql_wf() { vm "sudo docker exec trialbox-db-1 psql -U hapi -d trialbox_wf -Atc \"$1\""; }
 envset() { # KEY VALUE : set one line of the box's deploy/.env (site configuration; the caller records the deviation)
-  vm "sudo sed -i '/^$1=/d' /opt/trialbox/deploy/.env && echo '$1=$2' | sudo tee -a /opt/trialbox/deploy/.env > /dev/null"
+  vm "sudo sed -i -e '/^$1=/d' -e '\$a $1=$2' /opt/trialbox/deploy/.env && sudo grep -qxF '$1=$2' /opt/trialbox/deploy/.env"
 }
 answer() { sed -n "s/^$1: *['\"]\{0,1\}\([A-Za-z0-9_+\/.-]*\).*/\1/p" "$HERE/../../tools/rehearse_box/site_answers.yaml" | head -1; }
 SITE_TZ=$(answer tz)

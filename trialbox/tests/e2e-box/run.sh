@@ -21,9 +21,21 @@ E2E_VMS=${E2E_VMS:-/dev/shm/e2e-box}
 export E2E_HOME E2E_VMS E2E_CPUSET=${E2E_CPUSET:-112-175}
 ID=$(basename "$BUNDLE" .tar)
 ID=${ID#trialbox-}
+[[ $ID =~ ^[A-Za-z0-9._-]+$ && $SIZE =~ ^[0-9]+$ && $NAME =~ ^[a-z0-9][a-z0-9-]*$ && $PORTBASE =~ ^[0-9]+$ ]] || {
+  echo "bad input: bundle id, SIZE, NAME or PORTBASE" >&2
+  exit 2
+}
 OUT=${OUT:-$E2E_HOME/runs/$(date -u +%Y%m%dT%H%M)-$ID}
 PY=${PY:-$REPO/.venv/bin/python}
-mkdir -p "$OUT"
+mkdir -p "$E2E_VMS"
+mkdir -p "$OUT" && chmod 0700 "$OUT"
+exec 9> "$E2E_VMS/$NAME.lock"
+flock -n 9 || { echo "another run holds $NAME" >&2; exit 2; }
+[ ! -e "$E2E_VMS/$NAME" ] || { echo "$E2E_VMS/$NAME exists: another VM of that name; nothing was changed" >&2; exit 2; }
+if [ -n "${E2E_MODELS_ENV:-}" ] && ! [[ ${E2E_JUDGE_PORT:-} =~ ^[0-9]+$ && ${E2E_VERIFIER_PORT:-} =~ ^[0-9]+$ && -s $E2E_MODELS_ENV ]]; then
+  echo "E2E_MODELS_ENV needs a readable key file and E2E_JUDGE_PORT, E2E_VERIFIER_PORT" >&2
+  exit 2
+fi
 # shellcheck source=lib.sh
 source "$HERE/lib.sh"
 # shellcheck source=journeys.sh
@@ -79,19 +91,29 @@ mount --bind /mnt/media /media/usb 2> /dev/null || mount -o ro --bind /mnt/media
 ls /media/usb | tr '\n' ' '
 SH
 }
-take_secrets() { # the first administrator's password and code: from the VM's root-only file to the run's creds, then gone
-  (umask 077 && vm 'sudo cat /root/e2e-first-admin.json && sudo rm -f /root/e2e-first-admin.json' > "$CREDS/admin.json")
-  [ -s "$CREDS/admin.json" ] && python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); assert set(d) == {"password", "enrol"}, sorted(d); print("kept: password, enrolment code")' "$CREDS/admin.json"
+take_secrets() { # the first administrator's password and code: the VM's root-only file to the run's creds, checked, then
+  # removed on the VM (only once the copy is whole)
+  rm -f "$CREDS/admin.json"
+  (umask 077 && vm 'sudo cat /root/e2e-first-admin.json' > "$CREDS/admin.json") || return 1
+  python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); assert set(d) == {"password", "enrol"} and all(d.values()), sorted(d); print("kept: password, enrolment code")' "$CREDS/admin.json" || return 1
+  vm 'sudo rm -f /root/e2e-first-admin.json'
 }
-transcript_clean() { # G6 / RULINGS Q3: no one-time value in the kept transcript, and the files are root-only
-  vm 'sudo stat -c "%a %n" /var/tmp/install.log /var/tmp/prompts.txt; n=$(sudo grep -cE "shown once[^:]*: [^<]" /var/tmp/install.log); echo "unredacted=$n"; [ "$n" = 0 ] && [ -z "$(sudo find /var/tmp/install.log /var/tmp/prompts.txt -perm /077)" ]'
+secret_values() { python3 -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1])).values()))' "$CREDS/admin.json"; }
+transcript_clean() { # G6 / RULINGS Q3: neither one-time value anywhere the install or this run wrote text; files root-only
+  local onbox here
+  onbox=$(secret_values | vm 'sudo grep -rlF -f - /var/tmp/install.log /var/tmp/prompts.txt /opt/trialbox/deploy/site/box 2> /dev/null | wc -l')
+  here=$(secret_values | grep -rlF -f - "$OUT" --exclude-dir=creds 2> /dev/null | wc -l)
+  vm 'sudo stat -c "%a %n" /var/tmp/install.log /var/tmp/prompts.txt'
+  echo "files holding a one-time value: on the box $onbox, in this run's folder $here"
+  [ "$onbox" = 0 ] && [ "$here" = 0 ] && vm '[ -z "$(sudo find /var/tmp/install.log /var/tmp/prompts.txt -perm /077)" ]'
 }
 snapshot() { # settings of the box: env:KEY and file:PATH with a hash of the value, never the value
   vm 'sudo bash -s' << 'SH'
 cd /opt/trialbox/deploy
 awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {k=$1; sub(/^[^=]*=/, ""); v[k]=$0} END {for (k in v) print k "=" v[k]}' .env | sort | while IFS= read -r l; do
   printf 'env:%s %s\n' "${l%%=*}" "$(printf '%s' "${l#*=}" | sha256sum | cut -c1-16)"; done
-find site -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.py' \) | sort | while read -r f; do printf 'file:%s %s\n' "$f" "$(sha256sum < "$f" | cut -c1-16)"; done
+{ find site -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.py' \); ls secrets/model/vllm.env secrets/backup.pub 2> /dev/null; } | sort |
+  while read -r f; do printf 'file:%s %s\n' "$f" "$(sha256sum < "$f" | cut -c1-16)"; done
 SH
 }
 sampler() { # container CPU, memory, I/O and the box's disks every 20 s
@@ -139,6 +161,14 @@ PY
 }
 
 MEDIA=$E2E_VMS/$NAME-media.img
+SAMPLER=
+cleanup() {
+  [ -z "$SAMPLER" ] || kill "$SAMPLER" 2> /dev/null
+  [ "${KEEP:-0}" = 1 ] && return
+  "$CTL" stop "$NAME" > /dev/null 2>&1 || "$CTL" stop "$NAME" --kill > /dev/null 2>&1
+  "$CTL" remove "$NAME" > /dev/null 2>&1 && rm -f "$MEDIA"
+}
+trap cleanup EXIT
 J=INSTALL
 step $J "install media made from the bundle (read-only image)" make_media || exit 2
 step $J "vm created and started (cores $E2E_CPUSET)" vm_up || exit 2
@@ -148,10 +178,13 @@ step $J "vm ready: ssh, cloud-init done, docker active" waitfor 120 vm 'test -f 
 "$CTL" put "$NAME" "$VENDOR_PUB" /tmp/vendor_ed25519.pub
 step $J "zone, swap off, vendor key, the stick at /media/usb (as IT leaves it)" prepare
 step $J "bootstrap signature verifies (runbook first command)" vm 'cd /media/usb && openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig'
-step $J "one-command install, the questions answered at a terminal ($SIZE patients declared)" vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; sudo tail -n 4 /var/tmp/install.log | cut -c1-200; sudo grep -c '^PROMPT:' /var/tmp/prompts.txt; exit \$rc"
-vm 'sudo cat /var/tmp/prompts.txt' > "$EV/install-prompts.txt" 2>&1
-vm 'sudo cat /var/tmp/install.log' > "$EV/install.log" 2>&1
-chmod 600 "$EV/install.log" "$EV/install-prompts.txt"
+step $J "one-command install, the questions answered at a terminal ($SIZE patients declared)" vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; echo rc=\$rc prompts=\$(sudo grep -c '^PROMPT:' /var/tmp/prompts.txt); exit \$rc"
+rec $J "run conditions (as the VM matrix installs): TB_HOST_PROFILE=poc, rehearsal stand-ins, --tier large, --rehearsal, GPU stand-in, $SIZE patients declared" PASS 0 "bundle $ID"
+(
+  umask 077
+  vm 'sudo cat /var/tmp/prompts.txt' > "$EV/install-prompts.txt" 2>&1
+  vm 'sudo cat /var/tmp/install.log' > "$EV/install.log" 2>&1
+)
 step $J "the first password and enrolment code reach the harness only (creds, 0600)" take_secrets
 step $J "the kept transcript holds no one-time value and is root-only (G6)" transcript_clean
 step $J "all box containers healthy" waitfor 60 healthy
@@ -161,7 +194,6 @@ snapshot > "$M/config-installed.txt" 2> /dev/null
 step $J "synthetic hospital of $SIZE patients on the box (tools/make_fixtures.py)" make_feed
 sampler > /dev/null 2>&1 &
 SAMPLER=$!
-trap 'kill $SAMPLER 2> /dev/null' EXIT
 
 if grep -q ",INSTALL,one-command install.*,PASS," "$STEPS"; then
   read -r MRN OPTMRN DOCTOR <<< "$(feed_picks)"
@@ -178,17 +210,11 @@ if grep -q ",INSTALL,one-command install.*,PASS," "$STEPS"; then
   j_edc
   python3 "$HERE/actions.py" journey perf "$(today)" > "$EV/perf-actions.json"
   jrun "$EV/perf-actions.json" perf
-  snapshot > "$M/config-checked.txt" 2> /dev/null
   j_backup
+  snapshot > "$M/config-checked.txt" 2> /dev/null # before the update, which may write settings of its own
   j_update
   j_hard_days
   collect
 fi
-kill $SAMPLER 2> /dev/null
 python3 "$HERE/verdict.py" "$OUT" "${BASELINE:-}" "${KNOWN:-$HERE/known.tsv}"
-rc=$?
-if [ "${KEEP:-0}" != 1 ]; then
-  "$CTL" stop "$NAME" > /dev/null 2>&1 || "$CTL" stop "$NAME" --kill > /dev/null 2>&1
-  "$CTL" remove "$NAME" > /dev/null && rm -f "$MEDIA"
-fi
-exit $rc
+exit $?

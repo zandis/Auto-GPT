@@ -270,10 +270,9 @@ def people(a: Journey, today: dt.date, *_: str) -> None:
     a.act(b, "steward's review list shows the use", "stw1", "GET", "/breakglass", keepBody=300)
 
 
-def edc(a: Journey, *_: Any) -> None:
+def edc(a: Journey, _today: dt.date, _mrn: str = "", _doctor: str = "", e: str = "EDC-redcap") -> None:
     """The REDCap bench as the study's EDC (VARS secret_rc = its token, url = its address): the connection and its
     test, the study's link and its test, the EDC page, pre-fill drafts for the enrolled subject, the read-back."""
-    e = "EDC-redcap"
     a.act(e, "admin: REDCap connection page", "admin", "GET", "/admin/redcap", keepBody=300)
     a.act(e, "admin saves the REDCap connection (bench)", "admin", "POST", "/admin/redcap",
           form={"token_ref": "main", "url": "${rcurl}", "token": "${secret_rc}"}, csrfFrom="/admin/redcap", expect=[303],
@@ -338,9 +337,9 @@ JOURNEYS: dict[str, Callable[..., None]] = {
 }  # fmt: skip
 
 
-def journey(name: str, today: str, mrn: str = "", doctor: str = "") -> None:
+def journey(name: str, today: str, mrn: str = "", doctor: str = "", *rest: str) -> None:
     a = Journey()
-    JOURNEYS[name](a, dt.date.fromisoformat(today), mrn, doctor)
+    JOURNEYS[name](a, dt.date.fromisoformat(today), mrn, doctor, *rest)
     print(json.dumps({"actions": a.actions}, ensure_ascii=False))
 
 
@@ -350,22 +349,40 @@ def passed(a: Action, o: dict[str, Any]) -> bool:
     if a.get("method") == "WAIT":
         return bool(o.get("matched")) and not o.get("failed")
     st = o.get("status", 0)
+    if 300 <= st < 400 and "/login" in (o.get("location") or ""):
+        return False  # sent to sign-in: the session was lost, whatever the action expected
     return bool(st in a["expect"]) if "expect" in a else 0 < st < 400
 
 
 def rows(actions: str, out: str) -> None:
+    """One row per planned action: an action the runner never reported is a FAIL row (no result), so a runner that
+    stopped half way cannot leave a journey looking green."""
     with open(actions, encoding="utf-8") as fh:
         acts = {a["id"]: a for a in json.load(fh)["actions"]}
-    for line in Path(out).read_text(encoding="utf-8").splitlines():
+    seen = set()
+    for line in Path(out).read_text(encoding="utf-8").splitlines() if Path(out).exists() else []:
         if not line.startswith("{"):
             continue
-        o = json.loads(line)
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if o.get("id") not in acts or o["id"] in seen:
+            continue
+        seen.add(o["id"])
         a = acts.get(o["id"], {})
         det = f"{a.get('as')} {o.get('method')} {o.get('path')} -> {o.get('status', 0)} {o.get('location', '')} "
         det += o.get("err") or o.get("error") or o.get("body") or ""
         det += "".join(f" [{k[6:]}={o[k]}]" for k in o if k.startswith("saved_"))
         print("\t".join([a.get("j", "J"), o["id"], "PASS" if passed(a, o) else "FAIL", f"{(o.get('ms') or 0) / 1000:.2f}",
                          det.replace("\t", " ").replace("\n", " ")[:400]]))  # fmt: skip
+    for i, a in acts.items():
+        if i not in seen:
+            print(
+                "\t".join(
+                    [a.get("j", "J"), i, "FAIL", "0.00", "no result: the browser runner stopped before this action"]
+                )
+            )
 
 
 def kv(s: str) -> dict[str, str]:
@@ -400,6 +417,8 @@ def walk_gen(path: str, users: str, params: str) -> None:
 def klass(exp: str, got: str) -> str:
     """OK; ERROR (5xx other than 503); LEAK (the table says 403/404, the box let the role in); DENY (the table lets the
     role in, the box says 403); SIGNIN (sent to sign-in); DATA (a difference that follows from what the box holds)."""
+    if got in ("X", "?"):
+        return "NORESULT"
     if exp == got:
         return "OK"
     if got == "E":
@@ -411,7 +430,7 @@ def klass(exp: str, got: str) -> str:
     return "SIGNIN" if got == "L" else "DATA"
 
 
-def walk_cmp(path: str, users: str, out: str, csvfile: str) -> None:
+def walk_cmp(path: str, users: str, out: str, csvfile: str, planned: str = "") -> None:
     u = kv(users)
     table = {route: cells for method, route, cells in matrix(path) if method == "GET"}
     tally: dict[str, int] = {}
@@ -428,6 +447,10 @@ def walk_cmp(path: str, users: str, out: str, csvfile: str) -> None:
             tally[k] = tally.get(k, 0) + 1
             w.writerow([col, u.get(col, ""), route, exp, got, o.get("status", ""), k, o.get("ms", ""), o.get("location", "")[:80],
                         (o.get("err") or o.get("error") or "")[:160]])  # fmt: skip
+    if planned:
+        missing = len(json.loads(Path(planned).read_text(encoding="utf-8"))["actions"]) - sum(tally.values())
+        if missing > 0:
+            tally["NORESULT"] = tally.get("NORESULT", 0) + missing
     print(json.dumps(tally))
 
 
@@ -446,7 +469,7 @@ def lang_gen(walk: str, params: str) -> None:
 
 
 def lang_sum(out: str, csvfile: str) -> None:
-    tot = {"pages": 0, "raw_key_pages": 0, "english_pages": 0, "overflow_pages": 0, "errors": 0}
+    tot = {"pages": 0, "raw_key_pages": 0, "english_pages": 0, "overflow_pages": 0, "wrong_lang_pages": 0, "errors": 0}
     with open(csvfile, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["route", "lang", "viewport", "as", "status", "ms", "html_lang", "raw_keys", "english_on_page", "overflow_px",
@@ -458,7 +481,8 @@ def lang_sum(out: str, csvfile: str) -> None:
             route, lang, vp = o["id"].split("|")
             nk, ne, ov = o.get("nkeys", 0), o.get("nenglish", 0), o.get("overflowPx", 0) or 0
             tot["pages"] += 1
-            tot["errors"] += bool(o.get("error") or o.get("status", 0) >= 400)
+            tot["errors"] += bool(o.get("error") or o.get("status", 0) != 200)
+            tot["wrong_lang_pages"] += not str(o.get("htmlLang") or "").startswith(lang[:2])
             tot["raw_key_pages"] += nk > 0
             tot["english_pages"] += ne > 0
             tot["overflow_pages"] += ov > 4
