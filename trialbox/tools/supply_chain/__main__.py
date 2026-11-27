@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.supply_chain import allowlist, image_scan, licences, lock, release, sbom, scanners, vulns
+from tools.supply_chain import allowlist, image_scan, licences, lock, release, sbom, scanners, standing_gates, vulns
 
 
 def _allow(args: argparse.Namespace) -> tuple[allowlist.Allowlist, list[str]]:
@@ -197,6 +197,23 @@ def cmd_image_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_standing_gates(args: argparse.Namespace) -> int:
+    """Release hygiene item 5: report-only (exit 0) unless --fail-at any, the switch for the date by ruling."""
+    src = Path(args.src).resolve()
+    rules = (
+        standing_gates.fetch_rules(Path(args.rules)) if not args.no_fetch else standing_gates.pinned(Path(args.rules))
+    )
+    record = standing_gates.scan(src, rules.resolve(), Path(args.out))
+    print((Path(args.out) / "summary.md").read_text(encoding="utf-8"))
+    problems = standing_gates.failures(record)
+    for p in problems:
+        print(f"standing-gates: {p}", file=sys.stderr)
+    if args.fail_at == "any" and problems:
+        return 1
+    print(f"standing-gates: {'report-only' if args.fail_at == 'none' else 'PASS'} ({len(problems)} problem(s))")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.supply_chain", description=__doc__)
     ap.add_argument("--allowlist", default=str(allowlist.ALLOWLIST), help="allow-list YAML")
@@ -262,6 +279,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config-dir", action="append", default=[], help="a folder for `trivy config`")
     p.add_argument("--fail-at", choices=("none", "HIGH"), default="none", help="none: report-only (D-1343)")
     p.set_defaults(fn=cmd_image_scan)
+    p = sub.add_parser("standing-gates", help="the five standing scans of the tree (release hygiene item 5)")
+    p.add_argument("--out", default="build/standing-gates")
+    p.add_argument("--src", default="..", help="the repository's root (mounted read-only)")
+    p.add_argument("--rules", default=".cache/code-rules", help="where the pinned rule set is fetched")
+    p.add_argument("--no-fetch", action="store_true", help="use the rule set already in --rules (checked by commit)")
+    p.add_argument("--fail-at", choices=("none", "any"), default="none", help="none: report-only until the date")
+    p.set_defaults(fn=cmd_standing_gates)
 
     args = ap.parse_args(argv)
     try:

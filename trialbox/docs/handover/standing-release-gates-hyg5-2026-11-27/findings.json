@@ -1,0 +1,49 @@
+{
+ "card": "HYG5",
+ "title": "standing release gates over the tree, report-only until a dated switch",
+ "date": "2026-11-27",
+ "source": "docs/handover/standing-release-gates-hyg5-2026-11-27.md",
+ "note": "basis 'shown' means measured in this session on int/r1plus1 3390bf74 with the pinned tool versions and rule commit, run from their Python packages; counts by rule only, never the matched text.",
+ "findings": [
+  {
+   "id": "HYG5-01",
+   "severity": "Medium",
+   "claim": "the code-pattern scan at the pinned rule commit, security folders at ERROR, finds 162: dangerous-subprocess-use-audit 133, use-defused-xml 18, dangerous-subprocess-use-tainted-env-args 3, dangerous-os-exec-audit 2, subprocess-shell-true 2, use-defused-xml-parse 2, php-version-usage 1, missing-user 1",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG5-02",
+   "severity": "Medium",
+   "claim": "the platform-manifest scan of deploy/platform fails 152 checks: CKV_K8S_21 41, CKV_K8S_14 20, CKV_K8S_11 20, CKV_K8S_43 20, CKV_K8S_35 14, CKV_K8S_8 14, CKV_K8S_22 14, CKV_K8S_40 4, CKV_K8S_23 3, CKV_K8S_38 2",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG5-03",
+   "severity": "Low",
+   "claim": "nine Dockerfile-linter ignore pragmas are in five Dockerfiles (DL3006, DL3008, DL3013, SC2086); the gate does not honour them, so their rules will count once it runs",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG5-04",
+   "severity": "Medium",
+   "claim": "neither secret scanner was run on the tree in this session (refused by the session's permission check); CI's first run of the gate is their first result",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "HYG5-05",
+   "severity": "Low",
+   "claim": "the five scans were not run in a container here (no container engine); whether each image's entry point takes the command as written is first shown by CI",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  }
+ ]
+}

@@ -152,6 +152,18 @@ jobs:
         continue-on-error: true
         run: make image-scan
 
+      # Release hygiene item 5: the standing release gates over the tree (the code-pattern scanner at a pinned rule
+      # commit, two secret scanners with no verification, the platform-manifest scanner on deploy/platform, the
+      # Dockerfile linter on every Dockerfile), each image by version and digest. REPORT-ONLY until 2026-12-17, a
+      # placeholder (date: by ruling): from that date STANDING_GATES_ARGS="--fail-at any" and continue-on-error goes.
+      # Once per run: the tree is the same on both platforms.
+      - name: Standing release gates (report-only)
+        if: ${{ !cancelled() && matrix.platform == 'linux/amd64' }}
+        continue-on-error: true
+        run: |
+          make standing-gates
+          cat build/standing-gates/summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Disk after the gates
         if: always()
         working-directory: /
@@ -173,6 +185,7 @@ jobs:
           path: |
             trialbox/build/supply-chain
             trialbox/build/image-scan
+            trialbox/build/standing-gates
             trialbox/dist/sbom
           if-no-files-found: warn
           retention-days: 90

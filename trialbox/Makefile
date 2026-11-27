@@ -836,6 +836,15 @@ image-scan: scanners
 		--hadolint-image $(HADOLINT_IMAGE) $(foreach i,$(IMAGE_SCAN_IMAGES),--image $(i)) \
 		--config-dir deploy/docker --config-dir demo $(IMAGE_SCAN_ARGS)
 
+# Release hygiene item 5: the standing release gates (tools/supply_chain/standing_gates.py): the code-pattern scanner
+# with its rule set at a pinned commit, two secret scanners, the platform-manifest scanner on deploy/platform and the
+# Dockerfile linter on every Dockerfile, each an image by version and digest, the tree read-only. Report-only (exit 0)
+# until the date by ruling, then STANDING_GATES_ARGS="--fail-at any". Needs Docker and the network for the rule set.
+STANDING_GATES_DIR ?= build/standing-gates
+.PHONY: standing-gates
+standing-gates:
+	$(SC) standing-gates --out $(STANDING_GATES_DIR) --src .. --rules .cache/code-rules $(STANDING_GATES_ARGS)
+
 # D-1343: hadolint on HADOLINT_REPORT, report-only (exit 0 whatever it finds; the hadolint image by digest, Docker).
 HADOLINT_REPORT_OUT ?= build/hadolint-report.txt
 .PHONY: hadolint-report
