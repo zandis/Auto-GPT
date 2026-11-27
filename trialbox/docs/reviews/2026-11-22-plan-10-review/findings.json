@@ -1,0 +1,492 @@
+{
+ "card": "R22",
+ "title": "plan 10 and everything since: the independent review of 2026-11-22",
+ "date": "2026-11-22",
+ "source": "docs/reviews/2026-11-22-plan-10-review.md",
+ "note": "basis 'shown' means shown by reading the code or by a run in a private worktree with planted inputs; no model, Docker stack or whole suite was run. The page gives the exact input of each.",
+ "findings": [
+  {
+   "id": "R22-01",
+   "severity": "Medium",
+   "claim": "Seven release criteria (11, 23, 25, 33, 35, 38, 39) pass only through cards D-1068 does not schedule (10G-50, 10E-20, 9j-7, 9l-1, 10D-24, 10E-18, 9l-15, 10K-12)",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-02",
+   "severity": "Medium",
+   "claim": "The bench record's 13.8 % lost-eligible figure names no verifier, prompt, rule or scorer and is not reproduced by the tree's stored answers (17.4 %); the 11-08 record's 9.4 % is a projection",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-03",
+   "severity": "Low",
+   "claim": "Two different 5 % limits are in force (D-343 and D-918: point estimate on 400 pairs; plan criterion 1: 95 % upper bound on 124 gold-eligible pairs) and the bench record calls it the gate 5 limit",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-04",
+   "severity": "Medium",
+   "claim": "tools/trec_ct_eval.py:360 counts an unanswered criterion as not blocking, so a model that fails to answer scores the best lost-eligible rate",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-05",
+   "severity": "Medium",
+   "claim": "The ratchet and gate scanners stop listed spellings only: SQL built by joining strings, an error decided by a process's error text, a model path split across a plus sign and a bare suppression comment pass on master; 5 of 5 and 8 of 10 bypasses pass on the gate 2 and gate 5 drafts",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-06",
+   "severity": "Medium",
+   "claim": "On the gate drafts #1294 and #1295 four planted mistakes stay green: national-identifier conflict check removed, source namespace dropped from the record key, a partly masked name, a dropped refusal",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-07",
+   "severity": "Low",
+   "claim": "The rule against model names in docs and code comments is not met by the tree (235 files under docs/, 60 under eval/) and no scan checks it",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-08",
+   "severity": "Medium",
+   "claim": "The findings register is stale: 63 High open, none seen closed, no row newer than 2026-11-19, none of the High findings of the independent reviews since; --check verifies form only and --release is not in CI",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-09",
+   "severity": "Low",
+   "claim": "The decisions index has no superseded state; replaced decisions (D-526, D-63, D-104) still read merged and are still cited in code",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-10",
+   "severity": "Medium",
+   "claim": "services/matching/decision.py:110: no test fails when a single-model note answer is allowed to exclude (568 tests green under the planted mistake); master is safe by a second guard (held_back), so this is a gap in the tests only",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-11",
+   "severity": "Medium",
+   "claim": "47 strict expected-failure marks keep known High defects green with no expiry; one non-strict case yields 168 passes that cannot fail",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-12",
+   "severity": "Medium",
+   "claim": "tests/console/test_prefs_10f1.py sends about 197,000 requests and its seven role cases always land in unit shard 1 (1,304 s of a 40-minute limit); one file per role spreads them over five shards without weakening",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-13",
+   "severity": "Medium",
+   "claim": "Every scheduled nightly since 2026-11-10 is red (12 of 12 and 11 of 11); mutation score 59.2 % under its floor of 60; tests/unit/test_access_log_route.py is order dependent (seed 3529504414)",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-14",
+   "severity": "Medium",
+   "claim": "tools/ci_docs_only.py treats any Markdown file as a document, so a card changing only the shipped prompt services/edc/prompts/crf_prefill_v1.md runs no test",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-15",
+   "severity": "Low",
+   "claim": "The screenshot job passes a page master could not draw as not compared, so a real change to that page is not judged on that run",
+   "lane": "H",
+   "basis": "hypothesis"
+  },
+  {
+   "id": "R22-16",
+   "severity": "High",
+   "claim": "The D-985 guard (a negated, family-history, rule-out or suspected quote never excludes) is applied only in services/matching/cascade/engine.py:1232; the v1 evaluator used by the re-check, navigation and single-case scenarios excludes on such a quote when both models agree",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-17",
+   "severity": "High",
+   "claim": "An inclusion answered not met from notes excludes on any verified quote, even one that says nothing about the criterion, on both evaluation paths",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-18",
+   "severity": "High",
+   "claim": "Compiler post-processing leaves wrong populations unflagged: a pregnancy-test inclusion stays sex = female; a Japanese HIV-negative line stays has HIV; refrained-from and off-drug lines run as presence; a qualified mixed exclusion runs on any code",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-19",
+   "severity": "Medium",
+   "claim": "On #1301 a ruleset released by labelled demonstration approvals is refused outside DEV and TEST only where it is compiled, not where it is published or loaded; no person's approval is read by the compile yet",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-20",
+   "severity": "Medium",
+   "claim": "The judge is not given the trial's index condition and arm headings are not parsed; both were named as causes by the project's audit of 2026-11-05 and are not built",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-21",
+   "severity": "High",
+   "claim": "libs/tb_common/logging.py:152 and :217: log extra values that are not text (objects, paths, exceptions, bytes, integers) are written unscrubbed",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-22",
+   "severity": "Medium",
+   "claim": "A log formatter exception (a tuple key in the extras) prints the raw log arguments to the error stream",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-23",
+   "severity": "High",
+   "claim": "The masker and the tripwire release names without a label and names behind encodings (percent, entities, zero-width joiner, decomposed macron); 16 of 76 probes missed, Japanese 8 of 30; site criterion F3 is not met",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-24",
+   "severity": "Medium",
+   "claim": "On #1314 at head 04ef4222 a pseudonym still leaves a built support bundle inside base64 JSON, across the 64 MB read cut taken before the scrub, across a quoted-printable break, beside an encoded digit and across a zero-width joiner",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-25",
+   "severity": "Medium",
+   "claim": "On master the support bundle masks no pseudonym at all (tools/support_bundle.py:295)",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-26",
+   "severity": "Medium",
+   "claim": "Bulk import from two sources merges two patients' record with the same id into one; this path is outside gate 2's first slice",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-27",
+   "severity": "Medium",
+   "claim": "services/guard/guard.py:56: the gateway's tripwire and the trace store lose the site's chart-number rule without a word when settings cannot be read",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-28",
+   "severity": "Medium",
+   "claim": "Mail decides whether a message carries patient data from the caller's tag and never scans the body (services/mail_gateway/outbound.py:226)",
+   "lane": "H",
+   "basis": "hypothesis"
+  },
+  {
+   "id": "R22-29",
+   "severity": "Low",
+   "claim": "The guard test sets draw their surnames from the recogniser's own list",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-30",
+   "severity": "Low",
+   "claim": "Successive small-cell-suppressed opportunity feeds can be differenced across periods",
+   "lane": "K",
+   "basis": "hypothesis"
+  },
+  {
+   "id": "R22-31",
+   "severity": "High",
+   "claim": "The nightly backup fails every night on a stock box: the scheduled job runs the host interpreter with no library path and tools/trialbox/restic_repo.py:34 imports tb_common (install finding F-32, fix only on #1302)",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-32",
+   "severity": "Medium",
+   "claim": "The restore drill and restore cannot run as the runbook types them (install finding F-33)",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-33",
+   "severity": "High",
+   "claim": "A box whose key is sealed to its security chip passes the health check and go-live with no escrow recorded; restore onto new hardware then fails",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-34",
+   "severity": "High",
+   "claim": "None of the six refusals rc1 promises outside DEV and TEST exists on master; a validation box behaves as production; the only switch refuses uploads and pasted chart text",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-35",
+   "severity": "Medium",
+   "claim": "The orchestrator authorises a job by the role's best case, ignores the study's standing and scope and does not ask again when the job runs; the matrix tests do not see the check removed",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-36",
+   "severity": "Medium",
+   "claim": "Removing the unsigned tail of the audit chain together with the head file leaves only a note; verification passes and the nightly signer signs the shortened chain",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-37",
+   "severity": "Medium",
+   "claim": "The legacy shared service token is still accepted on master: #1267 shows merged and was reverted on the train (429b93a0)",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-38",
+   "severity": "Medium",
+   "claim": "The key passphrase still reaches the process list or disk (install finding F-17)",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-39",
+   "severity": "Medium",
+   "claim": "Every service that needs one site key mounts and can open all of them",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-40",
+   "severity": "Medium",
+   "claim": "The console's command line opens protected accounts outside the two-person rule",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-41",
+   "severity": "Medium",
+   "claim": "The scheduled night never passes since (services/orchestrator/scheduler.py:438), so every night re-reads the whole storage; card 10B-11 is not built and site criterion F8's delta night does not exist",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-42",
+   "severity": "Medium",
+   "claim": "services/adapter/sources/ssmix2/source.py:1133: the SS-MIX2 reader's snapshot grouping is quadratic in patients (12.7 s at 4,000, 47.6 s at 8,000); every CI scale job uses CSV input",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-43",
+   "severity": "Medium",
+   "claim": "services/adapter/app.py:146 and services/lake/app.py:284 record no reason when a night process is killed by a signal (the likely cause of install finding F-44)",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-44",
+   "severity": "Medium",
+   "claim": "A truncated or half-written SS-MIX2 file is read as complete: a wrong drug code stored as active, or an order or diagnosis that vanishes for the night",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-45",
+   "severity": "Medium",
+   "claim": "A first load of 50,000 patients and five studies does not fit three nights as shipped: the screening run exceeds the orchestrator's memory cap and the 2,000-patient night allowance is shared by all studies",
+   "lane": "H",
+   "basis": "hypothesis"
+  },
+  {
+   "id": "R22-46",
+   "severity": "Low",
+   "claim": "Two delta tests cannot fail for the reason they are named for and their full-rebuild reference starts from the first night's lake; a cancelled discharge differs between delta and rebuild",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-47",
+   "severity": "Medium",
+   "claim": "The install test's findings F-5 to F-45 are not in the findings register; 2 of 41 are fixed on master",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-48",
+   "severity": "High",
+   "claim": "44 of 71 host commands on the runbook's pages fail on a bare host as written, among them backup key generation, restore, the restore drill, the health check and the key unseal",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-49",
+   "severity": "Medium",
+   "claim": "The runbook tests check the scheduled backup line as text and run runbook commands in the developer's interpreter; 5 of 8 planted mistakes in install, backup and runbook code survive",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-50",
+   "severity": "Medium",
+   "claim": "The first-run wizard's Japan defaults (10K-1) are built but off by default; the counted set-up follow (10K-17) has no commit",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-51",
+   "severity": "Medium",
+   "claim": "The move from the previous release to the new one is not tested with a real older release; the change log describes an update from a stick that is not on master",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-52",
+   "severity": "Low",
+   "claim": "The demonstration's opinion fixture records a check's answer in the row's convention, not the engine's (recorded_opinions.py:64), so the demonstration shows present under a quote that says absent; the page's words are right on a real run (the first draft of this finding had it the other way round)",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-53",
+   "severity": "Medium",
+   "claim": "The Japanese word for unknown says no record even where a quote is shown; Traditional Chinese uses two words on one page; unknown never excludes is not said on the week page",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-54",
+   "severity": "Medium",
+   "claim": "The text checker never compares Japanese or Traditional Chinese with English: a deleted key, a wrong placeholder (error 500 on the Japanese page), a Simplified character and swapped verdict words all pass",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-55",
+   "severity": "Medium",
+   "claim": "Journey cards J-3, J-5, J-6 and J-7 are merged with their switches off and walked with them off; the shared page header is used by 4 of 111 templates",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-56",
+   "severity": "Low",
+   "claim": "Core words differ from their own list in Japanese; a deviation sentence drops before; quotes carry no language attribute in 8 of 9 places; the printed user guide is English only",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-57",
+   "severity": "Medium",
+   "claim": "A docs-only pull request that adds a page under docs/reviews/ runs two property tests that need the report fonts in the cross-card job, which fetches none: 277 errors on this page's own pull request (job 137168755036)",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-58",
+   "severity": "Medium",
+   "claim": "services/deliverables (the feasibility pack, a specification deliverable) is reached by no service; a feasibility job never builds it",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-59",
+   "severity": "Medium",
+   "claim": "One import cycle through 15 service packages and 296 cross-service imports (280 five days earlier); there is no architecture test",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-60",
+   "severity": "Medium",
+   "claim": "22 of 28 database schemas are reached by two or more service roles, 17 by both the console and the orchestrator; the boundary between them does not bind the data",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-61",
+   "severity": "Medium",
+   "claim": "Configuration grows without a ratchet: 533 declared settings (366 on 2026-11-12), 321 direct reads of the environment; site_params.yaml has no reader",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-62",
+   "severity": "Medium",
+   "claim": "27 erasure entries are owed, about six of them for copies of data the default screening path never reads (the FHIR store, the OMOP history, the second vector store)",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-63",
+   "severity": "Medium",
+   "claim": "tools/ (about 133,000 lines) is in every product container and imported by the console; the operations tool inside it runs on the host interpreter, where it fails",
+   "lane": "H",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-64",
+   "severity": "Medium",
+   "claim": "The largest functions keep growing with no ratchet: the console's create_app 2,020 to 2,243 lines and the adapter's _run_ingest 660 to 724 in five days",
+   "lane": "Int",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-65",
+   "severity": "Low",
+   "claim": "Four identifier maskers give different results on one input: mrn=70000054 survives three of four",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-66",
+   "severity": "Low",
+   "claim": "services/lake/textproc.py:32: the lake's chunker cuts inside a value (BP 120/80); the other chunker does not",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-67",
+   "severity": "Low",
+   "claim": "Two modules each call themselves the only entry to the model; three callers use the lower one and skip the schema check and retry of the upper",
+   "lane": "J",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-68",
+   "severity": "Medium",
+   "claim": "tools.role_demo does not start (the site time zone is not set; the tool never adopts it) and no test runs it",
+   "lane": "K",
+   "basis": "shown"
+  },
+  {
+   "id": "R22-69",
+   "severity": "Medium",
+   "claim": "tools.role_demo seeds no steward, so a new protocol cannot be approved and the audit page answers 403 for every seeded role",
+   "lane": "K",
+   "basis": "shown"
+  }
+ ]
+}
