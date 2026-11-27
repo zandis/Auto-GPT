@@ -144,11 +144,16 @@ def register_local(url: str, factory: Callable[[], httpx.Client], replace: bool 
         _LOCAL[url.rstrip("/")] = factory
 
 
+#: review M1, M2 (P-13): the guard's declarable classes (``tb_common.http.DECLARABLE``) a hospital's REDCap can sit
+#: on. Never loopback (the box itself: declaring it would open its own services to a typed URL) or reserved.
+HOSPITAL_NETWORK = ("private", "shared")
+
+
 def refused_line(exc: EgressRefused) -> str:
     """E2E P-13: the guard's refusal, and for a REDCap on the hospital's own network the remedy: its address is
     declared in the box's egress table (an on-premise REDCap normally sits on a private address)."""
     line = f"the REDCap address is not allowed ({exc.reason}): {exc.host}"
-    if exc.reason in ("private", "loopback", "shared", "reserved"):
+    if exc.reason in HOSPITAL_NETWORK:
         line += (
             "; a REDCap on the hospital network is declared in the box's egress table by IT: "
             "EGRESS_EXTRA=orchestrator=<host>:<port> in deploy/.env, then deploy/network.sh apply"

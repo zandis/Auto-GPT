@@ -11,15 +11,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 from console.i18n_step3 import EN as STEP3_EN
+from edc_backend import tools as edc_tools
 from fastapi import FastAPI
 from orchestrator.study_api import router
-from rc_bridge.client import refused_line
-from tb_common.http import EgressRefused
+from rc_bridge.client import HOSPITAL_NETWORK, refused_line
+from tb_common.http import DECLARABLE, NEVER, EgressGuard, EgressRefused, address_class
 
 from tests.actor3 import SignedClient
-from tests.rc_kit import TOKEN_A, study_service
+from tests.rc_kit import LINK_A, TOKEN_A, study_service
 
 
 def test_an_http_address_is_the_form_s_error_with_its_reason(tmp_path: Path) -> None:
@@ -36,13 +38,96 @@ def test_an_http_address_is_the_form_s_error_with_its_reason(tmp_path: Path) -> 
         assert "main" not in saved  # nothing saved
 
 
-@pytest.mark.parametrize("reason", ["private", "loopback", "shared", "reserved"])
+@pytest.mark.parametrize("reason", ["private", "shared"])
 def test_a_refused_hospital_address_names_the_egress_table(reason: str) -> None:
     line = refused_line(EgressRefused("10.0.2.2", reason, "not declared"))
     assert f"not allowed ({reason}): 10.0.2.2" in line
     assert "EGRESS_EXTRA=orchestrator=<host>:<port>" in line and "deploy/network.sh apply" in line
 
 
-@pytest.mark.parametrize("reason", ["metadata", "link_local", "scheme", "does_not_resolve"])
+@pytest.mark.parametrize("reason", ["metadata", "link_local", "scheme", "does_not_resolve", "loopback", "reserved"])
 def test_an_address_never_allowed_gets_no_such_remedy(reason: str) -> None:
     assert "EGRESS_EXTRA" not in refused_line(EgressRefused("169.254.169.254", reason, "x"))
+
+
+PROD = {"TB_ENV": "PRODUCTION"}
+
+
+def test_the_remedy_names_classes_the_guard_really_gives() -> None:
+    """Review M1: the remedy's classes are the guard's own declarable ones, and every class the guard gives is
+    public, declarable or never: none can fall between them."""
+    assert set(HOSPITAL_NETWORK) <= set(DECLARABLE) and "loopback" not in HOSPITAL_NETWORK
+    samples = ("10.0.2.2", "172.16.5.4", "192.168.1.9", "fd12::1", "100.64.3.2", "127.0.0.1", "::1", "240.0.0.1",
+               "169.254.169.254", "169.254.1.1", "0.0.0.0", "224.0.0.1", "255.255.255.255", "8.8.8.8")  # fmt: skip
+    got = {address_class(a) for a in samples}
+    assert got <= {"public", *DECLARABLE, *NEVER} and {"private", "shared", "loopback"} <= got
+
+
+@pytest.mark.parametrize(
+    ("url", "reason", "remedy"),
+    [
+        ("https://10.0.2.2:28443/redcap/api/", "private", True),
+        ("https://100.64.3.2/redcap/api/", "shared", True),
+        ("https://127.0.0.1:8001/redcap/api/", "loopback", False),
+        ("https://169.254.169.254/latest/", "metadata", False),
+    ],
+)
+def test_the_real_guard_refusal_gets_the_remedy_only_on_the_hospital_network(
+    url: str, reason: str, remedy: bool
+) -> None:
+    with pytest.raises(EgressRefused) as got:
+        EgressGuard("orchestrator", env=PROD).check(url)
+    assert got.value.reason == reason
+    assert ("EGRESS_EXTRA=orchestrator=<host>:<port>" in refused_line(got.value)) is remedy
+
+
+def test_the_remedy_it_names_lets_the_address_through() -> None:
+    """Review M2: EGRESS_EXTRA=orchestrator=<host>:<port> is the table's real syntax: declared, the call may go."""
+    env = {**PROD, "EGRESS_EXTRA": "orchestrator=10.0.2.2:28443"}
+    assert EgressGuard("orchestrator", env=env).check("https://10.0.2.2:28443/redcap/api/") == "10.0.2.2"
+    with pytest.raises(EgressRefused):  # the box's own loopback stays refused unless declared, and is never advised
+        EgressGuard("orchestrator", env=env).check("https://127.0.0.1:28443/redcap/api/")
+
+
+def test_the_admin_test_and_the_study_link_meet_the_same_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P-13 ruling: the administrator's connection test is not outside the egress guard. Both it and the study link
+    to an undeclared hospital address are refused by the guard with the same line, before anything is sent."""
+    for k in ("EGRESS_EXTRA", "TB_EDC_BACKEND", "EDC_BACKEND"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TB_SERVICE_NAME", "orchestrator")
+    with study_service(tmp_path) as (svc, _sim, _clock):
+        svc.store.save_connection("main", "https://10.0.2.2:28443/redcap", "admin", "2026-11-07T20:00:00+09:00")
+        svc.store.put_token("main", TOKEN_A)
+        app = FastAPI()
+        app.include_router(router(lambda: svc))
+        c = SignedClient(app)
+        admin = c.post("/redcap/connections/main/test")
+        link = c.put("/studies/GZQO/redcap-link", json={"link": {**LINK_A, "token_ref": "main"}, "by": "crc"})
+        for r in (admin, link):
+            assert r.status_code == 502, r.text
+            assert r.json()["detail"]["code"] == "RC-UPSTREAM"
+            assert "not allowed (private): 10.0.2.2" in r.json()["detail"]["message"]
+        assert admin.json()["detail"]["message"] == link.json()["detail"]["message"]
+
+
+def test_the_edc_admin_connection_check_goes_through_the_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P-13 ruling: ``/admin/edc``'s connection check (the tool door's client) was a plain client, outside the guard.
+    It is the guarded client now: its own declared host only, never metadata, never http on a production box."""
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    monkeypatch.setenv("TB_SERVICE_NAME", "console")
+    monkeypatch.delenv("EGRESS_EXTRA", raising=False)
+    monkeypatch.setenv("TB_EDC_TOOL_URL", "https://169.254.169.254")
+    with edc_tools.http_client() as http, pytest.raises(EgressRefused) as got:
+        http.get("https://169.254.169.254/api/v1/capabilities")
+    assert got.value.reason == "metadata"
+    monkeypatch.setenv("TB_EDC_TOOL_URL", "https://10.0.2.3:8443")
+    with edc_tools.http_client() as http:
+        with pytest.raises(EgressRefused) as other:  # another private address than the one the operator set
+            http.get("https://10.0.2.4:8443/api/v1/capabilities")
+        assert other.value.reason == "private"
+        with pytest.raises(EgressRefused) as plain:
+            http.get("http://10.0.2.3:8443/api/v1/capabilities")
+        assert plain.value.reason == "http_outside_dev"
+    status = edc_tools.connection_status("https://10.0.2.4:8443", "tool-token", edc_tools.http_client())
+    assert status["reachable"] is False and "did not answer" in status["reason"]
+    assert isinstance(other.value, httpx.ConnectError)  # caught where any connection failure is

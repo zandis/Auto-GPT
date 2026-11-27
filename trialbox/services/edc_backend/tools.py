@@ -47,8 +47,17 @@ def module_on(doc: dict[str, Any]) -> bool:
 
 
 def http_client() -> httpx.Client:
-    """The HTTP client for the EDC's tool door (one place, so a test can give its own transport)."""
-    return httpx.Client()
+    """The HTTP client for the EDC's tool door (one place, so a test can give its own transport). P-13 ruling: through
+    the egress guard, as the study link's client is: the tool base's own host is declared, as the backend's is
+    (``RedcapClient(declare_host=True)``), so a metadata or link-local address, an odd spelling or ``http`` outside
+    DEV and TEST is still refused."""
+    from urllib.parse import urlparse
+
+    from tb_common.http import guarded_client
+
+    u = urlparse(tool_base())
+    extra = [(u.hostname.lower(), u.port or (443 if u.scheme == "https" else 80))] if u.hostname else []
+    return guarded_client(extra=extra, timeout=5.0)
 
 
 def connection_status(base: str, token: str, http: httpx.Client) -> dict[str, Any]:

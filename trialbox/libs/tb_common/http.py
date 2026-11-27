@@ -398,6 +398,8 @@ METADATA_ADDRESSES = frozenset(
 )
 #: classes refused even when the destination is declared: nothing legitimate lives there
 NEVER = ("metadata", "link_local", "unspecified", "multicast", "broadcast")
+#: the classes that are not public and not NEVER: used only when the destination is declared
+DECLARABLE = ("loopback", "private", "shared", "reserved")
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 _SHARED = ipaddress.ip_network("100.64.0.0/10")
 _SITE_LOCAL = ipaddress.ip_network("fec0::/10")
