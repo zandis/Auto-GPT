@@ -360,7 +360,7 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     number of resources in the folder's NDJSON (0 for every type the folder lacks: an empty folder is "the store
     holds none of this box's resources"); with ``ids``, the store's ids (paged ``_elements=id``) hash to the
     folder's. The types: the folder's, the ledger's and ``also`` (the ledger's before a put-back rewrote it). The
-    loader is the only writer of these types (the terminology tools write CodeSystem and ValueSet), so the store's
+    loader is the only writer of these types (the terminology tools write terminology resources), so the store's
     count of a type is this box's. Returns the counts; :class:`FhirMismatch` names what differs (types and counts,
     no resource's content). A store that does not answer raises the transport's error: not checked is not a
     mismatch, and never clean."""
