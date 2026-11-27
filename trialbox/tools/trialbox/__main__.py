@@ -294,7 +294,10 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
 
         try:
             return mail_admin.main(a.action, a.key, a.decision, a.by, a.json)
-        except ConfigError:  # E2E P-15: on the host (no settings file) the outbox is read in the mail-gateway container
+        except ConfigError as exc:  # E2E P-15: on the host (no settings file) the outbox is read in the mail-gateway
+            if os.environ.get("TB_SERVICE_NAME") == "mail-gateway":  # already in it (compose sets this): no second hop
+                print(f"mail: {exc}", file=sys.stderr)
+                return 2
             return _in_mail_gateway(deploy, [*args, *([] if a.by else ["--by", mail_admin.actor(None)])])
     if a.cmd == "exports":
         return _exports_cmd(a)

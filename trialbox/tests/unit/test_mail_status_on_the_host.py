@@ -27,6 +27,8 @@ def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("TB_SETTINGS", str(tmp_path / "etc" / "settings.yaml"))  # not there, as on the host
     monkeypatch.setenv("TB_COMPOSE", str(fake))
+    monkeypatch.setenv("SUDO_USER", "steward7")  # the person who typed sudo on the host
+    monkeypatch.delenv("TB_SERVICE_NAME", raising=False)
     monkeypatch.setattr(mail_app, "_gw", None)
     get_config.cache_clear()
     yield log
@@ -39,7 +41,7 @@ def test_mail_status_on_the_host_runs_in_the_mail_gateway(host: Path, argv: list
     called = host.read_text().splitlines()
     assert called[:6] == ["exec", "-T", "mail-gateway", "python", "-m", "tools.trialbox"]
     assert called[6 : 6 + len(argv)] == argv
-    assert called[-2] == "--by" and called[-1]  # the person on the host, not the container's user
+    assert called[-2:] == ["--by", "steward7"]  # the person on the host, not the container's user
 
 
 def test_a_resolve_keeps_the_person_who_decides(host: Path) -> None:
@@ -47,3 +49,13 @@ def test_a_resolve_keeps_the_person_who_decides(host: Path) -> None:
     called = host.read_text().splitlines()
     assert called[6:] == ["mail", "resolve", "tbmail-1", "--drop", "--by", "steward1"]
     assert json.dumps(called).count("--by") == 1
+
+
+def test_in_the_mail_gateway_a_settings_error_is_said_not_sent_on(
+    host: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review P-15-1: in the container itself a ConfigError is reported with its own text, never delegated again."""
+    monkeypatch.setenv("TB_SERVICE_NAME", "mail-gateway")
+    assert trialbox_main(["mail", "status"]) == 2
+    assert not host.exists()  # compose was never called
+    assert "settings file not found" in capsys.readouterr().err
