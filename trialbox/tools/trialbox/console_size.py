@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     text = a.env_file.read_text(encoding="utf-8") if a.env_file.is_file() else ""
     env = _parse_env(text)
     n, declared = users(env)
-    wrote = next((ln.split("=", 1)[1].strip() for ln in text.splitlines() if ln.startswith(MARKER)), None)
+    wrote = next((ln[len(MARKER) :].strip() for ln in text.splitlines() if ln.startswith(MARKER)), None)
     by_hand = "TB_CONSOLE_WORKERS" in env and env["TB_CONSOLE_WORKERS"] != wrote
     w = int(env["TB_CONSOLE_WORKERS"]) if by_hand else workers(n, a.cpus)
     print(f"console_size: {n} concurrent users ({'declared' if declared else 'the default'}), "

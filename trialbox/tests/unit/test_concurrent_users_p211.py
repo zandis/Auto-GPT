@@ -85,8 +85,8 @@ def test_the_timers_run_in_one_worker_process(tmp_path: Path) -> None:
 def test_what_one_request_leaves_is_seen_by_another_process_once(tmp_path: Path) -> None:
     mine, other = Held("t", 60.0, tmp_path), Held("t", 60.0, tmp_path)  # two processes' views of the same tmpfs
     mine.put("session-sha", ("alice", "pw", 1.0))
-    assert other.get("session-sha") == ("alice", "pw", 1.0)
-    assert other.pop("session-sha") == ("alice", "pw", 1.0)
+    assert other.get("session-sha") == ["alice", "pw", 1.0]  # JSON: a tuple comes back as a list
+    assert other.pop("session-sha") == ["alice", "pw", 1.0]
     assert mine.pop("session-sha") is None  # taken once
     assert (mine.folder.stat().st_mode & 0o777) == 0o700
     stale = Held("s", 0.05, tmp_path)
