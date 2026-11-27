@@ -36,8 +36,9 @@ def _lookback(rs: Any) -> int:
 
 def cascades(
     source: Path, work: Path, ids: tuple[str, ...], tz: str
-) -> tuple[dict[str, Any], dict[str, Any], str, str, dict[str, float]]:
-    """Ingest ``source`` once, run the cascade for each ruleset; return (rulesets, results, snapshot, tz, seconds)."""
+) -> tuple[dict[str, Any], dict[str, Any], str, str, dict[str, float], str]:
+    """Ingest ``source`` once, run the cascade for each ruleset; return (rulesets, results, snapshot, tz, seconds,
+    run date)."""
     from dataclasses import replace
 
     from embed_service.embedder import HashEmbedder
@@ -73,10 +74,12 @@ def cascades(
         res[rid] = run_cascade(lake, rs, replace(cfg), judge=None, embedder=HashEmbedder(), reviewer=None)
         secs[rid] = round(time.monotonic() - t0, 1)
         rss[rid] = rs
-    return rss, res, snap, tz, secs
+    return rss, res, snap, tz, secs, run_date.isoformat()
 
 
-def write_ledger(root: Path, rss: dict[str, Any], res: dict[str, Any], snap: str) -> tuple[Path, dict[str, Any], str]:
+def write_ledger(
+    root: Path, rss: dict[str, Any], res: dict[str, Any], snap: str, *, tz: str, run_date: str
+) -> tuple[Path, dict[str, Any], str]:
     header = {
         "code_sha": _git_sha(),
         "bench_sha": _git_sha(),
@@ -87,6 +90,8 @@ def write_ledger(root: Path, rss: dict[str, Any], res: dict[str, Any], snap: str
         "lake_snapshot_sha": ledger.sha_of_text(snap),
         "ruleset_hashes_json": {k: r.ir_hash for k, r in sorted(res.items())},
         "sets_json": {"synthetic": sorted(res)},
+        "tz": tz,  # both move the day a record falls on, so a run at another tz or date is another run
+        "run_date": run_date,
     }
     rid = ledger.run_id_of(header)
     w = ledger.LedgerWriter(root, rid, header)
@@ -106,8 +111,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repeat", action="store_true", help="run everything twice and compare the coded rows' hashes")
     a = ap.parse_args(argv)
     ids = tuple(x for x in a.rulesets.split(",") if x)
-    rss, res, snap, _tz, secs = cascades(a.source, a.work / "a", ids, a.tz)
-    _path, manifest, rid = write_ledger(a.out, rss, res, snap)
+    rss, res, snap, tz, secs, run_date = cascades(a.source, a.work / "a", ids, a.tz)
+    _path, manifest, rid = write_ledger(a.out, rss, res, snap, tz=tz, run_date=run_date)
     con = ledger.connect(a.out, rid)
     bad: list[str] = []
     for k in sorted(res):
@@ -125,8 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     print("ledger_agg: written,", {t: len(r) for t, r in agg.items()})
     same = True
     if a.repeat:
-        rss2, res2, snap2, _t, _s = cascades(a.source, a.work / "b", ids, a.tz)
-        path2, manifest2, rid2 = write_ledger(a.out / "repeat", rss2, res2, snap2)
+        rss2, res2, snap2, tz2, _s, date2 = cascades(a.source, a.work / "b", ids, a.tz)
+        path2, manifest2, rid2 = write_ledger(a.out / "repeat", rss2, res2, snap2, tz=tz2, run_date=date2)
         diff = sorted(k for k in manifest["files"] if manifest["files"][k] != manifest2["files"].get(k))
         same = rid == rid2 and not diff
         print(

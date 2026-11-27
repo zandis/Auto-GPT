@@ -76,7 +76,7 @@ def add_cascade(
         if t.in_scope:
             for c in crits:
                 o = t.outcomes.get(c.id)
-                row = _criterion_row(c.id, o, t, pid, proto, hashes, pair)
+                row = _criterion_row(c.id, o, t, pid, proto, hashes, pair, lake_snapshot)
                 row.update(_static(c.id, hashes, atoms, sql_sha, cql_sha))
                 if (g := (gold or {}).get((raw_pid, c.id))) is not None:
                     row["gold"] = canonical_json(g)
@@ -107,13 +107,20 @@ def _static(
 
 
 def _criterion_row(
-    cid: str, o: Outcome | None, t: PatientTrace, pid: str, proto: str, hashes: Mapping[str, str], pair: bool
+    cid: str,
+    o: Outcome | None,
+    t: PatientTrace,
+    pid: str,
+    proto: str,
+    hashes: Mapping[str, str],
+    pair: bool,
+    lake_snapshot: str,
 ) -> dict[str, Any]:
     if o is None:
         return {
             "pid": pid,
             "criterion_id": cid,
-            "inputs_hash": content_hash(pid, proto, cid, hashes.get(cid), "not_evaluated", t.exit_stage),
+            "inputs_hash": content_hash(pid, proto, cid, lake_snapshot, hashes.get(cid), "not_evaluated", t.exit_stage),
             "verdict": "not_applicable",
             "reason_code": "not_evaluated",
         }
@@ -124,7 +131,13 @@ def _criterion_row(
         "pid": pid,
         "criterion_id": cid,
         "inputs_hash": content_hash(
-            pid, proto, cid, hashes.get(cid), o.stage, [e.get("did") or e.get("record") for e in o.evidence]
+            pid,
+            proto,
+            cid,
+            lake_snapshot,
+            hashes.get(cid),
+            o.stage,
+            [e.get("did") or e.get("record") for e in o.evidence],
         ),
         "row_evidence_json": o.evidence or None,
         "model_raw_json": {"calls": v.prov} if v.prov else None,

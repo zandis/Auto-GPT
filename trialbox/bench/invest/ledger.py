@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -93,6 +94,8 @@ RUN_COLS: tuple[tuple[str, pa.DataType], ...] = (
     ("lake_snapshot_sha", STR),
     ("ruleset_hashes_json", STR),
     ("sets_json", STR),
+    ("tz", STR),
+    ("run_date", STR),
 )
 
 STAGES_MATCH = ("S0", "S1", "S1b", "S2", "S2b", "S3", "S4", "S5", "tier")
@@ -197,22 +200,32 @@ class LedgerWriter:
         return sum(len(r) for (t, p), r in self._rows.items() if t == table and partition in (None, p))
 
     def close(self, clock: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        self.dir.mkdir(parents=True, exist_ok=True)
+        """Write the whole run into a staging directory, then publish it by rename: a rewrite replaces the run, it
+        never mixes with it, and an interrupted write leaves the earlier run (or nothing) in place."""
+        stage = self.dir.with_name(f".{self.run_id}.staging")
+        shutil.rmtree(stage, ignore_errors=True)
+        stage.mkdir(parents=True)
         files: dict[str, dict[str, Any]] = {}
         for (table, part), rows in sorted(self._rows.items()):
             rows.sort(key=lambda r: (str(r["row_key"]), canonical_json(r)))
-            path = self.dir / table / f"protocol={part}" / "part-0.parquet"
+            path = stage / table / f"protocol={part}" / "part-0.parquet"
             path.parent.mkdir(parents=True, exist_ok=True)
             _write_parquet(path, TABLES[table], rows)
-            files[path.relative_to(self.dir).as_posix()] = {"rows": len(rows), "sha256": _file_sha(path)}
-        run_path = self.dir / "run" / "run.parquet"
+            files[path.relative_to(stage).as_posix()] = {"rows": len(rows), "sha256": _file_sha(path)}
+        run_path = stage / "run" / "run.parquet"
         run_path.parent.mkdir(parents=True, exist_ok=True)
         _write_parquet(run_path, RUN_COLS, [make_row(RUN_COLS, {**self.header, "run_id": self.run_id})])
-        files[run_path.relative_to(self.dir).as_posix()] = {"rows": 1, "sha256": _file_sha(run_path)}
+        files[run_path.relative_to(stage).as_posix()] = {"rows": 1, "sha256": _file_sha(run_path)}
         manifest = {"run_id": self.run_id, "files": files}
-        (self.dir / "MANIFEST.json").write_text(canonical_json(manifest) + "\n", encoding="utf-8")
+        (stage / "MANIFEST.json").write_text(canonical_json(manifest) + "\n", encoding="utf-8")
         if clock is not None:  # the only non-reproducible file, kept apart
-            (self.dir / "run_clock.json").write_text(canonical_json(dict(clock)) + "\n", encoding="utf-8")
+            (stage / "run_clock.json").write_text(canonical_json(dict(clock)) + "\n", encoding="utf-8")
+        old = self.dir.with_name(f".{self.run_id}.old")
+        shutil.rmtree(old, ignore_errors=True)
+        if self.dir.exists():
+            self.dir.rename(old)
+        stage.rename(self.dir)
+        shutil.rmtree(old, ignore_errors=True)
         return manifest
 
 
@@ -227,13 +240,16 @@ def _file_sha(path: Path) -> str:
 
 def connect(root: Path, run_id: str) -> Any:
     """An in-memory DuckDB with a view per table over the run's Parquet files (``match_stage``, ``match_timing``,
-    ``trial_stage``, ``run``). A table with no file gets an empty view with the right columns."""
+    ``trial_stage``, ``run``), over the files the run's ``MANIFEST.json`` lists and no others. A table with no file
+    (or a run with no manifest: not published) gets an empty view with the right columns."""
     import duckdb
 
     con = duckdb.connect(":memory:")
     base = Path(root) / run_id
+    manifest = base / "MANIFEST.json"
+    listed = sorted(json.loads(manifest.read_text("utf-8"))["files"]) if manifest.exists() else []
     for table, cols in {**TABLES, "run": RUN_COLS}.items():
-        files = sorted((base / table).glob("**/*.parquet"))
+        files = [base / rel for rel in listed if rel.startswith(f"{table}/")]
         if files:
             con.register(table, con.read_parquet([f.as_posix() for f in files]))
         else:
