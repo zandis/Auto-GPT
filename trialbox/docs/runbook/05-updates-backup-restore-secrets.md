@@ -76,16 +76,22 @@ backup. Driver updates are outside the bundle and need a change request. Held by
 `trialbox backup-keygen` and the stick ceremony are refused there): on the install's terminal the paper copy is shown
 once, the screen is cleared and hospital IT types the whole copy back before `backup.pub` is made; an unattended
 install (no terminal) seals the key under the install's KEK passphrase into `deploy/secrets/backup-key-<fp>.sealed`
-and, before `backup.pub` is made, onto every off-box backup target (`TB_BACKUP_TARGETS`; with none off the box it is
-refused). Run again by hand, as root on the box: `python3 -m tools.backup_key_ceremony --install`. To restore with a
-sealed key (the copy on the backup target): `python3 -m tools.backup_key_ceremony --unseal <the .sealed file> --out
-/media/usb/trialbox-backup.key`; it asks for the passphrase and does not show it (never type it where it is shown;
-piped, it reads one line of stdin), then `restore --key` that file. A FAT or exFAT stick or USB disk has no file
-modes: the key file and the sealed copy are made there as its mount gives them (no mode change is tried), so keep the
-stick sealed. The sealed copy goes only to a target whose folder, as opened, is exactly a mount point
-(`/proc/self/mountinfo`) of a filesystem not on the box's disk: a plain folder, or a share unmounted at that moment,
-is refused. On a FAT or exFAT stick (no unnamed files) an unseal killed part way can leave a hidden
-`.<name>.tb-unseal-<pid>-<id>.part` holding the key: the next unseal to that name removes it, or wipe it. A DEV, TEST or VALIDATION
+and, before `backup.pub` is made, onto the one declared off-box backup target. The install declares `TB_BACKUP_OFFBOX`
+when the box has no declaration (`deploy/secrets/backup-target.json`: the folder, which must be exactly a mount point,
+and its mount's point, filesystem type and source, a `/dev` source by its `/dev/disk/by-uuid` name; tmpfs, overlay
+and the box's own filesystems are refused, and a `/dev` source without a by-uuid name, as on a host without udev,
+cannot be declared). Every run that writes the sealed copy checks the opened folder against that record; any
+difference (another source, the share unmounted, the mount moved) refuses before a key is made and is journaled
+(`backup.target_mismatch`). To change it, as root: `python3 -m tools.backup_key_ceremony --declare-backup-target
+<folder> --operator "<name>" --replace` (the old record is kept as `backup-target.<time>.old`); it moves no file, so
+copy `backup-key-<fp>.sealed` to the new target by hand. A FAT or exFAT target has no file modes: the sealed copy
+(encrypted) is made there as its mount gives it. Run again by hand, as root on the box:
+`python3 -m tools.backup_key_ceremony --install`. To restore with a sealed key (the copy on the backup target), as
+root on the box: `python3 -m tools.backup_key_ceremony --unseal <the .sealed file>` asks for the passphrase and does
+not show it (never type it where it is shown; piped, it reads one line of stdin) and writes the key file only to
+`deploy/secrets/restore/trialbox-backup.key` (never to a stick); then `restore --key
+deploy/secrets/restore/trialbox-backup.key`; then `python3 -m tools.backup_key_ceremony --forget-restore-key`. A
+damaged medium, a file that is not a sealed key and a wrong passphrase are told apart. A DEV, TEST or VALIDATION
 box, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
 box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI

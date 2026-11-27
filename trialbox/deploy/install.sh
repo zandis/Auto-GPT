@@ -1831,7 +1831,13 @@ case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:
         || FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
     elif [ -n "$KP_VALUE" ]; then
       say "backup key: made now, sealed under the install's KEK passphrase (no terminal)"
-      if printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin; then
+      # P-01 (fifth review): the sealed copy goes only to the declared off-box target; the install declares
+      # TB_BACKUP_OFFBOX (deploy/.env) when the box has none, and never replaces a declaration
+      KP_OFFBOX=""
+      [ -f deploy/secrets/backup-target.json ] || KP_OFFBOX="$(envget TB_BACKUP_OFFBOX | tr -d "\"'")"
+      if [ ! -f deploy/secrets/backup-target.json ] && { [ -z "$KP_OFFBOX" ] || ! PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --declare-backup-target "$KP_OFFBOX" --operator install; }; then
+        FAILS+=("no backup key: no off-box backup target is declared (TB_BACKUP_OFFBOX in deploy/.env: ${KP_OFFBOX:-not set}${KP_OFFBOX:+, refused above}); no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --declare-backup-target <folder> --operator <name>, then python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+      elif printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin; then
         if [ -n "$KP_FILE" ]; then
           if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
           else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
