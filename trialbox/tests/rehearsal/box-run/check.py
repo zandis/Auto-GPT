@@ -155,6 +155,34 @@ if case in ("build", "build-preempt"):
         )
         ok(calls["venv"] == 1 and calls["images"] == 2, "make venv once, make images twice")
 
+if case == "build":
+    out = S / "vm" / "build" / "out"
+    ok(
+        sorted(p.name for p in out.iterdir()) == ["trialbox-2026.11-r.tar", "trialbox-2026.11-r.tar.sha256"],
+        "HYG2-R2: the earlier release was retired once the new one was built and checked",
+    )
+    ok(sorted(p.name for p in out.parent.glob("out*")) == ["out"], "no half-built or retired folder left")
+
+if case == "build-again-fails":
+    out = S / "vm" / "build" / "out"
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok(
+        [p.name for p in out.iterdir()] == ["trialbox-2026.11-r.tar"]
+        and (out / "trialbox-2026.11-r.tar").read_text() == "the last good release\n",
+        "HYG2-R2: the failed signing left the last good release as it was",
+    )
+    ok(sorted(p.name for p in out.parent.glob("out*")) == ["out"], "no half-built folder left")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
+if case == "build-pub-private":
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok("TB-VENDOR-PUB-PRIVATE" in (R / "logs" / "b05-sign.log").read_text(), "the log names the refusal")
+    body = "".join((S / "secrets" / "vendor-key" / "1").read_text().strip().splitlines()[1:-1]).encode()
+    held = [str(p) for p in (S / "vm" / "build").rglob("*")
+            if p.is_file() and not p.is_symlink() and body in p.read_bytes()]  # fmt: skip
+    ok(not held, f"HYG2-R7: no private key material in the build folder {held or ''}")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
 if case == "build-gate-fails":
     ok(list(parts) == BUILD[:4] and parts["b04-gates"]["status"] == "stop", "the build stopped at the gates")
     ok(

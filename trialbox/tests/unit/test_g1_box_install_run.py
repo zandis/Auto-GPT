@@ -32,6 +32,8 @@ CASES = [
     "build",
     "build-gate-fails",
     "build-refused",
+    "build-again-fails",  # HYG2-R2
+    "build-pub-private",  # HYG2-R7
     "build-preempt",
     "happy",
     "step-fails",

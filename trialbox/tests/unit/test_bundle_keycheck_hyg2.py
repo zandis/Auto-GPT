@@ -7,6 +7,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import os
+import re
+import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -375,3 +379,239 @@ def test_the_rehearsal_compares_the_key_it_was_handed_and_does_not_replace_it() 
     media = text[text.index("media() (") :]
     assert 'cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"' not in media
     assert 'cmp -s "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/vendor_ed25519.pub"' in media
+
+
+def test_a_vertical_tab_between_entries_is_not_a_line_break(tmp_path: Path, keys: dict[str, Path]) -> None:  # R5
+    stick = _stick(tmp_path / "stick", keys["key"])
+    good = stick["sums"].read_text(encoding="utf-8")
+    _resign_sums(stick, keys["key"], good.rstrip("\n").replace("\n", "\v") + "\n")  # sha256sum -c reads one record
+    assert "out.tar.sha256 does not list trialbox-bootstrap.sh" in _check(keys["pub"], stick)
+
+
+def test_an_empty_line_in_the_sidecar_is_refused(tmp_path: Path, keys: dict[str, Path]) -> None:  # R5
+    stick = _stick(tmp_path / "stick", keys["key"])
+    _resign_sums(stick, keys["key"], stick["sums"].read_text(encoding="utf-8") + "\n")
+    assert "out.tar.sha256: line 4 is not '<sha256>  <name>'" in _check(keys["pub"], stick)
+
+
+def test_a_bundle_named_as_the_bootstrap_is_refused(tmp_path: Path, keys: dict[str, Path]) -> None:  # R5
+    mine = _stick(tmp_path / "mine", keys["key"])
+    (tmp_path / "other").mkdir()
+    twin = shutil.copy(mine["bundle"], tmp_path / "other" / "trialbox-bootstrap.sh")  # the bundle, the bootstrap's name
+    two = [ln for ln in mine["sums"].read_text(encoding="utf-8").splitlines() if not ln.endswith("  out.tar")]
+    _resign_sums(mine, keys["key"], "\n".join(two) + "\n")  # the sidecar lists the bootstrap and its .sig only
+    found = kc.problems(keys["pub"], Path(twin), mine["bootstrap"], mine["sums"])
+    assert found == ["the bundle and the bootstrap are both named trialbox-bootstrap.sh: one sidecar cannot cover both"]
+
+
+def test_an_empty_private_out_folder_stays_private(kit: dict[str, Any]) -> None:  # R9
+    _dist(kit).mkdir()
+    _dist(kit).chmod(0o700)
+    res = _built(kit)
+    assert res.returncode == 0, _blob(res)
+    assert stat.S_IMODE(_dist(kit).stat().st_mode) == 0o700
+
+
+def test_an_absent_out_folder_is_published_readable_as_before(kit: dict[str, Any]) -> None:  # R9
+    res = _built(kit)
+    assert res.returncode == 0, _blob(res)
+    assert stat.S_IMODE(_dist(kit).stat().st_mode) == 0o755
+
+
+# ---------------------------------------------------------------- R8: the box run's stand-in for make_bundle.sh
+def _box_run_standin(folder: Path) -> Path:
+    text = (ROOT / "tests/rehearsal/box-run/rehearse-box-run.sh").read_text(encoding="utf-8")
+    head = "cat > \"$r/trialbox/tools/make_bundle.sh\" <<'EOS'\n"
+    start = text.index(head) + len(head)
+    script = folder / "make_bundle.sh"
+    script.write_text(text[start : text.index("\nEOS\n", start)] + "\n", encoding="utf-8")
+    return script
+
+
+def _caller_flags(fn: str) -> list[str]:
+    text = (ROOT / "deploy/gcp/box-install-run.sh").read_text(encoding="utf-8")
+    body = text[text.index(f"\n{fn}() {{") :]
+    body = body[: body.index("\n}\n")]
+    return re.findall(r"(?<=\s)(--[a-z-]+)(?=\s)", body[body.index("tools/make_bundle.sh") :])
+
+
+@pytest.mark.parametrize("fn", ["d_sign", "d_sign_throwaway"])
+def test_the_box_run_stand_in_refuses_a_signing_call_without_pub(tmp_path: Path, fn: str) -> None:  # R8
+    flags = _caller_flags(fn)
+    assert "--pub" in flags and "--key" in flags and "--models" in flags, flags
+    script = _box_run_standin(tmp_path)
+    key, pub, gates = tmp_path / "vendor.key", tmp_path / "vendor.pub", tmp_path / "gates.json"
+    for f in (key, pub, gates):
+        f.write_text("x\n", encoding="utf-8")
+    key.chmod(0o600)
+    (tmp_path / "models" / "embedder").mkdir(parents=True)
+    (tmp_path / "models" / "embedder" / "config.json").write_text("{}\n", encoding="utf-8")
+    values = {"--key": key, "--pub": pub, "--gates": gates, "--models": tmp_path / "models"}
+
+    def run(names: list[str]) -> subprocess.CompletedProcess[str]:
+        args = [a for n in names for a in (n, str(values.get(n, tmp_path / "x")))]
+        env = {**os.environ, "BR_S": str(tmp_path), "BR_HERE": str(tmp_path), "TB_BOX_PY": "false"}
+        return subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True, check=False)
+
+    without = run([n for n in flags if n != "--pub"])
+    assert without.returncode == 2 and "make_bundle: --pub must name the vendor public key" in without.stderr
+    assert "make_bundle: --pub" not in run(flags).stderr  # the caller as written passes the stand-in's key check
+
+
+# ---------------------------------------------------------------- R2: the callers keep the last good release
+def test_runbook_a_failed_rebuild_keeps_the_last_media(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _runbook(tmp_path, monkeypatch, fail=True)
+
+
+def test_runbook_a_rebuild_replaces_the_media_only_once_it_is_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # R2
+    _runbook(tmp_path, monkeypatch, fail=False)
+
+
+def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool) -> None:
+    from tools import runbook_install as ri
+
+    work = tmp_path / "work"
+    (work / "media").mkdir(parents=True)
+    (work / "media" / "trialbox-runbook-20261101.tar").write_bytes(b"the last good release")
+    (tmp_path / "models" / "embedder").mkdir(parents=True)
+    seen: list[list[str]] = []
+
+    def fake_run(args: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, stdout="sha256:0" if "{{.Id}}" in args else "", stderr="")
+
+    def fake_sh(args: list[str], _log: Path, **_kw: Any) -> int:
+        seen.append(args)
+        if "keygen" in args:
+            Path(args[-1]).mkdir(parents=True)
+            (Path(args[-1]) / "vendor_ed25519.pub").write_text("pub\n", encoding="utf-8")
+        elif "sample" in args:
+            Path(args[-1]).mkdir(parents=True)
+            (Path(args[-1]) / "trialbox-refdata-x.tar").write_bytes(b"")
+        elif args[0] == "tools/make_bundle.sh":
+            out = Path(args[args.index("--out") + 1])
+            assert out.parent.is_dir() and not any(out.parent.iterdir()), "make_bundle.sh is given a fresh folder"
+            assert out.parent != work / "media"
+            if fail:
+                raise SystemExit("runbook_install run: tools/make_bundle.sh failed (exit 1)")
+            out.write_bytes(b"the new release")
+        return 0
+
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+    monkeypatch.setattr(ri, "_sh", fake_sh)
+    if fail:
+        with pytest.raises(SystemExit, match="make_bundle.sh failed"):
+            ri.vendor_bundle(work, sys.executable, tmp_path / "models")
+        assert [p.name for p in (work / "media").iterdir()] == ["trialbox-runbook-20261101.tar"]
+        assert (work / "media" / "trialbox-runbook-20261101.tar").read_bytes() == b"the last good release"
+    else:
+        bundle, _pub, _pairs = ri.vendor_bundle(work, sys.executable, tmp_path / "models")
+        assert bundle.parent == work / "media" and bundle.read_bytes() == b"the new release"
+        assert sorted(p.name for p in bundle.parent.iterdir()) == [bundle.name, f"{bundle.name}.images"]
+    assert any(a[0] == "tools/make_bundle.sh" for a in seen)
+    assert sorted(p.name for p in work.iterdir()) == ["media", "vendor"]  # no half-built or retired folder left
+
+
+def _demo_tree(tmp_path: Path) -> Path:
+    """A stand-in checkout for deploy/gcp/demo-vm-update.sh build: its own script, make_bundle.sh and sign_bundle.py
+    stand-ins (make_bundle.sh writes into a fresh folder only, as the real one does), make/docker/gcloud on PATH."""
+    root = tmp_path / "root"
+    for d in ("deploy/gcp", "deploy/keys", "tools", "libs", "demo", "bin"):
+        (root / d).mkdir(parents=True)
+    shutil.copy(ROOT / "deploy/gcp/demo-vm-update.sh", root / "deploy/gcp/demo-vm-update.sh")
+    (root / "tools/sign_bundle.py").write_text(
+        "import pathlib, sys\nk = pathlib.Path(sys.argv[2]); k.mkdir(parents=True, exist_ok=True)\n"
+        "(k / 'vendor_ed25519.key').write_text('k'); (k / 'vendor_ed25519.pub').write_text('p')\n",
+        encoding="utf-8",
+    )
+    (root / "tools/make_bundle.sh").write_text(
+        '#!/bin/bash\np=; for a; do [ "$p" = --out ] && O=$a; [ "$p" = --id ] && I=$a; p=$a; done\n'
+        'd=$(dirname "$O"); [ -z "$(ls -A "$d" 2>/dev/null)" ] || { echo "make_bundle: $d is not fresh" >&2; exit 2; }\n'
+        'case "$I" in *"${TB_FAIL_ID:-none}"*) echo "make_bundle: refused $I" >&2; exit 1 ;; esac\n'
+        'mkdir -p "$d" && echo "new $I" > "$O"\n',
+        encoding="utf-8",
+    )
+    (root / "tools/make_bundle.sh").chmod(0o755)
+    for tool in ("make", "docker", "gcloud"):
+        (root / "bin" / tool).write_text(
+            f'#!/bin/sh\necho "{tool} $*" >> "{tmp_path}/calls.log"\n[ "$1" != build ] || cat >/dev/null\n',
+            encoding="utf-8",
+        )
+        (root / "bin" / tool).chmod(0o755)
+    for b in ("b", "c"):
+        (root / "dist/step8" / b).mkdir(parents=True)
+        (root / "dist/step8" / b / f"trialbox-step8-{b}.tar").write_text(f"the last good {b}\n", encoding="utf-8")
+    return root
+
+
+def _demo(root: Path, fail: str = "") -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "PY": sys.executable, "TB_FAIL_ID": fail}
+    return subprocess.run(["bash", str(root / "deploy/gcp/demo-vm-update.sh"), "build", "bkt"], env=env,
+                          stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)  # fmt: skip
+
+
+@pytest.mark.parametrize("fail", ["demo-b", "demo-c"])
+def test_demo_update_a_failed_bundle_keeps_both_last_bundles(tmp_path: Path, fail: str) -> None:  # R2
+    root = _demo_tree(tmp_path)
+    res = _demo(root, fail)
+    assert res.returncode != 0 and f"make_bundle: refused 2026.11-step8-{fail}" in res.stderr, _blob(res)
+    for b in ("b", "c"):
+        assert (root / f"dist/step8/{b}/trialbox-step8-{b}.tar").read_text(encoding="utf-8") == f"the last good {b}\n"
+    assert sorted(p.name for p in (root / "dist/step8").iterdir() if p.is_dir()) == ["b", "c", "keys"]
+
+
+def test_demo_update_replaces_the_bundles_once_both_are_built(tmp_path: Path) -> None:  # R2
+    root = _demo_tree(tmp_path)
+    res = _demo(root)
+    assert res.returncode == 0, _blob(res)
+    for b in ("b", "c"):
+        got = (root / f"dist/step8/{b}/trialbox-step8-{b}.tar").read_text(encoding="utf-8")
+        assert got == f"new 2026.11-step8-demo-{b}\n"
+    assert sorted(p.name for p in (root / "dist/step8").iterdir() if p.is_dir()) == ["b", "c", "keys"]
+    up = [ln for ln in (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines() if ln.startswith("gcloud")]
+    assert (
+        len(up) == 1 and "dist/step8/b/trialbox-step8-b.tar" in up[0] and "dist/step8/c/trialbox-step8-c.tar" in up[0]
+    )
+
+
+def _p0b(tmp_path: Path, fail: bool) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """tools/p0_media.sh b with make and docker on PATH as stand-ins; `make release-bundle` writes the bundle into the
+    --out folder of BUNDLE_ARGS, which must be fresh (as make_bundle.sh), or fails."""
+    from tests.unit.test_p0_media_release import _stand_in_inputs
+
+    inp, out, bindir = _stand_in_inputs(tmp_path), tmp_path / "p0", tmp_path / "bin"
+    (out / "bundle-p0b").mkdir(parents=True)
+    (out / "bundle-p0b" / "trialbox-p0b.tar").write_text("the last good bundle\n", encoding="utf-8")
+    bindir.mkdir()
+    (bindir / "docker").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (bindir / "make").write_text(
+        "#!/bin/bash\n[ \"$1\" = release-bundle ] || exit 0\n" + ("exit 1\n" if fail else "")
+        + 'for a; do case "$a" in BUNDLE_ARGS=*) set -- ${a#BUNDLE_ARGS=}; break ;; esac; done\n'
+        'p=; for a; do [ "$p" = --out ] && O=$a; p=$a; done\n'
+        'd=$(dirname "$O"); [ -z "$(ls -A "$d" 2>/dev/null)" ] || { echo "make_bundle: $d is not fresh" >&2; exit 2; }\n'
+        'mkdir -p "$d" && echo "the new bundle" > "$O"\n',
+        encoding="utf-8",
+    )  # fmt: skip
+    for tool in ("docker", "make"):
+        (bindir / tool).chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "TB_P0_NO_FETCH": "1",
+           "TB_P0_PYTHON": sys.executable}  # fmt: skip
+    res = subprocess.run(["bash", "tools/p0_media.sh", "b", str(out), "--skip-bitlocker", "--inputs", str(inp)],
+                         cwd=ROOT, env=env, capture_output=True, text=True, check=False)  # fmt: skip
+    return res, out
+
+
+def test_p0_media_a_failed_bundle_keeps_the_last_one(tmp_path: Path) -> None:  # R2
+    res, out = _p0b(tmp_path, fail=True)
+    assert res.returncode != 0, _blob(res)
+    assert [p.name for p in (out / "bundle-p0b").iterdir()] == ["trialbox-p0b.tar"]
+    assert (out / "bundle-p0b" / "trialbox-p0b.tar").read_text(encoding="utf-8") == "the last good bundle\n"
+    assert not list(out.glob("bundle-p0b.*"))
+
+
+def test_p0_media_a_built_bundle_replaces_the_last_one(tmp_path: Path) -> None:  # R2
+    res, out = _p0b(tmp_path, fail=False)
+    assert res.returncode == 0, _blob(res)
+    assert not (out / "bundle-p0b" / "trialbox-p0b.tar").exists()  # the new one went on the media, the old one is gone
+    assert (out / "release" / "TRIALBOX-p0b.manifest.json").exists() and not list(out.glob("bundle-p0b.*"))
