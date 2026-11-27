@@ -32,7 +32,7 @@ from tb_contracts import Job, JobCreate, SendRequest, SendResult
 
 from mail_gateway import intake, tls
 from mail_gateway.outbound import NotSent, RoutingRefused, Transport, mail_statement, prepare
-from mail_gateway.store import MailDB, SendUncertain
+from mail_gateway.store import WAITS, MailDB, SendUncertain
 
 log = logging.getLogger("mail-gateway")
 GENERIC = "This mailbox accepts requests only from authorised hospital addresses. Your message was not processed."
@@ -284,7 +284,8 @@ class Gateway:
             return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
         needed = self._site_needs() or ("" if self.relay else NO_RELAY)  # after the final refusals (rc1, D-863)
         if needed:  # U-5: the mail waits, the try not counted, and goes once the page is filled in (D-1280)
-            return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S)
+            return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S,
+                              reason=WAITS)  # fmt: skip
         if why:  # not known now: tried again with back-off, counted, and failed for a person at the limit
             n = attempts + 1
             state = "failed" if n >= MAX_ATTEMPTS else "queued"
@@ -343,13 +344,14 @@ class Gateway:
         attempts: int,
         error: str,
         wait_s: float = 0,
+        reason: str | None = None,
     ) -> Outcome:
         res = SendResult(message_id=message_id, sent_to=[], encrypted=encrypted, password_sent=False, rejected=[])
         next_at = self._ts(wait_s) if state == "queued" else None
         error = " ".join(error.split())[:500]
         self.db.hold(key, state, request_json=req.model_dump_json(), message_id=message_id,
                      result_json=res.model_dump_json(), recipients=recipients, attempts=attempts, next_at=next_at,
-                     error=error, at=self._ts())  # fmt: skip
+                     error=error, at=self._ts(), reason=reason)  # fmt: skip
         event = {"queued": "mail.deferred", "failed": "mail.failed", "uncertain": "mail.uncertain"}[state]
         self.audit.append(
             event,
@@ -389,8 +391,10 @@ class Gateway:
 
     def wake(self) -> int:
         """Review M-1, L-1 (E2E P-10): with the relay given, the mail held for want of it is due now, not up to an
-        hour later (``RETRY_MAX_S``). Returns how many keys were woken."""
-        return self.db.wake(NO_RELAY) if self.relay else 0
+        hour later (``RETRY_MAX_S``). Review L-4: every key held as "waits, not counted" (U-5), by its reason code, so
+        the PRODUCTION hold (the page's line) wakes too; one still blocked is held again, not counted. Returns how many
+        keys were woken."""
+        return self.db.wake() if self.relay else 0
 
     def resolve(self, key: str, decision: str, actor: str) -> str:
         """A person's decision on a held key (``trialbox mail resolve KEY --sent|--resend|--drop``); audited."""

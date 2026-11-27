@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response
 from tb_common.audit_writer import open_audit
-from tb_common.config import _read_dotenv, environment_name, get_config
+from tb_common.config import env_source, environment_name, get_config
 from tb_common.http import make_app
 from tb_common.objstore import from_config
 from tb_contracts import SendRequest, SendResult
@@ -63,13 +63,15 @@ def gateway() -> Gateway:
             # D-369 (OD-1): a password zip for patient files only on a synthetic box
             allow_phi_zip=environment_name(os.environ) in ("DEV", "TEST"),
             per_recipient_per_day=int(os.environ.get("TB_MAIL_PER_RECIPIENT_PER_DAY", "") or PER_RECIPIENT_PER_DAY),
-            # E2E P-10: no relay given, no send tried (Env says localhost then). Review Q-1: from the source Env reads
-            # (TB_DOTENV, then the environment). Review M-1: the page's answer reaches this process by a new start:
-            # needs_apply writes SMTP_HOST to deploy/.env (this service's env_file) and runs compose up -d
-            relay=relay_given({**_read_dotenv(Path(os.environ.get("TB_DOTENV", ".env"))), **os.environ}),
+            # E2E P-10: no relay given, no send tried (Env says localhost then). Review Q-1, M-2, Q-3: from the source
+            # Env is built from (env_source: TB_DOTENV with its default, then the environment), as the IMAP gate.
+            # Review M-1: the page's answer reaches this process by a new start: needs_apply writes SMTP_HOST to
+            # deploy/.env (this service's env_file) and runs compose up -d
+            relay=relay_given(env_source()),
         )
-        # H-137: a start that speaks to a mail server without a verified certificate says so in the audit
-        tls.audit_modes(_gw.audit, env, imap_used=bool(env.imap_user))
+        # H-137: a start that speaks to a mail server without a verified certificate says so in the audit. Review
+        # D-2: without a relay no mail server is spoken to, so the SMTP mode is not reported
+        tls.audit_modes(_gw.audit, env, imap_used=bool(env.imap_user), smtp_used=_gw.relay)
     return _gw
 
 
@@ -100,7 +102,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     interval = float(os.environ.get("TB_MAIL_POLL_SECONDS", "60"))
     threads: list[threading.Thread] = []
     gateway().wake()  # review M-1, L-1: a start with the relay sends the mail held for it on the next pass
-    if interval > 0 and gateway().cfg.env.imap_user and imap_given(os.environ):
+    # review M-2: the same source as the relay gate and Env (a mailbox given only in the dotenv file is polled)
+    if interval > 0 and gateway().cfg.env.imap_user and imap_given(env_source()):
         threads.append(threading.Thread(target=gateway().loop, args=(stop, interval), name="imap-poll", daemon=True))
     if interval > 0:
         threads.append(

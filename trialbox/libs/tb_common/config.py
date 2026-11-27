@@ -217,12 +217,19 @@ _ENV_MAP: dict[str, str] = {
 _BOOL_TRUE = {"1", "true", "yes", "on"}
 
 
-def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> Env:
-    """Build :class:`Env` from ``.env`` (optional) overlaid by ``environ`` (default ``os.environ``)."""
+def env_source(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> dict[str, str]:
+    """What :class:`Env` is built from: ``.env`` (``TB_DOTENV``, default ``.env``) overlaid by ``environ`` (default
+    ``os.environ``). A service that decides on a raw variable reads this, so it agrees with its config."""
     merged: dict[str, str] = {}
     dotenv_path = dotenv if dotenv is not None else Path(os.environ.get("TB_DOTENV", ".env"))
     merged.update(_read_dotenv(dotenv_path))
     merged.update(environ if environ is not None else dict(os.environ))
+    return merged
+
+
+def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> Env:
+    """Build :class:`Env` from ``.env`` (optional) overlaid by ``environ`` (default ``os.environ``)."""
+    merged = env_source(dotenv, environ)
     kwargs: dict[str, object] = {}
     defaults = Env()
     for var, attr in _ENV_MAP.items():

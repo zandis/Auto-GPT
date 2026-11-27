@@ -15,7 +15,7 @@ import yaml
 from mail_gateway import app as mail_app
 from mail_gateway import tls as mail_tls
 from mail_gateway.gateway import MAX_ATTEMPTS, NO_RELAY
-from tb_common.config import Env
+from tb_common.config import Env, load_env
 
 import tests.unit.test_mail_resolve as _mr
 from tools.box import needs_apply
@@ -133,3 +133,119 @@ def test_the_start_wakes_the_held_mail(monkeypatch: pytest.MonkeyPatch) -> None:
 
     asyncio.run(start())
     assert woke == [True]
+
+
+def _start(monkeypatch: pytest.MonkeyPatch, **audit: Any) -> dict[str, Any]:
+    """The real ``gateway()`` with its parts stubbed: the fields it built (relay) and the events of its start."""
+    built: dict[str, Any] = {}
+    events: list[tuple[str, Any]] = []
+    rec = SimpleNamespace(append=lambda event, **kw: events.append((event, kw.get("detail"))))
+    monkeypatch.setattr(mail_app, "_gw", None)
+    monkeypatch.setattr(mail_app, "get_config", lambda: SimpleNamespace(env=load_env()))
+    monkeypatch.setattr(mail_app, "open_audit", lambda *a: rec)
+    monkeypatch.setattr(mail_app, "from_config", lambda: None)
+    monkeypatch.setattr(mail_app, "MailDB", lambda: None)
+    monkeypatch.setattr(mail_app, "Gateway", lambda **kw: built.update(kw) or SimpleNamespace(**kw))
+    mail_app.gateway()
+    return {**built, "events": events}
+
+
+def _polled(monkeypatch: pytest.MonkeyPatch) -> bool:
+    """The app's start, with the config built from the same inputs: whether the ``imap-poll`` thread ran."""
+    import asyncio
+
+    ran: list[float] = []
+    stub = SimpleNamespace(
+        cfg=SimpleNamespace(env=load_env()), wake=lambda: 0, loop=lambda _stop, interval: ran.append(interval)
+    )
+    monkeypatch.setattr(mail_app, "_gw", stub)
+    monkeypatch.setattr(mail_app, "outbox_loop", lambda *a: None)
+    monkeypatch.setenv("TB_MAIL_POLL_SECONDS", "3600")
+
+    async def start() -> None:
+        async with mail_app.lifespan(mail_app.app):
+            pass
+
+    asyncio.run(start())
+    return ran == [3600.0]
+
+
+def _no_mail_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in ("TB_DOTENV", "SMTP_HOST", "IMAP_HOST", "IMAP_USER"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_a_mailbox_given_only_in_the_dotenv_is_polled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review M-2 (D-1): the IMAP gate reads the source the relay gate and Env read, so a box that gives its mailbox
+    only in the TB_DOTENV file still starts the poller."""
+    _no_mail_env(monkeypatch)
+    dotenv = tmp_path / "box.env"
+    dotenv.write_text("IMAP_USER=trialbox\nIMAP_HOST=imap.hospa.test\n")
+    monkeypatch.setenv("TB_DOTENV", str(dotenv))
+    assert _polled(monkeypatch) is True
+
+
+@pytest.mark.parametrize(
+    ("dotenv", "environ", "named"),
+    [
+        ("SMTP_HOST=relay.hospa.test\nIMAP_USER=tb\nIMAP_HOST=imap.hospa.test\n", {}, True),
+        ("SMTP_HOST=relay.hospa.test\nIMAP_USER=tb\nIMAP_HOST=imap.hospa.test\n", {}, False),  # a stray ./.env
+        (
+            "SMTP_HOST=relay.hospa.test\nIMAP_USER=tb\nIMAP_HOST=imap.hospa.test\n",
+            {"SMTP_HOST": "", "IMAP_HOST": ""},
+            True,
+        ),
+        ("IMAP_USER=tb\n", {"SMTP_HOST": "relay.hospa.test", "IMAP_HOST": "imap.hospa.test"}, True),
+        ("", {}, True),
+    ],
+)
+def test_the_gates_agree_with_env_on_the_same_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dotenv: str, environ: dict[str, str], named: bool
+) -> None:
+    """Review Q-3: the relay gate and the IMAP gate read what Env is built from, with the same TB_DOTENV default
+    (``.env`` in the working directory), so a given server is one Env does not fall back from, on every input."""
+    _no_mail_env(monkeypatch)
+    (tmp_path / ".env").write_text(dotenv)
+    monkeypatch.chdir(tmp_path)
+    if named:
+        monkeypatch.setenv("TB_DOTENV", str(tmp_path / ".env"))
+    for var, value in environ.items():
+        monkeypatch.setenv(var, value)
+    env, default = load_env(), Env()
+    assert _start(monkeypatch)["relay"] is (env.smtp_host != default.smtp_host)
+    assert _polled(monkeypatch) is (bool(env.imap_user) and env.imap_host != default.imap_host)
+
+
+@pytest.mark.parametrize(("smtp", "smtp_events"), [("", []), ("relay.hospa.test", [("mail.plaintext", "smtp")])])
+def test_the_start_audits_the_relay_only_when_one_is_given(
+    monkeypatch: pytest.MonkeyPatch, smtp: str, smtp_events: list[tuple[str, str]]
+) -> None:
+    """Review D-2: the relay flag reaches the start's TLS audit; without a relay no mail server is spoken to, so a
+    plaintext SMTP setting is not reported as spoken to."""
+    _no_mail_env(monkeypatch)
+    monkeypatch.setenv("SMTP_STARTTLS", "false")
+    monkeypatch.setenv("SMTP_HOST", smtp)
+    events = _start(monkeypatch)["events"]
+    assert [(e, d["server"]) for e, d in events] == smtp_events
+
+
+def test_filling_the_relay_on_the_page_wakes_the_production_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review L-4: on PRODUCTION the held mail carries the page's line (U-5), not NO_RELAY. IT fills mail_relay, the
+    new start wakes it by its reason code, and the dispatcher's own pass sends it."""
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    mta = _mr.MTA()
+    before = _mr._gw(tmp_path, mta)
+    before.relay = False
+    before.deliver(_mr._req("k-prod"))
+    held = _mr._row(before, "k-prod")
+    assert held.state == "queued" and held.attempts == 0 and held.last_error != NO_RELAY
+    assert "mail relay" in (held.last_error or "") and before.drain() == {}
+    monkeypatch.setenv("SMTP_HOST", "relay.hospa.test")  # needs_apply wrote it to deploy/.env; compose up -d
+    mta.cause = None
+    after = _mr._gw(tmp_path, mta)
+    assert after.wake() == 1
+    after.drain()
+    assert _mr._row(after, "k-prod").state == "sent" and len(mta.sent) == 1
