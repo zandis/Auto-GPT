@@ -400,7 +400,7 @@ def test_a_rerun_killed_between_the_two_renames_puts_the_fhir_store_back_too(
 ) -> None:
     """The served folder was moved aside and the process was killed before the re-run took its place: no served
     folder on disk, the FHIR store already loaded with the re-run (its record says so)."""
-    from adapter.publish import recover_all
+    from adapter.publish import fingerprint, read_intent, recover_all
 
     lakes = _Lakes(tmp_path / "lake")
     cfg = _fhir_cfg(tmp_path, lakes)
@@ -414,7 +414,10 @@ def test_a_rerun_killed_between_the_two_renames_puts_the_fhir_store_back_too(
     assert len(_conditions(served)) == 1 and len(_conditions(rerun_dir)) == 2
     assert fhir.calls == [served.name] and fhir.full == [True] and fhir.holds == served.name
     assert fhir.back == [True]  # asked as a put-back: the ledger lets it over the load that did not end
-    assert _record(rerun_dir)["fhir"] == "pending"  # the re-run's publish loads the FHIR store again
+    # the re-run's publish loads the FHIR store again: the intent names the served folder's NDJSON, not the re-run's
+    # (converted, P03-DESIGN-2: whether a load is owed is read from the intent; the records' flip to "pending" is gone)
+    st = read_intent(cfg) or {}
+    assert st.get("verified") is True and st.get("want") == N1 and st.get("fingerprint") != fingerprint(rerun_dir)
 
 
 # ------------------------------------------------------------------------------------------- L1, L3

@@ -72,7 +72,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from tb_contracts import RebuildResult
 
@@ -466,22 +466,16 @@ def _ids_hash(ids: Iterable[str]) -> str:
     return hashlib.sha256("\n".join(sorted(ids)).encode("utf-8")).hexdigest()
 
 
-def _still_owed(cfg: AdapterConfig, intent: dict[str, Any], why: str, cause: BaseException | None) -> NoReturn:
+def _still_owed(cfg: AdapterConfig, intent: dict[str, Any], why: str) -> FhirRestoreOutstanding:
     """A put-back or a check that did not end well: the intent says why (``attempts`` + 1) and stays unverified;
-    :class:`FhirRestoreOutstanding`. A write that fails here leaves the file unverified as it was: owed either way."""
+    returns the :class:`FhirRestoreOutstanding` to raise. A write that fails here leaves the file unverified as it
+    was: owed either way. ``why``: a mismatch's or the generation ledger's words (types, counts, nights), else the
+    error's type (D-668: no other error's text is kept)."""
     intent = {**intent, "verified": False, "reason": why, "attempts": int(intent.get("attempts") or 0) + 1}
     with contextlib.suppress(OSError):
         intent = _write_intent(cfg, intent)
     log.error("%s", outstanding(intent))
-    raise FhirRestoreOutstanding(outstanding(intent)) from cause
-
-
-def _words(exc: BaseException) -> str:
-    """A mismatch's or the generation ledger's words are types, counts and nights; any other error's text is not
-    kept (D-668)."""
-    from adapter import failure
-
-    return str(exc) if isinstance(exc, (FhirMismatch, LedgerError)) else failure.words(exc)
+    return FhirRestoreOutstanding(outstanding(intent))
 
 
 def settle(cfg: AdapterConfig, intent: dict[str, Any], folder: Path, *, ids: bool) -> None:
@@ -496,7 +490,8 @@ def settle(cfg: AdapterConfig, intent: dict[str, Any], folder: Path, *, ids: boo
         _checkpoint("generation ledger finished")
         _write_intent(cfg, {**intent, "verified": True, "reason": "", "attempts": 0})
     except Exception as exc:
-        _still_owed(cfg, intent, _words(exc), exc)
+        why = str(exc) if isinstance(exc, (FhirMismatch, LedgerError)) else f"no answer ({type(exc).__name__})"
+        raise _still_owed(cfg, intent, why) from exc
 
 
 def restore(cfg: AdapterConfig, reason: str = "") -> None:
@@ -506,7 +501,7 @@ def restore(cfg: AdapterConfig, reason: str = "") -> None:
     the intent. While a lake build of the night the store was loaded with still runs (a killed publisher's build:
     review E1), ``SnapshotBuilding``, the intent untouched: the build's lock is held for the put-back, so it never
     promotes under it. ``reason``: the caller's words (the publish's). No FHIR endpoint: nothing to put back (only
-    a box that never had a store publishes without one: :func:`refuse_split`). The caller holds ``fhir.lock``."""
+    a box that never had a store publishes its lake alone: :func:`refuse_split`). The caller holds ``fhir.lock``."""
     from lake.store import building
 
     d = derive(cfg)
@@ -524,14 +519,16 @@ def restore(cfg: AdapterConfig, reason: str = "") -> None:
         try:
             intent = _write_intent(cfg, intent)  # W2, before the put-back's first store write
             target = snapshot_dir(cfg.lake_dir, served) if served else _empty_night(cfg)
-            if served and not target.is_dir():
-                _still_owed(cfg, intent, "served night folder missing", None)
+        except OSError as exc:  # a full lake volume: owed, by name (review E4)
+            raise _still_owed(cfg, intent, f"the put-back could not begin ({type(exc).__name__})") from exc
+        if served and not target.is_dir():
+            raise _still_owed(cfg, intent, "served night folder missing")
+        try:
             _fhir_put_back(cfg, target)
             _checkpoint("FHIR store put back")
-        except FhirRestoreOutstanding:
-            raise
         except Exception as exc:
-            _still_owed(cfg, intent, _words(exc), exc)
+            why = str(exc) if isinstance(exc, (FhirMismatch, LedgerError)) else f"no answer ({type(exc).__name__})"
+            raise _still_owed(cfg, intent, why) from exc
         settle(cfg, intent, target, ids=True)
     log.warning("the FHIR store is back to %s (after the load of %s)",
                 f"the served night {served}" if served else "nothing (no night is served yet)",
@@ -549,14 +546,15 @@ def _lake_on(cfg: AdapterConfig, rebuild_lake: bool) -> bool:
 def refuse_split(cfg: AdapterConfig, *, load_fhir: bool, rebuild_lake: bool) -> None:
     """The FHIR store and the lake are published together or not at all (review F1): a night that would move one
     and not the other is refused before any step (:class:`NightRefused`). Only a box that never had a FHIR store
-    (no endpoint, no ``FHIR_STATE``, no id ledger) publishes its lake alone. So no FHIR endpoint, or ``load_fhir``
+    (no ``FHIR_STATE``, no id ledger: nothing was ever sent to one) publishes its lake alone; it is derived owed
+    once a night is served, so a store it gains is put forward to that night once. So no FHIR endpoint, or ``load_fhir``
     off, on a box whose store holds a night refuses until the endpoint is back; a FHIR store without a lake step is
     refused too (a FHIR-only box is not supported)."""
     fhir_on, lake_on = _fhir_on(cfg, load_fhir), _lake_on(cfg, rebuild_lake)
     if fhir_on == lake_on:
         return
     intent = read_intent(cfg)
-    if not cfg.fhir_base_url and intent is None and not _ledger_types(cfg):
+    if intent is None and not _ledger_types(cfg):
         return
     holds = (intent or {}).get("want") or ("nothing" if intent is not None else "what its ledger lists")
     raise NightRefused(
