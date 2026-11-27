@@ -280,7 +280,8 @@ def installed(con: Any) -> bool:
 #: disabled one, left by an interrupted data restore, or one of that name elsewhere is no filter: review P19-X4)
 _TRIGGER = (
     "SELECT 1 FROM pg_trigger t WHERE t.tgname = 'model_uses_withhold' "
-    "AND t.tgrelid = 'provenance.model_uses'::regclass AND t.tgenabled IN ('O', 'A') "
+    "AND t.tgenabled IN ('O', 'A') AND t.tgrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n "
+    "ON n.oid = c.relnamespace WHERE n.nspname = 'provenance' AND c.relname = 'model_uses') "
     "AND t.tgfoid IN (SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
     "WHERE n.nspname = 'provenance' AND p.proname = 'withhold')"
 )
