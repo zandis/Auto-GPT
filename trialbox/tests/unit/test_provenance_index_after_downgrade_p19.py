@@ -149,3 +149,167 @@ def test_a_use_row_taken_out_at_an_opt_out_is_not_written_back_at_a_start(box: s
 def _hash_of(chain: Path, call: str, event: str) -> str:
     recs: list[dict[str, Any]] = [r for r in idx.chain_records(chain) if r.get("event") == event]
     return next(str(r["hash"]) for r in recs if call in ((r.get("detail") or {}).get("calls") or []))
+
+
+# --- review of P-19 (P19-R1 to R5, F1 to F5): each case below fails on the first change
+
+
+def _opt_out(dsn: str, n: int, pid: str) -> None:
+    """The opt-out desk's record of a patient's no, as the console hands it to the journal (``console.opt_out``)."""
+    fields = {"actor": "console:office1", "detail": {"pid": pid, "action": "opt_out", "reason": "", "source": "paper",
+                                                     "removed_from": "screening, candidate lists, exports"}}  # fmt: skip
+    with psycopg.connect(dsn, autocommit=True) as c:
+        c.execute("INSERT INTO audit.journal (db_role, event, ts, fields) VALUES ('tb_console', 'console.opt_out', "
+                  "%s, %s)", (f"2026-11-{n:02d}T09:00:00+08:00", json.dumps(fields)))  # fmt: skip
+
+
+def _restore(dsn: str, dump: Path) -> None:
+    """The downgrade: the database back to the rollback point (the register and the index with it)."""
+    with psycopg.connect(dsn, autocommit=True) as c:
+        c.execute("DROP SCHEMA audit, provenance CASCADE")
+    _pg("pg_restore", "-d", dsn, str(dump))
+
+
+def _calls(dsn: str) -> list[str]:
+    with psycopg.connect(dsn, autocommit=True) as c:
+        return sorted(str(r[0]) for r in c.execute("SELECT call_id FROM provenance.model_calls"))
+
+
+def test_an_opt_out_recorded_after_the_dump_stays_out_after_the_downgrade(box: str, tmp_path: Path) -> None:
+    """P19-R1 / F1 (High): the register goes back with the dump, the chain keeps the opt-out: B's row is not re-made."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    dump = tmp_path / "rollback.dump"
+    _pg("pg_dump", "-Fc", "-f", str(dump), box)
+    _send(box, 21, "c2", PID_B)  # B's verdict, then B says no and the use row goes
+    _opt_out(box, 22, PID_B)
+    _drain(box, chain)
+    with psycopg.connect(box, autocommit=True) as c:
+        assert idx.erase(c, [PID_B]) == 1
+    _restore(box, dump)
+    _drain(box, chain)
+    with psycopg.connect(box, autocommit=True) as c:
+        assert [r[0] for r in c.execute("SELECT call_id FROM provenance.model_uses WHERE pid = %s", (PID_B,))] == []
+        assert idx.check(c, chain, erased=[PID_B]).ok
+    assert _calls(box) == ["c1", "c2"]  # the call rows name no patient: they are written back
+
+
+def test_a_row_journaled_before_the_dump_and_drained_after_it_is_written_back(box: str, tmp_path: Path) -> None:
+    """P19-R2 / F2: the journal's newest row is not the index's newest line (a backlog at the dump, and a row a
+    service journals after the restore and before the drain starts)."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    _send(box, 21, "c2", PID_A)  # in the journal, not yet drained, when the dump is taken
+    dump = tmp_path / "rollback.dump"
+    _pg("pg_dump", "-Fc", "-f", str(dump), box)
+    _drain(box, chain)
+    _send(box, 22, "c3", PID_B)
+    _drain(box, chain)
+    _restore(box, dump)
+    _send(box, 23, "c4", PID_B)  # another service is up before the drain
+    _drain(box, chain)
+    diff = _check(box, chain)
+    assert diff.ok, diff.missing
+    assert _calls(box) == ["c1", "c2", "c3", "c4"]
+
+
+def test_a_dump_taken_before_the_first_journal_row_is_caught_up(box: str, tmp_path: Path) -> None:
+    """P19-R3 / F2: the restored journal is empty (no newest row at all); every line drained since is written back."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    dump = tmp_path / "rollback.dump"
+    _pg("pg_dump", "-Fc", "-f", str(dump), box)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    _restore(box, dump)
+    _drain(box, chain)
+    diff = _check(box, chain)
+    assert diff.ok, diff.missing
+    assert _calls(box) == ["c1"]
+
+
+def test_a_catch_up_that_fails_part_way_is_tried_again_and_writes_each_row_once(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P19-R4 / F3: a failure after the first write leaves the recovery pending; the running drain tries it again."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    dump = tmp_path / "rollback.dump"
+    _pg("pg_dump", "-Fc", "-f", str(dump), box)
+    _send(box, 21, "c2", PID_B)
+    _send(box, 22, "c3", PID_A)
+    _drain(box, chain)
+    _restore(box, dump)
+    real, writes = idx.add, itertools.count()
+
+    def flaky(con: Any, rec: dict[str, Any], *a: Any, **k: Any) -> int:
+        if next(writes) == 1:  # the catch-up's second line: the database went away for a moment
+            raise psycopg.OperationalError("synthetic: the connection dropped")
+        return real(con, rec, *a, **k)
+
+    monkeypatch.setattr(idx, "add", flaky)
+    monkeypatch.setattr(Drain, "RETRY", 0.0, raising=False)  # tried again at the next batch, not a minute later
+    d = Drain("postgresql://x@h/db", chain, TZ, connect=lambda: psycopg.connect(box, autocommit=True))
+    d.open()
+    try:
+        assert _calls(box) == ["c1", "c2"]  # the first line was written, the rest was not
+        _send(box, 23, "c4", PID_B)
+        assert d.step() == 2
+    finally:
+        d.con.close()
+    diff = _check(box, chain)
+    assert diff.ok, diff.missing
+    assert _calls(box) == ["c1", "c2", "c3", "c4"]
+    with psycopg.connect(box, autocommit=True) as c:
+        uses = [r[0] for r in c.execute("SELECT call_id FROM provenance.model_uses ORDER BY call_id")]
+    assert uses == ["c1", "c2", "c3", "c4"]
+
+
+def test_a_line_whose_journal_time_cannot_be_read_is_not_passed_over(box: str, tmp_path: Path) -> None:
+    """P19-R5: the catch-up does not judge a line by its journal time, so a naive or garbled one is written back."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    dump = tmp_path / "rollback.dump"
+    _pg("pg_dump", "-Fc", "-f", str(dump), box)
+    _send(box, 21, "c2", PID_B)
+    _drain(box, chain)
+    day = sorted(chain.glob("*.jsonl"))[-1]
+    lines = day.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        rec = json.loads(line)
+        if rec.get("event") == "llm.call" and (rec.get("detail") or {}).get("call_id") == "c2":
+            rec["journal"]["at"] = "2026-11-21 02:00:00"  # no zone
+            lines[i] = json.dumps(rec, sort_keys=True, ensure_ascii=False)
+    day.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _restore(box, dump)
+    _drain(box, chain)
+    assert _calls(box) == ["c1", "c2"]
+
+
+def test_index_not_installed_is_said_once_not_at_every_batch(
+    box: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """F5: the drain asks before each batch while the tables are missing; it says so at its start only."""
+    caplog.set_level("INFO", logger="tb.audit_writer")
+    d = Drain("postgresql://x@h/db", tmp_path / "audit", TZ, connect=lambda: psycopg.connect(box, autocommit=True))
+    d.open()
+    try:
+        for n in (20, 21):
+            _send(box, n, f"c{n}", PID_A)
+            assert d.step() == 2
+    finally:
+        d.con.close()
+    assert sum("provenance index not installed" in r.getMessage() for r in caplog.records) == 1
