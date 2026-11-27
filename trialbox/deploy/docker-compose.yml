@@ -420,7 +420,7 @@ services:
     <<: *py
     mem_limit: ${TB_MEM_CONSOLE:-2g}
     # P2-11 (ASSESS-1-ADDENDUM D7): worker processes sized at install from the site's declared concurrent users
-    # (TB_SITE_USERS, default 25; tools/trialbox/console_size.py writes TB_CONSOLE_WORKERS). Unset: one, as before
+    # (TB_CONSOLE_USERS, default 25; tools/trialbox/console_size.py writes TB_CONSOLE_WORKERS). Unset: one, as before
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
               "--workers", "${TB_CONSOLE_WORKERS:-1}",
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]

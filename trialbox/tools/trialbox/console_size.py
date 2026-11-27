@@ -1,8 +1,8 @@
 """The console's worker processes from the site's declared concurrent users (P2-11, ASSESS-1-ADDENDUM D7).
 
 The site declares at install, with its patient count (``TB_SITE_PATIENTS``), how many people use the console at the
-same time: ``TB_SITE_USERS`` in ``deploy/.env``, 25 when unset (written then, so the box states it). The service level
-at that number: the 95th percentile of the common pages' answer time under 1 s (:data:`SLO_P95_S`), measured by
+same time: ``TB_CONSOLE_USERS`` in ``deploy/.env``, 25 when unset (written then, so the box states it). The service
+level at that number: the 95th percentile of the common pages' answer time under 1 s (:data:`SLO_P95_S`), measured by
 ``tools.console_timing.under_load`` with that many users at once.
 
 ``--write`` sets ``TB_CONSOLE_WORKERS`` (uvicorn's ``--workers`` in deploy/docker-compose.yml) to :func:`workers`; a
@@ -39,11 +39,11 @@ MARKER = "#console_size:"
 
 def users(env: dict[str, str]) -> tuple[int, bool]:
     """The declared concurrent users and whether the site declared them (``False``: the default)."""
-    raw = (env.get("TB_SITE_USERS") or "").strip()
+    raw = (env.get("TB_CONSOLE_USERS") or "").strip()
     if not raw:
         return DEFAULT_USERS, False
     if not raw.isdigit() or int(raw) < 1:
-        raise ValueError(f"TB_SITE_USERS={raw!r}: a whole number of people, 1 or more")
+        raise ValueError(f"TB_CONSOLE_USERS={raw!r}: a whole number of people, 1 or more")
     return int(raw), True
 
 
@@ -69,9 +69,9 @@ def main(argv: list[str] | None = None) -> int:
           f"{w} worker process{'es' if w != 1 else ''}{' (set by hand)' if by_hand else ''}; "
           f"service level p95 < {SLO_P95_S:g} s")  # fmt: skip
     if a.write:
-        keep = ("TB_SITE_USERS=", "TB_CONSOLE_WORKERS=", MARKER)
+        keep = ("TB_CONSOLE_USERS=", "TB_CONSOLE_WORKERS=", MARKER)
         lines = [ln for ln in text.splitlines() if not ln.startswith(keep)]
-        lines += [f"TB_SITE_USERS={n}", f"TB_CONSOLE_WORKERS={w}"] + ([] if by_hand else [f"{MARKER} {w}"])
+        lines += [f"TB_CONSOLE_USERS={n}", f"TB_CONSOLE_WORKERS={w}"] + ([] if by_hand else [f"{MARKER} {w}"])
         replace_private(a.env_file, "\n".join(lines) + "\n")  # whole, 0600, never in place (H-110)
     return 0
 

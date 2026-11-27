@@ -106,7 +106,7 @@ defaults are the floor; a cap set by hand is kept. `trialbox doctor` (`memory_ca
 the patient count needs; `python -m tools.trialbox.memcaps --env-file deploy/.env --write` sizes them again.
 
 **Concurrent users** (P2-11). With the patient count, the site declares how many people use the console at the same
-time: `TB_SITE_USERS` in `deploy/.env`, 25 when unset (the installer then writes 25, so the box states it). The
+time: `TB_CONSOLE_USERS` in `deploy/.env`, 25 when unset (the installer then writes 25, so the box states it). The
 service level at that number: the common pages answer within 1 s at the 95th percentile with that many users at once
 (`tools.console_timing.under_load`). The installer sizes the console's worker processes from it (`TB_CONSOLE_WORKERS`,
 one per ten users, never more than the host's CPUs; a value set by hand is kept).

@@ -1,7 +1,7 @@
 """P2-11 (ASSESS-1-ADDENDUM D7): the site declares its concurrent users at install, the console is sized from them.
 
 The audit's load run found no declared number of concurrent users and one console process (25 users: p95 2.76 s,
-the process at 120-135 % CPU). Here: ``TB_SITE_USERS`` is declared beside ``TB_SITE_PATIENTS`` (25 by default) and the
+the process at 120-135 % CPU). Here: ``TB_CONSOLE_USERS`` is declared beside ``TB_SITE_PATIENTS`` (25 by default) and the
 installer writes it with ``TB_CONSOLE_WORKERS`` sized from it; compose starts that many uvicorn workers; the service
 level (p95 under 1 s on the common pages at the declared users) has its measuring function. Several workers must not
 change what a person sees: the timers run in one process only (a notice goes once), and what one request leaves for
@@ -50,11 +50,11 @@ def shm() -> Iterator[Path]:
 
 
 def test_the_concurrent_users_are_declared_with_the_patient_count() -> None:
-    assert DECLARED["TB_SITE_USERS"].default == "25" and DECLARED["TB_SITE_USERS"].kind == "int"
+    assert DECLARED["TB_CONSOLE_USERS"].default == "25" and DECLARED["TB_CONSOLE_USERS"].kind == "int"
     assert "TB_CONSOLE_WORKERS" in DECLARED
     assert console_size.DEFAULT_USERS == 25 and console_size.SLO_P95_S == 1.0
     runbook = (ROOT / "docs" / "runbook" / "01-install-a-new-site.md").read_text(encoding="utf-8")
-    assert "`TB_SITE_USERS`" in runbook and "within 1 s at the 95th percentile" in runbook
+    assert "`TB_CONSOLE_USERS`" in runbook and "within 1 s at the 95th percentile" in runbook
 
 
 @pytest.mark.parametrize(
@@ -69,20 +69,20 @@ def test_install_writes_the_default_then_follows_a_declared_number(tmp_path: Pat
     env.write_text("TB_ENV=DEV\nTB_SITE_PATIENTS=50000\n", encoding="utf-8")
     assert console_size.main(["--env-file", str(env), "--write", "--cpus", "16"]) == 0
     text = env.read_text(encoding="utf-8")
-    assert "TB_SITE_USERS=25\n" in text and "TB_CONSOLE_WORKERS=3\n" in text and "TB_SITE_PATIENTS=50000" in text
+    assert "TB_CONSOLE_USERS=25\n" in text and "TB_CONSOLE_WORKERS=3\n" in text and "TB_SITE_PATIENTS=50000" in text
     assert env.stat().st_mode & 0o777 == 0o600
-    env.write_text(text.replace("TB_SITE_USERS=25", "TB_SITE_USERS=40"), encoding="utf-8")
+    env.write_text(text.replace("TB_CONSOLE_USERS=25", "TB_CONSOLE_USERS=40"), encoding="utf-8")
     console_size.main(["--env-file", str(env), "--write", "--cpus", "16"])
     assert "TB_CONSOLE_WORKERS=4\n" in env.read_text(encoding="utf-8")
 
 
 def test_a_worker_count_set_by_hand_is_kept_and_a_bad_number_refused(tmp_path: Path) -> None:
     env = tmp_path / ".env"
-    env.write_text("TB_SITE_USERS=60\nTB_CONSOLE_WORKERS=2\n", encoding="utf-8")
+    env.write_text("TB_CONSOLE_USERS=60\nTB_CONSOLE_WORKERS=2\n", encoding="utf-8")
     console_size.main(["--env-file", str(env), "--write", "--cpus", "16"])
     assert "TB_CONSOLE_WORKERS=2\n" in env.read_text(encoding="utf-8")
-    env.write_text("TB_SITE_USERS=many\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="TB_SITE_USERS"):
+    env.write_text("TB_CONSOLE_USERS=many\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="TB_CONSOLE_USERS"):
         console_size.main(["--env-file", str(env)])
     for bad in ("0", "-1", "two"):
         env.write_text(f"TB_CONSOLE_WORKERS={bad}\n", encoding="utf-8")

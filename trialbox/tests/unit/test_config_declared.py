@@ -7,6 +7,7 @@ family (``DECLARED_FAMILIES``)."""
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -98,3 +99,15 @@ def test_a_planted_undeclared_setting_fails(tmp_path: Path) -> None:
     assert bad == ["TB_X (read in libs/planted/x.py)"]
     (pkg / "y.py").write_text('import os\nZ = [k for k in os.environ if k.startswith("TB_EP_")]\n', encoding="utf-8")
     assert undeclared(read_names([tmp_path / "libs"])) == bad  # a family prefix is declared
+
+
+def test_no_name_is_declared_twice() -> None:
+    """A dict literal keeps the last of two equal keys without a word: two declarations of one name must fail here."""
+    tree = ast.parse((ROOT / "libs" / "tb_common" / "config.py").read_text(encoding="utf-8"))
+    declared = next(
+        n.value for n in ast.walk(tree) if isinstance(n, ast.AnnAssign) and getattr(n.target, "id", "") == "DECLARED"
+    )
+    assert isinstance(declared, ast.Dict)
+    names = [k.value for k in declared.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+    dups = sorted({n for n in names if names.count(n) > 1})
+    assert not dups, f"declared more than once in tb_common/config.py (the last silently wins): {dups}"

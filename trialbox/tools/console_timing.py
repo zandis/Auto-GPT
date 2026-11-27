@@ -100,7 +100,7 @@ def under_load(get: Callable[[str], Answer], paths: Sequence[str], users: int, r
     worst page's 95th percentile (nearest rank, per path, so one slow page is not hidden among fast ones) of the
     answers' times in seconds, by the client's clock (waiting for a worker is what is measured here, unlike
     :func:`walk`), and the count of answers that were not ``200``. The service level is
-    ``tools.trialbox.console_size.SLO_P95_S`` at the site's declared ``TB_SITE_USERS``. No client asks before all
+    ``tools.trialbox.console_size.SLO_P95_S`` at the site's declared ``TB_CONSOLE_USERS``. No client asks before all
     ``users`` of them are ready, so a fast one is not done before the last one starts; not all ready within
     ``START_S`` (the host would not start them) is :class:`LoadNotGenerated`, never a wait without end."""
     ready = threading.Barrier(users)
