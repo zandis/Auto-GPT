@@ -425,12 +425,12 @@ def _rebuild_locked(con: Any, directory: Path, say: Callable[[str], None]) -> tu
     by = {"pid": os.getpid(), "start": _now()}  # diagnostic only
     done = m.done_through
     since = m.since if not m.clean and m.since else _now()
-    if not done:
+    if not done:  # the marker first: one that cannot be written empties nothing under a verified marker
+        _write_marker(directory, {"verified": False, "reason": "rebuilding", "since": since, "done_through": "",
+                                  "attempts": m.attempts + 1, "by": by})  # fmt: skip
         with con.transaction():
             con.execute("DELETE FROM provenance.model_uses")
             con.execute("DELETE FROM provenance.model_calls")
-        _write_marker(directory, {"verified": False, "reason": "rebuilding", "since": since, "done_through": "",
-                                  "attempts": m.attempts + 1, "by": by})  # fmt: skip
     head = ""
     for path in _day_files(directory):
         if done and path.name <= done:

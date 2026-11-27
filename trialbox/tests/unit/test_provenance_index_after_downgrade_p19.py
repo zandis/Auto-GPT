@@ -833,6 +833,73 @@ def test_a_rollback_leaves_the_index_empty_and_required(box: str, tmp_path: Path
     assert _check(box, chain).ok and _clean(chain)
 
 
+@pytest.mark.parametrize("by", ["console:office1", REGISTRY_ACTOR])
+def test_a_real_rollback_keeps_an_opt_out_made_after_the_dump(box: str, tmp_path: Path, by: str) -> None:
+    """F1 / P19-D1 (High): B's verdict is drained after the dump, then B says no at the console, or the hospital's
+    registry refuses (the worker's copy: counts only in the chain). The update's own rollback keeps the register
+    event and empties the index; the rebuild writes B's line through the trigger: B's use row stays out."""
+    chain = tmp_path / "audit"
+    _ready(box, chain)
+    reg = _register(box)
+    try:
+        _send(box, 20, "c1", PID_A)
+        _drain(box, chain)
+        point = _dump(box, tmp_path)
+        _send(box, 21, "c2", PID_B)
+        _drain(box, chain)
+        assert reg.add(PID_B, "emr" if by == REGISTRY_ACTOR else "paper", "", by, "2026-11-22T09:00:00+08:00")
+    finally:
+        reg.close()
+    _compose(tmp_path, _Engine(chain)).mark_rebuild_required()
+    _rollback(box, point, tmp_path)
+    _drain(box, chain)
+    _rebuild(box, chain)
+    assert _events_of(box, PID_B) == [("opt_out", by)]
+    assert _uses(box, PID_B) == []
+    assert _calls(box) == ["c1", "c2"]
+    assert _check(box, chain).ok and _clean(chain)
+
+
+@pytest.mark.parametrize("by", ["console:office1", REGISTRY_ACTOR])
+def test_a_consent_change_and_an_index_insert_at_the_same_moment_leave_no_row(box: str, by: str) -> None:
+    """P19-X2 (High) / F3, P19-DESIGN-3 R1 and R3: the drain's insert has read no register row and is not yet
+    committed (it holds the trigger's lock) when the console's opt-out, or the registry worker's refusal, is written.
+    The register's write does not wait for the index (never coupled); the opt-out worker's erase waits for the
+    insert's lock and removes the row once it commits."""
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    reg = _register(box)
+    ins = psycopg.connect(box)  # not autocommit: the insert's transaction stays open
+    try:
+        ins.execute("INSERT INTO provenance.model_uses (rec_hash, call_id, event, record_kind, record_ref, pid, at) "
+                    "VALUES ('h1', 'c1', 'used', 'verdict', '{}', %s, '2026-11-21T02:00:00+08:00')", (PID_B,))  # fmt: skip
+        added: list[bool] = []
+        t = threading.Thread(target=lambda: added.append(reg.add(PID_B, "emr" if by == REGISTRY_ACTOR else "paper",
+                                                                 "", by, "2026-11-21T09:00:00+08:00")))  # fmt: skip
+        t.start()
+        t.join(10)
+        assert added == [True]  # recorded while the insert is still open
+        erased: list[int] = []
+
+        def worker() -> None:
+            with psycopg.connect(box, autocommit=True) as w:
+                erased.append(idx.erase(w, [PID_B]))
+
+        e = threading.Thread(target=worker)
+        e.start()
+        with psycopg.connect(box, autocommit=True) as w:  # the erase either finished or waits on the lock
+            while e.is_alive() and not (w.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                                                 "AND NOT granted").fetchone() or (0,))[0]:  # fmt: skip
+                time.sleep(0.01)
+        ins.commit()
+        e.join()
+    finally:
+        ins.close()
+        reg.close()
+    assert erased == [1]
+    assert _uses(box, PID_B) == []
+
+
 def test_a_rollback_copies_the_live_register_whole_with_its_ids(box: str, tmp_path: Path) -> None:
     """Y2 (High): the dump holds B's opt-out; then the same actor lifts it and opts B out again at the same stored
     time. The rollback, run twice, keeps the live register's ids, so the authority's tie order (at, id) still ends
