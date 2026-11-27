@@ -51,7 +51,8 @@ def _update(tmp: Path, deploy: Path, monkeypatch: pytest.MonkeyPatch, bundle: st
 
 
 def _status(tmp: Path) -> dict[str, Any]:
-    return json.loads((tmp / "ops" / "status.json").read_text(encoding="utf-8"))
+    st: dict[str, Any] = json.loads((tmp / "ops" / "status.json").read_text(encoding="utf-8"))
+    return st
 
 
 def test_the_page_knows_the_update_without_the_ops_timer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
