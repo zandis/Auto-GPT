@@ -423,24 +423,28 @@ TARGET_UNREADABLE = {
 TARGET_MISMATCH = {
     "en": "refused: the declared off-box backup target {path} is not the mount that was declared (declared: "
     "{declared}; found: {found}); the journal holds the event backup.target_mismatch. No key was made and nothing "
-    "was written: mount the declared target, or declare another with --replace (RUNBOOK §5)",
+    "was written: mount the declared target and declare it again, or declare another, with --replace (a remount is "
+    "another mount; RUNBOOK §5)",
     "ja": "拒否：宣言されたボックス外のバックアップ先 {path} は宣言したマウントではありません（宣言：{declared}、"
     "現在：{found}）。ジャーナルに backup.target_mismatch を記録しました。鍵は作らず、何も書いていません。宣言した"
-    "バックアップ先をマウントするか、--replace で別の先を宣言してください（RUNBOOK §5）",
+    "バックアップ先をマウントして --replace で宣言し直すか、--replace で別の先を宣言してください（マウントし直すと別の"
+    "マウントです。RUNBOOK §5）",
     "zh-TW": "已拒絕：已宣告的主機外備份目標 {path} 不是當初宣告的掛載（宣告：{declared}；目前：{found}）；日誌已記錄 "
-    "backup.target_mismatch。未建立金鑰，也未寫入任何內容：請掛載已宣告的目標，或以 --replace 宣告另一個"
-    "（RUNBOOK §5）",
+    "backup.target_mismatch。未建立金鑰，也未寫入任何內容：請掛載已宣告的目標並以 --replace 重新宣告，或以 --replace "
+    "宣告另一個（重新掛載即為另一個掛載；RUNBOOK §5）",
 }
 TARGET_MISMATCH_UNJOURNALED = {
     "en": "refused: the declared off-box backup target {path} is not the mount that was declared (declared: "
     "{declared}; found: {found}), and the journal did not take the event backup.target_mismatch. No key was made "
-    "and nothing was written: mount the declared target, or declare another with --replace (RUNBOOK §5)",
+    "and nothing was written: mount the declared target and declare it again, or declare another, with --replace (a "
+    "remount is another mount; RUNBOOK §5)",
     "ja": "拒否：宣言されたボックス外のバックアップ先 {path} は宣言したマウントではありません（宣言：{declared}、"
     "現在：{found}）。ジャーナルは backup.target_mismatch を受け付けませんでした。鍵は作らず、何も書いていません。"
-    "宣言したバックアップ先をマウントするか、--replace で別の先を宣言してください（RUNBOOK §5）",
+    "宣言したバックアップ先をマウントして --replace で宣言し直すか、--replace で別の先を宣言してください（マウントし"
+    "直すと別のマウントです。RUNBOOK §5）",
     "zh-TW": "已拒絕：已宣告的主機外備份目標 {path} 不是當初宣告的掛載（宣告：{declared}；目前：{found}），"
-    "且日誌未接受 backup.target_mismatch。未建立金鑰，也未寫入任何內容：請掛載已宣告的目標，或以 --replace 宣告另一個"
-    "（RUNBOOK §5）",
+    "且日誌未接受 backup.target_mismatch。未建立金鑰，也未寫入任何內容：請掛載已宣告的目標並以 --replace 重新宣告，"
+    "或以 --replace 宣告另一個（重新掛載即為另一個掛載；RUNBOOK §5）",
 }
 TARGET_UNDECLARABLE = {
     "en": "refused: {path} cannot be the off-box backup target ({why}): it must be exactly the mount point of a "
