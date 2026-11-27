@@ -100,6 +100,10 @@ LINK_TEXT = (
 )
 
 
+#: E2E P-23: the refusal while the setting is off names the install choice that turns it on
+NO_PROXY_CONSENT = "consent by a representative is not recorded on this box: turned on at install (--consent-proxy on)"
+
+
 def parse_map(text: str) -> dict[str, str]:
     """``"1=inclusion, 2=exclusion"`` (commas, semicolons or new lines) -> ``{"1": "inclusion", ...}``."""
     out: dict[str, str] = {}
@@ -379,7 +383,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         """The page's and ``/api/v1``'s one way to save the ages (D-1232): checked, sent signed, audited."""
         now = get_or_none(f"/studies/{rid}/consent-ages") if s28.has_api(bk) else None
         if not (now or {}).get("on"):  # the setting is off: nothing reads the ages, so nothing is saved
-            raise h.problem(409, "request.refused", reason="consent by a representative is not recorded on this box")
+            raise h.problem(409, "request.refused", reason=NO_PROXY_CONSENT)
         why = proxy_consent.check_rule(body["majority"], body["assent_from"], body["assent_to"])
         if why is not None:  # the orchestrator refuses the same (LIFE-CONSENT_AGES); said here in the page's words
             raise h.problem(400, "request.refused", reason=why)

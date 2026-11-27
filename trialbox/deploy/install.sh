@@ -83,7 +83,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
+CONSENT_PROXY=""; ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
 TEST_BOX=""; TEST_BOX_SET=0; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
@@ -188,6 +188,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --all-questions) ALL_QUESTIONS=1 ;;  # the vendor's: the settings wizard's every question, in place of the four (M1)
     --environment) ENVIRONMENT="$2"; shift ;;
+    --consent-proxy) CONSENT_PROXY="${2:-}"; shift ;;  # P-23: consent by a representative and assent (CONSENT-PROXY)
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
     --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
     --model-pack) MODEL_PACK="$2"; shift ;;  # H-95: the model pack the software pack needs (else found beside it)
@@ -1076,6 +1077,16 @@ TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
 TB_ENV_SITE="$(tb_env_raw deploy/.env)"  # H94-08: as compose reads it (the line above is master's; tests pin its place)
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# CONSENT-PROXY (E2E P-23; the integrator's ruling): consent by a legally authorised representative, and assent, are
+# a site's choice at install (dementia and paediatric trials need them): --consent-proxy on|off writes TB_CONSENT_PROXY.
+# Not given: the box keeps what deploy/.env says (the plan writes "on" for a country whose profile asks for it, D-1232),
+# else off
+case "$CONSENT_PROXY" in
+  "") ;;
+  on|off) envset TB_CONSENT_PROXY "$CONSENT_PROXY"; echo "    consent by a representative: $CONSENT_PROXY (--consent-proxy)" ;;
+  *) die "--consent-proxy takes on or off, not '$CONSENT_PROXY': nothing was changed" ;;
+esac
+# ---- end of CONSENT-PROXY
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
 # and `trialbox` command reads them there. No unit, timer or cron file of the host's is a test box's (TB_SYSTEMD=0)
 if [ -n "${TEST_BOX:-}" ]; then
