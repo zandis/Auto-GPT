@@ -185,7 +185,7 @@ step $J "vm ready: ssh, cloud-init done, docker active" waitfor 120 vm 'test -f 
 "$CTL" put "$NAME" "$REPO/tools/rehearse_box/shims/nvidia-smi" /tmp/nvidia-smi
 "$CTL" put "$NAME" "$VENDOR_PUB" /tmp/vendor_ed25519.pub
 step $J "zone, swap off, vendor key, the stick at /media/usb (as IT leaves it)" prepare
-step $J "bootstrap signature verifies (runbook first command)" vm 'cd /media/usb && openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig'
+step $J "bootstrap signature verifies (runbook first command)" vm 'cd /media/usb && sudo openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig'
 step $J "one-command install, the questions answered at a terminal ($SIZE patients declared)" vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; echo rc=\$rc prompts=\$(sudo grep -c '^PROMPT:' /var/tmp/prompts.txt); exit \$rc"
 rec $J "run conditions (as the VM matrix installs): TB_HOST_PROFILE=poc, rehearsal stand-ins, --tier large, --rehearsal, GPU stand-in, $SIZE patients declared" PASS 0 "bundle $ID"
 (
@@ -196,7 +196,7 @@ rec $J "run conditions (as the VM matrix installs): TB_HOST_PROFILE=poc, rehears
 step $J "the first password and enrolment code reach the harness only (creds, 0600)" take_secrets
 step $J "the kept transcript holds no one-time value and is root-only (G6)" transcript_clean
 step $J "all box containers healthy" waitfor 60 healthy
-step $J "host check: no FAIL line" vm 'cd /opt/trialbox && sudo deploy/check_host.sh > /var/tmp/check_host.txt 2>&1; echo "rc=$? fail_lines=$(grep -c FAIL /var/tmp/check_host.txt)"; [ "$(grep -c FAIL /var/tmp/check_host.txt)" = 0 ]'
+step $J "host check: exit 0 and no FAIL line" vm 'cd /opt/trialbox && sudo deploy/check_host.sh > /var/tmp/check_host.txt 2>&1; rc=$?; n=$(grep -c "^FAIL" /var/tmp/check_host.txt); echo "rc=$rc fail_lines=$n"; grep "^FAIL" /var/tmp/check_host.txt | cut -c1-150; [ $rc = 0 ] && [ "$n" = 0 ]'
 step $J "installed tree = release host list" vm 'cd /opt/trialbox && sudo python3 -m tools.host_tree status --base /opt/trialbox'
 snapshot > "$M/config-installed.txt" 2> /dev/null
 step $J "synthetic hospital of $SIZE patients on the box (tools/make_fixtures.py)" make_feed

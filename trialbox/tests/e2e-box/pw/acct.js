@@ -22,6 +22,10 @@ async function totpStep(page, a, name, out) {
   if (!page.url().includes('/login/totp')) return;
   const key = await page.$('[data-testid=totp-key]'); if (key) { a.totp = (await key.inputValue()) || (await key.textContent()).trim(); save(name, a); out.push('authenticator key shown'); }
   const ec = await page.$('[data-testid=totp-enrol-code]'); if (ec && a.enrol) { await ec.fill(a.enrol); out.push('enrolment code typed'); }
+  if (!a.totp) { // the box asks for an authenticator this account never set up (no key shown): report its message, no crash
+    const m = await page.$('[data-testid=login-error], [role=alert]');
+    throw new Error('no authenticator to answer at /login/totp: ' + (m ? (await m.textContent()).replace(/\s+/g, ' ').trim().slice(0, 160) : 'no message on the page'));
+  }
   for (let k = 0; k < 3; k++) {
     if (Date.now() % 30000 > 27000) await page.waitForTimeout(31000 - (Date.now() % 30000));
     await page.fill('#code', totp(a.totp)); await page.click('[data-testid=totp-submit]'); await page.waitForLoadState('networkidle');
