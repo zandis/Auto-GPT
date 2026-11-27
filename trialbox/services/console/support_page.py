@@ -18,7 +18,8 @@ then the state again: a stop between the two leaves the event owed, and the next
 sent twice (same id), never dropped. The session is closed until the end is written.
 
 Who may turn it on or off: the administrator (``authz.admin_allowed(role, "ops.update_apply")``), with a tick that
-says so, by one form (``POST /admin/support``); reading the page is ``ops.view``.
+says so, by one form (``POST /admin/support``) or its twin (``POST /api/v1/admin/support``); reading the page is
+``ops.view``.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.requests import HTTPConnection
 from tb_common.authz import admin_allowed
 
+from console.api_first import before_body
 from console.form_errors import FAILED, FieldError, FormErrors
 from console.home import Helpers
 from console.i18n import CATALOGUES
@@ -242,5 +244,27 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str] | None = None) -> 
         except OSError as exc:
             raise h.problem(503, "ops.unavailable") from exc
         return RedirectResponse(PATH, status_code=303)
+
+    def first(sess: Any, request: Request) -> None:
+        """The permit check before the body is read (console.api_first)."""
+        if not admin_allowed(sess.user.role, "ops.update_apply"):
+            h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+
+    @app.post("/api/v1" + PATH, response_model=None)
+    @before_body(first)
+    def api_support_turn(request: Request, body: dict[str, str]) -> Any:
+        """The form's twin (FIT-019): ``{"turn": "on"}`` or ``{"turn": "off"}``; answers the state. Calling it is the
+        administrator's saying so (the form's tick)."""
+        assert h.api_session is not None  # set by register() before any request
+        sess = h.api_session(request)
+        turn = str(body.get("turn") or "")
+        if turn not in ("on", "off"):
+            return JSONResponse({"error": "request.refused", "detail": {"code": "turn"}}, status_code=422)
+        try:
+            st = switch.start(h.actor(sess)) if turn == "on" else switch.end(h.actor(sess))
+        except OSError as exc:
+            raise h.problem(503, "ops.unavailable") from exc
+        return {"on": bool(st.get("on")), "session": st.get("id"), "until": st.get("until") if st.get("on") else None}
 
     return switch

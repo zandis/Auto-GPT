@@ -196,6 +196,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/edc/tools` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/edc/tools/{proposal_id}/confirm` | n | - | - | - | - | - | - | - | - |
 | POST | `/api/v1/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
+| POST | `/api/v1/admin/support` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/v1/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/data/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |

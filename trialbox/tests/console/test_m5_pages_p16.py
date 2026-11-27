@@ -144,7 +144,9 @@ def test_a_support_session_closes_patient_pages_to_every_role_and_audits_start_a
     admin.post(support_page.PATH, data={**turn, "was": "off"})  # the same page pressed twice: nothing more
     refused = crc.get("/home")
     assert refused.status_code == 403 and i18n_m5.EN["support.refused"] in refused.text
-    assert crc.get(f"/pilot/jobs/{b['screen'].job_id}/files/candidate_list_GZQO.json").status_code == 403
+    patient_file = f"/pilot/jobs/{b['screen'].job_id}/files/candidate_list_GZQO.json"
+    assert crc.get(patient_file).status_code == 403
+    assert admin.get(patient_file).status_code == 403  # every role, the administrator included
     assert admin.get(support_page.PATH).status_code == 200  # the page that ends it stays open
     assert 'data-testid="sp-on"' in admin.get(support_page.PATH).text
     denied = [e for e in _events(tmp_path, "console.denied") if e["detail"].get("refusal") == "support_session"]
@@ -242,3 +244,19 @@ def test_a_held_night_leaves_the_data_step_not_done() -> None:
     st = data_step.step([_rec("ingest.done", NOW - timedelta(days=1), **NIGHT),
                          _rec("ingest.held", NOW, source="ssmix2", counts={"Patient": 3})])  # fmt: skip
     assert (st["done"], st["state"], st["total"], st["coverage"]) == (False, "held", 3, None)
+
+
+def test_the_support_switch_has_an_api_twin(tmp_path: Path) -> None:
+    b = _console(tmp_path, "TEST")
+    h = b["app"].state.rc1_guard.h
+    h.clock = lambda: NOW
+    c = TestClient(b["app"], base_url="https://testserver")
+    token = c.post("/api/v1/session", json={"username": "admin", "password": ADMIN_PW}).json()["token"]
+    auth = {"Authorization": f"Bearer {token}"}
+    assert c.post("/api/v1" + support_page.PATH, json={"turn": "maybe"}, headers=auth).status_code == 422
+    on = c.post("/api/v1" + support_page.PATH, json={"turn": "on"}, headers=auth).json()
+    assert on["on"] is True and on["until"] == (NOW + support_page.AUTO_END).isoformat()
+    assert b["app"].state.support_session.on()
+    assert c.post("/api/v1" + support_page.PATH, json={"turn": "off"}, headers=auth).json()["on"] is False
+    said = [e["detail"]["action"] for e in _events(tmp_path, support_page.EVENT)]
+    assert said == ["started", "ended"]
