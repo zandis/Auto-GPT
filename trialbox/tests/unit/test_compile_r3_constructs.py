@@ -227,6 +227,17 @@ def test_value_if_that_refers_back_is_refused() -> None:
             render(loop)
 
 
+def test_value_if_without_the_atoms_own_value_is_refused() -> None:
+    bare = crit([
+        {"id": "a1", "domain": "observation", "valueset": "VS_BNP", "quantifier": "latest",
+         "value_if": [{"if_atom": "a2", "value": {"op": ">", "num": 2}}]},
+        {"id": "a2", "domain": "condition", "valueset": "VS_AF"},
+    ])  # fmt: skip
+    for render in (sql, cql):
+        with pytest.raises(CompileError, match="needs the atom's own value"):
+            render(bare)
+
+
 # ------------------------------------------------------------------ study anchors in CQL
 @pytest.mark.parametrize(("anchor", "param"), [("screening", "ScreeningDate"), ("randomization", "RandomizationDate")])
 def test_study_anchor_is_a_cql_parameter(anchor: str, param: str) -> None:
