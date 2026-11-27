@@ -52,9 +52,9 @@ def test_only_the_store_and_its_clients_share_a_network(stack: tuple[str, ...], 
     nets = _networks(stack, profiles)
     if "fhir-store" not in nets:
         return
-    store = nets["fhir-store"] - {"host-net"}  # the developer stack's published port (docker-compose.test.yml)
-    assert store == {FHIR_NET}, stack
-    reach = {s for s, n in nets.items() if s != "fhir-store" and n & nets["fhir-store"] - {"host-net"}}
+    # every network of the store counts: in the test stack its published port has a network of its own
+    assert nets["fhir-store"] - {"fhir-host-net"} == {FHIR_NET}, stack
+    reach = {s for s, n in nets.items() if s != "fhir-store" and n & nets["fhir-store"]}
     assert reach <= MEMBERS, (stack, reach - MEMBERS)
     assert not reach & NEVER, stack
     assert {c for c in ("adapter", "orchestrator", "criteria-compiler", "db") if c in nets} <= reach, stack
