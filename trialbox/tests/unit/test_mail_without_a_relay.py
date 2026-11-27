@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from mail_gateway import app as mail_app
+from mail_gateway import tls as mail_tls
 from mail_gateway.gateway import MAX_ATTEMPTS
 from tb_common.config import Env
 
@@ -44,7 +45,7 @@ def test_the_gateway_knows_whether_a_relay_was_given(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(mail_app, "from_config", lambda: None)
     monkeypatch.setattr(mail_app, "MailDB", lambda: None)
     monkeypatch.setattr(mail_app, "Gateway", lambda **kw: built.update(kw) or SimpleNamespace(**kw))
-    monkeypatch.setattr(mail_app.tls, "audit_modes", lambda *a, **k: None)
+    monkeypatch.setattr(mail_tls, "audit_modes", lambda *a, **k: None)
     monkeypatch.setenv("SMTP_HOST", smtp)
     mail_app.gateway()
     assert built["relay"] is relay
