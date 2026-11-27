@@ -125,16 +125,21 @@ def _offbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _mounted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *mounts: tuple[Path, str, str, str, tuple[Path, ...]]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *mounts: tuple[Path, str, str, str, tuple[Path, ...]],
+    first_id: int = 2_000_000_000,
+    root: str = "/",
 ) -> None:
     """H-02: fake mounts. Each ``(mount point, major:minor, filesystem type, source, folders on it)`` is a line added
     to the real /proc/self/mountinfo, and a descriptor of its mount point or of a folder on it is on that mount. A
-    second call replaces the first one's mounts (none given: no fake mount left)."""
+    second call replaces the first one's mounts (none given: no fake mount left). ``first_id`` and ``root``: a
+    remount (another mount id) and a bind of another folder of the same filesystem (another mount root)."""
     lines = [REAL_MOUNTINFO.read_text(encoding="utf-8")]
     ids: list[tuple[int, list[Path]]] = []
     for i, (point, mm, fstype, src, on) in enumerate(mounts):
-        mid = 2_000_000_000 + i  # no real mount has this id
-        lines.append(f"{mid} 1 {mm} / {point} rw,relatime shared:1 - {fstype} {src} rw\n")
+        mid = first_id + i  # no real mount has this id
+        lines.append(f"{mid} 1 {mm} {root} {point} rw,relatime shared:1 - {fstype} {src} rw\n")
         ids.append((mid, [point, *on]))
     fake = tmp_path / "mountinfo.fake"
     fake.write_text("".join(lines), encoding="utf-8")
@@ -661,7 +666,8 @@ def test_a_second_local_disk_mounted_exactly_at_the_target_is_refused_without_a_
         bkc.install_sealed({"TB_BACKUP_OFFBOX": str(nas), "TB_BACKUP_TARGETS": str(nas)}, PASS)
     assert got.value.text is bkc.NO_TARGET_DECLARED
     _nothing_made(box, nas)
-    assert [e for e in box.journal() if e["event"].startswith("backup.")] == []
+    # H-02 (sixth review): the refusal is journaled, and it is the only backup event
+    assert [e["event"] for e in box.journal() if e["event"].startswith("backup.")] == ["backup.target_undeclared"]
 
 
 def _refused_at_the_run(box: Box, nas: Path) -> bkc.Stop:
@@ -724,7 +730,7 @@ def test_a_mismatch_the_journal_does_not_take_still_refuses(
     assert _refused_at_the_run(box, nas).text is bkc.TARGET_MISMATCH_UNJOURNALED
 
 
-@pytest.mark.parametrize("fstype", sorted(bkc.DENY_FSTYPES))
+@pytest.mark.parametrize("fstype", ["tmpfs", "ramfs", "devtmpfs", "overlay", "proc", "sysfs", "squashfs"])
 def test_tmpfs_and_overlay_cannot_be_declared(
     box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fstype: str
 ) -> None:
@@ -773,7 +779,7 @@ def test_a_dev_source_without_a_by_uuid_name_cannot_be_declared(
     assert got.value.text is bkc.TARGET_UNDECLARABLE and not (box.pub_dir / bkc.TARGET_RECORD).exists()
 
 
-def test_a_dev_source_is_matched_by_uuid_not_by_letter(
+def test_a_dev_source_replugged_is_refused_until_it_is_declared_again(
     box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     nas = tmp_path / "nas"
@@ -789,6 +795,10 @@ def test_a_dev_source_is_matched_by_uuid_not_by_letter(
     link.unlink()
     link.symlink_to("/dev/sdc1")  # re-plugged: another letter, the same filesystem
     _mounted(tmp_path, monkeypatch, (nas, "8:33", "ext4", "/dev/sdc1", ()))
+    with pytest.raises(bkc.Stop) as got:  # H-02 (sixth review): not the mount recorded; only the operator declares it
+        bkc.install_sealed(bkc._env(), PASS)
+    assert got.value.text is bkc.TARGET_MISMATCH and not box.pub.exists()
+    bkc.declare_target(str(nas), "IT Operator", True, {})
     rec = bkc.install_sealed(bkc._env(), PASS)
     assert (nas / bkc.sealed_name(rec["fingerprint"])).is_file()
     box.pub.unlink()
@@ -1277,3 +1287,288 @@ def test_the_unattended_install_declares_the_offbox_target_only_when_there_is_no
     else:
         assert calls == ([] if case == "not set" else declare)
         assert f"TB_BACKUP_OFFBOX in deploy/.env: {offbox or 'not set'}" in r.stdout and PASS not in r.stdout
+
+
+# ------------------------------------------------------------------------------------------------ sixth review (#1602)
+@pytest.mark.parametrize("changed", ["mount id", "mount root", "folder"])
+def test_a_declared_target_remounted_with_the_same_source_and_mount_point_is_refused(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed: str
+) -> None:
+    """H-02: the record holds the mount's id, its root and the folder's device and inode as the declaration saw
+    them. A remount (another id), a bind of another folder of the same share (another root) or another folder at
+    the path, with the source and the mount point the same, is refused and journaled."""
+    nas = _offbox(tmp_path, monkeypatch)
+    rec = json.loads((box.pub_dir / bkc.TARGET_RECORD).read_text(encoding="utf-8"))
+    st = nas.stat()
+    assert rec["mnt_id"] == 2_000_000_000 and rec["mnt_root"] == "/" and rec["fstat"] == [st.st_dev, st.st_ino]
+    if changed == "folder":
+        new = tmp_path / "nas.new"
+        new.mkdir()  # made while the old folder exists: another inode
+        nas.rmdir()
+        new.rename(nas)
+    _mounted(tmp_path, monkeypatch, (nas, *NFS, ()), first_id=2_000_000_000 + 100 * (changed == "mount id"),
+             root="/other" if changed == "mount root" else "/")  # fmt: skip
+    e = _refused_at_the_run(box, nas)
+    assert e.text is bkc.TARGET_MISMATCH and e.fill["declared"] == f"nfs4 nas.example:/backups @ {nas}"
+    said = {"mount id": "mnt_id 2000000100 not 2000000000", "mount root": "mnt_root /other not /", "folder": "fstat"}
+    assert e.fill["found"].startswith(f"nfs4 nas.example:/backups @ {nas}, ") and said[changed] in e.fill["found"]
+    assert _events(box, "backup.target_mismatch") == [{"path": str(nas), "declared": e.fill["declared"],
+                                                      "found": e.fill["found"]}]  # fmt: skip
+
+
+@pytest.mark.parametrize("case", ["missing", "not a declaration", "journal down"])
+def test_no_declaration_is_refused_and_journaled(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    """H-02: a missing record, or one that is not a declaration, refuses before a key is made, with its event
+    (backup.target_undeclared); a journal that does not take it is said, and the run still stops."""
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    _mounted(tmp_path, monkeypatch, (nas, *NFS, ()))
+    if case == "not a declaration":
+        (box.pub_dir / bkc.TARGET_RECORD).write_text("{}", encoding="utf-8")
+    if case == "journal down":
+        real = bkc.record
+
+        def no_journal(detail: Any, event: str = bkc.EVENT) -> int:
+            if event == "backup.target_undeclared":
+                raise bkc.Stop(bkc.JOURNAL_UNSURE)
+            return real(detail, event)
+
+        monkeypatch.setattr(bkc, "record", no_journal)
+    e = _refused_at_the_run(box, nas)
+    record = str(box.pub_dir / bkc.TARGET_RECORD)
+    if case == "journal down":
+        assert e.text is bkc.NO_TARGET_DECLARED_UNJOURNALED and _events(box, "backup.target_undeclared") == []
+    else:
+        assert e.text is bkc.NO_TARGET_DECLARED
+        assert _events(box, "backup.target_undeclared") == [{"record": record, "found": case}]
+
+
+def test_a_declared_target_whose_folder_is_gone_is_refused_and_journaled(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-10: an automounter took the declared folder away with the share (ENOENT): a mismatch, journaled, with the
+    errno; nothing made."""
+    nas = _offbox(tmp_path, monkeypatch)
+    nas.rmdir()
+    with pytest.raises(bkc.Stop) as got:
+        bkc.install_sealed(bkc._env(), PASS)
+    e = got.value
+    assert e.text is bkc.TARGET_MISMATCH and e.fill["found"] == "cannot be opened (ENOENT)"
+    assert _events(box, "backup.target_mismatch") == [
+        {"path": str(nas), "declared": f"nfs4 nas.example:/backups @ {nas}", "found": "cannot be opened (ENOENT)"}
+    ]
+    assert not box.pub.exists() and box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
+
+
+def test_a_deeply_nested_sealed_file_is_named_as_not_a_key(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-08: nesting deeper than the decoder recurses, well below MAX_FILE, is a malformed key, not an error."""
+    _sealed(tmp_path, monkeypatch)
+    bad = tmp_path / "nested.sealed"
+    bad.write_bytes(b"[" * (bkc.MAX_FILE - 1))
+    with pytest.raises(bkc.Stop) as got:
+        bkc.unseal_to(bad, PASS)
+    assert got.value.text is bkc.SEALED_NOT_A_KEY and got.value.fill["what"] == "not json"
+    assert not _restore_key(box).exists()
+
+
+def _two_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    a, b = tmp_path / "a", tmp_path / "b"
+    for d in (a, b):
+        d.mkdir()
+    _mounted(tmp_path, monkeypatch, (a, *NFS, ()), (b, "0:997", "cifs", "//filer.example/backups", ()))
+    return a, b
+
+
+@pytest.mark.parametrize("cut", ["write", "rename"])
+def test_a_replace_cut_short_leaves_the_old_declaration_in_force(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cut: str
+) -> None:
+    """M-09: the new record is written whole and synced under its own name, the old one is kept under another,
+    then one rename puts the new one in place. A replace killed before that rename leaves the old declaration whole
+    (the installer still sees one and declares nothing); the replace run again completes."""
+    a, b = _two_targets(tmp_path, monkeypatch)
+    bkc.declare_target(str(a), "install", False, {})
+    rec_file = box.pub_dir / bkc.TARGET_RECORD
+    first = rec_file.read_bytes()
+    real_new, real_rename = bkc._new_file, os.rename
+
+    def new_file(dfd: int, name: str | None, data: bytes, mode: int = 0o644) -> int:
+        if name is not None and name.startswith("backup-target."):
+            raise KeyboardInterrupt  # killed while the new record is written
+        return real_new(dfd, name, data, mode)
+
+    def rename(src: Any, dst: Any, *x: Any, **k: Any) -> None:
+        if dst == bkc.TARGET_RECORD:
+            raise KeyboardInterrupt  # killed at the rename that puts the new record in place
+        real_rename(src, dst, *x, **k)
+
+    with monkeypatch.context() as m, pytest.raises(KeyboardInterrupt):
+        if cut == "write":
+            m.setattr(bkc, "_new_file", new_file)
+        else:
+            m.setattr(os, "rename", rename)
+        bkc.declare_target(str(b), "IT Operator", True, {})
+    assert rec_file.read_bytes() == first
+    with pytest.raises(bkc.Stop) as got:  # the installer's own call: the old declaration stands
+        bkc.declare_target(str(b), "install", False, {})
+    assert got.value.text is bkc.TARGET_ALREADY_DECLARED
+    bkc.declare_target(str(b), "IT Operator", True, {})
+    assert json.loads(rec_file.read_text(encoding="utf-8"))["path"] == str(b)
+    assert {p.read_bytes() for p in box.pub_dir.glob("backup-target.*.old")} == {first}
+
+
+def test_two_replaces_in_one_second_keep_both_old_records(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-09: the old record's name does not hang on the second it was declared in: replaces within one second keep
+    every old record."""
+    a, b = _two_targets(tmp_path, monkeypatch)
+    real = bkc.datetime
+
+    class OneSecond(real):  # type: ignore[misc,valid-type]
+        @classmethod
+        def now(cls, tz: Any = None) -> Any:
+            return real(2026, 11, 28, 1, 2, 3, tzinfo=tz)
+
+    monkeypatch.setattr(bkc, "datetime", OneSecond)
+    rec_file = box.pub_dir / bkc.TARGET_RECORD
+    bkc.declare_target(str(a), "install", False, {})
+    first = rec_file.read_bytes()
+    bkc.declare_target(str(b), "IT Operator", True, {})
+    second = rec_file.read_bytes()
+    bkc.declare_target(str(a), "IT Operator", True, {})
+    assert sorted(p.read_bytes() for p in box.pub_dir.glob("backup-target.*.old")) == sorted([first, second])
+    assert json.loads(rec_file.read_text(encoding="utf-8"))["path"] == str(a)
+
+
+def test_a_forget_the_journal_does_not_take_removes_nothing_and_fails(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-11: the deletion is journaled before the name goes: a journal that does not take it leaves the key file
+    and the command fails; run again with the journal back, it removes the file, journaled once."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    bkc.unseal_to(sealed, PASS)
+    out = _restore_key(box)
+    real = bkc.record
+
+    def no_journal(detail: Any, event: str = bkc.EVENT) -> int:
+        if event == "backup.restore_key_forgotten":
+            raise bkc.Stop(bkc.JOURNAL_UNSURE)
+        return real(detail, event)
+
+    monkeypatch.setattr(bkc, "harden", lambda: None)
+    monkeypatch.setattr(bkc, "record", no_journal)
+    assert bkc.main(["--forget-restore-key"]) != 0 and out.is_file()
+    monkeypatch.setattr(bkc, "record", real)
+    assert bkc.main(["--forget-restore-key"]) == 0 and not out.exists()
+    assert _events(box, "backup.restore_key_forgotten") == [{"path": str(out)}]
+
+
+def test_a_forget_never_removes_a_key_it_did_not_look_at(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-12: forget B has looked at the key; meanwhile forget A and an unseal run. B must never remove a key the
+    unseal made after B looked: looking and removing hold the restore folder's lock, which the unseal's link takes."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    bkc.unseal_to(sealed, PASS)
+    out = _restore_key(box)
+    main_thread, real_stat = threading.get_ident(), os.stat
+    other: list[Any] = []
+
+    def meanwhile() -> None:
+        try:
+            bkc.forget_restore_key()  # A
+        except bkc.Stop as e:
+            other.append(e.text)
+        other.append(bkc.unseal_to(sealed, PASS))
+
+    t = threading.Thread(target=meanwhile)
+
+    def stat_(path: Any, *a: Any, **k: Any) -> Any:
+        st = real_stat(path, *a, **k)
+        if path == bkc.RESTORE_KEY and threading.get_ident() == main_thread and t.ident is None:
+            t.start()
+            t.join(5)  # A and the unseal, while B holds what it looked at
+        return st
+
+    monkeypatch.setattr(os, "stat", stat_)
+    bkc.forget_restore_key()  # B
+    t.join(60)
+    assert not t.is_alive() and other[0] is bkc.RESTORE_KEY_NOT_A_FILE
+    assert out.is_file() and bkc.read_key(out.read_bytes()) is not None  # the unseal's key: never removed
+
+
+def _shell_install(tmp_path: Path, ceremony: str) -> tuple[Path, Callable[..., subprocess.CompletedProcess[str]]]:
+    """The installer's reader (--kek-passphrase-file) and its backup key step, run by bash with no terminal, a
+    declaration in place and ``ceremony`` as the python3 the step runs. Returns the passphrase file and the runner
+    (``tail``: the script after the reader; ``keep``: --keep-kek-passphrase-file; ``env``: added to PATH)."""
+    reader = _between("KP_WHO=install\n", "# ---- end of KEK-INPUT\n")
+    bin_, secrets = tmp_path / "bin", tmp_path / "deploy" / "secrets"
+    for d in (bin_, secrets):
+        d.mkdir(parents=True)
+    (secrets / "backup-target.json").write_text("{}", encoding="utf-8")  # declared already
+    (bin_ / "python3").write_text("#!/bin/sh\n" + ceremony, encoding="utf-8")
+    (bin_ / "python3").chmod(0o755)
+    keys = tmp_path / "root"
+    keys.mkdir(mode=0o700)
+    pp = keys / "trialbox-kek.pass"
+
+    def run(tail: str, keep: bool = False, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        script = ('die() { echo "die: $*"; exit 1; }\nsay() { :; }\nFAILS=()\n'
+                  f"PP_FILE={pp}\nPP_STDIN=0\nPP_FD=\nPP_REMOVE=\nPP_KEEP={int(keep)}\nROOT={tmp_path}\n{reader}"
+                  f"{tail}")  # fmt: skip
+        return subprocess.run(["setsid", "bash", "-c", script], cwd=tmp_path, capture_output=True, text=True,
+                              check=False, stdin=subprocess.DEVNULL, timeout=60,
+                              env={"PATH": f"{bin_}:{os.environ['PATH']}", **(env or {})})  # fmt: skip
+
+    return pp, run
+
+
+def _write_pass(pp: Path) -> None:
+    pp.write_text(PASS + "\n", encoding="utf-8")
+    pp.chmod(0o600)
+
+
+def test_a_kill_after_backup_pub_leaves_no_passphrase_file_and_the_next_start_removes_a_left_one(
+    tmp_path: Path,
+) -> None:
+    """H-08: the install's passphrase file is removed before the ceremony can make backup.pub: the installer killed
+    right after backup.pub is made (before its next line) leaves no passphrase file beside the sealed key. One left
+    beside a sealed key (an older installer killed there) is removed at the next start, before anything else, unless
+    --keep-kek-passphrase-file."""
+    secrets = tmp_path / "deploy" / "secrets"
+    killed = f"cat >/dev/null\n: > {secrets}/backup-key-0000.sealed\n: > {secrets}/backup.pub\nkill -KILL 0\n"
+    pp, run = _shell_install(tmp_path, killed)
+    key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
+    _write_pass(pp)
+    r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}echo finished\n")
+    assert r.returncode < 0 and "finished" not in r.stdout, r.stdout + r.stderr  # killed in the ceremony
+    assert (secrets / "backup.pub").is_file() and not pp.exists()
+    _write_pass(pp)  # left over beside the sealed key
+    r = run("echo started\n", keep=True)
+    assert r.returncode == 0 and pp.exists() and "started" in r.stdout, r.stderr
+    r = run("echo started\n")
+    assert r.returncode == 0 and "started" in r.stdout, r.stderr
+    assert not pp.exists() and f"the passphrase file {pp} is removed" in r.stdout and PASS not in r.stdout + r.stderr
+
+
+def test_the_install_passphrase_is_in_no_child_environment(tmp_path: Path) -> None:
+    """H-09: a caller's exported KP_VALUE (empty, as a launcher might export it) loses its export where the reader
+    starts: no child of the installer has the passphrase, or KP_VALUE, in its environment; the ceremony gets it on
+    stdin alone."""
+    rec = tmp_path / "rec"
+    rec.mkdir()
+    pp, run = _shell_install(tmp_path, f"cat > {rec}/stdin\ncat /proc/$$/environ > {rec}/ceremony.environ\n")
+    key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
+    _write_pass(pp)
+    r = run(f"cat /proc/self/environ > {rec}/child.environ\nTB_ENV_SITE=PRODUCTION\n{key_step}",
+            env={"KP_VALUE": "", "kp_again": ""})  # fmt: skip
+    assert r.returncode == 0, r.stderr
+    assert (rec / "stdin").read_text(encoding="utf-8") == PASS + "\n"
+    for name in ("child.environ", "ceremony.environ"):
+        seen = (rec / name).read_bytes()
+        assert seen and PASS.encode() not in seen and b"KP_VALUE=" not in seen and b"kp_again=" not in seen, name
