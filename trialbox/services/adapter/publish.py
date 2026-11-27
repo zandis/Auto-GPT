@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -366,7 +367,7 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     mismatch, and never clean."""
     import httpx
 
-    from adapter.load_fhir import snapshot_ids
+    from adapter.load_fhir import delete_refs, snapshot_ids
 
     assert cfg.fhir_base_url is not None
     base = cfg.fhir_base_url.rstrip("/")
@@ -374,7 +375,9 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     types = sorted(set(want) | _ledger_types(cfg) | set(also))
     counts: dict[str, int] = {}
     wrong: list[str] = []
-    with httpx.Client(timeout=60) as client:
+    # one answer of the store is bounded as the loader bounds one of its transactions (listed: load_fhir.py)
+    bound = inspect.signature(delete_refs).parameters["timeout"].default
+    with httpx.Client(timeout=bound) as client:
         for t in types:
             resp = client.get(f"{base}/{t}", params={"_summary": "count"})
             resp.raise_for_status()
