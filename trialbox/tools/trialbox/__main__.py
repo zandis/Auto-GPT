@@ -377,8 +377,12 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         print("doctor: --lang and --out go with --preflight", file=sys.stderr)
         return 2
     if a.cmd == "doctor":
-        from tools.trialbox import doctor
+        from tools.trialbox import doctor, launch
 
+        if a.env_file is None and (launch.DEPLOY / ".env").is_file():
+            # E2E P-18: the box's own file, which the launcher already reads as its settings; without it the
+            # installed doctor judged some checks without the box's values (false FAILs the runbook form had not)
+            a.env_file = launch.DEPLOY / ".env"
         which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
         if a.weights:
             which = (doctor.LIVE if a.serving else ()) + doctor.WEIGHTS
