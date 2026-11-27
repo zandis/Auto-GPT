@@ -59,8 +59,9 @@ MARKER = "# memcaps:"
 SORT_SHARE = 16  # adapter.ndjson.sort_run_bytes: a sixteenth of the cap
 LAKE_DUCKDB_SHARE = 0.4  # lake.store.memory_limit: 40 % of the cap
 MEASURE_SORT_MB = "4"
-#: E2E P-02: the adapter's measured whole nights, beside the ingest record (optional: a box without it as before)
-NIGHTS_NAME, NIGHTS_FORMAT = "adapter_nights.json", "tb-adapter-nights/1"
+#: E2E P-02: the services' measured peaks by the hospital's size (``deploy/measured/site_peaks.json``), which the box
+#: plan reads too; optional: a box without it is sized as before
+PEAKS_NAME, PEAKS_FORMAT = "site_peaks.json", "tb-site-peaks/1"
 HEADROOM = 1.5  # a cap from a measured peak keeps 1.5 times it (tests/unit/test_pin_consistency.py)
 MEASURE_DUCKDB = "256MB"
 _SIZE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?)b?\s*$", re.I)
@@ -106,25 +107,31 @@ def load_record(path: Path = RECORD) -> dict[str, Any]:
     return dict(doc)
 
 
-def load_nights(path: Path) -> dict[int, float]:
-    """``patients -> MB``: the adapter container's peak over a whole night (``adapter_nights.json``); none when the
-    file is not there."""
+def load_peaks(path: Path) -> list[tuple[int, dict[str, float]]]:
+    """The measured-peak table (``site_peaks.json``): ``(patients, {cap variable: MiB})`` per size class, smallest
+    first; none when the file is not there."""
     if not path.is_file():
-        return {}
+        return []
     doc = json.loads(path.read_text(encoding="utf-8"))
-    if doc.get("format") != NIGHTS_FORMAT:
-        raise ValueError(f"{path}: not a {NIGHTS_FORMAT} record")
-    return {int(k): float(v) for k, v in doc["peak_mb"].items()}
+    if doc.get("format") != PEAKS_FORMAT:
+        raise ValueError(f"{path}: not a {PEAKS_FORMAT} record")
+    rows = [(int(c["patients"]), {k: float(v) for k, v in c["peak_mib"].items()}) for c in doc["classes"]]
+    return sorted(rows, key=lambda r: r[0])
 
 
-def night_peak_mb(nights: Mapping[int, float], n: int) -> float:
-    """E2E P-02: the adapter's peak over a night of ``n`` patients (the validator, the FHIR load and the lake's write
-    included), on the line through the two largest measured nights; 0 with fewer than two. The streamed write alone
-    (``--measure``) put the adapter near its validator heap, but the 50,000-patient night peaked at 4,003 MiB and was
-    killed at 3,520."""
-    if len(nights) < 2:
+def peak_mib(peaks: Sequence[tuple[int, Mapping[str, float]]], var: str, n: int) -> float:
+    """E2E P-02: the measured peak of the service capped by ``var`` (MiB) for a hospital of ``n`` patients: that of the
+    nearest size class of at least ``n`` patients that measured it, never below a smaller class's. Above the largest
+    such class, the line through the two largest (one: its peak), never below the largest; 0 when none measured it."""
+    have = [(p, row[var]) for p, row in peaks if var in row]
+    if not have:
         return 0.0
-    (a, pa), (b, pb) = sorted(nights.items())[-2:]
+    upto = next((i for i, (p, _) in enumerate(have) if p >= n), None)
+    if upto is not None:
+        return max(mib for _, mib in have[: upto + 1])
+    if len(have) == 1:
+        return have[0][1]
+    (a, pa), (b, pb) = have[-2:]
     return pb + max(0.0, (pb - pa) / (b - a)) * (n - b)
 
 
@@ -159,11 +166,12 @@ def need_mb(
     compose: Path = COMPOSE,
     orch: Mapping[str, Any] | None = None,
     overlay: Path | None = None,
-    nights: Mapping[int, float] | None = None,
+    peaks: Sequence[tuple[int, Mapping[str, float]]] = (),
 ) -> dict[str, int]:
     """The cap each service needs for ``n`` patients, in MB, never below its compose default (the orchestrator's
     too, when its record ``orch`` is given; its default the profile ``overlay``'s when that names one; the adapter's
-    at least HEADROOM times its measured ``nights``' peak for ``n``)."""
+    at least HEADROOM times its measured peak for ``n`` in ``peaks``: its whole night, validator and FHIR load
+    included, where the ingest record measured the streamed write alone)."""
     out: dict[str, int] = {}
     orch_mb: int | None = None
     if orch is not None:
@@ -175,7 +183,8 @@ def need_mb(
         python = float(part["fixed_mb"]) + float(part["per_patient_kb"]) * n / 1024
         if svc == "adapter":
             heap = size_mb(env.get("TB_VALIDATOR_XMX") or _validator_default(compose))
-            mb = max((python + heap) * SORT_SHARE / (SORT_SHARE - 1), HEADROOM * night_peak_mb(nights or {}, n))
+            mb = (python + heap) * SORT_SHARE / (SORT_SHARE - 1)
+            mb = max(mb, HEADROOM * peak_mib(peaks, var, n))  # E2E P-02: the 50k night was killed at 3,520 MiB
         else:
             mb = python / (1 - LAKE_DUCKDB_SHARE)
         out[svc] = max(math.ceil(mb), size_mb(compose_default(var, compose)))
@@ -203,14 +212,14 @@ def plan(
     compose: Path = COMPOSE,
     orch: Mapping[str, Any] | None = None,
     overlay: Path | None = None,
-    nights: Mapping[int, float] | None = None,
+    peaks: Sequence[tuple[int, Mapping[str, float]]] = (),
 ) -> dict[str, str | None]:
     """The caps ``--write`` sets: each service's need, except a cap the operator set by hand (kept). The orchestrator's
     only above its default (the profile ``overlay``'s when it names one: a value under it would lower the cap);
     ``None``: a value this tool wrote that is no longer needed, removed."""
     env = _parse_env(env_text)
     ours = _marker(env_text)
-    need = need_mb(n, record, env, compose, orch, overlay, nights)
+    need = need_mb(n, record, env, compose, orch, overlay, peaks)
     out: dict[str, str | None] = {}
     if ORCH in need:
         have = env.get(ORCH_VAR)
@@ -265,7 +274,7 @@ def check(
         return "WARN", f"{source}: the memory caps were not compared with the hospital's size"
     record = load_record(record_path)
     orch = load_orch_record(orch_path) if orch_path is not None else None
-    need = need_mb(n, record, env, compose, orch, overlay, load_nights(record_path.parent / NIGHTS_NAME))
+    need = need_mb(n, record, env, compose, orch, overlay, load_peaks(record_path.parent / PEAKS_NAME))
     names = {**CAPS, **({ORCH: ORCH_VAR} if orch is not None else {})}
     have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in CAPS.items()}
     if orch is not None:
@@ -482,8 +491,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"memcaps: {source}: the compose defaults stay (set TB_SITE_PATIENTS to size them)")
         return 0
     orch = load_orch_record(ORCH_RECORD) if ORCH_RECORD.is_file() else None
-    nights = load_nights(RECORD.parent / NIGHTS_NAME)
-    caps = plan(text, n, load_record(), orch=orch, overlay=a.overlay, nights=nights)
+    caps = plan(text, n, load_record(), orch=orch, overlay=a.overlay, peaks=load_peaks(RECORD.parent / PEAKS_NAME))
     gone = "removed (the compose default fits)"
     said = ", ".join(f"{k}={v}" if v is not None else f"{k} {gone}" for k, v in caps.items())
     print(f"memcaps: {n} patients ({source}): " + (said or "set by hand"))
