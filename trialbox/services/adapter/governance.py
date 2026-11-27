@@ -28,7 +28,7 @@ import hmac
 import json
 import re
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -385,6 +385,21 @@ def totals(rows: Iterable[Row], patient: str | None, delta: str | None) -> Contr
     )
 
 
+def counted(rows: Iterable[Row], patient: str | None, delta: str | None, out: list[ControlTotals]) -> Iterator[Row]:
+    """E2E P-25: ``rows`` as they pass, and :func:`totals` of them appended to ``out`` once they have all passed. No
+    row is kept: a night without data contracts reconciles the export's control totals at the streamed read's cost."""
+    n, patients, top = 0, set(), None
+    for r in rows:
+        n += 1
+        if patient and not is_null(p := field_value(r, patient)):
+            patients.add(str(p).strip())
+        if delta and not is_null(d := field_value(r, delta)) and (top is None or str(d) > top):
+            top = str(d)
+        yield r
+    out.append(ControlTotals(rows=n, distinct_patients=len(patients) if patient else None, max_delta=top,
+                             patient_column=patient, delta_column=delta))  # fmt: skip
+
+
 def reconcile(table: str, source: ControlTotals, read: ControlTotals) -> list[Equation]:
     """The export's own totals against the rows read (exact). ``max(delta)`` is compared only when both carry one."""
     eqs = [
@@ -626,6 +641,8 @@ class NightFacts:
     other: Sequence[str] = ()  # every other error that held the night (rejects, a failed load, a refusal)
     current_before: str | None = None
     current_after: str | None = None
+    # E2E P-25: the export's control totals reconciled on a night without data contracts (with them, ``contracts``)
+    reconciliation: Sequence[Equation] = ()
 
 
 def _cond(number: int, name: str, ok: bool | None, detail: str, reasons: Sequence[ReasonCode]) -> GateCondition:
@@ -640,7 +657,7 @@ def gate_record(f: NightFacts, decided_at: datetime) -> PublishGateRecord:
         {x.reason for t in (rep.tables if rep else []) for x in t.findings if x.severity == Severity.BLOCKING},
         key=lambda r: r.value,
     )
-    eqs = rep.reconciliation.equations if rep else []
+    eqs = rep.reconciliation.equations if rep else list(f.reconciliation)
     failed = [e for e in eqs if e.verdict == "fail"]
     conds = [
         _cond(
