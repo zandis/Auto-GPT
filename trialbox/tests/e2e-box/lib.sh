@@ -64,7 +64,7 @@ unseal() { # runbook 22 step 2 after a boot; a box with no key to unseal says so
 }
 psql_wf() { vm "sudo docker exec trialbox-db-1 psql -U hapi -d trialbox_wf -Atc \"$1\""; }
 envset() { # KEY VALUE : set one line of the box's deploy/.env (site configuration; the caller records the deviation)
-  vm "sudo sed -i -e '/^$1=/d' -e '\$a $1=$2' /opt/trialbox/deploy/.env && sudo grep -qxF '$1=$2' /opt/trialbox/deploy/.env"
+  vm "sudo sed -i -e '\$a $1=$2' -e '/^$1=/d' /opt/trialbox/deploy/.env && sudo grep -qxF '$1=$2' /opt/trialbox/deploy/.env"
 }
 answer() { sed -n "s/^$1: *['\"]\{0,1\}\([A-Za-z0-9_+\/.-]*\).*/\1/p" "$HERE/../../tools/rehearse_box/site_answers.yaml" | head -1; }
 SITE_TZ=$(answer tz)

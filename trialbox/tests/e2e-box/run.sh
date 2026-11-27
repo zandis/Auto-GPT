@@ -33,8 +33,9 @@ mkdir -p "$OUT" && chmod 0700 "$OUT"
 exec 9> "$E2E_VMS/$NAME.lock"
 flock -n 9 || { echo "another run holds $NAME" >&2; exit 2; }
 [ ! -e "$E2E_VMS/$NAME" ] || { echo "$E2E_VMS/$NAME exists: another VM of that name; nothing was changed" >&2; exit 2; }
-if ! [[ -s ${E2E_MODELS_ENV:-} && ${E2E_JUDGE_PORT:-} =~ ^[0-9]+$ && ${E2E_VERIFIER_PORT:-} =~ ^[0-9]+$ ]]; then
-  echo "the host's served pinned pair is required (E2E_MODELS_ENV key file, E2E_JUDGE_PORT, E2E_VERIFIER_PORT): the gate never runs on stand-ins" >&2
+if ! [[ -f ${E2E_MODELS_ENV:-} && -s $E2E_MODELS_ENV && $(stat -Lc %a -- "$E2E_MODELS_ENV") == 600 &&
+  ${E2E_JUDGE_PORT:-} =~ ^[0-9]+$ && ${E2E_VERIFIER_PORT:-} =~ ^[0-9]+$ ]]; then
+  echo "the host's served pinned pair is required (E2E_MODELS_ENV, a 0600 key file; E2E_JUDGE_PORT, E2E_VERIFIER_PORT): the gate never runs on stand-ins" >&2
   exit 2
 fi
 # shellcheck source=lib.sh
@@ -46,9 +47,8 @@ SINCE=$(date -u +%FT%TZ)
 echo "e2e-box $ID size=$SIZE vm=$NAME cores=$E2E_CPUSET out=$OUT since=$SINCE"
 
 make_media() { # the install media: a read-only ext4 image holding what goes on the USB stick
-  local st=$E2E_VMS/$NAME-stage f size
-  rm -rf "$st"
-  mkdir -p "$st"
+  local st f size
+  st=$(mktemp -d "$E2E_VMS/.stage.XXXXXXXX") || return 1
   for f in "$BUNDLE" "$BDIR/trialbox-bootstrap.sh" "$BDIR/trialbox-bootstrap.sh.sig" "$VENDOR_PUB"; do
     ln -f "$f" "$st/" 2> /dev/null || cp "$f" "$st/" || return 1
   done
@@ -71,22 +71,22 @@ make_feed() { # the synthetic hospital at the declared size (tools/make_fixtures
 put_kit() { # the site kit at /root/site (runbook 01 "What the site brings"): the synthetic hospital A's answers with the
   # feed folder $SRC and its mapping/, the host baseline, the site's model override with the host pair's ports, the
   # forwarder and the pair's key (root only)
-  local k=$E2E_VMS/$NAME-kit rc
-  rm -rf "$k" "$k.tgz"
-  mkdir -p "$k"
+  local k rc
+  k=$(mktemp -d "$E2E_VMS/.kit.XXXXXXXX") || return 1
   sed "s#^data_source_host_dir: .*#data_source_host_dir: $SRC#" "$REPO/tools/rehearse_box/site_answers.yaml" > "$k/site.yaml"
   grep -qx "data_source_host_dir: $SRC" "$k/site.yaml" || return 1
   cp -r "$REPO/tools/rehearse_box/mapping" "$k/mapping" &&
     sed -e "s/@JUDGE_PORT@/$E2E_JUDGE_PORT/" -e "s/@VERIFIER_PORT@/$E2E_VERIFIER_PORT/" "$HERE/site/host-models.yml" > "$k/host-models.yml" &&
     cp "$HERE/site/hardening.conf" "$HERE/modelproxy.py" "$k/" &&
-    tar -czf "$k.tgz" -C "$k" . && "$CTL" put "$NAME" "$k.tgz" /tmp/kit.tgz && "$CTL" put "$NAME" "$E2E_MODELS_ENV" /tmp/hostkey
+    tar -czf "$k.tgz" -C "$k" . && "$CTL" put "$NAME" "$k.tgz" /tmp/kit.tgz
   rc=$?
   rm -rf "$k" "$k.tgz"
   [ $rc = 0 ] || return 1
+  vm 'sudo bash -c "umask 077; mkdir -p /root/site && cat > /root/site/hostkey"' < "$E2E_MODELS_ENV" || return 1
   vm 'sudo bash -s' << 'SH'
 set -e
 mkdir -p /root/site && tar -xzf /tmp/kit.tgz -C /root/site && rm -f /tmp/kit.tgz
-install -m 0600 /tmp/hostkey /root/site/hostkey && rm -f /tmp/hostkey
+chmod 0600 /root/site/hostkey
 chown -R root:root /root/site && chmod 0644 /root/site/site.yaml /root/site/host-models.yml /root/site/modelproxy.py
 find /root/site -type f | sort | tr '\n' ' '
 SH
@@ -94,11 +94,18 @@ SH
 install_once() { # the runbook 01 command (ptyinstall.py answers at the terminal); the refusal lines, if any, as detail
   vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; echo rc=\$rc prompts=\$(sudo grep -c '^PROMPT:' /var/tmp/prompts.txt); sudo grep -iE 'refus|stop|not qualified' /var/tmp/install.log | tail -n 4 | cut -c1-200; exit \$rc"
 }
+conditions() { # the box as the gate means to test it, read from its deploy/.env
+  vm 'cd /opt/trialbox/deploy && sudo grep -E "^(TB_ENV|TB_HOST_PROFILE|COMPOSE_FILE|TB_SITE_PATIENTS)=" .env; sudo grep -qx TB_ENV=PRODUCTION .env &&
+    ! sudo grep -qx TB_HOST_PROFILE=poc .env && sudo grep -E "^COMPOSE_FILE=" .env | grep -q site/compose-override.yml && sudo cmp -s site/compose-override.yml /root/site/host-models.yml &&
+    ! sudo grep -E "^COMPOSE_FILE=" .env | grep -qi standin'
+}
 site_needs() { # what a PRODUCTION install refused without, as a site sets it (deploy/.env, deploy/site/hardening.conf)
   # and the box's egress table for the two model servers' forward (EGRESS_EXTRA, then the product's network.sh apply)
+  local extra
+  extra=$(vm "sudo sed -n 's/^EGRESS_EXTRA=//p' /opt/trialbox/deploy/.env | tail -1") || return 1
   envset TB_AUDIT_ANCHOR_TARGETS /srv/e2e-anchor && envset TB_BACKUP_TARGETS /srv/e2e-share &&
     envset TB_LOG_DIR /var/log/trialbox-e2e && envset TB_BACKUP_ALERT_ROUTE health-page &&
-    envset EGRESS_EXTRA "llm-service=10.0.2.2:$E2E_JUDGE_PORT,llm-verifier=10.0.2.2:$E2E_VERIFIER_PORT" &&
+    envset EGRESS_EXTRA "${extra:+$extra,}llm-service=10.0.2.2:$E2E_JUDGE_PORT,llm-verifier=10.0.2.2:$E2E_VERIFIER_PORT" &&
     vm 'sudo mkdir -p /srv/e2e-anchor /srv/e2e-share /var/log/trialbox-e2e && sudo chmod a+rx /srv/e2e-anchor &&
       sudo install -m 0644 /root/site/hardening.conf /opt/trialbox/deploy/site/hardening.conf &&
       cd /opt/trialbox && sudo deploy/network.sh apply --env deploy/.env 2>&1 | tail -n 3'
@@ -152,7 +159,8 @@ snapshot() { # settings of the box: env:KEY and file:PATH with a hash of the val
 cd /opt/trialbox/deploy
 awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {k=$1; sub(/^[^=]*=/, ""); v[k]=$0} END {for (k in v) print k "=" v[k]}' .env | sort | while IFS= read -r l; do
   printf 'env:%s %s\n' "${l%%=*}" "$(printf '%s' "${l#*=}" | sha256sum | cut -c1-16)"; done
-{ find site -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.py' \); ls secrets/model/vllm.env secrets/backup.pub 2> /dev/null; } | sort |
+{ find site -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.py' -o -name '*.conf' \)
+  ls secrets/model/vllm.env secrets/backup.pub /root/site/host-models.yml /root/site/modelproxy.py 2> /dev/null; } | sort |
   while read -r f; do printf 'file:%s %s\n' "$f" "$(sha256sum < "$f" | cut -c1-16)"; done
 SH
 }
@@ -226,11 +234,11 @@ step $J "zone, swap off, vendor key, the stick at /media/usb (as IT leaves it)" 
 step $J "site kit at /root/site (answers, mapping, host baseline, model override, the pair's key)" put_kit
 step $J "synthetic hospital of $SIZE patients in the feed folder (tools/make_fixtures.py)" make_feed
 step $J "bootstrap signature verifies (runbook first command)" vm 'cd /media/usb && sudo openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig'
-if ! step $J "one-command PRODUCTION install, the questions answered at a terminal ($SIZE patients declared)" install_once; then
+if ! step $J "one-command install as PRODUCTION, the questions answered at a terminal ($SIZE patients declared)" install_once; then
   deviate site-needs "TB_AUDIT_ANCHOR_TARGETS, TB_BACKUP_TARGETS, TB_LOG_DIR, TB_BACKUP_ALERT_ROUTE=health-page, hardening.conf, EGRESS_EXTRA += llm-service/llm-verifier -> the host pair, deploy/network.sh apply (the install refused; runbook 01 names none of them)" site_needs
-  step $J "one-command PRODUCTION install again, the same command after the site's settings" install_once
+  step $J "one-command install again as PRODUCTION, the same command after the site's settings" install_once
 fi
-rec $J "run conditions: TB_ENV=PRODUCTION, site host profile, the host's real pinned pair through the site's override (no stand-in), --tier large, GPU driver shim, $SIZE patients declared" PASS 0 "bundle $ID"
+step $J "run conditions: TB_ENV=PRODUCTION, no poc profile, the site's model override and no stand-in in COMPOSE_FILE ($SIZE patients declared)" conditions
 (
   umask 077
   vm 'sudo cat /var/tmp/prompts.txt' > "$EV/install-prompts.txt" 2>&1

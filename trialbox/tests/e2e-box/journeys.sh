@@ -99,8 +99,9 @@ held() { # journey step snapshot log : the night ends non-zero AND the lake's CU
 fhir_patients() { vm "sudo docker exec trialbox-db-1 psql -U hapi -d hapi -Atc \"select count(*) from hfj_resource where res_type='Patient' and res_deleted_at is null\""; }
 unpublished() { # P-03: a night that did not pass left nothing in the clinical store or the lake (before: FHIR patients, CURRENT)
   local f c
-  f=$(fhir_patients)
+  f=$(fhir_patients) || return 1
   c=$(current)
+  [[ $1 =~ ^[0-9]+$ && $f =~ ^[0-9]+$ ]] || { echo "FHIR patient count unreadable: before [$1] after [$f]"; return 1; }
   echo "FHIR patients $1 -> $f, CURRENT [$2] -> [$c]"
   [ "$f" = "$1" ] && [ "$c" = "$2" ]
 }
@@ -113,13 +114,14 @@ sys.path.insert(0, 'libs')
 from tb_common import rc1_refusals as r
 bad = [n for n in ('live_patient_lists', 'key_ceremonies') if r.refused(n, {'TB_ENV': 'PRODUCTION'})]
 print('refused on PRODUCTION:', ', '.join(bad) or 'none')
-sys.exit(1 if bad else 0)
+sys.exit(3 if bad else 0)  # 3: refused; any other failure is the probe's
 PY
 }
 to_validation() { envset TB_ENV VALIDATION && vm "$DC up -d --wait 2>&1 | tail -n 3"; }
 j_rc1() { # a PRODUCTION box this release refuses the night's backup key, the held-night accept and SCREEN on (rc1):
   # the refusal is a row first; the rest of the run then goes on as VALIDATION, same host profile and models
-  if ! step OPS-rc1 "rc1 on PRODUCTION refuses no live patient list and no key ceremony" rc1_production; then
+  step OPS-rc1 "rc1 on PRODUCTION refuses no live patient list and no key ceremony" rc1_production
+  if [ $? = 3 ]; then # only a refusal moves the box to VALIDATION, never a probe that failed
     deviate env-validation "TB_ENV=VALIDATION, the stack re-created (site host profile and models kept): this release's rc1 table refuses the backup key, the held-night accept and SCREEN on PRODUCTION" to_validation
   fi
 }
@@ -241,7 +243,7 @@ PY
   fi
   step $J "selftest (pair canary) on the box as installed: the host's real pinned pair" vm 'cd /opt/trialbox && sudo timeout 900 trialbox selftest > /var/tmp/e2e-selftest.txt 2>&1; rc=$?; tail -n 5 /var/tmp/e2e-selftest.txt | cut -c1-200; exit $rc'
   vm 'sudo cat /var/tmp/e2e-selftest.txt' > "$EV/selftest-installed.txt" 2>&1
-  step $J "no answer came from a stand-in (selftest and doctor name none)" vm '! sudo grep -iE "answered by the rehearsal stand-in|REHEARSAL BOX" /var/tmp/e2e-selftest.txt /var/tmp/e2e-doctor.txt /var/tmp/e2e-doctor-env.txt'
+  step $J "no answer came from a stand-in (selftest and doctor name none)" vm 'for f in /var/tmp/e2e-selftest.txt /var/tmp/e2e-doctor.txt /var/tmp/e2e-doctor-env.txt; do sudo test -s $f || { echo "$f missing"; exit 1; }; sudo grep -iE "answered by the rehearsal stand-in|REHEARSAL BOX" $f; [ $? = 1 ] || exit 1; done; echo "no stand-in named"'
   J=OPS-exports
   step $J "export ledger (trialbox exports)" vm 'cd /opt/trialbox && sudo trialbox exports 2>&1 | tail -n 8'
   step $J "mail outbox status (trialbox mail status)" vm 'cd /opt/trialbox && sudo trialbox mail status 2>&1 | tail -n 8'
