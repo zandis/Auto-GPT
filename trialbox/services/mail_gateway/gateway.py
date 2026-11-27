@@ -32,7 +32,7 @@ from tb_contracts import Job, JobCreate, SendRequest, SendResult
 
 from mail_gateway import intake, tls
 from mail_gateway.outbound import NotSent, RoutingRefused, Transport, mail_statement, prepare
-from mail_gateway.store import MailDB, SendUncertain
+from mail_gateway.store import WAITS, MailDB, SendUncertain
 
 log = logging.getLogger("mail-gateway")
 GENERIC = "This mailbox accepts requests only from authorised hospital addresses. Your message was not processed."
@@ -155,6 +155,10 @@ REFUSED_BEFORE_SENDING = (
 # LIMIT_WAIT_S.
 RETRY_BASE_S = 60
 RETRY_MAX_S = 3600
+NO_RELAY = (
+    "no mail is sent: the hospital's mail relay (SMTP_HOST) is not given yet; IT gives it on the page "
+    '"Information still needed"'
+)
 MAX_ATTEMPTS = 12
 SENDING_STALE_S = 900
 LIMIT_WAIT_S = 3600
@@ -199,6 +203,9 @@ class Gateway:
     mail_rights: egress_edge.Rights | None = None  # M3: who a patient file may go to now, and who asked for it
     #: 1523 ruling: the job's record of the files it built; None (not wired) or no answer: no file is vouched for
     outputs_made: OutputsMade | None = None
+    #: E2E P-10: the box has a mail relay (SMTP_HOST). Without one nothing can be sent in any environment: the mail
+    #: waits, the try not counted, as the page "Information still needed" says (the stand-in of ``mail_relay``)
+    relay: bool = True
 
     @property
     def sender(self) -> str:
@@ -275,9 +282,10 @@ class Gateway:
         why = self._still_current(req)
         if why in (OPTED_OUT, NO_JOB) or (why and rc1_refusals.refused("patient_mail_and_downloads")):  # held at once
             return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
-        needed = self._site_needs()  # after the refusals that end a mail: those stay final (rc1, D-863)
+        needed = self._site_needs() or ("" if self.relay else NO_RELAY)  # after the final refusals (rc1, D-863)
         if needed:  # U-5: the mail waits, the try not counted, and goes once the page is filled in (D-1280)
-            return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S)
+            return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S,
+                              reason=WAITS)  # fmt: skip
         if why:  # not known now: tried again with back-off, counted, and failed for a person at the limit
             n = attempts + 1
             state = "failed" if n >= MAX_ATTEMPTS else "queued"
@@ -336,13 +344,14 @@ class Gateway:
         attempts: int,
         error: str,
         wait_s: float = 0,
+        reason: str | None = None,
     ) -> Outcome:
         res = SendResult(message_id=message_id, sent_to=[], encrypted=encrypted, password_sent=False, rejected=[])
         next_at = self._ts(wait_s) if state == "queued" else None
         error = " ".join(error.split())[:500]
         self.db.hold(key, state, request_json=req.model_dump_json(), message_id=message_id,
                      result_json=res.model_dump_json(), recipients=recipients, attempts=attempts, next_at=next_at,
-                     error=error, at=self._ts())  # fmt: skip
+                     error=error, at=self._ts(), reason=reason)  # fmt: skip
         event = {"queued": "mail.deferred", "failed": "mail.failed", "uncertain": "mail.uncertain"}[state]
         self.audit.append(
             event,
@@ -379,6 +388,13 @@ class Gateway:
             req = SendRequest.model_validate_json(request)
             out[self._attempt(req, key, message_id, attempts, from_outbox=True).state] += 1
         return {k: v for k, v in out.items() if v}
+
+    def wake(self) -> int:
+        """Review M-1, L-1 (E2E P-10): with the relay given, the mail held for want of it is due now, not up to an
+        hour later (``RETRY_MAX_S``). Review L-4: every key held as "waits, not counted" (U-5), by its reason code, so
+        the PRODUCTION hold (the page's line) wakes too; one still blocked is held again, not counted. Returns how many
+        keys were woken."""
+        return self.db.wake() if self.relay else 0
 
     def resolve(self, key: str, decision: str, actor: str) -> str:
         """A person's decision on a held key (``trialbox mail resolve KEY --sent|--resend|--drop``); audited."""

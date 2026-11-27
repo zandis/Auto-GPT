@@ -31,6 +31,9 @@
 <li>{{ t('users.handover.2') }}</li>
 <li>{{ t('users.handover.3') }}</li>
 </ol>
+{% if pw_code %}<label for="pw-code-value">{{ t('identity.code.label') }}</label>
+<input id="pw-code-value" class="mono" readonly data-testid="users-pw-code" value="{{ pw_code }}" autocomplete="off" spellcheck="false">
+<p>{{ t('users.handover.code', user=made) }}</p>{% endif %}
 <p class="warn">{{ t('users.pw.once') }}</p>
 </section>{% endif %}
 <div class="grid">

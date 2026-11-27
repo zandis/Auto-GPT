@@ -261,7 +261,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.get("/studies/{rs}/edc", dependencies=[MONITOR_READ])  # D-717 review: its subjects are patients' rows
     def status(rs: str) -> dict[str, Any]:
-        return get().status(_rs(rs))
+        return run(lambda: get().status(_rs(rs)))  # E2E P-12: a 4xx/5xx with its code, not a 500
 
     @r.post("/studies/{rs}/edc/switch")
     def switch(rs: str, body: SwitchBody, request: Request) -> dict[str, Any]:
@@ -288,7 +288,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.get("/studies/{rs}/edc/map/suggest")
     def suggest(rs: str) -> list[dict[str, Any]]:
-        return get().suggest(_rs(rs))
+        return run(lambda: get().suggest(_rs(rs)))
 
     @r.put("/studies/{rs}/edc/map")
     def put_map(rs: str, body: MapBody, request: Request) -> dict[str, Any]:
@@ -309,7 +309,9 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
     def list_drafts(rs: str, record: str | None = None, visit: str | None = None) -> list[dict[str, Any]]:
         if visit is not None and not _VISIT.match(visit):
             raise HTTPException(status_code=400, detail={"code": "edc.visit", "message": "not a visit name"})
-        rid = _rs(rs)
+        return run(lambda: _drafts(_rs(rs), record, visit))
+
+    def _drafts(rid: str, record: str | None, visit: str | None) -> list[dict[str, Any]]:
         store = get().store
         rows = store.drafts(rid, _rec(record) if record else None, visit or None)
         covered = store.covered_ids(rid, rows)  # D-461: "signed" only while an intact signature covers the value
@@ -402,6 +404,6 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.get("/studies/{rs}/edc/trail/{record}", dependencies=[MONITOR_READ])
     def trail(rs: str, record: str) -> dict[str, Any]:
-        return get().trail(_rs(rs), _rec(record))
+        return run(lambda: get().trail(_rs(rs), _rec(record)))
 
     return r

@@ -69,7 +69,9 @@ services:
       - objects-data:/data/objects
       - ../.cache/test-secrets:/run/secrets/trialbox
   fhir-store:
-    networks: [trialbox-net, host-net]
+    # P2-03 (D2): never trialbox-net, and not host-net either (lake, mail-gateway and others share that one): the
+    # harness's published port rides fhir-host-net, which no other service joins
+    networks: [fhir-net, fhir-host-net]
     ports: ["127.0.0.1:${TB_HOST_FHIR_PORT:-8080}:8080"]
   lake:
     # TB_ENV TEST (D-639, as D-560 and D-640): a synthetic stack says so. Unset is PRODUCTION, where a service with
@@ -123,3 +125,7 @@ volumes:
 networks:
   host-net:
     name: ${COMPOSE_PROJECT_NAME:-trialbox}-hostnet   # H-75: the project's (compose's -p)
+  fhir-host-net:
+    # P2-03 (D2): the FHIR store's published port in this stack, the store alone on it (Docker publishes no port of a
+    # container on internal networks only)
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-fhir-host

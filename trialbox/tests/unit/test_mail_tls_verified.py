@@ -265,7 +265,15 @@ def test_the_gateway_start_writes_the_audit(monkeypatch: pytest.MonkeyPatch) -> 
     from mail_gateway import app
 
     audit = _Audit()
-    env = Env(smtp_tls_verify=False, imap_user="intake", imap_ssl=False, audit_dir="/nonexistent")
+    env = Env(
+        smtp_tls_verify=False,
+        imap_user="intake",
+        imap_host="imap.hospital.test",
+        imap_ssl=False,
+        audit_dir="/nonexistent",
+    )
+    monkeypatch.setenv("IMAP_HOST", "imap.hospital.test")  # review M-2: a mailbox is audited when it is polled
+    monkeypatch.setenv("TB_MAIL_POLL_SECONDS", "60")
     monkeypatch.setattr(app, "_gw", None)
     monkeypatch.setattr(app, "get_config", lambda: SimpleNamespace(env=env))
     monkeypatch.setattr(app, "open_audit", lambda *a: audit)
