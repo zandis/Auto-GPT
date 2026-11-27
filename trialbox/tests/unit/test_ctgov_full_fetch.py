@@ -5,8 +5,12 @@ registry is a stub that serves three pages."""
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
+
+import httpx
+import pytest
 
 from tools import ctgov_full_fetch as cf
 
@@ -98,3 +102,14 @@ def test_slices_fetched_side_by_side_are_read_from_their_parent(tmp_path: Path) 
     assert (s["slices"], s["all_done"], s["records"], s["expected"]) == (2, False, 7, 10)
     assert s["unfinished"] == {"part-b": "2/5"}
     assert len(list(cf.iter_studies(tmp_path))) == 7
+
+
+def test_a_busy_registry_is_retried_and_a_missing_page_is_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    req = httpx.Request("GET", "https://registry.test/studies")
+    answers = [httpx.Response(503, request=req), httpx.Response(200, json={"studies": []}, request=req)]
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: answers.pop(0))
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    assert cf._get("https://registry.test/studies") == {"studies": []}
+    answers[:] = [httpx.Response(404, request=req)]
+    with pytest.raises(httpx.HTTPStatusError):
+        cf._get("https://registry.test/studies")

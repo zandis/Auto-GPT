@@ -22,17 +22,16 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
-import http.client
 import json
 import sys
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from collections import Counter
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 API = "https://clinicaltrials.gov/api/v2"
 DOC_URL = "https://cdn.clinicaltrials.gov/large-docs/{tail}/{nct}/{filename}"
@@ -50,14 +49,14 @@ FAMILIES = {
 def _get(url: str, tries: int = 6) -> Any:
     for i in range(tries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Encoding": "gzip"})
-            with urllib.request.urlopen(req, timeout=300) as r:  # gzip on the wire: a page is 17 MB raw, 4 MB packed
-                body = r.read()
-                return json.loads(gzip.decompress(body) if r.headers.get("Content-Encoding") == "gzip" else body)
-        except urllib.error.HTTPError as e:
-            if e.code not in (429, 500, 502, 503, 504) or i == tries - 1:
+            # httpx asks for gzip and unpacks it: a page is 17 MB raw, 4 MB on the wire
+            r = httpx.get(url, headers={"User-Agent": UA}, timeout=300, follow_redirects=True)
+            r.raise_for_status()
+            return r.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code not in (429, 500, 502, 503, 504) or i == tries - 1:
                 raise
-        except (OSError, http.client.HTTPException, ValueError):  # a dropped or cut-short response, bad JSON included
+        except (httpx.TransportError, ValueError):  # a dropped or cut-short response, bad JSON included
             if i == tries - 1:
                 raise
         time.sleep(5 * 2**i)
