@@ -9,7 +9,7 @@ against a baseline that may only go down.
 * **two secret scanners** on the whole tree: the first with its inline allow comments not honoured
   (``--ignore-gitleaks-allow``), the second with no verification (no secret leaves the runner);
 * **the platform-manifest scanner** on ``trialbox/deploy/platform``;
-* **the Dockerfile linter** on every Dockerfile of the tree (:data:`DOCKERFILES`), its ignore pragmas not honoured.
+* **the Dockerfile linter** on every tracked Dockerfile under ``trialbox/``, its ignore pragmas not honoured.
 
 Every tool is an image pinned by version and digest (:data:`IMAGES`), run with no network but the rule set's own
 fetch (done before, by :func:`fetch_rules`). It reads a copy of the tracked files, mounted read-only (:func:`snapshot`:
@@ -72,20 +72,6 @@ RULE_DIRS = ("python/lang/security", "dockerfile/security", "bash/lang/security"
 #: the digest of the files of :data:`RULE_DIRS` at :data:`RULES_COMMIT` (:func:`rules_digest`); the scanner reads a copy
 #: that matches it, never the checkout
 RULES_DIGEST = "84cd8c87f302b300f2fc04ba8ed8a6e2770dee870b5a486eb2b0d6ba515b96b6"
-#: every tracked Dockerfile under ``trialbox/``, relative to it (the Makefile's HADOLINT_GATING and HADOLINT_REPORT);
-#: :func:`tracked_dockerfiles` finds them and the test holds the two equal. The root ``Dockerfile`` and
-#: ``.devcontainer/Dockerfile`` are the legacy tree, outside this scope
-DOCKERFILES = (
-    "deploy/docker/python.Dockerfile",
-    "deploy/docker/jvm.Dockerfile",
-    "demo/Dockerfile",
-    "deploy/docker/backup.Dockerfile",
-    "deploy/docker/embed.Dockerfile",
-    "deploy/docker/db.Dockerfile",
-    "deploy/redcap-test/Dockerfile",
-    "tools/rehearse_box/host.Dockerfile",
-    "tools/bench_ci/runner.Dockerfile",
-)
 #: files by which a tool would accept or skip a finding without an argument; none may be in the tree
 IGNORE_FILES = (
     ".semgrepignore",
@@ -117,6 +103,12 @@ class ToolResult:
                 "by_rule": dict(sorted(self.by_rule.items())), "error": self.error}  # fmt: skip
 
 
+class _RulesCopy(Path):
+    """A verified rules path whose temporary directory belongs to the scan."""
+
+    directory: tempfile.TemporaryDirectory[str] | None = None
+
+
 def docker_run(image: str, src: Path, args: Sequence[str], *, rules: Path | None = None) -> list[str]:
     """One tool's run: no network, the tree read-only at ``/src`` (and the rule set at ``/rules``), the image by
     digest."""
@@ -126,7 +118,7 @@ def docker_run(image: str, src: Path, args: Sequence[str], *, rules: Path | None
     return [*argv, image, *args]
 
 
-def commands(src: Path, rules: Path) -> dict[str, list[str]]:
+def commands(src: Path, rules: Path, dockerfiles: Sequence[str]) -> dict[str, list[str]]:
     """Each tool's command line; its JSON report goes to standard output."""
     code = ["semgrep", "scan", "--metrics=off", "--disable-version-check", "--disable-nosem", "--severity", "ERROR",
             "--json", *(a for d in RULE_DIRS for a in ("--config", f"/rules/{d}")), "trialbox", ".github"]  # fmt: skip
@@ -174,7 +166,7 @@ def commands(src: Path, rules: Path) -> dict[str, list[str]]:
                 "--no-fail",
                 "-f",
                 "json",
-                *(f"/src/trialbox/{f}" for f in DOCKERFILES),
+                *(f"/src/trialbox/{f}" for f in dockerfiles),
             ],
         ),
     }
@@ -221,6 +213,8 @@ def parse(tool: str, text: str, log: str = "") -> tuple[list[dict[str, Any]], li
         rows = [_row(r.get("RuleID"), r.get("File"), r.get("StartLine")) for r in doc]
     elif tool == "platform":
         reports = doc if isinstance(doc, list) else [doc]
+        if not reports:
+            raise ValueError("empty Checkov report")
         rows = [_row(c["check_id"], c.get("file_path"), (c.get("file_line_range") or [0])[0])
                 for r in reports for c in r["results"]["failed_checks"]]  # fmt: skip
         if n := sum(int((r.get("summary") or {}).get("parsing_errors") or 0) for r in reports):
@@ -283,6 +277,8 @@ def rules_digest(rules: Path) -> str:
     h = hashlib.sha256()
     for d in RULE_DIRS:
         for p in sorted((rules / d).rglob("*")):
+            if p.is_symlink():
+                raise RuntimeError(f"symlink in rule files: {p.relative_to(rules)}")
             if p.is_file():
                 h.update(f"{p.relative_to(rules).as_posix()}\0".encode() + hashlib.sha256(p.read_bytes()).digest())
     return h.hexdigest()
@@ -290,16 +286,29 @@ def rules_digest(rules: Path) -> str:
 
 def pinned(dest: Path, run: Runner = subprocess.run) -> Path:
     """A fresh copy, outside the tree, of the rule folders of the checkout in ``dest``: ``RuntimeError`` when it is not
-    at :data:`RULES_COMMIT` or when the copy does not hash to :data:`RULES_DIGEST` (a rule edited in the checkout)."""
+    at :data:`RULES_COMMIT`, the rules contain symlinks, or the copy does not hash to :data:`RULES_DIGEST`.
+    The scan takes ownership of the copy."""
     head = run(["git", "-C", str(dest), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
     if head != RULES_COMMIT:
         raise RuntimeError(f"the rule set in {dest} is at {head}, not the pinned {RULES_COMMIT}")
-    copy = Path(tempfile.mkdtemp(prefix="rules-"))
-    for d in RULE_DIRS:
-        shutil.copytree(dest / d, copy / d, symlinks=True)
-    if (got := rules_digest(copy)) != RULES_DIGEST:
-        shutil.rmtree(copy, ignore_errors=True)
-        raise RuntimeError(f"the rule files in {dest} hash to {got}, not the pinned {RULES_DIGEST}")
+    directory = tempfile.TemporaryDirectory(prefix="rules-")
+    verified = False
+    try:
+        copy = _RulesCopy(directory.name)
+        for d in RULE_DIRS:
+            source = dest
+            for part in Path(d).parts:
+                source = source / part
+                if source.is_symlink():
+                    raise RuntimeError(f"symlink in rule files: {source.relative_to(dest)}")
+            shutil.copytree(source, copy / d, symlinks=True)
+        if (got := rules_digest(copy)) != RULES_DIGEST:
+            raise RuntimeError(f"the rule files in {dest} hash to {got}, not the pinned {RULES_DIGEST}")
+        copy.directory = directory
+        verified = True
+    finally:
+        if not verified:
+            directory.cleanup()
     return copy
 
 
@@ -315,12 +324,15 @@ def scan(
     """Run the five tools; write their reports, ``summary.md`` and ``index.json`` (with what fails) into ``out``; the
     record."""
     run = run or subprocess.run
-    out.mkdir(parents=True, exist_ok=True)
     results: list[ToolResult] = []
-    tree = Path(tempfile.mkdtemp(prefix="src-"))
+    tree: Path | None = None
     try:
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir(parents=True)
+        tree = Path(tempfile.mkdtemp(prefix="src-"))
         snapshot(src, tree)
-        for tool, argv in commands(tree, rules).items():
+        for tool, argv in commands(tree, rules, tracked_dockerfiles(src)).items():
             res = ToolResult(tool, IMAGES[tool], ran=False)
             results.append(res)
             try:
@@ -344,7 +356,10 @@ def scan(
             (out / f"{tool}.json").write_text(json.dumps(rows, indent=1) + "\n", encoding="utf-8")
         found = ignore_files(tree)
     finally:
-        shutil.rmtree(tree, ignore_errors=True)
+        if tree is not None:
+            shutil.rmtree(tree, ignore_errors=True)
+        if isinstance(rules, _RulesCopy) and rules.directory is not None:
+            rules.directory.cleanup()
     base = baseline if baseline is not None else load_baseline()
     record: dict[str, Any] = {"blocks_from": {k: v.isoformat() for k, v in BLOCKS_FROM.items()},
                               "rules_commit": RULES_COMMIT, "tools": [r.row() for r in results],
