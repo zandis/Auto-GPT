@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tb_common.authz import permit
 
 from console.account_rules import protected_account
 from console.auth import AFFILIATIONS, ROLES, AuthError, UserStore, random_password, scope_values
@@ -224,11 +225,13 @@ def main(argv: list[str] | None = None) -> int:
             if generated:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "add-user":
-            affiliation = args.affiliation or ("cro" if args.role == "cro" else "hospital")
+            sponsor = permit(args.role, "report.sponsor_form").allowed  # the matrix row, never the role's name
+            affiliation = args.affiliation or ("cro" if sponsor else "hospital")
             scope_values(affiliation, args.studies, None, args.role)  # D-380: refuse a bad scope before the account
             pw, generated = _password(args)
-            store.create(args.name, args.role, pw, args.mailbox or None, must_change=True)  # D-279
-            made = store.set_scope(args.name, affiliation, args.studies)
+            with store.db.transaction():  # the account and its scope together, or neither (the inner ones nest)
+                store.create(args.name, args.role, pw, args.mailbox or None, must_change=True)  # D-279
+                made = store.set_scope(args.name, affiliation, args.studies)
             _audit(
                 "console.user",
                 detail={

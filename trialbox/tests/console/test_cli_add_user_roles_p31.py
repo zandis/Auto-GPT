@@ -39,6 +39,7 @@ def test_add_user_takes_every_role(role: str, tmp_path: Path, monkeypatch: pytes
     made = users.get("p31.user")
     assert made is not None and made.role == role
     assert made.studies == (("GZQO",) if scoped else ())
+    assert made.affiliation == ("cro" if scoped else "hospital")
     assert users.must_change("p31.user")  # D-279: set by the operator, replaced by its owner
     [event] = _created(tmp_path / "audit")
     assert event["user"] == "p31.user" and event["role"] == role
@@ -53,6 +54,33 @@ def test_a_cro_account_without_studies_is_refused_and_not_made(tmp_path: Path, m
     assert _add(monkeypatch, "p31.cro", "cro", "--studies", "bad id!") == 2
     assert not users.role_of("p31.cro")  # no account in any state
     assert _created(tmp_path / "audit") == []
+
+
+def test_a_failed_scope_write_leaves_no_account_and_a_retry_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The account and its scope are written in one transaction: a scope write that fails leaves no account (no CRO
+    account without its studies, which would see every study until set), and the same command then succeeds."""
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
+    users = UserStore()
+    real = UserStore.set_scope
+    calls: list[str] = []
+
+    def fails_once(self: UserStore, *args: Any, **kwargs: Any) -> Any:
+        calls.append("set_scope")
+        if len(calls) == 1:
+            raise RuntimeError("the scope write failed")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(UserStore, "set_scope", fails_once)
+    with pytest.raises(RuntimeError):
+        _add(monkeypatch, "p31.cro", "cro", "--studies", "gzqo")
+    assert not users.role_of("p31.cro")  # no account in any state
+    assert _created(tmp_path / "audit") == []
+    assert _add(monkeypatch, "p31.cro", "cro", "--studies", "gzqo") == 0
+    made = users.get("p31.cro")
+    assert made is not None and made.studies == ("GZQO",)
+    assert [e["user"] for e in _created(tmp_path / "audit")] == ["p31.cro"]
 
 
 def test_a_cro_account_from_the_command_line_sees_no_other_study(
