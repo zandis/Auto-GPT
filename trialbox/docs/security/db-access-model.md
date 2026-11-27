@@ -25,12 +25,14 @@ integrator ruled them that day.
   nothing else.
 - **TCP** (the services, the FHIR store, the backup container): `hostssl` with `scram-sha-256` only. A client that
   does not use TLS is refused.
-- **TLS.** Each start makes a new self-signed key and certificate in the db's `/tmp` (a tmpfs: never on disk, never in
-  a backup; mode 0600). Clients use libpq's and pgjdbc's default `sslmode=prefer`: the traffic on the internal bridge
+- **TLS.** Each start makes a new self-signed key and certificate in the db's `/tmp` (a tmpfs: outside the database
+  volume, so never in a backup; memory, unless the host swaps it out; mode 0600). Clients use libpq's and pgjdbc's default `sslmode=prefer`: the traffic on the internal bridge
   is encrypted, the server's certificate is not checked. The internal docker network stays the trust boundary for
   the server's identity; a site CA and `verify-full` are an R2 item if the pentest asks for them.
-- The cluster's superuser is `hapi`, made by the image's first start. It is used only at initialisation and by the
-  host's tools over the socket; the FHIR store connects as `tb_fhir_store`, the owner of database `hapi` only.
+- The cluster's superuser is `hapi`, made by the image's first start. The host's tools use it over the socket; the
+  update's copy of the FHIR store's database also uses it over TCP (`TB_HAPI_DB_URL` in `tools/trialbox/update.py`),
+  with TLS and its password like every TCP client. The FHIR store itself connects as `tb_fhir_store`, the owner of
+  database `hapi` only.
 
 ## What is recorded
 
@@ -43,7 +45,11 @@ integrator ruled them that day.
 
 ## Backups and WAL archiving
 
-`archive_mode` stays `off` until the site's backup key exists: the install ceremony of P-01 makes the key, then
-turns archiving on with pgBackRest's `archive_command`. Until then the box has no point-in-time restore, and its
-recovery point is that of the last nightly backup, if one has run. Never turn `archive_mode` on without a working
-`archive_command`: PostgreSQL would keep every WAL file until the disk is full.
+`trialbox backup-install` turns WAL archiving on (`setup_archiving` in `tools/trialbox/backup_schedule.py`) unless the
+site wrote `TB_PG_ARCHIVE_MODE=off`: when the db image carries pgBackRest and its repository is off the box
+(`TB_PGBACKREST_REPO`, else the first off-box backup target), it makes the cipher pass once, creates the stanza,
+switches `archive_mode` on and keeps it on only if `pgbackrest check` archives a segment. A box with no off-box target
+(the audited one) keeps archiving off, and says so; it then has no point-in-time restore, and its recovery point is
+that of the last nightly backup, if one has run. This change does not alter that. Turning archiving on as part of the
+backup key ceremony, and a red `backup-status` while it is off, belong to the P-01 work. Never turn `archive_mode` on
+without a working `archive_command`: PostgreSQL would keep every WAL file until the disk is full.

@@ -6,7 +6,7 @@ box starts with (no Docker here; the start itself was run on the db image, see t
 * the access file is the repo's (``hba_file``, mounted read-only, read on every start, old volumes too): no ``trust``;
   the socket by ``peer`` with a map that admits only the container's own user; every TCP line ``hostssl`` with
   ``scram-sha-256``, so a client without TLS is refused;
-* the socket is 0770; TLS is on, with a key made at each start in the db's tmpfs (0600, never on disk);
+* the socket is 0770; TLS is on, with a key made at each start in the db's tmpfs (0600, outside the volume);
 * each connection and disconnection is logged;
 * the access model is written down: grants per role in 1.0, row-level policies in R2.
 """
@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from tests.unit.test_compose_limits import BASE, DEPLOY, _merge
+from tests.unit.test_container_hardening import HARDENING_STACKS
 
 DOCKER = DEPLOY / "docker"
 DOC = DEPLOY.parent / "docs" / "security" / "db-access-model.md"
@@ -59,6 +62,21 @@ def test_tls_is_on_with_a_key_made_at_each_start_in_the_tmpfs() -> None:
     assert re.search(r"umask 077 && openssl req -x509 .*-nodes", start)
     assert f"-keyout {s['ssl_key_file']}" in start and f"-out {s['ssl_cert_file']}" in start
     assert start.rstrip().endswith('exec docker-entrypoint.sh "$$@" tb-db-start')  # the image's own entrypoint
+    assert "2>/dev/null" not in start and "no TLS key made" in start  # a failed key says so in the log
+    assert not re.search(r"^(ENTRYPOINT|CMD)\b", (DOCKER / "db.Dockerfile").read_text(encoding="utf-8"), re.M)
+
+
+@pytest.mark.parametrize(
+    ("stack", "profiles"), HARDENING_STACKS, ids=lambda x: "+".join(x) if isinstance(x, tuple) else x
+)
+def test_every_stack_keeps_the_posture(stack: tuple[str, ...], profiles: tuple[str, ...]) -> None:
+    """No overlay replaces the db's command or entrypoint (compose replaces a list whole)."""
+    db = _merge(stack).get("db")
+    if db is None:
+        return
+    s = _settings(db)
+    assert (s["hba_file"], s["ssl"], s["log_connections"]) == ("/etc/trialbox/pg/pg_hba.conf", "on", "on"), stack
+    assert db["entrypoint"] == _merge((BASE,))["db"]["entrypoint"], stack
 
 
 def test_every_connection_is_logged() -> None:

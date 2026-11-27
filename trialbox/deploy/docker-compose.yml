@@ -88,15 +88,17 @@ services:
     logging: *logging
     image: ${POSTGRES_IMAGE:-trialbox-postgres:16-1}  # deploy/docker/db.Dockerfile, pinned in deploy/images.lock (D-204)
     # P2-06 (ASSESS-1-ADDENDUM D3/D4): TLS on the TCP listener. Each start makes a new self-signed key and certificate
-    # in the db's own /tmp (a tmpfs: never on disk, never in a backup, 0600 to postgres), then runs the image's
-    # entrypoint as before. Clients connect with libpq's and pgjdbc's default sslmode (prefer: encrypted, no
-    # certificate check); pg_hba.conf refuses a TCP client without TLS.
+    # in the db's own /tmp (a tmpfs, outside the database volume, so never in a backup; 0600 to postgres), then runs
+    # the image's entrypoint as before (db.Dockerfile sets none: the base image's docker-entrypoint.sh). A key that
+    # cannot be made stops the start with a line in the log. Clients connect with libpq's and pgjdbc's default
+    # sslmode (prefer: encrypted, no certificate check); pg_hba.conf refuses a TCP client without TLS.
     entrypoint:
       - sh
       - -c
       - >-
         umask 077 && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 -subj /CN=db
-        -keyout /tmp/tb-db-tls.key -out /tmp/tb-db-tls.crt 2>/dev/null && exec docker-entrypoint.sh "$$@"
+        -keyout /tmp/tb-db-tls.key -out /tmp/tb-db-tls.crt || { echo "tb-db-start: no TLS key made" >&2; exit 1; };
+        exec docker-entrypoint.sh "$$@"
       - tb-db-start
     command:
       - postgres
