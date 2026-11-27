@@ -19,6 +19,13 @@ ROOT = DEPLOY.parent
 THIRD_PARTY = ("caddy", "llm-service", "llm-verifier")
 
 
+class _Compose(yaml.SafeLoader):
+    """Compose's own tags (``!reset`` in the stand-ins file) read as an empty value."""
+
+
+_Compose.add_constructor("!reset", lambda _loader, _node: None)
+
+
 def test_caddy_and_the_model_servers_drop_every_capability_in_every_stack() -> None:
     seen: set[str] = set()
     for stack, profiles in HARDENING_STACKS:
@@ -44,7 +51,7 @@ def test_install_checks_the_tls_key_with_caddys_capabilities() -> None:
 
 
 def test_the_rehearsal_mail_sink_takes_the_baseline() -> None:
-    sink = yaml.safe_load((ROOT / "tools" / "rehearse_box" / "standins.yml").read_text(encoding="utf-8"))
+    sink = _Compose((ROOT / "tools" / "rehearse_box" / "standins.yml").read_text(encoding="utf-8")).get_single_data()
     body = sink["services"]["mail-sink"]
     for control in ("cap_drop", "no-new-privileges", "read_only", "user"):
         assert _has(body, control), control
