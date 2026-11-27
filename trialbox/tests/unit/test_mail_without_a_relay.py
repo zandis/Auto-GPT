@@ -261,6 +261,13 @@ V3_GATE_LINE = (
     "Not done: Any mail. It needs first: The hospital's name; The hospital's mail relay. Fill them in on the page "
     '"Information still needed".'
 )
+V3_GATE_NAME = (
+    'Not done: Any mail. It needs first: The hospital\'s name. Fill them in on the page "Information still needed".'
+)
+V3_GATE_RELAY = (
+    "Not done: Any mail. It needs first: The hospital's mail relay. Fill them in on the page "
+    '"Information still needed".'
+)
 V3_NO_RELAY = (
     "no mail is sent: the hospital's mail relay (SMTP_HOST) is not given yet; IT gives it on the page "
     '"Information still needed"'
@@ -277,9 +284,12 @@ def test_a_production_hold_kept_before_the_reason_code_goes_after_the_upgrade(
     later = "2099-01-01T00:00:00+00:00"
     rows = [  # key, attempts, next_at, last_error
         ("k-gate", 0, later, V3_GATE_LINE),
+        ("k-gate-name", 0, later, V3_GATE_NAME),
+        ("k-gate-relay", 0, later, V3_GATE_RELAY),
         ("k-norelay", 0, later, V3_NO_RELAY),
         ("k-tried", 2, later, V3_NO_RELAY),  # held after two refused tries: the hold kept the count
         ("k-fail", 1, later, "connection refused"),
+        ("k-phrase", 1, later, "451 Information still needed from upstream relay"),  # review M3: an SMTP failure
     ]
     for key, attempts, next_at, error in rows:
         v3.execute(
@@ -301,15 +311,15 @@ def test_a_production_hold_kept_before_the_reason_code_goes_after_the_upgrade(
     mta.cause = None
     after = _mr._gw(tmp_path, mta)  # migrates to this release
     reasons = {str(k): r for k, r in after.db.db.fetchall("SELECT key, hold_reason FROM send_keys")}
-    assert reasons == {"k-gate": WAITS, "k-norelay": WAITS, "k-tried": WAITS, "k-fail": None}
-    assert after.wake() == 3
+    held = ("k-gate", "k-gate-name", "k-gate-relay", "k-norelay", "k-tried")
+    assert reasons == {**dict.fromkeys(held, WAITS), "k-fail": None, "k-phrase": None}
+    assert after.wake() == 5
     after.drain()
-    assert {k: _mr._row(after, k).state for k in ("k-gate", "k-norelay", "k-tried")} == dict.fromkeys(
-        ("k-gate", "k-norelay", "k-tried"), "sent"
-    )
-    assert len(mta.sent) == 3
-    kept = _mr._row(after, "k-fail")
-    assert kept.state == "queued" and kept.next_at == later and kept.attempts == 1
+    assert {k: _mr._row(after, k).state for k in held} == dict.fromkeys(held, "sent")
+    assert len(mta.sent) == 5
+    for key in ("k-fail", "k-phrase"):
+        kept = _mr._row(after, key)
+        assert kept.state == "queued" and kept.next_at == later and kept.attempts == 1
 
 
 def test_the_v3_lines_are_the_ones_that_release_wrote() -> None:
@@ -320,6 +330,10 @@ def test_the_v3_lines_are_the_ones_that_release_wrote() -> None:
     both = ((need["site_name"], ""), (need["mail_relay"], ""))
     g = site_needs.Gate(step="mail_out", production=True, blocking=both, warning=())
     assert g.message("en") == V3_GATE_LINE
+    for line, items in ((V3_GATE_NAME, both[:1]), (V3_GATE_RELAY, both[1:])):
+        assert site_needs.Gate(step="mail_out", production=True, blocking=items, warning=()).message("en") == line
+    # the mail-out step needs these two items and no other, so the three lines are every line its gate refuses with
+    assert [n.key for n in site_needs.NEEDS if "mail_out" in n.before] == ["site_name", "mail_relay"]
 
 
 def test_a_mailbox_without_a_server_is_neither_polled_nor_audited(monkeypatch: pytest.MonkeyPatch) -> None:
