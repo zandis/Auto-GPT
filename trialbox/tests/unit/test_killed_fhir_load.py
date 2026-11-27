@@ -177,10 +177,18 @@ def test_the_next_ingest_undoes_a_killed_load_before_it_reads_anything(
     _put_state(cfg, {"state": "loading", "night": N2, "target": N1, "previous": N1, "by": {"pid": 0},
                      "since": "2026-10-02T17:00:00+00:00"})  # fmt: skip
     fhir.holds, fhir.calls = f"part of {N2}", []
+    after: list[dict[str, str]] = []  # the record as the put-back left it (the ingest then writes the folder anew)
+    real_restore = publish_mod.restore_fhir
+
+    def restore(c: Any) -> None:
+        real_restore(c)
+        after.append(_record(folder))
+
+    monkeypatch.setattr(publish_mod, "restore_fhir", restore)
     rep = run_ingest(cfg, "csv", _night(tmp_path, "empty", []), snapshot=N2, validate=False)
     assert not rep.passed and lakes.lake.current() == N1
     assert fhir.calls[:1] == [N1] and fhir.holds == N1
-    assert _state(cfg)["state"] == "clean" and _record(folder)["fhir"] == "pending"  # review L1 (T14)
+    assert _state(cfg)["state"] == "clean" and after[0]["fhir"] == "pending"  # review L1 (T14)
 
 
 # ------------------------------------------------------------------------------------------- the fix round's cases
@@ -295,7 +303,7 @@ def _killed_in_its_load(tmp_path: Path, cfg: Any, fhir: Fhir, mp: pytest.MonkeyP
     run_ingest(cfg, "csv", night, snapshot=snap, validate=False)
     _as_the_kill_left_it(cfg, killed_at)
     mp.setattr(publish_mod, "sync_snapshot", fhir)
-    fhir.holds, fhir.calls = f"part of {snap}", []
+    fhir.holds, fhir.calls, fhir.back, fhir.full = f"part of {snap}", [], [], []
     return snapshot_dir(cfg.lake_dir, snap)
 
 
