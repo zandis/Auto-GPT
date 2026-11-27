@@ -1115,6 +1115,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SITE_PUBLISH_BATCH_SECONDS": Declared(
         "int", "0", "site decisions on main wait this long and publish as one batch (0: at once; D-403)"
     ),
+    "TB_SITE_USERS": Declared(
+        "int", "", "install: the staff who use the console at once, sizing its memory cap (E2E P-06; empty: one)"
+    ),
     "TB_SKIP_AUDIT": Declared("bool", "", "update: skip the audit check (drills)"),
     "TB_SOURCE_DIR": Declared("path", "./site/feed", "compose: host folder of the site feed (settings wizard, T-632)"),
     "TB_SOURCE_DSN": Declared("str", "", "adapter: the read connection of a database source (secret; T-729, T-731)"),

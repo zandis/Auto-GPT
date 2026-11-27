@@ -345,7 +345,7 @@ def compose_caps(files: list[Path]) -> tuple[dict[str, float], float]:
 
 
 def memory_caps(
-    ram_gib: float, profile: str, deploy: Path = DEPLOY, patients: int = 0
+    ram_gib: float, profile: str, deploy: Path = DEPLOY, patients: int = 0, users: int = 0
 ) -> tuple[dict[str, str], list[str]]:
     """``TB_MEM_*`` for this machine (OD-10): no cap is a constant. The compose files' defaults give each service's
     share; the RAM, less what the system keeps (a tenth, at least 4 GiB) and the fixed small caps, is shared out in
@@ -357,9 +357,11 @@ def memory_caps(
     derived for it.
 
     E2E P-02: then each cap of a service in the measured-peak table holds 1.5 times its peak for a hospital of
-    ``patients`` (``TB_SITE_PATIENTS``; not given: the smallest measured class), as :func:`measured_floors` says."""
+    ``patients`` (``TB_SITE_PATIENTS``; not given: the smallest measured class), as :func:`measured_floors` says;
+    the console's for ``users`` people opening the largest study's lists at once (``TB_SITE_USERS``; not given:
+    one, E2E P-06)."""
     if profile == "gb10":
-        return {}, []
+        return {}, spark_short(deploy, patients, users)
     files = [deploy / "docker-compose.yml", deploy / "docker-compose.identity.yml"]
     # dgpu48: the UNMEASURED 48 GB draft (card 24-5): arithmetic only, never detected, refused by install.sh
     overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090", "dgpu48": "dgpu48"}.get(profile)
@@ -390,14 +392,14 @@ def memory_caps(
         rest = avail - sum(mod.values())
         caps = {k: v * rest / sum(svc.values()) for k, v in svc.items()} | mod
     notes = [f"memory: {ram_gib:g} GiB, {reserve:g} GiB kept for the system, the caps at {factor:.2f} of the defaults"]
-    caps, said = measured_floors(caps, var, *site_floors(deploy, patients))
+    caps, said = measured_floors(caps, var, *site_floors(deploy, patients, users))
     return {k: f"{int(v * 1024 + 1e-6)}m" for k, v in sorted(caps.items())}, notes + said
 
 
-def site_floors(deploy: Path, patients: int) -> tuple[dict[str, float], int, list[str]]:
+def site_floors(deploy: Path, patients: int, users: int = 0) -> tuple[dict[str, float], int, list[str]]:
     """E2E P-02: ``(HEADROOM times each measured peak in GiB, the hospital's size, notes)`` from the measured-peak table
     (``deploy/measured/site_peaks.json``) for ``patients``, the nearest larger size class (not given: the smallest
-    class); none without the table."""
+    class); E2E P-06: the console's for ``users`` people at once (not given: one); none without the table."""
     peaks = memcaps.load_peaks(deploy / "measured" / memcaps.PEAKS_NAME)
     if not peaks:
         return {}, 0, []
@@ -409,7 +411,49 @@ def site_floors(deploy: Path, patients: int) -> tuple[dict[str, float], int, lis
             "through the measured peaks; measure a night at this size (tools/scale_gate.py)"
         )
     names = sorted({k for _, row in peaks for k in row})
-    return {k: math.ceil(memcaps.HEADROOM * memcaps.peak_mib(peaks, k, n)) / 1024 for k in names}, n, said
+    floor = {k: math.ceil(memcaps.HEADROOM * memcaps.peak_mib(peaks, k, n)) / 1024 for k in names}
+    people = memcaps.load_users(deploy / "measured" / memcaps.PEAKS_NAME)
+    if people:
+        u = users or 1
+        if u > people[-1][0]:
+            said.append(
+                f"memory: {u} people at once is above the most measured ({people[-1][0]}): the console's cap "
+                "follows the line through the measured peaks"
+            )
+        mib = memcaps.peak_mib(people, "TB_MEM_CONSOLE", u)
+        floor["TB_MEM_CONSOLE"] = math.ceil(memcaps.HEADROOM * mib) / 1024
+    return floor, n, said
+
+
+#: the compose service of each cap the measured-peak table holds (the Spark's overlay writes most of them as literals)
+PEAK_SERVICES = {
+    "TB_MEM_ADAPTER": "adapter",
+    "TB_MEM_CONSOLE": "console",
+    "TB_MEM_LAKE": "lake",
+    "TB_MEM_ORCH": "orchestrator",
+}
+
+
+def spark_short(deploy: Path, patients: int, users: int) -> list[str]:
+    """Review P06-1: the Spark's caps are its profile's (``docker-compose.gb10.yml``), fixed, never derived; a note for
+    each that is under its measured floor for the site's size and people at once (none when all hold)."""
+    floor, n, said = site_floors(deploy, patients, users)
+    text = (deploy / "docker-compose.gb10.yml").read_text(encoding="utf-8")
+    var, _ = compose_caps([deploy / "docker-compose.gb10.yml"])
+    low = []
+    for k, f in sorted(floor.items()):
+        m = re.search(rf"^  {PEAK_SERVICES.get(k, '-')}: \{{[^}}]*mem_limit: ([0-9.]+[mgMG])\}}", text, re.M)
+        have = _gib(m.group(1)) if m else var.get(k)
+        if have is not None and have < f:
+            low.append(f"{k} {int(have * 1024)}m < {int(f * 1024)}m")
+    if not low:
+        return said
+    who = f"{n:,} patients" + (f" and {users} people at once" if users > 1 else "")
+    return [
+        *said,
+        f"memory: the Spark's fixed caps {', '.join(low)} ({memcaps.HEADROOM:g} x the measured peak for {who}): its "
+        "profile does not hold a hospital of that size; the service is killed at its cap (E2E P-02, P-06)",
+    ]
 
 
 def measured_floors(
@@ -437,14 +481,15 @@ def measured_floors(
     ]
 
 
-def site_patients(deploy: Path) -> int:
-    """The hospital's size the box was given (``TB_SITE_PATIENTS``: the environment, else ``deploy/.env``); 0: none."""
-    raw = os.environ.get("TB_SITE_PATIENTS", "").strip()
+def site_patients(deploy: Path, var: str = "TB_SITE_PATIENTS") -> int:
+    """The hospital's size the box was given (``TB_SITE_PATIENTS``: the environment, else ``deploy/.env``); 0: none.
+    ``var="TB_SITE_USERS"``: the staff who use the console at once (E2E P-06)."""
+    raw = os.environ.get(var, "").strip()
     env = deploy / ".env"
     if not raw and env.is_file():
-        raw = memcaps._parse_env(env.read_text(encoding="utf-8")).get("TB_SITE_PATIENTS", "")
+        raw = memcaps._parse_env(env.read_text(encoding="utf-8")).get(var, "")
     if raw and not (raw.isascii() and raw.isdigit()):
-        raise PlanError(f"TB_SITE_PATIENTS={raw!r}: the hospital's patients, a whole number")
+        raise PlanError(f"{var}={raw!r}: a whole number")
     return int(raw or 0)
 
 
@@ -555,8 +600,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         warnings.append(SMALL_SPARK)
     elif mode == "stub":
         warnings.append(f"no GPU of a TrialBox profile ({hw.gpu_name or 'none'}): structured criteria only")
-    patients = site_patients(deploy)
-    caps, notes = memory_caps(hw.ram_gib, profile if mode == "gpu" else "stub", deploy, patients)
+    patients, users = site_patients(deploy), site_patients(deploy, "TB_SITE_USERS")
+    caps, notes = memory_caps(hw.ram_gib, profile if mode == "gpu" else "stub", deploy, patients, users)
     warnings += notes
     if not hw.lan:
         warnings.append(LAN_UNKNOWN)  # D-629
@@ -601,6 +646,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     env: dict[str, str] = dict(caps)
     if patients:  # E2E P-02: memcaps and doctor size and judge the caps by the same number
         env["TB_SITE_PATIENTS"] = str(patients)
+    if users:  # E2E P-06
+        env["TB_SITE_USERS"] = str(users)
     # 10K-4 (D-1390): the folder the owner chose for the disk or the share, else the fixed mount point
     if a.backup.kind is BackupKind.SECOND_DISK:
         folder = a.backup_dir or SECOND_DISK_MOUNT

@@ -27,6 +27,15 @@
    }
   }
  ],
+ "console_users": {
+  "candidates": 47177,
+  "how": "E2E P-06: the console process's peak (maxrss) when that many signed-in people open the job, week, candidates and week pages of one SCREEN at the same moment, its candidate list 47,177 synthetic rows of six criteria (the R1 walk's GOUT-301 study at 50,000 patients; the walk's console was OOM-killed at 1,173 MiB); one person: the higher of two runs",
+  "peak_mib": {
+   "1": 1296,
+   "2": 1719,
+   "4": 3131
+  }
+ },
  "format": "tb-site-peaks/1",
  "how": "each service's peak resident memory (MiB, rounded up) at a measured hospital size; the box plan and memcaps give each cap 1.5 times the peak of the nearest larger size (tools/box/plan.py, tools/trialbox/memcaps.py). Not here: the database and the FHIR store, whose peaks sat at their caps (bounded by their own settings, not a need)"
 }
