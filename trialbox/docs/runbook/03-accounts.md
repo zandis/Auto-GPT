@@ -3,7 +3,8 @@
 **Reader:** the box owner, as the box's administrator (the build-gate parts: the people who build TrialBox).
 
 Administrators add accounts on **Users** (`/ops/users`). For a viewer or CRO account the one-time password shows once,
-in a read-only field; hand it over in person or by phone (D-133). For a coordinator, investigator, steward, privacy or
+in a read-only field; hand it over in person or by phone (D-133). Where local accounts give a TOTP code, an enrolment
+code shows beside it: hand it over too, as the sign-in asks for it once to set up the authenticator. For a coordinator, investigator, steward, privacy or
 administrator account only an enrolment code is shown (D-719): its holder signs in once with it at **First sign-in
 with an enrolment code** (`/enrol`), chooses the password and sets up the authenticator; the code is good for
 `TB_CONSOLE_ENROL_CODE_HOURS` (default 24). Nobody else sets both factors of such an account within 30 days unless
