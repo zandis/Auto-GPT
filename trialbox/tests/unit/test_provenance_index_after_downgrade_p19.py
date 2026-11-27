@@ -1217,6 +1217,62 @@ def test_an_opt_out_during_the_rebuild_wins(box: str, tmp_path: Path, monkeypatc
     assert _check(box, chain).ok
 
 
+def _tick(reg: OptOutRegister, tmp_path: Path) -> dict[str, Any]:
+    """One tick of the opt-out worker on the test's database (no lake, no job store, no OMOP: those clears skip)."""
+    from datacore import optout_worker as w
+
+    env = w.WorkerEnv(register=reg, audit=AuditLog(tmp_path / "worker"), now=datetime.fromisoformat(OPTED))
+    return w.run_once(env)
+
+
+OPTED = "2026-11-22T09:00:00+08:00"
+
+
+def test_an_opt_out_while_the_index_is_clean_takes_the_earlier_rows_out_of_search(box: str, tmp_path: Path) -> None:
+    """Round 4's High (R3): an opt-out recorded while the index is clean. The worker's tick erases the patient's
+    earlier use rows: no search finds them and the check agrees, with no rebuild."""
+    chain = tmp_path / "audit"
+    _ready(box, chain)
+    reg = _register(box)
+    try:
+        _send(box, 20, "c1", PID_B)
+        _send(box, 20, "c2", PID_A)
+        _drain(box, chain)
+        assert _clean(chain) and _uses(box, PID_B) == ["c1"]
+        assert reg.add(PID_B, "paper", "", "console:office1", OPTED)
+        out = _tick(reg, tmp_path)
+    finally:
+        reg.close()
+    assert out["failed"] == [] and out["stores"]["provenance_index"] == {"uses": 1}
+    assert PID_B not in json.dumps(out)
+    with psycopg.connect(box, autocommit=True) as c:
+        pids = {r["record_ref"].get("pid") for r in idx.search(c, directory=chain, model="m-judge")}
+    assert pids == {PID_A}
+    assert _uses(box) == ["c2"] and _check(box, chain).ok
+
+
+def test_an_opt_out_while_a_rebuild_is_required_is_taken_and_wins_at_the_rebuild(box: str, tmp_path: Path) -> None:
+    """(ii), R3: while the marker says a rebuild is required the opt-out is taken (never refused) and the worker's
+    tick erases the rows; the rebuild then writes the chain again and leaves the patient out."""
+    chain = tmp_path / "audit"
+    _ready(box, chain)
+    reg = _register(box)
+    try:
+        _send(box, 20, "c1", PID_B)
+        _drain(box, chain)
+        idx.require_rebuild(chain, "update rollback")
+        assert reg.add(PID_B, "paper", "", "console:office1", OPTED)
+        out = _tick(reg, tmp_path)
+    finally:
+        reg.close()
+    assert out["failed"] == [] and out["stores"]["provenance_index"] == {"uses": 1}
+    with psycopg.connect(box, autocommit=True) as c, pytest.raises(idx.ProvenanceRebuildRequired):
+        idx.search(c, directory=chain, model="m-judge")
+    _rebuild(box, chain)
+    assert _clean(chain) and (_uses(box, PID_B), _calls(box)) == ([], ["c1"])
+    assert _check(box, chain).ok
+
+
 #: a rebuild in a process of its own that kills itself (SIGKILL): in the second day file, after its first line's rows
 #: and before that day's transaction commits ("in_day"), or after that day committed and before the marker says so
 #: ("after_commit")

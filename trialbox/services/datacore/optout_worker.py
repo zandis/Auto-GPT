@@ -355,6 +355,32 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return {"profile.tb_patient_profile": int(n)}
 
 
+def _provenance(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    url = _schema_url(env, "provenance", "model_uses")
+    if url is None or not pids:
+        return {"skipped": 1} if delete and url is None else {}
+    import psycopg
+    from tb_common import provenance_index
+    from tb_common.db import split_url
+
+    with psycopg.connect(split_url(url)[0], autocommit=True, connect_timeout=10) as con:  # the login role (its grant)
+        if delete:
+            return {"uses": provenance_index.erase(con, pids)}
+        row = con.execute("SELECT count(*) FROM provenance.model_uses WHERE pid = ANY(%s)", (sorted(pids),)).fetchone()
+    return {"provenance.model_uses": int(row[0]) if row else 0}
+
+
+def clear_provenance(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """D-989 point 5 (P19-DESIGN-3 R3): the provenance index's use rows of the patient go
+    (``provenance_index.erase``: its transaction, under the trigger's lock); the call rows name no patient. Never
+    refused while the index waits for a rebuild (R2): the rebuild's trigger leaves the patient out again."""
+    return _provenance(pids, env, delete=True)
+
+
+def verify_provenance(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _provenance(pids, env, delete=False)
+
+
 # T-206b part 1 (D-798): the owed tables keyed by the pseudonym, each a plain delete of the patient's rows, in an
 # order that deletes a referencing row before the row it references. The screening log's tables (marks, screening
 # numbers, candidate events, REDCap records) are not here: LIFE-005 is frozen and OD-8 keeps a consented subject's.

@@ -666,8 +666,6 @@ COSTS: dict[str, Cost] = {
                                "ledger", "-", "B2", "large"),
     "outside:sitesetup_space_omop": Cost(True, "Run the omop clear and a lake clear in each practice space's own "
                                          "stores", "D-714 (Reset drops the space)", "C2, B2", "medium"),
-    "outside:provenance_index": Cost(True, "The worker's clear of the use rows, once the role script grants its "
-                                     "role DELETE", "D-989", "B2, D", "small"),
     "pidmap.identity": Cost(True, "Crypto-shred: delete the patient's identity row at the opt-out (the chart "
                             "number stays in pid_map for the door)", "-", "B2", "small"),
     "recall.recall_known_positive": Cost(True, "Replace pid_hash and draw_id by a token, and keep the certificate "
