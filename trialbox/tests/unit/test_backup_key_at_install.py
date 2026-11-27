@@ -13,6 +13,8 @@ Every row and passphrase is synthetic.
 from __future__ import annotations
 
 import base64
+import contextlib
+import errno
 import io
 import json
 import os
@@ -20,8 +22,11 @@ import pty
 import re
 import select
 import stat
-import threading
+import subprocess
+import sys
+import termios
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TextIO, cast
 
@@ -32,11 +37,14 @@ from tests import pg_client
 from tests.unit.test_backup_key_ceremony import SITE, Box
 from tools import backup_key_ceremony as bkc
 from tools.trialbox import backup as bk
+from tools.trialbox import backup_schedule as bs
 from tools.trialbox import restore_drill as rd
 from tools.trialbox.__main__ import main as trialbox_main
 
 LINE = re.compile(r"(\d+) \| ([A-Z2-7 ]+) \| ([A-Z2-7]{4})")
 PASS = "synthetic install passphrase p01"  # the install's KEK passphrase (synthetic)
+ROOT = Path(__file__).resolve().parents[2]
+UNSEEN = bkc._unseen  # the real one: the stand-in terminal below has no terminal settings
 
 
 def _copied(shown: str) -> list[str]:
@@ -90,7 +98,28 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Box:
     monkeypatch.setattr(bkc, "is_root", lambda: True)
     monkeypatch.delenv("TB_ENV", raising=False)  # unset: a PRODUCTION box
     monkeypatch.delenv("TB_BACKUP_PUBKEY", raising=False)
+    monkeypatch.delenv("TB_BACKUP_TARGETS", raising=False)
+    monkeypatch.delenv("TB_BACKUP_OFFBOX", raising=False)
+    # H-04: the stand-in terminal has no terminal settings, so the echo-off context is given as a no-op here; the echo
+    # is proven off on a real pseudo-terminal (test_the_command_on_a_real_terminal), and a failing one refuses
+    monkeypatch.setattr(bkc, "_unseen", lambda _tty: contextlib.nullcontext())
     return b
+
+
+def _offbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """H-02: the box's backup target, off the box (declared, with its mark, as backup_schedule.target_kind counts it)."""
+    nas = tmp_path / "nas"
+    nas.mkdir(exist_ok=True)
+    (nas / bs.OFFBOX_MARKER).write_text("", encoding="utf-8")
+    monkeypatch.setenv("TB_BACKUP_TARGETS", str(nas))
+    monkeypatch.setenv("TB_BACKUP_OFFBOX", str(nas))
+    return nas
+
+
+def _sealed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An unattended install's sealed key on the box (an off-box target set)."""
+    _offbox(tmp_path, monkeypatch)
+    return Path(bkc.install_sealed(bkc._env(), PASS)["sealed"])
 
 
 @pytest.fixture
@@ -209,45 +238,138 @@ def test_an_interrupted_install_clears_the_screen(box: Box) -> None:
     assert not box.pub.exists() and len(box.pending()) == 2
 
 
-def test_the_command_on_a_real_terminal(box: Box, monkeypatch: pytest.MonkeyPatch) -> None:
-    """P-02: ``--install`` on a pseudo-terminal, as install.sh runs it (``/dev/tty`` cannot be opened ``r+``: it is
-    not seekable). The copy typed back is not echoed."""
-    monkeypatch.setattr(bkc, "harden", lambda: None)
-    master, slave = pty.openpty()
-    monkeypatch.setattr(bkc, "TTY", os.ttyname(slave))
-    seen: list[bytes] = []
-    copy: list[str] = []
-    done = threading.Event()
+CHILD = r"""
+import json, sys
+from pathlib import Path
+from tools import backup_key_ceremony as b
+cfg = json.loads(sys.argv[1])
+b.DEPLOY = Path(cfg["deploy"]); b.PUB_DIR = b.DEPLOY / "secrets"; b.COMPOSE = cfg["compose"]
+b.is_root = lambda: True; b.harden = lambda: None; b.TTY = cfg["tty"]
+sys.exit(b.main(cfg["argv"]))
+"""
 
-    def it() -> None:
-        buf, deadline = b"", time.monotonic() + 60
-        while not done.is_set() and time.monotonic() < deadline:
+
+def _on_a_terminal(
+    box: Box, argv: list[str], answer: Callable[[str], str | None], timeout: float = 60
+) -> tuple[int | None, str]:
+    """M-04: ``main(argv)`` in a process of its own whose terminal (``TTY``, stdin, stdout and stderr) is a
+    pseudo-terminal; ``answer`` gets what was shown since its last answer and returns what to type, or None. At
+    ``timeout`` the process is killed, whatever its prompt said: ``(None, what was shown)``, never a test that hangs."""
+    master, slave = pty.openpty()
+    cfg = {"deploy": str(box.deploy), "compose": box.compose, "tty": os.ttyname(slave), "argv": argv}
+    p = subprocess.Popen([sys.executable, "-c", CHILD, json.dumps(cfg)], cwd=ROOT, env=box.env(), stdin=slave,
+                         stdout=slave, stderr=slave, start_new_session=True)  # fmt: skip
+    os.close(slave)
+    shown, fresh, deadline = b"", b"", time.monotonic() + timeout
+    rc: int | None = None
+    try:
+        while time.monotonic() < deadline:
             if not select.select([master], [], [], 0.2)[0]:
                 continue
-            chunk = os.read(master, 65536)
-            buf += chunk
-            seen.append(chunk)
-            text = buf.decode("utf-8", "replace")
-            if not copy and "press enter" in text.lower() and LINE.search(text):
-                copy.extend(_copied(text))
-                os.write(master, b"\n")
-                buf = b""
-            elif copy and (m := re.search(r"line (\d+) of \d+: [^\n]*: $", text)):
-                os.write(master, (copy[int(m.group(1)) - 1] + "\n").encode())
-                buf = b""
-
-    t = threading.Thread(target=it, daemon=True)
-    t.start()
-    try:
-        assert bkc.main(["--install"]) == 0
+            try:
+                chunk = os.read(master, 65536)
+            except OSError:  # EIO: the process closed its terminal (it ended)
+                break
+            shown, fresh = shown + chunk, fresh + chunk
+            if (say := answer(fresh.decode("utf-8", "replace"))) is not None:
+                os.write(master, say.encode())
+                fresh = b""
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            rc = p.wait(timeout=max(0.0, deadline - time.monotonic()))
     finally:
-        done.set()
-        t.join(10)
-        os.close(slave)
+        if p.poll() is None:
+            p.kill()
+            p.wait()
         os.close(master)
+    return rc, shown.decode("utf-8", "replace")
+
+
+def test_the_command_on_a_real_terminal(box: Box) -> None:
+    """P-02: ``--install`` on a pseudo-terminal, as install.sh runs it (``/dev/tty`` cannot be opened ``r+``: it is
+    not seekable). The copy typed back is not echoed. M-04: in a process of its own, killed at its deadline."""
+    copy: list[str] = []
+
+    def it(text: str) -> str | None:
+        if not copy and "press enter" in text.lower() and LINE.search(text):
+            copy.extend(_copied(text))
+            return "\n"
+        if copy and (m := re.search(r"line (\d+) of \d+: [^\n]*: $", text)):
+            return copy[int(m.group(1)) - 1] + "\n"
+        return None
+
+    rc, shown = _on_a_terminal(box, ["--install"], it)
+    assert rc == 0, shown.rsplit(bkc.CLEAR, 1)[-1]
     assert box.pub.is_file() and copy
-    after = b"".join(seen).decode("utf-8", "replace").split(bkc.CLEAR, 1)[1]
+    after = shown.split(bkc.CLEAR, 1)[1]
     assert all("".join(line.split()) not in "".join(after.split()) for line in copy)  # not echoed
+
+
+def test_a_prompt_nobody_answers_ends_at_the_deadline(box: Box) -> None:
+    """M-04: a prompt the driver does not know (here none is answered) is a bounded failure: the process is killed at
+    its deadline; no backup.pub."""
+    start = time.monotonic()
+    rc, _ = _on_a_terminal(box, ["--install"], lambda _text: None, timeout=5)
+    assert rc is None and time.monotonic() - start < 30
+    assert not box.pub.exists()
+
+
+class _NoSettings(Terminal):
+    """The install's terminal whose descriptor's settings fail (H-04)."""
+
+    def __init__(self, fd: int) -> None:
+        super().__init__()
+        self.fd = fd
+
+    def fileno(self) -> int:
+        return self.fd
+
+
+@pytest.mark.parametrize("fails", ["read", "change"])
+def test_terminal_settings_that_fail_refuse_before_a_line_is_asked(
+    box: Box, monkeypatch: pytest.MonkeyPatch, fails: str
+) -> None:
+    """H-04: the echo cannot be turned off (the terminal's settings cannot be read, or cannot be changed): refused
+    before the first line of the copy is asked, never a copy typed back visible; no backup.pub, the screen cleared."""
+    monkeypatch.setattr(bkc, "_unseen", UNSEEN)
+    master, slave = pty.openpty()
+    null = os.open(os.devnull, os.O_RDONLY)
+    try:
+        if fails == "change":
+
+            def refuse(*_a: object) -> None:
+                raise termios.error(errno.EIO, "Input/output error")
+
+            monkeypatch.setattr(bkc.termios, "tcsetattr", refuse)
+        term = _NoSettings(null if fails == "read" else slave)  # /dev/null: no terminal settings to read
+        with pytest.raises(bkc.Stop) as got:
+            _install(term)
+        assert got.value.text is bkc.TERMINAL_UNSAFE and term.reads == 1
+        assert "line 1 of" not in term.getvalue() and term.getvalue().endswith(bkc.CLEAR)
+        assert not box.pub.exists() and [e for e in box.journal() if e["event"] == bkc.EVENT] == []
+    finally:
+        for fd in (master, slave, null):
+            os.close(fd)
+
+
+def test_the_unseal_passphrase_is_not_echoed_on_a_terminal(
+    box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H-03: ``--unseal`` run by hand, as the runbook gives it: the passphrase is asked on the terminal with its echo
+    off, and never shown."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    out = tmp_path / "usb" / "trialbox-backup.key"
+    out.parent.mkdir()
+    asked: list[str] = []
+
+    def it(text: str) -> str | None:
+        if not asked and "passphrase" in text.lower():
+            asked.append(text)
+            return PASS + "\n"
+        return None
+
+    rc, shown = _on_a_terminal(box, ["--unseal", str(sealed), "--out", str(out)], it, timeout=30)
+    assert rc == 0 and asked, shown
+    assert PASS not in shown and bkc.read_key(out.read_bytes()) == made[-1]
 
 
 def test_no_terminal_makes_nothing(
@@ -270,6 +392,7 @@ def test_an_unattended_install_seals_the_key_under_the_install_passphrase_and_a_
 ) -> None:
     """Residual 2 of r1p1a: an install with no terminal makes the key through the passphrase (ruling (1)), not a
     FAIL. The key is never plain on the box; the sealed file and the passphrase give the key file back."""
+    _offbox(tmp_path, monkeypatch)  # H-02: the sealed copy goes to an off-box target before backup.pub
     monkeypatch.setattr(bkc, "harden", lambda: None)
     monkeypatch.setattr(bkc, "TTY", str(tmp_path / "no-terminal"))
     monkeypatch.setattr("sys.stdin", io.StringIO(PASS + "\n"))
@@ -307,6 +430,98 @@ def test_an_unattended_install_without_a_passphrase_makes_nothing(
         assert bkc.main(["--install", "--sealed-stdin"]) == 1
         assert capsys.readouterr().err.strip() == bkc.NO_PASSPHRASE["en"]
     assert not box.pub.exists() and box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
+
+
+def test_the_sealed_key_is_on_the_offbox_target_before_backup_pub_and_restores_from_there_alone(
+    box: Box, made: list[bytes], tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H-02: the sealed copy goes to the off-box backup target (synced, read back) before backup.pub exists; with the
+    box's disk lost (its own sealed file gone) the target's copy and the passphrase restore the nightly backup."""
+    nas = _offbox(tmp_path, monkeypatch)
+    at_pub: list[list[str]] = []
+    real = bkc._pub_last
+
+    def pub_last(pfd: int, pub: bytes) -> None:
+        at_pub.append(sorted(p.name for p in nas.glob("*.sealed")))
+        real(pfd, pub)
+
+    monkeypatch.setattr(bkc, "_pub_last", pub_last)
+    rec = bkc.install_sealed(bkc._env(), PASS)
+    fp, on_box = rec["fingerprint"], Path(rec["sealed"])
+    copy = nas / bkc.sealed_name(fp)
+    assert at_pub == [[copy.name]] and box.pub.is_file()
+    assert stat.S_IMODE(copy.stat().st_mode) == 0o600 and copy.read_bytes() == on_box.read_bytes()
+    _no_key_on_the_box(box, made[-1])
+    on_box.unlink()  # the box's disk is lost
+    key_file = tmp_path / "usb" / "trialbox-backup.key"
+    key_file.parent.mkdir()
+    assert bkc.unseal_to(copy, key_file, PASS) == fp and bkc.read_key(key_file.read_bytes()) == made[-1]
+    _restores(box, box.pub, key_file, tmp_path, db_url, monkeypatch)
+
+
+@pytest.mark.parametrize("target", ["none", "on the box", "write fails"])
+def test_no_offbox_copy_makes_no_backup_pub(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    """H-02: no target, a target on the box's own disk only, or an off-box copy that cannot be written: refused, and
+    no backup.pub (no backup may encrypt to a key whose only copy is on the box)."""
+    if target == "on the box":
+        (tmp_path / "backups").mkdir()
+        monkeypatch.setenv("TB_BACKUP_TARGETS", str(tmp_path / "backups"))
+    elif target == "write fails":
+        nas = _offbox(tmp_path, monkeypatch)
+        real = bkc._new_file
+
+        def new_file(dfd: int, name: str | None, data: bytes, mode: int = 0o644) -> int:
+            if os.path.samestat(os.fstat(dfd), os.stat(nas)):
+                raise OSError(errno.EIO, "Input/output error")
+            return real(dfd, name, data, mode)
+
+        monkeypatch.setattr(bkc, "_new_file", new_file)
+    with pytest.raises(bkc.Stop) as got:
+        bkc.install_sealed(bkc._env(), PASS)
+    assert got.value.text is (bkc.STEP_FAILED if target == "write fails" else bkc.NO_OFFBOX_COPY)
+    assert not box.pub.exists() and [e for e in box.journal() if e["event"] == bkc.EVENT] == []
+    if target != "write fails":  # refused before a key is made
+        assert box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
+
+
+@pytest.mark.parametrize("cut", ["key_text", "fsync"])
+def test_an_interrupted_unseal_leaves_nothing_that_blocks_its_retry(
+    box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cut: str
+) -> None:
+    """M-03: an unseal cut short (before or while the key file is written) leaves no file, partial or temporary, at
+    the place given; the same command again makes the key file."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    usb = tmp_path / "usb"
+    usb.mkdir()
+    out = usb / "trialbox-backup.key"
+
+    def cut_here(*_a: object) -> None:
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as m:
+        m.setattr(bkc if cut == "key_text" else bkc.os, cut, cut_here)
+        with pytest.raises(KeyboardInterrupt):
+            bkc.unseal_to(sealed, out, PASS)
+    assert list(usb.iterdir()) == []
+    bkc.unseal_to(sealed, out, PASS)
+    assert list(usb.iterdir()) == [out] and stat.S_IMODE(out.stat().st_mode) == 0o600
+    assert bkc.read_key(out.read_bytes()) == made[-1]
+
+
+def test_an_unseal_input_larger_than_a_sealed_key_is_refused_by_its_size(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-05: a file larger than MAX_FILE (a sealed key padded to 1 MiB: its first MAX_FILE bytes would open) is
+    refused by its size, before it is read; nothing is written."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    big = tmp_path / "big.sealed"
+    big.write_bytes(sealed.read_bytes() + b" " * (1 << 20))
+    out = tmp_path / "k"
+    with pytest.raises(bkc.Stop) as got:
+        bkc.unseal_to(big, out, PASS)
+    assert got.value.text is bkc.NOT_UNSEALED and not out.exists()
 
 
 INSTALL = (Path(__file__).resolve().parents[2] / "deploy" / "install.sh").read_text(encoding="utf-8")
@@ -369,3 +584,60 @@ def test_the_console_backup_without_a_key_says_what_this_box_runs(
     with pytest.raises(tb_ops.OpsFailed) as got:
         tb_ops.OpsRunner(tb_ops.Box("compose", tmp_path / "deploy", env), tb_ops.OpsDir(tmp_path / "ops")).do_backup({})
     assert says in str(got.value) and ("backup-keygen" in str(got.value)) == (tb_env == "TEST")
+
+
+def _between(start: str, end: str) -> str:
+    a = INSTALL.index(start)
+    return INSTALL[a : INSTALL.index(end, a)]
+
+
+@pytest.mark.parametrize("seal_step", [True, False])
+def test_the_unattended_install_takes_the_passphrase_file_to_the_backup_key_and_removes_it(
+    tmp_path: Path, seal_step: bool
+) -> None:
+    """M-02: the real install input path, run by bash with no terminal: the installer's reader takes
+    ``--kek-passphrase-file`` (0600, its owner the user that runs it), the KEK seal step (when it runs on this box) and
+    the backup key's sealed path get the passphrase on stdin, and the file is gone at the end; no FAIL. A file others
+    can read is refused before anything."""
+    reader = _between("KP_WHO=install\n", "# ---- end of KEK-INPUT\n")
+    seal = _between('HB_CONF="$ROOT/deploy/site/hardening.conf"\n', "# D-378:")
+    key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
+    rec, bin_ = tmp_path / "rec", tmp_path / "bin"
+    for d in (rec, bin_, tmp_path / "deploy" / "hardening", tmp_path / "deploy" / "secrets"):
+        d.mkdir(parents=True)
+    for name, body in (("python3", f'printf "%s\\n" "$*" >> {rec}/ceremony; cat >> {rec}/ceremony\n'),
+                       ("systemd-creds", "exit 1\n")):  # fmt: skip
+        (bin_ / name).write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        (bin_ / name).chmod(0o755)
+    (tmp_path / "deploy" / "hardening" / "seal_keys.sh").write_text(f"cat > {rec}/seal\n", encoding="utf-8")
+    keys = tmp_path / "root"
+    keys.mkdir(mode=0o700)
+
+    def run(pp: Path) -> subprocess.CompletedProcess[str]:
+        script = ('die() { echo "die: $*"; exit 1; }\nsay() { :; }\nstop_or_warn() { FAILS+=("$3"); }\nFAILS=()\n'
+                  f"PP_FILE={pp}\nPP_STDIN=0\nPP_FD=\nPP_REMOVE=\nPP_KEEP=0\nROOT={tmp_path}\n{reader}"
+                  'id() { if [ "$1" = -u ]; then echo 0; else command id "$@"; fi; }\n'  # the seal step runs as root
+                  f"KEYS_OK=1\nHOST_PROFILE={'server' if seal_step else 'poc'}\nTB_ENV_SITE=PRODUCTION\n"
+                  f"IMAGE_PY=img\nTB_SECRETS_HOST_DIR={tmp_path}/sec\n{seal}{key_step}"
+                  'for f in "${FAILS[@]}"; do echo "FAIL: $f"; done\n')  # fmt: skip
+        return subprocess.run(["setsid", "bash", "-c", script], cwd=tmp_path, capture_output=True, text=True,
+                              check=False, stdin=subprocess.DEVNULL, timeout=60,
+                              env={"PATH": f"{bin_}:{os.environ['PATH']}"})  # fmt: skip
+
+    loose = keys / "loose.pass"
+    loose.write_text(PASS + "\n", encoding="utf-8")
+    loose.chmod(0o644)
+    r = run(loose)
+    assert r.returncode == 1 and "has mode 644, not 0600: refused" in r.stderr and list(rec.iterdir()) == []
+    pp = keys / "trialbox-kek.pass"
+    pp.write_text(PASS + "\n", encoding="utf-8")
+    pp.chmod(0o600)
+    r = run(pp)
+    assert r.returncode == 0, r.stderr
+    assert (rec / "ceremony").read_text(encoding="utf-8").splitlines() == [
+        "-m tools.backup_key_ceremony --install --sealed-stdin",
+        PASS,
+    ]
+    assert ((rec / "seal").read_text(encoding="utf-8") == PASS + "\n") if seal_step else not (rec / "seal").exists()
+    assert not pp.exists() and f"the passphrase file {pp} is removed" in r.stdout
+    assert "FAIL:" not in r.stdout and "was not used" not in r.stdout + r.stderr and PASS not in r.stdout + r.stderr
