@@ -42,7 +42,7 @@ def test_the_bundle_carries_the_inventory_page_beside_the_generated_report(kit: 
     gates, sbom = rb._gate_record(kit["tmp"], [*rb.OWN, rb.BACKUP, rb.HAPI, rb.VLLM])
     res = rb._make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 0, res.stdout[-3000:] + res.stderr[-3000:]
-    with tarfile.open(kit["tmp"] / "out.tar") as tf:
+    with tarfile.open(kit["tmp"] / "dist" / "out.tar") as tf:
         manifest = json.loads(_read(tf, "manifest.json"))
         files = {f["path"] for f in manifest["files"]}
         assert {IN_BUNDLE, "sbom/licences.md"} <= files, sorted(files)

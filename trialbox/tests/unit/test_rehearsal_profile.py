@@ -224,7 +224,7 @@ def test_a_bundle_built_for_a_rehearsal_says_so(kit: dict[str, Any]) -> None:  #
     gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom), "--rehearsal")
     assert res.returncode == 0, res.stdout + res.stderr
-    with tarfile.open(kit["tmp"] / "out.tar") as tf:
+    with tarfile.open(kit["tmp"] / "dist" / "out.tar") as tf:
         rel = json.loads(tf.extractfile("release.json").read())  # type: ignore[union-attr]
     assert rel["rehearsal"] is True
 
@@ -233,7 +233,7 @@ def test_a_bundle_built_for_a_site_does_not(kit: dict[str, Any]) -> None:  # noq
     gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 0, res.stdout + res.stderr
-    with tarfile.open(kit["tmp"] / "out.tar") as tf:
+    with tarfile.open(kit["tmp"] / "dist" / "out.tar") as tf:
         rel = json.loads(tf.extractfile("release.json").read())  # type: ignore[union-attr]
     assert "rehearsal" not in rel
 

@@ -174,6 +174,9 @@ def _make(
     }
     if "--models" not in extra and "--rehearsal" not in extra:
         extra = (*extra, "--models", str(kit["models"]))
+    # HYG2: a release names the key the boxes trust (--pub); a rehearsal may derive it. kit["pub"] = None leaves it out
+    if kit.get("pub") and "--pub" not in extra and "--rehearsal" not in extra:
+        extra = (*extra, "--pub", str(kit["pub"]))
     cmd = [
         "bash",
         str(SCRIPT),
@@ -182,7 +185,7 @@ def _make(
         "--id",
         "2026.11-1",
         "--out",
-        str(kit["tmp"] / "out.tar"),
+        str(kit["tmp"] / "dist" / "out.tar"),
         "--allow-dirty",  # D-631: these tests build from whatever tree they run in
         "the unit tests",
         *extra,
@@ -197,7 +200,7 @@ def test_a_bundle_without_its_checks_cannot_be_built(kit: dict[str, Any]) -> Non
     res = _make(kit, "--release-seq", "1")
     assert res.returncode == 2
     assert "--gates is required" in res.stderr
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "dist" / "out.tar").exists()
     assert not kit["log"].exists()  # refused before any image is touched
     script = SCRIPT.read_text(encoding="utf-8")
     assert "WARNING no --gates" not in script  # the old warn-and-continue path is gone
@@ -224,7 +227,7 @@ def test_a_failed_compose_render_shows_compose_own_error(kit: dict[str, Any], mo
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
     assert res.returncode == 2
     assert env_err in res.stderr
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "dist" / "out.tar").exists()
 
 
 def test_too_little_disk_stops_the_build_before_the_first_save(
@@ -237,7 +240,7 @@ def test_too_little_disk_stops_the_build_before_the_first_save(
     assert res.returncode == 2
     assert "needs about" in res.stderr and "TMPDIR" in res.stderr
     assert not [line for line in kit["log"].read_text(encoding="utf-8").splitlines() if line.startswith("save ")]
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "dist" / "out.tar").exists()
 
 
 def test_an_image_outside_the_gate_record_is_refused(kit: dict[str, Any]) -> None:
@@ -245,14 +248,14 @@ def test_an_image_outside_the_gate_record_is_refused(kit: dict[str, Any]) -> Non
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 1, res.stdout + res.stderr
     assert "not a passing image of this record" in res.stderr
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "dist" / "out.tar").exists()
 
 
 def test_an_image_that_passed_only_in_report_mode_is_refused(kit: dict[str, Any]) -> None:
     gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM], report_mode=(VLLM,))
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 1
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "dist" / "out.tar").exists()
 
 
 def test_release_build_rechecks_the_saved_archives(tmp_path: Path) -> None:
@@ -275,7 +278,7 @@ def test_release_json_in_the_bundle_names_every_component(kit: dict[str, Any]) -
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 0, res.stdout + res.stderr
     assert "release check: PASS" in res.stdout
-    bundle = kit["tmp"] / "out.tar"
+    bundle = kit["tmp"] / "dist" / "out.tar"
     assert release.check_bundle(bundle) == []
 
     with tarfile.open(bundle) as tf:
