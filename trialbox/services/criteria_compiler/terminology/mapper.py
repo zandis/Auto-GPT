@@ -68,7 +68,6 @@ DOMAIN_TABLES = {
 }
 TABLE_FILES = {
     "icd10cm": "icd10cm_tw",
-    "atc": "atc",
     "nhi_drug": "nhi_drug",
     "nhi_order": "nhi_order",
     "department": "department",
@@ -422,6 +421,57 @@ class Terminology:
             return Concept(r.get("system") or SYSTEMS["loinc"], r["code"], r["display"], r.get("component_of") or None)
         return Concept(SYSTEMS[table], r["code"], r["display"])
 
+    def atc_source(self) -> list[dict[str, Any]]:
+        """V-18b (D-1183): ATC is never shipped (WHOCC, permission to ask). Each code is looked up in order: the site's
+        own copy (``atc_index``, its substances, level 5) names it; else the NHI drug lists' ATC column (open data)
+        holds it, named by the NHI ingredient when there is one; else TrialBox's own groupers name it, as the code
+        itself (D-536). So a site copy that lacks a code (older, or cut to a formulary) never takes a code from a
+        grouper; ``atc_gaps`` lists those codes. Never a WHOCC name without the site's copy."""
+        named: dict[str, str] = {}
+        for r in self.atc_rows:  # a group is a family, never a member
+            if len(str(r["code"])) == 7:
+                named[str(r["code"])] = str(r["display"])
+        site = set(named)
+        for r in [*self.rows.get("nhi_drug", []), *self.nhi_atc]:
+            code = str(r.get("atc") or "")
+            if len(code) == 7 and code not in site:
+                ing = str(r.get("ingredient") or "")
+                if ing or code not in named:
+                    named[code] = ing or code
+        for s in self.synonyms:
+            if s["table"] == "atc" and s["match"] == "exact":
+                named.setdefault(str(s["code"]), str(s["code"]))
+        return [{"code": c, "display": d} for c, d in sorted(named.items())]
+
+    def atc_gaps(self) -> dict[str, list[str]]:
+        """V-18b review F1: each grouper's ATC codes that the site's own copy does not hold (they come from the NHI
+        lists or the grouper itself); empty when no copy is loaded or the copy holds them all."""
+        if not self.atc_rows:
+            return {}
+        site = {str(r["code"]) for r in self.atc_rows}
+        out: dict[str, list[str]] = {}
+        for s in self.synonyms:
+            if s["table"] != "atc":
+                continue
+            for c in self.expand("atc", str(s["code"]), str(s["match"])):
+                if c.code not in site and c.code not in out.get(str(s["name"]), []):
+                    out.setdefault(str(s["name"]), []).append(c.code)
+        return {k: sorted(v) for k, v in sorted(out.items())}
+
+    def atc_losses(self) -> dict[str, list[str]]:
+        """V-18b review F1: each grouper's ATC families (prefix rows) that no code of the site's copy, the NHI lists or
+        the grouper itself fills: such a grouper lost codes the shipped table gave it. The compile sends it for review,
+        and the mapping check and ``needed.jsonl`` name it."""
+        out: dict[str, list[str]] = {}
+        for s in self.synonyms:
+            if s["table"] == "atc" and s["match"] == "prefix" and not self.expand("atc", str(s["code"]), "prefix"):
+                out.setdefault(str(s["name"]), []).append(str(s["code"]))
+        return {k: sorted(set(v)) for k, v in sorted(out.items())}
+
+    def _atc_lost(self, fams: set[tuple[str, str]]) -> list[str]:
+        """The ATC families of ``fams`` with no code to list (``atc_losses``)."""
+        return sorted(code for sy, code in fams if sy == SYSTEMS["atc"] and not self.expand("atc", code, "prefix"))
+
     def concept(self, system: str, code: str) -> Concept | None:
         return self._by_code.get((system, code))
 
@@ -431,7 +481,7 @@ class Terminology:
 
     def expand(self, table: str, code: str, match: str) -> list[Concept]:
         out = []
-        for r in self.rows.get(table, []):
+        for r in self.atc_source() if table == "atc" else self.rows.get(table, []):
             c = self._concept(table, r)
             if (match == "exact" and c.code == code) or (match == "prefix" and c.code.startswith(code)):
                 out.append(c)
@@ -492,12 +542,16 @@ class Terminology:
             wide = self._via(name, domain, trusted, grouped, exact, "synonym", False)
             if wide is not None and {c.code for c in hits} < {c.code for c in wide.concepts}:
                 return wide
-            return MappingResult(name, domain, _dedupe(hits), "exact", False)
+            # V-18b: a name of the site's own ATC copy keeps the method of a table loaded at install
+            site = bool(self.rows.get("atc")) and all(c.system == SYSTEMS["atc"] for c in hits)
+            return MappingResult(name, domain, _dedupe(hits), "loaded" if site else "exact", False)
         # 2. curated synonym/grouper table on the name — a grouper such as "urate-lowering therapy" must win over
         #    exact matches of individual example drugs
         hits, fams = grouped([primary])
-        if hits:
-            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+        if hits or fams:
+            lost = self._atc_lost(fams)  # V-18b F1: a family the site's copy and the NHI lists hold no code of
+            note = [f"ATC families with no code to list ({', '.join(lost)}): load the site's ATC copy"] if lost else []
+            return MappingResult(name, domain, _dedupe(hits), "synonym", bool(lost), note, families=sorted(fams))
         # 2a. the loaded synonym dictionary (D-172), trusted entries only: TrialBox's curated rows that are not
         #     ambiguous (類風濕關節炎 -> rheumatoid arthritis, GPT -> alt), then the curated table and the exact names
         #     on their canonical names. Such a match is a curated synonym: no review.
@@ -508,8 +562,10 @@ class Terminology:
             return found
         # 2 (cont.). the curated table on the model's synonyms
         hits, fams = grouped(names)
-        if hits:
-            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+        if hits or fams:
+            lost = self._atc_lost(fams)
+            note = [f"ATC families with no code to list ({', '.join(lost)}): load the site's ATC copy"] if lost else []
+            return MappingResult(name, domain, _dedupe(hits), "synonym", bool(lost), note, families=sorted(fams))
         # 2b. exact match on the synonyms (flagged for review: the grouping came from the model)
         hits = exact(names[1:])
         if hits:
@@ -593,6 +649,13 @@ class Terminology:
         # the stamp's TERM-2 part is read again with them (the ICD blocks and index stay as __init__ read them)
         self.installed_read = {k: v for k, v in self.installed_read.items() if k in (inst.ICD_BLOCKS, inst.ICD_INDEX)}
         self.loaded_codes: set[tuple[str, str]] = set()  # every code of a loaded table (a site code is checked here)
+        # V-18b (D-1183): the site's ATC index (atc_index), the one source of ATC: groupers expand and an NHI drug's
+        # ATC code is named from it; none loaded, none (the NHI drug list's own ATC column still answers)
+        for gone in getattr(self, "atc_rows", []):
+            self._by_code.pop((SYSTEMS["atc"], str(gone["code"])), None)
+        self.rows["atc"] = []
+        self.atc_rows: list[dict[str, Any]] = []
+        self.nhi_atc: list[dict[str, Any]] = []  # the NHI drug list loaded at install (or shipped): its ATC column
         self.who_categories: dict[str, list[Concept]] = {}  # a WHO ICD-10 category -> its codes, when loaded
         have = sorted(p.stem for p in where.glob("*.parquet")) if where.is_dir() else []
         # H-17 (D-1127): the NHI open data shipped in the image answers when the box loaded none of its own
@@ -704,6 +767,18 @@ class Terminology:
 
         if table == inst.ATC_INDEX:
             uri = LOADED_SYSTEMS["atc"]
+            self.atc_rows = rows
+            # the site's copy takes the shipped table's place: a substance (level 5) whose name no other substance
+            # shares answers the exact-name step (and the dictionary through it), as the shipped rows did before
+            # V-18b; a name several codes share answers below, for review (TERM-2, D-1113)
+            subs = [r for r in rows if len(str(r["code"])) == 7]
+            seen: dict[str, int] = {}
+            for r in subs:
+                seen[norm(str(r["display"]))] = seen.get(norm(str(r["display"])), 0) + 1
+            self.rows["atc"] = [{"code": str(r["code"]), "display": str(r["display"])} for r in subs
+                                if seen[norm(str(r["display"]))] == 1]  # fmt: skip
+            for r in rows:
+                self._by_code[(uri, str(r["code"]))] = Concept(uri, str(r["code"]), str(r["display"]))
             under: dict[str, list[Concept]] = {}  # an ATC group -> its substances (level 5)
             for x in rows:
                 self.loaded_codes.add((uri, str(x["code"])))
@@ -720,6 +795,7 @@ class Terminology:
                     exact += [("medication", k, concepts, fams, table, table) for k in _name_keys(str(r["display"]))]
         elif table == inst.NHI_DRUGS:
             uri = LOADED_SYSTEMS["atc"]
+            self.nhi_atc = rows
             for r in rows:
                 self.loaded_codes.add((LOADED_SYSTEMS["nhi_drug"], str(r["nhi_code"])))
                 ing = _ingredient(str(r.get("ingredient") or ""))

@@ -5,11 +5,11 @@
     "concept": [
      {
       "code": "J04AB05",
-      "display": "rifapentine"
+      "display": "J04AB05"
      },
      {
       "code": "J04AC01",
-      "display": "isoniazid"
+      "display": "J04AC01"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -22,5 +22,5 @@
  "status": "active",
  "title": "tb preventive therapy",
  "url": "http://trialbox.local/fhir/ValueSet/RA-JAK-VS-TB-PREVENTIVE-THERAPY",
- "version": "1.0.0-v51a12a37"
+ "version": "1.0.0-v63194244"
 }

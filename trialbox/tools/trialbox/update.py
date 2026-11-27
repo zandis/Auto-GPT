@@ -2704,8 +2704,42 @@ class ComposeBox(_DockerImages):
                           timeout=7200)  # fmt: skip
         site = self.deploy / "site"
         site.mkdir(parents=True, exist_ok=True)
-        (site / "terminology-load.json").write_text(report, encoding="utf-8")
+        from tools import terminology_load as tl
+
+        path = site / "terminology-load.json"
+        try:  # review 1439-4: systems an earlier restart did not serve stay pending
+            new = json.loads(report)
+            old = json.loads(path.read_text("utf-8")) if path.is_file() else None
+            tl.write_report(path, tl.carry(old if isinstance(old, dict) else None, new))
+        except ValueError:
+            tl.write_text_whole(path, report)  # whole or not at all (review 1439-3): the doctor reads it
+        self._restart_fhir_store(path)
         return done
+
+    def _restart_fhir_store(self, path: Path) -> None:
+        """V-18b (D-1183, V18-01): after a load that changed a system, the FHIR store is restarted and waited for, so
+        it never answers ``$lookup`` or ``$validate-code`` from the earlier version (its cache keeps them for minutes,
+        and no operation clears it); the report records it for the doctor."""
+        import time
+        from datetime import UTC, datetime
+
+        from tools import terminology_load as tl
+
+        try:
+            rep = json.loads(path.read_text("utf-8"))
+        except (OSError, ValueError):
+            return
+        if not tl.changed(rep):
+            return
+        start = time.monotonic()
+        answered = True
+        try:
+            self.run(self._c("restart", "fhir-store"), timeout=300)
+            self.run(self._c("up", "-d", "--wait", "--wait-timeout", "900", "fhir-store"), timeout=960)
+        except (UpdateFailed, subprocess.TimeoutExpired):  # said in the report and by the doctor, never a stop
+            answered = False
+        at = datetime.now(UTC).isoformat(timespec="seconds")
+        tl.write_report(path, tl.restarted(rep, answered, int(time.monotonic() - start), at))  # whole or not at all
 
     def check(self, plan: Plan) -> str:
         weights = self.check_weights()  # first: a flag it writes makes the gateway unhealthy for the wait below
