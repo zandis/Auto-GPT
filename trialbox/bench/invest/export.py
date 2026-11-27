@@ -24,6 +24,7 @@ from bench.invest.ledger import STAGES_MATCH, VERDICTS
 MIN_CELL = 10
 UNKNOWN_KINDS = frozenset({"data_gap", "uncertain", "pending_human"})
 TIERS = frozenset({"strong", "potential:data_gap", "potential:uncertain", "watchlist", "excluded", "out_of_scope"})
+AGG_TABLES = frozenset({"stage_verdict", "family_reason", "data_gap", "latency_ms"})
 REASONS = frozenset(CODES) | TIERS | {"not_evaluated", "out_of_scope"}
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:\-]{0,63}")
 _DATE = re.compile(
@@ -97,6 +98,8 @@ def refuse(agg: Mapping[str, Sequence[Mapping[str, Any]]], pids: Collection[str]
     known = set(known_ids)
     pidset = set(pids)
     for table, rows in agg.items():
+        if table not in AGG_TABLES:  # a table name is exported too: it must be one of ours, empty or not
+            raise Refused(f"{table!r} is not an aggregate table")
         for row in rows:
             for key, val in row.items():
                 where = f"{table}.{key}"

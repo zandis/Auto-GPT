@@ -57,7 +57,8 @@ atoms, template assignments, card proposals, compile and equivalence results); i
 ## `run`: one row
 
 `run_id, code_sha, bench_sha, model_pins_json, prompt_shas_json, schema_shas_json, terminology_sha, lake_snapshot_sha,
-ruleset_hashes_json, sets_json`.
+ruleset_hashes_json, sets_json, tz, run_date`
+(the lake's time zone and the cascade's run date: both change which day a record falls on, so both are in the run id).
 
 ## What leaves a real-data machine: `ledger_agg`
 

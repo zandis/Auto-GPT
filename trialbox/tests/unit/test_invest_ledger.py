@@ -171,3 +171,113 @@ def test_ddl_lists_every_ledger_column() -> None:
     for table, cols in {**ledger.TABLES, "run": ledger.RUN_COLS}.items():
         assert f"CREATE TABLE {table} (" in sql
         assert all(f"  {n} " in sql for n, _ in cols)
+
+
+def test_every_stored_row_key_is_the_hash_of_its_row(tmp_path: Path) -> None:
+    rs = _ruleset()
+    _d, _m, rid = _write(tmp_path, rs, _result(rs))
+    rows = ledger.connect(tmp_path, rid).execute("select * from match_stage").to_arrow_table().to_pylist()
+    assert rows
+    assert all(r["row_key"] == ledger.row_key_of(r) for r in rows)
+
+
+@pytest.mark.parametrize("table", ["Patient-Jane-Doe", "P00001", "data_gap2"])
+def test_the_exporter_refuses_a_table_name_that_is_not_one_of_ours(tmp_path: Path, table: str) -> None:
+    for rows in ([{"n": 12}], []):  # an empty table is exported by name too
+        target = tmp_path / "leak.json"
+        with pytest.raises(export.Refused, match="aggregate table"):
+            export.write_agg(target, {table: rows}, {"P00001"}, set())
+        assert not target.exists()
+
+
+def test_each_planted_leak_is_refused_by_its_own_check() -> None:
+    """The value is a permitted identifier (known, a valid reason code) except for the one thing planted."""
+    pid = "p-0123456789abcdef"
+    cases = {
+        "a_patient_id": (pid, "a patient id"),
+        "a_day_level_date": ("GZQO-2026-03-14", "day-level date"),
+        "a_quote": ("the patient reports pain", "closed identifier"),
+    }
+    for protocol_id, why in cases.values():
+        agg = {"data_gap": [{"protocol_id": protocol_id, "reason_code": "data_gap", "n": 12}]}
+        with pytest.raises(export.Refused, match=why):
+            export.refuse(agg, {pid}, {protocol_id})
+    clean = {"data_gap": [{"protocol_id": "GZQO", "reason_code": "data_gap", "n": 12}]}
+    export.refuse(clean, {pid}, {"GZQO"})
+
+
+def test_a_rewrite_with_fewer_partitions_leaves_no_old_partition(tmp_path: Path) -> None:
+    def run(parts: list[str]) -> ledger.LedgerWriter:
+        w = ledger.LedgerWriter(tmp_path, "run-x", {"code_sha": "c0de"})
+        for part in parts:
+            w.add("match_stage", part, {"pid": "p-1", "protocol_id": part, "criterion_id": "C1", "stage": "S1"})
+        return w
+
+    run(["A", "B"]).close()
+    run(["A"]).close()
+    names = sorted(p.parent.name for p in (tmp_path / "run-x").glob("match_stage/*/*.parquet"))
+    assert names == ["protocol=A"]
+    got = ledger.connect(tmp_path, "run-x").execute("select protocol_id from match_stage").fetchall()
+    assert got == [("A",)]
+    assert [p.name for p in tmp_path.iterdir()] == ["run-x"]  # no staging or trash left behind
+
+
+def test_an_interrupted_rewrite_leaves_the_earlier_run_whole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def run(parts: list[str]) -> ledger.LedgerWriter:
+        w = ledger.LedgerWriter(tmp_path, "run-x", {"code_sha": "c0de"})
+        for part in parts:
+            w.add("match_stage", part, {"pid": "p-1", "protocol_id": part, "criterion_id": "C1", "stage": "S1"})
+        return w
+
+    first = run(["A", "B"]).close()
+    real, calls = ledger._write_parquet, []
+
+    def dies_on_the_second_file(*a: Any) -> None:
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        real(*a)
+
+    monkeypatch.setattr(ledger, "_write_parquet", dies_on_the_second_file)
+    with pytest.raises(OSError):
+        run(["C", "D"]).close()
+    monkeypatch.undo()
+    assert json.loads((tmp_path / "run-x" / "MANIFEST.json").read_text("utf-8")) == first
+    got = ledger.connect(tmp_path, "run-x").execute("select protocol_id from match_stage order by 1").fetchall()
+    assert got == [("A",), ("B",)]
+
+
+def test_a_file_the_manifest_does_not_list_is_not_read(tmp_path: Path) -> None:
+    w = ledger.LedgerWriter(tmp_path, "run-y", {"code_sha": "c0de"})
+    w.add("match_stage", "Z", {"pid": "p-1", "protocol_id": "Z", "criterion_id": "C1", "stage": "S1"})
+    w.close()
+    good = tmp_path / "run-y" / "match_stage" / "protocol=Z" / "part-0.parquet"
+    good.with_name("part-9.parquet").write_bytes(good.read_bytes())
+    assert ledger.connect(tmp_path, "run-y").execute("select count(*) from match_stage").fetchone()[0] == 1
+
+
+def test_the_criterion_input_hash_changes_with_the_lake_snapshot(tmp_path: Path) -> None:
+    rs, res = _ruleset(), None
+    res = _result(rs)
+
+    def hashes(snap: str) -> set[str]:
+        w = ledger.LedgerWriter(tmp_path / snap, "r", {"code_sha": "c0de"})
+        match_adapter.add_cascade(w, rs, res, lake_snapshot=snap, pid_salt="s")
+        w.close()
+        rows = ledger.connect(tmp_path / snap, "r").execute("select inputs_hash from match_stage").fetchall()
+        return {r[0] for r in rows}
+
+    assert hashes("2026-10-04").isdisjoint(hashes("2026-10-05"))  # criterion rows, the not-evaluated ones, S0, tier
+
+
+def test_the_run_id_changes_with_the_time_zone_and_the_run_date(tmp_path: Path) -> None:
+    from bench.invest import dry_run
+
+    rs = _ruleset()
+    res = _result(rs)
+
+    def rid(tz: str, run_date: str) -> str:
+        return dry_run.write_ledger(tmp_path, {rs.id: rs}, {rs.id: res}, SNAP, tz=tz, run_date=run_date)[2]
+
+    assert rid("UTC", "2026-10-05") == rid("UTC", "2026-10-05")
+    assert len({rid("UTC", "2026-10-05"), rid("Asia/Tokyo", "2026-10-05"), rid("UTC", "2026-10-06")}) == 3
