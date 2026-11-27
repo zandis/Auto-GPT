@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6c73db64a3fcdb82626fce1e691ba67f42f3675e",
+  "head": "8e6f3b8a4f9c37dc380b472142aa5c21a6ab19f1",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "INT-R1: a medication look-back counts an order whose supply reaches into the window (GOUT-COH-INC-03, GZQO-EXC-04, RA-COH-INC-02 and the steps after them)",
+  "reason": "int/data: the jp-ss synthetic fixture has chart numbers of its own (prefix 9); it shared 2xxxxxxx with synthetic-jp-a, so the H34-06 identity hold fired on 398 chart numbers",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
@@ -132,21 +132,21 @@
   },
   "ssmix2-jp": {
    "candidate_pids": [
-    "11aaecff17cba8df3d625ca4a1e72088",
-    "20e10cadd2826063640513ccee355a5f",
-    "2c3de19bc8836f7fe71b526ea54dfc9d",
-    "36eea06756e8d3ecef32126e3d852905",
-    "3734cc4230d21d2b564d0948a3db8617",
-    "6505fb82a3644aa91c492accb2d5c808",
-    "9df76a229c46d32db557ca5d630f38d2",
-    "a4c7024f6a7defbd3990acc5526edc1f",
-    "ab429bd09851846fee90a35bccc98c9f",
-    "c4d66fddb2999e54b4702fbb90c74e2e",
-    "f0f000bbbd1722f0edd9e32dd6a2b1ca",
-    "ff6a3704b6b513fb1faefcbb096324c7"
+    "2936f0cb5b359c637184faf10b8ea479",
+    "2bf5a501fcf25d76fc4adb910341bc6f",
+    "599cb266556524261509e4f5905b6ed2",
+    "79cefd47cd712144b3a3547cacb7e433",
+    "80eaf88a6fa85b5d7ea6d5f5739c8335",
+    "a2892c4b472ccd0ff0ef4c0c1006a36a",
+    "a2c1d047d274666629d38495bdc1c313",
+    "a970a2d85c9a9eaa0cdd228b6a459668",
+    "ab6835ab2fe386c2fe583232d40e37b5",
+    "c52371844807b46de4ea6bba84a8280e",
+    "cbc3cf971716c465a62799dfd2334d61",
+    "fc6dc93f87503b056a532c3f3326486a"
    ],
    "candidates": 12,
-   "outcomes_sha": "9810f5ce658535fdf0c273a31f326c4d05be6f91141425b41b4c3962e68b1f68",
+   "outcomes_sha": "145c1f6f8102ff8a95df2273d9680ade30951cf11a10e4249b451fd01637bce8",
    "patients": 400,
    "structured_criteria": [
     "GZQO-INC-01",
