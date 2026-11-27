@@ -42,7 +42,7 @@ def test_an_investigator_on_no_log_gets_a_403_page_that_says_why_and_what_next(l
     assert r.status_code == 403, (r.url, r.status_code)
     assert str(r.url).endswith("/studies/GZQO/week")  # the same dead end as before, now with words
     cat = CATALOGUES[lang]
-    text = r.text.replace("&#34;", '"')
+    text = html.unescape(r.text)
     assert cat["problem.h.week.no_log"] in text
     assert cat["week.no_log"].format(rs="GZQO") in text
     assert cat["problem.why.week.no_log"] in text  # who assigns one: the PI, or the administrator
