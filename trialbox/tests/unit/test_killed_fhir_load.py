@@ -1680,6 +1680,40 @@ def test_a_lake_restored_behind_the_generation_ledger_is_refused(tmp_path: Path,
         assert gate.status == "FAIL" and publish_mod.LAKE_BEHIND in gate.detail, gate
 
 
+def test_a_lake_restored_ahead_of_the_generation_ledger_is_refused(tmp_path: Path, stub: Stub) -> None:
+    """Review G2, the other way: a backup taken while N2 was published (``trialbox backup`` dumps the trial database
+    and the FHIR store's database first, then copies the lake). Restored, the lake says N2 is served and its store
+    checked, and the generation ledger says N2 is still building, or N1 finished. The store is not known to hold
+    N2: owed by the same name, nothing put back, the next ingest refused, the doctor fails by it."""
+    from datacore.generations import Built
+
+    cfg, lakes = _stub_cfg(tmp_path, stub)
+    assert run_ingest(cfg, "csv", _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001"]), snapshot=N1,
+                      validate=False).passed  # fmt: skip
+    assert run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, validate=False).passed
+    now = (cfg.lake_dir / "FHIR_STATE").read_bytes()
+    for night, finished in ((N2, False), (N1, True)):
+        (cfg.lake_dir / "FHIR_STATE").write_bytes(now)
+        with Built() as book, book.building("fhir"):  # the trial database as the backup's dump has it
+            gen = book.begin("fhir", night, back=True, upgrade=True)
+            if finished:
+                book.finish("fhir", gen)
+        assert _generation() == (night, "finished" if finished else "building")
+        assert publish_mod.derive(cfg).clean  # the lake's own files alone say clean
+        sent = len(stub.log())
+        with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_BEHIND):
+            publish_mod.recover_all(cfg)
+        st = _state(cfg)
+        assert st["verified"] is False and st["reason"].startswith(publish_mod.LAKE_BEHIND) and st["want"] == N2
+        lakes.calls.clear()
+        with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_BEHIND):
+            run_ingest(cfg, "csv", _night(tmp_path, "n3", [_row("D3", "2026-09-03")], ["10000001"]), snapshot=N3,
+                       validate=False)  # fmt: skip
+        assert lakes.calls == [] and lakes.lake.current() == N2 and len(stub.log()) == sent
+        gate = _gate(cfg)
+        assert gate.status == "FAIL" and publish_mod.LAKE_BEHIND in gate.detail, gate
+
+
 def _killed_with_a_transaction_out(tmp_path: Path, cfg: Any, mp: pytest.MonkeyPatch) -> None:
     """N2's publisher dies right after the store took one of its transactions, before its answer was read."""
     killed_at = tmp_path / "disk-at-the-kill"
