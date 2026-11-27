@@ -95,6 +95,14 @@ held() { # journey step snapshot log : the night ends non-zero AND the lake's CU
   c1=$(current)
   rec "$1" "$2" "$([ $rc != 0 ] && [ -n "$c0" ] && [ "$c0" = "$c1" ] && echo PASS || echo FAIL)" 0 "rc=$rc CURRENT $c0 -> $c1 $(tail -c 160 "$EV/$4.txt")"
 }
+fhir_patients() { vm "sudo docker exec trialbox-db-1 psql -U hapi -d hapi -Atc \"select count(*) from hfj_resource where res_type='Patient' and res_deleted_at is null\""; }
+unpublished() { # P-03: a night that did not pass left nothing in the clinical store or the lake (before: FHIR patients, CURRENT)
+  local f c
+  f=$(fhir_patients)
+  c=$(current)
+  echo "FHIR patients $1 -> $f, CURRENT [$2] -> [$c]"
+  [ "$f" = "$1" ] && [ "$c" = "$2" ]
+}
 oomed() { vm "sudo docker inspect -f '{{.State.OOMKilled}} {{.RestartCount}}' trialbox-adapter-1; sudo dmesg | grep -c 'Memory cgroup out of memory' || true"; }
 
 j_nights() { # the patient data flow at the declared size: full, delta, cut (with and without totals), shrunken
@@ -109,7 +117,11 @@ j_nights() { # the patient data flow at the declared size: full, delta, cut (wit
   step $J "counts before any night" counts
   step $J "N1 source totals written (clean drop)" totals $FEED
   step $J "N1 feed in place" feed $FEED
+  local f0 c0
+  f0=$(fhir_patients)
+  c0=$(current)
   if ! step $J "N1 full night under the installed caps" night "$d1"; then
+    step $J "N1 the failed night published nothing (FHIR, lake CURRENT unchanged; P-03)" unpublished "$f0" "$c0"
     step $J "N1 adapter memory kill? (OOMKilled restarts; kernel oom lines)" oomed
     if oomed | grep -q '^true\|^[1-9]'; then
       deviate P02-cap "TB_MEM_ADAPTER=12g (the installed cap was not enough for the declared size)" raise_adapter_cap
