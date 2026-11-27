@@ -1335,7 +1335,7 @@ d_bundle_models() {
 }
 step_b_sign() {  # HYG2-R10: one signing at a time per build root (a lock), so whatever an earlier one left is stale
   # ponytail: the lock's fd is inherited by the step's children; one that outlived b05 would keep the next one TB-SIGN-BUSY
-  local lk= rc
+  local lk='' rc
   mkdir -p "$BUILD" && exec {lk}>"$BUILD/.sign.lock" || { STOP="TB-SIGN-LOCK: $BUILD/.sign.lock could not be opened"; return 1; }
   if flock -n "$lk"; then b_sign; rc=$?; else STOP="TB-SIGN-BUSY: another signing holds $BUILD/.sign.lock"; rc=1; fi
   exec {lk}>&-
