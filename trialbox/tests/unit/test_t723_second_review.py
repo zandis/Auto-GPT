@@ -179,12 +179,25 @@ class Store:
     fails after everything asked for was written (a load that broke at its last resource)."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from adapter import load_fhir
+        from adapter import load_fhir, publish
 
         self.holds: dict[str, dict[str, str]] = {}
         self.bad: set[str] = set()
         monkeypatch.setattr(load_fhir, "load_snapshot", self.load)
         monkeypatch.setattr(load_fhir, "delete_refs", self.delete)
+        if hasattr(publish, "verify_fhir"):  # P-03: the store's check against a night, from what it holds
+            monkeypatch.setattr(publish, "verify_fhir", self.verify)
+
+    def verify(self, cfg: Any, folder: Path, *, ids: bool = False, also: Any = ()) -> dict[str, int]:
+        from adapter.load_fhir import snapshot_ids
+
+        want = snapshot_ids(folder)
+        held = {t: set(r) for t, r in self.holds.items() if r}
+        if held != {t: i for t, i in want.items() if i}:
+            from adapter.publish import FhirMismatch
+
+            raise FhirMismatch(f"the store holds {sorted(held)}, the night {sorted(want)}")
+        return {t: len(i) for t, i in held.items()}
 
     def load(self, base: str, directory: Path, workers: int = 4, only: dict[str, set[str]] | None = None) -> int:
         from adapter.load_fhir import snapshot_hashes

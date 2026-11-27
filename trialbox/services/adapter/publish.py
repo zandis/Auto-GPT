@@ -361,8 +361,9 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     holds none of this box's resources"); with ``ids``, the store's ids (paged ``_elements=id``) hash to the
     folder's. The types: the folder's, the ledger's and ``also`` (the ledger's before a put-back rewrote it). The
     loader is the only writer of these types (the terminology tools write CodeSystem and ValueSet), so the store's
-    count of a type is this box's. Returns the counts; :class:`FhirMismatch` names what differs, or the check that
-    got no answer."""
+    count of a type is this box's. Returns the counts; :class:`FhirMismatch` names what differs (types and counts,
+    no resource's content). A store that does not answer raises the transport's error: not checked is not a
+    mismatch, and never clean."""
     import httpx
 
     from adapter.load_fhir import snapshot_ids
@@ -373,27 +374,24 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     types = sorted(set(want) | _ledger_types(cfg) | set(also))
     counts: dict[str, int] = {}
     wrong: list[str] = []
-    try:
-        with httpx.Client(timeout=60) as client:
-            for t in types:
-                resp = client.get(f"{base}/{t}", params={"_summary": "count"})
-                resp.raise_for_status()
-                counts[t] = int(resp.json().get("total") or 0)
-                if counts[t] != len(want.get(t, ())):
-                    wrong.append(f"{t}: store {counts[t]}, night {len(want.get(t, ()))}")
-                elif ids and counts[t]:
-                    got: list[str] = []
-                    url: str | None = f"{base}/{t}?_elements=id&_count=1000"
-                    while url:
-                        page = client.get(url)
-                        page.raise_for_status()
-                        body = page.json()
-                        got += [str(e["resource"]["id"]) for e in body.get("entry") or []]
-                        url = next((ln["url"] for ln in body.get("link") or [] if ln.get("relation") == "next"), None)
-                    if _ids_hash(got) != _ids_hash(want.get(t, set())):
-                        wrong.append(f"{t}: the store's ids are not the night's")
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-        raise FhirMismatch(f"the FHIR store did not answer the check ({type(exc).__name__})") from exc
+    with httpx.Client(timeout=60) as client:
+        for t in types:
+            resp = client.get(f"{base}/{t}", params={"_summary": "count"})
+            resp.raise_for_status()
+            counts[t] = int(resp.json().get("total") or 0)
+            if counts[t] != len(want.get(t, ())):
+                wrong.append(f"{t}: store {counts[t]}, night {len(want.get(t, ()))}")
+            elif ids and counts[t]:
+                got: list[str] = []
+                url: str | None = f"{base}/{t}?_elements=id&_count=1000"
+                while url:
+                    page = client.get(url)
+                    page.raise_for_status()
+                    body = page.json()
+                    got += [str(e["resource"]["id"]) for e in body.get("entry") or []]
+                    url = next((ln["url"] for ln in body.get("link") or [] if ln.get("relation") == "next"), None)
+                if _ids_hash(got) != _ids_hash(want.get(t, set())):
+                    wrong.append(f"{t}: the store's ids are not the night's")
     if wrong:
         raise FhirMismatch("; ".join(wrong))
     return counts
@@ -405,8 +403,9 @@ def _ids_hash(ids: Iterable[str]) -> str:
 
 def _first_verify(cfg: AdapterConfig) -> None:
     """A box from before ``FHIR_STATE`` (no file): the store is checked once against the served night, ids
-    included. It passes: ``clean``; it does not: ``rollback-required`` (the put-back follows). The caller holds
-    ``fhir.lock``."""
+    included. It passes: ``clean``; it does not: ``rollback-required`` (the put-back follows). A store that does
+    not answer leaves it unchecked (no file: checked again by the next call; nothing calls it clean). The caller
+    holds ``fhir.lock``."""
     if (cfg.lake_dir / FHIR_STATE).exists():
         return
     served = _current(cfg.lake_dir) or ""
@@ -419,6 +418,9 @@ def _first_verify(cfg: AdapterConfig) -> None:
         counts = verify_fhir(cfg, folder, ids=True)
     except FhirMismatch as exc:
         _rollback(cfg, st, f"first check of the store: {exc}")
+        return
+    except Exception as exc:
+        log.warning("the FHIR store is not checked yet (%s): the next ingest or publish checks it", type(exc).__name__)
         return
     _write_state(cfg, {"state": CLEAN, "night": served, "verified_at": _now(), "counts": counts})
 
@@ -448,8 +450,8 @@ def restore_fhir(cfg: AdapterConfig) -> None:
     try:
         _fhir_put_back(cfg, target)
         counts = verify_fhir(cfg, target, ids=True, also=also)
-    except Exception as exc:
-        st = _rollback(cfg, st, failure.words(exc), failed=True)
+    except Exception as exc:  # a mismatch's words are types and counts; any other error's text is not kept
+        st = _rollback(cfg, st, str(exc) if isinstance(exc, FhirMismatch) else failure.words(exc), failed=True)
         log.error("%s", outstanding(st))
         raise FhirRestoreOutstanding(outstanding(st)) from exc
     _write_state(cfg, {"state": CLEAN, "night": served or "", "verified_at": _now(), "counts": counts})
@@ -678,6 +680,10 @@ def _publish_locked(
         try:
             restore_fhir(cfg)
         except FhirRestoreOutstanding as exc:
+            from adapter import failure
+
+            failure.log_failure(log, "fhir-store put-back failed", exc.__cause__ or exc)
+            out.errors.append(f"fhir-store put-back failed: {failure.words(exc.__cause__ or exc)}")  # D-668
             out.errors.append(str(exc))
             out.fhir_outstanding = str(exc)
             note("fhir", FAILED)
@@ -818,8 +824,12 @@ def _publish_locked(
         try:
             _write_state(cfg, {"state": CLEAN, "night": snap, "verified_at": _now(),
                                "counts": verify_fhir(cfg, out.out_dir)})  # fmt: skip
-        except FhirMismatch as exc:  # the night is served; the next recovery puts the store back to it
-            st = _rollback(cfg, read_state(cfg), str(exc), night=snap, target=snap)
+        except Exception as exc:  # not the night, or not checked: the night is served, the next recovery puts the
+            # store back to it (an unchecked store is never clean)
+            from adapter import failure
+
+            why = str(exc) if isinstance(exc, FhirMismatch) else failure.words(exc)
+            st = _rollback(cfg, read_state(cfg), why, night=snap, target=snap)
             out.errors.append(outstanding(st))
             out.fhir_outstanding = outstanding(st)
     if todo("pidmap"):  # last: only a served night's chart numbers reach the reverse map (F-12)

@@ -72,7 +72,7 @@ class Fhir:
 
     def verify(self, cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: Any = ()) -> dict[str, int]:
         if self.down:
-            raise self.home.FhirMismatch("the FHIR store did not answer the check (ConnectionError)")
+            raise ConnectionError("the FHIR store did not answer")
         nothing = ("", "fhir-nothing-served")
         holds, night = self.holds or "", folder.name
         if holds != night and not (holds in nothing and night in nothing):
