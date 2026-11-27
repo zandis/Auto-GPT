@@ -158,8 +158,8 @@ if case in ("build", "build-preempt"):
 if case == "build":
     out = S / "vm" / "build" / "out"
     ok(
-        sorted(p.name for p in out.iterdir()) == ["trialbox-2026.11-r.tar", "trialbox-2026.11-r.tar.sha256"],
-        "HYG2-R2: the earlier release was retired once the new one was built and checked",
+        not (out / "earlier-release.tar").exists() and (out / "trialbox-2026.11-r.tar.sha256").exists(),
+        "HYG2-R2: the earlier release was retired once the new one was built and checked (b07 removes the local tar)",
     )
     ok(sorted(p.name for p in out.parent.glob("out*")) == ["out"], "no half-built or retired folder left")
 

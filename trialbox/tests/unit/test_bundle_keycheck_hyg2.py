@@ -396,8 +396,10 @@ def test_an_empty_line_in_the_sidecar_is_refused(tmp_path: Path, keys: dict[str,
 
 def test_a_bundle_named_as_the_bootstrap_is_refused(tmp_path: Path, keys: dict[str, Path]) -> None:  # R5
     mine = _stick(tmp_path / "mine", keys["key"])
-    (tmp_path / "other").mkdir()
-    twin = shutil.copy(mine["bundle"], tmp_path / "other" / "trialbox-bootstrap.sh")  # the bundle, the bootstrap's name
+    (tmp_path / "elsewhere").mkdir()
+    twin = shutil.copy(
+        mine["bundle"], tmp_path / "elsewhere" / "trialbox-bootstrap.sh"
+    )  # the bundle, the bootstrap's name
     two = [ln for ln in mine["sums"].read_text(encoding="utf-8").splitlines() if not ln.endswith("  out.tar")]
     _resign_sums(mine, keys["key"], "\n".join(two) + "\n")  # the sidecar lists the bootstrap and its .sig only
     found = kc.problems(keys["pub"], Path(twin), mine["bootstrap"], mine["sums"])
