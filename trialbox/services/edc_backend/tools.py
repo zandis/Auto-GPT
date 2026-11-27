@@ -49,9 +49,10 @@ def module_on(doc: dict[str, Any]) -> bool:
 def http_client() -> httpx.Client:
     """The HTTP client for the EDC's tool door (one place, so a test can give its own transport). P-13 ruling: through
     the egress guard, as the study link's client is, with the tool base's own host declared."""
+    from rc_bridge.client import timeout_s
     from tb_common.http import declared_client
 
-    return declared_client(tool_base(), timeout=5.0)
+    return declared_client(tool_base(), timeout=timeout_s())  # the EDC call setting (EDC-018), not a fixed one
 
 
 def connection_status(base: str, token: str, http: httpx.Client) -> dict[str, Any]:
