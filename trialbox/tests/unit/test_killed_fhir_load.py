@@ -10,6 +10,7 @@ matter, a FHIR store over HTTP in a process of its own (``tests/fhir_store_stub.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -44,12 +45,45 @@ def _state(cfg: Any) -> dict[str, Any]:
 
 def _put_state(cfg: Any, st: dict[str, Any]) -> None:
     """``FHIR_STATE`` as an earlier run left it."""
-    (cfg.lake_dir / "FHIR_STATE").write_text(json.dumps({"version": 1, **st}), encoding="utf-8")
+    (cfg.lake_dir / "FHIR_STATE").write_text(json.dumps({"version": 2, **st}), encoding="utf-8")
 
 
 def _owed(night: str, target: str) -> dict[str, Any]:
-    return {"state": "rollback-required", "night": night, "target": target, "reason": "the load did not end",
-            "attempts": 0, "since": "2026-10-02T17:00:00+00:00", "last_error_at": "2026-10-02T17:00:00+00:00"}  # fmt: skip
+    """A put-back to ``target`` that began after the load of ``night`` and did not end."""
+    return {"want": target, "fingerprint": "", "verified": False, "reason": "the load did not end", "attempts": 0,
+            "undoing": night}  # fmt: skip
+
+
+def _loading(night: str) -> dict[str, Any]:
+    """What a kill inside the load of ``night`` leaves (W1)."""
+    return {"want": night, "fingerprint": "", "verified": False, "reason": "loading", "attempts": 0}
+
+
+def _clean_at(cfg: Any, night: str) -> bool:
+    """The store was checked to hold ``night`` ("" nothing) and the lake serves it (P-03: clean is derived from the
+    intent and CURRENT, never stored)."""
+    st = _state(cfg)
+    return st["verified"] is True and st["want"] == night and publish_mod.derive(cfg).clean
+
+
+def _loaded(cfg: Any, snap: str, folder: Path) -> bool:
+    """The intent says the store holds ``folder`` as the night ``snap``, checked: a resume skips its FHIR load (the
+    record's ``fhir`` decides nothing; it replaced the records' flip to ``pending``)."""
+    st = publish_mod.read_intent(cfg) or {}
+    return (
+        st.get("verified") is True
+        and st.get("want") == snap
+        and st.get("fingerprint") == publish_mod.fingerprint(folder)
+    )
+
+
+def _generation() -> tuple[str, str] | None:
+    """The generation ledger's fhir build: ``(night, building | finished)``."""
+    from datacore.generations import Built
+
+    with Built() as book:
+        st = book.state("fhir")
+    return None if st is None else (st[0].snapshot, st[1])
 
 
 def _child_env() -> dict[str, str]:
@@ -152,24 +186,25 @@ def test_a_night_killed_in_its_fhir_load_is_put_back_to_the_served_night(
     assert lakes.lake.current() == N1 and not (folder / "passed.json").exists()
     assert _record(folder)["fhir"] == "loading"  # the record says the load began and never ended
     st = _state(cfg)
-    assert st["state"] == "loading" and st["night"] == N2 and st["target"] == N1
+    assert st["verified"] is False and st["want"] == N2 and st["reason"] == "loading"
+    assert publish_mod.derive(cfg).served == N1
     assert st["by"]["pid"] == os.getpid()  # the loader: this process, which a real kill takes away
     with publish_mod.fhir_lock(cfg, wait=False), pytest.raises(publish_mod.RecoveryBusy):
         publish_mod.recover_all(cfg)  # a load that still runs (it holds the lock) is let be
-    assert fhir.holds == f"part of {N2}" and _state(cfg)["state"] == "loading"
+    assert fhir.holds == f"part of {N2}" and _state(cfg) == st
 
     fhir.calls, fhir.back, fhir.full = [], [], []
     assert publish_mod.recover_all(cfg) == []  # no re-run was swapped: the FHIR store's state is in FHIR_STATE
     assert fhir.holds == N1 and fhir.calls == [N1] and fhir.back == [True] and fhir.full == [True]
-    assert _record(folder)["fhir"] == "pending" and lakes.lake.current() == N1  # one night, in both stores
-    assert _state(cfg)["state"] == "clean" and _state(cfg)["night"] == N1
+    assert not _loaded(cfg, N2, folder) and lakes.lake.current() == N1  # one night, in both stores
+    assert _clean_at(cfg, N1)
     assert publish_mod.recover_all(cfg) == [] and fhir.calls == [N1]  # nothing left to undo
 
     # the killed night run again is published, its FHIR load from the start
     assert run_ingest(cfg, "csv", night2, snapshot=N2, validate=False).passed
     assert lakes.lake.current() == N2 and fhir.holds == N2
     assert set(_record(folder).values()) <= {"done", "skipped"}
-    assert _state(cfg)["state"] == "clean" and _state(cfg)["night"] == N2
+    assert _clean_at(cfg, N2)
 
 
 def test_the_next_ingest_undoes_a_killed_load_before_it_reads_anything(
@@ -188,21 +223,21 @@ def test_the_next_ingest_undoes_a_killed_load_before_it_reads_anything(
     (folder / "passed.json").unlink()
     publish_mod._write_record(folder, {"snapshot": N2, "fingerprint": "", "steps": {"build": "skipped",
                               "omop": "skipped", "fhir": "loading", "lake": "pending", "pidmap": "pending"}})  # fmt: skip
-    _put_state(cfg, {"state": "loading", "night": N2, "target": N1, "previous": N1, "by": {"pid": 0},
-                     "since": "2026-10-02T17:00:00+00:00"})  # fmt: skip
+    _put_state(cfg, {**_loading(N2), "by": {"pid": 0}})
     fhir.holds, fhir.calls = f"part of {N2}", []
-    after: list[dict[str, str]] = []  # the record as the put-back left it (the ingest then writes the folder anew)
-    real_restore = publish_mod.restore_fhir
+    after: list[bool] = []  # whether N2's load counts as in the store once the put-back ended (the ingest then
+    # writes the folder anew)
+    real_restore = publish_mod.restore
 
-    def restore(c: Any) -> None:
-        real_restore(c)
-        after.append(_record(folder))
+    def restore(c: Any, reason: str = "") -> None:
+        real_restore(c, reason)
+        after.append(_loaded(c, N2, folder))
 
-    monkeypatch.setattr(publish_mod, "restore_fhir", restore)
+    monkeypatch.setattr(publish_mod, "restore", restore)
     rep = run_ingest(cfg, "csv", _night(tmp_path, "empty", []), snapshot=N2, validate=False)
     assert not rep.passed and lakes.lake.current() == N1
     assert fhir.calls[:1] == [N1] and fhir.holds == N1
-    assert _state(cfg)["state"] == "clean" and after[0]["fhir"] == "pending"  # review L1 (T14)
+    assert _clean_at(cfg, N1) and after[0] is False  # review L1 (T14)
 
 
 # ------------------------------------------------------------------------------------------- the fix round's cases
@@ -265,10 +300,11 @@ def test_a_kill_in_the_publish_s_own_put_back_is_undone(tmp_path: Path, monkeypa
     monkeypatch.setattr(publish_mod, "sync_snapshot", fhir)
     fhir.holds = f"part of {N1} over {N2}"
     folder = snapshot_dir(cfg.lake_dir, N2)
-    assert _state(cfg)["state"] == "restoring" and _state(cfg)["target"] == N1 and _record(folder)["lake"] == "failed"
+    st = _state(cfg)  # the put-back began (W2) and did not end
+    assert st["verified"] is False and st["want"] == N1 and st["undoing"] == N2 and _record(folder)["lake"] == "failed"
     fhir.calls = []
     assert publish_mod.recover_all(cfg) == [] and fhir.holds == N1 and fhir.calls == [N1]
-    assert _record(folder)["fhir"] == "pending" and _state(cfg)["state"] == "clean"
+    assert not _loaded(cfg, N2, folder) and _clean_at(cfg, N1)
     out = publish_mod.publish_night(cfg, N2, folder)  # the resume loads the FHIR store again, then promotes
     assert out.promoted and fhir.holds == N2 and lakes.lake.current() == N2
 
@@ -293,10 +329,11 @@ def test_a_kill_between_the_fhir_load_and_the_lake_is_undone(tmp_path: Path, mon
     fhir.holds = N2
     folder = snapshot_dir(cfg.lake_dir, N2)
     assert _record(folder)["fhir"] == "done" and _record(folder)["lake"] == "pending" and lakes.lake.current() == N1
-    assert _state(cfg)["state"] == "loading"  # the store is not clean until the night is served and checked
+    st = _state(cfg)  # the store is not clean until the night is served and checked
+    assert st["verified"] is False and st["want"] == N2 and st["reason"] == "loading"
     fhir.calls = []
     assert publish_mod.recover_all(cfg) == [] and fhir.holds == N1 and fhir.calls == [N1]
-    assert _record(folder)["fhir"] == "pending" and _state(cfg)["state"] == "clean"
+    assert not _loaded(cfg, N2, folder) and _clean_at(cfg, N1)
     out = publish_mod.publish_night(cfg, N2, folder)
     assert out.promoted and fhir.calls == [N1, N2] and fhir.holds == N2 and lakes.lake.current() == N2
 
@@ -330,7 +367,7 @@ def test_a_failed_put_back_serves_nothing_until_it_works(tmp_path: Path, monkeyp
     fhir.down = True
     with pytest.raises(publish_mod.FhirRestoreOutstanding):
         publish_mod.recover_all(cfg)
-    assert _record(folder)["fhir"] == "loading" and _state(cfg)["state"] == "rollback-required"
+    assert _record(folder)["fhir"] == "loading" and _state(cfg)["verified"] is False and _state(cfg)["want"] == N1
     out = publish_mod.publish_night(cfg, N2, folder)
     assert not out.promoted and lakes.lake.current() == N1 and _record(folder)["fhir"] == "loading"
     assert any(f"not back to {N1} after the load of 2026-10-02" in e for e in out.errors), out.errors
@@ -350,7 +387,7 @@ def test_a_served_night_without_its_folder_is_a_failed_put_back(
     with pytest.raises(publish_mod.FhirRestoreOutstanding):
         publish_mod.recover_all(cfg)
     assert fhir.calls == [] and _record(folder)["fhir"] == "loading"
-    assert _state(cfg)["state"] == "rollback-required" and _state(cfg)["night"] == N2
+    assert _state(cfg)["verified"] is False and _state(cfg)["undoing"] == N2
 
 
 def test_a_first_night_killed_in_its_load_leaves_an_empty_store(
@@ -365,8 +402,8 @@ def test_a_first_night_killed_in_its_load_leaves_an_empty_store(
     assert lakes.lake.current() is None and _record(folder)["fhir"] == "loading"
     assert publish_mod.recover_all(cfg) == []
     assert fhir.calls == ["fhir-nothing-served"] and fhir.full == [True] and fhir.back == [True]
-    assert _record(folder)["fhir"] == "pending"
-    assert _state(cfg)["state"] == "clean" and _state(cfg)["night"] == ""
+    assert not _loaded(cfg, N1, folder)
+    assert _clean_at(cfg, "")
 
 
 def test_the_adapter_service_puts_the_store_back_when_its_ingest_process_is_killed(
@@ -382,7 +419,7 @@ def test_the_adapter_service_puts_the_store_back_when_its_ingest_process_is_kill
     shutil.copytree(snapshot_dir(cfg.lake_dir, N1), folder)
     (folder / "passed.json").unlink()
     steps = {"build": "skipped", "omop": "skipped", "fhir": "loading", "lake": "pending", "pidmap": "pending"}
-    loading = {"version": 1, "state": "loading", "night": N2, "target": N1, "previous": N1, "since": "x"}
+    loading = {"version": 2, **_loading(N2)}
     child = (
         "import fcntl, json, os, signal\nfrom pathlib import Path\nfrom adapter import publish as p\n"
         f"fd = os.open({str(cfg.lake_dir / 'fhir.lock')!r}, os.O_RDWR | os.O_CREAT)\nfcntl.flock(fd, fcntl.LOCK_EX)\n"
@@ -396,8 +433,8 @@ def test_the_adapter_service_puts_the_store_back_when_its_ingest_process_is_kill
     state: dict[str, Any] = {"run": "runpthree", "state": "running", "started": "x", "ended": None, "detail": ""}
     adapter_app._run_in_process(state, cfg.lake_dir, {"source": "csv"})
     assert state["state"] == "failed", json.dumps(state)
-    assert _record(folder)["fhir"] == "pending" and fhir.calls == [N1] and fhir.holds == N1
-    assert lakes.lake.current() == N1 and _state(cfg)["state"] == "clean" and _state(cfg)["night"] == N1
+    assert not _loaded(cfg, N2, folder) and fhir.calls == [N1] and fhir.holds == N1
+    assert lakes.lake.current() == N1 and _clean_at(cfg, N1)
 
 
 # ------------------------------------------------------------------------------------------- P03-DESIGN §7, T1-T13
@@ -411,7 +448,7 @@ def test_two_recoverers_only_one_restores(tmp_path: Path, stub: Stub) -> None:
         cfg, "csv", _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001"]), snapshot=N1, validate=False
     ).passed
     held = stub.ids()
-    assert held.get("Condition") and _state(cfg)["state"] == "clean"
+    assert held.get("Condition") and _clean_at(cfg, N1)
     _put_state(cfg, _owed(N2, N1))
     stub.control(sleep=0.2)
     before = len(stub.log())
@@ -436,8 +473,7 @@ def test_two_recoverers_only_one_restores(tmp_path: Path, stub: Stub) -> None:
     go.touch()
     said = sorted(k.communicate(timeout=300)[0].strip() for k in kids)
     assert said == ["BUSY", "RESTORED"], said
-    st = _state(cfg)
-    assert st["state"] == "clean" and st["night"] == N1
+    assert _clean_at(cfg, N1)
     sent = stub.log()[before:]
     types = sorted(p.stem for p in snapshot_dir(cfg.lake_dir, N1).glob("*.ndjson"))
     # one put-back: a bundle per type and its check, each once; a second writer would have sent each again
@@ -463,7 +499,7 @@ def test_a_publish_is_refused_while_a_recovery_holds_the_store(tmp_path: Path, m
         release.touch()
         holder.wait()
     out = publish_mod.publish_night(cfg, N2, folder, last_good=N1)
-    assert out.promoted and lakes.lake.current() == N2 and fhir.holds == N2 and _state(cfg)["night"] == N2
+    assert out.promoted and lakes.lake.current() == N2 and fhir.holds == N2 and _clean_at(cfg, N2)
 
 
 def test_a_failed_in_process_put_back_keeps_rollback_required(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -494,7 +530,7 @@ def test_a_failed_in_process_put_back_keeps_rollback_required(tmp_path: Path, mo
     monkeypatch.setattr(publish_mod, "_fhir_put_back", put_back_fails)
     rep = run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, validate=False)
     st = _state(cfg)
-    assert st["state"] == "rollback-required" and st["night"] == N2 and st["target"] == N1, st
+    assert st["verified"] is False and st["undoing"] == N2 and st["want"] == N1, st
     assert st["attempts"] == 1 and st["reason"] and fhir.holds == N2  # the store still holds N2, as the marker says
     assert _record(snapshot_dir(cfg.lake_dir, N2))["fhir"] == "failed" and lakes.lake.current() == N1
     assert not rep.passed and any(e.startswith("fhir_restore_outstanding") for e in rep.errors or [])
@@ -515,29 +551,29 @@ def test_a_failed_in_process_put_back_keeps_rollback_required(tmp_path: Path, mo
         and f"after the load of {N2}" in out.fhir_outstanding
     )
     assert out.errors == [out.fhir_outstanding] and built == [] and omop == [] and not out.promoted
-    assert _state(cfg)["state"] == "rollback-required" and _state(cfg)["attempts"] == 2
+    assert _state(cfg)["verified"] is False and _state(cfg)["attempts"] == 2
 
 
 def test_an_ingest_without_a_fhir_endpoint_keeps_the_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """T4 (review R3): an owed put-back and no FHIR endpoint configured: the night goes on and says the put-back is
-    still owed; the marker is not touched. With the endpoint back, the next recovery puts the store back."""
+    """T4 (review R3, converted by P03-DESIGN-2 R4): an owed put-back and no FHIR endpoint configured: the night is
+    refused before any step, by its name; the marker is not touched and the lake does not move. With the endpoint
+    back, the next recovery puts the store back."""
     cfg, lakes, fhir = _served_n1(tmp_path, monkeypatch)
     _put_state(cfg, _owed(N2, N1))
     before = (cfg.lake_dir / "FHIR_STATE").read_bytes()
     url, cfg.fhir_base_url = cfg.fhir_base_url, None
     fhir.calls = []
+    lakes.calls.clear()
     night3 = _night(tmp_path, "n3", [_row("D1", "2026-09-01"), _row("D3", "2026-10-02")])
-    rep = run_ingest(cfg, "csv", night3, snapshot=N3, validate=False)
-    said = [e for e in rep.errors or [] if e.startswith("fhir_restore_outstanding")]
-    assert len(said) == 1 and f"after the load of {N2}" in said[0] and "no FHIR endpoint is configured" in said[0]
+    with pytest.raises(publish_mod.NightRefused, match=r"together or not at all \(fhir off, lake on; the store holds"):
+        run_ingest(cfg, "csv", night3, snapshot=N3, validate=False)
     assert (cfg.lake_dir / "FHIR_STATE").read_bytes() == before and fhir.calls == []
-    report = json.loads((snapshot_dir(cfg.lake_dir, N3) / "ingest_report.json").read_text(encoding="utf-8"))
-    assert said[0] in report["errors"]
+    assert lakes.calls == [] and lakes.lake.current() == N1 and not snapshot_dir(cfg.lake_dir, N3).exists()
     served = lakes.lake.current()
     cfg.fhir_base_url = url
     publish_mod.recover_all(cfg)
     assert fhir.calls == [served] and fhir.holds == served
-    assert _state(cfg)["state"] == "clean" and _state(cfg)["night"] == served
+    assert _clean_at(cfg, N1)
 
 
 def test_first_publish_rollback_empties_the_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub: Stub) -> None:
@@ -562,9 +598,8 @@ def test_first_publish_rollback_empties_the_store(tmp_path: Path, monkeypatch: p
     assert not rep.passed and lakes.lake.current() is None
     assert loaded.get("Condition") and loaded.get("Patient")  # the load reached the store
     assert stub.ids() == {} and not stray.exists()  # nothing of the night stays, the stray file was never loaded
-    st = _state(cfg)
-    assert st["state"] == "clean" and st["night"] == ""
-    assert _record(snapshot_dir(cfg.lake_dir, N1))["fhir"] == "pending"
+    assert _clean_at(cfg, "")
+    assert not _loaded(cfg, N1, snapshot_dir(cfg.lake_dir, N1))
 
 
 def test_a_missing_served_folder_blocks_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -575,7 +610,7 @@ def test_a_missing_served_folder_blocks_by_name(tmp_path: Path, monkeypatch: pyt
     with pytest.raises(publish_mod.FhirRestoreOutstanding, match="folder missing"):
         publish_mod.recover_all(cfg)
     st = _state(cfg)
-    assert st["state"] == "rollback-required" and "folder missing" in st["reason"] and fhir.calls == []
+    assert st["verified"] is False and "folder missing" in st["reason"] and fhir.calls == []
 
 
 def test_a_failed_recovery_blocks_the_next_ingest_before_omop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -619,20 +654,18 @@ def test_empty_baseline_put_back_deletes_every_ledger_id(tmp_path: Path, stub: S
     folder = snapshot_dir(cfg.lake_dir, N1)
     assert publish_mod._current(cfg.lake_dir) is None
     with publish_mod.fhir_lock(cfg, wait=False):
-        publish_mod._write_state(cfg, {"state": "loading", "night": N1, "target": "", "previous": None, "by": {},
-                                       "since": "2026-10-01T17:00:00+00:00"})  # fmt: skip
+        publish_mod._write_intent(cfg, _loading(N1))
         stub.control(fail_after=2)  # the load breaks after two of its bundles are in
         with pytest.raises(RuntimeError, match="transaction failed"):
             publish_mod._sync_fhir(cfg, folder, None)
         partial = stub.ids()
         assert len(partial) == 2, partial
         stub.control(fail_after=None)
-        publish_mod.restore_fhir(cfg)
+        publish_mod.restore(cfg)
     assert stub.ids() == {}
     every = set(load_fhir.snapshot_ids(folder))
     assert publish_mod.verify_fhir(cfg, publish_mod._empty_night(cfg), also=every) == dict.fromkeys(sorted(every), 0)
-    st = _state(cfg)
-    assert st["state"] == "clean" and st["night"] == ""
+    assert _clean_at(cfg, "")
 
 
 def test_service_recovery_swaps_back_before_the_fhir_put_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -659,7 +692,8 @@ def test_service_recovery_swaps_back_before_the_fhir_put_back(tmp_path: Path, mo
     assert killed_at.is_dir()
     _as_the_kill_left_it(cfg, killed_at)
     monkeypatch.setattr(cfg, "rebuild", real_rebuild)
-    assert _state(cfg)["state"] == "loading" and (cfg.lake_dir / RERUN_DIR / f"{N1}.replaced").is_dir()
+    st = _state(cfg)
+    assert st["verified"] is False and st["want"] == N1 and (cfg.lake_dir / RERUN_DIR / f"{N1}.replaced").is_dir()
     assert publish_mod.fingerprint(served) != original  # the re-run is in the served folder's place
     order: list[str] = []
     real_recover, real_put_back = publish_mod._recover, publish_mod._fhir_put_back
@@ -677,16 +711,15 @@ def test_service_recovery_swaps_back_before_the_fhir_put_back(tmp_path: Path, mo
     monkeypatch.setattr(adapter_app, "build_config", lambda: (cfg, "csv", ""))
     assert adapter_app._undo_killed_load() == ""
     assert order == ["swap back", "put back the served NDJSON"]
-    assert fhir.holds == N1 and publish_mod.fingerprint(served) == original and _state(cfg)["state"] == "clean"
-    assert _record(cfg.lake_dir / RERUN_DIR / N1)["fhir"] == "pending"
+    assert fhir.holds == N1 and publish_mod.fingerprint(served) == original and _clean_at(cfg, N1)
+    assert not _loaded(cfg, N1, cfg.lake_dir / RERUN_DIR / N1)  # the re-run's own NDJSON is owed its load again
 
 
 def test_a_live_loader_is_never_taken_for_killed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """T10 (review N5): a load that runs in another process holds fhir.lock; ``/proc`` is unreadable here. It is
     never taken for a killed one: liveness is the lock, not a pid."""
     cfg, _lakes, fhir = _served_n1(tmp_path, monkeypatch)
-    loading = {"version": 1, "state": "loading", "night": N2, "target": N1, "previous": N1, "by": {"pid": 1},
-               "since": "2026-10-02T17:00:00+00:00"}  # fmt: skip
+    loading = {"version": 2, **_loading(N2), "by": {"pid": 1}}
     holder, release = _holder(cfg, tmp_path, loading)
     real_read_text = Path.read_text
 
@@ -700,7 +733,7 @@ def test_a_live_loader_is_never_taken_for_killed(tmp_path: Path, monkeypatch: py
     try:
         with pytest.raises(publish_mod.RecoveryBusy):
             publish_mod.recover_all(cfg)
-        assert _state(cfg)["state"] == "loading" and fhir.calls == []
+        assert _state(cfg) == loading and fhir.calls == []
     finally:
         release.touch()
         holder.wait()
@@ -710,8 +743,9 @@ def test_an_upgraded_box_without_a_marker_verifies_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub: Stub
 ) -> None:
     """T11 (review N5): a box from before FHIR_STATE, whose old version was killed in a load (one more Patient in
-    the store, its id in the widened ledger). The first recovery checks the store against the served night, finds
-    it is not, puts it back and calls it clean; the next does not check again."""
+    the store, its id in the widened ledger). The first recovery puts the store back to the served night (P03-DESIGN-2:
+    no file beside a ledger is owed, "never checked"; the first check of the deleted ``_first_verify`` is gone) and
+    calls it clean only once that was checked; the next does not check again."""
     lakes = _Lakes(tmp_path / "lake")
     cfg = _fhir_cfg(tmp_path, lakes)
     cfg.fhir_base_url = stub.fhir
@@ -724,17 +758,17 @@ def test_an_upgraded_box_without_a_marker_verifies_once(
     with (cfg.lake_dir / "fhir_ledger" / "Patient.txt").open("a", encoding="utf-8") as fh:
         fh.write("p-killed-load\t\n")
     written: list[dict[str, Any]] = []
-    real = publish_mod._write_state
+    real = publish_mod._write_intent
 
     def spy(c: Any, st: dict[str, Any]) -> dict[str, Any]:
         written.append(dict(st))
         return real(c, st)
 
-    monkeypatch.setattr(publish_mod, "_write_state", spy)
+    monkeypatch.setattr(publish_mod, "_write_intent", spy)
     publish_mod.recover_all(cfg)
-    assert [w["state"] for w in written] == ["rollback-required", "restoring", "clean"], written
-    assert "Patient: store 2, night 1" in written[0]["reason"]
-    assert stub.ids() == n1 and _state(cfg)["state"] == "clean" and _state(cfg)["night"] == N1
+    assert [(w["want"], w["verified"]) for w in written] == [(N1, False), (N1, True)], written
+    assert "never checked" in written[0]["reason"]
+    assert stub.ids() == n1 and _clean_at(cfg, N1)
     written.clear()
     publish_mod.recover_all(cfg)
     assert written == []
@@ -747,15 +781,14 @@ def test_a_put_back_whose_verify_fails_keeps_the_marker(tmp_path: Path, stub: St
     cfg.fhir_base_url = stub.fhir
     run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N1, load_fhir=False, rebuild_lake=False, validate=False)
     with publish_mod.fhir_lock(cfg, wait=False):
-        publish_mod._write_state(cfg, {"state": "loading", "night": N1, "target": "", "previous": None, "by": {},
-                                       "since": "2026-10-01T17:00:00+00:00"})  # fmt: skip
+        publish_mod._write_intent(cfg, _loading(N1))
         publish_mod._sync_fhir(cfg, snapshot_dir(cfg.lake_dir, N1), None)  # the whole night in, none served
         (patient,) = stub.ids()["Patient"]
         stub.control(drop=[f"Patient/{patient}"])
         with pytest.raises(publish_mod.FhirRestoreOutstanding, match="Patient: store 1, night 0"):
-            publish_mod.restore_fhir(cfg)
+            publish_mod.restore(cfg)
     st = _state(cfg)
-    assert st["state"] == "rollback-required" and st["reason"] == "Patient: store 1, night 0" and st["attempts"] == 1
+    assert st["verified"] is False and st["reason"] == "Patient: store 1, night 0" and st["attempts"] == 1
 
 
 def _labs_night(tmp_path: Path, n: int) -> str:
@@ -800,7 +833,7 @@ def test_kill_9_mid_observation_load(tmp_path: Path, stub: Stub) -> None:
     assert child.returncode == -signal.SIGKILL and "ended" not in said
     assert [s for s in stub.log() if s.startswith("KILL")] == [f"KILL {child.pid}"]
     st = _state(cfg)
-    assert st["state"] == "loading" and st["night"] == N2 and st["target"] == N1, st
+    assert st["verified"] is False and st["want"] == N2 and st["reason"] == "loading", st
     assert lakes.lake.current() == N1
     assert 100 <= len(stub.ids().get("Observation", [])) < 1000  # part of the night's Observations are in
     with publish_mod.fhir_lock(cfg, wait=False):
@@ -809,12 +842,12 @@ def test_kill_9_mid_observation_load(tmp_path: Path, stub: Stub) -> None:
     assert stub.ids() == before and lakes.lake.current() == N1
     assert not (snapshot_dir(cfg.lake_dir, N2) / "ingest_report.json").exists()
     assert held_snapshots(cfg.lake_dir) == {}
-    assert _state(cfg)["state"] == "clean" and _state(cfg)["night"] == N1
+    assert _clean_at(cfg, N1)
     assert run_ingest(cfg, "csv", night2, snapshot=N2, validate=False).passed
     assert lakes.lake.current() == N2
     want = load_fhir.snapshot_ids(snapshot_dir(cfg.lake_dir, N2))
     assert stub.ids() == {t: sorted(i) for t, i in want.items() if i}
-    assert _state(cfg)["state"] == "clean" and _state(cfg)["night"] == N2
+    assert _clean_at(cfg, N2)
 
 
 # ------------------------------------------------------------- the final delta reviews of #1566 (D1-D7, D1-D4)
@@ -832,8 +865,9 @@ def _stub_cfg(tmp_path: Path, stub: Stub) -> tuple[Any, _Lakes]:
 
 def test_the_records_say_pending_before_the_marker_says_clean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Review D1 (and D3 of the second reviewer): N2's FHIR step is done and its process is killed in the lake step.
-    When the recovery's put-back has verified, N2's record says ``fhir: pending`` before the marker says ``clean``:
-    a kill between the two leaves the marker owed, never ``clean`` beside a record that skips the load."""
+    Converted (P03-DESIGN-2: the records' flip to ``pending`` is deleted; whether a resume loads is read from the
+    intent alone): when the recovery's intent says ``verified``, it names N1, never N2, so no resume skips N2's load
+    beside a store that holds N1; and the resume does load it."""
     cfg, _lakes, fhir = _served_n1(tmp_path, monkeypatch)
     killed_at = tmp_path / "disk-at-the-kill"
     real_rebuild = cfg.rebuild
@@ -848,18 +882,20 @@ def test_the_records_say_pending_before_the_marker_says_clean(tmp_path: Path, mo
     monkeypatch.setattr(cfg, "rebuild", real_rebuild)
     fhir.holds = N2
     folder = snapshot_dir(cfg.lake_dir, N2)
-    assert _record(folder)["fhir"] == "done" and _state(cfg)["state"] == "loading"
+    assert _record(folder)["fhir"] == "done" and _state(cfg)["verified"] is False and _state(cfg)["want"] == N2
     at_clean: list[str] = []
-    real = publish_mod._write_state
+    real = publish_mod._write_intent
 
     def spy(c: Any, st: dict[str, Any]) -> dict[str, Any]:
-        if st["state"] == "clean":
-            at_clean.append(_record(folder)["fhir"])
+        if st["verified"]:
+            at_clean.append(st["want"])
         return real(c, st)
 
-    monkeypatch.setattr(publish_mod, "_write_state", spy)
+    monkeypatch.setattr(publish_mod, "_write_intent", spy)
     publish_mod.recover_all(cfg)
-    assert at_clean == ["pending"] and _state(cfg)["state"] == "clean"
+    assert at_clean == [N1] and _clean_at(cfg, N1) and not _loaded(cfg, N2, folder)
+    fhir.calls = []
+    assert publish_mod.publish_night(cfg, N2, folder).promoted and fhir.calls == [N2]
 
 
 def test_an_upgrade_puts_back_a_value_changed_under_a_served_id(tmp_path: Path, stub: Stub) -> None:
@@ -877,7 +913,7 @@ def test_an_upgrade_puts_back_a_value_changed_under_a_served_id(tmp_path: Path, 
     stub.seed([changed])  # the same id, another value: what the interrupted load left
     assert stub.ids() == {t: sorted(r) for t, r in served.items()} and stub.held() != served
     publish_mod.recover_all(cfg)
-    assert stub.held() == served and _state(cfg)["state"] == "clean" and _state(cfg)["night"] == N1
+    assert stub.held() == served and _clean_at(cfg, N1)
 
 
 def test_an_upgrade_check_without_an_answer_keeps_the_gate_closed(tmp_path: Path, stub: Stub) -> None:
@@ -891,14 +927,14 @@ def test_an_upgrade_check_without_an_answer_keeps_the_gate_closed(tmp_path: Path
     stub.control(down=True)
     with pytest.raises(publish_mod.FhirRestoreOutstanding):
         publish_mod.recover_all(cfg)
-    assert _state(cfg)["state"] == "rollback-required"
+    assert _state(cfg)["verified"] is False
     lakes.calls.clear()
     with pytest.raises(publish_mod.FhirRestoreOutstanding):
         run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, validate=False)
     assert lakes.calls == [] and lakes.lake.current() == N1
     (cfg.lake_dir / "FHIR_STATE").unlink()
     cfg.fhir_base_url = None
-    assert publish_mod.read_state(cfg)["state"] == "rollback-required"
+    assert not publish_mod.derive(cfg).clean
 
 
 def test_a_delete_the_store_did_not_do_is_sent_again_on_retry(tmp_path: Path, stub: Stub) -> None:
@@ -909,16 +945,15 @@ def test_a_delete_the_store_did_not_do_is_sent_again_on_retry(tmp_path: Path, st
     cfg.fhir_base_url = stub.fhir
     run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N1, load_fhir=False, rebuild_lake=False, validate=False)
     with publish_mod.fhir_lock(cfg, wait=False):
-        publish_mod._write_state(cfg, {"state": "loading", "night": N1, "target": "", "previous": None, "by": {},
-                                       "since": "2026-10-01T17:00:00+00:00"})  # fmt: skip
+        publish_mod._write_intent(cfg, _loading(N1))
         publish_mod._sync_fhir(cfg, snapshot_dir(cfg.lake_dir, N1), None)
         (patient,) = stub.ids()["Patient"]
         stub.control(drop=[f"Patient/{patient}"])
         with pytest.raises(publish_mod.FhirRestoreOutstanding, match="Patient: store 1, night 0"):
-            publish_mod.restore_fhir(cfg)
+            publish_mod.restore(cfg)
         stub.control(drop=[])
-        publish_mod.restore_fhir(cfg)
-    assert stub.ids() == {} and _state(cfg)["state"] == "clean" and _state(cfg)["night"] == ""
+        publish_mod.restore(cfg)
+    assert stub.ids() == {} and _clean_at(cfg, "")
     assert not (cfg.lake_dir / "FHIR_OWED").exists()
 
 
@@ -948,26 +983,23 @@ def test_a_lock_refusal_says_the_served_night_is_served(tmp_path: Path, monkeypa
 
 
 def test_a_publish_without_its_lake_step_leaves_the_store_owed(tmp_path: Path, stub: Stub) -> None:
-    """Review D1 of the second reviewer: a night published with its lake step skipped is not served. A new night:
-    the recovery puts the store back and the night's record says its FHIR load is owed again. A re-run of the
-    served night (another value under the same ids): the marker never says ``clean`` over the re-run, and the
-    recovery puts the served night back."""
+    """Review D1 of the second reviewer, converted (P03-DESIGN-2 R4: the store and the lake are published together
+    or not at all): a night asked for with its lake step off, a new night or a re-run of the served night, is
+    refused before any step. Nothing reaches the store, the intent is not written, the served night stays clean."""
     cfg, lakes = _stub_cfg(tmp_path, stub)
     night1 = _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001"])
     assert run_ingest(cfg, "csv", night1, snapshot=N1, validate=False).passed
     served = _hashes(snapshot_dir(cfg.lake_dir, N1))
-    run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, rebuild_lake=False, validate=False)
-    assert lakes.lake.current() == N1 and _state(cfg)["state"] != "clean"
-    publish_mod.recover_all(cfg)
-    assert stub.held() == served and _state(cfg)["state"] == "clean"
-    assert _record(snapshot_dir(cfg.lake_dir, N2))["fhir"] == "pending"
+    before, sent = (cfg.lake_dir / "FHIR_STATE").read_bytes(), len(stub.log())
     again = _night(tmp_path, "n1b", [_row("D1", "2026-09-03")], ["10000001"])
-    run_ingest(cfg, "csv", again, snapshot=N1, rebuild_lake=False, validate=False)
-    assert lakes.lake.current() == N1 and stub.ids() == {t: sorted(r) for t, r in served.items()}
-    assert stub.held() != served  # the re-run's values are in the store, the lake still serves N1's folder
-    assert _state(cfg)["state"] != "clean"
-    publish_mod.recover_all(cfg)
-    assert stub.held() == served and _state(cfg)["state"] == "clean" and _state(cfg)["night"] == N1
+    for night, snap in ((_night2(tmp_path), N2), (again, N1)):
+        with pytest.raises(publish_mod.NightRefused, match=r"together or not at all \(fhir on, lake off"):
+            run_ingest(cfg, "csv", night, snapshot=snap, rebuild_lake=False, validate=False)
+        out = publish_mod.publish_night(cfg, snap, _copy_night(cfg, snap) if snap == N2 else snapshot_dir(
+            cfg.lake_dir, N1), rebuild_lake=False)  # fmt: skip
+        assert out.errors[0].startswith("night refused:") and set(out.steps.values()) == {"pending"}
+        assert lakes.lake.current() == N1 and stub.held() == served and len(stub.log()) == sent
+        assert (cfg.lake_dir / "FHIR_STATE").read_bytes() == before and _clean_at(cfg, N1)
 
 
 def test_an_ingest_that_meets_a_held_store_is_refused_not_failed(
@@ -1006,13 +1038,258 @@ def test_an_ingest_that_meets_a_held_store_is_refused_not_failed(
     assert omop == [] and lakes.calls == [] and lakes.lake.current() == N1
 
 
+# ------------------------------------------------------- the last delta reviews of #1566 (F1-F7, E1-E4; P03-DESIGN-2)
+def test_a_publish_with_fhir_off_over_a_held_store_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review F1: N1 is served and checked; the FHIR endpoint is gone, and N2 is asked for. Promoting N2 would leave
+    the store on N1 under a lake on N2 with nothing owed: the night is refused before any step, the intent is not
+    touched. With the endpoint back, the recovery sends nothing (the store holds what is served). The same with the
+    endpoint set and ``load_fhir`` off."""
+    cfg, lakes, fhir = _served_n1(tmp_path, monkeypatch)
+    before = (cfg.lake_dir / "FHIR_STATE").read_bytes()
+    url, cfg.fhir_base_url = cfg.fhir_base_url, None
+    fhir.calls, fhir.verified = [], []
+    lakes.calls.clear()
+    with pytest.raises(publish_mod.NightRefused, match=rf"\(fhir off, lake on; the store holds {N1}\)"):
+        run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, validate=False)
+    folder = _copy_night(cfg, N2)
+    out = publish_mod.publish_night(cfg, N2, folder, last_good=N1)
+    assert out.errors[0].startswith("night refused:") and set(out.steps.values()) == {"pending"} and not out.promoted
+    assert not (folder / "publish.json").exists() and lakes.calls == [] and lakes.lake.current() == N1
+    assert (cfg.lake_dir / "FHIR_STATE").read_bytes() == before and fhir.calls == []
+    cfg.fhir_base_url = url
+    publish_mod.recover_all(cfg)
+    assert fhir.calls == [] and fhir.verified == [] and _clean_at(cfg, N1)
+    with pytest.raises(publish_mod.NightRefused, match=r"\(fhir off, lake on"):
+        run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, load_fhir=False, validate=False)
+    out = publish_mod.publish_night(cfg, N2, folder, last_good=N1, load_fhir=False)
+    assert out.errors[0].startswith("night refused:") and lakes.calls == [] and lakes.lake.current() == N1
+    assert (cfg.lake_dir / "FHIR_STATE").read_bytes() == before and fhir.calls == []
+
+
+def test_current_moved_under_a_verified_intent_is_owed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reviews F1, E1: N1 is served and checked, then ``CURRENT`` moves without a publish (a lake restored from a
+    backup that serves N2): the store is owed at once (clean is derived from CURRENT, never stored), and the recovery
+    puts it to N2. The same date with another served folder (its record's fingerprint changed): owed, put back."""
+    cfg, _lakes, fhir = _served_n1(tmp_path, monkeypatch)
+    _copy_night(cfg, N2)
+    (cfg.lake_dir / "CURRENT").write_text(N2, encoding="utf-8")
+    d = publish_mod.derive(cfg)
+    assert not d.clean and d.served == N2 and "CURRENT moved" in d.reason
+    fhir.calls = []
+    publish_mod.recover_all(cfg)
+    assert fhir.calls == [N2] and fhir.holds == N2 and _clean_at(cfg, N2)
+    served = snapshot_dir(cfg.lake_dir, N2)
+    publish_mod._write_record(served, {**publish_mod.read_record(served), "fingerprint": "another folder"})
+    assert not publish_mod.derive(cfg).clean
+    publish_mod.recover_all(cfg)
+    assert fhir.calls == [N2, N2] and _clean_at(cfg, N2) and _state(cfg)["fingerprint"] == "another folder"
+
+
+def test_a_lake_build_that_outlives_its_publisher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review E1: N2's publisher is killed inside the lake's one-call build (the FHIR store holds N2, CURRENT N1),
+    and the lake's build goes on without it. While it runs, the recovery does not put the store back under it
+    (``SnapshotBuilding``, the intent untouched); the build then promotes N2, and the next recovery puts the store to
+    N2, not N1."""
+    from lake.store import SnapshotBuilding, building
+
+    cfg, lakes, fhir = _served_n1(tmp_path, monkeypatch)
+    killed_at = tmp_path / "disk-at-the-kill"
+    real_rebuild = cfg.rebuild
+    assert real_rebuild is not None
+
+    def killed_in_the_lake(snap: str, nd: Path) -> Any:
+        shutil.copytree(cfg.lake_dir, killed_at, symlinks=True)
+        raise RuntimeError("the test goes on from the copy")
+
+    monkeypatch.setattr(cfg, "rebuild", killed_in_the_lake)
+    run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, validate=False)
+    _as_the_kill_left_it(cfg, killed_at)
+    monkeypatch.setattr(cfg, "rebuild", real_rebuild)
+    fhir.holds, fhir.calls = N2, []
+    before = (cfg.lake_dir / "FHIR_STATE").read_bytes()
+    with building(cfg.lake_dir, N2), pytest.raises(SnapshotBuilding):  # the killed publisher's lake build
+        publish_mod.recover_all(cfg)
+    assert fhir.calls == [] and (cfg.lake_dir / "FHIR_STATE").read_bytes() == before
+    real_rebuild(N2, snapshot_dir(cfg.lake_dir, N2))  # the build ends and promotes, its publisher long gone
+    assert lakes.lake.current() == N2 and not publish_mod.derive(cfg).clean
+    publish_mod.recover_all(cfg)
+    assert fhir.calls == [N2] and fhir.holds == N2 and _clean_at(cfg, N2)
+
+
+def test_an_upgrade_with_a_finished_newer_generation(tmp_path: Path, stub: Stub) -> None:
+    """Review F2: a box from before FHIR_STATE whose old loader finished N2 in the generation ledger before the lake
+    promoted it, and the promotion failed: CURRENT N1, the store holds N1's ids with N2's value. The ledger refuses
+    the put-back over a finished newer load; that is never "nothing to load": the store stays owed by the refusal's
+    words and is not touched (the datacore ruling on such a put-back is the integrator's gate)."""
+    from datacore.generations import Built
+
+    cfg, _lakes = _stub_cfg(tmp_path, stub)
+    night = _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001"])
+    assert run_ingest(cfg, "csv", night, snapshot=N1, validate=False).passed
+    served = _hashes(snapshot_dir(cfg.lake_dir, N1))
+    (cfg.lake_dir / "FHIR_STATE").unlink()
+    got = httpx.get(f"{stub.root}/_resources", timeout=30).json()
+    stub.seed([{**got["Condition"][sorted(got["Condition"])[0]], "recordedDate": "2026-09-30"}])
+    with Built() as book, book.building("fhir"):
+        book.finish("fhir", book.begin("fhir", N2))  # the old loader: finished once its last resource was in
+    left, sent = stub.held(), len(stub.log())
+    assert left != served and stub.ids() == {t: sorted(r) for t, r in served.items()}
+    with pytest.raises(publish_mod.FhirRestoreOutstanding, match="put-back refused"):
+        publish_mod.recover_all(cfg)
+    st = _state(cfg)
+    assert st["verified"] is False and st["want"] == N1 and "put-back refused" in st["reason"]
+    assert stub.held() == left and len(stub.log()) == sent and _generation() == (N2, "finished")
+
+
+def test_a_generation_ledger_that_does_not_answer_keeps_the_store_owed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub: Stub
+) -> None:
+    """Reviews F3, E2: N2 is loaded, promoted and checked, and the generation ledger does not answer its finish. The
+    store is owed by that name, no PASSED; the ledger still says N2 is building. The next recovery settles it (the
+    one way to clean, on both paths) and the ledger says finished; the resume writes PASSED."""
+    from adapter.pipeline import PASSED
+
+    cfg, lakes = _stub_cfg(tmp_path, stub)
+    night = _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001"])
+    assert run_ingest(cfg, "csv", night, snapshot=N1, validate=False).passed
+    assert _generation() == (N1, "finished")
+    real = load_fhir.finish_load
+
+    def no_answer(*args: Any) -> None:
+        raise load_fhir.LedgerError("the generation ledger did not answer (OperationalError)")
+
+    monkeypatch.setattr(publish_mod, "finish_load", no_answer)
+    rep = run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, validate=False)
+    folder = snapshot_dir(cfg.lake_dir, N2)
+    assert not rep.passed and lakes.lake.current() == N2 and not (folder / PASSED).exists()
+    assert any("generation ledger did not answer" in e for e in rep.errors or []), rep.errors
+    assert _state(cfg)["verified"] is False and _generation() == (N2, "building")
+    monkeypatch.setattr(publish_mod, "finish_load", real)
+    publish_mod.recover_all(cfg)
+    assert _clean_at(cfg, N2) and _generation() == (N2, "finished")
+    out = publish_mod.publish_night(cfg, N2, folder)
+    assert out.ok and (folder / PASSED).exists()
+
+
+def test_a_failed_end_check_writes_no_passed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub: Stub) -> None:
+    """Reviews F4, E2(b): N2 is promoted and the store answers its end check 500. The night is served but not
+    settled: no ``passed.json``, its hold kept, ``promoted``, the put-back owed; the next recovery settles N2 and
+    finishes it in the generation ledger; the resume then writes PASSED and drops the hold."""
+    from adapter.pipeline import HELD, PASSED
+
+    cfg, lakes = _stub_cfg(tmp_path, stub)
+    night = _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001"])
+    assert run_ingest(cfg, "csv", night, snapshot=N1, validate=False).passed
+    folder = _copy_night(cfg, N2)
+    (folder / HELD).write_text("{}\n", encoding="utf-8")  # a held night the steward accepted
+    real_verify = publish_mod.verify_fhir
+
+    def end_check_500(c: Any, f: Path, *, ids: bool = False, also: Any = ()) -> dict[str, int]:
+        stub.control(down=not ids)  # the publish's own end check is the one check without ids
+        try:
+            return real_verify(c, f, ids=ids, also=also)
+        finally:
+            stub.control(down=False)
+
+    monkeypatch.setattr(publish_mod, "verify_fhir", end_check_500)
+    out = publish_mod.publish_night(cfg, N2, folder, last_good=N1)
+    assert out.promoted and lakes.lake.current() == N2 and out.steps["fhir"] == "failed"
+    assert out.fhir_outstanding.startswith("fhir_restore_outstanding") and not out.ok
+    assert not (folder / PASSED).exists() and (folder / HELD).exists()
+    assert out.steps["pidmap"] == "pending" and _generation() == (N2, "building")
+    monkeypatch.setattr(publish_mod, "verify_fhir", real_verify)
+    publish_mod.recover_all(cfg)
+    assert _clean_at(cfg, N2) and _generation() == (N2, "finished")
+    assert publish_mod.publish_night(cfg, N2, folder, last_good=N1).ok
+    assert (folder / PASSED).exists() and not (folder / HELD).exists()
+
+
+def test_a_delete_the_forward_load_lost_is_sent_again(tmp_path: Path, stub: Stub) -> None:
+    """Review E3: the store answers a DELETE of N2's forward load and does not do it (a Condition only N1 has). The
+    end check finds it; the id ledger keeps the id until a check passes, so the next put-back deletes it again and
+    only then is the store clean."""
+    cfg, lakes = _stub_cfg(tmp_path, stub)
+    night1 = _night(tmp_path, "n1", [_row("D1", "2026-09-01"), _row("D9", "2026-09-09")], ["10000001"])
+    assert run_ingest(cfg, "csv", night1, snapshot=N1, validate=False).passed
+    stub.control(drop=[f"Condition/{i}" for i in stub.ids()["Condition"]])
+    rep = run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, validate=False)
+    want = load_fhir.snapshot_ids(snapshot_dir(cfg.lake_dir, N2))
+    left = set(stub.ids()["Condition"]) - want["Condition"]
+    assert not rep.passed and lakes.lake.current() == N2 and len(left) == 1
+    assert left <= set(load_fhir._read_ledger(cfg.lake_dir / "fhir_ledger")["Condition"])
+    assert _state(cfg)["verified"] is False and "Condition: store" in _state(cfg)["reason"]
+    stub.control(drop=[])
+    publish_mod.recover_all(cfg)
+    assert stub.held() == _hashes(snapshot_dir(cfg.lake_dir, N2)) and _clean_at(cfg, N2)
+    assert set(load_fhir._read_ledger(cfg.lake_dir / "fhir_ledger")["Condition"]) == want["Condition"]
+
+
+def test_an_intent_write_error_fails_the_step_not_the_publish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review E4: the intent cannot be written before the FHIR load (the lake volume is full). ``publish_night``
+    returns, it never raises: the FHIR step failed, nothing was sent, nothing promoted, the store is still N1's."""
+    cfg, lakes, fhir = _served_n1(tmp_path, monkeypatch)
+    real = publish_mod._write_intent
+
+    def full(c: Any, st: dict[str, Any]) -> dict[str, Any]:
+        if st["want"] == N2:
+            raise OSError(28, "No space left on device")
+        return real(c, st)
+
+    monkeypatch.setattr(publish_mod, "_write_intent", full)
+    fhir.calls = []
+    out = publish_mod.publish_night(cfg, N2, _copy_night(cfg, N2), last_good=N1)
+    assert out.steps["fhir"] == "failed" and not out.promoted and lakes.lake.current() == N1
+    assert any(e.startswith("fhir-store load failed: OSError") for e in out.errors), out.errors
+    assert fhir.calls == [] and _clean_at(cfg, N1)
+
+
+def test_a_busy_lake_at_entry_says_the_served_night_is_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review F6: N1 is served and asked for again while a killed re-run's lake build of N1 still runs. The publish
+    says the lake is busy, and still reads what CURRENT names: ``promoted``."""
+    from adapter.pipeline import RERUN_DIR
+    from lake.store import building
+
+    cfg, lakes, _fhir = _served_n1(tmp_path, monkeypatch)
+    (cfg.lake_dir / RERUN_DIR / f"{N1}.replaced").mkdir(parents=True)  # what the killed re-run left
+    with building(cfg.lake_dir, N1):
+        out = publish_mod.publish_night(cfg, N1, snapshot_dir(cfg.lake_dir, N1))
+    assert out.lake_busy and publish_mod.BUSY_ERROR in out.errors and lakes.lake.current() == N1
+    assert out.promoted
+
+
+def test_a_recovery_write_error_reaches_the_run_detail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review F7: the service's recovery after a killed ingest fails on its way (the intent cannot be written; a
+    killed re-run's folder cannot be moved back). The store is still owed, and the run's detail says so."""
+    from adapter import app as adapter_app
+    from adapter.pipeline import RERUN_DIR
+
+    cfg, _lakes, fhir = _served_n1(tmp_path, monkeypatch)
+    _killed_in_its_load(tmp_path, cfg, fhir, monkeypatch, N2)
+    monkeypatch.setattr(adapter_app, "build_config", lambda: (cfg, "csv", ""))
+
+    def no_room(*args: Any) -> Any:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(publish_mod, "_write_intent", no_room)
+    said = adapter_app._undo_killed_load()
+    assert said.startswith("fhir_restore_outstanding") and fhir.calls == []
+    monkeypatch.setattr(publish_mod, "_recover", no_room)
+    (cfg.lake_dir / RERUN_DIR / f"{N2}.replaced").mkdir(parents=True)
+    said = adapter_app._undo_killed_load()
+    assert said == "fhir_restore_outstanding: recovery failed (OSError); the store is still owed"
+    assert not publish_mod.derive(cfg).clean
+
+
 # ----------------------------------------------------------------- the crash points (integrator's ruling, #1566)
-# Every durable write of the publish and of the recovery path ends in ``publish._checkpoint`` (FHIR_STATE,
-# FHIR_OWED and each publish.json by construction, the store, the lake and the folders by name). Each night below is
-# run once per checkpoint it reaches and killed there (the disk as the kill left it: no handler of the process runs
-# after it), and once per store request it sends with that request answered 500 (nothing done) or done and answered
-# with a body that is not JSON. Right after: the marker is owed, or the store, the records and CURRENT describe one
-# night. Then the box starts again: the night is served, the store holds it resource by resource, the marker says so.
+# P03-DESIGN-2 §ii as a test. Every durable write of the publish and of the recovery path ends in
+# ``publish._checkpoint`` (FHIR_STATE and each publish.json by construction, the store, the ledgers, the lake and the
+# folders by name). Each night below is run once per checkpoint it reaches and killed there (the disk as the kill left
+# it: no handler of the process runs after it); from the kills inside the FHIR load and the lake step, the recovery
+# that follows is itself killed at each of its own checkpoints. Each night, and the recovery after a kill in its FHIR
+# load, is also run once per store request it sends with that request answered 500 (nothing done) or done and
+# answered with a body that is not JSON. Right after each: the store is owed (derived), or it holds what CURRENT
+# serves and the generation ledger has that night finished. Then the box starts again: the night is served, the store
+# holds it resource by resource, with the night's own values, and the intent says so.
 class _Killed(BaseException):
     """The process dies here."""
 
@@ -1066,12 +1343,20 @@ def _fails_once(box: _Box, rerun: bool) -> None:
     _ingest(box, rerun)
 
 
+def _recovery(box: _Box) -> None:
+    """What the box runs first after a kill (the service's ``_undo_killed_load``, or the next ingest's start)."""
+    with contextlib.suppress(publish_mod.FhirRestoreOutstanding):
+        publish_mod.recover_all(box.cfg)
+
+
 NIGHTS: dict[str, tuple[Callable[[_Box], Any], bool]] = {
     "a night": (lambda b: _ingest(b, False), False),
     "a night whose promotion fails once": (lambda b: _fails_once(b, False), False),
     "a re-run of the served night": (lambda b: _ingest(b, True), True),
     "a re-run whose lake step fails once": (lambda b: _fails_once(b, True), True),
 }
+# the publish's kill points from which the recovery is killed at each of its own (§ii: the cost kept down)
+RECOVERY_FROM = ("FHIR store loaded", "lake promoted", "re-run swapped in")
 
 
 def _run(box: _Box, night: Callable[[_Box], Any], *, kill_at: int = 0, hits: list[str] | None = None) -> bool:
@@ -1097,77 +1382,128 @@ def _run(box: _Box, night: Callable[[_Box], Any], *, kill_at: int = 0, hits: lis
 
 
 def _owed_or_one_night(box: _Box, stub: Stub, where: str) -> None:
-    """The invariant: FHIR_STATE owes a put-back, or the store holds what CURRENT serves, the marker names it, and no
-    night's record skips a FHIR load the store does not hold."""
+    """The invariant: the store is owed (derived from the intent and CURRENT), or it holds what CURRENT serves,
+    resource by resource, the generation ledger has that night finished (review E2), and every folder the intent
+    says the store holds is that one."""
     from adapter.pipeline import RERUN_DIR
 
-    st = publish_mod.read_state(box.cfg)
-    if st["state"] != "clean":
+    d = publish_mod.derive(box.cfg)
+    if not d.clean:
         return
     served = box.lakes.lake.current()
     held = stub.held()
-    assert st["night"] == (served or ""), f"{where}: the marker names {st['night']!r}, CURRENT {served!r}"
+    assert d.served == served and d.intent["want"] == (served or ""), f"{where}: {d}"
     assert held == (_hashes(snapshot_dir(box.cfg.lake_dir, served)) if served else {}), f"{where}: store != CURRENT"
+    assert served is None or _generation() == (served, "finished"), f"{where}: generation {_generation()}"
     home = snapshot_dir(box.cfg.lake_dir, "-").parent
     for f in sorted(f for f in [*home.glob("*"), *(box.cfg.lake_dir / RERUN_DIR).glob("*")] if f.is_dir()):
-        steps = publish_mod.read_record(f).get("steps") or {}
-        if steps.get("fhir") == "done" and steps.get("lake") != "done":
-            assert _hashes(f) == held, f"{where}: {f.name}'s record skips a FHIR load the store does not hold"
+        if _loaded(box.cfg, f.name, f):
+            assert _hashes(f) == held, f"{where}: the intent skips {f.name}'s load, which the store does not hold"
+
+
+def _ndjson(folder: Path) -> str:
+    return "".join(p.read_text(encoding="utf-8") for p in sorted(folder.glob("*.ndjson")))
 
 
 def _settled(box: _Box, stub: Stub, rerun: bool, where: str, rep: Any = None) -> None:
+    """The night is served, the store holds its folder resource by resource, and both carry the night's own value
+    (review F5: a re-run whose folder and store both went back to the original N1 is not settled)."""
     from adapter.pipeline import RERUN_DIR
 
     night = box.n1 if rerun else box.n2
     assert rep is None or rep.passed, f"{where}: {rep.errors}"
     assert box.lakes.lake.current() == night, where
-    st = _state(box.cfg)
-    assert st["state"] == "clean" and st["night"] == night, f"{where}: {st}"
-    assert stub.held() == _hashes(snapshot_dir(box.cfg.lake_dir, night)), f"{where}: the store is not the night"
+    assert _clean_at(box.cfg, night), f"{where}: {_state(box.cfg)}"
+    folder = snapshot_dir(box.cfg.lake_dir, night)
+    assert stub.held() == _hashes(folder), f"{where}: the store is not the night"
+    store = json.dumps(httpx.get(f"{stub.root}/_resources", timeout=30).json())
+    own, gone = ("2025-12-03", "2025-12-01") if rerun else ("2025-12-02", "")
+    assert own in _ndjson(folder) and own in store, f"{where}: the night's own value is not served"
+    assert not gone or (gone not in _ndjson(folder) and gone not in store), f"{where}: the original N1 is served"
+    assert _generation() == (night, "finished"), f"{where}: generation {_generation()}"
     assert not list((box.cfg.lake_dir / RERUN_DIR).glob("*.replaced")), where
 
 
+@pytest.mark.parametrize("phase", ["publish", "recovery"])
 @pytest.mark.parametrize("name", list(NIGHTS))
-def test_a_kill_at_every_checkpoint_leaves_the_store_owed_or_one_night(tmp_path: Path, stub: Stub, name: str) -> None:
+def test_a_kill_at_every_checkpoint_leaves_the_store_owed_or_one_night(
+    tmp_path: Path, stub: Stub, name: str, phase: str
+) -> None:
+    """§ii's two tables: ``publish``, a kill at each checkpoint of the night; ``recovery``, from each kill inside the
+    FHIR load or the lake step, the recovery killed at each of its own checkpoints (enumerated from a recovery of that
+    same kill state that is not killed), then a recovery that is not, then the night's resume."""
     night, rerun = NIGHTS[name]
     hits: list[str] = []
     dry = _box(tmp_path / "dry", stub, 0)
     assert not _run(dry, night, hits=hits)
     _settled(dry, stub, rerun, f"{name}, not killed")
+    i = 0
     for k, point in enumerate(hits, start=1):
+        if phase == "recovery" and point not in RECOVERY_FROM:
+            continue
         where = f"{name}, killed after #{k} ({point})"
-        box = _box(tmp_path / f"k{k}", stub, k)
+        i += 1
+        box = _box(tmp_path / f"k{i}", stub, i)
         assert _run(box, night, kill_at=k), where
         _owed_or_one_night(box, stub, where)
+        if phase == "recovery":
+            back: list[str] = []
+            assert not _run(box, _recovery, hits=back), where
+            assert back, f"{where}: the recovery wrote nothing"
+            for j, step in enumerate(back, start=1):
+                again = f"{where}, its recovery killed after #{j} ({step})"
+                i += 1
+                box = _box(tmp_path / f"k{i}", stub, i)
+                assert _run(box, night, kill_at=k), again
+                assert _run(box, _recovery, kill_at=j), again
+                _owed_or_one_night(box, stub, again)
+                publish_mod.recover_all(box.cfg)
+                _owed_or_one_night(box, stub, f"{again}, recovered")
+                _settled(box, stub, rerun, again, _ingest(box, rerun))
+            continue
         _settled(box, stub, rerun, where, _ingest(box, rerun))
 
 
 @pytest.mark.parametrize("kind", ["error", "malformed"])
+@pytest.mark.parametrize("phase", ["publish", "recovery"])
 @pytest.mark.parametrize("name", list(NIGHTS))
 def test_a_store_fault_at_every_request_leaves_the_store_owed_or_one_night(
-    tmp_path: Path, stub: Stub, name: str, kind: str
+    tmp_path: Path, stub: Stub, name: str, phase: str, kind: str
 ) -> None:
+    """§ii's store-fault column: ``publish``, each request of the night; ``recovery``, each request of the recovery
+    after a kill right after the night's FHIR load."""
     night, rerun = NIGHTS[name]
     dry = _box(tmp_path / "dry", stub, 0)
+    hits: list[str] = []
+    k = 0
+    if phase == "recovery":
+        assert not _run(dry, night, hits=hits)
+        k = hits.index("FHIR store loaded") + 1
+        dry = _box(tmp_path / "dry2", stub, 1)
+        assert _run(dry, night, kill_at=k)
     sent = len(stub.log())
-    _run(dry, night)
+    _run(dry, _recovery if phase == "recovery" else night)
     sent = len(stub.log()) - sent
     assert sent
     for j in range(1, sent + 1):
-        where = f"{name}, store request #{j} answered {kind}"
-        box = _box(tmp_path / f"r{j}", stub, j)
+        where = f"{name}, {phase} store request #{j} answered {kind}"
+        box = _box(tmp_path / f"r{j}", stub, j + 1)
+        if phase == "recovery":
+            assert _run(box, night, kill_at=k), where
         stub.control(fail_at={"n": j, "kind": kind})
-        _run(box, night)
+        _run(box, _recovery if phase == "recovery" else night)
         _owed_or_one_night(box, stub, where)
+        if phase == "recovery":
+            publish_mod.recover_all(box.cfg)
         _settled(box, stub, rerun, where, _ingest(box, rerun))
 
 
 def test_every_checkpoint_is_reached(tmp_path: Path, stub: Stub) -> None:
-    """The nights above reach every checkpoint publish.py names (one that no night reaches fails here), the
-    swap-back of a re-run killed right after its swap included."""
+    """The nights above, and the recoveries after their kills, reach every checkpoint publish.py names (one that
+    none reaches fails here): the swap-back of a re-run killed right after its swap included."""
     src = Path(publish_mod.__file__).read_text(encoding="utf-8")
-    names = {n.replace("{FHIR_OWED}", publish_mod.FHIR_OWED) for n in re.findall(r'_checkpoint\(f?"([^"]+)"\)', src)}
-    names |= {publish_mod.FHIR_STATE, publish_mod.FHIR_OWED, publish_mod.RECORD, "passed.json"}
+    names = set(re.findall(r'_checkpoint\(f?"([^"]+)"\)', src))
+    names |= {publish_mod.FHIR_STATE, publish_mod.RECORD, "passed.json"}
     hits: list[str] = []
     for i, (night, _rerun) in enumerate(NIGHTS.values()):
         _run(_box(tmp_path / f"n{i}", stub, i), night, hits=hits)
@@ -1176,5 +1512,7 @@ def test_every_checkpoint_is_reached(tmp_path: Path, stub: Stub) -> None:
     _run(_box(tmp_path / "probe", stub, len(NIGHTS)), rerun, hits=probe)
     box = _box(tmp_path / "swap", stub, len(NIGHTS) + 1)
     assert _run(box, rerun, kill_at=probe.index("re-run swapped in") + 1)
+    _run(box, _recovery, hits=hits)
+    assert {"served folder renamed aside", "served folder put back", "FHIR store put back"} <= set(hits)
     _run(box, rerun, hits=hits)
     assert names <= set(hits), sorted(names - set(hits))
