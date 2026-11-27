@@ -1,0 +1,49 @@
+{
+ "card": "H68",
+ "title": "the audit writer follows no link planted in its folder (lane K's finding of 2026-11-20)",
+ "date": "2026-11-20",
+ "source": "docs/handover/audit-files-no-links-2026-11-20.md",
+ "note": "basis 'shown' for H68-01: tests/unit/test_audit_files_no_links.py fails 21 of 22 on master's audit.py as root and as nobody, and passes 22 with the fix; nothing was run on a real box or under Docker.",
+ "findings": [
+  {
+   "id": "H68-01",
+   "severity": "High",
+   "claim": "libs/tb_common/audit.py opened .HEAD.json.tmp, .lock, the day files and the .torn-<n> evidence by path and followed links (and hard links, and blocked on a FIFO): uid 10001, which owns the audit-data volume, could plant a name so that the next root command writing the chain (trialbox restore, key ceremony or escrow, audit_verify --reanchor) truncated, overwrote or appended to any host file or made a new root file; fs.protected_symlinks does not apply (the folder is 0755, not sticky, and the planter owns it); now the folder is opened once with O_NOFOLLOW and every file through it, checked plain, one link, an allowed owner",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed bf1b9ceecba39ffe59ae004264cdd4937abe63c1"
+  },
+  {
+   "id": "H68-02",
+   "severity": "Medium",
+   "claim": "root commands still append to the audit chain as root in a folder uid 10001 controls (trialbox restore, key_ceremony, key_escrow, audit_verify --reanchor/--sign-head/--rotate-key); recommendation: do the write in a child that drops to the folder's owner (setgroups, setgid, setuid), which none of them needs root for, and drop the D-724 give-back of root-made files; not built in H-68 (a fork with database connections and threads, the record back through a pipe, CI cannot show the drop as non-root); lane K does it for the ceremony in #1228",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H68-03",
+   "severity": "Low",
+   "claim": "publish_head (libs/tb_common/audit.py, _write_once) writes the signed heads as root into TB_AUDIT_ANCHOR_TARGETS with O_CREAT|O_EXCL, which does not follow a link in the last name, but makes and walks heads/ and keys/ by path (mkdir parents, then open), so a link planted as heads/ by whoever can write the anchor share sends a head elsewhere; the same folder-descriptor form would close it",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H68-04",
+   "severity": "Low",
+   "claim": "the audit readers still open by path and follow links: verify, read_head and lines_backward in libs/tb_common/audit.py, and the shared lock of tools/trialbox/audit_heads.py reading() (os.open(audit_dir / '.lock', O_RDONLY), line 71 on master, line 74 in #1261); they write nothing, but a FIFO planted as a day file, HEAD.json or .lock hangs them (audit-sign as root, doctor); O_NOFOLLOW|O_NONBLOCK and an fstat check would close it",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H68-05",
+   "severity": "Medium",
+   "claim": "tools/trialbox/backup.py _own_writes (lines 2087-2089) gives every root-owned file in the audit folder to the folder's owner after a restore's audit write; lchown does not follow a symbolic link, but a hard link to a root file planted by uid 10001 (where fs.protected_hardlinks is off) is root-owned and would be given to uid 10001; the H-68 writer now refuses such a link before the write, but one planted between the write and the give-back is a race; the give-back should skip files with more than one link (or go with H68-02)",
+   "lane": "Int",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}
