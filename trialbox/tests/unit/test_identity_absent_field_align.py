@@ -28,7 +28,7 @@ def _no_birth_date_other(row: dict[str, str]) -> dict[str, str]:
     return {**row, "name": "", "id_no": "", "birth_date": "", "death_date": "", "phone": "0900000000"}
 
 
-@pytest.mark.xfail(strict=True, reason=ALIGN)
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason=ALIGN)  # only the hold may be missing, no error
 def test_two_people_without_a_birth_date_under_one_chart_are_held(good: Any, tmp_path: Path) -> None:  # noqa: F811
     cfg, rb = _from_good(good, tmp_path)
     feed = _feed(tmp_path)
