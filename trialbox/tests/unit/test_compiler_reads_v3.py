@@ -96,7 +96,12 @@ def test_a_window_in_hours_goes_to_a_person_in_both_engines() -> None:
 
 
 def test_cql_refuses_what_only_the_sql_compiles() -> None:
-    doc = _crit(domain="medication", value=None, quantifier="any", medication={"route": ["4132161"]})
+    doc = _crit(
+        domain="medication",
+        value=None,
+        quantifier="any",
+        medication={"dose": {"op": ">", "num": 15, "unit": "mg", "basis": "cumulative"}},
+    )
     doc["atoms"][0] = {k: v for k, v in doc["atoms"][0].items() if v is not None}
     ir = CriterionIRv3.model_validate(doc)
     vsi = ValueSets("SYN", {"VS_X": {"compose": {"include": []}}}, Terminology())
@@ -127,7 +132,7 @@ def _med(**atom: Any) -> dict[str, Any]:
 
 _DAILY = {"op": ">=", "num": 40, "unit": "mg", "basis": "daily"}
 _REF = {"kind": "uln", "multiple": 3}
-_ROUTE = {"route": ["4132161"]}
+_ROUTE = {"route": ["47625008"]}  # SNOMED intravenous, as the IR documents
 
 
 def _with_macro() -> dict[str, Any]:
@@ -159,6 +164,7 @@ def _with_macro() -> dict[str, Any]:
         (_med(medication={"dose": {"op": ">=", "unit": "mg", "basis": "daily"}}), "numeric thresholds"),
         (_med(medication={"dose": {**_DAILY, "num": float("inf")}}), "must be finite"),
         (_med(medication={"route": []}), "must not be empty"),
+        (_med(medication=_ROUTE), "no_route_mapping"),
         (_crit(domain="specimen"), "no v1 form"),
     ],
     ids=lambda p: p if isinstance(p, str) else "",
@@ -184,5 +190,5 @@ def test_value_ref_lowers_to_a_comparison_with_zero_and_keeps_the_reference_besi
 
 def test_a_medication_dose_in_a_daily_or_cumulative_basis_lowers_to_a_row_predicate() -> None:
     for basis in ("daily", "cumulative"):
-        low, _ = _lowered(_med(medication={"route": ["4132161"], "dose": {**_DAILY, "basis": basis}}))
+        low, _ = _lowered(_med(medication={"dose": {**_DAILY, "basis": basis}}))
         assert low.logic.domain == "observation" and low.logic.quantifier == "any"

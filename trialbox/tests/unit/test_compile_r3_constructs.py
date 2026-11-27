@@ -27,6 +27,7 @@ VS = {
     "VS_ALT": {"url": "urn:tb:vs:VS_ALT", "compose": {"include": [{"system": LOINC, "concept": [{"code": "1742-6"}]}]}},
     "VS_BNP": {"url": "urn:tb:vs:VS_BNP", "compose": {"include": [{"system": LOINC, "concept": [{"code": "33762-6"}]}]}},
     "VS_AF": {"url": "urn:tb:vs:VS_AF", "compose": {"include": [{"system": ICD, "concept": [{"code": "I48"}]}]}},
+    "VS_CKD": {"url": "urn:tb:vs:VS_CKD", "compose": {"include": [{"system": ICD, "concept": [{"code": "N18"}]}]}},
 }  # fmt: skip
 
 
@@ -53,8 +54,8 @@ def sql(c: CriterionIRv3, ref: SiteRefRanges | None = None) -> str:
     return SqlGenerator("SYN", "1.0.0", ValueSets("SYN", VS, Terminology()), ref).render([c])
 
 
-def cql(c: CriterionIRv3, ref: SiteRefRanges | None = None) -> str:
-    return CqlGenerator("SYN", "1.0.0", ValueSets("SYN", VS, Terminology()), 36, ref).render([c])
+def cql(c: CriterionIRv3) -> str:
+    return CqlGenerator("SYN", "1.0.0", ValueSets("SYN", VS, Terminology()), 36).render([c])
 
 
 @pytest.fixture
@@ -156,13 +157,17 @@ def test_an_unsigned_or_malformed_table_is_refused(tmp_path: Path) -> None:
             SiteRefRanges.load(p)
 
 
-def test_value_ref_in_cql_uses_the_same_table() -> None:
+def test_value_ref_never_answers_differently_in_the_two_engines(db: Any) -> None:
+    """Review R1: result ULN 60, site ULN 40, 150 > 3 x ULN. The SQL reads the result's own range first (false);
+    the CQL cannot, and would compare with 3 x 40 (true), so it refuses and the criterion goes to a person."""
     c = crit([alt_uln()])
-    text = cql(c, table(("female", 35), (None, 40)))
-    assert "TB.UnitKey(X.value as FHIR.Quantity) = 'u/l' and Patient.gender.value = 'female' then 35.0" in text
-    assert "then 40.0 else null end) * 3)" in text and "120" not in text
-    assert "(X.value as FHIR.Quantity).value.value" in text  # the result's own number, no unit conversion
-    assert "((null as Decimal) * 3)" in cql(c)  # no table: never a number
+    obs(db, 150)
+    db.execute("INSERT INTO tb_id_map VALUES ('person', 1, 'p')")
+    db.execute("INSERT INTO tb_record VALUES ('measurement', 1, 'o1', 0, 'coded')")
+    db.execute("INSERT INTO measurement VALUES (1, 1, '1742-6', 150, 60, 5)")
+    assert run(db, sql(c, table((None, 40))))[0] is False  # 150 <= 3 x 60
+    with pytest.raises(CompileError, match="no_cql_reference_range"):
+        cql(c)
 
 
 # ------------------------------------------------------------------ on_hit
@@ -238,6 +243,66 @@ def test_value_if_without_the_atoms_own_value_is_refused() -> None:
             render(bare)
 
 
+def _bnp_two_branches() -> CriterionIRv3:
+    return crit(
+        [
+            {"id": "a1", "domain": "observation", "valueset": "VS_BNP", "quantifier": "latest",
+             "value": {"op": ">=", "num": 1600, "unit": "pg/mL"},
+             "value_if": [{"if_atom": "af", "value": {"op": ">=", "num": 2400, "unit": "pg/mL"}},
+                          {"if_atom": "ckd", "value": {"op": ">=", "num": 3000, "unit": "pg/mL"}}]},
+            {"id": "af", "domain": "condition", "valueset": "VS_AF"},
+            {"id": "ckd", "domain": "condition", "valueset": "VS_CKD"},
+        ],
+        kind="inclusion",
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("conditions", "value", "expected"),
+    [
+        (("I48", "N18"), 2500, True),  # both hold: the first branch (2400) wins, not the second (3000)
+        (("N18",), 2500, False),  # only the second: 3000
+        (("N18",), 3100, True),
+        ((), 2000, True),  # neither: the atom's own 1600
+        (("I48",), 2000, False),
+    ],
+)
+def test_value_if_with_two_branches_takes_the_first_match(
+    db: Any, conditions: tuple[str, ...], value: float, expected: bool
+) -> None:
+    """Review R3: the second branch of the same atom is not a reference back to it."""
+    obs(db, value, unit="pg/mL", code="33762-6")
+    for code in conditions:
+        db.execute(f"INSERT INTO condition VALUES ('{code}', 'p', '{ICD}', '{code}', DATE '2020-01-01', NULL, NULL)")
+    assert run(db, sql(_bnp_two_branches()))[0] is expected
+    text = cql(_bnp_two_branches())
+    assert ">= 2400" in text and ">= 3000" in text and ">= 1600" in text
+
+
+def test_value_if_cycle_through_a_later_branch_is_refused() -> None:
+    loop = crit([
+        {"id": "a1", "domain": "observation", "valueset": "VS_BNP", "value": {"op": ">", "num": 1},
+         "value_if": [{"if_atom": "af", "value": {"op": ">", "num": 2}},
+                      {"if_atom": "a2", "value": {"op": ">", "num": 3}}]},
+        {"id": "af", "domain": "condition", "valueset": "VS_AF"},
+        {"id": "a2", "domain": "observation", "valueset": "VS_BNP", "value": {"op": ">", "num": 1},
+         "value_if": [{"if_atom": "a1", "value": {"op": ">", "num": 4}}]},
+    ])  # fmt: skip
+    for render in (sql, cql):  # a1 -> a2 -> a1, reached through a1's second branch
+        with pytest.raises(CompileError, match="refer back"):
+            render(loop)
+
+
+# ------------------------------------------------------------------ medication route (review R2)
+def test_a_snomed_route_is_refused_without_a_route_mapping() -> None:
+    """IR routes are SNOMED (47625008 intravenous); the exposure's route is an OMOP concept id and no table maps
+    one to the other, so neither engine compiles a route."""
+    c = crit([{"id": "a1", "domain": "medication", "valueset": "VS_AF", "medication": {"route": ["47625008"]}}])
+    for render in (sql, cql):
+        with pytest.raises(CompileError, match="no_route_mapping"):
+            render(c)
+
+
 # ------------------------------------------------------------------ study anchors in CQL
 @pytest.mark.parametrize(("anchor", "param"), [("screening", "ScreeningDate"), ("randomization", "RandomizationDate")])
 def test_study_anchor_is_a_cql_parameter(anchor: str, param: str) -> None:
@@ -251,7 +316,16 @@ def test_study_anchor_is_a_cql_parameter(anchor: str, param: str) -> None:
 
 
 def test_medication_detail_stays_sql_only() -> None:
-    c = crit([{"id": "a1", "domain": "medication", "valueset": "VS_AF", "medication": {"route": ["4132161"]}}])
+    c = crit(
+        [
+            {
+                "id": "a1",
+                "domain": "medication",
+                "valueset": "VS_AF",
+                "medication": {"dose": {"op": ">", "num": 15, "unit": "mg", "basis": "cumulative"}},
+            }
+        ]
+    )
     assert '"C_SYN-EXC-01"' in sql(c)
     with pytest.raises(CompileError, match="medication route and dose are not compiled to CQL"):
         cql(c)
@@ -268,7 +342,8 @@ def test_gzqo_exc_13_in_v3_compiles_against_the_reference_range(db: Any) -> None
     t = table((None, 40))
     text = SqlGenerator("GZQO", "3.0.0", vsi, t).render([v3])
     assert "(o.ref_bound * 3)" in text and "> 120" not in text
-    assert "* 3)" in CqlGenerator("GZQO", "3.0.0", vsi, 36, t).render([v3])
+    with pytest.raises(CompileError, match="no_cql_reference_range"):  # review R1: the SQL only
+        CqlGenerator("GZQO", "3.0.0", vsi, 36).render([v3])
     for value, expected in ((150, True), (120, False), (119, False)):  # with ULN 40 the typed 120 and 3 x ULN agree
         db.execute("DELETE FROM observation")
         obs(db, value)

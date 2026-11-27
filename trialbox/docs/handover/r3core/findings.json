@@ -7,7 +7,7 @@
     {
       "id": "R3CORE-01",
       "severity": "High",
-      "claim": "The lake carries no result reference range (no range column in lake/flatten.py, no measurement.range_high from the OMOP load), so value.ref decides from the signed site table in both engines.",
+      "claim": "The lake carries no result reference range (no range column in lake/flatten.py, no measurement.range_high from the OMOP load), so value.ref decides from the signed site table in the SQL; the CQL refuses value.ref (no_cql_reference_range).",
       "lane": "Int",
       "basis": "shown",
       "state": "open"
@@ -31,7 +31,7 @@
     {
       "id": "R3CORE-04",
       "severity": "Medium",
-      "claim": "Medication route and dose compile in SQL only (OMOP route concept ids, quantity per exposure); the IR documents SNOMED routes and FHIR a dose per administration, so the CQL twin needs a ruling on the representation.",
+      "claim": "Medication dose compiles in SQL only (quantity per exposure; FHIR carries a dose per administration); route is refused in both engines (no_route_mapping) until a SNOMED to OMOP route table exists. The representation needs a ruling.",
       "lane": "Int",
       "basis": "shown",
       "state": "open"

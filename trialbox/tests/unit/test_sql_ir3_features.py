@@ -111,12 +111,10 @@ class SqlIR3Features(unittest.TestCase):
             self.db.execute("DELETE FROM criterion_anchors")
             self.assertIsNone(self.result(cr))
 
-    def test_medication_route_true_false_unknown(self) -> None:
-        cr = criterion(domain="medication", medication={"route": ["7"]})
-        for route, expected in ((7, True), (8, False), (None, None), (0, None)):
-            with self.subTest(route=route):
-                self.db.execute("UPDATE drug_exposure SET route_concept_id = ?", [route])
-                self.assertIs(self.result(cr), expected)
+    def test_medication_route_is_refused_without_a_route_mapping(self) -> None:
+        # review R2: the IR route is SNOMED, route_concept_id is OMOP, and no table maps one to the other
+        with self.assertRaisesRegex(CompileError, "no_route_mapping"):
+            render(criterion(domain="medication", medication={"route": ["47625008"]}))
 
     def test_medication_dose_true_false_unknown(self) -> None:
         for basis, threshold in (("cumulative", 15), ("daily", 8)):
@@ -143,7 +141,11 @@ class SqlIR3Features(unittest.TestCase):
             )
 
     def test_medication_window_includes_days_supply(self) -> None:
-        cr = criterion(domain="medication", window={"from_days": -1, "to_days": 0}, medication={"route": ["7"]})
+        cr = criterion(
+            domain="medication",
+            window={"from_days": -1, "to_days": 0},
+            medication={"dose": {"op": ">", "num": 15, "unit": "mg", "basis": "cumulative"}},
+        )
         self.db.execute("UPDATE drug_exposure SET days_supply = 5")
         self.assertIs(self.result(cr), True)
         self.db.execute("UPDATE drug_exposure SET days_supply = 2")
@@ -156,17 +158,21 @@ class SqlIR3Features(unittest.TestCase):
             self.assertIsNone(self.result(cr))
 
     def test_missing_exposure_end_cannot_disprove_window_overlap(self) -> None:
-        cr = criterion(domain="medication", window={"from_days": -1, "to_days": 0}, medication={"route": ["7"]})
+        cr = criterion(
+            domain="medication",
+            window={"from_days": -1, "to_days": 0},
+            medication={"dose": {"op": ">", "num": 15, "unit": "mg", "basis": "cumulative"}},
+        )
         self.db.execute("UPDATE drug_exposure SET days_supply = NULL")
         self.assertIsNone(self.result(cr))
 
-    def test_missing_route_overrides_failed_dose(self) -> None:
+    def test_a_route_beside_a_dose_is_refused(self) -> None:
         cr = criterion(
             domain="medication",
-            medication={"route": ["7"], "dose": {"op": ">", "num": 100, "unit": "mg", "basis": "cumulative"}},
+            medication={"route": ["47625008"], "dose": {"op": ">", "num": 100, "unit": "mg", "basis": "cumulative"}},
         )
-        self.db.execute("UPDATE drug_exposure SET route_concept_id = NULL")
-        self.assertIsNone(self.result(cr))
+        with self.assertRaisesRegex(CompileError, "no_route_mapping"):
+            render(cr)
 
     def test_reference_censored_and_boolean_unknown(self) -> None:
         cr = criterion(value={"op": ">", "ref": {"kind": "uln", "multiple": 3}})

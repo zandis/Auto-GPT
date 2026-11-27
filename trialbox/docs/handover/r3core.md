@@ -35,11 +35,12 @@ atom rides beside it for the qualifiers a generator compiles itself. A qualifier
 
 | Construct | SQL | CQL |
 | --- | --- | --- |
-| `value.ref` | the OMOP row's own range (#1531), else the signed site table, else NULL with `no_reference_range` | the signed site table, else null |
+| `value.ref` | the OMOP row's own range (#1531), else the signed site table, else NULL with `no_reference_range` | refused (`CompileError`, `no_cql_reference_range`): it cannot read the result's range first (review R1) |
 | study anchors | `criterion_anchors` (#1531) | library parameters `ScreeningDate`, `RandomizationDate` |
 | `value_if` | lowered to logic: `(c and x) or (not c and r) or (x and r)` | the same logic |
 | `on_hit: review` | `(atom AND NULL)`: met goes to a person | `(atom) and (null as Boolean)` |
-| medication route, dose, basis | OMOP `drug_exposure` (#1531) | refused (`CompileError`) |
+| medication dose, basis | OMOP `drug_exposure` (#1531) | refused (`CompileError`) |
+| medication route | refused (`CompileError`, `no_route_mapping`): IR routes are SNOMED, `route_concept_id` is OMOP, no table maps them (review R2) | refused |
 
 The site table (`semantics.SiteRefRanges`) is signed (`signed.by`, `signed.at`) or refused, and is matched on code,
 unit key and sex, a row for the patient's sex before the row for both. Hour windows stay refused in both engines.
@@ -54,15 +55,15 @@ unit key and sex, a row for the patient's sex before the row for both. Hour wind
 
 - R3CORE-01 (High): the lake carries no result reference range. `lake/flatten.py` keeps no range column and the OMOP
   load writes no `measurement.range_high`; the SQL reads the OMOP row (not in the night's connection, CXIR31-01) and
-  the CQL does not read `Observation.referenceRange`, so both decide from the site table. A range column in the lake is
-  the lake's change.
+  the CQL refuses `value.ref`, so the SQL decides from the site table. A range column in the lake is the lake's
+  change; the CQL compiles `value.ref` again only with the same result-range-first order.
 - R3CORE-02 (High): no signed site table exists and nothing passes one to `build_artifacts`. Until both exist every
   `value.ref` criterion is unknown with `no_reference_range`.
 - R3CORE-03 (Medium): no caller supplies study anchor dates (neither `criterion_anchors` nor the CQL parameters); a
   per-patient parameter in the CQL evaluation is not verified.
-- R3CORE-04 (Medium): medication route and dose stay SQL only. The SQL compares OMOP route concept ids and the
-  quantity of one exposure; the IR documents route as SNOMED codes and FHIR carries a dose per administration, so a CQL
-  twin would compare other codes and another quantity. The representation needs a ruling.
+- R3CORE-04 (Medium): medication dose stays SQL only (the quantity of one exposure; FHIR carries a dose per
+  administration). Route is refused in both engines until a SNOMED to OMOP route table exists. The representation
+  needs a ruling.
 - R3CORE-05 (Medium): `no_reference_range` is not in `tb_common.labunit.TOKENS`, so `reason_of` reads it as a record
   reference; the night report would not name the reason.
 - R3CORE-06 (Medium): the SQL against CQL equivalence of the new constructs on executed engines is not run.

@@ -219,11 +219,17 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
             raise CompileError(f"atom {a.id}: value_if conditions refer back to it")
         if a.value is None:
             raise CompileError(f"atom {a.id}: value_if needs the atom's own value")
-        seen = (*seen, a.id)
+        return branches(a, (*seen, a.id))
+
+    def branches(a: Atom3, seen: tuple[str, ...]) -> Atom | BoolExpr:
+        """The atom's own ``value_if`` list from its first branch on. ``seen`` already holds the atom: the later
+        branches are the same atom, not a reference back to it, so only ``cond()`` checks for a cycle."""
+        if not a.value_if:
+            return one(a)
         first, later = a.value_if[0], a.value_if[1:]
 
         def rest() -> Atom | BoolExpr:
-            return switched(a.model_copy(update={"value_if": later or None}), seen)
+            return branches(a.model_copy(update={"value_if": later or None}), seen)
 
         def cond() -> Atom | BoolExpr:
             return switched(by_id[first.if_atom], seen)
@@ -278,6 +284,11 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
                 raise CompileError("dose thresholds must be finite")
             if a.medication.route == []:
                 raise CompileError("medication.route must not be empty")
+            if a.medication.route:  # ponytail: refused until a SNOMED -> OMOP route table exists; then map, compare
+                raise CompileError(
+                    f"atom {a.id}: medication.route is SNOMED and no SNOMED -> OMOP route mapping exists "
+                    "(no_route_mapping)"
+                )
             data.pop("medication")
             # Reuse observation quantifiers, including latest/all, for row predicates.
             data["domain"] = "observation"
