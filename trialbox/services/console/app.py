@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import errno
 import hashlib
 import io
 import ipaddress
@@ -43,7 +44,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common import egress_edge, trusted_proxy
-from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
+from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditFull, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
@@ -1022,6 +1023,17 @@ def create_app(
         sess = session_of(request)
         detail = str(exc)[:300] if lang_of(request, sess) not in ("ja", "zh-TW") else ""
         return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": detail})
+
+    @app.exception_handler(OSError)
+    async def _disk_full(request: Request, exc: OSError) -> Response:
+        """E2E P-34: a write the full disk refused (the audit's own refusal, or the system's ENOSPC) answers a plain
+        page that says so, not 500 Internal Server Error; any other OSError stays the server error it was."""
+        if not (isinstance(exc, AuditFull) or exc.errno == errno.ENOSPC):
+            raise exc
+        logging.getLogger(__name__).error("a write was refused: the disk is full (%s)", type(exc).__name__)
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON
+            return JSONResponse({"error": "diskfull", "detail": {}}, status_code=507)
+        return page(request, "problem.html", session_of(request), status=507, key="diskfull", values={})
 
     def actor(sess: Session) -> str:
         return f"console:{sess.user.username}"
