@@ -505,7 +505,9 @@ def register(app: FastAPI, h: Hooks) -> None:
             try:
                 con = h.doors["provenance"]()
                 try:
-                    rows = provenance_index.search(con, limit=PROVENANCE_LIMIT, **given)
+                    # P-19: the repair hold (directory=) is not asked here yet: the console passes the audit
+                    # directory when its lane wires it
+                    rows = provenance_index.search(con, limit=PROVENANCE_LIMIT, directory=None, **given)
                 finally:
                     getattr(con, "close", lambda: None)()
             except Exception:  # the index or its database cannot be read: said on the page, never a 500
