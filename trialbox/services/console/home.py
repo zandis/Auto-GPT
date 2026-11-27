@@ -787,7 +787,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         if sess.user.aggregate_only:
             raise h.problem(403, "forbidden")
         jobs = bk.list_jobs(limit=500)
-        mine = [r for r in trials(sess) if st.latest_job(jobs, r.id, SCREEN_TYPES) is not None]
+        # E2E P-35: only the studies whose week page admits this account (its phi.view and delegation checks), as
+        # the home page links them: an investigator on no study's log is not sent to a page that refuses them
+        mine = [
+            r for r in trials(sess) if st.latest_job(jobs, r.id, SCREEN_TYPES) is not None and h.reads(sess.user, r.id)
+        ]
         waiting = approvals(sess)
         if len(mine) == 1 and not waiting:
             return RedirectResponse(f"/studies/{mine[0].id}/week", status_code=303)
