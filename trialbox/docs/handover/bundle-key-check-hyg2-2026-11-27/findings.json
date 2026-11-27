@@ -1,0 +1,33 @@
+{
+ "card": "HYG2",
+ "title": "the stick's public key verifies what the stick carries, or the release build is refused",
+ "date": "2026-11-27",
+ "source": "docs/handover/bundle-key-check-hyg2-2026-11-27.md",
+ "note": "basis 'shown' means shown by the card's tests on int/r1plus1 3390bf74 with throwaway keys and the stand-in docker of test_release_bundle.py; no real release was built.",
+ "findings": [
+  {
+   "id": "HYG2-01",
+   "severity": "Medium",
+   "claim": "make_bundle.sh wrote no .sha256.sig and never checked that the public key it puts on the stick verifies the manifest and the bootstrap's .sig; it derived that key from --key, so a release signed with one key could not be held to the key the boxes trust",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG2-02",
+   "severity": "Medium",
+   "claim": "the launcher, the bootstrap and RUNBOOK section 1 do not check the new .sha256.sig: the stick carries it, but a site does not yet verify the sidecar's signature before trusting its lines",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG2-03",
+   "severity": "Low",
+   "claim": "the model pack (--model-pack-out) and its .sha256 are written outside the pending folder and are not covered by the stick key check",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
