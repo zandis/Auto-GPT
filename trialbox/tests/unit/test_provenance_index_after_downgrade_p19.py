@@ -10,10 +10,11 @@ downgrade. The audit drain is the index's only writer, and it passed lines over 
   until the drain was started again.
 
 Now the drain, when it finds the database put back to an older point (its journal resync), writes the index rows of
-the chain's lines drained from journal rows the database no longer holds, and it asks again for the tables while
-they are not there. Older lines are never written back: their rows are in the index or were taken out at an opt-out,
-which only ``trialbox provenance --rebuild`` may judge, with the register. Real drain, real tables, real ``pg_dump``
-and ``pg_restore`` on the test cluster; fixed times for the events; synthetic pseudonyms only.
+the chain's lines after the newest one the restored index holds (an opted-out patient's use rows withheld), and it
+asks again for the tables while they are not there. Older lines are never written back: their rows are in the index
+or were taken out at an opt-out, which only ``trialbox provenance --rebuild`` may judge, with the register. Real
+drain, real tables, real ``pg_dump`` and ``pg_restore`` on the test cluster; fixed times for the events; synthetic
+pseudonyms only.
 """
 
 from __future__ import annotations
