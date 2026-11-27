@@ -45,6 +45,15 @@ def test_the_console_cap_follows_the_people_who_use_it_at_once() -> None:
     assert any("10 people at once" in n for n in said), said  # above the most measured: said, never silent
 
 
+def test_the_spark_says_when_its_fixed_console_cap_is_under_the_peak() -> None:
+    """Review P06-1: the Spark's caps are its profile's, never derived; the plan says which fall short."""
+    assert bp.memory_caps(128, "gb10") == ({}, [])  # one person, 50,000 patients: its caps hold
+    caps, said = bp.memory_caps(128, "gb10", users=2)
+    assert caps == {} and any("TB_MEM_CONSOLE 2048m < 2579m" in n for n in said), said
+    _, big = bp.memory_caps(128, "gb10", patients=100_000)
+    assert any("TB_MEM_ADAPTER 6144m <" in n and "TB_MEM_ORCH" in n for n in big), big
+
+
 def test_the_plan_reads_the_sites_users(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TB_SITE_USERS", raising=False)
     (tmp_path / ".env").write_text("TB_SITE_USERS=4\n", encoding="utf-8")

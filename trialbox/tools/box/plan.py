@@ -361,7 +361,7 @@ def memory_caps(
     the console's for ``users`` people opening the largest study's lists at once (``TB_SITE_USERS``; not given:
     one, E2E P-06)."""
     if profile == "gb10":
-        return {}, []
+        return {}, spark_short(deploy, patients, users)
     files = [deploy / "docker-compose.yml", deploy / "docker-compose.identity.yml"]
     # dgpu48: the UNMEASURED 48 GB draft (card 24-5): arithmetic only, never detected, refused by install.sh
     overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090", "dgpu48": "dgpu48"}.get(profile)
@@ -423,6 +423,37 @@ def site_floors(deploy: Path, patients: int, users: int = 0) -> tuple[dict[str, 
         mib = memcaps.peak_mib(people, "TB_MEM_CONSOLE", u)
         floor["TB_MEM_CONSOLE"] = math.ceil(memcaps.HEADROOM * mib) / 1024
     return floor, n, said
+
+
+#: the compose service of each cap the measured-peak table holds (the Spark's overlay writes most of them as literals)
+PEAK_SERVICES = {
+    "TB_MEM_ADAPTER": "adapter",
+    "TB_MEM_CONSOLE": "console",
+    "TB_MEM_LAKE": "lake",
+    "TB_MEM_ORCH": "orchestrator",
+}
+
+
+def spark_short(deploy: Path, patients: int, users: int) -> list[str]:
+    """Review P06-1: the Spark's caps are its profile's (``docker-compose.gb10.yml``), fixed, never derived; a note for
+    each that is under its measured floor for the site's size and people at once (none when all hold)."""
+    floor, n, said = site_floors(deploy, patients, users)
+    text = (deploy / "docker-compose.gb10.yml").read_text(encoding="utf-8")
+    var, _ = compose_caps([deploy / "docker-compose.gb10.yml"])
+    low = []
+    for k, f in sorted(floor.items()):
+        m = re.search(rf"^  {PEAK_SERVICES.get(k, '-')}: \{{[^}}]*mem_limit: ([0-9.]+[mgMG])\}}", text, re.M)
+        have = _gib(m.group(1)) if m else var.get(k)
+        if have is not None and have < f:
+            low.append(f"{k} {int(have * 1024)}m < {int(f * 1024)}m")
+    if not low:
+        return said
+    who = f"{n:,} patients" + (f" and {users} people at once" if users > 1 else "")
+    return [
+        *said,
+        f"memory: the Spark's fixed caps {', '.join(low)} ({memcaps.HEADROOM:g} x the measured peak for {who}): its "
+        "profile does not hold a hospital of that size; the service is killed at its cap (E2E P-02, P-06)",
+    ]
 
 
 def measured_floors(
