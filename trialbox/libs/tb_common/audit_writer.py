@@ -439,6 +439,8 @@ class Drain:
                                "its line, releasing the consent lock)")  # fmt: skip
         self.con.execute(f"LISTEN {NOTIFY}")
         self.index = self._index_installed(say=True)  # said once: the drain asks again before a batch (P-19)
+        if self.index:
+            self._new_box()
         self.cursor = last_drained(self.directory)
         if self.cursor is None:
             return
@@ -472,6 +474,17 @@ class Drain:
         if not ok and say:
             log.info("provenance index not installed: the chain is written without it")
         return ok
+
+    def _new_box(self) -> None:
+        """P-19: a new box has nothing to rebuild: its marker says verified (``provenance_index.mark_new_box``), so
+        its first install's doctor passes. Never stops the drain."""
+        from tb_common import provenance_index
+
+        try:
+            if provenance_index.mark_new_box(self.con, self.directory):
+                log.info("provenance index: a new box, nothing to rebuild: the marker says verified")
+        except Exception as exc:
+            log.warning("provenance index: the new box's marker was not written (%s)", type(exc).__name__)
 
     def _withhold(self, reason: str) -> None:
         """P-19: the index may no longer equal the chain: the marker says rebuild-required, so the searches and this
@@ -533,6 +546,8 @@ class Drain:
             return 0
         if not self.index:  # P-19: tables made after the drain started are written from the next line on (D5)
             self.index = self._index_installed()
+            if self.index:
+                self._new_box()
         # P19-DESIGN-3 R4: a batch runs under the writer's lock, which the rebuild holds while it reads the chain: no
         # line is appended then, and every line after its CLEAN is written here. Not taken: the rebuild runs; the rows
         # stay in the journal for the next step. (No index, no rebuild: the lock is not needed.)

@@ -1583,9 +1583,7 @@ def test_a_new_box_has_nothing_to_rebuild_and_its_first_doctor_passes(box: str, 
 
 
 @pytest.mark.parametrize("how", ["restore_marker", "upgraded_chain", "index_rows", "restore_meanwhile"])
-def test_only_a_new_box_is_marked_verified(
-    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
-) -> None:
+def test_only_a_new_box_is_marked_verified(box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str) -> None:
     """The new box's marker never stands in for the rebuild: a restore's marker (before the drain's start or written
     while it looks), a chain with rows (an upgraded box) or an index with rows keep the rebuild required."""
     chain = tmp_path / "audit"

@@ -214,8 +214,35 @@ def require_rebuild(directory: Path, reason: str) -> None:
                               "done_through": ""})  # fmt: skip
 
 
-def _write_marker(directory: Path, body: dict[str, Any]) -> None:
-    """Replace the marker whole: a temporary file of this writer's own (mode 0644), fsync, rename, fsync the folder."""
+def mark_new_box(con: Any, directory: Path) -> bool:
+    """A new box: no marker file yet, the index installed and empty, and no chain line that writes a row. The index
+    equals the chain with nothing to rebuild, so the marker says ``verified``; whether it was written. Under the
+    writer's lock (no rebuild runs, no line is appended meanwhile), and only where no marker is (a restore's marker
+    written in the meantime is kept). Anything else (any marker, unreadable too, a row, a line with rows: an upgraded
+    box) is left to ``trialbox provenance --rebuild``."""
+    directory = Path(directory)
+    if read_marker(directory).reason != "no marker" or not installed(con):
+        return False
+    got = con.execute("SELECT pg_try_advisory_lock(%s)", (WRITER_LOCK,)).fetchone()
+    if not (got and got[0]):
+        return False
+    try:
+        if read_marker(directory).reason != "no marker" or any(_count(con, t) for t in TABLES):
+            return False
+        if any(any(rows_of(rec)) for rec in chain_records(directory)):
+            return False
+        _write_marker(directory, {"verified": True, "built_at": _now(), "chain_head": "", "rows": [0, 0],
+                                  "by": "new box: empty index, no chain line with a row"}, exclusive=True)  # fmt: skip
+        return True
+    except FileExistsError:
+        return False
+    finally:
+        con.execute("SELECT pg_advisory_unlock(%s)", (WRITER_LOCK,))
+
+
+def _write_marker(directory: Path, body: dict[str, Any], *, exclusive: bool = False) -> None:
+    """Replace the marker whole: a temporary file of this writer's own (mode 0644), fsync, rename, fsync the folder.
+    ``exclusive``: only where there is none (a hard link, FileExistsError if a marker is there)."""
     # ponytail: same body as P03's _write_intent; lift both into tb_common when the second copy lands
     directory = Path(directory)
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{STATE}.")
@@ -225,7 +252,11 @@ def _write_marker(directory: Path, body: dict[str, Any]) -> None:
             json.dump({**body, "version": VERSION, "updated_at": _now()}, fh, sort_keys=True)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, directory / STATE)
+        if exclusive:
+            os.link(tmp, directory / STATE)
+            os.unlink(tmp)
+        else:
+            os.replace(tmp, directory / STATE)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
