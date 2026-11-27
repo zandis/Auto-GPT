@@ -113,3 +113,81 @@ def test_v1_input_is_upgraded_at_load() -> None:
     low, ext = lower(v1)
     assert low.id == v1.id and low.text == "t" and low.logic == v1.logic
     assert [a.id for a in ext.values()] == ["a1"]  # the upgraded v3 atom rides beside the lowered one
+
+
+def _lowered(doc: dict[str, Any]) -> Any:
+    return lower(CriterionIRv3.model_validate(doc))
+
+
+def _med(**atom: Any) -> dict[str, Any]:
+    doc = _crit(domain="medication", quantifier="any", **atom)
+    doc["atoms"][0].pop("value")
+    return doc
+
+
+_DAILY = {"op": ">=", "num": 40, "unit": "mg", "basis": "daily"}
+_REF = {"kind": "uln", "multiple": 3}
+_ROUTE = {"route": ["4132161"]}
+
+
+def _with_macro() -> dict[str, Any]:
+    doc = _crit()
+    doc["macros"] = [{"id": "m1", "macro": "renal_function@ckd-1.0.0"}]
+    return doc
+
+
+def _v31(**atom: Any) -> dict[str, Any]:
+    return {**_crit(**atom), "ir_version": "3.1.0"}
+
+
+@pytest.mark.parametrize(
+    ("doc", "why"),
+    [
+        (_with_macro(), "expand macros"),
+        (_crit(aggregate={"fn": "sum", "over_hours": 12}), "unsupported v3 qualifier"),
+        (
+            _crit(attribute={"path": "ecog", "op": "<=", "num": 1, "source_priority": ["note"]}),
+            "unsupported v3 qualifier",
+        ),
+        (_v31(on_hit="review"), "on_hit review"),
+        (_crit(domain="condition", value={"op": ">", "ref": _REF}), "scalar observation comparison"),
+        (_crit(value={"op": "between", "ref": _REF}), "scalar observation comparison"),
+        (_crit(value={"op": ">", "num": 5, "ref": _REF}), "absolute threshold"),
+        (_crit(value={"op": ">", "ref": {"kind": "uln", "multiple": float("inf")}}), "must be finite"),
+        (_crit(domain="medication", medication=_ROUTE), "observation value"),
+        (_med(duration={"min_days": 3}, medication=_ROUTE), "duration, status and per-ingredient"),
+        (_med(medication={"status": ["ordered"]}), "duration, status and per-ingredient"),
+        (_med(medication={"dose": {**_DAILY, "per_ingredient": [{"code": "x", "num": 20}]}}), "per-ingredient"),
+        (_med(medication={"dose": {"op": ">=", "num": 40, "unit": "mg"}}), "single administration"),
+        (_med(medication={"dose": {**_DAILY, "op": "between"}}), "numeric thresholds"),
+        (_med(medication={"dose": {**_DAILY, "op": "in"}}), "numeric thresholds"),
+        (_med(medication={"dose": {"op": ">=", "unit": "mg", "basis": "daily"}}), "numeric thresholds"),
+        (_med(medication={"dose": {**_DAILY, "num": float("inf")}}), "must be finite"),
+        (_med(medication={"route": []}), "must not be empty"),
+        (_crit(domain="specimen"), "no v1 form"),
+    ],
+    ids=lambda p: p if isinstance(p, str) else "",
+)
+def test_what_no_generator_compiles_goes_to_a_person(doc: dict[str, Any], why: str) -> None:
+    with pytest.raises(CompileError, match=why):
+        _lowered(doc)
+
+
+def test_screening_and_randomization_anchors_lower_to_the_index_and_stay_on_the_v3_atom() -> None:
+    for anchor in ("screening", "randomization"):
+        window = {"from_days": -180, "to_days": 0, "anchor": anchor}
+        low, ext = _lowered(_crit(window=window))
+        assert low.logic.window.anchor == "index"
+        assert ext[id(low.logic)].window.anchor == anchor
+
+
+def test_value_ref_lowers_to_a_comparison_with_zero_and_keeps_the_reference_beside_it() -> None:
+    low, ext = _lowered(_crit(value={"op": ">", "ref": _REF}))
+    assert (low.logic.value.op, low.logic.value.num) == (">", 0)
+    assert ext[id(low.logic)].value.ref.multiple == 3
+
+
+def test_a_medication_dose_in_a_daily_or_cumulative_basis_lowers_to_a_row_predicate() -> None:
+    for basis in ("daily", "cumulative"):
+        low, _ = _lowered(_med(medication={"route": ["4132161"], "dose": {**_DAILY, "basis": basis}}))
+        assert low.logic.domain == "observation" and low.logic.quantifier == "any"
