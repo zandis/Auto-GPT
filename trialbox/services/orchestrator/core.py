@@ -677,7 +677,7 @@ class Orchestrator:
         )
         try:
             self.send(job, [to], _subject(job, "failed", f"at {err.step}"), body, [], kind="failed")
-        except (StepFailed, ServiceError, RuntimeError) as exc:
+        except Exception as exc:  # r2rerun R-A: the mail never stops the failed job's hold from being released
             log.warning("could not send Failed mail for %s: %s", job.job_id, exc)
 
     # ------------------------------------------------------------------ restart recovery (T-689; D-532)
@@ -753,6 +753,7 @@ class Orchestrator:
     # ------------------------------------------------------------------ worker pool
     def start(self) -> None:
         self.db.answers_sweep()  # T-689 (D-456): kept answers live only as long as their job is unfinished
+        self._release_ended_holds()
         limit = max_restarts()
         for jid in self.db.interrupted():  # restart recovery: run again from the start (scenarios are idempotent)
             self._recover_or_watch(jid, limit)
@@ -760,6 +761,25 @@ class Orchestrator:
             t = threading.Thread(target=self._worker, name=f"worker-{i}", daemon=True)
             t.start()
             self._threads.append(t)
+
+    def _release_ended_holds(self) -> None:
+        """r2rerun R-A (ruling c): at start, the lake hold of every job that has ended is released. A process that died
+        between a job's end and its release (or a failure that never reached it) left the hold, which blocked the
+        night's rebuild of that snapshot for HOLD_TTL_SECONDS (14 days). A holder that is not a job, or a job that has
+        not ended (it runs again and keeps its generation), keeps its hold."""
+        holds = getattr(self.services.lake, "holds", None)
+        if holds is None:
+            return
+        try:
+            held = holds()
+        except Exception as exc:  # a lake not up yet: the holds stay until the next start or their expiry
+            log.warning("lake holds not read at start (%s)", type(exc).__name__)
+            return
+        for holder in held:
+            job = self.db.get(holder)
+            if job is not None and job.state in TERMINAL:
+                log.info("job %s ended (%s): its lake hold is released", holder, job.state)
+                release_hold(self.services, holder)
 
     def workers_alive(self) -> tuple[int, int]:
         """D-895: ``(alive, started)`` worker threads; the health line is red when a started worker is dead."""
