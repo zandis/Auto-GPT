@@ -565,7 +565,10 @@ class OpsRunner:
             raise OpsFailed("no TB_BACKUP_TARGETS (the NAS share, a USB disk ...): RUNBOOK §5")
         pub = self.box.public_key()
         if not pub.is_file():
-            raise OpsFailed("no backup key yet: trialbox backup-keygen with hospital IT (RUNBOOK §5)")
+            from tools.trialbox.backup_schedule import key_how
+
+            production = (self.box.env.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION"  # as backup_schedule
+            raise OpsFailed(f"no backup key yet: {key_how(production)}")
         if self.box.kind == "compose" and args.get("mode") == "running":
             return self._backup_running()
         if self.box.kind == "compose":

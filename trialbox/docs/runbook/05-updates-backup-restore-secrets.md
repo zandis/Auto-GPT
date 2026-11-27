@@ -72,7 +72,14 @@ Every step is in `deploy/updates/history.jsonl`; `deploy/updates/installed.json`
 backup. Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
 `tests/unit/test_update_safety.py` and `tools/update_drill.py`.
 
-**Backup** (D-126, D-187, D-188). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
+**Backup** (D-126, D-187, D-188). The backup key, once. A **PRODUCTION** box makes it at install (E2E P-01;
+`trialbox backup-keygen` and the stick ceremony are refused there): on the install's terminal the paper copy is shown
+once, the screen is cleared and hospital IT types the whole copy back before `backup.pub` is made; an unattended
+install (no terminal) seals the key under the install's KEK passphrase into `deploy/secrets/backup-key-<fp>.sealed`,
+which hospital IT copies off the box. Run again by hand, as root on the box: `python3 -m tools.backup_key_ceremony
+--install`. To restore with a sealed key: `python3 -m tools.backup_key_ceremony --unseal <the .sealed file> --out
+/media/usb/trialbox-backup.key` (the passphrase on stdin), then `restore --key` that file. A DEV, TEST or VALIDATION
+box, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
 box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI
 databases, every data folder and a manifest, compressed with zstd level 3 on every core and then encrypted
@@ -96,8 +103,8 @@ you may push to the hospital's git server.
    are all on its own disks still writes the backup, but the run fails and stays red.
 2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `PYTHONPATH=libs python3 -m
    tools.trialbox backup-install --deploy deploy`, which writes `/etc/cron.d/trialbox-backup`, turns WAL archiving
-   on when it can (below), and runs the first backup once the backup key is there (run the command again after
-   `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
+   on when it can (below), and runs the first backup once the backup key is there (run the command again once the
+   key is made). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
    reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent, or, on a box with no
    mail, `TB_BACKUP_ALERT_ROUTE=health-page`: the site's written choice that the red backup tile on the `/admin`
    health tab and the audit carry the alert (D-735). Then nobody is mailed: someone must open the health tab every
