@@ -53,6 +53,7 @@ from console.backend import Problem, Unavailable, service_and_status
 from console.home import Helpers
 from console.i18n import lookup, translate
 from console.oidc import OidcError
+from console.refusals import EDC_SETUP_GAPS
 from console.studies import known_study
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -821,7 +822,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         try:
             return fn(*args)
         except Problem as exc:
-            status = exc.status if 400 <= exc.status < 500 else 502
+            status = exc.status if 400 <= exc.status < 500 else 409 if exc.code in EDC_SETUP_GAPS else 502
             raise h.problem(status, "request.refused", code=exc.code, reason=exc.message,
                             fields=", ".join(exc.fields)) from exc  # fmt: skip
         except Unavailable as exc:
