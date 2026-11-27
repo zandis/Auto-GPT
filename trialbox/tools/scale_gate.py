@@ -79,6 +79,22 @@ FULL = 50_000  # the size of the plan's reference site (SPEC §11.3, review §3)
 # product's own list (T-689, D-456: ``upstream_down`` is the gateway's 5xx or transport error after its own retry), and
 # ``upstream_failed``, which before T-689 was how a 502 outage was answered (a call lost to it is lost to the model)
 FAULT_REFUSALS = frozenset({*MODEL_FAULTS, "upstream_failed"})
+# T-02 / G3 (TRIAGE-1): the box whose installer caps the gate runs under: the plan's reference site of 50,000 runs on
+# the R1 walk's machine (96 GiB, one 96 GB card). The caps are what ``tools.box.plan.memory_caps`` gives that box,
+# never the compose files' dev defaults (the E2E's night was OOM-killed at the installer's 3,520 MiB adapter cap while
+# this gate passed under the default). ``--box-ram``/``--box-profile`` name another box
+BOX_RAM_GIB = 96.0
+BOX_PROFILE = "rtxpro6000"
+
+
+def installer_caps(ram_gib: float = BOX_RAM_GIB, profile: str = BOX_PROFILE) -> dict[str, int]:
+    """Each compose service's cap in bytes, as the installer's plan sizes it for a ``ram_gib`` box of ``profile``."""
+    from tools.box.plan import DEPLOY, memory_caps
+
+    env, _notes = memory_caps(ram_gib, profile, DEPLOY)
+    return compose_caps(environ=env)
+
+
 # the compose service whose cap each part runs under (deploy/docker-compose.yml)
 SERVICE = {"ingest": "adapter", "rebuild": "lake", "screen": "orchestrator", "backup": "db", "generate": "-"}
 
@@ -137,6 +153,8 @@ class Params:
     stall_s: float = 600.0  # TB_SCALE_STALL_S (STALL_S): no progress for this long ends the gate (0: never)
     language: str = "auto"  # --language (D-987): the notes' language for the cascade, auto by default
     caps: dict[str, int] = field(default_factory=dict)
+    box_ram_gib: float = BOX_RAM_GIB  # T-02: the box whose installer caps the run takes (when ``caps`` is not given)
+    box_profile: str = BOX_PROFILE
 
 
 @dataclass
@@ -184,7 +202,8 @@ class Report:
         p = self.params
         caps = ", ".join(f"{SERVICE[k]} {gib(p.caps[SERVICE[k]])}" for k in ("ingest", "rebuild", "screen"))
         head = [
-            f"{p.patients:,} synthetic patients ({p.profile} profile); caps from deploy/docker-compose.yml: {caps}; "
+            f"{p.patients:,} synthetic patients ({p.profile} profile); the installer's caps for a {p.box_ram_gib:g} "
+            f"GiB {p.box_profile} box: {caps}; "
             f"enforcement: {self.mode}.",
             f"Model stand-in: {p.latency_s} s per call, 502 for {p.outage_s} s from call {p.outage_after}, "
             f"restart after call {p.restart_after or 'never'}.",
@@ -381,7 +400,7 @@ def _over(run: PhaseRun) -> str:
 def run(p: Params) -> Report:
     for name in REPORT_FILES:  # D-674: an earlier run's report goes before anything here can fail
         (p.out / name).unlink(missing_ok=True)
-    p.caps = p.caps or compose_caps()
+    p.caps = p.caps or installer_caps(p.box_ram_gib, p.box_profile)  # T-02: never the compose dev defaults
     enf = Enforcer.detect(p.enforce)
     enf.stall_s = p.stall_s
     rep = Report(p, enf.mode)
