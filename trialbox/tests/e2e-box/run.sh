@@ -100,12 +100,14 @@ take_secrets() { # the first administrator's password and code: the VM's root-on
 }
 secret_values() { python3 -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1])).values()))' "$CREDS/admin.json"; }
 transcript_clean() { # G6 / RULINGS Q3: neither one-time value anywhere the install or this run wrote text; files root-only
-  local onbox here
-  onbox=$(secret_values | vm 'sudo grep -rlF -f - /var/tmp/install.log /var/tmp/prompts.txt /opt/trialbox/deploy/site/box 2> /dev/null | wc -l')
-  here=$(secret_values | grep -rlF -f - "$OUT" --exclude-dir=creds 2> /dev/null | wc -l)
-  vm 'sudo stat -c "%a %n" /var/tmp/install.log /var/tmp/prompts.txt'
-  echo "files holding a one-time value: on the box $onbox, in this run's folder $here"
-  [ "$onbox" = 0 ] && [ "$here" = 0 ] && vm '[ -z "$(sudo find /var/tmp/install.log /var/tmp/prompts.txt -perm /077)" ]'
+  local onbox here rc
+  vm 'for f in /var/tmp/install.log /var/tmp/prompts.txt; do [ "$(sudo stat -c %a $f)" = 600 ] || { echo "$f is not 0600"; exit 1; }; done' || return 1
+  onbox=$(secret_values | vm 'sudo grep -rlF -f - /var/tmp/install.log /var/tmp/prompts.txt $(sudo find /opt/trialbox/deploy/site/box -type f 2> /dev/null); [ $? -le 1 ]') || { echo "the scan on the box failed"; return 1; }
+  here=$(secret_values | grep -rlF -f - "$OUT" --exclude-dir=creds)
+  rc=$?
+  [ $rc -le 1 ] || { echo "the scan of the run folder failed"; return 1; }
+  echo "files holding a one-time value: on the box [${onbox}], in this run's folder [${here}]"
+  [ -z "$onbox" ] && [ -z "$here" ]
 }
 snapshot() { # settings of the box: env:KEY and file:PATH with a hash of the value, never the value
   vm 'sudo bash -s' << 'SH'
@@ -162,16 +164,22 @@ PY
 
 MEDIA=$E2E_VMS/$NAME-media.img
 SAMPLER=
-cleanup() {
+MADE=
+cleanup() { # only what this run made: its media and the VM it created (the lock is held until exit)
   [ -z "$SAMPLER" ] || kill "$SAMPLER" 2> /dev/null
   [ "${KEEP:-0}" = 1 ] && return
-  "$CTL" stop "$NAME" > /dev/null 2>&1 || "$CTL" stop "$NAME" --kill > /dev/null 2>&1
-  "$CTL" remove "$NAME" > /dev/null 2>&1 && rm -f "$MEDIA"
+  if [ "$MADE" = vm ]; then
+    "$CTL" stop "$NAME" > /dev/null 2>&1 || "$CTL" stop "$NAME" --kill > /dev/null 2>&1
+    "$CTL" remove "$NAME" > /dev/null 2>&1
+  fi
+  [ -z "$MADE" ] || rm -f "$MEDIA"
 }
 trap cleanup EXIT
 J=INSTALL
 step $J "install media made from the bundle (read-only image)" make_media || exit 2
-step $J "vm created and started (cores $E2E_CPUSET)" vm_up || exit 2
+MADE=media
+step $J "vm created and started (cores $E2E_CPUSET)" vm_up || { [ -e "$E2E_VMS/$NAME" ] && MADE=vm; exit 2; }
+MADE=vm
 step $J "vm ready: ssh, cloud-init done, docker active" waitfor 120 vm 'test -f /var/lib/tbvm-ready && systemctl is-active docker' || exit 2
 "$CTL" put "$NAME" "$HERE/ptyinstall.py" /tmp/ptyinstall.py
 "$CTL" put "$NAME" "$REPO/tools/rehearse_box/shims/nvidia-smi" /tmp/nvidia-smi

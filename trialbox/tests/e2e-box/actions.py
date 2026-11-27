@@ -280,6 +280,8 @@ def edc(a: Journey, _today: dt.date, _mrn: str = "", _doctor: str = "", e: str =
     a.act(e, "admin tests the connection", "admin", "POST", "/admin/redcap/main/test", form={}, csrfFrom="/admin/redcap",
           expect=[200, 303], keepBody=500)  # fmt: skip
     a.act(e, "connection page after the test", "admin", "GET", "/admin/redcap", keepBody=700)
+    if e.endswith("-installed"):
+        return  # the probe of the box as installed: the connection only, then the deviation, then the journey once
     st = f"/studies/{RS}/setup"
     a.act(e, "coordinator links the study to project 1", "crc1", "POST", st + "/redcap", form={"project_id": "1", "token_ref": "main"},
           csrfFrom=st, expect=[303], keepBody=1500)  # fmt: skip
@@ -482,7 +484,8 @@ def lang_sum(out: str, csvfile: str) -> None:
             nk, ne, ov = o.get("nkeys", 0), o.get("nenglish", 0), o.get("overflowPx", 0) or 0
             tot["pages"] += 1
             tot["errors"] += bool(o.get("error") or o.get("status", 0) != 200)
-            tot["wrong_lang_pages"] += not str(o.get("htmlLang") or "").startswith(lang[:2])
+            hl = str(o.get("htmlLang") or "")
+            tot["wrong_lang_pages"] += not (hl.startswith(lang) or (lang == "zh-TW" and hl.startswith("zh-Hant")))
             tot["raw_key_pages"] += nk > 0
             tot["english_pages"] += ne > 0
             tot["overflow_pages"] += ov > 4

@@ -328,6 +328,7 @@ j_update() { # the next bundle (media hot-plugged), then the documented downgrad
   id1=$(basename "$BUNDLE" .tar)
   id1=${id1#trialbox-}
   id2=$(cat "$NEXT_IMG.ready")
+  [[ $id2 =~ ^[A-Za-z0-9._-]+$ ]] || { rec $J "next bundle id" FAIL 0 "not a plain id in $NEXT_IMG.ready"; return; }
   before=$(state | tr '\n' ' ')
   rec $J "state before the update" PASS 0 "$before"
   step $J "next bundle's media attached and mounted read-only" attach_next

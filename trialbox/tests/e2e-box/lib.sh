@@ -56,7 +56,7 @@ waitfor() {
 }
 healthy() {
   vm 'n=$(sudo docker ps --format "{{.Names}} {{.Status}}" | grep "^trialbox-" | grep -c "(healthy)")
-      u=$(sudo docker ps -a --format "{{.Names}} {{.Status}}" | grep "^trialbox-" | grep -v "Exited (0)" | grep -vc "(healthy)")
+      u=$(sudo docker ps -a --format "{{.Names}} {{.Status}}" | grep "^trialbox-" | grep -vc "(healthy)")
       echo "healthy=$n other=$u"; [ "$n" -ge 12 ] && [ "$u" = 0 ]'
 }
 unseal() { # runbook 22 step 2 after a boot; a box with no key to unseal says so and the step is a no-op
