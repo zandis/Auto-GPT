@@ -75,7 +75,7 @@ def test_each_call_logs_its_token_counts_and_no_text(tmp_path: Path, caplog: pyt
     assert (parsed["tokens_in"], parsed["tokens_out"]) == (321, 45)  # the scrubber leaves the counts as they are
     [answer] = answers
     assert answer and answer not in written
-    for message in CHAT_BODY["messages"]:
+    for message in json.loads(json.dumps(CHAT_BODY))["messages"]:  # the prompt as the gateway was given it
         for part in str(message["content"]).split("\n"):
             if len(part.strip()) >= 12:
                 assert part.strip() not in written, part
