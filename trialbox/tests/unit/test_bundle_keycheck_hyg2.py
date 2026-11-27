@@ -461,7 +461,7 @@ def test_the_box_run_stand_in_refuses_a_signing_call_without_pub(tmp_path: Path,
 
 
 # ---------------------------------------------------------------- R2: the callers keep the last good release
-@pytest.mark.parametrize("fail", ["build", "rename"])
+@pytest.mark.parametrize("fail", ["build", "rename", "cut-then-build"])
 def test_runbook_a_failed_rebuild_keeps_the_last_media(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str
 ) -> None:  # R2
@@ -481,6 +481,8 @@ def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str) -> None
     (work / "media").mkdir(parents=True)
     (work / ".media-next.another-run").mkdir()  # N1: a build running beside this one; its folder is not this one's
     (work / "media" / "trialbox-runbook-20261101.tar").write_bytes(b"the last good release")
+    if fail == "cut-then-build":  # N4: an earlier build was cut between its two renames: the last media in media.old
+        (work / "media").rename(work / "media.old")
     (tmp_path / "models" / "embedder").mkdir(parents=True)
     seen: list[list[str]] = []
 
@@ -499,7 +501,7 @@ def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str) -> None
             out = Path(args[args.index("--out") + 1])
             assert not out.parent.exists(), "make_bundle.sh makes and publishes the folder itself (its own mode)"
             assert out.parent.parent.is_dir() and work / "media" not in out.parents
-            if fail == "build":
+            if fail in ("build", "cut-then-build"):
                 raise SystemExit("runbook_install run: tools/make_bundle.sh failed (exit 1)")
             out.parent.mkdir()
             out.write_bytes(b"the new release")
@@ -689,8 +691,13 @@ def _der_private(key: Path) -> bytes:
     )
 
 
-def test_the_box_run_writes_the_public_key_it_fetched(tmp_path: Path, keys: dict[str, Path]) -> None:  # R7
-    res, dest = _fetch_pub(tmp_path, keys["pub"].read_bytes())
+@pytest.mark.parametrize("form", ["as-made", "blank-line-after", "crlf"])
+def test_the_box_run_writes_the_public_key_it_fetched(
+    tmp_path: Path, keys: dict[str, Path], form: str
+) -> None:  # R7, N6
+    pub = keys["pub"].read_bytes()
+    data = {"as-made": pub, "blank-line-after": pub + b"\n", "crlf": pub.replace(b"\n", b"\r\n")}[form]
+    res, dest = _fetch_pub(tmp_path, data)
     assert res.returncode == 0, res.stdout + res.stderr
     assert dest.read_bytes() == keys["pub"].read_bytes()
 

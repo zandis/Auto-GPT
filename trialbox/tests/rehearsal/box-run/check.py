@@ -170,7 +170,7 @@ if case == "build":
         "N3: the published folder is the one make_bundle.sh made, not the attempt's private folder",
     )
 
-if case == "build-again-fails":
+if case in ("build-again-fails", "build-cut-fails"):
     bout = S / "vm" / "build" / "out"
     ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
     ok(

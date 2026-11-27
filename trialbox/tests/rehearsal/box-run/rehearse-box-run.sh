@@ -31,6 +31,8 @@
 #   build-gate-fails   a release gate fails: the build stops at b04 and the key is never read
 #   build-refused      the bundle comes out a rehearsal bundle (--rehearsal): b06 refuses it (D-726), nothing uploaded
 #   build-again-fails  HYG2-R2: a signing that fails leaves the last good release in the build folder as it was
+#   build-cut-fails    HYG2-R2 (N4): an earlier signing was cut between its two renames (the last release in
+#                      out.old), then the signing fails: the last release is back in out
 #   build-pub-private  HYG2-R7: the vendor public-key object carries a private key after the public one: refused at
 #                      b05, nothing of it in the build folder, nothing uploaded
 #   build-preempt      a pre-emption in the middle of b03: the next boot keeps b01 and b02, runs b03 again, finishes
@@ -143,7 +145,7 @@ REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
      resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
-     acc-cut-resume build-again-fails build-pub-private
+     acc-cut-resume build-again-fails build-cut-fails build-pub-private
      session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
      session-ssh session-then-acc session-close-fails session-update-fails session-cut-56 session-unit session-unit-race
      session-unit-fails session-unit-dbus session-ops session-quiet-fails session-ss-fails session-ended-again)
@@ -428,6 +430,10 @@ for CASE in "${CASES[@]}"; do
     build-again-fails)
       setup "$CASE" build sign-fails; build_setup
       mkdir -p "$S/vm/build/out"; echo "the last good release" > "$S/vm/build/out/trialbox-2026.11-r.tar"
+      boot; to_the_end ;;
+    build-cut-fails)
+      setup "$CASE" build sign-fails; build_setup
+      mkdir -p "$S/vm/build/out.old"; echo "the last good release" > "$S/vm/build/out.old/trialbox-2026.11-r.tar"
       boot; to_the_end ;;
     build-pub-private)
       setup "$CASE" build; build_setup; cat "$V/keys/vendor_ed25519.key" >> "$BKT/r2/keys/vendor_ed25519.pub"

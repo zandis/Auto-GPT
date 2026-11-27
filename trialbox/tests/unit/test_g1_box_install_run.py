@@ -33,6 +33,7 @@ CASES = [
     "build-gate-fails",
     "build-refused",
     "build-again-fails",  # HYG2-R2
+    "build-cut-fails",  # HYG2-R2 (N4)
     "build-pub-private",  # HYG2-R7
     "build-preempt",
     "happy",
