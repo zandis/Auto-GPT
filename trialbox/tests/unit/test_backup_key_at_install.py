@@ -1426,8 +1426,9 @@ def test_two_replaces_in_one_second_keep_both_old_records(
 ) -> None:
     """M-09: the old record's name does not hang on the second it was declared in: replaces within one second keep
     every old record."""
+    from datetime import datetime as real
+
     a, b = _two_targets(tmp_path, monkeypatch)
-    real = bkc.datetime
 
     class OneSecond(real):  # type: ignore[misc,valid-type]
         @classmethod
