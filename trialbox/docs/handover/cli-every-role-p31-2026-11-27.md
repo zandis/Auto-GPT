@@ -31,7 +31,8 @@ The new test on the base: 9 failed (`cro` not a choice; no scope in the audit ev
 
 ## Not done
 
-- The command line saves no end date for a non-operator account; the users page saves one at most 12 months ahead
-  (D-406). Left as it was: P31-01.
+- The command line saved no end date for a non-operator account; the users page saves one at most 12 months ahead
+  (D-406). P31-01, fixed in the review round (P31-R2): `add-user` now calls `end_date` and writes the date in the
+  account-and-scope transaction.
 - The runbook line in `docs/runbook/03-accounts.md` names `add-user NAME --role ROLE` without `--studies`; the
   command's help says it. Not changed (no runbook change in this card).
