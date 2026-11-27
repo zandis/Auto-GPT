@@ -155,6 +155,94 @@ if case in ("build", "build-preempt"):
         )
         ok(calls["venv"] == 1 and calls["images"] == 2, "make venv once, make images twice")
 
+if case in ("build", "build-sign-cut"):
+    bout = S / "vm" / "build" / "out"
+    ok(
+        not (bout / "earlier-release.tar").exists() and (bout / "trialbox-2026.11-r.tar.sha256").exists(),
+        "HYG2-R2: the earlier release was retired once the new one was built and checked (b07 removes the local tar)",
+    )
+    ok(
+        sorted(p.name for p in bout.parent.glob("out*")) == ["out", "out.next.another-run"],
+        "no half-built or retired folder left, and another run's folder left alone (N1)",
+    )
+    ok(
+        bout.stat().st_mode & 0o777 == (bout.parent / "bundle-models").stat().st_mode & 0o777,
+        "N3: the published folder is the one make_bundle.sh made, not the attempt's private folder",
+    )
+
+if case in ("build-again-fails", "build-cut-fails"):
+    bout = S / "vm" / "build" / "out"
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok(
+        [p.name for p in bout.iterdir()] == ["trialbox-2026.11-r.tar"]
+        and (bout / "trialbox-2026.11-r.tar").read_text() == "the last good release\n",
+        "HYG2-R2: the failed signing left the last good release as it was",
+    )
+    ok(sorted(p.name for p in bout.parent.glob("out*")) == ["out"], "no half-built folder left")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
+if case == "build-sign-cut":
+    bdir = S / "vm" / "build"
+    ok(
+        not (bdir / "out.next.sign").exists() and not list((bdir / "tmp").glob("tb-bundle.*")),
+        "HYG2-R10: what a cut signing left (its attempt folder, make_bundle.sh's staging) is gone, not kept per cut",
+    )
+
+if case == "build-recover-fails":
+    bdir = S / "vm" / "build"
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok(
+        "TB-BUNDLE-NOT-RESTORED" in parts["b05-sign"]["stop"]["reason"],
+        "the stop says the last release was not put back",
+    )
+    kept_tar = bdir / "out.old" / "trialbox-2026.11-r.tar"
+    ok(
+        kept_tar.exists() and kept_tar.read_text() == "the last good release\n",
+        "HYG2-R2: the last release that could not be put back is kept in out.old, never deleted",
+    )
+    ok(sorted(p.name for p in bdir.glob("out*")) == ["out", "out.old"], "no half-built folder left")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
+if case == "build-validation-again-fails":
+    bdir = S / "vm" / "build"
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok(
+        {p.name: p.read_text() for p in (bdir / "out").iterdir()}
+        == {
+            "trialbox-2026.11-r.tar": "the last good release\n",
+            "throwaway-signing-key.pub": "the last throwaway key\n",
+        },
+        "HYG2-R10: the failed signing left the kept bundle and the public key beside it as they were",
+    )
+    old_pub = bdir / "throwaway-signing-key.pub"
+    ok(
+        old_pub.exists() and old_pub.read_text() == "the last throwaway key\n",
+        "HYG2-R10: the failed signing left the public key of the bundle kept, not one of a bundle never published",
+    )
+    ok(sorted(p.name for p in bdir.glob("out*")) == ["out"], "no half-built folder left")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
+if case == "build-stray-out":
+    bdir = S / "vm" / "build"
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok("TB-BUNDLE-NOT-PLACED" in parts["b05-sign"]["stop"]["reason"], "the stop says nothing was replaced")
+    kept_tar = bdir / "out.old" / "trialbox-2026.11-r.tar"
+    ok(
+        kept_tar.exists() and kept_tar.read_text() == "the last good release\n",
+        "HYG2-R2: out.old is removed only while out beside it is a release: a stray folder in out keeps it",
+    )
+    ok([p.name for p in (bdir / "out").iterdir()] == ["stray.txt"], "the stray folder is left for a person")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
+if case == "build-pub-private":
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok("TB-VENDOR-PUB-PRIVATE" in (R / "logs" / "b05-sign.log").read_text(), "the log names the refusal")
+    key_body = "".join((S / "secrets" / "vendor-key" / "1").read_text().strip().splitlines()[1:-1]).encode()
+    key_held = [str(p) for p in (S / "vm" / "build").rglob("*")
+            if p.is_file() and not p.is_symlink() and key_body in p.read_bytes()]  # fmt: skip
+    ok(not key_held, f"HYG2-R7: no private key material in the build folder {key_held or ''}")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
 if case == "build-gate-fails":
     ok(list(parts) == BUILD[:4] and parts["b04-gates"]["status"] == "stop", "the build stopped at the gates")
     ok(
