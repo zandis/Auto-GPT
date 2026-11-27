@@ -39,8 +39,13 @@ FIXTURES = {
     ),
     "secrets-a": json.dumps([{"RuleID": "generic-api-key"}]),
     "secrets-b": json.dumps({"DetectorName": "PrivateKey"}) + "\n" + json.dumps({"level": "info", "msg": "done"}),
-    "platform": json.dumps({"check_type": "kubernetes", "summary": {"passed": 0, "failed": 1},
-                            "results": {"failed_checks": [{"check_id": "CKV_K8S_21"}]}}),  # fmt: skip
+    "platform": json.dumps(
+        {
+            "check_type": "kubernetes",
+            "summary": {"passed": 0, "failed": 1},
+            "results": {"failed_checks": [{"check_id": "CKV_K8S_21"}]},
+        }
+    ),
     "dockerfiles": json.dumps([{"code": "DL3008"}, {"code": "DL3008"}]),
 }
 
@@ -387,8 +392,13 @@ def test_sg04_the_unit_shards_fetch_the_base_branch() -> None:
 def test_sg05_a_tools_own_error_fields_fail_the_gate(tmp_path: Path) -> None:
     errors = {
         "code-patterns": json.dumps({"results": [], "errors": [{"code": 3, "message": "Syntax error"}]}),
-        "platform": json.dumps({"check_type": "kubernetes", "summary": {"passed": 1, "failed": 0, "parsing_errors": 1},
-                                "results": {"failed_checks": []}}),  # fmt: skip
+        "platform": json.dumps(
+            {
+                "check_type": "kubernetes",
+                "summary": {"passed": 1, "failed": 0, "parsing_errors": 1},
+                "results": {"failed_checks": []},
+            }
+        ),
         "secrets-b": json.dumps({"level": "error", "msg": "could not read a file"}) + "\n" + DONE,
     }
     for tool, text in errors.items():
@@ -497,8 +507,10 @@ def test_sg07_hadolint_receives_only_tracked_dockerfiles_under_trialbox(tmp_path
     [
         ("[]", "no report"),
         ('{"results":{"failed_checks":[]}}', "no Kubernetes checks evaluated"),
-        ('{"check_type":"kubernetes","summary":{"passed":0,"failed":0},"results":{"failed_checks":[]}}',
-         "no Kubernetes checks evaluated"),
+        (
+            '{"check_type":"kubernetes","summary":{"passed":0,"failed":0},"results":{"failed_checks":[]}}',
+            "no Kubernetes checks evaluated",
+        ),
     ],
 )
 def test_sg08_an_empty_checkov_report_fails_even_on_exit_zero(tmp_path: Path, report: str, error: str) -> None:
