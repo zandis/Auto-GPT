@@ -436,7 +436,7 @@ def test_sg07_hadolint_receives_only_tracked_dockerfiles_under_trialbox(tmp_path
     fake = _Runner(CLEAN)
     sg.scan(repo, tmp_path / "rules", tmp_path / "out", fake, baseline={}, today=BEFORE)
     argv = next(call for call in fake.calls if _tool_of(call) == "dockerfiles")
-    assert argv[argv.index("json") + 1:] == [
+    assert argv[argv.index("json") + 1 :] == [
         "/src/trialbox/a/b.Dockerfile",
         "/src/trialbox/demo/Dockerfile",
         "/src/trialbox/deploy/docker/Dockerfile.worker",
