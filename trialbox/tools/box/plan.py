@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import math
 import os
 import platform
 import re
@@ -63,6 +64,12 @@ SHIPPED_DEPARTMENTS = "shipped"  # the wizard reads the shipped list (M2's): it 
 BOX_SOURCE_MOUNT = "/data/source/site"  # where compose mounts the feed folder, read-only (TB_SOURCE_MOUNT)
 # OD-10: below half of the compose files' own caps the services were never measured: such a machine is refused
 MIN_SERVICE_SHARE = 0.5
+# E2E P-02: the measured 50,000-patient peaks (MiB) of the two services a night or a SCREEN of the whole hospital
+# fills: the adapter 4,003 (the R1 walk's night, sampled; OOM-killed at 3,520 MiB, the cap this plan gave a 96 GB
+# box), the orchestrator 3,973 (the machine-profile finding's SCREEN). Their caps keep HEADROOM times that, the
+# cap-from-peak rule of the compose files (tests/unit/test_pin_consistency.py)
+PEAK_50K_MIB = {"TB_MEM_ADAPTER": 4003, "TB_MEM_ORCH": 3973}
+HEADROOM = 1.5
 _MEM = re.compile(r"mem_limit:\s*(?:\$\{(TB_MEM_[A-Z_]+):-([0-9.]+[mgMG])\}|([0-9.]+[mgMG]))")
 
 
@@ -382,7 +389,29 @@ def memory_caps(ram_gib: float, profile: str, deploy: Path = DEPLOY) -> tuple[di
         rest = avail - sum(mod.values())
         caps = {k: v * rest / sum(svc.values()) for k, v in svc.items()} | mod
     notes = [f"memory: {ram_gib:g} GiB, {reserve:g} GiB kept for the system, the caps at {factor:.2f} of the defaults"]
-    return {k: f"{int(v * 1024)}m" for k, v in sorted(caps.items())}, notes
+    caps, said = measured_floors(caps, var)
+    return {k: f"{int(v * 1024 + 1e-6)}m" for k, v in sorted(caps.items())}, notes + said
+
+
+def measured_floors(caps: dict[str, float], defaults: dict[str, float]) -> tuple[dict[str, float], list[str]]:
+    """E2E P-02: a cap of :data:`PEAK_50K_MIB` is raised to HEADROOM times its measured peak, the other caps giving
+    the same memory back in their proportions, so the total stays what the machine has. When that would put another
+    service under :data:`MIN_SERVICE_SHARE` of its default, the caps stay as they were and a note says so: a hospital
+    of 50,000 patients does not fit this machine's caps (``(caps, notes)``, in GiB)."""
+    floor = {k: math.ceil(HEADROOM * mib) / 1024 for k, mib in PEAK_50K_MIB.items() if k in caps}
+    if all(caps[k] >= f for k, f in floor.items()):
+        return caps, []
+    held = {k: max(caps[k], f) for k, f in floor.items()}  # held together: none gives memory to another
+    rest = {k: v for k, v in caps.items() if k not in held}
+    share = (sum(caps.values()) - sum(held.values())) / sum(rest.values())
+    if min(v * share / defaults[k] for k, v in rest.items()) >= MIN_SERVICE_SHARE:
+        return {k: v * share for k, v in rest.items()} | held, []
+    low = sorted(k for k, f in floor.items() if caps[k] < f)
+    under = ", ".join(f"{k} {int(caps[k] * 1024)}m < {int(floor[k] * 1024)}m" for k in low)
+    return caps, [
+        f"memory: {under} ({HEADROOM:g} x the measured 50,000-patient peak): this machine's caps do not hold a "
+        "night or a SCREEN of a hospital that size; the service is killed at its cap (E2E P-02)"
+    ]
 
 
 # ------------------------------------------------------------------------------------------------ the plan

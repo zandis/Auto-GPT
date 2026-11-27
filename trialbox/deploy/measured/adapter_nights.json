@@ -1,0 +1,8 @@
+{
+ "format": "tb-adapter-nights/1",
+ "how": "the adapter container's peak over a whole full night (validator, FHIR load, lake write), sampled: 50,000 synthetic patients, the R1 end-to-end walk 2026-11-27 (20 s samples; OOM-killed at 3,520 MiB, passed at 12 GiB); 100,000 patients, the second 100k rerun on int/data 2026-11-27 (6.61 GiB)",
+ "peak_mb": {
+  "100000": 6769,
+  "50000": 4003
+ }
+}
