@@ -1426,8 +1426,15 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
         log,
     )
     stamp = time.strftime("%Y%m%d", time.gmtime())
-    bundle = work / "media" / f"trialbox-runbook-{stamp}.tar"
-    shutil.rmtree(bundle.parent, ignore_errors=True)  # make_bundle.sh publishes into a fresh folder
+    # HYG2-R2: make_bundle.sh publishes into a fresh folder beside media/; it replaces media/ only once it is built, so
+    # a failed build leaves the last media as it was (media.old holds them only between the two renames below)
+    media, old = work / "media", work / "media.old"
+    if old.is_dir() and not media.exists():
+        old.rename(media)  # a cut between the two renames: the last media back first
+    for stale in work.glob(".media-next.*"):
+        shutil.rmtree(stale)
+    fresh = Path(tempfile.mkdtemp(prefix=".media-next.", dir=work))
+    bundle = fresh / f"trialbox-runbook-{stamp}.tar"
     args = [
         "tools/make_bundle.sh",
         "--key",
@@ -1450,9 +1457,21 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
     ]
     for i in imgs:
         args += ["--job-image" if i in JOB_IMAGES else "--image", i]
-    _sh(args, log)
+    try:
+        _sh(args, log)
+    except SystemExit:
+        shutil.rmtree(fresh)
+        raise
     # the images the bundle carries, by id, beside it (as the rehearsal's bundle-images.txt): --bundle reads it
     Path(f"{bundle}.images").write_text("".join(f"{r} {i}\n" for r, i in pairs), encoding="utf-8")
+    if old.exists():
+        shutil.rmtree(old)
+    if media.exists():
+        media.rename(old)
+    fresh.rename(media)
+    if old.exists():
+        shutil.rmtree(old)
+    bundle = media / bundle.name
     return bundle, v / "keys" / "vendor_ed25519.pub", pairs
 
 

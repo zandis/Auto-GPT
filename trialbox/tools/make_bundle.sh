@@ -417,7 +417,8 @@ PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/bundle_keycheck.py" --pub "$STI
   --sums "$OUT.sha256" || { echo "make_bundle: the stick's public key does not verify what it carries: refused, nothing published into $DIST" >&2; exit 1; }
 # one rename of the whole folder onto the fresh (absent or empty) one: a build that is interrupted, or a second builder
 # that got there first (mv -T refuses a folder that is no longer empty), leaves no mixed set
-chmod 0755 "$PEND"
+# HYG2-R9: the published folder keeps the mode of the empty one it replaces (an empty 0700 folder stays 0700)
+if [ -d "$DIST" ]; then chmod --reference="$DIST" "$PEND"; else chmod 0755 "$PEND"; fi
 sync -f "$PEND" 2>/dev/null || sync
 mv -T "$PEND" "$DIST" || { echo "make_bundle: the release could not be published into $DIST (nothing of it is there)" >&2; exit 1; }
 OUT="$DIST/$(basename "$OUT")"; BOOT="$DIST/$(basename "$BOOT")"; STICK_PUB="$DIST/vendor_ed25519.pub"; LAUNCH="$DIST/install"

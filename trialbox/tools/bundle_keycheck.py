@@ -108,9 +108,13 @@ def problems(pub: Path, bundle: Path, bootstrap: Path, sums: Path) -> list[str]:
     if sums_data is None:
         return out
     try:
-        lines = sums_data.decode("utf-8").splitlines()
+        text = sums_data.decode("utf-8")
     except UnicodeDecodeError:
         return [*out, f"{sums.name}: not UTF-8 text"]
+    # split as sha256sum -c reads it: on LF only (a vertical tab or a CR is part of a line), one final LF allowed
+    lines = text.removesuffix("\n").split("\n")
+    if bundle.name in (bootstrap.name, boot_sig.name):
+        return [*out, f"the bundle and the bootstrap are both named {bundle.name}: one sidecar cannot cover both"]
     # one entry for each of the three files and none for any other; each file is hashed at the path given
     covered = {bundle.name: bundle, bootstrap.name: bootstrap, boot_sig.name: boot_sig}
     listed: dict[str, str] = {}

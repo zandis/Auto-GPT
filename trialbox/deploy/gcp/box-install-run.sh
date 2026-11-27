@@ -854,6 +854,22 @@ print("" if d is None else d)' "$1" "$2" 2>/dev/null; }
 fetch() {  # fetch <gs:// or path> <dest>
   case "$1" in gs://*) gcloud storage cp "$1" "$2" ;; *) cp "$1" "$2" ;; esac
 }
+# fetch_pub <gs:// or path> <dest>: the vendor public key the boxes trust, of which only the parsed public key is
+# written to dest (HYG2-R7, as make_bundle.sh writes the stick's); an object that holds a private key is refused. The
+# fetched bytes stay on tmpfs (0600) and are removed on every way out.
+fetch_pub() {
+  local raw rc=0
+  raw=$(mktemp "$SHM/tbpub.XXXXXX") || return 1
+  if ! fetch "$1" "$raw"; then
+    echo "TB-NO-VENDOR-PUB: the vendor public key the boxes trust is not readable from $1"; rc=1
+  elif grep -q 'PRIVATE KEY' "$raw"; then
+    echo "TB-VENDOR-PUB-PRIVATE: $1 holds a private key: refused, nothing of it is written"; rc=3
+  elif ! openssl pkey -pubin -in "$raw" -pubout -out "$2" 2>/dev/null; then
+    echo "TB-VENDOR-PUB-UNREADABLE: $1 is not a public key"; rc=1
+  fi
+  shred -u "$raw" 2>/dev/null; rm -f "$raw"
+  return $rc
+}
 
 # ------------------------------------------------------------------ the box: one function per call (train 17)
 # COMPOSE_FILE/PROFILES: install.sh's .env. TB_SETTINGS_FILE as install.sh exports it (install.sh:459): it is not in
@@ -1263,9 +1279,9 @@ d_sign() {  # the key lives only inside this function's process: tmpfs, 0600, sh
   ( umask 077; gcloud secrets versions access "$KVER" --secret="$KSEC" --out-file="$k/vendor.key" >/dev/null 2>&1 ) \
     || { echo "TB-NO-VENDOR-KEY: secret $KSEC version $KVER is not readable by this VM's service account"; return 3; }
   chmod 600 "$k/vendor.key"
-  fetch "$VPUB_SRC" "$BUILD/vendor.pub" || { echo "TB-NO-VENDOR-PUB: the vendor public key the boxes trust is not readable from $VPUB_SRC"; return 3; }
+  fetch_pub "$VPUB_SRC" "$BUILD/vendor.pub" || return 3
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
-     --pub "$BUILD/vendor.pub" --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
+     --pub "$BUILD/vendor.pub" --out "$BNEXT/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
 }
 # TB_TZ for make_bundle.sh: its compose call that lists the images renders the compose file with a staged .env that
 # names no TB_TZ, and the compose file requires one (T-656, ${TB_TZ:?}); it only lists images (tools/make_bundle.sh:104)
@@ -1279,7 +1295,7 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
   cp "$k/vendor_ed25519.pub" "$BUILD/throwaway-signing-key.pub"
   echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
-     --pub "$k/vendor_ed25519.pub" --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
+     --pub "$k/vendor_ed25519.pub" --out "$BNEXT/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
 }
 # the room make_bundle.sh needs: it stages every image (docker save, ~25 GB with vLLM) and then writes the bundle; its
 # staging goes under the build root (TMPDIR), not /tmp, and the build cache of b03 is dropped first (images are kept)
@@ -1316,15 +1332,27 @@ d_bundle_models() {
 }
 step_b_sign() {
   b_room
-  rm -rf "$BUILD/out" && mkdir -p "$BUILD/out"  # make_bundle.sh publishes into a fresh folder
+  # HYG2-R2: make_bundle.sh publishes into a fresh folder (BNEXT, which d_sign names); it replaces $BUILD/out only once
+  # it is built and its key check passed, so a failed signing leaves the last good release as it was. out.old holds
+  # that release only between the two renames below; a cut there is undone here on the next attempt.
+  local BNEXT
+  mkdir -p "$BUILD"; rm -rf "$BUILD"/out.next.*
+  [ -e "$BUILD/out" ] || [ ! -d "$BUILD/out.old" ] || mv -T "$BUILD/out.old" "$BUILD/out"
+  BNEXT=$(mktemp -d "$BUILD/out.next.XXXXXX") || return 1
   need "the weights the site bundle carries (the pair, the template, the embedder: make_bundle.sh --models)" \
-    d_bundle_models || return 1
+    d_bundle_models || { rm -rf "$BNEXT"; return 1; }
   if [ "$MODE" = validation ]; then
     need "signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release)" d_sign_throwaway
   else
     need "signing the bundle (tools/make_bundle.sh with the vendor key)" d_sign
   fi
   local rc=$?
+  if [ "$rc" = 0 ]; then
+    rm -rf "$BUILD/out.old"
+    { [ ! -e "$BUILD/out" ] || mv -T "$BUILD/out" "$BUILD/out.old"; } && mv -T "$BNEXT" "$BUILD/out" \
+      && rm -rf "$BUILD/out.old" || { STOP="TB-BUNDLE-NOT-PLACED: the signed bundle could not replace $BUILD/out"; rc=1; }
+  fi
+  rm -rf "$BNEXT"
   note mode "\"$MODE\""; [ "$MODE" = validation ] && note not_a_release true
   rm -rf "$SHM"/tbk.* 2>/dev/null
   note key_left_on_tmpfs "$(ls -d "$SHM"/tbk.* >/dev/null 2>&1 && echo true || echo false)"
@@ -1337,7 +1365,7 @@ step_b_verify() {
     cp "$BUILD/throwaway-signing-key.pub" "$BUILD/vendor.pub" || { STOP="no throwaway public key from b05"; return 1; }
     note not_a_release true
   else
-    need "fetching the vendor public key" fetch "$VPUB_SRC" "$BUILD/vendor.pub" || return 1
+    need "fetching the vendor public key" fetch_pub "$VPUB_SRC" "$BUILD/vendor.pub" || return 1
   fi
   rm -rf "$BUILD/verify-stage"
   need "tools/verify_update.py (the Ed25519 signature with the vendor public key)" \
@@ -1405,7 +1433,7 @@ step_bundle() {
   need "unpacking the signed host tree as the installer's bootstrap" tar -xf "$TB/bundle/host.tar" -C "$BOXROOT" || return 1
   rm -f "$TB/bundle/host.tar"
   mkdir -p "$BOXROOT/deploy/keys"
-  need "fetching the vendor public key" fetch "$VPUB_SRC" "$BOXROOT/deploy/keys/vendor_ed25519.pub" || return 1
+  need "fetching the vendor public key" fetch_pub "$VPUB_SRC" "$BOXROOT/deploy/keys/vendor_ed25519.pub" || return 1
   note vendor_pub_sha256 "\"$(sha256sum "$BOXROOT/deploy/keys/vendor_ed25519.pub" | cut -d' ' -f1)\""
   note mode "\"$MODE\""; [ "$MODE" = validation ] && note not_a_release true
   return 0
