@@ -32,7 +32,9 @@ mkdir -p "$E2E_VMS"
 mkdir -p "$OUT" && chmod 0700 "$OUT"
 exec 9> "$E2E_VMS/$NAME.lock"
 flock -n 9 || { echo "another run holds $NAME" >&2; exit 2; }
-[ ! -e "$E2E_VMS/$NAME" ] || { echo "$E2E_VMS/$NAME exists: another VM of that name; nothing was changed" >&2; exit 2; }
+for n in "$NAME" "$NAME-fs"; do
+  [ ! -e "$E2E_VMS/$n" ] || { echo "$E2E_VMS/$n exists: another VM of that name; nothing was changed" >&2; exit 2; }
+done
 if ! [[ -f ${E2E_MODELS_ENV:-} && -s $E2E_MODELS_ENV && $(stat -Lc %a -- "$E2E_MODELS_ENV") == 600 &&
   ${E2E_JUDGE_PORT:-} =~ ^[0-9]+$ && ${E2E_VERIFIER_PORT:-} =~ ^[0-9]+$ ]]; then
   echo "the host's served pinned pair is required (E2E_MODELS_ENV, a 0600 key file; E2E_JUDGE_PORT, E2E_VERIFIER_PORT): the gate never runs on stand-ins" >&2
@@ -74,6 +76,7 @@ put_kit() { # the site kit at /root/site (runbook 01 "What the site brings"): th
   local k rc
   k=$(mktemp -d "$E2E_VMS/.kit.XXXXXXXX") || return 1
   sed "s#^data_source_host_dir: .*#data_source_host_dir: $SRC#" "$REPO/tools/rehearse_box/site_answers.yaml" > "$k/site.yaml"
+  grep -q '^sae_office_mailbox:' "$k/site.yaml" || echo 'sae_office_mailbox: sae-office@hospa.test' >> "$k/site.yaml"
   grep -qx "data_source_host_dir: $SRC" "$k/site.yaml" &&
     cp -r "$REPO/tools/rehearse_box/mapping" "$k/mapping" &&
     sed -e "s/@JUDGE_PORT@/$E2E_JUDGE_PORT/" -e "s/@VERIFIER_PORT@/$E2E_VERIFIER_PORT/" "$HERE/site/host-models.yml" > "$k/host-models.yml" &&
@@ -92,6 +95,32 @@ chown -R root:root /root/site && chmod 0644 /root/site/site.yaml /root/site/host
 find /root/site -type f | sort | tr '\n' ' '
 SH
 }
+FSNAME=$NAME-fs
+FSPORT=$((PORTBASE + 12)) # the file server's NFS port as the box sees it (10.0.2.2:FSPORT, a host forward)
+fileserver() { # the hospital's file server as a small VM: NFS v4 /export/audit (the audit share) and /export/backup
+  E2E_FWD=",hostfwd=tcp:127.0.0.1:$FSPORT-:2049" "$CTL" new "$FSNAME" $((PORTBASE + 10)) "$MEDIA" 2 4G &&
+    E2E_FWD=",hostfwd=tcp:127.0.0.1:$FSPORT-:2049" "$CTL" start "$FSNAME" || return 1
+  waitfor 60 "$CTL" ssh "$FSNAME" 'test -f /var/lib/tbvm-ready' || return 1
+  "$CTL" ssh "$FSNAME" 'sudo bash -s' << 'SH'
+set -e
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-kernel-server > /dev/null
+mkdir -p /export/audit /export/backup && chmod 0755 /export /export/audit /export/backup
+printf '%s\n' '/export/audit *(rw,sync,no_subtree_check,insecure,no_root_squash)' '/export/backup *(rw,sync,no_subtree_check,insecure,no_root_squash)' > /etc/exports
+exportfs -ra && systemctl restart nfs-server && exportfs -v | head -n 2
+SH
+}
+mount_shares() { # IT mounts the hospital's shares on the box (and in fstab, so a boot keeps them)
+  vm "sudo bash -s $FSPORT" << 'SH'
+set -e
+command -v mount.nfs4 > /dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-common > /dev/null
+for s in audit backup; do
+  mkdir -p /srv/hospital-$s
+  grep -q " /srv/hospital-$s " /etc/fstab || echo "10.0.2.2:/export/$s /srv/hospital-$s nfs4 port=$1,_netdev 0 0" >> /etc/fstab
+  mountpoint -q /srv/hospital-$s || mount /srv/hospital-$s
+done
+findmnt -n -o TARGET,FSTYPE /srv/hospital-audit; findmnt -n -o TARGET,FSTYPE /srv/hospital-backup
+SH
+}
 install_once() { # the runbook 01 command (ptyinstall.py answers at the terminal); the refusal lines, if any, as detail
   vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; echo rc=\$rc prompts=\$(sudo grep -c '^PROMPT:' /var/tmp/prompts.txt); sudo grep -iE 'refus|stop|not qualified' /var/tmp/install.log | tail -n 4 | cut -c1-200; exit \$rc"
 }
@@ -108,10 +137,10 @@ site_needs() { # what a PRODUCTION install refused without, as a site sets it (d
   # and the box's egress table for the two model servers' forward (EGRESS_EXTRA, then the product's network.sh apply)
   local extra
   extra=$(vm "sudo sed -n 's/^EGRESS_EXTRA=//p' /opt/trialbox/deploy/.env | tail -1") || return 1
-  envset TB_AUDIT_ANCHOR_TARGETS /srv/e2e-anchor && envset TB_BACKUP_TARGETS /srv/e2e-share &&
+  envset TB_AUDIT_ANCHOR_TARGETS /srv/hospital-audit && envset TB_BACKUP_TARGETS /srv/hospital-backup &&
     envset TB_LOG_DIR /var/log/trialbox-e2e && envset TB_BACKUP_ALERT_ROUTE health-page &&
     envset EGRESS_EXTRA "${extra:+$extra,}llm-service=10.0.2.2:$E2E_JUDGE_PORT,llm-verifier=10.0.2.2:$E2E_VERIFIER_PORT" &&
-    vm 'sudo mkdir -p /srv/e2e-anchor /srv/e2e-share /var/log/trialbox-e2e && sudo chmod a+rx /srv/e2e-anchor &&
+    vm 'sudo mkdir -p /var/log/trialbox-e2e && sudo chmod a+rx /srv/hospital-audit &&
       sudo install -m 0644 /root/site/hardening.conf /opt/trialbox/deploy/site/hardening.conf &&
       cd /opt/trialbox && sudo deploy/network.sh apply --env deploy/.env 2>&1 | tail -n 3'
 }
@@ -151,6 +180,7 @@ take_secrets() { # the first administrator's password and code: the VM's root-on
 secret_values() { python3 -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1])).values()))' "$CREDS/admin.json"; }
 transcript_clean() { # G6 / RULINGS Q3: neither one-time value anywhere the install or this run wrote text; files root-only
   local onbox here rc
+  [ "$(secret_values 2> /dev/null | grep -c .)" = 2 ] || { echo "no one-time values to look for (creds/admin.json missing or unreadable)"; return 1; }
   vm 'for f in /var/tmp/install.log /var/tmp/prompts.txt /var/tmp/install.1.log /var/tmp/prompts.1.txt; do sudo test -f $f || continue; [ "$(sudo stat -c %a $f)" = 600 ] || { echo "$f is not 0600"; exit 1; }; done' || return 1
   onbox=$(secret_values | vm 'sudo grep -rlF -f - /var/tmp/install.log /var/tmp/prompts.txt $(sudo ls /var/tmp/install.1.log /var/tmp/prompts.1.txt 2> /dev/null) $(sudo find /opt/trialbox/deploy/site/box -type f 2> /dev/null); [ $? -le 1 ]') || { echo "the scan on the box failed"; return 1; }
   here=$(secret_values | grep -rlF -f - "$OUT" --exclude-dir=creds)
@@ -216,12 +246,17 @@ PY
 MEDIA=$E2E_VMS/$NAME-media.img
 SAMPLER=
 MADE=
+FSMADE=
 cleanup() { # only what this run made: its media and the VM it created (the lock is held until exit)
   [ -z "$SAMPLER" ] || kill "$SAMPLER" 2> /dev/null
   [ "${KEEP:-0}" = 1 ] && return
   if [ "$MADE" = vm ]; then
     "$CTL" stop "$NAME" > /dev/null 2>&1 || "$CTL" stop "$NAME" --kill > /dev/null 2>&1
     "$CTL" remove "$NAME" > /dev/null 2>&1
+  fi
+  if [ -n "$FSMADE" ]; then
+    "$CTL" stop "$FSNAME" > /dev/null 2>&1 || "$CTL" stop "$FSNAME" --kill > /dev/null 2>&1
+    "$CTL" remove "$FSNAME" > /dev/null 2>&1
   fi
   [ -z "$MADE" ] || rm -f "$MEDIA"
 }
@@ -238,11 +273,14 @@ step $J "vm ready: ssh, cloud-init done, docker active" waitfor 120 vm 'test -f 
 step $J "zone, swap off, vendor key, the stick at /media/usb (as IT leaves it)" prepare
 step $J "site kit at /root/site (answers, mapping, host baseline, model override, the pair's key)" put_kit
 step $J "synthetic hospital of $SIZE patients in the feed folder (tools/make_fixtures.py)" make_feed
+FSMADE=1 # set first: a half-made file server VM is removed too (cleanup tolerates one that never came)
+step $J "the hospital's file server (NFS v4: audit and backup shares)" fileserver
+step $J "the shares mounted on the box by IT (/srv/hospital-audit, /srv/hospital-backup)" mount_shares
 step $J "bootstrap signature verifies (runbook first command)" vm 'cd /media/usb && sudo openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig'
 if ! step $J "one-command install as PRODUCTION, the questions answered at a terminal ($SIZE patients declared)" install_once; then
   keep_attempt || exit 2
   snapshot > "$M/config-preinstall.txt" 2> /dev/null # O-6: the box as the refused install left it (evidence)
-  deviate site-needs "TB_AUDIT_ANCHOR_TARGETS, TB_BACKUP_TARGETS, TB_LOG_DIR, TB_BACKUP_ALERT_ROUTE=health-page, hardening.conf, EGRESS_EXTRA += llm-service/llm-verifier -> the host pair, deploy/network.sh apply (the install refused; runbook 01 names none of them)" site_needs
+  deviate site-needs "TB_AUDIT_ANCHOR_TARGETS, TB_BACKUP_TARGETS (the file server's two shares), TB_LOG_DIR, TB_BACKUP_ALERT_ROUTE=health-page, hardening.conf, EGRESS_EXTRA += llm-service/llm-verifier -> the host pair, deploy/network.sh apply (the install refused; runbook 01 names none of them)" site_needs
   step $J "one-command install again as PRODUCTION, the same command after the site's settings" install_once
 fi
 step $J "run conditions: TB_ENV=PRODUCTION, no poc profile, no rehearsal setting, the site's model override and no stand-in in COMPOSE_FILE, GPU driver shim (no card in a VM), $SIZE patients declared" conditions

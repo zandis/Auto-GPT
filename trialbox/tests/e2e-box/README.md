@@ -62,11 +62,15 @@ planned browser action has a row (no result is a failure); every remote command 
 ## The site kit and the models
 
 `run.sh` puts the kit at `/root/site` before the install, as runbook 01 has the site bring it: the synthetic
-hospital A's answers (`tools/rehearse_box/site_answers.yaml`, feed folder `/srv/his-export`) and `mapping/`, the
+hospital A's answers (`tools/rehearse_box/site_answers.yaml`, feed folder `/srv/his-export`, the SAE office
+mailbox) and `mapping/`, the
 host baseline (`site/hardening.conf`), the site's compose override (`site/host-models.yml`, `TB_COMPOSE_OVERRIDE`)
 and `modelproxy.py`. A VM has no GPU, so the override runs the box's two model servers as forwarders to the host's
 served pinned pair on card 0: a `/v1` call needs the box's own key and goes on with the host servers' key
 (`/root/site/hostkey`, 0600). The answers are the real models'; selftest and doctor must name no stand-in.
+
+The hospital's file server is a second small VM (`<NAME>-fs`, NFS v4: the audit and the backup share), reached
+from the box through a host forward (`PORTBASE + 12`); IT mounts both shares on the box before the install.
 
 ## Deviations (G5)
 
