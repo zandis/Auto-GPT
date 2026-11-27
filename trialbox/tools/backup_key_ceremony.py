@@ -1412,16 +1412,16 @@ def unseal_to(sealed: Path, out: Path, passphrase: str) -> str:
             raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(out))
         data = key_text(raw)
         try:
-            fd = _new_file(dfd, None, data, 0o600)  # M-03: unnamed until it is linked
+            kfd: int | None = _new_file(dfd, None, data, 0o600)  # M-03: unnamed until it is linked
         except OSError as e:
             if e.errno not in (errno.EOPNOTSUPP, errno.EISDIR):  # EISDIR: a kernel without O_TMPFILE
                 raise
-            fd = None
-        if fd is not None:
+            kfd = None
+        if kfd is not None:
             try:  # H-05: a link never replaces a name (FileExistsError)
-                os.link(f"/proc/self/fd/{fd}", out.name, dst_dir_fd=dfd, follow_symlinks=True)
+                os.link(f"/proc/self/fd/{kfd}", out.name, dst_dir_fd=dfd, follow_symlinks=True)
             finally:
-                os.close(fd)
+                os.close(kfd)
         else:
             _sweep(dfd, out.name)
             tmp = f".{out.name}.{UNSEAL_MARK}-{os.getpid()}-{secrets.token_hex(4)}.part"

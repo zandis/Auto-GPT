@@ -143,7 +143,7 @@ def _mounted(
             if any(p.exists() and os.path.samestat(st, p.stat()) for p in on):
                 return mid
         assert real is not None
-        return real(fd)
+        return cast(int, real(fd))
 
     monkeypatch.setattr(bkc, "MOUNTINFO", fake)
     monkeypatch.setattr(bkc, "_mount_id", mount_id, raising=False)
