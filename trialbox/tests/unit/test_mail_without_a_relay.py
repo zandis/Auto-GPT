@@ -216,17 +216,17 @@ def test_the_gates_agree_with_env_on_the_same_inputs(
     assert _polled(monkeypatch) is (bool(env.imap_user) and env.imap_host != default.imap_host)
 
 
-@pytest.mark.parametrize(("smtp", "smtp_events"), [("", []), ("relay.hospa.test", [("mail.plaintext", "smtp")])])
-def test_the_start_audits_the_relay_only_when_one_is_given(
-    monkeypatch: pytest.MonkeyPatch, smtp: str, smtp_events: list[tuple[str, str]]
+@pytest.mark.parametrize(("smtp", "relay"), [("", False), ("relay.hospa.test", True)])
+def test_the_starts_tls_audit_says_whether_a_relay_was_given(
+    monkeypatch: pytest.MonkeyPatch, smtp: str, relay: bool
 ) -> None:
-    """Review D-2: the relay flag reaches the start's TLS audit; without a relay no mail server is spoken to, so a
-    plaintext SMTP setting is not reported as spoken to."""
+    """Review D-2: the relay flag reaches the start's TLS audit, so a plaintext SMTP setting on a box with no relay
+    (no send tried) is told apart from one that speaks to the relay."""
     _no_mail_env(monkeypatch)
     monkeypatch.setenv("SMTP_STARTTLS", "false")
     monkeypatch.setenv("SMTP_HOST", smtp)
     events = _start(monkeypatch)["events"]
-    assert [(e, d["server"]) for e, d in events] == smtp_events
+    assert [(e, d["server"], d["relay"]) for e, d in events] == [("mail.plaintext", "smtp", relay)]
 
 
 def test_filling_the_relay_on_the_page_wakes_the_production_hold(

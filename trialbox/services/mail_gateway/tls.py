@@ -53,23 +53,26 @@ SETTING = {
 }
 
 
-def unverified(env: Any, *, imap_used: bool, smtp_used: bool = True) -> list[tuple[str, str, str, str]]:
+def unverified(env: Any, *, imap_used: bool) -> list[tuple[str, str, str, str]]:
     """(server, host, mode, setting) for each server spoken to without a verified certificate."""
-    servers: list[tuple[str, Any, str]] = []
-    if smtp_used:  # review D-2 (E2E P-10): no relay given, no send tried
-        servers.append(("smtp", env.smtp_host, smtp_mode(env.smtp_port, env.smtp_starttls, env.smtp_tls_verify)))
+    servers = [("smtp", env.smtp_host, smtp_mode(env.smtp_port, env.smtp_starttls, env.smtp_tls_verify))]
     if imap_used:
         servers.append(("imap", env.imap_host, imap_mode(env.imap_ssl, env.imap_tls_verify)))
     return [(s, h, m, SETTING[(s, m)]) for s, h, m in servers if m != "verified"]
 
 
-def audit_modes(audit: _Audit, env: Any, *, imap_used: bool, smtp_used: bool = True) -> list[str]:
+def audit_modes(audit: _Audit, env: Any, *, imap_used: bool, relay: bool = True) -> list[str]:
     """One audit event per server the gateway speaks to without a verified certificate, naming the server, its host
     and the setting that caused it; returns the events written. Called once at each start of the gateway (the switch
-    is read then, and holds until the next start)."""
+    is read then, and holds until the next start). Review D-2 (E2E P-10): the SMTP line says whether a relay was
+    given (``relay`` false: no send is tried, so the relay is not spoken to until IT gives it and the service starts
+    again)."""
     written = []
-    for server, host, mode, setting in unverified(env, imap_used=imap_used, smtp_used=smtp_used):
+    for server, host, mode, setting in unverified(env, imap_used=imap_used):
         event = "mail.tls_unverified" if mode == "unverified" else "mail.plaintext"
-        audit.append(event, detail={"server": server, "host": host, "setting": setting})
+        detail: dict[str, Any] = {"server": server, "host": host, "setting": setting}
+        if server == "smtp":
+            detail["relay"] = relay
+        audit.append(event, detail=detail)
         written.append(event)
     return written

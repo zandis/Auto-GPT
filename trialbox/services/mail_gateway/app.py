@@ -70,8 +70,8 @@ def gateway() -> Gateway:
             relay=relay_given(env_source()),
         )
         # H-137: a start that speaks to a mail server without a verified certificate says so in the audit. Review
-        # D-2: without a relay no mail server is spoken to, so the SMTP mode is not reported
-        tls.audit_modes(_gw.audit, env, imap_used=bool(env.imap_user), smtp_used=_gw.relay)
+        # D-2: the SMTP line says whether a relay was given (without one no send is tried)
+        tls.audit_modes(_gw.audit, env, imap_used=bool(env.imap_user), relay=_gw.relay)
     return _gw
 
 
