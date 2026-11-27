@@ -156,38 +156,38 @@ if case in ("build", "build-preempt"):
         ok(calls["venv"] == 1 and calls["images"] == 2, "make venv once, make images twice")
 
 if case == "build":
-    out = S / "vm" / "build" / "out"
+    bout = S / "vm" / "build" / "out"
     ok(
-        not (out / "earlier-release.tar").exists() and (out / "trialbox-2026.11-r.tar.sha256").exists(),
+        not (bout / "earlier-release.tar").exists() and (bout / "trialbox-2026.11-r.tar.sha256").exists(),
         "HYG2-R2: the earlier release was retired once the new one was built and checked (b07 removes the local tar)",
     )
     ok(
-        sorted(p.name for p in out.parent.glob("out*")) == ["out", "out.next.another-run"],
+        sorted(p.name for p in bout.parent.glob("out*")) == ["out", "out.next.another-run"],
         "no half-built or retired folder left, and another run's folder left alone (N1)",
     )
     ok(
-        out.stat().st_mode & 0o777 == (out.parent / "bundle-models").stat().st_mode & 0o777,
+        bout.stat().st_mode & 0o777 == (bout.parent / "bundle-models").stat().st_mode & 0o777,
         "N3: the published folder is the one make_bundle.sh made, not the attempt's private folder",
     )
 
 if case == "build-again-fails":
-    out = S / "vm" / "build" / "out"
+    bout = S / "vm" / "build" / "out"
     ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
     ok(
-        [p.name for p in out.iterdir()] == ["trialbox-2026.11-r.tar"]
-        and (out / "trialbox-2026.11-r.tar").read_text() == "the last good release\n",
+        [p.name for p in bout.iterdir()] == ["trialbox-2026.11-r.tar"]
+        and (bout / "trialbox-2026.11-r.tar").read_text() == "the last good release\n",
         "HYG2-R2: the failed signing left the last good release as it was",
     )
-    ok(sorted(p.name for p in out.parent.glob("out*")) == ["out"], "no half-built folder left")
+    ok(sorted(p.name for p in bout.parent.glob("out*")) == ["out"], "no half-built folder left")
     ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
 
 if case == "build-pub-private":
     ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
     ok("TB-VENDOR-PUB-PRIVATE" in (R / "logs" / "b05-sign.log").read_text(), "the log names the refusal")
-    body = "".join((S / "secrets" / "vendor-key" / "1").read_text().strip().splitlines()[1:-1]).encode()
-    held = [str(p) for p in (S / "vm" / "build").rglob("*")
-            if p.is_file() and not p.is_symlink() and body in p.read_bytes()]  # fmt: skip
-    ok(not held, f"HYG2-R7: no private key material in the build folder {held or ''}")
+    key_body = "".join((S / "secrets" / "vendor-key" / "1").read_text().strip().splitlines()[1:-1]).encode()
+    key_held = [str(p) for p in (S / "vm" / "build").rglob("*")
+            if p.is_file() and not p.is_symlink() and key_body in p.read_bytes()]  # fmt: skip
+    ok(not key_held, f"HYG2-R7: no private key material in the build folder {key_held or ''}")
     ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
 
 if case == "build-gate-fails":
