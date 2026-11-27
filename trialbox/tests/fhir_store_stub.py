@@ -10,7 +10,7 @@ does not do), ``kill`` (``{"pid", "type", "after"}``: SIGKILL that process once 
 ``fail_after`` (transactions after that many more are answered 500, nothing written), ``down`` (every request
 answered 500), ``no_total`` (a count answered without its ``total``), ``fail_at`` (``{"n", "kind"}``: the ``n``-th
 store request from now is answered 500 with nothing done (``error``) or done and answered with a body that is not
-JSON (``malformed``)), ``reset`` (empty, the log and the counters too). ``GET /_log`` is every request it was sent;
+JSON (``malformed``)), ``reset`` (empty, the log and the counters too). ``GET /_log`` is every request it was sent; ``GET /_faults`` every ``fail_at`` fault it injected;
 ``GET /_ids`` what it holds; ``GET /_resources`` the resources; ``POST /_seed`` puts resources in by hand. Synthetic
 data only."""
 
@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, urlsplit
 
 STORE: dict[str, dict[str, dict[str, Any]]] = {}
 LOG: list[str] = []
+FAULTS: list[str] = []  # the ``fail_at`` faults injected, by kind (``GET /_faults``: the test checks one was)
 CTL: dict[str, Any] = {"sleep": 0.0, "drop": [], "kill": None, "fail_after": None, "down": False, "no_total": False,
                        "fail_at": None}  # fmt: skip
 PUTS: dict[str, int] = {}
@@ -57,6 +58,7 @@ class Handler(BaseHTTPRequestHandler):
             if CTL["down"]:
                 return "error"
             if at and REQ[0] == int(at["n"]):
+                FAULTS.append(str(at["kind"]))
                 return str(at["kind"])
         return ""
 
@@ -76,6 +78,9 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/_log":
             with LOCK:
                 return self._answer(list(LOG))
+        if url.path == "/_faults":
+            with LOCK:
+                return self._answer(list(FAULTS))
         if url.path == "/_ids":
             with LOCK:
                 return self._answer({t: sorted(r) for t, r in STORE.items() if r})
@@ -112,6 +117,7 @@ class Handler(BaseHTTPRequestHandler):
                 if body.pop("reset", False):
                     STORE.clear()
                     LOG.clear()
+                    FAULTS.clear()
                     PUTS.clear()
                     TX[0] = 0
                 CTL.update(body)
