@@ -4,14 +4,18 @@ rebuild of it was refused as "lake busy" until each hold was deleted by hand (ho
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+import pytest
 from adapter.ndjson import snapshot_dir
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
+from orchestrator import core
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Orchestrator, Outcome, Services
 from orchestrator.db import JobDB
@@ -114,3 +118,59 @@ def test_the_next_job_to_end_releases_a_hold_the_start_could_not(tmp_path: Path)
     got = orch.db.get(nxt.job_id)
     assert got is not None and got.state == "done", got
     assert Lake(lake_dir, TZ).holds() == {}, "the ended job's hold outlived the next job"
+
+
+class _LateLake:
+    """The lake client of a box's boot: its holds cannot be read until the lake is up."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner, self.up, self.tries = inner, threading.Event(), 0
+
+    def holds(self) -> Any:
+        self.tries += 1
+        if not self.up.is_set():
+            raise ConnectionRefusedError(111, "Connection refused")
+        return self.inner.holds()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+
+def test_a_start_that_met_a_lake_not_up_releases_the_holds_once_it_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex R-A-1: no other job ends after the start (none may come before the night's rebuild); the start's sweep
+    is tried again until the lake answers."""
+    monkeypatch.setattr(core, "HOLD_SWEEP_RETRY", 0.05)
+    lake_dir = _lake(tmp_path)
+
+    def scenario(ctx: Ctx) -> Outcome:
+        return Outcome(summary_md="ok")
+
+    db = JobDB()
+    orch = _orch(tmp_path, scenario, lake_dir, db)
+    ended = orch.create(JobCreate(type="FEAS", ruleset="GZQO", requested_by="scheduler"), notify=False)
+    orch.set_state(ended, "failed", error=JobError(step="running", message="killed"))
+    waiting = orch.create(JobCreate(type="FEAS", ruleset="RA-JAK", requested_by="scheduler"), notify=False)
+    for holder in (ended.job_id, waiting.job_id, "sitesetup-publish"):
+        Lake(lake_dir, TZ).hold(NIGHT, holder, pin=True)
+
+    again = _orch(tmp_path, scenario, lake_dir, db)
+    late = _LateLake(again.services.lake)
+    again.services.lake = late  # type: ignore[assignment]
+    again.start()
+    try:
+        deadline = time.monotonic() + 5
+        while late.tries < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert late.tries >= 2, "the start's sweep was not tried again"
+        assert ended.job_id in Lake(lake_dir, TZ).holds()  # the lake still down: nothing released
+        late.up.set()
+        while ended.job_id in Lake(lake_dir, TZ).holds() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        left = Lake(lake_dir, TZ).holds()
+        assert ended.job_id not in left, "an ended job's hold waited for another job to end"
+        assert set(left) == {waiting.job_id, "sitesetup-publish"}
+        assert again.workers_alive() == (0, 0)  # the sweep is not a worker: the health line stays as it was
+    finally:
+        again.stop()
