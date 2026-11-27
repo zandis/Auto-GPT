@@ -354,7 +354,7 @@ def _from_problems(text: str, label: str) -> list[str]:
 
 def _copy_sources(text: str) -> list[str]:
     """The context sources of a Dockerfile's ``COPY``/``ADD`` lines (not those of ``--from``)."""
-    out = []
+    out: list[str] = []
     for line in _joined(text):
         words = line.split()
         if not words or words[0].upper() not in ("COPY", "ADD") or any(w.startswith("--from=") for w in words):
@@ -482,7 +482,7 @@ def test_the_scanned_images_are_the_release_images_and_their_dockerfiles() -> No
     text = _makefile_text()
     assert _sc_problems(text) == []
     own = set(_assignments("SC_OWN_IMAGES", text)[0][1].split())
-    (_, scan), = _assignments("IMAGE_SCAN_IMAGES", text)
+    ((_, scan),) = _assignments("IMAGE_SCAN_IMAGES", text)
     pairs = dict(item.split("=", 1) for item in scan.split())
     assert set(pairs) == own
     assert set(pairs.values()) == set(_assignments("RELEASE_DOCKERFILES", text)[0][1].split())
@@ -519,9 +519,7 @@ def _planted_makefile(old: str, new: str) -> str:
     return text.replace(old, new)
 
 
-GOOD_BUILD = (
-    "\tdocker build $(PLATFORM_ARG) $(OCI_LABELS) $(NO_CACHE_ARG) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .\n"
-)
+GOOD_BUILD = "\tdocker build $(PLATFORM_ARG) $(OCI_LABELS) $(NO_CACHE_ARG) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .\n"
 
 
 def test_r1_a_copy_from_a_name_that_is_no_stage_fails() -> None:
@@ -535,7 +533,9 @@ def test_r1_a_named_build_context_outside_trialbox_fails() -> None:
     text = _planted_makefile(GOOD_BUILD, GOOD_BUILD.replace("-f deploy/", "--build-context legacy=.. -f deploy/"))
     found = _build_problems("images", text)
     assert len(found) == 1 and f"named context legacy={REPO} is outside trialbox/" in found[0]
-    url = _planted_makefile(GOOD_BUILD, GOOD_BUILD.replace("-f deploy/", "--build-context b=docker-image://x -f deploy/"))
+    url = _planted_makefile(
+        GOOD_BUILD, GOOD_BUILD.replace("-f deploy/", "--build-context b=docker-image://x -f deploy/")
+    )
     assert _build_problems("images", url) == []
 
 
