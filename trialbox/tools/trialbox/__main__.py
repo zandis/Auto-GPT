@@ -388,7 +388,7 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
             # E2E P-18: the box's own file, which the launcher already reads as its settings; without it the
             # installed doctor judged some checks without the box's values (false FAILs the runbook form had not)
             a.env_file = launch.DEPLOY / ".env"
-        which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
+        which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live or a.strict else doctor.CHECKS)
         if a.weights:
             which = (doctor.LIVE if a.serving else ()) + doctor.WEIGHTS
         elif a.verify_all:

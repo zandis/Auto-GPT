@@ -58,6 +58,13 @@ closed). Checks:
   daemon; both at once is a problem too), no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
   on a platform it passes and points to ``backup_target`` and ``backup_job``;
+* ``backup_key``, ``site_mapping``, ``mail_relay``, ``selftest`` (TRIAGE-1 RC3, G2; E2E P-01, P-09, P-10, P-08): the
+  backup's public key is on the box (presence only, no key is read); the site mapping of ``data_source.mapping`` (the
+  box's ``TB_SETTINGS_FILE`` when no ``--settings``) loads and maps at least one table (run in the box image); a mail
+  relay (``SMTP_HOST``) or "no mail" accepted by name (``TB_NO_MAIL_ACCEPTED_BY`` and ``_ON``); the last pair canary
+  (``selftest.json``) passed on the pair within ``TB_CANARY_MAX_AGE_H``. Each FAIL in VALIDATION and PRODUCTION, WARN
+  elsewhere. ``--strict`` (the acceptance's "doctor all true" row) reads every item of ``READINESS`` that is not a PASS,
+  or was not checked, as a FAIL, and always runs the live ``serving`` check;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
   ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
@@ -191,7 +198,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
@@ -1510,6 +1517,117 @@ def check_clock(inp: DoctorInputs) -> Check:
     return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
 
 
+def _soft(inp: DoctorInputs) -> Status:
+    """FAIL where the box may hold real data (VALIDATION, PRODUCTION; unset is PRODUCTION), WARN in DEV and TEST."""
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    return "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+
+
+def check_backup_key(inp: DoctorInputs) -> Check:
+    """RC3 (E2E P-01): the backup's public key from the key ceremony is on the box (``TB_BACKUP_PUBKEY``, else
+    ``deploy/secrets/backup.pub``). Without it every backup and every update's backup is skipped; the ``backup`` row
+    judges the schedule and the targets, not the key. Only the file's presence and size are looked at: no key is read.
+    FAIL in VALIDATION and PRODUCTION, WARN elsewhere."""
+    if inp.platform:
+        return Check("backup_key", "PASS", "not a host check on a platform: see backup_target and backup_job")
+    if inp.deploy is None:
+        return Check("backup_key", _soft(inp), "the deploy folder is not known: run with --env-file deploy/.env")
+    from tools.trialbox import backup_schedule as bs
+
+    key = bs.config(inp.deploy, dict(inp.env), process_env=False).public_key
+    try:
+        size = key.stat().st_size if key.is_file() else 0
+    except OSError:
+        size = 0
+    if not size:
+        return Check("backup_key", _soft(inp), f"no backup key {key}: every backup is skipped; make it in the key "
+                     "ceremony with hospital IT (python -m tools.backup_key_ceremony, RUNBOOK §5)")  # fmt: skip
+    return Check("backup_key", "PASS", f"backup key {key.name} is on the box")
+
+
+def _box_settings(inp: DoctorInputs) -> Mapping[str, Any]:
+    """``--settings``, else the box's own settings file (``TB_SETTINGS_FILE`` in deploy/.env, the file compose mounts
+    into every service; relative to the deploy folder). Empty when neither is there."""
+    if inp.settings:
+        return inp.settings
+    raw = (inp.env.get("TB_SETTINGS_FILE") or "").strip()
+    if not raw or inp.deploy is None:
+        return {}
+    path = Path(raw) if Path(raw).is_absolute() else inp.deploy / raw
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return {}
+    return doc if isinstance(doc, Mapping) else {}
+
+
+def check_site_mapping(inp: DoctorInputs) -> Check:
+    """RC3 (E2E P-09): the box's site mapping (``data_source.mapping``; the site folder first, then the image, as the
+    adapter looks it up) loads and maps at least one table. One that maps none ingests nothing and every night is
+    held. FAIL in VALIDATION and PRODUCTION, WARN elsewhere."""
+    from adapter.mapping import site
+    from adapter.mapping.engine import Mapping as SiteMapping
+
+    ds = _box_settings(inp).get("data_source") or {}
+    raw = ds.get("mapping") if isinstance(ds, Mapping) else None
+    if not raw:
+        return Check("site_mapping", _soft(inp), "no data_source.mapping in the box's settings (TB_SETTINGS_FILE or "
+                     "--settings): the night maps nothing")  # fmt: skip
+    path = site.resolve(str(raw), extra=[_site_dir(inp) / "mapping"])
+    try:
+        tables = sorted(SiteMapping.load(path).tables)
+    except Exception as e:  # a mapping that does not load maps nothing: the reason, never a traceback
+        return Check("site_mapping", _soft(inp), f"{raw} ({path}) does not load: {type(e).__name__}: {e}")
+    if not tables:
+        return Check("site_mapping", _soft(inp), f"{raw} declares no table: the night reads nothing (declare the "
+                     "tables the source exports; tools/mapping_check.py, RUNBOOK §1)")  # fmt: skip
+    shown = ", ".join(tables[:6]) + (f" and {len(tables) - 6} more" if len(tables) > 6 else "")
+    return Check("site_mapping", "PASS", f"{raw} ({path}) maps {len(tables)} table(s): {shown}")
+
+
+def check_mail_relay(inp: DoctorInputs) -> Check:
+    """RC3 (E2E P-10): the hospital's mail relay is given (``SMTP_HOST``), or the site accepted "no mail" by name
+    (``TB_NO_MAIL_ACCEPTED_BY``, who, and ``TB_NO_MAIL_ACCEPTED_ON``, YYYY-MM-DD, in deploy/.env): every notice then
+    waits in the console. A relay left empty with nobody naming that choice is FAIL in VALIDATION and PRODUCTION, WARN
+    elsewhere. Whether the relay answers is the preflight's question, not this row's."""
+
+    def val(k: str) -> str:
+        return (inp.env.get(k) or "").strip().strip('"').strip("'").strip()
+
+    if val("SMTP_HOST"):
+        return Check("mail_relay", "PASS", f"relay {val('SMTP_HOST')}:{val('SMTP_PORT') or '587'}")
+    by, on = val("TB_NO_MAIL_ACCEPTED_BY"), val("TB_NO_MAIL_ACCEPTED_ON")
+    try:
+        day = date.fromisoformat(on) if on else None
+    except ValueError:
+        day = None
+    if by and day is not None:
+        return Check("mail_relay", "PASS", f"no mail relay: accepted by {by} on {day.isoformat()}; notices wait in "
+                     "the console")  # fmt: skip
+    return Check("mail_relay", _soft(inp), "no mail relay (SMTP_HOST) and nobody accepted \"no mail\" by name: set "
+                 "SMTP_HOST in deploy/.env, or TB_NO_MAIL_ACCEPTED_BY (who) and TB_NO_MAIL_ACCEPTED_ON (YYYY-MM-DD) "
+                 "when the site decides to have none")  # fmt: skip
+
+
+def check_selftest(inp: DoctorInputs) -> Check:
+    """G2 (E2E P-08): the box's last pair canary (``selftest.json`` in the orchestrator's data volume) passed, on the
+    pair, within ``TB_CANARY_MAX_AGE_H`` (``model_report.canary_problem``, the rule that releases note reading). A box
+    whose served models fail their own canary is not ready, and cannot be signed off. FAIL in VALIDATION and
+    PRODUCTION, WARN elsewhere; the next step is ``trialbox selftest``."""
+    from tools.trialbox import model_report as mr
+
+    raw = (inp.env.get("TB_ORCH_DIR") or "").strip() if _box_host(inp) is None else ""
+    folder = Path(raw) if raw else _volume(inp, "orch-data", "/data/orchestrator")
+    try:
+        limit = float(inp.env.get("TB_CANARY_MAX_AGE_H") or mr.MAX_AGE_H)
+    except ValueError:
+        limit = mr.MAX_AGE_H
+    why = mr.canary_problem(folder, None, limit)
+    if why:
+        return Check("selftest", _soft(inp), f"{why} (trialbox selftest, RUNBOOK §4)")
+    return Check("selftest", "PASS", f"the last pair canary passed ({folder / 'selftest.json'})")
+
+
 OPS_TIMER = "trialbox-ops.timer"
 
 
@@ -2575,6 +2693,10 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_site_key,
     check_chartno_rule,
     check_backup,
+    check_backup_key,
+    check_site_mapping,
+    check_mail_relay,
+    check_selftest,
     check_key_custody,
     check_key_custody_record,
     check_clock,
@@ -2681,11 +2803,11 @@ IMAGE_CHECKS = (
     "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "trusted_proxy",
     "mail_tls", "phi_tripwire", "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule",
     "db_passwords", "wsl2_memory", "update_window", "backup_speed", "terminology",
-    "terminology_tables",
+    "terminology_tables", "site_mapping",
 )  # fmt: skip
 #: what those checks import beyond the host's Python (the box image has each one)
 IMAGE_MODULES = ("pydantic", "httpx", "gateway", "guard", "registry", "channels", "criteria_compiler", "tb_llm",
-                 "tb_contracts", "mail_gateway")  # fmt: skip
+                 "tb_contracts", "mail_gateway", "adapter")  # fmt: skip
 
 
 def needs_image() -> bool:
@@ -2826,12 +2948,19 @@ def poc_stops(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     return [*out, *(Check(name, "WARN", detail) for name, detail in stops.doctor_lines(inp.deploy))]
 
 
-#: TRIAGE-1 G2 (RC3): the box's readiness items. ``trialbox doctor --strict`` reads any of them that is not a PASS as a
-#: FAIL, the host profile's easing included: the backup key (``backup``), the site keys sealed under a KEK
-#: (``key_custody``, ``key_escrow``), the ops runner and its timer (``ops_runner``), the memory caps against the site's
-#: size (``memory_caps``), the served models against their pins (``registry_pins``, ``judge_route``). Each was a WARN on
-#: the R1 box where a night, a backup or the pair canary then failed (E2E P-01, P-08, P-28, P-33, P-02)
-READINESS = ("backup", "key_custody", "key_escrow", "ops_runner", "memory_caps", "registry_pins", "judge_route")
+#: TRIAGE-1 G2, RC3, RC4 (ASSESS-1 §8 step 6): the box's readiness contract, one closed list. ``trialbox doctor
+#: --strict`` reads any of them that is not a PASS as a FAIL, the host profile's easing included, and a readiness item
+#: the run did not check as a FAIL too: the backups and their key (``backup``, ``backup_key``), the site mapping maps a
+#: table (``site_mapping``), a mail relay or "no mail" accepted by name (``mail_relay``), the time source (``clock``),
+#: the site keys sealed under a KEK (``key_custody``, ``key_escrow``), the ops runner and its timer (``ops_runner``),
+#: the memory caps against the site's size (``memory_caps``), the served models against their pins (``registry_pins``,
+#: ``judge_route``, and the live ``serving``, which --strict always runs) and the pair canary on them (``selftest``).
+#: Each was a WARN or unchecked on the R1 box where a night, a backup, a mail or the canary then failed (E2E P-01,
+#: P-02, P-08, P-09, P-10, P-28, P-33)
+READINESS = (
+    "backup", "backup_key", "site_mapping", "mail_relay", "clock", "key_custody", "key_escrow", "ops_runner",
+    "memory_caps", "registry_pins", "judge_route", "serving", "selftest",
+)  # fmt: skip
 
 
 def strict(checks: list[Check]) -> list[Check]:

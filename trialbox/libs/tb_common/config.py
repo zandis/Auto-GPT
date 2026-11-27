@@ -1157,6 +1157,8 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_TLS_ROOT_CONFIRMED_BY": Declared("str", "", "internal CA: who in IT confirmed its root is on the PCs (D-1365)"),
     "TB_TLS_ROOT_CONFIRMED_ON": Declared("str", "", "internal CA: the day IT confirmed it, YYYY-MM-DD (D-1365)"),
+    "TB_NO_MAIL_ACCEPTED_BY": Declared("str", "", "no mail relay: who at the site accepted having none (RC3)"),
+    "TB_NO_MAIL_ACCEPTED_ON": Declared("str", "", "no mail relay: the day it was accepted, YYYY-MM-DD (RC3)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
     "TB_TO_PID_MAX_PER_HOUR": Declared(

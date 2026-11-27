@@ -60,7 +60,7 @@ def test_the_command_line_takes_strict(monkeypatch: pytest.MonkeyPatch, capsys: 
 
 
 def test_the_readiness_items_are_checks_the_doctor_has() -> None:
-    names = {fn.__name__.removeprefix("check_") for fn in d.CHECKS}
+    names = {fn.__name__.removeprefix("check_") for fn in d.CHECKS + d.LIVE}  # serving: the live check --strict runs
     module = Path(d.__file__).with_name("doctor_m5.py").read_text(encoding="utf-8")
     for n in d.READINESS:
         assert n in names or f'"{n}"' in module, n
