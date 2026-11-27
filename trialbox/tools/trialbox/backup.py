@@ -1944,6 +1944,7 @@ def keep_optouts(src: DbSource, live: Sequence[OptOutRow]) -> tuple[list[OptOutR
     again (the restore fails closed). Run again, it finds them there and adds nothing. One transaction."""
     import psycopg
     from psycopg import sql
+    from tb_common.optout import _SWEEP_OK, PROVENANCE_LOCK
     from tb_common.optout import SCHEMA as OPTOUT
 
     table = sql.Identifier(f"{src.prefix}{OPTOUT}", "optout_events")
@@ -1951,6 +1952,7 @@ def keep_optouts(src: DbSource, live: Sequence[OptOutRow]) -> tuple[list[OptOutR
         there = con.execute("SELECT to_regclass(%s)", (table.as_string(con),)).fetchone()
         if there is None or there[0] is None:
             return list(live), 0  # the backup holds no register: nothing can be put back
+        con.execute(f"SELECT pg_advisory_xact_lock({PROVENANCE_LOCK})")  # P-19: as every register writer (P19-X2)
         con.execute(sql.SQL("LOCK TABLE {} IN SHARE ROW EXCLUSIVE MODE").format(table))
         held = {
             (str(p), str(a), str(by), str(at))
@@ -1961,6 +1963,8 @@ def keep_optouts(src: DbSource, live: Sequence[OptOutRow]) -> tuple[list[OptOutR
         insert = sql.SQL("INSERT INTO {} (pid, action, source, note, by, at) VALUES (%s,%s,%s,%s,%s,%s)").format(table)
         for row in back:
             con.execute(insert, row)
+        if back and con.execute(_SWEEP_OK).fetchone()[0]:  # the backup's index rows of those patients go too
+            con.execute("SELECT provenance.sweep()")
         con.commit()
     return gone, len(back)
 

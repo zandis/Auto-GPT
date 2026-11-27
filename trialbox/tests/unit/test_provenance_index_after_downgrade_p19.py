@@ -1103,3 +1103,17 @@ def test_the_catch_up_counts_the_rows_it_wrote(box: str, tmp_path: Path) -> None
     with psycopg.connect(box, autocommit=True) as c:
         assert idx.catch_up(c, chain) == 0
     assert _state(chain)["rows_written"] == 0
+
+
+def test_a_backup_restore_that_puts_an_opt_out_back_sweeps_its_rows(box: str, tmp_path: Path) -> None:
+    """P19-X2: the backup restore's own register writer (``backup.keep_optouts``: the opt-outs recorded after the
+    backup, written into the restored register) takes the same lock and sweeps the backup's rows of those patients."""
+    from tools.trialbox import backup as bk
+
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _slipped(box, PID_B)  # the backup's use row of B
+    live = [(PID_B, "opt_out", "paper", None, "console:office1", "2026-11-22T01:00:00+00:00")]
+    gone, back = bk.keep_optouts(bk.DbSource("trialbox_wf", box, ()), live)
+    assert (len(gone), back) == (1, 1)
+    assert _uses(box, PID_B) == []
