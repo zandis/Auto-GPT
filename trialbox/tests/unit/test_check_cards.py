@@ -129,7 +129,7 @@ def test_a_patient_outside_the_base_cohort_is_refused() -> None:
 
 def _tree(tmp_path: Path, cards: list[dict[str, Any]]) -> tuple[Path, Path]:
     cards_dir, vs_dir = tmp_path / "cards", tmp_path / "vs"
-    vs_dir.mkdir()
+    vs_dir.mkdir(parents=True)
     for name, doc in VS.items():
         (vs_dir / f"{name}.json").write_text(json.dumps(doc), encoding="utf-8")
     for doc in cards:
