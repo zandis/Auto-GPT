@@ -1569,12 +1569,14 @@ def check_site_mapping(inp: DoctorInputs) -> Check:
     from adapter.mapping import site
     from adapter.mapping.engine import Mapping as SiteMapping
 
-    ds = _box_settings(inp).get("data_source") or {}
-    raw = ds.get("mapping") if isinstance(ds, Mapping) else None
-    if not raw:
-        return Check("site_mapping", _soft(inp), "no data_source.mapping in the box's settings (TB_SETTINGS_FILE or "
-                     "--settings): the night maps nothing")  # fmt: skip
-    path = site.resolve(str(raw), extra=[_site_dir(inp) / "mapping"])
+    settings = _box_settings(inp)
+    if not settings:
+        return Check("site_mapping", _soft(inp), "no box settings (TB_SETTINGS_FILE in deploy/.env, or --settings): "
+                     "the mapping the night loads is not known")  # fmt: skip
+    ds = settings.get("data_source") or {}
+    # no data_source.mapping: the adapter's default (adapter.mapping.site.DEFAULT), as the night loads it
+    raw = str((ds.get("mapping") if isinstance(ds, Mapping) else None) or site.DEFAULT)
+    path = site.resolve(raw, extra=[_site_dir(inp) / "mapping"])
     try:
         tables = sorted(SiteMapping.load(path).tables)
     except Exception as e:  # a mapping that does not load maps nothing: the reason, never a traceback

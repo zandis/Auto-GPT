@@ -66,8 +66,11 @@ def test_the_installers_site_mapping_maps_tables_and_an_empty_one_fails(tmp_path
     site_file.write_text(bp.mapping_text("Asia/Taipei") + "tables: {}\n", encoding="utf-8")  # declared, none
     c = d.check_site_mapping(inp)
     assert c.status == "FAIL" and "declares no table" in c.detail
-    c = d.check_site_mapping(_inp(tmp_path))
-    assert c.status == "FAIL" and "no data_source.mapping" in c.detail
+    c = d.check_site_mapping(_inp(tmp_path))  # no settings file: the mapping is not known
+    assert c.status == "FAIL" and "no box settings" in c.detail
+    settings.write_text("data_source: {type: csv}\n", encoding="utf-8")  # no mapping: the adapter's default
+    c = d.check_site_mapping(inp)
+    assert c.status == "PASS" and "demo_his.yaml" in c.detail, c.detail
 
 
 def test_mail_relay_given_or_no_mail_accepted_by_name(tmp_path: Path) -> None:
