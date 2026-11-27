@@ -158,6 +158,7 @@ def test_an_atom_under_not_on_a_negated_line_is_not_read() -> None:
             "duration": {"min_days": -90}}  # fmt: skip
     c = _one("No febuxostat in the last 3 months.", {"op": "not", "args": [atom]})
     assert "duration_read_as_window" not in (c.flags or [])
+    assert c.class_ == "human"  # the final routing: the negated criterion goes to a person
     # the repair step itself left the atom as it was (PR review F6): a person's line shows no logic to check
     node, flags = pp.strip_stray({"op": "not", "args": [atom]}, "No febuxostat in the last 3 months.", "exclusion")
     assert node["args"][0] == atom and "duration_read_as_window" not in flags
