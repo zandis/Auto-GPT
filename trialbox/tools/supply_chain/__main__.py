@@ -201,17 +201,16 @@ def cmd_standing_gates(args: argparse.Namespace) -> int:
     """Release hygiene item 5: fails on a count above its baseline, a tool not run, and every finding of a tool from
     its date (``standing_gates.BLOCKS_FROM``)."""
     src = Path(args.src).resolve()
-    rules = (
-        standing_gates.fetch_rules(Path(args.rules)) if not args.no_fetch else standing_gates.pinned(Path(args.rules))
-    )
     today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    prepare_rules = standing_gates.pinned if args.no_fetch else standing_gates.fetch_rules
     try:
-        baseline = standing_gates.load_baseline(Path(args.baseline))
-    except (OSError, ValueError) as exc:
-        print(f"standing-gates: the baseline cannot be read: {exc}", file=sys.stderr)
+        record = standing_gates.scan(
+            src, lambda: prepare_rules(Path(args.rules)), Path(args.out), baseline=Path(args.baseline), today=today
+        )
+    except (standing_gates.OutputDirectoryError, standing_gates.BaselineError) as exc:
+        print(f"standing-gates: {exc}", file=sys.stderr)
         return 2
-    record = standing_gates.scan(src, rules.resolve(), Path(args.out), baseline=baseline, today=today)
-    print((Path(args.out) / "summary.md").read_text(encoding="utf-8"))
+    print(standing_gates.summary(record))
     for p in record["failures"]:
         print(f"standing-gates: {p}", file=sys.stderr)
     print(f"standing-gates: {'FAIL' if record['failures'] else 'PASS'} ({len(record['failures'])} problem(s))")
@@ -284,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fail-at", choices=("none", "HIGH"), default="none", help="none: report-only (D-1343)")
     p.set_defaults(fn=cmd_image_scan)
     p = sub.add_parser("standing-gates", help="the five standing scans of the tree (release hygiene item 5)")
-    p.add_argument("--out", default="build/standing-gates")
+    p.add_argument("--out", default="build/standing-gates", help="parent directory for the fresh reports subdirectory")
     p.add_argument("--src", default="..", help="the repository's root (mounted read-only)")
     p.add_argument("--rules", default=".cache/code-rules", help="where the pinned rule set is fetched")
     p.add_argument("--no-fetch", action="store_true", help="use the rule set already in --rules (checked by commit)")

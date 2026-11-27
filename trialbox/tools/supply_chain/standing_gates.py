@@ -16,8 +16,8 @@ fetch (done before, by :func:`fetch_rules`). It reads a copy of the tracked file
 the rule checkout and earlier reports are not in it), and a copy of the rule folders that matches :data:`RULES_DIGEST`.
 No ignore file, no allow-list and no configuration file is given to any tool; :func:`ignore_files` names any such file
 found in the tree, and it is counted as a finding. Each report is read in memory and only its rows (rule, file, line;
-never matched text) are kept as JSON in ``--out``, with ``summary.md`` (a row per tool, its count and its counts by
-rule) and ``index.json``.
+never matched text) are kept as JSON in ``--out/reports``, with ``summary.md`` (a row per tool, its count and its
+counts by rule) and ``index.json``.
 
 What fails (the integrator's ruling 7213778687), :func:`failures`:
 
@@ -40,7 +40,8 @@ import shutil
 import subprocess
 import tempfile
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,8 @@ IMAGES = {
     "dockerfiles": "hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e",
 }
 TOOLS = tuple(IMAGES)
+REPORTS_DIR = "reports"
+_REPORTS_OWNER = ".standing-gates"
 #: the public rule set of the code-pattern scanner, at one commit (2026-11-10); fetched by :func:`fetch_rules`
 RULES_REPO = "https://github.com/semgrep/semgrep-rules"
 RULES_COMMIT = "a5ad1714f00c9f7fde980cab0ea1d6dc6d414fd2"
@@ -87,6 +90,14 @@ IGNORE_FILES = (
 )
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+class OutputDirectoryError(RuntimeError):
+    """The requested output directory could not safely be prepared."""
+
+
+class BaselineError(ValueError):
+    """The requested baseline could not be read."""
 
 
 @dataclass
@@ -210,6 +221,8 @@ def parse(tool: str, text: str, log: str = "") -> tuple[list[dict[str, Any]], li
         if doc.get("errors"):
             errors.append(f"{len(doc['errors'])} scan error(s)")
     elif tool == "secrets-a":
+        if not isinstance(doc, list):
+            raise ValueError("expected a Gitleaks JSON array")
         rows = [_row(r.get("RuleID"), r.get("File"), r.get("StartLine")) for r in doc]
     elif tool == "platform":
         reports = doc if isinstance(doc, list) else [doc]
@@ -219,7 +232,15 @@ def parse(tool: str, text: str, log: str = "") -> tuple[list[dict[str, Any]], li
                 for r in reports for c in r["results"]["failed_checks"]]  # fmt: skip
         if n := sum(int((r.get("summary") or {}).get("parsing_errors") or 0) for r in reports):
             errors.append(f"{n} parsing error(s)")
+        if not any(
+            r.get("check_type") == "kubernetes"
+            and (stats := r.get("summary") or {}).get("passed", 0) + stats.get("failed", 0) > 0
+            for r in reports
+        ):
+            errors.append("no Kubernetes checks evaluated")
     elif tool == "dockerfiles":
+        if not isinstance(doc, list):
+            raise ValueError("expected a Hadolint JSON array")
         rows = [_row(r.get("code"), r.get("file"), r.get("line")) for r in doc]
     else:
         raise ValueError(f"unknown tool {tool!r}")
@@ -241,9 +262,12 @@ def tracked_files(repo: Path) -> list[str]:
 def tracked_dockerfiles(repo: Path) -> list[str]:
     """Every tracked Dockerfile under ``trialbox/`` (``Dockerfile``, ``*.Dockerfile``, ``Dockerfile.*``, not a
     ``.dockerignore``), relative to ``trialbox/``."""
-    pat = re.compile(r"trialbox/((?:.*/)?(?:Dockerfile|[^/]+\.Dockerfile|Dockerfile\.[^/]+))")
-    found = (pat.fullmatch(f) for f in tracked_files(repo) if not f.endswith(".dockerignore"))
-    return sorted(m.group(1) for m in found if m)
+    pat = re.compile(r"Dockerfile|[^/]*\.Dockerfile|Dockerfile\.[^/]+")
+    return sorted(
+        f.removeprefix("trialbox/")
+        for f in tracked_files(repo)
+        if f.startswith("trialbox/") and not f.endswith(".dockerignore") and pat.fullmatch(f.rsplit("/", 1)[-1])
+    )
 
 
 def snapshot(src: Path, dest: Path) -> Path:
@@ -312,14 +336,74 @@ def pinned(dest: Path, run: Runner = subprocess.run) -> Path:
     return copy
 
 
+@contextmanager
+def _report_directory(out: Path) -> Iterator[Path]:
+    """Reserve a fresh reports directory, replacing only the previous completed run."""
+    reports = out / REPORTS_DIR
+    owner = reports / _REPORTS_OWNER
+    allowed = {_REPORTS_OWNER, "index.json", "summary.md", *(f"{tool}.json" for tool in TOOLS)}
+    refused = OutputDirectoryError(f"refusing unowned or busy output directory: {out}")
+    try:
+        if out.is_symlink() or out.is_junction():
+            raise refused
+        out.mkdir(parents=True, exist_ok=True)
+        entries = list(out.iterdir())
+        if entries:
+            if entries != [reports] or reports.is_symlink() or reports.is_junction() or not reports.is_dir():
+                raise refused
+            previous = list(reports.iterdir())
+            if owner not in previous or any(
+                p.name not in allowed or p.is_symlink() or not p.is_file() for p in previous
+            ):
+                raise refused
+            # Claim the previous run before removing any of its report files.
+            owner.unlink()
+            for p in previous:
+                if p != owner:
+                    p.unlink()
+            reports.rmdir()
+        reports.mkdir()
+    except OSError as exc:
+        raise OutputDirectoryError(f"cannot prepare output directory {out}: {exc}") from exc
+    try:
+        yield reports
+    finally:
+        owner.touch(exist_ok=False)
+
+
 def scan(
     src: Path,
-    rules: Path,
+    rules: Path | Callable[[], Path],
     out: Path,
     run: Runner | None = None,
     *,
-    baseline: dict[str, dict[str, int]] | None = None,
+    baseline: dict[str, dict[str, int]] | Path | None = None,
     today: dt.date | None = None,
+) -> dict[str, Any]:
+    """Prepare fresh reports before loading explicit setup inputs, then run the gates."""
+    try:
+        with _report_directory(out) as reports:
+            if isinstance(baseline, Path):
+                try:
+                    baseline = load_baseline(baseline)
+                except (OSError, ValueError) as exc:
+                    raise BaselineError(f"the baseline cannot be read: {exc}") from exc
+            if callable(rules):
+                rules = rules()
+            return _scan(src, rules.resolve(), reports, run, baseline=baseline, today=today)
+    finally:
+        if isinstance(rules, _RulesCopy) and rules.directory is not None:
+            rules.directory.cleanup()
+
+
+def _scan(
+    src: Path,
+    rules: Path,
+    out: Path,
+    run: Runner | None,
+    *,
+    baseline: dict[str, dict[str, int]] | None,
+    today: dt.date | None,
 ) -> dict[str, Any]:
     """Run the five tools; write their reports, ``summary.md`` and ``index.json`` (with what fails) into ``out``; the
     record."""
@@ -327,9 +411,6 @@ def scan(
     results: list[ToolResult] = []
     tree: Path | None = None
     try:
-        if out.exists():
-            shutil.rmtree(out)
-        out.mkdir(parents=True)
         tree = Path(tempfile.mkdtemp(prefix="src-"))
         snapshot(src, tree)
         for tool, argv in commands(tree, rules, tracked_dockerfiles(src)).items():
@@ -358,8 +439,6 @@ def scan(
     finally:
         if tree is not None:
             shutil.rmtree(tree, ignore_errors=True)
-        if isinstance(rules, _RulesCopy) and rules.directory is not None:
-            rules.directory.cleanup()
     base = baseline if baseline is not None else load_baseline()
     record: dict[str, Any] = {"blocks_from": {k: v.isoformat() for k, v in BLOCKS_FROM.items()},
                               "rules_commit": RULES_COMMIT, "tools": [r.row() for r in results],
