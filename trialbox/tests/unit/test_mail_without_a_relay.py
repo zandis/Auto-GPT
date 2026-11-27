@@ -43,7 +43,7 @@ def test_the_gateway_knows_whether_a_relay_was_given(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(mail_app, "open_audit", lambda *a: None)
     monkeypatch.setattr(mail_app, "from_config", lambda: None)
     monkeypatch.setattr(mail_app, "MailDB", lambda: None)
-    monkeypatch.setattr(mail_app, "Gateway", lambda **kw: built.update(kw) or SimpleNamespace(audit=None, **kw))
+    monkeypatch.setattr(mail_app, "Gateway", lambda **kw: built.update(kw) or SimpleNamespace(**kw))
     monkeypatch.setattr(mail_app.tls, "audit_modes", lambda *a, **k: None)
     monkeypatch.setenv("SMTP_HOST", smtp)
     mail_app.gateway()
