@@ -35,10 +35,10 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-if os.name == "nt":
+if sys.platform == "win32":
     import msvcrt
 else:
     import fcntl
@@ -379,7 +379,7 @@ def _report_directory(out: Path) -> Iterator[Path]:
             lock = stack.enter_context(owner.open("r+b"))
             # The OS releases the lock on process exit. The marker stays in place.
             try:
-                if os.name == "nt":
+                if sys.platform == "win32":
                     msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
                 else:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
