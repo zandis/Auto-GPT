@@ -200,7 +200,7 @@ warns, uses the placeholder and goes on.
 
 | Step | Needs | Where the refusal sits |
 | --- | --- | --- |
-| The first night on real data (ingest and screening) | the data source and its folder or address; the chart-number rule; the country (retention rules); a backup target off the box; the backup key; the backup alert route and its reader; the audit anchor share | the night's start, before the ingest reads the source |
+| The first run on real data, at any time (ingest and screening) | the data source and its folder or address; the chart-number rule; the country (retention rules); a backup target off the box; the backup key; the backup alert route and its reader; the audit anchor share | the run's start, before the ingest reads the source |
 | A study opens for real patients | per study, as today: the SAE rule set, the committee or IRB approval, who to screen. For a study of an SAE type, also the trial office's mailbox | the move to "open" (`services/console/study_setup.py:719`) |
 | An SAE notice | the trial office's mailbox and the mail relay | the notice is still recorded and shown on the console; the mail waits, named on the page |
 | Any mail out (the morning list, the PI mail) | the mail relay; the operations contact; the console address for link attachments | the mail step; the rest of the night runs |
@@ -289,9 +289,9 @@ Each card is small or medium, and each names its test.
 >
 > | Needed before | Item | Why | Usually known by | State |
 > | --- | --- | --- | --- | --- |
-> | The first night on real data | Where the hospital's records come from | The night reads them | Hospital IT | Missing · [Fill in] |
-> | The first night on real data | How a chart number is written | One patient is one number | Medical records | Missing · [Fill in] |
-> | The first night on real data | Where backups go (off this machine) | A copy that survives the box | Hospital IT | On this machine only · [Fill in] |
+> | The first run on real data | Where the hospital's records come from | The run reads them | Hospital IT | Missing · [Fill in] |
+> | The first run on real data | How a chart number is written | One patient is one number | Medical records | Missing · [Fill in] |
+> | The first run on real data | Where backups go (off this machine) | A copy that survives the box | Hospital IT | On this machine only · [Fill in] |
 > | A study opens for real patients | The trial office's mailbox | It is told at once of a serious adverse event | Trial office | Missing · [Fill in] |
 > | Any mail | The hospital's mail relay | The morning list and notices are mailed | Hospital IT | Missing · [Fill in] |
 > | Staff use from clinic PCs | The console's name and certificate | The browser trusts the box | Hospital IT | The box's own · [Fill in] |

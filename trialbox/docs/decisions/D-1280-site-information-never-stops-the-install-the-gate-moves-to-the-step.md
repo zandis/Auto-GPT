@@ -47,12 +47,17 @@
    - The hospital's name stands in as a marked name.
    - The chart-number rule stands in as the form read from the first records, until it is confirmed.
    - The backup alarm stands in as the first administrator on the health page.
+
+   A service cannot see the backup key, `deploy/secrets/backup.pub`, which is on the host only. The host's
+   writers (the installer, the apply step and `backup-keygen`) also keep `deploy/site/needs/host-given.json`: the
+   keys of the items answered by a file that is there on the host, under the same rules, in the same folder and
+   read through the same mount (the integrator's go on #639).
 6. **The gate.** Every step that needs site information calls `site_needs.gate(step, production=…)` before it runs.
    - **On a PRODUCTION box**, the step is refused while an item it needs is missing, unusable or a stand-in. The
      refusal names each item in the reader's language and points to the page.
    - **On a PoC box** the same items are warnings, written to `deploy/site/poc-stops.jsonl` where the host writes
      (D-1091), and the step goes on with the stand-in.
-   - **The steps:** staff use from the clinic PCs, the first night on real data, a study opening for real
+   - **The steps:** staff use from the clinic PCs, the first run on real data (at any time, `first_real_run`), a study opening for real
      patients, a serious adverse event notice, any mail, and reading request mail.
 7. **Each refusal that moves is re-asserted at its gate,** in the same pull request as the move, and its test is
    named there. The integrator ruled the five assertion changes of U5-2b on #639.

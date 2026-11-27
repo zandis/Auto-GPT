@@ -666,6 +666,14 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                 raise bk.BackupError(exc.say()) from None
             fp = bk.keygen(a.private, a.public)
             print(f"backup key {fp}: give {a.private} to hospital IT in a sealed envelope; the box keeps {a.public}")
+            deploy = Path(__file__).resolve().parents[2] / "deploy"
+            if a.public.resolve() == (deploy / "secrets" / "backup.pub").resolve():
+                from tb_common import site_needs  # U-5 (D-1280): the services see that the box's key is there
+
+                try:
+                    site_needs.write_host_given(deploy)
+                except OSError as exc:
+                    print(f"note: {site_needs.HOST_GIVEN} not written ({exc}); run `trialbox doctor`", file=sys.stderr)
             return 0
         if a.cmd == "backup":
             dirs = bk.layout(os.environ, a.dir)
