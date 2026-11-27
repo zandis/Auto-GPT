@@ -20,11 +20,15 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from tb_contracts.criterion_ir import CriterionIRv3, canonical_hash, jcs
+from tb_contracts.criterion_ir import CriterionIRv3, CriterionLibraryRecord, LibraryApproval, canonical_hash, jcs
+
+if TYPE_CHECKING:
+    from criteria_compiler.library.repository import CriterionLibrary
 
 CARDS_DIR = Path(__file__).resolve().parents[2] / "cards"
 CARD_ID = r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$"
@@ -161,3 +165,33 @@ def instantiate(
     except ValidationError as exc:
         raise CardError(f"{card.card_id}@{card.version} renders an invalid criterion: {exc}") from exc
     return ir.model_copy(update={"canonical_hash": canonical_hash(ir)})
+
+
+def to_library(
+    lib: CriterionLibrary,
+    ir: CriterionIRv3,
+    *,
+    gate: str,
+    approval: str,
+    valuesets: Mapping[str, Mapping[str, Any]] | None = None,
+    terminology_version: str | None = None,
+    text_source: str | None = None,
+    supersedes: str | None = None,
+) -> CriterionLibraryRecord:
+    """An approved card instance as an approved ``library`` record, through the repository's one-``put`` write (one
+    transaction; a hash another record holds is refused there). The record keeps the instance's ``card_ref``; the same
+    atoms from another ruleset reuse the record and add the ruleset to ``used_by``."""
+    if ir.card_ref is None:
+        raise CardError(f"{ir.id} is not a card instance (no card_ref)")
+    if not gate.strip() or not approval.strip():
+        raise CardError(f"{ir.id}: an approved record names its gate and its approval")
+    rec, _ = lib.add(
+        ir,
+        seed_source="site",
+        valuesets=valuesets,
+        terminology_version=terminology_version,
+        text_source=text_source,
+        approved=LibraryApproval(gate=gate, approval=approval),
+        supersedes=supersedes,
+    )
+    return rec
