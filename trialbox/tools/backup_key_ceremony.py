@@ -97,6 +97,7 @@ DEPLOY = Path(__file__).resolve().parents[1] / "deploy"
 PUB_DIR = DEPLOY / "secrets"  # fixed (owner's condition 4): no option names another folder
 SYS = Path("/sys")
 MOUNTINFO = Path("/proc/self/mountinfo")
+FDINFO = Path("/proc/self/fdinfo")
 SWAPS = Path("/proc/swaps")
 DOCKER_SOCK = "/var/run/docker.sock"  # the local daemon only (H-1 of the integrator's review of 36c97bd1)
 JOURNAL_WAIT_S = 120  # one `docker compose exec`: a hung daemon stops the step instead of the run hanging
@@ -1242,13 +1243,45 @@ def _box_devs(pfd: int) -> set[int]:
     return {os.fstat(pfd).st_dev, os.stat("/").st_dev}
 
 
+def _mount_id(fd: int) -> int:
+    """The mount a descriptor is on: the kernel's ``mnt_id`` in /proc/self/fdinfo."""
+    for line in (FDINFO / str(fd)).read_text(encoding="utf-8").splitlines():
+        if line.startswith("mnt_id:"):
+            return int(line.split()[1])
+    raise ValueError(f"no mnt_id for descriptor {fd}")
+
+
+def _mount_entry(mid: int) -> tuple[int, Path]:
+    """The device and the mount point of the mount ``mid`` in /proc/self/mountinfo (octal escapes undone)."""
+    for line in MOUNTINFO.read_text(encoding="utf-8").splitlines():
+        f = line.split()
+        if f[0] == str(mid):
+            a, b = f[2].split(":")
+            return os.makedev(int(a), int(b)), Path(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), f[4]))
+    raise ValueError(f"mount {mid} is not in {MOUNTINFO}")
+
+
 def _off_the_box(tfd: int, pfd: int) -> bool:
-    """H-02 (third review): an off-box target as it is open, not as its path was classified: its filesystem is a
-    mount in the mount table and not the box's disk. A share unmounted in between opens its mount point, a folder on
-    the box's disk: refused."""
-    dev = os.fstat(tfd).st_dev
-    mounted = {os.makedev(int(a), int(b)) for a, b in (mm.split(":") for mm, _, _ in _mounts())}
-    return dev in mounted and dev not in _box_devs(pfd)
+    """H-02 (fourth review): an off-box target as it is open, not as its path was classified. The opened folder is
+    exactly a mount point: the mount its descriptor is on (by mount id) is in /proc/self/mountinfo, and the folder is
+    that mount's root (its mount point opened is the same folder on the same mount). That mount's device is none of
+    the box's (the public key's folder, /) and lives on none of their disks; a mount on a disk while the box's disks
+    cannot be told is refused. A share unmounted in between leaves its mount point, a folder of another mount:
+    refused. Whatever cannot be read: refused."""
+    try:
+        mid = _mount_id(tfd)
+        dev, point = _mount_entry(mid)
+        rfd = _open_dir(point)
+        try:
+            if _mount_id(rfd) != mid or not os.path.samestat(os.fstat(rfd), os.fstat(tfd)):
+                return False
+        finally:
+            os.close(rfd)
+        box = _box_devs(pfd)
+        mine = whole_disks(dev)
+        return dev not in box and not (mine and any(not (b := whole_disks(d)) or b & mine for d in box))
+    except (OSError, ValueError):
+        return False
 
 
 def _put_sealed(dfd: int, name: str, data: bytes, passphrase: str, pub: bytes) -> None:
@@ -1329,13 +1362,38 @@ def _rename_noreplace(dfd: int, src: str, dst: str) -> None:
         raise OSError(e, os.strerror(e), dst)
 
 
+UNSEAL_MARK = "tb-unseal"  # H-06: the mark in the name of the temporary key file an unseal makes (FAT only)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _sweep(dfd: int, name: str) -> None:
+    """H-06: the temporary key files a killed unseal to ``name`` left (``.<name>.tb-unseal-<pid>-<random>.part``, its
+    process gone) removed; nothing else (a user's file, the temporary file of an unseal still running) is touched."""
+    mine = re.compile(rf"\.{re.escape(name)}\.{UNSEAL_MARK}-(\d+)-[0-9a-f]{{8}}\.part")
+    for left in os.listdir(dfd):
+        if (m := mine.fullmatch(left)) and not _alive(int(m[1])):
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(left, dir_fd=dfd)
+
+
 def unseal_to(sealed: Path, out: Path, passphrase: str) -> str:
     """``--unseal``: the key file ``restore --key`` reads, made new at ``out`` (0600), from a sealed file and its
     passphrase; the key's fingerprint. M-05: the sealed file is looked at before a byte is read (not a plain file, or
-    larger than MAX_FILE: refused). M-03: the key file is written under a new temporary name beside ``out`` (O_EXCL),
-    synced, then renamed to ``out``: a run cut short leaves nothing at ``out`` that stops the next one, and the
-    temporary file a killed run left (the key's bytes) is removed by the next run to ``out``. H-05: the rename never
-    replaces a key file another unseal made meanwhile."""
+    larger than MAX_FILE: refused). M-03 (fourth review): the key file is written unnamed (O_TMPFILE), synced, then
+    linked at ``out``: until then no file of its bytes has a name, so a run cut short, even killed, leaves nothing.
+    H-05: the link never replaces a key file another unseal made meanwhile. A filesystem without unnamed files (FAT,
+    exFAT) gets a temporary name with this module's mark and the process id instead, renamed to ``out`` (never over
+    it); one a killed run left stays until the next unseal to ``out`` removes it (H-06: only those, of a process
+    gone)."""
     try:
         fd = os.open(sealed, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
         try:
@@ -1352,18 +1410,28 @@ def unseal_to(sealed: Path, out: Path, passphrase: str) -> str:
     try:
         if _exists(dfd, out.name):  # never over a file
             raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(out))
-        for left in os.listdir(dfd):  # M-03: a run killed after its write left its key's bytes here: removed
-            if left.startswith(f".{out.name}.") and left.endswith(".part"):
-                with contextlib.suppress(FileNotFoundError):
-                    os.unlink(left, dir_fd=dfd)
-        tmp = f".{out.name}.{secrets.token_hex(4)}.part"
+        data = key_text(raw)
         try:
-            os.close(_new_file(dfd, tmp, key_text(raw), 0o600))
-            _rename_noreplace(dfd, tmp, out.name)  # H-05: a key file made meanwhile is never replaced
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp, dir_fd=dfd)
-            raise
+            fd = _new_file(dfd, None, data, 0o600)  # M-03: unnamed until it is linked
+        except OSError as e:
+            if e.errno not in (errno.EOPNOTSUPP, errno.EISDIR):  # EISDIR: a kernel without O_TMPFILE
+                raise
+            fd = None
+        if fd is not None:
+            try:  # H-05: a link never replaces a name (FileExistsError)
+                os.link(f"/proc/self/fd/{fd}", out.name, dst_dir_fd=dfd, follow_symlinks=True)
+            finally:
+                os.close(fd)
+        else:
+            _sweep(dfd, out.name)
+            tmp = f".{out.name}.{UNSEAL_MARK}-{os.getpid()}-{secrets.token_hex(4)}.part"
+            try:
+                os.close(_new_file(dfd, tmp, data, 0o600))
+                _rename_noreplace(dfd, tmp, out.name)  # H-05: a key file made meanwhile is never replaced
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp, dir_fd=dfd)
+                raise
         os.fsync(dfd)
     finally:
         os.close(dfd)

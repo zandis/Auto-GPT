@@ -82,8 +82,10 @@ sealed key (the copy on the backup target): `python3 -m tools.backup_key_ceremon
 /media/usb/trialbox-backup.key`; it asks for the passphrase and does not show it (never type it where it is shown;
 piped, it reads one line of stdin), then `restore --key` that file. A FAT or exFAT stick or USB disk has no file
 modes: the key file and the sealed copy are made there as its mount gives them (no mode change is tried), so keep the
-stick sealed. The sealed copy goes only to a target whose folder, as opened, is a mounted filesystem other than the
-box's disk: a share unmounted at that moment is refused. A DEV, TEST or VALIDATION
+stick sealed. The sealed copy goes only to a target whose folder, as opened, is exactly a mount point
+(`/proc/self/mountinfo`) of a filesystem not on the box's disk: a plain folder, or a share unmounted at that moment,
+is refused. On a FAT or exFAT stick (no unnamed files) an unseal killed part way can leave a hidden
+`.<name>.tb-unseal-<pid>-<id>.part` holding the key: the next unseal to that name removes it, or wipe it. A DEV, TEST or VALIDATION
 box, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
 box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI
