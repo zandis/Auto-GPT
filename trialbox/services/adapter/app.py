@@ -290,7 +290,14 @@ def publish(body: PublishBody) -> JSONResponse:
     night (409), an ingest or another publish running (409)."""
     from datacore.dataops import DataOps
 
-    from adapter.publish import NothingToPublish, held_folder, publish_held, published
+    from adapter.publish import (
+        NothingToPublish,
+        TwoPeopleOneChart,
+        held_folder,
+        publish_held,
+        published,
+        refuse_two_people,
+    )
 
     _plain_snapshot(body.snapshot)
     if not _running.acquire(blocking=False):
@@ -301,7 +308,9 @@ def publish(body: PublishBody) -> JSONResponse:
         if run_mode() == "process" and runs.running(ac.lake_dir):  # D-663: an ingest of an earlier life still runs
             raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
         try:
-            held_folder(ac, body.snapshot)
+            refuse_two_people(held_folder(ac, body.snapshot))  # H34-06: refused before the accept starts anything
+        except TwoPeopleOneChart as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except NothingToPublish as exc:
             if published(ac, body.snapshot):
                 _accepting.clear()

@@ -6,6 +6,8 @@
 <a href="/data-ops" data-testid="dataops-back">{{ t('dataops.back') }}</a></div>
 <p data-testid="batch-state" data-state="{{ b.state }}">{{ t('dataops.col.state') }}: {{ t('dataops.state.' + b.state) }}</p>
 {% if b.state == 'HELD' %}<section class="card attention">
+{% set two = b.detail.get('identity_conflicts') %}{% if two %}{# H34-06: a chart number that arrived as two people #}
+<p class="error" role="alert" data-testid="batch-identity-conflict">{{ t('dataops.identity_conflict', n=(two.get('tonight') or 0) + (two.get('against_served') or 0)) }}</p>{% endif %}
 {% if may_decide %}{% if not can_accept %}<p class="hint">{{ t('dataops.accept_off') }}</p>{% endif %}{% include "_dataops_decide.html" %}{% else %}<p class="hint">{{ t('dataops.view_only') }}</p>{% endif %}
 </section>{% endif %}
 {% if unmapped %}{# NEW-DOPS-1 (D-708): the night's rows with a value the mapping could not use #}

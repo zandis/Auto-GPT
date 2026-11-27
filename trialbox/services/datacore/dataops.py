@@ -69,6 +69,7 @@ DETAIL_KEYS = (
     "orphans",
     "quarantined",
     "duplicate_keys",
+    "identity_conflicts",  # H34-06: chart numbers that arrived as two people (counts only)
     "unmapped",
     "unmapped_kinds",  # NEW-B-39 (D-740): the same rows per table split by kind, counts only
     "site_profile",  # 10B-6 (D-1233): the profile's id, version, digest and coverage counts (type names, no code)
@@ -169,8 +170,8 @@ class Batch:
 def _shown(detail: dict[str, Any]) -> dict[str, Any]:
     """The hold reasons a steward is shown for a held night, as the row keeps them (``DETAIL_KEYS``: tables and
     counts, never a row or an identifier), for the audit of the decision."""
-    return {k: detail[k] for k in ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "error")
-            if detail.get(k)}  # fmt: skip
+    shown = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "identity_conflicts", "error")
+    return {k: detail[k] for k in shown if detail.get(k)}
 
 
 def can_step(cur: str, to: str) -> str | None:
