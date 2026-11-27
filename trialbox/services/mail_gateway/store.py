@@ -63,7 +63,14 @@ ALTER TABLE send_keys ADD COLUMN IF NOT EXISTS resolved_by TEXT;
 CREATE INDEX IF NOT EXISTS send_keys_state ON send_keys(state, next_at);
 ALTER TABLE intake ADD COLUMN IF NOT EXISTS cmd TEXT
 """
-MIGRATIONS = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
+# Review L-4 (E2E P-10): ``hold_reason`` names why a queued key waits, as a code, so the start finds the keys held as
+# "waits, not counted" (U-5) by it, not by the line a person reads.
+SCHEMA_V4 = """
+ALTER TABLE send_keys ADD COLUMN IF NOT EXISTS hold_reason TEXT
+"""
+MIGRATIONS = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
+#: the ``hold_reason`` of a key held as "waits, not counted" (U-5, D-1280): the site information or the relay is needed
+WAITS = "waits"
 
 #: states a person still has to see: the dispatcher's queue and the two that wait for a decision
 OPEN_STATES = ("sending", "queued", "uncertain", "failed")
@@ -226,6 +233,7 @@ class MailDB:
         next_at: str | None,
         error: str,
         at: str,
+        reason: str | None = None,
     ) -> None:
         """Move a key that is not sent to ``queued``, ``failed`` or ``uncertain``, keeping what a later send needs."""
         if state not in ("queued", "failed", "uncertain"):
@@ -233,8 +241,8 @@ class MailDB:
         rcpts = ",".join(recipients)
         self.db.execute(
             "UPDATE send_keys SET state = ?, request = ?, message_id = ?, result = ?, recipients = ?, attempts = ?, "
-            "next_at = ?, last_error = ?, at = ? WHERE key = ?",
-            (state, request_json, message_id, result_json, rcpts, attempts, next_at, error[:500], at, key),
+            "next_at = ?, last_error = ?, hold_reason = ?, at = ? WHERE key = ?",
+            (state, request_json, message_id, result_json, rcpts, attempts, next_at, error[:500], reason, at, key),
         )
 
     def due(self, now_iso: str | None, limit: int = 50) -> list[str]:
@@ -246,6 +254,13 @@ class MailDB:
             (limit,) if now_iso is None else (now_iso, limit),
         )
         return [str(r[0]) for r in rows]
+
+    def wake(self) -> int:
+        """Queued keys held as "waits, not counted" (``hold_reason`` WAITS, whatever line they carry) are due now;
+        how many."""
+        return self.db.execute(
+            "UPDATE send_keys SET next_at = NULL WHERE state = 'queued' AND hold_reason = ?", (WAITS,)
+        )
 
     def take(self, key: str, at: str) -> tuple[str, str | None, int] | None:
         """Claim a queued key for one try (``queued`` to ``sending``); ``(request, message_id, attempts)``, or None
