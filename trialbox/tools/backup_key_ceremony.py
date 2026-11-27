@@ -53,7 +53,7 @@ record is put on the box (as step 1).
   ``deploy/secrets/backup-key-<fp>.sealed`` (root's alone, never a plain key), opened again to check it, then (H-02,
   P01-DESIGN (i)) the same file onto the one off-box target the operator declared (``--declare-backup-target``, the
   install from ``TB_BACKUP_OFFBOX``: ``deploy/secrets/backup-target.json``), whose opened folder must still be that
-  mount's root with the recorded type and source (else refused and journaled, before a key is made), synced and
+  mount's root with the recorded identity (else refused and journaled, before a key is made), synced and
   opened again, and only then the event and ``backup.pub``. ``--unseal FILE`` gives back the key file ``restore
   --key`` reads, only at ``deploy/secrets/restore/trialbox-backup.key`` (unnamed until linked, never over a file, never
   on removable media; ``--forget-restore-key`` removes it): on a terminal the passphrase is asked with the echo off
@@ -403,6 +403,17 @@ NO_TARGET_DECLARED = {
     "放到該處。請以 root 執行 python3 -m tools.backup_key_ceremony --declare-backup-target <資料夾> --operator "
     "<姓名>（RUNBOOK §5）。未建立任何內容",
 }
+NO_TARGET_DECLARED_UNJOURNALED = {
+    "en": "refused: no off-box backup target is declared ({record} is missing or is not a declaration), and the "
+    "journal did not take the event backup.target_undeclared. As root: python3 -m tools.backup_key_ceremony "
+    "--declare-backup-target <folder> --operator <name> (RUNBOOK §5). Nothing was made",
+    "ja": "拒否：ボックス外のバックアップ先が宣言されていません（{record} がないか、宣言ではありません）。ジャーナルは "
+    "backup.target_undeclared を受け付けませんでした。root で python3 -m tools.backup_key_ceremony "
+    "--declare-backup-target <フォルダー> --operator <名前> を実行してください（RUNBOOK §5）。何も作成していません",
+    "zh-TW": "已拒絕：尚未宣告主機外的備份目標（{record} 不存在或不是宣告），且日誌未接受 backup.target_undeclared。"
+    "請以 root 執行 python3 -m tools.backup_key_ceremony --declare-backup-target <資料夾> --operator <姓名>"
+    "（RUNBOOK §5）。未建立任何內容",
+}
 TARGET_UNREADABLE = {
     "en": "refused: the declared off-box backup target {path} cannot be opened ({why}). No key was made and nothing "
     "was written",
@@ -498,6 +509,13 @@ RESTORE_KEY_NOT_A_FILE = {
     "en": "refused: {path} is not there, or is not a plain file of one name: nothing was removed",
     "ja": "拒否：{path} がないか、名前の一つしかない普通のファイルではありません。何も削除していません",
     "zh-TW": "已拒絕：{path} 不存在，或不是只有一個名稱的一般檔案：未刪除任何內容",
+}
+RESTORE_KEY_UNJOURNALED = {
+    "en": "refused: the journal did not take the event backup.restore_key_forgotten, so {path} was not removed. Run "
+    "the same command again",
+    "ja": "拒否：ジャーナルが backup.restore_key_forgotten を受け付けなかったため、{path} は削除していません。同じ"
+    "コマンドをもう一度実行してください",
+    "zh-TW": "已拒絕：日誌未接受 backup.restore_key_forgotten，因此未刪除 {path}。請再次執行同一指令",
 }
 RESTORE_KEY_FORGOTTEN = {
     "en": "removed {path} (journal number {seq})",
@@ -1332,7 +1350,7 @@ def unseal(data: bytes, passphrase: str, sealed: object = "the sealed file") -> 
 
     try:
         doc = json.loads(data)
-    except ValueError:  # UnicodeDecodeError included
+    except (ValueError, RecursionError):  # UnicodeDecodeError included; RecursionError: nested deeper than it reads
         raise _not_a_key(sealed, "not json") from None
     if not isinstance(doc, dict) or doc.get("format") != SEALED_FORMAT:
         raise _not_a_key(sealed, "format")
@@ -1383,8 +1401,8 @@ def _read_sealed(path: Path) -> bytes:
 
 
 def _mount_id(fd: int) -> int:
-    """The mount a descriptor is on: the kernel's ``mnt_id`` in /proc/self/fdinfo (renumbered at every mount: used
-    live, never recorded)."""
+    """The mount a descriptor is on: the kernel's ``mnt_id`` in /proc/self/fdinfo (renumbered at every mount:
+    recorded at the declaration, so a remount is declared again, H-02 of the sixth review)."""
     for line in (FDINFO / str(fd)).read_text(encoding="utf-8").splitlines():
         if line.startswith("mnt_id:"):
             return int(line.split()[1])
@@ -1395,15 +1413,15 @@ def _unescaped(field: str) -> str:
     return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), field)
 
 
-def _mount_entry(mid: int) -> tuple[int, str, str, str]:
-    """The device, mount point, filesystem type and source of the mount ``mid`` in /proc/self/mountinfo (octal
-    escapes undone)."""
+def _mount_entry(mid: int) -> tuple[int, str, str, str, str]:
+    """The device, mount point, filesystem type, source and root (the folder of its filesystem mounted there) of the
+    mount ``mid`` in /proc/self/mountinfo (octal escapes undone)."""
     for line in MOUNTINFO.read_text(encoding="utf-8").splitlines():
         f = line.split()
         if f[0] == str(mid):
             a, b = f[2].split(":")
             i = f.index("-", 6)
-            return os.makedev(int(a), int(b)), _unescaped(f[4]), f[i + 1], _unescaped(f[i + 2])
+            return os.makedev(int(a), int(b)), _unescaped(f[4]), f[i + 1], _unescaped(f[i + 2]), _unescaped(f[3])
     raise ValueError(f"mount {mid} is not in {MOUNTINFO}")
 
 
@@ -1420,17 +1438,21 @@ def _fsuuid(source: str) -> str | None:
 
 def _mount_identity(tfd: int) -> tuple[dict[str, Any], int, bool]:
     """P01-DESIGN (i): the identity of the mount the opened folder is on (its mount point, filesystem type, source,
-    and a ``/dev`` source's by-uuid name), that mount's device, and whether the folder is exactly that mount's root
-    (its mount point opened is the same folder on the same mount)."""
+    a ``/dev`` source's by-uuid name; H-02 of the sixth review: the mount's id and root and the folder's device and
+    inode), that mount's device, and whether the folder is exactly that mount's root (its mount point opened is the
+    same folder on the same mount)."""
     mid = _mount_id(tfd)
-    dev, point, fstype, source = _mount_entry(mid)
+    dev, point, fstype, source, mroot = _mount_entry(mid)
     rfd = _open_dir(Path(point))
     try:
         root = _mount_id(rfd) == mid and os.path.samestat(os.fstat(rfd), os.fstat(tfd))
     finally:
         os.close(rfd)
     fsuuid = _fsuuid(source) if source.startswith("/dev/") else None
-    return {"mountpoint": point, "fstype": fstype, "source": source, "fsuuid": fsuuid}, dev, root
+    st = os.fstat(tfd)
+    ident = {"mountpoint": point, "fstype": fstype, "source": source, "fsuuid": fsuuid, "mnt_id": mid,
+             "mnt_root": mroot, "fstat": [st.st_dev, st.st_ino]}  # fmt: skip
+    return ident, dev, root
 
 
 def _said(ident: Mapping[str, Any]) -> str:
@@ -1470,7 +1492,7 @@ def declare_target(path: str, operator: str | None, replace: bool, env: Mapping[
     root's alone) and journaled (``backup.target_declared``). It must be, as opened, exactly the root of a mount, of a
     filesystem type that outlives a reboot and is storage, not one of the box's own filesystems, and a ``/dev`` source
     must have a by-uuid name. A declaration there is replaced only with ``replace``; the old one is kept as
-    ``backup-target.<declared>.old``. Returns the record."""
+    ``backup-target.<declared>.<journal number>.old``. Returns the record."""
     if not is_root():
         raise Stop(NOT_ROOT)
     who = person(operator)
@@ -1512,13 +1534,20 @@ def declare_target(path: str, operator: str | None, replace: bool, env: Mapping[
         replaced = "none" if old is None else _said(old) if old else "a record that is not a declaration"
         seq = record({"path": path, "declared": _said(ident), "replaced": replaced, "operator": who},
                      event="backup.target_declared")  # fmt: skip
-        if old is not None:  # kept, never deleted, in the same root-only folder
-            stamp = re.sub(r"[^0-9A-Za-z]", "", str(old.get("declared") or at))
-            if _exists(pfd, f"backup-target.{stamp}.old"):
-                raise Stop(STEP_FAILED, n=1, why=f"backup-target.{stamp}.old exists")
-            os.rename(TARGET_RECORD, f"backup-target.{stamp}.old", src_dir_fd=pfd, dst_dir_fd=pfd)
         rec["journal"] = seq
-        os.close(_new_file(pfd, TARGET_RECORD, (json.dumps(rec, indent=1, sort_keys=True) + "\n").encode(), 0o600))
+        data = (json.dumps(rec, indent=1, sort_keys=True) + "\n").encode()
+        if old is None:
+            os.close(_new_file(pfd, TARGET_RECORD, data, 0o600))
+        else:  # M-09: the record is the old one or the new one at every moment, each whole
+            new = f"backup-target.{seq}.new"  # the journal's number: no other run has it
+            os.close(_new_file(pfd, new, data, 0o600))
+            stamp = re.sub(r"[^0-9A-Za-z]", "", str(old.get("declared") or at))
+            try:  # kept, never deleted, in the same root-only folder; its name carries the new number too
+                os.link(TARGET_RECORD, f"backup-target.{stamp}.{seq}.old", src_dir_fd=pfd, dst_dir_fd=pfd,
+                        follow_symlinks=False)  # fmt: skip
+            except OSError as e:
+                raise Stop(STEP_FAILED, n=1, why=_why(e)) from None
+            os.rename(new, TARGET_RECORD, src_dir_fd=pfd, dst_dir_fd=pfd)
         _sync_dir(pfd, 1)
         return rec
     finally:
@@ -1532,37 +1561,58 @@ def _declared_path(pfd: int) -> str:
         return "not readable"
 
 
+IDENTITY = ("mountpoint", "fstype", "source", "fsuuid", "mnt_id", "mnt_root", "fstat")  # all compared, every run
+UNSAID = ("mnt_id", "mnt_root", "fstat")  # not in _said(): a difference there is named in the found text
+
+
+def _refused(text: dict[str, str], unjournaled: dict[str, str], event: str, detail: Mapping[str, str],
+             **fill: object) -> Stop:  # fmt: skip
+    """A refusal of the target, its event sent first; ``unjournaled`` when the journal does not take it."""
+    try:
+        record(detail, event=event)
+    except Stop:
+        text = unjournaled
+    return Stop(text, **fill)
+
+
 def _declared_target(pfd: int) -> tuple[int, str]:
     """P01-DESIGN (i): the declared off-box target opened and checked by identity, every run, before a key is made:
-    exactly the root of a mount whose mount point, filesystem type and source (a ``/dev`` source: its by-uuid name)
-    are the declared ones, none of the box's own filesystems. A mismatch is journaled (``backup.target_mismatch``)
-    and refused. Returns the open descriptor and the declared folder."""
-    rec = _read_target(pfd)
+    exactly the root of a mount whose identity is the recorded one, field for field (H-02 of the sixth review: the
+    mount's id and root and the folder's device and inode too, so a remount or a re-plug is declared again by the
+    operator), none of the box's own filesystems. No declaration (``backup.target_undeclared``) and a mismatch,
+    the folder not opening included (``backup.target_mismatch``, M-10), are journaled and refused. Returns the open
+    descriptor and the declared folder."""
+    where = PUB_DIR / TARGET_RECORD
+    try:
+        rec = _read_target(pfd)
+        state = "missing"
+    except Stop:
+        rec, state = None, "not a declaration"
     if rec is None:
-        raise Stop(NO_TARGET_DECLARED, record=PUB_DIR / TARGET_RECORD)
-    path = rec["path"]
+        raise _refused(NO_TARGET_DECLARED, NO_TARGET_DECLARED_UNJOURNALED, "backup.target_undeclared",
+                       {"record": str(where), "found": state}, record=where)  # fmt: skip
+    path, declared = rec["path"], _said(rec)
     try:
         tfd = _open_dir(Path(path))
     except OSError as e:
-        raise Stop(TARGET_UNREADABLE, path=path, why=_why(e)) from None
+        found = f"cannot be opened ({_why(e)})"
+        raise _refused(TARGET_MISMATCH, TARGET_MISMATCH_UNJOURNALED, "backup.target_mismatch",
+                       {"path": path, "declared": declared, "found": found},
+                       path=path, declared=declared, found=found) from None  # fmt: skip
     try:
         try:
             ident, dev, root = _mount_identity(tfd)
             mine = dev in _box_devs(pfd)
-            same = ("mountpoint", "fstype", "fsuuid") if rec["fsuuid"] else ("mountpoint", "fstype", "source", "fsuuid")
-            ok = root and not mine and all(ident[k] == rec[k] for k in same)
+            ok = root and not mine and all(ident[k] == rec.get(k) for k in IDENTITY)
             found = _said(ident) + ("" if root else ", the folder not its root")
             found += ", a filesystem of the box itself" if mine else ""
+            found += "".join(f", {k} {ident[k]} not {rec.get(k)}" for k in UNSAID if ident[k] != rec.get(k))
         except (OSError, ValueError):
             ok, found = False, "its mount cannot be told"
         if not ok:
-            declared = _said(rec)
-            text = TARGET_MISMATCH
-            try:
-                record({"path": path, "declared": declared, "found": found}, event="backup.target_mismatch")
-            except Stop:
-                text = TARGET_MISMATCH_UNJOURNALED
-            raise Stop(text, path=path, declared=declared, found=found)
+            raise _refused(TARGET_MISMATCH, TARGET_MISMATCH_UNJOURNALED, "backup.target_mismatch",
+                           {"path": path, "declared": declared, "found": found},
+                           path=path, declared=declared, found=found)  # fmt: skip
     except BaseException:
         os.close(tfd)
         raise
@@ -1672,6 +1722,7 @@ def unseal_to(sealed: Path, passphrase: str) -> str:
                 if e.errno in (errno.EOPNOTSUPP, errno.EISDIR):  # EISDIR: a kernel without O_TMPFILE
                     raise Stop(NO_TMPFILE, path=PUB_DIR / RESTORE_DIR) from None
                 raise
+            fcntl.flock(rfd, fcntl.LOCK_EX)  # M-12: never between a forget's look and its removal
             try:  # H-05: a link never replaces a name
                 os.link(f"/proc/self/fd/{kfd}", RESTORE_KEY, dst_dir_fd=rfd, follow_symlinks=True)
             except FileExistsError:
@@ -1689,7 +1740,9 @@ def unseal_to(sealed: Path, passphrase: str) -> str:
 def forget_restore_key() -> str:
     """``--forget-restore-key``: the one deletion of this module. ``restore/trialbox-backup.key`` removed (looked at
     without following it: a plain file of one name, else refused and left), journaled
-    (``backup.restore_key_forgotten``); the journal's number, or why there is none."""
+    (``backup.restore_key_forgotten``) before the name goes: a journal that does not take it removes nothing
+    (M-11); the journal's number. The look and the removal hold the restore folder's lock, as the unseal's link does
+    (M-12: a key made after the look is never removed)."""
     where = PUB_DIR / RESTORE_DIR / RESTORE_KEY
     pfd = _pub_dir()
     try:
@@ -1698,22 +1751,24 @@ def forget_restore_key() -> str:
         except OSError:
             raise Stop(RESTORE_KEY_NOT_A_FILE, path=where) from None
         try:
+            fcntl.flock(rfd, fcntl.LOCK_EX)  # released when rfd is closed
             try:
                 st = os.stat(RESTORE_KEY, dir_fd=rfd, follow_symlinks=False)
             except OSError:
                 raise Stop(RESTORE_KEY_NOT_A_FILE, path=where) from None
             if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
                 raise Stop(RESTORE_KEY_NOT_A_FILE, path=where)
+            try:
+                seq = record({"path": str(where)}, event="backup.restore_key_forgotten")
+            except Stop:
+                raise Stop(RESTORE_KEY_UNJOURNALED, path=where) from None
             os.unlink(RESTORE_KEY, dir_fd=rfd)
             os.fsync(rfd)
         finally:
             os.close(rfd)
     finally:
         os.close(pfd)
-    try:
-        return str(record({"path": str(where)}, event="backup.restore_key_forgotten"))
-    except Stop:
-        return "none: the journal did not answer"
+    return str(seq)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

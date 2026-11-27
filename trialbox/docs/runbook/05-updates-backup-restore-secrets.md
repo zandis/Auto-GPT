@@ -78,13 +78,15 @@ once, the screen is cleared and hospital IT types the whole copy back before `ba
 install (no terminal) seals the key under the install's KEK passphrase into `deploy/secrets/backup-key-<fp>.sealed`
 and, before `backup.pub` is made, onto the one declared off-box backup target. The install declares `TB_BACKUP_OFFBOX`
 when the box has no declaration (`deploy/secrets/backup-target.json`: the folder, which must be exactly a mount point,
-and its mount's point, filesystem type and source, a `/dev` source by its `/dev/disk/by-uuid` name; tmpfs, overlay
-and the box's own filesystems are refused, and a `/dev` source without a by-uuid name, as on a host without udev,
-cannot be declared). Every run that writes the sealed copy checks the opened folder against that record; any
-difference (another source, the share unmounted, the mount moved) refuses before a key is made and is journaled
-(`backup.target_mismatch`). To change it, as root: `python3 -m tools.backup_key_ceremony --declare-backup-target
-<folder> --operator "<name>" --replace` (the old record is kept as `backup-target.<time>.old`); it moves no file, so
-copy `backup-key-<fp>.sealed` to the new target by hand. A FAT or exFAT target has no file modes: the sealed copy
+and its mount's point, filesystem type, source, mount id and root, the folder's device and inode, a `/dev` source
+with its `/dev/disk/by-uuid` name; tmpfs, overlay and the box's own filesystems are refused, and a `/dev` source
+without a by-uuid name, as on a host without udev, cannot be declared). Every run that writes the sealed copy checks
+the opened folder against that record; any difference (another source, the share unmounted or its folder gone, the
+mount moved, a remount, a re-plug or a reboot since the declaration) refuses before a key is made and is journaled
+(`backup.target_mismatch`; no record: `backup.target_undeclared`). To change it, or to take a remounted target
+again, as root: `python3 -m tools.backup_key_ceremony --declare-backup-target <folder> --operator "<name>"
+--replace` (the old record is kept as `backup-target.<time>.<n>.old`); it moves no file, so copy
+`backup-key-<fp>.sealed` to the new target by hand. A FAT or exFAT target has no file modes: the sealed copy
 (encrypted) is made there as its mount gives it. Run again by hand, as root on the box:
 `python3 -m tools.backup_key_ceremony --install`. To restore with a sealed key (the copy on the backup target), as
 root on the box: `python3 -m tools.backup_key_ceremony --unseal <the .sealed file>` asks for the passphrase and does

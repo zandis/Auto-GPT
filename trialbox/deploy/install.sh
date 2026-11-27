@@ -280,6 +280,7 @@ KP_WHO=install
 # and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
 # (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
 # exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+unset KP_VALUE KP_FILE kp_again  # H-09: a caller's export of these is dropped here (an assignment keeps an export)
 KP_VALUE=""; KP_FILE=""
 kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped
@@ -377,6 +378,12 @@ elif [ -n "$PP_FD" ]; then
   eval "exec $PP_FD<&-"
   kp_check_value "the installer's hand-on"
   KP_FILE="$PP_REMOVE"  # the operator's file the first run read: removed once sealed, never opened here
+fi
+# H-08 (sixth review of P-01): a passphrase file left beside a sealed backup key (an install killed after it made
+# backup.pub, before the file went) is removed now, at the start, unless --keep-kek-passphrase-file
+if [ -n "$KP_FILE" ] && [ "$PP_KEEP" = 0 ] && [ -f "$ROOT/deploy/secrets/backup.pub" ] \
+    && compgen -G "$ROOT/deploy/secrets/backup-key-*.sealed" >/dev/null; then
+  kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed (left beside the sealed backup key)"; KP_FILE=""
 fi
 # ---- end of KEK-INPUT
 # ENV-EARLY (D-1365, re-check of #1175): an environment that is not one of the four stops here, at argument parsing,
@@ -1834,17 +1841,20 @@ case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:
       # P-01 (fifth review): the sealed copy goes only to the declared off-box target; the install declares
       # TB_BACKUP_OFFBOX (deploy/.env) when the box has none, and never replaces a declaration
       KP_OFFBOX=""
-      [ -f deploy/secrets/backup-target.json ] || KP_OFFBOX="$(envget TB_BACKUP_OFFBOX | tr -d "\"'")"
+      [ -f deploy/secrets/backup-target.json ] || KP_OFFBOX="$(envget TB_BACKUP_OFFBOX | tr -d "\"'
+")"
       if [ ! -f deploy/secrets/backup-target.json ] && { [ -z "$KP_OFFBOX" ] || ! PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --declare-backup-target "$KP_OFFBOX" --operator install; }; then
         FAILS+=("no backup key: no off-box backup target is declared (TB_BACKUP_OFFBOX in deploy/.env: ${KP_OFFBOX:-not set}${KP_OFFBOX:+, refused above}); no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --declare-backup-target <folder> --operator <name>, then python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
-      elif printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin; then
+      else
+        # H-08 (sixth review): the passphrase file goes before the ceremony can make backup.pub (the passphrase is
+        # read already): an install killed right after backup.pub leaves no file beside the sealed key
         if [ -n "$KP_FILE" ]; then
           if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
           else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
           KP_FILE=""
         fi
-      else
-        FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+        printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin \
+          || FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
       fi
     else
       FAILS+=("no backup key: an install with no terminal seals it under the install's KEK passphrase, and none was given (--kek-passphrase-file); no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
