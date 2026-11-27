@@ -31,11 +31,13 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import json
 import logging
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 import traceback
@@ -57,6 +59,17 @@ from tb_common.phi_guard import NOTE_MASK_VERSION, mask_note
 from lake.flatten import SCHEMAS
 from lake.source import lake_rows
 from lake.textproc import chunk, token_string
+
+# prof16 (CODED-PROFILE ruling Q2): DuckDB's binding of a list parameter tries ``import pandas`` twice per element;
+# with pandas not installed (the lake image) every try scans sys.path: 53.7 % of a SCREEN job at 100k patients.
+# Marked absent once at lake start, each try fails at once. An installed pandas is left alone.
+# ponytail: stop-gap; the bulk runner (CODED-PROFILE §6) binds the pid list as one Arrow table instead
+try:
+    _PANDAS_ABSENT = importlib.util.find_spec("pandas") is None
+except (ImportError, ValueError):
+    _PANDAS_ABSENT = True
+if _PANDAS_ABSENT:
+    sys.modules.setdefault("pandas", None)  # type: ignore[arg-type]
 
 log = logging.getLogger("lake")
 DIM = 1024
