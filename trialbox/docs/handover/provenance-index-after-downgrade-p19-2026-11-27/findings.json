@@ -1,0 +1,33 @@
+{
+ "card": "P19",
+ "title": "the provenance index equals the audit chain after a downgrade",
+ "date": "2026-11-27",
+ "source": "docs/handover/provenance-index-after-downgrade-p19-2026-11-27.md",
+ "note": "basis 'shown' means shown by the card's unit test on the test cluster (a real drain, the real index, pg_dump and pg_restore), failing on the base and passing with the change; the walk's box was not read.",
+ "findings": [
+  {
+   "id": "P19-01",
+   "severity": "Medium",
+   "claim": "after a downgrade or rollback restored the database, the drain recorded the journal resync but never wrote back the index rows of the lines drained since the rollback point, so they stayed missing until a rebuild by hand",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "P19-02",
+   "severity": "Low",
+   "claim": "the drain decided once at its start whether the index was installed, so tables made by the role script on a running box were not written until the drain restarted",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "P19-03",
+   "severity": "Low",
+   "claim": "lines drained before the index's tables existed are still written only by trialbox provenance --rebuild, because the drain's role cannot read the opt-out register that says which use rows must stay out",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}

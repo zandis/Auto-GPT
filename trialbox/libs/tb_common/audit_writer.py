@@ -450,6 +450,10 @@ class Drain:
                           detail={"chain_seq": self.cursor.seq, "chain_at": self.cursor.at, "journal_last": int(top),
                                   "problem": problem})  # fmt: skip
         self._after = self.cursor.at
+        if self.index:  # P-19: the index went back with the database; the chain kept the lines drained since
+            last = self.con.execute("SELECT max(at) FROM audit.journal").fetchone()[0]
+            if isinstance(last, datetime):
+                self._catch_up(last)
 
     def _index_installed(self) -> bool:
         """Whether the provenance index's tables are there (the role script creates them, D-989 step 2c). Without
@@ -463,6 +467,21 @@ class Drain:
         if not ok:
             log.info("provenance index not installed: the chain is written without it")
         return ok
+
+    def _catch_up(self, after: datetime) -> None:
+        """P-19: the index's rows of the chain's lines drained from journal rows newer than ``after``, the newest
+        row a database put back to an older point still holds (``provenance_index.catch_up``). Logged, never
+        raised: the doctor's check names a gap."""
+        from tb_common import provenance_index
+
+        try:
+            n = provenance_index.catch_up(self.con, self.directory, after)
+        except Exception as exc:
+            log.error("provenance index: the chain's newer lines were not written (%s); run trialbox provenance "
+                      "--rebuild", type(exc).__name__)  # fmt: skip
+            return
+        if n:
+            log.info("provenance index: %d row(s) of the chain's newer lines written", n)
 
     def _index(self, rec: dict[str, Any]) -> None:
         """The record's rows in the provenance index, after its line is in the chain. A write that fails is logged,
@@ -491,6 +510,8 @@ class Drain:
         """Write the next batch to the chain; the number written. ``alive``: the heartbeat, touched after each event
         (T-697: a batch of slow writes must not read as a dead drain to the health check)."""
         rows = self._rows()
+        if rows and not self.index:  # P-19: tables made after the drain started are written from the next line on
+            self.index = self._index_installed()
         for seq, at, role, event, ts, fields in rows:
             f, stamp, problem = _readable(at, ts, fields)
             journal: dict[str, Any] = {"seq": int(seq), "role": role, "at": _iso(at)}

@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -194,6 +195,29 @@ def add(con: Any, rec: dict[str, Any], erased: Callable[[str], bool] = lambda _p
             (u.rec_hash, u.call_id, u.event, u.record_kind, u.record_ref, u.pid, u.decision, u.by_whom, u.at),
         )
     return len(calls) + len(uses)
+
+
+def catch_up(con: Any, directory: Path, after: datetime) -> int:
+    """P-19: write the rows of the chain's lines that came from journal rows newer than ``after`` (a line written
+    twice is a no-op); the rows the lines give. The drain runs it when it finds the database put back to an older
+    point (an update's downgrade or rollback, a restore): ``after`` is then the newest journal row the database
+    still holds, and the lines drained after it are exactly the ones whose index rows went back with the tables.
+
+    Lines from older journal rows are never written here: their rows are in the index, or were taken out at an
+    opt-out, and only ``trialbox provenance --rebuild`` reads the register that says which. The whole chain is read
+    (a day file is named by its events' own time, not the journal's); it runs only after such a put-back."""
+    n = 0
+    for rec in chain_records(directory):
+        j = rec.get("journal")
+        if not isinstance(j, dict):
+            continue
+        try:
+            at = datetime.fromisoformat(str(j.get("at") or ""))
+        except ValueError:
+            continue
+        if at.tzinfo is not None and at > after:
+            n += add(con, rec)
+    return n
 
 
 def rebuild(con: Any, directory: Path, erased: Iterable[str] = ()) -> tuple[int, int]:
