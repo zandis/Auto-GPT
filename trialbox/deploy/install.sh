@@ -1582,8 +1582,9 @@ fi
 # E2E P-01 (the integrator's ruling (1) of 2026-11-27: the KEK comes from the install passphrase): an install with no
 # terminal seals the PRODUCTION backup key under this passphrase (the backup key step below), so there it is kept
 # until then, in this shell only (never exported), and cleared there; a passphrase file the seal step did not remove
-# is removed there once the key is sealed with it (M-02 of the second review), else said "not used" there
+# goes on with it, removed there once the key is sealed with it (M-02 of the second review), else said "not used" there
 { : </dev/tty; } 2>/dev/null && KP_VALUE=""
+[ -n "$KP_VALUE" ] || { [ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"; KP_FILE=""; }
 
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 # D-1091: protects none of the five; on a PoC box the database steps after it fail where they run
