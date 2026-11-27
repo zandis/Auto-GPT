@@ -1,7 +1,8 @@
 """Release hygiene item 5: the standing release gates over the tree, measured against a baseline that only goes down.
 
 Five scans in the release build: the code-pattern scanner with its rule set at a pinned commit, two secret scanners
-(no verification), the platform-manifest scanner on ``deploy/platform`` and the Dockerfile linter on every Dockerfile.
+(no verification), the platform-manifest scanner on ``deploy/platform`` and the Dockerfile linter on every tracked
+Dockerfile under ``trialbox/``.
 The integrator's ruling (7213778687): a count above the baseline fails from the first day; every finding of the secret
 scanners fails now, of the code-pattern scanner and the linter from 2026-12-17; the platform scanner has no date; the
 baseline may only go down. Checked with a fake runner, small fixtures and fixed dates: no Docker, no scanner, no
@@ -81,7 +82,8 @@ class _Runner:
 
 
 def test_each_tool_is_an_image_by_version_and_digest_with_no_network_and_the_tree_read_only(tmp_path: Path) -> None:
-    cmds = sg.commands(tmp_path / "src", tmp_path / "rules")
+    dockerfiles = ["demo/Dockerfile"]
+    cmds = sg.commands(tmp_path / "src", tmp_path / "rules", dockerfiles)
     assert set(cmds) == set(sg.TOOLS) == set(sg.IMAGES)
     for tool, argv in cmds.items():
         image = sg.IMAGES[tool]
@@ -94,15 +96,10 @@ def test_each_tool_is_an_image_by_version_and_digest_with_no_network_and_the_tre
     assert [code[i + 1] for i, a in enumerate(code) if a == "--config"] == [f"/rules/{d}" for d in sg.RULE_DIRS]
     assert "--ignore-gitleaks-allow" in cmds["secrets-a"] and "--no-verification" in cmds["secrets-b"]
     assert "--disable-ignore-pragma" in cmds["dockerfiles"]
-    assert [a for a in cmds["dockerfiles"] if a.startswith("/src/")] == [f"/src/trialbox/{f}" for f in sg.DOCKERFILES]
+    assert [a for a in cmds["dockerfiles"] if a.startswith("/src/")] == [f"/src/trialbox/{f}" for f in dockerfiles]
     for argv in cmds.values():  # no ignore file, baseline or configuration handed to any tool
         assert not any(re.search(r"ignore|baseline|allow|config-file|--skip-check|--exclude", a) for a in argv
                        if a not in ("--ignore-gitleaks-allow", "--disable-ignore-pragma")), argv  # fmt: skip
-
-
-def test_every_dockerfile_of_the_tree_is_linted() -> None:
-    found = set(sg.tracked_dockerfiles(ROOT.parent))
-    assert found == set(sg.DOCKERFILES)
 
 
 def test_no_ignore_file_is_in_the_tree_and_one_planted_is_found(tmp_path: Path) -> None:
@@ -285,7 +282,7 @@ def test_sg02_only_exit_zero_with_the_completion_line_is_a_run(tmp_path: Path) -
 
 
 def test_sg02_every_tool_is_in_report_mode(tmp_path: Path) -> None:
-    flat = {t: " ".join(a) for t, a in sg.commands(tmp_path / "src", tmp_path / "rules").items()}
+    flat = {t: " ".join(a) for t, a in sg.commands(tmp_path / "src", tmp_path / "rules", ["Dockerfile"]).items()}
     assert (
         "--exit-code 0" in flat["secrets-a"]
         and "--soft-fail" in flat["platform"]
@@ -311,6 +308,26 @@ def test_sg03_the_rule_files_are_hashed_and_a_copy_is_what_is_mounted(
     assert not copy.is_relative_to(rules) and sg.rules_digest(copy) == sg.RULES_DIGEST
     (rules / sg.RULE_DIRS[0] / "r.yaml").write_text("rules: [weakened]\n", encoding="utf-8")  # edited, HEAD unchanged
     with pytest.raises(RuntimeError, match="hash"):
+        sg.pinned(rules, run=run)
+
+
+def test_sg03_a_linked_rule_with_the_pinned_bytes_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rules = tmp_path / "rules"
+    for d in sg.RULE_DIRS:
+        (rules / d).mkdir(parents=True)
+    rule = rules / sg.RULE_DIRS[0] / "rule.yaml"
+    rule.write_text("rules: []\n", encoding="utf-8")
+    monkeypatch.setattr(sg, "RULES_DIGEST", sg.rules_digest(rules))
+    target = rule.rename(tmp_path / "target.yaml")
+    try:
+        rule.symlink_to(target)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"cannot create symlinks: {exc}")
+
+    def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 0, sg.RULES_COMMIT + "\n", "")
+
+    with pytest.raises(RuntimeError, match="symlink"):
         sg.pinned(rules, run=run)
 
 
@@ -398,9 +415,68 @@ def test_sg06_the_scanners_read_a_copy_of_the_tracked_files_outside_the_tree(tmp
     assert not seen[0][0].exists()  # the copy is removed after the run
 
 
-def test_sg07_dockerfiles_are_found_from_the_tracked_files_under_trialbox(tmp_path: Path) -> None:
+def test_sg06_a_failed_rerun_removes_previous_reports(tmp_path: Path) -> None:
+    repo = _repo(tmp_path / "repo", {"trialbox/a.py": "x = 1\n"})
+    rules, out = tmp_path / "rules", tmp_path / "out"
+    sg.scan(repo, rules, out, _fake(CLEAN), baseline={}, today=BEFORE)
+    assert (out / "platform.json").is_file()
+    (out / "old.json").write_text("stale\n", encoding="utf-8")
+
+    rec = sg.scan(repo, rules, out, _fake(CLEAN, rc={"platform": 1}), baseline={}, today=BEFORE)
+    assert "platform: not run: exit 1" in rec["failures"]
+    assert not (out / "platform.json").exists()
+    assert not (out / "old.json").exists()
+
+
+def test_sg07_hadolint_receives_only_tracked_dockerfiles_under_trialbox(tmp_path: Path) -> None:
     names = ["trialbox/demo/Dockerfile", "trialbox/a/b.Dockerfile", "trialbox/deploy/docker/Dockerfile.worker",
              "trialbox/deploy/docker/jvm.Dockerfile.dockerignore", "Dockerfile", ".devcontainer/Dockerfile"]  # fmt: skip
     repo = _repo(tmp_path / "repo", dict.fromkeys(names, ""))
     (repo / "trialbox/untracked.Dockerfile").write_text("", encoding="utf-8")
-    assert sg.tracked_dockerfiles(repo) == ["a/b.Dockerfile", "demo/Dockerfile", "deploy/docker/Dockerfile.worker"]
+    fake = _Runner(CLEAN)
+    sg.scan(repo, tmp_path / "rules", tmp_path / "out", fake, baseline={}, today=BEFORE)
+    argv = next(call for call in fake.calls if _tool_of(call) == "dockerfiles")
+    assert argv[argv.index("json") + 1:] == [
+        "/src/trialbox/a/b.Dockerfile",
+        "/src/trialbox/demo/Dockerfile",
+        "/src/trialbox/deploy/docker/Dockerfile.worker",
+    ]
+
+
+def test_sg08_an_empty_checkov_report_fails_even_on_exit_zero(tmp_path: Path) -> None:
+    rec = _scan(tmp_path, {"platform": "[]"})
+    assert not next(t for t in rec["tools"] if t["tool"] == "platform")["ran"]
+    assert "platform: not run: no report" in rec["failures"]
+    assert not (tmp_path / "out" / "platform.json").exists()
+
+
+@pytest.mark.parametrize("baseline_fails", [False, True])
+def test_sg09_the_pinned_rules_are_removed_after_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, baseline_fails: bool
+) -> None:
+    rules = tmp_path / "rules"
+    for d in sg.RULE_DIRS:
+        (rules / d).mkdir(parents=True)
+        (rules / d / "rule.yaml").write_text("rules: []\n", encoding="utf-8")
+
+    def git_head(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 0, sg.RULES_COMMIT + "\n", "")
+
+    def bad_baseline() -> dict[str, dict[str, int]]:
+        raise ValueError("bad baseline")
+
+    monkeypatch.setattr(sg, "RULES_DIGEST", sg.rules_digest(rules))
+    monkeypatch.setattr(sg, "load_baseline", bad_baseline)
+    copy = sg.pinned(rules, run=git_head)
+    repo = _repo(tmp_path / "repo", {"trialbox/a.py": "x = 1\n"})
+
+    def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        assert copy.is_dir()
+        return _fake(CLEAN)(argv, **kw)
+
+    if baseline_fails:
+        with pytest.raises(ValueError, match="bad baseline"):
+            sg.scan(repo, copy, tmp_path / "out", run, today=BEFORE)
+    else:
+        sg.scan(repo, copy, tmp_path / "out", run, baseline={}, today=BEFORE)
+    assert not copy.exists()
