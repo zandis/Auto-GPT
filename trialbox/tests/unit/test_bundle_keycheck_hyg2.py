@@ -173,7 +173,7 @@ def test_a_missing_pub_file_is_refused_before_anything_is_built(kit: dict[str, A
 
 def _dist(kit: dict[str, Any]) -> Path:
     """The fresh folder the helper's --out names: the release is published into it as one directory rename."""
-    return kit["tmp"] / "release"
+    return Path(kit["tmp"]) / "release"
 
 
 def _resign_sums(stick: dict[str, Path], key: Path, text: str) -> None:
@@ -314,7 +314,7 @@ def test_an_empty_out_folder_is_published_into(kit: dict[str, Any]) -> None:  # 
 
 
 def _mv_shim(kit: dict[str, Any], fail: bool) -> Path:
-    log = kit["tmp"] / "mv.log"
+    log = Path(kit["tmp"]) / "mv.log"
     shim = kit["bin"] / "mv"
     shim.write_text(
         f'#!/bin/sh\necho "$*" >> {log}\n' + ("exit 1\n" if fail else 'exec /bin/mv "$@"\n'), encoding="utf-8"
