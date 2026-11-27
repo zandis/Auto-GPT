@@ -1,0 +1,58 @@
+"""P2-04 (ASSESS-1-ADDENDUM D5): the third-party containers take the controls of the box's own services.
+
+The audit's inventory of an installed box: Caddy (the one published service) ran as root with every default
+capability, the two model servers likewise, and the rehearsal's mail-sink had no security option, no memory cap and a
+writable root. Here, in every stack that runs them: Caddy, llm-service and llm-verifier drop every capability and add
+none back, with no privilege gain; Caddy's 443 rests on a port sysctl written in its file; the installer's TLS check
+reads the hospital's key with the same dropped capabilities, so a key Caddy could not read stops the install there;
+mail-sink is non-root, read-only, capped, with every capability dropped.
+"""
+
+from __future__ import annotations
+
+import yaml
+
+from tests.unit.test_compose_limits import DEPLOY, _active, _merge
+from tests.unit.test_container_hardening import HARDENING_STACKS, _has
+
+ROOT = DEPLOY.parent
+THIRD_PARTY = ("caddy", "llm-service", "llm-verifier")
+
+
+def test_caddy_and_the_model_servers_drop_every_capability_in_every_stack() -> None:
+    seen: set[str] = set()
+    for stack, profiles in HARDENING_STACKS:
+        for svc, body in _merge(stack).items():
+            if svc in THIRD_PARTY and _active(body, profiles):
+                seen.add(svc)
+                assert _has(body, "cap_drop"), (stack, svc)
+                assert not body.get("cap_add"), (stack, svc)
+                assert _has(body, "no-new-privileges"), (stack, svc)
+    assert seen == set(THIRD_PARTY)
+
+
+def test_caddy_binds_443_through_its_own_sysctl() -> None:
+    caddy = _merge(("docker-compose.yml", "docker-compose.identity.yml"))["caddy"]
+    assert caddy["sysctls"] == {"net.ipv4.ip_unprivileged_port_start": 0}
+    assert any(str(p).endswith(":443:443") for p in caddy["ports"])
+
+
+def test_install_checks_the_tls_key_with_caddys_capabilities() -> None:
+    install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    line = next(x for x in install.splitlines() if "python -m console.cli check-tls" in x)
+    assert "--user 0 --cap-drop ALL" in line
+
+
+def test_the_rehearsal_mail_sink_takes_the_baseline() -> None:
+    sink = yaml.safe_load((ROOT / "tools" / "rehearse_box" / "standins.yml").read_text(encoding="utf-8"))
+    body = sink["services"]["mail-sink"]
+    for control in ("cap_drop", "no-new-privileges", "read_only", "user"):
+        assert _has(body, control), control
+    assert body["mem_limit"] and body["pids_limit"] and not body.get("cap_add")
+
+
+def test_the_closed_exceptions_stay_closed() -> None:
+    from tests.unit.test_container_hardening import CAP_ADD, EXCEPTIONS
+
+    assert not {(s, c) for s, c in EXCEPTIONS if c == "cap_drop" and s in THIRD_PARTY}
+    assert CAP_ADD == {}
