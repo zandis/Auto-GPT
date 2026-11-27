@@ -194,7 +194,7 @@ def test_a_clock_set_back_does_not_extend_a_password_nor_keep_one_dated_ahead(
 
 
 def test_the_held_root_is_named_in_the_settings_and_must_be_memory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, shm: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # TB-06: never wherever the process's temporary folder points; no default (the integrator's ruling): compose sets it
     assert DECLARED["TB_CONSOLE_HELD_DIR"].default == ""
@@ -207,10 +207,10 @@ def test_the_held_root_is_named_in_the_settings_and_must_be_memory(
     with pytest.raises(PermissionError, match="TB_CONSOLE_HELD_DIR"):
         Held("d", 60.0, tmp_path)
     assert not list(tmp_path.glob("tb-console-held-*"))  # nothing made on a disk
-    point = str(tmp_path.resolve()).replace(" ", "\\040")
+    point = str(shm.resolve()).replace(" ", "\\040")
     with mounts.open("a", encoding="utf-8") as fh:
         fh.write(f"40 22 0:5 / {point} rw - tmpfs tmpfs rw\n")
-    Held("d", 60.0, tmp_path)  # the same folder on a memory mount
+    Held("d", 60.0, shm)  # a real tmpfs, named as a memory mount
 
 
 def test_the_folder_itself_must_be_memory_not_only_its_parent(shm: Path, monkeypatch: pytest.MonkeyPatch) -> None:
