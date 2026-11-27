@@ -461,21 +461,25 @@ def test_the_box_run_stand_in_refuses_a_signing_call_without_pub(tmp_path: Path,
 
 
 # ---------------------------------------------------------------- R2: the callers keep the last good release
-def test_runbook_a_failed_rebuild_keeps_the_last_media(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _runbook(tmp_path, monkeypatch, fail=True)
+@pytest.mark.parametrize("fail", ["build", "rename"])
+def test_runbook_a_failed_rebuild_keeps_the_last_media(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str
+) -> None:  # R2
+    _runbook(tmp_path, monkeypatch, fail=fail)
 
 
 def test_runbook_a_rebuild_replaces_the_media_only_once_it_is_built(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # R2
-    _runbook(tmp_path, monkeypatch, fail=False)
+    _runbook(tmp_path, monkeypatch, fail="")
 
 
-def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool) -> None:
+def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str) -> None:
     from tools import runbook_install as ri
 
     work = tmp_path / "work"
     (work / "media").mkdir(parents=True)
+    (work / ".media-next.another-run").mkdir()  # N1: a build running beside this one; its folder is not this one's
     (work / "media" / "trialbox-runbook-20261101.tar").write_bytes(b"the last good release")
     (tmp_path / "models" / "embedder").mkdir(parents=True)
     seen: list[list[str]] = []
@@ -493,17 +497,27 @@ def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool) -> Non
             (Path(args[-1]) / "trialbox-refdata-x.tar").write_bytes(b"")
         elif args[0] == "tools/make_bundle.sh":
             out = Path(args[args.index("--out") + 1])
-            assert out.parent.is_dir() and not any(out.parent.iterdir()), "make_bundle.sh is given a fresh folder"
-            assert out.parent != work / "media"
-            if fail:
+            assert not out.parent.exists(), "make_bundle.sh makes and publishes the folder itself (its own mode)"
+            assert out.parent.parent.is_dir() and work / "media" not in out.parents
+            if fail == "build":
                 raise SystemExit("runbook_install run: tools/make_bundle.sh failed (exit 1)")
+            out.parent.mkdir()
             out.write_bytes(b"the new release")
         return 0
 
-    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(ri, "_sh", fake_sh)
+    rename = Path.rename
+
+    def failing_rename(self: Path, target: Any) -> Path:
+        if self.parent.name.startswith(".media-next."):
+            raise OSError("the rename of the new media fails")
+        return rename(self, target)
+
+    if fail == "rename":
+        monkeypatch.setattr(Path, "rename", failing_rename)
     if fail:
-        with pytest.raises(SystemExit, match="make_bundle.sh failed"):
+        with pytest.raises((SystemExit, OSError), match="make_bundle.sh failed|rename of the new media"):
             ri.vendor_bundle(work, sys.executable, tmp_path / "models")
         assert [p.name for p in (work / "media").iterdir()] == ["trialbox-runbook-20261101.tar"]
         assert (work / "media" / "trialbox-runbook-20261101.tar").read_bytes() == b"the last good release"
@@ -511,8 +525,11 @@ def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool) -> Non
         bundle, _pub, _pairs = ri.vendor_bundle(work, sys.executable, tmp_path / "models")
         assert bundle.parent == work / "media" and bundle.read_bytes() == b"the new release"
         assert sorted(p.name for p in bundle.parent.iterdir()) == [bundle.name, f"{bundle.name}.images"]
+        (tmp_path / "ref").mkdir()
+        assert stat.S_IMODE(bundle.parent.stat().st_mode) == stat.S_IMODE((tmp_path / "ref").stat().st_mode)  # N3
     assert any(a[0] == "tools/make_bundle.sh" for a in seen)
-    assert sorted(p.name for p in work.iterdir()) == ["media", "vendor"]  # no half-built or retired folder left
+    # no half-built or retired folder left; the other run's folder is left alone (N1)
+    assert sorted(p.name for p in work.iterdir()) == [".media-next.another-run", "media", "vendor"]
 
 
 def _demo_tree(tmp_path: Path) -> Path:
@@ -541,26 +558,43 @@ def _demo_tree(tmp_path: Path) -> Path:
             encoding="utf-8",
         )
         (root / "bin" / tool).chmod(0o755)
+    _mv_failing(root / "bin", "bundles.next.")
     for b in ("b", "c"):
-        (root / "dist/step8" / b).mkdir(parents=True)
-        (root / "dist/step8" / b / f"trialbox-step8-{b}.tar").write_text(f"the last good {b}\n", encoding="utf-8")
+        (root / "dist/step8/bundles" / b).mkdir(parents=True)
+        (root / "dist/step8/bundles" / b / f"trialbox-step8-{b}.tar").write_text(f"the last good {b}\n", "utf-8")
+    (root / "dist/step8/bundles.next.another-run").mkdir()  # N1: a build running beside this one
     return root
 
 
+def _mv_failing(bindir: Path, needle: str) -> None:
+    """mv on PATH: the real one, unless TB_FAIL_MV is set and an argument holds ``needle`` (the publishing rename)."""
+    (bindir / "mv").write_text(
+        f'#!/bin/sh\ncase "$*" in *{needle}*) [ -z "$TB_FAIL_MV" ] || exit 1 ;; esac\nexec /bin/mv "$@"\n',
+        encoding="utf-8",
+    )
+    (bindir / "mv").chmod(0o755)
+
+
 def _demo(root: Path, fail: str = "") -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "PY": sys.executable, "TB_FAIL_ID": fail}
+    env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "PY": sys.executable, "TB_FAIL_ID": fail,
+           "TB_FAIL_MV": "1" if fail == "mv" else ""}  # fmt: skip
     return subprocess.run(["bash", str(root / "deploy/gcp/demo-vm-update.sh"), "build", "bkt"], env=env,
                           stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)  # fmt: skip
 
 
-@pytest.mark.parametrize("fail", ["demo-b", "demo-c"])
+_DEMO_DIRS = ["bundles", "bundles.next.another-run", "keys"]  # the other run's folder is left alone (N1)
+
+
+@pytest.mark.parametrize("fail", ["demo-b", "demo-c", "mv"])
 def test_demo_update_a_failed_bundle_keeps_both_last_bundles(tmp_path: Path, fail: str) -> None:  # R2
     root = _demo_tree(tmp_path)
     res = _demo(root, fail)
-    assert res.returncode != 0 and f"make_bundle: refused 2026.11-step8-{fail}" in res.stderr, _blob(res)
+    assert res.returncode != 0, _blob(res)
+    assert fail == "mv" or f"make_bundle: refused 2026.11-step8-{fail}" in res.stderr, _blob(res)
     for b in ("b", "c"):
-        assert (root / f"dist/step8/{b}/trialbox-step8-{b}.tar").read_text(encoding="utf-8") == f"the last good {b}\n"
-    assert sorted(p.name for p in (root / "dist/step8").iterdir() if p.is_dir()) == ["b", "c", "keys"]
+        got = (root / f"dist/step8/bundles/{b}/trialbox-step8-{b}.tar").read_text(encoding="utf-8")
+        assert got == f"the last good {b}\n"
+    assert sorted(p.name for p in (root / "dist/step8").iterdir() if p.is_dir()) == _DEMO_DIRS
 
 
 def test_demo_update_replaces_the_bundles_once_both_are_built(tmp_path: Path) -> None:  # R2
@@ -568,16 +602,18 @@ def test_demo_update_replaces_the_bundles_once_both_are_built(tmp_path: Path) ->
     res = _demo(root)
     assert res.returncode == 0, _blob(res)
     for b in ("b", "c"):
-        got = (root / f"dist/step8/{b}/trialbox-step8-{b}.tar").read_text(encoding="utf-8")
+        got = (root / f"dist/step8/bundles/{b}/trialbox-step8-{b}.tar").read_text(encoding="utf-8")
         assert got == f"new 2026.11-step8-demo-{b}\n"
-    assert sorted(p.name for p in (root / "dist/step8").iterdir() if p.is_dir()) == ["b", "c", "keys"]
+    assert sorted(p.name for p in (root / "dist/step8").iterdir() if p.is_dir()) == _DEMO_DIRS
+    (tmp_path / "ref").mkdir()
+    ref = stat.S_IMODE((tmp_path / "ref").stat().st_mode)
+    assert stat.S_IMODE((root / "dist/step8/bundles").stat().st_mode) == ref  # N3: not the build's private folder
     up = [ln for ln in (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines() if ln.startswith("gcloud")]
-    assert (
-        len(up) == 1 and "dist/step8/b/trialbox-step8-b.tar" in up[0] and "dist/step8/c/trialbox-step8-c.tar" in up[0]
-    )
+    assert len(up) == 1 and "step8/bundles/b/trialbox-step8-b.tar" in up[0], up
+    assert "step8/bundles/c/trialbox-step8-c.tar" in up[0], up
 
 
-def _p0b(tmp_path: Path, fail: bool) -> tuple[subprocess.CompletedProcess[str], Path]:
+def _p0b(tmp_path: Path, fail: str) -> tuple[subprocess.CompletedProcess[str], Path]:
     """tools/p0_media.sh b with make and docker on PATH as stand-ins; `make release-bundle` writes the bundle into the
     --out folder of BUNDLE_ARGS, which must be fresh (as make_bundle.sh), or fails."""
     from tests.unit.test_p0_media_release import _stand_in_inputs
@@ -585,10 +621,12 @@ def _p0b(tmp_path: Path, fail: bool) -> tuple[subprocess.CompletedProcess[str], 
     inp, out, bindir = _stand_in_inputs(tmp_path), tmp_path / "p0", tmp_path / "bin"
     (out / "bundle-p0b").mkdir(parents=True)
     (out / "bundle-p0b" / "trialbox-p0b.tar").write_text("the last good bundle\n", encoding="utf-8")
+    (out / "bundle-p0b.next.another-run").mkdir()  # N1: a build running beside this one
     bindir.mkdir()
+    _mv_failing(bindir, "bundle-p0b.next.")
     (bindir / "docker").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     (bindir / "make").write_text(
-        "#!/bin/bash\n[ \"$1\" = release-bundle ] || exit 0\n" + ("exit 1\n" if fail else "")
+        "#!/bin/bash\n[ \"$1\" = release-bundle ] || exit 0\n" + ("exit 1\n" if fail == "build" else "")
         + 'for a; do case "$a" in BUNDLE_ARGS=*) set -- ${a#BUNDLE_ARGS=}; break ;; esac; done\n'
         'p=; for a; do [ "$p" = --out ] && O=$a; p=$a; done\n'
         'd=$(dirname "$O"); [ -z "$(ls -A "$d" 2>/dev/null)" ] || { echo "make_bundle: $d is not fresh" >&2; exit 2; }\n'
@@ -598,22 +636,71 @@ def _p0b(tmp_path: Path, fail: bool) -> tuple[subprocess.CompletedProcess[str], 
     for tool in ("docker", "make"):
         (bindir / tool).chmod(0o755)
     env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "TB_P0_NO_FETCH": "1",
-           "TB_P0_PYTHON": sys.executable}  # fmt: skip
+           "TB_P0_PYTHON": sys.executable, "TB_FAIL_MV": "1" if fail == "mv" else ""}  # fmt: skip
     res = subprocess.run(["bash", "tools/p0_media.sh", "b", str(out), "--skip-bitlocker", "--inputs", str(inp)],
                          cwd=ROOT, env=env, capture_output=True, text=True, check=False)  # fmt: skip
     return res, out
 
 
-def test_p0_media_a_failed_bundle_keeps_the_last_one(tmp_path: Path) -> None:  # R2
-    res, out = _p0b(tmp_path, fail=True)
+@pytest.mark.parametrize("fail", ["build", "mv"])
+def test_p0_media_a_failed_bundle_keeps_the_last_one(tmp_path: Path, fail: str) -> None:  # R2
+    res, out = _p0b(tmp_path, fail=fail)
     assert res.returncode != 0, _blob(res)
     assert [p.name for p in (out / "bundle-p0b").iterdir()] == ["trialbox-p0b.tar"]
     assert (out / "bundle-p0b" / "trialbox-p0b.tar").read_text(encoding="utf-8") == "the last good bundle\n"
-    assert not list(out.glob("bundle-p0b.*"))
+    assert [p.name for p in out.glob("bundle-p0b.*")] == ["bundle-p0b.next.another-run"]  # N1
 
 
 def test_p0_media_a_built_bundle_replaces_the_last_one(tmp_path: Path) -> None:  # R2
-    res, out = _p0b(tmp_path, fail=False)
+    res, out = _p0b(tmp_path, fail="")
     assert res.returncode == 0, _blob(res)
     assert not (out / "bundle-p0b" / "trialbox-p0b.tar").exists()  # the new one went on the media, the old one is gone
-    assert (out / "release" / "TRIALBOX-p0b.manifest.json").exists() and not list(out.glob("bundle-p0b.*"))
+    assert (out / "release" / "TRIALBOX-p0b.manifest.json").exists()
+    assert [p.name for p in out.glob("bundle-p0b.*")] == ["bundle-p0b.next.another-run"]  # N1
+    (tmp_path / "ref").mkdir()
+    ref = stat.S_IMODE((tmp_path / "ref").stat().st_mode)
+    assert stat.S_IMODE((out / "bundle-p0b").stat().st_mode) == ref  # N3: not the build's private folder
+
+
+# ---------------------------------------------------------------- R7: the box run's fetch of the vendor public key
+def _fetch_pub(tmp_path: Path, data: bytes) -> tuple[subprocess.CompletedProcess[str], Path]:
+    text = (ROOT / "deploy/gcp/box-install-run.sh").read_text(encoding="utf-8")
+    fns = []
+    for name in ("fetch", "fetch_pub"):
+        start = text.index(f"\n{name}() {{") + 1
+        fns.append(text[start : text.index("\n}\n", start) + 3])
+    src, dest, shm = tmp_path / "object.pub", tmp_path / "build" / "vendor.pub", tmp_path / "shm"
+    src.write_bytes(data)
+    dest.parent.mkdir()
+    shm.mkdir()
+    script = "".join(fns) + 'fetch_pub "$1" "$2"\n'
+    res = subprocess.run(["bash", "-c", script, "fetch_pub", str(src), str(dest)], env={**os.environ, "SHM": str(shm)},
+                         capture_output=True, text=True, check=False)  # fmt: skip
+    assert not list(shm.iterdir()), "the fetched bytes are removed from tmpfs"
+    return res, dest
+
+
+def _der_private(key: Path) -> bytes:
+    from cryptography.hazmat.primitives import serialization
+
+    private = serialization.load_pem_private_key(key.read_bytes(), password=None)
+    return private.private_bytes(
+        serialization.Encoding.DER, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+
+
+def test_the_box_run_writes_the_public_key_it_fetched(tmp_path: Path, keys: dict[str, Path]) -> None:  # R7
+    res, dest = _fetch_pub(tmp_path, keys["pub"].read_bytes())
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert dest.read_bytes() == keys["pub"].read_bytes()
+
+
+@pytest.mark.parametrize("tail", ["pem-private", "der-private", "private-only"])
+def test_the_box_run_refuses_a_public_key_object_with_a_private_key_in_it(
+    tmp_path: Path, keys: dict[str, Path], tail: str
+) -> None:  # R7
+    pub, key = keys["pub"].read_bytes(), keys["key"].read_bytes()
+    data = {"pem-private": pub + key, "der-private": pub + _der_private(keys["key"]), "private-only": key}[tail]
+    res, dest = _fetch_pub(tmp_path, data)
+    assert res.returncode == 3 and "TB-VENDOR-PUB-PRIVATE" in res.stdout, res.stdout + res.stderr
+    assert not dest.exists()

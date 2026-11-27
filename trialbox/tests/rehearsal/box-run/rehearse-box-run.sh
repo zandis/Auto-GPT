@@ -318,6 +318,7 @@ echo "make-bundle models $(ls "$M" | tr '\n' ' ')" >> "$BR_S/calls.log"
 [ ! -f "$BR_S/knobs/sign-fails" ] || { echo "make_bundle: the stand-in refuses this build (knob sign-fails)" >&2; exit 1; }
 echo "make-bundle key-ok" >> "$BR_S/calls.log"
 x=(); [ -f "$BR_S/knobs/build-rehearsal" ] && x=(--rehearsal)
+mkdir -p "$(dirname "$O")"   # the real one publishes --out's folder itself
 "$TB_BOX_PY" "$BR_HERE/standins/mkbundle.py" --key "$K" --id "$I" --seq "$Q" --host "$BR_S/host-for-build.tar" \
   --commit "$(git rev-parse HEAD)" --out "$O" ${x[@]+"${x[@]}"}
 EOS
@@ -419,7 +420,8 @@ for CASE in "${CASES[@]}"; do
   log "case $CASE"
   case "$CASE" in
     build)  # HYG2-R2: the release an earlier run left is retired once the new one is built
-      setup "$CASE" build; build_setup; mkdir -p "$S/vm/build/out"; echo old > "$S/vm/build/out/earlier-release.tar"
+      setup "$CASE" build; build_setup; mkdir -p "$S/vm/build/out" "$S/vm/build/out.next.another-run"
+      echo old > "$S/vm/build/out/earlier-release.tar"
       boot; to_the_end ;;
     build-gate-fails) setup "$CASE" build gate-fails; build_setup; boot; to_the_end ;;
     build-refused) setup "$CASE" build build-rehearsal; build_setup; boot; to_the_end ;;

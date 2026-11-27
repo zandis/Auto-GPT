@@ -161,7 +161,14 @@ if case == "build":
         not (out / "earlier-release.tar").exists() and (out / "trialbox-2026.11-r.tar.sha256").exists(),
         "HYG2-R2: the earlier release was retired once the new one was built and checked (b07 removes the local tar)",
     )
-    ok(sorted(p.name for p in out.parent.glob("out*")) == ["out"], "no half-built or retired folder left")
+    ok(
+        sorted(p.name for p in out.parent.glob("out*")) == ["out", "out.next.another-run"],
+        "no half-built or retired folder left, and another run's folder left alone (N1)",
+    )
+    ok(
+        out.stat().st_mode & 0o777 == (out.parent / "bundle-models").stat().st_mode & 0o777,
+        "N3: the published folder is the one make_bundle.sh made, not the attempt's private folder",
+    )
 
 if case == "build-again-fails":
     out = S / "vm" / "build" / "out"
