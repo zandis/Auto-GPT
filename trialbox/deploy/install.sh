@@ -1811,6 +1811,16 @@ else
   echo "$SHEET_OUT" | tail -5 | sed 's/^/    /' >&2
   FAILS+=("network sheet not written (python -m tools.network_sheet, error above)")
 fi
+# E2E P-01 (the integrator's ruling Q1, 2026-11-27): a PRODUCTION box makes its backup key here, as root on this
+# terminal: the paper copy is shown once (never in a log or a file) for hospital IT to keep sealed, and backup.pub is
+# made only once IT has typed its check letters back. backup-keygen stays refused on PRODUCTION (rc1)
+case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" in DEV|TEST|VALIDATION) ;; *)
+  if [ ! -f deploy/secrets/backup.pub ] && [ -z "${TEST_BOX:-}" ]; then
+    say "backup key: made now, shown once on this terminal"
+    PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install \
+      || FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+  fi ;;
+esac
 [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
 # T-117b (D-274): the backup cron (/etc/cron.d/trialbox-backup), WAL archiving when the db image carries pgBackRest
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or

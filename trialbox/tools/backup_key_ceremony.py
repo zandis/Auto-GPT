@@ -29,6 +29,18 @@ name never holds part of a file (a temporary file a run cut short left stays, an
 is asked through the local Docker socket only, whatever context or host the environment names. The process is made
 not dumpable, without a core, and its memory locked (or else no swap may be on) before any key exists; no key byte is
 put in an argument, the environment, an exception, a log or the journal.
+
+    python -m tools.backup_key_ceremony --install [--lang ja]
+
+**At install** (E2E P-01, the integrator's ruling Q1 of 2026-11-27: a PRODUCTION box makes its backup key at
+install, the key shown once and kept sealed): ``deploy/install.sh`` runs this as root on its terminal when the box
+has no ``backup.pub``. The same checks of the public key's folder and the journal, then the key is made in memory,
+its record is put on the box (as step 1), and the paper copy and the key file's text are written to the terminal
+(``/dev/tty``, never the standard output, a log or a file) for hospital IT to print or copy and keep sealed. IT types
+the check letters of the copy's last line back; only then the event goes through the journal and ``backup.pub`` is
+made, and the screen is cleared. Letters that do not match, or no terminal: nothing is made but the record, and the
+install runs it again for a new key. ``trialbox backup-keygen`` and the stick ceremony stay refused on a PRODUCTION
+box (rc1's ``key_ceremonies``): this is the one way a PRODUCTION box gets its key, once.
 """
 
 from __future__ import annotations
@@ -51,7 +63,7 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 EVENT = "backup.key_ceremony"
 ACTOR = "trialbox:backup-key-ceremony"
@@ -298,6 +310,37 @@ UNEXPECTED = {
     "ja": "予期しないエラー（{kind}）で止まりました。何も取り消さず、何も削除していません。同じ USB メモリで同じ"
     "コマンドをもう一度実行してください",
     "zh-TW": "因非預期的錯誤（{kind}）而停止：未復原也未刪除任何內容。請用同一個隨身碟再次執行同一指令",
+}
+NO_TERMINAL = {
+    "en": "refused: the backup key is shown once on a terminal and never written to a log or a file: run this on the "
+    "box's terminal, as root (python3 -m tools.backup_key_ceremony --install). Nothing was made",
+    "ja": "拒否：バックアップ鍵は端末に一度だけ表示し、ログやファイルには書きません。ボックスの端末で"
+    "root として実行してください（python3 -m tools.backup_key_ceremony --install）。何も作成していません",
+    "zh-TW": "已拒絕：備份金鑰只在終端機上顯示一次，不寫入任何日誌或檔案：請在主機的終端機上以 root 執行"
+    "（python3 -m tools.backup_key_ceremony --install）。未建立任何內容",
+}
+CONFIRM = {
+    "en": "Print or copy the paper copy above and keep it sealed with hospital IT: it is shown only now. Then type the "
+    "four check letters at the end of its line {n} and press Enter: ",
+    "ja": "上の紙の控えを印刷または書き写し、病院の情報システム担当が封をして保管してください。表示は今だけです。"
+    "そのあと、{n} 行目の末尾の確認用 4 文字を入力して Enter を押してください：",
+    "zh-TW": "請列印或抄寫上方的紙本副本，由醫院資訊人員密封保管：只在此時顯示。接著輸入第 {n} 行末尾的 4 個檢查字母，"
+    "再按 Enter：",
+}
+NOT_CONFIRMED = {
+    "en": "refused: the letters typed are not the check letters of line {n}. backup.pub was not made, so no backup "
+    "uses this key and nothing of it is kept; run the install again for a new key, shown once",
+    "ja": "拒否：入力された文字は {n} 行目の確認用文字ではありません。backup.pub は作成していないため、この鍵を使う"
+    "バックアップはなく、鍵は何も残っていません。もう一度インストールを実行すると、新しい鍵を一度だけ表示します",
+    "zh-TW": "已拒絕：輸入的字母不是第 {n} 行的檢查字母。未建立 backup.pub，因此沒有備份使用此金鑰，也未保留它的任何"
+    "內容；請再次執行安裝，以取得只顯示一次的新金鑰",
+}
+INSTALLED = {
+    "en": "backup key made at install: {pub} (key {fp}); the private key is only on the paper copy hospital IT keeps "
+    "sealed",
+    "ja": "インストール時にバックアップ鍵を作成しました：{pub}（鍵 {fp}）。秘密鍵は病院の情報システム担当が封をして"
+    "保管する紙の控えにだけあります",
+    "zh-TW": "已於安裝時建立備份金鑰：{pub}（金鑰 {fp}）；私鑰只存在於醫院資訊人員密封保管的紙本副本上",
 }
 SHEET_HEAD = {
     "en": "TrialBox backup private key, paper copy. It opens every backup of this box: keep it sealed with hospital "
@@ -857,6 +900,24 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
     who, wit = person(operator), person(witness)
     if folded(who) == folded(wit):
         raise Stop(SAME_PERSON)
+    pfd = _open_pub(env)
+    try:
+        try:
+            sfd = _open_dir(stick)
+        except OSError:
+            raise Stop(NO_STICK, path=stick) from None
+        try:
+            return _steps(sfd, pfd, stick, who, wit, env)
+        finally:
+            os.close(sfd)
+    finally:
+        os.close(pfd)
+
+
+def _open_pub(env: Mapping[str, str]) -> int:
+    """The public key's folder, root's alone, locked for the whole run (A-M1), without ``backup.pub`` ("once" is
+    backup.pub, owner's condition 2), able to make an unnamed file, with the journal answering: its open descriptor,
+    which the caller closes. Nothing is written here."""
     pub_path = PUB_DIR / PUB_NAME
     if (named := env.get("TB_BACKUP_PUBKEY")) and os.path.abspath(named) != os.path.abspath(pub_path):
         raise Stop(PUB_ELSEWHERE, path=named, pub=pub_path)
@@ -885,16 +946,10 @@ def run(stick: Path, operator: str | None, witness: str | None, env: Mapping[str
             raise Stop(NO_PROJECT, path=DEPLOY)
         if _journal("check") != "journal ok":
             raise Stop(NO_JOURNAL)
-        try:
-            sfd = _open_dir(stick)
-        except OSError:
-            raise Stop(NO_STICK, path=stick) from None
-        try:
-            return _steps(sfd, pfd, stick, who, wit, env)
-        finally:
-            os.close(sfd)
-    finally:
+    except BaseException:
         os.close(pfd)
+        raise
+    return pfd
 
 
 def _on_stick(sfd: int, pfd: int, dev: int, stick: Path, site: str, step: list[int]) -> bytes:
@@ -969,7 +1024,13 @@ def _steps(sfd: int, pfd: int, stick: Path, who: str, wit: str, env: Mapping[str
     detail = {"fingerprint": fp, "operator": who, "witness": wit, "site": site,
               "stick": "key file and sheet file read back after sync"}  # fmt: skip
     seq = record(detail)  # step 3
-    try:  # step 4
+    _pub_last(pfd, pub)  # step 4
+    return {**detail, "pub": str(PUB_DIR / PUB_NAME), "seq": str(seq)}
+
+
+def _pub_last(pfd: int, pub: bytes) -> None:
+    """Step 4: backup.pub made new, synced and read back."""
+    try:
         _link_pub(pfd, pub)
     except FileExistsError:
         raise Stop(PUB_TAKEN, pub=PUB_DIR / PUB_NAME, fp=_pub_fp(pfd)) from None
@@ -977,11 +1038,47 @@ def _steps(sfd: int, pfd: int, stick: Path, who: str, wit: str, env: Mapping[str
         raise Stop(STEP_FAILED, n=4, why=_why(e)) from None
     try:
         os.fsync(pfd)
-        if _pub_fp(pfd) != fp:
+        if _pub_fp(pfd) != fingerprint(pub):
             raise OSError(errno.EIO, "read back")
     except OSError as e:
         raise Stop(PUB_UNSURE, pub=PUB_DIR / PUB_NAME, why=_why(e)) from None
-    return {**detail, "pub": str(PUB_DIR / PUB_NAME), "seq": str(seq)}
+
+
+CLEAR = "\033[H\033[2J\033[3J"  # the screen and its scroll-back: the key was shown once
+
+
+def install(env: Mapping[str, str], tty: TextIO, lang: str = "en") -> dict[str, str]:
+    """The key made at install (see the module docstring): shown once on ``tty``, confirmed by the check letters of
+    the paper copy's last line typed back on it, then the journal's event and ``backup.pub``. Returns what the
+    journal holds."""
+    if not is_root():
+        raise Stop(NOT_ROOT)
+    pfd = _open_pub(env)
+    try:
+        site = env.get("TB_SITE_ID") or ""
+        key = new_key()
+        pub = public_of(key)
+        _pending(pfd, pub)  # as step 1: the box keeps the public half's record, never the key
+        sheet = paper_sheet(key, site, datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")).decode()
+        tty.write(f"{sheet}\n{key_text(key).decode()}\n")
+        del key
+        last = [ln for ln in sheet.splitlines() if re.fullmatch(r"\d+ \| [A-Z2-7 ]+ \| [A-Z2-7]{4}", ln)][-1]
+        n, want = int(last.split(" | ")[0]), last.rsplit(" | ", 1)[1]
+        tty.write(CONFIRM[lang_of(lang)].format(n=n))
+        tty.flush()
+        typed = "".join(tty.readline().split()).upper()
+        tty.write(CLEAR)
+        tty.flush()
+        if typed != want:
+            raise Stop(NOT_CONFIRMED, n=n)
+        fp = fingerprint(pub)
+        detail = {"fingerprint": fp, "operator": "install", "witness": "none: made at install, shown once",
+                  "site": site, "stick": "none: the paper copy was shown once on the install's terminal"}  # fmt: skip
+        seq = record(detail)
+        _pub_last(pfd, pub)
+        return {**detail, "pub": str(PUB_DIR / PUB_NAME), "seq": str(seq)}
+    finally:
+        os.close(pfd)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -991,12 +1088,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\n".join(HARDEN_FAILED[lg] for lg in LANGS), file=sys.stderr)
         return 1
     ap = argparse.ArgumentParser(prog="python -m tools.backup_key_ceremony", description=__doc__.split("\n")[0])
-    ap.add_argument("--stick", required=True, help="the mounted folder of the removable stick")
+    how = ap.add_mutually_exclusive_group(required=True)
+    how.add_argument("--stick", help="the mounted folder of the removable stick")
+    how.add_argument("--install", action="store_true", help="at install: the key shown once on this terminal (P-01)")
     ap.add_argument("--operator", help="the person who runs the ceremony (hospital IT)")
     ap.add_argument("--witness", help="the witness: another person")
     ap.add_argument("--lang", help="en (the default), ja or zh-TW")
     a = ap.parse_args(argv)
     lang = lang_of(a.lang)
+    if a.install:
+        return _install_main(lang)
     try:
         rec = run(Path(a.stick), a.operator, a.witness, _env())
     except Stop as e:
@@ -1010,6 +1111,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     print(DONE[lang].format(fp=rec["fingerprint"], key=KEY_FILE, paper=PAPER_FILE, operator=rec["operator"],
                             witness=rec["witness"], pub=rec["pub"], seq=rec["seq"]))  # fmt: skip
+    return 0
+
+
+TTY = "/dev/tty"
+
+
+def _install_main(lang: str) -> int:
+    """``--install``: the terminal is ``/dev/tty``, never the standard output (an install's output may be piped into
+    a log); no terminal, nothing is made."""
+    try:
+        with open(TTY, "r+", encoding="utf-8") as tty:
+            try:
+                rec = install(_env(), tty, lang)
+            except Stop as e:
+                print(e.say(lang), file=sys.stderr)
+                return 1
+            except KeyboardInterrupt:
+                print(STOPPED[lang], file=sys.stderr)
+                return 1
+            except Exception as e:  # the type only: a message could hold anything
+                print(UNEXPECTED[lang].format(kind=type(e).__name__), file=sys.stderr)
+                return 1
+    except OSError:  # no terminal to open: nothing was made
+        print(NO_TERMINAL[lang], file=sys.stderr)
+        return 1
+    print(INSTALLED[lang].format(fp=rec["fingerprint"], pub=rec["pub"]))
     return 0
 
 
