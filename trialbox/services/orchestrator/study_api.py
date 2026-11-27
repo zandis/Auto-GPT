@@ -484,8 +484,11 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
     def put_connection(ref: str, body: ConnectionBody, claim: Claim = AS_SITE) -> dict[str, Any]:
         svc = get()
         try:
-            svc.store.token_path(ref)
             url = api_url(body.url)[: -len("/api")]
+        except RcError as exc:  # E2E P-13: an address it will not call (http://) is the form's error, said on the page
+            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": exc.message}) from exc
+        try:
+            svc.store.token_path(ref)
             token = check_token(body.token) if body.token else None
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": TOKEN_NAME}) from exc

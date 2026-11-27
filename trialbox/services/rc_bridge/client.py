@@ -144,6 +144,18 @@ def register_local(url: str, factory: Callable[[], httpx.Client], replace: bool 
         _LOCAL[url.rstrip("/")] = factory
 
 
+def refused_line(exc: EgressRefused) -> str:
+    """E2E P-13: the guard's refusal, and for a REDCap on the hospital's own network the remedy: its address is
+    declared in the box's egress table (an on-premise REDCap normally sits on a private address)."""
+    line = f"the REDCap address is not allowed ({exc.reason}): {exc.host}"
+    if exc.reason in ("private", "loopback", "shared", "reserved"):
+        line += (
+            "; a REDCap on the hospital network is declared in the box's egress table by IT: "
+            "EGRESS_EXTRA=orchestrator=<host>:<port> in deploy/.env, then deploy/network.sh apply"
+        )
+    return line
+
+
 def check_token(token: str) -> str:
     tok = token.strip().upper()
     if not TOKEN_RE.match(tok):
@@ -277,7 +289,7 @@ class RedcapClient:
                 else:
                     resp = self.http.post(url, data=data, files=files)
             except EgressRefused as exc:
-                raise RcError("RC-UPSTREAM", f"the REDCap address is not allowed ({exc.reason}): {exc.host}") from exc
+                raise RcError("RC-UPSTREAM", refused_line(exc)) from exc
             except httpx.HTTPError as exc:
                 raise RcError("RC-UPSTREAM", f"REDCap did not answer ({type(exc).__name__})") from exc
             again = resp.status_code == 429 or (resp.status_code == 503 and not writes)
