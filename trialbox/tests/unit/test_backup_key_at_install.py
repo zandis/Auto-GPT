@@ -16,6 +16,7 @@ import base64
 import builtins
 import contextlib
 import errno
+import inspect
 import io
 import json
 import os
@@ -40,7 +41,6 @@ from tests import pg_client
 from tests.unit.test_backup_key_ceremony import SITE, Box
 from tools import backup_key_ceremony as bkc
 from tools.trialbox import backup as bk
-from tools.trialbox import backup_schedule as bs
 from tools.trialbox import restore_drill as rd
 from tools.trialbox.__main__ import main as trialbox_main
 
@@ -109,16 +109,18 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Box:
     return b
 
 
+NFS = ("0:999", "nfs4", "nas.example:/backups")  # a share's mount: its own device, no disk of the box
+REAL_MOUNTINFO, REAL_MOUNT_ID = bkc.MOUNTINFO, bkc._mount_id
+
+
 def _offbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """H-02: the box's backup target, off the box (declared, with its mark, as backup_schedule.target_kind counts it)."""
+    """H-02 (P01-DESIGN (i)): the box's off-box target: a share mounted exactly at the folder (a fake mountinfo line:
+    an NFS mount, its own device; the target's descriptor is on that mount), declared once by the install."""
     nas = tmp_path / "nas"
     nas.mkdir(exist_ok=True)
-    (nas / bs.OFFBOX_MARKER).write_text("", encoding="utf-8")
-    monkeypatch.setenv("TB_BACKUP_TARGETS", str(nas))
-    monkeypatch.setenv("TB_BACKUP_OFFBOX", str(nas))
-    # H-02 (fourth review): the share is mounted exactly at the target (a fake mountinfo line: an NFS mount, its own
-    # device) and the target's descriptor is on that mount; the box's own devices are the real ones
-    _mounted(tmp_path, monkeypatch, (nas, "0:999", "nfs4", "nas.example:/backups", ()))
+    _mounted(tmp_path, monkeypatch, (nas, *NFS, ()))
+    if not (bkc.PUB_DIR / bkc.TARGET_RECORD).exists():
+        bkc.declare_target(str(nas), "install", False, {})
     return nas
 
 
@@ -126,8 +128,9 @@ def _mounted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *mounts: tuple[Path, str, str, str, tuple[Path, ...]]
 ) -> None:
     """H-02: fake mounts. Each ``(mount point, major:minor, filesystem type, source, folders on it)`` is a line added
-    to the real /proc/self/mountinfo, and a descriptor of its mount point or of a folder on it is on that mount."""
-    lines = [bkc.MOUNTINFO.read_text(encoding="utf-8")]
+    to the real /proc/self/mountinfo, and a descriptor of its mount point or of a folder on it is on that mount. A
+    second call replaces the first one's mounts (none given: no fake mount left)."""
+    lines = [REAL_MOUNTINFO.read_text(encoding="utf-8")]
     ids: list[tuple[int, list[Path]]] = []
     for i, (point, mm, fstype, src, on) in enumerate(mounts):
         mid = 2_000_000_000 + i  # no real mount has this id
@@ -135,18 +138,16 @@ def _mounted(
         ids.append((mid, [point, *on]))
     fake = tmp_path / "mountinfo.fake"
     fake.write_text("".join(lines), encoding="utf-8")
-    real = getattr(bkc, "_mount_id", None)
 
     def mount_id(fd: int) -> int:
         st = os.fstat(fd)
         for mid, on in ids:
             if any(p.exists() and os.path.samestat(st, p.stat()) for p in on):
                 return mid
-        assert real is not None
-        return cast(int, real(fd))
+        return REAL_MOUNT_ID(fd)
 
     monkeypatch.setattr(bkc, "MOUNTINFO", fake)
-    monkeypatch.setattr(bkc, "_mount_id", mount_id, raising=False)
+    monkeypatch.setattr(bkc, "_mount_id", mount_id)
 
 
 def _no_unnamed_files(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -162,9 +163,14 @@ def _no_unnamed_files(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _sealed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An unattended install's sealed key on the box (an off-box target set)."""
+    """An unattended install's sealed key on the box (a fake NFS target declared first)."""
     _offbox(tmp_path, monkeypatch)
     return Path(bkc.install_sealed(bkc._env(), PASS)["sealed"])
+
+
+def _restore_key(box: Box) -> Path:
+    """P01-DESIGN (ii): the one place an unsealed key file is written."""
+    return box.pub_dir / bkc.RESTORE_DIR / bkc.RESTORE_KEY
 
 
 @pytest.fixture
@@ -402,8 +408,7 @@ def test_the_unseal_passphrase_is_not_echoed_on_a_terminal(
     """H-03: ``--unseal`` run by hand, as the runbook gives it: the passphrase is asked on the terminal with its echo
     off, and never shown."""
     sealed = _sealed(tmp_path, monkeypatch)
-    out = tmp_path / "usb" / "trialbox-backup.key"
-    out.parent.mkdir()
+    out = _restore_key(box)  # P01-DESIGN (ii): --out is gone; the key file is made only on the box
     asked: list[str] = []
 
     def it(text: str) -> str | None:
@@ -412,7 +417,7 @@ def test_the_unseal_passphrase_is_not_echoed_on_a_terminal(
             return PASS + "\n"
         return None
 
-    rc, shown = _on_a_terminal(box, ["--unseal", str(sealed), "--out", str(out)], it, timeout=30)
+    rc, shown = _on_a_terminal(box, ["--unseal", str(sealed)], it, timeout=30)
     assert rc == 0 and asked, shown
     assert PASS not in shown and bkc.read_key(out.read_bytes()) == made[-1]
 
@@ -454,14 +459,14 @@ def test_an_unattended_install_seals_the_key_under_the_install_passphrase_and_a_
     _no_key_on_the_box(box, made[-1])
 
     # a wrong passphrase opens nothing and writes nothing
-    key_file = tmp_path / "usb" / "trialbox-backup.key"
-    key_file.parent.mkdir()
+    key_file = _restore_key(box)
     monkeypatch.setattr("sys.stdin", io.StringIO("not the passphrase of it\n"))
-    assert bkc.main(["--unseal", str(sealed), "--out", str(key_file)]) == 1
+    assert bkc.main(["--unseal", str(sealed)]) == 1
     assert "does not open with this passphrase" in capsys.readouterr().err and not key_file.exists()
     # the passphrase gives the key file back, and the nightly backup restores from it
     monkeypatch.setattr("sys.stdin", io.StringIO(PASS + "\n"))
-    assert bkc.main(["--unseal", str(sealed), "--out", str(key_file)]) == 0
+    assert bkc.main(["--unseal", str(sealed)]) == 0
+    assert str(key_file) in capsys.readouterr().out
     assert stat.S_IMODE(key_file.stat().st_mode) == 0o600 and bkc.read_key(key_file.read_bytes()) == made[-1]
     _restores(box, box.pub, key_file, tmp_path, db_url, monkeypatch)
 
@@ -477,11 +482,11 @@ def test_an_unattended_install_without_a_passphrase_makes_nothing(
     assert not box.pub.exists() and box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
 
 
-def test_the_sealed_key_is_on_the_offbox_target_before_backup_pub_and_restores_from_there_alone(
+def test_the_sealed_key_is_on_the_declared_target_before_backup_pub_and_restores_from_there_alone(
     box: Box, made: list[bytes], tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """H-02: the sealed copy goes to the off-box backup target (synced, read back) before backup.pub exists; with the
-    box's disk lost (its own sealed file gone) the target's copy and the passphrase restore the nightly backup."""
+    """H-02: the sealed copy goes to the declared off-box target (synced, read back) before backup.pub exists; with
+    the box's disk lost (its own sealed file gone) the target's copy and the passphrase restore the nightly backup."""
     nas = _offbox(tmp_path, monkeypatch)
     at_pub: list[list[str]] = []
     real = bkc._pub_last
@@ -498,9 +503,8 @@ def test_the_sealed_key_is_on_the_offbox_target_before_backup_pub_and_restores_f
     assert stat.S_IMODE(copy.stat().st_mode) == 0o600 and copy.read_bytes() == on_box.read_bytes()
     _no_key_on_the_box(box, made[-1])
     on_box.unlink()  # the box's disk is lost
-    key_file = tmp_path / "usb" / "trialbox-backup.key"
-    key_file.parent.mkdir()
-    assert bkc.unseal_to(copy, key_file, PASS) == fp and bkc.read_key(key_file.read_bytes()) == made[-1]
+    key_file = _restore_key(box)
+    assert bkc.unseal_to(copy, PASS) == fp and bkc.read_key(key_file.read_bytes()) == made[-1]
     _restores(box, box.pub, key_file, tmp_path, db_url, monkeypatch)
 
 
@@ -508,11 +512,14 @@ def test_the_sealed_key_is_on_the_offbox_target_before_backup_pub_and_restores_f
 def test_no_offbox_copy_makes_no_backup_pub(
     box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
 ) -> None:
-    """H-02: no target, a target on the box's own disk only, or an off-box copy that cannot be written: refused, and
-    no backup.pub (no backup may encrypt to a key whose only copy is on the box)."""
+    """H-02: no declared target, a declaration naming a folder on the box's own disk (written by hand: the folder is
+    no such mount), or an off-box copy that cannot be written: refused, and no backup.pub (no backup may encrypt to a
+    key whose only copy is on the box)."""
     if target == "on the box":
         (tmp_path / "backups").mkdir()
-        monkeypatch.setenv("TB_BACKUP_TARGETS", str(tmp_path / "backups"))
+        forged = {"format": bkc.TARGET_FORMAT, "path": str(tmp_path / "backups"), "fsuuid": None,
+                  "mountpoint": str(tmp_path / "backups"), "fstype": NFS[1], "source": NFS[2]}  # fmt: skip
+        (box.pub_dir / bkc.TARGET_RECORD).write_text(json.dumps(forged), encoding="utf-8")
     elif target == "write fails":
         nas = _offbox(tmp_path, monkeypatch)
         real = bkc._new_file
@@ -525,7 +532,8 @@ def test_no_offbox_copy_makes_no_backup_pub(
         monkeypatch.setattr(bkc, "_new_file", new_file)
     with pytest.raises(bkc.Stop) as got:
         bkc.install_sealed(bkc._env(), PASS)
-    assert got.value.text is (bkc.STEP_FAILED if target == "write fails" else bkc.NO_OFFBOX_COPY)
+    want = {"none": bkc.NO_TARGET_DECLARED, "on the box": bkc.TARGET_MISMATCH, "write fails": bkc.STEP_FAILED}
+    assert got.value.text is want[target]
     assert not box.pub.exists() and [e for e in box.journal() if e["event"] == bkc.EVENT] == []
     if target != "write fails":  # refused before a key is made
         assert box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
@@ -535,12 +543,10 @@ def test_no_offbox_copy_makes_no_backup_pub(
 def test_an_interrupted_unseal_leaves_nothing_that_blocks_its_retry(
     box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cut: str
 ) -> None:
-    """M-03: an unseal cut short (before or while the key file is written) leaves no file, partial or temporary, at
-    the place given; the same command again makes the key file."""
+    """M-03: an unseal cut short (before or while the key file is written) leaves no file, partial or temporary, in
+    the restore folder; the same command again makes the key file."""
     sealed = _sealed(tmp_path, monkeypatch)
-    usb = tmp_path / "usb"
-    usb.mkdir()
-    out = usb / "trialbox-backup.key"
+    out = _restore_key(box)
 
     def cut_here(*_a: object) -> None:
         raise KeyboardInterrupt
@@ -548,10 +554,10 @@ def test_an_interrupted_unseal_leaves_nothing_that_blocks_its_retry(
     with monkeypatch.context() as m:
         m.setattr(bkc if cut == "key_text" else os, cut, cut_here)
         with pytest.raises(KeyboardInterrupt):
-            bkc.unseal_to(sealed, out, PASS)
-    assert list(usb.iterdir()) == []
-    bkc.unseal_to(sealed, out, PASS)
-    assert list(usb.iterdir()) == [out] and stat.S_IMODE(out.stat().st_mode) == 0o600
+            bkc.unseal_to(sealed, PASS)
+    assert list(out.parent.iterdir()) == []
+    bkc.unseal_to(sealed, PASS)
+    assert list(out.parent.iterdir()) == [out] and stat.S_IMODE(out.stat().st_mode) == 0o600
     assert bkc.read_key(out.read_bytes()) == made[-1]
 
 
@@ -559,11 +565,10 @@ def test_an_unseal_input_larger_than_a_sealed_key_is_refused_by_its_size(
     box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """M-05: a file larger than MAX_FILE (a sealed key padded to 1 MiB: its first MAX_FILE bytes would open) is
-    refused by its size, before it is read; nothing is written."""
+    refused by its size, before it is read (M-08: not a sealed key, too large); nothing is written."""
     sealed = _sealed(tmp_path, monkeypatch)
     big = tmp_path / "big.sealed"
     big.write_bytes(sealed.read_bytes() + b" " * (1 << 20))
-    out = tmp_path / "k"
 
     def is_big(fd: int) -> bool:
         return os.path.samestat(os.fstat(fd), os.stat(big))
@@ -605,133 +610,333 @@ def test_an_unseal_input_larger_than_a_sealed_key_is_refused_by_its_size(
         m.setattr(io, "open", opened(io.open))  # os.fdopen and Path.open go through io.open
         m.setattr(builtins, "open", opened(builtins.open))
         m.setattr(bkc, "_read", never_big(bkc._read))
-        bkc.unseal_to(big, out, PASS)
-    assert got.value.text is bkc.NOT_UNSEALED and not out.exists()
+        bkc.unseal_to(big, PASS)
+    assert got.value.text is bkc.SEALED_NOT_A_KEY and got.value.fill["what"] == "too large"
+    assert not _restore_key(box).exists()
 
 
-def test_an_offbox_target_unmounted_after_it_was_classified_is_refused(
+# ------------------------------------------------------------------------------------------------ H-02: one declared
+# off-box target, checked by identity on every run (P01-DESIGN (i)); no device heuristic remains
+def _nothing_made(box: Box, nas: Path) -> None:
+    assert not box.pub.exists() and box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
+    assert list(nas.iterdir()) == [] and [e for e in box.journal() if e["event"] == bkc.EVENT] == []
+
+
+def _events(box: Box, event: str) -> list[dict[str, Any]]:
+    return [e["detail"] for e in box.journal() if e["event"] == event]
+
+
+def test_the_declared_target_is_recorded_and_journaled(
     box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """H-02 (third review): the target is checked as it is opened, not as its path was classified. A share unmounted
-    in between leaves its mount point, a folder on the box's own disk (the same device): refused before a key is
-    made; nothing on it, no backup.pub."""
     nas = tmp_path / "nas"
     nas.mkdir()
-    assert nas.stat().st_dev == box.pub_dir.stat().st_dev  # the mount point, on the box's disk
-    monkeypatch.setattr(bkc, "_offbox_targets", lambda _env: [nas])  # classified off the box: mounted then
+    _mounted(tmp_path, monkeypatch, (nas, *NFS, ()))
+    bkc.declare_target(str(nas), "install", False, {})
+    rec_file = box.pub_dir / bkc.TARGET_RECORD
+    rec = json.loads(rec_file.read_text(encoding="utf-8"))
+    assert stat.S_IMODE(rec_file.stat().st_mode) == 0o600
+    assert {k: rec[k] for k in ("path", "mountpoint", "fstype", "source", "fsuuid")} == {
+        "path": str(nas),
+        "mountpoint": str(nas),
+        "fstype": "nfs4",
+        "source": "nas.example:/backups",
+        "fsuuid": None,
+    }
+    assert rec["operator"] == "install" and isinstance(rec["journal"], int) and rec["journal"] > 0
+    assert _events(box, "backup.target_declared") == [
+        {"path": str(nas), "declared": f"nfs4 nas.example:/backups @ {nas}", "replaced": "none", "operator": "install"}
+    ]
+
+
+def test_a_second_local_disk_mounted_exactly_at_the_target_is_refused_without_a_declaration(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The codex case of H-02: a second internal disk mounted exactly at the folder the settings name. With no
+    declaration it is refused; no device heuristic remains that could pass or refuse it."""
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    _mounted(tmp_path, monkeypatch, (nas, "8:17", "ext4", "/dev/sdb1", ()))
+    with pytest.raises(bkc.Stop) as got:
+        bkc.install_sealed({"TB_BACKUP_OFFBOX": str(nas), "TB_BACKUP_TARGETS": str(nas)}, PASS)
+    assert got.value.text is bkc.NO_TARGET_DECLARED
+    _nothing_made(box, nas)
+    assert [e for e in box.journal() if e["event"].startswith("backup.")] == []
+
+
+def _refused_at_the_run(box: Box, nas: Path) -> bkc.Stop:
     with pytest.raises(bkc.Stop) as got:
         bkc.install_sealed(bkc._env(), PASS)
-    assert got.value.text is bkc.NO_OFFBOX_COPY and list(nas.iterdir()) == []
-    assert not box.pub.exists() and box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
-    assert [e for e in box.journal() if e["event"] == bkc.EVENT] == []
+    _nothing_made(box, nas)
+    return got.value
 
 
-@pytest.mark.parametrize(
-    "case",
-    ["a folder on a second local disk", "a share's mount point, the share unmounted", "a mount of the box's own disk",
-     "the mount cannot be told"],
-)  # fmt: skip
-def test_an_offbox_target_not_exactly_a_mount_off_the_box_is_refused(
-    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+def test_a_declared_target_whose_source_changed_is_refused(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """H-02 (fourth review): the opened target must be exactly a mount point in /proc/self/mountinfo, found by the
-    mount id of its descriptor, of a filesystem not on the box's own disk; anything else, or a mount that cannot be
-    told, is refused before a key is made: nothing on it, no backup.pub. The box's devices are given as none (but for
-    the box's own disk), so a check that took any mounted device off the box would let each through."""
+    nas = _offbox(tmp_path, monkeypatch)
+    _mounted(tmp_path, monkeypatch, (nas, NFS[0], NFS[1], "other.example:/backups", ()))
+    e = _refused_at_the_run(box, nas)
+    assert e.text is bkc.TARGET_MISMATCH
+    assert (
+        e.fill["declared"] == f"nfs4 nas.example:/backups @ {nas}"
+        and e.fill["found"] == f"nfs4 other.example:/backups @ {nas}"
+    )
+    assert _events(box, "backup.target_mismatch") == [{"path": str(nas), "declared": e.fill["declared"],
+                                                      "found": e.fill["found"]}]  # fmt: skip
+
+
+def test_a_declared_target_unmounted_leaves_a_folder_that_is_refused(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The share unmounted: its mount point is left, a folder on the box's own filesystem (the same device)."""
+    nas = _offbox(tmp_path, monkeypatch)
+    _mounted(tmp_path, monkeypatch)  # no fake mount left
+    assert nas.stat().st_dev == box.pub_dir.stat().st_dev
+    e = _refused_at_the_run(box, nas)
+    assert e.text is bkc.TARGET_MISMATCH and len(_events(box, "backup.target_mismatch")) == 1
+
+
+def test_a_declared_target_mounted_elsewhere_is_refused(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nas = _offbox(tmp_path, monkeypatch)
+    other = tmp_path / "other"
+    other.mkdir()
+    _mounted(tmp_path, monkeypatch, (other, *NFS, (nas,)))  # the same share, now mounted at another folder
+    e = _refused_at_the_run(box, nas)
+    assert e.text is bkc.TARGET_MISMATCH and f"@ {other}" in e.fill["found"]
+
+
+def test_a_mismatch_the_journal_does_not_take_still_refuses(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nas = _offbox(tmp_path, monkeypatch)
+    _mounted(tmp_path, monkeypatch)
+    real = bkc.record
+
+    def no_journal(detail: Any, event: str = bkc.EVENT) -> int:
+        if event == "backup.target_mismatch":
+            raise bkc.Stop(bkc.JOURNAL_UNSURE)
+        return real(detail, event)
+
+    monkeypatch.setattr(bkc, "record", no_journal)
+    assert _refused_at_the_run(box, nas).text is bkc.TARGET_MISMATCH_UNJOURNALED
+
+
+@pytest.mark.parametrize("fstype", sorted(bkc.DENY_FSTYPES))
+def test_tmpfs_and_overlay_cannot_be_declared(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fstype: str
+) -> None:
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    _mounted(tmp_path, monkeypatch, (nas, "0:998", fstype, fstype, ()))
+    with pytest.raises(bkc.Stop) as got:
+        bkc.declare_target(str(nas), "install", False, {})
+    assert got.value.text is bkc.TARGET_UNDECLARABLE and not (box.pub_dir / bkc.TARGET_RECORD).exists()
+
+
+def test_a_mount_of_the_box_own_filesystem_cannot_be_declared(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    dev = box.pub_dir.stat().st_dev
+    _mounted(tmp_path, monkeypatch, (nas, f"{os.major(dev)}:{os.minor(dev)}", "nfs4", "nas.example:/backups", ()))
+    with pytest.raises(bkc.Stop) as got:
+        bkc.declare_target(str(nas), "install", False, {})
+    assert got.value.text is bkc.TARGET_UNDECLARABLE and not (box.pub_dir / bkc.TARGET_RECORD).exists()
+
+
+def test_a_folder_inside_a_mount_cannot_be_declared(box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The removed test's first case: a share mounted at /srv, the folder named a folder inside it."""
     srv = tmp_path / "srv"
     nas = srv / "backups" / "nas"
     nas.mkdir(parents=True)
-    monkeypatch.setattr(bkc, "_offbox_targets", lambda _env: [nas])  # classified off the box: mounted then
-    if case == "a folder on a second local disk":  # /srv on another disk of the box; the target a folder in it
-        monkeypatch.setattr(bkc, "_box_devs", lambda _pfd: set())
-        _mounted(tmp_path, monkeypatch, (srv, "8:17", "ext4", "/dev/sdb1", (nas,)))
-    elif case == "a share's mount point, the share unmounted":  # its mount point left, a folder on the box's /srv
-        monkeypatch.setattr(bkc, "_box_devs", lambda _pfd: set())
-        _mounted(tmp_path, monkeypatch, (srv, "8:3", "ext4", "/dev/sda3", (nas,)))
-    elif case == "a mount of the box's own disk":  # exactly a mount point, but of the box's disk (a bind mount)
-        dev = box.pub_dir.stat().st_dev
-        _mounted(tmp_path, monkeypatch, (nas, f"{os.major(dev)}:{os.minor(dev)}", "ext4", "/dev/sda1", ()))
-    else:  # a mount off the box at the target, but its descriptor's mount id cannot be read
-        monkeypatch.setattr(bkc, "_box_devs", lambda _pfd: set())
-        _mounted(tmp_path, monkeypatch, (nas, "0:999", "nfs4", "nas.example:/backups", ()))
+    _mounted(tmp_path, monkeypatch, (srv, *NFS, (nas,)))
+    with pytest.raises(bkc.Stop) as got:
+        bkc.declare_target(str(nas), "install", False, {})
+    assert got.value.text is bkc.TARGET_UNDECLARABLE and got.value.fill["why"] == "not exactly a mount point"
+    assert not (box.pub_dir / bkc.TARGET_RECORD).exists()
 
-        def no_id(_fd: int) -> int:
-            raise OSError(errno.ENOENT, "No such file or directory")
 
-        monkeypatch.setattr(bkc, "_mount_id", no_id, raising=False)
+def test_a_dev_source_without_a_by_uuid_name_cannot_be_declared(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    (tmp_path / "by-uuid").mkdir()
+    monkeypatch.setattr(bkc, "BY_UUID", tmp_path / "by-uuid")
+    _mounted(tmp_path, monkeypatch, (nas, "8:17", "ext4", "/dev/sdb1", ()))
+    with pytest.raises(bkc.Stop) as got:
+        bkc.declare_target(str(nas), "install", False, {})
+    assert got.value.text is bkc.TARGET_UNDECLARABLE and not (box.pub_dir / bkc.TARGET_RECORD).exists()
+
+
+def test_a_dev_source_is_matched_by_uuid_not_by_letter(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    by_uuid = tmp_path / "by-uuid"
+    by_uuid.mkdir()
+    link = by_uuid / "0f1e2d3c-usb"
+    monkeypatch.setattr(bkc, "BY_UUID", by_uuid)
+    link.symlink_to("/dev/sdb1")
+    _mounted(tmp_path, monkeypatch, (nas, "8:17", "ext4", "/dev/sdb1", ()))
+    bkc.declare_target(str(nas), "install", False, {})
+    assert json.loads((box.pub_dir / bkc.TARGET_RECORD).read_text(encoding="utf-8"))["fsuuid"] == link.name
+    link.unlink()
+    link.symlink_to("/dev/sdc1")  # re-plugged: another letter, the same filesystem
+    _mounted(tmp_path, monkeypatch, (nas, "8:33", "ext4", "/dev/sdc1", ()))
+    rec = bkc.install_sealed(bkc._env(), PASS)
+    assert (nas / bkc.sealed_name(rec["fingerprint"])).is_file()
+    box.pub.unlink()
+    link.unlink()
+    link.symlink_to("/dev/sdd1")  # the by-uuid name now names another node: not the declared filesystem
     with pytest.raises(bkc.Stop) as got:
         bkc.install_sealed(bkc._env(), PASS)
-    assert got.value.text is bkc.NO_OFFBOX_COPY and list(nas.iterdir()) == []
-    assert not box.pub.exists() and box.pending() == [] and list(box.pub_dir.glob("*.sealed")) == []
-    assert [e for e in box.journal() if e["event"] == bkc.EVENT] == []
+    assert got.value.text is bkc.TARGET_MISMATCH and not box.pub.exists()
+
+
+def test_the_installer_declares_only_when_no_record_exists(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = _offbox(tmp_path, monkeypatch)
+    b = tmp_path / "b"
+    b.mkdir()
+    before = (box.pub_dir / bkc.TARGET_RECORD).read_bytes()
+    rec = bkc.install_sealed({"TB_BACKUP_OFFBOX": str(b), "TB_BACKUP_TARGETS": str(b)}, PASS)
+    assert (box.pub_dir / bkc.TARGET_RECORD).read_bytes() == before and json.loads(before)["path"] == str(a)
+    assert rec["copy"] == str(a / bkc.sealed_name(rec["fingerprint"])) and Path(rec["copy"]).is_file()
+    assert list(b.iterdir()) == []
+
+
+def test_replace_keeps_the_old_record(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    a, b = tmp_path / "a", tmp_path / "b"
+    for d in (a, b):
+        d.mkdir()
+    _mounted(tmp_path, monkeypatch, (a, *NFS, ()), (b, "0:997", "cifs", "//filer.example/backups", ()))
+    monkeypatch.setattr(bkc, "harden", lambda: None)
+    bkc.declare_target(str(a), "install", False, {})
+    first = (box.pub_dir / bkc.TARGET_RECORD).read_bytes()
+    with pytest.raises(bkc.Stop) as got:  # without --replace: refused, unchanged
+        bkc.declare_target(str(b), "IT Operator", False, {})
+    assert got.value.text is bkc.TARGET_ALREADY_DECLARED and (box.pub_dir / bkc.TARGET_RECORD).read_bytes() == first
+    assert bkc.main(["--declare-backup-target", str(b), "--operator", "IT Operator", "--replace"]) == 0
+    assert str(b) in capsys.readouterr().out
+    olds = list(box.pub_dir.glob("backup-target.*.old"))
+    assert len(olds) == 1 and olds[0].read_bytes() == first
+    assert json.loads((box.pub_dir / bkc.TARGET_RECORD).read_text(encoding="utf-8"))["path"] == str(b)
+    declared = _events(box, "backup.target_declared")
+    assert len(declared) == 2 and declared[1]["operator"] == "IT Operator"
+    assert declared[1]["replaced"] == f"nfs4 nas.example:/backups @ {a}"
+    assert declared[1]["declared"] == f"cifs //filer.example/backups @ {b}"
+
+
+def test_mount_id_unreadable_is_refused(box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The removed test's last case: a mount off the box at the target, its descriptor's mount id unreadable."""
+    nas = _offbox(tmp_path, monkeypatch)
+
+    def no_id(_fd: int) -> int:
+        raise OSError(errno.ENOENT, "No such file or directory")
+
+    monkeypatch.setattr(bkc, "_mount_id", no_id)
+    assert _refused_at_the_run(box, nas).text is bkc.TARGET_MISMATCH
 
 
 def test_an_offbox_target_exactly_a_mount_off_the_box_takes_the_sealed_copy(
     box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """H-02 (fourth review): a share mounted exactly at the target (a fake mountinfo line: its own device, no disk of
-    the box), the box's own devices the real ones: the sealed copy is written there and backup.pub is made."""
+    """H-02: a share mounted exactly at the declared target (a fake mountinfo line: its own device, no filesystem of
+    the box): the sealed copy is written there and backup.pub is made."""
     nas = _offbox(tmp_path, monkeypatch)
     rec = bkc.install_sealed(bkc._env(), PASS)
     assert (nas / bkc.sealed_name(rec["fingerprint"])).is_file() and box.pub.is_file()
 
 
-@pytest.mark.parametrize("unnamed", [True, False], ids=["unnamed file", "no unnamed files"])
-def test_an_unseal_removes_no_file_it_did_not_make(
-    box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unnamed: bool
-) -> None:
-    """H-06: beside the key file, a user's own ``.restore.key.manual.part`` and the temporary file of another unseal
-    still running (this module's mark, its process alive) are kept byte for byte, with unnamed files or without
-    them (a FAT stick: a named temporary file, and the sweep of those a killed unseal left)."""
-    sealed = _sealed(tmp_path, monkeypatch)
-    usb = tmp_path / "usb"
-    usb.mkdir()
-    out = usb / "restore.key"
-    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
-    try:
-        theirs = {usb / ".restore.key.manual.part": b"the user's own file\n",
-                  usb / f".restore.key.tb-unseal-{other.pid}-0123abcd.part": b"another unseal, still running\n"}  # fmt: skip
-        for p, data in theirs.items():
-            p.write_bytes(data)
-        if not unnamed:
-            _no_unnamed_files(monkeypatch)
-        assert bkc.unseal_to(sealed, out, PASS) == bkc.fingerprint(bkc.public_of(made[-1]))
-    finally:
-        other.kill()
-        other.wait()
-    assert {p: p.read_bytes() for p in theirs} == theirs
-    assert sorted(usb.iterdir()) == sorted([out, *theirs]) and bkc.read_key(out.read_bytes()) == made[-1]
+# ------------------------------------------------------------------------------------------------ H-07, M-03: no
+# plaintext off the box, nothing swept (P01-DESIGN (ii))
+def test_the_module_has_no_fallback_writer() -> None:
+    assert not hasattr(bkc, "_sweep") and not hasattr(bkc, "_rename_noreplace") and not hasattr(bkc, "UNSEAL_MARK")
+    source = Path(bkc.__file__).read_text(encoding="utf-8")
+    assert source.count("os.unlink(") == 1 and "os.unlink(" in inspect.getsource(bkc.forget_restore_key)
 
 
-def test_without_unnamed_files_the_temporary_file_of_a_killed_unseal_is_removed_by_the_next(
+def test_unseal_has_no_out_and_writes_only_into_the_restore_folder(
     box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """H-06 / M-03: on a FAT stick (no unnamed files) the key file is written under a temporary name with this
-    module's mark and its process id; one a killed unseal left (its process gone) is removed by the next unseal to
-    that name, which makes the key file."""
     sealed = _sealed(tmp_path, monkeypatch)
-    usb = tmp_path / "usb"
+    usb = tmp_path / "usb"  # a FAT stick: nothing of the key goes there
     usb.mkdir()
-    out = usb / "trialbox-backup.key"
-    gone = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True,
-                          check=True).stdout.strip()  # fmt: skip
-    (usb / f".trialbox-backup.key.tb-unseal-{gone}-0123abcd.part").write_bytes(bkc.key_text(made[-1]))
-    _no_unnamed_files(monkeypatch)
-    bkc.unseal_to(sealed, out, PASS)
-    assert list(usb.iterdir()) == [out] and bkc.read_key(out.read_bytes()) == made[-1]
+    monkeypatch.setattr(bkc, "harden", lambda: None)
+    with pytest.raises(SystemExit) as gone:
+        bkc.main(["--unseal", str(sealed), "--out", str(usb / "trialbox-backup.key")])
+    assert gone.value.code == 2
+    assert bkc.unseal_to(sealed, PASS) == bkc.fingerprint(bkc.public_of(made[-1]))
+    out = _restore_key(box)
+    assert list(out.parent.iterdir()) == [out] and stat.S_IMODE(out.stat().st_mode) == 0o600
+    assert stat.S_IMODE(out.parent.stat().st_mode) == 0o700 and bkc.read_key(out.read_bytes()) == made[-1]
+    assert list(usb.iterdir()) == []
 
 
-def test_two_unseals_to_one_place_at_once_never_replace_each_other(
+KILLED = r"""
+import os, signal, sys
+from pathlib import Path
+from tools import backup_key_ceremony as b
+b.DEPLOY = Path(sys.argv[2]); b.PUB_DIR = b.DEPLOY / "secrets"
+def kill(*_a, **_k):  # where the key file would get its name: killed, its written key bytes left as they are
+    os.kill(os.getpid(), signal.SIGKILL)
+os.link = kill
+b.unseal_to(Path(sys.argv[1]), sys.stdin.readline().rstrip("\n"))
+"""
+
+
+def test_an_unseal_killed_before_the_link_leaves_no_named_file(
+    box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-03 (replaces the killed-after-the-write test): an unseal killed (SIGKILL, no handler runs) where the key file
+    would get its name leaves no plaintext key anywhere (the file has no name until it is linked), and the restore
+    folder empty; the retry makes it."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    r = subprocess.run([sys.executable, "-c", KILLED, str(sealed), str(box.deploy)], cwd=ROOT, env=box.env(),
+                       input=PASS + "\n", capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
+    assert r.returncode == -9, r.stderr
+    restore = _restore_key(box).parent
+    assert restore.is_dir() and list(restore.iterdir()) == []
+    text = bkc.key_text(made[-1])
+    assert [p for p in tmp_path.rglob("*") if p.is_file() and not p.is_symlink() and text in p.read_bytes()] == []
+    bkc.unseal_to(sealed, PASS)
+    assert list(restore.iterdir()) == [_restore_key(box)] and bkc.read_key(_restore_key(box).read_bytes()) == made[-1]
+
+
+def test_an_existing_restore_key_is_never_replaced_and_never_deleted(
     box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """H-05: two unseals of two sealed keys to one key file at the same moment (both past any look at the name):
-    exactly one makes it, the other is refused, and the file holds the key of the one that said so."""
+    """H-05 and H-07: a key file already there (another unseal's, or a user's) is kept byte for byte; no other entry
+    appears beside it."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    out = _restore_key(box)
+    out.parent.mkdir(mode=0o700)
+    out.write_bytes(b"theirs\n")
+    out.chmod(0o600)
+    with pytest.raises(bkc.Stop) as got:
+        bkc.unseal_to(sealed, PASS)
+    assert got.value.text is bkc.RESTORE_KEY_PRESENT
+    assert out.read_bytes() == b"theirs\n" and list(out.parent.iterdir()) == [out]
+
+
+def test_two_unseals_at_once_never_replace_each_other(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H-05: two unseals of two sealed keys at the same moment (both past any look at the name): exactly one makes
+    the key file, the other is refused, and the file holds the key of the one that said so."""
     first = _sealed(tmp_path, monkeypatch)
     box.pub.unlink()  # a second sealed key (an older one)
     second = _sealed(tmp_path, monkeypatch)
-    usb = tmp_path / "usb"
-    usb.mkdir()
-    out = usb / "trialbox-backup.key"
+    out = _restore_key(box)
     both = threading.Barrier(2, timeout=60)
     real = bkc.key_text
 
@@ -741,8 +946,9 @@ def test_two_unseals_to_one_place_at_once_never_replace_each_other(
 
     def one(sealed: Path) -> str | None:
         try:
-            return bkc.unseal_to(sealed, out, PASS)
-        except FileExistsError:
+            return bkc.unseal_to(sealed, PASS)
+        except bkc.Stop as e:
+            assert e.text is bkc.RESTORE_KEY_PRESENT
             return None
 
     monkeypatch.setattr(bkc, "key_text", key_text)
@@ -751,51 +957,129 @@ def test_two_unseals_to_one_place_at_once_never_replace_each_other(
     won = [fp for fp in got if fp]
     assert len(won) == 1, got
     key = bkc.read_key(out.read_bytes())
-    assert key is not None and bkc.fingerprint(bkc.public_of(key)) == won[0] and list(usb.iterdir()) == [out]
+    assert key is not None and bkc.fingerprint(bkc.public_of(key)) == won[0] and list(out.parent.iterdir()) == [out]
 
 
-KILLED = r"""
-import os, signal, sys
-from pathlib import Path
-from tools import backup_key_ceremony as b
-def kill(*_a, **_k):  # where the key file would get its name: killed, its written key bytes left as they are
-    os.kill(os.getpid(), signal.SIGKILL)
-os.rename = os.link = b._rename_noreplace = kill
-b.unseal_to(Path(sys.argv[1]), Path(sys.argv[2]), sys.stdin.readline().rstrip("\n"))
-"""
-
-
-def test_an_unseal_killed_after_the_write_leaves_no_key_bytes(
-    box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_forget_restore_key_removes_only_that_file(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """M-03 (inverted by the integrator's ruling, fourth review; it asserted the left temporary file's key bytes): an
-    unseal killed (SIGKILL, no handler runs) after the key's bytes are written, where the key file would get its name,
-    leaves no plaintext key anywhere in the folder (the file has no name until it is linked); the retry makes it."""
     sealed = _sealed(tmp_path, monkeypatch)
-    usb = tmp_path / "usb"
-    usb.mkdir()
-    out = usb / "trialbox-backup.key"
-    r = subprocess.run([sys.executable, "-c", KILLED, str(sealed), str(out)], cwd=ROOT, env=box.env(),
-                       input=PASS + "\n", capture_output=True, text=True, timeout=120, check=False)  # fmt: skip
-    assert r.returncode == -9, r.stderr
-    assert [p for p in usb.rglob("*") if bkc.key_text(made[-1]) in p.read_bytes()] == []  # no plaintext key
-    assert list(usb.iterdir()) == []
-    bkc.unseal_to(sealed, out, PASS)
-    assert list(usb.iterdir()) == [out] and bkc.read_key(out.read_bytes()) == made[-1]
+    bkc.unseal_to(sealed, PASS)
+    out = _restore_key(box)
+    other = out.parent / "other.key"
+    other.write_bytes(b"another file\n")
+    monkeypatch.setattr(bkc, "harden", lambda: None)
+    assert bkc.main(["--forget-restore-key"]) == 0 and str(out) in capsys.readouterr().out
+    assert not out.exists() and other.read_bytes() == b"another file\n"
+    assert _events(box, "backup.restore_key_forgotten") == [{"path": str(out)}]
+    out.symlink_to(other)  # a link at the name: refused, left, and what it names untouched
+    with pytest.raises(bkc.Stop) as got:
+        bkc.forget_restore_key()
+    assert got.value.text is bkc.RESTORE_KEY_NOT_A_FILE and out.is_symlink() and other.read_bytes() == b"another file\n"
+    assert len(_events(box, "backup.restore_key_forgotten")) == 1
 
 
-def test_a_stick_without_file_modes_takes_the_key_file_and_the_sealed_copy(
+def test_a_restore_folder_without_unnamed_files_refuses(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No fallback writer: a filesystem without unnamed files is refused, never a named temporary file."""
+    sealed = _sealed(tmp_path, monkeypatch)
+    _no_unnamed_files(monkeypatch)
+    with pytest.raises(bkc.Stop) as got:
+        bkc.unseal_to(sealed, PASS)
+    assert got.value.text is bkc.NO_TMPFILE and list(_restore_key(box).parent.iterdir()) == []
+
+
+# ------------------------------------------------------------------------------------------------ M-08: three outcomes
+def _clean(e: bkc.Stop, sealed: bytes) -> None:
+    """No text carries a byte of the passphrase or of the sealed file (its wrapped key's base64)."""
+    blob = json.loads(sealed)["key"]["blob"]
+    for lg in bkc.LANGS:
+        said = e.say(lg) + str(e)
+        assert PASS not in said and all(blob[i : i + 12] not in said for i in range(0, len(blob) - 12, 6)), lg
+
+
+@pytest.mark.parametrize(("call", "err"), [("pread", errno.EIO), ("open", errno.EACCES), ("fstat", errno.EIO)])
+def test_an_io_error_on_the_sealed_medium_is_named_as_such(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, call: str, err: int
+) -> None:
+    sealed = _sealed(tmp_path, monkeypatch)
+    real = getattr(os, call)
+
+    def on_sealed(what: Any) -> bool:
+        where = f"/proc/self/fd/{what}" if isinstance(what, int) else what
+        return isinstance(where, (str, Path)) and os.path.realpath(where) == os.path.realpath(sealed)
+
+    def failing(what: Any, *a: Any, **k: Any) -> Any:
+        if on_sealed(what):
+            raise OSError(err, os.strerror(err))
+        return real(what, *a, **k)
+
+    with monkeypatch.context() as m, pytest.raises(bkc.Stop) as got:
+        m.setattr(os, call, failing)
+        bkc.unseal_to(sealed, PASS)
+    assert got.value.text is bkc.SEALED_UNREADABLE and got.value.fill["why"] == errno.errorcode[err]
+    assert not _restore_key(box).exists()
+    _clean(got.value, sealed.read_bytes())
+
+
+def test_a_wrong_passphrase_is_named_as_such(box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sealed = _sealed(tmp_path, monkeypatch)
+    with pytest.raises(bkc.Stop) as got:
+        bkc.unseal_to(sealed, "not the passphrase of it")
+    assert got.value.text is bkc.SEALED_WRONG_PASSPHRASE and not _restore_key(box).exists()
+    _clean(got.value, sealed.read_bytes())
+
+
+@pytest.mark.parametrize("case", ["empty object", "format", "fingerprint", "fields", "not json", "folder", "fifo"])
+def test_a_malformed_sealed_file_is_named_as_such(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    sealed = _sealed(tmp_path, monkeypatch)
+    doc = json.loads(sealed.read_bytes())
+    bad = tmp_path / "bad.sealed"
+    if case == "folder":
+        bad.mkdir()
+    elif case == "fifo":
+        os.mkfifo(bad)
+    else:
+        if case == "format":
+            doc["format"] = "x/9"
+        elif case == "fingerprint":
+            doc["fingerprint"] = "0000-0000-0000-0000-0000"
+        elif case == "fields":
+            del doc["kdf"]
+        data = {"empty object": b"{}", "not json": b"\xff not json"}.get(case) or json.dumps(doc).encode()
+        bad.write_bytes(data)
+    with pytest.raises(bkc.Stop) as got:
+        bkc.unseal_to(bad, PASS)
+    what = {"empty object": "format", "folder": "not a file", "fifo": "not a file"}.get(case, case)
+    assert got.value.text is bkc.SEALED_NOT_A_KEY and got.value.fill["what"] == what
+    assert not _restore_key(box).exists()
+    _clean(got.value, sealed.read_bytes())
+
+
+def test_no_text_carries_a_byte_of_the_file_or_the_passphrase() -> None:
+    """Every text of the three outcomes takes only the sealed file's path and a fixed word (an errno name, a
+    ``what``), never a field that could hold the file's bytes or the passphrase."""
+    import string
+
+    for t in (bkc.SEALED_UNREADABLE, bkc.SEALED_NOT_A_KEY, bkc.SEALED_WRONG_PASSPHRASE):
+        for lg in bkc.LANGS:
+            fields = {f for _, f, _, _ in string.Formatter().parse(t[lg]) if f}
+            assert fields <= {"sealed", "why", "what"}, (lg, fields)
+
+
+def test_a_target_without_file_modes_takes_the_sealed_copy(
     box: Box, made: list[bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """N-01: a FAT or exFAT stick or USB disk has no file modes (a change of mode fails, EPERM): the key file and the
-    sealed copy are made there all the same (each made 0600 where modes exist; the sealed copy is encrypted)."""
-    usb = tmp_path / "usb"
-    usb.mkdir()
+    """N-01: a FAT or exFAT target has no file modes (a change of mode fails, EPERM): the sealed copy is made there
+    all the same (made 0600 where modes exist; it is encrypted). No key file goes to such media any more."""
     nas = tmp_path / "nas"
     real = os.fchmod
 
     def fchmod(fd: int, mode: int) -> None:
-        if os.readlink(f"/proc/self/fd/{fd}").startswith((str(usb), str(nas))):
+        if os.readlink(f"/proc/self/fd/{fd}").startswith(str(nas)):
             raise PermissionError(errno.EPERM, "Operation not permitted")
         real(fd, mode)
 
@@ -803,8 +1087,6 @@ def test_a_stick_without_file_modes_takes_the_key_file_and_the_sealed_copy(
     sealed = _sealed(tmp_path, monkeypatch)  # the sealed copy onto the target without modes
     fp = bkc.fingerprint(bkc.public_of(made[-1]))
     assert (nas / bkc.sealed_name(fp)).read_bytes() == sealed.read_bytes()
-    out = usb / "trialbox-backup.key"
-    assert bkc.unseal_to(sealed, out, PASS) == fp and bkc.read_key(out.read_bytes()) == made[-1]
 
 
 def test_the_ceremony_module_parses_before_python_3_12() -> None:
@@ -845,6 +1127,7 @@ def test_the_install_without_a_terminal_hands_the_passphrase_to_the_sealed_path(
     fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" > {rec}; cat >> {rec}\n', encoding="utf-8")
     fake.chmod(0o755)
     (tmp_path / "deploy" / "secrets").mkdir(parents=True)
+    (tmp_path / "deploy" / "secrets" / "backup-target.json").write_text("{}", encoding="utf-8")  # declared already
     for value, sealed in (("synthetic-pass-p01-xyz", True), ("", False)):
         rec.unlink(missing_ok=True)
         script = (f"say() {{ :; }}\nFAILS=()\nTB_ENV_SITE=\nKP_VALUE={value}\n{block}\n"
@@ -896,6 +1179,7 @@ def test_the_unattended_install_takes_the_passphrase_file_to_the_backup_key_and_
     rec, bin_ = tmp_path / "rec", tmp_path / "bin"
     for d in (rec, bin_, tmp_path / "deploy" / "hardening", tmp_path / "deploy" / "secrets"):
         d.mkdir(parents=True)
+    (tmp_path / "deploy" / "secrets" / "backup-target.json").write_text("{}", encoding="utf-8")  # declared already
     for name, body in (("python3", f'printf "%s\\n" "$*" >> {rec}/ceremony; cat >> {rec}/ceremony\n'),
                        ("systemd-creds", "exit 1\n")):  # fmt: skip
         (bin_ / name).write_text("#!/bin/sh\n" + body, encoding="utf-8")
@@ -944,6 +1228,7 @@ def test_a_production_install_ignores_test_box(tmp_path: Path, passphrase: str) 
     fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" > {rec}; cat >> {rec}\n', encoding="utf-8")
     fake.chmod(0o755)
     (tmp_path / "deploy" / "secrets").mkdir(parents=True)
+    (tmp_path / "deploy" / "secrets" / "backup-target.json").write_text("{}", encoding="utf-8")  # declared already
     script = (f"say() {{ :; }}\nFAILS=()\nTB_ENV_SITE=PRODUCTION\nKP_VALUE={passphrase}\n{INSTALL[STEP:END]}\n"
               'for f in "${FAILS[@]}"; do echo "FAIL: $f"; done\n')  # fmt: skip
     r = subprocess.run(["setsid", "bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False,
@@ -958,3 +1243,37 @@ def test_a_production_install_ignores_test_box(tmp_path: Path, passphrase: str) 
         assert "FAIL:" not in r.stdout
     else:
         assert not rec.exists() and "FAIL: no backup key" in r.stdout
+
+
+@pytest.mark.parametrize("case", ["declares", "not set", "declaration refused", "declared already"])
+def test_the_unattended_install_declares_the_offbox_target_only_when_there_is_none(tmp_path: Path, case: str) -> None:
+    """P01-DESIGN (i), step 11: with no terminal and no declaration, the install declares TB_BACKUP_OFFBOX (from
+    deploy/.env) as ``--operator install`` before the sealed path; a declaration there is never replaced (no declare
+    call); TB_BACKUP_OFFBOX not set, or the declaration refused, is a FAIL line naming the setting, and the sealed
+    path does not run."""
+    rec, bin_ = tmp_path / "rec", tmp_path / "bin"
+    bin_.mkdir()
+    refuse = 'case "$*" in *--declare-backup-target*) exit 1;; esac\n' if case == "declaration refused" else ""
+    (bin_ / "python3").write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {rec}; cat >> {rec}\n{refuse}', encoding="utf-8")
+    (bin_ / "python3").chmod(0o755)
+    (tmp_path / "deploy" / "secrets").mkdir(parents=True)
+    if case == "declared already":
+        (tmp_path / "deploy" / "secrets" / "backup-target.json").write_text("{}", encoding="utf-8")
+    offbox = "" if case == "not set" else "/mnt/nas"
+    (tmp_path / "deploy" / ".env").write_text(f"TB_ENV=PRODUCTION\nTB_BACKUP_OFFBOX={offbox}\n", encoding="utf-8")
+    envget = INSTALL[INSTALL.index("envget() {") : INSTALL.index("\n", INSTALL.index("envget() {"))]
+    script = (f"say() {{ :; }}\nFAILS=()\n{envget}\nTB_ENV_SITE=PRODUCTION\nKP_VALUE={PASS!r}\nKP_FILE=\n"
+              f"{INSTALL[STEP:END]}\n" 'for f in "${FAILS[@]}"; do echo "FAIL: $f"; done\n')  # fmt: skip
+    r = subprocess.run(["setsid", "bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False,
+                       stdin=subprocess.DEVNULL, env={"PATH": f"{bin_}:{os.environ['PATH']}"})  # fmt: skip
+    assert r.returncode == 0, r.stderr
+    calls = rec.read_text(encoding="utf-8").splitlines() if rec.exists() else []
+    sealed = ["-m tools.backup_key_ceremony --install --sealed-stdin", PASS]
+    declare = ["-m tools.backup_key_ceremony --declare-backup-target /mnt/nas --operator install"]
+    if case == "declares":
+        assert calls == declare + sealed and "FAIL:" not in r.stdout
+    elif case == "declared already":
+        assert calls == sealed and "FAIL:" not in r.stdout
+    else:
+        assert calls == ([] if case == "not set" else declare)
+        assert f"TB_BACKUP_OFFBOX in deploy/.env: {offbox or 'not set'}" in r.stdout and PASS not in r.stdout
