@@ -65,12 +65,14 @@ class Fhir:
         self.down = False
         self.bad: set[str] = set()  # nights the store refuses part-way (it is up: a put-back works)
         self.holds: str | None = None  # the night the store holds now
+        self.verified: list[str] = []  # the nights the store was checked against (P-03)
         self.home = home
         monkeypatch.setattr(home, "sync_snapshot", self)
         if hasattr(home, "verify_fhir"):  # P-03: the store's check against a night is answered from what it holds
             monkeypatch.setattr(home, "verify_fhir", self.verify)
 
     def verify(self, cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: Any = ()) -> dict[str, int]:
+        self.verified.append(folder.name)
         if self.down:
             raise ConnectionError("the FHIR store did not answer")
         nothing = ("", "fhir-nothing-served")
@@ -158,8 +160,16 @@ def test_a_fhir_store_failure_does_not_promote_and_the_next_call_resumes_at_that
     assert (folder / "passed.json").exists() and set(_record(folder).values()) <= {"done", "skipped"}
     assert _resolves(cfg, "10000001")
     # a third call does nothing at all
+    marker, record, checks = (
+        (cfg.lake_dir / "FHIR_STATE").read_bytes(),
+        (folder / "publish.json").read_bytes(),
+        len(fhir.verified),
+    )
     again = publish_night(cfg, N2, folder, last_good=N1)
     assert again.ok and fhir.calls == [N1, N2, N1, N1, N2] and lakes.calls == [N1, N2]
+    # P-03 (review D7): it asks the store nothing and rewrites neither the marker nor the record
+    assert fhir.verified[checks:] == [] and (cfg.lake_dir / "FHIR_STATE").read_bytes() == marker
+    assert (folder / "publish.json").read_bytes() == record
 
 
 def test_the_same_night_run_again_resumes_and_a_changed_night_starts_over(

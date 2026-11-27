@@ -7,8 +7,12 @@ It keeps resources by type and id in memory and answers a transaction bundle of 
 /fhir``), a count (``GET /fhir/<Type>?_summary=count``) and the ids, paged (``GET /fhir/<Type>?_elements=id``).
 The test steers it (``POST /_control``): ``sleep`` seconds per request, ``drop`` (refs whose DELETE it answers and
 does not do), ``kill`` (``{"pid", "type", "after"}``: SIGKILL that process once ``after`` PUTs of ``type`` are in),
-``fail_after`` (transactions after that many more are answered 500, nothing written). ``GET /_log`` is every request it
-was sent; ``GET /_ids`` what it holds; ``POST /_seed`` puts resources in by hand. Synthetic data only."""
+``fail_after`` (transactions after that many more are answered 500, nothing written), ``down`` (every request
+answered 500), ``no_total`` (a count answered without its ``total``), ``fail_at`` (``{"n", "kind"}``: the ``n``-th
+store request from now is answered 500 with nothing done (``error``) or done and answered with a body that is not
+JSON (``malformed``)), ``reset`` (empty, the log and the counters too). ``GET /_log`` is every request it was sent;
+``GET /_ids`` what it holds; ``GET /_resources`` the resources; ``POST /_seed`` puts resources in by hand. Synthetic
+data only."""
 
 from __future__ import annotations
 
@@ -25,9 +29,11 @@ from urllib.parse import parse_qs, urlsplit
 
 STORE: dict[str, dict[str, dict[str, Any]]] = {}
 LOG: list[str] = []
-CTL: dict[str, Any] = {"sleep": 0.0, "drop": [], "kill": None, "fail_after": None}
+CTL: dict[str, Any] = {"sleep": 0.0, "drop": [], "kill": None, "fail_after": None, "down": False, "no_total": False,
+                       "fail_at": None}  # fmt: skip
 PUTS: dict[str, int] = {}
 TX = [0]
+REQ = [0]  # store requests (GET and POST), for ``fail_at``
 LOCK = threading.Lock()
 
 
@@ -43,6 +49,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def _broken(self) -> str:
+        """``error``: answer this store request 500 and do nothing; ``malformed``: do it, answer garbage; ``""``."""
+        with LOCK:
+            REQ[0] += 1
+            at = CTL["fail_at"]
+            if CTL["down"]:
+                return "error"
+            if at and REQ[0] == int(at["n"]):
+                return str(at["kind"])
+        return ""
+
+    def _garbage(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/fhir+json")
+        self.send_header("Content-Length", "9")
+        self.end_headers()
+        self.wfile.write(b"<garbage>")
+
     def _body(self) -> Any:
         return json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"null")
 
@@ -55,12 +79,22 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/_ids":
             with LOCK:
                 return self._answer({t: sorted(r) for t, r in STORE.items() if r})
+        if url.path == "/_resources":
+            with LOCK:
+                return self._answer({t: r for t, r in STORE.items() if r})
         time.sleep(float(CTL["sleep"]))
+        broken = self._broken()
+        if broken == "error":
+            return self._answer({"resourceType": "OperationOutcome"}, 500)
         rtype = url.path.rstrip("/").rsplit("/", 1)[-1]
         with LOCK:
             LOG.append(f"GET {rtype} {'count' if q.get('_summary') == 'count' else 'ids'}")
             ids = sorted(STORE.get(rtype, {}))
+        if broken == "malformed":
+            return self._garbage()
         if q.get("_summary") == "count":
+            if CTL["no_total"]:
+                return self._answer({"resourceType": "Bundle", "type": "searchset"})
             return self._answer({"resourceType": "Bundle", "type": "searchset", "total": len(ids)})
         size, start = int(q.get("_count") or 1000), int(q.get("_offset") or 0)
         page = {"resourceType": "Bundle", "type": "searchset", "total": len(ids),
@@ -75,9 +109,16 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         if url.path == "/_control":
             with LOCK:
+                if body.pop("reset", False):
+                    STORE.clear()
+                    LOG.clear()
+                    PUTS.clear()
+                    TX[0] = 0
                 CTL.update(body)
                 if body.get("fail_after") is not None:  # counted from now
                     CTL["fail_after"] = TX[0] + int(body["fail_after"])
+                if body.get("fail_at") is not None:  # counted from now
+                    CTL["fail_at"] = {**body["fail_at"], "n": REQ[0] + int(body["fail_at"]["n"])}
             return self._answer({})
         if url.path == "/_seed":
             with LOCK:
@@ -85,6 +126,9 @@ class Handler(BaseHTTPRequestHandler):
                     STORE.setdefault(r["resourceType"], {})[str(r["id"])] = r
             return self._answer({})
         time.sleep(float(CTL["sleep"]))
+        broken = self._broken()
+        if broken == "error":
+            return self._answer({"resourceType": "OperationOutcome"}, 500)
         entries = body.get("entry") or []
         with LOCK:
             TX[0] += 1
@@ -107,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
                 CTL["kill"] = None
                 LOG.append(f"KILL {kill}")
                 os.kill(kill, signal.SIGKILL)
+        if broken == "malformed":
+            return self._garbage()
         return self._answer({"resourceType": "Bundle", "type": "transaction-response"})
 
 
