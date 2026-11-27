@@ -23,8 +23,9 @@ ALIGN = "TRIAGE-1 §3.7 goes to ALIGN: an absent comparison field is not yet 'in
 
 
 def _no_birth_date_other(row: dict[str, str]) -> dict[str, str]:
-    """Another, made-up person under ``row``'s chart number: another name, the same sex, no birth date."""
-    return {**row, "name": "Synthetic Other", "id_no": "", "birth_date": "", "death_date": "", "phone": ""}
+    """Another, made-up person under ``row``'s chart number, as a feed without names and birth dates carries one (the
+    twin's case): the same sex, nothing else to compare (another phone, no national id)."""
+    return {**row, "name": "", "id_no": "", "birth_date": "", "death_date": "", "phone": "0900000000"}
 
 
 @pytest.mark.xfail(strict=True, reason=ALIGN)
@@ -32,7 +33,7 @@ def test_two_people_without_a_birth_date_under_one_chart_are_held(good: Any, tmp
     cfg, rb = _from_good(good, tmp_path)
     feed = _feed(tmp_path)
     rows = _rows(feed / "patient.csv")
-    first = {**rows[0], "birth_date": ""}  # the first account has no birth date either
+    first = {**rows[0], "name": "", "id_no": "", "birth_date": ""}  # the first account gives no more either
     _write(feed / "patient.csv", [first, *rows[1:], _no_birth_date_other(first)])
     rep = _night(cfg, feed, NEXT)
     assert pid_for_mrn(b"k" * 32, first["mrn"])
