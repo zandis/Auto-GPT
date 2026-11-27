@@ -50,6 +50,14 @@ COUNTERS: dict[str, tuple[str, ...]] = {
     "e2e_seconds_sum": ("vllm:e2e_request_latency_seconds_sum",),
     "e2e_count": ("vllm:e2e_request_latency_seconds_count",),
 }
+# R1-P2 (lane DB): the server's split of a request's time into prefill and decode, read beside COUNTERS when the
+# server has them (vLLM's v1 engine); a server without them gives neither, and no mean is made up
+PHASES: dict[str, tuple[str, ...]] = {
+    "prefill_seconds_sum": ("vllm:request_prefill_time_seconds_sum",),
+    "prefill_count": ("vllm:request_prefill_time_seconds_count",),
+    "decode_seconds_sum": ("vllm:request_decode_time_seconds_sum",),
+    "decode_count": ("vllm:request_decode_time_seconds_count",),
+}
 GAUGES: dict[str, tuple[str, ...]] = {
     "running": ("vllm:num_requests_running",),
     "waiting": ("vllm:num_requests_waiting",),
@@ -90,12 +98,15 @@ def pick(samples: dict[str, float], names: dict[str, tuple[str, ...]]) -> dict[s
 def metrics_delta(before: str, after: str) -> dict[str, Any]:
     """What one server did between two ``/metrics`` texts: the counters' difference, and from it the mean time to
     first token and the mean queue time per request. ``scraped`` False: the server gave no metrics (both empty)."""
-    b, a = pick(parse_prometheus(before), COUNTERS), pick(parse_prometheus(after), COUNTERS)
+    names = {**COUNTERS, **PHASES}
+    b, a = pick(parse_prometheus(before), names), pick(parse_prometheus(after), names)
     d = {k: round(a[k] - b.get(k, 0.0), 3) for k in a}
     out: dict[str, Any] = {"scraped": bool(a), **d}
     for mean, total, n in (("ttft_mean_s", "ttft_seconds_sum", "ttft_count"),
                            ("queue_mean_s", "queue_seconds_sum", "queue_count"),
-                           ("e2e_mean_s", "e2e_seconds_sum", "e2e_count")):  # fmt: skip
+                           ("e2e_mean_s", "e2e_seconds_sum", "e2e_count"),
+                           ("prefill_mean_s", "prefill_seconds_sum", "prefill_count"),
+                           ("decode_mean_s", "decode_seconds_sum", "decode_count")):  # fmt: skip
         if d.get(n):
             out[mean] = round(d[total] / d[n], 4)
     return out
