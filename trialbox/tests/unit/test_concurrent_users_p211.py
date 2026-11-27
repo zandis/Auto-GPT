@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import json
 import os
 import shutil
 import subprocess
@@ -112,10 +113,15 @@ def test_the_timers_run_in_one_worker_process(tmp_path: Path) -> None:
 
 
 def test_what_one_request_leaves_is_seen_by_another_process_once(shm: Path) -> None:
-    mine, other = Held("t", 60.0, shm), Held("t", 60.0, shm)  # two processes' views of the same tmpfs
+    mine, other = Held("t", 60.0, shm), Held("t", 60.0, shm)  # two views of the same tmpfs
     mine.put("session-sha", ("alice", "pw", 1.0))
-    assert other.get("session-sha") == ["alice", "pw", 1.0]  # JSON: a tuple comes back as a list
-    assert other.pop("session-sha") == ["alice", "pw", 1.0]
+    # TB-09: the read and the first take in another process (another uvicorn worker), the second take here
+    child = subprocess.run(
+        [sys.executable, "-c", "import json, sys, pathlib; from console.held import Held; h = Held('t', 60.0, "
+         "pathlib.Path(sys.argv[1])); print(json.dumps([h.get('session-sha'), h.pop('session-sha')]))", str(shm)],
+        capture_output=True, text=True, check=True, env={"PYTHONPATH": ":".join(sys.path)},
+    )  # fmt: skip
+    assert json.loads(child.stdout) == [["alice", "pw", 1.0]] * 2  # JSON: a tuple comes back as a list
     assert mine.pop("session-sha") is None  # taken once
     assert (mine.folder.stat().st_mode & 0o777) == 0o700
     stale = Held("s", 0.05, shm)
@@ -206,6 +212,23 @@ def test_the_held_root_is_named_in_the_settings_and_must_be_memory(
     Held("d", 60.0, tmp_path)  # the same folder on a memory mount
 
 
+def test_the_folder_itself_must_be_memory_not_only_its_parent(shm: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # TB-06: the parent is a tmpfs, the held folder itself another filesystem (a bind mount, a disk volume over it)
+    folder = Held("m", 60.0, shm).folder
+    ino = folder.stat().st_ino
+    real = held.fd_type
+    monkeypatch.setattr(held, "fd_type", lambda fd: "ext4" if os.fstat(fd).st_ino == ino else real(fd))
+    with pytest.raises(PermissionError, match="ext4, not memory"):
+        Held("m", 60.0, shm)
+    # the kernel's answer for the opened folder: a tmpfs is memory, /proc is not
+    for path, want in ((shm, "tmpfs"), (Path("/proc"), "proc")):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            assert real(fd) == want
+        finally:
+            os.close(fd)
+
+
 def test_unset_the_held_store_refuses_by_name_and_makes_nothing(tmp_path: Path) -> None:
     # TB-06 ruling: TB_CONSOLE_HELD_DIR unset: the console starts, its held store refuses every keep, read and removal
     store = Held("once", 60.0, None)
@@ -241,15 +264,22 @@ def test_the_service_level_is_measured_with_the_users_at_once() -> None:
     p95, bad = console_timing.under_load(fast, ["/home", "/studies"], users=25, rounds=2)
     assert bad == 0 and p95 < console_size.SLO_P95_S
     # TB-05: the clients start together, each in its own thread, so all of them are at the console at once (not a
-    # fast one done before the last began, its thread then lent to the next)
-    clients: set[int] = set()
+    # fast one done before the last began, its thread then lent to the next; nor one at a time after the start)
+    lock, full, now, peak = threading.Lock(), threading.Event(), [0], [0]
 
     def quick(_path: str) -> tuple[int, dict[str, str]]:
-        clients.add(threading.get_ident())
+        with lock:
+            now[0] += 1
+            peak[0] = max(peak[0], now[0])
+            if now[0] == 25:
+                full.set()
+        full.wait(5.0)  # the first calls are held until all 25 are in (or 5 s)
+        with lock:
+            now[0] -= 1
         return 200, {}
 
     console_timing.under_load(quick, ["/home"], users=25, rounds=1)
-    assert len(clients) == 25
+    assert peak[0] == 25
     p95, bad = console_timing.under_load(lambda _p: (503, {}), ["/about"], users=3, rounds=1)
     assert bad == 3
 
@@ -260,3 +290,23 @@ def test_the_service_level_is_measured_with_the_users_at_once() -> None:
     fast_paths = [f"/p{i}" for i in range(30)]
     p95, _bad = console_timing.under_load(one_slow, [*fast_paths, "/slow"], users=2, rounds=2)
     assert p95 >= 0.05  # the slow page is not hidden among thirty fast ones
+
+
+@pytest.mark.timeout(60)
+def test_a_load_the_host_cannot_start_fails_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    # TB-08: fewer threads than clients (the host would start no more): the started ones do not wait forever
+    monkeypatch.setattr(console_timing, "START_S", 0.5)
+    real = console_timing.ThreadPoolExecutor
+    monkeypatch.setattr(console_timing, "ThreadPoolExecutor", lambda max_workers: real(max_workers=2))
+    with pytest.raises(console_timing.LoadNotGenerated, match="25 clients"):
+        console_timing.under_load(lambda _p: (200, {}), ["/home"], users=25, rounds=1)
+
+    class NoThirdThread(real):
+        def submit(self, *args: Any, **kwargs: Any) -> Any:
+            if len(self._threads) == 2:
+                raise RuntimeError("can't start new thread")
+            return super().submit(*args, **kwargs)
+
+    monkeypatch.setattr(console_timing, "ThreadPoolExecutor", NoThirdThread)
+    with pytest.raises(console_timing.LoadNotGenerated, match="25 clients"):
+        console_timing.under_load(lambda _p: (200, {}), ["/home"], users=25, rounds=1)

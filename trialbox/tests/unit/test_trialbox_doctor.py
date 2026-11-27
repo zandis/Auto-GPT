@@ -416,3 +416,29 @@ def test_the_console_held_dir_is_set_on_a_tmpfs(tmp_path: Path) -> None:
     (tmp_path / "docker-compose.yml").write_text("services: {console: {tmpfs: [/tmp]}}\n", encoding="utf-8")
     assert status(doctor.run(inputs(deploy=tmp_path)), "console_held").status == "FAIL"
     assert status(doctor.run(inputs(deploy=tmp_path / "gone")), "console_held").status == "FAIL"
+
+
+def test_the_console_held_dir_is_judged_by_its_own_mount(tmp_path: Path) -> None:
+    # TB-07: /tmp is a tmpfs, but a disk volume is mounted at the held folder itself (or a path leaves the tmpfs)
+    env = {"TB_CONSOLE_HELD_DIR": "/tmp/held"}
+    for volumes in (["held:/tmp/held"], ["./site/held:/tmp/held:rw"], [{"type": "volume", "target": "/tmp/held"}],
+                    ["/tmp/held"]):  # fmt: skip
+        console = {"tmpfs": ["/tmp"], "volumes": volumes, "environment": env}
+        got = status(doctor.run(inputs(compose_config={"services": {"console": console}})), "console_held")
+        assert got.status == "FAIL" and "/tmp/held" in got.detail, volumes
+    console = {"tmpfs": ["/tmp"], "volumes": ["data:/data", {"type": "tmpfs", "target": "/tmp/held"}]}
+    for held, want in (("/tmp/held", "PASS"), ("/tmp/../data", "FAIL")):
+        got = status(doctor.run(inputs(compose_config={"services": {"console": {**console,
+                     "environment": {"TB_CONSOLE_HELD_DIR": held}}}})), "console_held")  # fmt: skip
+        assert got.status == want, held
+
+
+def test_the_console_held_check_never_echoes_a_compose_line(tmp_path: Path) -> None:
+    # TB-10: a malformed override with a secret on the bad line: the file, line and column, never the line itself
+    (tmp_path / "docker-compose.yml").write_text("services: {console: {tmpfs: [/tmp]}}\n", encoding="utf-8")
+    (tmp_path / "bad.yml").write_text("services:\n  console:\n    environment: {PGPASSWORD: hunter2-token\n",
+                                      encoding="utf-8")  # fmt: skip
+    env = {"TB_ENV": "DEV", "COMPOSE_FILE": "docker-compose.yml:bad.yml"}
+    got = status(doctor.run(inputs(deploy=tmp_path, env=env)), "console_held")
+    assert got.status == "FAIL" and "bad.yml" in got.detail and "line " in got.detail, got.detail
+    assert "hunter2" not in got.detail and "PGPASSWORD" not in got.detail
