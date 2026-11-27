@@ -416,19 +416,20 @@ def measured_floors(
     caps: dict[str, float], defaults: dict[str, float], floor: dict[str, float], n: int, said: list[str]
 ) -> tuple[dict[str, float], list[str]]:
     """E2E P-02: a cap below its ``floor`` (HEADROOM times the measured peak for a hospital of ``n`` patients) is
-    raised to it, the other caps giving the same memory back in their proportions, so the total stays what the machine
-    has. When that would put another service under :data:`MIN_SERVICE_SHARE` of its default, the caps stay as they
-    were and a note says so: the machine's caps do not hold a hospital of that size (``(caps, notes)``, in GiB)."""
+    raised to it, the other caps giving the same memory back from what each has above its own lowest (its floor, and
+    :data:`MIN_SERVICE_SHARE` of its default), in proportion to that surplus, so the total stays what the machine has.
+    When the surplus of all of them is less than what is missing, the caps stay as they were and a note says so: the
+    machine's caps do not hold a hospital of that size (``(caps, notes)``, in GiB)."""
     floor = {k: f for k, f in floor.items() if k in caps}
-    if all(caps[k] >= f for k, f in floor.items()):
+    short = {k: floor[k] - caps[k] for k in floor if caps[k] < floor[k]}
+    if not short:
         return caps, said
-    held = {k: max(caps[k], f) for k, f in floor.items()}  # held together: none gives memory to another
-    rest = {k: v for k, v in caps.items() if k not in held}
-    share = (sum(caps.values()) - sum(held.values())) / sum(rest.values())
-    if share > 0 and min(v * share / defaults[k] for k, v in rest.items()) >= MIN_SERVICE_SHARE:
-        return {k: v * share for k, v in rest.items()} | held, said
-    low = sorted(k for k, f in floor.items() if caps[k] < f)
-    under = ", ".join(f"{k} {int(caps[k] * 1024)}m < {int(floor[k] * 1024)}m" for k in low)
+    spare = {k: caps[k] - max(MIN_SERVICE_SHARE * defaults[k], floor.get(k, 0.0)) for k in caps if k not in short}
+    spare = {k: v for k, v in spare.items() if v > 0}
+    if sum(short.values()) <= sum(spare.values()):
+        take = sum(short.values()) / sum(spare.values())
+        return {k: caps[k] + short.get(k, 0.0) - spare.get(k, 0.0) * take for k in caps}, said
+    under = ", ".join(f"{k} {int(caps[k] * 1024)}m < {int(floor[k] * 1024)}m" for k in sorted(short))
     return caps, [
         *said,
         f"memory: {under} ({memcaps.HEADROOM:g} x the measured peak for {n:,} patients): this machine's caps do not "

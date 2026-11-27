@@ -8,6 +8,9 @@ size (the cap-from-peak rule)."""
 
 from __future__ import annotations
 
+import dataclasses
+import math
+import shutil
 from pathlib import Path
 
 import pytest
@@ -94,3 +97,60 @@ def test_doctor_fails_the_default_adapter_cap_for_a_100k_hospital() -> None:
     env = {"TB_ENV": "PRODUCTION", "TB_SITE_PATIENTS": "100000", "TB_MEM_ADAPTER": "6g"}
     c = doctor.check_memory_caps(doctor.DoctorInputs(env=env, deploy=ROOT / "deploy"))
     assert c.status == "FAIL" and "TB_MEM_ADAPTER 6144 MB <" in c.detail, c.detail
+
+
+# ------------------------------------------------------------------------------------------------ round 2 (review)
+def test_doctor_fails_an_undersized_orchestrator_when_the_other_caps_hold() -> None:
+    """R1: the orchestrator at 100,000 patients is sized by the ladder line (8.4 GiB), under 1.5 x its 11.77 GiB night."""
+    from tools.trialbox import doctor
+
+    floor = math.ceil(memcaps.HEADROOM * memcaps.peak_mib(PEAKS, "TB_MEM_ORCH", 100_000))
+    env = {"TB_ENV": "PRODUCTION", "TB_SITE_PATIENTS": "100000", "TB_MEM_ADAPTER": "11g", "TB_MEM_LAKE": "9g"}
+    ok = doctor.check_memory_caps(doctor.DoctorInputs(env={**env, "TB_MEM_ORCH": f"{floor}m"}, deploy=ROOT / "deploy"))
+    assert ok.status == "PASS", ok.detail
+    c = doctor.check_memory_caps(doctor.DoctorInputs(env={**env, "TB_MEM_ORCH": "12g"}, deploy=ROOT / "deploy"))
+    assert c.status == "FAIL" and f"TB_MEM_ORCH 12288 MB < {floor} MB" in c.detail, c.detail
+
+
+def test_memcaps_needs_hold_each_measured_service_s_floor() -> None:
+    orch = memcaps.load_orch_record(ROOT / "deploy" / "measured" / "orchestrator_memory.json")
+    need = memcaps.need_mb(100_000, memcaps.load_record(), {}, orch=orch, peaks=PEAKS)
+    for svc, var in {**memcaps.CAPS, memcaps.ORCH: memcaps.ORCH_VAR}.items():
+        assert need[svc] >= math.ceil(memcaps.HEADROOM * memcaps.peak_mib(PEAKS, var, 100_000)), (svc, need)
+
+
+def test_a_measured_surplus_is_the_donor_when_the_other_service_is_short() -> None:
+    """R2: A is short of its floor; L holds a surplus; X cannot give (its half share is above what it has left)."""
+    caps = {"A": 10.0, "L": 8.0, "X": 5.0}
+    defaults = {"A": 6.0, "L": 6.0, "X": 20.0}
+    got, said = bp.measured_floors(caps, defaults, {"A": 12.0, "L": 2.0}, 100_000, [])
+    assert got == {"A": 12.0, "L": 6.0, "X": 5.0} and said == [], (got, said)
+    none, said = bp.measured_floors(caps, defaults, {"A": 20.0, "L": 2.0}, 100_000, [])  # all spare is 5: not enough
+    assert none == caps and len(said) == 1
+
+
+def test_the_extrapolation_never_falls_below_the_largest_measured_peak() -> None:
+    """R3: peaks 7,000 then 4,000 MiB: 100,001 patients must not get less than 100,000 does."""
+    peaks = [(50_000, {"A": 7000.0}), (100_000, {"A": 4000.0})]
+    assert memcaps.peak_mib(peaks, "A", 100_000) == 7000
+    assert memcaps.peak_mib(peaks, "A", 100_001) == 7000 and memcaps.peak_mib(peaks, "A", 200_000) == 7000
+
+
+def test_the_plan_hands_the_sites_size_to_the_caps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """R4: a 100,000-patient ``.env`` through ``bp.plan``: the caps are the 100k class's, and the size is emitted."""
+    from tb_common.box_answers import parse
+
+    from tests.unit.test_site_country import HW, OWNER
+
+    a, problems = parse(OWNER)
+    assert a is not None, problems
+    monkeypatch.delenv("TB_SITE_PATIENTS", raising=False)
+    deploy = tmp_path / "deploy"
+    shutil.copytree(ROOT / "deploy", deploy, ignore=shutil.ignore_patterns(".env"))
+    hw = dataclasses.replace(HW, ram_gib=96.0)  # room for the 100k class's caps, not by the shared rule alone
+    base = bp.plan(a, hw, deploy).env_extra
+    assert "TB_SITE_PATIENTS" not in base and _mib(base["TB_MEM_ORCH"]) < 1.5 * 12053  # the smallest class
+    (deploy / ".env").write_text("TB_ENV=PRODUCTION\nTB_SITE_PATIENTS=100000\n", encoding="utf-8")
+    env = bp.plan(a, hw, deploy).env_extra
+    assert env["TB_SITE_PATIENTS"] == "100000"
+    assert _mib(env["TB_MEM_ADAPTER"]) >= 1.5 * 6769 and _mib(env["TB_MEM_ORCH"]) >= 1.5 * 12053, env

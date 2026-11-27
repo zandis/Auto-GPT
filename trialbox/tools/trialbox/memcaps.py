@@ -122,7 +122,8 @@ def load_peaks(path: Path) -> list[tuple[int, dict[str, float]]]:
 def peak_mib(peaks: Sequence[tuple[int, Mapping[str, float]]], var: str, n: int) -> float:
     """E2E P-02: the measured peak of the service capped by ``var`` (MiB) for a hospital of ``n`` patients: that of the
     nearest size class of at least ``n`` patients that measured it, never below a smaller class's. Above the largest
-    such class, the line through the two largest (one: its peak), never below the largest; 0 when none measured it."""
+    such class, the line through the two largest (one: its peak), never below the largest measured peak; 0 when none
+    measured it."""
     have = [(p, row[var]) for p, row in peaks if var in row]
     if not have:
         return 0.0
@@ -132,7 +133,7 @@ def peak_mib(peaks: Sequence[tuple[int, Mapping[str, float]]], var: str, n: int)
     if len(have) == 1:
         return have[0][1]
     (a, pa), (b, pb) = have[-2:]
-    return pb + max(0.0, (pb - pa) / (b - a)) * (n - b)
+    return max(*(mib for _, mib in have), pb + (pb - pa) / (b - a) * (n - b))
 
 
 def load_orch_record(path: Path = ORCH_RECORD) -> dict[str, Any]:
@@ -169,9 +170,9 @@ def need_mb(
     peaks: Sequence[tuple[int, Mapping[str, float]]] = (),
 ) -> dict[str, int]:
     """The cap each service needs for ``n`` patients, in MB, never below its compose default (the orchestrator's
-    too, when its record ``orch`` is given; its default the profile ``overlay``'s when that names one; the adapter's
-    at least HEADROOM times its measured peak for ``n`` in ``peaks``: its whole night, validator and FHIR load
-    included, where the ingest record measured the streamed write alone)."""
+    too, when its record ``orch`` is given; its default the profile ``overlay``'s when that names one); each measured
+    service's at least HEADROOM times its peak for ``n`` in ``peaks`` (the adapter's whole night, validator and FHIR
+    load included, where the ingest record measured the streamed write alone)."""
     out: dict[str, int] = {}
     orch_mb: int | None = None
     if orch is not None:
@@ -184,12 +185,12 @@ def need_mb(
         if svc == "adapter":
             heap = size_mb(env.get("TB_VALIDATOR_XMX") or _validator_default(compose))
             mb = (python + heap) * SORT_SHARE / (SORT_SHARE - 1)
-            mb = max(mb, HEADROOM * peak_mib(peaks, var, n))  # E2E P-02: the 50k night was killed at 3,520 MiB
         else:
             mb = python / (1 - LAKE_DUCKDB_SHARE)
+        mb = max(mb, HEADROOM * peak_mib(peaks, var, n))  # E2E P-02: the 50k night was killed at 3,520 MiB
         out[svc] = max(math.ceil(mb), size_mb(compose_default(var, compose)))
     if orch_mb is not None:
-        out[ORCH] = orch_mb
+        out[ORCH] = max(orch_mb, math.ceil(HEADROOM * peak_mib(peaks, ORCH_VAR, n)))  # 100k's SCREEN: 11.77 GiB
     return out
 
 
