@@ -155,6 +155,10 @@ REFUSED_BEFORE_SENDING = (
 # LIMIT_WAIT_S.
 RETRY_BASE_S = 60
 RETRY_MAX_S = 3600
+NO_RELAY = (
+    "no mail is sent: the hospital's mail relay (SMTP_HOST) is not given yet; IT gives it on the page "
+    '"Information still needed"'
+)
 MAX_ATTEMPTS = 12
 SENDING_STALE_S = 900
 LIMIT_WAIT_S = 3600
@@ -199,6 +203,9 @@ class Gateway:
     mail_rights: egress_edge.Rights | None = None  # M3: who a patient file may go to now, and who asked for it
     #: 1523 ruling: the job's record of the files it built; None (not wired) or no answer: no file is vouched for
     outputs_made: OutputsMade | None = None
+    #: E2E P-10: the box has a mail relay (SMTP_HOST). Without one nothing can be sent in any environment: the mail
+    #: waits, the try not counted, as the page "Information still needed" says (the stand-in of ``mail_relay``)
+    relay: bool = True
 
     @property
     def sender(self) -> str:
@@ -275,7 +282,7 @@ class Gateway:
         why = self._still_current(req)
         if why in (OPTED_OUT, NO_JOB) or (why and rc1_refusals.refused("patient_mail_and_downloads")):  # held at once
             return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
-        needed = self._site_needs()  # after the refusals that end a mail: those stay final (rc1, D-863)
+        needed = self._site_needs() or ("" if self.relay else NO_RELAY)  # after the final refusals (rc1, D-863)
         if needed:  # U-5: the mail waits, the try not counted, and goes once the page is filled in (D-1280)
             return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S)
         if why:  # not known now: tried again with back-off, counted, and failed for a person at the limit

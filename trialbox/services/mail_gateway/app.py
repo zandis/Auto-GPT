@@ -63,10 +63,21 @@ def gateway() -> Gateway:
             # D-369 (OD-1): a password zip for patient files only on a synthetic box
             allow_phi_zip=environment_name(os.environ) in ("DEV", "TEST"),
             per_recipient_per_day=int(os.environ.get("TB_MAIL_PER_RECIPIENT_PER_DAY", "") or PER_RECIPIENT_PER_DAY),
+            relay=relay_given(os.environ),  # E2E P-10: no relay given, no send tried (Env says localhost then)
         )
         # H-137: a start that speaks to a mail server without a verified certificate says so in the audit
         tls.audit_modes(_gw.audit, env, imap_used=bool(env.imap_user))
     return _gw
+
+
+def relay_given(environ: Any) -> bool:
+    """E2E P-10: SMTP_HOST was given. Unset, the config falls back to localhost, where nothing listens on a box."""
+    return bool((environ.get("SMTP_HOST") or "").strip())
+
+
+def imap_given(environ: Any) -> bool:
+    """E2E P-10: IMAP_HOST was given; without it (localhost then) every poll failed, once a minute."""
+    return bool((environ.get("IMAP_HOST") or "").strip())
 
 
 def outbox_loop(gw: Gateway, stop: threading.Event, interval: float) -> None:
@@ -85,7 +96,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     stop = threading.Event()
     interval = float(os.environ.get("TB_MAIL_POLL_SECONDS", "60"))
     threads: list[threading.Thread] = []
-    if interval > 0 and gateway().cfg.env.imap_user:
+    if interval > 0 and gateway().cfg.env.imap_user and imap_given(os.environ):
         threads.append(threading.Thread(target=gateway().loop, args=(stop, interval), name="imap-poll", daemon=True))
     if interval > 0:
         threads.append(
