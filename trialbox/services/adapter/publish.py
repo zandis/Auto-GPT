@@ -90,6 +90,7 @@ ENDED = (DONE, SKIPPED)
 BUSY_ERROR = "lake busy: the night is run again once the lake is free (nothing was written)"
 FHIR_STATE = "FHIR_STATE"  # beside CURRENT: the FHIR store's state (P-03); never in a night's folder
 FHIR_LOCK = "fhir.lock"  # beside CURRENT: held across every FHIR write and every move of FHIR_STATE
+FHIR_OWED = "FHIR_OWED"  # beside FHIR_STATE: every id a put-back owes a DELETE of, kept until one verified (D4)
 CLEAN, ROLLBACK, RESTORING = "clean", "rollback-required", "restoring"
 FHIR_BUSY_ERROR = "fhir store busy: another publish or recovery holds it (nothing was written)"
 _PROCESS_START = datetime.now(UTC).isoformat(timespec="seconds")  # diagnostic only (FHIR_STATE ``by``)
@@ -153,9 +154,32 @@ def read_record(folder: Path) -> dict[str, Any]:
 
 
 def _write_record(folder: Path, rec: dict[str, Any]) -> None:
-    tmp = folder / f"{RECORD}.tmp"
-    tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(folder / RECORD)
+    # durable like FHIR_STATE (review D1): a record written before the marker is on disk before it, power cut or not
+    _durable(folder / RECORD, json.dumps(rec, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+
+
+def _durable(path: Path, text: str) -> None:
+    """Write ``path`` atomically and durably: the file, then its folder, are synced, so two such writes reach the
+    disk in their order. Every durable write of the publish and of the recovery ends in :func:`_checkpoint`."""
+    tmp = path.with_name(f"{path.name}.tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    _checkpoint(path.name)
+
+
+def _checkpoint(name: str) -> None:
+    """A durable write of the publish or the recovery path (``name``: the file, the store or the lake) has just
+    ended. Nothing is done here: the crash-point test kills the night at every one in turn and checks that the
+    marker is owed or that the store, the records and ``CURRENT`` describe one night
+    (``tests/unit/test_killed_fhir_load.py``)."""
 
 
 def _now() -> str:
@@ -237,6 +261,7 @@ def _recover(cfg: AdapterConfig, snap: str, aside: Path) -> str:
         else:
             final_dir.rename(rerun_dir)
     aside.rename(final_dir)
+    _checkpoint("served folder put back")
     log.warning("publish of %s was interrupted in its lake step: the served folder is put back", snap)
     if steps.get("fhir") == DONE and cfg.fhir_base_url and rerun_dir.is_dir() and read_record(rerun_dir):
         again = read_record(rerun_dir)
@@ -269,19 +294,25 @@ def _recover_all(cfg: AdapterConfig) -> list[str]:
 
 # ------------------------------------------------------------------------------- the FHIR store's state (P-03)
 def read_state(cfg: AdapterConfig) -> dict[str, Any]:
-    """``FHIR_STATE``. No file: ``clean`` with the served night and ``counts`` None (a box from before the file:
-    :func:`_first_verify` checks it once). A file that cannot be read is ``rollback-required``: nothing is known."""
+    """``FHIR_STATE``. No file and a loader that never sent this box a resource (it widens its ledger before it
+    sends: no ledger, none sent): ``clean`` with the served night and ``counts`` None. No file beside a ledger (a box
+    from before the file, never checked: :func:`_first_verify` puts it back once), a file that cannot be read or one
+    without its state or night: ``rollback-required`` (review D3: what is not known is never clean)."""
     path = cfg.lake_dir / FHIR_STATE
+    served = _current(cfg.lake_dir) or ""
+    reason = f"{FHIR_STATE} cannot be read"
     try:
         st = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"version": 1, "state": CLEAN, "night": _current(cfg.lake_dir) or "", "counts": None}
+        if not _ledger_types(cfg):
+            return {"version": 1, "state": CLEAN, "night": served, "counts": None}
+        st, reason = None, f"no {FHIR_STATE} yet: the store was never checked on this box"
     except (OSError, ValueError):
         st = None
-    if not isinstance(st, dict) or st.get("state") not in (CLEAN, LOADING, ROLLBACK, RESTORING):
-        served = _current(cfg.lake_dir) or ""
+    known = (CLEAN, LOADING, ROLLBACK, RESTORING)
+    if not isinstance(st, dict) or st.get("state") not in known or not isinstance(st.get("night"), str):
         return {"version": 1, "state": ROLLBACK, "night": served, "target": served, "attempts": 0,
-                "reason": f"{FHIR_STATE} cannot be read", "since": _now(), "last_error_at": _now()}  # fmt: skip
+                "reason": reason, "since": _now(), "last_error_at": _now()}  # fmt: skip
     return st
 
 
@@ -289,18 +320,7 @@ def _write_state(cfg: AdapterConfig, st: dict[str, Any]) -> dict[str, Any]:
     """Write ``FHIR_STATE`` atomically and durably (the file, then the folder, are synced). The caller holds
     ``fhir.lock``."""
     st = {**st, "version": 1, "updated_at": _now()}
-    path = cfg.lake_dir / FHIR_STATE
-    tmp = path.with_name(f"{FHIR_STATE}.tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        fh.write(json.dumps(st, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, path)
-    fd = os.open(cfg.lake_dir, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    _durable(cfg.lake_dir / FHIR_STATE, json.dumps(st, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
     return st
 
 
@@ -364,7 +384,9 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     loader is the only writer of these types (the terminology tools write terminology resources), so the store's
     count of a type is this box's. Returns the counts; :class:`FhirMismatch` names what differs (types and counts,
     no resource's content). A store that does not answer raises the transport's error: not checked is not a
-    mismatch, and never clean."""
+    mismatch, and never clean. A count that is not a whole number of zero or more is no count (review D5): a
+    mismatch, never zero. Every request asks the store not to answer from its search cache (review Q3: HAPI reuses a
+    search's results for a while, so a count asked right after a put-back could be the one from before it)."""
     import httpx
 
     from adapter.load_fhir import delete_refs, snapshot_ids
@@ -377,11 +399,14 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     wrong: list[str] = []
     # one answer of the store is bounded as the loader bounds one of its transactions (listed: load_fhir.py)
     bound = inspect.signature(delete_refs).parameters["timeout"].default
-    with httpx.Client(timeout=bound) as client:
+    with httpx.Client(timeout=bound, headers={"Cache-Control": "no-cache"}) as client:
         for t in types:
             resp = client.get(f"{base}/{t}", params={"_summary": "count"})
             resp.raise_for_status()
-            counts[t] = int(resp.json().get("total") or 0)
+            total = resp.json().get("total")
+            if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+                raise FhirMismatch(f"{t}: the store gave no count")
+            counts[t] = total
             if counts[t] != len(want.get(t, ())):
                 wrong.append(f"{t}: store {counts[t]}, night {len(want.get(t, ()))}")
             elif ids and counts[t]:
@@ -406,9 +431,12 @@ def _ids_hash(ids: Iterable[str]) -> str:
 
 def _first_verify(cfg: AdapterConfig) -> None:
     """A box from before ``FHIR_STATE`` (no file): the store is checked once against the served night, ids
-    included. It passes: ``clean``; it does not: ``rollback-required`` (the put-back follows). A store that does
-    not answer leaves it unchecked (no file: checked again by the next call; nothing calls it clean). The caller
-    holds ``fhir.lock``."""
+    included, and then put back to it (``rollback-required``; :func:`restore_fhir` follows), whatever the check
+    said: ids that match are not values that match (review D2: a load of the earlier version that was interrupted
+    may have changed a resource under an id the night has; a put-back of every resource is cheaper than reading each
+    back), and a check without an answer is no check (review D3). Only a check that passed on a box whose loader
+    never sent it a resource (no ledger: it widens the ledger before it sends) is ``clean`` at once. The check's
+    words are the reason. The caller holds ``fhir.lock``."""
     if (cfg.lake_dir / FHIR_STATE).exists():
         return
     served = _current(cfg.lake_dir) or ""
@@ -420,12 +448,15 @@ def _first_verify(cfg: AdapterConfig) -> None:
     try:
         counts = verify_fhir(cfg, folder, ids=True)
     except FhirMismatch as exc:
-        _rollback(cfg, st, f"first check of the store: {exc}")
-        return
+        why = f"first check of the store: {exc}"
     except Exception as exc:
-        log.warning("the FHIR store is not checked yet (%s): the next ingest or publish checks it", type(exc).__name__)
-        return
-    _write_state(cfg, {"state": CLEAN, "night": served, "verified_at": _now(), "counts": counts})
+        why = f"first check of the store got no answer ({type(exc).__name__})"
+    else:
+        if not _ledger_types(cfg):
+            _write_state(cfg, {"state": CLEAN, "night": served, "verified_at": _now(), "counts": counts})
+            return
+        why = "first check of the store: its ids are the served night's, its values are not compared: put back once"
+    _rollback(cfg, st, why)
 
 
 def restore_fhir(cfg: AdapterConfig) -> None:
@@ -448,26 +479,53 @@ def restore_fhir(cfg: AdapterConfig) -> None:
     if served and not target.is_dir():
         st = _rollback(cfg, st, "served night folder missing", target=served)
         raise FhirRestoreOutstanding(outstanding(st))
-    also = _ledger_types(cfg)  # the types the killed load may have left; the put-back rewrites the ledger
     st = _write_state(cfg, {**st, "state": RESTORING, "target": served or "", "by": _me()})
     try:
+        also = _owe(cfg)  # review D4: what the put-back owes a DELETE of is on disk before the first DELETE
         _fhir_put_back(cfg, target)
+        _checkpoint("FHIR store put back")
         counts = verify_fhir(cfg, target, ids=True, also=also)
     except Exception as exc:  # a mismatch's words are types and counts; any other error's text is not kept
         st = _rollback(cfg, st, str(exc) if isinstance(exc, FhirMismatch) else failure.words(exc), failed=True)
         log.error("%s", outstanding(st))
         raise FhirRestoreOutstanding(outstanding(st)) from exc
-    _write_state(cfg, {"state": CLEAN, "night": served or "", "verified_at": _now(), "counts": counts})
+    # review D1: the records of the nights whose load was undone first, the marker last, so a kill between leaves
+    # it owed. Every night not served whose FHIR step was loaded (review D1 of the second reviewer: a night whose
+    # lake step was skipped too, it is not served)
     home = snapshot_dir(cfg.lake_dir, "-").parent
     for f in sorted(f for f in [*home.glob("*"), *(cfg.lake_dir / RERUN_DIR).glob("*")] if f.is_dir()):
         rec = read_record(f)
         steps = rec.get("steps") or {}
-        if steps.get("fhir") in (LOADING, DONE, FAILED) and steps.get("lake") not in ENDED:
+        if steps.get("fhir") in (LOADING, DONE, FAILED) and steps.get("lake") != DONE:
             rec["steps"] = {**steps, "fhir": PENDING}
             _write_record(f, rec)
+    _write_state(cfg, {"state": CLEAN, "night": served or "", "verified_at": _now(), "counts": counts})
+    (cfg.lake_dir / FHIR_OWED).unlink(missing_ok=True)
+    _checkpoint(f"{FHIR_OWED} removed")
     log.warning("the FHIR store is back to %s (after the load of %s)",
                 f"the served night {served}" if served else "nothing (no night is served yet)",
                 st.get("night") or "an earlier night")  # fmt: skip
+
+
+def _owe(cfg: AdapterConfig) -> set[str]:
+    """``FHIR_OWED``: every id the ledger knows now, with those an earlier put-back owed and did not verify, synced
+    to disk; the ledger is widened with them, so the put-back deletes each one the served night lacks. A put-back
+    rewrites the ledger to the night it loaded, so without this a DELETE the store answered and did not do is
+    never sent again, and a type the night lacks is not even checked (review D4). Returns the owed types (the
+    check covers them all). Removed once a put-back verified."""
+    from adapter.load_fhir import _read_ledger, _write_ledger
+
+    ledger = cfg.lake_dir / "fhir_ledger"
+    known = _read_ledger(ledger)
+    path = cfg.lake_dir / FHIR_OWED
+    owed: dict[str, list[str]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    for t, ids in owed.items():
+        rows = known.setdefault(t, {})
+        for i in ids:
+            rows.setdefault(i, "")
+    _durable(path, json.dumps({t: sorted(r) for t, r in sorted(known.items())}) + "\n")
+    _write_ledger(ledger, known)
+    return set(known)
 
 
 def _empty_night(cfg: AdapterConfig) -> Path:
@@ -566,6 +624,7 @@ def publish_night(
             out.steps = {s: PENDING for s in STEPS}
             out.lake_busy = True
             out.errors.append(FHIR_BUSY_ERROR)
+            out.promoted = _current(cfg.lake_dir) == snap  # review D6: read from CURRENT on this way out too
             return out
         return _publish_locked(cfg, snap, night_dir, out, last_good=last_good, load_fhir=load_fhir,
                                rebuild_lake=rebuild_lake, on_step=on_step)  # fmt: skip
@@ -724,6 +783,8 @@ def _publish_locked(
     if todo("omop"):  # T-106 (D-339): its refusal or failure never holds the night; None: the flag is off
         out.omop = load_night(cfg, snap, night_dir)
         note("omop", DONE if out.omop is not None else SKIPPED)
+    touched = False  # this call loaded the FHIR store or promoted the night (review D7: else the end check is owed only
+    # when the marker does not say the night is checked already)
     if todo("fhir"):
         if fhir_on:
             # P-03: what a kill in the load leaves, in the box-level marker (the record's step is not the evidence)
@@ -744,7 +805,9 @@ def _publish_locked(
                 note("fhir", FAILED)
                 fhir_back("load failed")  # what was loaded before the failure does not stay
                 return end()
+            _checkpoint("FHIR store loaded")
             note("fhir", DONE)
+            touched = True
         else:
             note("fhir", SKIPPED)
     if todo("lake"):
@@ -784,7 +847,9 @@ def _publish_locked(
                 stale(_current(cfg.lake_dir), "lake")
                 fhir_back("a newer night was promoted")
                 return end()
+            _checkpoint("lake promoted")
             note("lake", DONE)
+            touched = True
         elif lake_on:
             assert cfg.rebuild is not None
             if rerun:  # the re-run takes the served folder's place for the build; put back unless it ends well
@@ -795,6 +860,7 @@ def _publish_locked(
                     final_dir.rename(aside)
                 night_dir.rename(final_dir)
                 out.out_dir = final_dir
+                _checkpoint("re-run swapped in")
 
             def put_back() -> None:
                 if not rerun:
@@ -803,6 +869,7 @@ def _publish_locked(
                 if aside.exists():
                     aside.rename(final_dir)
                 out.out_dir = night_dir
+                _checkpoint("re-run swapped out")
 
             try:
                 out.lake = cfg.rebuild(snap, final_dir)
@@ -814,6 +881,7 @@ def _publish_locked(
             except BaseException:  # the process is dying mid-step: leave the served folder as it was
                 put_back()
                 raise
+            _checkpoint("lake promoted")
             now_served = _current(cfg.lake_dir)
             if now_served is not None and now_served > snap:  # built, not promoted: a newer night is served now
                 put_back()
@@ -821,13 +889,20 @@ def _publish_locked(
                 fhir_back("a newer night is served")
                 return end()
             note("lake", DONE)
+            touched = True
         else:
             note("lake", SKIPPED)
         shutil.rmtree(aside, ignore_errors=True)
-    if fhir_on and _current(cfg.lake_dir) == snap:  # P-03: the store is clean only once checked against the night
+    # P-03: the store is clean only once checked against the night the lake serves (review D1 of the second reviewer,
+    # Q1: its folder, and only when this night's lake step put it there; a skipped lake step serves nothing, so the
+    # marker stays ``loading`` and the next recovery puts the store back). A call that loaded and promoted nothing,
+    # over a marker that says this night is checked, checks nothing and writes nothing (review D7)
+    st = read_state(cfg)
+    checked = st["state"] == CLEAN and st.get("night") == snap
+    if fhir_on and steps["lake"] == DONE and _current(cfg.lake_dir) == snap and (touched or not checked):
         try:
             _write_state(cfg, {"state": CLEAN, "night": snap, "verified_at": _now(),
-                               "counts": verify_fhir(cfg, out.out_dir)})  # fmt: skip
+                               "counts": verify_fhir(cfg, snapshot_dir(cfg.lake_dir, snap))})  # fmt: skip
         except Exception as exc:  # not the night, or not checked: the night is served, the next recovery puts the
             # store back to it (an unchecked store is never clean)
             why = str(exc) if isinstance(exc, FhirMismatch) else f"the check got no answer ({type(exc).__name__})"
@@ -845,10 +920,12 @@ def _publish_locked(
             out.errors.append(f"pid map write failed: {type(exc).__name__}")
             note("pidmap", FAILED)
             return end()
+        _checkpoint("pid map committed")
         note("pidmap", DONE)
     # D-271: the only NDJSON a later delta night may merge over; written last, after every step
     (out.out_dir / PASSED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
     (out.out_dir / HELD_FILE).unlink(missing_ok=True)
+    _checkpoint(PASSED)
     return end()
 
 

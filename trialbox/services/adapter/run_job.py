@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         from adapter import failure
         from adapter.cli import build_config
         from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
-        from adapter.publish import FhirRestoreOutstanding
+        from adapter.publish import FhirRestoreOutstanding, RecoveryBusy
 
         setup_logging("adapter")
         prefer_me_when_memory_runs_out()  # a night can be run again; the service's requests cannot
@@ -69,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
             end = {"state": "refused", "detail": str(exc)}
+        except RecoveryBusy as exc:  # P-03: another publish or recovery holds the FHIR store: nothing is published
+            end = {"state": "refused", "detail": f"night refused: {exc}"}
         except Exception as exc:
             failure.log_failure(log, f"ingest run {state.get('run')} failed", exc)
             end = {"state": "failed", "detail": failure.words(exc, str(state.get("run") or ""))}  # D-668

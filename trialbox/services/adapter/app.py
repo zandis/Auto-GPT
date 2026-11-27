@@ -40,7 +40,7 @@ from tb_contracts import IngestRequest, dump
 from adapter import failure, runs
 from adapter.cli import build_config
 from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
-from adapter.publish import FhirRestoreOutstanding
+from adapter.publish import FhirRestoreOutstanding, RecoveryBusy
 
 log = logging.getLogger("adapter")
 
@@ -256,6 +256,8 @@ def run(req: IngestRequest) -> JSONResponse:
             end.update(state="refused", detail=f"night refused: {exc}")
         except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
             end.update(state="refused", detail=str(exc))
+        except RecoveryBusy as exc:  # P-03: another publish or recovery holds the FHIR store: nothing is published
+            end.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)
             end.update(state="failed", detail=failure.words(exc, rid))  # D-668: the type, never a foreign text
