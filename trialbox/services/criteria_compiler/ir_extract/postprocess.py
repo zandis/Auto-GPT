@@ -561,6 +561,7 @@ def postprocess(
                 res.needs_review,
                 families=res.families,
                 ingredients=getattr(term, "ingredients", None) if cand.domain == "medication" else None,
+                open_families=res.open_families,
             )
             if res.method == "none":
                 warnings.append(f"concept '{cand.name}' ({cand.domain}) could not be mapped")
