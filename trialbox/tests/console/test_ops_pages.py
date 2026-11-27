@@ -204,6 +204,7 @@ def test_operations_pages_in_three_languages(ob: dict[str, Any], lang: str) -> N
 
 
 # ---------------------------------------------------------------------------------------------- J-14: accounts
+@pytest.mark.usefixtures("held_dir")
 def test_reset_asks_first_and_disable_has_an_undo(box: dict[str, Any]) -> None:  # noqa: F811
     box["users"].create("nurse.lin", "coordinator", PW, "lin@hospa.test")
     c, csrf = login(box["app"])

@@ -50,7 +50,7 @@ class HeldUnset(PermissionError):
 
 class Held:
     def __init__(self, name: str, ttl: float, root: Path | None) -> None:
-        self.name, self.ttl, self._dir = name, ttl, -1
+        self.name, self.ttl, self.unset = name, ttl, root is None
         if root is None:
             return
         self.folder = root / f"tb-console-held-{os.getuid()}-{name}"
@@ -75,7 +75,7 @@ class Held:
 
     def ready(self) -> None:
         """Raise :class:`HeldUnset` when nothing can be kept, before an action whose result would be lost."""
-        if self._dir < 0:
+        if self.unset:
             raise HeldUnset(f"TB_CONSOLE_HELD_DIR is unset: the {self.name} store refuses (set it to a tmpfs)")
 
     @contextlib.contextmanager

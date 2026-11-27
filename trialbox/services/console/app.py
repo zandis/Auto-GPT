@@ -1354,7 +1354,8 @@ def create_app(
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
-        made, pw, _ = one_time.pop(sess.token_sha) or ("", "", 0.0)
+        # P2-11: unset (TB_CONSOLE_HELD_DIR), nothing was kept, so the page shows none and still serves
+        made, pw, _ = (None if one_time.unset else one_time.pop(sess.token_sha)) or ("", "", 0.0)
         pw, _, pw_code = pw.partition("\ncode:")  # E2E P-17: with the password, the code for the authenticator
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw

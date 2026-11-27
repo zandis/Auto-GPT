@@ -62,6 +62,7 @@ def test_admin_reaches_unlock_in_two_clicks_from_admin(ob: dict[str, Any]) -> No
     assert 'data-testid="tile-accounts-locked"' not in c.get("/admin").text
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_accounts_tile_links_identity_flags_and_the_report_and_users_rows_link_identity(ob: dict[str, Any]) -> None:
     c, _ = login(ob["app"])
     tile = _tile(c.get("/admin").text, "tile-accounts")
@@ -161,6 +162,7 @@ def test_end_date_rule() -> None:
             admin_accounts.end_date(role, "2027-11-12", today)
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_new_local_account_gets_an_end_date_within_twelve_months(ob: dict[str, Any]) -> None:
     us = ob["users"]
     c, csrf = login(ob["app"])
