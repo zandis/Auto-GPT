@@ -50,3 +50,7 @@ was added, widened or reworded. One reason per group:
 | trialbox-jvm | T-672 (PR #78) | CQL translator jars (`services/criteria_compiler/compile_cql/translator/pom.xml`): HL7 FHIR core 6.9.12, jackson 2.21.8, guava 33.7.2, commons-beanutils 1.11.0, httpcore5 5.4.4, ucum 1.0.10, opentelemetry 1.68.0, commons-compress 1.28.0, junit excluded; JRE `eclipse-temurin:21.0.13_9-jre` by digest | OSV on the resolved classpath (102 jars): 0 findings on 2026-11-10; the Trivy gate blocks for this image |
 | trialbox-demo | T-672 (PR #78) | the same translator jars | the Trivy gate blocks for this image |
 | mailhog/mailhog | T-673 (D-348) | MailHog (amd64 only, abandoned since 2020) replaced in the test profile by `axllent/mailpit:v1.33.1` by digest (amd64 and arm64), pinned in `deploy/images.lock` | MailHog's 1,590 findings are gone; Mailpit has one (row above, report mode) |
+
+**A fixable CRITICAL is a stop (release hygiene item 1, 2026-11-27).** In an image a bundle carries, a CRITICAL finding
+with a fixed version is never accepted by an allow-list entry, dated or not: the release gates fail and name it, and
+the image moves to the fixed version. A CRITICAL with no fix and a fixable HIGH keep the dated entries above.
