@@ -288,6 +288,12 @@ jobs:
         run: .venv/bin/python -m tools.twcore_check --json "$RUNNER_TEMP/twcore.json"
       - name: Five rulesets through the pinned jars and the CQL engine; the UTC-edge and censored cases
         run: .venv/bin/python -m tools.cql_path_check --json "$RUNNER_TEMP/cql-path.json"
+      # inv-j5 (review INVJ5-7): the visit-count test holds the SQL and the CQL to one answer. The unit shards skip its
+      # CQL half (no local engine there); here the engine is fetched, so a skip is a failure (TB_STRICT_SKIPS=1)
+      - name: A condition count counts visits, in SQL and CQL (no skip allowed)
+        run: |
+          env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_STRICT_SKIPS=1 TB_ENV=TEST \
+            .venv/bin/python -m pytest -q -n 0 -p no:cacheprovider tests/unit/test_visits_counted_once.py
       - name: Keep the results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

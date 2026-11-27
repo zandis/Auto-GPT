@@ -131,6 +131,16 @@ def test_the_nightly_runs_on_a_schedule_and_by_hand_with_every_job() -> None:
     assert "make bench-gate" in nightly
 
 
+def test_the_visit_count_equivalence_cannot_skip_in_ci() -> None:
+    """inv-j5 (review INVJ5-7): the unit shards have no local CQL engine, so test_visits_counted_once skips its CQL
+    half there. The standards job has the engine; it runs the file with no skip allowed, after the engine is fetched."""
+    wf = yaml.safe_load((ROOT.parent / ".github" / "workflows" / "trialbox-ci.yml").read_text(encoding="utf-8"))
+    steps = [str(s.get("run", "")) for s in wf["jobs"]["standards"]["steps"]]
+    fetch = next(i for i, r in enumerate(steps) if "tools.cql_eval --fetch" in r)
+    run = next(i for i, r in enumerate(steps) if "tests/unit/test_visits_counted_once.py" in r)
+    assert fetch < run and "TB_STRICT_SKIPS=1" in steps[run], steps[run]
+
+
 def _target_body(name: str) -> str:
     text = (ROOT / "Makefile").read_text(encoding="utf-8")
     return text[text.index(f"\n{name}:") :].split("\n\n", 1)[0]
