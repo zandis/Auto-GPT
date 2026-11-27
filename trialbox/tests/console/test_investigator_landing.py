@@ -51,6 +51,8 @@ def test_an_investigator_on_no_log_gets_a_403_page_that_says_why_and_what_next(l
     link = re.search(r'href="(/pilot/request\?ruleset=GZQO)"', text)
     assert link  # the rendered link leads somewhere that opens: not a second 403/404
     page = c.get(link.group(1))
-    assert page.status_code == 200 and "GZQO" in html.unescape(page.text), (page.status_code, page.url)
+    assert page.status_code == 200, (page.status_code, page.url)
+    assert cat["request.title"] in html.unescape(page.text)  # the request page itself ...
+    assert data-testid=problem-home not in page.text  # ... and not another refusal page
     assert 'data-testid="problem-home"' in text  # the way out of it is still there
     assert cat["forbidden"] not in text  # no longer the bare role refusal
