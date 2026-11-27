@@ -42,22 +42,15 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
     "/tmp, gigabytes a memory tmpfs would take from the model; to be proved on a GPU box",
     ("llm-service", "user"): "the upstream vLLM image runs as root with its caches under /root; to be proved on a "
     "GPU box with the caches moved",
-    ("llm-service", "cap_drop"): "root must read model files of any mode (without DAC_OVERRIDE it cannot read a "
-    "0600/0640 file of another owner); to be closed with H10G1-02 on a GPU box",
     # H-58 (D-1337): the overlay services. Written beside each service in its overlay file too.
     ("llm-verifier", "read_only"): "the GPU overlays' second vLLM server: the same image and caches as llm-service",
     ("llm-verifier", "user"): "the same upstream vLLM image as llm-service, run as root with its caches under /root",
-    ("llm-verifier", "cap_drop"): "as llm-service: root must read model files of any mode; closed with H10G1-02 "
-    "on a GPU box (rc1 runs the GPU profiles with these capabilities)",
     ("judge-sleep-init", "user"): "runs the vLLM image's python, which that image runs as root; not shown to start "
     "as another uid, and no rehearsal leg runs the rtx5090 profile",
     ("judge-wake-init", "user"): "as judge-sleep-init: the vLLM image's python, run as root there",
     ("model-swap-init", "user"): "as judge-sleep-init: the vLLM image's python, run as root there",
     ("caddy", "user"): "the image runs as root and binds 443; caddy-data's files are root's, so a fixed uid would "
     "also need them handed over",
-    ("caddy", "cap_drop"): "binds 443 (without NET_BIND_SERVICE only through Docker's per-container port sysctl) "
-    "and reads the hospital's key (TB_TLS_KEY_FILE), a host file whose owner and mode the installer does not set: "
-    "without DAC_OVERRIDE root cannot read it at 0600/0640 of another owner",
     ("authelia", "user"): "the image starts as root (PUID=0, PGID=0); its entrypoint sets the owner of /config and "
     "the user it runs as at start",
     ("authelia", "cap_drop"): "its entrypoint changes owners and the user at start (CHOWN, SETUID, SETGID as root)",
@@ -139,8 +132,8 @@ def test_the_base_file_has_the_15_services_and_each_takes_the_four_controls() ->
     assert len(clean) == 15
     assert {s for s, _ in EXCEPTIONS} <= THE_15 | set(OUTSIDE_THE_15) and all(c in CONTROLS for _, c in EXCEPTIONS)
     assert all(_has(base[s], "no-new-privileges") for s in THE_15)  # no exception
-    # cap_drop: one written exception, llm-service for rc1 (review D2 of 2026-11-19, D-1323), and no other
-    assert {s for s in THE_15 if not _has(base[s], "cap_drop")} == {"llm-service"}
+    # cap_drop: no exception left (llm-service's, written for rc1, closed by P2-04 / ASSESS-1-ADDENDUM D5)
+    assert {s for s in THE_15 if not _has(base[s], "cap_drop")} == set()
 
 
 @pytest.mark.parametrize(
@@ -178,7 +171,7 @@ def test_every_service_of_every_overlay_is_checked_in_a_stack_that_runs_it() -> 
 def test_every_overlay_service_takes_the_four_controls_or_names_its_exception() -> None:
     """H-58 (D-1337): per service of OUTSIDE_THE_15, in every stack that runs it, each control is applied or written
     in EXCEPTIONS with a reason; and the pins of the card: no GPU model server gains or loses a capability rule
-    (llm-verifier keeps llm-service's cap_drop exception), nothing is added back."""
+    (llm-verifier keeps llm-service.s exceptions), nothing is added back."""
     seen: dict[str, set[str]] = {}
     for stack, profiles in HARDENING_STACKS:
         merged = _merge(stack)
@@ -225,12 +218,15 @@ def test_the_lint_names_an_overlay_service_without_the_controls() -> None:
     """Negative: an overlay service that loses a control is named; an exception whose control is then applied is
     named too."""
     services = _merge((BASE, "docker-compose.monitoring.yml", "docker-compose.identity.yml"))
-    assert [p for p in problems(services, ("stub", "oidc")) if p.startswith(("prometheus", "caddy"))] == []
+    names = ("prometheus", "caddy", "authelia")
+    assert [p for p in problems(services, ("stub", "oidc")) if p.startswith(names)] == []
     services["prometheus"] = {**services["prometheus"], "read_only": False, "user": None}
-    services["caddy"] = {**services["caddy"], "cap_drop": ["ALL"], "cap_add": ["NET_BIND_SERVICE"]}
-    assert [p for p in problems(services, ("stub", "oidc")) if p.startswith(("prometheus", "caddy"))] == [
-        "caddy: cap_drop applied but still in EXCEPTIONS",
-        "caddy: cap_add NET_BIND_SERVICE without a reason in CAP_ADD",
+    services["authelia"] = {**services["authelia"], "cap_drop": ["ALL"], "cap_add": ["NET_BIND_SERVICE"]}
+    services["caddy"] = {**services["caddy"], "cap_drop": []}  # P2-04 (D5): caddy's cap_drop is no longer excused
+    assert [p for p in problems(services, ("stub", "oidc")) if p.startswith(names)] == [
+        "authelia: cap_drop applied but still in EXCEPTIONS",
+        "authelia: cap_add NET_BIND_SERVICE without a reason in CAP_ADD",
+        "caddy: no cap_drop",
         "prometheus: no read_only",
         "prometheus: no user",
     ]

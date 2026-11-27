@@ -1312,13 +1312,14 @@ case "$MODE:$GPU" in
 esac
 if [ -n "$TLS_HOST" ]; then
   # the certificate, its key and the host name are checked before Caddy uses them (console.cli check-tls); the
-  # hospital's files are mounted where deploy/.env names them
+  # hospital's files are mounted where deploy/.env names them. As root with every capability dropped, as Caddy runs
+  # (P2-04, D5): a key it could not read stops here, not at Caddy's start
   say "TLS: https://$TLS_HOST ($(envget TB_TLS_MODE))"
   TLS_MOUNT=()
   for v in TB_TLS_CERT_FILE TB_TLS_KEY_FILE; do f="$(envget "$v")"; [ -z "$f" ] || TLS_MOUNT+=(-v "$f:$f:ro"); done
   docker run --rm -e TB_ENV="$TB_ENV_SITE" -e TB_TLS_MODE="$(envget TB_TLS_MODE)" -e TB_TLS_HOSTNAME="$TLS_HOST" \
     -e TB_TLS_CERT_FILE="$(envget TB_TLS_CERT_FILE)" -e TB_TLS_KEY_FILE="$(envget TB_TLS_KEY_FILE)" \
-    ${TLS_MOUNT[@]+"${TLS_MOUNT[@]}"} --user 0 "$IMAGE_PY" python -m console.cli check-tls 2>&1 \
+    ${TLS_MOUNT[@]+"${TLS_MOUNT[@]}"} --user 0 --cap-drop ALL "$IMAGE_PY" python -m console.cli check-tls 2>&1 \
     | indent || { stop_or_warn tls-check "TLS (deploy/docker-compose.identity.yml is not added: the console stays on 127.0.0.1)" "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"; TLS_HOST=""; }
   [ -z "$TLS_HOST" ] || { COMPOSE+=(-f deploy/docker-compose.identity.yml); FILES="$FILES:$ROOT/deploy/docker-compose.identity.yml"; }
 fi

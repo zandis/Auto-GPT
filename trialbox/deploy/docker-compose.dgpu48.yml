@@ -73,8 +73,9 @@ services:
 
   llm-verifier:
     <<: *vllm48
-    # H-58 (D-1337): no privilege gain, as llm-service (the same image); read_only, user and cap_drop are written
-    # exceptions with llm-service's reasons (H10G1-02)
+    # H-58 (D-1337): no privilege gain, as llm-service (the same image); read_only and user are written exceptions
+    # with llm-service's reasons (H10G1-02). P2-04 (D5): every capability dropped, as llm-service
+    cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: ${TB_MEM_VERIFIER:-32g}   # host memory, not the card's: the same floor (unmeasured here)
     networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)

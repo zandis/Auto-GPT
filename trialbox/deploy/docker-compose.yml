@@ -491,9 +491,11 @@ services:
     ipc: host
     # 10G-1 (D-1323): no privilege gain. Exceptions written in tests/unit/test_container_hardening.py (EXCEPTIONS):
     # the upstream image runs as root and writes its compile and kernel caches under /root/.cache and /tmp, gigabytes
-    # a memory tmpfs would take from the model; user and read_only wait for a GPU box. cap_drop too, for rc1: root
-    # without DAC_OVERRIDE cannot read model files of any mode (a site's copy, a cache's 0600/0640 files of another
-    # owner), and no rehearsal leg runs this profile; to be closed with H10G1-02 on a GPU box.
+    # a memory tmpfs would take from the model; user and read_only wait for a GPU box.
+    # P2-04 (ASSESS-1-ADDENDUM D5): every capability dropped, none added back. Root keeps reading what it owns and
+    # what is readable to all; a model folder of another owner at 0600/0640 is not read (keep the site's copy
+    # root-owned or world-readable). `ipc: host` makes Docker add label=disable; it is not set here.
+    cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped

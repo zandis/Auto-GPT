@@ -49,7 +49,14 @@ services:
   mail-sink:
     image: ${TB_IMAGE:-trialbox-py:1.0.0}
     command: ["python", "-m", "tools.rehearse_box.smtp_sink", "--port", "587"]
+    # P2-04 (ASSESS-1-ADDENDUM D5): the controls of the box's own services; it keeps nothing and writes no file
     user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 64
+    init: true
     restart: unless-stopped
     networks:
       egress-net:
