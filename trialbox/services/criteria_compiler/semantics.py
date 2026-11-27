@@ -297,6 +297,7 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
             data["domain"] = "observation"
             data["value"] = {"op": "=", "num": 1}
         shell = CriterionIRv3(
+            ir_version=criterion.ir_version,  # a 3.1.0 atom reaches downgrade_to_v1, which refuses it by name
             id=criterion.id,
             ruleset=criterion.ruleset,
             kind=criterion.kind,
