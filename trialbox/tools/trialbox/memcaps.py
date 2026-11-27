@@ -190,7 +190,11 @@ def need_mb(
         mb = max(mb, HEADROOM * peak_mib(peaks, var, n))  # E2E P-02: the 50k night was killed at 3,520 MiB
         out[svc] = max(math.ceil(mb), size_mb(compose_default(var, compose)))
     if orch_mb is not None:
-        out[ORCH] = max(orch_mb, math.ceil(HEADROOM * peak_mib(peaks, ORCH_VAR, n)))  # 100k's SCREEN: 11.77 GiB
+        # 100k's SCREEN: 11.77 GiB. Below the smallest measured size the ladder line and the default decide: the
+        # orchestrator's need grows with the patients, so the nearest larger size's peak is no floor for a small site
+        measured = [p for p, row in peaks if ORCH_VAR in row]
+        floor = math.ceil(HEADROOM * peak_mib(peaks, ORCH_VAR, n)) if measured and n >= measured[0] else 0
+        out[ORCH] = max(orch_mb, floor)
     return out
 
 
