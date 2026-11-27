@@ -16,6 +16,12 @@ EN: dict[str, str] = {
     "problem.h.request.mailbox": "This mailbox may not start this",
     "request.mailbox": "The mailbox {mailbox} may not start {kind}. Ask the administrator to give your account its own "
     "mailbox, or to allow this one.",
+    # E2E P-35: an investigator on no study log opens the week page: it says why and what next (status stays 403)
+    "problem.h.week.no_log": "No screening assignment on this study",
+    "week.no_log": "You have no screening assignment on study {rs}, so its weekly list is closed to you.",
+    "problem.why.week.no_log": 'The study\'s PI adds you to the log and ticks "screen" for you. Ask the PI or the '
+    "TrialBox administrator, then sign in again.",
+    "week.no_log.request": "Go to the request page",
     # J-04: what a viewer or CRO account can open
     "request.viewer.reports": "the feasibility reports of your studies, in aggregate",
     # J-27: only the investigator ticks and approves; the draft is the protocol's own words
@@ -51,6 +57,12 @@ JA: dict[str, str] = {
     "request.mailbox": "メールアドレス {mailbox} では {kind} を開始できません。"
     "アカウントに本人のメールアドレスを設定するか、"
     "このアドレスを許可するよう管理者に依頼してください。",
+    # E2E P-35: an investigator on no study log opens the week page: it says why and what next (status stays 403)
+    "problem.h.week.no_log": "この試験のスクリーニング担当に割り当てられていません",
+    "week.no_log": "あなたは試験 {rs} のスクリーニング担当に割り当てられていないため、週間リストを開けません。",
+    "problem.why.week.no_log": "試験の責任医師があなたをリストに登録し「スクリーニング」にチェックを入れます。"
+    "責任医師か TrialBox の管理者に依頼し、完了後にログインし直してください。",
+    "week.no_log.request": "リクエストのページへ",
     "request.viewer.reports": "担当試験の実施可能性レポート（集計のみ）",
     "s20.who": "役割：試験の責任医師が各基準のコードを確認済みにして承認します。CRC は下書きを準備し、"
     "各基準に施設での表示名を付けます。",
@@ -78,6 +90,12 @@ ZH: dict[str, str] = {
     "request.role": "此帳號的角色無法啟動 {kind}。作業由研究護理師或管理員啟動；收案條件由主持人核准。",
     "problem.h.request.mailbox": "此電子郵件無法啟動此作業",
     "request.mailbox": "電子郵件 {mailbox} 無法啟動 {kind}。請管理員為您的帳號設定您自己的電子郵件，或允許此地址。",
+    # E2E P-35: an investigator on no study log opens the week page: it says why and what next (status stays 403)
+    "problem.h.week.no_log": "您尚未被指派此試驗的篩選職責",
+    "week.no_log": "您未被指派試驗 {rs} 的篩選職責，因此無法開啟其每週名單。",
+    "problem.why.week.no_log": "請試驗主持人把您加入授權紀錄表並勾選「篩選」，"
+    "或聯絡 TrialBox 管理者；完成後請重新登入。",
+    "week.no_log.request": "前往請求頁面",
     "request.viewer.reports": "您負責試驗的可行性報告（僅彙總）",
     "s20.who": "分工：試驗主持人將每條條件的代碼標記為已確認並核准；研究護理師準備草稿，並為每條條件加上本院的名稱。",
     "s20.only_pi": "只有本試驗的主持人可以確認並核准條件。您可以閱讀草稿，並以此頁面的語言為每條條件加上本院的名稱。",

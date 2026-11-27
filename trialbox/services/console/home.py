@@ -225,13 +225,16 @@ class Helpers:
         tz = site_zone(self.bk)
         return GoneOn({p: local_date(first[p], tz) if p in first else "" for p in self.gone()})
 
-    def delegated(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
+    def delegated(
+        self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",), key: str = "forbidden"
+    ) -> None:
         """D-273 (PV-3): D-147's delegation rule on every page that shows one study's patients, not only the week,
         patient, candidate and SAE pages. Once the study's delegation log names a PI, an investigator sees them only
-        as the PI or as a sub-investigator ticked for one of ``tasks``; a refusal is audited."""
+        as the PI or as a sub-investigator ticked for one of ``tasks``; a refusal is audited. ``key`` names the refusal
+        page (it keeps the 403; the week page says why, E2E P-35)."""
         if not self.delegated_ok(sess.user, rid, tasks):
             self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
-            raise self.problem(403, "forbidden")
+            raise self.problem(403, key, **({} if key == "forbidden" else {"rs": rid}))
 
     def need_rows(self, sess: Session, rid: str, path: str) -> None:
         """ROLE-017 (T-102c, D-425): who reads one study's patient-level rows. A page, its XLSX and its ``/api/v1``
@@ -900,7 +903,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
-        screen_or_403(sess, rid, request.url.path)
+        h.delegated(sess, rid, request.url.path, key="week.no_log")  # E2E P-35: says why, still 403
         if settings_of(rid).study_type == "registry":
             return RedirectResponse(f"/studies/{rid}/cohort", status_code=303)
         wk = week_bundle(sess, rid)

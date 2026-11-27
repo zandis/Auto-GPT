@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -164,7 +165,7 @@ NOT_READ = (*NOT_ASKED, Reason.NO_NOTES.value, Reason.REFUSED.value, Reason.HUMA
 
 
 def prefilter_stage(
-    rs: Ruleset, pv: PatientVerdicts | None, consent_out: frozenset[str], read: list[CriterionVerdict] | None = None
+    rs: Ruleset, pv: PatientVerdicts | None, consent_out: frozenset[str], read: Sequence[CriterionVerdict] | None = None
 ) -> str:
     """10E-12 (D-1259): the stage an evaluated patient left the night's funnel at (``tb_common.prefilter``).
     ``read``: the answers this evaluation gave, when they are fewer than the row's (the re-check answers some

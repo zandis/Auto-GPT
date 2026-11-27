@@ -18,12 +18,13 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import json
 import logging
 import os
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, MutableSequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -418,7 +419,12 @@ def _final(o: Outcome, status: str) -> bool | None:
 def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     """One cascade outcome as the candidate-list verdict: the verified span (document, quote, date), the lake records
     of a coded answer, the judge's confidence and the stage's reason. ``pair``: the run's judge is two different
-    models (the basis of its note answers, D-478)."""
+    models (the basis of its note answers, D-478). Always the caller's own object."""
+    return _own(_row_of(o, pair))
+
+
+def _row_of(o: Outcome, pair: bool) -> CriterionVerdict | _Shared:
+    """:func:`verdict_of` as a patient's row holds it: an answer with no record, quote, opinion or call is shared."""
     refs: list[str] = []
     quote: str | None = None
     quote_date: str | None = None
@@ -440,6 +446,10 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     status = o.status
     if status == "pass" and o.unknown_kind == "data_gap":
         status = "unknown"  # S1 kept the patient on a null exclusion value; the list says "unknown" as v1 did
+    if not (refs or quote or quote_date or opinions or prov) and confidence is None:
+        affirmed = o.affirmed if status == "fail" else None
+        return _bare(o.criterion_id, status, code_of(o.reason, status, False), _final(o, status),
+                     basis_of(o, status, pair), affirmed)  # fmt: skip
     return CriterionVerdict(
         id=o.criterion_id,
         verdict=status,
@@ -458,6 +468,82 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     )
 
 
+# prof16 (CODED-PROFILE §4; ruling of 2026-11-27): verdict assembly kept one CriterionVerdict and one Evidence per
+# patient and criterion: 22.7 M objects, 4.4 GB at 100,000 patients, 98 % of them excluded. An answer with no record,
+# quote, opinion or call is the same for every patient who has it, so they share one object (the same fields set, so
+# the same bytes in every output). The shared object is never handed out (review of #1594, R1): each read of a row
+# builds the patient's own verdict with its own lists, so a caller that changes one cannot reach another patient.
+# ponytail: shared by value, bounded by criteria x answers; the full compact store of excluded rows is a later item
+@dataclass(frozen=True, slots=True)
+class _Shared:
+    """One answer every patient who has it holds; read only through :func:`_own`."""
+
+    proto: CriterionVerdict
+
+
+def _own(row: CriterionVerdict | _Shared) -> CriterionVerdict:
+    """A row as its patient's own verdict: a shared answer is copied with fresh lists (its only mutable fields; the
+    opinions and coded values of a shared answer are None), so the fields set and the bytes are the shared one's."""
+    if not isinstance(row, _Shared):
+        return row
+    v = row.proto
+    assert v.evidence is not None  # every shared answer has one
+    return v.model_copy(update={"evidence": v.evidence.model_copy(update={"resource_refs": []}), "prov": []})
+
+
+class Verdicts(MutableSequence[CriterionVerdict]):
+    """A patient's verdict rows. A shared answer is held once; reading it gives the patient's own copy, and a row
+    written back (coded_values.attach puts a copy in the list) is the patient's own."""
+
+    def __init__(self, rows: Iterable[CriterionVerdict | _Shared] = ()) -> None:
+        self._rows = list(rows)
+
+    def __len__(self) -> int:
+        return len(self._rows)
+
+    def __getitem__(self, i: Any) -> Any:
+        if isinstance(i, slice):
+            return [_own(r) for r in self._rows[i]]
+        return _own(self._rows[i])
+
+    def __setitem__(self, i: Any, v: Any) -> None:
+        self._rows[i] = v
+
+    def __delitem__(self, i: Any) -> None:
+        del self._rows[i]
+
+    def insert(self, i: int, v: CriterionVerdict) -> None:
+        self._rows.insert(i, v)
+
+
+@functools.lru_cache(maxsize=8192)
+def _bare(cid: str, status: Any, reason: str, final: bool | None, basis: Any, affirmed: bool | None) -> _Shared:
+    """:func:`verdict_of`'s answer that carries no record, quote, confidence, opinion or call."""
+    return _Shared(
+        CriterionVerdict(
+            id=cid,
+            verdict=status,
+            evidence=Evidence(
+                resource_refs=[], quote=None, quote_date=None, confidence=None, reason=reason, opinions=None
+            ),
+            final=final,
+            basis=basis,
+            affirmed=affirmed,
+            prov=[],
+        )
+    )
+
+
+@functools.lru_cache(maxsize=4096)
+def _not_evaluated(cid: str) -> _Shared:
+    """A criterion the cascade stopped before (a hard fail came first): the same row for every such patient."""
+    return _Shared(
+        CriterionVerdict(
+            id=cid, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value), prov=[]
+        )
+    )
+
+
 #: the policy of a caller that names none (a tool, a test): the cascade's default floor, and notes may **not**
 #: exclude (review of T-709, LOW 7: the safe default; a run states its policy)
 DEFAULT_POLICY = decision.Policy(threshold=0.75, note_block=False)
@@ -473,24 +559,17 @@ def verdicts_of(
     The tier is the one status function's (:func:`matching.decision.status_of`, T-709, D-478) over the verdict rows
     under the run's ``policy``, not a mapping of the cascade's own label: a "met" below the confidence threshold is
     a person's check here as on every other path (review M1a)."""
-    vs: list[CriterionVerdict] = []
+    vs = Verdicts()
     judged_rows: list[CriterionVerdict] = []  # the criteria the cascade has an outcome for: what the status reads
     for c in rs.active():
         if c.kind not in ("inclusion", "exclusion"):
             continue
         o = t.outcomes.get(c.id)
         if o is None:
-            vs.append(
-                CriterionVerdict(
-                    id=c.id,
-                    verdict="unknown",
-                    evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value),
-                    prov=[],
-                )
-            )
+            vs._rows.append(_not_evaluated(c.id))
             continue
-        vs.append(verdict_of(o, pair))
-        judged_rows.append(vs[-1])
+        vs._rows.append(_row_of(o, pair))
+        judged_rows.append(vs[-1])  # the patient's own copy, read by the status only
     if not t.in_scope and t.scope_reason == NOT_AT_INDEX:
         # no base row: never "excluded" with the engine's words; a person looks (D-142, review B-02)
         return not_in_snapshot(rs, t.pid, reason=Reason.CHECK_DATES if dated else Reason.NOT_IN_SNAPSHOT)

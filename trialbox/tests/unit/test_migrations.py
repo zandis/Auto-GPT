@@ -459,7 +459,12 @@ ADDED: dict[str, tuple[str, ...]] = {
         "5458e36ffcdfdbb1e2126f3c5dcad00804bae1f1fc0c9242a38affafb1296c2d",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
-    "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
+    # review L-4 (E2E P-10): mail version 4, the reason code of a held send key
+    "mail": (
+        "dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",
+        "dc36539713287c41f8c837db71de2cb8c62d8e54dc3f7eb861e093cbb1dd6eaf",
+        "b383ec34311f305dcffc667897fe6b66402c5477bc7784f05d377bcca931da22",  # review M-1: version 5, WAITS for V3 holds
+    ),
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
     # T-303 (D-436): team version 3, the monitoring-visit records
     # 10C-4 (D-1227): team version 4, the Japan profile's committee record and each site's permission
