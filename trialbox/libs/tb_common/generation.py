@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from functools import total_ordering
+from zoneinfo import ZoneInfo
 
 _GEN = re.compile(r"^(?P<snap>[0-9]{4}-[0-9]{2}-[0-9]{2})(?:\.g(?P<seq>[1-9][0-9]*))?$", re.ASCII)
 #: the derived artefacts, in the order the night builds them
@@ -47,6 +48,15 @@ class Generation:
         if not isinstance(other, Generation):
             return NotImplemented
         return (self.snapshot, self.seq) < (other.snapshot, other.seq)
+
+
+def site_today(tz: str) -> date:
+    """The site's calendar date in its zone ``tz`` (``TB_TZ``, D-315): the one date a night, its snapshot and every
+    step of it are named by, never the host's or UTC's (R1+1 walk: a ``date -u`` given before 09:00 in Asia/Tokyo
+    named the day before). Standard library only: the host's python3 (``tools.site_seed``) takes it too."""
+    if not tz:
+        raise ValueError("no site zone (TB_TZ, D-315): the night's date is the site's, never UTC's")
+    return datetime.now(ZoneInfo(tz)).date()
 
 
 class OlderGeneration(RuntimeError):
@@ -84,4 +94,4 @@ def verdict(artefact: str, pinned: Generation, built: Generation | None, state: 
     return Verdict(True)
 
 
-__all__ = ["ARTEFACTS", "BUILDING", "FINISHED", "Generation", "OlderGeneration", "Verdict", "verdict"]
+__all__ = ["ARTEFACTS", "BUILDING", "FINISHED", "Generation", "OlderGeneration", "Verdict", "site_today", "verdict"]

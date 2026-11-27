@@ -1345,6 +1345,7 @@ def create_app(
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
         made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
+        pw, _, pw_code = pw.partition("\ncode:")  # E2E P-17: with the password, the code for the authenticator
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
@@ -1365,6 +1366,7 @@ def create_app(
             made=made,
             pw=pw,
             pw_groups=pw.split("-") if pw else [],
+            pw_code=pw_code,
             sso=settings.sso,
         )
 
@@ -1428,7 +1430,11 @@ def create_app(
                         "expires": made_user.expires or "",
                     },
                 )
-                keep_once(sess, name, password)
+                code = ""
+                if ident.needs_code(made_user):  # E2E P-17: without a code the new account could never enrol (D-192)
+                    code = us.issue_enrol_code(name)
+                    au.append("console.enrol_code", actor=actor(sess), detail={"user": name})
+                keep_once(sess, name, password + (f"\ncode:{code}" if code else ""))  # shown once, as the password
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "reset":
                 if us.is_sso(name):

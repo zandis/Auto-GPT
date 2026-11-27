@@ -257,6 +257,10 @@ MODEL_PACK_FORMAT = "trialbox-model-pack/1"
 #: H-95: what an image stream holds back from ``docker load`` until its whole sha256 is known
 HOLD_BACK = 1 << 20
 _READ = 1 << 20
+#: a rollback ran (``rollback <bundle>`` after a power cut, or the automatic one) and no apply has ended well since:
+#: the next apply trusts no image a cut load may have left (a tag or an id says nothing of the layers under it)
+IMAGES_SUSPECT = "IMAGES_SUSPECT"
+DANGLING = ["docker", "image", "ls", "-q", "--no-trunc", "-f", "dangling=true"]
 
 
 @dataclass(frozen=True)
@@ -365,6 +369,10 @@ class Plan:
     poc_no_backup: str = ""  # H-99: the preflight's backup refusal, warned on a PoC box; the backup is skipped
     streamed: list[Streamed] = field(default_factory=list)  # H-95: payloads read from the bundle, never staged
     pack: dict[str, Any] | None = None  # H-95: the manifest's pack (None: a whole bundle)
+    reverify: bool = False  # IMAGES_SUSPECT: dangling images go before the load, every image is checked after it
+    previous_images: dict[str, str] | None = (
+        None  # IMAGES_SUSPECT: each tag's image id before the cut apply (None: unknown)
+    )
 
     @classmethod
     def load(cls, stage: Path, summary: dict[str, Any]) -> Plan:
@@ -1578,6 +1586,10 @@ class Updater:
         live = self.stops.stoppable  # H-114: a first signal stops the step under way, or the next one at its start
         try:
             enter("apply")
+            mark = _images_mark(self.dir)
+            plan.reverify = mark is not None
+            prev = (mark or {}).get("previous")
+            plan.previous_images = prev if isinstance(prev, dict) else None
             with live():
                 applied = self.box.apply(plan, rb, point)
                 save_point(rb, point)
@@ -1595,6 +1607,12 @@ class Updater:
             with live():
                 checked = self.box.check(plan)
             step("check", True, checked)
+            if mark is not None and (mark.get("bundle_id") == plan.bundle_id or plan.images()):
+                # review M2: only the cut bundle again, or a run that checked its images again, ends the mark, and only
+                # once the release is checked (a later failure rolls back and keeps the earliest ``previous``); a
+                # model pack or a bundle without images leaves it for the bundle whose load was cut
+                with contextlib.suppress(OSError):  # left: the next apply checks the images once more
+                    (self.dir / IMAGES_SUSPECT).unlink(missing_ok=True)
         except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C, SIGTERM, SIGHUP roll back; kill -9 leaves the marker
             self.stops.hold()
             failed = f"{type(exc).__name__}: {exc}"
@@ -1737,6 +1755,16 @@ class Updater:
         # said as a failed rollback, the marker kept for ``tools/apply_update.sh rollback`` to finish it
         try:
             us.set_step(self.dir, us.marker(self.dir) or {}, "rollback")
+            try:  # review M4: a hint for the next apply; one that cannot be written never stops the rollback
+                old = (_images_mark(self.dir) or {}).get("previous")
+                ids = point.extra.get("image_ids")
+                # per tag, the earliest record wins: a mark still there means no apply has ended well since it
+                prev = {**(ids if isinstance(ids, dict) else {}), **(old if isinstance(old, dict) else {})}
+                us.write_atomic(self.dir / IMAGES_SUSPECT, {"bundle_id": plan.bundle_id, "at": _now(),
+                                                            "previous": prev or None})  # fmt: skip
+            except OSError as exc:
+                self.say(f"      images mark not written ({exc}): before the next update, remove the dangling "
+                         "images (docker image ls -f dangling=true) the cut load may have left")  # fmt: skip
             with contextlib.suppress(Exception):  # review 1461-1: what the stopped step moved, for a rollback cut short
                 save_point(rb, point)
             self.box.rollback(plan, rb, point)
@@ -2040,6 +2068,19 @@ def _env_file(path: Path) -> dict[str, str]:
     return out
 
 
+def _images_mark(updates: Path) -> dict[str, Any] | None:
+    """IMAGES_SUSPECT as a rollback wrote it (None: no mark). A mark that cannot be read still marks, unread."""
+    from tools import update_status as us
+
+    f = updates / IMAGES_SUSPECT
+    if not f.is_file():
+        return None
+    try:
+        return us.read_json(f) or {}
+    except (OSError, ValueError):
+        return {}
+
+
 def _image_pins(plan: Plan) -> dict[str, str]:
     """release.json's pinned images: reference -> digest."""
     return {str(r.get("image")): str(r.get("digest")) for r in ((plan.release or {}).get("images") or {}).values()
@@ -2058,6 +2099,7 @@ class _DockerImages:
                     have = self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
                 except UpdateFailed:
                     have = ""
+                point.extra.setdefault("image_ids", {})[tag] = have  # R1: by digest, what the release before needs
                 if have:
                     rt = rollback_tag(tag, plan.bundle_id)
                     self.run(["docker", "tag", have, rt])
@@ -2069,6 +2111,10 @@ class _DockerImages:
         done = []
         pins = _image_pins(plan)
         checked: set[str] = set()
+        needed: set[str] = set()
+        if plan.reverify:  # a cut load's images: their layers are loaded again, never taken from the store
+            needed = self.needed_images(plan, point)
+            done += self.drop_dangling(needed) + self.drop_suspect(plan, point, needed)
         for tar in plan.images():
             configs, manifests = tar_images(tar)
             tags = sorted(configs)
@@ -2079,16 +2125,95 @@ class _DockerImages:
                 if tag in pins and configs[tag] != pins[tag]:
                     raise UpdateFailed(f"image {tar.name}: {tag} has config {configs[tag] or '(none)'}, "
                                        f"release.json pins {pins[tag]}; nothing loaded")  # fmt: skip
-            if isinstance(tar, Streamed):  # H-95: from the stick, hashed again on the way in
-                stream_image(tar, configs, manifests, self.run, rb, point)
-            else:
-                self.run(["docker", "load", "-i", str(tar)], timeout=3600)
+            self.load_one(tar, configs, manifests, rb, point)
             done.append(f"image {tar.name}")
+            if plan.reverify:  # never a tag alone: each tag's image is the pinned one, and nothing is left dangling
+                wrong = [t for t in tags if t in pins and self.image_id(t) not in {configs[t], *manifests} - {""}]
+                if wrong or set(self.run(DANGLING).split()) - needed:  # once more, from nothing of what was there
+                    done += [f"{tag}: not the pinned image" for tag in wrong] + self.drop_dangling(needed)
+                    self.load_one(tar, configs, manifests, rb, point)
+                    done.append(f"image {tar.name} loaded again")
             for tag in tags:
                 self.check_loaded(plan, tag, {configs[tag], *manifests} - {""})
                 checked.add(tag)
         if done and plan.release is not None and set(pins) - checked:
             raise UpdateFailed(f"release.json pins images this bundle did not load: {sorted(set(pins) - checked)}")
+        return done
+
+    def load_one(
+        self, tar: Path | Streamed, configs: dict[str, str], manifests: set[str], rb: Path | None, point: Point | None
+    ) -> None:
+        if isinstance(tar, Streamed):  # H-95: from the stick, hashed again on the way in
+            stream_image(tar, configs, manifests, self.run, rb, point)
+        else:
+            self.run(["docker", "load", "-i", str(tar)], timeout=3600)
+
+    def image_id(self, tag: str) -> str:
+        try:
+            return self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
+        except UpdateFailed:
+            return ""
+
+    def needed_images(self, plan: Plan, point: Point | None) -> set[str]:
+        """By digest, the images the running or the previous release needs, which a reverify never removes: the image
+        of every container, running or stopped (the update has stopped the services), and each tag's image before the
+        cut apply (IMAGES_SUSPECT ``previous``); for a tag that record does not name, the image this apply's rollback
+        point tagged. A list the engine cannot give fails the apply (it rolls back)."""
+        ids = self.run(["docker", "ps", "-aq", "--no-trunc"]).split()
+        needed = set(self.run(["docker", "inspect", "-f", "{{.Image}}", *ids]).split()) if ids else set()
+        prev = plan.previous_images or {}
+        needed |= set(prev.values())
+        for tag, rt in (point.images if point else {}).items():
+            if rt and tag not in prev:
+                needed.add(self.image_id(rt))
+        return needed - {""}
+
+    def drop_suspect(self, plan: Plan, point: Point | None, needed: set[str]) -> list[str]:
+        """R1: a tag that already names the bundle's own image before the load (``docker load`` keeps such an image,
+        whatever its layers) loses that image, every tag of it, unless the running or previous release needs it (by
+        digest: kept and said). An image that cannot be removed fails the apply. A rollback tag of this apply's point
+        that named it goes back to the tag's image before the cut apply, or the point says the tag was new."""
+        done = []
+        prev = plan.previous_images or {}
+        for tar in plan.images():
+            configs, manifests = tar_images(tar)
+            for tag in sorted(configs):
+                iid = self.image_id(tag)
+                if not iid or iid not in {configs[tag], *manifests} - {""}:
+                    continue
+                if iid in needed:
+                    done.append(f"{tag}: {iid} kept: the running or previous release uses it")
+                    continue
+                tags = self.run(["docker", "image", "inspect", "-f", '{{join .RepoTags " "}}', iid]).split()
+                for t in tags:
+                    self.run(["docker", "image", "rm", t])  # never -f: the engine refuses one a container uses
+                if self.image_id(iid):
+                    raise UpdateFailed(f"image {tag}: {iid}, left by a cut load, could not be removed; nothing loaded")
+                done.append(f"{tag}: {iid} left by a cut load removed ({', '.join(tags)})")
+                for t, rt in list(point.images.items()) if point is not None else []:
+                    if rt not in tags:
+                        continue
+                    if prev.get(t) and self.image_id(prev[t]):
+                        self.run(["docker", "tag", prev[t], rt])
+                    elif point is not None:
+                        point.images[t] = ""
+        return done
+
+    def drop_dangling(self, needed: set[str] | frozenset[str] = frozenset()) -> list[str]:
+        """Remove every untagged image (what a load cut by a power loss leaves, layers half written) but one the
+        running or previous release needs (``needed``, by digest: kept and said, never handed to ``rm -f``, which
+        would remove an image a stopped container uses): the next load writes its layers again instead of reusing
+        them."""
+        done = []
+        for iid in self.run(DANGLING).split():
+            if iid in needed:
+                done.append(f"dangling image {iid} kept: the running or previous release uses it")
+                continue
+            try:
+                self.run(["docker", "image", "rm", "-f", iid])
+                done.append(f"dangling image {iid} removed")
+            except UpdateFailed as exc:
+                done.append(f"dangling image {iid} kept: {str(exc)[-200:]}")
         return done
 
     def check_loaded(self, plan: Plan, tag: str, accepted: set[str]) -> None:

@@ -352,9 +352,14 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
             print("update REFUSED: --no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); "
                   "nothing was changed", file=sys.stderr)  # fmt: skip
             return 2
-        return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
-                                    no_backup_reason=reason or None,
-                                    **({"bundle": a.bundle} if a.bundle else {}))  # fmt: skip
+        rc = tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
+                                  no_backup_reason=reason or None,
+                                  **({"bundle": a.bundle} if a.bundle else {}))  # fmt: skip
+        if a.target == "compose":  # E2E P-33: the Operations page knows the update without waiting for the timer
+            from tools.trialbox import ops as tb_ops
+
+            tb_ops.refresh_status(a.deploy)
+        return rc
     if a.cmd in ("backup-nightly", "backup-status", "backup-install"):
         from tools.trialbox import backup_schedule as bsch
 
@@ -377,8 +382,12 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         print("doctor: --lang and --out go with --preflight", file=sys.stderr)
         return 2
     if a.cmd == "doctor":
-        from tools.trialbox import doctor
+        from tools.trialbox import doctor, launch
 
+        if a.env_file is None and (launch.DEPLOY / ".env").is_file():
+            # E2E P-18: the box's own file, which the launcher already reads as its settings; without it the
+            # installed doctor judged some checks without the box's values (false FAILs the runbook form had not)
+            a.env_file = launch.DEPLOY / ".env"
         which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
         if a.weights:
             which = (doctor.LIVE if a.serving else ()) + doctor.WEIGHTS
