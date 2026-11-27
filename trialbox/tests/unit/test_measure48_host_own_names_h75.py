@@ -89,8 +89,10 @@ def test_with_nothing_set_compose_renders_byte_identical_to_the_literal_names(tm
     names = {n["name"] for n in doc["networks"].values()}
     assert "trialbox-net" in names and "trialbox-model-backend" in names
     assert "trialbox-fhir" in names  # P2-03 (D2): the FHIR store's own network, in every stack
+    # the store's published network (P2-03, D2) is the test stack's only (#1597 review r1, R2)
+    test_only = {"trialbox-fhir-host"} if "docker-compose.test.yml" in stack else set()
     assert names <= {"trialbox-net", "trialbox-fhir", "trialbox-model-net", "trialbox-model-backend", "trialbox-egress",
-                     "trialbox-console", "trialbox-hostnet", "trialbox-fhir-host"}  # fmt: skip
+                     "trialbox-console", "trialbox-hostnet", *test_only}  # fmt: skip
     if "docker-compose.test.yml" in stack:
         assert "trialbox-hostnet" in names
         assert "trialbox-fhir-host" in names  # P2-03 (D2): the store's published port, the store alone

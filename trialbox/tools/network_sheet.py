@@ -112,9 +112,9 @@ T: dict[str, dict[str, str]] = {
         "zh-TW": "TrialBox 各服務與 fhir-store（需密碼）",
     },
     "fhir": {
-        "en": "adapter, orchestrator, criteria-compiler (network only, no token yet)",
-        "ja": "adapter、orchestrator、criteria-compiler（ネットワーク分離のみ、トークンなし）",
-        "zh-TW": "adapter、orchestrator、criteria-compiler（僅網路隔離，尚無權杖）",
+        "en": "adapter, orchestrator, criteria-compiler, db (network only, no token yet)",
+        "ja": "adapter、orchestrator、criteria-compiler、db（ネットワーク分離のみ、トークンなし）",
+        "zh-TW": "adapter、orchestrator、criteria-compiler、db（僅網路隔離，尚無權杖）",
     },
     "model": {"en": "gateway only (model-net)", "ja": "gateway のみ（model-net）", "zh-TW": "僅 gateway（model-net）"},
     "model_backend": {
