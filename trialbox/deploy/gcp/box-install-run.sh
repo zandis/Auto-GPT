@@ -864,7 +864,7 @@ fetch_pub() {
   if ! fetch "$1" "$raw"; then
     echo "TB-NO-VENDOR-PUB: the vendor public key the boxes trust is not readable from $1"; rc=1
   elif grep -q 'PRIVATE KEY' "$raw" || ! openssl pkey -pubin -in "$raw" -pubout -out "$raw.pem" 2>/dev/null \
-      || ! tr -d '\r' < "$raw" | cmp -s - "$raw.pem"; then
+      || ! tr -d '\r' < "$raw" | grep -v '^[[:space:]]*$' | cmp -s - "$raw.pem"; then
     echo "TB-VENDOR-PUB-PRIVATE: $1 is not one public key alone (a private key in it, or other bytes): refused, nothing of it is written"; rc=3
   else
     cp "$raw.pem" "$2" || rc=1
@@ -1340,6 +1340,7 @@ step_b_sign() {
   # is undone by the next attempt.
   local BNEXT
   mkdir -p "$BUILD"
+  [ -e "$BUILD/out" ] || [ ! -d "$BUILD/out.old" ] || mv -T "$BUILD/out.old" "$BUILD/out"
   BNEXT=$(mktemp -d "$BUILD/out.next.XXXXXX") || return 1
   need "the weights the site bundle carries (the pair, the template, the embedder: make_bundle.sh --models)" \
     d_bundle_models || { rm -rf "$BNEXT"; return 1; }

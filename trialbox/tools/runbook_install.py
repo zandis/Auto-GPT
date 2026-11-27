@@ -1430,6 +1430,8 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
     # built, so a failed build or a failed rename leaves the last media as they were (media.old holds them only between
     # the two renames below)
     media, old = work / "media", work / "media.old"
+    if old.is_dir() and not media.exists():
+        old.rename(media)  # a cut between the two renames of an earlier build: the last media back first
     fresh = Path(tempfile.mkdtemp(prefix=".media-next.", dir=work))
     bundle = fresh / "media" / f"trialbox-runbook-{stamp}.tar"
     args = [
