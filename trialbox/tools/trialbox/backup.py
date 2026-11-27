@@ -1963,7 +1963,9 @@ def keep_optouts(src: DbSource, live: Sequence[OptOutRow]) -> tuple[list[OptOutR
         insert = sql.SQL("INSERT INTO {} (pid, action, source, note, by, at) VALUES (%s,%s,%s,%s,%s,%s)").format(table)
         for row in back:
             con.execute(insert, row)
-        if back and con.execute(_SWEEP_OK).fetchone()[0]:  # the backup's index rows of those patients go too
+        if (
+            back and (con.execute(_SWEEP_OK).fetchone() or (False,))[0]
+        ):  # the backup's index rows of those patients go too
             con.execute("SELECT provenance.sweep()")
         con.commit()
     return gone, len(back)

@@ -888,8 +888,8 @@ def test_a_consent_change_and_an_index_insert_at_the_same_moment_leave_no_row(bo
                                                                 "", by, "2026-11-21T09:00:00+08:00")))  # fmt: skip
         t.start()
         with psycopg.connect(box, autocommit=True) as w:  # the writer either finished or waits on the lock
-            while t.is_alive() and not w.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
-                                                 "AND NOT granted").fetchone()[0]:  # fmt: skip
+            while t.is_alive() and not (w.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                                                 "AND NOT granted").fetchone() or (0,))[0]:  # fmt: skip
                 time.sleep(0.01)
         ins.commit()
         t.join()
