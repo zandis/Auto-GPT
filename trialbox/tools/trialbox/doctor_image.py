@@ -176,14 +176,23 @@ def running_inspect(docker: Sequence[str], project: str, run: Runner = subproces
     return got.stdout if got is not None and got.returncode == 0 and got.stdout.strip() else "[]"
 
 
+#: the pid map's row for the site (``:'site'``), the same text as check_host.sh's. P-30: before the first night there is
+#: no ``pidmap.site_key``; the catalog is asked first, so a box's boot logs no error and the answer is "no row"
+PIDMAP_ROW_SQL = """SELECT to_regclass('pidmap.site_key') IS NOT NULL AS tb_has_pidmap \\gset
+\\if :tb_has_pidmap
+SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site';
+\\endif
+"""
+
+
 def pidmap_row(docker: Sequence[str], deploy: Path | None, values: Mapping[str, str], running: str,
                run: Runner = subprocess.run) -> str:  # fmt: skip
     """The pid map's row for the site (``fingerprint|chartno_rule``), as check_host.sh reads it; empty when unread,
-    ``none`` when the site has no row."""
+    ``none`` when the site has no row (or no night has made the table yet)."""
     site = (values.get("TB_SITE_ID") or "").strip()
     if deploy is None or not site or running.strip() in ("", "[]"):
         return ""
-    sql = "SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site'\n"
+    sql = PIDMAP_ROW_SQL
     got = _quiet(run, [*docker, "compose", "--project-directory", str(deploy), "exec", "-T", "db", "psql", "-X", "-q",
                        "-tA", "-v", "ON_ERROR_STOP=1", "-v", f"site={site}", "-U", "trialbox", "-d", "trialbox_wf"],
                  input=sql)  # fmt: skip

@@ -542,9 +542,15 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   SITE_ID="$(sed -n 's/^TB_SITE_ID=//p' "$ENV_FILE" | tail -1)"
   PIDMAP_ROW=""
   if [ -n "$RUNNING_IDS" ] && [ -n "$SITE_ID" ]; then
-    if PIDMAP_OUT="$(printf '%s\n' "SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site'" \
-        | docker compose --project-directory "$ROOT_DIR/deploy" exec -T db psql -X -q -tA -v ON_ERROR_STOP=1 \
-            -v site="$SITE_ID" -U trialbox -d trialbox_wf 2>/dev/null)"; then
+    # P-30: the catalog first (tools/trialbox/doctor_image.py PIDMAP_ROW_SQL, the same text): before the first night
+    # there is no pidmap.site_key, and the read is "none", not an error in the database's log
+    if PIDMAP_OUT="$(docker compose --project-directory "$ROOT_DIR/deploy" exec -T db psql -X -q -tA -v ON_ERROR_STOP=1 -v site="$SITE_ID" -U trialbox -d trialbox_wf 2>/dev/null <<'SQL'
+SELECT to_regclass('pidmap.site_key') IS NOT NULL AS tb_has_pidmap \gset
+\if :tb_has_pidmap
+SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site';
+\endif
+SQL
+)"; then
       PIDMAP_ROW="${PIDMAP_OUT:-none}"
     fi
   fi

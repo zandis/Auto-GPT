@@ -1,0 +1,25 @@
+{
+ "card": "P30",
+ "title": "a box's boot reads the pid map without an error in the database's log",
+ "date": "2026-11-27",
+ "source": "docs/handover/pidmap-boot-read-p30-2026-11-27.md",
+ "note": "basis 'shown' means shown by the card's unit test, which runs both readers' query with the real psql against a database with no pidmap schema, failing on the base and passing with the change.",
+ "findings": [
+  {
+   "id": "P30-01",
+   "severity": "Low",
+   "claim": "the host check read pidmap.site_key with no guard in check_host.sh and in doctor_image.pidmap_row, so before the first night each boot logged relation pidmap.site_key does not exist twice and the doctor got 'unread' instead of 'no row'",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "P30-02",
+   "severity": "Low",
+   "claim": "the two readers carried the pid map's query as two copies of one text; they are now one text held equal by a test",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
