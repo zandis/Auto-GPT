@@ -111,7 +111,7 @@ def problems(pub: Path, bundle: Path, bootstrap: Path, sums: Path) -> list[str]:
         lines = sums_data.decode("utf-8").splitlines()
     except UnicodeDecodeError:
         return [*out, f"{sums.name}: not UTF-8 text"]
-    # one entry for each of the three files, none for any other; hashed where the paths given are, not beside the sidecar
+    # one entry for each of the three files and none for any other; each file is hashed at the path given
     covered = {bundle.name: bundle, bootstrap.name: bootstrap, boot_sig.name: boot_sig}
     listed: dict[str, str] = {}
     repeated: set[str] = set()
