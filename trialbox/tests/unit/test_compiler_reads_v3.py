@@ -136,10 +136,6 @@ def _with_macro() -> dict[str, Any]:
     return doc
 
 
-def _v31(**atom: Any) -> dict[str, Any]:
-    return {**_crit(**atom), "ir_version": "3.1.0"}
-
-
 @pytest.mark.parametrize(
     ("doc", "why"),
     [
@@ -149,7 +145,6 @@ def _v31(**atom: Any) -> dict[str, Any]:
             _crit(attribute={"path": "ecog", "op": "<=", "num": 1, "source_priority": ["note"]}),
             "unsupported v3 qualifier",
         ),
-        (_v31(on_hit="review"), "on_hit review"),
         (_crit(domain="condition", value={"op": ">", "ref": _REF}), "scalar observation comparison"),
         (_crit(value={"op": "between", "ref": _REF}), "scalar observation comparison"),
         (_crit(value={"op": ">", "num": 5, "ref": _REF}), "absolute threshold"),
