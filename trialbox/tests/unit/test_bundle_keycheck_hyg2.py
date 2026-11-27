@@ -449,8 +449,8 @@ def test_an_owner_that_cannot_be_carried_over_publishes_nothing(kit: dict[str, A
     assert not list(kit["tmp"].glob(".make_bundle-pending.*"))
 
 
-def _acl(path: Path) -> None:
-    """An access ACL with a named-user entry, as setfacl sets it (the kernel's xattr form; no setfacl needed)."""
+def _acl(path: Path, kind: str = "access") -> None:
+    """An ACL with a named-user entry, as setfacl sets it (the kernel's xattr form; no setfacl needed)."""
     import struct
 
     entries = [
@@ -461,8 +461,17 @@ def _acl(path: Path) -> None:
         (0x20, 0, 0xFFFFFFFF),
     ]
     os.setxattr(
-        path, "system.posix_acl_access", struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *e) for e in entries)
+        path, f"system.posix_acl_{kind}", struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *e) for e in entries)
     )
+
+
+def test_a_release_folder_that_inherited_an_acl_is_not_published(kit: dict[str, Any]) -> None:  # R9
+    _dist(kit).mkdir()  # no ACL of its own; its parent gets a default ACL after, so the pending folder inherits one
+    _acl(_dist(kit).parent, "default")
+    res = _built(kit)
+    assert res.returncode == 1 and "has an ACL" in res.stderr and "nothing published" in res.stderr, _blob(res)
+    assert list(_dist(kit).iterdir()) == []
+    assert not list(kit["tmp"].glob(".make_bundle-pending.*"))
 
 
 def test_an_empty_out_folder_with_an_acl_is_refused_before_anything_is_built(kit: dict[str, Any]) -> None:  # R9
@@ -641,10 +650,12 @@ def test_runbook_a_second_publisher_waits_for_the_one_publishing(
         assert not (work / "media").exists()
         assert (work / "media.old" / "trialbox-runbook-20261101.tar").read_bytes() == b"the last good release"
     finally:
-        (work / "media.old").rename(work / "media")  # the first one's rename failed: it puts the last media back
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        os.close(lock)
-        t.join(30)
+        try:
+            (work / "media.old").rename(work / "media")  # the first one's rename failed: it puts the last media back
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            os.close(lock)
+            t.join(30)
     assert not t.is_alive() and not errors, errors
     assert sorted(p.name for p in (work / "media").iterdir())[0].startswith("trialbox-runbook-")
     assert sorted(p.name for p in work.iterdir()) == [".media-next.another-run", "media", "vendor"]

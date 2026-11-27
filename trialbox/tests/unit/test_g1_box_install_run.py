@@ -38,6 +38,7 @@ CASES = [
     "build-recover-fails",  # HYG2-R2
     "build-validation-again-fails",  # HYG2-R10
     "build-sign-cut",  # HYG2-R10
+    "build-stray-out",  # HYG2-R2
     "build-preempt",
     "happy",
     "step-fails",

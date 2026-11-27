@@ -170,7 +170,7 @@ if case in ("build", "build-sign-cut"):
         "N3: the published folder is the one make_bundle.sh made, not the attempt's private folder",
     )
 
-if case in ("build-again-fails", "build-cut-fails", "build-validation-again-fails"):
+if case in ("build-again-fails", "build-cut-fails"):
     bout = S / "vm" / "build" / "out"
     ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
     ok(
@@ -204,11 +204,35 @@ if case == "build-recover-fails":
     ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
 
 if case == "build-validation-again-fails":
-    pub = S / "vm" / "build" / "throwaway-signing-key.pub"
+    b = S / "vm" / "build"
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok(
+        {p.name: p.read_text() for p in (b / "out").iterdir()}
+        == {
+            "trialbox-2026.11-r.tar": "the last good release\n",
+            "throwaway-signing-key.pub": "the last throwaway key\n",
+        },
+        "HYG2-R10: the failed signing left the kept bundle and the public key beside it as they were",
+    )
+    pub = b / "throwaway-signing-key.pub"
     ok(
         pub.exists() and pub.read_text() == "the last throwaway key\n",
         "HYG2-R10: the failed signing left the public key of the bundle kept, not one of a bundle never published",
     )
+    ok(sorted(p.name for p in b.glob("out*")) == ["out"], "no half-built folder left")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
+if case == "build-stray-out":
+    b = S / "vm" / "build"
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok("TB-BUNDLE-NOT-PLACED" in parts["b05-sign"]["stop"]["reason"], "the stop says nothing was replaced")
+    kept = b / "out.old" / "trialbox-2026.11-r.tar"
+    ok(
+        kept.exists() and kept.read_text() == "the last good release\n",
+        "HYG2-R2: out.old is removed only while out beside it is a release: a stray folder in out keeps it",
+    )
+    ok([p.name for p in (b / "out").iterdir()] == ["stray.txt"], "the stray folder is left for a person")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
 
 if case == "build-pub-private":
     ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")

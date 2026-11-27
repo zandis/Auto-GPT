@@ -37,6 +37,8 @@
 #                      b05, nothing of it in the build folder, nothing uploaded
 #   build-recover-fails  HYG2-R2: the last release in out.old (a cut) and its way back into out blocked: b05 stops
 #                      before signing and out.old is kept, never deleted
+#   build-stray-out    HYG2-R2: the last release in out.old and a folder in out that is not a release: the signing
+#                      stops before replacing anything and out.old is kept
 #   build-validation-again-fails  HYG2-R10: a validation signing that fails keeps the public key of the bundle kept
 #   build-sign-cut     HYG2-R10: a cut signing left its attempt folder and make_bundle.sh's staging: the next one
 #                      removes them (one bundle of disk per cut otherwise)
@@ -151,7 +153,7 @@ ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot 
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
      resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
      acc-cut-resume build-again-fails build-cut-fails build-pub-private build-recover-fails build-validation-again-fails
-     build-sign-cut
+     build-sign-cut build-stray-out
      session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
      session-ssh session-then-acc session-close-fails session-update-fails session-cut-56 session-unit session-unit-race
      session-unit-fails session-unit-dbus session-ops session-quiet-fails session-ss-fails session-ended-again)
@@ -453,7 +455,13 @@ for CASE in "${CASES[@]}"; do
       setup "$CASE" build sign-fails; build_setup; m tb-mode validation
       rm -f "$S/metadata/tb-vendor-key-secret" "$S/metadata/tb-vendor-key-version"
       mkdir -p "$S/vm/build/out"; echo "the last good release" > "$S/vm/build/out/trialbox-2026.11-r.tar"
-      echo "the last throwaway key" > "$S/vm/build/throwaway-signing-key.pub"
+      echo "the last throwaway key" > "$S/vm/build/out/throwaway-signing-key.pub"
+      echo "the last throwaway key" > "$S/vm/build/throwaway-signing-key.pub"   # where b06 read it before
+      boot; to_the_end ;;
+    build-stray-out)
+      setup "$CASE" build; build_setup
+      mkdir -p "$S/vm/build/out.old" "$S/vm/build/out"; echo "the last good release" > "$S/vm/build/out.old/trialbox-2026.11-r.tar"
+      echo "not a release" > "$S/vm/build/out/stray.txt"
       boot; to_the_end ;;
     build-sign-cut)
       setup "$CASE" build; build_setup
