@@ -137,3 +137,16 @@ def test_the_drain_writes_a_row_and_cannot_take_one_back(cluster: tuple[Path, st
         assert pi.erase(con, ["P-SYN-1"]) == 1
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             con.execute("INSERT INTO provenance.model_calls (rec_hash, call_id, at) VALUES ('h2', 'c2', now())")
+
+
+def test_no_service_role_may_ask_the_register_through_the_index(cluster: tuple[Path, str]) -> None:
+    """P-19 (review P19-X6, High): ``provenance.withheld`` answers for any pseudonym; a service that only writes or
+    searches the index may not call it (the trigger and the sweep run as its owner). The administrator's check may;
+    the register's group may sweep, in its own opt-out transaction (review P19-X2)."""
+    _, url = cluster
+    ask = "SELECT has_function_privilege('{}', 'provenance.{}', 'EXECUTE')"
+    for role in ("tb_audit_writer", "tb_orchestrator", "tb_console"):
+        assert _one(url, ask.format(role, "withheld(text, timestamptz)")) is False, role
+    assert _one(url, ask.format("trialbox", "withheld(text, timestamptz)")) is True
+    assert _one(url, ask.format("tbs_optout", "sweep()")) is True
+    assert _one(url, "SELECT has_schema_privilege('tbs_optout', 'provenance', 'USAGE')") is True

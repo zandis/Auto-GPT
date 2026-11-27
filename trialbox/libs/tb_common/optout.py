@@ -63,6 +63,17 @@ CREATE TABLE optout_events (
 CREATE INDEX optout_events_pid ON optout_events (pid, at)
 """
 MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
+#: P-19: the provenance index's lock (its trigger ``provenance.withhold`` and ``provenance.sweep`` take it). Every
+#: register write takes it first, so a use row inserted at the same moment either committed before (and the sweep in
+#: the opt-out's own transaction removes it) or reads the register row after it (and withholds itself)
+PROVENANCE_LOCK = 211989
+#: the index's sweep is there and this role may run it (a box without the index, or before the role script's grant,
+#: has the lock alone and the drain's sweep)
+_SWEEP_OK = (
+    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace "
+    "WHERE n.nspname = 'provenance' AND p.proname = 'sweep' AND has_schema_privilege(n.oid, 'USAGE') "
+    "AND has_function_privilege(p.oid, 'EXECUTE'))"
+)
 
 
 class OptOutError(ValueError):
@@ -146,10 +157,13 @@ class OptOutRegister:
         if action not in ACTIONS:
             raise OptOutError(f"action must be one of {', '.join(ACTIONS)}")
         with self.db.transaction() as tx:
+            tx.execute(f"SELECT pg_advisory_xact_lock({PROVENANCE_LOCK})")  # P-19 (review P19-X2)
             tx.execute(
                 "INSERT INTO optout_events (pid, action, source, note, by, at) VALUES (?,?,?,?,?,?)",
                 (pid, action, source[:20] or None, note.strip()[:300] or None, by, _norm_at(at)),
             )
+            if action == "opt_out" and tx.fetchval(_SWEEP_OK):
+                tx.fetchval("SELECT provenance.sweep()")
             if before_commit is not None:  # D-273 (CR-055): the audit append; if it fails, nothing is kept
                 before_commit()
 

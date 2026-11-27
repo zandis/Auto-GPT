@@ -1103,6 +1103,28 @@ RESTORE_SWAP_SQL = (
 RESTORE_SPLIT_AWK = (
     '$4 == "EXTENSION" || ($4 == "COMMENT" && $5 == "-" && $6 == "EXTENSION") { print > x; next } { print > m }'
 )
+#: P-19 (ASSESS-1: an opt-out holds in every store, dumps included): before the swap, every opt-out register of the
+#: database in place (any tb_prefix) gives the restored one each event it does not hold (pseudonym, action, who and
+#: when compared; the live event wins, a lift too), then the provenance index's sweep runs on the restored one, so a
+#: use row the dump brought back for a patient who said no after it is gone before any service sees the database.
+#: The live events go through a file in the script's 0700 folder, as the dump does, and are kept in one transaction;
+#: a restored database without the register table refuses (fail closed: the rollback stops before the swap). The
+#: database in place is untouched until the swap, so a rollback run again reads them again.
+RESTORE_KEEP_SQL = (
+    "CREATE TEMP TABLE tb_live (pid text, action text, source text, note text, by text, at text);\n"
+    "\\copy tb_live FROM pstdin\n"
+    'INSERT INTO :"s".optout_events (pid, action, source, note, by, at) SELECT l.pid, l.action, l.source, l.note, '
+    'l.by, l.at FROM tb_live l WHERE NOT EXISTS (SELECT 1 FROM :"s".optout_events e WHERE e.pid = l.pid AND '
+    "e.action = l.action AND e.by = l.by AND e.at = l.at);\n"
+)
+RESTORE_REGISTERS_SQL = (
+    "SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE c.relname = 'optout_events' AND c.relkind = 'r';\n"
+)
+RESTORE_SWEEP_SQL = (
+    "DO $tb$ BEGIN IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+    "WHERE n.nspname = 'provenance' AND p.proname = 'sweep') THEN PERFORM provenance.sweep(); END IF; END $tb$;\n"
+)
 RESTORE_SH = (
     f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1\n'
     'r="$1"; db="$2"; reset="$3"; n="${db}_tbrb"; o="${db}_tbold"; made=\n'
@@ -1121,6 +1143,14 @@ RESTORE_SH = (
     'adm -d "$n" -f "$d/ext.sql" || exit 1\n'
     '{ printf "%s\\n" "$reset"; cat "$t"; } '
     '| psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$r" -d "$n" || exit 1\n'
+    f"cat > \"$d/keep.sql\" <<'TBSQL' || exit 1\n{RESTORE_KEEP_SQL}TBSQL\n"
+    f'adm -d "$db" -tA > "$d/registers" <<\'TBSQL\' || exit 1\n{RESTORE_REGISTERS_SQL}TBSQL\n'
+    "while read -r s; do\n"
+    "  printf '%s\\n' 'COPY (SELECT pid, action, source, note, by, at FROM :\"s\".optout_events) TO STDOUT;' "
+    '| adm -d "$db" -v s="$s" > "$d/live" || exit 1\n'
+    '  adm -d "$n" --single-transaction -v s="$s" -f "$d/keep.sql" < "$d/live" || exit 1\n'
+    'done < "$d/registers"\n'
+    f"adm -d \"$n\" <<'TBSQL' || exit 1\n{RESTORE_SWEEP_SQL}TBSQL\n"
     f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_SWAP_SQL}TBSQL\n"
     "made=\n"
     "printf '%s\\n' 'DROP DATABASE IF EXISTS :\"o\" WITH (FORCE);' | adm -d postgres "

@@ -18,6 +18,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -57,10 +58,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if a.search:
             try:
                 rows = idx.search(con, model=a.model, build_sha=a.build_sha, prompt_sha=a.prompt_sha,
-                                  prompt_id=a.prompt_id, prompt_version=a.prompt_version, limit=a.limit)  # fmt: skip
+                                  prompt_id=a.prompt_id, prompt_version=a.prompt_version, limit=a.limit,
+                                  directory=Path(a.audit_dir))  # fmt: skip
             except ValueError as exc:
                 print(f"trialbox provenance: {exc}", file=sys.stderr)
                 return 2
+            except idx.ProvenanceUnderRepair as exc:  # P-19 (review P19-X1)
+                print(f"trialbox provenance: {exc}", file=sys.stderr)
+                return 1
             if a.json:
                 print(json.dumps(rows, ensure_ascii=False, indent=1))
             else:
@@ -74,6 +79,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if a.rebuild:
             calls, uses = idx.rebuild(con, audit)
             print(f"provenance index rebuilt from {audit}: {calls} call(s), {uses} use(s)")
+            try:  # P-19 (P19-DESIGN §2): a whole rebuild and its sweep, committed, is more than the drain's repair
+                idx.write_state(audit, state=idx.CLEAN, verified_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                                rows_written=calls + uses)  # fmt: skip
+            except OSError as exc:
+                print(f"provenance index: the repair marker was not written ({type(exc).__name__}); the audit "
+                      "writer's next start writes it", file=sys.stderr)  # fmt: skip
             return 0
         diff = idx.check(con, audit)
         if diff.ok:

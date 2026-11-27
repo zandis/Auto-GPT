@@ -427,9 +427,13 @@ GRANT SELECT, INSERT, DELETE ON provenance.model_uses TO provenance_keeper;
 ALTER FUNCTION provenance.withheld(text, timestamptz) OWNER TO provenance_keeper;
 ALTER FUNCTION provenance.withhold() OWNER TO provenance_keeper;
 ALTER FUNCTION provenance.sweep() OWNER TO provenance_keeper;
-GRANT EXECUTE ON FUNCTION provenance.withheld(text, timestamptz) TO tb_audit_writer, tb_orchestrator, tb_console,
-  trialbox;
-GRANT EXECUTE ON FUNCTION provenance.sweep() TO tb_audit_writer, tb_orchestrator, trialbox;
+-- review P19-X6: withheld() answers for any pseudonym, so only the administrator's check asks it (the trigger and the
+-- sweep run as its owner); the register's group sweeps in its own opt-out transaction (review P19-X2). The REVOKE
+-- takes back the earlier script's grants on a box that ran it
+REVOKE EXECUTE ON FUNCTION provenance.withheld(text, timestamptz) FROM tb_audit_writer, tb_orchestrator, tb_console;
+GRANT EXECUTE ON FUNCTION provenance.withheld(text, timestamptz) TO trialbox;
+GRANT USAGE ON SCHEMA provenance TO tbs_optout;
+GRANT EXECUTE ON FUNCTION provenance.sweep() TO tb_audit_writer, tb_orchestrator, tbs_optout, trialbox;
 ALTER ROLE tb_audit_writer PASSWORD :'pw_audit_writer';
 SQL
 # D-541: inside `hapi`, what HAPI made while it signed in as the superuser becomes the FHIR store's own (tables with

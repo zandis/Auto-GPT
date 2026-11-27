@@ -22,22 +22,27 @@ from __future__ import annotations
 import itertools
 import json
 import os
+import shutil
 import subprocess
 import sys
+import threading
+import time
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlencode
 
 import psycopg
 import pytest
 from tb_common import provenance_index as idx
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import Drain, _dsn
-from tb_common.optout import REGISTRY_ACTOR
+from tb_common.optout import REGISTRY_ACTOR, OptOutRegister
 
 from tests.unit.test_provenance_index import REGISTER, register
 from tools import pglocal
+from tools.trialbox import update as up
 
 TZ = "Asia/Taipei"
 PID_A = "0ca5381cfa6bdf1c22961d65579f93b3"
@@ -747,3 +752,354 @@ def test_an_old_role_script_writes_no_unfiltered_index(
         "ai.used",
     ]
     assert "provenance index not installed" in caplog.text
+
+
+# --- review round 3 of P-19 (1584 codex P19-D1/D2, X1 to X8, N2; opus F1 to F6): the production paths
+
+
+def _url(dsn: str) -> str:
+    """The test's database as a ``TB_DB_URL`` (what ``OptOutRegister`` and ``trialbox provenance`` take)."""
+    d = psycopg.conninfo.conninfo_to_dict(dsn)
+    who, db = quote(str(d.pop("user")), safe=""), d.pop("dbname")
+    return f"postgresql://{who}@/{db}?" + urlencode({k: str(v) for k, v in d.items()})
+
+
+def _register(dsn: str) -> OptOutRegister:
+    """The opt-out register as the console and the registry's worker open it (``tb_common.optout``: its own
+    migration, in place of the fixture's hand-made table)."""
+    with psycopg.connect(dsn, autocommit=True) as c:
+        c.execute("DROP SCHEMA optout CASCADE")
+    return OptOutRegister(_url(dsn))
+
+
+def _rollback(dsn: str, dump: Path, tmp_path: Path) -> None:
+    """The update's rollback of the trial database as ``ComposeBox.restore_databases`` runs it in the db container:
+    ``update.RESTORE_SH`` under dash, the dump on stdin. Nothing of the live register is kept by this helper: what
+    survives is what the production script keeps."""
+    d = psycopg.conninfo.conninfo_to_dict(dsn)
+    pgdata = tmp_path / "pgdata"  # the script's folder is under PGDATA, as on the db volume
+    pgdata.mkdir(exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PG")}
+    env.update(PGDATA=str(pgdata), POSTGRES_USER=str(d["user"]), PATH=f"{pglocal.bindir()}:{env.get('PATH', '')}")
+    for key, var in (("host", "PGHOST"), ("port", "PGPORT"), ("password", "PGPASSWORD")):
+        if d.get(key):
+            env[var] = str(d[key])
+    with dump.open("rb") as fh:
+        r = subprocess.run([shutil.which("dash") or "sh", "-c", up.RESTORE_SH, "tb-restore", str(d["user"]),
+                            str(d["dbname"]), up.RESET_SQL], stdin=fh, env=env, capture_output=True,
+                           check=False)  # fmt: skip
+    assert r.returncode == 0, r.stderr[-1200:]
+
+
+def _events_of(dsn: str, pid: str) -> list[tuple[str, str]]:
+    with psycopg.connect(dsn, autocommit=True) as c:
+        return [(str(a), str(b)) for a, b in c.execute(
+            "SELECT action, by FROM optout.optout_events WHERE pid = %s ORDER BY id", (pid,)).fetchall()]  # fmt: skip
+
+
+@pytest.mark.parametrize("by", ["console:office1", REGISTRY_ACTOR])
+def test_a_real_rollback_keeps_an_opt_out_made_after_the_dump(box: str, tmp_path: Path, by: str) -> None:
+    """F1 / P19-D1 (High): B's verdict is drained after the dump, then B says no at the console, or the hospital's
+    registry refuses (the worker's copy: counts only in the chain). The update's own rollback restores the dump; the
+    drain's catch-up then finds B's line missing and writes it through the trigger: B's use row stays out."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    reg = _register(box)
+    try:
+        _send(box, 20, "c1", PID_A)
+        _drain(box, chain)
+        dump = tmp_path / "rollback.dump"
+        _pg("pg_dump", "-Fc", "-f", str(dump), box)
+        _send(box, 21, "c2", PID_B)
+        _drain(box, chain)
+        assert reg.add(PID_B, "emr" if by == REGISTRY_ACTOR else "paper", "", by, "2026-11-22T09:00:00+08:00")
+    finally:
+        reg.close()
+    _rollback(box, dump, tmp_path)
+    _drain(box, chain)
+    assert _events_of(box, PID_B) == [("opt_out", by)]
+    assert _uses(box, PID_B) == []
+    assert _calls(box) == ["c1", "c2"]
+    assert _check(box, chain).ok
+    assert _state(chain)["state"] == idx.CLEAN
+
+
+def test_a_real_rollback_sweeps_a_row_of_the_dump_before_the_database_is_served(box: str, tmp_path: Path) -> None:
+    """P19-D2 (High) and X1: B's use row is in the dump and B opts out after it. The update's own rollback puts the
+    register's later events back and sweeps before the restored database takes the old one's name, so no search can
+    meet the row, whatever the marker still says; the drain then keeps it out."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    reg = _register(box)
+    try:
+        _send(box, 20, "c1", PID_A)
+        _send(box, 21, "c2", PID_B)
+        _drain(box, chain)
+        dump = tmp_path / "rollback.dump"
+        _pg("pg_dump", "-Fc", "-f", str(dump), box)
+        assert reg.add(PID_B, "paper", "", "console:office1", "2026-11-22T09:00:00+08:00")
+    finally:
+        reg.close()
+    _rollback(box, dump, tmp_path)
+    assert _uses(box, PID_B) == []  # before the drain starts
+    _drain(box, chain)
+    assert _uses(box, PID_B) == []
+    assert _uses(box, PID_A) == ["c1"]
+    assert _check(box, chain).ok
+
+
+def test_a_rollback_run_again_keeps_each_register_event_once(box: str, tmp_path: Path) -> None:
+    """P19-D1: a rollback stopped after the swap is run again (the marker stays): the register it reads is the one
+    the first run kept, and nothing is written twice."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    reg = _register(box)
+    try:
+        _send(box, 20, "c1", PID_A)
+        _drain(box, chain)
+        dump = tmp_path / "rollback.dump"
+        _pg("pg_dump", "-Fc", "-f", str(dump), box)
+        assert reg.add(PID_B, "paper", "", "console:office1", "2026-11-22T09:00:00+08:00")
+        assert reg.lift(PID_B, "", "console:office1", "2026-11-23T09:00:00+08:00")
+    finally:
+        reg.close()
+    _rollback(box, dump, tmp_path)
+    _rollback(box, dump, tmp_path)
+    assert _events_of(box, PID_B) == [("opt_out", "console:office1"), ("lift", "console:office1")]
+
+
+@pytest.mark.parametrize("by", ["console:office1", REGISTRY_ACTOR])
+def test_a_consent_change_and_an_index_insert_at_the_same_moment_leave_no_row(box: str, by: str) -> None:
+    """P19-X2 (High) / F3: the drain's insert has read no register row and is not yet committed when the console's
+    opt-out, or the registry worker's refusal, is written. The register's writer takes the index's lock, so it waits
+    for the insert and its sweep removes the row in the opt-out's own transaction."""
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    reg = _register(box)
+    ins = psycopg.connect(box)  # not autocommit: the insert's transaction stays open
+    try:
+        ins.execute("INSERT INTO provenance.model_uses (rec_hash, call_id, event, record_kind, record_ref, pid, at) "
+                    "VALUES ('h1', 'c1', 'used', 'verdict', '{}', %s, '2026-11-21T02:00:00+08:00')", (PID_B,))  # fmt: skip
+        done: list[bool] = []
+        t = threading.Thread(target=lambda: done.append(reg.add(PID_B, "emr" if by == REGISTRY_ACTOR else "paper",
+                                                                "", by, "2026-11-21T09:00:00+08:00")))  # fmt: skip
+        t.start()
+        with psycopg.connect(box, autocommit=True) as w:  # the writer either finished or waits on the lock
+            while t.is_alive() and not w.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                                                 "AND NOT granted").fetchone()[0]:  # fmt: skip
+                time.sleep(0.01)
+        ins.commit()
+        t.join()
+    finally:
+        ins.close()
+        reg.close()
+    assert done == [True]
+    assert _uses(box, PID_B) == []
+
+
+def test_the_cli_search_refuses_while_the_repair_is_owed(box: str, tmp_path: Path, capsys: Any) -> None:
+    """P19-X1 (High): ``trialbox provenance --search`` asks the marker in its audit directory: refused while a repair
+    is owed, answered once the drain says clean."""
+    from tools.trialbox import provenance as cli
+
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    argv = ["--search", "--model", "m-judge", "--audit-dir", str(chain), "--db-url", _url(box)]
+    idx.write_state(chain, state=idx.REQUIRED, reason="resync", attempts=0)
+    capsys.readouterr()
+    assert cli.main(argv) == 1
+    out = capsys.readouterr()
+    assert "call c1" not in out.out and "being put back" in out.err
+    _drain(box, chain)
+    assert cli.main(argv) == 0
+    assert "call c1" in capsys.readouterr().out
+
+
+def _slipped(dsn: str, pid: str) -> None:
+    """A use row of ``pid`` that the trigger never saw (what ``pg_restore`` loads before the trigger exists)."""
+    with psycopg.connect(dsn, autocommit=True) as c, c.transaction():
+        c.execute("ALTER TABLE provenance.model_uses DISABLE TRIGGER model_uses_withhold")
+        c.execute("INSERT INTO provenance.model_uses (rec_hash, call_id, event, record_kind, record_ref, pid, at) "
+                  "VALUES ('h9', 'c9', 'used', 'verdict', '{}', %s, '2026-11-20T02:00:00+08:00')", (pid,))  # fmt: skip
+        c.execute("ALTER TABLE provenance.model_uses ENABLE TRIGGER model_uses_withhold")
+
+
+def test_a_failed_sweep_after_an_opt_out_stays_owed_and_is_done(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P19-X3 (High): the sweep after a batch that drained an opt-out fails: the repair is owed (the marker, so the
+    searches are held) and the drain's retry sweeps, with an empty journal."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    monkeypatch.setattr(Drain, "RETRY", 0.0)
+    d = Drain("postgresql://x@h/db", chain, TZ, connect=lambda: psycopg.connect(box, autocommit=True))
+    d.open()
+    try:
+        assert _state(chain)["state"] == idx.CLEAN
+        _slipped(box, PID_B)
+        real, calls = idx.sweep, itertools.count()
+
+        def failing(con: Any) -> int:
+            if next(calls) == 0:
+                raise psycopg.OperationalError("synthetic: the connection dropped")
+            return real(con)
+
+        monkeypatch.setattr(idx, "sweep", failing)
+        with psycopg.connect(box, autocommit=True) as c:  # the register's row and the journal's opt-out; no erase
+            register(c, PID_B, "opt_out", "2026-11-22T09:00:00+08:00")
+            c.execute("INSERT INTO audit.journal (db_role, event, ts, fields) VALUES ('tb_console', %s, %s, %s)",
+                      (idx.OPT_OUT, "2026-11-22T09:00:00+08:00", json.dumps({"detail": {"action": "opt_out"}})))  # fmt: skip
+        assert d.step() == 1
+        assert _state(chain)["state"] == idx.REQUIRED
+        assert _uses(box, PID_B) == ["c9"]
+        assert d.step() == 0  # nothing new in the journal: the owed repair runs
+    finally:
+        d.con.close()
+    assert _uses(box, PID_B) == []
+    assert _state(chain)["state"] == idx.CLEAN
+
+
+@pytest.mark.parametrize("how", ["disabled", "elsewhere"])
+def test_a_trigger_that_does_not_filter_the_index_is_not_installed(box: str, how: str) -> None:
+    """P19-X4 (High) / F5: a disabled trigger (an interrupted data restore leaves one) or one of the same name on
+    another table is no filter: the drain must not write the index."""
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+        assert idx.installed(c)
+        if how == "disabled":
+            c.execute("ALTER TABLE provenance.model_uses DISABLE TRIGGER model_uses_withhold")
+        else:
+            c.execute("DROP TRIGGER model_uses_withhold ON provenance.model_uses")
+            c.execute("CREATE TABLE provenance.elsewhere (pid text, at timestamptz)")
+            c.execute("CREATE TRIGGER model_uses_withhold BEFORE INSERT ON provenance.elsewhere FOR EACH ROW "
+                      "EXECUTE FUNCTION provenance.withhold()")  # fmt: skip
+        assert not idx.installed(c)
+
+
+def test_a_repair_is_committed_before_the_marker_says_clean(box: str, tmp_path: Path) -> None:
+    """P19-X5 (High): on a drain connection that is not autocommit, the repair's rows are seen by another session
+    when the marker says clean, and stay after the drain's connection closes."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    with psycopg.connect(box, autocommit=True) as c:  # the index lost its rows (a restore)
+        c.execute("DELETE FROM provenance.model_uses")
+        c.execute("DELETE FROM provenance.model_calls")
+    d = Drain("postgresql://x@h/db", chain, TZ, connect=lambda: psycopg.connect(box, autocommit=False))
+    d.open()
+    try:
+        assert _state(chain)["state"] == idx.CLEAN
+        assert (_calls(box), _uses(box)) == (["c1"], ["c1"])
+    finally:
+        d.con.close()
+    assert (_calls(box), _uses(box)) == (["c1"], ["c1"])
+
+
+def test_a_line_of_which_one_row_is_missing_is_completed(box: str, tmp_path: Path) -> None:
+    """P19-N2: a line written half by the old autocommit loop (one of its two use rows) is completed: the catch-up
+    compares rows, not line hashes."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    call_f, use_f = _fields(20, "c2", PID_A)
+    _put(box, 20, "llm.call", call_f)
+    _put(box, 20, "llm.call", {**call_f, "detail": {**call_f["detail"], "call_id": "c3"}})
+    _put(box, 20, "ai.used", {"detail": {**use_f["detail"], "calls": ["c2", "c3"]}})
+    _drain(box, chain)
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute("DELETE FROM provenance.model_uses WHERE call_id = 'c3'")
+        assert idx.catch_up(c, chain) == 1
+        assert idx.check(c, chain).ok
+    assert _uses(box) == ["c2", "c3"]
+
+
+def test_live_failures_do_not_put_off_an_owed_repair(box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P19-X7: the retry's time is set when the repair first becomes owed; a later live failure keeps it."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    monkeypatch.setattr(Drain, "RETRY", 3600.0)
+    d = Drain("postgresql://x@h/db", chain, TZ, connect=lambda: psycopg.connect(box, autocommit=True))
+    d.open()
+
+    def failing(con: Any, rec: dict[str, Any]) -> int:
+        raise psycopg.OperationalError("synthetic: the connection dropped")
+
+    monkeypatch.setattr(idx, "add", failing)
+    try:
+        _send(box, 20, "c1", PID_A)
+        d.step()
+        first = d._retry
+        _send(box, 21, "c2", PID_A)
+        d.step()
+        assert d._retry == first
+    finally:
+        d.con.close()
+
+
+def test_an_interrupted_rebuild_leaves_the_index_as_it_was(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P19-X8: ``trialbox provenance --rebuild`` (an autocommit connection) stopped half way: one transaction, so the
+    index is the one it found, not a partial one under a clean marker."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _send(box, 20, "c1", PID_A)
+    _send(box, 21, "c2", PID_B)
+    _drain(box, chain)
+    real, writes = idx.add, itertools.count()
+
+    def stopped(con: Any, rec: dict[str, Any]) -> int:
+        if next(writes) == 2:
+            raise KeyboardInterrupt
+        return real(con, rec)
+
+    monkeypatch.setattr(idx, "add", stopped)
+    with psycopg.connect(box, autocommit=True) as c, pytest.raises(KeyboardInterrupt):
+        idx.rebuild(c, chain)
+    assert (_calls(box), _uses(box)) == (["c1", "c2"], ["c1", "c2"])
+
+
+def test_the_restore_sweep_runs_even_when_the_catch_up_cannot(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F2: a catch-up that fails at every try (a bad line, a database blip) does not keep a withheld row in the
+    index: the sweep comes first."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+        register(c, PID_B, "opt_out", "2026-11-21T09:00:00+08:00")
+    _slipped(box, PID_B)
+
+    def broken(con: Any, directory: Path) -> int:
+        raise ValueError("synthetic: a line that cannot be read")
+
+    monkeypatch.setattr(idx, "catch_up", broken)
+    d = Drain("postgresql://x@h/db", chain, TZ, connect=lambda: psycopg.connect(box, autocommit=True))
+    d.open()
+    d.con.close()
+    assert _uses(box, PID_B) == []
+    assert _state(chain)["state"] == idx.REQUIRED
+
+
+def test_the_catch_up_counts_the_rows_it_wrote(box: str, tmp_path: Path) -> None:
+    """F6: a use row the register withholds is not a row written back; a start with nothing missing writes 0."""
+    chain = tmp_path / "audit"
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+        register(c, PID_A, "opt_out", "2026-11-19T09:00:00+08:00")
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    with psycopg.connect(box, autocommit=True) as c:
+        assert idx.catch_up(c, chain) == 0
+    assert _state(chain)["rows_written"] == 0

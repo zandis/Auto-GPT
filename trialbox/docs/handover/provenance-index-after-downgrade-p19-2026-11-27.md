@@ -44,7 +44,9 @@ Which of the two made the walk's 108 rows is not known here: the box's log was n
 
 ## Change
 
-The first round's change, kept for the record; the design round below replaces the anchor, the chain's opt-outs and
+Superseded twice (see "Design round" and "Round 3"): the drain now writes every missing row at every start, so
+P19-03 below is closed; the update's rollback keeps the register (P19-04 closed). The first round's change, kept for
+the record; the design round below replaces the anchor, the chain's opt-outs and
 the retry that lived in the running drain.
 
 - At a resync, the drain writes the rows of the chain's lines after the newest line the restored index still holds
@@ -64,6 +66,9 @@ the retry that lived in the running drain.
   registry refusal, a rebuild that read the register) and newest in the index would still come back: see Review round.
 
 ## Case 2 and the update path
+
+Superseded: the drain's catch-up writes case 2's lines at every start through the register's trigger (no role needs
+the whole rebuild), and the rebuild runs in one transaction. Kept for the record:
 
 Running the rebuild from the update path (its finish step after a switch, a rollback or a downgrade) was looked at
 and not done. No role of a compose box can do the whole rebuild: it reads the register and deletes and writes both
@@ -150,7 +155,7 @@ N4 is the F4 row above. N5: P19-01 and P19-02 are marked fixed in the findings.
 The tests' downgrade puts back the dump and then applies the live register's rows again before any service starts,
 as the design asks of the update tool (below).
 
-**Owed outside this card** (the design's requirements on other lanes; not done here):
+**Owed outside this card** (the design's requirements on other lanes; round 3 below did the first three):
 
 - the console's opt-out transaction: lock 211989, the register's row, `erase`, the journal row, one commit; its
   lift handler keeps the register's event (it does today: a lift is its own event);
@@ -164,3 +169,24 @@ as the design asks of the update tool (below).
 - P19-04: no rollback with an opt-out recorded after its dump was run.
 - A compose box's real update and downgrade (`tools/trialbox/update.py`): the test restores the database the way
   the rollback does (`pg_restore` of a dump), not through the update tool.
+
+## Round 3 (reviews 1584 codex P19-D1/D2, X1 to X8, N2; opus F1 to F7)
+
+- **The update's rollback keeps the register** (P19-04, D1, D2, F1): `update.RESTORE_SH`, between the dump's load into
+  the fresh database and the swap, copies each register event of the database in place that the restored one lacks
+  (pseudonym, action, who, when; a lift too), then runs `provenance.sweep()` there. A row the dump brought back for a
+  patient who said no after it is gone before any service sees the database; the drain's catch-up then withholds the
+  lines it writes back. The database in place is untouched until the swap, so a rollback run again reads it again.
+  Tests run `RESTORE_SH` itself on the test cluster (no live register kept by the test).
+- **One lock for every consent writer** (X2, F3): `OptOutRegister._add` (the console's opt-out and lift, the registry
+  worker's copy) takes `pg_advisory_xact_lock(211989)` first and, for an opt-out, runs the sweep in its own
+  transaction. `tbs_optout` gets USAGE on `provenance` and EXECUTE on `sweep`.
+- **The searches are held** (X1): the console's page and `trialbox provenance --search` pass the audit directory;
+  refused while the marker is not `clean` (the page says the index cannot be read, the CLI exits 1). A full
+  `--rebuild` writes `clean` (P19-DESIGN §2).
+- **The drain**: the sweep runs before the catch-up and each is committed before the marker says `clean` (F2, X5); a
+  failed sweep after an opt-out is owed and retried (X3); a live failure keeps an owed retry's time (X7).
+- **The index**: `installed()` asks for the trigger on `model_uses`, running `provenance.withhold`, enabled (X4, F5);
+  the catch-up compares rows, so a half-written line is completed (N2); `add` counts the rows written (F6);
+  `rebuild` is one transaction (X8).
+- **Grants** (X6): `provenance.withheld` is executable by `trialbox` alone (the earlier grants are revoked).

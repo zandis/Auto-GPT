@@ -272,31 +272,48 @@ def installed(con: Any) -> bool:
     """Whether both tables exist and the register's trigger is on them (the role script creates them; until then
     the drain writes no index, and never one the register does not filter)."""
     return all(con.execute("SELECT to_regclass(%s)", (t,)).fetchone()[0] is not None for t in TABLES) and (
-        con.execute("SELECT tgrelid FROM pg_trigger WHERE tgname = 'model_uses_withhold'").fetchone() is not None
+        con.execute(_TRIGGER).fetchone() is not None
     )
 
 
+#: the trigger that filters: on ``model_uses``, running ``provenance.withhold``, enabled for an ordinary session (a
+#: disabled one, left by an interrupted data restore, or one of that name elsewhere is no filter: review P19-X4)
+_TRIGGER = (
+    "SELECT 1 FROM pg_trigger t WHERE t.tgname = 'model_uses_withhold' "
+    "AND t.tgrelid = 'provenance.model_uses'::regclass AND t.tgenabled IN ('O', 'A') "
+    "AND t.tgfoid IN (SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+    "WHERE n.nspname = 'provenance' AND p.proname = 'withhold')"
+)
+
+
 def add(con: Any, rec: dict[str, Any]) -> int:
-    """Write one chain record's rows (a line already indexed is a no-op); the number of rows the record gives. The
-    line's rows are written whole or not at all, so a line hash in the index means the whole line is there (P-19);
-    the register's trigger withholds an opted-out patient's use rows."""
+    """Write one chain record's rows (a row already indexed is a no-op); the number of rows written (a row the
+    register's trigger withholds, or one already there, is not: review P19-F6). The line's rows are written whole or
+    not at all (P-19)."""
     calls, uses = rows_of(rec)
     if not calls and not uses:
         return 0
+    n = 0
     with con.transaction():
         for c in calls:
-            con.execute(
+            cur = con.execute(
                 "INSERT INTO provenance.model_calls (rec_hash, call_id, model, build_sha, prompt_id, prompt_version, "
                 "prompt_sha, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
                 (c.rec_hash, c.call_id, c.model, c.build_sha, c.prompt_id, c.prompt_version, c.prompt_sha, c.at),
             )
+            n += _written(cur)
         for u in uses:
-            con.execute(
+            cur = con.execute(
                 "INSERT INTO provenance.model_uses (rec_hash, call_id, event, record_kind, record_ref, pid, decision, "
                 "by_whom, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
                 (u.rec_hash, u.call_id, u.event, u.record_kind, u.record_ref, u.pid, u.decision, u.by_whom, u.at),
             )
-    return len(calls) + len(uses)
+            n += _written(cur)
+    return n
+
+
+def _written(cur: Any) -> int:
+    return int(getattr(cur, "rowcount", 0) or 0)
 
 
 def sweep(con: Any) -> int:
@@ -314,24 +331,28 @@ def catch_up(con: Any, directory: Path) -> int:
     """P-19: write the rows of every row-bearing chain line the index does not hold (a restore, a downgrade, a write
     that failed); the rows the lines give. A line written twice is a no-op and the register's trigger withholds
     what it must, so it is safe at every start and a retry finds every hole, old and new (review P19-D3, D4)."""
-    # ponytail: whole-chain diff; a day-file lower bound from the marker when the chain is years long
-    have = {str(r[0]) for t in TABLES for r in con.execute(_KEYS[t]).fetchall()}
+    # ponytail: whole-chain diff; a day-file lower bound from the marker when the chain is years long. Rows, not line
+    # hashes: a line the old autocommit loop wrote half is completed (review P19-N2); a withheld row is asked again
+    have = {(t, str(a), str(b)) for t in TABLES for a, b in con.execute(_KEYS[t]).fetchall()}
     n = 0
     for rec in chain_records(directory):
-        if str(rec.get("hash") or "") in have:
-            continue
-        if any(rows_of(rec)):
+        calls, uses = rows_of(rec)
+        keys = [("provenance.model_calls", c.rec_hash, c.call_id) for c in calls]
+        keys += [("provenance.model_uses", u.rec_hash, u.call_id) for u in uses]
+        if any(k not in have for k in keys):
             n += add(con, rec)
     return n
 
 
 def rebuild(con: Any, directory: Path) -> tuple[int, int]:
-    """Empty both tables and write them again from the chain; (calls, uses) written. Opted-out patients stay out."""
-    con.execute("DELETE FROM provenance.model_uses")
-    con.execute("DELETE FROM provenance.model_calls")
-    for rec in chain_records(directory):
-        add(con, rec)
-    sweep(con)
+    """Empty both tables and write them again from the chain; (calls, uses) written. Opted-out patients stay out.
+    One transaction: a rebuild stopped half way leaves the index it found (review P19-X8)."""
+    with con.transaction():
+        con.execute("DELETE FROM provenance.model_uses")
+        con.execute("DELETE FROM provenance.model_calls")
+        for rec in chain_records(directory):
+            add(con, rec)
+        sweep(con)
     return _count(con, "provenance.model_calls"), _count(con, "provenance.model_uses")
 
 

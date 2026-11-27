@@ -499,8 +499,12 @@ class Drain:
         by = {"pid": os.getpid(), "host": socket.gethostname(), "start": _now()}  # diagnostic only
         pi.write_state(self.directory, **{**owed, "state": pi.REPAIRING, "by": by})
         try:
-            n = pi.catch_up(self.con, self.directory)
+            # the sweep first, so a catch-up that fails at every try keeps no withheld row (review P19-F2); each
+            # committed before the marker says clean, on a connection that is not autocommit too (X5)
             k = pi.sweep(self.con)
+            self.con.commit()
+            n = pi.catch_up(self.con, self.directory)
+            self.con.commit()
         except Exception as exc:
             with contextlib.suppress(Exception):  # a connection that is not autocommit is usable again (N3)
                 self.con.rollback()
@@ -526,23 +530,36 @@ class Drain:
         except Exception as exc:
             log.error("provenance index: a row was not written (%s); put back by the audit writer",
                       type(exc).__name__)  # fmt: skip
-            prev = pi.read_state(self.directory)
-            # the line is in the chain already: a marker that cannot be written must not write it twice; the next
-            # start owes the repair anyway
-            with contextlib.suppress(OSError):
-                pi.write_state(self.directory, state=pi.REQUIRED, reason="index write failed",
-                               since=prev.get("since") or _now(), attempts=int(prev.get("attempts") or 0))  # fmt: skip
-            self._recover = True
+            self._owe("index write failed")
+
+    def _owe(self, reason: str) -> None:
+        """A repair is owed (the marker, so the searches are held, and ``step``'s retry). The retry's time is set
+        when the repair first becomes owed: a later failure does not put it off (review P19-X7)."""
+        from tb_common import provenance_index as pi
+
+        prev = pi.read_state(self.directory)
+        # the line is in the chain already: a marker that cannot be written must not write it twice; the next start
+        # owes the repair anyway
+        with contextlib.suppress(OSError):
+            pi.write_state(self.directory, state=pi.REQUIRED, reason=reason, since=prev.get("since") or _now(),
+                           attempts=int(prev.get("attempts") or 0))  # fmt: skip
+        if not self._recover:
             self._retry = time.monotonic() + self.RETRY
+        self._recover = True
 
     def _sweep(self) -> None:
-        """P-19: after a batch that drained an opt-out, the register's sweep (logged, never raised)."""
+        """P-19: after a batch that drained an opt-out, the register's sweep (logged, never raised). One that fails
+        is owed, so the retry sweeps (review P19-X3)."""
         from tb_common import provenance_index
 
         try:
             k = provenance_index.sweep(self.con)
+            self.con.commit()
         except Exception as exc:
+            with contextlib.suppress(Exception):
+                self.con.rollback()
             log.error("provenance index: the sweep after an opt-out failed (%s)", type(exc).__name__)
+            self._owe("sweep failed")
             return
         if k:
             log.info("provenance index: %d withheld row(s) swept after an opt-out", k)

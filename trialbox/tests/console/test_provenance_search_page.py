@@ -20,6 +20,8 @@ PW = "provenance-search-password-01"
 
 def _box(b: dict[str, Any], c: Any, tmp_path: Path) -> None:
     idx.rebuild(c, _chain(tmp_path).directory)
+    # P-19: the page serves an index the audit writer reported clean (the marker in the console's audit directory)
+    idx.write_state(Path(b["app"].state.audit_hooks.au.directory), state=idx.CLEAN)
     b["app"].state.audit_hooks.doors["provenance"] = lambda: _Kept(c)
     for name, role in (("stw", "steward"), ("dpo", "privacy"), ("ops", "admin"), ("crc", "coordinator")):
         b["users"].create(name, role, PW, f"{name}@hospa.test")
@@ -116,3 +118,19 @@ def test_a_failed_search_is_audited_and_the_administrators_search_says_no_pseudo
     box["app"].state.audit_hooks.doors["provenance"] = down
     assert ops.get("/audit/provenance", params={"build_sha": "b2"}).status_code == 503
     assert _events(box)[-1]["detail"]["error"] is True
+
+
+def test_a_search_is_refused_while_the_audit_writer_owes_a_repair(
+    box: dict[str, Any],  # noqa: F811
+    con: Any,  # noqa: F811
+    tmp_path: Path,
+) -> None:
+    """P-19 (review P19-X1, High): after a restore the index may hold a row of a patient who said no until the audit
+    writer's sweep; while its marker is not clean the page serves nothing, said as an index that cannot be read."""
+    _box(box, con, tmp_path)
+    idx.write_state(Path(box["app"].state.audit_hooks.au.directory), state=idx.REQUIRED, reason="resync",
+                    attempts=0)  # fmt: skip
+    c, _ = login(box["app"], "stw", PW)
+    page = c.get("/audit/provenance", params={"build_sha": "b2"})
+    assert page.status_code == 503 and 'data-testid="prov-error"' in page.text
+    assert PID_A not in page.text and PID_B not in page.text and 'data-testid="prov-row"' not in page.text
