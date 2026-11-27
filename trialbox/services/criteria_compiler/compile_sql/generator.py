@@ -206,10 +206,16 @@ class SqlGenerator:
             cols = [*cols, (lit(YJ_STEM), YJ_STEM_OF.format(col="x.nhi_code"))]
         rid_sel = "rid" if rid == "rid" else f"{rid} AS rid"
 
+        # inv-j5 (metamorphic ``duplicate``): "seen twice for it" counts visits, so a diagnosis row written twice in
+        # one encounter is one visit; a row with no encounter counts alone. Only a condition count changes its SQL
+        visits = atom.domain == "condition" and (atom.quantifier or "any") == "count>="
+        visit = ", coalesce(eid, cid) AS visit" if visits else ""
+        counter = "count(DISTINCT e.visit)" if visits else "count(*)"
+
         def src(match: Callable[[str, str, str], str], status: str = "") -> str:
             cond = " OR ".join(match(vsn, sc, cc) for sc, cc in cols)
             where = f"({cond}){status}" if status else cond  # a shipped atom's SQL stays byte for byte what it was
-            return f"SELECT pid, {rid_sel}, {d} AS d FROM {table} x WHERE {where}"
+            return f"SELECT pid, {rid_sel}, {d} AS d{visit} FROM {table} x WHERE {where}"
 
         # D-917: a condition atom with ``clinical_status`` counts a row whose status is listed or not recorded; a row
         # recorded with another status (resolved, in remission) cannot settle it and makes the answer unknown, as an
@@ -222,7 +228,7 @@ class SqlGenerator:
 
         def cte(n: str, source: str) -> str:
             return (
-                f"{n} AS (\n  SELECT b.pid, b.index_date, count(*) AS n,\n"
+                f"{n} AS (\n  SELECT b.pid, b.index_date, {counter} AS n,\n"
                 f"         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev\n"
                 f"  FROM base b JOIN ({source}) e ON e.pid = b.pid AND {in_window('e.d', w)}\n"
                 f"  GROUP BY b.pid, b.index_date)"
@@ -240,7 +246,7 @@ class SqlGenerator:
             return f"({self._vs_match(v, sc, cc)}{fam})"
 
         undated = (
-            f"{nd} AS (\n  SELECT b.pid, b.index_date, count(*) AS n,\n"
+            f"{nd} AS (\n  SELECT b.pid, b.index_date, {counter} AS n,\n"
             f"         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev\n"
             f"  FROM base b JOIN ({src(listed_or_family)}) e ON e.pid = b.pid AND e.d IS NULL\n"
             f"  GROUP BY b.pid, b.index_date)"

@@ -269,9 +269,16 @@ class CqlGenerator:
                 f"and not ({status} in {{ {listed_st} }})"
             )
             unknown.append(sn)
+
+        # inv-j5, as the SQL: a condition count counts visits (its encounter; a record without one counts alone)
+        def cnt(x: str) -> str:
+            if atom.domain != "condition":
+                return f"Count({x})"
+            return f"Count(distinct ({x} X return Coalesce(X.encounter.reference.value, X.id)))"
+
         if quant == "count>=":
-            settled = f"Count({qn}) >= {atom.count}"
-            reach = " + ".join([f"Count({qn})", *(f"Count({x})" for x in unknown)]) + f" >= {atom.count}"
+            settled = f"{cnt(qn)} >= {atom.count}"
+            reach = " + ".join([cnt(qn), *(cnt(x) for x in unknown)]) + f" >= {atom.count}"
         else:
             settled, reach = f"exists ({qn})", " or ".join(f"exists ({x})" for x in unknown)
         hit, miss = ("false", "true") if quant == "none" else ("true", "false")
@@ -296,7 +303,7 @@ class CqlGenerator:
             )
         unknown.append(q("UO_" + p))
         if quant == "count>=":
-            reach = " + ".join([f"Count({qn})", *(f"Count({x})" for x in unknown)]) + f" >= {atom.count}"
+            reach = " + ".join([cnt(qn), *(cnt(x) for x in unknown)]) + f" >= {atom.count}"
         else:
             reach = " or ".join(f"exists ({x})" for x in unknown)
         a = f"if {settled} then {hit} else if exists ({on}) then null as Boolean else if {reach} then null as Boolean else {miss}"
