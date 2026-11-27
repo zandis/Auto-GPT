@@ -145,8 +145,11 @@ def window(atom: Atom) -> Window:
         raise CompileError(f"empty window [{atom.window.from_days}, {to_days}]")
     # OPT-1 W3 (iv): a window of more than ten years is a unit slip ("5 years" read as days, a lifetime as 99999)
     reach = max(abs(x) for x in (atom.window.from_days, to_days) if x is not None)
-    if reach > MAX_WINDOW_DAYS:
-        raise CompileError(f"window of {reach} days is over {MAX_WINDOW_DAYS} (ten years); a person reads it")
+    width = reach if atom.window.from_days is None else to_days - atom.window.from_days
+    if max(reach, width) > MAX_WINDOW_DAYS:
+        raise CompileError(
+            f"window of {max(reach, width)} days is over {MAX_WINDOW_DAYS} (ten years); a person reads it"
+        )
     # OPT-1 W3 (v): one length said twice, as the window and as the duration ("stable for 3 months" given both
     # -90..0 and 90 days); a course of N days inside a longer window is the medication duration (module doc)
     if (
@@ -270,7 +273,8 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
         if a.attribute or a.change or a.aggregate or a.lot or a.diagnosis_role:
             raise CompileError(f"atom {a.id}: unsupported v3 qualifier")
         if a.window and a.window.unit == "h":
-            if max(abs(x) for x in (a.window.from_days, a.window.to_days, 0) if x is not None) > MAX_WINDOW_HOURS:
+            ends = [x for x in (a.window.from_days, a.window.to_days, 0) if x is not None]
+            if max(*(abs(x) for x in ends), max(ends) - min(ends)) > MAX_WINDOW_HOURS:
                 raise CompileError(f"atom {a.id}: a window of more than {MAX_WINDOW_HOURS} hours; is it days?")
             raise CompileError(f"atom {a.id}: a window counted in hours is not compiled")
         if a.window and a.window.anchor in STUDY_ANCHORS:

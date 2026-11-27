@@ -46,6 +46,9 @@ def _shown(text: str) -> list[str]:
 GOLD = [r for r in _rows("gold_cases.jsonl") if "expected" in r]
 ABSTAIN = [r for r in _rows("gold_cases.jsonl") if r.get("abstains")]
 PAIRS = _rows("adjudicated_pairs.jsonl")
+# judged "both defensible" by the third reader because a bare window before a clause that names its event may share
+# that event; the rules now abstain on such a line rather than read it one way
+SHARED_ANCHOR = {398}
 
 
 @pytest.mark.parametrize("row", GOLD, ids=[str(r["gid"]) for r in GOLD])
@@ -96,8 +99,13 @@ def test_a_line_with_several_expressions_has_no_single_reading() -> None:
 
 @pytest.mark.parametrize("row", PAIRS, ids=[str(r["gid"]) for r in PAIRS])
 def test_adjudicated_pair(row: dict[str, Any]) -> None:
+    results = parse_windows(row["text"])
     if row["rules_ok"]:
         assert sorted(_shown(row["text"])) == sorted(row["rules"])
+        if row["gid"] not in SHARED_ANCHOR:
+            assert all(r.high_confidence for r in results)
+    else:  # read wrongly by an earlier version of the rules (an anchor cut short, a shared or index-disease anchor)
+        assert not all(r.high_confidence for r in results)
 
 
 def test_the_rules_were_right_on_83_of_the_87_adjudicated_pairs() -> None:
@@ -113,9 +121,10 @@ def test_the_rules_were_right_on_83_of_the_87_adjudicated_pairs() -> None:
     [
         ("within 30 days before screening", (-30, 0)),
         ("within 2-4 weeks before randomization", (-28, -14)),
-        ("within 48 hours after first dose", (0, 2)),
+        ("within 48 hours after first dose", None),  # no whole-day form for hours
         ("at least 6 months before randomization", (None, -180)),
-        ("at least 6 months after randomization", (180, None)),
+        ("at least 6 months after randomization", None),  # an open future end has no form in the IR window
+        ("exactly 30 days before screening", None),
         ("in the past 3 months", (-90, 0)),
         ("within 28 days of screening", None),  # which side of the anchor is not said
         ("within 5 hours before screening", None),  # no whole-day form
@@ -263,3 +272,65 @@ def test_lint_names_a_window_the_line_never_says() -> None:
 def test_lint_accepts_a_window_the_line_says_in_any_script() -> None:
     assert lint("Chemotherapy in the last 3 months", _atom(from_days=-90, to_days=0)) is None
     assert lint("六個月內曾使用降尿酸藥物。", _atom(from_days=-180, to_days=0)) is None
+
+
+# ------------------------------------------------------------------------------------- the first review's defects
+def test_a_window_from_another_event_is_flagged_not_taken_for_the_index_date() -> None:
+    out = reconcile("Chemotherapy within 30 days after surgery", _atom(from_days=0, to_days=30))
+    assert out.flags == ["window_anchor_event"]
+    assert out.logic["window"] == {"from_days": 0, "to_days": 30}
+    surgery = {"domain": "procedure", "concept": "Surgery", "quantifier": "any"}
+    # the atom is the named event itself: the window counted from the index date is the line's, compared by length
+    assert reconcile("At least 14 days since surgery", {**surgery, "window": {"to_days": -14}}).flags == []
+    off = reconcile("At least 14 days since surgery", {**surgery, "window": {"to_days": -30}})
+    assert off.flags == ["window_disagrees"]
+    assert off.logic["window"] == {"to_days": -30}  # a named event's side is not the index date's: never written
+    other = {**surgery, "concept": "Surgical resection", "window": {"from_days": -180, "to_days": 0}}
+    assert reconcile("Resection within 6 months prior to the index procedure", other).flags == ["window_anchor_event"]
+
+
+def test_several_windows_are_compared_with_their_side_of_the_anchor() -> None:
+    text = "Surgery within 3 months before screening and chemotherapy within 1 year before screening"
+    forward = {"op": "and", "args": [_atom(from_days=0, to_days=90), _atom(from_days=0, to_days=365)]}
+    assert reconcile(text, forward).flags == ["window_disagrees"]
+    back = {"op": "and", "args": [_atom(from_days=-90, to_days=0), _atom(from_days=-365, to_days=0)]}
+    assert reconcile(text, back).flags == []
+
+
+def test_a_window_is_never_written_on_one_of_several_atoms() -> None:
+    both = {"op": "and", "args": [_atom(), _atom(from_days=-365, to_days=0)]}
+    out = reconcile("Chemotherapy within 30 days before screening and radiotherapy in the preceding year", both)
+    assert out.logic["args"][1]["window"] == {"from_days": -365, "to_days": 0}
+    assert "window_rules_override" not in out.flags
+
+
+def test_an_exact_offset_is_not_within() -> None:
+    out = reconcile("Chemotherapy exactly 30 days before screening", _atom(from_days=-30, to_days=-30))
+    assert out.flags == []
+    assert out.logic["window"] == {"from_days": -30, "to_days": -30}
+
+
+def test_an_unbounded_window_from_the_first_dose_holds_a_criterion_the_model_gave_a_window() -> None:
+    out = reconcile("Chemotherapy prior to the first dose", _atom(from_days=-30, to_days=0))
+    assert out.flags == ["window_anchor_unsupported"]
+    assert out.hold is not None
+    assert reconcile("Chemotherapy prior to the first dose", _atom()).hold is None  # no window given: any time
+
+
+def test_an_open_future_window_is_flagged_not_written() -> None:
+    out = reconcile("Chemotherapy at least 30 days after screening", _atom())
+    assert out.flags == ["window_unattached"]
+    assert "window" not in out.logic
+
+
+def test_hours_have_no_whole_day_form() -> None:
+    out = reconcile("Chemotherapy within 96 hours before screening", _atom(from_days=-2, to_days=0))
+    assert out.flags == []
+    assert out.logic["window"] == {"from_days": -2, "to_days": 0}
+
+
+def test_a_comparison_such_as_at_least_is_no_event() -> None:
+    (r,) = (
+        x for x in parse_windows("Most recent serum urate in the last year at least 7.0 mg/dL.") if x.kind == "window"
+    )
+    assert (r.anchor, r.high_confidence) == ("screening", True)
