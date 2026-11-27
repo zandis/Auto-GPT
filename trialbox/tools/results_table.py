@@ -17,7 +17,11 @@ The table is refused (exit 2, one line per row, no table written) when a row:
 * names no evidence, or its evidence file is not there;
 * has evidence that names another commit than ``--commit``, or names none;
 * says green while its evidence counts a failure, or passed nothing (every test skipped is not a proof);
-* has evidence that leaves out any of the counts (a missing count is never read as zero).
+* has evidence that leaves out any of the counts (a missing count is never read as zero);
+* says green while its evidence carries a deviation from the box as installed (TRIAGE-1 G5) that the proof does not
+  record: the run writes each patch it made to the installed configuration (a cap, the mapping, an account, the
+  environment) as ``"deviations": [{"id": "...", "what": "..."}]``, and the proof names the ones it accepts as
+  ``"deviations_recorded": ["..."]``. Evidence written before G5, without the key, has none.
 
 Every green row carries its skip and strict-xfail counts beside it ("green, 3 skipped, 1 strict xfail") and in their
 own columns, so a skipped proof is never read as green. Text cells have their pipes escaped and line breaks turned
@@ -56,10 +60,14 @@ class Row:
     result: str
     evidence: str
     counts: dict[str, int]
+    deviations: tuple[str, ...] = ()  # G5: the recorded deviations from the box as installed
 
     def shown(self) -> str:
-        """The result as the table shows it: a green carries its skips and strict xfails beside it."""
+        """The result as the table shows it: a green carries its skips, strict xfails and recorded deviations."""
         extra = []
+        if self.deviations:
+            n = len(self.deviations)
+            extra.append(f"{n} recorded deviation{'s' if n > 1 else ''} ({', '.join(self.deviations)})")
         if self.counts["skipped"]:
             extra.append(f"{self.counts['skipped']} skipped")
         if self.counts["xfail_strict"]:
@@ -111,7 +119,18 @@ def _row(path: Path, commit: str) -> tuple[Row | None, str | None]:
         return None, f"{crit}: green, but its evidence counts {counts['failed']} failed"
     if result == "green" and not counts["passed"]:
         return None, f"{crit}: green, but its evidence passed nothing ({counts['skipped']} skipped)"
-    return Row(crit, str(proof.get("title") or ""), result, ev_name, counts), None
+    devs = ev.get("deviations", [])  # G5: what the run patched in the installed configuration
+    if not isinstance(devs, list) or not all(isinstance(x, dict) and str(x.get("id") or "").strip() for x in devs):
+        return None, f"{crit}: the evidence {ev_name} has deviations that are not a list of rows with an id"
+    recorded = proof.get("deviations_recorded", [])
+    if not isinstance(recorded, list) or not all(isinstance(x, str) for x in recorded):
+        return None, f"{crit}: deviations_recorded is not a list of deviation ids"
+    unrecorded = sorted({str(x["id"]).strip() for x in devs} - {x.strip() for x in recorded})
+    if result == "green" and unrecorded:
+        return None, f"{crit}: green, but its evidence carries deviations from the box as installed that the proof " \
+                     f"does not record: {', '.join(unrecorded)}"  # fmt: skip
+    ids = tuple(sorted({str(x["id"]).strip() for x in devs}))
+    return Row(crit, str(proof.get("title") or ""), result, ev_name, counts, ids), None
 
 
 def build(proofs: Path, commit: str) -> list[Row]:
