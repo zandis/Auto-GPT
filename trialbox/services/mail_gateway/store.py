@@ -247,6 +247,13 @@ class MailDB:
         )
         return [str(r[0]) for r in rows]
 
+    def wake(self, error: str) -> int:
+        """Queued keys held under ``error`` (as :meth:`hold` wrote it) are due now; how many."""
+        return self.db.execute(
+            "UPDATE send_keys SET next_at = NULL WHERE state = 'queued' AND last_error = ?",
+            (" ".join(error.split())[:500],),
+        )
+
     def take(self, key: str, at: str) -> tuple[str, str | None, int] | None:
         """Claim a queued key for one try (``queued`` to ``sending``); ``(request, message_id, attempts)``, or None
         when another dispatcher took it first."""

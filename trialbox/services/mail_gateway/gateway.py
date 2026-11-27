@@ -387,6 +387,11 @@ class Gateway:
             out[self._attempt(req, key, message_id, attempts, from_outbox=True).state] += 1
         return {k: v for k, v in out.items() if v}
 
+    def wake(self) -> int:
+        """Review M-1, L-1 (E2E P-10): with the relay given, the mail held for want of it is due now, not up to an
+        hour later (``RETRY_MAX_S``). Returns how many keys were woken."""
+        return self.db.wake(NO_RELAY) if self.relay else 0
+
     def resolve(self, key: str, decision: str, actor: str) -> str:
         """A person's decision on a held key (``trialbox mail resolve KEY --sent|--resend|--drop``); audited."""
         before = self.db.resolve(key, decision, actor, self._ts())
