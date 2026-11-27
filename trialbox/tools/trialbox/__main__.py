@@ -290,8 +290,12 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         return decommission.main(a.deploy, a.json)
     if a.cmd == "mail":
         from mail_gateway import admin as mail_admin
+        from tb_common.config import ConfigError
 
-        return mail_admin.main(a.action, a.key, a.decision, a.by, a.json)
+        try:
+            return mail_admin.main(a.action, a.key, a.decision, a.by, a.json)
+        except ConfigError:  # E2E P-15: on the host (no settings file) the outbox is read in the mail-gateway container
+            return _in_mail_gateway(deploy, [*args, *([] if a.by else ["--by", mail_admin.actor(None)])])
     if a.cmd == "exports":
         return _exports_cmd(a)
     if a.cmd == "secrets":
@@ -489,6 +493,23 @@ def _platform_cmd(a: argparse.Namespace) -> int:
         print(f"platform-images: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _in_mail_gateway(deploy: Path, args: list[str]) -> int:
+    """The same ``trialbox mail`` command in the mail-gateway container (``TB_COMPOSE`` overrides the compose call)."""
+    import shlex
+    import subprocess
+
+    compose = shlex.split(
+        os.environ.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(deploy))}"
+    )
+    try:
+        return subprocess.run(
+            [*compose, "exec", "-T", "mail-gateway", "python", "-m", "tools.trialbox", *args], check=False
+        ).returncode
+    except FileNotFoundError as exc:
+        print(f"mail: no settings file here and no compose to reach the mail-gateway ({exc})", file=sys.stderr)
+        return 2
 
 
 def _exports_cmd(a: argparse.Namespace) -> int:
