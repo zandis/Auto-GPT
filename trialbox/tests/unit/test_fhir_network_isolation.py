@@ -14,6 +14,7 @@ Checked in every stack a box or a developer runs, with the networks of a service
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -59,6 +60,9 @@ def check(stack: tuple[str, ...], nets: dict[str, set[str]]) -> None:
     assert "fhir-store" in nets, stack
     assert set(CLIENTS) <= set(nets), (stack, set(CLIENTS) - set(nets))
     assert nets["fhir-store"] == ({FHIR_NET, "fhir-host-net"} if TEST_STACK in stack else {FHIR_NET}), stack
+    if TEST_STACK in stack:
+        host_members = {s for s, n in nets.items() if "fhir-host-net" in n}
+        assert host_members == {"fhir-store"}, (stack, host_members)
     reach = {s for s, n in nets.items() if s != "fhir-store" and n & nets["fhir-store"]}
     assert reach <= MEMBERS, (stack, reach - MEMBERS)
     assert not reach & NEVER, stack
@@ -84,22 +88,42 @@ PROD = (BASE, "docker-compose.secrets.yml")
         (PROD, lambda n: n["orchestrator"].discard(FHIR_NET)),  # a client off fhir-net
         (PROD, lambda n: n["doc-parser"].add(FHIR_NET)),  # the audit's untrusted-document reader back on it
         ((BASE, TEST_STACK), lambda n: n["lake"].add("fhir-host-net")),  # another service on the published network
+        ((BASE, TEST_STACK), lambda n: n["adapter"].add("fhir-host-net")),  # even a permitted peer cannot join
         (("docker-compose.testbench.yml",), lambda n: n.setdefault("fhir-store", {FHIR_NET})),  # a store unchecked
     ],
-    ids=["host-net-in-prod", "store-off", "client-off", "client-off-net", "reader-on", "lake-on-host", "bench-store"],
+    ids=[
+        "host-net-in-prod",
+        "store-off",
+        "client-off",
+        "client-off-net",
+        "reader-on",
+        "lake-on-host",
+        "adapter-on-host",
+        "bench-store",
+    ],
 )
 def test_the_check_fails_each_way_the_store_could_escape_it(stack: tuple[str, ...], mutate: Any) -> None:
     """#1597 review r1 (R2, R3; L1, L2): each mutation of a clean stack's networks must fail the check."""
-    nets = _networks(stack, ("stub", "test")) if BASE in stack else {}
+    nets = _networks(stack, ("stub", "test"))
+    check(stack, nets)
     mutate(nets)
     with pytest.raises(AssertionError):
         check(stack, nets)
 
 
-def test_fhir_net_is_internal_and_named_per_project() -> None:
-    net = _load(BASE)["networks"][FHIR_NET]
-    assert net["internal"] is True
-    assert net["name"] == "${COMPOSE_PROJECT_NAME:-trialbox}-fhir"
+@pytest.mark.parametrize("stack", tuple(dict.fromkeys(stack for stack, _ in HARDENING_STACKS)), ids="+".join)
+def test_fhir_net_is_internal_and_named_per_project(stack: tuple[str, ...]) -> None:
+    net: dict[str, Any] = {}
+    declared = False
+    for file in stack:
+        networks = _load(file).get("networks") or {}
+        if FHIR_NET in networks:
+            declared = True
+            # Compose merges network mappings in file order, with later scalar values taking precedence.
+            net.update(networks[FHIR_NET] or {})
+    if BASE in stack or declared:
+        assert net.get("internal") is True, stack
+        assert net.get("name") == "${COMPOSE_PROJECT_NAME:-trialbox}-fhir", stack
 
 
 def test_doc_parser_and_embed_service_cannot_reach_the_store_in_the_base_stack() -> None:
@@ -114,4 +138,5 @@ def test_the_network_sheet_names_every_service_that_can_reach_the_store(lang: st
     nets = _networks((BASE,), ("stub", "gpu"))
     peers = {s for s, n in nets.items() if s != "fhir-store" and n & nets["fhir-store"]}
     row = network_sheet.who(network_sheet.Service(name="fhir-store"), lang)
-    assert {s for s in peers if s not in row} == set(), lang
+    listed = {part.strip() for part in re.split(r"[,、()（）]", row)} - {""}
+    assert listed == peers, lang

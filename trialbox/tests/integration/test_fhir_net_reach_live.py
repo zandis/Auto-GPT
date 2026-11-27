@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import subprocess
 import time
-import uuid
 
 import pytest
 
@@ -20,6 +19,7 @@ from tests.unit.test_compose_limits import BASE, _load
 from tests.unit.test_fhir_network_isolation import FHIR_NET, _networks
 
 NO_RESPONSE = 2  # pg_isready: 0 accepting, 1 rejecting (reached, so not isolated), 2 no response, 3 no attempt
+RESOURCE_LABEL = "tb-fhirreach=1"
 
 
 def expect(proc: subprocess.CompletedProcess[str], code: int) -> None:
@@ -28,20 +28,31 @@ def expect(proc: subprocess.CompletedProcess[str], code: int) -> None:
     assert proc.returncode == code, (proc.returncode, proc.stderr)
 
 
+def _sweep() -> None:
+    label_filter = f"label={RESOURCE_LABEL}"
+    containers = _docker("container", "ls", "-aq", "--filter", label_filter).stdout.split()
+    if containers:
+        _docker("container", "rm", "-f", *containers)
+    networks = _docker("network", "ls", "-q", "--filter", label_filter).stdout.split()
+    if networks:
+        _docker("network", "rm", *networks)
+
+
 @pytest.mark.integration
 def test_a_container_off_fhir_net_gets_no_answer_and_a_member_does() -> None:
     image = _image()
     nets = _networks((BASE,), ("stub", "gpu"))
     declared = _load(BASE)["networks"]
-    tag = uuid.uuid4().hex[:8]
-    made = {k: f"tb-fhirreach-{k}-{tag}" for k in nets["fhir-store"] | nets["doc-parser"] | {FHIR_NET}}
-    store = f"tb-fhirreach-store-{tag}"
-    created: list[str] = []
+    made = {k: f"tb-fhirreach-{k}" for k in nets["fhir-store"] | nets["doc-parser"] | {FHIR_NET}}
+    store = "tb-fhirreach-store"
+    _sweep()
     try:
         for key, name in made.items():
-            _docker("network", "create", *(["--internal"] if declared[key].get("internal") else []), name)
+            internal = ["--internal"] if declared[key].get("internal") else []
+            _docker("network", "create", "--label", RESOURCE_LABEL, *internal, name)
         first, *rest = sorted(nets["fhir-store"])
-        _docker("run", "-d", "--name", store, "--network", made[first], "--network-alias", "fhir-store",
+        _docker("run", "-d", "--label", RESOURCE_LABEL, "--name", store,
+                "--network", made[first], "--network-alias", "fhir-store",
                 "-e", "POSTGRES_PASSWORD=probe-only", image)  # fmt: skip
         for key in rest:
             _docker("network", "connect", "--alias", "fhir-store", made[key], store)
@@ -61,14 +72,14 @@ def test_a_container_off_fhir_net_gets_no_answer_and_a_member_does() -> None:
 
         def probe(networks: list[str], host: str) -> subprocess.CompletedProcess[str]:
             args = ["--entrypoint", "pg_isready", image, "-h", host, "-t", "5", "-U", "postgres"]
-            if len(networks) == 1:
-                return _docker("run", "--rm", "--network", networks[0], *args, check=False)
-            # a container on several networks: create, connect each, then start (removed in finally, started or not)
-            cid = _docker("create", "--network", networks[0], *args).stdout.strip()
-            created.append(cid)
-            for n in networks[1:]:
-                _docker("network", "connect", n, cid)
-            return _docker("start", "-a", cid, check=False)
+            name = "tb-fhirreach-probe"
+            _docker("create", "--label", RESOURCE_LABEL, "--name", name, "--network", networks[0], *args)
+            try:
+                for network in networks[1:]:
+                    _docker("network", "connect", network, name)
+                return _docker("start", "-a", name, check=False)
+            finally:
+                _docker("container", "rm", "-f", name)
 
         expect(probe([made[FHIR_NET]], "fhir-store"), 0)  # the control first: the store is up and reachable
         reader = [made[k] for k in sorted(nets["doc-parser"])]
@@ -77,14 +88,11 @@ def test_a_container_off_fhir_net_gets_no_answer_and_a_member_does() -> None:
             expect(probe(reader, ip), NO_RESPONSE)
         expect(probe([made[FHIR_NET]], "fhir-store"), 0)  # and still up after the negatives
     finally:
-        for name in [*created, store]:
-            _docker("rm", "-f", name, check=False)
-        for name in made.values():
-            _docker("network", "rm", name, check=False)
+        _sweep()
 
 
-@pytest.mark.parametrize("code", [1, 3, 125, 126, 127])
+@pytest.mark.parametrize("code", [0, 1, 3, 125, 126, 127])
 def test_a_probe_that_was_answered_or_never_ran_is_not_isolation(code: int) -> None:
-    """R1/M1 failing-first: the old ``returncode == 0`` read each of these as "no answer"."""
+    """Only pg_isready exit code 2 is evidence of isolation."""
     with pytest.raises(AssertionError):
         expect(subprocess.CompletedProcess([], code, "", "err"), NO_RESPONSE)
