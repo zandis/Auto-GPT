@@ -140,13 +140,71 @@ def test_the_drain_writes_a_row_and_cannot_take_one_back(cluster: tuple[Path, st
 
 
 def test_no_service_role_may_ask_the_register_through_the_index(cluster: tuple[Path, str]) -> None:
-    """P-19 (review P19-X6, High): ``provenance.withheld`` answers for any pseudonym; a service that only writes or
-    searches the index may not call it (the trigger and the sweep run as its owner). The administrator's check may;
-    the register's group may sweep, in its own opt-out transaction (review P19-X2)."""
+    """P-19 (review P19-X6, High; G4): ``provenance.withheld`` answers for any pseudonym; a service that only writes or
+    searches the index may not call it (the trigger runs as its owner). The administrator's check may. P19-DESIGN-3:
+    the register is never coupled to the index, so there is no sweep and its group has nothing in the schema."""
     _, url = cluster
     ask = "SELECT has_function_privilege('{}', 'provenance.{}', 'EXECUTE')"
     for role in ("tb_audit_writer", "tb_orchestrator", "tb_console"):
         assert _one(url, ask.format(role, "withheld(text, timestamptz)")) is False, role
     assert _one(url, ask.format("trialbox", "withheld(text, timestamptz)")) is True
-    assert _one(url, ask.format("tbs_optout", "sweep()")) is True
-    assert _one(url, "SELECT has_schema_privilege('tbs_optout', 'provenance', 'USAGE')") is True
+    assert _one(url, "SELECT to_regprocedure('provenance.sweep()')") is None
+    assert _one(url, "SELECT has_schema_privilege('tbs_optout', 'provenance', 'USAGE')") is False
+
+
+@pytest.mark.parametrize("login", ["tb_console", "tb_orchestrator"])
+def test_the_keeper_reads_a_register_its_login_role_creates(cluster: tuple[Path, str], login: str) -> None:
+    """P-19 (review P19-G3): the register's table is made by the first service that opens it, signed in as its own
+    login role (not as the group): the index's functions' owner may read it all the same, so the trigger filters."""
+    import psycopg
+    from tb_common.optout import SCHEMA_V1
+
+    _, url = cluster
+    with psycopg.connect(_as(url, login)) as con:  # not autocommit: rolled back, the module's other tests unchanged
+        con.execute("SET search_path = optout")
+        con.execute(SCHEMA_V1)
+        owner = con.execute(
+            "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'optout.optout_events'::regclass"
+        )
+        assert (owner.fetchone() or (None,))[0] == login
+        got = con.execute("SELECT has_table_privilege('provenance_keeper', 'optout.optout_events', 'SELECT')")
+        assert (got.fetchone() or (None,))[0] is True
+        con.rollback()
+
+
+def test_a_rebuild_refuses_while_the_keeper_cannot_read_the_register(cluster: tuple[Path, str], tmp_path: Path) -> None:
+    """P-19 (review P19-G3, P19-DESIGN-3 §3): the index's functions run as provenance_keeper. While it cannot read the
+    register an opt-out is still recorded (the register is never coupled to the index), and the administrator's
+    rebuild refuses naming the role and the step, the marker untouched. Granted again, the rebuild runs."""
+    import psycopg
+    from tb_common.optout import SCHEMA_V1
+
+    _, url = cluster
+    chain = tmp_path / "audit"
+    chain.mkdir()
+    pi.require_rebuild(chain, "update rollback")
+    before = (chain / pi.STATE).read_bytes()
+    with psycopg.connect(_as(url, "tb_console"), autocommit=True) as con:
+        con.execute("SET search_path = optout")
+        con.execute(SCHEMA_V1)
+    try:
+        with psycopg.connect(url, autocommit=True) as su:
+            su.execute("REVOKE SELECT ON optout.optout_events FROM provenance_keeper")
+        with psycopg.connect(_as(url, "tb_console"), autocommit=True) as con:
+            con.execute("INSERT INTO optout.optout_events (pid, action, by, at) VALUES ('P-SYN-2', 'opt_out', "
+                        "'console:office1', '2026-11-21T09:00:00+08:00')")  # fmt: skip
+        refused = "provenance_keeper cannot read the register: re-run 30-service-roles.sh"
+        with (
+            psycopg.connect(_as(url, "trialbox"), autocommit=True) as con,
+            pytest.raises(pi.RebuildRefused, match=refused),
+        ):
+            pi.rebuild(con, chain)
+        assert (chain / pi.STATE).read_bytes() == before
+        with psycopg.connect(url, autocommit=True) as su:
+            su.execute("GRANT SELECT ON optout.optout_events TO provenance_keeper")
+        with psycopg.connect(_as(url, "trialbox"), autocommit=True) as con:
+            assert pi.rebuild(con, chain) == (0, 0)
+        assert pi.read_marker(chain).clean
+    finally:
+        with psycopg.connect(url, autocommit=True) as su:
+            su.execute("DROP TABLE optout.optout_events")

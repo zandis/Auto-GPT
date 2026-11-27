@@ -1103,28 +1103,34 @@ RESTORE_SWAP_SQL = (
 RESTORE_SPLIT_AWK = (
     '$4 == "EXTENSION" || ($4 == "COMMENT" && $5 == "-" && $6 == "EXTENSION") { print > x; next } { print > m }'
 )
-#: P-19 (ASSESS-1: an opt-out holds in every store, dumps included): before the swap, every opt-out register of the
-#: database in place (any tb_prefix) gives the restored one each event it does not hold (pseudonym, action, who and
-#: when compared; the live event wins, a lift too), then the provenance index's sweep runs on the restored one, so a
-#: use row the dump brought back for a patient who said no after it is gone before any service sees the database.
-#: The live events go through a file in the script's 0700 folder, as the dump does, and are kept in one transaction;
-#: a restored database without the register table refuses (fail closed: the rollback stops before the swap). The
-#: database in place is untouched until the swap, so a rollback run again reads them again.
+#: P-19 (ASSESS-1: an opt-out holds in every store, dumps included; P19-DESIGN-3 §5): before the swap, every opt-out
+#: register of the database in place (any tb_prefix; a partitioned one through its parent) replaces the restored one
+#: whole, ids and order kept, and its sequence is moved past them (review P19-Y2: no merge, so no tie can change the
+#: winning event). The live events go through a file in the script's 0700 folder, as the dump does, in one
+#: transaction; an empty one is skipped (Y7); a nonempty one with no table in the dump refuses (fail closed: the
+#: rollback stops before the swap). The database in place is untouched until the swap, so a rollback run again reads
+#: them again.
 RESTORE_KEEP_SQL = (
-    "CREATE TEMP TABLE tb_live (pid text, action text, source text, note text, by text, at text);\n"
+    "CREATE TEMP TABLE tb_live (id bigint, pid text, action text, source text, note text, by text, at text);\n"
     "\\copy tb_live FROM pstdin\n"
-    'INSERT INTO :"s".optout_events (pid, action, source, note, by, at) SELECT l.pid, l.action, l.source, l.note, '
-    'l.by, l.at FROM tb_live l WHERE NOT EXISTS (SELECT 1 FROM :"s".optout_events e WHERE e.pid = l.pid AND '
-    "e.action = l.action AND e.by = l.by AND e.at = l.at);\n"
+    'TRUNCATE :"s".optout_events;\n'
+    'INSERT INTO :"s".optout_events (id, pid, action, source, note, by, at) OVERRIDING SYSTEM VALUE '
+    "SELECT id, pid, action, source, note, by, at FROM tb_live ORDER BY id;\n"
+    "SELECT setval(pg_get_serial_sequence(format('%I.optout_events', :'s'), 'id'), coalesce(max(id), 0) + 1, false) "
+    'FROM :"s".optout_events \\gset\n'
 )
 RESTORE_REGISTERS_SQL = (
     "SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-    "WHERE c.relname = 'optout_events' AND c.relkind = 'r';\n"
+    "WHERE c.relname = 'optout_events' AND c.relkind IN ('r', 'p');\n"
 )
-RESTORE_SWEEP_SQL = (
-    "DO $tb$ BEGIN IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
-    "WHERE n.nspname = 'provenance' AND p.proname = 'sweep') THEN PERFORM provenance.sweep(); END IF; END $tb$;\n"
+#: P19-DESIGN-3 R6 (reviews P19-Y1, G1): the dump's provenance index is never served, whatever release made the dump:
+#: it is emptied before the swap and written again from the chain by ``trialbox provenance --rebuild``
+RESTORE_EMPTY_INDEX_SQL = (
+    "DO $tb$ BEGIN IF to_regclass('provenance.model_uses') IS NOT NULL THEN "
+    "TRUNCATE provenance.model_uses, provenance.model_calls; END IF; END $tb$;\n"
 )
+#: the line the restore ends with (stdout), read back by the box for the ``update.rolled_back`` event
+RESTORE_SAID = "restore: {n} register event(s) kept; provenance index emptied; rebuild required"
 RESTORE_SH = (
     f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1\n'
     'r="$1"; db="$2"; reset="$3"; n="${db}_tbrb"; o="${db}_tbold"; made=\n'
@@ -1145,16 +1151,20 @@ RESTORE_SH = (
     '| psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$r" -d "$n" || exit 1\n'
     f"cat > \"$d/keep.sql\" <<'TBSQL' || exit 1\n{RESTORE_KEEP_SQL}TBSQL\n"
     f'adm -d "$db" -tA > "$d/registers" <<\'TBSQL\' || exit 1\n{RESTORE_REGISTERS_SQL}TBSQL\n'
+    "k=0\n"
     "while read -r s; do\n"
-    "  printf '%s\\n' 'COPY (SELECT pid, action, source, note, by, at FROM :\"s\".optout_events) TO STDOUT;' "
+    "  printf '%s\\n' 'COPY (SELECT id, pid, action, source, note, by, at FROM :\"s\".optout_events) TO STDOUT;' "
     '| adm -d "$db" -v s="$s" > "$d/live" || exit 1\n'
+    '  [ -s "$d/live" ] || continue\n'
     '  adm -d "$n" --single-transaction -v s="$s" -f "$d/keep.sql" < "$d/live" || exit 1\n'
+    '  k=$((k + $(wc -l < "$d/live")))\n'
     'done < "$d/registers"\n'
-    f"adm -d \"$n\" <<'TBSQL' || exit 1\n{RESTORE_SWEEP_SQL}TBSQL\n"
+    f"adm -d \"$n\" <<'TBSQL' || exit 1\n{RESTORE_EMPTY_INDEX_SQL}TBSQL\n"
     f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_SWAP_SQL}TBSQL\n"
     "made=\n"
     "printf '%s\\n' 'DROP DATABASE IF EXISTS :\"o\" WITH (FORCE);' | adm -d postgres "
     '|| echo "restore: $db is restored; the database it replaced is left as $o (the next rollback drops it)" >&2\n'
+    f'echo "{RESTORE_SAID.format(n="$k")}"\n'
 )
 # Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
 # its relations in public (not an extension's). D-541: and what the database's owner owns (the FHIR store's own role
@@ -1264,6 +1274,31 @@ def _existing(p: Path) -> Path:
     while not _there(p) and p != p.parent:
         p = p.parent
     return p
+
+
+def mark_rebuild_required(audit_dir: Path) -> None:
+    """P19-DESIGN-3 §4, the update tool's one site: the provenance marker in the box's audit folder says
+    rebuild-required before any image or database goes back (a restored index is never served). A marker that cannot
+    be written stops the rollback here, the live database untouched; the next ``tools/apply_update.sh rollback`` tries
+    again."""
+    try:
+        if not audit_dir.is_dir():
+            raise FileNotFoundError(f"no audit folder {audit_dir}")
+        from tools.trialbox import audit_heads
+
+        audit_heads._libs()
+        from tb_common import provenance_index
+
+        provenance_index.require_rebuild(audit_dir, "update rollback")
+    except OSError as exc:
+        raise UpdateFailed(f"the provenance marker could not be written ({type(exc).__name__}: {exc}); the rollback "
+                           "stops before the restore") from exc  # fmt: skip
+
+
+def restore_said(out: str) -> dict[str, Any]:
+    """The ``update.rolled_back`` detail of what ``RESTORE_SH`` printed last (G1, G2's audit half)."""
+    m = re.search(r"^restore: (\d+) register event\(s\) kept; provenance index emptied", out, re.M)
+    return {"register_events_kept": int(m.group(1)) if m else None, "provenance_index": "emptied; rebuild required"}
 
 
 class Box(Protocol):
@@ -1654,7 +1689,7 @@ class Updater:
             self.box.audit("update.rolled_back", plan,
                            {"bundle_id": plan.bundle_id, "error": failed[:500], "rolled_back": rolled,
                             "state": "previous release" if rolled else "between releases (rollback failed)",
-                            **self.stops.note()})  # fmt: skip
+                            **getattr(self.box, "rollback_note", {}), **self.stops.note()})  # fmt: skip
             if rolled:
                 self._done(plan, rb)
             raise UpdateFailed(
@@ -1951,6 +1986,7 @@ class Updater:
                                                             "recovered": True,
                                                             "state": "previous release" if rolled else
                                                             "between releases (rollback failed)",
+                                                            **getattr(self.box, "rollback_note", {}),
                                                             **self.stops.note()})  # fmt: skip
                 if not rolled:
                     raise UpdateFailed(f"the rollback of {bundle_id} failed; the marker stays (RUNBOOK §5)")
@@ -3074,13 +3110,21 @@ class ComposeBox(_DockerImages):
             user = "trialbox" if db == "trialbox_wf" else "hapi"
             argv = self._c("exec", "-T", "db", "sh", "-c", RESTORE_SH, "tb-restore", user, db, RESET_SQL)
 
-            def restore(plain: Path, argv: list[str] = argv) -> None:
-                self.run(argv, stdin_file=plain)
+            def restore(plain: Path, argv: list[str] = argv, db: str = db) -> None:
+                out = self.run(argv, stdin_file=plain)
+                if db == "trialbox_wf":  # P19-DESIGN-3 §5: said, and in the update.rolled_back event
+                    self.rollback_note = restore_said(out or "")
+                    kept = self.rollback_note['register_events_kept']
+                    print(f"rollback: {kept} opt-out register event(s) kept; the provenance index emptied: run "
+                          "trialbox provenance --rebuild", file=sys.stderr)  # fmt: skip
 
             _with_plain(Path(f), rb, restore)
 
     def rollback(self, plan: Plan, rb: Path, point: Point) -> None:
+        from tools.trialbox import audit_heads
+
         self.run(self._c("stop", *PY_SERVICES, "fhir-store"), timeout=600)  # nobody holds the databases open
+        mark_rebuild_required(audit_heads.host_dirs(self.env)[0])  # P19-DESIGN-3 §4: before anything goes back
         self.restore_images(point)
         restore_models(self.models, rb, point)
         self.restore_databases(rb, point)
@@ -3413,6 +3457,9 @@ class InProcessBox:
 
         from tools.trialbox import backup as bk
 
+        audit = self.work / "box" / "audit"  # the box's own folder (``audit`` writes there too)
+        audit.mkdir(parents=True, exist_ok=True)
+        mark_rebuild_required(audit)  # P19-DESIGN-3 §4: before anything goes back
         dsn, prefix = split_url(self.url)
         src = bk.DbSource("trialbox_wf", dsn, (f"{prefix}*",))
         _with_plain(Path(point.dumps["trialbox_wf"]), rb, lambda plain: bk.restore_db(src, plain, os.environ))

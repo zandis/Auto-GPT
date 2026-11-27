@@ -106,20 +106,20 @@ def test_each_event_gives_its_rows_and_others_give_none(tmp_path: Path) -> None:
 def test_which_records_a_build_touched_is_one_search(con: Any, tmp_path: Path) -> None:
     log = _chain(tmp_path)
     assert idx.rebuild(con, log.directory) == (2, 5)
-    got = idx.search(con, build_sha="b2")
+    got = idx.search(con, directory=log.directory, build_sha="b2")
     assert sorted(r["record_ref"]["pid"] for r in got) == sorted([PID_A, PID_B])
-    by_prompt = idx.search(con, prompt_id="judge", prompt_version="4", model="m-judge")
+    by_prompt = idx.search(con, directory=log.directory, prompt_id="judge", prompt_version="4", model="m-judge")
     assert {(r["record_kind"], r["event"]) for r in by_prompt} == {
         ("verdict", "used"), ("criterion", "used"), ("criterion", "confirmed")}  # fmt: skip
-    assert idx.search(con, build_sha="nobody") == []
+    assert idx.search(con, directory=log.directory, build_sha="nobody") == []
     crit = provenance.ref(ruleset="GZQO", version="1.0.0", crit="INC-01")
     idx.add(con, provenance_rec(log, crit))
-    took_back = [r for r in idx.search(con, build_sha="b1") if r["decision"] == "withdrawn"]
+    took_back = [r for r in idx.search(con, directory=log.directory, build_sha="b1") if r["decision"] == "withdrawn"]
     assert [(r["record_kind"], r["event"], r["by"]) for r in took_back] == [
         ("criterion", "confirmed", "crc1@hospa.test")
     ]
     with pytest.raises(ValueError, match="name a model"):
-        idx.search(con)
+        idx.search(con, directory=log.directory)
 
 
 def test_the_index_is_checked_against_the_chain_line_by_line(con: Any, tmp_path: Path) -> None:
@@ -144,7 +144,7 @@ def test_an_opt_out_takes_the_patients_use_rows_and_a_rebuild_keeps_them_out(con
     register(con, PID_A, "opt_out", "2026-11-27T09:00:00+08:00")
     assert idx.check(con, log.directory).ok
     idx.rebuild(con, log.directory)
-    assert all(r["record_ref"].get("pid") != PID_A for r in idx.search(con, model="m-judge"))
+    assert all(r["record_ref"].get("pid") != PID_A for r in idx.search(con, directory=log.directory, model="m-judge"))
     assert idx.erase(con, []) == 0
 
 

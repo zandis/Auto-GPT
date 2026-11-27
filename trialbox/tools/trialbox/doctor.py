@@ -2473,6 +2473,9 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
         return Check(
             "provenance_index", "PASS", "NOT CHECKED: no TB_DB_URL (run trialbox provenance --check on the box)"
         )
+    marker = idx.read_marker(Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")))
+    if not marker.clean:  # P19-DESIGN-3 §2: before any database work, with the operator's step
+        return Check("provenance_index", "FAIL", marker.text)
     from tb_common.audit_writer import _dsn, _psycopg
 
     try:

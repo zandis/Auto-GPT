@@ -81,6 +81,8 @@ services' Python. Not tested here.
 
 ## A downgrade and the opt-out register (P19-04, reported to the lead)
 
+*Partly fixed in round 4 (below): the register is copied whole and the index emptied; the list hold is owed.*
+
 An update's rollback (`restore_databases`, and `update rollback <bundle>` after a killed update) puts the whole trial
 database back from the rollback point's dump, the opt-out register with it. An opt-out recorded after the dump, and
 the erasures that followed it, are then gone. A backup restore lists such events, audits them
@@ -165,12 +167,16 @@ as the design asks of the update tool (below).
 
 ## What was not verified
 
+*Round 4 changes this list: see its own.*
+
 - The walk's box: its 108 rows were not read, so which case made them is not shown.
 - P19-04: no rollback with an opt-out recorded after its dump was run.
 - A compose box's real update and downgrade (`tools/trialbox/update.py`): the test restores the database the way
   the rollback does (`pg_restore` of a dump), not through the update tool.
 
 ## Round 3 (reviews 1584 codex P19-D1/D2, X1 to X8, N2; opus F1 to F7)
+
+*Superseded by round 4: the catch-up, the sweeps and the register's lock are gone.*
 
 - **The update's rollback keeps the register** (P19-04, D1, D2, F1): `update.RESTORE_SH`, between the dump's load into
   the fresh database and the swap, copies each register event of the database in place that the restored one lacks
@@ -190,3 +196,44 @@ as the design asks of the update tool (below).
   the catch-up compares rows, so a half-written line is completed (N2); `add` counts the rows written (F6);
   `rebuild` is one transaction (X8).
 - **Grants** (X6): `provenance.withheld` is executable by `trialbox` alone (the earlier grants are revoked).
+
+## Round 4: detect and refuse (P19-DESIGN-3; reviews 1584 codex Y1 to Y10, D7; opus G1 to G8)
+
+The integrator's ruling: the index is no longer repaired in place. Four writers (the drain's catch-up and sweep, the
+console's sweep, the restore's sweep) are replaced by one marker and one rebuild.
+
+- **The marker** (`<audit dir>/PROVENANCE_STATE`, version 2): `provenance_index.require_rebuild` is its one setter,
+  called by the update tool's rollback after `stop` and before any image or database goes back
+  (`update.mark_rebuild_required`; a marker that cannot be written stops the rollback there), by the backup restore
+  once the audit folder is back, and by the drain on a journal resync or a failed index write. Clean is derived:
+  readable, version 2 and `verified`; anything else (no file, unreadable, bad JSON, version 1) requires the rebuild,
+  the reason named. Written through `mkstemp`, mode 0644, fsync, rename.
+- **Refused while required**: `provenance_index.search` (the console's page: its 503; `trialbox provenance --search`:
+  exit 1), the drain's index writes (the chain line is written), the doctor and `--check` (FAIL with the text
+  `the provenance index must be rebuilt (<reason>, since <time>); provenance search and index writes are refused until
+  then: run trialbox provenance --rebuild`, before any database work). The register, screening and every other page
+  are untouched.
+- **The rebuild** (`provenance_index.rebuild`, `trialbox provenance --rebuild`, `python -m tb_common.provenance_index
+  rebuild`): refuses by name (not autocommit, not installed, a second register schema, a keeper that cannot read the
+  register, a drain that does not yield); holds the writer's lock 211990 from its first chain read to its verified
+  marker (the drain's batch takes it with `pg_try_advisory_lock`, so no line is appended meanwhile); one transaction
+  per day file with `done_through` after each, so a kill is resumed by the next run; only a rebuild from empty
+  deletes the tables first. Every row goes through the register's trigger, so an opt-out made at any moment wins.
+- **The restore** (`update.RESTORE_SH`): the live register replaces the restored one whole, ids and order kept, the
+  sequence moved on (Y2); a partitioned register is found (Y6); an empty live register is skipped (Y7); the index is
+  emptied before the swap whatever release made the dump (Y1, G1); the last line says how many register events were
+  kept, and `update.rolled_back` carries it with `provenance_index: emptied; rebuild required` (G2's audit half).
+- **Never coupled** (G3): `OptOutRegister` takes no lock and runs no sweep; the role script grants the keeper's read
+  for tables its login roles make (`ALTER DEFAULT PRIVILEGES FOR ROLE tbs_optout, tb_console, tb_orchestrator`).
+- **The drain** requires an autocommit connection (Y8).
+
+Deviations from the design: the design's `GRANT DELETE ... TO tb_audit_writer` (the rebuild's role) is not made,
+because D-997's tests hold that the drain cannot take a row back; so `deploy/install.sh` does not run the rebuild
+(no role there can) and a new or upgraded box's doctor fails `provenance_index` until the administrator runs
+`trialbox provenance --rebuild` (P19-03 stays open). The demo box (`DemoBox`) writes no marker: its rollback restores
+no database and its container is recreated from the image. P19-03 and P19-04 are `open` with a `remaining` note
+(the register has no partial state).
+
+What was not verified in round 4: a compose box's real rollback (the tests run `RESTORE_SH` itself on the test
+cluster); the rebuild's time at a site's size (no site figure was declared; the test that measures it runs only with
+`TB_P19_SITE_LINES` and `TB_P19_REBUILD_BUDGET_S`).

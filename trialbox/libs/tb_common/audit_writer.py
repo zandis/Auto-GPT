@@ -39,14 +39,13 @@ import json
 import logging
 import math
 import os
-import socket
 import sys
 import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -415,15 +414,10 @@ def _readable(at: Any, ts: Any, fields: Any) -> tuple[dict[str, Any], datetime, 
     return f, stamp, problem
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
 class Drain:
     """Copies the journal into the chain in ``directory``, in ``seq`` order; the only writer of the chain on a box."""
 
     BATCH = 500
-    RETRY = 60.0  # P-19: seconds before a catch-up that failed is tried again (it reads the whole chain)
 
     def __init__(self, url: str, directory: Path, tz: str, *, connect: Callable[[], Any] | None = None):
         self.chain = AuditLog(directory, tz)
@@ -434,44 +428,35 @@ class Drain:
         self.cursor: Cursor | None = None
         self._after: str | None = None  # after a resync: the next batch is the rows inserted after this time
         self.index = False  # D-989 step 2c: write the provenance index as the chain is written (when installed)
-        self._recover = False  # P-19: a repair is owed (mirrors the marker in the audit directory, not the truth)
-        self._retry = 0.0  # P-19: the monotonic time from which a failed catch-up is tried again
+        self._said: str | None = None  # P-19: the marker's reason last logged (once per transition)
 
     def open(self) -> None:
-        from tb_common import provenance_index
-
         self.con = self._connect()
+        # P-19 (review P19-Y8): a batch must not hold the index's consent lock past its line, so each statement
+        # commits on its own (a stand-in connection without the attribute is not a database's)
+        if getattr(self.con, "autocommit", None) is False:
+            raise RuntimeError("the audit drain needs an autocommit connection (P-19: each index write commits at "
+                               "its line, releasing the consent lock)")  # fmt: skip
         self.con.execute(f"LISTEN {NOTIFY}")
-        self.index = self._index_installed(say=True)  # said once: the drain asks again before each batch (P-19)
-        prev = provenance_index.read_state(self.directory)
-        # P-19: every start owes a repair, whatever the journal says (review P19-D3) and whether or not the index
-        # can be read now (D5): only a completed catch-up clears it
-        owed: dict[str, Any] = {"state": provenance_index.REQUIRED, "reason": str(prev.get("reason") or "start"),
-                                "since": prev.get("since") or _now(),
-                                "attempts": int(prev.get("attempts") or 0)}  # fmt: skip
+        self.index = self._index_installed(say=True)  # said once: the drain asks again before a batch (P-19)
         self.cursor = last_drained(self.directory)
-        row = (
-            None
-            if self.cursor is None
-            else self.con.execute("SELECT at FROM audit.journal WHERE seq = %s", (self.cursor.seq,)).fetchone()
+        if self.cursor is None:
+            return
+        row = self.con.execute("SELECT at FROM audit.journal WHERE seq = %s", (self.cursor.seq,)).fetchone()
+        if row is not None and _same_time(_iso(row[0]), self.cursor.at):
+            return
+        top = self.con.execute("SELECT coalesce(max(seq), 0) FROM audit.journal").fetchone()[0]
+        problem = (
+            f"the chain's last journal row is seq {self.cursor.seq} at {self.cursor.at}, but the journal "
+            + ("has no such row" if row is None else f"has it at {_iso(row[0])}")
+            + f" (its last row is seq {top}): the database was restored or replaced"
         )
-        if self.cursor is not None and not (row is not None and _same_time(_iso(row[0]), self.cursor.at)):
-            top = self.con.execute("SELECT coalesce(max(seq), 0) FROM audit.journal").fetchone()[0]
-            problem = (
-                f"the chain's last journal row is seq {self.cursor.seq} at {self.cursor.at}, but the journal "
-                + ("has no such row" if row is None else f"has it at {_iso(row[0])}")
-                + f" (its last row is seq {top}): the database was restored or replaced"
-            )
-            log.error("%s: recorded as audit.journal_resync; going on with the rows written after it", problem)
-            self.chain.append("audit.journal_resync", actor="tb_common.audit_writer",
-                              detail={"chain_seq": self.cursor.seq, "chain_at": self.cursor.at,
-                                      "journal_last": int(top), "problem": problem})  # fmt: skip
-            self._after = self.cursor.at
-            owed.update(reason="resync", chain_seq=self.cursor.seq, journal_last=int(top))
-        provenance_index.write_state(self.directory, **owed)
-        self._recover, self._retry = True, 0.0
-        if self.index:
-            self._catch_up()
+        log.error("%s: recorded as audit.journal_resync; going on with the rows written after it", problem)
+        self.chain.append("audit.journal_resync", actor="tb_common.audit_writer",
+                          detail={"chain_seq": self.cursor.seq, "chain_at": self.cursor.at, "journal_last": int(top),
+                                  "problem": problem})  # fmt: skip
+        self._after = self.cursor.at
+        self._withhold("journal resync")  # P-19: a hand restore is caught here (the backstop of the update tool's)
 
     def _index_installed(self, *, say: bool = False) -> bool:
         """Whether the provenance index's tables are there (the role script creates them, D-989 step 2c). Without
@@ -488,81 +473,43 @@ class Drain:
             log.info("provenance index not installed: the chain is written without it")
         return ok
 
-    def _catch_up(self) -> None:
-        """P-19: the index's rows of every chain line it does not hold, then the register's sweep
-        (``provenance_index.catch_up``, ``sweep``); the marker says ``repairing`` while it runs and ``clean`` only
-        after both. Never raised: a failure is logged and stays owed, and ``step`` tries it again after
-        :attr:`RETRY` seconds until it is done (review P19-R4)."""
-        from tb_common import provenance_index as pi
+    def _withhold(self, reason: str) -> None:
+        """P-19: the index may no longer equal the chain: the marker says rebuild-required, so the searches and this
+        drain's index writes are refused until ``trialbox provenance --rebuild``. A marker that cannot be written
+        stops this drain's index writes until its restart (it can only lose rows, never serve a withheld one)."""
+        from tb_common import provenance_index
 
-        owed = {k: v for k, v in pi.read_state(self.directory).items() if k not in ("state", "by", "updated_at")}
-        by = {"pid": os.getpid(), "host": socket.gethostname(), "start": _now()}  # diagnostic only
-        pi.write_state(self.directory, **{**owed, "state": pi.REPAIRING, "by": by})
+        log.warning("provenance index: rows withheld until `trialbox provenance --rebuild` (%s)", reason)
+        self._said = reason
         try:
-            # the sweep first, so a catch-up that fails at every try keeps no withheld row (review P19-F2); each
-            # committed before the marker says clean, on a connection that is not autocommit too (X5)
-            k = pi.sweep(self.con)
-            self.con.commit()
-            n = pi.catch_up(self.con, self.directory)
-            self.con.commit()
-        except Exception as exc:
-            with contextlib.suppress(Exception):  # a connection that is not autocommit is usable again (N3)
-                self.con.rollback()
-            pi.write_state(self.directory, **{**owed, "state": pi.REQUIRED, "reason": "repair failed",
-                                              "attempts": int(owed.get("attempts") or 0) + 1,
-                                              "last_error": type(exc).__name__})  # fmt: skip
-            self._retry = time.monotonic() + self.RETRY
-            log.error("provenance index: the repair did not finish (%s); tried again in %.0f s", type(exc).__name__,
-                      self.RETRY)  # fmt: skip
-            return
-        pi.write_state(self.directory, state=pi.CLEAN, verified_at=_now(), rows_written=n)
-        self._recover = False
-        if n or k:
-            log.info("provenance index: %d row(s) of the chain written back, %d withheld row(s) swept", n, k)
+            provenance_index.require_rebuild(self.directory, reason)
+        except OSError as exc:
+            log.error("provenance index: the marker could not be written (%s): no index writes until a restart",
+                      type(exc).__name__)  # fmt: skip
+            self.index = False
+
+    def _clean(self) -> bool:
+        """P-19: whether the marker lets the drain write the index (logged once at each change)."""
+        from tb_common import provenance_index
+
+        m = provenance_index.read_marker(self.directory)
+        said = None if m.clean else m.reason
+        if said is not None and said != self._said:
+            log.warning("provenance index: rows withheld until `trialbox provenance --rebuild` (%s)", m.reason)
+        self._said = said
+        return m.clean
 
     def _index(self, rec: dict[str, Any]) -> None:
         """The record's rows in the provenance index, after its line is in the chain. A write that fails is logged,
-        never raised: the chain is the record, and the repair it makes owed puts the rows back."""
-        from tb_common import provenance_index as pi
-
-        try:
-            pi.add(self.con, rec)
-        except Exception as exc:
-            log.error("provenance index: a row was not written (%s); put back by the audit writer",
-                      type(exc).__name__)  # fmt: skip
-            self._owe("index write failed")
-
-    def _owe(self, reason: str) -> None:
-        """A repair is owed (the marker, so the searches are held, and ``step``'s retry). The retry's time is set
-        when the repair first becomes owed: a later failure does not put it off (review P19-X7)."""
-        from tb_common import provenance_index as pi
-
-        prev = pi.read_state(self.directory)
-        # the line is in the chain already: a marker that cannot be written must not write it twice; the next start
-        # owes the repair anyway
-        with contextlib.suppress(OSError):
-            pi.write_state(self.directory, state=pi.REQUIRED, reason=reason, since=prev.get("since") or _now(),
-                           attempts=int(prev.get("attempts") or 0))  # fmt: skip
-        if not self._recover:
-            self._retry = time.monotonic() + self.RETRY
-        self._recover = True
-
-    def _sweep(self) -> None:
-        """P-19: after a batch that drained an opt-out, the register's sweep (logged, never raised). One that fails
-        is owed, so the retry sweeps (review P19-X3)."""
+        never raised: the chain is the record, the index is rebuilt from it, and the doctor's check names the gap."""
         from tb_common import provenance_index
 
         try:
-            k = provenance_index.sweep(self.con)
-            self.con.commit()
+            provenance_index.add(self.con, rec)
         except Exception as exc:
-            with contextlib.suppress(Exception):
-                self.con.rollback()
-            log.error("provenance index: the sweep after an opt-out failed (%s)", type(exc).__name__)
-            self._owe("sweep failed")
-            return
-        if k:
-            log.info("provenance index: %d withheld row(s) swept after an opt-out", k)
+            log.error("provenance index: a row was not written (%s); run trialbox provenance --rebuild",
+                      type(exc).__name__)  # fmt: skip
+            self._withhold("index write failed")  # review P19-Y10: the next rows are not written past the gap
 
     def _rows(self) -> list[tuple[Any, ...]]:
         cols = "SELECT seq, at, db_role, event, ts, fields FROM audit.journal"
@@ -579,16 +526,27 @@ class Drain:
     def step(self, alive: Path | None = None) -> int:
         """Write the next batch to the chain; the number written. ``alive``: the heartbeat, touched after each event
         (T-697: a batch of slow writes must not read as a dead drain to the health check)."""
-        from tb_common.provenance_index import OPT_OUT
+        from tb_common import provenance_index
 
         rows = self._rows()
-        # P-19: tables made after the drain started are written from the next line on, and a repair owed before
-        # they existed runs once they do (review P19-D5)
-        if not self.index and (rows or self._recover):
+        if not rows:
+            return 0
+        if not self.index:  # P-19: tables made after the drain started are written from the next line on (D5)
             self.index = self._index_installed()
-        if self._recover and self.index and time.monotonic() >= self._retry:
-            self._catch_up()
-        opted = False
+        # P19-DESIGN-3 R4: a batch runs under the writer's lock, which the rebuild holds while it reads the chain: no
+        # line is appended then, and every line after its CLEAN is written here. Not taken: the rebuild runs; the rows
+        # stay in the journal for the next step. (No index, no rebuild: the lock is not needed.)
+        if self.index:
+            got = self.con.execute("SELECT pg_try_advisory_lock(%s)", (provenance_index.WRITER_LOCK,)).fetchone()
+            if not (got and got[0]):
+                return 0
+        try:
+            return self._batch(rows, alive, self.index and self._clean())
+        finally:
+            if self.index:
+                self.con.execute("SELECT pg_advisory_unlock(%s)", (provenance_index.WRITER_LOCK,))
+
+    def _batch(self, rows: list[tuple[Any, ...]], alive: Path | None, clean: bool) -> int:
         for seq, at, role, event, ts, fields in rows:
             f, stamp, problem = _readable(at, ts, fields)
             journal: dict[str, Any] = {"seq": int(seq), "role": role, "at": _iso(at)}
@@ -610,16 +568,14 @@ class Drain:
                 # the event's name is the sender's own text: it stays in the record, not in the log line
                 log.warning("audit journal row %s from %s marked %s", seq, role, ", ".join(marks))
             rec = self.chain.append(event, ts=stamp, journal=journal, **f)
-            opted = opted or rec.get("event") == OPT_OUT
-            if self.index:
+            if clean and self.index:
                 self._index(rec)
+                clean = self._said is None and self.index  # a failed write: the rest of the batch is withheld
             self.cursor = Cursor(int(seq), _iso(at))
             self._after = None
             if alive is not None:
                 with contextlib.suppress(OSError):
                     alive.touch()
-        if opted and self.index:
-            self._sweep()
         return len(rows)
 
     def wait(self, timeout: float) -> None:

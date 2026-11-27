@@ -18,7 +18,6 @@ import json
 import os
 import sys
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +49,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not a.db_url:
         print("trialbox provenance: TB_DB_URL is not set", file=sys.stderr)
         return 2
+    if a.check:  # P19-DESIGN-3 §2: refused with the operator's step before any database work
+        m = idx.read_marker(Path(a.audit_dir))
+        if not m.clean:
+            print(m.text)
+            return 1
     con = _connect(a.db_url)
     try:
         if not idx.installed(con):
@@ -63,7 +67,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             except ValueError as exc:
                 print(f"trialbox provenance: {exc}", file=sys.stderr)
                 return 2
-            except idx.ProvenanceUnderRepair as exc:  # P-19 (review P19-X1)
+            except idx.ProvenanceRebuildRequired as exc:  # P-19 (review P19-X1)
                 print(f"trialbox provenance: {exc}", file=sys.stderr)
                 return 1
             if a.json:
@@ -76,15 +80,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"{len(rows)} record(s)")
             return 0
         audit = Path(a.audit_dir)
-        if a.rebuild:
-            calls, uses = idx.rebuild(con, audit)
+        if a.rebuild:  # P19-DESIGN-3 §3: the rebuild writes the marker itself, verified last
+            try:
+                calls, uses = idx.rebuild(con, audit, say=print)
+            except idx.RebuildRefused as exc:
+                print(f"provenance index: the rebuild was refused: {exc}", file=sys.stderr)
+                return 1
             print(f"provenance index rebuilt from {audit}: {calls} call(s), {uses} use(s)")
-            try:  # P-19 (P19-DESIGN §2): a whole rebuild and its sweep, committed, is more than the drain's repair
-                idx.write_state(audit, state=idx.CLEAN, verified_at=datetime.now(UTC).isoformat(timespec="seconds"),
-                                rows_written=calls + uses)  # fmt: skip
-            except OSError as exc:
-                print(f"provenance index: the repair marker was not written ({type(exc).__name__}); the audit "
-                      "writer's next start writes it", file=sys.stderr)  # fmt: skip
             return 0
         diff = idx.check(con, audit)
         if diff.ok:

@@ -378,24 +378,9 @@ END
 $fn$;
 CREATE OR REPLACE TRIGGER model_uses_withhold BEFORE INSERT ON provenance.model_uses
   FOR EACH ROW EXECUTE FUNCTION provenance.withhold();
--- what pg_restore loaded before the trigger existed, and what slipped in before a register row committed
-CREATE OR REPLACE FUNCTION provenance.sweep() RETURNS integer
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
-DECLARE
-  n integer := 0;
-BEGIN
-  PERFORM pg_advisory_xact_lock(211989);
-  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname = 'optout' AND c.relname = 'optout_events') THEN
-    DELETE FROM provenance.model_uses u
-      WHERE u.pid IN (SELECT e.pid FROM optout.optout_events e) AND provenance.withheld(u.pid, u.at);
-    GET DIAGNOSTICS n = ROW_COUNT;
-  END IF;
-  RETURN n;
-END
-$fn$;
-REVOKE ALL ON FUNCTION provenance.withheld(text, timestamptz), provenance.withhold(), provenance.sweep()
-  FROM PUBLIC;
+-- P19-DESIGN-3: nothing repairs the index in place any more (an earlier script's sweep goes)
+DROP FUNCTION IF EXISTS provenance.sweep();
+REVOKE ALL ON FUNCTION provenance.withheld(text, timestamptz), provenance.withhold() FROM PUBLIC;
 -- END PROVENANCE INDEX
 ALTER SCHEMA provenance OWNER TO audit_writer;
 ALTER TABLE provenance.model_calls OWNER TO audit_writer;
@@ -406,10 +391,10 @@ GRANT USAGE ON SCHEMA provenance TO tb_audit_writer, tb_console, tb_orchestrator
 GRANT SELECT, INSERT ON provenance.model_calls, provenance.model_uses TO tb_audit_writer;
 GRANT SELECT ON provenance.model_calls, provenance.model_uses TO tb_console, tb_orchestrator;
 GRANT DELETE ON provenance.model_uses TO tb_orchestrator;
--- P-19: the index's three functions (withheld, the trigger's withhold, sweep) run as provenance_keeper, the one
--- role here that may read the opt-out register: it reads the register and deletes the use rows the register
--- withholds; no login role is a member. The register's schema is made above (SERVICE SCHEMAS); its table by its
--- group when a service first opens it, so its group's later tables are readable too
+-- P-19: the index's two functions (withheld, the trigger's withhold) run as provenance_keeper, the one role here
+-- that may read the opt-out register; no login role is a member. The register's schema is made above (SERVICE
+-- SCHEMAS); its table by the first service that opens it, signed in as its own login role (review P19-G3), so the
+-- keeper's read is granted for the tables those roles and the group make there
 DO $keeper$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'provenance_keeper') THEN
@@ -421,19 +406,18 @@ BEGIN
 END
 $keeper$;
 GRANT USAGE ON SCHEMA optout TO provenance_keeper;
-ALTER DEFAULT PRIVILEGES FOR ROLE tbs_optout IN SCHEMA optout GRANT SELECT ON TABLES TO provenance_keeper;
+ALTER DEFAULT PRIVILEGES FOR ROLE tbs_optout, tb_console, tb_orchestrator IN SCHEMA optout
+  GRANT SELECT ON TABLES TO provenance_keeper;
 GRANT USAGE ON SCHEMA provenance TO provenance_keeper;
 GRANT SELECT, INSERT, DELETE ON provenance.model_uses TO provenance_keeper;
 ALTER FUNCTION provenance.withheld(text, timestamptz) OWNER TO provenance_keeper;
 ALTER FUNCTION provenance.withhold() OWNER TO provenance_keeper;
-ALTER FUNCTION provenance.sweep() OWNER TO provenance_keeper;
--- review P19-X6: withheld() answers for any pseudonym, so only the administrator's check asks it (the trigger and the
--- sweep run as its owner); the register's group sweeps in its own opt-out transaction (review P19-X2). The REVOKE
--- takes back the earlier script's grants on a box that ran it
+-- review P19-X6: withheld() answers for any pseudonym, so only the administrator's check asks it (the trigger runs
+-- as its owner). The REVOKEs take back an earlier script's grants on a box that ran it (P19-DESIGN-3: the register
+-- is never coupled to the index, so its group has nothing in schema provenance)
 REVOKE EXECUTE ON FUNCTION provenance.withheld(text, timestamptz) FROM tb_audit_writer, tb_orchestrator, tb_console;
 GRANT EXECUTE ON FUNCTION provenance.withheld(text, timestamptz) TO trialbox;
-GRANT USAGE ON SCHEMA provenance TO tbs_optout;
-GRANT EXECUTE ON FUNCTION provenance.sweep() TO tb_audit_writer, tb_orchestrator, tbs_optout, trialbox;
+REVOKE USAGE ON SCHEMA provenance FROM tbs_optout;
 ALTER ROLE tb_audit_writer PASSWORD :'pw_audit_writer';
 SQL
 # D-541: inside `hapi`, what HAPI made while it signed in as the superuser becomes the FHIR store's own (tables with

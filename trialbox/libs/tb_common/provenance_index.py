@@ -16,22 +16,27 @@ tables again from it, :func:`check` diffs them (the doctor runs it), and when th
 Erasure (D-989 point 5): at an opt-out the ``model_uses`` rows naming the patient are deleted (:func:`erase`); the
 chain keeps its events, as every other audit event does. The opt-out register (``optout.optout_events``) is the one
 authority on what stays out, asked inside the database on every write (P-19): a trigger withholds a use row the
-register withholds, whoever inserts it (the drain, :func:`catch_up`, :func:`rebuild`, a hand-run SQL), and
-:func:`sweep` deletes the ones a restore put back. :func:`check` asks the same function, so an erased row is neither
-written back nor reported missing.
+register withholds, whoever inserts it (the drain, :func:`rebuild`, a hand-run SQL). :func:`check` asks the same
+function, so an erased row is neither written back nor reported missing.
 
-The repair obligation after a restore, a downgrade or a failed write lives in ``<audit dir>/PROVENANCE_STATE``
-(:func:`read_state`, :func:`write_state`), the one store the restore does not roll back; :func:`search` refuses
-while it is not ``clean``.
+P-19 (P19-DESIGN-3, detect and refuse): the index is never repaired in place. A restore or a downgrade empties it and
+sets ``<audit dir>/PROVENANCE_STATE`` to rebuild-required (:func:`require_rebuild`, the one setter); until one
+:func:`rebuild` from the chain completes, :func:`search` and the drain's index writes are refused, naming the command
+(:func:`read_marker`). The register's writes are never coupled to the index.
 
 A connection here is a psycopg connection (``con.execute(sql, args)``), as the drain holds.
 """
 
 from __future__ import annotations
 
+import argparse
+import contextlib
 import json
 import os
-from collections.abc import Iterable, Iterator
+import sys
+import tempfile
+import time
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -112,24 +117,9 @@ END
 $fn$;
 CREATE OR REPLACE TRIGGER model_uses_withhold BEFORE INSERT ON provenance.model_uses
   FOR EACH ROW EXECUTE FUNCTION provenance.withhold();
--- what pg_restore loaded before the trigger existed, and what slipped in before a register row committed
-CREATE OR REPLACE FUNCTION provenance.sweep() RETURNS integer
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
-DECLARE
-  n integer := 0;
-BEGIN
-  PERFORM pg_advisory_xact_lock(211989);
-  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname = 'optout' AND c.relname = 'optout_events') THEN
-    DELETE FROM provenance.model_uses u
-      WHERE u.pid IN (SELECT e.pid FROM optout.optout_events e) AND provenance.withheld(u.pid, u.at);
-    GET DIAGNOSTICS n = ROW_COUNT;
-  END IF;
-  RETURN n;
-END
-$fn$;
-REVOKE ALL ON FUNCTION provenance.withheld(text, timestamptz), provenance.withhold(), provenance.sweep()
-  FROM PUBLIC;
+-- P19-DESIGN-3: nothing repairs the index in place any more (an earlier script's sweep goes)
+DROP FUNCTION IF EXISTS provenance.sweep();
+REVOKE ALL ON FUNCTION provenance.withheld(text, timestamptz), provenance.withhold() FROM PUBLIC;
 """
 TABLES = ("provenance.model_calls", "provenance.model_uses")
 #: each table's statements written out whole (no SQL is built from a name)
@@ -153,39 +143,98 @@ _SEARCH = (
     "ORDER BY u.at DESC LIMIT %(limit)s"
 )
 _EVENT = {USED: "used", CONFIRMED: "confirmed"}
-#: P-19: the repair obligation, a file in the audit directory (the one store a restore does not put back), written
-#: by the drain alone
+#: P-19: the marker, a file in the audit directory (the one store a restore of the database does not put back)
 STATE = "PROVENANCE_STATE"
-CLEAN, REQUIRED, REPAIRING = "clean", "repair-required", "repairing"
+VERSION = 2
+#: the trigger's lock against the opt-out worker's :func:`erase` (taken by those two only)
+CONSENT_LOCK = 211989
+#: a session lock between the drain's batch and the rebuild: no chain line is appended while the rebuild reads it
+WRITER_LOCK = 211990
+#: a setting: how long the rebuild waits for the drain to finish its batch (one batch of ``Drain.BATCH`` lines)
+REBUILD_LOCK_WAIT_S = 300
+TEXT = (
+    "the provenance index must be rebuilt ({reason}, since {since}); provenance search and index writes are refused "
+    "until then: run trialbox provenance --rebuild"
+)
 
 
-class ProvenanceUnderRepair(RuntimeError):
-    """The index is being put back after a restore: it may still hold rows the register withholds."""
+class ProvenanceRebuildRequired(RuntimeError):
+    """The index may not equal the chain filtered by the register: nothing is served until one rebuild completes."""
 
 
-def read_state(directory: Path) -> dict[str, Any]:
-    """The repair obligation; a missing file is owed (an upgraded box repairs once)."""
+class RebuildRefused(RuntimeError):
+    """The rebuild cannot run here, for the reason named; the marker is left as it was."""
+
+
+@dataclass(frozen=True)
+class Marker:
+    """``PROVENANCE_STATE`` as read. CLEAN is derived, never stored: readable, version 2 and ``verified``."""
+
+    clean: bool
+    reason: str
+    since: str = ""
+    attempts: int = 0
+    done_through: str = ""  # the last day file an unfinished rebuild committed ("": start from empty)
+
+    @property
+    def text(self) -> str:
+        return TEXT.format(reason=self.reason, since=self.since or "unknown")
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def read_marker(directory: Path) -> Marker:
+    """The marker; anything but a readable version-2 file that says ``verified`` is rebuild-required, with the reason
+    named (fail closed: no file, a file this process may not read, bad JSON, the version-1 marker)."""
     try:
-        return dict(json.loads((directory / STATE).read_text(encoding="utf-8")))
-    except (FileNotFoundError, ValueError):
-        return {"state": REQUIRED, "reason": "start", "attempts": 0}
+        body = json.loads((Path(directory) / STATE).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return Marker(False, "no marker")
+    except OSError as exc:
+        return Marker(False, f"unreadable: {type(exc).__name__}")
+    except ValueError:
+        return Marker(False, "unreadable: not JSON")
+    if not isinstance(body, dict) or body.get("version") != VERSION:
+        got = body.get("version") if isinstance(body, dict) else None
+        return Marker(False, f"unreadable: version {got}")
+    if body.get("verified") is True:
+        return Marker(True, "verified", str(body.get("built_at") or ""))
+    return Marker(False, str(body.get("reason") or "unreadable: no reason"), str(body.get("since") or ""),
+                  int(body.get("attempts") or 0), str(body.get("done_through") or ""))  # fmt: skip
 
 
-def write_state(directory: Path, **fields: Any) -> None:
-    """Replace the marker whole: a temporary file, fsync, rename, fsync the directory."""
-    # ponytail: same body as P03's _write_state; lift both into tb_common when the second copy lands
-    body = {"version": 1, **fields, "updated_at": datetime.now(UTC).isoformat(timespec="seconds")}
-    tmp = directory / f".{STATE}.tmp"
-    with tmp.open("w", encoding="utf-8") as fh:
-        json.dump(body, fh, sort_keys=True)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, directory / STATE)
-    fd = os.open(directory, os.O_RDONLY)
+def require_rebuild(directory: Path, reason: str) -> None:
+    """The one setter of rebuild-required (a restore, a downgrade, a journal resync, a failed index write). It clears
+    an unfinished rebuild's progress, so a restore in the middle of one starts it again from empty. Raises OSError."""
+    prev = read_marker(directory)
+    since = prev.since if not prev.clean and prev.since else _now()
+    _write_marker(directory, {"verified": False, "reason": reason, "since": since, "attempts": prev.attempts,
+                              "done_through": ""})  # fmt: skip
+
+
+def _write_marker(directory: Path, body: dict[str, Any]) -> None:
+    """Replace the marker whole: a temporary file of this writer's own (mode 0644), fsync, rename, fsync the folder."""
+    # ponytail: same body as P03's _write_intent; lift both into tb_common when the second copy lands
+    directory = Path(directory)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{STATE}.")
     try:
-        os.fsync(fd)
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({**body, "version": VERSION, "updated_at": _now()}, fh, sort_keys=True)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, directory / STATE)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    dfd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(dfd)
     finally:
-        os.close(fd)
+        os.close(dfd)
 
 
 @dataclass(frozen=True)
@@ -317,44 +366,94 @@ def _written(cur: Any) -> int:
     return int(getattr(cur, "rowcount", 0) or 0)
 
 
-def sweep(con: Any) -> int:
-    """Delete every use row the register withholds (a restore's, or one written before a register row committed);
-    the rows deleted."""
-    return int(con.execute("SELECT provenance.sweep()").fetchone()[0])
+#: a register table of the same name in another schema: the trigger reads ``optout.optout_events`` alone (Y3, G6)
+_OTHER_REGISTERS = (
+    "SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = 'optout_events' "
+    "AND c.relkind IN ('r', 'p') AND n.nspname <> 'optout' ORDER BY 1"
+)
+#: whether the role the index's functions run as (their owner: provenance_keeper on a box) may read the register;
+#: no row: no register yet, nobody has opted out (G3). By catalog, not by name: the caller may not see the schema
+_KEEPER_READS = (
+    "SELECT pg_get_userbyid(p.proowner), has_schema_privilege(p.proowner, cn.oid, 'USAGE') "
+    "AND has_table_privilege(p.proowner, c.oid, 'SELECT') FROM pg_proc p "
+    "JOIN pg_namespace pn ON pn.oid = p.pronamespace, pg_class c JOIN pg_namespace cn ON cn.oid = c.relnamespace "
+    "WHERE pn.nspname = 'provenance' AND p.proname = 'withheld' AND cn.nspname = 'optout' "
+    "AND c.relname = 'optout_events'"
+)
 
 
-#: the console's record of an opt-out (``services/console/team.py``): after a batch that drained one the drain
-#: sweeps, by then the register row that came before the journal row is committed
-OPT_OUT = "console.opt_out"
+def rebuild(con: Any, directory: Path, *, say: Callable[[str], None] | None = None) -> tuple[int, int]:
+    """P19-DESIGN-3 §3: the index written again from the chain, every use row through the register's trigger; then
+    the marker says ``verified``. (calls, uses) in the index after it.
+
+    Refused by name, the marker untouched (:class:`RebuildRefused`): a connection that is not autocommit, no index,
+    a second register schema, a register the functions' owner cannot read, a drain that does not yield the writer's
+    lock. One transaction per day file, the marker's ``done_through`` after each: a rebuild killed at any point is
+    resumed by the next (a day committed but not yet recorded is written again as a no-op); only a rebuild from empty
+    deletes the tables first. ``say``: progress, one line per day file."""
+    directory = Path(directory)
+    if getattr(con, "autocommit", None) is not True:
+        raise RebuildRefused("the rebuild needs an autocommit connection")
+    if not installed(con):
+        raise RebuildRefused("not installed: the role script creates provenance.model_calls and model_uses")
+    other = [str(r[0]) for r in con.execute(_OTHER_REGISTERS).fetchall()]
+    if other:
+        raise RebuildRefused(f"the index's filter reads optout.optout_events; this database also holds "
+                             f"{', '.join(o + '.optout_events' for o in other)}: not supported")  # fmt: skip
+    keeper = con.execute(_KEEPER_READS).fetchone()
+    if keeper is not None and not keeper[1]:
+        raise RebuildRefused(f"{keeper[0]} cannot read the register: re-run 30-service-roles.sh")
+    con.execute(f"SET lock_timeout = '{int(REBUILD_LOCK_WAIT_S)}s'")
+    try:
+        con.execute("SELECT pg_advisory_lock(%s)", (WRITER_LOCK,))
+    except Exception as exc:
+        if type(exc).__name__ == "LockNotAvailable":
+            raise RebuildRefused(f"the audit writer did not yield in {REBUILD_LOCK_WAIT_S} s") from exc
+        raise
+    finally:
+        con.execute("RESET lock_timeout")
+    try:
+        return _rebuild_locked(con, directory, say or (lambda _s: None))
+    finally:
+        con.execute("SELECT pg_advisory_unlock(%s)", (WRITER_LOCK,))
 
 
-def catch_up(con: Any, directory: Path) -> int:
-    """P-19: write the rows of every row-bearing chain line the index does not hold (a restore, a downgrade, a write
-    that failed); the rows the lines give. A line written twice is a no-op and the register's trigger withholds
-    what it must, so it is safe at every start and a retry finds every hole, old and new (review P19-D3, D4)."""
-    # ponytail: whole-chain diff; a day-file lower bound from the marker when the chain is years long. Rows, not line
-    # hashes: a line the old autocommit loop wrote half is completed (review P19-N2); a withheld row is asked again
-    have = {(t, str(a), str(b)) for t in TABLES for a, b in con.execute(_KEYS[t]).fetchall()}
-    n = 0
-    for rec in chain_records(directory):
-        calls, uses = rows_of(rec)
-        keys = [("provenance.model_calls", c.rec_hash, c.call_id) for c in calls]
-        keys += [("provenance.model_uses", u.rec_hash, u.call_id) for u in uses]
-        if any(k not in have for k in keys):
-            n += add(con, rec)
-    return n
+def _rebuild_locked(con: Any, directory: Path, say: Callable[[str], None]) -> tuple[int, int]:
+    from tb_common.audit import _day_files
 
+    m = read_marker(directory)
+    by = {"pid": os.getpid(), "start": _now()}  # diagnostic only
+    done = m.done_through
+    since = m.since if not m.clean and m.since else _now()
+    if not done:
+        with con.transaction():
+            con.execute("DELETE FROM provenance.model_uses")
+            con.execute("DELETE FROM provenance.model_calls")
+        _write_marker(directory, {"verified": False, "reason": "rebuilding", "since": since, "done_through": "",
+                                  "attempts": m.attempts + 1, "by": by})  # fmt: skip
+    head = ""
+    for path in _day_files(directory):
+        if done and path.name <= done:
+            continue
+        t0, lines = time.monotonic(), 0
+        with con.transaction(), path.open(encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    add(con, json.loads(line))
+                    lines += 1
+        _write_marker(directory, {"verified": False, "reason": "rebuilding", "since": since,
+                                  "done_through": path.name, "attempts": m.attempts + (0 if done else 1),
+                                  "by": by})  # fmt: skip
+        say(f"provenance index: {path.name} {lines} line(s), {lines / max(time.monotonic() - t0, 1e-6):.0f} lines/s")
+    files = _day_files(directory)
+    if files:
+        from tb_common.audit import _last_line
 
-def rebuild(con: Any, directory: Path) -> tuple[int, int]:
-    """Empty both tables and write them again from the chain; (calls, uses) written. Opted-out patients stay out.
-    One transaction: a rebuild stopped half way leaves the index it found (review P19-X8)."""
-    with con.transaction():
-        con.execute("DELETE FROM provenance.model_uses")
-        con.execute("DELETE FROM provenance.model_calls")
-        for rec in chain_records(directory):
-            add(con, rec)
-        sweep(con)
-    return _count(con, "provenance.model_calls"), _count(con, "provenance.model_uses")
+        last = _last_line(files[-1])
+        head = str(json.loads(last).get("hash") or "") if last else ""
+    rows = [_count(con, "provenance.model_calls"), _count(con, "provenance.model_uses")]
+    _write_marker(directory, {"verified": True, "built_at": _now(), "chain_head": head, "rows": rows, "by": by})
+    return rows[0], rows[1]
 
 
 def _count(con: Any, table: str) -> int:
@@ -402,33 +501,34 @@ def check(con: Any, directory: Path) -> Diff:
 
 def erase(con: Any, pids: Iterable[str]) -> int:
     """D-989 point 5: delete the use rows naming these patients (the chain keeps its events). Rows deleted. The
-    register is the authority (its trigger and :func:`sweep`); this is the console's immediate removal, in its
-    opt-out transaction under the trigger's lock 211989."""
+    register is the authority (the trigger); this is the opt-out worker's removal, in its own transaction under the
+    trigger's lock, so a row a trigger let in before the register row committed is gone after it (P19-DESIGN-3 R3)."""
     got = sorted(set(pids))
     if not got:
         return 0
-    cur = con.execute("DELETE FROM provenance.model_uses WHERE pid = ANY(%s)", (got,))
+    with con.transaction():
+        con.execute("SELECT pg_advisory_xact_lock(%s)", (CONSENT_LOCK,))
+        cur = con.execute("DELETE FROM provenance.model_uses WHERE pid = ANY(%s)", (got,))
     return int(getattr(cur, "rowcount", 0) or 0)
 
 
 def search(
     con: Any,
     *,
+    directory: Path,
     model: str | None = None,
     build_sha: str | None = None,
     prompt_sha: str | None = None,
     prompt_id: str | None = None,
     prompt_version: str | None = None,
     limit: int = 1000,
-    directory: Path | None = None,
 ) -> list[dict[str, Any]]:
     """The records the calls matching every given filter touched, newest first: one indexed join. At least one
     filter is required (an unfiltered search would list every record a model ever touched). ``directory`` (the
-    audit directory): refused while the repair obligation there is not ``clean`` (P-19)."""
-    if directory is not None and read_state(directory).get("state") != CLEAN:
-        raise ProvenanceUnderRepair(
-            "the provenance index is being put back after a restore; try again when the audit writer reports it clean"
-        )
+    audit directory, required: G8): refused while its marker is not clean (:class:`ProvenanceRebuildRequired`)."""
+    m = read_marker(directory)
+    if not m.clean:
+        raise ProvenanceRebuildRequired(m.text)
     filters = {"model": model, "build_sha": build_sha, "prompt_sha": prompt_sha, "prompt_id": prompt_id,
                "prompt_version": prompt_version}  # fmt: skip
     if not any(filters.values()):
@@ -444,3 +544,37 @@ def search(
         d["at"] = str(d["at"])
         out.append(d)
     return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m tb_common.provenance_index rebuild | require-rebuild --reason R`` (inside a box's container: the
+    chain is ``TB_AUDIT_DIR``, the database ``TB_DB_URL``)."""
+    ap = argparse.ArgumentParser(prog="python -m tb_common.provenance_index")
+    ap.add_argument("--audit-dir", default=os.environ.get("TB_AUDIT_DIR") or "/data/audit")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("rebuild")
+    sub.add_parser("require-rebuild").add_argument("--reason", required=True)
+    a = ap.parse_args(argv)
+    directory = Path(a.audit_dir)
+    if a.cmd == "require-rebuild":
+        require_rebuild(directory, a.reason)
+        print(f"provenance index: rebuild required ({a.reason})")
+        return 0
+    from tb_common.audit_writer import _dsn, _psycopg
+
+    url = os.environ.get("TB_DB_URL") or ""
+    if not url:
+        print("provenance index: TB_DB_URL is not set", file=sys.stderr)
+        return 2
+    with _psycopg().connect(_dsn(url), autocommit=True) as con:
+        try:
+            calls, uses = rebuild(con, directory, say=print)
+        except RebuildRefused as exc:
+            print(f"provenance index: the rebuild was refused: {exc}", file=sys.stderr)
+            return 1
+    print(f"provenance index rebuilt from {directory}: {calls} call(s), {uses} use(s)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
