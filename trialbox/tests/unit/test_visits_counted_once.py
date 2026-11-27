@@ -59,10 +59,21 @@ CONDITIONS = [
     # review INVJ5-2: an encounter id and another record's condition id written alike are two visits
     _cond("P-SAME-ID", "x1", None),
     _cond("P-SAME-ID", "c12", "x1", onset="2026-06-01"),
+    # review INVJ5-4: a reference may carry a version; two encounters at one version are two visits ...
+    _cond("P-HIST-TWO", "c13", "A/_history/1"),
+    _cond("P-HIST-TWO", "c14", "B/_history/1", onset="2026-06-01"),
+    # ... and two versions of one encounter are one
+    _cond("P-HIST-ONE", "c15", "A/_history/1"),
+    _cond("P-HIST-ONE", "c16", "A/_history/2", onset="2026-06-01"),
+    # review INVJ5-6: a dated row at one visit, an undated one at another: may be two visits, so unknown, not false
+    _cond("P-UNKNOWN", "c17", "eA"),
+    _cond("P-UNKNOWN", "c18", "eB", onset=None),
 ]
-PIDS = ["P-DUP", "P-TWO", "P-NOENC", "P-ONE", "P-DATED-UNDATED", "P-UNDATED-OFFLIST", "P-SAME-ID"]
+PIDS = ["P-DUP", "P-TWO", "P-NOENC", "P-ONE", "P-DATED-UNDATED", "P-UNDATED-OFFLIST", "P-SAME-ID",
+        "P-HIST-TWO", "P-HIST-ONE", "P-UNKNOWN"]  # fmt: skip
 EXPECTED = {"P-DUP": False, "P-TWO": True, "P-NOENC": True, "P-ONE": False,
-            "P-DATED-UNDATED": False, "P-UNDATED-OFFLIST": False, "P-SAME-ID": True}  # fmt: skip
+            "P-DATED-UNDATED": False, "P-UNDATED-OFFLIST": False, "P-SAME-ID": True,
+            "P-HIST-TWO": True, "P-HIST-ONE": False, "P-UNKNOWN": None}  # fmt: skip
 #: a grouper, as the shipped VS_GOUT is (D-113): an off-list code inside the family makes the answer unknown
 VS = {"VS_GOUT": valueset("VC", "VS_GOUT", "gout", [Concept(ICD, GOUT, "gout")], "1.0.0", families=[(ICD, "M10")])}
 CRIT = [

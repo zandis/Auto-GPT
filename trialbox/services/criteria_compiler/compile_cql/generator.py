@@ -271,9 +271,10 @@ class CqlGenerator:
             unknown.append(sn)
 
         # inv-j5, as the SQL: a condition count counts visits (its encounter; a record without one counts alone).
-        # Review INVJ5-2: a typed key, the encounter reference's last part as the lake keeps ``eid``. Review INVJ5-1:
-        # what may still reach the count is the distinct visits of every row that counts or may count, not a sum
-        visit = "Coalesce('Encounter/' + Last(Split(X.encounter.reference.value, '/')), 'Condition/' + X.id)"
+        # Review INVJ5-2: a typed key, the encounter reference's last part as the lake keeps ``eid``; INVJ5-4: less a
+        # terminal ``/_history/{version}``, so a version is not another visit. Review INVJ5-1: what may still reach
+        # the count is the distinct visits of every row that counts or may count, not a sum
+        visit = "Coalesce('Encounter/' + Last(Split(ReplaceMatches(X.encounter.reference.value, '/_history/[^/]+$', ''), '/')), 'Condition/' + X.id)"
 
         def cnt(*xs: str) -> str:
             if atom.domain != "condition":

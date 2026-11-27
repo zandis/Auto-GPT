@@ -770,8 +770,8 @@ a_atoms_inc_05_1_nd AS (
   GROUP BY b.pid, b.index_date),
 a_atoms_inc_05_1_r AS (
   SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n
-  FROM base b JOIN (SELECT pid, visit, d, FALSE AS undated FROM (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))
-    UNION ALL SELECT pid, visit, d, TRUE FROM (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)))) e
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit, FALSE AS undated FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)
+    UNION ALL SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit, TRUE FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e
     ON e.pid = b.pid AND ((e.undated AND e.d IS NULL) OR (NOT e.undated AND e.d BETWEEN (b.index_date + -730) AND b.index_date))
   GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-05 (inclusion): >=2 gout dx in 2y
