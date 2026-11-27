@@ -2826,6 +2826,28 @@ def poc_stops(inp: DoctorInputs, out: list[Check]) -> list[Check]:
     return [*out, *(Check(name, "WARN", detail) for name, detail in stops.doctor_lines(inp.deploy))]
 
 
+#: TRIAGE-1 G2 (RC3): the box's readiness items. ``trialbox doctor --strict`` reads any of them that is not a PASS as a
+#: FAIL, the host profile's easing included: the backup key (``backup``), the site keys sealed under a KEK
+#: (``key_custody``, ``key_escrow``), the ops runner and its timer (``ops_runner``), the memory caps against the site's
+#: size (``memory_caps``), the served models against their pins (``registry_pins``, ``judge_route``). Each was a WARN on
+#: the R1 box where a night, a backup or the pair canary then failed (E2E P-01, P-08, P-28, P-33, P-02)
+READINESS = ("backup", "key_custody", "key_escrow", "ops_runner", "memory_caps", "registry_pins", "judge_route")
+
+
+def strict(checks: list[Check]) -> list[Check]:
+    """G2: each readiness line (:data:`READINESS`) that is not a PASS becomes a FAIL that says so; the other lines are
+    as they were. A readiness line the run did not produce is a FAIL too: --strict proves every item, or fails."""
+    out = [
+        replace(c, status="FAIL", detail=f"{c.detail} [--strict: a readiness item, {c.status} is a FAIL]")
+        if c.name in READINESS and c.status != "PASS"
+        else c
+        for c in checks
+    ]
+    seen = {c.name for c in checks}
+    return out + [Check(n, "FAIL", "--strict: this readiness item was not checked in this run") for n in READINESS
+                  if n not in seen]  # fmt: skip
+
+
 def ok(checks: list[Check]) -> bool:
     return all(c.status != "FAIL" for c in checks)
 
