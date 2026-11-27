@@ -3,9 +3,9 @@
     # the battery over one set's runs (a repeat for the unstable table); --real: suppressed, refused, then written
     python -m bench.invest.analysis.findings battery --runs <dir>[,<dir>] [--repeat <dir>[,<dir>]] --name syn50k \\
         --out battery.json --records residual.json [--real]
-    # the residual clusters (labels from ``cluster``) named by the local model and folded into the battery file
+    # the residual clusters (labels from ``cluster``) named and folded into the battery file
     python -m bench.invest.analysis.findings residual --battery battery.json --records residual.json \\
-        --labels labels.json [--llm-url URL --llm-model NAME] [--real]
+        --labels labels.json [--real]
     # FINDINGS-R<N>.md from the battery files, the metamorphic result and the real-data aggregate
     python -m bench.invest.analysis.findings render --battery a.json[,b.json] [--real twin.json] \\
         [--metamorphic m.json] --round R1 --out FINDINGS-R1.md
@@ -70,9 +70,9 @@ def cmd_residual(a: argparse.Namespace) -> int:
     b = json.loads(Path(a.battery).read_text("utf-8"))
     recs = json.loads(Path(a.records).read_text("utf-8"))
     lab = json.loads(Path(a.labels).read_text("utf-8"))
-    b["residual"] = cluster.residual_clusters(recs, lab["labels"], a.llm_url, a.llm_model)
+    b["residual"] = cluster.residual_clusters(recs, lab["labels"])
     b["residual_method"] = {"clustering": lab["method"], "embedder": lab["embedder"],
-                            "namer": "local-model" if a.llm_url else "fallback"}  # fmt: skip
+                            "namer": "rule"}  # fmt: skip
     if a.real:  # the battery file passed its patient-id check when it was written; names carry no patient text
         protos = sorted({r["protocol_id"] for r in recs} | {p for c in b["clusters"] for p in c["protocols"]})
         meta = battery.criteria_meta(protos)
@@ -267,8 +267,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--battery", type=Path, required=True)
     p.add_argument("--records", type=Path, required=True)
     p.add_argument("--labels", type=Path, required=True)
-    p.add_argument("--llm-url")
-    p.add_argument("--llm-model")
     p.add_argument("--real", action="store_true")
     p.set_defaults(fn=cmd_residual)
     p = sub.add_parser("render")

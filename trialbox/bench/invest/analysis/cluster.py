@@ -1,5 +1,5 @@
 """Residual fault clustering (INVEST-1 §2): the failure records the deterministic grouping leaves in its long tail are
-embedded, clustered (HDBSCAN, then k-means on what it leaves as noise) and named by a local model from ten members.
+embedded, clustered (HDBSCAN, then k-means on what it leaves as noise) and named from their members (``name_of``).
 
 A record is criterion-level text (the criterion's wording, stage, expected vs got, reason), never a patient value, so
 the same code runs for real ledgers; there it runs on the machine that holds them, and a name leaves only through
@@ -85,42 +85,17 @@ def cluster(x: np.ndarray, min_size: int = 3) -> tuple[list[int], str]:
     return [int(v) for v in labels], method
 
 
-def name_of(members: Sequence[str], url: str | None, model: str | None, timeout: float = 120) -> str:
-    """A short English name for a cluster from up to ten members, by the local model at ``url`` (an OpenAI-style
-    server); letters only. Without a server, or when the answer does not fit the name rule, the members' most common
-    reason and family."""
-    fallback = _fallback(members)
-    if not url or not model:
-        return fallback
-    import httpx
+def name_of(members: Sequence[str]) -> str:
+    """A short name for a cluster from its members: their most common reason and family, letters only.
 
-    prompt = (
-        "These are failure records of a clinical-trial eligibility screener, one per line. Give the shared failure "
-        "pattern a name of at most eight English words, letters only, no numbers, no identifiers. Answer with the "
-        "name only.\n\n" + "\n".join(members[:10])
-    )
-    try:
-        resp = httpx.post(
-            url.rstrip("/") + "/chat/completions",
-            json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0,
-                  "max_tokens": 32},
-            timeout=timeout,
-        )  # fmt: skip
-        resp.raise_for_status()
-        text = str(resp.json()["choices"][0]["message"]["content"])
-    except (httpx.HTTPError, KeyError, IndexError, ValueError):
-        return fallback
-    name = " ".join(_KEEP.sub(" ", text).split())[:80].strip(" ,/-")
-    return name if name and name[0].isalpha() else fallback
-
-
-def _fallback(members: Sequence[str]) -> str:
+    The spec names clusters with a local model. Every model call goes through the gateway with a registered prompt
+    (ENG-04, ``tests/unit/test_no_direct_model_calls.py``); no naming prompt is registered yet, so the name is this
+    rule until one is."""
     reasons = Counter(m.rsplit("| reason ", 1)[-1].strip() for m in members)
     fams = Counter(m.split("| family ", 1)[-1].split(" |", 1)[0].strip() for m in members if "| family " in m)
-    words = (
-        f"{reasons.most_common(1)[0][0] if reasons else 'mixed'} in {fams.most_common(1)[0][0] if fams else 'mixed'}"
-    )
-    return " ".join(_KEEP.sub(" ", words.replace("_", " ")).split())[:80] or "mixed"
+    top = [x.most_common(1)[0][0] if x else "mixed" for x in (reasons, fams)]
+    words = f"{top[0]} in {top[1]}".replace("_", " ")  # no stage: a name carries no digit (``battery._NAME``)
+    return " ".join(_KEEP.sub(" ", words).split())[:80] or "mixed"
 
 
 def _rows_by_criterion(members: Sequence[Mapping[str, Any]]) -> Counter[str]:
@@ -130,9 +105,7 @@ def _rows_by_criterion(members: Sequence[Mapping[str, Any]]) -> Counter[str]:
     return out
 
 
-def residual_clusters(
-    records: Sequence[Mapping[str, Any]], labels: Sequence[int], url: str | None = None, model: str | None = None
-) -> list[dict[str, Any]]:
+def residual_clusters(records: Sequence[Mapping[str, Any]], labels: Sequence[int]) -> list[dict[str, Any]]:
     """Residual clusters, largest first: name, size in rows, records, preventable share, the codes inside."""
     groups: dict[int, list[Mapping[str, Any]]] = {}
     for r, lab in zip(records, labels, strict=True):
@@ -144,7 +117,7 @@ def residual_clusters(
         prev = sum(int(r["n"]) for r in members if r.get("preventable") == "preventable")
         out.append(
             {
-                "name": name_of([record_text(r) for r in members], url, model),
+                "name": name_of([record_text(r) for r in members]),
                 "n": n,
                 "size": len(members),
                 "preventable_n": prev,
