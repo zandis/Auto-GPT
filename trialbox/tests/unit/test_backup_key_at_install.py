@@ -339,7 +339,7 @@ def test_terminal_settings_that_fail_refuse_before_a_line_is_asked(
             def refuse(*_a: object) -> None:
                 raise termios.error(errno.EIO, "Input/output error")
 
-            monkeypatch.setattr(bkc.termios, "tcsetattr", refuse)
+            monkeypatch.setattr(termios, "tcsetattr", refuse)
         term = _NoSettings(null if fails == "read" else slave)  # /dev/null: no terminal settings to read
         with pytest.raises(bkc.Stop) as got:
             _install(term)
@@ -501,7 +501,7 @@ def test_an_interrupted_unseal_leaves_nothing_that_blocks_its_retry(
         raise KeyboardInterrupt
 
     with monkeypatch.context() as m:
-        m.setattr(bkc if cut == "key_text" else bkc.os, cut, cut_here)
+        m.setattr(bkc if cut == "key_text" else os, cut, cut_here)
         with pytest.raises(KeyboardInterrupt):
             bkc.unseal_to(sealed, out, PASS)
     assert list(usb.iterdir()) == []

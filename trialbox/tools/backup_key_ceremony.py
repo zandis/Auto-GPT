@@ -32,6 +32,7 @@ put in an argument, the environment, an exception, a log or the journal.
 
     python -m tools.backup_key_ceremony --install [--lang ja]
     python -m tools.backup_key_ceremony --install --sealed-stdin      (the passphrase on stdin, one line)
+    python -m tools.backup_key_ceremony --unseal FILE --out KEYFILE   (the passphrase asked, not shown; or on stdin)
 
 **At install** (E2E P-01, the integrator's ruling Q1 of 2026-11-27: a PRODUCTION box makes its backup key at
 install, the key shown once and kept sealed): ``deploy/install.sh`` runs this as root when the box has no
@@ -47,9 +48,12 @@ record is put on the box (as step 1).
 * **Unattended** (no terminal; the integrator's ruling (1) of 2026-11-27: the KEK comes from the install
   passphrase): the install hands its KEK passphrase on stdin. The key is sealed under scrypt(passphrase, a new salt)
   (``tb_common.kek``, the passphrase back end's KDF, its parameters recorded beside it) into
-  ``deploy/secrets/backup-key-<fp>.sealed`` (root's alone, never a plain key), opened again to check it, and only then
-  the event and ``backup.pub``. Hospital IT copies that file off the box; ``--unseal FILE --out KEYFILE`` (the
-  passphrase on stdin) gives back the key file ``restore --key`` reads.
+  ``deploy/secrets/backup-key-<fp>.sealed`` (root's alone, never a plain key), opened again to check it, then (H-02 of
+  the second review) the same file onto every off-box backup target (``TB_BACKUP_TARGETS`` as the nightly backup
+  counts them; none off the box: refused before a key is made), each synced and opened again, and only then the event
+  and ``backup.pub``. ``--unseal FILE --out KEYFILE`` gives back the key file ``restore --key`` reads: on a terminal
+  the passphrase is asked with the echo off (H-03; the echo cannot be turned off: refused, H-04), else one line of
+  stdin.
 
 ``trialbox backup-keygen`` and the stick ceremony stay refused on a PRODUCTION box (rc1's ``key_ceremonies``): this
 is the one way a PRODUCTION box gets its key, once.
@@ -367,13 +371,36 @@ NO_PASSPHRASE = {
     "zh-TW": "已拒絕：--sealed-stdin 需要從標準輸入取得安裝的 KEK 密語（一行，12 個字元以上）。未建立任何內容",
 }
 INSTALLED_SEALED = {
-    "en": "backup key made at install: {pub} (key {fp}); the private key is only in {sealed}, sealed under the "
-    "install's KEK passphrase: copy that file off the box with hospital IT (it opens only with that passphrase)",
+    "en": "backup key made at install: {pub} (key {fp}); the private key is only in {sealed} and its copies on the "
+    "off-box backup targets ({copies}), sealed under the install's KEK passphrase (it opens only with that passphrase)",
     "ja": "インストール時にバックアップ鍵を作成しました：{pub}（鍵 {fp}）。秘密鍵はインストールの KEK パスフレーズで"
-    "封をした {sealed} にだけあります。病院の情報システム担当とこのファイルをボックスの外にコピーしてください（その"
-    "パスフレーズでしか開きません）",
-    "zh-TW": "已於安裝時建立備份金鑰：{pub}（金鑰 {fp}）；私鑰只存在於以安裝的 KEK 密語密封的 {sealed}：請與醫院資訊"
-    "人員將該檔案複製到主機之外（只有該密語能開啟）",
+    "封をした {sealed} と、ボックス外のバックアップ先にあるその写し（{copies}）にだけあります（そのパスフレーズでしか"
+    "開きません）",
+    "zh-TW": "已於安裝時建立備份金鑰：{pub}（金鑰 {fp}）；私鑰只存在於以安裝的 KEK 密語密封的 {sealed} 及其在主機外"
+    "備份目標上的副本（{copies}）（只有該密語能開啟）",
+}
+NO_OFFBOX_COPY = {
+    "en": "refused: the sealed backup key goes to an off-box backup target before backup.pub is made, and none of "
+    "TB_BACKUP_TARGETS ({targets}) is off the box (a network share, a USB disk, or TB_BACKUP_OFFBOX; RUNBOOK §5). "
+    "Nothing was made",
+    "ja": "拒否：封をしたバックアップ鍵は backup.pub を作る前にボックス外のバックアップ先へ置きます。TB_BACKUP_TARGETS"
+    "（{targets}）にボックス外のものがありません（ネットワーク共有、USB ディスク、または TB_BACKUP_OFFBOX。RUNBOOK "
+    "§5）。何も作成していません",
+    "zh-TW": "已拒絕：密封的備份金鑰須在建立 backup.pub 之前放到主機外的備份目標，而 TB_BACKUP_TARGETS（{targets}）"
+    "中沒有主機外的目標（網路共享、USB 磁碟或 TB_BACKUP_OFFBOX；RUNBOOK §5）。未建立任何內容",
+}
+TERMINAL_UNSAFE = {
+    "en": "refused: this terminal's echo cannot be turned off, so what is typed here would be shown. Nothing typed was "
+    "read and backup.pub was not made; run it again on the box's own terminal",
+    "ja": "拒否：この端末のエコーを止められないため、ここで入力した内容が表示されてしまいます。入力は何も読んでおらず、"
+    "backup.pub も作っていません。ボックス自身の端末でもう一度実行してください",
+    "zh-TW": "已拒絕：無法關閉此終端機的回顯，在此輸入的內容會被顯示。未讀取任何輸入，也未建立 backup.pub；請在主機本身"
+    "的終端機上再次執行",
+}
+PASSPHRASE_ASK = {
+    "en": "the install's KEK passphrase (not shown): ",
+    "ja": "インストールの KEK パスフレーズ（表示されません）：",
+    "zh-TW": "安裝的 KEK 密語（不顯示）：",
 }
 NOT_UNSEALED = {
     "en": "refused: {sealed} does not open with this passphrase, or is not a sealed backup key. Nothing was written",
@@ -1106,16 +1133,16 @@ PASSPHRASE_MIN = 12  # deploy/install.sh's KEK passphrase rule
 
 @contextlib.contextmanager
 def _unseen(tty: TextIO) -> Iterator[None]:
-    """The copy typed back is not echoed on a terminal (a stand-in without terminal settings is left as it is)."""
+    """What is typed on ``tty`` is not echoed. H-04: settings that cannot be read or changed refuse before anything
+    is asked, never a fall back to visible typing."""
     try:
         fd = tty.fileno()
         old = termios.tcgetattr(fd)
+        new = list(old)
+        new[3] &= ~termios.ECHO
+        termios.tcsetattr(fd, termios.TCSADRAIN, new)
     except (AttributeError, OSError, ValueError, termios.error):
-        yield
-        return
-    new = list(old)
-    new[3] &= ~termios.ECHO
-    termios.tcsetattr(fd, termios.TCSADRAIN, new)
+        raise Stop(TERMINAL_UNSAFE) from None
     try:
         yield
     finally:
@@ -1197,14 +1224,41 @@ def unseal(data: bytes, passphrase: str) -> bytes | None:
     return raw if len(raw) == 32 and fingerprint(public_of(raw)) == doc.get("fingerprint") else None
 
 
+def _offbox_targets(env: Mapping[str, str]) -> list[Path]:
+    """H-02: the TB_BACKUP_TARGETS folders off the box, as the nightly backup counts them (backup_schedule)."""
+    from tools.trialbox import backup_schedule as bs
+
+    cfg = bs.config(DEPLOY, env, process_env=False)
+    return [t for t in cfg.targets if cfg.classify(t).offbox]
+
+
+def _put_sealed(dfd: int, name: str, data: bytes, passphrase: str, pub: bytes) -> None:
+    """The sealed file made new (0600) in the folder ``dfd``, synced, and read back: it opens to ``pub``'s key."""
+    try:
+        os.close(_new_file(dfd, name, data, 0o600))
+        _sync_dir(dfd, 1)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dfd)
+        try:
+            back = _read(fd)
+        finally:
+            os.close(fd)
+    except OSError as e:
+        raise Stop(STEP_FAILED, n=1, why=_why(e)) from None
+    if (raw := unseal(back, passphrase)) is None or public_of(raw) != pub:  # read back: it opens to this key
+        raise Stop(STEP_FAILED, n=1, why="read back")
+
+
 def install_sealed(env: Mapping[str, str], passphrase: str) -> dict[str, str]:
     """The key made at an unattended install (see the module docstring): sealed under the install's KEK passphrase
-    (scrypt, a new salt, the parameters recorded) into ``backup-key-<fp>.sealed``, opened again, then the journal's
-    event and ``backup.pub``. Returns what the journal holds and the sealed file's path."""
+    (scrypt, a new salt, the parameters recorded) into ``backup-key-<fp>.sealed``, opened again, the same file onto
+    every off-box backup target (H-02), then the journal's event and ``backup.pub``. Returns what the journal holds,
+    the sealed file's path and its copies."""
     if not is_root():
         raise Stop(NOT_ROOT)
     if len(passphrase) < PASSPHRASE_MIN:
         raise Stop(NO_PASSPHRASE)
+    if not (targets := _offbox_targets(env)):  # H-02: never a key whose only copy is on the box
+        raise Stop(NO_OFFBOX_COPY, targets=env.get("TB_BACKUP_TARGETS") or "none")
     _libs()
     from tb_common import kek
 
@@ -1221,41 +1275,63 @@ def install_sealed(env: Mapping[str, str], passphrase: str) -> dict[str, str]:
                "kdf": {"name": "scrypt", **params},
                "key": kek.wrap(kek.derive_from_passphrase(passphrase, params), key, name)}  # fmt: skip
         del key
-        try:
-            os.close(_new_file(pfd, name, (json.dumps(doc, indent=1, sort_keys=True) + "\n").encode(), 0o600))
-            _sync_dir(pfd, 1)
-            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=pfd)
+        data = (json.dumps(doc, indent=1, sort_keys=True) + "\n").encode()
+        _put_sealed(pfd, name, data, passphrase, pub)
+        for t in targets:  # H-02: before backup.pub, the same sealed file off the box's disk
             try:
-                back = _read(fd)
+                tfd = os.open(t, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            except OSError as e:
+                raise Stop(STEP_FAILED, n=1, why=_why(e)) from None
+            try:
+                _put_sealed(tfd, name, data, passphrase, pub)
             finally:
-                os.close(fd)
-        except OSError as e:
-            raise Stop(STEP_FAILED, n=1, why=_why(e)) from None
-        if (raw := unseal(back, passphrase)) is None or public_of(raw) != pub:  # read back: it opens to this key
-            raise Stop(STEP_FAILED, n=1, why="read back")
-        del raw
+                os.close(tfd)
+        copies = ", ".join(str(t / name) for t in targets)
         detail = {"fingerprint": fp, "operator": "install", "witness": "none: made at an unattended install",
-                  "site": site, "stick": f"none: sealed under the install's KEK passphrase ({name})"}  # fmt: skip
+                  "site": site, "stick": f"none: sealed under the install's KEK passphrase ({name}), on the box "
+                  "and on every off-box backup target"}  # fmt: skip
         seq = record(detail)
         _pub_last(pfd, pub)
-        return {**detail, "pub": str(PUB_DIR / PUB_NAME), "seq": str(seq), "sealed": str(PUB_DIR / name)}
+        return {**detail, "pub": str(PUB_DIR / PUB_NAME), "seq": str(seq), "sealed": str(PUB_DIR / name),
+                "copies": copies}  # fmt: skip
     finally:
         os.close(pfd)
 
 
 def unseal_to(sealed: Path, out: Path, passphrase: str) -> str:
     """``--unseal``: the key file ``restore --key`` reads, made new at ``out`` (0600), from a sealed file and its
-    passphrase; the key's fingerprint."""
+    passphrase; the key's fingerprint. M-05: the sealed file is looked at before a byte is read (not a plain file, or
+    larger than MAX_FILE: refused). M-03: the key file is written under a new temporary name beside ``out`` (O_EXCL),
+    synced, then renamed to ``out``: a run cut short leaves nothing at ``out`` that stops the next one."""
     try:
-        data = sealed.read_bytes()[: MAX_FILE + 1]
+        fd = os.open(sealed, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            st = os.fstat(fd)
+            data = _read(fd) if stat.S_ISREG(st.st_mode) and st.st_size <= MAX_FILE else b""
+        finally:
+            os.close(fd)
     except OSError:
         data = b""
-    raw = unseal(data, passphrase) if passphrase else None
+    raw = unseal(data, passphrase) if passphrase and len(data) <= MAX_FILE else None
     if raw is None:
         raise Stop(NOT_UNSEALED, sealed=sealed)
-    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(key_text(raw))
+    dfd = os.open(out.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        if _exists(dfd, out.name):  # never over a file
+            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(out))
+        tmp = f".{out.name}.{secrets.token_hex(4)}.part"
+        try:
+            os.close(_new_file(dfd, tmp, key_text(raw), 0o600))
+            # ponytail: looked at, then renamed (no atomic no-replace rename in the stdlib, and a FAT stick has no
+            # hard link); a second unseal to the same place at the same moment is the gap
+            os.rename(tmp, out.name, src_dir_fd=dfd, dst_dir_fd=dfd)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp, dir_fd=dfd)
+            raise
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
     return fingerprint(public_of(raw))
 
 
@@ -1269,7 +1345,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     how = ap.add_mutually_exclusive_group(required=True)
     how.add_argument("--stick", help="the mounted folder of the removable stick")
     how.add_argument("--install", action="store_true", help="at install: the key shown once on this terminal (P-01)")
-    how.add_argument("--unseal", help="a backup-key-<fp>.sealed file: the key file for restore --key (with --out)")
+    how.add_argument("--unseal", help="a backup-key-<fp>.sealed file: the key file for restore --key (with --out); "
+                     "the passphrase is asked, not shown (or one line on stdin)")  # fmt: skip
     ap.add_argument("--sealed-stdin", action="store_true",
                     help="with --install, unattended: sealed under the KEK passphrase read from stdin")  # fmt: skip
     ap.add_argument("--out", help="with --unseal: the key file to make (new)")
@@ -1283,8 +1360,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if a.unseal:
         if not a.out:
             ap.error("--unseal needs --out")
-        pp = _stdin_line()
-        fp = _guarded(lang, lambda: unseal_to(Path(a.unseal), Path(a.out), pp))
+        fp = _guarded(lang, lambda: unseal_to(Path(a.unseal), Path(a.out), _stdin_line(lang)))
         if fp is None:
             return 1
         print(UNSEALED[lang].format(out=a.out, fp=fp))
@@ -1324,9 +1400,17 @@ def _guarded[T](lang: str, call: Callable[[], T]) -> T | None:
     return None
 
 
-def _stdin_line() -> str:
-    """One line of stdin, its line end taken off (the passphrase: never an argument or the environment)."""
-    return sys.stdin.readline().rstrip("\r\n")
+def _stdin_line(lang: str) -> str:
+    """One line of stdin, its line end taken off (the passphrase: never an argument or the environment). H-03: on a
+    terminal it is asked with the echo off (refused when the echo cannot be turned off, H-04), never shown."""
+    if not sys.stdin.isatty():
+        return sys.stdin.readline().rstrip("\r\n")
+    with _unseen(sys.stdin):
+        sys.stderr.write(PASSPHRASE_ASK[lang])
+        sys.stderr.flush()
+        line = sys.stdin.readline()
+    sys.stderr.write("\n")
+    return line.rstrip("\r\n")
 
 
 def _install_main(lang: str, sealed: bool = False) -> int:
@@ -1334,12 +1418,11 @@ def _install_main(lang: str, sealed: bool = False) -> int:
     a log), opened once to read and once to write (it cannot be opened ``r+``: not seekable); no terminal, nothing
     is made. ``--sealed-stdin``: no terminal, the passphrase on stdin."""
     if sealed:
-        pp = _stdin_line()
-        rec = _guarded(lang, lambda: install_sealed(_env(), pp))
-        del pp
+        rec = _guarded(lang, lambda: install_sealed(_env(), _stdin_line(lang)))
         if rec is None:
             return 1
-        print(INSTALLED_SEALED[lang].format(fp=rec["fingerprint"], pub=rec["pub"], sealed=rec["sealed"]))
+        print(INSTALLED_SEALED[lang].format(fp=rec["fingerprint"], pub=rec["pub"], sealed=rec["sealed"],
+                                            copies=rec["copies"]))  # fmt: skip
         return 0
     try:
         with open(TTY, encoding="utf-8") as ask, open(TTY, "w", encoding="utf-8") as show:

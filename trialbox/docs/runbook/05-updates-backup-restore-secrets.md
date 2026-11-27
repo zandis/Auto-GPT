@@ -75,10 +75,12 @@ backup. Driver updates are outside the bundle and need a change request. Held by
 **Backup** (D-126, D-187, D-188). The backup key, once. A **PRODUCTION** box makes it at install (E2E P-01;
 `trialbox backup-keygen` and the stick ceremony are refused there): on the install's terminal the paper copy is shown
 once, the screen is cleared and hospital IT types the whole copy back before `backup.pub` is made; an unattended
-install (no terminal) seals the key under the install's KEK passphrase into `deploy/secrets/backup-key-<fp>.sealed`,
-which hospital IT copies off the box. Run again by hand, as root on the box: `python3 -m tools.backup_key_ceremony
---install`. To restore with a sealed key: `python3 -m tools.backup_key_ceremony --unseal <the .sealed file> --out
-/media/usb/trialbox-backup.key` (the passphrase on stdin), then `restore --key` that file. A DEV, TEST or VALIDATION
+install (no terminal) seals the key under the install's KEK passphrase into `deploy/secrets/backup-key-<fp>.sealed`
+and, before `backup.pub` is made, onto every off-box backup target (`TB_BACKUP_TARGETS`; with none off the box it is
+refused). Run again by hand, as root on the box: `python3 -m tools.backup_key_ceremony --install`. To restore with a
+sealed key (the copy on the backup target): `python3 -m tools.backup_key_ceremony --unseal <the .sealed file> --out
+/media/usb/trialbox-backup.key`; it asks for the passphrase and does not show it (never type it where it is shown;
+piped, it reads one line of stdin), then `restore --key` that file. A DEV, TEST or VALIDATION
 box, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
 box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI

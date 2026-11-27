@@ -1581,10 +1581,9 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
 fi
 # E2E P-01 (the integrator's ruling (1) of 2026-11-27: the KEK comes from the install passphrase): an install with no
 # terminal seals the PRODUCTION backup key under this passphrase (the backup key step below), so there it is kept
-# until then, in this shell only (never exported), and cleared there
+# until then, in this shell only (never exported), and cleared there; a passphrase file the seal step did not remove
+# is removed there once the key is sealed with it (M-02 of the second review), else said "not used" there
 { : </dev/tty; } 2>/dev/null && KP_VALUE=""
-[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
-KP_FILE=""
 
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 # D-1091: protects none of the five; on a PoC box the database steps after it fail where they run
@@ -1829,14 +1828,23 @@ case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:
         || FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
     elif [ -n "$KP_VALUE" ]; then
       say "backup key: made now, sealed under the install's KEK passphrase (no terminal)"
-      printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin \
-        || FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+      if printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin; then
+        if [ -n "$KP_FILE" ]; then
+          if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
+          else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
+          KP_FILE=""
+        fi
+      else
+        FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+      fi
     else
       FAILS+=("no backup key: an install with no terminal seals it under the install's KEK passphrase, and none was given (--kek-passphrase-file); no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
     fi
   fi ;;
 esac
 KP_VALUE=""
+[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
+KP_FILE=""
 # T-117b (D-274): the backup cron (/etc/cron.d/trialbox-backup), WAL archiving when the db image carries pgBackRest
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
 # TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page, D-735); `trialbox
