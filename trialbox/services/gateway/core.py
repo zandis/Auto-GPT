@@ -152,6 +152,35 @@ _TOO_LONG = ("maximum context length", "context length", "context_length", "too 
 # chat() and activate() called inside the gateway's own process (``trialbox doctor``'s judge-route check, tests): no
 # network boundary, so no service token to bind the caller to (D-437). The HTTP app always passes the verified service
 log = logging.getLogger("gateway")
+#: P-29: one line per answered call with its token counts, so the model's tokens can be measured from the service log
+#: on the box (the ledger's ``llm.gateway.call`` holds the same counts). Counts and labels only, never text.
+token_log = logging.getLogger("gateway.tokens")
+
+
+def _count(v: object) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+def _log_tokens(call: _Call) -> None:
+    token_log.info(
+        "call %s: %d tokens in, %d out",
+        call.call_id,
+        call.tokens_in,
+        call.tokens_out,
+        extra={
+            "call_id": call.call_id,
+            "alias": call.alias,
+            "build_id": call.build_id,
+            "cache": call.cache,
+            "tokens_in": call.tokens_in,
+            "tokens_out": call.tokens_out,
+            "tokens_reported": call.tokens_reported,
+            "tokens_estimated": call.tokens_estimated,
+            "latency_ms": call.latency_ms,
+        },
+    )
+
+
 IN_PROCESS = "<in-process>"
 REQUIRED = ("x-tb-caller", "x-tb-data-class", "x-tb-purpose", "x-tb-role", "x-tb-study", "x-tb-context-of-use")
 
@@ -235,6 +264,7 @@ class _Call:
     step_basis: str = ""  # D3/D4: "step" (confirmed), "intake" (FR-CONV-8) or "box_policy" (D-142)
     deadline: float = 0.0  # time.monotonic() by which this call ends (T-608, the call budget)
     tokens_estimated: bool = False  # the upstream said its token counts are estimates (the stub, LLM-046)
+    tokens_reported: bool = False  # P-29: the upstream gave both counts; else the zeros are not counts
 
 
 def _content_text(messages: Any) -> str:
@@ -863,6 +893,7 @@ class Gateway:
         call.tokens_estimated = bool(usage.get("estimated"))  # LLM-046: the stub's counts are estimates
         call.tokens_in = int(usage.get("prompt_tokens") or 0)
         call.tokens_out = int(usage.get("completion_tokens") or 0)
+        call.tokens_reported = all(_count(usage.get(k)) for k in ("prompt_tokens", "completion_tokens"))
         c = ep.cost
         reported = usage.get("cost")
         if isinstance(reported, int | float) and not isinstance(reported, bool):
@@ -976,6 +1007,7 @@ class Gateway:
             call.tokens_in = call.tokens_out = 0
             call.cost = 0.0
         self._record("llm.gateway.call", call)  # LLM-5: the ledger first, then the response
+        _log_tokens(call)
         payload["tb"] = {
             "call_id": call.call_id,
             "alias": call.alias,
@@ -1066,6 +1098,7 @@ class Gateway:
             "expected_alias": call.expected_alias,
             "tokens_est": call.tokens_est,
             "tokens_estimated": call.tokens_estimated,
+            "tokens_reported": call.tokens_reported,
             "context": call.context,
             "topology": self.config.topology.value,
             "environment": self.config.environment.value,
