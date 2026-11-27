@@ -98,6 +98,11 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     )
     d.add_argument("--lang", default=None, help="--preflight: the language of the labels and actions (en, ja, zh-TW)")
     d.add_argument("--out", type=Path, default=None, help="--preflight: also write the first-run page's file here")
+    d.add_argument(
+        "--strict",
+        action="store_true",
+        help="G2: every readiness item must PASS (a WARN there is a FAIL); the proof row",
+    )
     pi = sub.add_parser("platform-images", help="the release-images component from release.json (D-211)")
     pi.add_argument("--release", type=Path, default=None)
     pi.add_argument("--check", action="store_true", help="exit 1 when the committed component differs")
@@ -419,6 +424,8 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
                 a.evidence.parent.mkdir(parents=True, exist_ok=True)
                 doc = pf.evidence(checks, pinp)
                 a.evidence.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        if a.strict:  # G2 (TRIAGE-1): the readiness contract, never a WARN
+            checks = doctor.strict(checks)
         if a.json:
             print(json.dumps([c.__dict__ for c in checks], indent=1, ensure_ascii=False))
         else:
