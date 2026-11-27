@@ -909,17 +909,18 @@ def create_app(
             text = lookup(lang, f"state.{value}")
             return value if text is None else text
 
-        def given(value: object, cls: str = "") -> Markup | str:
-            """D-133 (review F-09): words that come from the study or the hospital's data (a criterion label, a
-            doctor's name) are shown as written. On a Japanese or Chinese page an English one is marked "as given"
-            (原文) and carries lang="en", so a reader sees it is the source's own word, not an untranslated label."""
+        def given(value: object, cls: str = "", *, source_lang: str | None = None) -> Markup | str:
+            """Show authored words as written. Use their declared language when available, otherwise recognize
+            English words on a non-English page (D-133)."""
             text = str(value or "")
             if not text:
                 return ""
-            if lang == "en" or not _ASCII_WORDS.fullmatch(text) or not re.search(r"[A-Za-z]{3,}", text):
+            if not source_lang and lang != "en" and _ASCII_WORDS.fullmatch(text) and re.search(r"[A-Za-z]{3,}", text):
+                source_lang = "en"
+            if not source_lang or source_lang == lang:
                 return Markup('<span class="{}">{}</span>').format(cls, text) if cls else text
-            return Markup('<span class="given {}" lang="en" data-authored data-given="{}">{}</span>').format(
-                cls, t("given.mark"), text
+            return Markup('<span class="given {}" lang="{}" data-authored data-given="{}">{}</span>').format(
+                cls, source_lang, t("given.mark"), text
             )
 
         base = {
