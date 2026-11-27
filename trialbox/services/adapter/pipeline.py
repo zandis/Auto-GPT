@@ -1190,7 +1190,9 @@ def _run_ingest(
     at["step"] = "report"
     passed = not errors
     ended = datetime.now(zone)
-    stages = at.summary()  # OPT-1 §6: seconds and peak memory per stage, up to here
+    # OPT-1 §6: seconds and peak memory per stage. The report carries its own stages, so the report stage ends here:
+    # it excludes serialising and writing the report, the gate, the pruning and the ledger event
+    stages = at.summary()
     # NEW-B-20 (D-661): how long the night took, for the host's doctor (the Windows update window is placed outside
     # it). ``finished``: it ended published, the whole of a night; a held or failed night measures only its part
     from adapter import night_runs
