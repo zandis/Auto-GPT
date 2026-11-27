@@ -1,0 +1,133 @@
+"""The public-names check (hygiene item 4): no tracked file of this public repository names a person, host, home
+folder or machine of the project's own.
+
+    TB_PUBLIC_NAMES_FILE=<file outside the repository> python -m tools.public_names check [BUNDLE_ARGS]
+
+The pattern list is never in the repository: it is a file kept outside it, named by ``TB_PUBLIC_NAMES_FILE``, one
+regular expression per line (case-insensitive), ``#`` starts a comment line, blank lines are skipped. The check reads
+every file ``git ls-files`` lists (text files; a file with a NUL byte in its first 8 KiB is binary and skipped) and
+every tracked path. A hit is reported by its place and the pattern's number in the list, never by the text it
+matched: ``path:line: pattern N``, or ``tracked path K (git ls-files | sed -n Kp)`` where the path itself matches.
+
+Exit 0: no hit. Exit 1: a hit. Exit 2: not checked (the variable unset or empty, the list unreadable, empty, inside
+the repository, or a pattern that does not compile), said plainly on stderr; a release gate never reads exit 2 as a
+pass. ``make release-bundle`` runs it first (``make public-names``).
+
+Standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+REPO = ROOT.parent
+ENV = "TB_PUBLIC_NAMES_FILE"
+BINARY_PROBE = 8192
+EXIT_HIT = 1
+EXIT_NOT_CHECKED = 2
+
+
+class NotChecked(Exception):
+    """The tree could not be checked; the message says why without echoing a pattern."""
+
+
+def load_patterns(value: str | None, repo: Path) -> list[re.Pattern[str]]:
+    """The compiled patterns of the list the variable names; raises NotChecked when there is none to use."""
+    if not value:
+        raise NotChecked(f"{ENV} is not set: tracked files NOT checked (name a pattern file kept outside the repository)")
+    path = Path(value).expanduser().resolve()
+    try:
+        path.relative_to(repo.resolve())
+    except ValueError:
+        pass
+    else:
+        raise NotChecked(f"the pattern file is inside the repository: tracked files NOT checked (keep it outside {repo})")
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise NotChecked(f"the pattern file {ENV} names is not readable ({type(exc).__name__}): tracked files NOT checked") from exc
+    patterns: list[re.Pattern[str]] = []
+    for line in lines:
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        try:
+            patterns.append(re.compile(text, re.IGNORECASE))
+        except re.error as exc:
+            raise NotChecked(f"pattern {len(patterns) + 1} does not compile ({exc.msg}): tracked files NOT checked") from exc
+    if not patterns:
+        raise NotChecked(f"the pattern file {ENV} names holds no patterns: tracked files NOT checked")
+    return patterns
+
+
+def tracked(repo: Path) -> list[str]:
+    proc = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True, check=False)
+    if proc.returncode != 0:
+        raise NotChecked(f"git ls-files failed in {repo} (exit {proc.returncode}): tracked files NOT checked")
+    return [p for p in proc.stdout.decode("utf-8", "surrogateescape").split("\0") if p]
+
+
+def first_hit(patterns: list[re.Pattern[str]], text: str) -> int | None:
+    """The 1-based number of the first pattern that matches ``text``, or None."""
+    for number, pattern in enumerate(patterns, start=1):
+        if pattern.search(text):
+            return number
+    return None
+
+
+def scan(repo: Path, patterns: list[re.Pattern[str]]) -> tuple[list[str], int]:
+    """The hit lines (place and pattern number only) and the number of tracked files read."""
+    hits: list[str] = []
+    paths = tracked(repo)
+    for index, rel in enumerate(paths, start=1):
+        place = rel
+        number = first_hit(patterns, rel)
+        if number is not None:
+            place = f"tracked path {index} (git ls-files | sed -n {index}p)"
+            hits.append(f"{place}: file name matches pattern {number}")
+        try:
+            data = (repo / rel).read_bytes()
+        except OSError:
+            continue  # a tracked path deleted in the work tree, or a submodule folder: nothing to read
+        if b"\0" in data[:BINARY_PROBE]:
+            continue
+        for lineno, line in enumerate(data.decode("utf-8", "replace").splitlines(), start=1):
+            number = first_hit(patterns, line)
+            if number is not None:
+                hits.append(f"{place}:{lineno}: pattern {number}")
+    return hits, len(paths)
+
+
+def check(repo: Path, value: str | None) -> int:
+    try:
+        patterns = load_patterns(value, repo)
+        hits, count = scan(repo, patterns)
+    except NotChecked as exc:
+        print(f"public-names: {exc}", file=sys.stderr)
+        return EXIT_NOT_CHECKED
+    noun = "pattern" if len(patterns) == 1 else "patterns"
+    if hits:
+        print("\n".join(hits))
+        print(f"public-names: FAIL, {len(hits)} hit(s) of {len(patterns)} {noun} in {count} tracked files")
+        return EXIT_HIT
+    print(f"public-names: PASS, {len(patterns)} {noun} over {count} tracked files")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
+    ap.add_argument("--repo", type=Path, default=REPO, help=argparse.SUPPRESS)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("check", help=f"exit 1 on a hit, 2 when not checked ({ENV} unset)")
+    args = ap.parse_args(argv)
+    return check(args.repo, os.environ.get(ENV))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
