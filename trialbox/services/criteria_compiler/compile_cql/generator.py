@@ -270,15 +270,19 @@ class CqlGenerator:
             )
             unknown.append(sn)
 
-        # inv-j5, as the SQL: a condition count counts visits (its encounter; a record without one counts alone)
-        def cnt(x: str) -> str:
+        # inv-j5, as the SQL: a condition count counts visits (its encounter; a record without one counts alone).
+        # Review INVJ5-2: a typed key, the encounter reference's last part as the lake keeps ``eid``. Review INVJ5-1:
+        # what may still reach the count is the distinct visits of every row that counts or may count, not a sum
+        visit = "Coalesce('Encounter/' + Last(Split(X.encounter.reference.value, '/')), 'Condition/' + X.id)"
+
+        def cnt(*xs: str) -> str:
             if atom.domain != "condition":
-                return f"Count({x})"
-            return f"Count(distinct ({x} X return Coalesce(X.encounter.reference.value, X.id)))"
+                return " + ".join(f"Count({x})" for x in xs)
+            return f"Count(distinct (({' union '.join(xs)}) X return {visit}))"
 
         if quant == "count>=":
             settled = f"{cnt(qn)} >= {atom.count}"
-            reach = " + ".join([cnt(qn), *(cnt(x) for x in unknown)]) + f" >= {atom.count}"
+            reach = f"{cnt(qn, *unknown)} >= {atom.count}"
         else:
             settled, reach = f"exists ({qn})", " or ".join(f"exists ({x})" for x in unknown)
         hit, miss = ("false", "true") if quant == "none" else ("true", "false")
@@ -303,7 +307,7 @@ class CqlGenerator:
             )
         unknown.append(q("UO_" + p))
         if quant == "count>=":
-            reach = " + ".join([cnt(qn), *(cnt(x) for x in unknown)]) + f" >= {atom.count}"
+            reach = f"{cnt(qn, *unknown)} >= {atom.count}"
         else:
             reach = " or ".join(f"exists ({x})" for x in unknown)
         a = f"if {settled} then {hit} else if exists ({on}) then null as Boolean else if {reach} then null as Boolean else {miss}"

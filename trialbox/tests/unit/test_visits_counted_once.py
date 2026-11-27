@@ -27,13 +27,16 @@ ROOT = Path(__file__).resolve().parents[2]
 ICD = "http://hl7.org/fhir/sid/icd-10-cm"
 IDX = date(2026, 10, 5)
 GOUT = "M10.9"
+OFF_LIST = "M10.Z9"  # synthetic: inside the M10 family, on no list
 
 pytestmark = pytest.mark.nodb  # the lake is in-process
 
 
-def _cond(pid: str, cid: str, enc: str | None, onset: str = "2026-03-10") -> dict[str, Any]:
+def _cond(pid: str, cid: str, enc: str | None, onset: str | None = "2026-03-10", code: str = GOUT) -> dict[str, Any]:
     c: dict[str, Any] = {"resourceType": "Condition", "id": cid, "subject": {"reference": f"Patient/{pid}"},
-                         "code": {"coding": [{"system": ICD, "code": GOUT}]}, "onsetDateTime": onset}  # fmt: skip
+                         "code": {"coding": [{"system": ICD, "code": code}]}}  # fmt: skip
+    if onset:  # None: an undated record (no onset, no recorded date)
+        c["onsetDateTime"] = onset
     if enc:
         c["encounter"] = {"reference": f"Encounter/{enc}"}
     return c
@@ -47,10 +50,21 @@ CONDITIONS = [
     _cond("P-NOENC", "c5", None),
     _cond("P-NOENC", "c6", None, onset="2026-06-01"),  # no encounter on either row: each counts alone
     _cond("P-ONE", "c7", "e4"),
+    # review INVJ5-1: one visit, a dated row and an undated one: one visit, never "may be two"
+    _cond("P-DATED-UNDATED", "c8", "e5"),
+    _cond("P-DATED-UNDATED", "c9", "e5", onset=None),
+    # review INVJ5-1: one visit, two undated rows, one listed and one off the list inside the family
+    _cond("P-UNDATED-OFFLIST", "c10", "e6", onset=None),
+    _cond("P-UNDATED-OFFLIST", "c11", "e6", onset=None, code=OFF_LIST),
+    # review INVJ5-2: an encounter id and another record's condition id written alike are two visits
+    _cond("P-SAME-ID", "x1", None),
+    _cond("P-SAME-ID", "c12", "x1", onset="2026-06-01"),
 ]
-PIDS = ["P-DUP", "P-TWO", "P-NOENC", "P-ONE"]
-EXPECTED = {"P-DUP": False, "P-TWO": True, "P-NOENC": True, "P-ONE": False}
-VS = {"VS_GOUT": valueset("VC", "VS_GOUT", "gout", [Concept(ICD, GOUT, "gout")], "1.0.0")}
+PIDS = ["P-DUP", "P-TWO", "P-NOENC", "P-ONE", "P-DATED-UNDATED", "P-UNDATED-OFFLIST", "P-SAME-ID"]
+EXPECTED = {"P-DUP": False, "P-TWO": True, "P-NOENC": True, "P-ONE": False,
+            "P-DATED-UNDATED": False, "P-UNDATED-OFFLIST": False, "P-SAME-ID": True}  # fmt: skip
+#: a grouper, as the shipped VS_GOUT is (D-113): an off-list code inside the family makes the answer unknown
+VS = {"VS_GOUT": valueset("VC", "VS_GOUT", "gout", [Concept(ICD, GOUT, "gout")], "1.0.0", families=[(ICD, "M10")])}
 CRIT = [
     CriterionIR.model_validate(
         {
@@ -97,7 +111,7 @@ def test_the_sql_counts_a_visit_once(lake: tuple[LakeLocal, Path]) -> None:
 def test_the_shipped_gout_ruleset_counts_a_visit_once(lake: tuple[LakeLocal, Path]) -> None:
     rs = Ruleset.load(ROOT / "rulesets" / "GOUT-COH")
     got = _answers(lake[0], rs.sql, "GOUT-COH-INC-04")
-    assert got == EXPECTED or {p: got[p] for p in ("P-DUP", "P-ONE")} == {"P-DUP": False, "P-ONE": False}, got
+    assert got == EXPECTED, got  # review INVJ5-3: the positive cases too, not only the battery's
     assert got["P-DUP"] is False  # the battery's case: one visit is never "seen twice"
 
 

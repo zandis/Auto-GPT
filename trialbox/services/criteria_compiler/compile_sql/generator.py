@@ -207,9 +207,11 @@ class SqlGenerator:
         rid_sel = "rid" if rid == "rid" else f"{rid} AS rid"
 
         # inv-j5 (metamorphic ``duplicate``): "seen twice for it" counts visits, so a diagnosis row written twice in
-        # one encounter is one visit; a row with no encounter counts alone. Only a condition count changes its SQL
+        # one encounter is one visit; a row with no encounter counts alone. Only a condition count changes its SQL.
+        # Review INVJ5-2: the key says what it is (an encounter's or a condition's id), so the two never collide; the
+        # CQL builds the same key from the encounter reference's last part, as the lake keeps ``eid``
         visits = atom.domain == "condition" and (atom.quantifier or "any") == "count>="
-        visit = ", coalesce(eid, cid) AS visit" if visits else ""
+        visit = ", coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit" if visits else ""
         counter = "count(DISTINCT e.visit)" if visits else "count(*)"
 
         def src(match: Callable[[str, str, str], str], status: str = "") -> str:
@@ -259,6 +261,20 @@ class SqlGenerator:
             u = f"({u} + coalesce({st}.n, 0))"
         settled = f"({n} > 0)" if quant != "count>=" else f"({n} >= {atom.count})"
         reach = f"({u} > 0)" if quant != "count>=" else f"({n} + {u} >= {atom.count})"
+        if visits:  # review INVJ5-1: one visit with a counted row and an undated or other-status one is still one
+            r = f"{name}_r"
+            parts = [f"SELECT pid, visit, d, FALSE AS undated FROM ({src(self._vs_match, counted)})"]
+            if statuses:
+                parts.append(f"SELECT pid, visit, d, FALSE FROM ({src(listed_or_family, other)})")
+            parts.append(f"SELECT pid, visit, d, TRUE FROM ({src(listed_or_family)})")
+            union = "\n    UNION ALL ".join(parts)
+            ctes.append(
+                f"{r} AS (\n  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n\n"
+                f"  FROM base b JOIN ({union}) e\n"
+                f"    ON e.pid = b.pid AND ((e.undated AND e.d IS NULL) OR (NOT e.undated AND {in_window('e.d', w)}))\n"
+                f"  GROUP BY b.pid, b.index_date)"
+            )
+            reach = f"(coalesce({r}.n, 0) >= {atom.count})"
         hit = "TRUE" if quant != "none" else "FALSE"
         miss = "FALSE" if quant != "none" else "TRUE"
 

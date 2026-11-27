@@ -782,25 +782,32 @@ c_gout_coh_inc_03 AS (
 a_gout_coh_inc_04_1 AS (
   SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce(eid, cid) AS visit FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
 a_gout_coh_inc_04_1_nd AS (
   SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n,
          string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce(eid, cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)))) e ON e.pid = b.pid AND e.d IS NULL
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
+a_gout_coh_inc_04_1_r AS (
+  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n
+  FROM base b JOIN (SELECT pid, visit, d, FALSE AS undated FROM (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))
+    UNION ALL SELECT pid, visit, d, TRUE FROM (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))))) e
+    ON e.pid = b.pid AND ((e.undated AND e.d IS NULL) OR (NOT e.undated AND e.d BETWEEN (b.index_date + -365) AND b.index_date))
   GROUP BY b.pid, b.index_date),
 a_gout_coh_inc_04_1_off AS (
   SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce(eid, cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
 -- GOUT-COH-INC-04 (inclusion): 一年內因痛風就診二次以上。
 c_gout_coh_inc_04 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_gout_coh_inc_04_1.n, 0) >= 2) THEN TRUE WHEN coalesce(a_gout_coh_inc_04_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_gout_coh_inc_04_1.n, 0) + coalesce(a_gout_coh_inc_04_1_nd.n, 0) >= 2) THEN NULL ELSE FALSE END) AS v,
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_gout_coh_inc_04_1.n, 0) >= 2) THEN TRUE WHEN coalesce(a_gout_coh_inc_04_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_gout_coh_inc_04_1_r.n, 0) >= 2) THEN NULL ELSE FALSE END) AS v,
          concat_ws(';', coalesce(a_gout_coh_inc_04_1.ev, a_gout_coh_inc_04_1_off.ev, a_gout_coh_inc_04_1_nd.ev)) AS ev
   FROM base b
   LEFT JOIN a_gout_coh_inc_04_1 ON a_gout_coh_inc_04_1.pid = b.pid AND a_gout_coh_inc_04_1.index_date = b.index_date
   LEFT JOIN a_gout_coh_inc_04_1_nd ON a_gout_coh_inc_04_1_nd.pid = b.pid AND a_gout_coh_inc_04_1_nd.index_date = b.index_date
+  LEFT JOIN a_gout_coh_inc_04_1_r ON a_gout_coh_inc_04_1_r.pid = b.pid AND a_gout_coh_inc_04_1_r.index_date = b.index_date
   LEFT JOIN a_gout_coh_inc_04_1_off ON a_gout_coh_inc_04_1_off.pid = b.pid AND a_gout_coh_inc_04_1_off.index_date = b.index_date),
 a_gout_coh_inc_05_1_creatinine AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
