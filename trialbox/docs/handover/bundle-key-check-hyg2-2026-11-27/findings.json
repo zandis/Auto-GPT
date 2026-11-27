@@ -27,7 +27,7 @@
    "claim": "the model pack (--model-pack-out) and its .sha256 were written outside the pending folder, before the stick key check: a refused build had already touched them; they are now staged and published with the release",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 36ec9eceb"
   }
  ]
 }
