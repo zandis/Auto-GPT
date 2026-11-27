@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -62,7 +63,7 @@ def _run(url: str, sql: str) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.fixture
-def fresh_db(pg_cluster_url: str) -> str:
+def fresh_db(pg_cluster_url: str) -> Iterator[str]:
     """A database of its own: like a box before its first night, it has no pid map schema."""
     name = f"r1p1d_p30_{os.getpid()}"
     admin = _in_db(pg_cluster_url, "postgres")
