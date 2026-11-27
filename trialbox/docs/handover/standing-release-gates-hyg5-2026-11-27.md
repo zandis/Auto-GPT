@@ -9,7 +9,7 @@ language.
 - **Date:** 2026-11-27
 - **Base:** int/r1plus1 ae2d17c7
 - **Findings:** [`standing-release-gates-hyg5-2026-11-27/findings.json`](standing-release-gates-hyg5-2026-11-27/findings.json)
-  (HYG5-01 to HYG5-05)
+  (HYG5-01 to HYG5-06)
 - **Baseline:** `deploy/security/standing-gates-baseline.json` (counts by rule only)
 
 ## Files outside the card
@@ -70,6 +70,16 @@ Python packages (no container engine here). These are the baseline file's lines.
 - **Both secret scanners: not run here.** Fetching and running them was refused by this session's permission check,
   so the first run of either is CI's (HYG5-04). They block now, so a finding there fails the first run, and the
   finding list goes to the lead.
+
+## Two new findings since the measurement (HYG5-06)
+
+The branch was merged once with int/r1plus1 (19bb8856, head 4f7ac60b) after the baseline was measured on ae2d17c7.
+At the merged head the code-pattern count is 164: that merge brought two findings on one call,
+`tools/trialbox/__main__.py:519` (dangerous-subprocess-use-audit) and `:520`
+(dangerous-subprocess-use-tainted-env-args), from 3623681f (E2E P-15), merged in #1560. They are above the baseline,
+so the gate's first CI run fails on exactly these two, as the ruling asks of a new finding. Taking the first baseline
+at the merged head instead was asked for by the lead, and refused by this session's permission check. It is the
+integrator's to rule. The other two scans are unchanged at the merged head.
 
 ## What was not verified
 
