@@ -157,7 +157,7 @@ def test_a_start_that_met_a_lake_not_up_releases_the_holds_once_it_is(
 
     again = _orch(tmp_path, scenario, lake_dir, db)
     late = _LateLake(again.services.lake)
-    again.services.lake = late  # type: ignore[assignment]
+    again.services.lake = late
     again.start()
     try:
         deadline = time.monotonic() + 5
