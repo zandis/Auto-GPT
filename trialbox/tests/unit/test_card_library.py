@@ -11,6 +11,7 @@ from criteria_compiler.cards import CardError, instantiate, load, to_library
 from criteria_compiler.compile_cql.generator import CqlGenerator
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.library.repository import CriterionLibrary, LibraryError
+from criteria_compiler.semantics import CompileError
 from criteria_compiler.terminology.mapper import Terminology, ValueSets
 from tb_contracts.criterion_ir import CriterionIRv3, upgrade_v1
 
@@ -76,10 +77,11 @@ def test_protocol_line_to_card_to_record_to_compiled_ruleset(cards: Path) -> Non
     assert rec.canonical_hash == lib.hash_of(ir, VS) and rec.ir.canonical_hash == rec.canonical_hash
     assert rec.ir.card_ref == ir.card_ref and rec.used_by == ["SYN"] and rec.valuesets[0].id == "VS_ALT"
     assert lib.by_hash(rec.canonical_hash) == rec and lib.records("approved") == [rec]  # persisted
-    # the ruleset compiles from the stored record, in both languages
+    # the ruleset compiles from the stored record; the CQL refuses value.ref by name (fail-closed, as built)
     sql = SqlGenerator("SYN", "1.0.0", ValueSets("SYN", VS, Terminology()), None).render([rec.ir])
-    cql = CqlGenerator("SYN", "1.0.0", ValueSets("SYN", VS, Terminology()), 36).render([rec.ir])
-    assert '"C_SYN-EXC-07"' in sql and "SYN-EXC-07" in cql
+    assert '"C_SYN-EXC-07"' in sql
+    with pytest.raises(CompileError, match="no_cql_reference_range"):
+        CqlGenerator("SYN", "1.0.0", ValueSets("SYN", VS, Terminology()), 36).render([rec.ir])
     con = lake([{"table": "observation", "oid": "o1", "code": "1742-6", "system": LOINC, "effective": "2026-10-01",
                  "value_num": 150, "unit": "U/L", "ref_high": 40}])  # fmt: skip
     row = con.execute(sql, [["2026-10-05"], None]).fetchone()
