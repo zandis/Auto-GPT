@@ -658,11 +658,10 @@ def _run_ingest(
     contracts = (
         governance.load_contracts(cfg.contracts_dir) if cfg.contracts_dir and source_kind != "fhir_bulk" else None
     )
-    control_totals = (
-        governance.read_control_totals(Path(source_path))
-        if contracts is not None and source_kind == "csv" and not since
-        else None
+    control_totals = (  # E2E P-25: read whenever the export ships the file, with or without data contracts
+        governance.read_control_totals(Path(source_path)) if source_kind == "csv" and not since else None
     )
+    recon: list[governance.Equation] = []  # without contracts: the totals counted as the rows stream past
     checks: list[governance.TableCheck] = []
     inputs: list[Path] = []
     gate_facts = governance.NightFacts(night=snap, current_before=current_before)
@@ -781,6 +780,9 @@ def _run_ingest(
             got = read_times.timed(table, src.rows(table, src_name, delta, since_t))
             if contracts is not None:
                 got = _kept(got, raw)
+            elif control_totals and (ct := control_totals.get(src_name)) is not None:
+                read_back: list[governance.ControlTotals] = []
+                got = governance.counted(got, ct.patient_column, ct.delta_column, read_back)
             others = [0]  # CGRD-A2 (D-813, lane E's hunk): rows of a shared source that are another table's
 
             def own(rows_in: Any, t: str = table, n: list[int] = others) -> Iterator[Row]:
@@ -796,6 +798,8 @@ def _run_ingest(
             if (pv := tspec.get("pivot")) is not None:
                 stream = pivot_rows(stream, pv, str(tspec.get("key") or ""), spool.root / f".pivot-{table}", pivoted)
             rows = _TableRows.write(spool.root / f".rows-{table}", stream)
+            if contracts is None and control_totals and (ct := control_totals.get(src_name)) is not None:
+                recon += governance.reconcile(table, ct, read_back[0])  # E2E P-25
             if isinstance(where_dir := getattr(src, "directory", None), Path):
                 inputs.append(where_dir / f"{src_name}.csv")
             why = quarantine_reason(src, src_name)
@@ -932,6 +936,12 @@ def _run_ingest(
         ]
         if bad:
             errors.append(f"data contracts: {'; '.join(bad)}")
+    elif recon:  # E2E P-25: the export's control totals hold the night as they do with contracts
+        gate_facts.reconciliation = recon
+        bad = [f"{e.table}: {e.reason.value if e.reason else ''} ({e.name}: export {e.lhs}, read {e.rhs})"
+               for e in recon if e.verdict == "fail"]  # fmt: skip
+        if bad:
+            errors.append(f"control totals: {'; '.join(bad)}")
     aliases: dict[str, str] = {}
     from adapter.publish import finish_served
 
