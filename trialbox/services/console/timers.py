@@ -104,13 +104,17 @@ _held: list[IO[str]] = []  # the lock file of the process that runs the timers, 
 def owns(lock: Path) -> bool:
     """P2-11 (D7): the console runs ``TB_CONSOLE_WORKERS`` processes and a notice must go once, so the timers run in
     one. True for the process that holds ``lock`` (an ``flock`` on a file in the console's data folder). The kernel
-    releases it when that process ends; uvicorn starts a new worker, whose start takes it."""
+    releases it when that process ends; uvicorn starts a new worker, whose start takes it. Any other failure to lock
+    (no locks to be had, ENOLCK) is raised: the start fails and says why, never read as another worker's timers."""
     fh = lock.open("a", encoding="utf-8")
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    except BlockingIOError:
         fh.close()
         return False
+    except OSError:
+        fh.close()
+        raise
     _held.append(fh)
     return True
 

@@ -47,7 +47,7 @@ from tb_common import egress_edge, trusted_proxy
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
-from tb_common.config import environment_name
+from tb_common.config import DECLARED, environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.flowledger import level_of_tag, record_export
@@ -224,6 +224,8 @@ class ConsoleSettings:
     studies: tuple[str, ...] = ()
     # D-192: the second factor, session timeouts and the optional OIDC sign-in (console.identity)
     identity: IdentitySettings = field(default_factory=IdentitySettings)
+    # P2-11 (D7): what one request leaves for the next, across the worker processes (console.held); a tmpfs
+    held_dir: Path = Path(DECLARED["TB_CONSOLE_HELD_DIR"].default)
 
     @property
     def sso(self) -> bool:
@@ -275,6 +277,7 @@ class ConsoleSettings:
             ),
             studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
             identity=IdentitySettings.from_env(env, environment, Path(env.get("TB_CONSOLE_DIR") or "/data/console")),
+            held_dir=Path(env.get("TB_CONSOLE_HELD_DIR") or DECLARED["TB_CONSOLE_HELD_DIR"].default),
         )
         # H-137 (the owner's decision, #639 7156806411 item 7): "all" trusted proxies are refused in PRODUCTION
         why = trusted_proxy.refusal(env, environment)
@@ -587,7 +590,7 @@ def create_app(
     if settings.pilot and cascades is None:
         cascades = CascadeRuns(settings.data_dir / "cascade", settings.source_dir)
     # P2-11 (D7): seen by every worker process (console.held), as the next request may reach another one
-    pending = Held("proposal", PROPOSAL_TTL)
+    pending = Held("proposal", PROPOSAL_TTL, settings.held_dir)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
@@ -1338,9 +1341,9 @@ def create_app(
     # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
     # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
     # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
-    # P2-11 (D7): in the container's memory tmpfs, seen by every worker process (console.held); unread for 10 minutes:
-    # never shown, removed at the next keep or read
-    one_time = Held("once", 600.0)
+    # P2-11 (D7): in a memory tmpfs (TB_CONSOLE_HELD_DIR), seen by every worker process (console.held); unread for 10
+    # minutes: never shown, removed at the next keep or read
+    one_time = Held("once", 600.0, settings.held_dir)
 
     def keep_once(sess: Session, username: str, password: str) -> None:
         one_time.put(sess.token_sha, (username, password, time.monotonic()))

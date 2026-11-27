@@ -91,7 +91,7 @@ def test_compose_starts_the_sized_workers_and_install_sizes_them() -> None:
     console = _merge((BASE,))["console"]
     cmd = [str(x) for x in console["command"]]
     assert cmd[cmd.index("--workers") + 1] == "${TB_CONSOLE_WORKERS:-1}"
-    # what console.held keeps is in memory: the container's /tmp is a tmpfs under a read-only root
+    # a read-only root with /tmp a tmpfs (console.held keeps its entries in TB_CONSOLE_HELD_DIR, checked memory at start)
     assert console["read_only"] is True and "/tmp" in [str(x).split(":")[0] for x in console["tmpfs"]]
     install = (DEPLOY / "install.sh").read_text(encoding="utf-8")
     assert "python3 -m tools.trialbox.console_size --env-file deploy/.env --write" in install

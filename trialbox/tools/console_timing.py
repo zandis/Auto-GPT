@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -92,9 +93,12 @@ def under_load(get: Callable[[str], Answer], paths: Sequence[str], users: int, r
     worst page's 95th percentile (nearest rank, per path, so one slow page is not hidden among fast ones) of the
     answers' times in seconds, by the client's clock (waiting for a worker is what is measured here, unlike
     :func:`walk`), and the count of answers that were not ``200``. The service level is
-    ``tools.trialbox.console_size.SLO_P95_S`` at the site's declared ``TB_SITE_USERS``."""
+    ``tools.trialbox.console_size.SLO_P95_S`` at the site's declared ``TB_SITE_USERS``. No client asks before all
+    ``users`` of them are ready, so a fast one is not done before the last one starts."""
+    ready = threading.Barrier(users)
 
     def one(_: int) -> list[tuple[str, float, int]]:
+        ready.wait()
         out = []
         for _round in range(rounds):
             for path in paths:

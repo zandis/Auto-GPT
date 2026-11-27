@@ -506,6 +506,9 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_DIR": Declared("path", "/data/console", "console: data folder"),
     "TB_CONSOLE_FORWARDED_ALLOW_IPS": Declared("str", "127.0.0.1", "console: proxies trusted for forwarded headers"),
     "TB_CONSOLE_HOST": Declared("str", "127.0.0.1", "console: listen address"),
+    "TB_CONSOLE_HELD_DIR": Declared(
+        "path", "/dev/shm", "console: memory folder (tmpfs) for one-time passwords and proposals across workers (P2-11)"
+    ),
     "TB_CONSOLE_WORKERS": Declared(
         "int", "1", "console: worker processes, sized from TB_SITE_USERS at install (P2-11)"
     ),
