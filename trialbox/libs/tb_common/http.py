@@ -650,9 +650,10 @@ def declared_host(url: str) -> tuple[str, int] | None:
     that names the host and the client it declares it on cannot disagree), or None: no host, or not a valid address."""
     try:
         u = httpx.URL(url)
-    except httpx.InvalidURL:
+        host, port = u.host, u.port  # read here: a malformed internationalised name raises on reading the host
+    except (httpx.InvalidURL, UnicodeError):
         return None
-    return (u.host, u.port or (443 if u.scheme == "https" else 80)) if u.host else None
+    return (host, port or (443 if u.scheme == "https" else 80)) if host else None
 
 
 def declared_client(url: str, service: str | None = None, **kw: Any) -> httpx.Client:

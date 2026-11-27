@@ -167,16 +167,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         where = declared_host(base)  # the one reading of the address: the client declares it, the edge names it
         if base and token and where is None:  # not a valid address: nothing is tried
             return {"configured": True, "reachable": False, "module": False, "pending": None, "dead_letter": None,
-                    "reason": "the EDC's tool URL is not a valid address"}  # fmt: skip
+                    "invalid": True, "reason": "the EDC's tool URL is not a valid address"}  # fmt: skip
         named = [where[0]] if where else []  # no EDC set: none named, nothing leaves
         http = tools.http_client()
         guard = guard_of(http)
 
         def edge(req: Any) -> None:  # P-13 ruling: each request through the egress edge, as its own route
-            why = ""
+            why = "no_guard"  # a client without the egress guard checks no address: refused, never sent
             if guard is not None:  # the guard first: an address it refuses is recorded refused, never sent
                 try:
                     guard.check(req.url, req)
+                    why = ""
                 except EgressRefused as exc:
                     why = exc.reason
             egress_edge.leave("edc.tool", req.url.host, req.content.decode("utf-8", "replace"), audit=h.au,

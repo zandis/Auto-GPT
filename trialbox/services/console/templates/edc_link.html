@@ -7,6 +7,7 @@
   <h2>{{ t('edc.status') }}</h2>
   {% if not conn.configured %}<p class="empty" data-testid="edc-status-unset">{{ t('edc.status.unset') }}</p>
   {% elif not conn.reachable %}<p class="warn" data-testid="edc-status-down">{{ t('edc.status.down') }}</p>
+  {% if conn.get('invalid') %}<p class="warn" data-testid="edc-status-invalid">{{ t('edc.status.invalid') }}</p>{% endif %}
   {% else %}
   <p class="ok" data-testid="edc-status-up">{{ t('edc.status.up') }}</p>
   {% if conn.module %}<p data-testid="edc-status-module-on">{{ t('edc.status.module_on') }}</p>
