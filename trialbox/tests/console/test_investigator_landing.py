@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from console.i18n import CATALOGUES
+
 from tests.console.test_console_app import box, login, name_pi  # noqa: F401
 from tests.console.test_lifecycle_pages import PW, lb  # noqa: F401
 from tests.console.test_rc1_guard import _job

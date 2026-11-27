@@ -93,7 +93,8 @@ ZH: dict[str, str] = {
     # E2E P-35: an investigator on no study log opens the week page: it says why and what next (status stays 403)
     "problem.h.week.no_log": "您尚未被指派到此試驗的授權紀錄表",
     "week.no_log": "您不在試驗 {rs} 的授權紀錄表上，因此無法開啟其每週名單。",
-    "problem.why.week.no_log": "請試驗主持人把您加入授權紀錄表並勾選「篩選」，或聯絡 TrialBox 管理者；完成後請重新登入。",
+    "problem.why.week.no_log": "請試驗主持人把您加入授權紀錄表並勾選「篩選」，"
+    "或聯絡 TrialBox 管理者；完成後請重新登入。",
     "week.no_log.request": "前往請求頁面",
     "request.viewer.reports": "您負責試驗的可行性報告（僅彙總）",
     "s20.who": "分工：試驗主持人將每條條件的代碼標記為已確認並核准；研究護理師準備草稿，並為每條條件加上本院的名稱。",
