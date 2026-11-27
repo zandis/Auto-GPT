@@ -17,11 +17,11 @@ the rule checkout and earlier reports are not in it), and a copy of the rule fol
 No ignore file, no allow-list and no configuration file is given to any tool; :func:`ignore_files` names any such file
 found in the tree, and it is counted as a finding. Each report is read in memory and only its rows (rule, file, line;
 never matched text) are kept as JSON in ``--out/reports``, with ``summary.md`` (a row per tool, its count and its
-counts by rule) and ``index.json``.
+counts by rule), ``index.json`` and ``rows.json`` (the redacted rows grouped by tool).
 
 What fails (the integrator's ruling 7213778687), :func:`failures`:
 
-* a tool that did not run, or an ignore file in the tree;
+* a tool that did not run, a reported Checkov suppression, or an ignore file in the tree;
 * NEW findings, from the first day: a count of any rule above its line in the baseline (:data:`BASELINE`, counts by
   rule only, never matched text or a path). A rule the baseline does not name has a baseline of 0. The baseline may
   only go down: its test refuses an edit that raises a count;
@@ -35,16 +35,22 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import tempfile
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 #: from when every finding of a tool fails (the integrator's ruling 7213778687); a tool not named has no date
 BLOCKS_FROM = {
@@ -216,8 +222,13 @@ def parse(tool: str, text: str, log: str = "") -> tuple[list[dict[str, Any]], li
         return rows, errors
     doc = json.loads(text)
     if tool == "code-patterns":
+        if not isinstance(doc, dict) or not isinstance(results := doc.get("results"), list):
+            raise ValueError("expected a Semgrep results array")
+        paths = doc.get("paths")
+        if not isinstance(paths, dict) or not isinstance(paths.get("scanned"), list):
+            raise ValueError("expected a Semgrep scanned paths array")
         rows = [_row(str(r["check_id"]).rsplit(".", 1)[-1], r.get("path"), (r.get("start") or {}).get("line"))
-                for r in doc["results"]]  # fmt: skip
+                for r in results]  # fmt: skip
         if doc.get("errors"):
             errors.append(f"{len(doc['errors'])} scan error(s)")
     elif tool == "secrets-a":
@@ -230,6 +241,11 @@ def parse(tool: str, text: str, log: str = "") -> tuple[list[dict[str, Any]], li
             raise ValueError("empty Checkov report")
         rows = [_row(c["check_id"], c.get("file_path"), (c.get("file_line_range") or [0])[0])
                 for r in reports for c in r["results"]["failed_checks"]]  # fmt: skip
+        skipped = [r["results"].get("skipped_checks", []) for r in reports]
+        if not all(isinstance(checks, list) for checks in skipped):
+            raise ValueError("expected Checkov skipped checks arrays")
+        if n := sum(len(checks) for checks in skipped):
+            errors.append(f"{n} skipped check(s)")
         if n := sum(int((r.get("summary") or {}).get("parsing_errors") or 0) for r in reports):
             errors.append(f"{n} parsing error(s)")
         if not any(
@@ -338,37 +354,46 @@ def pinned(dest: Path, run: Runner = subprocess.run) -> Path:
 
 @contextmanager
 def _report_directory(out: Path) -> Iterator[Path]:
-    """Reserve a fresh reports directory, replacing only the previous completed run."""
+    """Lock an owned reports directory and remove its previous reports before scanning."""
     reports = out / REPORTS_DIR
     owner = reports / _REPORTS_OWNER
-    allowed = {_REPORTS_OWNER, "index.json", "summary.md", *(f"{tool}.json" for tool in TOOLS)}
+    allowed = {_REPORTS_OWNER, "index.json", "summary.md", "rows.json", *(f"{tool}.json" for tool in TOOLS)}
     refused = OutputDirectoryError(f"refusing unowned or busy output directory: {out}")
-    try:
-        if out.is_symlink() or out.is_junction():
-            raise refused
-        out.mkdir(parents=True, exist_ok=True)
-        entries = list(out.iterdir())
-        if entries:
-            if entries != [reports] or reports.is_symlink() or reports.is_junction() or not reports.is_dir():
+    with ExitStack() as stack:
+        try:
+            if out.is_symlink() or out.is_junction():
                 raise refused
+            out.mkdir(parents=True, exist_ok=True)
+            entries = list(out.iterdir())
+            if not entries:
+                # Publish the directory and its ownership marker together.
+                with tempfile.TemporaryDirectory(prefix=".standing-gates-", dir=out.parent) as tmp:
+                    fresh = Path(tmp) / REPORTS_DIR
+                    fresh.mkdir()
+                    (fresh / _REPORTS_OWNER).touch(exist_ok=False)
+                    fresh.rename(reports)
+            elif entries != [reports] or reports.is_symlink() or reports.is_junction() or not reports.is_dir():
+                raise refused
+            if owner.is_symlink() or not owner.is_file():
+                raise refused
+            lock = stack.enter_context(owner.open("r+b"))
+            # The OS releases the lock on process exit. The marker stays in place.
+            try:
+                if os.name == "nt":
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise refused from exc
             previous = list(reports.iterdir())
-            if owner not in previous or any(
-                p.name not in allowed or p.is_symlink() or not p.is_file() for p in previous
-            ):
+            if any(p.name not in allowed or p.is_symlink() or not p.is_file() for p in previous):
                 raise refused
-            # Claim the previous run before removing any of its report files.
-            owner.unlink()
             for p in previous:
                 if p != owner:
                     p.unlink()
-            reports.rmdir()
-        reports.mkdir()
-    except OSError as exc:
-        raise OutputDirectoryError(f"cannot prepare output directory {out}: {exc}") from exc
-    try:
+        except OSError as exc:
+            raise OutputDirectoryError(f"cannot prepare output directory {out}: {exc}") from exc
         yield reports
-    finally:
-        owner.touch(exist_ok=False)
 
 
 def scan(
@@ -409,6 +434,7 @@ def _scan(
     record."""
     run = run or subprocess.run
     results: list[ToolResult] = []
+    rows_by_tool: dict[str, list[dict[str, Any]]] = {}
     tree: Path | None = None
     try:
         tree = Path(tempfile.mkdtemp(prefix="src-"))
@@ -435,6 +461,7 @@ def _scan(
             by = Counter(r["rule"] for r in rows)
             res.findings, res.by_rule, res.ran = len(rows), dict(by), True
             (out / f"{tool}.json").write_text(json.dumps(rows, indent=1) + "\n", encoding="utf-8")
+            rows_by_tool[tool] = rows
         found = ignore_files(tree)
     finally:
         if tree is not None:
@@ -446,6 +473,7 @@ def _scan(
     record["failures"] = failures(record, base, today or dt.date.today())
     (out / "index.json").write_text(json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     (out / "summary.md").write_text(summary(record), encoding="utf-8")
+    (out / "rows.json").write_text(json.dumps(rows_by_tool, indent=1) + "\n", encoding="utf-8")
     return record
 
 

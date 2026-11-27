@@ -16,10 +16,12 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from tools.supply_chain import __main__ as sc_main
 from tools.supply_chain import standing_gates as sg
@@ -30,11 +32,12 @@ WORKFLOW = ROOT.parent / ".github" / "workflows" / "trialbox-images.yml"
 FIXTURES = {
     "code-patterns": json.dumps(
         {
+            "paths": {"scanned": ["trialbox/a.py"]},
             "results": [
                 {"check_id": "python.lang.security.a.subprocess-shell-true"},
                 {"check_id": "python.lang.security.b.use-defused-xml"},
                 {"check_id": "python.lang.security.b.use-defused-xml"},
-            ]
+            ],
         }
     ),
     "secrets-a": json.dumps([{"RuleID": "generic-api-key"}]),
@@ -51,7 +54,8 @@ FIXTURES = {
 
 
 DONE = json.dumps({"level": "info", "msg": "finished scanning"})  # the secret scanner's line when it is done
-CLEAN = {"code-patterns": json.dumps({"results": [], "errors": []}), "secrets-a": "[]", "secrets-b": DONE,
+CLEAN = {"code-patterns": json.dumps({"results": [], "errors": [], "paths": {"scanned": ["trialbox/a.py"]}}),
+         "secrets-a": "[]", "secrets-b": DONE,
          "platform": json.dumps({"check_type": "kubernetes", "summary": {"passed": 1, "failed": 0},
                                  "results": {"failed_checks": []}}), "dockerfiles": "[]"}  # fmt: skip
 BASELINE_PATH = "trialbox/deploy/security/standing-gates-baseline.json"
@@ -271,6 +275,9 @@ def test_sg01_the_kept_reports_hold_rule_file_and_line_only_and_nothing_is_print
         {"rule": "generic-api-key", "file": "a.py", "line": 3}]  # fmt: skip
     assert json.loads((out / "secrets-b.json").read_text(encoding="utf-8")) == [
         {"rule": "PrivateKey", "file": "b.py", "line": 7}]  # fmt: skip
+    assert json.loads((out / "rows.json").read_text(encoding="utf-8")) == {
+        tool: json.loads((out / f"{tool}.json").read_text(encoding="utf-8")) for tool in sg.TOOLS
+    }
     shown = capsys.readouterr()
     assert secret not in shown.out + shown.err
 
@@ -391,7 +398,9 @@ def test_sg04_the_unit_shards_fetch_the_base_branch() -> None:
 
 def test_sg05_a_tools_own_error_fields_fail_the_gate(tmp_path: Path) -> None:
     errors = {
-        "code-patterns": json.dumps({"results": [], "errors": [{"code": 3, "message": "Syntax error"}]}),
+        "code-patterns": json.dumps(
+            {**json.loads(CLEAN["code-patterns"]), "errors": [{"code": 3, "message": "Syntax error"}]}
+        ),
         "platform": json.dumps(
             {
                 "check_type": "kubernetes",
@@ -560,3 +569,95 @@ def test_sg09_the_pinned_rules_are_removed_after_scan(
     else:
         sg.scan(repo, copy, tmp_path / "out", run, baseline={}, today=BEFORE)
     assert not copy.exists()
+
+
+def test_sg12_the_workflow_uploads_only_the_redacted_standing_gate_rows() -> None:
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    uploads = {
+        step["with"]["name"]: step["with"]["path"].splitlines()
+        for job in jobs.values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("actions/upload-artifact@")
+    }
+    assert uploads == {
+        "standing-gates-rows": ["${{ steps.standing-gates.outputs.rows_dir }}/rows.json"],
+        "image-gates-${{ strategy.job-index }}": [
+            "trialbox/build/supply-chain",
+            "trialbox/build/image-scan",
+            "trialbox/dist/sbom",
+        ],
+        "image-gates-multiarch": ["trialbox/build/supply-chain-multiarch", "trialbox/dist/sbom"],
+    }
+
+
+@pytest.mark.parametrize("rerun", [False, True])
+def test_sg13_an_abruptly_terminated_scan_leaves_reusable_output(tmp_path: Path, rerun: bool) -> None:
+    repo = _repo(tmp_path / "repo", {"trialbox/a.py": "x = 1\n"})
+    rules, out = tmp_path / "rules", tmp_path / "out"
+    if rerun:
+        sg.scan(repo, rules, out, _fake(CLEAN), baseline={}, today=BEFORE)
+
+    script = """
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+from tools.supply_chain import standing_gates as sg
+
+src, rules, out = map(Path, sys.argv[1:])
+tempfile.tempdir = str(out.parent)
+reports = out / sg.REPORTS_DIR
+if reports.exists():
+    unlink = Path.unlink
+
+    def interrupt_cleanup(path, *args, **kwargs):
+        unlink(path, *args, **kwargs)
+        if path.parent == reports:
+            os._exit(23)
+
+    Path.unlink = interrupt_cleanup
+
+sg.scan(src, rules, out, lambda *args, **kwargs: os._exit(23), baseline={})
+"""
+    child = subprocess.run(
+        [sys.executable, "-c", script, str(repo), str(rules), str(out)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert child.returncode == 23, child.stderr
+    assert (out / sg.REPORTS_DIR / sg._REPORTS_OWNER).is_file()
+    rec = sg.scan(repo, rules, out, _fake(CLEAN), baseline={}, today=BEFORE)
+    assert rec["failures"] == []
+
+
+def test_sg14_a_suppressed_check_fails_even_when_another_check_passed(tmp_path: Path) -> None:
+    report = {
+        "check_type": "kubernetes",
+        "summary": {"passed": 1, "failed": 0, "skipped": 1},
+        "results": {"failed_checks": [], "skipped_checks": [{"check_id": "CKV_K8S_21"}]},
+    }
+    rec = _scan(tmp_path, {"platform": json.dumps(report)})
+    assert "platform: not run: 1 skipped check(s)" in rec["failures"]
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        {"results": {}},
+        {"results": {}, "paths": {"scanned": ["trialbox/a.py"]}},
+        {"results": [], "paths": {}},
+        {"results": [], "paths": {"scanned": {}}},
+    ],
+)
+def test_sg15_semgrep_requires_results_and_scanned_paths_arrays(tmp_path: Path, report: dict[str, Any]) -> None:
+    invalid = _scan(tmp_path / "invalid", {"code-patterns": json.dumps(report)})
+    clean = _scan(tmp_path / "clean")
+    assert "code-patterns: not run: no report" in invalid["failures"]
+    assert not next(t for t in invalid["tools"] if t["tool"] == "code-patterns")["ran"]
+    assert not (tmp_path / "invalid" / "out" / sg.REPORTS_DIR / "code-patterns.json").exists()
+    assert next(t for t in clean["tools"] if t["tool"] == "code-patterns")["ran"]
+    assert clean["failures"] == []

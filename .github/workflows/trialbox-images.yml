@@ -161,11 +161,33 @@ jobs:
       # platforms.
       - name: Standing release gates
         if: ${{ !cancelled() && matrix.platform == 'linux/amd64' }}
+        id: standing-gates
         run: |
+          if [[ -e build/standing-gates || -L build/standing-gates ]]; then
+            echo "Standing release gates require fresh output in CI." >&2
+            exit 1
+          fi
           rc=0
           make standing-gates || rc=$?
-          if [ -f build/standing-gates/reports/summary.md ]; then cat build/standing-gates/reports/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          reports=build/standing-gates/reports
+          if [[ -f "$reports/rows.json" && ! -L "$reports/rows.json" &&
+                -f "$reports/summary.md" && ! -L "$reports/summary.md" ]]; then
+            stage=$(mktemp -d "$RUNNER_TEMP/standing-gates.XXXXXXXX")
+            cp -- "$reports/rows.json" "$stage/rows.json"
+            cat -- "$reports/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            printf 'rows_dir=%s\n' "$stage" >> "$GITHUB_OUTPUT"
+          fi
           exit "$rc"
+
+      # trialbox/build/standing-gates is never uploaded whole: only the redacted rows file is kept, by explicit path.
+      - name: Keep standing release gate rows
+        if: ${{ !cancelled() && steps.standing-gates.outputs.rows_dir != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: standing-gates-rows
+          path: ${{ steps.standing-gates.outputs.rows_dir }}/rows.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Disk after the gates
         if: always()
@@ -188,7 +210,6 @@ jobs:
           path: |
             trialbox/build/supply-chain
             trialbox/build/image-scan
-            trialbox/build/standing-gates
             trialbox/dist/sbom
           if-no-files-found: warn
           retention-days: 90
