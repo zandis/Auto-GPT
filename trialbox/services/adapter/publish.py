@@ -73,7 +73,7 @@ from typing import TYPE_CHECKING, Any
 
 from tb_contracts import RebuildResult
 
-from adapter.load_fhir import sync_snapshot
+from adapter.load_fhir import finish_load, sync_snapshot
 from adapter.ndjson import snapshot_dir
 
 if TYPE_CHECKING:
@@ -200,7 +200,10 @@ def holders(lake_dir: Path, snap: str) -> list[str]:
 
 def _sync_fhir(cfg: AdapterConfig, folder: Path, previous: Path | None) -> tuple[int, int]:
     assert cfg.fhir_base_url is not None
-    return sync_snapshot(cfg.fhir_base_url, folder, cfg.lake_dir / "fhir_ledger", previous)
+    # P-03: the load is finished in the generation ledger once the night is served and checked (finish_load), not
+    # when its last resource is in: the ledger never lets a put-back go back from a finished newer load, and the
+    # put-back to the served night after a promotion that failed is owed exactly then (found by the crash points)
+    return sync_snapshot(cfg.fhir_base_url, folder, cfg.lake_dir / "fhir_ledger", previous, finish=False)
 
 
 def _fhir_put_back(cfg: AdapterConfig, folder: Path) -> tuple[int, int]:
@@ -440,6 +443,9 @@ def _first_verify(cfg: AdapterConfig) -> None:
     if (cfg.lake_dir / FHIR_STATE).exists():
         return
     served = _current(cfg.lake_dir) or ""
+    if not served and not _ledger_types(cfg):  # nothing served, nothing ever sent: the empty baseline, by construction
+        _write_state(cfg, {"state": CLEAN, "night": "", "verified_at": _now(), "counts": {}})
+        return
     st: dict[str, Any] = {"night": served, "target": served}
     folder = snapshot_dir(cfg.lake_dir, served) if served else _empty_night(cfg)
     if served and not folder.is_dir():
@@ -903,6 +909,7 @@ def _publish_locked(
         try:
             _write_state(cfg, {"state": CLEAN, "night": snap, "verified_at": _now(),
                                "counts": verify_fhir(cfg, snapshot_dir(cfg.lake_dir, snap))})  # fmt: skip
+            finish_load(snap)
         except Exception as exc:  # not the night, or not checked: the night is served, the next recovery puts the
             # store back to it (an unchecked store is never clean)
             why = str(exc) if isinstance(exc, FhirMismatch) else f"the check got no answer ({type(exc).__name__})"

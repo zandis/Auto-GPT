@@ -126,7 +126,13 @@ def test_a_night_killed_in_its_fhir_load_is_put_back_to_the_served_night(
     killed_at = tmp_path / "disk-at-the-kill"
 
     def killed_in_the_load(
-        base: str, folder: Path, ledger: Path, previous: Path | None = None, full: bool = False, back: bool = False
+        base: str,
+        folder: Path,
+        ledger: Path,
+        previous: Path | None = None,
+        full: bool = False,
+        back: bool = False,
+        finish: bool = True,
     ) -> tuple[int, int]:
         if folder.name == N2 and not back:
             fhir.calls.append(folder.name)
@@ -243,8 +249,8 @@ def test_a_kill_in_the_publish_s_own_put_back_is_undone(tmp_path: Path, monkeypa
             raise RuntimeError("the lake build failed")
         return real_rebuild(snap, nd)
 
-    def killed_in_the_put_back(base: str, folder: Path, ledger: Path, previous: Path | None = None,
-                               full: bool = False, back: bool = False) -> tuple[int, int]:  # fmt: skip
+    def killed_in_the_put_back(base: str, folder: Path, ledger: Path, previous: Path | None = None, full: bool = False,
+                               back: bool = False, finish: bool = True) -> tuple[int, int]:  # fmt: skip
         if back and folder.name == N1 and fhir.holds == N2:
             fhir.holds = f"part of {N1} over {N2}"
             shutil.copytree(cfg.lake_dir, killed_at, symlinks=True)
@@ -299,7 +305,7 @@ def _killed_in_its_load(tmp_path: Path, cfg: Any, fhir: Fhir, mp: pytest.MonkeyP
     killed_at = tmp_path / "disk-at-the-kill"
 
     def killed(base: str, folder: Path, ledger: Path, previous: Path | None = None, full: bool = False,
-               back: bool = False) -> tuple[int, int]:  # fmt: skip
+               back: bool = False, finish: bool = True) -> tuple[int, int]:  # fmt: skip
         if folder.name == snap and not back:
             fhir.holds = f"part of {snap}"
             shutil.copytree(cfg.lake_dir, killed_at, symlinks=True)

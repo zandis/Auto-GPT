@@ -168,10 +168,13 @@ def sync_snapshot(
     workers: int = 4,
     full: bool = False,
     back: bool = False,
+    finish: bool = True,
 ) -> tuple[int, int]:
     """Make fhir-store hold exactly the snapshot: PUT what is new or changed (everything with ``full``), then DELETE
     ids loaded earlier that the snapshot no longer has. Without a ledger yet (first run after an upgrade) the previous
-    snapshot stands in for it, without hashes, so everything loads once. Returns (loaded, deleted)."""
+    snapshot stands in for it, without hashes, so everything loads once. Returns (loaded, deleted). ``finish`` False:
+    the load stays ``building`` in the generation ledger until :func:`finish_load` (E2E P-03: a night's load counts
+    as finished once the night is served, so a put-back to the served night is never refused over it)."""
     # T-725 (D-491, review F-4): the load is the build of "fhir" from this night. A night older than the one the
     # store holds is not loaded (a late re-run of an earlier night made the store hold the older night before);
     # the store keeps the newer one and this step reports nothing loaded
@@ -184,8 +187,29 @@ def sync_snapshot(
         if built is _OLDER:
             return 0, 0
         out = _sync(base_url, directory, ledger, previous, workers, full)
-        _finish_night(built, book)
+        if finish:
+            _finish_night(built, book)
         return out
+
+
+def finish_load(name: str) -> None:
+    """The night ``name``, loaded with ``finish=False``, is served and checked: its load is finished in the generation
+    ledger. Nothing when the ledger's build in progress is not that night's (no ledger, another load since, finished
+    already); a ledger that does not answer is logged and left (the load stays ``building``, which no reader takes,
+    and a put-back over it is allowed)."""
+    if not _NIGHT.match(name) or not os.environ.get("TB_DB_URL"):
+        return
+    from tb_common.generation import BUILDING
+
+    try:
+        from datacore.generations import Built
+
+        with Built() as book:
+            st = book.state("fhir")
+            if st is not None and st[0].snapshot == name and st[1] == BUILDING:
+                _finish_night(st[0], book)
+    except Exception as exc:
+        log.warning("fhir-store load not recorded in the generation ledger (%s)", type(exc).__name__)
 
 
 def _sync(

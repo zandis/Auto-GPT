@@ -83,7 +83,7 @@ class Fhir:
 
     def __call__(
         self, base: str, folder: Path, ledger: Path, previous: Path | None = None, full: bool = False,
-        back: bool = False,
+        back: bool = False, finish: bool = True,
     ) -> tuple[int, int]:  # fmt: skip
         self.calls.append(folder.name)
         self.full.append(full)
