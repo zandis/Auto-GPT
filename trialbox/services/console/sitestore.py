@@ -543,12 +543,19 @@ class SiteStore:
 
     # ------------------------------------------------------------------ weekly appearances
     def seen(self, ruleset: str, pids: list[str], job_id: str, at: str) -> dict[str, str]:
-        """Record first appearances of ``pids`` on a list for ``ruleset``; return pid -> job id of first listing."""
+        """Record first appearances of ``pids`` on a list for ``ruleset``; return pid -> job id of first listing.
+        P-20: only the pseudonyms not recorded yet are written (a list of 50k is read at every page view; after its
+        first view nothing is new), and the insert still keeps the first listing when two views race."""
         with self.db.transaction() as tx:
+            had = {str(p): str(j) for p, j in tx.fetchall("SELECT pid, first_job FROM weekly_seen WHERE ruleset = ?",
+                                                          (ruleset,))}  # fmt: skip
+            new = [pid for pid in dict.fromkeys(pids) if pid not in had]
+            if not new:
+                return had
             tx.executemany(
                 "INSERT INTO weekly_seen (ruleset, pid, first_job, first_at) VALUES (?,?,?,?) "
                 "ON CONFLICT (ruleset, pid) DO NOTHING",
-                [(ruleset, pid, job_id, at) for pid in pids],
+                [(ruleset, pid, job_id, at) for pid in new],
             )
             rows = tx.fetchall("SELECT pid, first_job FROM weekly_seen WHERE ruleset = ?", (ruleset,))
         return {str(p): str(j) for p, j in rows}

@@ -312,7 +312,12 @@ class People:
             return PersonState(UNKNOWN, "list")
         got = self._cache.get(pid)
         if got is None:
-            got = self._cache[pid] = state_of(self.facts.get(pid) or Facts(), self.today, self.tz)
+            f = self.facts.get(pid)
+            if f is None:  # P-20: nobody recorded anything: the one blank state, worked out once per list
+                got = self._cache.get("") or self._cache.setdefault("", state_of(Facts(), self.today, self.tz))
+            else:
+                got = state_of(f, self.today, self.tz)
+            self._cache[pid] = got
         return got
 
     def log_state(self, pid: str) -> PersonState | None:

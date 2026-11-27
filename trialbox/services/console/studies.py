@@ -388,8 +388,16 @@ class Fit:
     todo_words: dict[str, str] = field(default_factory=dict)  # a run's to-do -> its words in the page language (D-309)
 
 
-def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta]) -> Fit:
-    fit = Fit(todo_words={m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original})
+def todo_words(crit: Mapping[str, CriterionMeta]) -> dict[str, str]:
+    """A run's to-do -> its words in the page language (D-309), the same for every row of a list."""
+    return {m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original}
+
+
+def fit_facts(
+    criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta], words: Mapping[str, str] | None = None
+) -> Fit:
+    """``words``: :func:`todo_words` of ``crit``, given once by a caller that reads many rows (P-20)."""
+    fit = Fit(todo_words=dict(todo_words(crit) if words is None else words))
     for v in criteria:
         cid = str(v.get("id"))
         meta = crit.get(cid)
@@ -439,6 +447,7 @@ def weekly_rows(
     closed or set aside, sorted by next visit (none last), then tier, then pseudonym. A "Not now, re-check on <date>"
     mark hides the patient until that date (``today``); from then on the patient is back with the mark shown."""
     names = dict(practitioners or {})
+    words = todo_words(crit)  # P-20: once per list, not once per row
     rows = []
     for r in (cl or {}).get("rows") or []:
         tier = r.get("tier")
@@ -453,7 +462,7 @@ def weekly_rows(
         if not include_closed and status in ("closed", "enrolled", "set_aside"):
             continue
         crits = list(r.get("criteria") or [])
-        fit = fit_facts(crits, crit)
+        fit = fit_facts(crits, crit, words)
         nxt = r.get("next_appointment") or ""
         when = None
         if nxt:

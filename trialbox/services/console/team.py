@@ -98,6 +98,8 @@ WHOLE_PID_WHY = (
 )
 _CHART = re.compile(r"^[A-Za-z0-9-]{1,40}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (record id), as on the lifecycle pages
+API_PAGE = 100  # P-20: the candidates API's page when a page is asked for
+API_PAGE_MAX = 1000
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
 IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
 LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
@@ -363,7 +365,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     # ------------------------------------------------------------------ candidates
     def candidate_rows(sess: Session, rid: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-        wk = h.week_bundle(sess, rid) if h.week_bundle else None
+        wk = h.week_bundle(sess, rid, rows=False) if h.week_bundle else None  # P-20: the list once, not twice
         if wk is None:
             return None, []
         names = (wk["summary"] or {}).get("practitioner_names") or {}
@@ -1238,15 +1240,24 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         }  # fmt: skip
 
     @app.get("/api/v1/studies/{rs}/candidates")
-    def api_candidates(request: Request, rs: str) -> dict[str, Any]:
+    def api_candidates(request: Request, rs: str, page: int | None = None, size: int = API_PAGE) -> dict[str, Any]:
+        """The study's candidates. P-20: with ``page`` (from 1), one page of ``size`` rows (at most
+        :data:`API_PAGE_MAX`) and ``total``, ``page``, ``pages``; without it, every row, as before."""
         sess = api(request)
         rid = study_or_404(sess, rs)
         need_task(sess, rid, "screen", request.url.path)
         wk, rows = candidate_rows(sess, rid)
+        paging: dict[str, int] = {}
+        if page is not None:
+            size = min(max(1, size), API_PAGE_MAX)
+            total = len(rows)
+            rows, page_no, pages = st.paged(rows, page, size)
+            paging = {"total": total, "page": page_no, "pages": pages, "size": size}
         return {
             "study": rid,
             "job_id": wk["job"].job_id if wk else None,
             "candidate_view": view_open(rid),  # D-395: a candidate's page opens (the IRB text covers it)
+            **paging,
             "candidates": [
                 {"pid": r["pid"], "tier": r["tier"], "status": r["status"], "state": r["person"].name,  # D-1221
                  "screening_no": r["screening_no"],

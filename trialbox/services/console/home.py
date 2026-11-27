@@ -411,7 +411,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         ]
         return rep
 
-    def week_bundle(sess: Session, rs: str) -> dict[str, Any] | None:
+    def week_bundle(sess: Session, rs: str, *, rows: bool = True) -> dict[str, Any] | None:
+        """The study's latest run as the lists read it. ``rows=False`` (P-20): the list itself (opt-outs and deaths
+        taken off), its people and summary, without the week list's rows, counts and first appearances: for a page
+        that builds its own rows from ``cl`` (the candidates page and its API), so 50k candidates are read once."""
         jobs = bk.list_jobs(limit=500)
         job = st.latest_job(jobs, rs, SCREEN_TYPES)
         if job is None:
@@ -431,10 +434,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         if dead:  # FIT-U04 (T-629): a death recorded since the run takes the patient off every list at once
             cl = {**(cl or {}), "rows": [r for r in (cl or {}).get("rows") or [] if str(r.get("pid")) not in dead]}
         summary = load(job, "screen_", ".json")
+        asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
+        if not rows:
+            return {"job": job, "summary": summary or {}, "cl": cl, "removed": removed, "asof": asof,
+                    "deceased": dead, "dead_unchecked": unchecked, "people": ps.read(h, rs)}  # fmt: skip
         names = (summary or {}).get("practitioner_names") or {}
         pids = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
         seen = store.seen(rs, pids, job.job_id, (job.updated_at or job.received_at).isoformat())
-        rows = st.weekly_rows(
+        listed = st.weekly_rows(
             cl,
             crit_of(rs, sess.lang if sess else "en"),
             registry_map(rs),
@@ -444,13 +451,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             names,
             today=h.today(),
         )
-        others_of(sess, rs, rows)
+        others_of(sess, rs, listed)
         people = ps.read(h, rs)  # D-1221: the one state of each person, the same on every list
-        for r in rows:
+        for r in listed:
             r["sent_back"] = sent_back.get(str(r["pid"]))
             r["person"] = people.of(str(r["pid"]))
-        asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
-        return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
+        return {"job": job, "rows": listed, "counts": st.week_counts(listed), "summary": summary or {}, "cl": cl,
                 "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked,
                 "people": people}  # fmt: skip
 
@@ -931,12 +937,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             try:
                 # D-133 (review F-03): after a mark the patient may have left this list; the panel still shows that
                 # patient's real state (and Undo), never the next patient's
-                sel = patient_ctx(sess, rid, pid)
+                sel = patient_ctx(sess, rid, pid, wk)
             except Exception as exc:  # h.problem(404): a pid not on this run's list opens the first row instead
                 if getattr(exc, "status", 0) != 404:
                     raise
                 pid, opened = rows[0]["pid"], False
-                sel = patient_ctx(sess, rid, pid)
+                sel = patient_ctx(sess, rid, pid, wk)
             nxt = order.index(pid) + 1 if pid in order else 0
             sel["next_pid"] = order[nxt] if nxt < len(order) and order[nxt] != pid else None
             sel["next_page"] = nxt // st.PAGE_SIZE + 1
@@ -1003,10 +1009,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             unread_of.update(job=job.job_id, said=said)
         return bool(unread_of["said"])
 
-    def patient_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
+    def patient_ctx(sess: Session, rid: str, pid: str, wk: dict[str, Any] | None = None) -> dict[str, Any]:
+        """``wk``: the week bundle the caller read in this same request (P-20: the list is read once per view)."""
         if not _PID.match(pid):
             raise h.problem(404, "notfound")
-        wk = week_bundle(sess, rid)
+        wk = wk if wk is not None else week_bundle(sess, rid)
         if wk is None:
             raise h.problem(404, "notfound")
         row = next((r for r in (wk["cl"] or {}).get("rows") or [] if str(r.get("pid")) == pid), None)
