@@ -119,6 +119,15 @@ def load_peaks(path: Path) -> list[tuple[int, dict[str, float]]]:
     return sorted(rows, key=lambda r: r[0])
 
 
+def load_users(path: Path) -> list[tuple[int, dict[str, float]]]:
+    """E2E P-06: the console's measured peaks by the number of people opening the largest study's lists at once
+    (``site_peaks.json`` ``console_users``): ``(people, {"TB_MEM_CONSOLE": MiB})``, fewest first; none without it."""
+    if not path.is_file():
+        return []
+    part = json.loads(path.read_text(encoding="utf-8")).get("console_users") or {}
+    return sorted((int(k), {"TB_MEM_CONSOLE": float(v)}) for k, v in part.get("peak_mib", {}).items())
+
+
 def peak_mib(peaks: Sequence[tuple[int, Mapping[str, float]]], var: str, n: int) -> float:
     """E2E P-02: the measured peak of the service capped by ``var`` (MiB) for a hospital of ``n`` patients: that of the
     nearest size class of at least ``n`` patients that measured it, never below a smaller class's. Above the largest
