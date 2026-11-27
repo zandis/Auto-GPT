@@ -164,7 +164,7 @@ jobs:
         run: |
           rc=0
           make standing-gates || rc=$?
-          if [ -f build/standing-gates/summary.md ]; then cat build/standing-gates/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f build/standing-gates/reports/summary.md ]; then cat build/standing-gates/reports/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
           exit "$rc"
 
       - name: Disk after the gates
