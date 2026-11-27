@@ -509,8 +509,7 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_HELD_DIR": Declared(
         "path",
         "",
-        "console: memory folder (tmpfs, set by compose; unset: none kept) for one-time passwords and "
-        "proposals across workers (P2-11)",
+        "console: tmpfs for one-time passwords and proposals; set by compose, unset keeps none (P2-11)",
     ),
     "TB_CONSOLE_WORKERS": Declared(
         "int", "1", "console: worker processes, sized from TB_SITE_USERS at install (P2-11)"
