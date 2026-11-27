@@ -13,7 +13,7 @@ from __future__ import annotations
 import io
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO, cast
 
 import pytest
 from tb_common.db import Database
@@ -28,17 +28,29 @@ from tools.trialbox.__main__ import main as trialbox_main
 LINE = re.compile(r"(\d+) \| ([A-Z2-7 ]+) \| ([A-Z2-7]{4})")
 
 
-class Terminal(io.StringIO):
+class Terminal:
     """The install's terminal: what was shown on it, and IT typing the check letters it read there (or ``typed``)."""
 
     def __init__(self, typed: str | None = None) -> None:
-        super().__init__()
-        self.typed = typed
+        self.shown, self.typed = io.StringIO(), typed
 
-    def readline(self, size: int | None = -1) -> str:
+    def write(self, text: str) -> int:
+        return self.shown.write(text)
+
+    def flush(self) -> None:
+        pass
+
+    def getvalue(self) -> str:
+        return self.shown.getvalue()
+
+    def readline(self) -> str:
         if self.typed is not None:
             return self.typed + "\n"
-        return LINE.findall(self.getvalue())[-1][2] + "\n"
+        return str(LINE.findall(self.getvalue())[-1][2]) + "\n"
+
+
+def _tty(term: Terminal) -> TextIO:
+    return cast(TextIO, term)
 
 
 @pytest.fixture
@@ -64,7 +76,7 @@ def test_a_production_box_makes_its_backup_key_at_install_and_a_backup_restores(
     assert trialbox_main(["backup-keygen", "--private", str(tmp_path / "k"), "--public", str(tmp_path / "p")]) == 1
     capsys.readouterr()
     term = Terminal()
-    rec = bkc.install(_env(), term)
+    rec = bkc.install(_env(), _tty(term))
     shown = term.getvalue()
     assert box.pub.is_file() and rec["pub"] == str(box.pub)
     fp = bk.fingerprint(bk.load_public(box.pub).public_bytes_raw())
@@ -75,7 +87,7 @@ def test_a_production_box_makes_its_backup_key_at_install_and_a_backup_restores(
         assert letters not in f.read_text(encoding="utf-8"), f.name
     # a second install changes nothing: "once" is backup.pub
     with pytest.raises(bkc.Stop) as again:
-        bkc.install(_env(), Terminal())
+        bkc.install(_env(), _tty(Terminal()))
     assert again.value.text is bkc.ALREADY and bk.fingerprint(bk.load_public(box.pub).public_bytes_raw()) == fp
 
     # the nightly backup with that public key, then IT types the paper copy into a file and restores it
@@ -100,11 +112,11 @@ def test_a_production_box_makes_its_backup_key_at_install_and_a_backup_restores(
 
 def test_letters_that_do_not_match_make_no_backup_pub(box: Box) -> None:
     with pytest.raises(bkc.Stop) as got:
-        bkc.install(_env(), Terminal(typed="AAAA"))
+        bkc.install(_env(), _tty(Terminal(typed="AAAA")))
     assert got.value.text is bkc.NOT_CONFIRMED and not box.pub.exists()
     assert [e for e in box.journal() if e["event"] == bkc.EVENT] == []
     assert len(box.pending()) == 1  # the record of the key that was shown and not taken stays (never removed)
-    bkc.install(_env(), Terminal())  # the install run again: a new key, shown once
+    bkc.install(_env(), _tty(Terminal()))  # the install run again: a new key, shown once
     assert box.pub.is_file() and len(box.pending()) == 2
 
 
