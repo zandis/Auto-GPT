@@ -505,11 +505,12 @@ def restore(cfg: AdapterConfig, reason: str = "") -> None:
     (:func:`_fhir_put_back`), then :func:`settle` with ids. The target is always read from ``CURRENT``, never from
     the intent. While a lake build of the night the store was loaded with still runs (a killed publisher's build:
     review E1), ``SnapshotBuilding``, the intent untouched: the build's lock is held for the put-back, so it never
-    promotes under it. ``reason``: the caller's words (the publish's). The caller holds ``fhir.lock``."""
+    promotes under it. ``reason``: the caller's words (the publish's). No FHIR endpoint: nothing to put back (only
+    a box that never had a store publishes without one: :func:`refuse_split`). The caller holds ``fhir.lock``."""
     from lake.store import building
 
     d = derive(cfg)
-    if d.clean:
+    if d.clean or not cfg.fhir_base_url:
         return
     with contextlib.ExitStack() as held:
         if d.intent["want"] and d.intent["want"] != (d.served or ""):
