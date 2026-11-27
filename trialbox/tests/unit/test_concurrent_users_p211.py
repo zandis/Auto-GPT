@@ -11,6 +11,7 @@ the next (the one-time password, a pilot proposal) is seen by every process.
 from __future__ import annotations
 
 import errno
+import fcntl
 import os
 import shutil
 import subprocess
@@ -40,7 +41,7 @@ ROOT = DEPLOY.parent
 
 @pytest.fixture
 def shm() -> Iterator[Path]:
-    """A folder of its own in the console's default held root (a tmpfs, TB_CONSOLE_HELD_DIR), removed after."""
+    """A folder of its own on a tmpfs (what TB_CONSOLE_HELD_DIR names), removed after."""
     root = Path(tempfile.mkdtemp(dir="/dev/shm"))
     yield root
     shutil.rmtree(root)
@@ -153,7 +154,8 @@ def test_a_sweep_never_removes_a_fresh_entry_that_replaced_an_expired_one(
     mine, other = Held("r", 0.5, shm), Held("r", 0.5, shm)
     mine.put("k", "old")
     time.sleep(0.6)
-    real_unlink, worker = os.unlink, []
+    real_unlink = os.unlink
+    worker: list[threading.Thread] = []
 
     def unlink_after_a_replace(*args: Any, **kwargs: Any) -> None:
         if not worker:
@@ -187,9 +189,10 @@ def test_a_clock_set_back_does_not_extend_a_password_nor_keep_one_dated_ahead(
 def test_the_held_root_is_named_in_the_settings_and_must_be_memory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # TB-06: never wherever the process's temporary folder points
-    assert DECLARED["TB_CONSOLE_HELD_DIR"].default == "/dev/shm"
-    assert ConsoleSettings.from_env({}).held_dir == Path("/dev/shm")
+    # TB-06: never wherever the process's temporary folder points; no default (the integrator's ruling): compose sets it
+    assert DECLARED["TB_CONSOLE_HELD_DIR"].default == ""
+    assert ConsoleSettings.from_env({}).held_dir is None
+    assert ConsoleSettings.from_env({"TB_CONSOLE_HELD_DIR": ""}).held_dir is None
     assert ConsoleSettings.from_env({"TB_CONSOLE_HELD_DIR": str(tmp_path)}).held_dir == tmp_path
     mounts = tmp_path / "mountinfo"
     mounts.write_text("22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw\n", encoding="utf-8")
@@ -203,12 +206,27 @@ def test_the_held_root_is_named_in_the_settings_and_must_be_memory(
     Held("d", 60.0, tmp_path)  # the same folder on a memory mount
 
 
+def test_unset_the_held_store_refuses_by_name_and_makes_nothing(tmp_path: Path) -> None:
+    # TB-06 ruling: TB_CONSOLE_HELD_DIR unset: the console starts, its held store refuses every keep, read and removal
+    store = Held("once", 60.0, None)
+    for act in (lambda: store.put("k", "pw"), lambda: store.get("k"), lambda: store.pop("k"), store.ready):
+        with pytest.raises(held.HeldUnset, match="TB_CONSOLE_HELD_DIR is unset"):
+            act()
+    assert issubclass(held.HeldUnset, PermissionError)
+
+
+def test_compose_gives_the_console_a_held_dir_on_its_tmpfs() -> None:
+    console = _merge((BASE,))["console"]
+    assert console["environment"]["TB_CONSOLE_HELD_DIR"] == "/tmp"
+    assert "/tmp" in [str(x).split(":")[0] for x in console["tmpfs"]] and console["read_only"] is True
+
+
 def test_a_lock_error_is_not_read_as_another_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # TB-04: no lock to be had (ENOLCK) is not "another worker runs the timers": the start fails and says why
     def no_locks(_fh: object, _op: int) -> None:
         raise OSError(errno.ENOLCK, "No locks available")
 
-    monkeypatch.setattr(timers.fcntl, "flock", no_locks)
+    monkeypatch.setattr(fcntl, "flock", no_locks)  # the module console.timers locks with
     with pytest.raises(OSError, match="No locks available"):
         timers.owns(tmp_path / "timers.lock")
     with pytest.raises(OSError, match="No locks available"):

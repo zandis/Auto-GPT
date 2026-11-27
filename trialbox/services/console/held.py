@@ -1,16 +1,18 @@
 """What one request leaves for the next, seen by every console worker process (P2-11, ASSESS-1-ADDENDUM D7).
 
 The console runs ``TB_CONSOLE_WORKERS`` processes (sized from the site's declared concurrent users). Two things were
-kept in one process's memory for the next request, which may now reach another process: the one-time password shown
-once after a reset (D-133) and a pilot proposal awaiting its confirmation. They are kept here instead: one file per
-key in a folder of ``TB_CONSOLE_HELD_DIR`` (``/dev/shm``), which must be a memory filesystem (tmpfs or ramfs; any
-other is refused at the start, as before: never on disk, in a log, the audit trail or a database; a restart forgets
-it). The folder is this user's own, mode 0700, opened without following a symbolic link and checked as opened; every
-file is reached through that open folder. A file's name is the SHA-256 of its key and it holds the value with the
-monotonic time it was kept (one clock for every process on the host, not moved by setting the wall clock); an entry
-older than its time to live, or dated ahead of that clock, is never returned and is removed at the next keep or read,
-as the in-memory store did. Each keep, read and removal holds an ``flock`` on the folder, so a removal never takes an
-entry another process put in its place, and ``pop`` takes an entry once. A value is JSON (a tuple comes back as a list).
+kept in one process's memory for the next request, which may now reach another process: the one-time password shown once
+after a reset (D-133) and a pilot proposal awaiting its confirmation. They are kept here instead: one file per key in a
+folder of ``TB_CONSOLE_HELD_DIR`` (compose sets the console's tmpfs; no default), which must be a memory filesystem
+(tmpfs or ramfs; any other is refused at the start, as before: never on disk, in a log, the audit trail or a database; a
+restart forgets it). The folder is this user's own, mode 0700, opened without following a symbolic link and checked as
+opened; every file is reached through that open folder. A file's name is the SHA-256 of its key and it holds the value
+with the monotonic time it was kept (one clock for every process on the host, not moved by setting the wall clock); an
+entry older than its time to live, or dated ahead of that clock, is never returned and is removed at the next keep or
+read, as the in-memory store did. Unset, the console still starts and every keep, read and removal refuses
+(:class:`HeldUnset`; ``trialbox doctor`` FAILs ``console_held``). Each keep, read and removal holds an ``flock`` on the
+folder, so a removal never takes an entry another process put in its place, and ``pop`` takes an entry once. A value is
+JSON (a tuple comes back as a list).
 """
 
 from __future__ import annotations
@@ -42,10 +44,16 @@ def fs_type(path: Path) -> str:
     return kind
 
 
+class HeldUnset(PermissionError):
+    """No ``TB_CONSOLE_HELD_DIR``: nothing is kept or shown (fail closed); the rest of the console runs."""
+
+
 class Held:
-    def __init__(self, name: str, ttl: float, root: Path) -> None:
+    def __init__(self, name: str, ttl: float, root: Path | None) -> None:
+        self.name, self.ttl, self._dir = name, ttl, -1
+        if root is None:
+            return
         self.folder = root / f"tb-console-held-{os.getuid()}-{name}"
-        self.ttl = ttl
         kind = fs_type(root.resolve())
         if kind not in MEMORY:  # a credential is never written to a disk
             raise PermissionError(
@@ -65,8 +73,14 @@ class Held:
     def _name(self, key: str) -> str:
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
+    def ready(self) -> None:
+        """Raise :class:`HeldUnset` when nothing can be kept, before an action whose result would be lost."""
+        if self._dir < 0:
+            raise HeldUnset(f"TB_CONSOLE_HELD_DIR is unset: the {self.name} store refuses (set it to a tmpfs)")
+
     @contextlib.contextmanager
     def _locked(self) -> Iterator[None]:
+        self.ready()
         # a fresh open each time: an flock excludes per open, so threads sharing one descriptor would not exclude
         fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY, dir_fd=self._dir)
         try:

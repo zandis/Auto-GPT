@@ -421,6 +421,8 @@ services:
     environment: {<<: *nodb, PORT: "8090", TB_SERVICE_NAME: console,
                   TB_DB_URL: "postgresql://tb_console:${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
+                  # P2-11 (D7): the tmpfs (x-py) where every worker finds a one-time password or proposal (console.held)
+                  TB_CONSOLE_HELD_DIR: /tmp,
                   # H-137: the list uvicorn's command trusts, also seen by the console (it refuses "all" in PRODUCTION)
                   TB_CONSOLE_FORWARDED_ALLOW_IPS: "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}",
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",

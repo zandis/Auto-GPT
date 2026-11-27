@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Any, NoReturn, Protocol
@@ -38,6 +40,19 @@ def _strict_text() -> None:
 @pytest.fixture
 def repo_root() -> Path:
     return ROOT
+
+
+@pytest.fixture
+def held_dir(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """P2-11: TB_CONSOLE_HELD_DIR (no default; compose sets the console's tmpfs) for every console app this test
+    builds, a tmpfs folder of its own, removed after. Only for a test that keeps a one-time password or a proposal."""
+    from console import app
+
+    root = Path(tempfile.mkdtemp(dir="/dev/shm"))
+    given = app._env_map
+    monkeypatch.setattr(app, "_env_map", lambda env: {"TB_CONSOLE_HELD_DIR": str(root), **given(env)})
+    yield root
+    shutil.rmtree(root)
 
 
 # ------------------------------------------------------------------ the trial database (D-126)

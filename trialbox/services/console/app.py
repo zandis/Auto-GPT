@@ -47,7 +47,7 @@ from tb_common import egress_edge, trusted_proxy
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
-from tb_common.config import DECLARED, environment_name
+from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.flowledger import level_of_tag, record_export
@@ -224,8 +224,9 @@ class ConsoleSettings:
     studies: tuple[str, ...] = ()
     # D-192: the second factor, session timeouts and the optional OIDC sign-in (console.identity)
     identity: IdentitySettings = field(default_factory=IdentitySettings)
-    # P2-11 (D7): what one request leaves for the next, across the worker processes (console.held); a tmpfs
-    held_dir: Path = Path(DECLARED["TB_CONSOLE_HELD_DIR"].default)
+    # P2-11 (D7): what one request leaves for the next, across the worker processes (console.held); a tmpfs.
+    # None: unset, the console runs and that store refuses
+    held_dir: Path | None = None
 
     @property
     def sso(self) -> bool:
@@ -277,7 +278,7 @@ class ConsoleSettings:
             ),
             studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
             identity=IdentitySettings.from_env(env, environment, Path(env.get("TB_CONSOLE_DIR") or "/data/console")),
-            held_dir=Path(env.get("TB_CONSOLE_HELD_DIR") or DECLARED["TB_CONSOLE_HELD_DIR"].default),
+            held_dir=Path(held) if (held := env.get("TB_CONSOLE_HELD_DIR")) else None,
         )
         # H-137 (the owner's decision, #639 7156806411 item 7): "all" trusted proxies are refused in PRODUCTION
         why = trusted_proxy.refusal(env, environment)
@@ -1400,6 +1401,8 @@ def create_app(
         if perm and not admin_allowed(sess.user.role, perm):  # D-178: the one role table (tb_common.authz)
             au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
             raise _Problem(403, "forbidden")
+        if action in ("add", "reset"):
+            one_time.ready()  # P2-11: no password or code is made that could not be shown (TB_CONSOLE_HELD_DIR unset)
         try:
             me = sess.user.username
             if action == "add":

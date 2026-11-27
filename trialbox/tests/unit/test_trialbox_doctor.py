@@ -401,3 +401,17 @@ def test_registry_pins_and_models_come_from_the_env_file_deploy_folder(
     # without --env-file: the repository's deploy folder, as before
     bare = doctor.inputs_from(env_file=None, settings=None, routing=None, lake=None)
     assert doctor._override(bare) == ROOT / "deploy" / "site" / "registry.site.yaml"
+
+
+@pytest.mark.req("S1-16")
+def test_the_console_held_dir_is_set_on_a_tmpfs(tmp_path: Path) -> None:
+    # P2-11 (TB-06 ruling): this tree's compose sets it on the console's tmpfs
+    assert status(doctor.run(inputs()), "console_held").status == "PASS"
+    console = {"tmpfs": ["/tmp"], "environment": {"TB_CONSOLE_DIR": "/data/console"}}
+    for env, why in (({}, "unset"), ({"TB_CONSOLE_HELD_DIR": "/data/console"}, "on a disk")):
+        got = status(doctor.run(inputs(compose_config={"services": {"console": {**console, "environment": env}}})),
+                     "console_held")  # fmt: skip
+        assert (got.status, got.detail.startswith("held dir unset or not tmpfs")) == ("FAIL", True), why
+    (tmp_path / "docker-compose.yml").write_text("services: {console: {tmpfs: [/tmp]}}\n", encoding="utf-8")
+    assert status(doctor.run(inputs(deploy=tmp_path)), "console_held").status == "FAIL"
+    assert status(doctor.run(inputs(deploy=tmp_path / "gone")), "console_held").status == "FAIL"

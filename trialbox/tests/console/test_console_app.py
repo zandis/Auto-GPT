@@ -20,6 +20,7 @@ from console.app import PilotRefused, cell, create_app
 from console.auth import UserStore, hash_password, verify_password
 from console.backend import AuditRecord, Health, MailItem, Refused, RulesetInfo, read_audit
 from console.cascade import CascadeRuns
+from console.held import HeldUnset
 from console.i18n import CATALOGUES, EN
 from console.proposals import ProposalError, propose
 from fastapi.testclient import TestClient
@@ -1532,6 +1533,19 @@ def test_coordinator_requests_and_approves_but_does_not_operate(box: dict[str, A
         c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "x", "role": "admin"}).status_code == 403
     )
     assert "/ops/users" not in c.get("/").text  # no link either
+
+
+def test_without_a_held_dir_no_password_is_made_that_cannot_be_shown(box: dict[str, Any]) -> None:
+    # P2-11 (TB-06 ruling): TB_CONSOLE_HELD_DIR unset: the console starts and serves; a new account or a reset is
+    # refused by name before anything is made, so no password exists that no one was shown
+    c, csrf = login(box["app"])
+    assert c.get("/ops/users").status_code == 200
+    with pytest.raises(HeldUnset, match="TB_CONSOLE_HELD_DIR"):
+        c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "nurse.lin", "role": "viewer"})
+    assert box["users"].get("nurse.lin") is None
+    with pytest.raises(HeldUnset, match="TB_CONSOLE_HELD_DIR"):
+        c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "viewer", "confirm": "yes"})
+    login(box["app"], "viewer", VIEWER_PW)  # the password is the one it was
 
 
 def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:

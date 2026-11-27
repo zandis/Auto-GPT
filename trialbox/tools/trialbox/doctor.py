@@ -27,6 +27,10 @@ closed). Checks:
   ``TB_CONSOLE_MFA`` resolves to ``totp`` (the console's default outside DEV and TEST), OIDC, when on, keeps
   ``TB_OIDC_REQUIRE_MFA``, and no trusted identity header (``TB_CONSOLE_SSO_HEADER``, D-93) signs people in. FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere;
+* ``console_held`` (P2-11, D7): the console's ``TB_CONSOLE_HELD_DIR`` (``console.held``: a reset password, a sign-in
+  code, a pilot proposal kept for the next request) is set in the console service's compose environment to one of its
+  ``tmpfs`` mounts (the compose files of ``COMPOSE_FILE``, else ``deploy/docker-compose.yml``). FAIL otherwise: unset,
+  the console starts and refuses those actions;
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
   or ``LLM_VERIFIER_BASE_URL``) and ``TB_SCREEN_JUDGE`` other than ``single``; otherwise the box runs single-model
@@ -584,6 +588,39 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
+
+
+def check_console_held(inp: DoctorInputs) -> Check:
+    """P2-11 (D7): ``TB_CONSOLE_HELD_DIR`` as compose gives it to the console, judged against the console's
+    ``tmpfs`` mounts (``console.held`` checks the mount again at the start; unset, it refuses every keep)."""
+    name = "console_held"
+    env: dict[str, str] = {}
+    mounts: list[str] = []
+    docs: list[Mapping[str, Any]] = []
+    if inp.compose_config is not None:
+        docs.append(inp.compose_config)
+    else:
+        deploy = inp.deploy or ROOT / "deploy"
+        try:
+            for entry in [e for e in (inp.env.get("COMPOSE_FILE") or "docker-compose.yml").split(":") if e]:
+                text = _compose_file(deploy, entry).read_text(encoding="utf-8")
+                docs.append(yaml.safe_load(_COMPOSE_TAG.sub("", text)) or {})
+        except (OSError, yaml.YAMLError) as exc:
+            return Check(name, "FAIL", f"held dir unset or not tmpfs: the compose files were not read ({exc})")
+    for doc in docs:  # a later file adds to and overrides an earlier one, as compose merges them
+        console = (doc.get("services") or {}).get("console") or {}
+        given = console.get("environment") or {}
+        if isinstance(given, list):
+            given = dict(str(item).partition("=")[::2] for item in given)
+        env.update({str(k): str(v) for k, v in given.items()})
+        raw = console.get("tmpfs") or []
+        mounts += [str(x).split(":")[0] for x in ([raw] if isinstance(raw, str) else raw)]
+    held = env.get("TB_CONSOLE_HELD_DIR", "")
+    if held and any(held == m or held.startswith(m.rstrip("/") + "/") for m in mounts):
+        return Check(name, "PASS", f"the console keeps one-time passwords and proposals in {held} (a tmpfs)")
+    why = f"TB_CONSOLE_HELD_DIR={held!r}, the console's tmpfs {mounts}"
+    return Check(name, "FAIL", f"held dir unset or not tmpfs: {why}; password resets, new accounts and pilot proposals "
+                 "are refused until compose sets it")  # fmt: skip
 
 
 def check_mail_tls(inp: DoctorInputs) -> Check:
@@ -2564,6 +2601,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_named_choices,
     check_mail_auth,
     check_console_mfa,
+    check_console_held,
     check_ldap_ca,
     check_publish_gate,
     check_note_block,
