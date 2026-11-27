@@ -1,9 +1,13 @@
 {% extends "base.html" %}
-{% block title %}{{ t('admin.jobs.' + action) }}{% endblock %}
+{% from "_ds.html" import page_header %}
+{# 9k-7 (D-1388): the console's one confirm pattern (confirm.html): the page header, the consequence, the line that
+   nothing is recorded before the act's button, one primary act and the way back. #}
+{% set page_title = t('admin.jobs.' + action) %}
 {% block content %}
+{{ page_header(page_title) }}
 <section class="card narrow" data-testid="admin-confirm">
-<h1>{{ t('admin.jobs.' + action) }}</h1>
 <p>{{ t('admin.jobs.confirm.' + action, job=job.job_id[-8:], type=job.type, rs=job.ruleset or '–') }}</p>
+<p class="hint" data-testid="confirm-nothing-yet">{{ t('confirm.nothing_yet') }}</p>
 <form method="post" action="/admin/jobs/{{ job.job_id }}/{{ action }}" class="row">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="confirm" value="yes">
   <button type="submit" data-testid="confirm-{{ action }}">{{ t('admin.jobs.' + action) }}</button>

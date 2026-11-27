@@ -436,6 +436,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "cc5a0e95c1dc50da9a3d8c9fa782fa1f5d6138e370dd9e7bad0c484ac3904996",
         # D-779 (T-305c): site version 7 (the years a close keeps the study's files)
         "52624415f200e587c75788fec3851f6880a403abe34f504786ac76ea56c2bf93",
+        # 9k-7 (D-1388): site version 8 (an Undo row names the mark row it takes back)
+        "0a0841c2e9e2686a43a15e4ed5916cac14f9ee85575fc8ddad4960a1091944db",
     ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline

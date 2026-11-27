@@ -64,6 +64,8 @@ EN: dict[str, str] = {
     "the lists show the label with the study's own words.",
     "s20.label.missing": "No label in {language} yet",
     "s20.label.shipped": "Label that comes with the study's criteria; save it as is or change it.",
+    # 9k-7 (D-1388): every confirmation page says that nothing is recorded before Yes
+    "confirm.nothing_yet": "Nothing has been recorded yet.",
 }
 
 JA: dict[str, str] = {
@@ -127,6 +129,7 @@ JA: dict[str, str] = {
     "一覧では表示名と試験の原文が並べて表示されます。",
     "s20.label.missing": "{language}の表示名がまだありません",
     "s20.label.shipped": "試験の基準に付属する表示名です。そのまま保存するか、変更してください。",
+    "confirm.nothing_yet": "まだ何も記録していません。",
 }
 
 ZH: dict[str, str] = {
@@ -181,4 +184,5 @@ ZH: dict[str, str] = {
     "s20.labels.missing": "核准前，請為下方標示的 {n} 項條件加上{language}簡短標籤；名單會將標籤與試驗原文並列顯示。",
     "s20.label.missing": "尚無{language}標籤",
     "s20.label.shipped": "此標籤隨試驗條件提供；可直接儲存或修改。",
+    "confirm.nothing_yet": "尚未記錄任何內容。",
 }

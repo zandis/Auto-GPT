@@ -49,7 +49,9 @@
 
 {% macro toast(rs, pid, back, done) %}
 {% if done %}<div class="toastp" role="status" data-testid="done" data-mark-saved="{{ pid }}"><span>{{ t('wb.done.' + done) }}</span>
-{% if user.can_mark and done in ('approach', 'need_info', 'not_suitable', 'not_now', 'withdrawn') %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" name="mark" value="undo" class="secondary" data-testid="undo">{{ t('mark.undo') }}</button></form>{% endif %}
+{# 9k-7 (D-1388): the Undo is the store's offer (mark_undo: this person's latest mark of this patient, inside its
+   time); the form names the row it takes back, and the store decides again on the POST #}
+{% if user.can_mark and done in ('approach', 'need_info', 'not_suitable', 'not_now', 'withdrawn') and mark_undo is defined and mark_undo and mark_undo.pid == pid %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="undo" value="{{ mark_undo.id }}"><button type="submit" name="mark" value="undo" class="secondary" data-testid="undo">{{ t('mark.undo') }}</button></form> <span class="hint" data-testid="undo-until">{{ t('mark.undo_until', until=mark_undo.until) }}</span>{% endif %}
 {% if user.can_request and done in ('reached_booked', 'reached_declined', 'not_reached', 'not_approached', 'lost_contact') %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/outcome" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" name="outcome" value="undo" class="secondary" data-testid="outcome-undo">{{ t('mark.undo') }}</button></form>{% endif %}
 </div>{% endif %}
 {% endmacro %}
