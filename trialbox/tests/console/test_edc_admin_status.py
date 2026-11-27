@@ -115,8 +115,12 @@ def test_the_connection_check_cannot_reach_another_host(box: dict[str, Any], edc
     """P-13 ruling: a request of the check to any host but the configured EDC's is refused by the edge, before it is
     sent, and recorded as refused."""
     sent: list[str] = []
-    edc_env.setattr(tools, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(
-        lambda r: sent.append(str(r.url)) or httpx.Response(200, json={"modules": [{"id": "trialbox"}]}))))  # fmt: skip
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return httpx.Response(200, json={"modules": [{"id": "trialbox"}]})
+
+    edc_env.setattr(tools, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(answer)))
     edc_env.setattr(tools, "connection_status", lambda base, token, http: http.get("https://other.example/x").json())
     c, _ = login(box["app"])
     page = c.get("/admin/edc")

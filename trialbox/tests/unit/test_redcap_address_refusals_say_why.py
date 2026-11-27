@@ -156,10 +156,10 @@ def test_the_edc_tool_route_reaches_only_the_configured_edc_host() -> None:
 
     class Audit:
         def __init__(self) -> None:
-            self.lines: list[dict[str, object]] = []
+            self.rows: list[dict[str, object]] = []
 
-        def append(self, event: str, **kw: object) -> None:
-            self.lines.append({"event": event, **kw})
+        def append(self, event: str, *, detail: dict[str, object], **kw: object) -> None:
+            self.rows.append(detail)
 
     audit = Audit()
     assert egress_edge.leave("edc.tool", "edc.example", "", audit=audit, actor="console", named=["edc.example"]) == ""
@@ -168,6 +168,6 @@ def test_the_edc_tool_route_reaches_only_the_configured_edc_host() -> None:
         with pytest.raises(egress_edge.Refused) as got:
             egress_edge.leave("edc.tool", host, "", audit=audit, actor="console", named=named)
         assert got.value.reason == "not_named"
-    rows = [x["detail"] for x in audit.lines]
+    rows = audit.rows
     assert [r["route"] for r in rows] == ["edc.tool"] * 5
     assert [r["result"] for r in rows] == ["sent"] + ["refused"] * 4
