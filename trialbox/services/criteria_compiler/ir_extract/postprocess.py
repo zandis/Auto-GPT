@@ -435,6 +435,41 @@ def _value_as_age(n: dict[str, Any], text: str) -> dict[str, Any] | None:
     return age
 
 
+#: a period a line writes ("6 months", "3か月"): its number and unit, and the days a unit may be read as
+_PERIOD = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(days?|weeks?|wks?|months?|mos?|years?|yrs?|日|天|週|か月|ヵ月|ヶ月|カ月|個月|个月|年)", re.I
+)
+_UNIT_DAYS = (
+    (re.compile(r"^(?:days?|日|天)$", re.I), (1,)),
+    (re.compile(r"^(?:weeks?|wks?|週)$", re.I), (7,)),
+    (re.compile(r"^(?:months?|mos?|か月|ヵ月|ヶ月|カ月|個月|个月)$", re.I), (30, 30.44)),
+    (re.compile(r"^(?:years?|yrs?|年)$", re.I), (365, 365.25)),
+)
+
+
+def _duration_as_window(n: dict[str, Any], text: str) -> dict[str, Any] | None:
+    """ASSESS-1 Q1 (P-07): "within the last 6 months" written as a window with no bounds (``{anchor: index}``) beside
+    ``duration: {min_days: -180}``. A duration of at most 0 days is met by everyone (D-914: ``kind`` refuses it and the
+    line goes to a person); a bare window says only "relative to the index". Together they mean the window from -N to
+    0, read so only when the line writes that period (N = a number it writes times its unit's days). A window with
+    bounds of its own, no window, or a period the line does not write: None (D-914's refusal stands)."""
+    d, w = n.get("duration"), n.get("window")
+    if (
+        not isinstance(d, dict)
+        or not isinstance(w, dict)
+        or w.get("from_days") is not None
+        or w.get("to_days") is not None
+    ):
+        return None
+    m = d.get("min_days")
+    if not isinstance(m, int) or m >= 0:
+        return None
+    said = {
+        round(float(x) * k) for x, u in _PERIOD.findall(text) for rx, days in _UNIT_DAYS if rx.match(u) for k in days
+    }
+    return {**w, "from_days": m, "to_days": 0} if -m in said else None
+
+
 def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[Any, list[str]]:
     """The raw logic without the fields its atom's domain cannot use, and a flag for each kind repaired, dropped or
     held (D-948). The compile ignored every field dropped here: dropping one changes no answer.
@@ -448,7 +483,9 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
       "diagnosed" is held for a person (``age_on_non_demographic``: an age at onset, which dropping would widen); one
       it writes otherwise ("<36 weeks gestation") is left as it was, for the rule of ages in short units (D-947).
       A ``derived`` name off an observation atom is left for ``kind`` to refuse: its review found that the prompt's
-      placeholder names ride on atoms carrying other junk, which compiling would put in front of patients."""
+      placeholder names ride on atoms carrying other junk, which compiling would put in front of patients. A bare
+      window beside a negative duration is read as the window it means (``duration_read_as_window``,
+      :func:`_duration_as_window`)."""
     flags: list[str] = []
 
     def walk(n: Any) -> Any:
@@ -478,6 +515,11 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
                 out.pop("age")
                 flags.append("stray_field")
             # else the line writes it without an age word ("<36 weeks gestation"): left as it was, for D-947
+        window = _duration_as_window(out, text)
+        if window is not None:
+            out["window"] = window
+            out.pop("duration")
+            flags.append("duration_read_as_window")
         return out
 
     return walk(node), sorted(set(flags))
