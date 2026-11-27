@@ -225,6 +225,37 @@ def _rollback(dsn: str, dump: Path, tmp_path: Path, *, ok: bool = True) -> subpr
     return out
 
 
+class _Engine:
+    """The compose box's runner stand-in: the marker's ``docker run ... sh -c MARKER_SH`` runs its shell here, the
+    audit volume being ``audit``; every other command is recorded. ``refuse``: the engine fails the marker's run (a
+    volume that will not take the write)."""
+
+    def __init__(self, audit: Path, *, refuse: bool = False) -> None:
+        self.audit, self.refuse = audit, refuse
+        self.ran: list[list[str]] = []
+
+    def __call__(self, argv: Any, **_k: Any) -> str:
+        argv = list(argv)
+        self.ran.append(argv)
+        if "tb-marker" in argv:
+            i = argv.index("tb-marker")
+            assert argv[i + 2] == "/a" and f"{argv[i - 5]}" == "-v" and argv[i - 4].endswith("_audit-data:/a")
+            if self.refuse:
+                raise up.UpdateFailed("docker run ... exit 1: read-only file system")
+            r = subprocess.run([shutil.which("dash") or "sh", "-c", argv[i - 1], "tb-marker", argv[i + 1],
+                                str(self.audit)], capture_output=True, text=True, check=False)  # fmt: skip
+            if r.returncode:
+                raise up.UpdateFailed(f"docker run ... exit {r.returncode}: {r.stderr[-300:]}")
+        return ""
+
+
+def _compose(tmp_path: Path, engine: _Engine) -> up.ComposeBox:
+    deploy = tmp_path / "deploy"
+    deploy.mkdir(exist_ok=True)
+    (deploy / ".env").write_text("TB_IMAGE=trialbox-py:test\n", encoding="utf-8")
+    return up.ComposeBox(deploy, run=engine)
+
+
 def _events_of(dsn: str, pid: str) -> list[tuple[str, str]]:
     with psycopg.connect(dsn, autocommit=True) as c:
         return [(str(a), str(b)) for a, b in c.execute(
@@ -783,7 +814,7 @@ def test_a_rollback_leaves_the_index_empty_and_required(box: str, tmp_path: Path
         assert reg.add(PID_B, "paper", "", "console:office1", "2026-11-22T09:00:00+08:00")
     finally:
         reg.close()
-    up.mark_rebuild_required(chain)  # ComposeBox.rollback: after stop, before anything goes back
+    _compose(tmp_path, _Engine(chain)).mark_rebuild_required()  # ComposeBox.rollback, before anything goes back
     r = _rollback(box, point, tmp_path)
     assert (_uses(box), _calls(box)) == ([], [])  # before any drain
     m = idx.read_marker(chain)
@@ -853,27 +884,26 @@ def test_a_rebuild_refuses_a_second_register_schema(box: str, tmp_path: Path) ->
             idx.search(c, directory=chain, model="m-judge")
 
 
-@pytest.mark.parametrize("how", ["no_folder", "not_writable"])
+@pytest.mark.parametrize("how", ["no_folder", "engine_refuses"])
 def test_a_marker_that_cannot_be_written_stops_the_rollback_before_the_restore(tmp_path: Path, how: str) -> None:
-    """Y4 (High): the marker cannot be written (no audit folder where the host looks; a folder that will not take
-    it): ``ComposeBox.rollback`` raises ``UpdateFailed`` after stopping the services and before any image, model or
-    database is touched, so the live database and its rows stay as they are and no ``_tbrb`` database is made."""
-    deploy = tmp_path / "deploy"
-    deploy.mkdir()
+    """Y4 (High): the marker cannot be written (the volume's folder is not there; the engine fails the write, as on
+    a read-only volume): ``ComposeBox.rollback`` raises ``UpdateFailed`` after stopping the services and before any
+    image, model or database is touched, so the live database and its rows stay as they are and no ``_tbrb``
+    database is made. The next ``rollback <bundle>`` tries again. Written, the marker is the one the rebuild reads."""
     audit = tmp_path / "audit-data"
-    if how == "not_writable":  # a directory where the marker goes: no writer, root included, can replace it
-        (audit / idx.STATE).mkdir(parents=True)
-    (deploy / ".env").write_text(f"TB_AUDIT_HOST_DIR={audit}\n", encoding="utf-8")
-    ran: list[list[str]] = []
-
-    def run(argv: Any, **_k: Any) -> str:
-        ran.append(list(argv))
-        return ""
-
+    engine = _Engine(audit, refuse=how == "engine_refuses")
+    if how == "engine_refuses":
+        audit.mkdir()
     with pytest.raises(up.UpdateFailed, match="provenance marker could not be written"):
-        up.ComposeBox(deploy, run=run).rollback(None, tmp_path, None)  # type: ignore[arg-type]
-    assert len(ran) == 1 and "stop" in ran[0]
-    assert not any("tb-restore" in a for argv in ran for a in argv)
+        _compose(tmp_path, engine).rollback(None, tmp_path, None)  # type: ignore[arg-type]
+    assert len(engine.ran) == 2 and "stop" in engine.ran[0] and "tb-marker" in engine.ran[1]
+    assert not any("tb-restore" in a for argv in engine.ran for a in argv)
+    assert not (audit / idx.STATE).exists()
+    audit.mkdir(exist_ok=True)
+    _compose(tmp_path, _Engine(audit)).mark_rebuild_required()
+    m = idx.read_marker(audit)
+    assert (m.clean, m.reason, m.done_through) == (False, "update rollback", "")
+    assert (audit / idx.STATE).stat().st_mode & 0o777 == 0o644 and list(audit.glob(f".{idx.STATE}*")) == []
 
 
 def test_the_drain_pauses_and_heartbeats_while_the_rebuild_runs(

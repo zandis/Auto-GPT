@@ -1276,11 +1276,34 @@ def _existing(p: Path) -> Path:
     return p
 
 
+#: P19-DESIGN-3 §4: the provenance marker written whole with any image's ``sh`` (a release's own tool may not be in
+#: the image tagged now: a rollback run again after a cut one finds the old release's), in the audit folder ``$2``
+MARKER_SH = (
+    'set -e; cd "$2"; t=$(mktemp .PROVENANCE_STATE.XXXXXX); printf \'%s\\n\' "$1" > "$t"; chmod 0644 "$t"; sync; '
+    'mv -f "$t" PROVENANCE_STATE; sync'
+)
+
+
+def marker_body(reason: str) -> str:
+    """The marker that requires the rebuild, as ``tb_common.provenance_index.require_rebuild`` writes it."""
+    from tools.trialbox import audit_heads
+
+    audit_heads._libs()
+    from tb_common import provenance_index as pi
+
+    return json.dumps({"version": pi.VERSION, "verified": False, "reason": reason, "since": _now(), "attempts": 0,
+                       "done_through": "", "updated_at": _now()}, sort_keys=True)  # fmt: skip
+
+
+def _marker_failed(exc: BaseException) -> UpdateFailed:
+    return UpdateFailed(f"the provenance marker could not be written ({type(exc).__name__}: {exc}); the rollback "
+                        "stops before the restore")  # fmt: skip
+
+
 def mark_rebuild_required(audit_dir: Path) -> None:
-    """P19-DESIGN-3 §4, the update tool's one site: the provenance marker in the box's audit folder says
-    rebuild-required before any image or database goes back (a restored index is never served). A marker that cannot
-    be written stops the rollback here, the live database untouched; the next ``tools/apply_update.sh rollback`` tries
-    again."""
+    """P19-DESIGN-3 §4, the update tool's one site, for a box whose audit folder this process reaches (the in-process
+    box): the marker says rebuild-required before any database goes back (a restored index is never served). One
+    that cannot be written stops the rollback here; the next ``tools/apply_update.sh rollback`` tries again."""
     try:
         if not audit_dir.is_dir():
             raise FileNotFoundError(f"no audit folder {audit_dir}")
@@ -1291,8 +1314,7 @@ def mark_rebuild_required(audit_dir: Path) -> None:
 
         provenance_index.require_rebuild(audit_dir, "update rollback")
     except OSError as exc:
-        raise UpdateFailed(f"the provenance marker could not be written ({type(exc).__name__}: {exc}); the rollback "
-                           "stops before the restore") from exc  # fmt: skip
+        raise _marker_failed(exc) from exc
 
 
 def restore_said(out: str) -> dict[str, Any]:
@@ -3114,17 +3136,27 @@ class ComposeBox(_DockerImages):
                 out = self.run(argv, stdin_file=plain)
                 if db == "trialbox_wf":  # P19-DESIGN-3 §5: said, and in the update.rolled_back event
                     self.rollback_note = restore_said(out or "")
-                    kept = self.rollback_note['register_events_kept']
+                    kept = self.rollback_note["register_events_kept"]
                     print(f"rollback: {kept} opt-out register event(s) kept; the provenance index emptied: run "
                           "trialbox provenance --rebuild", file=sys.stderr)  # fmt: skip
 
             _with_plain(Path(f), rb, restore)
 
-    def rollback(self, plan: Plan, rb: Path, point: Point) -> None:
-        from tools.trialbox import audit_heads
+    def mark_rebuild_required(self) -> None:
+        """P19-DESIGN-3 §4: the provenance marker, through the box's audit volume in a container of its image (the
+        host need not see the volume's folder). A write that fails stops the rollback before anything goes back."""
+        image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+        vol = f"{self.project()}_{BACKUP_VOLUMES['audit']}:/a"
+        argv = [*self.docker, "run", "--rm", "--network", "none", "--user", "0", "--entrypoint", "sh", "-v", vol,
+                image, "-c", MARKER_SH, "tb-marker", marker_body("update rollback"), "/a"]  # fmt: skip
+        try:
+            self.run(argv, timeout=120)
+        except (UpdateFailed, OSError, subprocess.TimeoutExpired) as exc:
+            raise _marker_failed(exc) from exc
 
+    def rollback(self, plan: Plan, rb: Path, point: Point) -> None:
         self.run(self._c("stop", *PY_SERVICES, "fhir-store"), timeout=600)  # nobody holds the databases open
-        mark_rebuild_required(audit_heads.host_dirs(self.env)[0])  # P19-DESIGN-3 §4: before anything goes back
+        self.mark_rebuild_required()  # P19-DESIGN-3 §4: before anything goes back
         self.restore_images(point)
         restore_models(self.models, rb, point)
         self.restore_databases(rb, point)
