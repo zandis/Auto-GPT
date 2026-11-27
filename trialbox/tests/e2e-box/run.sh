@@ -128,9 +128,9 @@ keep_attempt() { # the first attempt's transcript and prompts kept beside the se
   vm 'for f in /var/tmp/install.log /var/tmp/prompts.txt; do sudo mv -f $f ${f%.*}.1.${f##*.} || exit 1; done'
 }
 conditions() { # the box as the gate means to test it, read from its deploy/.env
-  vm 'cd /opt/trialbox/deploy && sudo grep -E "^(TB_ENV|TB_HOST_PROFILE|COMPOSE_FILE|TB_SITE_PATIENTS)=" .env; sudo grep -qx TB_ENV=PRODUCTION .env &&
-    ! sudo grep -qx TB_HOST_PROFILE=poc .env && ! sudo grep -q "^TB_REHEARSAL=" .env && sudo grep -qx "TB_SITE_PATIENTS='"$SIZE"'" .env &&
-    sudo sed -n "s/^COMPOSE_FILE=//p" .env | tail -n 1 | tr ":" "\n" | grep -Eqx "(\./)?site/compose-override\.yml" && sudo cmp -s site/compose-override.yml /root/site/host-models.yml &&
+  vm 'cd /opt/trialbox/deploy && sudo grep -E "^(TB_ENV|TB_HOST_PROFILE|COMPOSE_FILE)=|\(TB_SITE_PATIENTS\)" .env; sudo grep -qx TB_ENV=PRODUCTION .env &&
+    ! sudo grep -qx TB_HOST_PROFILE=poc .env && ! sudo grep -q "^TB_REHEARSAL=" .env && sudo grep -qF "n='"$SIZE"' (TB_SITE_PATIENTS)" .env &&
+    sudo sed -n "s/^COMPOSE_FILE=//p" .env | tail -n 1 | tr ":" "\n" | grep -Eqx "(/opt/trialbox/deploy/|\./)?site/compose-override\.yml" && sudo cmp -s site/compose-override.yml /root/site/host-models.yml &&
     ! sudo grep -E "^COMPOSE_FILE=" .env | grep -qi standin'
 }
 site_needs() { # what a PRODUCTION install refused without, as a site sets it (deploy/.env, deploy/site/hardening.conf)
