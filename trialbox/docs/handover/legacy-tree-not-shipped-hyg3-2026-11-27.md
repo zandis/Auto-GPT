@@ -22,21 +22,23 @@ The subject was already built. Every shipped image is built from a context insid
 `deploy/build_db_image.sh` changes to `trialbox/` first, every compose `build.context` resolves inside `trialbox/`,
 and the CI image jobs run with `working-directory: trialbox`. A Docker context cannot reach above itself, so no file
 of the legacy tree can enter an image. The SBOM inputs are the images of `SC_IMAGES` and the lock's SBOM, built from
-`deploy/requirements.lock`; the bundle's host tree is packed with `--root` at `trialbox/`. The legacy tree stays in
-the repository and its history; nothing was deleted.
+`deploy/requirements.lock`; the licence report (`make licences`) reads only those SBOMs in `dist/sbom/`; the
+bundle's host tree is packed with `--root` at `trialbox/`. The legacy tree stays in the repository and its history;
+nothing was deleted.
 
 ## The test
 
 It reads, and never builds: the build commands of the three release targets and their contexts, the database image
 script, every compose file's build contexts, the `COPY`/`ADD` sources of every Dockerfile of
-`RELEASE_DOCKERFILES`, the scanned image list against the Dockerfiles, the SBOM inputs of `lock-env`, `lock-sbom` and
-`release-gates`, and the root of the bundle's host tree.
+`RELEASE_DOCKERFILES`, the scanned image list against the Dockerfiles, the SBOM inputs of `lock-env`, `lock-sbom`,
+`release-gates` and `licences`, and the root of the bundle's host tree.
 
 ## What ran
 
 - The test on the base with only the test added: 10 passed, because the property already holds.
-- To show it bites, two edits made by hand in the work tree and reverted: the `jvm` image's context set to `..` and a `COPY`
-  from the parent folder added to `python.Dockerfile`: 2 failed (the `images` context case and the Dockerfile case).
+- To show it bites, three edits made by hand in the work tree and reverted: the `jvm` image's context set to `..`
+  and a `COPY` from the parent folder added to `python.Dockerfile`: 2 failed (the `images` context case and the
+  Dockerfile case); the top-level `requirements.txt` added to the `licences` inputs: 1 failed (the SBOM case).
 - The checks of CLAUDE.md and the policy set: see the pull request.
 
 ## Not verified

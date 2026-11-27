@@ -161,6 +161,8 @@ def test_the_sbom_inputs_are_inside_trialbox() -> None:
     assert "--lock-sbom dist/sbom/requirements.lock.cdx.json" in gates
     assert "$(foreach i,$(SC_IMAGES),--image $(i))" in gates
     assert "dir:" not in gates
+    # the licence report reads those SBOMs and nothing else
+    assert _recipe("licences") == ["$(SC) licences dist/sbom/*.cdx.json --out dist/sbom/licences.md"]
 
 
 def test_the_bundles_host_tree_is_packed_from_trialbox() -> None:
