@@ -1166,7 +1166,8 @@ def leave(
     mapping or list, a :class:`File` or a :class:`Message`. ``audit``: the service's audit log; a record that cannot be
     written refuses. ``named``: an exception route's named destinations. ``items``: how many patients it is about, when
     the caller knows. ``unchecked``: the tripwire's development switch, for a model off the box only. ``refused``: an
-    exception's own check already said no, and why; ``note``: what it did not know.
+    exception's own check (on an ``only_named`` route, the caller's address guard) already said no, and why;
+    ``note``: what it did not know.
     ``where``: the site, when the caller holds its settings (else :func:`site`). ``made``: the sha256 of files the
     caller's own output record says the box built (a job's outputs); ``rebuild``: a PDF, Office, zip or picture file
     the box did not build leaves as a plain PDF of its text instead of being refused (1523 ruling)."""
@@ -1181,8 +1182,8 @@ def leave(
             if not actor or not destination or destination not in set(named):
                 why = "not_named"
             why = why or refused
-        elif rule.only_named and (not destination or destination not in set(named)):
-            why = "not_named"
+        elif rule.only_named and (refused or not destination or destination not in set(named)):
+            why = refused or "not_named"
         elif unchecked and route == "model.offbox":
             result = "unchecked"
         else:

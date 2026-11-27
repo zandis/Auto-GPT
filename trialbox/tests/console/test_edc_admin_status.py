@@ -128,3 +128,41 @@ def test_the_connection_check_cannot_reach_another_host(box: dict[str, Any], edc
     assert [(r["route"], r["destination"], r["result"]) for r in _egress(tmp_path)] == [
         ("edc.tool", "other.example", "refused")
     ]
+
+
+def test_a_metadata_address_is_recorded_refused_never_sent(box: dict[str, Any], edc_env: pytest.MonkeyPatch,
+                                                           tmp_path: Any) -> None:  # fmt: skip
+    """P-13 review M5: the guard checks the address before the edge records; the check's only row says refused."""
+    edc_env.setenv("TB_EDC_TOOL_URL", "https://169.254.169.254")
+    c, _ = login(box["app"])
+    assert 'data-testid="edc-status-down"' in c.get("/admin/edc").text
+    assert [(r["route"], r["destination"], r["result"], r["reason"]) for r in _egress(tmp_path)] == [
+        ("edc.tool", "169.254.169.254", "refused", "metadata")
+    ]
+
+
+@pytest.mark.parametrize("base", ["https://EDC.example", "https://édc.example", "https://a@edc.example:8443",
+                                  r"https://edc.example\@evil.example", "https://edc.example."])  # fmt: skip
+def test_the_named_host_is_the_host_the_client_declares_and_sends_to(monkeypatch: pytest.MonkeyPatch,
+                                                                     base: str) -> None:  # fmt: skip
+    """P-13 review M6: one reading of the address. The host the edge names is the one the guarded client declares and
+    the one its request goes to."""
+    from tb_common.http import declared_host, guard_of
+
+    monkeypatch.setenv("TB_EDC_TOOL_URL", base)
+    where = declared_host(tools.tool_base())
+    guard = guard_of(tools.http_client())
+    assert where is not None and guard is not None
+    assert where[0] == httpx.Request("GET", tools.tool_base() + "/api/v1/capabilities").url.host
+    assert (where[0].rstrip("."), where[1]) in guard.declared
+
+
+@pytest.mark.parametrize("base", ["https://edc.example:abc", "https://[::1"])
+def test_an_address_that_is_not_valid_says_so_and_nothing_leaves(box: dict[str, Any], edc_env: pytest.MonkeyPatch,
+                                                                 tmp_path: Any, base: str) -> None:  # fmt: skip
+    """P-13 review M6: an address the client cannot read is not read another way for the edge; the page answers."""
+    edc_env.setenv("TB_EDC_TOOL_URL", base)
+    c, _ = login(box["app"])
+    page = c.get("/admin/edc")
+    assert page.status_code == 200 and 'data-testid="edc-status-down"' in page.text
+    assert _egress(tmp_path) == []

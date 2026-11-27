@@ -645,10 +645,25 @@ def guarded_client(
     )  # fmt: skip
 
 
+def declared_host(url: str) -> tuple[str, int] | None:
+    """``url``'s host and port as httpx reads them (the reading a request's host and the guard's check use, so a caller
+    that names the host and the client it declares it on cannot disagree), or None: no host, or not a valid address."""
+    try:
+        u = httpx.URL(url)
+    except httpx.InvalidURL:
+        return None
+    return (u.host, u.port or (443 if u.scheme == "https" else 80)) if u.host else None
+
+
 def declared_client(url: str, service: str | None = None, **kw: Any) -> httpx.Client:
-    """:func:`guarded_client` with ``url``'s own host and port declared, as the operator who set that URL declared it
-    (P-13 ruling, the EDC tool door): a metadata or link-local address, any other host, or ``http`` outside DEV and
-    TEST is still refused."""
-    u = urlparse(url)
-    extra = [(u.hostname, u.port or (443 if u.scheme == "https" else 80))] if u.hostname else []
-    return guarded_client(service, extra=extra, **kw)
+    """:func:`guarded_client` with ``url``'s own host and port declared (:func:`declared_host`), as the operator who set
+    that URL declared it (P-13 ruling, the EDC tool door): a metadata or link-local address, any other host, or
+    ``http`` outside DEV and TEST is still refused."""
+    where = declared_host(url)
+    return guarded_client(service, extra=[where] if where else [], **kw)
+
+
+def guard_of(client: httpx.Client) -> EgressGuard | None:
+    """The guard a :func:`guarded_client` checks each request with; None for any other client."""
+    t = client._transport
+    return t.guard if isinstance(t, GuardedTransport) else None
