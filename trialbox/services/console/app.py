@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import fcntl
 import hashlib
 import io
 import ipaddress
@@ -568,7 +569,12 @@ def create_app(
     users.idle, users.absolute = settings.identity.idle, settings.identity.absolute  # D-192
     ident = Identity(settings.identity, users, audit, settings.secure_cookie)
     if settings.admin_password_file is not None:
-        made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
+        # P2-11 (D7): every worker process runs this at its start; one at a time, so the second finds the first's
+        # administrator instead of failing on the same name
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        with (settings.data_dir / "bootstrap.lock").open("a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
         if made is not None:
             audit.append("console.user", actor="console:bootstrap", detail={"action": "create", "role": "admin"})
     if settings.pilot and classify is None and settings.gateway_url:
@@ -1333,7 +1339,7 @@ def create_app(
     # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
     # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
     # P2-11 (D7): in the container's memory tmpfs, seen by every worker process (console.held); unread for 10 minutes:
-    # gone
+    # never shown, removed at the next keep or read
     one_time = Held("once", 600.0)
 
     def keep_once(sess: Session, username: str, password: str) -> None:
