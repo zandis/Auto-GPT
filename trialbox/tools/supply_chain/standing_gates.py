@@ -12,10 +12,12 @@ against a baseline that may only go down.
 * **the Dockerfile linter** on every Dockerfile of the tree (:data:`DOCKERFILES`), its ignore pragmas not honoured.
 
 Every tool is an image pinned by version and digest (:data:`IMAGES`), run with no network but the rule set's own
-fetch (done before, by :func:`fetch_rules`), the tree mounted read-only. No ignore file, no allow-list and no
-configuration file is given to any tool; :func:`ignore_files` names any such file found in the tree, and it is counted
-as a finding. Each report is kept as JSON in ``--out`` with ``summary.md`` (a row per tool, its count and its counts
-by rule) and ``index.json``.
+fetch (done before, by :func:`fetch_rules`). It reads a copy of the tracked files, mounted read-only (:func:`snapshot`:
+the rule checkout and earlier reports are not in it), and a copy of the rule folders that matches :data:`RULES_DIGEST`.
+No ignore file, no allow-list and no configuration file is given to any tool; :func:`ignore_files` names any such file
+found in the tree, and it is counted as a finding. Each report is read in memory and only its rows (rule, file, line;
+never matched text) are kept as JSON in ``--out``, with ``summary.md`` (a row per tool, its count and its counts by
+rule) and ``index.json``.
 
 What fails (the integrator's ruling 7213778687), :func:`failures`:
 
@@ -31,8 +33,12 @@ What fails (the integrator's ruling 7213778687), :func:`failures`:
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
+import re
+import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -63,7 +69,12 @@ TOOLS = tuple(IMAGES)
 RULES_REPO = "https://github.com/semgrep/semgrep-rules"
 RULES_COMMIT = "a5ad1714f00c9f7fde980cab0ea1d6dc6d414fd2"
 RULE_DIRS = ("python/lang/security", "dockerfile/security", "bash/lang/security")
-#: every Dockerfile of the tree, relative to ``trialbox/`` (the Makefile's HADOLINT_GATING and HADOLINT_REPORT)
+#: the digest of the files of :data:`RULE_DIRS` at :data:`RULES_COMMIT` (:func:`rules_digest`); the scanner reads a copy
+#: that matches it, never the checkout
+RULES_DIGEST = "84cd8c87f302b300f2fc04ba8ed8a6e2770dee870b5a486eb2b0d6ba515b96b6"
+#: every tracked Dockerfile under ``trialbox/``, relative to it (the Makefile's HADOLINT_GATING and HADOLINT_REPORT);
+#: :func:`tracked_dockerfiles` finds them and the test holds the two equal. The root ``Dockerfile`` and
+#: ``.devcontainer/Dockerfile`` are the legacy tree, outside this scope
 DOCKERFILES = (
     "deploy/docker/python.Dockerfile",
     "deploy/docker/jvm.Dockerfile",
@@ -169,25 +180,88 @@ def commands(src: Path, rules: Path) -> dict[str, list[str]]:
     }
 
 
-def count(tool: str, text: str) -> tuple[int, dict[str, int]]:
-    """(findings, findings by rule) of one tool's JSON output; ``ValueError`` when it is not what the tool writes."""
-    if tool == "secrets-b":  # one JSON object per line
-        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-        by = Counter(str(r.get("DetectorName") or "?") for r in rows if isinstance(r, dict) and "DetectorName" in r)
-        return sum(by.values()), dict(by)
+def _loads(line: str) -> Any:
+    try:
+        return json.loads(line)
+    except ValueError:
+        return None
+
+
+def _row(rule: Any, file: Any = "", line: Any = 0) -> dict[str, Any]:
+    """A finding as kept: its rule, file and line, never the matched text."""
+    return {"rule": str(rule or "?"), "file": str(file or ""), "line": int(line or 0)}
+
+
+def parse(tool: str, text: str, log: str = "") -> tuple[list[dict[str, Any]], list[str]]:
+    """(rows, errors) of one tool's report (``text``) and log (``log``), in memory: a row is (rule, file, line); the
+    errors are the tool's own error fields, by kind and count and never its words. ``ValueError`` when ``text`` is not
+    what the tool writes."""
+    errors: list[str] = []
+    if tool == "secrets-b":  # one JSON object per line, its own log lines among them (standard error too)
+        docs = [json.loads(line) for line in text.splitlines() if line.strip()]
+        docs += [d for d in map(_loads, log.splitlines()) if d is not None]
+        docs = [d for d in docs if isinstance(d, dict)]
+        rows = []
+        for d in docs:
+            if "DetectorName" in d:
+                fs = ((d.get("SourceMetadata") or {}).get("Data") or {}).get("Filesystem") or {}
+                rows.append(_row(d["DetectorName"], fs.get("file"), fs.get("line")))
+        if not any(d.get("msg") == "finished scanning" for d in docs):  # silent when clean: only this line shows it ran
+            errors.append("no completion line")
+        if n := sum(d.get("level") == "error" for d in docs):
+            errors.append(f"{n} log line(s) of level error")
+        return rows, errors
     doc = json.loads(text)
     if tool == "code-patterns":
-        by = Counter(str(r["check_id"]).rsplit(".", 1)[-1] for r in doc["results"])
+        rows = [_row(str(r["check_id"]).rsplit(".", 1)[-1], r.get("path"), (r.get("start") or {}).get("line"))
+                for r in doc["results"]]  # fmt: skip
+        if doc.get("errors"):
+            errors.append(f"{len(doc['errors'])} scan error(s)")
     elif tool == "secrets-a":
-        by = Counter(str(r.get("RuleID") or "?") for r in doc)
+        rows = [_row(r.get("RuleID"), r.get("File"), r.get("StartLine")) for r in doc]
     elif tool == "platform":
         reports = doc if isinstance(doc, list) else [doc]
-        by = Counter(str(c["check_id"]) for r in reports for c in r["results"]["failed_checks"])
+        rows = [_row(c["check_id"], c.get("file_path"), (c.get("file_line_range") or [0])[0])
+                for r in reports for c in r["results"]["failed_checks"]]  # fmt: skip
+        if n := sum(int((r.get("summary") or {}).get("parsing_errors") or 0) for r in reports):
+            errors.append(f"{n} parsing error(s)")
     elif tool == "dockerfiles":
-        by = Counter(str(r.get("code") or "?") for r in doc)
+        rows = [_row(r.get("code"), r.get("file"), r.get("line")) for r in doc]
     else:
         raise ValueError(f"unknown tool {tool!r}")
+    return rows, errors
+
+
+def count(tool: str, text: str) -> tuple[int, dict[str, int]]:
+    """(findings, findings by rule) of one tool's JSON output; ``ValueError`` when it is not what the tool writes."""
+    by = Counter(r["rule"] for r in parse(tool, text)[0])
     return sum(by.values()), dict(by)
+
+
+def tracked_files(repo: Path) -> list[str]:
+    """The files git tracks in ``repo``, relative to it."""
+    out = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], check=True, capture_output=True, text=True).stdout
+    return [f for f in out.split("\0") if f]
+
+
+def tracked_dockerfiles(repo: Path) -> list[str]:
+    """Every tracked Dockerfile under ``trialbox/`` (``Dockerfile``, ``*.Dockerfile``, ``Dockerfile.*``, not a
+    ``.dockerignore``), relative to ``trialbox/``."""
+    pat = re.compile(r"trialbox/((?:.*/)?(?:Dockerfile|[^/]+\.Dockerfile|Dockerfile\.[^/]+))")
+    found = (pat.fullmatch(f) for f in tracked_files(repo) if not f.endswith(".dockerignore"))
+    return sorted(m.group(1) for m in found if m)
+
+
+def snapshot(src: Path, dest: Path) -> Path:
+    """Copy the tracked files of ``src`` into ``dest`` (outside the tree): the scanners read nothing else, so neither
+    the rule checkout nor an earlier report is in what they scan."""
+    for f in tracked_files(src):
+        a, b = src / f, dest / f
+        if a.is_dir() and not a.is_symlink():  # a submodule
+            continue
+        b.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(a, b, follow_symlinks=False)
+    return dest
 
 
 def ignore_files(src: Path) -> list[str]:
@@ -204,12 +278,29 @@ def fetch_rules(dest: Path, run: Runner = subprocess.run) -> Path:
     return pinned(dest, run)
 
 
+def rules_digest(rules: Path) -> str:
+    """One digest of the names and contents of the files of :data:`RULE_DIRS` under ``rules``."""
+    h = hashlib.sha256()
+    for d in RULE_DIRS:
+        for p in sorted((rules / d).rglob("*")):
+            if p.is_file():
+                h.update(f"{p.relative_to(rules).as_posix()}\0".encode() + hashlib.sha256(p.read_bytes()).digest())
+    return h.hexdigest()
+
+
 def pinned(dest: Path, run: Runner = subprocess.run) -> Path:
-    """``dest`` when it holds the rule set at :data:`RULES_COMMIT`; ``RuntimeError`` naming the commit it holds."""
+    """A fresh copy, outside the tree, of the rule folders of the checkout in ``dest``: ``RuntimeError`` when it is not
+    at :data:`RULES_COMMIT` or when the copy does not hash to :data:`RULES_DIGEST` (a rule edited in the checkout)."""
     head = run(["git", "-C", str(dest), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
     if head != RULES_COMMIT:
         raise RuntimeError(f"the rule set in {dest} is at {head}, not the pinned {RULES_COMMIT}")
-    return dest
+    copy = Path(tempfile.mkdtemp(prefix="rules-"))
+    for d in RULE_DIRS:
+        shutil.copytree(dest / d, copy / d, symlinks=True)
+    if (got := rules_digest(copy)) != RULES_DIGEST:
+        shutil.rmtree(copy, ignore_errors=True)
+        raise RuntimeError(f"the rule files in {dest} hash to {got}, not the pinned {RULES_DIGEST}")
+    return copy
 
 
 def scan(
@@ -226,22 +317,34 @@ def scan(
     run = run or subprocess.run
     out.mkdir(parents=True, exist_ok=True)
     results: list[ToolResult] = []
-    for tool, argv in commands(src, rules).items():
-        res = ToolResult(tool, IMAGES[tool], ran=False)
-        try:
-            got = run(argv, capture_output=True, text=True, check=False, timeout=3600)
-        except (OSError, subprocess.SubprocessError) as exc:
-            res.error = f"not run: {type(exc).__name__}"
+    tree = Path(tempfile.mkdtemp(prefix="src-"))
+    try:
+        snapshot(src, tree)
+        for tool, argv in commands(tree, rules).items():
+            res = ToolResult(tool, IMAGES[tool], ran=False)
             results.append(res)
-            continue
-        (out / f"{tool}.json").write_text(got.stdout, encoding="utf-8")
-        try:
-            res.findings, res.by_rule = count(tool, got.stdout)
-            res.ran = True
-        except (ValueError, KeyError, TypeError):
-            res.error = f"not run: exit {got.returncode}, no report"
-        results.append(res)
-    found = ignore_files(src)
+            try:
+                got = run(argv, capture_output=True, text=True, check=False, timeout=3600)
+            except (OSError, subprocess.SubprocessError) as exc:
+                res.error = f"not run: {type(exc).__name__}"
+                continue
+            if got.returncode != 0:  # every tool is in report mode: only exit 0 is a run
+                res.error = f"not run: exit {got.returncode}"
+                continue
+            try:  # the raw report is read here and dropped: only (rule, file, line) rows are kept
+                rows, errors = parse(tool, got.stdout, got.stderr)
+            except (ValueError, KeyError, TypeError, AttributeError):
+                res.error = "not run: no report"
+                continue
+            if errors:
+                res.error = f"not run: {'; '.join(errors)}"
+                continue
+            by = Counter(r["rule"] for r in rows)
+            res.findings, res.by_rule, res.ran = len(rows), dict(by), True
+            (out / f"{tool}.json").write_text(json.dumps(rows, indent=1) + "\n", encoding="utf-8")
+        found = ignore_files(tree)
+    finally:
+        shutil.rmtree(tree, ignore_errors=True)
     base = baseline if baseline is not None else load_baseline()
     record: dict[str, Any] = {"blocks_from": {k: v.isoformat() for k, v in BLOCKS_FROM.items()},
                               "rules_commit": RULES_COMMIT, "tools": [r.row() for r in results],

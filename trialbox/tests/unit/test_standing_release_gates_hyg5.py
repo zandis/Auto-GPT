@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -40,6 +41,28 @@ FIXTURES = {
     "platform": json.dumps({"check_type": "kubernetes", "results": {"failed_checks": [{"check_id": "CKV_K8S_21"}]}}),
     "dockerfiles": json.dumps([{"code": "DL3008"}, {"code": "DL3008"}]),
 }
+
+
+DONE = json.dumps({"level": "info", "msg": "finished scanning"})  # the secret scanner's line when it is done
+CLEAN = {"code-patterns": json.dumps({"results": [], "errors": []}), "secrets-a": "[]", "secrets-b": DONE,
+         "platform": json.dumps({"results": {"failed_checks": []}}), "dockerfiles": "[]"}  # fmt: skip
+BASELINE_PATH = "trialbox/deploy/security/standing-gates-baseline.json"
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+                   check=True, capture_output=True, text=True)  # fmt: skip
+
+
+def _repo(root: Path, files: dict[str, str]) -> Path:
+    """A git repository at ``root`` with ``files`` tracked."""
+    root.mkdir(parents=True)
+    _git(root, "init", "-q")
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text, encoding="utf-8")
+    _git(root, "add", "-A")
+    return root
 
 
 def _tool_of(argv: list[str]) -> str:
@@ -78,7 +101,7 @@ def test_each_tool_is_an_image_by_version_and_digest_with_no_network_and_the_tre
 
 
 def test_every_dockerfile_of_the_tree_is_linted() -> None:
-    found = {str(p.relative_to(ROOT)) for p in ROOT.rglob("*Dockerfile") if not {".venv", ".cache"} & set(p.parts)}
+    found = set(sg.tracked_dockerfiles(ROOT.parent))
     assert found == set(sg.DOCKERFILES)
 
 
@@ -122,10 +145,10 @@ FIRST_BASELINE = {
 BEFORE, ON = dt.date(2026, 12, 16), dt.date(2026, 12, 17)
 
 
-def _raised(base: dict[str, dict[str, int]]) -> list[str]:
-    """Each line of ``base`` above the first baseline, or of a tool or rule it did not count."""
+def _raised(base: dict[str, dict[str, int]], floor: dict[str, dict[str, int]] = FIRST_BASELINE) -> list[str]:
+    """Each line of ``base`` above ``floor`` (the first baseline), or of a tool or rule it did not count."""
     return [f"{tool} {rule} {n}" for tool, by in base.items() for rule, n in by.items()
-            if n > FIRST_BASELINE.get(tool, {}).get(rule, 0)]  # fmt: skip
+            if n > floor.get(tool, {}).get(rule, 0)]  # fmt: skip
 
 
 def test_the_baseline_only_goes_down_and_holds_counts_by_rule_only() -> None:
@@ -183,15 +206,17 @@ def test_a_tool_that_did_not_run_and_an_ignore_file_fail() -> None:
 
 
 def test_the_command_writes_the_record_and_fails_on_what_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    src = tmp_path / "src"
-    src.mkdir()
+    src = _repo(tmp_path / "src", {"trialbox/a.py": "x = 1\n"})
     monkeypatch.setattr(sg, "pinned", lambda d, run=None: d)
     clean = {t: (json.dumps({"results": []}) if t == "code-patterns" else "[]") for t in sg.TOOLS}
-    clean["secrets-b"], clean["platform"] = "", json.dumps({"results": {"failed_checks": []}})
+    clean["secrets-b"], clean["platform"] = DONE, json.dumps({"results": {"failed_checks": []}})
+    leaks = {**FIXTURES, "secrets-b": FIXTURES["secrets-b"] + "\n" + DONE}
     base = ["standing-gates", "--src", str(src), "--rules", str(tmp_path / "r"), "--no-fetch", "--today", "2026-12-01",
             "--out"]  # fmt: skip
-    for out, rc in ((clean, 0), (FIXTURES, 1)):
-        monkeypatch.setattr(subprocess, "run", _Runner(dict(out)))
+    real = subprocess.run
+    for out, rc in ((clean, 0), (leaks, 1)):
+        fake = _Runner(dict(out))
+        monkeypatch.setattr(subprocess, "run", lambda argv, f=fake, **kw: (real if argv[0] == "git" else f)(argv, **kw))
         assert sc_main.main([*base, str(tmp_path / f"o-{rc}")]) == rc
     record = json.loads((tmp_path / "o-1" / "index.json").read_text(encoding="utf-8"))
     assert {t["tool"]: t["findings"] for t in record["tools"]} == {
@@ -210,3 +235,172 @@ def test_the_workflow_step_blocks_and_keeps_its_summary() -> None:
     head = text[: m.start()].rsplit("\n\n", 1)[-1]
     assert "BLOCKING" in head and "2026-12-17" in head and "7213778687" in head
     assert "trialbox/build/standing-gates" in text
+
+
+# --- the findings of the review of #1587 (SG-01 .. SG-07): each of these tests fails on the head it was written against
+
+
+def _fake(out: dict[str, str], rc: dict[str, int] | None = None, err: dict[str, str] | None = None) -> sg.Runner:
+    def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        tool = _tool_of(argv)
+        return subprocess.CompletedProcess(argv, (rc or {}).get(tool, 0), out[tool], (err or {}).get(tool, ""))
+
+    return run
+
+
+def _scan(tmp_path: Path, out: dict[str, str] | None = None, **kw: dict[str, Any]) -> dict[str, Any]:
+    repo = _repo(tmp_path / "repo", {"trialbox/a.py": "x = 1\n"})
+    run = _fake({**CLEAN, **(out or {})}, **kw)
+    return sg.scan(repo, tmp_path / "rules", tmp_path / "out", run, baseline={}, today=BEFORE)
+
+
+def test_sg01_the_kept_reports_hold_rule_file_and_line_only_and_nothing_is_printed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "not-a-real-secret-0000"
+    found = {"secrets-a": json.dumps([{"RuleID": "generic-api-key", "File": "a.py", "StartLine": 3, "Secret": secret}]),
+             "secrets-b": json.dumps({"DetectorName": "PrivateKey", "Raw": secret, "SourceMetadata": {"Data": {
+                 "Filesystem": {"file": "b.py", "line": 7}}}}) + "\n" + DONE}  # fmt: skip
+    _scan(tmp_path, found, err={"secrets-a": secret, "secrets-b": secret})
+    out = tmp_path / "out"
+    assert secret not in "".join(p.read_text(encoding="utf-8") for p in out.rglob("*") if p.is_file())
+    assert json.loads((out / "secrets-a.json").read_text(encoding="utf-8")) == [
+        {"rule": "generic-api-key", "file": "a.py", "line": 3}]  # fmt: skip
+    assert json.loads((out / "secrets-b.json").read_text(encoding="utf-8")) == [
+        {"rule": "PrivateKey", "file": "b.py", "line": 7}]  # fmt: skip
+    shown = capsys.readouterr()
+    assert secret not in shown.out + shown.err
+
+
+def test_sg02_only_exit_zero_with_the_completion_line_is_a_run(tmp_path: Path) -> None:
+    def ran(name: str, out: dict[str, str], **kw: dict[str, Any]) -> dict[str, bool]:
+        return {t["tool"]: t["ran"] for t in _scan(tmp_path / name, out, **kw)["tools"]}
+
+    assert all(ran("clean", {}).values())
+    assert not ran("silent", {"secrets-b": ""})["secrets-b"]  # exit 0 and nothing printed: it never said it was done
+    docker = ran("docker", {"secrets-b": ""}, rc={"secrets-b": 125}, err={"secrets-b": "docker: cannot start"})
+    assert not docker["secrets-b"]
+    assert not ran("exit1", {"secrets-a": "[]"}, rc={"secrets-a": 1})["secrets-a"]  # a report is not a run on exit 1
+    assert ran("exit1b", {}, rc={"secrets-a": 1})["secrets-b"]  # one tool's failure leaves the others
+
+
+def test_sg02_every_tool_is_in_report_mode(tmp_path: Path) -> None:
+    flat = {t: " ".join(a) for t, a in sg.commands(tmp_path / "src", tmp_path / "rules").items()}
+    assert (
+        "--exit-code 0" in flat["secrets-a"]
+        and "--soft-fail" in flat["platform"]
+        and "--no-fail" in flat["dockerfiles"]
+    )
+    assert not re.search(r"--error|--fail", flat["code-patterns"] + flat["secrets-b"])
+
+
+def test_sg03_the_rule_files_are_hashed_and_a_copy_is_what_is_mounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert re.fullmatch(r"[0-9a-f]{64}", sg.RULES_DIGEST)
+    rules = tmp_path / "rules"
+    for d in sg.RULE_DIRS:
+        (rules / d).mkdir(parents=True)
+        (rules / d / "r.yaml").write_text("rules: []\n", encoding="utf-8")
+
+    def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 0, sg.RULES_COMMIT + "\n", "")
+
+    monkeypatch.setattr(sg, "RULES_DIGEST", sg.rules_digest(rules))
+    copy = sg.pinned(rules, run=run)
+    assert not copy.is_relative_to(rules) and sg.rules_digest(copy) == sg.RULES_DIGEST
+    (rules / sg.RULE_DIRS[0] / "r.yaml").write_text("rules: [weakened]\n", encoding="utf-8")  # edited, HEAD unchanged
+    with pytest.raises(RuntimeError, match="hash"):
+        sg.pinned(rules, run=run)
+
+
+def test_sg04_a_baseline_raised_over_the_base_branch_is_refused() -> None:
+    platform = FIRST_BASELINE["platform"]
+    on_base = {"platform": {**platform, "CKV_K8S_21": 40}}  # 41 on the first baseline, 40 after a fix, 41 again
+    assert _raised({"platform": platform}, on_base) == ["platform CKV_K8S_21 41"]
+    assert _raised(on_base, on_base) == [] and _raised({"platform": {**platform, "CKV_K8S_21": 39}}, on_base) == []
+
+
+def _base_counts(base: str, repo: Path) -> dict[str, dict[str, int]] | None:
+    """The baseline's counts on ``origin/<base>``; None when that branch has no baseline yet; ``RuntimeError`` (the
+    check fails closed) when the branch cannot be read."""
+    ref = f"origin/{base}"
+    git = ["git", "-C", str(repo)]
+    try:
+        subprocess.run([*git, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], check=True, capture_output=True)
+        listed = subprocess.run([*git, "ls-tree", "--name-only", ref, "--", BASELINE_PATH], check=True,
+                                capture_output=True, text=True).stdout  # fmt: skip
+        if not listed.strip():
+            return None
+        shown = subprocess.run([*git, "show", f"{ref}:{BASELINE_PATH}"], check=True, capture_output=True, text=True)
+    except (subprocess.CalledProcessError, OSError) as exc:
+        raise RuntimeError(f"the base branch {ref} cannot be read: {type(exc).__name__}") from exc
+    return json.loads(shown.stdout)["counts"]  # type: ignore[no-any-return]
+
+
+def test_sg04_the_base_branch_is_read_or_the_check_fails_closed(tmp_path: Path) -> None:
+    counts = {"platform": {"CKV_K8S_21": 40}}
+    repo = _repo(tmp_path / "a", {BASELINE_PATH: json.dumps({"counts": counts})})
+    _git(repo, "commit", "-qm", "x")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    assert _base_counts("main", repo) == counts
+    with pytest.raises(RuntimeError, match="cannot be read"):
+        _base_counts("no-such-branch", repo)
+    bare = _repo(tmp_path / "b", {"x": "1"})  # a base that has no baseline file yet (the branch that adds it)
+    _git(bare, "commit", "-qm", "x")
+    _git(bare, "update-ref", "refs/remotes/origin/main", "HEAD")
+    assert _base_counts("main", bare) is None
+
+
+def test_sg04_the_baseline_is_not_raised_over_the_pull_requests_base_branch() -> None:
+    base = os.environ.get("GITHUB_BASE_REF")
+    if not base:
+        pytest.skip("not a pull request run: no base branch is named (the unit shards fetch it for a pull request)")
+    floor = _base_counts(base, ROOT.parent)
+    assert floor is None or _raised(sg.load_baseline(), floor) == []
+
+
+def test_sg04_the_unit_shards_fetch_the_base_branch() -> None:
+    text = (ROOT.parent / ".github" / "workflows" / "trialbox-ci.yml").read_text(encoding="utf-8")
+    m = re.search(r"\n  unit-shard:\n(.*?)(?=\n  [a-z0-9-]+:\n)", text, re.S)
+    assert m and "git fetch --depth=1 origin" in m.group(1) and "github.base_ref" in m.group(1)
+
+
+def test_sg05_a_tools_own_error_fields_fail_the_gate(tmp_path: Path) -> None:
+    errors = {
+        "code-patterns": json.dumps({"results": [], "errors": [{"code": 3, "message": "Syntax error"}]}),
+        "platform": json.dumps({"summary": {"parsing_errors": 1}, "results": {"failed_checks": []}}),
+        "secrets-b": json.dumps({"level": "error", "msg": "could not read a file"}) + "\n" + DONE,
+    }
+    for tool, text in errors.items():
+        rec = _scan(tmp_path / tool, {tool: text})
+        assert not next(t for t in rec["tools"] if t["tool"] == tool)["ran"], tool
+        assert any(f.startswith(f"{tool}: not run") for f in rec["failures"]), tool
+
+
+def test_sg06_the_scanners_read_a_copy_of_the_tracked_files_outside_the_tree(tmp_path: Path) -> None:
+    repo = _repo(tmp_path / "repo", {"trialbox/a.py": "x = 1\n", "README": "r\n"})
+    for stale in ("trialbox/build/standing-gates/old.json", "trialbox/.cache/code-rules/r.yaml"):  # not tracked
+        (repo / stale).parent.mkdir(parents=True, exist_ok=True)
+        (repo / stale).write_text("stale\n", encoding="utf-8")
+    seen: list[tuple[Path, list[str]]] = []
+
+    def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        mount = Path(next(a for a in argv if a.endswith(":/src:ro")).rsplit(":/src:ro", 1)[0])
+        seen.append((mount, sorted(p.relative_to(mount).as_posix() for p in mount.rglob("*") if p.is_file())))
+        return _fake(CLEAN)(argv, **kw)
+
+    sg.scan(repo, tmp_path / "rules", tmp_path / "out", run, baseline={}, today=BEFORE)
+    assert len(seen) == len(sg.TOOLS)
+    for mount, files in seen:
+        assert mount != repo and not mount.is_relative_to(repo)
+        assert files == ["README", "trialbox/a.py"]
+    assert not seen[0][0].exists()  # the copy is removed after the run
+
+
+def test_sg07_dockerfiles_are_found_from_the_tracked_files_under_trialbox(tmp_path: Path) -> None:
+    names = ["trialbox/demo/Dockerfile", "trialbox/a/b.Dockerfile", "trialbox/deploy/docker/Dockerfile.worker",
+             "trialbox/deploy/docker/jvm.Dockerfile.dockerignore", "Dockerfile", ".devcontainer/Dockerfile"]  # fmt: skip
+    repo = _repo(tmp_path / "repo", dict.fromkeys(names, ""))
+    (repo / "trialbox/untracked.Dockerfile").write_text("", encoding="utf-8")
+    assert sg.tracked_dockerfiles(repo) == ["a/b.Dockerfile", "demo/Dockerfile", "deploy/docker/Dockerfile.worker"]
