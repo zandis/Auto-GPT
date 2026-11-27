@@ -35,6 +35,11 @@
 #                      out.old), then the signing fails: the last release is back in out
 #   build-pub-private  HYG2-R7: the vendor public-key object carries a private key after the public one: refused at
 #                      b05, nothing of it in the build folder, nothing uploaded
+#   build-recover-fails  HYG2-R2: the last release in out.old (a cut) and its way back into out blocked: b05 stops
+#                      before signing and out.old is kept, never deleted
+#   build-validation-again-fails  HYG2-R10: a validation signing that fails keeps the public key of the bundle kept
+#   build-sign-cut     HYG2-R10: a cut signing left its attempt folder and make_bundle.sh's staging: the next one
+#                      removes them (one bundle of disk per cut otherwise)
 #   build-preempt      a pre-emption in the middle of b03: the next boot keeps b01 and b02, runs b03 again, finishes
 #   happy              start (G-2) + g6 + g9 + g10 from the signed bundle; the power cycle; results through the bucket
 #                      (and the door)
@@ -145,7 +150,8 @@ REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
      resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
-     acc-cut-resume build-again-fails build-cut-fails build-pub-private
+     acc-cut-resume build-again-fails build-cut-fails build-pub-private build-recover-fails build-validation-again-fails
+     build-sign-cut
      session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
      session-ssh session-then-acc session-close-fails session-update-fails session-cut-56 session-unit session-unit-race
      session-unit-fails session-unit-dbus session-ops session-quiet-fails session-ss-fails session-ended-again)
@@ -437,6 +443,25 @@ for CASE in "${CASES[@]}"; do
       boot; to_the_end ;;
     build-pub-private)
       setup "$CASE" build; build_setup; cat "$V/keys/vendor_ed25519.key" >> "$BKT/r2/keys/vendor_ed25519.pub"
+      boot; to_the_end ;;
+    build-recover-fails)  # a link to nowhere: out is not there, and out.old cannot be renamed onto it
+      setup "$CASE" build; build_setup
+      mkdir -p "$S/vm/build/out.old"; echo "the last good release" > "$S/vm/build/out.old/trialbox-2026.11-r.tar"
+      ln -s "$S/vm/build/nowhere" "$S/vm/build/out"
+      boot; to_the_end ;;
+    build-validation-again-fails)
+      setup "$CASE" build sign-fails; build_setup; m tb-mode validation
+      rm -f "$S/metadata/tb-vendor-key-secret" "$S/metadata/tb-vendor-key-version"
+      mkdir -p "$S/vm/build/out"; echo "the last good release" > "$S/vm/build/out/trialbox-2026.11-r.tar"
+      echo "the last throwaway key" > "$S/vm/build/throwaway-signing-key.pub"
+      boot; to_the_end ;;
+    build-sign-cut)
+      setup "$CASE" build; build_setup
+      mkdir -p "$S/vm/build/out" "$S/vm/build/out.next.another-run" "$S/vm/build/out.next.sign/.make_bundle-pending.x" \
+        "$S/vm/build/tmp/tb-bundle.x"
+      echo old > "$S/vm/build/out/earlier-release.tar"
+      echo partial > "$S/vm/build/out.next.sign/.make_bundle-pending.x/trialbox-2026.11-r.tar"
+      echo partial > "$S/vm/build/tmp/tb-bundle.x/image.tar"
       boot; to_the_end ;;
     build-preempt)
       setup "$CASE" build; echo 4 > "$S/knobs/images-seconds"; build_setup; boot

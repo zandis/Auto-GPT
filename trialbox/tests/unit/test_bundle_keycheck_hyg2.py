@@ -420,6 +420,62 @@ def test_an_absent_out_folder_is_published_readable_as_before(kit: dict[str, Any
     assert stat.S_IMODE(_dist(kit).stat().st_mode) == 0o755
 
 
+def _chown_shim(kit: dict[str, Any], fail: bool) -> Path:
+    log = Path(kit["tmp"]) / "chown.log"
+    shim = kit["bin"] / "chown"
+    shim.write_text(
+        f'#!/bin/sh\necho "$*" >> {log}\n' + ("exit 1\n" if fail else 'exec /bin/chown "$@"\n'), encoding="utf-8"
+    )
+    shim.chmod(0o755)
+    return log
+
+
+def test_an_empty_out_folder_gives_its_owner_and_group_to_the_release(kit: dict[str, Any]) -> None:  # R9
+    _dist(kit).mkdir()
+    log = _chown_shim(kit, fail=False)
+    res = _built(kit)
+    assert res.returncode == 0, _blob(res)
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert len(calls) == 1 and calls[0].startswith(f"--reference={_dist(kit)} "), calls
+    assert Path(calls[0].split(" ", 1)[1]).name.startswith(".make_bundle-pending."), calls
+
+
+def test_an_owner_that_cannot_be_carried_over_publishes_nothing(kit: dict[str, Any]) -> None:  # R9
+    _dist(kit).mkdir()
+    _chown_shim(kit, fail=True)
+    res = _built(kit)
+    assert res.returncode == 1 and "could not be given to the release" in res.stderr, _blob(res)
+    assert list(_dist(kit).iterdir()) == []
+    assert not list(kit["tmp"].glob(".make_bundle-pending.*"))
+
+
+def _acl(path: Path) -> None:
+    """An access ACL with a named-user entry, as setfacl sets it (the kernel's xattr form; no setfacl needed)."""
+    import struct
+
+    entries = [
+        (0x01, 7, 0xFFFFFFFF),
+        (0x02, 5, 65534),
+        (0x04, 5, 0xFFFFFFFF),
+        (0x10, 5, 0xFFFFFFFF),
+        (0x20, 0, 0xFFFFFFFF),
+    ]
+    os.setxattr(
+        path, "system.posix_acl_access", struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *e) for e in entries)
+    )
+
+
+def test_an_empty_out_folder_with_an_acl_is_refused_before_anything_is_built(kit: dict[str, Any]) -> None:  # R9
+    _dist(kit).mkdir()
+    _dist(kit).chmod(0o750)
+    _acl(_dist(kit))
+    assert subprocess.run(["ls", "-ld", str(_dist(kit))], capture_output=True, text=True, check=False).stdout[10] == "+"
+    res = _built(kit)
+    assert res.returncode == 2 and "has an ACL" in res.stderr, _blob(res)
+    assert list(_dist(kit).iterdir()) == []
+    assert not kit["log"].exists()
+
+
 # ---------------------------------------------------------------- R8: the box run's stand-in for make_bundle.sh
 def _box_run_standin(folder: Path) -> Path:
     text = (ROOT / "tests/rehearsal/box-run/rehearse-box-run.sh").read_text(encoding="utf-8")
@@ -474,7 +530,7 @@ def test_runbook_a_rebuild_replaces_the_media_only_once_it_is_built(
     _runbook(tmp_path, monkeypatch, fail="")
 
 
-def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str) -> None:
+def _runbook_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str) -> tuple[Any, Path, list[list[str]]]:
     from tools import runbook_install as ri
 
     work = tmp_path / "work"
@@ -518,6 +574,11 @@ def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str) -> None
 
     if fail == "rename":
         monkeypatch.setattr(Path, "rename", failing_rename)
+    return ri, work, seen
+
+
+def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str) -> None:
+    ri, work, seen = _runbook_setup(tmp_path, monkeypatch, fail)
     if fail:
         with pytest.raises((SystemExit, OSError), match="make_bundle.sh failed|rename of the new media"):
             ri.vendor_bundle(work, sys.executable, tmp_path / "models")
@@ -531,6 +592,61 @@ def _runbook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str) -> None
         assert stat.S_IMODE(bundle.parent.stat().st_mode) == stat.S_IMODE((tmp_path / "ref").stat().st_mode)  # N3
     assert any(a[0] == "tools/make_bundle.sh" for a in seen)
     # no half-built or retired folder left; the other run's folder is left alone (N1)
+    assert sorted(p.name for p in work.iterdir()) == [".media-next.another-run", "media", "vendor"]
+
+
+def test_runbook_a_failure_after_the_build_leaves_no_staging_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # R11
+    ri, work, _seen = _runbook_setup(tmp_path, monkeypatch, fail="")
+    write_text = Path.write_text
+
+    def disk_full(self: Path, *a: Any, **kw: Any) -> int:
+        if self.name.endswith(".images"):
+            raise OSError(28, "No space left on device")
+        return write_text(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "write_text", disk_full)
+    with pytest.raises(OSError, match="No space left on device"):
+        ri.vendor_bundle(work, sys.executable, tmp_path / "models")
+    assert sorted(p.name for p in work.iterdir()) == [".media-next.another-run", "media", "vendor"]
+    assert (work / "media" / "trialbox-runbook-20261101.tar").read_bytes() == b"the last good release"
+
+
+def test_runbook_a_second_publisher_waits_for_the_one_publishing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # R12
+    import fcntl
+    import threading
+    import time
+
+    ri, work, _seen = _runbook_setup(tmp_path, monkeypatch, fail="")
+    # the first publisher, between its two renames: the last media in media.old, its new ones not yet in media
+    (work / "media").rename(work / "media.old")
+    lock = os.open(work, os.O_RDONLY)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    errors: list[BaseException] = []
+
+    def second() -> None:
+        try:
+            ri.vendor_bundle(work, sys.executable, tmp_path / "models")
+        except BaseException as e:
+            errors.append(e)
+
+    t = threading.Thread(target=second)
+    t.start()
+    time.sleep(1.0)
+    try:
+        assert t.is_alive(), "the second publisher went on while the first held the media"
+        assert not (work / "media").exists()
+        assert (work / "media.old" / "trialbox-runbook-20261101.tar").read_bytes() == b"the last good release"
+    finally:
+        (work / "media.old").rename(work / "media")  # the first one's rename failed: it puts the last media back
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        os.close(lock)
+        t.join(30)
+    assert not t.is_alive() and not errors, errors
+    assert sorted(p.name for p in (work / "media").iterdir())[0].startswith("trialbox-runbook-")
     assert sorted(p.name for p in work.iterdir()) == [".media-next.another-run", "media", "vendor"]
 
 
@@ -587,9 +703,12 @@ def _demo(root: Path, fail: str = "") -> subprocess.CompletedProcess[str]:
 _DEMO_DIRS = ["bundles", "bundles.next.another-run", "keys"]  # the other run's folder is left alone (N1)
 
 
-@pytest.mark.parametrize("fail", ["demo-b", "demo-c", "mv"])
+@pytest.mark.parametrize("fail", ["demo-b", "demo-c", "mv", "cut-then-demo-b"])
 def test_demo_update_a_failed_bundle_keeps_both_last_bundles(tmp_path: Path, fail: str) -> None:  # R2
     root = _demo_tree(tmp_path)
+    if fail.startswith("cut-then-"):  # an earlier build was cut between its two renames: the last pair in bundles.old
+        (root / "dist/step8/bundles").rename(root / "dist/step8/bundles.old")
+        fail = fail.removeprefix("cut-then-")
     res = _demo(root, fail)
     assert res.returncode != 0, _blob(res)
     assert fail == "mv" or f"make_bundle: refused 2026.11-step8-{fail}" in res.stderr, _blob(res)
@@ -624,6 +743,9 @@ def _p0b(tmp_path: Path, fail: str) -> tuple[subprocess.CompletedProcess[str], P
     (out / "bundle-p0b").mkdir(parents=True)
     (out / "bundle-p0b" / "trialbox-p0b.tar").write_text("the last good bundle\n", encoding="utf-8")
     (out / "bundle-p0b.next.another-run").mkdir()  # N1: a build running beside this one
+    if fail.startswith("cut-then-"):  # an earlier build was cut between its two renames: the last one in .old
+        (out / "bundle-p0b").rename(out / "bundle-p0b.old")
+        fail = fail.removeprefix("cut-then-")
     bindir.mkdir()
     _mv_failing(bindir, "bundle-p0b.next.")
     (bindir / "docker").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -644,7 +766,7 @@ def _p0b(tmp_path: Path, fail: str) -> tuple[subprocess.CompletedProcess[str], P
     return res, out
 
 
-@pytest.mark.parametrize("fail", ["build", "mv"])
+@pytest.mark.parametrize("fail", ["build", "mv", "cut-then-build"])
 def test_p0_media_a_failed_bundle_keeps_the_last_one(tmp_path: Path, fail: str) -> None:  # R2
     res, out = _p0b(tmp_path, fail=fail)
     assert res.returncode != 0, _blob(res)

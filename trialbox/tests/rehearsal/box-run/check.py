@@ -155,7 +155,7 @@ if case in ("build", "build-preempt"):
         )
         ok(calls["venv"] == 1 and calls["images"] == 2, "make venv once, make images twice")
 
-if case == "build":
+if case in ("build", "build-sign-cut"):
     bout = S / "vm" / "build" / "out"
     ok(
         not (bout / "earlier-release.tar").exists() and (bout / "trialbox-2026.11-r.tar.sha256").exists(),
@@ -170,7 +170,7 @@ if case == "build":
         "N3: the published folder is the one make_bundle.sh made, not the attempt's private folder",
     )
 
-if case in ("build-again-fails", "build-cut-fails"):
+if case in ("build-again-fails", "build-cut-fails", "build-validation-again-fails"):
     bout = S / "vm" / "build" / "out"
     ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
     ok(
@@ -180,6 +180,35 @@ if case in ("build-again-fails", "build-cut-fails"):
     )
     ok(sorted(p.name for p in bout.parent.glob("out*")) == ["out"], "no half-built folder left")
     ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
+if case == "build-sign-cut":
+    b = S / "vm" / "build"
+    ok(
+        not (b / "out.next.sign").exists() and not list((b / "tmp").glob("tb-bundle.*")),
+        "HYG2-R10: what a cut signing left (its attempt folder, make_bundle.sh's staging) is gone, not kept per cut",
+    )
+
+if case == "build-recover-fails":
+    b = S / "vm" / "build"
+    ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
+    ok(
+        "TB-BUNDLE-NOT-RESTORED" in parts["b05-sign"]["stop"]["reason"],
+        "the stop says the last release was not put back",
+    )
+    kept = b / "out.old" / "trialbox-2026.11-r.tar"
+    ok(
+        kept.exists() and kept.read_text() == "the last good release\n",
+        "HYG2-R2: the last release that could not be put back is kept in out.old, never deleted",
+    )
+    ok(sorted(p.name for p in b.glob("out*")) == ["out", "out.old"], "no half-built folder left")
+    ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
+
+if case == "build-validation-again-fails":
+    pub = S / "vm" / "build" / "throwaway-signing-key.pub"
+    ok(
+        pub.exists() and pub.read_text() == "the last throwaway key\n",
+        "HYG2-R10: the failed signing left the public key of the bundle kept, not one of a bundle never published",
+    )
 
 if case == "build-pub-private":
     ok(list(parts) == BUILD[:5] and parts["b05-sign"]["status"] == "stop", "the build stopped at b05")
