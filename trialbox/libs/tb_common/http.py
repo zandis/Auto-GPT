@@ -643,3 +643,12 @@ def guarded_client(
         transport=GuardedTransport(guard, inner, verify), timeout=timeout, follow_redirects=follow_redirects,
         trust_env=False,
     )  # fmt: skip
+
+
+def declared_client(url: str, service: str | None = None, **kw: Any) -> httpx.Client:
+    """:func:`guarded_client` with ``url``'s own host and port declared, as the operator who set that URL declared it
+    (P-13 ruling, the EDC tool door): a metadata or link-local address, any other host, or ``http`` outside DEV and
+    TEST is still refused."""
+    u = urlparse(url)
+    extra = [(u.hostname, u.port or (443 if u.scheme == "https" else 80))] if u.hostname else []
+    return guarded_client(service, extra=extra, **kw)

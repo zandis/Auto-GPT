@@ -13,6 +13,7 @@ import re
 import time
 from collections.abc import Callable
 from typing import Any, ClassVar
+from urllib.parse import urlparse
 
 import httpx
 from tb_common.http import EgressRefused
@@ -190,6 +191,10 @@ def api_url(base: str, *, loopback_http: bool = False) -> str:
         allowed = True
     if not allowed:
         raise RcError("RC-UPSTREAM", "the REDCap URL must start with https://")
+    try:
+        _ = urlparse(b).port  # review L1 (P-13): a malformed bracketed host or port is the address's error, not a crash
+    except ValueError as exc:
+        raise RcError("RC-UPSTREAM", "the REDCap URL is not a valid address") from exc
     b = b.rstrip("/")
     return b if b.endswith("/api") else b + "/api"
 

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 from console.i18n_step3 import EN as STEP3_EN
+from edc_backend import tools as edc_tools
 from fastapi import FastAPI
 from orchestrator.study_api import router
 from rc_bridge.client import HOSPITAL_NETWORK, refused_line
@@ -34,6 +36,20 @@ def test_an_http_address_is_the_form_s_error_with_its_reason(tmp_path: Path) -> 
         assert "{msg}" in STEP3_EN["rc.err.RC-FIELD"]  # the admin page prints the reason
         saved = [x["token_ref"] for x in c.get("/redcap/connections").json()["connections"]]
         assert "main" not in saved  # nothing saved
+
+
+@pytest.mark.parametrize("url", ["https://[10.0.2.2:28443/redcap/", "https://[fd12::1]:port/redcap/"])
+def test_a_malformed_address_is_the_form_s_error_never_a_500(tmp_path: Path, url: str) -> None:
+    """Review L1: a malformed bracketed host (or port) is a 400 RC-FIELD with its reason, not a crash, and not saved."""
+    with study_service(tmp_path) as (svc, _sim, _clock):
+        app = FastAPI()
+        app.include_router(router(lambda: svc))
+        c = SignedClient(app)
+        r = c.put("/redcap/connections/main", json={"url": url, "token": TOKEN_A, "by": "admin"})
+        assert r.status_code == 400, r.text
+        assert r.json()["detail"] == {"code": "RC-FIELD", "message": "the REDCap URL is not a valid address"}
+        saved = [x["token_ref"] for x in c.get("/redcap/connections").json()["connections"]]
+        assert "main" not in saved
 
 
 @pytest.mark.parametrize("reason", ["private", "shared"])
@@ -105,4 +121,29 @@ def test_the_admin_test_and_the_study_link_meet_the_same_guard(tmp_path: Path, m
             assert r.status_code == 502, r.text
             assert r.json()["detail"]["code"] == "RC-UPSTREAM"
             assert "not allowed (private): 10.0.2.2" in r.json()["detail"]["message"]
+            assert "EGRESS_EXTRA=orchestrator=<host>:<port>" in r.json()["detail"]["message"]  # review M3
+            assert "deploy/network.sh apply" in r.json()["detail"]["message"]
         assert admin.json()["detail"]["message"] == link.json()["detail"]["message"]
+
+
+def test_the_edc_admin_connection_check_goes_through_the_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """P-13 ruling: ``/admin/edc``'s connection check (the tool door's client) was a plain client, outside the guard.
+    It is the guarded client now: its own declared host only, never metadata, never http on a production box."""
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    monkeypatch.setenv("TB_SERVICE_NAME", "console")
+    monkeypatch.delenv("EGRESS_EXTRA", raising=False)
+    monkeypatch.setenv("TB_EDC_TOOL_URL", "https://169.254.169.254")
+    with edc_tools.http_client() as http, pytest.raises(EgressRefused) as got:
+        http.get("https://169.254.169.254/api/v1/capabilities")
+    assert got.value.reason == "metadata"
+    monkeypatch.setenv("TB_EDC_TOOL_URL", "https://10.0.2.3:8443")
+    with edc_tools.http_client() as http:
+        with pytest.raises(EgressRefused) as other:  # another private address than the one the operator set
+            http.get("https://10.0.2.4:8443/api/v1/capabilities")
+        assert other.value.reason == "private"
+        with pytest.raises(EgressRefused) as plain:
+            http.get("http://10.0.2.3:8443/api/v1/capabilities")
+        assert plain.value.reason == "http_outside_dev"
+    status = edc_tools.connection_status("https://10.0.2.4:8443", "tool-token", edc_tools.http_client())
+    assert status["reachable"] is False and "did not answer" in status["reason"]
+    assert isinstance(other.value, httpx.ConnectError)  # caught where any connection failure is
