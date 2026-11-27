@@ -6,6 +6,7 @@ pseudonyms, two coded criteria, forty made-up practitioner codes. The bound and 
 
 from __future__ import annotations
 
+import gc
 import json
 import statistics
 import time
@@ -16,7 +17,7 @@ import pytest
 from console.sitestore import SiteStore
 from fastapi.testclient import TestClient
 from tb_common.crypto import sha256_bytes
-from tb_contracts import JobOutput
+from tb_contracts import Job, JobOutput
 
 from tests.console import test_console_app as base
 
@@ -24,9 +25,10 @@ box = base.box
 N = 50_000
 LISTED = ("high", "review")
 #: seconds, the 95th percentile of each page's requests (see the module's docstring)
-P95_BOUND_S = 4.0
+P95_BOUND_S = 2.5
 REQUESTS = 7
 T0 = datetime(2026, 10, 6, 9, 0, tzinfo=UTC)  # the console's fixed clock
+TIMES: list[str] = []  # each measured page's request times, for a failure's message
 
 
 def _rows(n: int) -> list[dict[str, Any]]:
@@ -57,17 +59,28 @@ def _screen(backend: Any, n: int) -> int:
     summary = {"ruleset": "GZQO", "version": "1.0.0", "run_date": "2026-10-05", "snapshot": "2026-10-04",
                "practitioner_names": {f"DR-{k}": f"Dr {k}" for k in range(40)}, "tiers": {}, "listed": n}  # fmt: skip
     cl = {"ruleset": "GZQO", "version": "1.0.0", "snapshot": "2026-10-04", "scope": {}, "rows": rows, "summary": {}}
+    files = (
+        ("screen_candidates_GZQO_v1.0.0_2026-10-05.json", json.dumps(summary).encode()),
+        ("candidate_list_GZQO_v1.0.0.json", json.dumps(cl).encode()),
+    )
     outs = []
-    for (name, tag), data in {
-        ("screen_candidates_GZQO_v1.0.0_2026-10-05.json", "aggregate"): json.dumps(summary).encode(),
-        ("candidate_list_GZQO_v1.0.0.json", "phi"): json.dumps(cl).encode(),
-    }.items():
+    for name, data in files:
         key = f"outputs/{jid}/{name}"
         backend.objects[key] = data
-        outs.append(JobOutput(filename=name, sha256=sha256_bytes(data), minio_key=key, recipients=[], tag=tag))
+        out = JobOutput(filename=name, sha256=sha256_bytes(data), minio_key=key, recipients=[], tag="aggregate")
+        outs.append(out if name.startswith("screen_") else out.model_copy(update={"tag": "phi"}))
     backend.add_job(
-        base.Job(job_id=jid, type="SCREEN", ruleset="GZQO", requested_by="admin@hospa.test", received_at=T0,
-                 updated_at=T0, state="done", options={}, outputs=outs)  # fmt: skip
+        Job(
+            job_id=jid,
+            type="SCREEN",
+            ruleset="GZQO",
+            requested_by="admin@hospa.test",
+            received_at=T0,
+            updated_at=T0,
+            state="done",
+            options={},
+            outputs=outs,
+        )
     )
     return sum(1 for r in rows if r["tier"] in LISTED)
 
@@ -86,12 +99,14 @@ def big(box: dict[str, Any]) -> dict[str, Any]:
 def _p95(client: Any, path: str) -> tuple[float, Any]:
     first = client.get(path)  # the first read of a run records its first appearances: not what a reader waits for
     assert first.status_code == 200, (path, first.status_code)
+    gc.collect()  # what earlier tests in this process left is not this page's time
     times = []
     for _ in range(REQUESTS):
         t = time.perf_counter()
         r = client.get(path)
         times.append(time.perf_counter() - t)
         assert r.status_code == 200, (path, r.status_code)
+    TIMES.append(" ".join(f"{t:.2f}" for t in times))
     return statistics.quantiles(times, n=20, method="inclusive")[18], r
 
 
@@ -107,7 +122,7 @@ def _p95(client: Any, path: str) -> tuple[float, Any]:
 )
 def test_a_heavy_page_at_50k_candidates_stays_under_its_bound(big: dict[str, Any], path: str) -> None:
     p95, r = _p95(big["crc"], path)
-    assert p95 < P95_BOUND_S, f"{path}: p95 {p95:.2f} s at {N} candidates (bound {P95_BOUND_S} s)"
+    assert p95 < P95_BOUND_S, f"{path}: p95 {p95:.2f} s at {N} candidates (bound {P95_BOUND_S} s; {TIMES[-1]})"
     assert len(r.content) < 1_000_000  # one page of rows, never the whole list
 
 
@@ -159,3 +174,50 @@ def test_a_run_s_first_appearances_are_written_once(big: dict[str, Any], monkeyp
     assert writes == []
     got = store.seen("P20", pids, "JOB-B", "2026-10-08T00:00:00+00:00")
     assert got == {**dict.fromkeys(pids[:4], "JOB-A"), **dict.fromkeys(pids[4:], "JOB-B")} and writes == [2]
+
+
+def test_the_collector_is_back_as_it_was_after_a_heavy_page() -> None:
+    """A heavy page pauses the cyclic collector while it reads the list (P-20), and leaves it as it found it: on
+    after nested and overlapping pages, on after a page that failed, off if it was off before."""
+    import threading
+
+    from console import studies as st
+
+    assert gc.isenabled()
+    with st.no_cycle_collection():
+        assert not gc.isenabled()
+        with st.no_cycle_collection():
+            assert not gc.isenabled()
+        assert not gc.isenabled()  # the outer page is still reading
+    assert gc.isenabled()
+
+    @st.heavy_page
+    def fails() -> None:
+        assert not gc.isenabled()
+        raise ValueError("a page that failed")
+
+    with pytest.raises(ValueError):
+        fails()
+    assert gc.isenabled()
+    first_in, release = threading.Event(), threading.Event()
+
+    def page() -> None:
+        with st.no_cycle_collection():
+            first_in.set()
+            release.wait(5)
+
+    other = threading.Thread(target=page)
+    other.start()
+    first_in.wait(5)
+    with st.no_cycle_collection():
+        release.set()
+        other.join(5)
+        assert not gc.isenabled()  # the other page ended; this one still reads
+    assert gc.isenabled()
+    gc.disable()
+    try:
+        with st.no_cycle_collection():
+            pass
+        assert not gc.isenabled()  # off before, off after: a caller's own choice is kept
+    finally:
+        gc.enable()

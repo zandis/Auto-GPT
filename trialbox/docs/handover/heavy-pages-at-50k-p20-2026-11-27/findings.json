@@ -1,0 +1,28 @@
+{
+ "card": "P20",
+ "title": "the heavy pages at 50,000 candidates (R1+1 P-20)",
+ "date": "2026-11-27",
+ "source": "docs/handover/heavy-pages-at-50k-p20-2026-11-27.md",
+ "findings": [
+  {
+   "id": "P20-01",
+   "date": "2026-11-27",
+   "source": "docs/handover/heavy-pages-at-50k-p20-2026-11-27.md",
+   "severity": "Low",
+   "claim": "the week list, the candidates page and the coordinator's home still parse the run's whole candidate list and build every listed row at each view (the counts and the order need them); the time grows with the list, about 0.8 s at 50k in the card's container; a cache per run would bound it",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "P20-02",
+   "date": "2026-11-27",
+   "source": "docs/handover/heavy-pages-at-50k-p20-2026-11-27.md",
+   "severity": "Low",
+   "claim": "the p95 bound of the heavy pages at 50k candidates (2.5 s) is measured in a development container with a stand-in orchestrator, not on a box with its database, lake and orchestrator; the box's own times at 50k are not measured",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}

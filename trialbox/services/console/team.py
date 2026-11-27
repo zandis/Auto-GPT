@@ -461,6 +461,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return rid, ctx
 
     @app.get("/studies/{rs}/candidates")
+    @st.heavy_page  # P-20
     def candidates(request: Request, rs: str, page: int = 1, show: str = "") -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
@@ -1240,6 +1241,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         }  # fmt: skip
 
     @app.get("/api/v1/studies/{rs}/candidates")
+    @st.heavy_page  # P-20
     def api_candidates(request: Request, rs: str, page: int | None = None, size: int = API_PAGE) -> dict[str, Any]:
         """The study's candidates. P-20: with ``page`` (from 1), one page of ``size`` rows (at most
         :data:`API_PAGE_MAX`) and ``total``, ``page``, ``pages``; without it, every row, as before."""

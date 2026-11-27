@@ -381,7 +381,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if out is None:
             return None
         try:
-            data = json.loads(bk.get_object(out.minio_key))
+            with st.no_cycle_collection():  # P-20: a 50k candidate list is 50k new dicts
+                data = json.loads(bk.get_object(out.minio_key))
         except (KeyError, ValueError, OSError):
             return None
         return data if isinstance(data, dict) else None
@@ -608,6 +609,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return list(bk.list_jobs(limit=500))
 
     @app.get("/home")
+    @st.heavy_page  # P-20
     def home(request: Request, view: str = "", today: str = "") -> Response:
         sess = h.need(request)
         if getattr(request.state, "home_today", False) and sess.user.role in home_today.ROLES:  # J-6 (D-1225)
@@ -901,6 +903,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # ------------------------------------------------------------------ weekly list and patient page
     @app.get("/studies/{rs}/week")
+    @st.heavy_page  # P-20
     def week(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)

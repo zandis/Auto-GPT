@@ -9,10 +9,14 @@ a person decides (CDR, study partner, …).
 
 from __future__ import annotations
 
+import gc
 import os
-from collections.abc import Iterable, Mapping, Sequence
+import threading
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from functools import wraps
 from typing import Any
 
 from tb_common.config import environment_name
@@ -388,6 +392,43 @@ class Fit:
     todo_words: dict[str, str] = field(default_factory=dict)  # a run's to-do -> its words in the page language (D-309)
 
 
+_PAUSE = threading.Lock()
+_paused = [0, False]  # how many lists are being built now; whether the collector was on when the first began
+
+
+@contextmanager
+def no_cycle_collection() -> Iterator[None]:
+    """P-20: build a large list without the cyclic garbage collector. The rows of a 50k list hold no cycles, yet
+    their 300k new objects start a full collection over every object the process holds again and again (0.8 s of
+    one week list's 1.0 s, measured). Reference counting still frees what is dropped; the collector is back on
+    when the last list being built is done, as it was before (nested and parallel requests are counted)."""
+    with _PAUSE:
+        if _paused[0] == 0:
+            _paused[1] = gc.isenabled()
+            gc.disable()
+        _paused[0] += 1
+    try:
+        yield
+    finally:
+        with _PAUSE:
+            _paused[0] -= 1
+            if _paused[0] == 0 and _paused[1]:
+                gc.enable()
+
+
+def heavy_page[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
+    """P-20: a page (a plain ``def`` route) that reads a whole candidate list runs without the cyclic collector
+    (:func:`no_cycle_collection`). The list's objects are freed by reference counting when the page is answered, so
+    the collector is not left a full collection over them for the next request to pay (1.5 to 2.5 s at 50k)."""
+
+    @wraps(fn)
+    def run(*args: P.args, **kwargs: P.kwargs) -> R:
+        with no_cycle_collection():
+            return fn(*args, **kwargs)
+
+    return run
+
+
 def todo_words(crit: Mapping[str, CriterionMeta]) -> dict[str, str]:
     """A run's to-do -> its words in the page language (D-309), the same for every row of a list."""
     return {m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original}
@@ -446,6 +487,21 @@ def weekly_rows(
     """Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled,
     closed or set aside, sorted by next visit (none last), then tier, then pseudonym. A "Not now, re-check on <date>"
     mark hides the patient until that date (``today``); from then on the patient is back with the mark shown."""
+    with no_cycle_collection():  # P-20
+        return _weekly_rows(cl, crit, registry, marks, seen, job_id, practitioners, include_closed, today)
+
+
+def _weekly_rows(
+    cl: Mapping[str, Any] | None,
+    crit: Mapping[str, CriterionMeta],
+    registry: Mapping[str, str],
+    marks: Mapping[str, Mark],
+    seen: Mapping[str, str],
+    job_id: str,
+    practitioners: Mapping[str, str] | None,
+    include_closed: bool,
+    today: date | None,
+) -> list[dict[str, Any]]:
     names = dict(practitioners or {})
     words = todo_words(crit)  # P-20: once per list, not once per row
     rows = []
