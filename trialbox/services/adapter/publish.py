@@ -554,7 +554,9 @@ def restore(cfg: AdapterConfig, reason: str = "") -> None:
             _checkpoint("FHIR store put back")
         except Exception as exc:
             why = str(exc) if isinstance(exc, (FhirMismatch, LedgerError)) else f"no answer ({type(exc).__name__})"
-            raise _still_owed(cfg, intent, _unfenced_words(served or "nothing") if _answer_lost(exc) else why) from exc
+            raise _still_owed(
+                cfg, intent, _unfenced_words(served or "nothing") if isinstance(exc, _answer_lost()) else why
+            ) from exc
         settle(cfg, intent, target, ids=True)
     log.warning("the FHIR store is back to %s (after the load of %s)",
                 f"the served night {served}" if served else "nothing (no night is served yet)",
@@ -613,12 +615,13 @@ def _unfenced_words(night: str) -> str:
             f"FHIR store, then remove {FHIR_STATE} to put the store back to the served night")  # fmt: skip
 
 
-def _answer_lost(exc: BaseException) -> bool:
-    """A store request that was sent and whose answer did not arrive (it timed out, the connection broke, the store
-    hung up): the store may have taken it. One that was never sent (no connection) or was answered is not."""
+def _answer_lost() -> tuple[type[Exception], ...]:
+    """The errors of a store request that was sent and whose answer did not arrive (it timed out, the connection
+    broke, the store hung up): the store may have taken it. One that was never sent (no connection) or was answered
+    is none of these."""
     import httpx
 
-    return isinstance(exc, (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError))
+    return (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError)
 
 
 def _unfenced(cfg: AdapterConfig, prior: dict[str, Any], reason: str) -> str:
@@ -967,7 +970,7 @@ def _publish_locked(
                 note("fhir", FAILED)
                 # what was loaded before the failure does not stay; a transaction without its answer may still
                 # commit, so the store is not put back over it (review H4: refused by name)
-                fhir_back(_unfenced_words(snap) if _answer_lost(exc) else f"load failed: {said}")
+                fhir_back(_unfenced_words(snap) if isinstance(exc, _answer_lost()) else f"load failed: {said}")
                 return end()
             note("fhir", DONE)  # every transaction was answered (review H4: a kill before this is refused by name)
             _checkpoint("FHIR store loaded")
