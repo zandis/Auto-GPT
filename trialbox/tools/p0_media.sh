@@ -79,13 +79,15 @@ else
   for i in "${IMGS[@]}"; do docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i"; done
   # HYG2-R2: make_bundle.sh publishes bundle-p0b inside this run's own folder; that replaces the last bundle-p0b only
   # once the bundle is built (bundle-p0b.old holds the last one only between the two renames; a failed rename puts it back)
+  # a cut between those two renames left the last one in bundle-p0b.old: it is put back before anything can fail
+  P0B="$OUT/bundle-p0b"
+  [ -e "$P0B" ] || [ ! -d "$P0B.old" ] || mv -T "$P0B.old" "$P0B" \
+    || { echo "p0_media: the last bundle is in $P0B.old and could not be put back into $P0B" >&2; exit 1; }
   NEXT="$(mktemp -d "$OUT/bundle-p0b.next.XXXXXX")"
   args=(--rehearsal --key "$KEYS/vendor_ed25519.key" --id p0b --release-seq 1 --out "$NEXT/bundle-p0b/trialbox-p0b.tar" --models "$K/models")
   args+=(--refdata "$(ls "$K"/refdata/trialbox-refdata-*.tar)")
   for i in "${IMGS[@]}"; do args+=(--image "$i"); done
   make release-bundle SC_LOCAL_IMAGES=1 SC_IMAGES="${IMGS[*]}" BUNDLE_ARGS="${args[*]}" || { rm -rf "$NEXT"; exit 1; }
-  P0B="$OUT/bundle-p0b"
-  [ -e "$P0B" ] || [ ! -d "$P0B.old" ] || mv -T "$P0B.old" "$P0B"
   rm -rf "$P0B.old"; [ ! -e "$P0B" ] || mv -T "$P0B" "$P0B.old"
   mv -T "$NEXT/bundle-p0b" "$P0B" || { [ -e "$P0B" ] || [ ! -d "$P0B.old" ] || mv -T "$P0B.old" "$P0B"; rm -rf "$NEXT"; exit 1; }
   rm -rf "$P0B.old" "$NEXT"

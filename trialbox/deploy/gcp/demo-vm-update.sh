@@ -25,6 +25,10 @@ case "$CMD" in
     # HYG2-R2: make_bundle.sh publishes B and C into bundles/ inside this build's own folder; that replaces the last
     # bundles/ as ONE folder, only once both are built: a failed build, a failed rename or a cut leaves the last pair
     # as it was, never a new B beside an old C (bundles.old holds the last pair only between the two renames below)
+    # a cut between those two renames left the last pair in bundles.old: it is put back before anything can fail
+    L="$DIST/bundles"
+    [ -e "$L" ] || [ ! -d "$L.old" ] || mv -T "$L.old" "$L" \
+      || { echo "demo-vm-update: the last bundles are in $L.old and could not be put back into $L" >&2; exit 1; }
     NEXT="$(mktemp -d "$DIST/bundles.next.XXXXXX")"
     trap 'rm -rf "$NEXT"' EXIT
     docker build -f "$ROOT/demo/Dockerfile" --label trialbox.release=step8-b -t trialbox-demo:step5 "$ROOT"
@@ -39,8 +43,6 @@ case "$CMD" in
     "$ROOT/tools/make_bundle.sh" --key "$DIST/keys/vendor_ed25519.key" --id 2026.11-step8-demo-c --release-seq 2 \
       --gates "$DIST/gates-c/gates.json" --sbom-dir "$ROOT/dist/sbom" \
       --image trialbox-demo:step5 --no-third-party --pub "$DIST/keys/vendor_ed25519.pub" --out "$NEXT/bundles/c/trialbox-step8-c.tar"
-    L="$DIST/bundles"
-    [ -e "$L" ] || [ ! -d "$L.old" ] || mv -T "$L.old" "$L"
     rm -rf "$L.old"; [ ! -e "$L" ] || mv -T "$L" "$L.old"
     mv -T "$NEXT/bundles" "$L" || { [ -e "$L" ] || [ ! -d "$L.old" ] || mv -T "$L.old" "$L"; exit 1; }
     rm -rf "$L.old"

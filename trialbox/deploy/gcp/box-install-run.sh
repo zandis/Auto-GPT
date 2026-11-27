@@ -1294,10 +1294,11 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
   trap 'shred -u "$k/vendor_ed25519.key" 2>/dev/null; rm -rf "$k"' EXIT INT TERM
   "$CK/.venv/bin/python" "$CK/tools/sign_bundle.py" keygen --out "$k" >/dev/null || return 3
   chmod 600 "$k/vendor_ed25519.key"
-  cp "$k/vendor_ed25519.pub" "$BUILD/throwaway-signing-key.pub"
   echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
-     --pub "$k/vendor_ed25519.pub" --out "$BNEXT/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
+     --pub "$k/vendor_ed25519.pub" --out "$BNEXT/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS") || return
+  # HYG2-R10: the public half is kept beside the attempt; step_b_sign moves it into place once this bundle is published
+  cp "$k/vendor_ed25519.pub" "$BNEXT/throwaway-signing-key.pub"
 }
 # the room make_bundle.sh needs: it stages every image (docker save, ~25 GB with vLLM) and then writes the bundle; its
 # staging goes under the build root (TMPDIR), not /tmp, and the build cache of b03 is dropped first (images are kept)
@@ -1332,16 +1333,30 @@ d_bundle_models() {
   ln -s "$(readlink -f "$MODELS/embedder")" "$BMODELS/embedder"
   note bundle_models "\"$(ls "$BMODELS" | tr '\n' ' ')\""
 }
-step_b_sign() {
-  b_room
+step_b_sign() {  # HYG2-R10: one signing at a time per build root (a lock), so whatever an earlier one left is stale
+  local lk rc
+  mkdir -p "$BUILD"
+  exec {lk}>"$BUILD/.sign.lock"
+  if flock -n "$lk"; then b_sign; rc=$?; else STOP="TB-SIGN-BUSY: another signing holds $BUILD/.sign.lock"; rc=1; fi
+  exec {lk}>&-
+  return $rc
+}
+b_sign() {
   # HYG2-R2: make_bundle.sh publishes $BNEXT/out (d_sign names it) inside this attempt's own folder; that replaces
   # $BUILD/out only once it is built and its key check passed, so a failed signing leaves the last good release as it
-  # was. out.old holds that release only between the two renames below; a failed rename puts it back, and a cut there
-  # is undone by the next attempt.
-  local BNEXT
-  mkdir -p "$BUILD"
-  [ -e "$BUILD/out" ] || [ ! -d "$BUILD/out.old" ] || mv -T "$BUILD/out.old" "$BUILD/out"
-  BNEXT=$(mktemp -d "$BUILD/out.next.XXXXXX") || return 1
+  # was. out.old holds that release only between the two renames below. Every rename is checked: a release a cut left
+  # in out.old is put back before anything else, or nothing goes on; out.old is removed only while out beside it is a
+  # release; a failed rename puts it back, and a stop names where the last release is.
+  # HYG2-R10: under the lock, a cut attempt's folder (a fixed name) and make_bundle.sh's staging are stale: removed
+  # first, never one bundle of disk per cut
+  local BNEXT="$BUILD/out.next.sign" O="$BUILD/out" rc
+  b_room
+  rm -rf "$BNEXT" "$BUILD/tmp"/tb-bundle.*
+  if [ ! -e "$O" ] && [ -d "$O.old" ]; then
+    mv -T "$O.old" "$O" \
+      || { STOP="TB-BUNDLE-NOT-RESTORED: the last release is in $O.old and could not be put back into $O (kept there; nothing signed)"; return 1; }
+  fi
+  mkdir "$BNEXT" || return 1
   need "the weights the site bundle carries (the pair, the template, the embedder: make_bundle.sh --models)" \
     d_bundle_models || { rm -rf "$BNEXT"; return 1; }
   if [ "$MODE" = validation ]; then
@@ -1349,15 +1364,25 @@ step_b_sign() {
   else
     need "signing the bundle (tools/make_bundle.sh with the vendor key)" d_sign
   fi
-  local rc=$?
+  rc=$?
   if [ "$rc" = 0 ]; then
-    [ -e "$BUILD/out" ] || [ ! -d "$BUILD/out.old" ] || mv -T "$BUILD/out.old" "$BUILD/out"
-    rm -rf "$BUILD/out.old"
-    if { [ ! -e "$BUILD/out" ] || mv -T "$BUILD/out" "$BUILD/out.old"; } && mv -T "$BNEXT/out" "$BUILD/out"; then
-      rm -rf "$BUILD/out.old"
+    if [ -e "$O.old" ] && ! { [ -d "$O" ] && [ -n "$(ls -A "$O")" ]; }; then
+      STOP="TB-BUNDLE-NOT-PLACED: $O.old is kept: $O beside it is not a release folder (nothing replaced)"; rc=1
+    elif ! rm -rf "$O.old"; then
+      STOP="TB-BUNDLE-NOT-PLACED: the retired $O.old could not be removed (the last release is in $O)"; rc=1
+    elif [ -e "$O" ] && ! mv -T "$O" "$O.old"; then
+      STOP="TB-BUNDLE-NOT-PLACED: $O could not be retired (the last release is kept there)"; rc=1
+    elif ! mv -T "$BNEXT/out" "$O"; then
+      if [ -d "$O.old" ] && ! mv -T "$O.old" "$O"; then
+        STOP="TB-BUNDLE-NOT-RESTORED: the signed bundle could not replace $O, and the last release could not be put back from $O.old (kept there)"
+      else
+        STOP="TB-BUNDLE-NOT-PLACED: the signed bundle could not replace $O (the last one is kept)"
+      fi
+      rc=1
     else
-      [ -e "$BUILD/out" ] || [ ! -d "$BUILD/out.old" ] || mv -T "$BUILD/out.old" "$BUILD/out"
-      STOP="TB-BUNDLE-NOT-PLACED: the signed bundle could not replace $BUILD/out (the last one is kept)"; rc=1
+      rm -rf "$O.old"
+      [ "$MODE" != validation ] || mv -f "$BNEXT/throwaway-signing-key.pub" "$BUILD/throwaway-signing-key.pub" \
+        || { STOP="TB-BUNDLE-NO-PUB: the throwaway public key of the bundle in $O could not be kept"; rc=1; }
     fi
   fi
   rm -rf "$BNEXT"

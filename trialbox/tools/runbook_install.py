@@ -62,6 +62,8 @@ stamp. The committed file is ``docs/plan/measurements/runbook-install-2026-11-17
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -72,7 +74,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -1351,6 +1353,17 @@ def models_args(models: str | Path | None) -> list[str]:
     return ["--models", str(d.resolve())]
 
 
+@contextlib.contextmanager
+def _locked(folder: Path) -> Iterator[None]:
+    """HYG2-R12: an exclusive flock on the folder itself (no lock file beside the media), released on every way out."""
+    fd = os.open(folder, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
 def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tuple[Path, Path, list[tuple[str, str]]]:
     """A site bundle made the vendor's way (as the box rehearsal's media step makes its own, but not ``--rehearsal``
     and not ``--allow-dirty``: a site box refuses both): a throwaway vendor key, the release gates over exactly these
@@ -1429,9 +1442,11 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
     # HYG2-R2: make_bundle.sh publishes media/ inside this build's own folder; that replaces work/media only once it is
     # built, so a failed build or a failed rename leaves the last media as they were (media.old holds them only between
     # the two renames below)
+    # HYG2-R12: putting back, replacing and retiring media.old are done holding a lock on work, one publisher at a time
     media, old = work / "media", work / "media.old"
-    if old.is_dir() and not media.exists():
-        old.rename(media)  # a cut between the two renames of an earlier build: the last media back first
+    with _locked(work):
+        if old.is_dir() and not media.exists():
+            old.rename(media)  # a cut between the two renames of an earlier build: the last media back first
     fresh = Path(tempfile.mkdtemp(prefix=".media-next.", dir=work))
     bundle = fresh / "media" / f"trialbox-runbook-{stamp}.tar"
     args = [
@@ -1456,29 +1471,27 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
     ]
     for i in imgs:
         args += ["--job-image" if i in JOB_IMAGES else "--image", i]
-    try:
+    try:  # HYG2-R11: all the work in this build's folder, and the folder removed on every way out
         _sh(args, log)
-    except SystemExit:
-        shutil.rmtree(fresh)
-        raise
-    # the images the bundle carries, by id, beside it (as the rehearsal's bundle-images.txt): --bundle reads it
-    Path(f"{bundle}.images").write_text("".join(f"{r} {i}\n" for r, i in pairs), encoding="utf-8")
-    if old.is_dir() and not media.exists():
-        old.rename(media)  # a cut between the two renames of an earlier build: the last media back first
-    if old.exists():
-        shutil.rmtree(old)
-    if media.exists():
-        media.rename(old)
-    try:
-        bundle.parent.rename(media)
-    except OSError:
-        if old.is_dir() and not media.exists():
-            old.rename(media)
-        raise
+        # the images the bundle carries, by id, beside it (as the rehearsal's bundle-images.txt): --bundle reads it
+        Path(f"{bundle}.images").write_text("".join(f"{r} {i}\n" for r, i in pairs), encoding="utf-8")
+        with _locked(work):
+            if old.is_dir() and not media.exists():
+                old.rename(media)  # a cut between the two renames of an earlier build: the last media back first
+            if old.exists():
+                shutil.rmtree(old)
+            if media.exists():
+                media.rename(old)
+            try:
+                bundle.parent.rename(media)
+            except OSError:
+                if old.is_dir() and not media.exists():
+                    old.rename(media)
+                raise
+            if old.exists():
+                shutil.rmtree(old)
     finally:
         shutil.rmtree(fresh)
-    if old.exists():
-        shutil.rmtree(old)
     bundle = media / bundle.name
     return bundle, v / "keys" / "vendor_ed25519.pub", pairs
 

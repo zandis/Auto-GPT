@@ -171,6 +171,9 @@ DIST="$(dirname "$OUT")"
 if [ -e "$DIST" ] && { [ ! -d "$DIST" ] || [ -n "$(ls -A "$DIST")" ]; }; then
   echo "make_bundle: --out's folder $DIST must be absent or empty: a release is published into a fresh folder, never over another one" >&2; exit 2
 fi
+# HYG2-R9: an ACL on that empty folder cannot be carried over to the folder published onto it: refused, never widened
+if [ -d "$DIST" ]; then case "$(ls -ld "$DIST")" in ??????????+*)
+  echo "make_bundle: --out's folder $DIST has an ACL: name a folder without one (its ACL would not be carried over)" >&2; exit 2 ;; esac; fi
 if [ -n "$MODEL_OUT" ]; then
   case "$MODEL_OUT" in /*) ;; *) MODEL_OUT="$PWD/$MODEL_OUT" ;; esac
   [ "$(dirname "$MODEL_OUT")" = "$DIST" ] \
@@ -417,8 +420,12 @@ PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/bundle_keycheck.py" --pub "$STI
   --sums "$OUT.sha256" || { echo "make_bundle: the stick's public key does not verify what it carries: refused, nothing published into $DIST" >&2; exit 1; }
 # one rename of the whole folder onto the fresh (absent or empty) one: a build that is interrupted, or a second builder
 # that got there first (mv -T refuses a folder that is no longer empty), leaves no mixed set
-# HYG2-R9: the published folder keeps the mode of the empty one it replaces (an empty 0700 folder stays 0700)
-if [ -d "$DIST" ]; then chmod --reference="$DIST" "$PEND"; else chmod 0755 "$PEND"; fi
+# HYG2-R9: the published folder keeps the owner, group and mode of the empty one it replaces (an empty 0700 folder of
+# a restricted group stays so; one with an ACL was refused above); if they cannot be carried over, nothing is published
+if [ -d "$DIST" ]; then
+  { chown --reference="$DIST" "$PEND" && chmod --reference="$DIST" "$PEND"; } \
+    || { echo "make_bundle: the owner, group and mode of $DIST could not be given to the release: nothing published" >&2; exit 1; }
+else chmod 0755 "$PEND"; fi
 sync -f "$PEND" 2>/dev/null || sync
 mv -T "$PEND" "$DIST" || { echo "make_bundle: the release could not be published into $DIST (nothing of it is there)" >&2; exit 1; }
 OUT="$DIST/$(basename "$OUT")"; BOOT="$DIST/$(basename "$BOOT")"; STICK_PUB="$DIST/vendor_ed25519.pub"; LAUNCH="$DIST/install"
