@@ -91,8 +91,8 @@ ZH: dict[str, str] = {
     "problem.h.request.mailbox": "此電子郵件無法啟動此作業",
     "request.mailbox": "電子郵件 {mailbox} 無法啟動 {kind}。請管理員為您的帳號設定您自己的電子郵件，或允許此地址。",
     # E2E P-35: an investigator on no study log opens the week page: it says why and what next (status stays 403)
-    "problem.h.week.no_log": "您尚未被指派此試驗的篩選工作",
-    "week.no_log": "您未被指派試驗 {rs} 的篩選工作，因此無法開啟其每週名單。",
+    "problem.h.week.no_log": "您尚未被指派此試驗的篩選職責",
+    "week.no_log": "您未被指派試驗 {rs} 的篩選職責，因此無法開啟其每週名單。",
     "problem.why.week.no_log": "請試驗主持人把您加入授權紀錄表並勾選「篩選」，"
     "或聯絡 TrialBox 管理者；完成後請重新登入。",
     "week.no_log.request": "前往請求頁面",
