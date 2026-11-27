@@ -12,7 +12,8 @@ from typing import Any
 import pytest
 from matching.cascade.model import Outcome, PatientTrace
 from matching.decision import Policy
-from orchestrator.scenarios.screen_cascade import _final, basis_of, verdict_of, verdicts_of
+from orchestrator.scenarios.screen_cascade import _final, _Shared, basis_of, verdict_of, verdicts_of
+from pydantic import BaseModel
 from tb_common.reasons import code_of
 from tb_contracts import CriterionVerdict, Evidence
 
@@ -119,3 +120,36 @@ def test_a_shared_answer_is_never_another_patients() -> None:
             assert v.evidence is not None and v.evidence.resource_refs == [] and v.prov == []
     assert one.evidence is not None and one.evidence.resource_refs == [] and one.prov == []
     assert a.verdicts[coded] is not a.verdicts[coded]  # each read is the reader's own
+
+
+def _containers(x: Any) -> list[Any]:
+    """Every list and dict reachable from a verdict row (its models' fields, recursively)."""
+    if isinstance(x, BaseModel):
+        return [c for f in type(x).model_fields for c in _containers(getattr(x, f))]
+    if isinstance(x, list):
+        return [x] + [c for y in x for c in _containers(y)]
+    if isinstance(x, dict):
+        return [x] + [c for y in x.values() for c in _containers(y)]
+    return []
+
+
+def test_every_container_of_a_read_row_is_the_readers_own() -> None:
+    """Review of #1610, R1: every nested list and dict of every row one patient reads (by index and by slice) is
+    changed in place; no other patient's row, no stored shared row and no later read of the same answers changes."""
+    a, b = (verdicts_of(RS, _excluded(i), policy=POLICY) for i in (1, 2))
+    shared = [r.proto for r in a.verdicts._rows if isinstance(r, _Shared)]  # type: ignore[attr-defined]
+    assert len(shared) == len(a.verdicts) == len(CRITS)  # every row of an excluded patient is a shared answer
+    before = [v.model_dump() for v in b.verdicts]
+    assert [v.model_dump() for v in shared] == before  # the stored rows, as a patient reads them
+    n = 0
+    for v in [*a.verdicts, *a.verdicts[:]]:  # every row by index (iteration) and by slice
+        for c in _containers(v):
+            if isinstance(c, list):
+                c.append("pseudo-a")
+            else:
+                c["pseudo-a"] = 1
+            n += 1
+    assert n >= 2 * 2 * len(shared)  # each row's refs and calls at least, read twice
+    c = verdicts_of(RS, _excluded(3), policy=POLICY)  # a later lookup of the same cached answers
+    for rows in (b.verdicts, shared, c.verdicts, a.verdicts):  # a's stored rows read again are the shared ones
+        assert [v.model_dump() for v in rows] == before
