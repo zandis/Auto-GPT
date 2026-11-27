@@ -62,9 +62,10 @@ closed). Checks:
   backup's public key is on the box (presence only, no key is read); the site mapping of ``data_source.mapping`` (the
   box's ``TB_SETTINGS_FILE`` when no ``--settings``) loads and maps at least one table (run in the box image); a mail
   relay (``SMTP_HOST``) or "no mail" accepted by name (``TB_NO_MAIL_ACCEPTED_BY`` and ``_ON``); the last pair canary
-  (``selftest.json``) passed on the pair within ``TB_CANARY_MAX_AGE_H``. Each FAIL in VALIDATION and PRODUCTION, WARN
-  elsewhere. ``--strict`` (the acceptance's "doctor all true" row) reads every item of ``READINESS`` that is not a PASS,
-  or was not checked, as a FAIL, and always runs the live ``serving`` check;
+  (``selftest.json``) passed on the pair within ``TB_CANARY_MAX_AGE_H``. The first two FAIL in VALIDATION and
+  PRODUCTION (WARN elsewhere), the last two are WARN. ``--strict`` (the acceptance's "doctor all true" row) reads
+  every item of ``READINESS`` that is not a PASS, or was not checked, as a FAIL, and always runs the live ``serving``
+  check;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
   ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
@@ -1588,8 +1589,9 @@ def check_site_mapping(inp: DoctorInputs) -> Check:
 def check_mail_relay(inp: DoctorInputs) -> Check:
     """RC3 (E2E P-10): the hospital's mail relay is given (``SMTP_HOST``), or the site accepted "no mail" by name
     (``TB_NO_MAIL_ACCEPTED_BY``, who, and ``TB_NO_MAIL_ACCEPTED_ON``, YYYY-MM-DD, in deploy/.env): every notice then
-    waits in the console. A relay left empty with nobody naming that choice is FAIL in VALIDATION and PRODUCTION, WARN
-    elsewhere. Whether the relay answers is the preflight's question, not this row's."""
+    waits in the console. A relay left empty with nobody naming that choice is a WARN (the owner's U5-1: the relay may
+    come later, from "Information still needed"); ``--strict`` reads it as a FAIL. Whether the relay answers is the
+    preflight's question, not this row's."""
 
     def val(k: str) -> str:
         return (inp.env.get(k) or "").strip().strip('"').strip("'").strip()
@@ -1604,7 +1606,7 @@ def check_mail_relay(inp: DoctorInputs) -> Check:
     if by and day is not None:
         return Check("mail_relay", "PASS", f"no mail relay: accepted by {by} on {day.isoformat()}; notices wait in "
                      "the console")  # fmt: skip
-    return Check("mail_relay", _soft(inp), "no mail relay (SMTP_HOST) and nobody accepted \"no mail\" by name: set "
+    return Check("mail_relay", "WARN", "no mail relay (SMTP_HOST) and nobody accepted \"no mail\" by name: set "
                  "SMTP_HOST in deploy/.env, or TB_NO_MAIL_ACCEPTED_BY (who) and TB_NO_MAIL_ACCEPTED_ON (YYYY-MM-DD) "
                  "when the site decides to have none")  # fmt: skip
 
@@ -1612,8 +1614,8 @@ def check_mail_relay(inp: DoctorInputs) -> Check:
 def check_selftest(inp: DoctorInputs) -> Check:
     """G2 (E2E P-08): the box's last pair canary (``selftest.json`` in the orchestrator's data volume) passed, on the
     pair, within ``TB_CANARY_MAX_AGE_H`` (``model_report.canary_problem``, the rule that releases note reading). A box
-    whose served models fail their own canary is not ready, and cannot be signed off. FAIL in VALIDATION and
-    PRODUCTION, WARN elsewhere; the next step is ``trialbox selftest``."""
+    whose served models fail their own canary is not ready, and cannot be signed off. A WARN (the canary gate already
+    holds note answers until a pass); ``--strict`` reads it as a FAIL. The next step is ``trialbox selftest``."""
     from tools.trialbox import model_report as mr
 
     raw = (inp.env.get("TB_ORCH_DIR") or "").strip() if _box_host(inp) is None else ""
@@ -1624,7 +1626,7 @@ def check_selftest(inp: DoctorInputs) -> Check:
         limit = mr.MAX_AGE_H
     why = mr.canary_problem(folder, None, limit)
     if why:
-        return Check("selftest", _soft(inp), f"{why} (trialbox selftest, RUNBOOK §4)")
+        return Check("selftest", "WARN", f"{why} (trialbox selftest, RUNBOOK §4)")
     return Check("selftest", "PASS", f"the last pair canary passed ({folder / 'selftest.json'})")
 
 
@@ -2802,8 +2804,8 @@ TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 IMAGE_CHECKS = (
     "topology", "env_class_ceiling", "routing_perimeter", "perimeter_addresses", "channel_engine", "trusted_proxy",
     "mail_tls", "phi_tripwire", "named_choices", "note_block", "judge_route", "registry_pins", "chartno_rule",
-    "db_passwords", "wsl2_memory", "update_window", "backup_speed", "terminology",
-    "terminology_tables", "site_mapping",
+    "site_mapping", "db_passwords", "wsl2_memory", "update_window", "backup_speed", "terminology",
+    "terminology_tables",
 )  # fmt: skip
 #: what those checks import beyond the host's Python (the box image has each one)
 IMAGE_MODULES = ("pydantic", "httpx", "gateway", "guard", "registry", "channels", "criteria_compiler", "tb_llm",

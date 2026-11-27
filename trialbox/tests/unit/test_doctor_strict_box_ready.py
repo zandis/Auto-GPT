@@ -72,13 +72,14 @@ def test_the_installers_site_mapping_maps_tables_and_an_empty_one_fails(tmp_path
 
 def test_mail_relay_given_or_no_mail_accepted_by_name(tmp_path: Path) -> None:
     c = d.check_mail_relay(_inp(tmp_path))
-    assert c.status == "FAIL" and "TB_NO_MAIL_ACCEPTED_BY" in c.detail and "SMTP_HOST" in c.detail
+    assert c.status == "WARN" and "TB_NO_MAIL_ACCEPTED_BY" in c.detail and "SMTP_HOST" in c.detail
+    assert d.strict([c])[0].status == "FAIL"  # the plain doctor warns (U5-1); --strict fails
     assert d.check_mail_relay(_inp(tmp_path, SMTP_HOST="relay.example.org")).status == "PASS"
     named = d.check_mail_relay(_inp(tmp_path, TB_NO_MAIL_ACCEPTED_BY="IT lead", TB_NO_MAIL_ACCEPTED_ON="2026-11-27"))
     assert named.status == "PASS" and "IT lead" in named.detail
-    assert d.check_mail_relay(_inp(tmp_path, TB_NO_MAIL_ACCEPTED_BY="IT lead")).status == "FAIL"  # no day
+    assert d.check_mail_relay(_inp(tmp_path, TB_NO_MAIL_ACCEPTED_BY="IT lead")).status == "WARN"  # no day
     bad_day = _inp(tmp_path, TB_NO_MAIL_ACCEPTED_BY="IT lead", TB_NO_MAIL_ACCEPTED_ON="soon")
-    assert d.check_mail_relay(bad_day).status == "FAIL"
+    assert d.check_mail_relay(bad_day).status == "WARN"
 
 
 def _canary(folder: Path, **over: Any) -> None:
@@ -91,14 +92,15 @@ def test_selftest_row_needs_a_recent_passing_pair_canary(tmp_path: Path) -> None
     orch = tmp_path / "orch"
     inp = _inp(tmp_path, TB_ORCH_DIR=str(orch))
     c = d.check_selftest(inp)
-    assert c.status == "FAIL" and "no canary result" in c.detail and "trialbox selftest" in c.detail
+    assert c.status == "WARN" and "no canary result" in c.detail and "trialbox selftest" in c.detail
+    assert d.strict([c])[0].status == "FAIL"
     _canary(orch, ok=False, problems=["judge failed the canary (18/54)"])  # the R1 box (E2E P-08)
     c = d.check_selftest(inp)
-    assert c.status == "FAIL" and "18/54" in c.detail
+    assert c.status == "WARN" and "18/54" in c.detail
     _canary(orch, at_epoch=time.time() - 80 * 3600)
-    assert d.check_selftest(inp).status == "FAIL"
+    assert d.check_selftest(inp).status == "WARN"
     _canary(orch, pair=None)
-    assert d.check_selftest(inp).status == "FAIL"
+    assert d.check_selftest(inp).status == "WARN"
     _canary(orch)
     assert d.check_selftest(inp).status == "PASS"
 
