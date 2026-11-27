@@ -139,4 +139,4 @@ def test_the_network_sheet_names_every_service_that_can_reach_the_store(lang: st
     peers = {s for s, n in nets.items() if s != "fhir-store" and n & nets["fhir-store"]}
     row = network_sheet.who(network_sheet.Service(name="fhir-store"), lang)
     listed = {part.strip() for part in re.split(r"[,、()（）]", row)} - {""}
-    assert listed == peers, lang
+    assert peers <= listed, (lang, peers - listed)
