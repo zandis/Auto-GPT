@@ -39,14 +39,16 @@ FIXTURES = {
     ),
     "secrets-a": json.dumps([{"RuleID": "generic-api-key"}]),
     "secrets-b": json.dumps({"DetectorName": "PrivateKey"}) + "\n" + json.dumps({"level": "info", "msg": "done"}),
-    "platform": json.dumps({"check_type": "kubernetes", "results": {"failed_checks": [{"check_id": "CKV_K8S_21"}]}}),
+    "platform": json.dumps({"check_type": "kubernetes", "summary": {"passed": 0, "failed": 1},
+                            "results": {"failed_checks": [{"check_id": "CKV_K8S_21"}]}}),  # fmt: skip
     "dockerfiles": json.dumps([{"code": "DL3008"}, {"code": "DL3008"}]),
 }
 
 
 DONE = json.dumps({"level": "info", "msg": "finished scanning"})  # the secret scanner's line when it is done
 CLEAN = {"code-patterns": json.dumps({"results": [], "errors": []}), "secrets-a": "[]", "secrets-b": DONE,
-         "platform": json.dumps({"results": {"failed_checks": []}}), "dockerfiles": "[]"}  # fmt: skip
+         "platform": json.dumps({"check_type": "kubernetes", "summary": {"passed": 1, "failed": 0},
+                                 "results": {"failed_checks": []}}), "dockerfiles": "[]"}  # fmt: skip
 BASELINE_PATH = "trialbox/deploy/security/standing-gates-baseline.json"
 
 
@@ -205,21 +207,20 @@ def test_a_tool_that_did_not_run_and_an_ignore_file_fail() -> None:
 def test_the_command_writes_the_record_and_fails_on_what_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     src = _repo(tmp_path / "src", {"trialbox/a.py": "x = 1\n"})
     monkeypatch.setattr(sg, "pinned", lambda d, run=None: d)
-    clean = {t: (json.dumps({"results": []}) if t == "code-patterns" else "[]") for t in sg.TOOLS}
-    clean["secrets-b"], clean["platform"] = DONE, json.dumps({"results": {"failed_checks": []}})
     leaks = {**FIXTURES, "secrets-b": FIXTURES["secrets-b"] + "\n" + DONE}
     base = ["standing-gates", "--src", str(src), "--rules", str(tmp_path / "r"), "--no-fetch", "--today", "2026-12-01",
             "--out"]  # fmt: skip
     real = subprocess.run
-    for out, rc in ((clean, 0), (leaks, 1)):
+    for out, rc in ((CLEAN, 0), (leaks, 1)):
         fake = _Runner(dict(out))
         monkeypatch.setattr(subprocess, "run", lambda argv, f=fake, **kw: (real if argv[0] == "git" else f)(argv, **kw))
         assert sc_main.main([*base, str(tmp_path / f"o-{rc}")]) == rc
-    record = json.loads((tmp_path / "o-1" / "index.json").read_text(encoding="utf-8"))
+    reports = tmp_path / "o-1" / "reports"
+    record = json.loads((reports / "index.json").read_text(encoding="utf-8"))
     assert {t["tool"]: t["findings"] for t in record["tools"]} == {
         "code-patterns": 3, "secrets-a": 1, "secrets-b": 1, "platform": 1, "dockerfiles": 2}  # fmt: skip
     assert "secrets-a: 1 finding(s); every finding fails from 2026-11-27" in record["failures"]
-    summary = (tmp_path / "o-1" / "summary.md").read_text(encoding="utf-8")
+    summary = (reports / "summary.md").read_text(encoding="utf-8")
     assert "**Fails:**" in summary and "above its baseline" in summary
 
 
@@ -259,7 +260,7 @@ def test_sg01_the_kept_reports_hold_rule_file_and_line_only_and_nothing_is_print
              "secrets-b": json.dumps({"DetectorName": "PrivateKey", "Raw": secret, "SourceMetadata": {"Data": {
                  "Filesystem": {"file": "b.py", "line": 7}}}}) + "\n" + DONE}  # fmt: skip
     _scan(tmp_path, found, err={"secrets-a": secret, "secrets-b": secret})
-    out = tmp_path / "out"
+    out = tmp_path / "out" / sg.REPORTS_DIR
     assert secret not in "".join(p.read_text(encoding="utf-8") for p in out.rglob("*") if p.is_file())
     assert json.loads((out / "secrets-a.json").read_text(encoding="utf-8")) == [
         {"rule": "generic-api-key", "file": "a.py", "line": 3}]  # fmt: skip
@@ -386,7 +387,8 @@ def test_sg04_the_unit_shards_fetch_the_base_branch() -> None:
 def test_sg05_a_tools_own_error_fields_fail_the_gate(tmp_path: Path) -> None:
     errors = {
         "code-patterns": json.dumps({"results": [], "errors": [{"code": 3, "message": "Syntax error"}]}),
-        "platform": json.dumps({"summary": {"parsing_errors": 1}, "results": {"failed_checks": []}}),
+        "platform": json.dumps({"check_type": "kubernetes", "summary": {"passed": 1, "failed": 0, "parsing_errors": 1},
+                                "results": {"failed_checks": []}}),  # fmt: skip
         "secrets-b": json.dumps({"level": "error", "msg": "could not read a file"}) + "\n" + DONE,
     }
     for tool, text in errors.items():
@@ -415,39 +417,105 @@ def test_sg06_the_scanners_read_a_copy_of_the_tracked_files_outside_the_tree(tmp
     assert not seen[0][0].exists()  # the copy is removed after the run
 
 
+@pytest.mark.parametrize("subdir", ["", "reports"])
+def test_sg10_an_unowned_nonempty_output_directory_is_refused(tmp_path: Path, subdir: str) -> None:
+    repo = _repo(tmp_path / "repo", {"trialbox/a.py": "x = 1\n"})
+    out = tmp_path / "out"
+    sentinel = out / subdir / "keep.txt"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("keep\n", encoding="utf-8")
+    fake = _Runner(CLEAN)
+
+    with pytest.raises(RuntimeError, match="refusing unowned") as exc:
+        sg.scan(repo, tmp_path / "rules", out, fake, baseline={}, today=BEFORE)
+    assert isinstance(exc.value, sg.OutputDirectoryError)
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
+    assert not fake.calls
+
+
 def test_sg06_a_failed_rerun_removes_previous_reports(tmp_path: Path) -> None:
     repo = _repo(tmp_path / "repo", {"trialbox/a.py": "x = 1\n"})
     rules, out = tmp_path / "rules", tmp_path / "out"
     sg.scan(repo, rules, out, _fake(CLEAN), baseline={}, today=BEFORE)
-    assert (out / "platform.json").is_file()
-    (out / "old.json").write_text("stale\n", encoding="utf-8")
+    reports = out / sg.REPORTS_DIR
+    assert (reports / "platform.json").is_file()
 
     rec = sg.scan(repo, rules, out, _fake(CLEAN, rc={"platform": 1}), baseline={}, today=BEFORE)
     assert "platform: not run: exit 1" in rec["failures"]
-    assert not (out / "platform.json").exists()
-    assert not (out / "old.json").exists()
+    assert not (reports / "platform.json").exists()
+
+
+@pytest.mark.parametrize("failed_setup", ["rules", "baseline"])
+def test_sg06_a_cli_setup_failure_invalidates_previous_reports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_setup: str
+) -> None:
+    repo = _repo(tmp_path / "repo", {"trialbox/a.py": "x = 1\n"})
+    rules, out, baseline = (tmp_path / name for name in ("rules", "out", "baseline.json"))
+    baseline.write_text('{"counts": {}}\n', encoding="utf-8")
+    monkeypatch.setattr(sg, "fetch_rules", lambda dest: dest)
+    real, fake = subprocess.run, _Runner(CLEAN)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: (real if argv[0] == "git" else fake)(argv, **kw))
+    args = ["standing-gates", "--src", str(repo), "--rules", str(rules), "--out", str(out),
+            "--baseline", str(baseline)]  # fmt: skip
+    assert sc_main.main(args) == 0
+    assert list(out.rglob("summary.md"))
+    assert list(out.rglob("index.json"))
+    fake.calls.clear()
+
+    def fail_fetch(dest: Path) -> Path:
+        raise subprocess.CalledProcessError(1, ["git", "fetch"])
+
+    if failed_setup == "rules":
+        monkeypatch.setattr(sg, "fetch_rules", fail_fetch)
+    else:
+        baseline.unlink()
+    assert sc_main.main(args) == 2
+    assert not list(out.rglob("*.json"))
+    assert not list(out.rglob("summary.md"))
+    assert not fake.calls
 
 
 def test_sg07_hadolint_receives_only_tracked_dockerfiles_under_trialbox(tmp_path: Path) -> None:
-    names = ["trialbox/demo/Dockerfile", "trialbox/a/b.Dockerfile", "trialbox/deploy/docker/Dockerfile.worker",
-             "trialbox/deploy/docker/jvm.Dockerfile.dockerignore", "Dockerfile", ".devcontainer/Dockerfile"]  # fmt: skip
+    names = ["trialbox/.Dockerfile", "trialbox/demo/Dockerfile", "trialbox/a/b.Dockerfile",
+             "trialbox/deploy/docker/Dockerfile.worker", "trialbox/deploy/docker/jvm.Dockerfile.dockerignore",
+             "Dockerfile"]  # fmt: skip
     repo = _repo(tmp_path / "repo", dict.fromkeys(names, ""))
     (repo / "trialbox/untracked.Dockerfile").write_text("", encoding="utf-8")
     fake = _Runner(CLEAN)
     sg.scan(repo, tmp_path / "rules", tmp_path / "out", fake, baseline={}, today=BEFORE)
     argv = next(call for call in fake.calls if _tool_of(call) == "dockerfiles")
     assert argv[argv.index("json") + 1 :] == [
+        "/src/trialbox/.Dockerfile",
         "/src/trialbox/a/b.Dockerfile",
         "/src/trialbox/demo/Dockerfile",
         "/src/trialbox/deploy/docker/Dockerfile.worker",
     ]
 
 
-def test_sg08_an_empty_checkov_report_fails_even_on_exit_zero(tmp_path: Path) -> None:
-    rec = _scan(tmp_path, {"platform": "[]"})
+@pytest.mark.parametrize(
+    ("report", "error"),
+    [
+        ("[]", "no report"),
+        ('{"results":{"failed_checks":[]}}', "no Kubernetes checks evaluated"),
+        ('{"check_type":"kubernetes","summary":{"passed":0,"failed":0},"results":{"failed_checks":[]}}',
+         "no Kubernetes checks evaluated"),
+    ],
+)
+def test_sg08_an_empty_checkov_report_fails_even_on_exit_zero(tmp_path: Path, report: str, error: str) -> None:
+    rec = _scan(tmp_path, {"platform": report})
     assert not next(t for t in rec["tools"] if t["tool"] == "platform")["ran"]
-    assert "platform: not run: no report" in rec["failures"]
-    assert not (tmp_path / "out" / "platform.json").exists()
+    assert f"platform: not run: {error}" in rec["failures"]
+    assert not (tmp_path / "out" / sg.REPORTS_DIR / "platform.json").exists()
+
+
+@pytest.mark.parametrize("tool", ["secrets-a", "dockerfiles"])
+def test_sg11_only_json_arrays_are_valid_reports(tmp_path: Path, tool: str) -> None:
+    invalid = _scan(tmp_path / "invalid", {tool: "{}"})
+    clean = _scan(tmp_path / "clean", {tool: "[]"})
+    assert f"{tool}: not run: no report" in invalid["failures"]
+    assert not next(t for t in invalid["tools"] if t["tool"] == tool)["ran"]
+    assert next(t for t in clean["tools"] if t["tool"] == tool)["ran"]
+    assert clean["failures"] == []
 
 
 @pytest.mark.parametrize("baseline_fails", [False, True])
