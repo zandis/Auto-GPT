@@ -1,0 +1,417 @@
+{
+ "approvals": [
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_GOUT": {
+     "count": 566,
+     "sha256": "378f4b5efa9b4a9498ea44a6f9bc40f9a87f900c196d42e7e732c08b4278a69b"
+    }
+   },
+   "criterion": "GZQO-INC-02",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_GOUT": [
+     "http://hl7.org/fhir/sid/icd-10-cm|M10",
+     "http://hl7.org/fhir/sid/icd-10-cm|M1A"
+    ]
+   },
+   "flags": [],
+   "kind": "inclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_GOUT"
+   },
+   "note_question": null,
+   "protocol": "GZQO",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Diagnosis of gout according to the 2015 ACR/EULAR gout classification criteria.",
+   "text_sha256": "3a9abc458a545df50e92910af571517083f168cb6ecd228d97ef27367095856f"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_SERUM_URATE": {
+     "count": 1,
+     "sha256": "936fad6aa473ed86cd1b2dad5c63d704ae829fb0754b75b5e2dbeea6156caa00"
+    },
+    "VS_URATE_LOWERING_THERAPY": {
+     "count": 3,
+     "sha256": "c8c4d55d4c3e24eb22838965d23d3e710f49c04db69f58dbd6b53c4e7af22502"
+    }
+   },
+   "criterion": "GZQO-INC-04",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_URATE_LOWERING_THERAPY": [
+     "http://www.whocc.no/atc|M04AA",
+     "http://www.whocc.no/atc|M04AB"
+    ]
+   },
+   "flags": [],
+   "kind": "inclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "args": [
+     {
+      "domain": "observation",
+      "quantifier": "latest",
+      "value": {
+       "num": 6.8,
+       "op": ">=",
+       "unit": "mg/dL"
+      },
+      "valueset": "VS_SERUM_URATE",
+      "window": {
+       "anchor": "index",
+       "from_days": -365,
+       "to_days": 0
+      }
+     },
+     {
+      "args": [
+       {
+        "domain": "medication",
+        "quantifier": "any",
+        "valueset": "VS_URATE_LOWERING_THERAPY",
+        "window": {
+         "anchor": "index",
+         "from_days": -90,
+         "to_days": 0
+        }
+       },
+       {
+        "domain": "observation",
+        "quantifier": "latest",
+        "value": {
+         "num": 6.0,
+         "op": ">=",
+         "unit": "mg/dL"
+        },
+        "valueset": "VS_SERUM_URATE",
+        "window": {
+         "anchor": "index",
+         "from_days": -365,
+         "to_days": 0
+        }
+       }
+      ],
+      "op": "and"
+     }
+    ],
+    "op": "or"
+   },
+   "note_question": null,
+   "protocol": "GZQO",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.",
+   "text_sha256": "6e11dd0fe51d9ca48cccbbb1673f126ae7b2c3b92b5e06529ee8ab12a25d7ba6"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_RHEUMATOLOGY_OR_METABOLISM_CLINIC_VISIT": {
+     "count": 2,
+     "sha256": "f978b6f2e505567cf1bdac5a690821d1f14d0e9283c2e16f1d29b14fb0292fec"
+    }
+   },
+   "criterion": "GZQO-INC-09",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {},
+   "flags": [],
+   "kind": "inclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "count": 1,
+    "domain": "encounter",
+    "quantifier": "count>=",
+    "valueset": "VS_RHEUMATOLOGY_OR_METABOLISM_CLINIC_VISIT",
+    "window": {
+     "anchor": "index",
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "note_question": null,
+   "protocol": "GZQO",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Followed at the rheumatology or metabolism clinic with at least one visit in the past 12 months.",
+   "text_sha256": "d1e53212b5fbba52d49582768b63232e1d5e5b0ef7b954dc87b0fa7b3b6922c6"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_MEDULLARY_THYROID_CARCINOMA": {
+     "count": 1,
+     "sha256": "79633c1e9b0cc6cbeaeeb6a145801bba84f5d36600eed4a5777bab3addb131d0"
+    },
+    "VS_MULTIPLE_ENDOCRINE_NEOPLASIA_TYPE_2": {
+     "count": 2,
+     "sha256": "893e7d15a665319a35bceeb51db65c7ea7cfda24e3ee235dfd2dfffccf55895b"
+    }
+   },
+   "criterion": "GZQO-EXC-03",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {},
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "args": [
+     {
+      "domain": "condition",
+      "quantifier": "any",
+      "valueset": "VS_MEDULLARY_THYROID_CARCINOMA"
+     },
+     {
+      "domain": "condition",
+      "quantifier": "any",
+      "valueset": "VS_MULTIPLE_ENDOCRINE_NEOPLASIA_TYPE_2"
+     }
+    ],
+    "op": "or"
+   },
+   "note_question": null,
+   "protocol": "GZQO",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Personal history of medullary thyroid carcinoma or multiple endocrine neoplasia type 2.",
+   "text_sha256": "8bff5f7fcdc4eb7b58bf2c8c818bd61927b890b2592dfad0a99a485854afeb8d"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_GLP_1_RECEPTOR_AGONIST": {
+     "count": 4,
+     "sha256": "210b80484f1c57853d8bd884557779bbe2481fd49044d15617d8d230931f238a"
+    }
+   },
+   "criterion": "GZQO-EXC-04",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_GLP_1_RECEPTOR_AGONIST": [
+     "http://www.whocc.no/atc|A10BJ"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "medication",
+    "quantifier": "any",
+    "valueset": "VS_GLP_1_RECEPTOR_AGONIST",
+    "window": {
+     "anchor": "index",
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "note_question": null,
+   "protocol": "GZQO",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Use of a GLP-1 receptor agonist or GIP/GLP-1 receptor agonist within 90 days before screening.",
+   "text_sha256": "9459387781c7022c9d4404b10f4fe3939c8b372b82f6aa72f03862e4231107f6"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_MALIGNANCY_EXCEPT_NON_MELANOMA_SKIN_CANCER": {
+     "count": 1392,
+     "sha256": "0f79fe82897689741299bc96ee713a86b5f12f5561534601bfb5ff89a74d9b3a"
+    }
+   },
+   "criterion": "GZQO-EXC-07",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_MALIGNANCY_EXCEPT_NON_MELANOMA_SKIN_CANCER": [
+     "http://hl7.org/fhir/sid/icd-10-cm|C0",
+     "http://hl7.org/fhir/sid/icd-10-cm|C1",
+     "http://hl7.org/fhir/sid/icd-10-cm|C2",
+     "http://hl7.org/fhir/sid/icd-10-cm|C3",
+     "http://hl7.org/fhir/sid/icd-10-cm|C40",
+     "http://hl7.org/fhir/sid/icd-10-cm|C41",
+     "http://hl7.org/fhir/sid/icd-10-cm|C43",
+     "http://hl7.org/fhir/sid/icd-10-cm|C45",
+     "http://hl7.org/fhir/sid/icd-10-cm|C46",
+     "http://hl7.org/fhir/sid/icd-10-cm|C47",
+     "http://hl7.org/fhir/sid/icd-10-cm|C48",
+     "http://hl7.org/fhir/sid/icd-10-cm|C49",
+     "http://hl7.org/fhir/sid/icd-10-cm|C4A",
+     "http://hl7.org/fhir/sid/icd-10-cm|C5",
+     "http://hl7.org/fhir/sid/icd-10-cm|C6",
+     "http://hl7.org/fhir/sid/icd-10-cm|C7",
+     "http://hl7.org/fhir/sid/icd-10-cm|C8",
+     "http://hl7.org/fhir/sid/icd-10-cm|C9",
+     "http://hl7.org/fhir/sid/icd-10-cm|D45",
+     "http://hl7.org/fhir/sid/icd-10-cm|D46",
+     "http://hl7.org/fhir/sid/icd-10-cm|D47",
+     "http://hl7.org/fhir/sid/icd-10-cm|Z85",
+     "http://hl7.org/fhir/sid/icd-10|C97"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_MALIGNANCY_EXCEPT_NON_MELANOMA_SKIN_CANCER",
+    "window": {
+     "anchor": "index",
+     "from_days": -1825,
+     "to_days": 0
+    }
+   },
+   "note_question": null,
+   "protocol": "GZQO",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Malignancy within the past 5 years, except non-melanoma skin cancer.",
+   "text_sha256": "104700b3f70e3c2c6e68c79068d703627d177f0bf14a35f0dd1d592f9933d8ef"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_PREGNANCY": {
+     "count": 3024,
+     "sha256": "49e1156fa02e4359773053655f8f0cec1202dcb996b587a332386f6de825dd36"
+    },
+    "VS_PREGNANCY_TEST": {
+     "count": 1,
+     "sha256": "285d7a6b716094063eb6bca2b40346af338072561b6459133453f3d2afddd376"
+    }
+   },
+   "criterion": "GZQO-EXC-08",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_PREGNANCY": [
+     "http://hl7.org/fhir/sid/icd-10-cm|O"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "args": [
+     {
+      "domain": "condition",
+      "quantifier": "any",
+      "valueset": "VS_PREGNANCY",
+      "window": {
+       "anchor": "index",
+       "from_days": -280,
+       "to_days": 0
+      }
+     },
+     {
+      "args": [
+       {
+        "domain": "demographic",
+        "quantifier": "any",
+        "sex": "female",
+        "valueset": "NONE"
+       },
+       {
+        "domain": "observation",
+        "quantifier": "latest",
+        "value": {
+         "codes": [
+          "LA6576-8"
+         ],
+         "op": "in"
+        },
+        "valueset": "VS_PREGNANCY_TEST",
+        "window": {
+         "anchor": "index",
+         "from_days": -30,
+         "to_days": 0
+        }
+       }
+      ],
+      "op": "and"
+     }
+    ],
+    "op": "or"
+   },
+   "note_question": null,
+   "protocol": "GZQO",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Pregnant or breastfeeding, or positive pregnancy test.",
+   "text_sha256": "01b5c5084f2fd00c049bcaa75b957f311bfb2d3faef8539c2f4dc22aa13dfe8d"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_MYOCARDIAL_INFARCTION": {
+     "count": 18,
+     "sha256": "e668195a451141812c45b176df585c366e50c15b5b6059dde4e5d139b8de78c7"
+    },
+    "VS_STROKE": {
+     "count": 117,
+     "sha256": "e274b35ad28ae97ac1a2de56f8234d97cde22faac789f2187990451fab5fdcd3"
+    }
+   },
+   "criterion": "GZQO-EXC-10",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_MYOCARDIAL_INFARCTION": [
+     "http://hl7.org/fhir/sid/icd-10-cm|I21"
+    ],
+    "VS_STROKE": [
+     "http://hl7.org/fhir/sid/icd-10-cm|I63",
+     "http://hl7.org/fhir/sid/icd-10|I64"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "args": [
+     {
+      "domain": "condition",
+      "quantifier": "any",
+      "valueset": "VS_MYOCARDIAL_INFARCTION",
+      "window": {
+       "anchor": "index",
+       "from_days": -90,
+       "to_days": 0
+      }
+     },
+     {
+      "domain": "condition",
+      "quantifier": "any",
+      "valueset": "VS_STROKE",
+      "window": {
+       "anchor": "index",
+       "from_days": -90,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "or"
+   },
+   "note_question": null,
+   "protocol": "GZQO",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Myocardial infarction or stroke within 90 days before screening.",
+   "text_sha256": "ddcfebf9a8a7bd648ea02c5147936c6b4d5e0acbf2645ff0b1820217f7b05e83"
+  }
+ ],
+ "form": "trialbox.presence-approvals/1"
+}

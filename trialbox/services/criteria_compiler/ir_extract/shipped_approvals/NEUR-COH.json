@@ -1,0 +1,73 @@
+{
+ "approvals": [
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA": {
+     "count": 105,
+     "sha256": "43a371f750b5e1ef85aaa506a798d576cbbd5b586ae2158b990ec15b6af6f35e"
+    }
+   },
+   "criterion": "NEUR-COH-INC-01",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA": [
+     "http://hl7.org/fhir/sid/icd-10-cm|F01",
+     "http://hl7.org/fhir/sid/icd-10-cm|F02",
+     "http://hl7.org/fhir/sid/icd-10-cm|F03",
+     "http://hl7.org/fhir/sid/icd-10-cm|G30",
+     "http://hl7.org/fhir/sid/icd-10|F00"
+    ]
+   },
+   "flags": [],
+   "kind": "inclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA"
+   },
+   "note_question": null,
+   "protocol": "NEUR-COH",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "軽度認知障害（MCI）または認知症（アルツハイマー型、血管性、その他）と診断されている者（ICD-10-CM G31.84、G30、F01〜F03）。",
+   "text_sha256": "ebb4847787fcec54be402be8420f236cb46761c83dd1dfedd0ff7825e2e3b77f"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_MEMORY_CLINIC_VISIT": {
+     "count": 2,
+     "sha256": "bb80314f6ded984c217fce65bbb8cd269cd551f58c4719b796e7e572c1b64848"
+    }
+   },
+   "criterion": "NEUR-COH-INC-02",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {},
+   "flags": [],
+   "kind": "inclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "count": 1,
+    "domain": "encounter",
+    "quantifier": "count>=",
+    "valueset": "VS_MEMORY_CLINIC_VISIT",
+    "window": {
+     "anchor": "index",
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "note_question": null,
+   "protocol": "NEUR-COH",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "過去12か月以内にもの忘れ外来（脳神経内科または精神科）を1回以上受診した者。",
+   "text_sha256": "1c942977e26a1ee8d7aa8bd3862dad2d129b9480125aa9cdba6b34ff5967d78a"
+  }
+ ],
+ "form": "trialbox.presence-approvals/1"
+}

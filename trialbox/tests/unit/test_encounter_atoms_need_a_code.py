@@ -12,20 +12,36 @@ The run's own lines (public SIGIR protocols); no patient rows.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from criteria_compiler.ir_extract import postprocess as pp
 from criteria_compiler.semantics import atoms
 from criteria_compiler.terminology.mapper import Terminology
+from tb_common.audit import AuditLog
 from tb_contracts import LlmExtractOutput
 
+from tests.presence_approval_fixture import approvals_of_own_text
 
-def _one(text: str, concept: str, kind: str = "inclusion") -> Any:
+
+def _one(text: str, concept: str, tmp_path: Path, kind: str = "inclusion") -> Any:
     crit = {"kind": kind, "class": "structured", "text": text,
             "logic": {"domain": "encounter", "concept": concept, "quantifier": "any"},
             "concept_candidates": [{"name": concept, "domain": "encounter"}]}  # fmt: skip
-    (c,) = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0").criteria
+    extracted = LlmExtractOutput.model_validate({"criteria": [crit]})
+    sources = [pp.PresenceSource(text, kind, "en")]
+    # gate 1 (standing ruling, 2026-11-22): a person's recorded approval of this line's own exact text
+    approvals = approvals_of_own_text("T", extracted, Terminology(), sources)
+    (c,) = pp.postprocess(
+        "T",
+        extracted,
+        Terminology(),
+        "1.0.0",
+        audit=AuditLog(tmp_path),
+        sources=sources,
+        approvals=approvals,
+    ).criteria
     return c
 
 
@@ -35,8 +51,8 @@ def _one(text: str, concept: str, kind: str = "inclusion") -> Any:
      ("Other acute abdominal diseases", "acute abdominal disease"),
      ("The diagnosis of MDD consistent with DSM-IV (M.I.N.I)", "major depressive disorder")],
 )  # fmt: skip
-def test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition(text: str, concept: str) -> None:
-    c = _one(text, concept)
+def test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition(text: str, concept: str, tmp_path: Path) -> None:
+    c = _one(text, concept, tmp_path)
     assert c.logic is not None and {a.domain for a in atoms(c.logic)} == {"condition"}, text
     assert "domain_refiled" in (c.flags or [])
 
@@ -46,7 +62,7 @@ def test_a_diagnosis_filed_as_an_encounter_is_read_as_a_condition(text: str, con
     [("Current hospitalization for COPD exacerbation", "hospitalization"),
      ("Any history of hemorrhagic stroke.", "hemorrhagic stroke")],  # not named a diagnosis: still never compiled
 )  # fmt: skip
-def test_an_encounter_type_with_no_code_is_not_compiled(text: str, concept: str) -> None:
-    c = _one(text, concept)
+def test_an_encounter_type_with_no_code_is_not_compiled(text: str, concept: str, tmp_path: Path) -> None:
+    c = _one(text, concept, tmp_path)
     assert c.class_ == "human" and "logic_invalid" in (c.flags or [])
     assert c.logic is not None and not any(a.domain == "encounter" for a in atoms(c.logic))

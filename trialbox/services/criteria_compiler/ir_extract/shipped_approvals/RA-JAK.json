@@ -1,0 +1,305 @@
+{
+ "approvals": [
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_RHEUMATOID_ARTHRITIS": {
+     "count": 418,
+     "sha256": "0d334930c5b867d497dd2fcb079f92a2366e610d540904ff01e79f55da2d392e"
+    }
+   },
+   "criterion": "RA-JAK-INC-02",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_RHEUMATOID_ARTHRITIS": [
+     "http://hl7.org/fhir/sid/icd-10-cm|M05",
+     "http://hl7.org/fhir/sid/icd-10-cm|M06"
+    ]
+   },
+   "flags": [],
+   "kind": "inclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_RHEUMATOID_ARTHRITIS",
+    "window": {
+     "anchor": "index",
+     "to_days": -180
+    }
+   },
+   "note_question": null,
+   "protocol": "RA-JAK",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Rheumatoid arthritis diagnosed at least 6 months before screening.",
+   "text_sha256": "2fcfb3dfe4982c6489d6101995f5780b5603d7181b40b8e38d8bea8b0272d388"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_BIOLOGIC_DMARD_OR_JAK_INHIBITOR": {
+     "count": 6,
+     "sha256": "6090d0aa55f0743de4dda0135c7f349a64e6a9449ae0b8967467097261c77641"
+    }
+   },
+   "criterion": "RA-JAK-EXC-01",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_BIOLOGIC_DMARD_OR_JAK_INHIBITOR": [
+     "http://www.whocc.no/atc|L04AB",
+     "http://www.whocc.no/atc|L04AF"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "medication",
+    "quantifier": "any",
+    "valueset": "VS_BIOLOGIC_DMARD_OR_JAK_INHIBITOR"
+   },
+   "note_question": null,
+   "protocol": "RA-JAK",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Any prior biologic DMARD or JAK inhibitor.",
+   "text_sha256": "b97a3b4ad965dc0bc6dbc4d6792c14c6d45c84664cb5bdbdea4b156c7d82b3f9"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_SERIOUS_INFECTION": {
+     "count": 25,
+     "sha256": "1328d0d5079b6bef1874e094e44437a4225cef99f4bac107d11220896b9ce4fc"
+    }
+   },
+   "criterion": "RA-JAK-EXC-05",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_SERIOUS_INFECTION": [
+     "http://hl7.org/fhir/sid/icd-10-cm|A41",
+     "http://hl7.org/fhir/sid/icd-10-cm|J18"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_SERIOUS_INFECTION",
+    "window": {
+     "anchor": "index",
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   "note_question": null,
+   "protocol": "RA-JAK",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Serious infection (sepsis or pneumonia) within 30 days before screening.",
+   "text_sha256": "ae5177402bd5894dd410f4e7166ccab7d640f0ac5d959478f1d0d777a0d27257"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_HERPES_ZOSTER": {
+     "count": 19,
+     "sha256": "42bbfe24dba453f0685756d76e22c5b34e108af558e22b9cd1258471ffcc92ac"
+    }
+   },
+   "criterion": "RA-JAK-EXC-06",
+   "criterion_class": "mixed",
+   "date": "2026-11-22",
+   "families": {
+    "VS_HERPES_ZOSTER": [
+     "http://hl7.org/fhir/sid/icd-10-cm|B02"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_HERPES_ZOSTER",
+    "window": {
+     "anchor": "index",
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "note_question": "Do the notes document an episode of herpes zoster (shingles) within the 12 months before the index date?",
+   "protocol": "RA-JAK",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Herpes zoster within 12 months before screening.",
+   "text_sha256": "a80a7191ce07f31107f84cf5f5da78341eb01b802f7f77890b728d44e7c3166d"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_VENOUS_THROMBOEMBOLISM": {
+     "count": 117,
+     "sha256": "4c1d131f93bc76ccd43c9530995f7100d1a9ea6a3f2d5b24ccfc5f788a14ceaa"
+    }
+   },
+   "criterion": "RA-JAK-EXC-07",
+   "criterion_class": "mixed",
+   "date": "2026-11-22",
+   "families": {
+    "VS_VENOUS_THROMBOEMBOLISM": [
+     "http://hl7.org/fhir/sid/icd-10-cm|I26",
+     "http://hl7.org/fhir/sid/icd-10-cm|I82.4",
+     "http://hl7.org/fhir/sid/icd-10-cm|I82.5"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_VENOUS_THROMBOEMBOLISM"
+   },
+   "note_question": "Do the notes document a deep vein thrombosis or a pulmonary embolism at any time?",
+   "protocol": "RA-JAK",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "History of venous thromboembolism (deep vein thrombosis or pulmonary embolism).",
+   "text_sha256": "5894906bec2a81748f54aefb5afd2c88966f3b6b770b6a91cb71a77748546669"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_MALIGNANCY": {
+     "count": 1539,
+     "sha256": "6e93694b4ccf70f8c1de7a9a75b057319197cc42a5e69fabbf48ac9f6fffbe3c"
+    }
+   },
+   "criterion": "RA-JAK-EXC-08",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_MALIGNANCY": [
+     "http://hl7.org/fhir/sid/icd-10-cm|C0",
+     "http://hl7.org/fhir/sid/icd-10-cm|C1",
+     "http://hl7.org/fhir/sid/icd-10-cm|C2",
+     "http://hl7.org/fhir/sid/icd-10-cm|C3",
+     "http://hl7.org/fhir/sid/icd-10-cm|C40",
+     "http://hl7.org/fhir/sid/icd-10-cm|C41",
+     "http://hl7.org/fhir/sid/icd-10-cm|C43",
+     "http://hl7.org/fhir/sid/icd-10-cm|C44",
+     "http://hl7.org/fhir/sid/icd-10-cm|C45",
+     "http://hl7.org/fhir/sid/icd-10-cm|C46",
+     "http://hl7.org/fhir/sid/icd-10-cm|C47",
+     "http://hl7.org/fhir/sid/icd-10-cm|C48",
+     "http://hl7.org/fhir/sid/icd-10-cm|C49",
+     "http://hl7.org/fhir/sid/icd-10-cm|C4A",
+     "http://hl7.org/fhir/sid/icd-10-cm|C5",
+     "http://hl7.org/fhir/sid/icd-10-cm|C6",
+     "http://hl7.org/fhir/sid/icd-10-cm|C7",
+     "http://hl7.org/fhir/sid/icd-10-cm|C8",
+     "http://hl7.org/fhir/sid/icd-10-cm|C9",
+     "http://hl7.org/fhir/sid/icd-10-cm|D45",
+     "http://hl7.org/fhir/sid/icd-10-cm|D46",
+     "http://hl7.org/fhir/sid/icd-10-cm|D47",
+     "http://hl7.org/fhir/sid/icd-10-cm|Z85",
+     "http://hl7.org/fhir/sid/icd-10|C97"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_MALIGNANCY",
+    "window": {
+     "anchor": "index",
+     "from_days": -1825,
+     "to_days": 0
+    }
+   },
+   "note_question": null,
+   "protocol": "RA-JAK",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Malignancy within the past 5 years.",
+   "text_sha256": "afbe8edfc80edfda0d9530086393a8c57051618eba7c68a72f14d122bf4037df"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_HEART_FAILURE": {
+     "count": 29,
+     "sha256": "b424393cd1aa06f77e68ca0f5119c1866a15a6dbf5065d24eb622d91f6b37e01"
+    }
+   },
+   "criterion": "RA-JAK-EXC-09",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_HEART_FAILURE": [
+     "http://hl7.org/fhir/sid/icd-10-cm|I50"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_HEART_FAILURE"
+   },
+   "note_question": null,
+   "protocol": "RA-JAK",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Heart failure (NYHA class III or IV).",
+   "text_sha256": "b0e2c7bd0cfbaacd9dec9ecc9bff1b532276e30cbb4e51d737c4cd9bf2e799c6"
+  },
+  {
+   "actor": "shipped with the synthetic protocol",
+   "basis": "shipped",
+   "codes": {
+    "VS_PREGNANCY": {
+     "count": 3024,
+     "sha256": "49e1156fa02e4359773053655f8f0cec1202dcb996b587a332386f6de825dd36"
+    }
+   },
+   "criterion": "RA-JAK-EXC-10",
+   "criterion_class": "structured",
+   "date": "2026-11-22",
+   "families": {
+    "VS_PREGNANCY": [
+     "http://hl7.org/fhir/sid/icd-10-cm|O"
+    ]
+   },
+   "flags": [],
+   "kind": "exclusion",
+   "label": "synthetic demonstration approval, not a clinical sign-off",
+   "logic": {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_PREGNANCY",
+    "window": {
+     "anchor": "index",
+     "from_days": -280,
+     "to_days": 0
+    }
+   },
+   "note_question": null,
+   "protocol": "RA-JAK",
+   "recorded_by": "shipped with the synthetic protocol",
+   "text": "Pregnancy (a pregnancy diagnosis within 280 days).",
+   "text_sha256": "8195e7d3f1ea8d08d22d5f90ed7e4a461e6e61830decdcac2b79226a0aea734e"
+  }
+ ],
+ "form": "trialbox.presence-approvals/1"
+}

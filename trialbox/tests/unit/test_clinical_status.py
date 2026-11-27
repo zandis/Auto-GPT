@@ -24,15 +24,19 @@ from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ir_extract import postprocess as pp
 from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets, valueset
+from doc_parser.parser import language
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from pydantic import ValidationError
+from tb_common.audit import AuditLog
 from tb_common.reasons import LABELS, Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR, LlmExtractOutput
 from tb_contracts.criterion_ir import ACTIVE_STATUSES, downgrade_to_v1, upgrade_v1
+
+from tests.presence_approval_fixture import approvals_of_own_text
 
 ROOT = Path(__file__).resolve().parents[2]
 ICD = "http://hl7.org/fhir/sid/icd-10-cm"
@@ -218,8 +222,19 @@ def _extracted(text: str, kind: str = "exclusion") -> LlmExtractOutput:
         ("現在までに悪性腫瘍と診断された", False),
     ],
 )
-def test_the_compiler_reads_active_from_the_line(text: str, active: bool) -> None:
-    post = pp.postprocess("T", _extracted(text), Terminology(), "1.0.0")
+def test_the_compiler_reads_active_from_the_line(text: str, active: bool, tmp_path: Path) -> None:
+    sources = [pp.PresenceSource(text, "exclusion", language([text]))]
+    # gate 1 (standing ruling, 2026-11-22): a person's recorded approval of this line's own exact text
+    approvals = approvals_of_own_text("T", _extracted(text), Terminology(), sources)
+    post = pp.postprocess(
+        "T",
+        _extracted(text),
+        Terminology(),
+        "1.0.0",
+        audit=AuditLog(tmp_path),
+        sources=sources,
+        approvals=approvals,
+    )
     (c,) = post.criteria
     status = c.logic.clinical_status  # type: ignore[union-attr]
     assert (status == ACTIVE) is active, (text, status)
