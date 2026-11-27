@@ -82,7 +82,7 @@ put_kit() { # the site kit at /root/site (runbook 01 "What the site brings"): th
   rc=$?
   rm -rf "$k" "$k.tgz"
   [ $rc = 0 ] || return 1
-  sed -n 's/^VLLM_API_KEY=//p' "$E2E_MODELS_ENV" | head -n 1 |
+  grep -m 1 '^VLLM_API_KEY=.' "$E2E_MODELS_ENV" |
     vm 'sudo bash -c "umask 077; mkdir -p /root/site && cat > /root/site/hostkey && test -s /root/site/hostkey"' || return 1
   vm 'sudo bash -s' << 'SH'
 set -e
@@ -96,11 +96,12 @@ install_once() { # the runbook 01 command (ptyinstall.py answers at the terminal
   vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; echo rc=\$rc prompts=\$(sudo grep -c '^PROMPT:' /var/tmp/prompts.txt); sudo grep -iE 'refus|stop|not qualified' /var/tmp/install.log | tail -n 4 | cut -c1-200; exit \$rc"
 }
 keep_attempt() { # the first attempt's transcript and prompts kept beside the second's (0600), and copied with them
-  vm 'for f in /var/tmp/install.log /var/tmp/prompts.txt; do sudo test -f $f && sudo mv -f $f ${f%.*}.1.${f##*.}; done; true'
+  vm 'for f in /var/tmp/install.log /var/tmp/prompts.txt; do sudo mv -f $f ${f%.*}.1.${f##*.} || exit 1; done'
 }
 conditions() { # the box as the gate means to test it, read from its deploy/.env
   vm 'cd /opt/trialbox/deploy && sudo grep -E "^(TB_ENV|TB_HOST_PROFILE|COMPOSE_FILE|TB_SITE_PATIENTS)=" .env; sudo grep -qx TB_ENV=PRODUCTION .env &&
-    ! sudo grep -qx TB_HOST_PROFILE=poc .env && ! sudo grep -q "^TB_REHEARSAL=" .env && sudo grep -E "^COMPOSE_FILE=" .env | grep -q site/compose-override.yml && sudo cmp -s site/compose-override.yml /root/site/host-models.yml &&
+    ! sudo grep -qx TB_HOST_PROFILE=poc .env && ! sudo grep -q "^TB_REHEARSAL=" .env && sudo grep -qx "TB_SITE_PATIENTS='"$SIZE"'" .env &&
+    sudo sed -n "s/^COMPOSE_FILE=//p" .env | tail -n 1 | tr ":" "\n" | grep -Eqx "(\./)?site/compose-override\.yml" && sudo cmp -s site/compose-override.yml /root/site/host-models.yml &&
     ! sudo grep -E "^COMPOSE_FILE=" .env | grep -qi standin'
 }
 site_needs() { # what a PRODUCTION install refused without, as a site sets it (deploy/.env, deploy/site/hardening.conf)
@@ -239,7 +240,7 @@ step $J "site kit at /root/site (answers, mapping, host baseline, model override
 step $J "synthetic hospital of $SIZE patients in the feed folder (tools/make_fixtures.py)" make_feed
 step $J "bootstrap signature verifies (runbook first command)" vm 'cd /media/usb && sudo openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig'
 if ! step $J "one-command install as PRODUCTION, the questions answered at a terminal ($SIZE patients declared)" install_once; then
-  keep_attempt
+  keep_attempt || exit 2
   snapshot > "$M/config-preinstall.txt" 2> /dev/null # O-6: the box as the refused install left it (evidence)
   deviate site-needs "TB_AUDIT_ANCHOR_TARGETS, TB_BACKUP_TARGETS, TB_LOG_DIR, TB_BACKUP_ALERT_ROUTE=health-page, hardening.conf, EGRESS_EXTRA += llm-service/llm-verifier -> the host pair, deploy/network.sh apply (the install refused; runbook 01 names none of them)" site_needs
   step $J "one-command install again as PRODUCTION, the same command after the site's settings" install_once

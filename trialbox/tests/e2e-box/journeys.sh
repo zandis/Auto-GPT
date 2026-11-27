@@ -114,7 +114,7 @@ sys.path.insert(0, 'libs')
 from tb_common import rc1_refusals as r
 bad = [n for n in ('live_patient_lists', 'key_ceremonies') if r.refused(n, {'TB_ENV': 'PRODUCTION'})]
 print('refused on PRODUCTION:', ', '.join(bad) or 'none')
-sys.exit(3 if bad else 0)  # 3: refused; any other failure is the probe's
+sys.exit(3 if 'key_ceremonies' in bad else int(bool(bad)))  # 3: the key ceremony refused; other failures: 1
 PY
 }
 to_validation() { envset TB_ENV VALIDATION && vm "$DC up -d --wait 2>&1 | tail -n 3"; }
@@ -123,7 +123,7 @@ j_rc1() { # a PRODUCTION box this release refuses the night's backup key, the he
   local T='cd /opt/trialbox && sudo python3 -m tools.trialbox' refused=0
   if ! step OPS-rc1 "a key ceremony on PRODUCTION (backup-keygen into a scratch folder)" vm "sudo rm -rf /root/e2e-kc && sudo mkdir -m 700 /root/e2e-kc && $T backup-keygen --private /root/e2e-kc/k --public /root/e2e-kc/k.pub 2>&1 | tail -n 3; rc=\$?; sudo rm -rf /root/e2e-kc; exit \$rc"; then
     step OPS-rc1 "rc1 on PRODUCTION refuses no live patient list and no key ceremony" rc1_production
-    [ $? != 3 ] || refused=1 # 3: the table refuses; any other failure is the probe's and changes nothing
+    [ $? != 3 ] || refused=1 # 3: the table refuses the key ceremony that failed; anything else changes nothing
   fi
   if [ $refused = 1 ]; then
     deviate env-validation "TB_ENV=VALIDATION, the stack re-created (site host profile and models kept): this release's rc1 table refuses the backup key, the held-night accept and SCREEN on PRODUCTION" to_validation
