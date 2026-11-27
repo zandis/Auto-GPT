@@ -229,7 +229,9 @@ def test_a_key_of_an_unsupported_kind_is_a_line_not_a_traceback(
     assert len(found) == 1 and "is not readable as Ed25519" in found[0]
 
 
-def test_a_bad_line_followed_by_a_good_one_for_the_same_name_is_refused(tmp_path: Path, keys: dict[str, Path]) -> None:  # R5
+def test_a_bad_line_followed_by_a_good_one_for_the_same_name_is_refused(
+    tmp_path: Path, keys: dict[str, Path]
+) -> None:  # R5
     stick = _stick(tmp_path / "stick", keys["key"])
     good = stick["sums"].read_text(encoding="utf-8")
     _resign_sums(stick, keys["key"], f"{'0' * 64}  out.tar\n{good}")
@@ -250,7 +252,9 @@ def test_a_line_that_is_not_a_digest_and_a_name_is_refused(tmp_path: Path, keys:
     assert "out.tar.sha256: line 4 is not '<sha256>  <name>'" in _check(keys["pub"], stick)
 
 
-def test_the_files_hashed_are_the_paths_given_not_the_ones_beside_the_sidecar(tmp_path: Path, keys: dict[str, Path]) -> None:  # R5
+def test_the_files_hashed_are_the_paths_given_not_the_ones_beside_the_sidecar(
+    tmp_path: Path, keys: dict[str, Path]
+) -> None:  # R5
     mine = _stick(tmp_path / "mine", keys["key"])
     other = _stick(tmp_path / "other", keys["key"], body=b'{"bundle_id": "another"}\n')  # signed, but not mine
     found = kc.problems(keys["pub"], other["bundle"], mine["bootstrap"], mine["sums"])
@@ -268,7 +272,9 @@ def test_only_the_parsed_public_key_goes_on_the_stick(kit: dict[str, Any]) -> No
     assert res.returncode == 0, _blob(res)
     shipped = (_dist(kit) / "vendor_ed25519.pub").read_text(encoding="utf-8")
     assert "PRIVATE" not in shipped and shipped == kit["pub"].read_text(encoding="utf-8")
-    assert "PRIVATE" not in "".join(p.read_bytes().decode("latin-1") for p in _dist(kit).iterdir() if p.name != "out.tar")
+    assert "PRIVATE" not in "".join(
+        p.read_bytes().decode("latin-1") for p in _dist(kit).iterdir() if p.name != "out.tar"
+    )
 
 
 def test_a_private_key_given_as_pub_is_refused_before_anything_is_built(kit: dict[str, Any]) -> None:
@@ -366,6 +372,6 @@ def test_a_model_pack_out_not_beside_out_is_refused(kit: dict[str, Any]) -> None
 
 def test_the_rehearsal_compares_the_key_it_was_handed_and_does_not_replace_it() -> None:  # R6
     text = (ROOT / "tools/rehearse_box/rehearse.sh").read_text(encoding="utf-8")
-    media = text[text.index("media() ("):]
+    media = text[text.index("media() (") :]
     assert 'cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"' not in media
     assert 'cmp -s "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/vendor_ed25519.pub"' in media

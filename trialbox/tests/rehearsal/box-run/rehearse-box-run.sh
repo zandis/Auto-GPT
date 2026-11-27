@@ -304,9 +304,10 @@ build_setup() {  # build: a small git repository as the release commit, its git 
 # real one does, then signs with the REAL signer over the real host tree (standins/mkbundle.py).
 set -eu
 while [ $# -gt 0 ]; do case "$1" in --key) K=$2; shift ;; --id) I=$2; shift ;; --release-seq) Q=$2; shift ;;
-  --out) O=$2; shift ;; --gates) G=$2; shift ;; --sbom-dir) shift ;; --models) M=$2; shift ;;
+  --out) O=$2; shift ;; --pub) P=$2; shift ;; --gates) G=$2; shift ;; --sbom-dir) shift ;; --models) M=$2; shift ;;
   *) echo "make_bundle: unknown option $1" >&2; exit 2 ;; esac; shift; done
 [ -f "$K" ] && [ -f "$G" ] || { echo "make_bundle: no key or no gates" >&2; exit 2; }
+[ -z "${P:-}" ] || [ -f "$P" ] || { echo "make_bundle: no such public key $P" >&2; exit 2; }
 # H-43: the weights the site bundle carries, as the real one reads them (find -L: through the links)
 [ -n "${M:-}" ] && [ -n "$(find -L "$M/embedder" -type f 2>/dev/null)" ] || { echo "make_bundle: no embedder/ in --models" >&2; exit 2; }
 echo "make-bundle models $(ls "$M" | tr '\n' ' ')" >> "$BR_S/calls.log"

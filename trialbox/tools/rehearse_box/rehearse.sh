@@ -215,7 +215,8 @@ media() (  # a subshell: set -e stops the step, not the run
     "$W/vendor/dist/vendor_ed25519.pub" "$MEDIA/linux/" && rmdir "$W/vendor/dist" \
     || { echo "the bundle's files are not all in the vendor's folder (bundle, .sha256 and its .sig, bootstrap, .sig, install, key)"; return 1; }
   [ -s "$MEDIA/linux/$BUNDLE_NAME" ] || { echo "no bundle at $MEDIA/linux/$BUNDLE_NAME"; return 1; }
-  cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"
+  cmp -s "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/vendor_ed25519.pub" \
+    || { echo "the public key the builder handed over is not the vendor's key of this rehearsal"; return 1; }
   cp deploy/measured/serving_config.*.json "$MEDIA/measured/"
   cp deploy/windows/preflight.ps1 "$MEDIA/windows/"
   # the release tree the site copies to /opt/trialbox: the tracked files and the new ones of this checkout

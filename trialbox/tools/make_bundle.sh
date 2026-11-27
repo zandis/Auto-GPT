@@ -14,7 +14,7 @@
 #                                    host of another architecture)
 #       [--model-pack-out DIR/trialbox-models-<id>.pack [--model-id ID] [--model-release-seq N]]
 #       [--model-pack DIR/trialbox-models-<id>.pack]   (H-95: see below)
-#       [--pub FILE]                 (the vendor public key the boxes trust, put on the stick; default: from --key)
+#       [--pub FILE]                 (the vendor public key the boxes trust, put on the stick; required unless --rehearsal)
 #
 # H-95, two packs: --model-pack-out FILE splits the release. The model pack (FILE, named trialbox-models-*.pack so the
 # installer finds it beside the software pack and the launcher never takes it for a release) carries the engine image
@@ -25,9 +25,11 @@
 # and no --models in it. Without either: one whole bundle, as before.
 # An image the stack pins by digest (images.lock third_party) given by its tag alone is refused before anything is
 # saved: such a bundle would carry no image-pins.json (the integrator's 7097604232).
-# The stick's key check (hygiene item 2): what goes on the stick is written to a pending folder beside --out, and the
-# stick's public key (--pub, or the one derived from --key) must verify the manifest's signature, the bootstrap's .sig
-# and the .sha256.sig (tools/bundle_keycheck.py); otherwise nothing is moved into place and the build is refused.
+# The stick's key check (hygiene item 2): the release is written to a pending folder beside --out's folder and published
+# as ONE directory rename onto that folder, which must be absent or empty (--model-pack-out sits beside --out and rides
+# in it). Only the parsed public key of --pub (required unless --rehearsal, which derives it from --key) is put on the
+# stick, and it must verify the manifest's signature, the bootstrap's .sig and the .sha256.sig (tools/bundle_keycheck.py);
+# otherwise nothing is published and the build is refused.
 #
 # The release gates are not optional (T-110b, D-340; CR-046): --gates names the passing record of `make release-gates`
 # (D-186), and the bundle is refused unless every image it carries is a passing image of that record (Trivy, SBOM and
@@ -73,7 +75,7 @@ while [ $# -gt 0 ]; do
     --model-id) MODEL_ID="$2"; shift ;;
     --model-release-seq) MODEL_SEQ="$2"; shift ;;
     --platform) PLATFORM="$2"; shift ;;
-    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,47p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -160,10 +162,31 @@ if [ -n "$CHANGES" ]; then
     exit 2
   fi
 fi
+# hygiene item 2: the key the boxes trust is named, and the release goes to a fresh folder (refused before anything is built)
+[ -n "$PUB" ] || [ ${#REHEARSAL[@]} -gt 0 ] || {
+  echo "make_bundle: --pub is required outside a --rehearsal: name the vendor public key the boxes trust (a key derived from --key would only show that signing ran)" >&2; exit 2; }
+[ -z "$PUB" ] || openssl pkey -pubin -in "$PUB" -noout >/dev/null 2>&1 || { echo "make_bundle: --pub is not a public key: $PUB" >&2; exit 2; }
+case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
+DIST="$(dirname "$OUT")"
+if [ -e "$DIST" ] && { [ ! -d "$DIST" ] || [ -n "$(ls -A "$DIST")" ]; }; then
+  echo "make_bundle: --out's folder $DIST must be absent or empty: a release is published into a fresh folder, never over another one" >&2; exit 2
+fi
+if [ -n "$MODEL_OUT" ]; then
+  case "$MODEL_OUT" in /*) ;; *) MODEL_OUT="$PWD/$MODEL_OUT" ;; esac
+  [ "$(dirname "$MODEL_OUT")" = "$DIST" ] \
+    || { echo "make_bundle: --model-pack-out must sit beside --out (the model pack is staged and published with it)" >&2; exit 2; }
+fi
 command -v docker >/dev/null || { echo "make_bundle: docker is needed to export images" >&2; exit 2; }
 
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/tb-bundle.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT INT TERM
+# hygiene item 2: everything the release carries (the model pack too) is written to a pending folder beside --out's
+# folder (one file system, so the publishing below is one rename) and is published only after the stick's key verifies it
+mkdir -p "$(dirname "$DIST")"
+PEND="$(mktemp -d "$(dirname "$DIST")/.make_bundle-pending.XXXXXX")"
+trap 'rm -rf "$STAGE" "$PEND"' EXIT INT TERM
+OUT="$PEND/$(basename "$OUT")"
+[ -z "$MODEL_OUT" ] || MODEL_OUT="$PEND/$(basename "$MODEL_OUT")"
 if [ ${#IMAGES[@]} -eq 0 ]; then
   # every image the box's compose file runs, ours included, from the rendered config (profiles stub and gpu; not the
   # test file: no test mail server in a hospital bundle, OPS-017). An empty .env of its own: on a vendor machine
@@ -252,7 +275,6 @@ else
   echo "==> vocabulary bundle check: no rule sets, reference data or models staged beside the images"
 fi
 # D-830: the space the saves and the bundle need, said before the first image is saved (TMPDIR moves the staging)
-mkdir -p "$(dirname "$OUT")"
 (cd "$ROOT" && PYTHONPATH="$ROOT" "$PY" -m tools.bundle_space --stage "$STAGE" --out "$OUT" ${MODELS:+--models "$MODELS"} \
   "${IMAGES[@]}") || exit 2
 
@@ -339,7 +361,6 @@ if [ -n "$MODEL_OUT" ]; then
     while IFS= read -r it; do [ -n "$it" ] && M_ITEMS+=("$it"); done < "$STAGE/meta-model/items.txt"
     M_META=(--release "$STAGE/meta-model/release.json" --images-lock "$STAGE/meta-model/images.lock")
   fi
-  mkdir -p "$(dirname "$MODEL_OUT")"
   PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" build --key "$KEY" --id "$MODEL_ID" --out "$MODEL_OUT" \
     --release-seq "$MODEL_SEQ" --pack model ${M_META[@]+"${M_META[@]}"} \
     --description "TrialBox model pack $MODEL_ID: the engine image and the weights" "${M_ITEMS[@]}"
@@ -357,13 +378,6 @@ echo "==> release record (tools/release.py: gates by archive digest, SBOMs, rele
   --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" --platform "$PLATFORM" ${REHEARSAL[@]+"${REHEARSAL[@]}"} ${JOBS[@]+"${JOBS[@]}"} "${SAVED[@]}" "${ITEMS[@]}") \
   || { echo "make_bundle: no release record: the bundle is not built" >&2; exit 1; }
 while IFS= read -r it; do [ -n "$it" ] && ITEMS+=("$it"); done < "$STAGE/meta/items.txt"
-mkdir -p "$(dirname "$OUT")"
-# hygiene item 2: the stick's files go to a pending folder beside --out (one file system, so the moves below are
-# renames) and are moved into place only after the stick's key verifies them; a refused build leaves no half set
-DIST="$(cd "$(dirname "$OUT")" && pwd)"
-PEND="$(mktemp -d "$DIST/.make_bundle-pending.XXXXXX")"
-trap 'rm -rf "$STAGE" "$PEND"' EXIT INT TERM
-OUT="$PEND/$(basename "$OUT")"
 echo "==> signing $OUT (bundle id $ID, release_seq $SEQ)"
 PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" build --key "$KEY" --id "$ID" --out "$OUT" \
   --release-seq "$SEQ" --release "$STAGE/meta/release.json" --images-lock "$STAGE/meta/images.lock" ${PACK[@]+"${PACK[@]}"} \
@@ -386,7 +400,9 @@ PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" sign-file --key
 fingerprint() { openssl pkey -pubin -in "$1" -outform DER 2>/dev/null | sha256sum | cut -c1-24 | sed 's/..../& /g; s/ $//'; }
 STICK_PUB="$(dirname "$OUT")/vendor_ed25519.pub"
 if [ -n "$PUB" ]; then
-  cp "$PUB" "$STICK_PUB" || { echo "make_bundle: the vendor's public key could not be copied" >&2; exit 1; }
+  # only the parsed public key is written: a --pub file with anything after the key (a private key) must not ride on a stick
+  openssl pkey -pubin -in "$PUB" -pubout -out "$STICK_PUB" 2>/dev/null \
+    || { echo "make_bundle: the vendor's public key could not be read from --pub" >&2; exit 1; }
 else
   openssl pkey -in "$KEY" -pubout -out "$STICK_PUB" 2>/dev/null \
     || { echo "make_bundle: the vendor's public key could not be written" >&2; exit 1; }
@@ -398,12 +414,14 @@ grep -q '^PIN="[0-9a-f ]\{29\}"$' "$LAUNCH" || { echo "make_bundle: the launcher
 PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" sign-file --key "$KEY" "$OUT.sha256" >/dev/null \
   || { echo "make_bundle: the .sha256 could not be signed" >&2; exit 1; }
 PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/bundle_keycheck.py" --pub "$STICK_PUB" --bundle "$OUT" --bootstrap "$BOOT" \
-  --sums "$OUT.sha256" || { echo "make_bundle: the stick's public key does not verify what it carries: refused, nothing written to $DIST" >&2; exit 1; }
-for f in "$PEND"/* "$PEND"/.[!.]*; do
-  [ -e "$f" ] || continue
-  mv -f "$f" "$DIST/" || { echo "make_bundle: $(basename "$f") could not be moved into $DIST" >&2; exit 1; }
-done
+  --sums "$OUT.sha256" || { echo "make_bundle: the stick's public key does not verify what it carries: refused, nothing published into $DIST" >&2; exit 1; }
+# one rename of the whole folder onto the fresh (absent or empty) one: a build that is interrupted, or a second builder
+# that got there first (mv -T refuses a folder that is no longer empty), leaves no mixed set
+chmod 0755 "$PEND"
+sync -f "$PEND" 2>/dev/null || sync
+mv -T "$PEND" "$DIST" || { echo "make_bundle: the release could not be published into $DIST (nothing of it is there)" >&2; exit 1; }
 OUT="$DIST/$(basename "$OUT")"; BOOT="$DIST/$(basename "$BOOT")"; STICK_PUB="$DIST/vendor_ed25519.pub"; LAUNCH="$DIST/install"
+[ -z "$MODEL_OUT" ] || MODEL_OUT="$DIST/$(basename "$MODEL_OUT")"
 echo "done: hand over, on a USB stick labelled TRIALBOX (no space): install, vendor_ed25519.pub, $(basename "$OUT"), $(basename "$OUT").sha256, $(basename "$OUT").sha256.sig, $(basename "$BOOT") and $(basename "$BOOT").sig"
 [ -z "$MODEL_OUT" ] || echo "      and, beside them for a first install, the model pack $(basename "$MODEL_OUT") and $(basename "$MODEL_OUT").sha256 (an update needs the software pack alone)"
 if [ -n "$MODEL_OUT$MODEL_HAVE" ]; then

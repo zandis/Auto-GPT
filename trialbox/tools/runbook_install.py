@@ -1427,7 +1427,7 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
     )
     stamp = time.strftime("%Y%m%d", time.gmtime())
     bundle = work / "media" / f"trialbox-runbook-{stamp}.tar"
-    bundle.parent.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(bundle.parent, ignore_errors=True)  # make_bundle.sh publishes into a fresh folder
     args = [
         "tools/make_bundle.sh",
         "--key",
@@ -1436,6 +1436,8 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
         f"runbook-{stamp}",
         "--release-seq",
         "1",
+        "--pub",
+        str(v / "keys" / "vendor_ed25519.pub"),
         "--out",
         str(bundle),
         "--gates",

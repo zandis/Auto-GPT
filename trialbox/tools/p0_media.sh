@@ -77,11 +77,12 @@ else
   # third-party ones of the default services; the model servers are the stand-ins (trialbox-py, D-726)
   IMGS=(trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 trialbox-embed:1.0.0 "${third[@]}")
   for i in "${IMGS[@]}"; do docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i"; done
-  args=(--rehearsal --key "$KEYS/vendor_ed25519.key" --id p0b --release-seq 1 --out "$OUT/trialbox-p0b.tar" --models "$K/models")
+  args=(--rehearsal --key "$KEYS/vendor_ed25519.key" --id p0b --release-seq 1 --out "$OUT/bundle-p0b/trialbox-p0b.tar" --models "$K/models")
   args+=(--refdata "$(ls "$K"/refdata/trialbox-refdata-*.tar)")
   for i in "${IMGS[@]}"; do args+=(--image "$i"); done
+  rm -rf "${OUT:?}/bundle-p0b"  # make_bundle.sh publishes into a fresh folder
   make release-bundle SC_LOCAL_IMAGES=1 SC_IMAGES="${IMGS[*]}" BUNDLE_ARGS="${args[*]}"
-  BUNDLE="$OUT/trialbox-p0b.tar"; PUB="$KEYS/vendor_ed25519.pub"
+  BUNDLE="$OUT/bundle-p0b/trialbox-p0b.tar"; PUB="$KEYS/vendor_ed25519.pub"
   # the images are in the bundle now: their room is given back before the media is laid out (review 6)
   docker system prune -af >/dev/null
   CHOICES+=(--rehearsal)

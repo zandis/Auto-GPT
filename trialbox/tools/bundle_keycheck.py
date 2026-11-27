@@ -10,10 +10,11 @@ Three signatures, each checked with the one public key:
   build``), what the box's update path checks;
 * ``<bootstrap>.sig``: the raw signature over the bootstrap (``sign_bundle.py sign-file``), what RUNBOOK section 1
   checks with openssl before running it;
-* ``<sums>.sig``: the raw signature over the ``.sha256`` sidecar, whose lines must also match the bundle, the
-  bootstrap and the bootstrap's ``.sig`` as they are on disk.
+* ``<sums>.sig``: the raw signature over the ``.sha256`` sidecar, which is read once (the bytes verified are the
+  bytes parsed) and holds exactly one line for each of the bundle, the bootstrap and the bootstrap's ``.sig``, each
+  matching the file at the path given, and no other line.
 
-Exit 0 when all hold, 1 with one line per failure otherwise (``make_bundle.sh`` then removes what it wrote). It
+Exit 0 when all hold, 1 with one line per failure otherwise (``make_bundle.sh`` then publishes nothing). It
 reads public material only; no private key is read or written here.
 """
 
@@ -23,6 +24,7 @@ import argparse
 import base64
 import binascii
 import hashlib
+import re
 import sys
 import tarfile
 from pathlib import Path
@@ -30,6 +32,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+
+_ENTRY = re.compile(r"(?P<digest>[0-9a-f]{64})  (?P<name>[^/\\\n]+)")  # sha256sum's own line
 
 
 def _public_key(path: Path) -> Ed25519PublicKey:
@@ -60,11 +65,22 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _read(path: Path, out: list[str]) -> bytes | None:
+    """The file's bytes, read once; None, and a line in ``out``, when it cannot be read."""
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        out.append(f"{path.name}: not readable ({type(exc).__name__})")
+        return None
+
+
 def problems(pub: Path, bundle: Path, bootstrap: Path, sums: Path) -> list[str]:
     """Why the stick's key does not verify what the stick carries; empty when it does."""
+    from cryptography.exceptions import UnsupportedAlgorithm
+
     try:
         key = _public_key(pub)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, UnsupportedAlgorithm) as exc:
         return [f"the public key {pub.name} is not readable as Ed25519 ({exc})"]
     out: list[str] = []
     try:
@@ -78,28 +94,47 @@ def problems(pub: Path, bundle: Path, bootstrap: Path, sums: Path) -> list[str]:
     else:
         if not _verifies(key, manifest_sig, manifest):
             out.append(f"{bundle.name}: manifest.json.sig does not verify with {pub.name}")
-    for path in (bootstrap, sums):
-        sig_path = path.with_name(path.name + ".sig")
-        try:
-            ok = _verifies(key, sig_path.read_bytes(), path.read_bytes())
-        except OSError as exc:
-            out.append(f"{sig_path.name}: not readable ({type(exc).__name__})")
-            continue
-        if not ok:
-            out.append(f"{sig_path.name} does not verify {path.name} with {pub.name}")
-    try:
-        lines = sums.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    # each signed file is read once: the bytes that are verified are the bytes that are parsed
+    boot_sig = bootstrap.with_name(bootstrap.name + ".sig")
+    sums_sig = sums.with_name(sums.name + ".sig")
+    boot_data, boot_sig_data = _read(bootstrap, out), _read(boot_sig, out)
+    sums_data, sums_sig_data = _read(sums, out), _read(sums_sig, out)
+    for name, sig_name, data, signature in (
+        (bootstrap.name, boot_sig.name, boot_data, boot_sig_data),
+        (sums.name, sums_sig.name, sums_data, sums_sig_data),
+    ):
+        if data is not None and signature is not None and not _verifies(key, signature, data):
+            out.append(f"{sig_name} does not verify {name} with {pub.name}")
+    if sums_data is None:
         return out
+    try:
+        lines = sums_data.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return [*out, f"{sums.name}: not UTF-8 text"]
+    # one entry for each of the three files, none for any other; hashed where the paths given are, not beside the sidecar
+    covered = {bundle.name: bundle, bootstrap.name: bootstrap, boot_sig.name: boot_sig}
     listed: dict[str, str] = {}
-    for line in lines:
-        digest, _, name = line.partition("  ")
-        listed[name.strip()] = digest.strip()
-    folder = sums.parent
-    for name in (bundle.name, bootstrap.name, bootstrap.name + ".sig"):
+    repeated: set[str] = set()
+    for number, line in enumerate(lines, 1):
+        entry = _ENTRY.fullmatch(line)
+        if entry is None:
+            out.append(f"{sums.name}: line {number} is not '<sha256>  <name>'")
+        elif entry["name"] not in covered:
+            out.append(f"{sums.name} lists {entry['name']}, which is not one of the three it covers")
+        elif entry["name"] in listed:
+            repeated.add(entry["name"])
+            out.append(f"{sums.name} lists {entry['name']} more than once")
+        else:
+            listed[entry["name"]] = entry["digest"]
+    for name, path in covered.items():
         if name not in listed:
             out.append(f"{sums.name} does not list {name}")
-        elif not (folder / name).is_file() or listed[name] != _sha256(folder / name):
+            continue
+        try:
+            matches = listed[name] == _sha256(path)
+        except OSError:
+            matches = False
+        if not matches and name not in repeated:
             out.append(f"{sums.name}: {name} does not match its line")
     return out
 

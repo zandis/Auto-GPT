@@ -847,7 +847,7 @@ hadolint-report:
 	@cat $(HADOLINT_REPORT_OUT)
 
 # a bundle only from images that passed the gates (make_bundle.sh needs --gates, T-110b); the SBOMs of dist/sbom ride
-# inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
+# inside it with release.json. BUNDLE_ARGS="--key ... --pub ... --id ... --release-seq N --out FRESH_FOLDER/trialbox-<id>.tar"
 # 10G-9 (D-1239): no release bundle while the public security contact (deploy/security/contact.json) is not set; a
 # --rehearsal or --allow-dirty bundle, which is no release, passes with a warning
 release-bundle: security-contact-check release-images release-gates vocab-bundle-check

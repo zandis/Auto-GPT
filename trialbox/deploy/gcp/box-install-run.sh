@@ -1263,8 +1263,9 @@ d_sign() {  # the key lives only inside this function's process: tmpfs, 0600, sh
   ( umask 077; gcloud secrets versions access "$KVER" --secret="$KSEC" --out-file="$k/vendor.key" >/dev/null 2>&1 ) \
     || { echo "TB-NO-VENDOR-KEY: secret $KSEC version $KVER is not readable by this VM's service account"; return 3; }
   chmod 600 "$k/vendor.key"
+  fetch "$VPUB_SRC" "$BUILD/vendor.pub" || { echo "TB-NO-VENDOR-PUB: the vendor public key the boxes trust is not readable from $VPUB_SRC"; return 3; }
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor.key" --id "$RID" --release-seq "$SEQ" \
-     --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
+     --pub "$BUILD/vendor.pub" --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
 }
 # TB_TZ for make_bundle.sh: its compose call that lists the images renders the compose file with a staged .env that
 # names no TB_TZ, and the compose file requires one (T-656, ${TB_TZ:?}); it only lists images (tools/make_bundle.sh:104)
@@ -1278,7 +1279,7 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
   cp "$k/vendor_ed25519.pub" "$BUILD/throwaway-signing-key.pub"
   echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
-     --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
+     --pub "$k/vendor_ed25519.pub" --out "$BUILD/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS")
 }
 # the room make_bundle.sh needs: it stages every image (docker save, ~25 GB with vLLM) and then writes the bundle; its
 # staging goes under the build root (TMPDIR), not /tmp, and the build cache of b03 is dropped first (images are kept)
@@ -1315,7 +1316,7 @@ d_bundle_models() {
 }
 step_b_sign() {
   b_room
-  mkdir -p "$BUILD/out"
+  rm -rf "$BUILD/out" && mkdir -p "$BUILD/out"  # make_bundle.sh publishes into a fresh folder
   need "the weights the site bundle carries (the pair, the template, the embedder: make_bundle.sh --models)" \
     d_bundle_models || return 1
   if [ "$MODE" = validation ]; then
