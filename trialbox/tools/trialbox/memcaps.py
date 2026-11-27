@@ -59,6 +59,10 @@ MARKER = "# memcaps:"
 SORT_SHARE = 16  # adapter.ndjson.sort_run_bytes: a sixteenth of the cap
 LAKE_DUCKDB_SHARE = 0.4  # lake.store.memory_limit: 40 % of the cap
 MEASURE_SORT_MB = "4"
+#: E2E P-02: the services' measured peaks by the hospital's size (``deploy/measured/site_peaks.json``), which the box
+#: plan reads too; optional: a box without it is sized as before
+PEAKS_NAME, PEAKS_FORMAT = "site_peaks.json", "tb-site-peaks/1"
+HEADROOM = 1.5  # a cap from a measured peak keeps 1.5 times it (tests/unit/test_pin_consistency.py)
 MEASURE_DUCKDB = "256MB"
 _SIZE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?)b?\s*$", re.I)
 
@@ -103,6 +107,35 @@ def load_record(path: Path = RECORD) -> dict[str, Any]:
     return dict(doc)
 
 
+def load_peaks(path: Path) -> list[tuple[int, dict[str, float]]]:
+    """The measured-peak table (``site_peaks.json``): ``(patients, {cap variable: MiB})`` per size class, smallest
+    first; none when the file is not there."""
+    if not path.is_file():
+        return []
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if doc.get("format") != PEAKS_FORMAT:
+        raise ValueError(f"{path}: not a {PEAKS_FORMAT} record")
+    rows = [(int(c["patients"]), {k: float(v) for k, v in c["peak_mib"].items()}) for c in doc["classes"]]
+    return sorted(rows, key=lambda r: r[0])
+
+
+def peak_mib(peaks: Sequence[tuple[int, Mapping[str, float]]], var: str, n: int) -> float:
+    """E2E P-02: the measured peak of the service capped by ``var`` (MiB) for a hospital of ``n`` patients: that of the
+    nearest size class of at least ``n`` patients that measured it, never below a smaller class's. Above the largest
+    such class, the line through the two largest (one: its peak), never below the largest measured peak; 0 when none
+    measured it."""
+    have = [(p, row[var]) for p, row in peaks if var in row]
+    if not have:
+        return 0.0
+    upto = next((i for i, (p, _) in enumerate(have) if p >= n), None)
+    if upto is not None:
+        return max(mib for _, mib in have[: upto + 1])
+    if len(have) == 1:
+        return have[0][1]
+    (a, pa), (b, pb) = have[-2:]
+    return max(*(mib for _, mib in have), pb + (pb - pa) / (b - a) * (n - b))
+
+
 def load_orch_record(path: Path = ORCH_RECORD) -> dict[str, Any]:
     doc = json.loads(path.read_text(encoding="utf-8"))
     part = doc.get("services", {}).get(ORCH, {}) if doc.get("format") == ORCH_FORMAT else {}
@@ -134,9 +167,12 @@ def need_mb(
     compose: Path = COMPOSE,
     orch: Mapping[str, Any] | None = None,
     overlay: Path | None = None,
+    peaks: Sequence[tuple[int, Mapping[str, float]]] = (),
 ) -> dict[str, int]:
     """The cap each service needs for ``n`` patients, in MB, never below its compose default (the orchestrator's
-    too, when its record ``orch`` is given; its default the profile ``overlay``'s when that names one)."""
+    too, when its record ``orch`` is given; its default the profile ``overlay``'s when that names one); each measured
+    service's at least HEADROOM times its peak for ``n`` in ``peaks`` (the adapter's whole night, validator and FHIR
+    load included, where the ingest record measured the streamed write alone)."""
     out: dict[str, int] = {}
     orch_mb: int | None = None
     if orch is not None:
@@ -151,9 +187,14 @@ def need_mb(
             mb = (python + heap) * SORT_SHARE / (SORT_SHARE - 1)
         else:
             mb = python / (1 - LAKE_DUCKDB_SHARE)
+        mb = max(mb, HEADROOM * peak_mib(peaks, var, n))  # E2E P-02: the 50k night was killed at 3,520 MiB
         out[svc] = max(math.ceil(mb), size_mb(compose_default(var, compose)))
     if orch_mb is not None:
-        out[ORCH] = orch_mb
+        # 100k's SCREEN: 11.77 GiB. Below the smallest measured size the ladder line and the default decide: the
+        # orchestrator's need grows with the patients, so the nearest larger size's peak is no floor for a small site
+        measured = [p for p, row in peaks if ORCH_VAR in row]
+        floor = math.ceil(HEADROOM * peak_mib(peaks, ORCH_VAR, n)) if measured and n >= measured[0] else 0
+        out[ORCH] = max(orch_mb, floor)
     return out
 
 
@@ -176,13 +217,14 @@ def plan(
     compose: Path = COMPOSE,
     orch: Mapping[str, Any] | None = None,
     overlay: Path | None = None,
+    peaks: Sequence[tuple[int, Mapping[str, float]]] = (),
 ) -> dict[str, str | None]:
     """The caps ``--write`` sets: each service's need, except a cap the operator set by hand (kept). The orchestrator's
     only above its default (the profile ``overlay``'s when it names one: a value under it would lower the cap);
     ``None``: a value this tool wrote that is no longer needed, removed."""
     env = _parse_env(env_text)
     ours = _marker(env_text)
-    need = need_mb(n, record, env, compose, orch, overlay)
+    need = need_mb(n, record, env, compose, orch, overlay, peaks)
     out: dict[str, str | None] = {}
     if ORCH in need:
         have = env.get(ORCH_VAR)
@@ -237,7 +279,7 @@ def check(
         return "WARN", f"{source}: the memory caps were not compared with the hospital's size"
     record = load_record(record_path)
     orch = load_orch_record(orch_path) if orch_path is not None else None
-    need = need_mb(n, record, env, compose, orch, overlay)
+    need = need_mb(n, record, env, compose, orch, overlay, load_peaks(record_path.parent / PEAKS_NAME))
     names = {**CAPS, **({ORCH: ORCH_VAR} if orch is not None else {})}
     have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in CAPS.items()}
     if orch is not None:
@@ -454,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"memcaps: {source}: the compose defaults stay (set TB_SITE_PATIENTS to size them)")
         return 0
     orch = load_orch_record(ORCH_RECORD) if ORCH_RECORD.is_file() else None
-    caps = plan(text, n, load_record(), orch=orch, overlay=a.overlay)
+    caps = plan(text, n, load_record(), orch=orch, overlay=a.overlay, peaks=load_peaks(RECORD.parent / PEAKS_NAME))
     gone = "removed (the compose default fits)"
     said = ", ".join(f"{k}={v}" if v is not None else f"{k} {gone}" for k, v in caps.items())
     print(f"memcaps: {n} patients ({source}): " + (said or "set by hand"))

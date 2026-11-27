@@ -1,0 +1,32 @@
+{
+ "classes": [
+  {
+   "patients": 50000,
+   "peak_mib": {
+    "TB_MEM_ADAPTER": 4003,
+    "TB_MEM_LAKE": 1226,
+    "TB_MEM_ORCH": 3973
+   },
+   "sources": {
+    "TB_MEM_ADAPTER": "the R1 end-to-end walk 2026-11-27: the adapter container over the whole full night, 20 s samples (killed at the 3,520 MiB cap the box plan gave a 96 GiB box; passed with 12 GiB)",
+    "TB_MEM_LAKE": "the R1 end-to-end walk 2026-11-27: the lake container over the whole run, 20 s samples",
+    "TB_MEM_ORCH": "the SCREEN of 50,000 synthetic patients (the compose files' measured 50k peak, before the orchestrator result-memory fix)"
+   }
+  },
+  {
+   "patients": 100000,
+   "peak_mib": {
+    "TB_MEM_ADAPTER": 6769,
+    "TB_MEM_LAKE": 3472,
+    "TB_MEM_ORCH": 12053
+   },
+   "sources": {
+    "TB_MEM_ADAPTER": "the 100,000-patient synthetic twin's night with the FHIR load, 2026-11-27: 6.61 GiB",
+    "TB_MEM_LAKE": "the same run's eight SCREEN jobs: 3.39 GiB",
+    "TB_MEM_ORCH": "the same run's eight SCREEN jobs, before compact verdicts: 11.77 GiB"
+   }
+  }
+ ],
+ "format": "tb-site-peaks/1",
+ "how": "each service's peak resident memory (MiB, rounded up) at a measured hospital size; the box plan and memcaps give each cap 1.5 times the peak of the nearest larger size (tools/box/plan.py, tools/trialbox/memcaps.py). Not here: the database and the FHIR store, whose peaks sat at their caps (bounded by their own settings, not a need)"
+}
