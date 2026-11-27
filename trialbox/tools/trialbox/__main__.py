@@ -352,9 +352,14 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
             print("update REFUSED: --no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); "
                   "nothing was changed", file=sys.stderr)  # fmt: skip
             return 2
-        return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
-                                    no_backup_reason=reason or None,
-                                    **({"bundle": a.bundle} if a.bundle else {}))  # fmt: skip
+        rc = tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
+                                  no_backup_reason=reason or None,
+                                  **({"bundle": a.bundle} if a.bundle else {}))  # fmt: skip
+        if a.target == "compose":  # E2E P-33: the Operations page knows the update without waiting for the timer
+            from tools.trialbox import ops as tb_ops
+
+            tb_ops.refresh_status(a.deploy)
+        return rc
     if a.cmd in ("backup-nightly", "backup-status", "backup-install"):
         from tools.trialbox import backup_schedule as bsch
 
