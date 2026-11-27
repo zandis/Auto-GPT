@@ -6,6 +6,7 @@ nothing can be sent, in any environment: the mail waits, the try not counted, un
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +16,10 @@ import yaml
 from mail_gateway import app as mail_app
 from mail_gateway import tls as mail_tls
 from mail_gateway.gateway import MAX_ATTEMPTS, NO_RELAY
+from mail_gateway.store import MIGRATIONS, WAITS
+from tb_common import site_needs
 from tb_common.config import Env, load_env
+from tb_common.db import Database
 
 import tests.unit.test_mail_resolve as _mr
 from tools.box import needs_apply
@@ -249,3 +253,94 @@ def test_filling_the_relay_on_the_page_wakes_the_production_hold(
     assert after.wake() == 1
     after.drain()
     assert _mr._row(after, "k-prod").state == "sent" and len(mta.sent) == 1
+
+
+# The lines a V3 release (before ``hold_reason``) wrote on a key held for the site information, word for word: the
+# mail-out gate's line (``site_needs.Gate.message("en")``, both items still needed) and NO_RELAY.
+V3_GATE_LINE = (
+    "Not done: Any mail. It needs first: The hospital's name; The hospital's mail relay. Fill them in on the page "
+    '"Information still needed".'
+)
+V3_GATE_NAME = (
+    'Not done: Any mail. It needs first: The hospital\'s name. Fill them in on the page "Information still needed".'
+)
+V3_GATE_RELAY = (
+    "Not done: Any mail. It needs first: The hospital's mail relay. Fill them in on the page "
+    '"Information still needed".'
+)
+V3_NO_RELAY = (
+    "no mail is sent: the hospital's mail relay (SMTP_HOST) is not given yet; IT gives it on the page "
+    '"Information still needed"'
+)
+
+
+def test_a_production_hold_kept_before_the_reason_code_goes_after_the_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review M-1: a notice held for the site information under V3 has no ``hold_reason``. The upgrade gives it WAITS, so
+    the restart with the relay wakes it; a notice that failed for an ordinary reason keeps its retry time."""
+    v3 = Database.connect(os.environ["TB_DB_URL"], "mail")  # the store as a V3 release left it
+    v3.migrate(list(MIGRATIONS[:3]))
+    later = "2099-01-01T00:00:00+00:00"
+    rows = [  # key, attempts, next_at, last_error
+        ("k-gate", 0, later, V3_GATE_LINE),
+        ("k-gate-name", 0, later, V3_GATE_NAME),
+        ("k-gate-relay", 0, later, V3_GATE_RELAY),
+        ("k-norelay", 0, later, V3_NO_RELAY),
+        ("k-tried", 2, later, V3_NO_RELAY),  # held after two refused tries: the hold kept the count
+        ("k-fail", 1, later, "connection refused"),
+        ("k-phrase", 1, later, "451 Information still needed from upstream relay"),  # review M3: an SMTP failure
+    ]
+    for key, attempts, next_at, error in rows:
+        v3.execute(
+            "INSERT INTO send_keys (key, state, message_id, request, recipients, attempts, next_at, last_error, at) "
+            "VALUES (?, 'queued', '', ?, '', ?, ?, ?, '2026-11-20T00:00:00+00:00')",
+            (key, _mr._req(key).model_dump_json(), attempts, next_at, error),
+        )
+    assert "hold_reason" not in {
+        str(r[0])
+        for r in v3.fetchall(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() "
+            "AND table_name = 'send_keys'"
+        )
+    }
+    v3.close()
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    monkeypatch.setenv("SMTP_HOST", "relay.hospa.test")  # IT filled mail_relay; the new start
+    mta = _mr.MTA()
+    mta.cause = None
+    after = _mr._gw(tmp_path, mta)  # migrates to this release
+    reasons = {str(k): r for k, r in after.db.db.fetchall("SELECT key, hold_reason FROM send_keys")}
+    held = ("k-gate", "k-gate-name", "k-gate-relay", "k-norelay", "k-tried")
+    assert reasons == {**dict.fromkeys(held, WAITS), "k-fail": None, "k-phrase": None}
+    assert after.wake() == 5
+    after.drain()
+    assert {k: _mr._row(after, k).state for k in held} == dict.fromkeys(held, "sent")
+    assert len(mta.sent) == 5
+    for key in ("k-fail", "k-phrase"):
+        kept = _mr._row(after, key)
+        assert kept.state == "queued" and kept.next_at == later and kept.attempts == 1
+
+
+def test_the_v3_lines_are_the_ones_that_release_wrote() -> None:
+    """The literal lines above are what the V3 code builds: NO_RELAY is unchanged, and the gate's line for the mail-out
+    step with both items needed reads the same, so the upgrade test seeds what a V3 box holds."""
+    assert V3_NO_RELAY == NO_RELAY
+    need = {n.key: n for n in site_needs.NEEDS}
+    both = ((need["site_name"], ""), (need["mail_relay"], ""))
+    g = site_needs.Gate(step="mail_out", production=True, blocking=both, warning=())
+    assert g.message("en") == V3_GATE_LINE
+    for line, items in ((V3_GATE_NAME, both[:1]), (V3_GATE_RELAY, both[1:])):
+        assert site_needs.Gate(step="mail_out", production=True, blocking=items, warning=()).message("en") == line
+    # the mail-out step needs these two items and no other, so the three lines are every line its gate refuses with
+    assert [n.key for n in site_needs.NEEDS if "mail_out" in n.before] == ["site_name", "mail_relay"]
+
+
+def test_a_mailbox_without_a_server_is_neither_polled_nor_audited(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review M-2: an IMAP user, no IMAP host and an unverified IMAP mode: the poller stays off, and the start's TLS
+    audit does not tell IT the gateway speaks to a server it never contacts."""
+    _no_mail_env(monkeypatch)
+    monkeypatch.setenv("IMAP_USER", "tb")
+    monkeypatch.setenv("IMAP_TLS_VERIFY", "false")
+    assert _polled(monkeypatch) is False
+    assert not [e for e, d in _start(monkeypatch)["events"] if d["server"] == "imap"]

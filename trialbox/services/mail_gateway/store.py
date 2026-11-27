@@ -68,7 +68,24 @@ ALTER TABLE intake ADD COLUMN IF NOT EXISTS cmd TEXT
 SCHEMA_V4 = """
 ALTER TABLE send_keys ADD COLUMN IF NOT EXISTS hold_reason TEXT
 """
-MIGRATIONS = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
+# Review M-1: a key held under V3 has no code. The site-information holds of that time are the queued keys whose line
+# is, word for word, one a V3 hold wrote: NO_RELAY or the mail-out gate's line (always in English) for the hospital's
+# name, the mail relay, or both; they get WAITS. Review M3: the whole line, not the page's name in it, so an SMTP
+# error that happens to quote those words stays an ordinary failure. ``chr(59)`` is the ";" in a line (the migrator
+# splits a script on ";"). The hold kept the key's earlier tries, as this release's hold does, so the count is not
+# part of the test. Any other key keeps its NULL code and its retry time.
+SCHEMA_V5 = """
+UPDATE send_keys SET hold_reason = 'waits' WHERE state = 'queued' AND hold_reason IS NULL
+AND last_error IN (
+'no mail is sent: the hospital''s mail relay (SMTP_HOST) is not given yet' || chr(59)
+|| ' IT gives it on the page "Information still needed"',
+'Not done: Any mail. It needs first: The hospital''s name. Fill them in on the page "Information still needed".',
+'Not done: Any mail. It needs first: The hospital''s mail relay. Fill them in on the page "Information still needed".',
+'Not done: Any mail. It needs first: The hospital''s name' || chr(59)
+|| ' The hospital''s mail relay. Fill them in on the page "Information still needed".'
+)
+"""
+MIGRATIONS = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
 #: the ``hold_reason`` of a key held as "waits, not counted" (U-5, D-1280): the site information or the relay is needed
 WAITS = "waits"
 

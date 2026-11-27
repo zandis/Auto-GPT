@@ -463,6 +463,7 @@ ADDED: dict[str, tuple[str, ...]] = {
     "mail": (
         "dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",
         "dc36539713287c41f8c837db71de2cb8c62d8e54dc3f7eb861e093cbb1dd6eaf",
+        "b383ec34311f305dcffc667897fe6b66402c5477bc7784f05d377bcca931da22",  # review M-1: version 5, WAITS for V3 holds
     ),
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
     # T-303 (D-436): team version 3, the monitoring-visit records
