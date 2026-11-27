@@ -8,6 +8,7 @@ action is also a command, with the same audit).
              [--affiliation hospital|smo|cro] [--mailbox ADDR] [--password-stdin]
         Every role of the console (P-31). A CRO account, and any SMO or CRO affiliation, names its studies
         (--studies, ruleset ids separated by commas) and sees no other (D-380); without one it is refused.
+        A non-operator account ends twelve months ahead, as on the users page (D-406, OPS-059).
     reset-password NAME [--password-stdin]
         The person who runs these sets the password, so its owner replaces it at the next sign-in (D-279, SEC-1).
     disable NAME
@@ -37,6 +38,7 @@ import yaml
 from tb_common.authz import permit
 
 from console.account_rules import protected_account
+from console.admin_accounts import end_date
 from console.auth import AFFILIATIONS, ROLES, AuthError, UserStore, random_password, scope_values
 
 
@@ -228,10 +230,11 @@ def main(argv: list[str] | None = None) -> int:
             sponsor = permit(args.role, "report.sponsor_form").allowed  # the matrix row, never the role's name
             affiliation = args.affiliation or ("cro" if sponsor else "hospital")
             scope_values(affiliation, args.studies, None, args.role)  # D-380: refuse a bad scope before the account
+            expires = end_date(args.role, None, store.today())  # D-406 (OPS-059): the users page's 12 months
             pw, generated = _password(args)
             with store.db.transaction():  # the account and its scope together, or neither (the inner ones nest)
                 store.create(args.name, args.role, pw, args.mailbox or None, must_change=True)  # D-279
-                made = store.set_scope(args.name, affiliation, args.studies)
+                made = store.set_scope(args.name, affiliation, args.studies, expires)
             _audit(
                 "console.user",
                 detail={
@@ -240,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
                     "role": args.role,
                     "affiliation": made.affiliation,
                     "studies": ",".join(made.studies),
+                    "expires": made.expires or "",
                 },
             )
             print(f"console: user '{args.name}' ({args.role}) created")

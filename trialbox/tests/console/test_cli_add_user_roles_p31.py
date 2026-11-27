@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import io
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 from console import cli
+from console.admin_accounts import MAX_END_DAYS
 from console.auth import ROLES, UserStore, needs_studies
 
 from tests.console import test_console_app as base
@@ -97,3 +99,33 @@ def test_a_cro_account_from_the_command_line_sees_no_other_study(
     assert own.get("/studies/GZQO/feasibility").status_code == 200
     assert other.get("/studies/GZQO/feasibility").status_code == 404
     assert "GZQO" not in other.get("/reports").text
+
+
+def test_a_cro_account_from_the_command_line_has_a_bounded_end_date(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-406 (OPS-059): the command line gives a CRO account the users page's end date, twelve months ahead, written
+    with the account and its scope; the create event names it."""
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
+    users = UserStore()
+    before = users.today()
+    assert _add(monkeypatch, "p31.cro", "cro", "--studies", "gzqo") == 0
+    limits = {(day + timedelta(days=MAX_END_DAYS)).isoformat() for day in (before, users.today())}  # across midnight
+    made = users.get("p31.cro")
+    assert made is not None and made.expires in limits
+    [event] = _created(tmp_path / "audit")
+    assert event["expires"] == made.expires
+
+
+def test_an_expired_cro_account_from_the_command_line_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Past its end date the CRO account made on the command line no longer signs in (D-104)."""
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
+    users = UserStore()
+    assert _add(monkeypatch, "p31.cro", "cro", "--studies", "gzqo") == 0
+    users.set_password("p31.cro", PW, must_change=False)
+    assert users.authenticate("p31.cro", PW) is not None
+    later = UserStore(clock=lambda: datetime.now(UTC) + timedelta(days=MAX_END_DAYS + 2))
+    assert later.authenticate("p31.cro", PW) is None
+    assert later.get("p31.cro") is None
