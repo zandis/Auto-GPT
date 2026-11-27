@@ -24,8 +24,8 @@ ALIGN = "TRIAGE-1 §3.7 goes to ALIGN: an absent comparison field is not yet 'in
 
 def _no_birth_date_other(row: dict[str, str]) -> dict[str, str]:
     """Another, made-up person under ``row``'s chart number, as a feed without names and birth dates carries one (the
-    twin's case): the same sex, nothing else to compare (another phone, no national id)."""
-    return {**row, "name": "", "id_no": "", "birth_date": "", "death_date": "", "phone": "0900000000"}
+    twin's case): the same sex, nothing else to compare (no phone, no national id)."""
+    return {**row, "name": "", "id_no": "", "birth_date": "", "death_date": "", "phone": ""}
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason=ALIGN)  # only the hold may be missing, no error
