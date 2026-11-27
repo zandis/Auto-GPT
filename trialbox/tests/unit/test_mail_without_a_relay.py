@@ -300,7 +300,7 @@ def test_a_production_hold_kept_before_the_reason_code_goes_after_the_upgrade(
     mta = _mr.MTA()
     mta.cause = None
     after = _mr._gw(tmp_path, mta)  # migrates to this release
-    reasons = dict(after.db.db.fetchall("SELECT key, hold_reason FROM send_keys"))
+    reasons = {str(k): r for k, r in after.db.db.fetchall("SELECT key, hold_reason FROM send_keys")}
     assert reasons == {"k-gate": WAITS, "k-norelay": WAITS, "k-tried": WAITS, "k-fail": None}
     assert after.wake() == 3
     after.drain()
