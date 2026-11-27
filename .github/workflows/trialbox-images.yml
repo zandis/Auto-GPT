@@ -154,15 +154,18 @@ jobs:
 
       # Release hygiene item 5: the standing release gates over the tree (the code-pattern scanner at a pinned rule
       # commit, two secret scanners with no verification, the platform-manifest scanner on deploy/platform, the
-      # Dockerfile linter on every Dockerfile), each image by version and digest. REPORT-ONLY until 2026-12-17, a
-      # placeholder (date: by ruling): from that date STANDING_GATES_ARGS="--fail-at any" and continue-on-error goes.
-      # Once per run: the tree is the same on both platforms.
-      - name: Standing release gates (report-only)
+      # Dockerfile linter on every Dockerfile), each image by version and digest. BLOCKING (the integrator's ruling
+      # 7213778687): a count above deploy/security/standing-gates-baseline.json fails from the first day; every
+      # finding of the secret scanners fails now, of the code-pattern scanner and the linter from 2026-12-17 (with
+      # D-1343); the platform scanner stays on its baseline, no date. Once per run: the tree is the same on both
+      # platforms.
+      - name: Standing release gates
         if: ${{ !cancelled() && matrix.platform == 'linux/amd64' }}
-        continue-on-error: true
         run: |
-          make standing-gates
-          cat build/standing-gates/summary.md >> "$GITHUB_STEP_SUMMARY"
+          rc=0
+          make standing-gates || rc=$?
+          if [ -f build/standing-gates/summary.md ]; then cat build/standing-gates/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          exit "$rc"
 
       - name: Disk after the gates
         if: always()

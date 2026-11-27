@@ -838,8 +838,9 @@ image-scan: scanners
 
 # Release hygiene item 5: the standing release gates (tools/supply_chain/standing_gates.py): the code-pattern scanner
 # with its rule set at a pinned commit, two secret scanners, the platform-manifest scanner on deploy/platform and the
-# Dockerfile linter on every Dockerfile, each an image by version and digest, the tree read-only. Report-only (exit 0)
-# until the date by ruling, then STANDING_GATES_ARGS="--fail-at any". Needs Docker and the network for the rule set.
+# Dockerfile linter on every Dockerfile, each an image by version and digest, the tree read-only. Fails on a count
+# above deploy/security/standing-gates-baseline.json and on every finding of a tool from its date in BLOCKS_FROM (the
+# integrator's ruling 7213778687). Needs Docker and the network for the rule set.
 STANDING_GATES_DIR ?= build/standing-gates
 .PHONY: standing-gates
 standing-gates:

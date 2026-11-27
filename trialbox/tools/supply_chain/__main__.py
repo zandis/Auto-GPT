@@ -198,20 +198,24 @@ def cmd_image_scan(args: argparse.Namespace) -> int:
 
 
 def cmd_standing_gates(args: argparse.Namespace) -> int:
-    """Release hygiene item 5: report-only (exit 0) unless --fail-at any, the switch for the date by ruling."""
+    """Release hygiene item 5: fails on a count above its baseline, a tool not run, and every finding of a tool from
+    its date (``standing_gates.BLOCKS_FROM``)."""
     src = Path(args.src).resolve()
     rules = (
         standing_gates.fetch_rules(Path(args.rules)) if not args.no_fetch else standing_gates.pinned(Path(args.rules))
     )
-    record = standing_gates.scan(src, rules.resolve(), Path(args.out))
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    try:
+        baseline = standing_gates.load_baseline(Path(args.baseline))
+    except (OSError, ValueError) as exc:
+        print(f"standing-gates: the baseline cannot be read: {exc}", file=sys.stderr)
+        return 2
+    record = standing_gates.scan(src, rules.resolve(), Path(args.out), baseline=baseline, today=today)
     print((Path(args.out) / "summary.md").read_text(encoding="utf-8"))
-    problems = standing_gates.failures(record)
-    for p in problems:
+    for p in record["failures"]:
         print(f"standing-gates: {p}", file=sys.stderr)
-    if args.fail_at == "any" and problems:
-        return 1
-    print(f"standing-gates: {'report-only' if args.fail_at == 'none' else 'PASS'} ({len(problems)} problem(s))")
-    return 0
+    print(f"standing-gates: {'FAIL' if record['failures'] else 'PASS'} ({len(record['failures'])} problem(s))")
+    return 1 if record["failures"] else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -284,7 +288,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--src", default="..", help="the repository's root (mounted read-only)")
     p.add_argument("--rules", default=".cache/code-rules", help="where the pinned rule set is fetched")
     p.add_argument("--no-fetch", action="store_true", help="use the rule set already in --rules (checked by commit)")
-    p.add_argument("--fail-at", choices=("none", "any"), default="none", help="none: report-only until the date")
+    p.add_argument("--baseline", default=str(standing_gates.BASELINE), help="counts by rule that may only go down")
+    p.add_argument("--today", help="YYYY-MM-DD (default: today), for the dates in BLOCKS_FROM")
     p.set_defaults(fn=cmd_standing_gates)
 
     args = ap.parse_args(argv)

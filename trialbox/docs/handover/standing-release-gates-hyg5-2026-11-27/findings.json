@@ -1,9 +1,9 @@
 {
  "card": "HYG5",
- "title": "standing release gates over the tree, report-only until a dated switch",
+ "title": "standing release gates over the tree, measured against a baseline that only goes down",
  "date": "2026-11-27",
  "source": "docs/handover/standing-release-gates-hyg5-2026-11-27.md",
- "note": "basis 'shown' means measured in this session on int/r1plus1 3390bf74 with the pinned tool versions and rule commit, run from their Python packages; counts by rule only, never the matched text.",
+ "note": "basis 'shown' means measured in this session on int/r1plus1 ae2d17c7 with the pinned tool versions, flags and rule commit, run from their Python packages; counts by rule only, never the matched text. These counts are the baseline file's lines.",
  "findings": [
   {
    "id": "HYG5-01",
@@ -24,7 +24,7 @@
   {
    "id": "HYG5-03",
    "severity": "Low",
-   "claim": "nine Dockerfile-linter ignore pragmas are in five Dockerfiles (DL3006, DL3008, DL3013, SC2086); the gate does not honour them, so their rules will count once it runs",
+   "claim": "the Dockerfile linter, its ignore pragmas not honoured, finds 22 in the tree's Dockerfiles: DL3006 7, DL3008 4, SC2086 4, DL4006 2, DL3010 1, DL3013 1, DL3015 1, SC1091 1, SC2046 1; nine existing ignore pragmas waive four of these rules",
    "lane": "H",
    "basis": "shown",
    "state": "open"
@@ -32,7 +32,7 @@
   {
    "id": "HYG5-04",
    "severity": "Medium",
-   "claim": "neither secret scanner was run on the tree in this session (refused by the session's permission check); CI's first run of the gate is their first result",
+   "claim": "neither secret scanner was run on the tree in this session (refused by the session's permission check); they block now, so CI's first run of the gate is their first result and its finding list goes to the lead",
    "lane": "H",
    "basis": "not_run",
    "state": "open"

@@ -1,0 +1,38 @@
+{
+ "note": "Release hygiene item 5 (the integrator's ruling 7213778687): today's counts by rule of each standing gate, measured on int/r1plus1 ae2d17c7 on 2026-11-27. A count above its line fails the release build; a line may only go down (tests/unit/test_standing_release_gates_hyg5.py refuses a raise). Counts by rule only: no matched text, no path.",
+ "counts": {
+  "code-patterns": {
+   "dangerous-os-exec-audit": 2,
+   "dangerous-subprocess-use-audit": 133,
+   "dangerous-subprocess-use-tainted-env-args": 3,
+   "missing-user": 1,
+   "php-version-usage": 1,
+   "subprocess-shell-true": 2,
+   "use-defused-xml": 18,
+   "use-defused-xml-parse": 2
+  },
+  "dockerfiles": {
+   "DL3006": 7,
+   "DL3008": 4,
+   "DL3010": 1,
+   "DL3013": 1,
+   "DL3015": 1,
+   "DL4006": 2,
+   "SC1091": 1,
+   "SC2046": 1,
+   "SC2086": 4
+  },
+  "platform": {
+   "CKV_K8S_11": 20,
+   "CKV_K8S_14": 20,
+   "CKV_K8S_21": 41,
+   "CKV_K8S_22": 14,
+   "CKV_K8S_23": 3,
+   "CKV_K8S_35": 14,
+   "CKV_K8S_38": 2,
+   "CKV_K8S_40": 4,
+   "CKV_K8S_43": 20,
+   "CKV_K8S_8": 14
+  }
+ }
+}

@@ -1,5 +1,5 @@
-"""Standing release gates (release hygiene item 5): five scans of the tree in the release build, report-only until
-a dated switch.
+"""Standing release gates (release hygiene item 5): five scans of the tree in the release build, each measured
+against a baseline that may only go down.
 
     python -m tools.supply_chain standing-gates --out build/standing-gates --src .. --rules .cache/code-rules
 
@@ -17,10 +17,15 @@ configuration file is given to any tool; :func:`ignore_files` names any such fil
 as a finding. Each report is kept as JSON in ``--out`` with ``summary.md`` (a row per tool, its count and its counts
 by rule) and ``index.json``.
 
-Report-only until :data:`GATING_FROM` (the date is the integrator's to set: until then it is a placeholder, written
-"date: by ruling" in the workflow): the command exits 0 whatever the findings, and a tool that does not run is
-written into the summary. ``--fail-at any`` (the switch for that date) fails on any finding or any tool that did not
-run.
+What fails (the integrator's ruling 7213778687), :func:`failures`:
+
+* a tool that did not run, or an ignore file in the tree;
+* NEW findings, from the first day: a count of any rule above its line in the baseline (:data:`BASELINE`, counts by
+  rule only, never matched text or a path). A rule the baseline does not name has a baseline of 0. The baseline may
+  only go down: its test refuses an edit that raises a count;
+* every finding of a tool from its date in :data:`BLOCKS_FROM`: the two secret scanners at once, the code-pattern
+  scanner and the Dockerfile linter from 2026-12-17 (with D-1343). The platform-manifest scanner has no date: it stays
+  on its baseline until the platform path it scans ships.
 """
 
 from __future__ import annotations
@@ -34,8 +39,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-#: placeholder until the integrator's ruling (7213761934): report-only before it, ``--fail-at any`` from it
-GATING_FROM = dt.date(2026, 12, 17)
+#: from when every finding of a tool fails (the integrator's ruling 7213778687); a tool not named has no date
+BLOCKS_FROM = {
+    "secrets-a": dt.date(2026, 11, 27),
+    "secrets-b": dt.date(2026, 11, 27),
+    "code-patterns": dt.date(2026, 12, 17),
+    "dockerfiles": dt.date(2026, 12, 17),
+}
+#: today's counts by rule of each tool; a count may only go down (tests/unit/test_standing_release_gates_hyg5.py)
+BASELINE = Path(__file__).resolve().parents[2] / "deploy" / "security" / "standing-gates-baseline.json"
 #: each tool's image, by version and by the digest of its multi-platform index (read from the registry 2026-11-27)
 IMAGES = {
     "code-patterns": "semgrep/semgrep:1.187.0@sha256:0c8dfa7aa1ca8c50233ec9110e8cd88d139dedd603d56507493f74c6f4b3e062",
@@ -198,8 +210,17 @@ def pinned(dest: Path, run: Runner = subprocess.run) -> Path:
     return dest
 
 
-def scan(src: Path, rules: Path, out: Path, run: Runner | None = None) -> dict[str, Any]:
-    """Run the five tools; write their reports, ``summary.md`` and ``index.json`` into ``out``; the record."""
+def scan(
+    src: Path,
+    rules: Path,
+    out: Path,
+    run: Runner | None = None,
+    *,
+    baseline: dict[str, dict[str, int]] | None = None,
+    today: dt.date | None = None,
+) -> dict[str, Any]:
+    """Run the five tools; write their reports, ``summary.md`` and ``index.json`` (with what fails) into ``out``; the
+    record."""
     run = run or subprocess.run
     out.mkdir(parents=True, exist_ok=True)
     results: list[ToolResult] = []
@@ -219,31 +240,60 @@ def scan(src: Path, rules: Path, out: Path, run: Runner | None = None) -> dict[s
             res.error = f"not run: exit {got.returncode}, no report"
         results.append(res)
     found = ignore_files(src)
-    record = {"gating_from": GATING_FROM.isoformat(), "date": "by ruling", "rules_commit": RULES_COMMIT,
-              "tools": [r.row() for r in results], "ignore_files": found}  # fmt: skip
+    base = baseline if baseline is not None else load_baseline()
+    record: dict[str, Any] = {"blocks_from": {k: v.isoformat() for k, v in BLOCKS_FROM.items()},
+                              "rules_commit": RULES_COMMIT, "tools": [r.row() for r in results],
+                              "ignore_files": found, "baseline": base}  # fmt: skip
+    record["failures"] = failures(record, base, today or dt.date.today())
     (out / "index.json").write_text(json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     (out / "summary.md").write_text(summary(record), encoding="utf-8")
     return record
 
 
+def load_baseline(path: Path = BASELINE) -> dict[str, dict[str, int]]:
+    """The baseline: ``{tool: {rule: count}}``; ``ValueError`` when it is anything else."""
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    counts = doc.get("counts") if isinstance(doc, dict) else None
+    if not isinstance(counts, dict) or not set(counts) <= set(TOOLS):
+        raise ValueError(f"{path.name}: 'counts' must map tools of {', '.join(TOOLS)} to counts by rule")
+    for tool, by in counts.items():
+        if not isinstance(by, dict) or not all(isinstance(k, str) and type(v) is int and v > 0 for k, v in by.items()):
+            raise ValueError(f"{path.name}: {tool}: counts by rule must be positive whole numbers")
+    return {str(t): {str(k): int(v) for k, v in by.items()} for t, by in counts.items()}
+
+
 def summary(record: dict[str, Any]) -> str:
     lines = [
-        f"## Standing release gates (report-only until {record['gating_from']}, date: by ruling)",
+        "## Standing release gates (a count above its baseline fails; each tool's dates in BLOCKS_FROM)",
         "",
-        "| Tool | Image | Findings | By rule |",
-        "| --- | --- | --- | --- |",
+        "| Tool | Image | Findings | Baseline | By rule |",
+        "| --- | --- | --- | --- | --- |",
     ]
+    base = record.get("baseline") or {}
     for t in record["tools"]:
         rules = ", ".join(f"{k} {v}" for k, v in sorted(t["by_rule"].items(), key=lambda kv: (-kv[1], kv[0])))
-        lines.append(f"| {t['tool']} | `{t['image']}` | {t['findings'] if t['ran'] else t['error']} | {rules or '-'} |")
+        found = t["findings"] if t["ran"] else t["error"]
+        lines.append(f"| {t['tool']} | `{t['image']}` | {found} | {sum(base.get(t['tool'], {}).values())} | "
+                     f"{rules or '-'} |")  # fmt: skip
     if record["ignore_files"]:
-        lines += ["", "Ignore files in the tree (each is a finding): " + ", ".join(record["ignore_files"])]
+        lines += ["", "Ignore files in the tree (each fails): " + ", ".join(record["ignore_files"])]
+    if record.get("failures"):
+        lines += ["", "**Fails:**", *(f"- {f}" for f in record["failures"])]
     return "\n".join(lines) + "\n"
 
 
-def failures(record: dict[str, Any]) -> list[str]:
-    """What ``--fail-at any`` fails on: a finding of any tool, a tool that did not run, an ignore file."""
+def failures(record: dict[str, Any], baseline: dict[str, dict[str, int]], today: dt.date) -> list[str]:
+    """What fails the release build: a tool not run, an ignore file, a count above its baseline, and every finding of
+    a tool on or after its date in :data:`BLOCKS_FROM`."""
     out = [f"{t['tool']}: {t['error']}" for t in record["tools"] if not t["ran"]]
-    out += [f"{t['tool']}: {t['findings']} finding(s)" for t in record["tools"] if t["ran"] and t["findings"]]
+    for t in record["tools"]:
+        if not t["ran"]:
+            continue
+        base = baseline.get(t["tool"], {})
+        out += [f"{t['tool']}: {rule} {n}, above its baseline of {base.get(rule, 0)} (a new finding)"
+                for rule, n in sorted(t["by_rule"].items()) if n > base.get(rule, 0)]  # fmt: skip
+        since = BLOCKS_FROM.get(t["tool"])
+        if since is not None and today >= since and t["findings"]:
+            out.append(f"{t['tool']}: {t['findings']} finding(s); every finding fails from {since.isoformat()}")
     out += [f"ignore file in the tree: {f}" for f in record["ignore_files"]]
     return out
