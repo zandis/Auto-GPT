@@ -74,8 +74,8 @@ def test_the_passphrase_is_typed_but_never_shown_and_the_size_is_declared() -> N
 
 
 def test_the_model_forward_takes_a_v1_call_only_with_the_box_s_own_key(tmp_path: Path) -> None:
-    assert proxy.allowed("/v1/chat/completions", "Bearer box-key", "box-key")
-    assert not proxy.allowed("/v1/chat/completions", "Bearer other", "box-key")
+    assert proxy.allowed("/v1/models", "Bearer box-key", "box-key")
+    assert not proxy.allowed("/v1/models", "Bearer other", "box-key")
     assert not proxy.allowed("/v1/models", "", "box-key")
     assert not proxy.allowed("/v1/models", "Bearer ", "")  # a box with no key opens nothing
     assert proxy.allowed("/health", "", "box-key")

@@ -32,7 +32,7 @@ BUNDLE=/dev/shm/e2e-box/dist/trialbox-<id>.tar SIZE=50000 E2E_CPUSET=112-175 \
 | `E2E_MODELS_ENV`, `E2E_JUDGE_PORT`, `E2E_VERIFIER_PORT` | required: the host's served pinned pair (a 0600 `VLLM_API_KEY=` file and its two ports); without them the run refuses to start |
 | `E2E_REDCAP_URL`, `E2E_REDCAP_TOKEN_FILE` | the REDCap bench: else the EDC journey is skipped |
 | `BASELINE` | the previous run's `metrics/journeys.csv`: a journey with fewer passes or more product failures is red |
-| `KNOWN` | the listed failures (default `known.tsv`) |
+| `KNOWN` | the listed failures (default `known.txt`, tab-separated) |
 | `KEEP=1` | leave the VM running for a look; else it is stopped and its folder removed |
 
 `bundle.sh ID SEQ OUTDIR` builds a signed rehearsal bundle of a checkout (`TREE`), as the integration builds do.
@@ -51,7 +51,7 @@ GREEN run's `journeys.csv` as `BASELINE`. The same run, once, on every release c
 
 ## Verdict (`verdict.py`)
 
-GREEN only when the install passed, every product failure and every skipped step is listed in `known.tsv` (journey,
+GREEN only when the install passed, every product failure and every skipped step is listed in `known.txt` (journey,
 step, finding, owner, release note: all five), the run is conclusive (no driver failure, no deviation that failed to
 apply), no journey of the baseline regressed or vanished, and every setting that differs between the box as
 installed and the box before the update journey is named by an applied DEVIATION row. A refusal the product is meant
@@ -99,4 +99,4 @@ no driver prints page text where a secret is shown, and none takes a screenshot.
 
 `run.sh` (install and order), `journeys.sh` (shell journeys), `actions.py` (browser journeys, walk, languages),
 `lib.sh` (rows, waits), `vmctl.sh` (the VM), `ptyinstall.py`, `pw.sh` and `pw/` (Playwright drivers), `jrun.sh`,
-`modelproxy.py`, `site/`, `verdict.py`, `known.tsv`, `bundle.sh`, `nightly.sh`.
+`modelproxy.py`, `site/`, `verdict.py`, `known.txt`, `bundle.sh`, `nightly.sh`.

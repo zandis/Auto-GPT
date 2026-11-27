@@ -6,7 +6,7 @@
 # Beside the bundle: trialbox-bootstrap.sh, its .sig and vendor_ed25519.pub (or VENDOR_PUB). Required: E2E_MODELS_ENV
 # with E2E_JUDGE_PORT/E2E_VERIFIER_PORT (the host's served pinned pair: the box is PRODUCTION and never runs on the
 # rehearsal stand-ins). Optional: NEXT_IMG (the next bundle's media, for the update journey), E2E_REDCAP_URL with
-# E2E_REDCAP_TOKEN_FILE (the REDCap bench), BASELINE (the last run's journeys.csv), KNOWN (default known.tsv), KEEP=1
+# E2E_REDCAP_TOKEN_FILE (the REDCap bench), BASELINE (the last run's journeys.csv), KNOWN (default known.txt), KEEP=1
 # (leave the VM running). Exit 0 only on a GREEN verdict.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -286,5 +286,5 @@ if grep -q ",INSTALL,all box containers healthy,PASS," "$STEPS"; then # an insta
   j_hard_days
   collect
 fi
-python3 "$HERE/verdict.py" "$OUT" "${BASELINE:-}" "${KNOWN:-$HERE/known.tsv}"
+python3 "$HERE/verdict.py" "$OUT" "${BASELINE:-}" "${KNOWN:-$HERE/known.txt}"
 exit $?
