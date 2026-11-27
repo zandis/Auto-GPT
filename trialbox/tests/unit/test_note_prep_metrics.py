@@ -16,12 +16,13 @@ written to do on this kind of text; they are not a measure on a hospital's notes
 from __future__ import annotations
 
 import random
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from dataclasses import replace
 from datetime import date, timedelta
 from typing import Any
 
 import pytest
-from adapter.note_prep import prepare
+from adapter.note_prep import Segment, prepare
 from tb_common.dates import ERAS
 
 pytestmark = pytest.mark.nodb
@@ -245,60 +246,92 @@ def test_sentence_and_section_f1() -> None:
     assert f1(pred_all, gold_all) >= 0.95, (f1(pred_all, gold_all), sorted(gold_all - pred_all)[:5])
 
 
-def test_cue_precision_and_recall() -> None:
+Prep = Callable[[str, str, str], list[Segment]]
+
+
+def paired(prep: Prep, n: int) -> Iterator[tuple[Segment | None, dict[str, Any] | None]]:
+    """Every gold sentence with the segment of the same span, and every segment no gold sentence owns: a sentence
+    that is lost, split or merged is a miss (``None`` segment), a segment that is none of the gold's is an extra."""
+    for k, (_lang, text, nd, gold) in enumerate(corpus(n)):
+        segs = {(s.start, s.end): s for s in prep(f"n{k}", text, nd)}
+        want = {(g["start"], g["end"]): g for g in gold}
+        for span in want.keys() | segs.keys():
+            yield segs.get(span), want.get(span)
+
+
+def cue_scores(prep: Prep = prepare) -> tuple[float, float, list[Any]]:
     tp = fp = fn = 0
     misses: list[Any] = []
-    for k, (_lang, text, nd, gold) in enumerate(corpus()):
-        by_span = {(g["start"], g["end"]): g for g in gold}
-        for s in prepare(f"n{k}", text, nd):
-            g = by_span.get((s.start, s.end))
-            if g is None:
-                continue
-            pred = {(c.kind, c.value) for c in s.cues}
-            tp += len(pred & g["cues"])
-            fp += len(pred - g["cues"])
-            fn += len(g["cues"] - pred)
-            if pred != g["cues"] and len(misses) < 8:
-                misses.append((s.text, sorted(pred), sorted(g["cues"])))
-    precision, recall = tp / (tp + fp), tp / (tp + fn)
+    for s, g in paired(prep, 400):
+        pred = {(c.kind, c.value) for c in s.cues} if s else set()
+        want = g["cues"] if g else set()
+        tp += len(pred & want)
+        fp += len(pred - want)
+        fn += len(want - pred)
+        if pred != want and len(misses) < 8:
+            misses.append((s.text if s else None, sorted(pred), sorted(want)))
+    return tp / max(tp + fp, 1), tp / max(tp + fn, 1), misses
+
+
+def date_score(prep: Prep = prepare) -> tuple[int, int, list[Any]]:
+    total = held = 0
+    wrong: list[Any] = []
+    for s, g in paired(prep, 600):
+        for truth, kind in g["dates"] if g else ():
+            total += 1
+            got = s.dates if s else ()
+            ok = any(d.lo <= truth <= d.hi for d in got)
+            if kind == "day":
+                ok = ok and any(d.lo == d.hi == truth for d in got)
+            held += ok
+            if not ok and len(wrong) < 8:
+                wrong.append((s.text if s else None, truth, kind, [(d.lo, d.hi) for d in got]))
+    return total, held, wrong
+
+
+def number_score(prep: Prep = prepare) -> tuple[int, int, int]:
+    total = held = extra = 0
+    for s, g in paired(prep, 400):
+        pred = {(q.value, q.ucum) for q in s.numbers} if s else set()
+        want = set(g["numbers"]) if g else set()
+        total += len(g["numbers"]) if g else 0
+        held += len(pred & want)
+        extra += len(pred - want)
+    return total, held, extra
+
+
+def test_cue_precision_and_recall() -> None:
+    precision, recall, misses = cue_scores()
     assert precision >= 0.95, (precision, misses)
     assert recall >= 0.95, (recall, misses)
 
 
 def test_date_interval_holds_the_day_written() -> None:
-    total = held = 0
-    wrong: list[Any] = []
-    for k, (_lang, text, nd, gold) in enumerate(corpus(600)):
-        by_span = {(g["start"], g["end"]): g for g in gold}
-        for s in prepare(f"n{k}", text, nd):
-            g = by_span.get((s.start, s.end))
-            if g is None or not g["dates"]:
-                continue
-            for truth, kind in g["dates"]:
-                total += 1
-                ok = any(d.lo <= truth <= d.hi for d in s.dates)
-                if kind == "day":
-                    ok = ok and any(d.lo == d.hi == truth for d in s.dates)
-                held += ok
-                if not ok and len(wrong) < 8:
-                    wrong.append((s.text, truth, kind, [(d.lo, d.hi) for d in s.dates]))
+    total, held, wrong = date_score()
     assert total > 100
     assert held / total >= 0.95, (held / total, wrong)
 
 
 def test_numbers_and_units_are_exact() -> None:
-    total = held = extra = 0
-    for k, (_lang, text, nd, gold) in enumerate(corpus()):
-        by_span = {(g["start"], g["end"]): g for g in gold}
-        for s in prepare(f"n{k}", text, nd):
-            g = by_span.get((s.start, s.end))
-            if g is None:
-                continue
-            pred = {(q.value, q.ucum) for q in s.numbers}
-            total += len(g["numbers"])
-            held += len(pred & set(g["numbers"]))
-            extra += len(pred - set(g["numbers"]))
+    total, held, extra = number_score()
     assert total > 50 and held == total and extra == 0, (total, held, extra)
+
+
+def test_a_sentence_the_segmenter_loses_or_shifts_counts_against_cues_dates_and_numbers() -> None:
+    def drop(has: Callable[[Segment], object]) -> Prep:
+        return lambda did, text, nd: [s for s in prepare(did, text, nd) if not has(s)]
+
+    def shift(did: str, text: str, nd: str) -> list[Segment]:
+        return [replace(s, start=s.start + 1) for s in prepare(did, text, nd)]
+
+    assert cue_scores(drop(lambda s: s.cues))[1] < 0.95
+    total, held, _ = date_score(drop(lambda s: s.dates))
+    assert held / total < 0.95
+    total, held, _ = number_score(drop(lambda s: s.numbers))
+    assert held < total
+    total, held, extra = number_score(shift)  # every span is off by one: all lost, and all of them extras
+    assert held == 0 and extra > 0
+    assert cue_scores(shift)[0] < 0.95
 
 
 def test_nothing_is_dropped_only_headers_and_marks_stay_outside_the_segments() -> None:

@@ -57,7 +57,7 @@ _HEADERS: dict[str, tuple[str, ...]] = {
                         "評価", "計画", "方針", "診断", "評価・計画", "評估", "計畫", "處置", "診斷", "診斷與處置",
                         "診斷/處置", "診斷及處置"),
     "family_history": ("family history", "fhx", "fh", "家族歴", "家族史"),
-    "allergy": ("allergies", "allergy", "nkda", "drug allergies", "アレルギー", "アレルギー歴", "過敏", "過敏史",
+    "allergy": ("allergies", "allergy", "drug allergies", "アレルギー", "アレルギー歴", "過敏", "過敏史",
                 "藥物過敏", "药物过敏", "过敏史"),
     "other": ("social history", "sh", "exam", "physical exam", "pe", "ros", "review of systems", "labs", "laboratory",
               "vitals", "生活歴", "社会歴", "身体所見", "理学所見", "検査", "検査所見", "バイタル", "個人史",
@@ -68,11 +68,11 @@ _BRACKET = re.compile(r"^[ \t]*[\[【(（][ \t]*([^\]】)）\n]{1,40}?)[ \t]*[\]
 _COLON = re.compile(r"^[ \t]*[#*]*[ \t]*([^:：\n]{1,40}?)[ \t]*[:：]")
 _WHOLE = re.compile(r"^[ \t]*[#*]*[ \t]*([^\n]{1,40}?)[ \t]*$")
 _BULLET = re.compile(r"^[ \t]*(?:[-*•・●○▪]+|\(?\d{1,2}[.)）](?=\s)|[①-⑩])[ \t]*")
-_STOP = re.compile(r"(?:[。．！？!?]+|\.(?=\s|$))[」』）)\"'”’]*")
+_STOP = re.compile(r"(?:[。！？!?]+|(?<!\d)．+|．+(?!\d)|\.(?=\s|$))[」』）)\"'”’]*")
 _ABBREV = frozenset({"dr", "mr", "mrs", "ms", "prof", "vs", "approx", "e.g", "i.e", "cf", "fig", "no", "st", "dept"})
 _LETTER_OR_CJK = re.compile(r"[^\W_]")
 _NUM = re.compile(
-    r"(?<![A-Za-z0-9_./])(?P<cmp><=|>=|<|>|≦|≤|≧|≥)?\s*(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*"
+    r"(?<![A-Za-z0-9_./])(?P<cmp><=|>=|<|>|≦|≤|≧|≥)?\s*(?P<sign>[-−](?=\d))?(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*"
     r"(?P<unit>[A-Za-zµμ][A-Za-zµμ0-9^*{}\[\]]*(?:/(?:(?:[A-Za-zµμ0-9^*{}\[\]%]|\.(?=\d))+|[日天週周]))*|%|/[A-Za-zµμ]{1,3}\b)"
 )
 _DOSE = {"mg": "mg", "g": "g", "ug": "ug", "µg": "ug", "μg": "ug", "mcg": "ug", "ml": "mL", "iu": "[IU]", "u": "U"}
@@ -182,7 +182,9 @@ def _quantities(text: str, blocked: list[tuple[int, int]]) -> tuple[Quantity, ..
         if code is None:
             continue
         value = float(m.group("num").replace(",", ""))
-        first = m.start("cmp") if m.group("cmp") else m.start("num")
+        if m.group("sign"):
+            value = -value
+        first = m.start("cmp") if m.group("cmp") else m.start("sign") if m.group("sign") else m.start("num")
         out.append(Quantity(first, m.end(), text[first : m.end()], value, _CMP.get(m.group("cmp") or ""), unit, code))
     return tuple(out)
 

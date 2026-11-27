@@ -97,6 +97,18 @@ def test_sentence_marks_and_the_dots_that_are_not_marks() -> None:
     ]
 
 
+def test_a_full_width_point_between_digits_is_a_decimal_point_not_a_sentence_mark() -> None:
+    segs = prepare("d", "Dose ２．５ mg daily．Next．")
+    assert [s.raw for s in segs] == ["Dose ２．５ mg daily．", "Next．"]
+    assert [(q.value, q.ucum) for q in segs[0].numbers] == [(2.5, "mg")]
+
+
+def test_a_standalone_nkda_line_is_a_segment_with_its_cue() -> None:
+    (seg,) = prepare("d", "NKDA")
+    assert (seg.raw, seg.section) == ("NKDA", "unlabelled")
+    assert [(c.kind, c.value) for c in seg.cues] == [("negation", "absent")]
+
+
 def test_bullets_and_numbering_leave_the_sentence() -> None:
     note = "1. aspirin\n2) metformin\n(3) statin\n・ x\n- ***\n* 12 mg"
     assert [s.raw for s in prepare("d", note)] == ["aspirin", "metformin", "statin", "x", "12 mg"]
@@ -231,6 +243,12 @@ def test_a_date_inside_a_wareki_phrase_is_read_once_or_not_at_all() -> None:
     assert day("令和元年") == [("2019-05-01", "2019-12-31", "year")]
 
 
+def test_an_impossible_full_english_date_is_not_read_as_the_month_inside_it() -> None:
+    assert day("30 February 2026", "2026-08-01") == [] and day("February 30, 2026", "2026-08-01") == []
+    assert day("30 April 2026") == [("2026-04-30", "2026-04-30", "day")]
+    assert day("February 2026") == [("2026-02-01", "2026-02-28", "month")]
+
+
 # ------------------------------------------------------------------------------------------ numbers
 def nums(text: str) -> list[tuple[float, str | None, str]]:
     seg = prepare("d", text)[0]
@@ -248,6 +266,12 @@ def test_numbers_with_units_comparators_and_width() -> None:
         (10.0, None, "mg/d"),
     ]
     assert nums("HbA1c 6.9 %") == [(6.9, None, "%")]
+
+
+def test_a_minus_sign_is_part_of_the_number_and_its_quote() -> None:
+    seg = prepare("d", "Base excess -5 mmol/L, K −2.5 mmol/L")[0]
+    assert [(q.value, q.text) for q in seg.numbers] == [(-5.0, "-5 mmol/L"), (-2.5, "−2.5 mmol/L")]
+    assert nums("Take 10-20 mg, T-5 mg") == [(20.0, None, "mg"), (5.0, None, "mg")]
 
 
 def test_an_unknown_unit_or_a_date_digit_is_no_number() -> None:

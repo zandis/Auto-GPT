@@ -174,7 +174,7 @@ def dates_in(text: str, note_date: object = None) -> list[DateRef]:
         if got is not None:
             cands.append((m.start(), m.end(), got[0], got[1], got[2]))
 
-    claims: list[tuple[int, int]] = []  # an era or 民國 phrase owns its digits even when it is no date (平成31年5月1日)
+    claims: list[tuple[int, int]] = []  # an era, 民國 or full English date owns its digits even when it is no date
 
     def era(m: re.Match[str], name: str, y: str, mo: int | None, d: int | None) -> None:
         claims.append(m.span())
@@ -190,8 +190,11 @@ def dates_in(text: str, note_date: object = None) -> list[DateRef]:
     for m in _GREG_CJK.finditer(text):
         add(m, _span(int(m.group(1)), _int(m.group(2)), _int(m.group(3))))
     for m in _EN_DMY.finditer(text):
+        claims.append(m.span())
         add(m, _span(int(m.group(3)), _MONTHS[m.group(2)[:3].lower()], int(m.group(1))))
     for m in _EN_MDY.finditer(text):
+        if m.group(2):
+            claims.append(m.span())
         add(m, _span(int(m.group(3)), _MONTHS[m.group(1)[:3].lower()], _int(m.group(2))))
     for m in _EN_YEAR.finditer(text):
         add(m, _span(int(m.group(1)), None, None))
