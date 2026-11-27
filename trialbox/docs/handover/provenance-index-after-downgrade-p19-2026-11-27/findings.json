@@ -24,7 +24,15 @@
   {
    "id": "P19-03",
    "severity": "Low",
-   "claim": "lines drained before the index's tables existed are still written only by trialbox provenance --rebuild, because the drain's role cannot read the opt-out register that says which use rows must stay out",
+   "claim": "lines drained before the index's tables existed are written only by trialbox provenance --rebuild, and no role of a compose box can run that rebuild whole: tb_orchestrator reads the register but not writes the index, tb_audit_writer writes it but cannot read the register or delete, and the admin role is reached only through psql",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "P19-04",
+   "severity": "High",
+   "claim": "an update's rollback restores the whole trial database from its dump, the opt-out register with it, so an opt-out recorded after the dump and its erasures are lost, with no list, audit or hold as a backup restore has (D-493, D-522)",
    "lane": "H",
    "basis": "hypothesis",
    "state": "open"

@@ -8,7 +8,7 @@ language.
 - **Date:** 2026-11-27
 - **Base:** int/r1plus1 3390bf74
 - **Findings:** [`provenance-index-after-downgrade-p19-2026-11-27/findings.json`](provenance-index-after-downgrade-p19-2026-11-27/findings.json)
-  (P19-01 to P19-03)
+  (P19-01 to P19-04)
 
 ## Files outside the card
 
@@ -43,6 +43,27 @@ Which of the two made the walk's 108 rows is not known here: the box's log was n
 - Lines older than that are never written back by the drain: their rows were written, or were taken out at an opt-out.
   Only `trialbox provenance --rebuild` reads the register that says which. The drain's role cannot read the register.
   So case 2's lines from before the tables existed still need that rebuild (P19-03).
+- The anchor is the drain's restore signal, not the index's newest row: an opt-out that takes the index's newest use
+  row makes an older row the newest, and a catch-up from there would write the erased row back.
+
+## Case 2 and the update path
+
+Running the rebuild from the update path (its finish step after a switch, a rollback or a downgrade) was looked at
+and not done. No role of a compose box can do the whole rebuild: it reads the register and deletes and writes both
+tables. `tb_orchestrator` reads the register but may only read the index (and delete use rows).
+`tb_audit_writer` writes the index but may not delete or read the register. The admin role `trialbox` may do all of
+it, but the update reaches it only through `psql` in the `db` container, and the rebuild is Python. So the doctor's
+remedy, `trialbox provenance --rebuild`, has no documented place to run on a compose box either (P19-03). The manual
+form today is the rebuild run where the admin's database address and the chain are both reachable, with the
+services' Python. Not tested here.
+
+## A downgrade and the opt-out register (P19-04, reported to the lead)
+
+An update's rollback (`restore_databases`, and `update rollback <bundle>` after a killed update) puts the whole trial
+database back from the rollback point's dump, the opt-out register with it. An opt-out recorded after the dump, and
+the erasures that followed it, are then gone. A backup restore lists such events, audits them
+(`backup.restore_reapply`) and holds the list jobs until a person releases them (D-493, D-522). The update's rollback
+does neither. Read from the code, not shown by a test; not fixed here.
 
 ## Test
 
@@ -57,5 +78,6 @@ Which of the two made the walk's 108 rows is not known here: the box's log was n
 ## What was not verified
 
 - The walk's box: its 108 rows were not read, so which case made them is not shown.
+- P19-04: no rollback with an opt-out recorded after its dump was run.
 - A compose box's real update and downgrade (`tools/trialbox/update.py`): the test restores the database the way
   the rollback does (`pg_restore` of a dump), not through the update tool.
