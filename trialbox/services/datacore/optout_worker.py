@@ -359,11 +359,10 @@ def _provenance(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str,
     url = _schema_url(env, "provenance", "model_uses")
     if url is None or not pids:
         return {"skipped": 1} if delete and url is None else {}
-    import psycopg
     from tb_common import provenance_index
-    from tb_common.db import split_url
 
-    with psycopg.connect(split_url(url)[0], autocommit=True, connect_timeout=10) as con:  # the login role (its grant)
+    con, _prefix = _catalog(url)  # the service's login role, autocommit: the role script's grant is the login role's
+    with con:
         if delete:
             return {"uses": provenance_index.erase(con, pids)}
         row = con.execute("SELECT count(*) FROM provenance.model_uses WHERE pid = ANY(%s)", (sorted(pids),)).fetchone()
