@@ -1537,44 +1537,30 @@ KEYS_OK=1
 # environment, else hardening.conf's KEK_BACKEND, default tpm; D-836); the
 # host check FAILs a plain site key in VALIDATION and PRODUCTION
 HB_CONF="$ROOT/deploy/site/hardening.conf"
-# SEAL-WHEN (P-28): whether the keys are sealed now, and under which back end. A passphrase given to this run (the
-# file, stdin or the box installer's hand-on) is the site asking for a seal: it is never dropped with a note, on the
-# poc profile neither (E2E R1: the box ran with plain site keys and runbook 22's unseal had nothing to unseal). With
-# no back end named (TB_KEK_BACKEND, hardening.conf's KEK_BACKEND) and no usable TPM, it is the passphrase back end
-has_tpm() { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }
-seal_when() {
-  if [ "$KEYS_OK" = 0 ]; then echo unmade
-  elif [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then echo defer
-  elif [ -z "$KP_VALUE" ] && [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] && ! has_tpm; then echo poc
-  elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] \
-      || [ -n "${TB_KEK_BACKEND:-}" ] || [ -n "$KP_VALUE" ]; then echo seal
-  else echo none; fi
-}
-seal_backend() {
-  if [ -n "${TB_KEK_BACKEND:-}" ]; then echo "$TB_KEK_BACKEND"
-  elif [ -f "$HB_CONF" ] && grep -q '^KEK_BACKEND=' "$HB_CONF"; then echo ""  # the file's own (seal_keys.sh reads it)
-  elif [ -n "$KP_VALUE" ] && ! has_tpm; then echo passphrase
-  else echo ""; fi
-}
-# ---- end of SEAL-WHEN
-SEAL_WHEN="$(seal_when)"
-if [ "$SEAL_WHEN" = unmade ]; then
+if [ "$KEYS_OK" = 0 ]; then
   echo "    site keys: not sealed (they could not be made or read, above)"
-elif [ "$SEAL_WHEN" = defer ]; then
+elif [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
   echo "    site keys: sealed at the box's apply step, under the owner's passphrase (box-install.sh, T-729)"
-elif [ "$SEAL_WHEN" = poc ]; then
+elif [ -z "$KP_VALUE" ] && [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
+    && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
   # D-837: a plain VM has no usable TPM; the passphrase back end seals the keys when it is asked for
   echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with --kek-passphrase-file seals them); the host check lists it"
-elif [ "$SEAL_WHEN" = seal ]; then
+elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ] || [ -n "$KP_VALUE" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"  # H-94 (4)
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   # KEK-INPUT (H-96): the passphrase this run read goes to the seal step by a pipe (never an argument's value, an
   # environment or the file's name again); the operator's file is removed here once the keys are sealed (rm: a link
   # is taken away, never what it names), kept with --keep-kek-passphrase-file or when the seal failed
-  SEAL_BACKEND="$(seal_backend)"
-  [ -z "$SEAL_BACKEND" ] || echo "    the KEK's back end: $SEAL_BACKEND"
-  seal() { TB_KEK_BACKEND="$SEAL_BACKEND" TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" --record deploy/site/kek-backend "$@"; }
+  # P-28 (E2E R1: plain site keys although the install was given a passphrase): a passphrase given to this run is
+  # the site asking for a seal, the poc profile too (above). With no back end named (TB_KEK_BACKEND, hardening.conf's
+  # KEK_BACKEND) and no usable TPM, the passphrase back end seals (the default, tpm, cannot there)
+  if [ -n "$KP_VALUE" ] && [ -z "${TB_KEK_BACKEND:-}" ] && ! { [ -f "$HB_CONF" ] && grep -q '^KEK_BACKEND=' "$HB_CONF"; } \
+      && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
+    TB_KEK_BACKEND=passphrase; export TB_KEK_BACKEND
+    echo "    the KEK's back end: passphrase (a passphrase was given, no back end is named, no usable TPM)"
+  fi
+  seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" --record deploy/site/kek-backend "$@"; }
   sealed=0
   if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | seal --kek-passphrase-stdin && sealed=1
   else seal </dev/null && sealed=1; fi
