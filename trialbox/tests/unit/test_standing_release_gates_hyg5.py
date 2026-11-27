@@ -108,11 +108,11 @@ def test_the_rule_set_is_refused_at_another_commit(tmp_path: Path) -> None:
         sg.fetch_rules(tmp_path / "rules", run=run)
 
 
-#: the baseline as first recorded (2026-11-27, int/r1plus1 ae2d17c7). A line of the baseline file may go down, never
+#: the baseline as first recorded (2026-11-27, at the landing head: the integrator's ruling 7214660183). A line of the baseline file may go down, never
 #: above this; raising one here is changing what this test asserts, which needs the integrator's ruling
 FIRST_BASELINE = {
-    "code-patterns": {"dangerous-os-exec-audit": 2, "dangerous-subprocess-use-audit": 133,
-                      "dangerous-subprocess-use-tainted-env-args": 3, "missing-user": 1, "php-version-usage": 1,
+    "code-patterns": {"dangerous-os-exec-audit": 2, "dangerous-subprocess-use-audit": 134,
+                      "dangerous-subprocess-use-tainted-env-args": 4, "missing-user": 1, "php-version-usage": 1,
                       "subprocess-shell-true": 2, "use-defused-xml": 18, "use-defused-xml-parse": 2},
     "dockerfiles": {"DL3006": 7, "DL3008": 4, "DL3010": 1, "DL3013": 1, "DL3015": 1, "DL4006": 2, "SC1091": 1,
                     "SC2046": 1, "SC2086": 4},

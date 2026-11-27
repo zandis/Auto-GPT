@@ -1,10 +1,10 @@
 {
- "note": "Release hygiene item 5 (the integrator's ruling 7213778687): today's counts by rule of each standing gate, measured on int/r1plus1 ae2d17c7 on 2026-11-27. A count above its line fails the release build; a line may only go down (tests/unit/test_standing_release_gates_hyg5.py refuses a raise). Counts by rule only: no matched text, no path.",
+ "note": "Release hygiene item 5 (the integrator's ruling 7213778687): today's counts by rule of each standing gate, measured on 2026-11-27 at the landing head (the integrator's ruling 7214660183: the first baseline is taken at the head it lands on). A count above its line fails the release build; a line may only go down (tests/unit/test_standing_release_gates_hyg5.py refuses a raise). Counts by rule only: no matched text, no path.",
  "counts": {
   "code-patterns": {
    "dangerous-os-exec-audit": 2,
-   "dangerous-subprocess-use-audit": 133,
-   "dangerous-subprocess-use-tainted-env-args": 3,
+   "dangerous-subprocess-use-audit": 134,
+   "dangerous-subprocess-use-tainted-env-args": 4,
    "missing-user": 1,
    "php-version-usage": 1,
    "subprocess-shell-true": 2,

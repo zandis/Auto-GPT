@@ -53,11 +53,12 @@ counts are at zero by then. No decision number was taken: D-1465 and up are hand
 
 ## What they find now (counts by rule, never the matched text)
 
-Measured in this session on int/r1plus1 ae2d17c7, with the same tool versions, flags and rule commit, run from their
-Python packages (no container engine here). These are the baseline file's lines.
+Measured in this session with the same tool versions, flags and rule commit, run from their Python packages (no
+container engine here): on int/r1plus1 ae2d17c7, and again at the merged head (19bb8856). These are the baseline
+file's lines, taken at the landing head.
 
-- **Code patterns: 162** (HYG5-01): dangerous-subprocess-use-audit 133, use-defused-xml 18,
-  dangerous-subprocess-use-tainted-env-args 3, dangerous-os-exec-audit 2, subprocess-shell-true 2,
+- **Code patterns: 164** (HYG5-01, HYG5-06): dangerous-subprocess-use-audit 134, use-defused-xml 18,
+  dangerous-subprocess-use-tainted-env-args 4, dangerous-os-exec-audit 2, subprocess-shell-true 2,
   use-defused-xml-parse 2, php-version-usage 1, missing-user 1. Most are audit rules that flag every subprocess call.
 - **Platform manifests: 152 failed, 1665 passed** (HYG5-02): CKV_K8S_21 (default namespace) 41, CKV_K8S_14 (image
   tag) 20, CKV_K8S_11 (CPU limits) 20, CKV_K8S_43 (image digest) 20, CKV_K8S_35 (secrets as environment) 14,
@@ -76,10 +77,11 @@ Python packages (no container engine here). These are the baseline file's lines.
 The branch was merged once with int/r1plus1 (19bb8856, head 4f7ac60b) after the baseline was measured on ae2d17c7.
 At the merged head the code-pattern count is 164: that merge brought two findings on one call,
 `tools/trialbox/__main__.py:519` (dangerous-subprocess-use-audit) and `:520`
-(dangerous-subprocess-use-tainted-env-args), from 3623681f (E2E P-15), merged in #1560. They are above the baseline,
-so the gate's first CI run fails on exactly these two, as the ruling asks of a new finding. Taking the first baseline
-at the merged head instead was asked for by the lead, and refused by this session's permission check. It is the
-integrator's to rule. The other two scans are unchanged at the merged head.
+(dangerous-subprocess-use-tainted-env-args), from 3623681f (E2E P-15), merged in #1560. The integrator ruled
+(7214660183) that the first baseline is taken at the head it lands on, so the baseline file and the test's first
+baseline hold the code patterns at 164 (dangerous-subprocess-use-audit 134, dangerous-subprocess-use-tainted-env-args
+4). The finding stays filed (HYG5-06): the integrator's own jobs fix that call, and the baseline then drops to 162. The
+other two scans are unchanged at the merged head.
 
 ## What was not verified
 

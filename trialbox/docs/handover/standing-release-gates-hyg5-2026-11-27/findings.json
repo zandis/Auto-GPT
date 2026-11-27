@@ -8,7 +8,7 @@
   {
    "id": "HYG5-01",
    "severity": "Medium",
-   "claim": "the code-pattern scan at the pinned rule commit, security folders at ERROR, finds 162: dangerous-subprocess-use-audit 133, use-defused-xml 18, dangerous-subprocess-use-tainted-env-args 3, dangerous-os-exec-audit 2, subprocess-shell-true 2, use-defused-xml-parse 2, php-version-usage 1, missing-user 1",
+   "claim": "the code-pattern scan at the pinned rule commit, security folders at ERROR, finds 164 at the landing head: dangerous-subprocess-use-audit 134, use-defused-xml 18, dangerous-subprocess-use-tainted-env-args 4, dangerous-os-exec-audit 2, subprocess-shell-true 2, use-defused-xml-parse 2, php-version-usage 1, missing-user 1",
    "lane": "H",
    "basis": "shown",
    "state": "open"
@@ -48,7 +48,7 @@
   {
    "id": "HYG5-06",
    "severity": "Low",
-   "claim": "two code-pattern findings arrived after the baseline's measurement on one call, tools/trialbox/__main__.py:519 (dangerous-subprocess-use-audit) and :520 (dangerous-subprocess-use-tainted-env-args), from 3623681f (E2E P-15) merged in #1560 (19bb8856); above the baseline, they fail the gate's first run",
+   "claim": "two code-pattern findings arrived after the first measurement on one call, tools/trialbox/__main__.py:519 (dangerous-subprocess-use-audit) and :520 (dangerous-subprocess-use-tainted-env-args), from 3623681f (E2E P-15) merged in #1560 (19bb8856); in the first baseline by the integrator's ruling, to be fixed by the integrator's jobs, after which the baseline drops to 162",
    "lane": "H",
    "basis": "shown",
    "state": "open"
