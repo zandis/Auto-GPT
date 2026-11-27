@@ -23,6 +23,7 @@ import argparse
 import csv
 import gzip
 import json
+import re
 import sys
 import time
 import urllib.parse
@@ -86,6 +87,9 @@ def fetch(
     if not st["pages"]:
         st["version"] = get(f"{API}/version").get("dataTimestamp")
         st["where"] = where
+    elif where and where != st.get("where", ""):  # the saved page token only fits the filter it was issued for
+        raise ValueError(f"{out} was started with filter {st.get('where', '')!r}, not {where!r}")
+    where = st.get("where", "")
     done_now = 0
     while not st["done"] and not (max_pages and done_now >= max_pages):
         q = {"pageSize": str(page_size), "format": "json", "countTotal": "true"}
@@ -113,7 +117,7 @@ def status(d: Path) -> dict[str, Any]:
     sts = {p.parent.name: json.loads(p.read_text()) for p in sorted(d.glob("**/state.json"))}
     return {
         "slices": len(sts),
-        "all_done": all(s["done"] for s in sts.values()),
+        "all_done": bool(sts) and all(s["done"] for s in sts.values()),
         "records": sum(s["records"] for s in sts.values()),
         "expected": sum(s["expected"] for s in sts.values()),
         "unfinished": {k: f"{s['records']}/{s['expected']}" for k, s in sts.items() if not s["done"]},
@@ -121,7 +125,8 @@ def status(d: Path) -> dict[str, Any]:
 
 
 def iter_studies(d: Path) -> Iterator[dict[str, Any]]:
-    for p in sorted(d.glob("**/p[0-9][0-9][0-9][0-9].json.gz")):
+    pages = [(p, m) for p in d.glob("**/p*.json.gz") if (m := re.fullmatch(r"p(\d+)\.json\.gz", p.name))]
+    for p, _ in sorted(pages, key=lambda pm: (str(pm[0].parent), int(pm[1][1]))):  # p9999 before p10000
         with gzip.open(p, "rt", encoding="utf-8") as f:
             yield from json.load(f)["studies"]
 

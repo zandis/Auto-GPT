@@ -4,6 +4,7 @@ registry is a stub that serves three pages."""
 
 from __future__ import annotations
 
+import gzip
 import json
 import time
 from pathlib import Path
@@ -113,3 +114,26 @@ def test_a_busy_registry_is_retried_and_a_missing_page_is_not(monkeypatch: pytes
     answers[:] = [httpx.Response(404, request=req)]
     with pytest.raises(httpx.HTTPStatusError):
         cf._get("https://registry.test/studies")
+
+
+def test_a_resume_keeps_the_saved_filter_and_refuses_a_different_one(tmp_path: Path) -> None:
+    reg = Registry()
+    w = "AREA[StudyFirstPostDate]RANGE[2026-01-01,MAX]"
+    cf.fetch(tmp_path, max_pages=1, pause=0, where=w, get=reg)
+    cf.fetch(tmp_path, pause=0, get=reg)  # no --where: the saved one is used with the saved token
+    assert all("filter.advanced=AREA" in u for u in reg.urls) and len(reg.urls) == 3
+    with pytest.raises(ValueError, match="started with filter"):
+        cf.fetch(tmp_path, pause=0, where="AREA[StudyFirstPostDate]RANGE[MIN,2025-12-31]", get=reg)
+
+
+def test_pages_past_9999_are_read_in_numeric_order(tmp_path: Path) -> None:
+    for n in (10000, 9999, 2):
+        with gzip.open(tmp_path / f"p{n:04d}.json.gz", "wt") as f:
+            json.dump({"studies": [_study(f"NCT{n:08d}", None)]}, f)
+    (tmp_path / "pold.json.gz").write_bytes(b"not a page")
+    assert [cf._nct(s) for s in cf.iter_studies(tmp_path)] == ["NCT00000002", "NCT00009999", "NCT00010000"]
+
+
+def test_status_of_a_directory_without_state_is_not_done(tmp_path: Path) -> None:
+    assert cf.status(tmp_path)["all_done"] is False
+    assert cf.status(tmp_path / "missing")["all_done"] is False
