@@ -171,7 +171,7 @@ def test_every_service_of_every_overlay_is_checked_in_a_stack_that_runs_it() -> 
 def test_every_overlay_service_takes_the_four_controls_or_names_its_exception() -> None:
     """H-58 (D-1337): per service of OUTSIDE_THE_15, in every stack that runs it, each control is applied or written
     in EXCEPTIONS with a reason; and the pins of the card: no GPU model server gains or loses a capability rule
-    (llm-verifier keeps llm-service.s exceptions), nothing is added back."""
+    (llm-verifier keeps llm-service's exceptions), nothing is added back."""
     seen: dict[str, set[str]] = {}
     for stack, profiles in HARDENING_STACKS:
         merged = _merge(stack)
