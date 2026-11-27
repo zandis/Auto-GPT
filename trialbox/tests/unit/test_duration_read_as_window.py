@@ -1,9 +1,9 @@
 """ASSESS-1 Q1 (P-07): the box's criteria step with its own served pair. One ir_extract call on six plain criteria came
 back with all six ``structured``, but the three time limits ("within the last 6 months", "within the last 3 months")
 written as ``window: {anchor: index}`` with no bounds and ``duration: {min_days: -180}``. A duration of at most 0 days
-is met by everyone (D-914), so each of the three went to a person. A bare window and a negative duration together say
-"looking back N days from the index": that is read as the window from -N to 0 (``duration_read_as_window``), only when
-the line writes that period. Anything else stays as D-914 left it.
+is met by everyone (D-914), so each of the three goes to a person: no repair reads the duration as a window (a
+look-back reader by regex could not tell a look-back period from the forms that turn it round). The inputs stay here as
+regression cases; the deterministic window parser is the fix for P-07.
 
 The reply below is the recorded answer of that call (synthetic criteria); only the model's own text is kept.
 """
@@ -55,12 +55,11 @@ def _window(c: Any) -> tuple[Any, Any]:
     return (w.from_days, w.to_days) if w is not None else (None, None)
 
 
-def test_the_recorded_reply_keeps_its_time_limits_as_windows() -> None:
+def test_the_recorded_reply_sends_its_time_limits_to_a_person() -> None:
     by_ref = {c.source_ref: c for c in _post(REPLY).criteria}
-    for ref, days in (("I3", -180), ("E1", -180), ("E3", -90)):
+    for ref in ("I3", "E1", "E3"):
         c = by_ref[ref]
-        assert c.class_ == "structured" and "duration_read_as_window" in (c.flags or []), ref
-        assert _window(c) == (days, 0) and c.logic.duration is None, ref
+        assert c.class_ == "human" and "duration_read_as_window" not in (c.flags or []), ref
     assert by_ref["I1"].class_ == "structured" and by_ref["I2"].class_ == "structured"
     assert by_ref["E2"].class_ == "human"  # a demographic atom without age or sex: still a person's (no repair)
 
@@ -75,7 +74,7 @@ def _one(text: str, logic: dict[str, Any]) -> Any:
 
 
 def test_the_same_atom_with_its_window_written_out_compiles() -> None:
-    """The control: what the repair produces is what a model that writes the window itself gets."""
+    """The control: a model that writes the window itself gets it compiled."""
     c = _one("Febuxostat taken within the last 3 months.", {"domain": "medication", "concept": "febuxostat",
              "quantifier": "any", "window": {"from_days": -90, "to_days": 0}})  # fmt: skip
     assert c.class_ == "structured" and _window(c) == (-90, 0)
@@ -144,6 +143,9 @@ def test_the_same_atom_with_its_window_written_out_compiles() -> None:
         ),
         # the tail of a number grouped with a fullwidth separator (PR review F5)
         ("1，090日以内のフェブキソスタット", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
+        # a look-back period written out (once read as a window): D-914 holds, the window parser reads these
+        ("Febuxostat in the past 3 months.", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
+        ("過去6か月以内にフェブキソスタットを服用", {"window": {"anchor": "index"}, "duration": {"min_days": -180}}),
     ],
 )
 def test_anything_else_with_a_negative_duration_still_goes_to_a_person(text: str, logic: dict[str, Any]) -> None:
@@ -184,19 +186,6 @@ def _atom(concept: str, days: int) -> dict[str, Any]:
 def test_a_compound_line_still_goes_to_a_person(text: str, args: list[dict[str, Any]]) -> None:
     c = _one(text, {"op": "or", "args": args})
     assert c.class_ == "human" and "duration_read_as_window" not in (c.flags or []), text
-
-
-@pytest.mark.parametrize(
-    ("text", "days"),
-    [
-        ("Febuxostat in the past 3 months.", -90),
-        ("過去6か月以内にフェブキソスタットを服用", -180),
-    ],
-)
-def test_a_look_back_period_is_read_in_its_forms(text: str, days: int) -> None:
-    c = _one(text, {"domain": "medication", "concept": "febuxostat", "quantifier": "any", "window": {"anchor": "index"},
-                    "duration": {"min_days": days}})  # fmt: skip
-    assert c.class_ == "structured" and "duration_read_as_window" in (c.flags or []) and _window(c) == (days, 0), text
 
 
 def test_a_real_duration_is_left_as_it_is() -> None:
