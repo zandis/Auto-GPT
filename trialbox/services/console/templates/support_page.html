@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{# M5 (10K-15, decision 99): the support session: patient pages closed to every role while it is on #}
+{% import "_fields.html" as fm with context %}
+{% from "_ds.html" import page_header %}
+{# the tab's <title> says "Error:" after a failed POST (base.html reads this page_title); the heading never does #}
+{% set page_title = fm.title(fe, t('supportpage.title')) %}
+{% block content %}
+{{ fm.error_summary(fe, testid='sp-errors') }}
+{% set page_title = t('supportpage.title') %}{% call page_header(page_title) %}<a class="button secondary" href="/admin">{{ t('nav.admin') }}</a>{% endcall %}
+<p>{{ t('supportpage.intro', hours=hours) }}</p>
+{% if st.on %}<p class="warn" role="status" data-testid="sp-on">{{ t('supportpage.on', by=st.by or '-', started=(st.started_at or '')[:16], until=(st.until or '')[:16]) }}</p>
+{% set tick = t('supportpage.confirm.end') %}{% set press = t('supportpage.end') %}
+{% else %}<p class="ok" role="status" data-testid="sp-off">{{ t('supportpage.off') }}</p>
+{% if st.ended_at %}<p class="hint" data-testid="sp-last">{{ t('supportpage.last', ended=st.ended_at[:16]) }}</p>{% endif %}
+{% set tick = t('supportpage.confirm.start') %}{% set press = t('supportpage.start') %}
+{% endif %}
+{% if can %}<form method="post" action="/admin/support" data-fields="support" data-testid="sp-form">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="was" value="{{ 'on' if st.on else 'off' }}">
+{{ fm.field(fe, 'support', 'sp', 'confirm', tick, '1', kind='checkbox') }}
+<button type="submit" data-testid="sp-turn">{{ press }}</button>
+</form>{% endif %}
+{% endblock %}
