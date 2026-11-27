@@ -1,0 +1,18 @@
+{
+ "card": "P31",
+ "title": "the command line adds an account of every role (R1+1 P-31)",
+ "date": "2026-11-27",
+ "source": "docs/handover/cli-every-role-p31-2026-11-27.md",
+ "findings": [
+  {
+   "id": "P31-01",
+   "date": "2026-11-27",
+   "source": "docs/handover/cli-every-role-p31-2026-11-27.md",
+   "severity": "Low",
+   "claim": "console.cli add-user saves no end date for a non-operator account, where the users page saves one at most 12 months ahead (D-406, OPS-059, console.admin_accounts.end_date); an account made on the command line never expires unless an administrator sets a date; fixed in the P-31 review (P31-R2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed"
+  }
+ ]
+}
