@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -83,6 +85,26 @@ def percentile(times: Sequence[float], q: float) -> float:
     ordered = sorted(times)
     rank = max(1, math.ceil(q / 100 * len(ordered)))
     return ordered[rank - 1]
+
+
+def under_load(get: Callable[[str], Answer], paths: Sequence[str], users: int, rounds: int = 5) -> tuple[float, int]:
+    """P2-11 (ASSESS-1-ADDENDUM D7): ``users`` clients at once, each asking for every path ``rounds`` times. Returns the
+    95th percentile (nearest rank) of the answers' times in seconds, by the client's clock (waiting for a worker is
+    what is measured here, unlike :func:`walk`), and the count of answers that were not ``200``. The service level is
+    ``tools.trialbox.console_size.SLO_P95_S`` at the site's declared ``TB_SITE_USERS``."""
+
+    def one(_: int) -> list[tuple[float, int]]:
+        out = []
+        for _round in range(rounds):
+            for path in paths:
+                t0 = time.perf_counter()
+                status, _headers = get(path)
+                out.append((time.perf_counter() - t0, status))
+        return out
+
+    with ThreadPoolExecutor(max_workers=users) as pool:
+        answers = [a for chunk in pool.map(one, range(users)) for a in chunk]
+    return percentile([t for t, _ in answers], 95), sum(1 for _, s in answers if s != 200)
 
 
 def server_ms(headers: Mapping[str, str]) -> float | None:

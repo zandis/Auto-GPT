@@ -18,11 +18,13 @@ per person and day, so a timer and a button on the same morning never send twice
 
 from __future__ import annotations
 
+import fcntl
 import logging
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import IO, Any
 
 from tb_common.config import environment_name
 
@@ -96,10 +98,30 @@ def _guarded(name: str, fn: Callable[[], object]) -> Callable[[], None]:
     return run
 
 
-def start(h: Any, env: Mapping[str, str], tz: Any) -> Any:
-    """A started APScheduler, or ``None`` when the timers are off."""
+_held: list[IO[str]] = []  # the lock file of the process that runs the timers, open for as long as it lives
+
+
+def owns(lock: Path) -> bool:
+    """P2-11 (D7): the console runs ``TB_CONSOLE_WORKERS`` processes and a notice must go once, so the timers run in
+    one. True for the process that holds ``lock`` (an ``flock`` on a file in the console's data folder). The kernel
+    releases it when that process ends; uvicorn starts a new worker, whose start takes it."""
+    fh = lock.open("a", encoding="utf-8")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return False
+    _held.append(fh)
+    return True
+
+
+def start(h: Any, env: Mapping[str, str], tz: Any, lock: Path | None = None) -> Any:
+    """A started APScheduler, or ``None`` when the timers are off or another worker process runs them."""
     if not enabled(env):
         log.info("console timers off (TB_CONSOLE_TIMERS / TB_ENV)")
+        return None
+    if lock is not None and not owns(lock):
+        log.info("console timers run in another worker process (%s)", lock)
         return None
     from apscheduler.schedulers.background import BackgroundScheduler
     from tb_common.config import SCHEDULER_JOB_DEFAULTS

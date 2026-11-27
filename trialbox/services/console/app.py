@@ -30,7 +30,7 @@ import time
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
@@ -91,6 +91,7 @@ from console.auth import (
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
+from console.held import Held
 from console.i18n import CATALOGUES, LANGS, lookup, pick_language, translate
 from console.identity import (
     MUST_CHANGE_OPEN,
@@ -579,7 +580,8 @@ def create_app(
         )
     if settings.pilot and cascades is None:
         cascades = CascadeRuns(settings.data_dir / "cascade", settings.source_dir)
-    pending: dict[str, _Pending] = {}
+    # P2-11 (D7): seen by every worker process (console.held), as the next request may reach another one
+    pending = Held("proposal", PROPOSAL_TTL)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
@@ -1330,20 +1332,19 @@ def create_app(
     # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
     # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
     # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
-    one_time: dict[str, tuple[str, str, float]] = {}
+    # P2-11 (D7): in the container's memory tmpfs, seen by every worker process (console.held); unread for 10 minutes:
+    # gone
+    one_time = Held("once", 600.0)
 
     def keep_once(sess: Session, username: str, password: str) -> None:
-        now = time.monotonic()
-        for k in [k for k, v in one_time.items() if now - v[2] > 600]:  # unread for 10 minutes: gone
-            one_time.pop(k, None)
-        one_time[sess.token_sha] = (username, password, now)
+        one_time.put(sess.token_sha, (username, password, time.monotonic()))
 
     @app.get("/ops/users", response_class=HTMLResponse)
     def users_view(request: Request, undo: str = "", done: str = "") -> Response:
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
-        made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
+        made, pw, _ = one_time.pop(sess.token_sha) or ("", "", 0.0)
         pw, _, pw_code = pw.partition("\ncode:")  # E2E P-17: with the password, the code for the authenticator
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw
@@ -1668,7 +1669,8 @@ def create_app(
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
-    boot.append(lambda: timers.start(helpers, raw_env, site_tz))
+    # P2-11 (D7): with several worker processes, the timers run in the one that holds the lock
+    boot.append(lambda: timers.start(helpers, raw_env, site_tz, lock=settings.data_dir / "timers.lock"))
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):
@@ -2308,20 +2310,21 @@ def create_app(
         except ProposalError as exc:
             return _request_page(request, sess, 422, error=str(exc))
         now = time.time()
-        for pid in [p for p, v in pending.items() if now - v.created > PROPOSAL_TTL]:
-            pending.pop(pid, None)
         pid = secrets.token_urlsafe(12)
-        pending[pid] = _Pending(prop, sess.token_sha, now)
+        pending.put(pid, {"proposal": asdict(prop), "session_sha": sess.token_sha, "created": now})
         au.append("console.proposal", actor=actor(sess), detail={"action": "proposed", "line": prop.line})
         return _request_page(request, sess, proposal=prop, proposal_id=pid)
 
     @app.post("/pilot/propose/{pid}/confirm")
     def propose_confirm(request: Request, pid: str, csrf: str = Form("")) -> Response:
         sess = need_requester(request, csrf)
-        item = pending.get(pid)
+        raw = pending.get(pid)
+        prop = None if raw is None else Proposal(**{**raw["proposal"], "notes": tuple(raw["proposal"]["notes"])})
+        item = None if prop is None else _Pending(prop, raw["session_sha"], raw["created"])
         if item is None or item.session_sha != sess.token_sha or time.time() - item.created > PROPOSAL_TTL:
             raise _Problem(410, "request.refused", reason="the proposal expired; propose again")
-        pending.pop(pid, None)
+        if pending.pop(pid) is None:  # another worker confirmed it first: one job per proposal
+            raise _Problem(410, "request.refused", reason="the proposal expired; propose again")
         job = submit(sess, item.proposal.line)
         return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
 

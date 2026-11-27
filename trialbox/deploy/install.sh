@@ -1194,6 +1194,11 @@ if command -v python3 >/dev/null; then
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH keep the compose defaults (doctor memory_caps checks them)" >&2
 fi
+# P2-11 (ASSESS-1-ADDENDUM D7): the site's concurrent users, declared with the patient count (TB_SITE_USERS, 25 when
+# unset, written so the box says it), size the console's worker processes (TB_CONSOLE_WORKERS; one set by hand is kept)
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox.console_size --env-file deploy/.env --write 2>&1 | indent || stop_or_warn console-size "the console's worker processes (one)" "the concurrent users could not be read (above): set TB_SITE_USERS in deploy/.env to a whole number, then re-run"
+fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
 if command -v python3 >/dev/null; then

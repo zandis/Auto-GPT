@@ -104,6 +104,13 @@ which the site puts in `deploy/.env` before the first install) and the measured 
 `deploy/measured/ingest_memory.json` (`python -m tools.trialbox.memcaps --measure` re-measures it). The compose
 defaults are the floor; a cap set by hand is kept. `trialbox doctor` (`memory_caps`) fails when a cap is below what
 the patient count needs; `python -m tools.trialbox.memcaps --env-file deploy/.env --write` sizes them again.
+
+**Concurrent users** (P2-11). With the patient count, the site declares how many people use the console at the same
+time: `TB_SITE_USERS` in `deploy/.env`, 25 when unset (the installer then writes 25, so the box states it). The
+service level at that number: the common pages answer within 1 s at the 95th percentile with that many users at once
+(`tools.console_timing.under_load`). The installer sizes the console's worker processes from it (`TB_CONSOLE_WORKERS`,
+one per ten users, never more than the host's CPUs; a value set by hand is kept): `python -m
+tools.trialbox.console_size --env-file deploy/.env --write` sizes them again after a change.
 SCREEN and FEAS of the whole hospital hold its rows in the orchestrator, so `TB_MEM_ORCH` grows with the hospital: the
 installer writes it from `deploy/measured/orchestrator_memory.json` (the size ladder's peaks, H23b-01, D-1005) once the
 need passes the compose default of 4 GiB, from about 45,000 patients (about 8.3 GiB at 100,000). Below that the box
